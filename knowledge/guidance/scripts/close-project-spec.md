@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `SVM-007-invoice-api` |
+| `project_id` | Yes | e.g., `{{ORG_SLUG}}-007-invoice-api` |
 
 ---
 
@@ -18,8 +18,8 @@
 
 Script refuses to proceed if ANY of the following are missing:
 
-- `projects/SVM-NNN-slug/knowledge/` contains at least one file
-- `projects/SVM-NNN-slug/knowledge/compliance.md` exists
+- `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` contains at least one file
+- `projects/{{ORG_SLUG}}-NNN-slug/knowledge/compliance.md` exists
 - `project.yaml` has all mandatory fields populated
 - `completed_at` is NOT yet set (prevents double-close)
 
@@ -29,24 +29,24 @@ Script refuses to proceed if ANY of the following are missing:
 
 1. Run pre-close gate — hard stop on any failure
 2. For each repo in `repos[]`:
-   - Auto-merge `svm-NNN-slug` → `base_branch`
+   - Auto-merge `{{org_slug}}-NNN-slug` → `base_branch`
    - If merge conflicts: **pause script**, surface conflicts to human developer
    - Human resolves conflicts, then re-runs script to continue
-3. Merge `svm-NNN-slug` → `master` in `{{WORKSPACE_REPO}}`
+3. Merge `{{org_slug}}-NNN-slug` → `{{DEFAULT_BRANCH}}` in `{{WORKSPACE_REPO}}`
 4. For each repo and `{{WORKSPACE_REPO}}`:
-   - Create archive tag `archive/svm-NNN-slug`
-   - Delete branch `svm-NNN-slug`
+   - Create archive tag `archive/{{org_slug}}-NNN-slug`
+   - Delete branch `{{org_slug}}-NNN-slug`
 5. Set `project.yaml`:
    - `status: completed`
    - `completed_at: <today>`
-6. Commit final `project.yaml` to `master` in `{{WORKSPACE_REPO}}`
+6. Commit final `project.yaml` to `{{DEFAULT_BRANCH}}` in `{{WORKSPACE_REPO}}`
 7. **Automatically trigger `close-knowledge` script**
 
 ---
 
 ## Outputs
 
-- All `svm-NNN-slug` branches merged to their respective base branches
+- All `{{org_slug}}-NNN-slug` branches merged to their respective base branches
 - Archive tags created and branches deleted
 - `project.yaml` status: `completed`, `completed_at` stamped
 - `close-knowledge` triggered

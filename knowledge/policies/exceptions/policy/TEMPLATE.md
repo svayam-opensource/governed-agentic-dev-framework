@@ -8,10 +8,10 @@
 
 ## How to Use This Template
 
-1. Copy this file and rename it: `YYYY-MM-DD-SVM-NNN-slug-brief-description.md`
+1. Copy this file and rename it: `YYYY-MM-DD-{{ORG_SLUG}}-NNN-slug-brief-description.md`
 2. Fill in all required fields below
-3. Commit the file to your project branch: `svm-NNN-slug`
-4. Raise a PR targeting master
+3. Commit the file to your project branch: `{{org_slug}}-NNN-slug`
+4. Raise a PR targeting {{DEFAULT_BRANCH}}
 5. Policy Owner reviews and merges to grant approval
 6. Do NOT proceed with the excepted action until the PR is merged
 
@@ -24,7 +24,7 @@ Also use this path for project reassignment exceptions (POL-053).
 
 ```yaml
 request_date: YYYY-MM-DD
-project_id: SVM-NNN-slug
+project_id: {{ORG_SLUG}}-NNN-slug
 requester: your@email.com
 
 rule_id: POL-NNN

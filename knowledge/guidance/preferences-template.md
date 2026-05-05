@@ -14,7 +14,7 @@
 agent_work_root: ~/work    # Change to your preferred local path
 ```
 
-Project repos are cloned into `<agent_work_root>/SVM-NNN-slug/`.
+Project repos are cloned into `<agent_work_root>/{{ORG_SLUG}}-NNN-slug/`.
 
 ---
 

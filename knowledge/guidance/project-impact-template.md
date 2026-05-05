@@ -1,13 +1,13 @@
-# Project Impact: SVM-NNN-slug
+# Project Impact: {{ORG_SLUG}}-NNN-slug
 
 **Repository:** [repo-name]
-**Project:** SVM-NNN-slug
+**Project:** {{ORG_SLUG}}-NNN-slug
 **Period:** YYYY-MM-DD to YYYY-MM-DD
 **Project Lead:** [locked_by value]
 
-This document records the impact of project SVM-NNN-slug on this repository.
+This document records the impact of project {{ORG_SLUG}}-NNN-slug on this repository.
 It is created by the close-project script and lives at:
-`<repo>/knowledge/projects/SVM-NNN-slug/`
+`<repo>/knowledge/projects/{{ORG_SLUG}}-NNN-slug/`
 
 ---
 

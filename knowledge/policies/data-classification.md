@@ -67,7 +67,7 @@ If an agent detects Restricted data in any file it is about to commit or pass to
 2. Remove or redact the data immediately
 3. Surface the detection to the human developer
 4. Escalate to Policy Owner (`{{POLICY_OWNER_EMAIL}}`)
-5. Log the incident in `projects/SVM-NNN-slug/knowledge/compliance.md`
+5. Log the incident in `projects/{{ORG_SLUG}}-NNN-slug/knowledge/compliance.md`
 
 Failure to stop on detecting Restricted data is itself a C01 violation.
 

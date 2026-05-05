@@ -30,6 +30,10 @@ if command -v yq &> /dev/null; then
   DEFAULT_CODE_BRANCH=$(yq '.default_code_branch' "$CONFIG" | tr -d '"')
   POLICY_OWNER_EMAIL=$(yq '.policy_owner_email' "$CONFIG" | tr -d '"')
   POLICY_OWNER_GITHUB=$(yq '.policy_owner_github' "$CONFIG" | tr -d '"')
+  LEGAL_OWNER_GITHUB=$(yq '.legal_owner_github' "$CONFIG" | tr -d '"')
+  INFRA_OWNER_GITHUB=$(yq '.infra_owner_github' "$CONFIG" | tr -d '"')
+  SYSTEM_ARCH_OWNER_GITHUB=$(yq '.system_arch_owner_github' "$CONFIG" | tr -d '"')
+  DATA_ARCH_OWNER_GITHUB=$(yq '.data_arch_owner_github' "$CONFIG" | tr -d '"')
   POLICY_EFFECTIVE_DATE=$(yq '.policy_effective_date' "$CONFIG" | tr -d '"')
 else
   echo "yq not found — falling back to python3"
@@ -43,6 +47,10 @@ else
   DEFAULT_CODE_BRANCH=$(python3 -c "import yaml,sys; c=yaml.safe_load(open('$CONFIG')); print(c['default_code_branch'])")
   POLICY_OWNER_EMAIL=$(python3 -c "import yaml,sys; c=yaml.safe_load(open('$CONFIG')); print(c['policy_owner_email'])")
   POLICY_OWNER_GITHUB=$(python3 -c "import yaml,sys; c=yaml.safe_load(open('$CONFIG')); print(c['policy_owner_github'])")
+  LEGAL_OWNER_GITHUB=$(python3 -c "import yaml,sys; c=yaml.safe_load(open('$CONFIG')); print(c['legal_owner_github'])")
+  INFRA_OWNER_GITHUB=$(python3 -c "import yaml,sys; c=yaml.safe_load(open('$CONFIG')); print(c['infra_owner_github'])")
+  SYSTEM_ARCH_OWNER_GITHUB=$(python3 -c "import yaml,sys; c=yaml.safe_load(open('$CONFIG')); print(c['system_arch_owner_github'])")
+  DATA_ARCH_OWNER_GITHUB=$(python3 -c "import yaml,sys; c=yaml.safe_load(open('$CONFIG')); print(c['data_arch_owner_github'])")
   POLICY_EFFECTIVE_DATE=$(python3 -c "import yaml,sys; c=yaml.safe_load(open('$CONFIG')); print(c['policy_effective_date'])")
 fi
 
@@ -65,6 +73,10 @@ for FILE in $FILES; do
     -e "s|{{DEFAULT_CODE_BRANCH}}|$DEFAULT_CODE_BRANCH|g" \
     -e "s|{{POLICY_OWNER_EMAIL}}|$POLICY_OWNER_EMAIL|g" \
     -e "s|{{POLICY_OWNER_GITHUB}}|$POLICY_OWNER_GITHUB|g" \
+    -e "s|{{LEGAL_OWNER_GITHUB}}|$LEGAL_OWNER_GITHUB|g" \
+    -e "s|{{INFRA_OWNER_GITHUB}}|$INFRA_OWNER_GITHUB|g" \
+    -e "s|{{SYSTEM_ARCH_OWNER_GITHUB}}|$SYSTEM_ARCH_OWNER_GITHUB|g" \
+    -e "s|{{DATA_ARCH_OWNER_GITHUB}}|$DATA_ARCH_OWNER_GITHUB|g" \
     -e "s|{{POLICY_EFFECTIVE_DATE}}|$POLICY_EFFECTIVE_DATE|g" \
     "$FILE"
 done

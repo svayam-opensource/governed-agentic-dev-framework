@@ -1,6 +1,6 @@
 # Script Specification: sync
 
-**Purpose:** Merges latest master/base into active project branch on demand. Use when you want latest org knowledge mid-project without pausing/resuming.
+**Purpose:** Merges latest {{DEFAULT_BRANCH}}/base into active project branch on demand. Use when you want latest org knowledge mid-project without pausing/resuming.
 **Compliance:** C03 — encouraged but not mandatory
 **Policy Reference:** POL-122
 
@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `SVM-007-invoice-api` |
+| `project_id` | Yes | e.g., `{{ORG_SLUG}}-007-invoice-api` |
 
 ---
 
@@ -24,12 +24,12 @@
 ## Steps
 
 1. Verify `status: active` and no uncommitted changes
-2. Fetch latest `master` in `{{WORKSPACE_REPO}}`
-3. Merge `master` → `svm-NNN-slug` in `{{WORKSPACE_REPO}}`
+2. Fetch latest `{{DEFAULT_BRANCH}}` in `{{WORKSPACE_REPO}}`
+3. Merge `{{DEFAULT_BRANCH}}` → `{{org_slug}}-NNN-slug` in `{{WORKSPACE_REPO}}`
 4. Pause for human conflict resolution if needed, then continue
 5. For each repo in `repos[]`:
    - Fetch latest `base_branch`
-   - Merge `base_branch` → `svm-NNN-slug`
+   - Merge `base_branch` → `{{org_slug}}-NNN-slug`
    - Pause on conflicts for human resolution
 6. Reload all four knowledge layers fresh
 7. Push updated branches

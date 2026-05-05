@@ -7,7 +7,7 @@ last_updated_at: 2026-05-05
 # {{ORG_NAME}} — Role Registry
 
 This file is the authoritative record of role holders and manager assignments at {{ORG_NAME}}
-Changing this file is a policy update — versioned by commit SHA on master.
+Changing this file is a policy update — versioned by commit SHA on {{DEFAULT_BRANCH}}.
 Changes require a PR approved by the Policy Owner.
 
 ## Role Types
@@ -103,4 +103,4 @@ Vacant roles escalate automatically to the Policy Owner.
 - All roles currently held by `{{POLICY_OWNER_EMAIL}}` as {{ORG_NAME}} scales.
 - As the organization grows, each role should be formally assigned to the appropriate C-suite executive.
 - CODEOWNERS must be updated whenever GitHub handles change.
-- This file version is identified by its git commit SHA on master.
+- This file version is identified by its git commit SHA on {{DEFAULT_BRANCH}}.

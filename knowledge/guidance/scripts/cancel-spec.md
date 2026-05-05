@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `SVM-007-invoice-api` |
+| `project_id` | Yes | e.g., `{{ORG_SLUG}}-007-invoice-api` |
 | `cancellation_reason` | Yes | Why the project is being cancelled |
 
 ---
@@ -26,16 +26,16 @@
 
 1. Require `cancellation_reason` — hard stop if not provided
 2. In `{{WORKSPACE_REPO}}`:
-   - Create archive tag `archive/svm-NNN-slug` at current branch tip
-   - Delete branch `svm-NNN-slug`
+   - Create archive tag `archive/{{org_slug}}-NNN-slug` at current branch tip
+   - Delete branch `{{org_slug}}-NNN-slug`
 3. For each repo in `repos[]`:
-   - Create archive tag `archive/svm-NNN-slug` at current branch tip
-   - Delete branch `svm-NNN-slug`
+   - Create archive tag `archive/{{org_slug}}-NNN-slug` at current branch tip
+   - Delete branch `{{org_slug}}-NNN-slug`
 4. Set `project.yaml` fields:
    - `status: cancelled`
    - `cancelled_at: <today>`
    - `cancellation_reason: <provided reason>`
-5. Commit final `project.yaml` state to `master` in `{{WORKSPACE_REPO}}`
+5. Commit final `project.yaml` state to `{{DEFAULT_BRANCH}}` in `{{WORKSPACE_REPO}}`
 
 **Note:** No knowledge close is run. No knowledge PR is raised. All code changes are preserved in archive tags but not merged.
 
@@ -43,9 +43,9 @@
 
 ## Outputs
 
-- Archive tags `archive/svm-NNN-slug` created in all repos
-- All `svm-NNN-slug` branches deleted
-- `project.yaml` committed to master with `status: cancelled`
+- Archive tags `archive/{{org_slug}}-NNN-slug` created in all repos
+- All `{{org_slug}}-NNN-slug` branches deleted
+- `project.yaml` committed to {{DEFAULT_BRANCH}} with `status: cancelled`
 
 ---
 

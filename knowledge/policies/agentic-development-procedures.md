@@ -57,7 +57,7 @@ Any authorized GitHub user with access to `{{WORKSPACE_REPO}}`.
 6. Project is now in `PROPOSED` state — no workspace exists yet
 
 ### Notes
-- The project ID (`SVM-NNN`) is NOT assigned at this stage — it is assigned by the seed script
+- The project ID (`{{ORG_SLUG}}-NNN`) is NOT assigned at this stage — it is assigned by the seed script
 - `{{WORKSPACE_REPO}}` is always an implicit participant — do not create an Issue in it to include it
 
 ---
@@ -78,17 +78,17 @@ The developer or agent assigned to the project.
 
 ### Steps
 1. Clone `{{WORKSPACE_REPO}}` if not already cloned: `git clone <{{WORKSPACE_REPO}}-url>`
-2. Ensure you are on `master` with latest changes: `git checkout master && git pull`
+2. Ensure you are on `{{DEFAULT_BRANCH}}` with latest changes: `git checkout {{DEFAULT_BRANCH}} && git pull`
 3. Run: `seed <github_project_url> <assignee>`
 4. Script prompts for `base_branch` override per repo (default: `dev`) — specify if working on emergency fixes
 5. Script scaffolds workspace, clones repos, creates branches
-6. Verify: `projects/SVM-NNN-slug/` exists on branch `svm-NNN-slug`
-7. Verify: all repos cloned under `<agent_work_root>/SVM-NNN-slug/`
+6. Verify: `projects/{{ORG_SLUG}}-NNN-slug/` exists on branch `{{org_slug}}-NNN-slug`
+7. Verify: all repos cloned under `<agent_work_root>/{{ORG_SLUG}}-NNN-slug/`
 8. Begin work — project is now `ACTIVE`
 
 ### Success Criteria
-- `projects/SVM-NNN-slug/project.yaml` exists with `status: active`
-- Branch `svm-NNN-slug` exists in `{{WORKSPACE_REPO}}` and all identified repos
+- `projects/{{ORG_SLUG}}-NNN-slug/project.yaml` exists with `status: active`
+- Branch `{{org_slug}}-NNN-slug` exists in `{{WORKSPACE_REPO}}` and all identified repos
 - `registry.yaml` updated with new project entry
 
 ---
@@ -100,30 +100,30 @@ The developer or agent assigned to the project.
 
 ### Session Start (C01 — complete before any work)
 
-1. **Verify authorization** — read `projects/SVM-NNN-slug/project.yaml`:
+1. **Verify authorization** — read `projects/{{ORG_SLUG}}-NNN-slug/project.yaml`:
    - Confirm `locked_by` matches your identity, OR you are a member of `assigned_to` team
    - Confirm `status: active`
    - Hard stop if either check fails **(POL-113, POL-114)**
 
 2. **Load knowledge layers fresh** — never use cached layers from a prior session **(POL-115)**:
-   - Layer 1: Read `{{WORKSPACE_REPO}}/knowledge/` (org-wide, from master) **(POL-076)**
-   - Layer 2: Read `projects/SVM-NNN-slug/knowledge/` (project knowledge) **(POL-077)**
+   - Layer 1: Read `{{WORKSPACE_REPO}}/knowledge/` (org-wide, from {{DEFAULT_BRANCH}}) **(POL-076)**
+   - Layer 2: Read `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` (project knowledge) **(POL-077)**
    - Layer 3: Read `<cloned-repos>/knowledge/` (repo-local, from project branch) **(POL-078)**
    - Layer 4: Read `<agent_work_root>/preferences/agent.md` (developer preferences) **(POL-079)**
 
-3. **Pull latest** — fetch and pull `svm-NNN-slug` branch in all repos **(POL-116)**
+3. **Pull latest** — fetch and pull `{{org_slug}}-NNN-slug` branch in all repos **(POL-116)**
 
 ### During Work
 
-- All writes must go to `projects/SVM-NNN-slug/` or to code in cloned repos on `svm-NNN-slug` branch **(POL-087 — C01)**
+- All writes must go to `projects/{{ORG_SLUG}}-NNN-slug/` or to code in cloned repos on `{{org_slug}}-NNN-slug` branch **(POL-087 — C01)**
 - Do NOT write to `{{WORKSPACE_REPO}}/knowledge/` **(POL-087 — C01)**
 - If a C01 violation is detected mid-session: hard stop, commit nothing, surface to human immediately **(POL-117)**
 
 ### Session End (C02)
 
-1. Commit all changes to `svm-NNN-slug` branch in all affected repos **(POL-118)**
-2. Update `projects/SVM-NNN-slug/knowledge/` with new learnings **(POL-119)**
-3. Update `projects/SVM-NNN-slug/knowledge/compliance.md` if any compliance events occurred **(POL-120)**
+1. Commit all changes to `{{org_slug}}-NNN-slug` branch in all affected repos **(POL-118)**
+2. Update `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` with new learnings **(POL-119)**
+3. Update `projects/{{ORG_SLUG}}-NNN-slug/knowledge/compliance.md` if any compliance events occurred **(POL-120)**
 4. Push all branches to remote **(POL-121)**
 
 ---
@@ -140,13 +140,13 @@ When a team needs to split project work among multiple agents/developers working
 ### Steps
 1. Identify the GitHub Issue that defines this unit of work
 2. Run: `create-task <project_id> <github_issue_url> <assignee_email>`
-3. Script creates sub-branch `svm-NNN-slug/<task-slug>` in all repos
+3. Script creates sub-branch `{{org_slug}}-NNN-slug/<task-slug>` in all repos
 4. Assigned developer/agent works exclusively on this sub-branch
 5. Sub-branch session start: same as PROC-04 but on sub-branch
 6. Sub-branch session end: commit to sub-branch; use `merge-task` when done
 
 ### Rules
-- Sub-branches merge back to `svm-NNN-slug` ONLY — never to master **(POL-073)**
+- Sub-branches merge back to `{{org_slug}}-NNN-slug` ONLY — never to {{DEFAULT_BRANCH}} **(POL-073)**
 - Single assignee per sub-branch **(POL-074)**
 - Multiple sub-branches can be active simultaneously **(POL-075)**
 
@@ -161,7 +161,7 @@ When a team needs to split project work among multiple agents/developers working
 ### Steps
 1. Ensure all work on sub-branch is committed and pushed
 2. Run: `merge-task <project_id> <task_id>`
-3. Script merges sub-branch into `svm-NNN-slug`
+3. Script merges sub-branch into `{{org_slug}}-NNN-slug`
 4. Resolve any merge conflicts if prompted
 5. Sub-branch is archived and deleted
 6. GitHub Issue is marked resolved
@@ -193,7 +193,7 @@ When project scope expands to require a repo that was not identified at seeding.
 
 ### When to Use
 When you want to pull in the latest org knowledge updates without pausing/resuming.
-Especially useful after a knowledge ingest PR is merged to master.
+Especially useful after a knowledge ingest PR is merged to {{DEFAULT_BRANCH}}.
 
 ### Steps
 1. Commit all current work first
@@ -224,11 +224,11 @@ Especially useful after a knowledge ingest PR is merged to master.
 **Spec:** `knowledge/guidance/scripts/resume-spec.md`
 
 ### Important
-Resuming triggers a **mandatory master sync** **(POL-122 — C01)**. Org knowledge may have changed while the project was paused. The agent must work with current org knowledge.
+Resuming triggers a **mandatory {{DEFAULT_BRANCH}} sync** **(POL-122 — C01)**. Org knowledge may have changed while the project was paused. The agent must work with current org knowledge.
 
 ### Steps
 1. Run: `resume <project_id>`
-2. Script fetches and merges latest `master`/`base_branch` into all project branches
+2. Script fetches and merges latest `{{DEFAULT_BRANCH}}`/`base_branch` into all project branches
 3. Resolve merge conflicts if prompted — script pauses until resolved
 4. Knowledge layers are automatically reloaded
 5. Verify `project.yaml` shows `status: active`
@@ -248,7 +248,7 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 1. Prepare a clear `cancellation_reason`
 2. Run: `cancel <project_id> "<cancellation_reason>"`
 3. Script archives and deletes all project branches
-4. Verify `project.yaml` on master shows `status: cancelled`
+4. Verify `project.yaml` on {{DEFAULT_BRANCH}} shows `status: cancelled`
 
 ---
 
@@ -260,8 +260,8 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 
 ### Pre-close Checklist (C01 — must be complete before running close-project)
 
-- [ ] `projects/SVM-NNN-slug/knowledge/` contains meaningful content
-- [ ] `projects/SVM-NNN-slug/knowledge/compliance.md` exists and is current
+- [ ] `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` contains meaningful content
+- [ ] `projects/{{ORG_SLUG}}-NNN-slug/knowledge/compliance.md` exists and is current
 - [ ] All task sub-branches are merged (via PROC-06)
 - [ ] All `project.yaml` mandatory fields are populated
 - [ ] `completed_at` is NOT yet set
@@ -276,9 +276,9 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 7. `close-knowledge` is triggered automatically
 
 ### Steps — Knowledge Close (auto-triggered)
-8. Script reads all content in `projects/SVM-NNN-slug/knowledge/`
+8. Script reads all content in `projects/{{ORG_SLUG}}-NNN-slug/knowledge/`
 9. LLM+RAG synthesizes proposals for org knowledge
-10. Branch `svm-NNN-slug-knowledge` created from master
+10. Branch `{{org_slug}}-NNN-slug-knowledge` created from {{DEFAULT_BRANCH}}
 11. PR raised with auto-assigned domain owner reviewers
 12. `project.yaml` updated: `knowledge_status: pending_review`
 
@@ -302,10 +302,10 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
    - Architecture constraint → `knowledge/policies/exceptions/architecture/`
    - Other policy constraint → `knowledge/policies/exceptions/policy/`
 2. Copy the appropriate `TEMPLATE.md` from that folder
-3. Rename: `YYYY-MM-DD-SVM-NNN-slug-brief-description.md`
+3. Rename: `YYYY-MM-DD-{{ORG_SLUG}}-NNN-slug-brief-description.md`
 4. Fill in all required fields
-5. Commit to your project branch `svm-NNN-slug`
-6. Raise PR to master
+5. Commit to your project branch `{{org_slug}}-NNN-slug`
+6. Raise PR to {{DEFAULT_BRANCH}}
 7. **Do NOT proceed with the excepted action until the PR is merged** **(POL-154 — C01)**
 8. Appropriate domain owner reviews and merges
 
@@ -332,7 +332,7 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 
 ### Steps
 1. Run: `propose-knowledge <branch_slug> "<description>"`
-2. Script creates branch `knowledge-<slug>` from master
+2. Script creates branch `knowledge-<slug>` from {{DEFAULT_BRANCH}}
 3. Author knowledge changes manually on this branch
 4. Commit and push
 5. Run: `propose-knowledge raise-pr <branch_slug>` (or raise PR manually)
@@ -352,10 +352,10 @@ When `locked_by` developer becomes unavailable (departure, illness, role change)
 ### Steps (Policy Owner performs)
 1. Create exception request file in `knowledge/policies/exceptions/policy/` using TEMPLATE.md
    - Include `reassignment_from`, `reassignment_to`, `reassignment_reason`
-2. Raise PR to master
+2. Raise PR to {{DEFAULT_BRANCH}}
 3. Policy Owner reviews and merges (or delegates to Policy Representative)
 4. After PR is merged:
-   - Update `project.yaml` on master: `assigned_to`, `locked_by`, `reassignment_reason`, `reassigned_at`, `reassigned_approved_by`
+   - Update `project.yaml` on {{DEFAULT_BRANCH}}: `assigned_to`, `locked_by`, `reassignment_reason`, `reassigned_at`, `reassigned_approved_by`
 5. New assignee runs `resume` script before starting any work **(POL-122)**
 
 ---

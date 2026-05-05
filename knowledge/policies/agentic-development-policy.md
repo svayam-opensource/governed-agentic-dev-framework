@@ -189,9 +189,9 @@ All work performed under the {{ORG_NAME}} GitHub organization must be done throu
 
 ### 4.2 Project ID Format
 
-Every project is identified by a globally unique Project ID in the format `SVM-NNN-slug`, where:
+Every project is identified by a globally unique Project ID in the format `{{ORG_SLUG}}-NNN-slug`, where:
 
-- `SVM` is the fixed organizational prefix.
+- `{{ORG_SLUG}}` is the fixed organizational prefix.
 - `NNN` is a zero-padded sequential number (e.g., `007`, `042`, `100`).
 - `slug` is a lowercase, hyphenated identifier derived from the GitHub Project name at seed time.
 
@@ -245,12 +245,12 @@ The `{{WORKSPACE_REPO}}` repository is organized as follows:
 
 ```
 {{WORKSPACE_REPO}}/
-├── registry.yaml                    # project registry, issues SVM-NNN
+├── registry.yaml                    # project registry, issues {{ORG_SLUG}}-NNN
 ├── CODEOWNERS                       # maps knowledge/ to domain owners
 ├── agent.md                         # org-level agent entry point
 ├── knowledge/                       # org-wide knowledge (see Section 6)
 └── projects/
-    └── SVM-NNN-slug/                # one folder per project
+    └── {{ORG_SLUG}}-NNN-slug/                # one folder per project
         ├── project.yaml             # project manifest
         ├── requirements/            # goals, scope, issues, features, tickets
         ├── environment/             # project-specific infra, tools, skills
@@ -267,7 +267,7 @@ Every active project must have a `project.yaml` file in its workspace folder. Th
 The following fields are mandatory in every `project.yaml`:
 
 ```yaml
-id: SVM-007-invoice-api
+id: {{ORG_SLUG}}-007-invoice-api
 slug: invoice-api
 description: One-line project intent
 github_project: <url>
@@ -287,7 +287,7 @@ reassigned_approved_by: ~
 repos:
   - url: https://github.com/{{GITHUB_ORG}}/repo-A
     role: primary          # primary | dependency | read-only
-    base_branch: dev       # branch svm-NNN-slug created from; merge back here
+    base_branch: dev       # branch {{org_slug}}-NNN-slug created from; merge back here
     added_at: 2026-05-05
     added_reason: ~
 tasks:
@@ -325,23 +325,23 @@ The following are **C02** requirements:
 
 ### 5.5 Branching Standards
 
-**`{{WORKSPACE_REPO}}` branching**: All project work in `{{WORKSPACE_REPO}}` must branch from `master` and merge back to `master`. **(POL-067)**
+**`{{WORKSPACE_REPO}}` branching**: All project work in `{{WORKSPACE_REPO}}` must branch from `{{DEFAULT_BRANCH}}` and merge back to `{{DEFAULT_BRANCH}}`. **(POL-067)**
 
 **Code repository branching**: The default base branch for code repositories is `dev`. This may be overridden at seed time (for example, to target a production hotfix branch) by specifying a different `base_branch` in `project.yaml`. **(POL-068)**
 
-**Branch naming**: All project branches, in every repository, must be named `svm-NNN-slug`. This naming convention is mandatory and must be enforced by the `seed` script. **(POL-069)**
+**Branch naming**: All project branches, in every repository, must be named `{{org_slug}}-NNN-slug`. This naming convention is mandatory and must be enforced by the `seed` script. **(POL-069)**
 
-**Sub-branches for multi-agent work**: When a project involves parallel work across multiple agents or developers, sub-branches are created in the format `svm-NNN-slug/<task-slug>`. **(POL-070)**
+**Sub-branches for multi-agent work**: When a project involves parallel work across multiple agents or developers, sub-branches are created in the format `{{org_slug}}-NNN-slug/<task-slug>`. **(POL-070)**
 
-**Knowledge close branch**: The knowledge close process uses a dedicated branch named `svm-NNN-slug-knowledge`. **(POL-071)**
+**Knowledge close branch**: The knowledge close process uses a dedicated branch named `{{org_slug}}-NNN-slug-knowledge`. **(POL-071)**
 
-**Branch cleanup**: Upon project completion or cancellation, all project branches must be tagged for archival (`archive/svm-NNN-slug`) and then deleted. **(POL-072)**
+**Branch cleanup**: Upon project completion or cancellation, all project branches must be tagged for archival (`archive/{{org_slug}}-NNN-slug`) and then deleted. **(POL-072)**
 
-**Sub-branch merge rule**: Sub-branches must merge back to the parent `svm-NNN-slug` branch only. Sub-branches must never be merged directly to `master`, `dev`, or any base branch. **(POL-073)**
+**Sub-branch merge rule**: Sub-branches must merge back to the parent `{{org_slug}}-NNN-slug` branch only. Sub-branches must never be merged directly to `{{DEFAULT_BRANCH}}`, `dev`, or any base branch. **(POL-073)**
 
 ### 5.6 Multi-Agent Coordination
 
-Teams may conduct parallel work using sub-branches (`svm-NNN-slug/<task-slug>`). Each sub-branch is the responsibility of exactly one agent or developer. Multiple assignees per sub-branch are not permitted. **(POL-074)**
+Teams may conduct parallel work using sub-branches (`{{org_slug}}-NNN-slug/<task-slug>`). Each sub-branch is the responsibility of exactly one agent or developer. Multiple assignees per sub-branch are not permitted. **(POL-074)**
 
 Sub-branch tasks must be tracked as entries in the `tasks[]` array of `project.yaml`, each linked to a GitHub Issue. **(POL-075)**
 
@@ -356,7 +356,7 @@ Organizational knowledge is organized in four layers. When conflicts arise betwe
 The layers in descending order of authority are:
 
 1. **Org-wide knowledge** — `{{WORKSPACE_REPO}}/knowledge/` — highest authority. **(POL-077)**
-2. **Project knowledge** — `{{WORKSPACE_REPO}}/projects/SVM-NNN-slug/knowledge/` — second priority. **(POL-078)**
+2. **Project knowledge** — `{{WORKSPACE_REPO}}/projects/{{ORG_SLUG}}-NNN-slug/knowledge/` — second priority. **(POL-078)**
 3. **Repo-local knowledge** — `<repo>/knowledge/` — third priority. **(POL-079)**
 4. **Developer/agent preferences** — `<agent_work_root>/preferences/agent.md` — lowest priority. **(POL-080)**
 
@@ -398,7 +398,7 @@ knowledge/
 ├── agent.md           # repo knowledge entry point
 ├── repo/              # repo structure, environment, patterns
 └── projects/
-    └── SVM-NNN-slug/  # impact of this project on this repo
+    └── {{ORG_SLUG}}-NNN-slug/  # impact of this project on this repo
         ├── changelog.md
         ├── decisions.md
         └── impact-summary.md
@@ -412,7 +412,7 @@ This structure is initialized by the `onboard-repo` script. Repositories that ha
 
 During an active project, no changes are permitted to `{{WORKSPACE_REPO}}/knowledge/` for any reason **(C01, POL-086)**. This restriction exists to protect the integrity of org-wide knowledge during concurrent project work.
 
-All knowledge writes during an active project are strictly constrained to the project's own knowledge folder: `projects/SVM-NNN-slug/knowledge/`. **(POL-087)**
+All knowledge writes during an active project are strictly constrained to the project's own knowledge folder: `projects/{{ORG_SLUG}}-NNN-slug/knowledge/`. **(POL-087)**
 
 Project knowledge is intentionally free-form. There is no required structural coupling between project knowledge and org-wide knowledge structure during the project. **(POL-088)**
 
@@ -420,9 +420,9 @@ Project knowledge is intentionally free-form. There is no required structural co
 
 When a project is completed, accumulated project knowledge is synthesized and proposed for inclusion in org-wide knowledge through the knowledge close process. The steps are:
 
-1. **Pre-close consolidation**: The developer or agent consolidates all project learnings, decisions, and artifacts into `projects/SVM-NNN-slug/knowledge/`. **(POL-089)**
+1. **Pre-close consolidation**: The developer or agent consolidates all project learnings, decisions, and artifacts into `projects/{{ORG_SLUG}}-NNN-slug/knowledge/`. **(POL-089)**
 2. **Script execution**: The `close-knowledge` script is run. It uses LLM+RAG synthesis to map project knowledge to proposed changes in org-wide knowledge. **(POL-090)**
-3. **Branch creation**: The script creates a `svm-NNN-slug-knowledge` branch from `master`. **(POL-091)**
+3. **Branch creation**: The script creates a `{{org_slug}}-NNN-slug-knowledge` branch from `{{DEFAULT_BRANCH}}`. **(POL-091)**
 4. **PR creation**: The script proposes changes to `knowledge/` on that branch and raises a PR. CODEOWNERS automatically assigns the appropriate domain owners as reviewers. **(POL-092)**
 5. **Review**: The Policy Owner and relevant domain owners review the proposed changes and either merge, reject, request revision, or allow abandonment. **(POL-093)**
 
@@ -430,7 +430,7 @@ When a project is completed, accumulated project knowledge is synthesized and pr
 
 A knowledge PR may have one of four outcomes:
 
-- **Merged**: The proposed changes are accepted. The branch is tagged `archive/svm-NNN-slug-knowledge` and deleted. `knowledge_status` in `project.yaml` is set to `merged`. **(POL-094)**
+- **Merged**: The proposed changes are accepted. The branch is tagged `archive/{{org_slug}}-NNN-slug-knowledge` and deleted. `knowledge_status` in `project.yaml` is set to `merged`. **(POL-094)**
 - **Rejected**: The proposed changes are not accepted. The branch is deleted or retained at the owner's discretion. `knowledge_status` is set to `rejected`. **(POL-095)**
 - **Under revision**: The owner requests changes. The developer revises on the same branch and submits a new PR. `knowledge_status` is set to `under_revision`. **(POL-096)**
 - **Abandoned**: The developer closes the PR and deletes the branch. `knowledge_status` is set to `abandoned`. **(POL-097)**
@@ -443,7 +443,7 @@ If a code defect or issue is discovered after a project has been completed, it m
 
 ### 6.8 Knowledge Publication
 
-On every merge to `master` in `{{WORKSPACE_REPO}}`, the CI/CD pipeline automatically generates and publishes knowledge in three forms **(C02, POL-100)**:
+On every merge to `{{DEFAULT_BRANCH}}` in `{{WORKSPACE_REPO}}`, the CI/CD pipeline automatically generates and publishes knowledge in three forms **(C02, POL-100)**:
 
 1. **Static site**: An internal-only website, accessible only behind authentication, intended for developers, governance teams, and audit teams. **(POL-101)**
 2. **PDF exports**: Downloadable PDF versions of all knowledge documents, available through the static site, intended for regulators and external auditors. **(POL-102)**
@@ -472,7 +472,7 @@ Project knowledge proposals to org-wide knowledge flow through the following pro
 
 1. The Project Knowledge Owner (`{{POLICY_OWNER_EMAIL}}`) reviews accumulated project knowledge at project close. **(POL-110)**
 2. The `close-knowledge` script synthesizes proposals using LLM+RAG. **(POL-111)**
-3. The `svm-NNN-slug-knowledge` PR is the formal, auditable proposal mechanism. Proposals that are merged become the new org knowledge version, versioned by the commit SHA on `master`. **(POL-112)**
+3. The `{{org_slug}}-NNN-slug-knowledge` PR is the formal, auditable proposal mechanism. Proposals that are merged become the new org knowledge version, versioned by the commit SHA on `{{DEFAULT_BRANCH}}`. **(POL-112)**
 
 ---
 
@@ -489,11 +489,11 @@ Before performing any work whatsoever, an agent must complete all of the followi
 1. **Verify lock ownership**: Read `project.yaml` and confirm that the `locked_by` field matches the current user identity. If it does not match, the agent must refuse to proceed and surface this to the human immediately. **(POL-114)**
 2. **Verify project status**: Confirm that `status` in `project.yaml` is `active`. Any other status — `paused`, `completed`, `cancelled` — requires the agent to refuse and surface to the human. **(POL-115)**
 3. **Load knowledge layers fresh**: Load all four knowledge layers in priority order from their current state in the repository. Knowledge layers must never be used from a previous session's cache across session boundaries. The load order is: **(POL-116)**
-   - `{{WORKSPACE_REPO}}/knowledge/` (org-wide, from `master`)
-   - `projects/SVM-NNN-slug/knowledge/` (project knowledge)
+   - `{{WORKSPACE_REPO}}/knowledge/` (org-wide, from `{{DEFAULT_BRANCH}}`)
+   - `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` (project knowledge)
    - `<cloned-repos>/knowledge/` (repo-local, from project branch)
    - `<agent_work_root>/preferences/agent.md` (developer preferences)
-4. **Pull latest branch**: Pull the latest commits from the `svm-NNN-slug` branch in all participating repositories. **(POL-117)**
+4. **Pull latest branch**: Pull the latest commits from the `{{org_slug}}-NNN-slug` branch in all participating repositories. **(POL-117)**
 
 Only after all four steps are complete may the agent begin work. **(POL-118)**
 
@@ -501,8 +501,8 @@ Only after all four steps are complete may the agent begin work. **(POL-118)**
 
 At the conclusion of every work session, an agent should complete the following steps **(POL-119)**:
 
-1. Commit all changes to the `svm-NNN-slug` branch. **(POL-120)**
-2. Update `projects/SVM-NNN-slug/knowledge/` with any new learnings, decisions, or observations from the session. **(POL-121)**
+1. Commit all changes to the `{{org_slug}}-NNN-slug` branch. **(POL-120)**
+2. Update `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` with any new learnings, decisions, or observations from the session. **(POL-121)**
 3. Update `compliance.md` in the project knowledge folder if any compliance events — violations detected, exceptions exercised, C03 deviations made — occurred during the session. **(POL-122)**
 4. Push all commits to the remote. **(POL-123)**
 
@@ -514,7 +514,7 @@ If a C01 violation is detected at any point during a work session, the agent mus
 
 Each developer or agent must define an `agent_work_root` directory in their preferences (for example, `~/work/`). This directory serves as the local working environment for all project work. **(POL-125)**
 
-Project repositories are cloned into `<agent_work_root>/SVM-NNN-slug/` — one subdirectory per project. **(POL-126)**
+Project repositories are cloned into `<agent_work_root>/{{ORG_SLUG}}-NNN-slug/` — one subdirectory per project. **(POL-126)**
 
 Developer preferences are maintained at `<agent_work_root>/preferences/agent.md`. **(POL-127)**
 
@@ -585,7 +585,7 @@ Compliance is enforced through three complementary layers. All three are require
 
 **Layer 2 — Script Gates**: The lifecycle scripts (`seed`, `close`, `resume`, `cancel`, `pause`, `add-repo`) validate required conditions before executing. Hard blocks are applied on C01 condition failures. Warnings are issued on C02 condition gaps. Scripts must never be modified to bypass these gates. **(POL-147)**
 
-**Layer 3 — CI/CD Checks**: The `{{WORKSPACE_REPO}}` CI/CD pipeline validates every PR to `master` on the following criteria: **(POL-148)**
+**Layer 3 — CI/CD Checks**: The `{{WORKSPACE_REPO}}` CI/CD pipeline validates every PR to `{{DEFAULT_BRANCH}}` on the following criteria: **(POL-148)**
 
 - `project.yaml` schema compliance for all referenced projects
 - `CODEOWNERS` coverage of all `knowledge/` subfolders
@@ -598,7 +598,7 @@ CI/CD failures on structural validation are C01 events. A PR that fails CI/CD st
 
 Compliance events must be tracked at two levels:
 
-**Per-project compliance**: Every project must maintain a `compliance.md` file in `projects/SVM-NNN-slug/knowledge/`. This file records: all C01 violations detected during the project, all C02 exceptions raised and their approval status, and all C03 deviations with their documented reasoning. **(POL-150)**
+**Per-project compliance**: Every project must maintain a `compliance.md` file in `projects/{{ORG_SLUG}}-NNN-slug/knowledge/`. This file records: all C01 violations detected during the project, all C02 exceptions raised and their approval status, and all C03 deviations with their documented reasoning. **(POL-150)**
 
 **Org-wide compliance**: The `knowledge/compliance/` folder contains the organization-wide compliance summary. This summary is updated automatically at every project close and reviewed by the Policy Owner quarterly. **(POL-151)**
 
@@ -679,10 +679,10 @@ The Legal & Compliance Policy will govern legal compliance requirements applicab
 
 | Term | Definition |
 |---|---|
-| **Project** | A uniquely identifiable unit of work identified by `SVM-NNN-slug`. All organizational work must be conducted through a project. |
-| **Workspace** | The folder `projects/SVM-NNN-slug/` within `{{WORKSPACE_REPO}}`. Contains all project-specific files and knowledge. |
+| **Project** | A uniquely identifiable unit of work identified by `{{ORG_SLUG}}-NNN-slug`. All organizational work must be conducted through a project. |
+| **Workspace** | The folder `projects/{{ORG_SLUG}}-NNN-slug/` within `{{WORKSPACE_REPO}}`. Contains all project-specific files and knowledge. |
 | **Org-wide knowledge** | Content in `{{WORKSPACE_REPO}}/knowledge/`. The highest-authority knowledge layer. |
-| **Project knowledge** | Content in `projects/SVM-NNN-slug/knowledge/`. Second-priority knowledge layer. |
+| **Project knowledge** | Content in `projects/{{ORG_SLUG}}-NNN-slug/knowledge/`. Second-priority knowledge layer. |
 | **Repo-local knowledge** | Content in `<repo>/knowledge/`. Third-priority knowledge layer. |
 | **Developer preferences** | Content in `<agent_work_root>/preferences/`. Lowest-priority layer; C03 only. |
 | **Seed** | The act of transitioning a project from `proposed` to `active` by running the `seed` script. Creates the project workspace and branches. |
@@ -691,7 +691,7 @@ The Legal & Compliance Policy will govern legal compliance requirements applicab
 | **C02** | Compliance level: Always Apply. Exceptions require formal approval via PR by authorized domain representative. |
 | **C03** | Compliance level: Apply Intelligently. Strong default. Deviations allowed only when intent is honored and reasoning is documented. |
 | **locked_by** | The individual who ran the `seed` script for a project. Authorizes work sessions. Set once; immutable except via C02 exception. |
-| **base_branch** | The branch from which `svm-NNN-slug` was created in a code repository. The branch to which project changes are merged upon completion. |
+| **base_branch** | The branch from which `{{org_slug}}-NNN-slug` was created in a code repository. The branch to which project changes are merged upon completion. |
 | **agent_work_root** | The local directory on a developer or agent's machine where project repositories are cloned. Never committed. |
 | **CODEOWNERS** | The GitHub file mapping repository folders to their responsible owners for PR review purposes. |
 | **registry.yaml** | The authoritative project registry in `{{WORKSPACE_REPO}}`. Source of truth for all project IDs and statuses. |
@@ -704,16 +704,16 @@ The following scripts constitute the authorized tooling for project and knowledg
 
 | Script | Context | Purpose |
 |---|---|---|
-| `seed` | Project lifecycle | Transitions a project from `proposed` to `active`. Scaffolds workspace, creates branches, issues SVM-NNN. |
+| `seed` | Project lifecycle | Transitions a project from `proposed` to `active`. Scaffolds workspace, creates branches, issues {{ORG_SLUG}}-NNN. |
 | `add-repo` | Project lifecycle | Adds a new code repository to an active project mid-work. |
 | `pause` | Project lifecycle | Transitions a project from `active` to `paused`. |
-| `resume` | Project lifecycle | Transitions a project from `paused` to `active`. Pulls latest `master` into project branch. |
+| `resume` | Project lifecycle | Transitions a project from `paused` to `active`. Pulls latest `{{DEFAULT_BRANCH}}` into project branch. |
 | `cancel` | Project lifecycle | Transitions a project to `cancelled`. Archives all project branches. |
 | `close-project` | Project lifecycle | Transitions a project from `active` to `completed`. Merges all project branches to their base branches. |
 | `close-knowledge` | Project lifecycle | Runs LLM+RAG synthesis of project knowledge. Creates knowledge branch and raises knowledge PR. |
-| `sync` | Project lifecycle | Pulls latest `master` changes into the project branch on demand. |
-| `create-task` | Multi-agent | Creates a sub-branch (`svm-NNN-slug/<task-slug>`) linked to a GitHub Issue. |
-| `merge-task` | Multi-agent | Merges a sub-branch back to the parent `svm-NNN-slug` branch. Archives sub-branch and closes linked Issue. |
+| `sync` | Project lifecycle | Pulls latest `{{DEFAULT_BRANCH}}` changes into the project branch on demand. |
+| `create-task` | Multi-agent | Creates a sub-branch (`{{org_slug}}-NNN-slug/<task-slug>`) linked to a GitHub Issue. |
+| `merge-task` | Multi-agent | Merges a sub-branch back to the parent `{{org_slug}}-NNN-slug` branch. Archives sub-branch and closes linked Issue. |
 | `propose-knowledge` | Standalone | Proposes ad-hoc changes to org-wide knowledge outside any active project context. Raises a PR via CODEOWNERS. |
 | `onboard-repo` | Standalone | Initializes the `knowledge/` folder structure in an existing code repository. Raises a PR via CODEOWNERS. |
 
@@ -771,7 +771,7 @@ POL-038: Any change to role assignments requires a PR approved by the Policy Own
 POL-039: Domain owners have final approval authority within their own domain; no other role may approve domain PRs.
 POL-040: Cross-domain PRs require approval from each affected domain owner; Policy Owner resolves disputes.
 POL-041: All organizational work must be performed through an active, uniquely identifiable project.
-POL-042: Every project is identified by the format SVM-NNN-slug (sequential NNN, lowercase slug from GitHub Project name).
+POL-042: Every project is identified by the format {{ORG_SLUG}}-NNN-slug (sequential NNN, lowercase slug from GitHub Project name).
 POL-043: Project NNN sequence numbers are issued exclusively by the seed script from registry.yaml; never assigned manually.
 POL-044: registry.yaml in {{WORKSPACE_REPO}} is the single authoritative source of truth for all project IDs and statuses.
 POL-045: A project may be assigned to an individual (email) or a team (team-id).
@@ -796,18 +796,18 @@ POL-063: The GitHub Project must have at least one linked Issue or PR before see
 POL-064: Each linked Issue/PR must belong to an identifiable repo before seeding (C02; exception for {{WORKSPACE_REPO}}-only projects).
 POL-065: The GitHub Project must have a description before seeding (C02).
 POL-066: At least one linked Issue must mark the project's scope or goals before seeding (C02).
-POL-067: All {{WORKSPACE_REPO}} project work branches from master and merges back to master.
+POL-067: All {{WORKSPACE_REPO}} project work branches from {{DEFAULT_BRANCH}} and merges back to {{DEFAULT_BRANCH}}.
 POL-068: Default base branch for code repositories is dev; overridable at seed time via base_branch in project.yaml.
-POL-069: All project branches in every repository must be named svm-NNN-slug.
-POL-070: Sub-branches for parallel multi-agent work are named svm-NNN-slug/<task-slug>.
-POL-071: The knowledge close process uses a dedicated branch named svm-NNN-slug-knowledge.
-POL-072: On completion or cancellation, all project branches must be tagged archive/svm-NNN-slug and deleted.
-POL-073: Sub-branches must merge to svm-NNN-slug only; never directly to master, dev, or any base branch.
+POL-069: All project branches in every repository must be named {{org_slug}}-NNN-slug.
+POL-070: Sub-branches for parallel multi-agent work are named {{org_slug}}-NNN-slug/<task-slug>.
+POL-071: The knowledge close process uses a dedicated branch named {{org_slug}}-NNN-slug-knowledge.
+POL-072: On completion or cancellation, all project branches must be tagged archive/{{org_slug}}-NNN-slug and deleted.
+POL-073: Sub-branches must merge to {{org_slug}}-NNN-slug only; never directly to {{DEFAULT_BRANCH}}, dev, or any base branch.
 POL-074: Each sub-branch is assigned to exactly one agent or developer; multiple assignees per sub-branch are not permitted.
 POL-075: Sub-branch tasks must be tracked as entries in tasks[] in project.yaml, each linked to a GitHub Issue.
 POL-076: When knowledge layers conflict, higher-priority layers always take precedence.
 POL-077: Org-wide knowledge in {{WORKSPACE_REPO}}/knowledge/ is the highest-authority knowledge layer.
-POL-078: Project knowledge in projects/SVM-NNN-slug/knowledge/ is the second-priority knowledge layer.
+POL-078: Project knowledge in projects/{{ORG_SLUG}}-NNN-slug/knowledge/ is the second-priority knowledge layer.
 POL-079: Repo-local knowledge in <repo>/knowledge/ is the third-priority knowledge layer.
 POL-080: Developer preferences in <agent_work_root>/preferences/agent.md are the lowest-priority knowledge layer.
 POL-081: Developer preferences cannot override repo knowledge; repo knowledge cannot override org knowledge.
@@ -816,12 +816,12 @@ POL-083: CODEOWNERS in {{WORKSPACE_REPO}} maps each knowledge/ subfolder to its 
 POL-084: Every participating code repository must contain a knowledge/ folder with the defined structure.
 POL-085: Repositories must be onboarded via the onboard-repo script before being added to any project.
 POL-086: During an active project, no changes are permitted to {{WORKSPACE_REPO}}/knowledge/ (C01).
-POL-087: All knowledge writes during an active project are constrained to projects/SVM-NNN-slug/knowledge/ only.
+POL-087: All knowledge writes during an active project are constrained to projects/{{ORG_SLUG}}-NNN-slug/knowledge/ only.
 POL-088: Project knowledge is intentionally free-form; no structural coupling to org knowledge is required during the project.
-POL-089: Pre-close consolidation: developer/agent consolidates all project learnings into projects/SVM-NNN-slug/knowledge/.
+POL-089: Pre-close consolidation: developer/agent consolidates all project learnings into projects/{{ORG_SLUG}}-NNN-slug/knowledge/.
 POL-090: The close-knowledge script uses LLM+RAG synthesis to map project knowledge to org knowledge proposals.
-POL-091: The close-knowledge script creates the svm-NNN-slug-knowledge branch from master.
-POL-092: The close-knowledge script raises a PR against master; CODEOWNERS auto-assigns domain owners as reviewers.
+POL-091: The close-knowledge script creates the {{org_slug}}-NNN-slug-knowledge branch from {{DEFAULT_BRANCH}}.
+POL-092: The close-knowledge script raises a PR against {{DEFAULT_BRANCH}}; CODEOWNERS auto-assigns domain owners as reviewers.
 POL-093: Policy Owner and domain owners review the knowledge PR and determine its outcome.
 POL-094: A merged knowledge PR results in archive tag, branch deletion, and knowledge_status: merged.
 POL-095: A rejected knowledge PR results in branch deletion or retention at owner discretion and knowledge_status: rejected.
@@ -829,7 +829,7 @@ POL-096: An under-revision knowledge PR results in developer revision on the sam
 POL-097: An abandoned knowledge PR results in developer closing the PR, deleting the branch, and knowledge_status: abandoned.
 POL-098: The code state of a completed project is immutable regardless of knowledge PR outcome.
 POL-099: Code problems discovered post-close require new GitHub Issues and a new project; the original project is not reopened.
-POL-100: On every master merge in {{WORKSPACE_REPO}}, CI/CD generates and publishes knowledge in three forms (C02).
+POL-100: On every {{DEFAULT_BRANCH}} merge in {{WORKSPACE_REPO}}, CI/CD generates and publishes knowledge in three forms (C02).
 POL-101: Static site publication: internal only, behind authentication, for developers and governance teams.
 POL-102: PDF export publication: downloadable from the static site, for regulators and external auditors.
 POL-103: Vector embedding publication: changed files re-embedded into the org vector store for agent RAG context.
@@ -841,21 +841,21 @@ POL-108: Per-project compliance.md files feed into the org-wide compliance summa
 POL-109: Critical C01 violations escalate to the Policy Owner immediately, regardless of quarterly review cadence.
 POL-110: Project Knowledge Owner reviews accumulated project knowledge at project close.
 POL-111: The close-knowledge script synthesizes org knowledge proposals using LLM+RAG.
-POL-112: The svm-NNN-slug-knowledge PR is the formal proposal mechanism; merged proposals are versioned by commit SHA.
+POL-112: The {{org_slug}}-NNN-slug-knowledge PR is the formal proposal mechanism; merged proposals are versioned by commit SHA.
 POL-113: Before any work, an agent must complete all four session start steps in order (C01).
 POL-114: Session start step 1 — verify locked_by matches current user identity; refuse and surface if mismatch (C01).
 POL-115: Session start step 2 — verify status is active; refuse and surface if any other status (C01).
 POL-116: Session start step 3 — load all four knowledge layers fresh in priority order; never use cached layers across sessions (C01).
-POL-117: Session start step 4 — pull latest from svm-NNN-slug branch in all participating repositories (C01).
+POL-117: Session start step 4 — pull latest from {{org_slug}}-NNN-slug branch in all participating repositories (C01).
 POL-118: No work may begin until all four session start steps are complete.
 POL-119: At session end, agents should complete the four-step end protocol (C02).
-POL-120: Session end step 1 — commit all changes to the svm-NNN-slug branch.
-POL-121: Session end step 2 — update projects/SVM-NNN-slug/knowledge/ with session learnings.
+POL-120: Session end step 1 — commit all changes to the {{org_slug}}-NNN-slug branch.
+POL-121: Session end step 2 — update projects/{{ORG_SLUG}}-NNN-slug/knowledge/ with session learnings.
 POL-122: Session end step 3 — update compliance.md if any compliance events occurred during the session.
 POL-123: Session end step 4 — push all commits to the remote.
 POL-124: A mid-session C01 violation requires immediate hard stop, no commits, and escalation to the human.
 POL-125: Each developer/agent must define an agent_work_root directory in their preferences.
-POL-126: Project repositories are cloned into <agent_work_root>/SVM-NNN-slug/.
+POL-126: Project repositories are cloned into <agent_work_root>/{{ORG_SLUG}}-NNN-slug/.
 POL-127: Developer preferences are maintained at <agent_work_root>/preferences/agent.md.
 POL-128: agent_work_root and its contents must never be committed to any repository.
 POL-129: Developer and agent preferences are C03 instruments only.
@@ -877,7 +877,7 @@ POL-144: Restricted data must never appear in any knowledge folder, repository, 
 POL-145: An agent detecting restricted data must immediately hard stop and escalate to the Policy Owner.
 POL-146: Agent failure to perform the session start self-check is a C01 violation.
 POL-147: Script gates hard-block on C01 failures and warn on C02 gaps; scripts must never be modified to bypass gates.
-POL-148: CI/CD on {{WORKSPACE_REPO}} validates project.yaml schema, CODEOWNERS coverage, registry.yaml integrity, and workspace structure on every PR to master.
+POL-148: CI/CD on {{WORKSPACE_REPO}} validates project.yaml schema, CODEOWNERS coverage, registry.yaml integrity, and workspace structure on every PR to {{DEFAULT_BRANCH}}.
 POL-149: CI/CD structural validation failures are C01 events; a failing PR must not be merged.
 POL-150: Per-project compliance.md records all C01 violations, C02 exceptions, and C03 deviations for the project.
 POL-151: Org-wide compliance summary in knowledge/compliance/ is updated at every project close and reviewed quarterly.

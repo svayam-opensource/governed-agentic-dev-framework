@@ -8,13 +8,13 @@
 
 ## Overview
 
-The `{{WORKSPACE_REPO}}` CI/CD pipeline runs on every PR and every merge to `master`. It enforces structural integrity and keeps knowledge publications current.
+The `{{WORKSPACE_REPO}}` CI/CD pipeline runs on every PR and every merge to `{{DEFAULT_BRANCH}}`. It enforces structural integrity and keeps knowledge publications current.
 
 ---
 
 ## On Every PR to Master (Validation Gates)
 
-These checks run on every PR targeting `master`. Failures block the merge. **(C01)**
+These checks run on every PR targeting `{{DEFAULT_BRANCH}}`. Failures block the merge. **(C01)**
 
 ### 1. `project.yaml` Schema Validation
 - All files matching `projects/*/project.yaml` must conform to the required schema
@@ -30,15 +30,15 @@ These checks run on every PR targeting `master`. Failures block the merge. **(C0
 ### 3. `registry.yaml` Integrity
 - `last_issued` must be a non-negative integer
 - No duplicate project IDs in `projects[]`
-- All IDs must match the `SVM-NNN-slug` format
+- All IDs must match the `{{ORG_SLUG}}-NNN-slug` format
 
 ### 4. Active Project Workspace Structure
 - All `active` projects must have:
-  - `projects/SVM-NNN-slug/requirements/` folder
-  - `projects/SVM-NNN-slug/environment/` folder
-  - `projects/SVM-NNN-slug/knowledge/` folder
-  - `projects/SVM-NNN-slug/agent.md`
-  - `projects/SVM-NNN-slug/project.yaml`
+  - `projects/{{ORG_SLUG}}-NNN-slug/requirements/` folder
+  - `projects/{{ORG_SLUG}}-NNN-slug/environment/` folder
+  - `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` folder
+  - `projects/{{ORG_SLUG}}-NNN-slug/agent.md`
+  - `projects/{{ORG_SLUG}}-NNN-slug/project.yaml`
 
 ### 5. Data Classification Scan
 - Scan all committed files for patterns matching Restricted data (credentials, keys, tokens)
@@ -48,7 +48,7 @@ These checks run on every PR targeting `master`. Failures block the merge. **(C0
 
 ## On Merge to Master (Publication Pipeline)
 
-These jobs run after every successful merge to `master`. **(C02)**
+These jobs run after every successful merge to `{{DEFAULT_BRANCH}}`. **(C02)**
 
 ### 1. Static Site Rebuild
 - Rebuild and redeploy the internal knowledge site

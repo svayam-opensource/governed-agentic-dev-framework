@@ -1,5 +1,5 @@
 # {{ORG_NAME}} Project Registry
-# Authoritative source for SVM-NNN project numbering.
+# Authoritative source for {{ORG_SLUG}}-NNN project numbering.
 # The seed script reads last_issued, increments it, and updates this file.
 # Never edit manually — use the seed script.
 

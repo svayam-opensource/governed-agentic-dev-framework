@@ -11,34 +11,34 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `SVM-007-invoice-api` (passed from close-project) |
+| `project_id` | Yes | e.g., `{{ORG_SLUG}}-007-invoice-api` (passed from close-project) |
 
 ---
 
 ## Pre-conditions
 
 - `project.yaml` `status` must be `completed`
-- `projects/SVM-NNN-slug/knowledge/` must contain content to synthesize
+- `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` must contain content to synthesize
 
 ---
 
 ## Steps
 
-1. Read all content from `projects/SVM-NNN-slug/knowledge/` holistically
+1. Read all content from `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` holistically
 2. Query vector store (RAG) for semantically relevant existing org knowledge in `knowledge/`
 3. Use LLM to synthesize: map project learnings to appropriate org knowledge locations
    - Identify new content to add
    - Identify existing content to update
    - Identify patterns, guidance, decisions, or compliance notes worth promoting
 4. Generate a human-readable narrative summary of proposals (for PR description)
-5. Checkout new branch `svm-NNN-slug-knowledge` from `master` of `{{WORKSPACE_REPO}}`
+5. Checkout new branch `{{org_slug}}-NNN-slug-knowledge` from `{{DEFAULT_BRANCH}}` of `{{WORKSPACE_REPO}}`
 6. Apply proposed changes to `knowledge/` on that branch
 7. Commit changes
-8. Raise PR: `svm-NNN-slug-knowledge` → `master`
-   - PR title: `[Knowledge Close] SVM-NNN-slug`
+8. Raise PR: `{{org_slug}}-NNN-slug-knowledge` → `{{DEFAULT_BRANCH}}`
+   - PR title: `[Knowledge Close] {{ORG_SLUG}}-NNN-slug`
    - PR description: LLM-generated narrative summary of what was learned and what is proposed
    - CODEOWNERS auto-assigns appropriate domain owners as reviewers
-9. Update `project.yaml` on master:
+9. Update `project.yaml` on {{DEFAULT_BRANCH}}:
    - `knowledge_status: pending_review`
    - `knowledge_pr: <pr_url>`
 
@@ -46,7 +46,7 @@
 
 ## Outputs
 
-- Branch `svm-NNN-slug-knowledge` created with proposed org knowledge changes
+- Branch `{{org_slug}}-NNN-slug-knowledge` created with proposed org knowledge changes
 - PR raised for domain owner review
 - `project.yaml` updated with `knowledge_status` and `knowledge_pr`
 
@@ -56,7 +56,7 @@
 
 | Outcome | Action |
 |---|---|
-| **Merged** | Archive tag `archive/svm-NNN-slug-knowledge` + delete branch; `knowledge_status: merged` |
+| **Merged** | Archive tag `archive/{{org_slug}}-NNN-slug-knowledge` + delete branch; `knowledge_status: merged` |
 | **Rejected** | Owner deletes or keeps branch; `knowledge_status: rejected` |
 | **Under revision** | Owner comments; developer revises and submits new PR; `knowledge_status: under_revision` |
 | **Abandoned** | Developer closes PR and deletes branch; `knowledge_status: abandoned` |

@@ -7,7 +7,7 @@
 `{{WORKSPACE_REPO}}` is {{ORG_NAME}}'s central workspace repository for all agentic development projects.
 It is NOT a code repository. It contains:
 - Org-wide knowledge (`knowledge/`)
-- All project workspaces (`projects/SVM-NNN-slug/`)
+- All project workspaces (`projects/{{ORG_SLUG}}-NNN-slug/`)
 - The project registry (`registry.yaml`)
 
 `{{WORKSPACE_REPO}}` is an implicit participant in every project — it does not need to be listed in `repos[]`.
@@ -21,8 +21,8 @@ Read this policy before beginning any work session.
 
 ## Knowledge Layer Priority (Highest to Lowest)
 
-1. **Org-wide knowledge** → `knowledge/` (this repository, master branch)
-2. **Project knowledge** → `projects/SVM-NNN-slug/knowledge/`
+1. **Org-wide knowledge** → `knowledge/` (this repository, {{DEFAULT_BRANCH}} branch)
+2. **Project knowledge** → `projects/{{ORG_SLUG}}-NNN-slug/knowledge/`
 3. **Repo-local knowledge** → `<cloned-repo>/knowledge/`
 4. **Developer preferences** → `<agent_work_root>/preferences/agent.md`
 
@@ -32,19 +32,19 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 
 - **C01 — Non-Negotiable**: Hard stop. Refuse to proceed. Surface to human immediately.
 - **C02 — Always Apply**: Block work. Require approved PR in `knowledge/policies/exceptions/` before continuing.
-- **C03 — Apply Intelligently**: Proceed with deviation, but document reasoning in `projects/SVM-NNN-slug/knowledge/compliance.md`.
+- **C03 — Apply Intelligently**: Proceed with deviation, but document reasoning in `projects/{{ORG_SLUG}}-NNN-slug/knowledge/compliance.md`.
 
 ## Session Start Checklist (C01 — complete before any work)
 
-1. Read `projects/SVM-NNN-slug/project.yaml` → verify `locked_by` matches your user identity
+1. Read `projects/{{ORG_SLUG}}-NNN-slug/project.yaml` → verify `locked_by` matches your user identity
 2. Verify `status: active`
 3. Load all four knowledge layers fresh (never use cached layers from a prior session)
-4. Pull latest `svm-NNN-slug` branch in all repos
+4. Pull latest `{{org_slug}}-NNN-slug` branch in all repos
 
 ## Write Restrictions During Active Projects
 
 During an active project, NO changes are allowed to `knowledge/` (C01).
-All writes must be constrained to `projects/SVM-NNN-slug/` only.
+All writes must be constrained to `projects/{{ORG_SLUG}}-NNN-slug/` only.
 Org knowledge is read-only during projects — updated only via knowledge close PRs.
 
 ## Data Classification — Hard Rules

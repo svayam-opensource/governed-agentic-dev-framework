@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `SVM-007-invoice-api` |
+| `project_id` | Yes | e.g., `{{ORG_SLUG}}-007-invoice-api` |
 | `task_id` | Yes | e.g., `svm-007-invoice-api/api-design` |
 
 ---
@@ -26,17 +26,17 @@
 ## Steps
 
 1. Verify pre-conditions
-2. In `{{WORKSPACE_REPO}}`: merge `svm-NNN-slug/task-slug` → `svm-NNN-slug`
-3. For each repo in `repos[]`: merge `svm-NNN-slug/task-slug` → `svm-NNN-slug`
+2. In `{{WORKSPACE_REPO}}`: merge `{{org_slug}}-NNN-slug/task-slug` → `{{org_slug}}-NNN-slug`
+3. For each repo in `repos[]`: merge `{{org_slug}}-NNN-slug/task-slug` → `{{org_slug}}-NNN-slug`
 4. Pause for human conflict resolution if merge conflicts exist, then resume
 5. In all repos and `{{WORKSPACE_REPO}}`:
-   - Create archive tag `archive/svm-NNN-slug/task-slug`
-   - Delete sub-branch `svm-NNN-slug/task-slug`
+   - Create archive tag `archive/{{org_slug}}-NNN-slug/task-slug`
+   - Delete sub-branch `{{org_slug}}-NNN-slug/task-slug`
 6. Mark GitHub Issue as resolved/closed
 7. Update task in `project.yaml` `tasks[]`:
    - `status: completed`
    - `completed_at: <today>`
-8. Commit updated `project.yaml` to `svm-NNN-slug`
+8. Commit updated `project.yaml` to `{{org_slug}}-NNN-slug`
 
 ---
 

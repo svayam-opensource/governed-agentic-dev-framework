@@ -1,6 +1,6 @@
 # {{ORG_NAME}} — Knowledge Domain Ownership
 # All knowledge/ subfolders are mapped to their domain owners.
-# PRs touching these paths require the mapped owner's approval before merge to master.
+# PRs touching these paths require the mapped owner's approval before merge to {{DEFAULT_BRANCH}}.
 # Role holders are defined in knowledge/policies/roles.md
 # GitHub handles below must be updated when role holders change.
 

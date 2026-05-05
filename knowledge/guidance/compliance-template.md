@@ -1,12 +1,12 @@
-# Project Compliance Log: SVM-NNN-slug
+# Project Compliance Log: {{ORG_SLUG}}-NNN-slug
 
-**Project:** SVM-NNN-slug
+**Project:** {{ORG_SLUG}}-NNN-slug
 **Assignee:** [locked_by value]
 **Period:** YYYY-MM-DD to YYYY-MM-DD
 **Status:** [active | completed | cancelled]
 
 This log is maintained throughout the project lifecycle.
-Location: `{{WORKSPACE_REPO}}/projects/SVM-NNN-slug/knowledge/compliance.md`
+Location: `{{WORKSPACE_REPO}}/projects/{{ORG_SLUG}}-NNN-slug/knowledge/compliance.md`
 Org-wide summary is in `{{WORKSPACE_REPO}}/knowledge/compliance/`.
 
 ---
