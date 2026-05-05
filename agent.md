@@ -1,20 +1,20 @@
-# Svayam Infoware — Org-Level Agent Entry Point
-# Repository: 000-svm-prj
+# {{ORG_NAME}} — Org-Level Agent Entry Point
+# Repository: {{WORKSPACE_REPO}}
 # This file is the primary context entry point for all agents working in this repository.
 
 ## About This Repository
 
-`000-svm-prj` is Svayam Infoware's central workspace repository for all agentic development projects.
+`{{WORKSPACE_REPO}}` is {{ORG_NAME}}'s central workspace repository for all agentic development projects.
 It is NOT a code repository. It contains:
 - Org-wide knowledge (`knowledge/`)
 - All project workspaces (`projects/SVM-NNN-slug/`)
 - The project registry (`registry.yaml`)
 
-`000-svm-prj` is an implicit participant in every project — it does not need to be listed in `repos[]`.
+`{{WORKSPACE_REPO}}` is an implicit participant in every project — it does not need to be listed in `repos[]`.
 
 ## Authoritative Policy
 
-All work in this repository and all agentic development at Svayam Infoware is governed by:
+All work in this repository and all agentic development at {{ORG_NAME}} is governed by:
 `knowledge/policies/agentic-development-policy.md`
 
 Read this policy before beginning any work session.
@@ -56,7 +56,7 @@ Org knowledge is read-only during projects — updated only via knowledge close 
 ## Roles
 
 Current role holders are defined in `knowledge/policies/roles.md`.
-All policy roles are currently held by `rkant@svayamtech.com`.
+All policy roles are currently held by `{{POLICY_OWNER_EMAIL}}`.
 
 ## Scripts
 

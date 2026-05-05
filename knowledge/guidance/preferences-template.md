@@ -4,14 +4,14 @@
 # This file is NEVER committed to any repository.
 # It is the lowest-priority knowledge layer — it cannot override org or repo knowledge.
 #
-# See: 000-svm-prj/knowledge/policies/agentic-development-policy.md (POL-131 to POL-136)
+# See: {{WORKSPACE_REPO}}/knowledge/policies/agentic-development-policy.md (POL-131 to POL-136)
 
 ---
 
 ## Agent Work Root
 
 ```yaml
-agent_work_root: ~/svm-work    # Change to your preferred local path
+agent_work_root: ~/work    # Change to your preferred local path
 ```
 
 Project repos are cloned into `<agent_work_root>/SVM-NNN-slug/`.
@@ -65,6 +65,6 @@ The following must NEVER be placed in developer preferences (C01 violations):
 - Compliance level definitions or overrides
 - Assignment or locking rule overrides
 - Knowledge layer priority order changes
-- Anything that contradicts 000-svm-prj/knowledge/policies/
+- Anything that contradicts {{WORKSPACE_REPO}}/knowledge/policies/
 
 If you need to change org policy, use the propose-knowledge script.

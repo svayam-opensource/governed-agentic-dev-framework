@@ -1,12 +1,12 @@
 ---
 maintained_by: Policy Owner
-last_updated_by: rkant@svayamtech.com
+last_updated_by: {{POLICY_OWNER_EMAIL}}
 last_updated_at: 2026-05-05
 ---
 
-# Svayam Infoware — Role Registry
+# {{ORG_NAME}} — Role Registry
 
-This file is the authoritative record of role holders and manager assignments at Svayam Infoware Pvt. Ltd.
+This file is the authoritative record of role holders and manager assignments at {{ORG_NAME}}
 Changing this file is a policy update — versioned by commit SHA on master.
 Changes require a PR approved by the Policy Owner.
 
@@ -31,8 +31,8 @@ Vacant roles escalate automatically to the Policy Owner.
 
 | | |
 |---|---|
-| Current Holder | rkant@svayamtech.com |
-| GitHub Handle | @rkant-svayam |
+| Current Holder | {{POLICY_OWNER_EMAIL}} |
+| GitHub Handle | {{POLICY_OWNER_GITHUB}} |
 | Effective From | 2026-05-05 |
 | Managers | TBD |
 
@@ -46,8 +46,8 @@ Vacant roles escalate automatically to the Policy Owner.
 
 | | |
 |---|---|
-| Current Holder | TBD (rkant@svayamtech.com acting) |
-| GitHub Handle | @legal-owner-tbd |
+| Current Holder | TBD ({{POLICY_OWNER_EMAIL}} acting) |
+| GitHub Handle | {{LEGAL_OWNER_GITHUB}} |
 | Effective From | TBD |
 | Managers | TBD |
 
@@ -61,8 +61,8 @@ Vacant roles escalate automatically to the Policy Owner.
 
 | | |
 |---|---|
-| Current Holder | TBD (rkant@svayamtech.com acting) |
-| GitHub Handle | @infrastructure-owner-tbd |
+| Current Holder | TBD ({{POLICY_OWNER_EMAIL}} acting) |
+| GitHub Handle | {{INFRA_OWNER_GITHUB}} |
 | Effective From | TBD |
 | Managers | TBD |
 
@@ -76,8 +76,8 @@ Vacant roles escalate automatically to the Policy Owner.
 
 | | |
 |---|---|
-| Current Holder | TBD (rkant@svayamtech.com acting) |
-| GitHub Handle | @system-arch-owner-tbd |
+| Current Holder | TBD ({{POLICY_OWNER_EMAIL}} acting) |
+| GitHub Handle | {{SYSTEM_ARCH_OWNER_GITHUB}} |
 | Effective From | TBD |
 | Managers | TBD |
 
@@ -91,8 +91,8 @@ Vacant roles escalate automatically to the Policy Owner.
 
 | | |
 |---|---|
-| Current Holder | TBD (rkant@svayamtech.com acting) |
-| GitHub Handle | @data-arch-owner-tbd |
+| Current Holder | TBD ({{POLICY_OWNER_EMAIL}} acting) |
+| GitHub Handle | {{DATA_ARCH_OWNER_GITHUB}} |
 | Effective From | TBD |
 | Managers | TBD |
 
@@ -100,7 +100,7 @@ Vacant roles escalate automatically to the Policy Owner.
 
 ## Notes
 
-- All roles currently held by `rkant@svayamtech.com` as Svayam Infoware scales.
+- All roles currently held by `{{POLICY_OWNER_EMAIL}}` as {{ORG_NAME}} scales.
 - As the organization grows, each role should be formally assigned to the appropriate C-suite executive.
 - CODEOWNERS must be updated whenever GitHub handles change.
 - This file version is identified by its git commit SHA on master.

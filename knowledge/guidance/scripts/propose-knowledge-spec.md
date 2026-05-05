@@ -17,14 +17,14 @@
 
 ## Pre-conditions
 
-- Requester must be an authorized GitHub user in `000-svm-prj`
+- Requester must be an authorized GitHub user in `{{WORKSPACE_REPO}}`
 - Branch `knowledge-<slug>` must not already exist
 
 ---
 
 ## Steps
 
-1. Create branch `knowledge-<slug>` from `master` of `000-svm-prj`
+1. Create branch `knowledge-<slug>` from `master` of `{{WORKSPACE_REPO}}`
 2. Switch to new branch
 3. Requester manually authors knowledge changes on this branch:
    - Add new files to appropriate `knowledge/` subfolders

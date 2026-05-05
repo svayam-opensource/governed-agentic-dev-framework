@@ -32,14 +32,14 @@ Script refuses to proceed if ANY of the following are missing:
    - Auto-merge `svm-NNN-slug` → `base_branch`
    - If merge conflicts: **pause script**, surface conflicts to human developer
    - Human resolves conflicts, then re-runs script to continue
-3. Merge `svm-NNN-slug` → `master` in `000-svm-prj`
-4. For each repo and `000-svm-prj`:
+3. Merge `svm-NNN-slug` → `master` in `{{WORKSPACE_REPO}}`
+4. For each repo and `{{WORKSPACE_REPO}}`:
    - Create archive tag `archive/svm-NNN-slug`
    - Delete branch `svm-NNN-slug`
 5. Set `project.yaml`:
    - `status: completed`
    - `completed_at: <today>`
-6. Commit final `project.yaml` to `master` in `000-svm-prj`
+6. Commit final `project.yaml` to `master` in `{{WORKSPACE_REPO}}`
 7. **Automatically trigger `close-knowledge` script**
 
 ---

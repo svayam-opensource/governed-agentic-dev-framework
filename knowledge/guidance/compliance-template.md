@@ -6,8 +6,8 @@
 **Status:** [active | completed | cancelled]
 
 This log is maintained throughout the project lifecycle.
-Location: `000-svm-prj/projects/SVM-NNN-slug/knowledge/compliance.md`
-Org-wide summary is in `000-svm-prj/knowledge/compliance/`.
+Location: `{{WORKSPACE_REPO}}/projects/SVM-NNN-slug/knowledge/compliance.md`
+Org-wide summary is in `{{WORKSPACE_REPO}}/knowledge/compliance/`.
 
 ---
 

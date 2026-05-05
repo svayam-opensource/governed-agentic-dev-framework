@@ -25,7 +25,7 @@
 ## Steps
 
 1. Require `cancellation_reason` — hard stop if not provided
-2. In `000-svm-prj`:
+2. In `{{WORKSPACE_REPO}}`:
    - Create archive tag `archive/svm-NNN-slug` at current branch tip
    - Delete branch `svm-NNN-slug`
 3. For each repo in `repos[]`:
@@ -35,7 +35,7 @@
    - `status: cancelled`
    - `cancelled_at: <today>`
    - `cancellation_reason: <provided reason>`
-5. Commit final `project.yaml` state to `master` in `000-svm-prj`
+5. Commit final `project.yaml` state to `master` in `{{WORKSPACE_REPO}}`
 
 **Note:** No knowledge close is run. No knowledge PR is raised. All code changes are preserved in archive tags but not merged.
 

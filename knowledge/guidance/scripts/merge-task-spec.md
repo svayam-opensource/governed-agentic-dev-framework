@@ -26,10 +26,10 @@
 ## Steps
 
 1. Verify pre-conditions
-2. In `000-svm-prj`: merge `svm-NNN-slug/task-slug` → `svm-NNN-slug`
+2. In `{{WORKSPACE_REPO}}`: merge `svm-NNN-slug/task-slug` → `svm-NNN-slug`
 3. For each repo in `repos[]`: merge `svm-NNN-slug/task-slug` → `svm-NNN-slug`
 4. Pause for human conflict resolution if merge conflicts exist, then resume
-5. In all repos and `000-svm-prj`:
+5. In all repos and `{{WORKSPACE_REPO}}`:
    - Create archive tag `archive/svm-NNN-slug/task-slug`
    - Delete sub-branch `svm-NNN-slug/task-slug`
 6. Mark GitHub Issue as resolved/closed

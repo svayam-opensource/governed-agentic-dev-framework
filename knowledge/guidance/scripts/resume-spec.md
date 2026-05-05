@@ -24,7 +24,7 @@
 ## Steps
 
 1. Verify `status: paused` and authorization
-2. **Mandatory master sync for `000-svm-prj`:**
+2. **Mandatory master sync for `{{WORKSPACE_REPO}}`:**
    - Fetch latest `master`
    - Merge `master` → `svm-NNN-slug`
    - If merge conflicts: pause script, surface conflicts to human developer for resolution, then resume

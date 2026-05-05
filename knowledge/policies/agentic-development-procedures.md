@@ -1,13 +1,13 @@
 ---
 version: pending-first-commit
 effective_date: 2026-05-05
-policy_owner: rkant@svayamtech.com
+policy_owner: {{POLICY_OWNER_EMAIL}}
 parent_policy: knowledge/policies/agentic-development-policy.md
 ---
 
-# Svayam Infoware — Agentic Development Procedures
+# {{ORG_NAME}} — Agentic Development Procedures
 
-This document defines the operational procedures for all agentic development work at Svayam Infoware Pvt. Ltd.
+This document defines the operational procedures for all agentic development work at {{ORG_NAME}}
 Every procedure references the governing policy clause(s) from `agentic-development-policy.md`.
 
 Agents must read this document as part of the knowledge layer stack during every work session.
@@ -22,7 +22,7 @@ See `agent.md` for layer loading order.
 **Spec:** `knowledge/guidance/scripts/onboard-repo-spec.md`
 
 ### When to Use
-When an existing code repository needs to be brought under the Svayam Infoware Agentic Development Policy for the first time.
+When an existing code repository needs to be brought under the {{ORG_NAME}} Agentic Development Policy for the first time.
 
 ### Steps
 1. Verify the repo does not already have a `knowledge/` folder
@@ -44,10 +44,10 @@ When an existing code repository needs to be brought under the Svayam Infoware A
 **Governs:** POL-041, POL-042, POL-056, POL-057, POL-058, POL-059, POL-060
 
 ### Who Performs This
-Any authorized GitHub user with access to `000-svm-prj`.
+Any authorized GitHub user with access to `{{WORKSPACE_REPO}}`.
 
 ### Steps
-1. Go to `000-svm-prj` on GitHub
+1. Go to `{{WORKSPACE_REPO}}` on GitHub
 2. Create a new GitHub Project with a descriptive name (e.g., "Invoice API v2")
 3. Add Issues and/or PRs that define the project scope:
    - At least one Issue or PR is required **(POL-058 — C01)**
@@ -58,7 +58,7 @@ Any authorized GitHub user with access to `000-svm-prj`.
 
 ### Notes
 - The project ID (`SVM-NNN`) is NOT assigned at this stage — it is assigned by the seed script
-- `000-svm-prj` is always an implicit participant — do not create an Issue in it to include it
+- `{{WORKSPACE_REPO}}` is always an implicit participant — do not create an Issue in it to include it
 
 ---
 
@@ -72,12 +72,12 @@ Any authorized GitHub user with access to `000-svm-prj`.
 The developer or agent assigned to the project.
 
 ### Pre-conditions
-- GitHub Project exists in `000-svm-prj` and meets minimum requirements (PROC-02)
+- GitHub Project exists in `{{WORKSPACE_REPO}}` and meets minimum requirements (PROC-02)
 - Assignee has `agent_work_root` configured in their preferences
 - Assignee has push access to all repos that will be involved
 
 ### Steps
-1. Clone `000-svm-prj` if not already cloned: `git clone <000-svm-prj-url>`
+1. Clone `{{WORKSPACE_REPO}}` if not already cloned: `git clone <{{WORKSPACE_REPO}}-url>`
 2. Ensure you are on `master` with latest changes: `git checkout master && git pull`
 3. Run: `seed <github_project_url> <assignee>`
 4. Script prompts for `base_branch` override per repo (default: `dev`) — specify if working on emergency fixes
@@ -88,7 +88,7 @@ The developer or agent assigned to the project.
 
 ### Success Criteria
 - `projects/SVM-NNN-slug/project.yaml` exists with `status: active`
-- Branch `svm-NNN-slug` exists in `000-svm-prj` and all identified repos
+- Branch `svm-NNN-slug` exists in `{{WORKSPACE_REPO}}` and all identified repos
 - `registry.yaml` updated with new project entry
 
 ---
@@ -106,7 +106,7 @@ The developer or agent assigned to the project.
    - Hard stop if either check fails **(POL-113, POL-114)**
 
 2. **Load knowledge layers fresh** — never use cached layers from a prior session **(POL-115)**:
-   - Layer 1: Read `000-svm-prj/knowledge/` (org-wide, from master) **(POL-076)**
+   - Layer 1: Read `{{WORKSPACE_REPO}}/knowledge/` (org-wide, from master) **(POL-076)**
    - Layer 2: Read `projects/SVM-NNN-slug/knowledge/` (project knowledge) **(POL-077)**
    - Layer 3: Read `<cloned-repos>/knowledge/` (repo-local, from project branch) **(POL-078)**
    - Layer 4: Read `<agent_work_root>/preferences/agent.md` (developer preferences) **(POL-079)**
@@ -116,7 +116,7 @@ The developer or agent assigned to the project.
 ### During Work
 
 - All writes must go to `projects/SVM-NNN-slug/` or to code in cloned repos on `svm-NNN-slug` branch **(POL-087 — C01)**
-- Do NOT write to `000-svm-prj/knowledge/` **(POL-087 — C01)**
+- Do NOT write to `{{WORKSPACE_REPO}}/knowledge/` **(POL-087 — C01)**
 - If a C01 violation is detected mid-session: hard stop, commit nothing, surface to human immediately **(POL-117)**
 
 ### Session End (C02)
@@ -312,10 +312,10 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 ### Authorization
 | Exception Type | Authorized Approver | Current Holder |
 |---|---|---|
-| Legal | Legal Owner | rkant@svayamtech.com |
-| Infrastructure | Infrastructure Owner | rkant@svayamtech.com |
-| Architecture | System/Data Architecture Owner | rkant@svayamtech.com |
-| Policy | Policy Owner | rkant@svayamtech.com |
+| Legal | Legal Owner | {{POLICY_OWNER_EMAIL}} |
+| Infrastructure | Infrastructure Owner | {{POLICY_OWNER_EMAIL}} |
+| Architecture | System/Data Architecture Owner | {{POLICY_OWNER_EMAIL}} |
+| Policy | Policy Owner | {{POLICY_OWNER_EMAIL}} |
 
 ---
 
@@ -364,7 +364,7 @@ When `locked_by` developer becomes unavailable (departure, illness, role change)
 
 **Governs:** POL-146 to POL-151
 **Frequency:** Quarterly
-**Owner:** Policy Owner (`rkant@svayamtech.com`)
+**Owner:** Policy Owner (`{{POLICY_OWNER_EMAIL}}`)
 
 ### Steps
 1. Review `knowledge/compliance/` org-level summary

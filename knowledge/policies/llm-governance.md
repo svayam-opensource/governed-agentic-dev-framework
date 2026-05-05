@@ -1,6 +1,6 @@
 # LLM Governance Policy
 
-**Owner:** Infrastructure Owner (acting: `rkant@svayamtech.com`)
+**Owner:** Infrastructure Owner (acting: `{{POLICY_OWNER_EMAIL}}`)
 **Parent Policy:** `knowledge/policies/agentic-development-policy.md`
 **Compliance Level:** C01 for Prohibited tier and data rules; C02 for Provisional tier
 
@@ -8,7 +8,7 @@
 
 ## Purpose
 
-This policy governs which LLM providers and models may be used by agents and developers at Svayam Infoware, and what data may be passed to them.
+This policy governs which LLM providers and models may be used by agents and developers at {{ORG_NAME}}, and what data may be passed to them.
 
 ---
 

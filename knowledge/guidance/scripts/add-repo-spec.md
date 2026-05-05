@@ -41,7 +41,7 @@
      added_at: <today>
      added_reason: <added_reason>
    ```
-7. Commit updated `project.yaml` to `svm-NNN-slug` branch in `000-svm-prj`
+7. Commit updated `project.yaml` to `svm-NNN-slug` branch in `{{WORKSPACE_REPO}}`
 
 ---
 

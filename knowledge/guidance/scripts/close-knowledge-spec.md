@@ -31,7 +31,7 @@
    - Identify existing content to update
    - Identify patterns, guidance, decisions, or compliance notes worth promoting
 4. Generate a human-readable narrative summary of proposals (for PR description)
-5. Checkout new branch `svm-NNN-slug-knowledge` from `master` of `000-svm-prj`
+5. Checkout new branch `svm-NNN-slug-knowledge` from `master` of `{{WORKSPACE_REPO}}`
 6. Apply proposed changes to `knowledge/` on that branch
 7. Commit changes
 8. Raise PR: `svm-NNN-slug-knowledge` → `master`

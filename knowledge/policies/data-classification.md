@@ -1,6 +1,6 @@
 # Data Classification Policy
 
-**Owner:** Policy Owner (`rkant@svayamtech.com`)
+**Owner:** Policy Owner (`{{POLICY_OWNER_EMAIL}}`)
 **Parent Policy:** `knowledge/policies/agentic-development-policy.md`
 **Compliance Level:** C01 for Restricted tier; C02 for Confidential tier
 
@@ -8,7 +8,7 @@
 
 ## Purpose
 
-This policy defines how data is classified at Svayam Infoware and the rules governing what data may appear in repositories, knowledge bases, and agent contexts.
+This policy defines how data is classified at {{ORG_NAME}} and the rules governing what data may appear in repositories, knowledge bases, and agent contexts.
 
 ---
 
@@ -66,7 +66,7 @@ If an agent detects Restricted data in any file it is about to commit or pass to
 1. **Hard stop** — do not commit, do not proceed **(C01)**
 2. Remove or redact the data immediately
 3. Surface the detection to the human developer
-4. Escalate to Policy Owner (`rkant@svayamtech.com`)
+4. Escalate to Policy Owner (`{{POLICY_OWNER_EMAIL}}`)
 5. Log the incident in `projects/SVM-NNN-slug/knowledge/compliance.md`
 
 Failure to stop on detecting Restricted data is itself a C01 violation.

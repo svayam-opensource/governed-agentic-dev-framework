@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `github_project_url` | Yes | URL to the GitHub Project in `000-svm-prj` |
+| `github_project_url` | Yes | URL to the GitHub Project in `{{WORKSPACE_REPO}}` |
 | `assignee` | Yes | Individual email or team-id |
 
 ---
@@ -35,7 +35,7 @@
 2. Slugify the GitHub Project name → `short-slug` (lowercase, hyphen-separated)
 3. Read `registry.yaml` → get `last_issued`, compute `NNN = last_issued + 1`
 4. Compose project ID: `SVM-NNN-slug`
-5. Create branch `svm-NNN-slug` from `master` in `000-svm-prj`
+5. Create branch `svm-NNN-slug` from `master` in `{{WORKSPACE_REPO}}`
 6. Switch to new branch
 7. Create directory `projects/SVM-NNN-slug/` with structure:
    ```
@@ -57,15 +57,15 @@
     - Push branch to remote
 12. Update `registry.yaml`: increment `last_issued`, append project to `projects[]`
 13. Set `project.yaml` status to `active`, populate `started_at`
-14. Commit all changes to `svm-NNN-slug` branch in `000-svm-prj`
+14. Commit all changes to `svm-NNN-slug` branch in `{{WORKSPACE_REPO}}`
 15. Push branch to remote
 
 ---
 
 ## Outputs
 
-- `projects/SVM-NNN-slug/` workspace scaffolded in `000-svm-prj`
-- Branch `svm-NNN-slug` created in `000-svm-prj` and all identified repos
+- `projects/SVM-NNN-slug/` workspace scaffolded in `{{WORKSPACE_REPO}}`
+- Branch `svm-NNN-slug` created in `{{WORKSPACE_REPO}}` and all identified repos
 - `registry.yaml` updated with new project
 - `project.yaml` status: `active`
 

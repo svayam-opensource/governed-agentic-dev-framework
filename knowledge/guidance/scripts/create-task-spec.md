@@ -30,7 +30,7 @@
 1. Verify pre-conditions
 2. Derive `task-slug` from GitHub Issue title (lowercase, hyphen-separated)
 3. Compose sub-branch name: `svm-NNN-slug/task-slug`
-4. In `000-svm-prj`: create `svm-NNN-slug/task-slug` from `svm-NNN-slug`
+4. In `{{WORKSPACE_REPO}}`: create `svm-NNN-slug/task-slug` from `svm-NNN-slug`
 5. For each repo in `repos[]`: create `svm-NNN-slug/task-slug` from `svm-NNN-slug`
 6. Push all sub-branches to remote
 7. Assign GitHub Issue to `assignee`

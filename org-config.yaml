@@ -1,0 +1,46 @@
+# Agentic Development Framework — Organization Configuration
+#
+# This file configures the framework for your organization.
+# After editing, run: bash setup.sh
+#
+# This file is the single source of truth for all org-specific values.
+# Scripts read this file at runtime.
+
+# Full legal name of your organization
+org_name: "Svayam Infoware Pvt. Ltd."
+
+# Short display name (used in headings and prose)
+org_short_name: "Svayam"
+
+# Uppercase slug used as prefix for all project IDs (e.g. SVM → SVM-001-my-project)
+# Keep it short (2-6 characters), uppercase, no spaces or special characters
+org_slug: "SVM"
+
+# Lowercase version of org_slug — used in branch names (e.g. svm-001-my-project)
+# Must match org_slug lowercased
+org_slug_lower: "svm"
+
+# GitHub organization or username where all repos live
+github_org: "svayam-rkant"
+
+# Name of this central workspace repository
+workspace_repo: "000-svm-prj"
+
+# Default branch name for this workspace repo
+default_branch: "main"
+
+# Default base branch for code repositories (used by seed script)
+default_code_branch: "dev"
+
+# Policy Owner details (current holder of all policy roles at launch)
+policy_owner_email: "rkant@svayamtech.com"
+policy_owner_github: "@rkant-svayam"
+
+# Other role GitHub handles (update as roles are formally assigned)
+legal_owner_github: "@legal-owner-tbd"
+infra_owner_github: "@infrastructure-owner-tbd"
+system_arch_owner_github: "@system-arch-owner-tbd"
+data_arch_owner_github: "@data-arch-owner-tbd"
+
+# Effective date of the policy (YYYY-MM-DD)
+policy_effective_date: "2026-05-05"

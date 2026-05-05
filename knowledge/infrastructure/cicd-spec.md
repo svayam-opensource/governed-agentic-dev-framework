@@ -1,14 +1,14 @@
-# CI/CD Pipeline Specification — 000-svm-prj
+# CI/CD Pipeline Specification — {{WORKSPACE_REPO}}
 
-**Owner:** Infrastructure Owner (acting: `rkant@svayamtech.com`)
-**Scope:** This specification applies to `000-svm-prj` ONLY.
+**Owner:** Infrastructure Owner (acting: `{{POLICY_OWNER_EMAIL}}`)
+**Scope:** This specification applies to `{{WORKSPACE_REPO}}` ONLY.
 **Note:** Other repos are not covered by this spec. They adopt the agentic development policy via the `onboard-repo` script without CI/CD changes.
 
 ---
 
 ## Overview
 
-The `000-svm-prj` CI/CD pipeline runs on every PR and every merge to `master`. It enforces structural integrity and keeps knowledge publications current.
+The `{{WORKSPACE_REPO}}` CI/CD pipeline runs on every PR and every merge to `master`. It enforces structural integrity and keeps knowledge publications current.
 
 ---
 

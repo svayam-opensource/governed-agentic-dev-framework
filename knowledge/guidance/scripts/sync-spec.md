@@ -24,8 +24,8 @@
 ## Steps
 
 1. Verify `status: active` and no uncommitted changes
-2. Fetch latest `master` in `000-svm-prj`
-3. Merge `master` → `svm-NNN-slug` in `000-svm-prj`
+2. Fetch latest `master` in `{{WORKSPACE_REPO}}`
+3. Merge `master` → `svm-NNN-slug` in `{{WORKSPACE_REPO}}`
 4. Pause for human conflict resolution if needed, then continue
 5. For each repo in `repos[]`:
    - Fetch latest `base_branch`

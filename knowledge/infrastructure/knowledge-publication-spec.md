@@ -1,13 +1,13 @@
 # Knowledge Publication Specification
 
-**Owner:** Infrastructure Owner (acting: `rkant@svayamtech.com`)
+**Owner:** Infrastructure Owner (acting: `{{POLICY_OWNER_EMAIL}}`)
 **Parent Policy:** `knowledge/policies/agentic-development-policy.md` (POL-083 to POL-086)
 
 ---
 
 ## Overview
 
-Org-wide knowledge in `000-svm-prj` is published in three forms, all generated from the same markdown source on every master merge via the CI/CD pipeline.
+Org-wide knowledge in `{{WORKSPACE_REPO}}` is published in three forms, all generated from the same markdown source on every master merge via the CI/CD pipeline.
 
 ---
 
@@ -18,7 +18,7 @@ Primary knowledge consumption interface for developers, governance teams, and au
 
 ### Requirements
 - **Access:** Internal only — behind authentication. No public access.
-- **Authentication:** GitHub OAuth or equivalent SSO. Only Svayam Infoware authorized users.
+- **Authentication:** GitHub OAuth or equivalent SSO. Only {{ORG_NAME}} authorized users.
 - **Content:** All markdown files in `knowledge/` and `projects/` rendered as navigable web pages
 - **Navigation:** Hyperlinked — policies link to roles, roles link to exceptions, exceptions link to approvals, decisions link back to projects
 - **Search:** Full-text search across all knowledge content
@@ -48,7 +48,7 @@ Formal documents suitable for regulators, external auditors, and legal review.
   - Version (git commit SHA of the merge)
   - Effective date
   - Policy owner name and role
-  - Svayam Infoware Pvt. Ltd. branding
+  - {{ORG_NAME}} branding
 - **Scope:** One PDF per top-level policy document in `knowledge/policies/`
 
 ### PDF Documents Generated

@@ -1,7 +1,7 @@
 # Architecture Exception Request Template
 
 **Exception Path:** `knowledge/policies/exceptions/architecture/`
-**Approver:** System Architecture Owner or Data Architecture Owner (current: `rkant@svayamtech.com`)
+**Approver:** System Architecture Owner or Data Architecture Owner (current: `{{POLICY_OWNER_EMAIL}}`)
 **Compliance Level:** C02 — Always Apply exception process
 
 ---
@@ -51,8 +51,8 @@ alternatives_considered: |
 ## Approval Record (completed by Architecture Owner on merge)
 
 ```yaml
-approved_by: rkant@svayamtech.com
+approved_by: {{POLICY_OWNER_EMAIL}}
 approval_date: YYYY-MM-DD
-approval_pr: https://github.com/svayam-rkant/000-svm-prj/pull/NNN
+approval_pr: https://github.com/{{GITHUB_ORG}}/{{WORKSPACE_REPO}}/pull/NNN
 conditions: ~
 ```
