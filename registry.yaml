@@ -1,0 +1,7 @@
+# Svayam Infoware Project Registry
+# Authoritative source for SVM-NNN project numbering.
+# The seed script reads last_issued, increments it, and updates this file.
+# Never edit manually — use the seed script.
+
+last_issued: 0
+projects: []

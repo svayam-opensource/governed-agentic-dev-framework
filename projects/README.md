@@ -1,0 +1,9 @@
+# Projects
+
+This folder contains all project workspaces for Svayam Infoware agentic development projects.
+
+Each subfolder corresponds to one project, named `SVM-NNN-slug`.
+Project workspaces are created by the `seed` script and live on project branches (`svm-NNN-slug`).
+
+See `registry.yaml` for the complete project registry.
+See `knowledge/policies/agentic-development-policy.md` for governance rules.

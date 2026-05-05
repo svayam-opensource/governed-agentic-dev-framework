@@ -1,0 +1,18 @@
+# Svayam Infoware — Knowledge Domain Ownership
+# All knowledge/ subfolders are mapped to their domain owners.
+# PRs touching these paths require the mapped owner's approval before merge to master.
+# Role holders are defined in knowledge/policies/roles.md
+# GitHub handles below must be updated when role holders change.
+
+knowledge/policies/                    @rkant-svayam
+knowledge/legal/                       @legal-owner-tbd
+knowledge/infrastructure/              @infrastructure-owner-tbd
+knowledge/architecture/system/         @system-arch-owner-tbd
+knowledge/architecture/data/           @data-arch-owner-tbd
+knowledge/guidance/                    @rkant-svayam
+knowledge/patterns/                    @rkant-svayam
+knowledge/compliance/                  @rkant-svayam
+knowledge/accumulated/                 @rkant-svayam
+projects/                              @rkant-svayam
+registry.yaml                          @rkant-svayam
+agent.md                               @rkant-svayam
