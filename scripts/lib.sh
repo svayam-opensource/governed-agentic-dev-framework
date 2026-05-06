@@ -10,9 +10,36 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG="$REPO_ROOT/org-config.yaml"
 REGISTRY="$REPO_ROOT/registry.yaml"
 
+# ── Dependency check ─────────────────────────────────────────────────────────
+
+check_deps() {
+  local missing=()
+  for dep in git gh yq python3; do
+    command -v "$dep" &>/dev/null || missing+=("$dep")
+  done
+  # yq optional if python3 present; python3 optional if yq present
+  if [[ " ${missing[*]} " == *" yq "* && " ${missing[*]} " != *" python3 "* ]]; then
+    missing=("${missing[@]/yq}")   # python3 covers for yq
+  fi
+  if [[ " ${missing[*]} " == *" python3 "* && " ${missing[*]} " != *" yq "* ]]; then
+    missing=("${missing[@]/python3}")  # yq covers for python3
+  fi
+  # Remove empty entries
+  local truly_missing=()
+  for m in "${missing[@]}"; do [[ -n "$m" ]] && truly_missing+=("$m"); done
+
+  if [[ ${#truly_missing[@]} -gt 0 ]]; then
+    echo "" >&2
+    echo "Missing dependencies: ${truly_missing[*]}" >&2
+    echo "Run: bash scripts/install-deps.sh" >&2
+    exit 1
+  fi
+}
+
 # ── Config ────────────────────────────────────────────────────────────────────
 
 load_config() {
+  check_deps
   if command -v yq &>/dev/null; then
     ORG_NAME=$(yq '.org_name'           "$CONFIG")
     ORG_SLUG=$(yq '.org_slug'           "$CONFIG")

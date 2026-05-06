@@ -6,8 +6,7 @@
 # Reads org-config.yaml and substitutes all placeholder values throughout
 # the framework files. Run this once when adopting this framework for your org.
 #
-# Prerequisites: yq (YAML parser) — install via: brew install yq
-# Also works with python3 if yq is unavailable.
+# Prerequisites: Run  bash scripts/install-deps.sh  first to install all deps.
 
 set -e
 
@@ -16,6 +15,20 @@ CONFIG="org-config.yaml"
 if [ ! -f "$CONFIG" ]; then
   echo "Error: $CONFIG not found. Run this script from the repo root."
   exit 1
+fi
+
+# Dependency check — require yq or python3 with PyYAML
+if ! command -v yq &>/dev/null; then
+  if ! command -v python3 &>/dev/null; then
+    echo "Error: Neither yq nor python3 is installed."
+    echo "Run: bash scripts/install-deps.sh"
+    exit 1
+  fi
+  if ! python3 -c "import yaml" &>/dev/null; then
+    echo "Error: python3 is available but PyYAML is not installed."
+    echo "Run: bash scripts/install-deps.sh"
+    exit 1
+  fi
 fi
 
 # Read config values
