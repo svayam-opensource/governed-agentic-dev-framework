@@ -43,12 +43,14 @@ divider(){ echo -e "${DIM}──────────────────
 # ── Read org config ───────────────────────────────────────────────────────────
 
 if command -v yq &>/dev/null; then
-  ORG_NAME=$(yq '.org_name'         "$CONFIG" 2>/dev/null || echo "")
-  ORG_SLUG=$(yq '.org_slug'         "$CONFIG" 2>/dev/null || echo "")
+  ORG_NAME=$(yq '.org_name'           "$CONFIG" 2>/dev/null || echo "")
+  ORG_SLUG=$(yq '.org_slug'           "$CONFIG" 2>/dev/null || echo "")
+  GITHUB_ORG=$(yq '.github_org'       "$CONFIG" 2>/dev/null || echo "")
   DEFAULT_BRANCH=$(yq '.default_branch' "$CONFIG" 2>/dev/null || echo "main")
 else
   ORG_NAME=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['org_name'])" 2>/dev/null || echo "")
   ORG_SLUG=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['org_slug'])" 2>/dev/null || echo "")
+  GITHUB_ORG=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['github_org'])" 2>/dev/null || echo "")
   DEFAULT_BRANCH=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['default_branch'])" 2>/dev/null || echo "main")
 fi
 
@@ -208,14 +210,70 @@ PY
 cmd_init() {
   header "Initialize New Project"
   divider
-  label "This will scaffold a new project workspace and create branches in all linked repos."
+  label "Fetching GitHub Projects for ${GITHUB_ORG}..."
   echo ""
-  ask GITHUB_PROJECT_URL "GitHub Project URL"
+
+  # Fetch projects from GitHub — try org first, fall back to user
+  PROJECTS_JSON=$(gh project list --owner "$GITHUB_ORG" --format json 2>/dev/null) \
+    || PROJECTS_JSON=""
+
+  if [[ -z "$PROJECTS_JSON" ]] || \
+     [[ "$(echo "$PROJECTS_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('projects',[])))" 2>/dev/null)" == "0" ]]; then
+    err "No open GitHub Projects found for '$GITHUB_ORG'."
+    echo ""
+    label "Create a project at: https://github.com/orgs/${GITHUB_ORG}/projects/new"
+    label "Then re-run: ./prj init"
+    echo ""
+    return 1
+  fi
+
+  # Parse and display projects
+  local TITLES URLS NUMS
+  mapfile -t TITLES < <(echo "$PROJECTS_JSON" | python3 -c "
+import sys, json
+ps = json.load(sys.stdin).get('projects', [])
+for p in ps: print(p.get('title', '(untitled)'))
+")
+  mapfile -t URLS < <(echo "$PROJECTS_JSON" | python3 -c "
+import sys, json
+ps = json.load(sys.stdin).get('projects', [])
+for p in ps: print(p.get('url', ''))
+")
+  mapfile -t NUMS < <(echo "$PROJECTS_JSON" | python3 -c "
+import sys, json
+ps = json.load(sys.stdin).get('projects', [])
+for p in ps: print(p.get('number', ''))
+")
+
+  echo -e "${BOLD}Select a GitHub Project to initialize:${NC}"
+  for i in "${!TITLES[@]}"; do
+    printf "  ${CYAN}%d)${NC} %s\n" $((i+1)) "${TITLES[$i]}"
+  done
+  echo ""
+
+  local CHOICE
+  while true; do
+    printf "Choose [1-%d]: " "${#TITLES[@]}"
+    read -r CHOICE
+    if [[ "$CHOICE" =~ ^[0-9]+$ ]] && (( CHOICE >= 1 && CHOICE <= ${#TITLES[@]} )); then
+      break
+    fi
+    err "Invalid choice."
+  done
+
+  local SELECTED_TITLE="${TITLES[$((CHOICE-1))]}"
+  local SELECTED_URL="${URLS[$((CHOICE-1))]}"
+
+  echo ""
+  echo -e "  ${BOLD}Project:${NC} $SELECTED_TITLE"
+  echo -e "  ${BOLD}URL:${NC}     $SELECTED_URL"
+  echo ""
+
   ask ASSIGNEE "Assignee email" "$CURRENT_USER"
   echo ""
-  confirm "Seed project from '$GITHUB_PROJECT_URL' assigned to '$ASSIGNEE'?"
+  confirm "Initialize '$SELECTED_TITLE' assigned to '$ASSIGNEE'?"
   echo ""
-  bash "$SCRIPTS/seed.sh" "$GITHUB_PROJECT_URL" "$ASSIGNEE"
+  bash "$SCRIPTS/seed.sh" "$SELECTED_URL" "$ASSIGNEE"
 }
 
 cmd_task() {
