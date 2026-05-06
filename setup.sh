@@ -6,7 +6,7 @@
 # Reads org-config.yaml and substitutes all placeholder values throughout
 # the framework files. Run this once when adopting this framework for your org.
 #
-# Prerequisites: Run  bash scripts/install-deps.sh  first to install all deps.
+# Prerequisites: none — dependencies are installed automatically.
 
 set -e
 
@@ -17,19 +17,8 @@ if [ ! -f "$CONFIG" ]; then
   exit 1
 fi
 
-# Dependency check — require yq or python3 with PyYAML
-if ! command -v yq &>/dev/null; then
-  if ! command -v python3 &>/dev/null; then
-    echo "Error: Neither yq nor python3 is installed."
-    echo "Run: bash scripts/install-deps.sh"
-    exit 1
-  fi
-  if ! python3 -c "import yaml" &>/dev/null; then
-    echo "Error: python3 is available but PyYAML is not installed."
-    echo "Run: bash scripts/install-deps.sh"
-    exit 1
-  fi
-fi
+# Install dependencies automatically
+bash "$(dirname "$0")/scripts/install-deps.sh"
 
 # Read config values
 if command -v yq &> /dev/null; then
