@@ -266,16 +266,16 @@ fi
 
 # ── Update registry.yaml ──────────────────────────────────────────────────────
 
-python3 - "$REGISTRY" "$PROJECT_ID" "$BRANCH" "$TODAY" "$GITHUB_PROJECT_URL" $((LAST_ISSUED + 1)) <<'PY'
+python3 - "$REGISTRY" "$PROJECT_ID" "$BRANCH" "$TODAY" "$GITHUB_PROJECT_URL" $((LAST_ISSUED + 1)) "$PROJECT_OWNER" <<'PY'
 import sys, yaml
-registry, pid, branch, today, gh_url, new_last = sys.argv[1:]
+registry, pid, branch, today, gh_url, new_last, owner = sys.argv[1:]
 with open(registry) as f:
     c = yaml.safe_load(f)
 c['last_issued'] = int(new_last)
 if not c.get('projects'):
     c['projects'] = []
 c['projects'].append({'id': pid, 'branch': branch, 'github_project': gh_url,
-                      'created_at': today, 'status': 'active'})
+                      'github_owner': owner, 'created_at': today, 'status': 'active'})
 with open(registry, 'w') as f:
     yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY

@@ -686,29 +686,63 @@ cmd_manage_list() {
   header "Project Assignments"
   divider
   echo ""
-  python3 - "$REGISTRY" "$SCRIPT_DIR" <<'PY'
-import sys, os, yaml
-registry, proj_dir = sys.argv[1], sys.argv[2]
+
+  ask GH_OWNER "GitHub org or username" "$GITHUB_ORG"
+  echo ""
+  label "Fetching GitHub Projects for ${GH_OWNER}..."
+  echo ""
+
+  python3 - "$REGISTRY" "$SCRIPT_DIR" "$GH_OWNER" <<'PY'
+import sys, os, json, subprocess, yaml
+
+registry_path, proj_dir, owner = sys.argv[1], sys.argv[2], sys.argv[3]
 BOLD='\033[1m'; NC='\033[0m'; DIM='\033[2m'
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'
 status_colour = {'active': GREEN, 'paused': YELLOW, 'completed': CYAN, 'cancelled': RED}
-c = yaml.safe_load(open(registry))
-projects = [p for p in (c.get('projects') or []) if p]
-if not projects:
-    print("  No projects found.")
+
+result = subprocess.run(
+    ['gh', 'project', 'list', '--owner', owner, '--format', 'json', '--limit', '100'],
+    capture_output=True, text=True
+)
+if result.returncode != 0 or not result.stdout.strip():
+    print(f"  Could not fetch GitHub Projects for '{owner}'.")
+    print(f"  {DIM}Tip: gh project list --owner {owner}{NC}")
     sys.exit(0)
-print(f"  {BOLD}{'PROJECT':<40} {'STATUS':<12} ASSIGNED TO{NC}")
-print(f"  {DIM}{'─'*40} {'─'*12} {'─'*30}{NC}")
-for p in projects:
-    pf = os.path.join(proj_dir, 'projects', p['id'], 'project.yaml')
-    assignee = ''
-    if os.path.exists(pf):
-        pc = yaml.safe_load(open(pf))
-        assignee = pc.get('assigned_to') or ''
-    s = p.get('status', '?')
-    sc = status_colour.get(s, '')
-    adisp = assignee if assignee else f'{DIM}(unassigned){NC}'
-    print(f"  {BOLD}{p['id']:<40}{NC} {sc}{s:<12}{NC} {adisp}")
+
+gh_projects = json.loads(result.stdout).get('projects', [])
+if not gh_projects:
+    print(f"  No open GitHub Projects found for '{owner}'.")
+    sys.exit(0)
+
+# Load registry — build lookup by github_project URL
+c = yaml.safe_load(open(registry_path)) or {}
+reg_by_url = {}
+for p in (c.get('projects') or []):
+    if p and p.get('github_project'):
+        reg_by_url[p['github_project']] = p
+
+print(f"  {BOLD}{'GITHUB PROJECT':<38} {'SEEDED AS':<22} {'STATUS':<12} ASSIGNED TO{NC}")
+print(f"  {DIM}{'─'*38} {'─'*22} {'─'*12} {'─'*25}{NC}")
+
+for gh in gh_projects:
+    title = (gh.get('title') or '(untitled)')[:36]
+    url   = gh.get('url', '')
+
+    if url in reg_by_url:
+        reg = reg_by_url[url]
+        pid = reg.get('id', '—')
+        s   = reg.get('status', '?')
+        sc  = status_colour.get(s, '')
+        pf  = os.path.join(proj_dir, 'projects', pid, 'project.yaml')
+        assignee = ''
+        if os.path.exists(pf):
+            pc = yaml.safe_load(open(pf))
+            assignee = pc.get('assigned_to') or ''
+        adisp = assignee if assignee else f'{DIM}(unassigned){NC}'
+        print(f"  {title:<38} {BOLD}{pid:<22}{NC} {sc}{s:<12}{NC} {adisp}")
+    else:
+        print(f"  {title:<38} {DIM}{'(not seeded)':<22}{'—':<12}(unassigned){NC}")
+
 print()
 PY
 }
