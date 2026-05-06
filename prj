@@ -140,10 +140,9 @@ PY
     exit 1
   fi
 
-  local __ids=() __labels=()
+  local __ids=()
   while IFS='|' read -r id status; do
     __ids+=("$id")
-    __labels+=("$id  ${DIM}(${status})${NC}")
   done <<< "$__projects"
 
   echo -e "${BOLD}Select project:${NC}"
@@ -186,7 +185,7 @@ PY
   fi
 
   local __ids=()
-  while IFS= read -r tid; do __ids+=("$tid"); done <<< "$__tasks"
+  while IFS= read -r tid; do [[ -n "$tid" ]] && __ids+=("$tid"); done <<< "$__tasks"
 
   echo -e "${BOLD}Select task:${NC}"
   for i in "${!__ids[@]}"; do
@@ -237,19 +236,19 @@ cmd_init() {
     return
   fi
 
-  # Parse and display projects
-  local TITLES URLS NUMS
-  mapfile -t TITLES < <(echo "$PROJECTS_JSON" | python3 -c "
+  # Parse and display projects (bash 3.2 compatible — no mapfile)
+  local TITLES=() URLS=() NUMS=()
+  while IFS= read -r line; do TITLES+=("$line"); done < <(echo "$PROJECTS_JSON" | python3 -c "
 import sys, json
 ps = json.load(sys.stdin).get('projects', [])
 for p in ps: print(p.get('title', '(untitled)'))
 ")
-  mapfile -t URLS < <(echo "$PROJECTS_JSON" | python3 -c "
+  while IFS= read -r line; do URLS+=("$line"); done < <(echo "$PROJECTS_JSON" | python3 -c "
 import sys, json
 ps = json.load(sys.stdin).get('projects', [])
 for p in ps: print(p.get('url', ''))
 ")
-  mapfile -t NUMS < <(echo "$PROJECTS_JSON" | python3 -c "
+  while IFS= read -r line; do NUMS+=("$line"); done < <(echo "$PROJECTS_JSON" | python3 -c "
 import sys, json
 ps = json.load(sys.stdin).get('projects', [])
 for p in ps: print(p.get('number', ''))
