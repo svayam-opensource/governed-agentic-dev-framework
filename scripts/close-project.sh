@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# Script: close-project
+# Purpose: Closes project work. Validates completion, merges branches to base,
+#          archives, then triggers close-knowledge.
+# Usage:   bash close-project.sh <project_id>
+# Compliance: C01 for pre-close gate (POL-087 to POL-096)
+
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+load_config
+
+# ── Inputs ────────────────────────────────────────────────────────────────────
+
+PROJECT_ID="${1:-}"
+[[ -n "$PROJECT_ID" ]] || hard_stop "Usage: $0 <project_id>"
+
+echo "=== close-project: $PROJECT_ID"
+echo ""
+
+PROJECT_YAML=$(get_project_yaml "$PROJECT_ID")
+PROJECT_DIR=$(get_project_dir "$PROJECT_ID")
+check_project_exists "$PROJECT_ID"
+
+# ── C01 Pre-close Gate ────────────────────────────────────────────────────────
+
+echo "[ C01 ] Running pre-close gate..."
+GATE_FAILURES=()
+
+# 1. knowledge/ contains at least one file
+KNOWLEDGE_DIR="$PROJECT_DIR/knowledge"
+if [[ ! -d "$KNOWLEDGE_DIR" ]] || [[ -z "$(find "$KNOWLEDGE_DIR" -type f 2>/dev/null)" ]]; then
+  GATE_FAILURES+=("projects/$PROJECT_ID/knowledge/ is empty — document project learnings first.")
+fi
+
+# 2. compliance.md exists
+if [[ ! -f "$KNOWLEDGE_DIR/compliance.md" ]]; then
+  GATE_FAILURES+=("projects/$PROJECT_ID/knowledge/compliance.md is missing — required before close.")
+fi
+
+# 3. project.yaml mandatory fields populated
+for field in id slug assigned_to locked_by started_at; do
+  val=$(yaml_get "$PROJECT_YAML" "$field")
+  [[ -z "$val" || "$val" == "~" ]] && GATE_FAILURES+=("project.yaml field '$field' is not populated.")
+done
+
+# 4. completed_at not yet set (prevent double-close)
+COMPLETED_AT=$(yaml_get "$PROJECT_YAML" "completed_at")
+[[ -n "$COMPLETED_AT" && "$COMPLETED_AT" != "~" ]] \
+  && GATE_FAILURES+=("project.yaml 'completed_at' is already set — project may already be closed.")
+
+if [[ ${#GATE_FAILURES[@]} -gt 0 ]]; then
+  echo "" >&2
+  echo "[ C01 ] Pre-close gate FAILED:" >&2
+  for f in "${GATE_FAILURES[@]}"; do
+    echo "    - $f" >&2
+  done
+  hard_stop "Fix the above issues before closing the project."
+fi
+
+echo "[ C01 ] Pre-close gate passed."
+echo ""
+
+require_project_status "$PROJECT_YAML" "active"
+
+BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
+TODAY=$(today)
+
+# ── Merge each code repo branch → base_branch ────────────────────────────────
+
+echo "Merging code repo branches..."
+
+while IFS= read -r repo_url; do
+  REPO_NAME=$(get_repo_name "$repo_url")
+  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
+  REPO_BASE=$(get_repo_base_branch "$PROJECT_YAML" "$repo_url")
+
+  if [[ ! -d "$REPO_DIR/.git" ]]; then
+    warn "Repo $REPO_NAME not cloned locally — skipping merge (merge manually)."
+    continue
+  fi
+
+  echo "Merging '$BRANCH' → '$REPO_BASE' in $REPO_NAME..."
+  git -C "$REPO_DIR" fetch origin "$REPO_BASE"
+  git -C "$REPO_DIR" fetch origin "$BRANCH" 2>/dev/null || true
+  git -C "$REPO_DIR" checkout "$REPO_BASE"
+  if ! git -C "$REPO_DIR" merge --no-edit "$BRANCH" 2>/dev/null; then
+    echo ""
+    echo "MERGE CONFLICT: $BRANCH → $REPO_BASE in $REPO_NAME."
+    echo "Resolve conflicts manually, commit, then re-run: bash close-project.sh $PROJECT_ID"
+    exit 2
+  fi
+  git -C "$REPO_DIR" push origin "$REPO_BASE"
+  info "$REPO_NAME: merged successfully."
+done < <(get_project_repos "$PROJECT_YAML")
+
+# ── Merge workspace branch → DEFAULT_BRANCH ──────────────────────────────────
+
+echo "Merging '$BRANCH' → '$DEFAULT_BRANCH' in workspace repo..."
+cd "$REPO_ROOT"
+git fetch origin "$DEFAULT_BRANCH"
+git fetch origin "$BRANCH" 2>/dev/null || true
+git checkout "$DEFAULT_BRANCH"
+git pull origin "$DEFAULT_BRANCH"
+if ! git merge --no-edit "$BRANCH" 2>/dev/null; then
+  echo ""
+  echo "MERGE CONFLICT: $BRANCH → $DEFAULT_BRANCH in workspace repo."
+  echo "Resolve conflicts manually, commit, then re-run: bash close-project.sh $PROJECT_ID"
+  exit 2
+fi
+info "Workspace repo: merged successfully."
+
+# ── Archive branches ──────────────────────────────────────────────────────────
+
+echo ""
+echo "Archiving branches..."
+
+archive_branch "$REPO_ROOT" "$BRANCH"
+
+while IFS= read -r repo_url; do
+  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$(get_repo_name "$repo_url")"
+  [[ -d "$REPO_DIR/.git" ]] && archive_branch "$REPO_DIR" "$BRANCH"
+done < <(get_project_repos "$PROJECT_YAML")
+
+# ── Update project.yaml and push to DEFAULT_BRANCH ───────────────────────────
+
+yaml_set "$PROJECT_YAML" "status"       "completed"
+yaml_set "$PROJECT_YAML" "completed_at" "$TODAY"
+
+python3 - "$REGISTRY" "$PROJECT_ID" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    c = yaml.safe_load(f)
+for p in (c.get('projects') or []):
+    if p and p.get('id') == sys.argv[2]:
+        p['status'] = 'completed'
+        break
+with open(sys.argv[1], 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+PY
+
+cd "$REPO_ROOT"
+git add "projects/$PROJECT_ID/project.yaml" registry.yaml
+git commit -m "close-project: $PROJECT_ID"
+git push origin "$DEFAULT_BRANCH"
+
+echo ""
+echo "=== Project closed."
+echo "    Status:       completed"
+echo "    completed_at: $TODAY"
+echo ""
+
+# ── Automatically trigger close-knowledge ────────────────────────────────────
+
+echo "Triggering close-knowledge..."
+bash "$(dirname "$0")/close-knowledge.sh" "$PROJECT_ID"
