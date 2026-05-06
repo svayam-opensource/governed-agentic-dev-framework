@@ -200,6 +200,43 @@ install_yq_binary() {
   fi
 }
 
+install_pyyaml() {
+  if python3 -c "import yaml" &>/dev/null; then
+    return 0  # already installed
+  fi
+  info "Installing PyYAML..."
+  case "$OS-$PKG_MGR" in
+    macos-*)
+      # Homebrew Python uses PEP 668 — --break-system-packages is the correct flag
+      pip3 install --break-system-packages pyyaml \
+        || { warn "pip3 failed — trying brew python3-yaml..."; brew install pyyaml 2>/dev/null || true; }
+      ;;
+    linux-apt)
+      # Try distro package first (no pip needed), fall back to pip --user
+      sudo apt-get install -y python3-yaml 2>/dev/null \
+        || pip3 install --user pyyaml
+      ;;
+    linux-dnf)
+      sudo dnf install -y python3-pyyaml 2>/dev/null \
+        || pip3 install --user pyyaml
+      ;;
+    linux-yum)
+      sudo yum install -y python3-pyyaml 2>/dev/null \
+        || pip3 install --user pyyaml
+      ;;
+    linux-pacman)
+      sudo pacman -S --noconfirm python-yaml
+      ;;
+    linux-apk)
+      sudo apk add --no-cache py3-yaml
+      ;;
+    *)
+      pip3 install --user pyyaml \
+        || warn "Could not install PyYAML — install manually: pip3 install --user pyyaml"
+      ;;
+  esac
+}
+
 install_gh_binary() {
   info "Downloading gh binary from GitHub releases..."
   GH_VERSION="2.49.2"
@@ -254,6 +291,15 @@ check_dep "git"     "git"     || MISSING+=("git")
 check_dep "gh"      "gh"      || MISSING+=("gh")
 check_dep "yq"      "yq"      || MISSING+=("yq")
 check_dep "python3" "python3" || MISSING+=("python3")
+# Check PyYAML separately — python3 can be present without it
+if command -v python3 &>/dev/null; then
+  if python3 -c "import yaml" &>/dev/null; then
+    ok "pyyaml  (python3 module)"
+  else
+    fail "pyyaml  — not found (python3 module)"
+    MISSING+=("pyyaml")
+  fi
+fi
 echo ""
 
 if [[ ${#MISSING[@]} -eq 0 ]]; then
@@ -285,6 +331,7 @@ for dep in "${MISSING[@]}"; do
     git)     install_git ;;
     gh)      install_gh ;;
     yq)      install_yq ;;
+    pyyaml)  install_pyyaml ;;
     python3)
       case "$OS-$PKG_MGR" in
         macos-*)      install_brew; brew install python3 ;;
@@ -303,8 +350,15 @@ echo ""
 echo "Verifying..."
 ALL_OK=true
 for dep in "${MISSING[@]}"; do
-  cmd="$dep"
-  check_dep "$dep" "$cmd" || ALL_OK=false
+  if [[ "$dep" == "pyyaml" ]]; then
+    if python3 -c "import yaml" &>/dev/null; then
+      ok "pyyaml  (python3 module)"
+    else
+      fail "pyyaml  — still not found"; ALL_OK=false
+    fi
+  else
+    check_dep "$dep" "$dep" || ALL_OK=false
+  fi
 done
 echo ""
 
