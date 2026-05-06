@@ -210,21 +210,31 @@ PY
 cmd_init() {
   header "Initialize New Project"
   divider
-  label "Fetching GitHub Projects for ${GITHUB_ORG}..."
   echo ""
 
-  # Fetch projects from GitHub — try org first, fall back to user
-  PROJECTS_JSON=$(gh project list --owner "$GITHUB_ORG" --format json 2>/dev/null) \
+  # Ask for GitHub owner, defaulting to config value
+  ask GH_OWNER "GitHub org or username" "$GITHUB_ORG"
+  echo ""
+  label "Fetching GitHub Projects for ${GH_OWNER}..."
+
+  # Fetch projects — gh project list works for both orgs and users
+  PROJECTS_JSON=$(gh project list --owner "$GH_OWNER" --format json 2>/dev/null) \
     || PROJECTS_JSON=""
 
-  if [[ -z "$PROJECTS_JSON" ]] || \
-     [[ "$(echo "$PROJECTS_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('projects',[])))" 2>/dev/null)" == "0" ]]; then
-    err "No open GitHub Projects found for '$GITHUB_ORG'."
+  PROJECT_COUNT=$(echo "$PROJECTS_JSON" | python3 -c \
+    "import sys,json; print(len(json.load(sys.stdin).get('projects',[])))" 2>/dev/null || echo "0")
+
+  if [[ -z "$PROJECTS_JSON" ]] || [[ "$PROJECT_COUNT" == "0" ]]; then
+    err "No open GitHub Projects found for '$GH_OWNER'."
     echo ""
-    label "Create a project at: https://github.com/orgs/${GITHUB_ORG}/projects/new"
-    label "Then re-run: ./prj init"
+    label "Possible reasons:"
+    label "  • Projects exist but are closed — check: gh project list --owner $GH_OWNER --closed"
+    label "  • Wrong owner — try the org name instead of a username (or vice versa)"
+    label "  • No projects created yet — create one at: https://github.com/orgs/${GH_OWNER}/projects/new"
     echo ""
-    return 1
+    confirm "Try a different owner?"
+    cmd_init
+    return
   fi
 
   # Parse and display projects
