@@ -277,12 +277,29 @@ for p in ps: print(p.get('number', ''))
   local SELECTED_TITLE="${TITLES[$((CHOICE-1))]}"
   local SELECTED_URL="${URLS[$((CHOICE-1))]}"
 
+  # Check pre_assignment — only the assigned person may seed
+  local PRE_ASSIGNEE
+  PRE_ASSIGNEE=$(python3 - "$REGISTRY" "$SELECTED_URL" <<'PY'
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1])) or {}
+for a in (c.get('pre_assignments') or []):
+    if a and a.get('github_project') == sys.argv[2]:
+        print(a.get('assigned_to') or ''); sys.exit(0)
+print('')
+PY
+  )
+  if [[ -n "$PRE_ASSIGNEE" && "$CURRENT_USER" != "$PRE_ASSIGNEE" ]]; then
+    err "This project is assigned to '$PRE_ASSIGNEE'."
+    err "Only the assigned person may seed it. Ask the Policy Owner to reassign if needed."
+    exit 1
+  fi
+
   echo ""
   echo -e "  ${BOLD}Project:${NC} $SELECTED_TITLE"
   echo -e "  ${BOLD}URL:${NC}     $SELECTED_URL"
   echo ""
 
-  ask ASSIGNEE "Assignee email" "$CURRENT_USER"
+  ask ASSIGNEE "Assignee email" "${PRE_ASSIGNEE:-$CURRENT_USER}"
   echo ""
   confirm "Initialize '$SELECTED_TITLE' assigned to '$ASSIGNEE'?"
   echo ""
@@ -538,25 +555,57 @@ check_policy_owner() {
   confirm "Continue anyway?"
 }
 
-# Fetch GitHub org members and teams; print one candidate per line
+# Fetch GitHub org members (with email) and teams.
+# Outputs "value|display" per line.
+# value  = email for members (if public) or @team-slug for teams; empty if email is private
+# display = "email  (login)" | "login  (no public email)" | "@team-slug"
 fetch_gh_assignees() {
   local owner="${1:-$GITHUB_ORG}"
-  local candidates=()
+  python3 - "$owner" 2>/dev/null <<'PY'
+import sys, subprocess, json
 
-  # Org members
-  local members
-  members=$(gh api "/orgs/${owner}/members" --jq '.[].login' 2>/dev/null) || members=""
-  while IFS= read -r m; do [[ -n "$m" ]] && candidates+=("$m"); done <<< "$members"
+owner = sys.argv[1]
 
-  # Org teams (prefixed so they're visually distinct)
-  local teams
-  teams=$(gh api "/orgs/${owner}/teams" --jq '.[].slug' 2>/dev/null) || teams=""
-  while IFS= read -r t; do [[ -n "$t" ]] && candidates+=("@${t}"); done <<< "$teams"
+# One GraphQL call to get login + email for all org members
+gql = ('{ organization(login: "' + owner + '") { membersWithRole(first: 100) '
+       '{ nodes { login email } } } }')
+gr = subprocess.run(['gh', 'api', 'graphql', '-f', f'query={gql}'],
+                    capture_output=True, text=True)
+members_done = False
+if gr.returncode == 0 and gr.stdout.strip():
+    try:
+        nodes = (json.loads(gr.stdout)
+                 .get('data', {}).get('organization', {})
+                 .get('membersWithRole', {}).get('nodes', []))
+        for n in nodes:
+            login = n.get('login', '')
+            email = n.get('email') or ''
+            if email:
+                print(f"{email}|{email}  ({login})")
+            else:
+                print(f"|{login}  (no public email)")
+        members_done = True
+    except (json.JSONDecodeError, KeyError, TypeError):
+        pass
 
-  if [[ ${#candidates[@]} -eq 0 ]]; then
-    return 1
-  fi
-  printf '%s\n' "${candidates[@]}"
+if not members_done:
+    # REST fallback — logins only
+    r = subprocess.run(['gh', 'api', f'/orgs/{owner}/members', '--jq', '.[].login'],
+                       capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.strip():
+        for login in r.stdout.strip().splitlines():
+            if login.strip():
+                print(f"|{login.strip()}  (no public email)")
+
+# Org teams
+tr = subprocess.run(['gh', 'api', f'/orgs/{owner}/teams', '--jq', '.[].slug'],
+                    capture_output=True, text=True)
+if tr.returncode == 0 and tr.stdout.strip():
+    for slug in tr.stdout.strip().splitlines():
+        if slug.strip():
+            print(f"@{slug.strip()}|@{slug.strip()}")
+PY
+  return ${PIPESTATUS[0]}
 }
 
 # Derive branch name from project_id (SVM-001-slug → svm-001-slug)
@@ -592,89 +641,181 @@ commit_assignment() {
   esac
 }
 
-# Select a project and show its current assignee
-select_project_managed() {
-  local __var="$1"; shift
-  local __filters=("$@")
+# select_from_owner_projects <id_var> <filter>
+# filter: "unassigned" | "assigned"
+# Shows ALL GitHub Projects for owner, filtered by assignment state.
+# Un-seeded projects use pre_assignments in registry.yaml; seeded projects use project.yaml.
+# Side-effects: sets GH_OWNER, MANAGE_SELECTED_URL, MANAGE_SELECTED_PID.
+MANAGE_SELECTED_URL=""
+MANAGE_SELECTED_PID=""
+select_from_owner_projects() {
+  local __var="$1" __filter="${2:-unassigned}"
+  MANAGE_SELECTED_URL=""
+  MANAGE_SELECTED_PID=""
 
-  local __projects
-  __projects=$(python3 - "$REGISTRY" "$SCRIPT_DIR" "${__filters[@]:-}" <<'PY'
-import sys, os, yaml
-registry, proj_dir = sys.argv[1], sys.argv[2]
-filters = sys.argv[3:]
-c = yaml.safe_load(open(registry))
-for p in (c.get('projects') or []):
-    if not p: continue
-    if filters and p.get('status') not in filters: continue
-    pf = os.path.join(proj_dir, 'projects', p['id'], 'project.yaml')
-    assignee = ''
-    if os.path.exists(pf):
-        pc = yaml.safe_load(open(pf))
-        assignee = pc.get('assigned_to') or ''
-    print(f"{p['id']}|{p.get('status','?')}|{assignee}")
-PY
+  ask GH_OWNER "GitHub org or username" "$GITHUB_ORG"
+  echo ""
+  label "Fetching GitHub Projects for ${GH_OWNER}..."
+  echo ""
+
+  local __raw
+  __raw=$(python3 - "$REGISTRY" "$SCRIPT_DIR" "$GH_OWNER" "$__filter" <<'PY'
+import sys, os, json, subprocess, yaml
+
+registry_path, proj_dir, owner, filt = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+
+result = subprocess.run(
+    ['gh', 'project', 'list', '--owner', owner, '--format', 'json', '--limit', '100'],
+    capture_output=True, text=True
 )
+if result.returncode != 0 or not result.stdout.strip():
+    sys.exit(0)
 
-  [[ -n "$__projects" ]] || { err "No matching projects found."; exit 1; }
+gh_projects = json.loads(result.stdout).get('projects', [])
+c = yaml.safe_load(open(registry_path)) or {}
 
-  local __ids=() __statuses=() __assignees=()
-  while IFS='|' read -r id status assignee; do
-    __ids+=("$id"); __statuses+=("$status"); __assignees+=("$assignee")
-  done <<< "$__projects"
+reg_by_url = {}
+for p in (c.get('projects') or []):
+    if p and p.get('github_project'):
+        reg_by_url[p['github_project']] = p
+
+pre_by_url = {}
+for a in (c.get('pre_assignments') or []):
+    if a and a.get('github_project'):
+        pre_by_url[a['github_project']] = a
+
+for gh in gh_projects:
+    title    = (gh.get('title') or '').replace('\t', ' ')
+    url      = gh.get('url', '')
+    pid      = ''
+    s        = ''
+    assignee = ''
+
+    if url in reg_by_url:
+        reg = reg_by_url[url]
+        pid = reg.get('id', '')
+        s   = reg.get('status', '')
+        pf  = os.path.join(proj_dir, 'projects', pid, 'project.yaml')
+        if os.path.exists(pf):
+            assignee = yaml.safe_load(open(pf)).get('assigned_to') or ''
+    elif url in pre_by_url:
+        assignee = pre_by_url[url].get('assigned_to') or ''
+
+    if filt == 'unassigned' and assignee:
+        continue
+    if filt == 'assigned' and not assignee:
+        continue
+    print(f"{title}\t{url}\t{pid}\t{s}\t{assignee}")
+PY
+  )
+
+  if [[ -z "$__raw" ]]; then
+    case "$__filter" in
+      unassigned) err "No unassigned GitHub Projects found for '${GH_OWNER}'." ;;
+      assigned)   err "No assigned projects found for '${GH_OWNER}'." ;;
+      *)          err "No matching projects found." ;;
+    esac
+    exit 1
+  fi
+
+  local __titles=() __urls=() __pids=() __statuses=() __assignees=()
+  while IFS=$'\t' read -r title url pid status assignee; do
+    [[ -z "$url" ]] && continue
+    __titles+=("$title"); __urls+=("$url"); __pids+=("$pid")
+    __statuses+=("$status"); __assignees+=("$assignee")
+  done <<< "$__raw"
+
+  if [[ ${#__urls[@]} -eq 0 ]]; then
+    case "$__filter" in
+      unassigned) err "No unassigned GitHub Projects found for '${GH_OWNER}'." ;;
+      assigned)   err "No assigned projects found for '${GH_OWNER}'." ;;
+      *)          err "No matching projects found." ;;
+    esac
+    exit 1
+  fi
 
   echo -e "${BOLD}Select project:${NC}"
   local i
-  for i in "${!__ids[@]}"; do
-    local adisp="${__assignees[$i]:-${DIM}unassigned${NC}}"
-    printf "  ${CYAN}%d)${NC} %-40s ${DIM}%s${NC}  %s\n" \
-      $((i+1)) "${__ids[$i]}" "${__statuses[$i]}" "$adisp"
+  for i in "${!__urls[@]}"; do
+    local _title="${__titles[$i]}"
+    local _pid="${__pids[$i]}"
+    local _asgn="${__assignees[$i]}"
+    local _pd="${_pid:-(not seeded)}"
+    local _ad="${_asgn:-(unassigned)}"
+    if   [[ -n "$_pid" && -n "$_asgn" ]]; then
+      printf "  ${CYAN}%d)${NC} %-38s %-24s %s\n"               $((i+1)) "$_title" "$_pd" "$_ad"
+    elif [[ -n "$_pid" ]]; then
+      printf "  ${CYAN}%d)${NC} %-38s %-24s ${DIM}%s${NC}\n"    $((i+1)) "$_title" "$_pd" "$_ad"
+    else
+      printf "  ${CYAN}%d)${NC} %-38s ${DIM}%-24s %s${NC}\n"    $((i+1)) "$_title" "$_pd" "$_ad"
+    fi
   done
 
   local __choice
   while true; do
-    printf "Choose [1-%d]: " "${#__ids[@]}"
+    printf "Choose [1-%d]: " "${#__urls[@]}"
     read -r __choice
-    if [[ "$__choice" =~ ^[0-9]+$ ]] && (( __choice >= 1 && __choice <= ${#__ids[@]} )); then
-      printf -v "$__var" '%s' "${__ids[$((__choice-1))]}"
+    if [[ "$__choice" =~ ^[0-9]+$ ]] && (( __choice >= 1 && __choice <= ${#__urls[@]} )); then
+      local __idx=$((__choice-1))
+      printf -v "$__var" '%s' "${__pids[$__idx]}"
+      MANAGE_SELECTED_URL="${__urls[$__idx]}"
+      MANAGE_SELECTED_PID="${__pids[$__idx]}"
       return
     fi
     err "Invalid choice."
   done
 }
 
-# Pick an assignee from org members/teams or enter manually
+# Commit registry.yaml pre_assignment changes on the default branch
+commit_pre_assignment() {
+  cd "$SCRIPT_DIR"
+  git checkout "$DEFAULT_BRANCH" 2>/dev/null || true
+  git pull origin "$DEFAULT_BRANCH" 2>/dev/null || true
+  git add registry.yaml
+  git commit -m "manage: update pre-assignment in registry"
+  git push origin "$DEFAULT_BRANCH"
+}
+
+# Pick an assignee from org members/teams or enter manually.
+# Stores email (or @team-slug) in the named variable.
 select_assignee() {
   local __var="$1" __owner="${2:-$GITHUB_ORG}"
-  local candidates=()
 
   label "Fetching org members and teams from ${__owner}..."
-  while IFS= read -r c; do [[ -n "$c" ]] && candidates+=("$c"); done \
-    < <(fetch_gh_assignees "$__owner" 2>/dev/null)
 
-  if [[ ${#candidates[@]} -eq 0 ]]; then
+  local values=() displays=()
+  while IFS='|' read -r val disp; do
+    values+=("$val")
+    displays+=("$disp")
+  done < <(fetch_gh_assignees "$__owner")
+
+  if [[ ${#displays[@]} -eq 0 ]]; then
     warn "Could not fetch org members (may not be an org, or insufficient permissions)."
-    ask "$__var" "Assignee (GitHub username, email, or @team-slug)"
+    ask "$__var" "Assignee email"
     return
   fi
 
-  candidates+=("— enter manually —")
+  values+=("")
+  displays+=("— enter manually —")
+
   echo ""
   echo -e "${BOLD}Select assignee:${NC}"
   local i
-  for i in "${!candidates[@]}"; do
-    printf "  ${CYAN}%d)${NC} %s\n" $((i+1)) "${candidates[$i]}"
+  for i in "${!displays[@]}"; do
+    printf "  ${CYAN}%d)${NC} %s\n" $((i+1)) "${displays[$i]}"
   done
 
   local __choice
   while true; do
-    printf "Choose [1-%d]: " "${#candidates[@]}"
+    printf "Choose [1-%d]: " "${#displays[@]}"
     read -r __choice
-    if [[ "$__choice" =~ ^[0-9]+$ ]] && (( __choice >= 1 && __choice <= ${#candidates[@]} )); then
-      local picked="${candidates[$((__choice-1))]}"
-      if [[ "$picked" == "— enter manually —" ]]; then
-        ask "$__var" "Assignee (GitHub username, email, or @team-slug)"
+    if [[ "$__choice" =~ ^[0-9]+$ ]] && (( __choice >= 1 && __choice <= ${#displays[@]} )); then
+      local _val="${values[$((__choice-1))]}"
+      local _disp="${displays[$((__choice-1))]}"
+      if [[ "$_disp" == "— enter manually —" || -z "$_val" ]]; then
+        ask "$__var" "Assignee email"
       else
-        printf -v "$__var" '%s' "$picked"
+        printf -v "$__var" '%s' "$_val"
       fi
       return
     fi
@@ -714,12 +855,16 @@ if not gh_projects:
     print(f"  No open GitHub Projects found for '{owner}'.")
     sys.exit(0)
 
-# Load registry — build lookup by github_project URL
 c = yaml.safe_load(open(registry_path)) or {}
 reg_by_url = {}
 for p in (c.get('projects') or []):
     if p and p.get('github_project'):
         reg_by_url[p['github_project']] = p
+
+pre_by_url = {}
+for a in (c.get('pre_assignments') or []):
+    if a and a.get('github_project'):
+        pre_by_url[a['github_project']] = a
 
 print(f"  {BOLD}{'GITHUB PROJECT':<38} {'SEEDED AS':<22} {'STATUS':<12} ASSIGNED TO{NC}")
 print(f"  {DIM}{'─'*38} {'─'*22} {'─'*12} {'─'*25}{NC}")
@@ -736,10 +881,13 @@ for gh in gh_projects:
         pf  = os.path.join(proj_dir, 'projects', pid, 'project.yaml')
         assignee = ''
         if os.path.exists(pf):
-            pc = yaml.safe_load(open(pf))
-            assignee = pc.get('assigned_to') or ''
+            assignee = yaml.safe_load(open(pf)).get('assigned_to') or ''
         adisp = assignee if assignee else f'{DIM}(unassigned){NC}'
         print(f"  {title:<38} {BOLD}{pid:<22}{NC} {sc}{s:<12}{NC} {adisp}")
+    elif url in pre_by_url:
+        assignee = pre_by_url[url].get('assigned_to') or ''
+        adisp = assignee if assignee else f'{DIM}(unassigned){NC}'
+        print(f"  {title:<38} {DIM}{'(not seeded)':<22}{'pre-assigned':<12}{NC} {adisp}")
     else:
         print(f"  {title:<38} {DIM}{'(not seeded)':<22}{'—':<12}(unassigned){NC}")
 
@@ -752,29 +900,24 @@ cmd_manage_assign() {
   divider
   label "Assign an unassigned project to a GitHub user or team."
   echo ""
-  select_project_managed PROJECT_ID "active" "paused"
+  select_from_owner_projects PROJECT_ID "unassigned"
   echo ""
 
-  local pf="$SCRIPT_DIR/projects/$PROJECT_ID/project.yaml"
-  local current_assignee
-  current_assignee=$(python3 -c "import yaml; print(yaml.safe_load(open('$pf')).get('assigned_to') or '')" 2>/dev/null || echo "")
-
-  if [[ -n "$current_assignee" ]]; then
-    warn "'$PROJECT_ID' is already assigned to: $current_assignee"
-    warn "Use 'reassign' to change an existing assignment (requires reason — C02)."
-    echo ""
-    return
-  fi
-
-  ask GH_OWNER "GitHub org or username for member lookup" "$GITHUB_ORG"
   select_assignee ASSIGNEE "$GH_OWNER"
   echo ""
-  echo -e "  ${BOLD}Project:${NC}  $PROJECT_ID"
+
+  local label_proj="${MANAGE_SELECTED_PID:-$MANAGE_SELECTED_URL}"
+  echo -e "  ${BOLD}Project:${NC}  $label_proj"
   echo -e "  ${BOLD}Assignee:${NC} $ASSIGNEE"
   echo ""
-  confirm "Assign '$PROJECT_ID' to '$ASSIGNEE'?"
+  confirm "Assign this project to '$ASSIGNEE'?"
 
-  python3 - "$pf" "$ASSIGNEE" <<'PY'
+  local today
+  today=$(date +%Y-%m-%d)
+
+  if [[ -n "$MANAGE_SELECTED_PID" ]]; then
+    local pf="$SCRIPT_DIR/projects/$MANAGE_SELECTED_PID/project.yaml"
+    python3 - "$pf" "$ASSIGNEE" <<'PY'
 import sys, yaml
 pf, assignee = sys.argv[1], sys.argv[2]
 with open(pf) as f: c = yaml.safe_load(f)
@@ -782,10 +925,23 @@ c['assigned_to'] = assignee
 c['locked_by']   = assignee
 with open(pf, 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
-
-  commit_assignment "$PROJECT_ID"
-  echo ""
-  ok "'$PROJECT_ID' assigned to '$ASSIGNEE'."
+    commit_assignment "$MANAGE_SELECTED_PID"
+    echo ""
+    ok "'$MANAGE_SELECTED_PID' assigned to '$ASSIGNEE'."
+  else
+    python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" "$ASSIGNEE" "$CURRENT_USER" "$today" <<'PY'
+import sys, yaml
+registry_path, url, assignee, assigned_by, today = sys.argv[1:]
+with open(registry_path) as f: c = yaml.safe_load(f) or {}
+pre = [a for a in (c.get('pre_assignments') or []) if a and a.get('github_project') != url]
+pre.append({'github_project': url, 'assigned_to': assignee, 'assigned_by': assigned_by, 'assigned_at': today})
+c['pre_assignments'] = pre
+with open(registry_path, 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+PY
+    commit_pre_assignment
+    echo ""
+    ok "Project assigned to '$ASSIGNEE'. They may now run './prj init' to seed it."
+  fi
 }
 
 cmd_manage_reassign() {
@@ -793,36 +949,49 @@ cmd_manage_reassign() {
   divider
   label "Reassign a project to a different user or team. Requires a reason (C02)."
   echo ""
-  select_project_managed PROJECT_ID "active" "paused"
+  select_from_owner_projects PROJECT_ID "assigned"
   echo ""
 
-  local pf="$SCRIPT_DIR/projects/$PROJECT_ID/project.yaml"
-  local current_assignee
-  current_assignee=$(python3 -c "import yaml; print(yaml.safe_load(open('$pf')).get('assigned_to') or '')" 2>/dev/null || echo "")
+  local current_assignee=""
+  if [[ -n "$MANAGE_SELECTED_PID" ]]; then
+    local pf="$SCRIPT_DIR/projects/$MANAGE_SELECTED_PID/project.yaml"
+    current_assignee=$(python3 -c "import yaml; print(yaml.safe_load(open('$pf')).get('assigned_to') or '')" 2>/dev/null || echo "")
+  else
+    current_assignee=$(python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" <<'PY'
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1])) or {}
+for a in (c.get('pre_assignments') or []):
+    if a and a.get('github_project') == sys.argv[2]:
+        print(a.get('assigned_to') or ''); sys.exit(0)
+print('')
+PY
+    )
+  fi
 
   echo -e "  ${BOLD}Current assignee:${NC} ${current_assignee:-${DIM}(unassigned)${NC}}"
   echo ""
 
-  ask GH_OWNER "GitHub org or username for member lookup" "$GITHUB_ORG"
   select_assignee NEW_ASSIGNEE "$GH_OWNER"
   echo ""
 
-  # C02 — reassignment reason is mandatory
   ask REASON "Reassignment reason (C02 — required)"
   echo ""
 
-  echo -e "  ${BOLD}Project:${NC}      $PROJECT_ID"
+  local today
+  today=$(date +%Y-%m-%d)
+  local label_proj="${MANAGE_SELECTED_PID:-$MANAGE_SELECTED_URL}"
+
+  echo -e "  ${BOLD}Project:${NC}      $label_proj"
   echo -e "  ${BOLD}From:${NC}         ${current_assignee:-unassigned}"
   echo -e "  ${BOLD}To:${NC}           $NEW_ASSIGNEE"
   echo -e "  ${BOLD}Reason:${NC}       $REASON"
   echo -e "  ${BOLD}Approved by:${NC}  $CURRENT_USER"
   echo ""
-  confirm "Reassign '$PROJECT_ID'?"
+  confirm "Reassign this project?"
 
-  local today
-  today=$(date +%Y-%m-%d)
-
-  python3 - "$pf" "$NEW_ASSIGNEE" "$REASON" "$CURRENT_USER" "$today" <<'PY'
+  if [[ -n "$MANAGE_SELECTED_PID" ]]; then
+    local pf="$SCRIPT_DIR/projects/$MANAGE_SELECTED_PID/project.yaml"
+    python3 - "$pf" "$NEW_ASSIGNEE" "$REASON" "$CURRENT_USER" "$today" <<'PY'
 import sys, yaml
 pf, new_assignee, reason, approved_by, today = sys.argv[1:]
 with open(pf) as f: c = yaml.safe_load(f)
@@ -833,10 +1002,27 @@ c['reassigned_at']          = today
 c['reassigned_approved_by'] = approved_by
 with open(pf, 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
-
-  commit_assignment "$PROJECT_ID"
-  echo ""
-  ok "'$PROJECT_ID' reassigned to '$NEW_ASSIGNEE'."
+    commit_assignment "$MANAGE_SELECTED_PID"
+    echo ""
+    ok "'$MANAGE_SELECTED_PID' reassigned to '$NEW_ASSIGNEE'."
+  else
+    python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" "$NEW_ASSIGNEE" "$REASON" "$CURRENT_USER" "$today" <<'PY'
+import sys, yaml
+registry_path, url, new_assignee, reason, approved_by, today = sys.argv[1:]
+with open(registry_path) as f: c = yaml.safe_load(f) or {}
+for a in (c.get('pre_assignments') or []):
+    if a and a.get('github_project') == url:
+        a['assigned_to']            = new_assignee
+        a['reassignment_reason']    = reason
+        a['reassigned_at']          = today
+        a['reassigned_approved_by'] = approved_by
+        break
+with open(registry_path, 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+PY
+    commit_pre_assignment
+    echo ""
+    ok "Project reassigned to '$NEW_ASSIGNEE'."
+  fi
   ok "C02 fields written: reassignment_reason, reassigned_at, reassigned_approved_by."
 }
 
@@ -845,33 +1031,53 @@ cmd_manage_unassign() {
   divider
   label "Remove the current assignment, leaving the project unassigned."
   echo ""
-  select_project_managed PROJECT_ID "active" "paused"
+  select_from_owner_projects PROJECT_ID "assigned"
   echo ""
 
-  local pf="$SCRIPT_DIR/projects/$PROJECT_ID/project.yaml"
-  local current_assignee
-  current_assignee=$(python3 -c "import yaml; print(yaml.safe_load(open('$pf')).get('assigned_to') or '')" 2>/dev/null || echo "")
-
-  if [[ -z "$current_assignee" ]]; then
-    warn "'$PROJECT_ID' is already unassigned."
-    return
+  local current_assignee=""
+  if [[ -n "$MANAGE_SELECTED_PID" ]]; then
+    local pf="$SCRIPT_DIR/projects/$MANAGE_SELECTED_PID/project.yaml"
+    current_assignee=$(python3 -c "import yaml; print(yaml.safe_load(open('$pf')).get('assigned_to') or '')" 2>/dev/null || echo "")
+  else
+    current_assignee=$(python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" <<'PY'
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1])) or {}
+for a in (c.get('pre_assignments') or []):
+    if a and a.get('github_project') == sys.argv[2]:
+        print(a.get('assigned_to') or ''); sys.exit(0)
+print('')
+PY
+    )
   fi
 
   echo -e "  ${BOLD}Current assignee:${NC} $current_assignee"
   echo ""
-  confirm "Remove assignment from '$PROJECT_ID'?"
+  confirm "Remove assignment from this project?"
 
-  python3 - "$pf" <<'PY'
+  if [[ -n "$MANAGE_SELECTED_PID" ]]; then
+    local pf="$SCRIPT_DIR/projects/$MANAGE_SELECTED_PID/project.yaml"
+    python3 - "$pf" <<'PY'
 import sys, yaml
 with open(sys.argv[1]) as f: c = yaml.safe_load(f)
 c['assigned_to'] = None
 c['locked_by']   = None
 with open(sys.argv[1], 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
-
-  commit_assignment "$PROJECT_ID"
-  echo ""
-  ok "'$PROJECT_ID' is now unassigned."
+    commit_assignment "$MANAGE_SELECTED_PID"
+    echo ""
+    ok "'$MANAGE_SELECTED_PID' is now unassigned."
+  else
+    python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" <<'PY'
+import sys, yaml
+registry_path, url = sys.argv[1], sys.argv[2]
+with open(registry_path) as f: c = yaml.safe_load(f) or {}
+c['pre_assignments'] = [a for a in (c.get('pre_assignments') or []) if a and a.get('github_project') != url]
+with open(registry_path, 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+PY
+    commit_pre_assignment
+    echo ""
+    ok "Assignment removed. Project is now unassigned."
+  fi
 }
 
 cmd_manage() {
