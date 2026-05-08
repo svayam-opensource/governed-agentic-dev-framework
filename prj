@@ -608,7 +608,7 @@ PY
   return ${PIPESTATUS[0]}
 }
 
-# Derive branch name from project_id ({{ORG_SLUG}}-001-slug → {{org_slug}}-001-slug)
+# Derive lowercase branch name from a project_id (uppercase prefix → lowercase prefix)
 project_branch() {
   echo "$1" | tr '[:upper:]' '[:lower:]'
 }
