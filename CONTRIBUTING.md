@@ -72,14 +72,14 @@ Both must pass before merge. They're not gating opinion — they catch concrete 
 
 ### Placeholders
 
-The framework uses `{{PLACEHOLDER}}` syntax for values substituted by `setup.sh`:
+The framework uses double-curly placeholder syntax for values substituted by `setup.sh`. The examples below are shown with spaces inside the braces so that this documentation file itself isn't subject to substitution. **In actual templated files, drop the inner spaces** — the substitution regex matches the no-space form only.
 
-- `{{ORG_NAME}}`, `{{ORG_SHORT_NAME}}`, `{{ORG_SLUG}}`, `{{org_slug}}` (lowercase)
-- `{{GITHUB_ORG}}`, `{{WORKSPACE_REPO}}`, `{{DEFAULT_BRANCH}}`, `{{DEFAULT_CODE_BRANCH}}`
-- `{{POLICY_OWNER_EMAIL}}`, `{{POLICY_OWNER_GITHUB}}`, etc.
-- `{{POLICY_EFFECTIVE_DATE}}`
+- `{{ ORG_NAME }}`, `{{ ORG_SHORT_NAME }}`, `{{ ORG_SLUG }}`, `{{ org_slug }}` (lowercase variant for branch names)
+- `{{ GITHUB_ORG }}`, `{{ WORKSPACE_REPO }}`, `{{ DEFAULT_BRANCH }}`, `{{ DEFAULT_CODE_BRANCH }}`
+- `{{ POLICY_OWNER_EMAIL }}`, `{{ POLICY_OWNER_GITHUB }}`, and the other role handles
+- `{{ POLICY_EFFECTIVE_DATE }}`
 
-`setup.sh` only substitutes placeholders in `*.md`, `*.yaml`, `*.yml`, and `CODEOWNERS` files. **Do not put placeholders in shell scripts or Python** — they won't get substituted and will leak through to downstream consumers as literal `{{PLACEHOLDER}}` text. Use prose or runtime config reads instead.
+`setup.sh` only substitutes placeholders in `*.md`, `*.yaml`, `*.yml`, and `CODEOWNERS` files. **Do not put placeholders in shell scripts or Python** — they won't get substituted and will leak through to downstream consumers as literal placeholder text. Use prose or runtime config reads instead.
 
 ### Tests
 
