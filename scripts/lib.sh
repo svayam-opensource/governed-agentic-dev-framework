@@ -18,15 +18,17 @@ check_deps() {
     command -v "$dep" &>/dev/null || missing+=("$dep")
   done
   # yq optional if python3 present; python3 optional if yq present
-  if [[ " ${missing[*]} " == *" yq "* && " ${missing[*]} " != *" python3 "* ]]; then
+  local missing_str=" ${missing[*]:-} "
+  if [[ "$missing_str" == *" yq "* && "$missing_str" != *" python3 "* ]]; then
     missing=("${missing[@]/yq}")   # python3 covers for yq
   fi
-  if [[ " ${missing[*]} " == *" python3 "* && " ${missing[*]} " != *" yq "* ]]; then
+  missing_str=" ${missing[*]:-} "
+  if [[ "$missing_str" == *" python3 "* && "$missing_str" != *" yq "* ]]; then
     missing=("${missing[@]/python3}")  # yq covers for python3
   fi
   # Remove empty entries
   local truly_missing=()
-  for m in "${missing[@]}"; do [[ -n "$m" ]] && truly_missing+=("$m"); done
+  for m in "${missing[@]:-}"; do [[ -n "$m" ]] && truly_missing+=("$m"); done
 
   if [[ ${#truly_missing[@]} -gt 0 ]]; then
     echo "" >&2
