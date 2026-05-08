@@ -7,24 +7,24 @@
 # Scripts read this file at runtime.
 
 # Full legal name of your organization
-org_name: "Svayam Infoware Pvt. Ltd."
+org_name: "Your Organization Name"
 
 # Short display name (used in headings and prose)
-org_short_name: "Svayam"
+org_short_name: "YourOrg"
 
-# Uppercase slug used as prefix for all project IDs (e.g. SVM → SVM-001-my-project)
+# Uppercase slug used as prefix for all project IDs (e.g. ORG → ORG-001-my-project)
 # Keep it short (2-6 characters), uppercase, no spaces or special characters
-org_slug: "SVM"
+org_slug: "ORG"
 
-# Lowercase version of org_slug — used in branch names (e.g. svm-001-my-project)
+# Lowercase version of org_slug — used in branch names (e.g. org-001-my-project)
 # Must match org_slug lowercased
-org_slug_lower: "svm"
+org_slug_lower: "org"
 
 # GitHub organization or username where all repos live
-github_org: "svayam-rkant"
+github_org: "your-github-org"
 
 # Name of this central workspace repository
-workspace_repo: "000-svm-prj"
+workspace_repo: "000-org-prj"
 
 # Default branch name for this workspace repo
 default_branch: "main"
@@ -33,8 +33,8 @@ default_branch: "main"
 default_code_branch: "dev"
 
 # Policy Owner details (current holder of all policy roles at launch)
-policy_owner_email: "rkant@svayamtech.com"
-policy_owner_github: "@rkant-svayam"
+policy_owner_email: "you@example.com"
+policy_owner_github: "@your-github-handle"
 
 # Other role GitHub handles (update as roles are formally assigned)
 legal_owner_github: "@legal-owner-tbd"
@@ -43,4 +43,4 @@ system_arch_owner_github: "@system-arch-owner-tbd"
 data_arch_owner_github: "@data-arch-owner-tbd"
 
 # Effective date of the policy (YYYY-MM-DD)
-policy_effective_date: "2026-05-05"
+policy_effective_date: "YYYY-MM-DD"

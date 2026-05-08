@@ -291,7 +291,7 @@ repos:
     added_at: 2026-05-05
     added_reason: ~
 tasks:
-  - id: svm-007-invoice-api/api-design
+  - id: {{org_slug}}-007-invoice-api/api-design
     github_issue: <url>
     assigned_to: developer@your-org.com
     status: active

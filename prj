@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# prj — Svayam Agentic Development Framework CLI
+# prj — {{ORG_SHORT_NAME}} Agentic Development Framework CLI
 #
 # Usage:
 #   ./prj              interactive menu
@@ -608,7 +608,7 @@ PY
   return ${PIPESTATUS[0]}
 }
 
-# Derive branch name from project_id (SVM-001-slug → svm-001-slug)
+# Derive branch name from project_id ({{ORG_SLUG}}-001-slug → {{org_slug}}-001-slug)
 project_branch() {
   echo "$1" | tr '[:upper:]' '[:lower:]'
 }

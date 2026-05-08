@@ -30,7 +30,7 @@ check_project_exists "$PROJECT_ID"
 
 require_project_status "$PROJECT_YAML" "active"
 
-# Derive project branch name (svm-NNN-slug format)
+# Derive project branch name ({{org_slug}}-NNN-slug format)
 BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
 
 # Derive issue repo URL (everything before /issues/N)

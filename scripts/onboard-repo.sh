@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Script: onboard-repo
 # Purpose: Initializes the knowledge/ folder structure in an existing code repo,
-#          bringing it under the Svayam Agentic Development Policy.
+#          bringing it under the {{ORG_SHORT_NAME}} Agentic Development Policy.
 # Usage:   bash onboard-repo.sh <repo_url> <repo_description> <repo_owner>
 # Compliance: C02 — repo owner must approve the PR (POL-108)
 

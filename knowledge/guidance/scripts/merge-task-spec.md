@@ -11,7 +11,7 @@
 | Input | Required | Description |
 |---|---|---|
 | `project_id` | Yes | e.g., `{{ORG_SLUG}}-007-invoice-api` |
-| `task_id` | Yes | e.g., `svm-007-invoice-api/api-design` |
+| `task_id` | Yes | e.g., `{{org_slug}}-007-invoice-api/api-design` |
 
 ---
 
