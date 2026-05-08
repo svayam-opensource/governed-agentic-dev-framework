@@ -1,0 +1,67 @@
+name: test-merge gate
+
+# Runs the workspace validators against the proposed merge state of every
+# pull request targeting the default branch (main) or the publish branch.
+#
+# This is defense-in-depth: scripts that mutate $DEFAULT_BRANCH already call
+# scripts/test-merge.sh or validate_or_revert locally before pushing. CI
+# runs the same validators against GitHub's auto-generated merge commit
+# (refs/pull/<n>/merge), which is what the merge would actually produce.
+#
+# Required dependencies are pinned to system Python; pyyaml is installed
+# via pip. No external services required.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - publish
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+# Cancel previous in-flight runs for the same PR when a new commit arrives.
+concurrency:
+  group: test-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout merge commit
+        # actions/checkout uses GITHUB_SHA which, for pull_request events,
+        # is the merge commit GitHub creates between PR head and base.
+        # That is exactly the post-merge state we want to validate.
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install pyyaml
+        run: pip install --quiet pyyaml
+
+      - name: Show what we're validating
+        run: |
+          echo "PR:           #${{ github.event.pull_request.number }}"
+          echo "Base branch:  ${{ github.base_ref }}"
+          echo "Head branch:  ${{ github.head_ref }}"
+          echo "Merge commit: ${{ github.sha }}"
+          echo ""
+          git log --oneline -3
+
+      - name: Run validators
+        # On main: enforce no leftover {{placeholders}} (publish→main sync
+        # has run setup.sh and substitutions should be complete).
+        # On publish: placeholders are expected; do not enforce.
+        env:
+          STRICT_PLACEHOLDERS: ${{ github.base_ref == 'main' && '1' || '' }}
+        run: python3 scripts/validate/run.py
