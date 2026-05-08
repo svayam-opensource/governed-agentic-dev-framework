@@ -13,55 +13,70 @@ load_config
 
 BRANCH_SLUG="${1:-}"
 DESCRIPTION="${2:-}"
+MODE="${3:-create}"   # create (default), --submit, --archive
 
-[[ -n "$BRANCH_SLUG"  ]] || hard_stop "Usage: $0 <branch_slug> <description>"
-[[ -n "$DESCRIPTION"  ]] || hard_stop "Usage: $0 <branch_slug> <description>"
+[[ -n "$BRANCH_SLUG"  ]] || hard_stop "Usage: $0 <branch_slug> <description> [--submit|--archive]"
+[[ -n "$DESCRIPTION"  ]] || hard_stop "Usage: $0 <branch_slug> <description> [--submit|--archive]"
+
+case "$MODE" in
+  create|--submit|--archive) ;;
+  *) hard_stop "Unknown mode: $MODE (expected --submit or --archive)" ;;
+esac
 
 KNOWLEDGE_BRANCH="knowledge-$BRANCH_SLUG"
 
 echo "=== propose-knowledge"
 echo "    Branch:      $KNOWLEDGE_BRANCH"
 echo "    Description: $DESCRIPTION"
+echo "    Mode:        $MODE"
 echo ""
-
-# ── Pre-conditions ────────────────────────────────────────────────────────────
 
 cd "$REPO_ROOT"
 git fetch origin "$DEFAULT_BRANCH" 2>/dev/null || true
 git fetch origin "$KNOWLEDGE_BRANCH" 2>/dev/null || true
 
-if git rev-parse --verify "$KNOWLEDGE_BRANCH" &>/dev/null || \
-   git ls-remote --exit-code origin "$KNOWLEDGE_BRANCH" &>/dev/null; then
-  hard_stop "Branch '$KNOWLEDGE_BRANCH' already exists — investigate before proceeding."
+# ── Mode: create ──────────────────────────────────────────────────────────────
+
+if [[ "$MODE" == "create" ]]; then
+  if git rev-parse --verify "$KNOWLEDGE_BRANCH" &>/dev/null || \
+     git ls-remote --exit-code origin "$KNOWLEDGE_BRANCH" &>/dev/null; then
+    hard_stop "Branch '$KNOWLEDGE_BRANCH' already exists — investigate before proceeding."
+  fi
+
+  git checkout "$DEFAULT_BRANCH"
+  git pull origin "$DEFAULT_BRANCH"
+  git checkout -b "$KNOWLEDGE_BRANCH"
+  git push -u origin "$KNOWLEDGE_BRANCH"
+
+  echo "Branch '$KNOWLEDGE_BRANCH' created."
+  echo ""
+  echo "=== Next: Author your knowledge changes"
+  echo ""
+  echo "    1. Edit or add files under knowledge/ on branch '$KNOWLEDGE_BRANCH'."
+  echo "       - New content:     add to appropriate knowledge/ subfolders"
+  echo "       - Policy updates:  edit knowledge/policies/"
+  echo "       - Patterns:        edit knowledge/patterns/"
+  echo "       - Architecture:    edit knowledge/architecture/"
+  echo ""
+  echo "    2. Commit your changes:"
+  echo "       git add knowledge/"
+  echo "       git commit -m 'knowledge: $DESCRIPTION'"
+  echo "       git push origin $KNOWLEDGE_BRANCH"
+  echo ""
+  echo "    3. Then create the PR:"
+  echo "       bash propose-knowledge.sh $BRANCH_SLUG \"$DESCRIPTION\" --submit"
+  echo ""
+  exit 0
 fi
 
-# ── Create knowledge branch ───────────────────────────────────────────────────
+# ── Mode: --submit / --archive — branch must already exist ───────────────────
 
-git checkout "$DEFAULT_BRANCH"
-git pull origin "$DEFAULT_BRANCH"
-git checkout -b "$KNOWLEDGE_BRANCH"
-git push -u origin "$KNOWLEDGE_BRANCH"
+if ! git rev-parse --verify "$KNOWLEDGE_BRANCH" &>/dev/null && \
+   ! git ls-remote --exit-code origin "$KNOWLEDGE_BRANCH" &>/dev/null; then
+  hard_stop "Branch '$KNOWLEDGE_BRANCH' does not exist. Run without --submit/--archive first to create it."
+fi
 
-echo "Branch '$KNOWLEDGE_BRANCH' created."
-echo ""
-echo "=== Next: Author your knowledge changes"
-echo ""
-echo "    1. Edit or add files under knowledge/ on branch '$KNOWLEDGE_BRANCH'."
-echo "       - New content:     add to appropriate knowledge/ subfolders"
-echo "       - Policy updates:  edit knowledge/policies/"
-echo "       - Patterns:        edit knowledge/patterns/"
-echo "       - Architecture:    edit knowledge/architecture/"
-echo ""
-echo "    2. Commit your changes:"
-echo "       git add knowledge/"
-echo "       git commit -m 'knowledge: $DESCRIPTION'"
-echo "       git push origin $KNOWLEDGE_BRANCH"
-echo ""
-echo "    3. Then create the PR:"
-echo "       bash propose-knowledge.sh $BRANCH_SLUG \"$DESCRIPTION\" --submit"
-echo ""
-
-if [[ "${3:-}" == "--submit" ]]; then
+if [[ "$MODE" == "--submit" ]]; then
   # ── Raise PR ────────────────────────────────────────────────────────────────
   echo "Creating PR: $KNOWLEDGE_BRANCH → $DEFAULT_BRANCH..."
 
@@ -113,7 +128,7 @@ MD
   echo "    bash propose-knowledge.sh $BRANCH_SLUG \"$DESCRIPTION\" --archive"
 fi
 
-if [[ "${3:-}" == "--archive" ]]; then
+if [[ "$MODE" == "--archive" ]]; then
   # ── Archive after merge ──────────────────────────────────────────────────────
   git fetch origin "$DEFAULT_BRANCH"
   git checkout "$DEFAULT_BRANCH"
