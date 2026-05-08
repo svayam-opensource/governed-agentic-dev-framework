@@ -82,6 +82,19 @@ ALLOWED_FILES = {
     "org-config.yaml",  # the source of values; not itself in publish content
 }
 
+# Per-key attribution allowance: these (key, file) combinations are NOT leaks.
+# Legitimate copyright/attribution of the framework's original author in the
+# standard public-facing files. Any other key in those files, or these keys
+# elsewhere, are still flagged.
+# org_short_name is included because it is typically a substring of org_name
+# (e.g., a short brand name appearing inside the full legal name) and would
+# otherwise false-positive on every legitimate copyright line.
+ATTRIBUTION_KEYS = {"org_name", "org_short_name"}
+ATTRIBUTION_FILES = {
+    "LICENSE", "README.md",
+    "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
+}
+
 
 def is_generic(value: str) -> bool:
     if not isinstance(value, str):
@@ -131,9 +144,13 @@ def scannable_files(repo_root: Path):
             yield f
 
 
-def find_leaks(repo_root: Path, value: str) -> list[tuple[Path, int, str]]:
+def find_leaks(repo_root: Path, key: str, value: str) -> list[tuple[Path, int, str]]:
     leaks: list[tuple[Path, int, str]] = []
+    attribution_ok = key in ATTRIBUTION_KEYS
     for f in scannable_files(repo_root):
+        # Skip attribution-allowed files for keys that are valid attribution
+        if attribution_ok and f.name in ATTRIBUTION_FILES:
+            continue
         try:
             text = f.read_text()
         except Exception:
@@ -168,7 +185,7 @@ def main() -> int:
 
     total_leaks = 0
     for key, value in to_check:
-        leaks = find_leaks(repo_root, value)
+        leaks = find_leaks(repo_root, key, value)
         if leaks:
             total_leaks += len(leaks)
             print(f"[LEAK] {key}={value!r} appears in {len(leaks)} location(s):")
