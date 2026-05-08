@@ -43,11 +43,6 @@ for field in id slug assigned_to locked_by started_at; do
   [[ -z "$val" || "$val" == "~" ]] && GATE_FAILURES+=("project.yaml field '$field' is not populated.")
 done
 
-# 4. completed_at not yet set (prevent double-close)
-COMPLETED_AT=$(yaml_get "$PROJECT_YAML" "completed_at")
-[[ -n "$COMPLETED_AT" && "$COMPLETED_AT" != "~" ]] \
-  && GATE_FAILURES+=("project.yaml 'completed_at' is already set — project may already be closed.")
-
 if [[ ${#GATE_FAILURES[@]} -gt 0 ]]; then
   echo "" >&2
   echo "[ C01 ] Pre-close gate FAILED:" >&2
@@ -60,13 +55,55 @@ fi
 echo "[ C01 ] Pre-close gate passed."
 echo ""
 
-require_project_status "$PROJECT_YAML" "active"
+# Allow re-runs after partial failure: status may be 'active' (first run)
+# or 'completed' (re-run after step 2/3 succeeded but later step failed).
+require_any_project_status "$PROJECT_YAML" "active" "completed"
 
 BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
 TODAY=$(today)
 
+# ── Update state on project branch (so the gate validates it) ────────────────
+
+echo "Updating project state on '$BRANCH'..."
+cd "$REPO_ROOT"
+git fetch origin "$DEFAULT_BRANCH"
+git fetch origin "$BRANCH" 2>/dev/null || true
+git checkout "$BRANCH"
+git pull --ff-only origin "$BRANCH" 2>/dev/null || true
+
+# Sync project branch with latest default — needed to pick up registry.yaml updates
+# from any other projects that closed after this one was seeded.
+if ! git merge --no-edit "origin/$DEFAULT_BRANCH" 2>/dev/null; then
+  echo ""
+  echo "MERGE CONFLICT: $DEFAULT_BRANCH → $BRANCH in workspace repo."
+  echo "Resolve conflicts manually, commit, then re-run: bash close-project.sh $PROJECT_ID"
+  exit 2
+fi
+
+yaml_set "$PROJECT_YAML" "status"       "completed"
+yaml_set "$PROJECT_YAML" "completed_at" "$TODAY"
+
+python3 - "$REGISTRY" "$PROJECT_ID" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    c = yaml.safe_load(f)
+for p in (c.get('projects') or []):
+    if p and p.get('id') == sys.argv[2]:
+        p['status'] = 'completed'
+        break
+with open(sys.argv[1], 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+PY
+
+git add "projects/$PROJECT_ID/project.yaml" registry.yaml
+if ! git diff --cached --quiet; then
+  git commit -m "close-project: $PROJECT_ID — mark completed"
+  git push origin "$BRANCH"
+fi
+
 # ── Merge each code repo branch → base_branch ────────────────────────────────
 
+echo ""
 echo "Merging code repo branches..."
 
 while IFS= read -r repo_url; do
@@ -93,21 +130,16 @@ while IFS= read -r repo_url; do
   info "$REPO_NAME: merged successfully."
 done < <(get_project_repos "$PROJECT_YAML")
 
-# ── Merge workspace branch → DEFAULT_BRANCH ──────────────────────────────────
+# ── Test-merge gate: $BRANCH → $DEFAULT_BRANCH (workspace repo only) ─────────
 
-echo "Merging '$BRANCH' → '$DEFAULT_BRANCH' in workspace repo..."
+echo ""
+echo "Running test-merge gate for workspace repo..."
+bash "$SCRIPT_DIR/test-merge.sh" "$BRANCH"
+
+# ── Push $DEFAULT_BRANCH ──────────────────────────────────────────────────────
+
 cd "$REPO_ROOT"
-git fetch origin "$DEFAULT_BRANCH"
-git fetch origin "$BRANCH" 2>/dev/null || true
-git checkout "$DEFAULT_BRANCH"
-git pull origin "$DEFAULT_BRANCH"
-if ! git merge --no-edit "$BRANCH" 2>/dev/null; then
-  echo ""
-  echo "MERGE CONFLICT: $BRANCH → $DEFAULT_BRANCH in workspace repo."
-  echo "Resolve conflicts manually, commit, then re-run: bash close-project.sh $PROJECT_ID"
-  exit 2
-fi
-info "Workspace repo: merged successfully."
+git push origin "$DEFAULT_BRANCH"
 
 # ── Archive branches ──────────────────────────────────────────────────────────
 
@@ -120,28 +152,6 @@ while IFS= read -r repo_url; do
   REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$(get_repo_name "$repo_url")"
   [[ -d "$REPO_DIR/.git" ]] && archive_branch "$REPO_DIR" "$BRANCH"
 done < <(get_project_repos "$PROJECT_YAML")
-
-# ── Update project.yaml and push to DEFAULT_BRANCH ───────────────────────────
-
-yaml_set "$PROJECT_YAML" "status"       "completed"
-yaml_set "$PROJECT_YAML" "completed_at" "$TODAY"
-
-python3 - "$REGISTRY" "$PROJECT_ID" <<'PY'
-import sys, yaml
-with open(sys.argv[1]) as f:
-    c = yaml.safe_load(f)
-for p in (c.get('projects') or []):
-    if p and p.get('id') == sys.argv[2]:
-        p['status'] = 'completed'
-        break
-with open(sys.argv[1], 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-
-cd "$REPO_ROOT"
-git add "projects/$PROJECT_ID/project.yaml" registry.yaml
-git commit -m "close-project: $PROJECT_ID"
-git push origin "$DEFAULT_BRANCH"
 
 echo ""
 echo "=== Project closed."

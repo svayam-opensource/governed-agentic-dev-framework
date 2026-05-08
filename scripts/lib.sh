@@ -253,3 +253,31 @@ merge_branch() {
     exit 2
   fi
 }
+
+# ── Validation ────────────────────────────────────────────────────────────────
+
+# Run validators against the current working tree of the workspace repo.
+# Used by scripts that commit DIRECTLY to $DEFAULT_BRANCH (cancel, close-knowledge
+# project.yaml status update). Call AFTER making the commit, BEFORE pushing.
+# On validation failure: rolls back the most recent commit and hard_stops.
+# On success: returns silently.
+#
+# Usage: validate_or_revert
+#   (Operates on $REPO_ROOT; reverts HEAD~1 on failure)
+validate_or_revert() {
+  local validator="$REPO_ROOT/scripts/validate/run.py"
+  if [[ ! -x "$validator" ]]; then
+    warn "Validator not found at $validator — skipping pre-push validation."
+    return 0
+  fi
+  echo ""
+  info "Running validators on local tree before push..."
+  echo ""
+  if ! python3 "$validator" "$REPO_ROOT"; then
+    echo ""
+    warn "Validation FAILED — rolling back last commit."
+    git -C "$REPO_ROOT" reset --hard HEAD~1
+    hard_stop "Local commit rolled back. Remote $DEFAULT_BRANCH is unchanged."
+  fi
+  info "✓ Validation passed."
+}

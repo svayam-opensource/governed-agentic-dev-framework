@@ -95,6 +95,10 @@ git checkout "$DEFAULT_BRANCH"
 git pull origin "$DEFAULT_BRANCH"
 git add "projects/$PROJECT_ID/project.yaml" registry.yaml
 git commit -m "cancel: $PROJECT_ID — $CANCELLATION_REASON"
+
+# Pre-push validation gate (rolls back commit if validators fail)
+validate_or_revert
+
 git push origin "$DEFAULT_BRANCH"
 
 echo ""

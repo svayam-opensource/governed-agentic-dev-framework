@@ -183,6 +183,10 @@ yaml_set "$PROJECT_YAML" "knowledge_pr"     "$PR_URL"
 
 git add "projects/$PROJECT_ID/project.yaml"
 git commit -m "close-knowledge: update knowledge_status for $PROJECT_ID"
+
+# Pre-push validation gate (rolls back commit if validators fail)
+validate_or_revert
+
 git push origin "$DEFAULT_BRANCH"
 
 echo ""
