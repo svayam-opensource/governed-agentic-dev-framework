@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared library for all {{ORG_SHORT_NAME}} Agentic Development Framework scripts.
+# Shared library for all Agentic Development Framework scripts.
 # Source this at the top of each script:
 #   source "$(dirname "$0")/lib.sh"
 

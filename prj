@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# prj — {{ORG_SHORT_NAME}} Agentic Development Framework CLI
+# prj — Agentic Development Framework CLI
 #
 # Usage:
 #   ./prj              interactive menu

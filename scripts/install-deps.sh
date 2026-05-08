@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # install-deps.sh
-# Installs all dependencies required by the {{ORG_SHORT_NAME}} Agentic Development Framework scripts.
+# Installs all dependencies required by the Agentic Development Framework scripts.
 #
 # Dependencies:
 #   - git    (version control — usually pre-installed)
@@ -277,7 +277,7 @@ check_dep() {
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "{{ORG_SHORT_NAME}} Agentic Development Framework — Dependency Check"
+echo "Agentic Development Framework — Dependency Check"
 echo "========================================================"
 detect_os
 echo "  OS:          $OS"
