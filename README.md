@@ -23,31 +23,41 @@ This framework gives you:
 
 ## Quickstart
 
-```bash
-# 1. Use this template (GitHub: "Use this template" button) or clone it
-git clone https://github.com/your-github-org/your-workspace-repo.git
-cd your-workspace-repo
+> This is a **template repository.** You don't fork it — you use it to scaffold *your own* private workspace repo, which you then own and commit to. The framework's `publish` upstream stays clean; your private overlay (real projects, accumulated knowledge, your `org-config.yaml` values) lives only in your repo.
 
-# 2. Install dependencies (git, gh, yq, python3, pyyaml)
+```bash
+# 1. On GitHub, click "Use this template" on this repo's page.
+#    Pick a name (e.g. 000-acme-prj) and visibility (typically Private).
+#    GitHub creates a NEW repository under your account or org.
+
+# 2. Clone YOUR new repository (not this template).
+git clone https://github.com/<your-github-org>/<your-new-repo>.git
+cd <your-new-repo>
+
+# 3. Verify your environment (tools, gh auth, GitHub access).
+#    Hard gate — refuses to proceed if anything required is missing.
 bash scripts/install-deps.sh
 
-# 3. Edit org-config.yaml with your organization's values
-$EDITOR org-config.yaml
-
-# 4. Substitute placeholders throughout the framework
+# 4. Configure the framework for your org. Interactive — prompts for
+#    org name, slug, role identities, etc., with sensible defaults
+#    detected from gh and git config. Substitutes throughout.
 bash setup.sh
 
-# 5. Read the policy and customize it for your org
+# 5. (Optional) Customize the policy text for your org.
 $EDITOR knowledge/policies/agentic-development-policy.md
 
-# 6. Commit your configured framework
-git add -A && git commit -m "configure framework for <your-org>"
+# 6. Commit and push to YOUR repository.
+git add -A
+git commit -m "configure framework for <your-org>"
+git push origin main
 
-# 7. Start using it
+# 7. Start using it.
 ./prj
 ```
 
 The `prj` CLI is interactive: it lists current projects, walks you through seeding new ones, creating tasks, and closing them.
+
+**Re-running `setup.sh` later** is safe — it remembers your existing values as defaults. Use `bash setup.sh --non-interactive` in CI or scripts to skip prompts entirely.
 
 ---
 
