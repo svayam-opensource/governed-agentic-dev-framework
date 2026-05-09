@@ -153,8 +153,12 @@ git add -A
 
 # ── Re-substitute placeholders via setup.sh ───────────────────────────────────
 
-info "Running setup.sh to substitute placeholders with main's values..."
-if ! bash setup.sh; then
+info "Running setup.sh --non-interactive to substitute placeholders..."
+# --non-interactive is required: setup.sh's default is now interactive prompts
+# (added in commit e0f2642). Without this flag, sync would block forever
+# waiting for input — and `yes |` doesn't help because "y" doesn't pass
+# slug validation.
+if ! bash setup.sh --non-interactive; then
   cleanup_on_fail
   hard_stop "setup.sh failed during placeholder substitution."
 fi
