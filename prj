@@ -62,60 +62,66 @@ CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
 
 # ── Prompt helpers ────────────────────────────────────────────────────────────
 
+# NOTE: helpers below use unique internal variable names (__rabort_val,
+# __ask_val, __choice_val) to avoid shadowing the caller's __val via
+# bash's dynamic scoping. printf -v writes to the closest local in scope —
+# if both inner and outer scopes declare `local __val`, the inner wins
+# and the read value never propagates back.
+
 # Read a line from stdin or exit with a clear message on EOF (Ctrl-D, closed pipe).
 # Sets the named variable. Returns 0 on success; calls exit on EOF.
 _read_or_abort() {
-  local __varname="$1" __val
-  if ! IFS= read -r __val; then
+  local __varname="$1" __rabort_val
+  if ! IFS= read -r __rabort_val; then
     echo ""
     err "Aborted (no input)."
     exit 1
   fi
-  printf -v "$__varname" '%s' "$__val"
+  printf -v "$__varname" '%s' "$__rabort_val"
 }
 
 # ask <var_name> <prompt> [default]
 ask() {
-  local __var="$1" __prompt="$2" __default="${3:-}" __val
+  local __var="$1" __prompt="$2" __default="${3:-}" __ask_val
   if [[ -n "$__default" ]]; then
     printf "${BOLD}%s${NC} ${DIM}[%s]${NC}: " "$__prompt" "$__default"
   else
     printf "${BOLD}%s${NC}: " "$__prompt"
   fi
-  _read_or_abort __val
-  __val="${__val:-$__default}"
-  while [[ -z "$__val" ]]; do
+  _read_or_abort __ask_val
+  __ask_val="${__ask_val:-$__default}"
+  while [[ -z "$__ask_val" ]]; do
     printf "${RED}Required.${NC} ${BOLD}%s${NC}: " "$__prompt"
-    _read_or_abort __val
+    _read_or_abort __ask_val
   done
-  printf -v "$__var" '%s' "$__val"
+  printf -v "$__var" '%s' "$__ask_val"
 }
 
 # ask_optional <var_name> <prompt> [default]
 ask_optional() {
-  local __var="$1" __prompt="$2" __default="${3:-}" __val
+  local __var="$1" __prompt="$2" __default="${3:-}" __ask_val
   if [[ -n "$__default" ]]; then
     printf "${BOLD}%s${NC} ${DIM}[%s]${NC}: " "$__prompt" "$__default"
   else
     printf "${BOLD}%s${NC} ${DIM}(optional)${NC}: " "$__prompt"
   fi
-  _read_or_abort __val
-  printf -v "$__var" '%s' "${__val:-$__default}"
+  _read_or_abort __ask_val
+  printf -v "$__var" '%s' "${__ask_val:-$__default}"
 }
 
 # ask_choice <var_name> <prompt> <option1> <option2> ...
 ask_choice() {
   local __var="$1" __prompt="$2"; shift 2
-  local __opts=("$@") __i __val
+  local __opts=("$@") __i __choice_val
   echo -e "${BOLD}$__prompt${NC}"
   for __i in "${!__opts[@]}"; do
     printf "  ${CYAN}%d)${NC} %s\n" $((__i+1)) "${__opts[$__i]}"
   done
   while true; do
     printf "Choose [1-%d]: " "${#__opts[@]}"
-    _read_or_abort __val
-    if [[ "$__val" =~ ^[0-9]+$ ]] && (( __val >= 1 && __val <= ${#__opts[@]} )); then
-      printf -v "$__var" '%s' "${__opts[$((__val-1))]}"
+    _read_or_abort __choice_val
+    if [[ "$__choice_val" =~ ^[0-9]+$ ]] && (( __choice_val >= 1 && __choice_val <= ${#__opts[@]} )); then
+      printf -v "$__var" '%s' "${__opts[$((__choice_val-1))]}"
       return
     fi
     err "Invalid choice."

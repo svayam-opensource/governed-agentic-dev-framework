@@ -287,6 +287,51 @@ def check_cross_refs(repo_root: Path) -> list[str]:
     return errors
 
 
+# ── Executable bits ─────────────────────────────────────────────────────────
+
+# File mode in the git index must be 100755 for these scripts. A file
+# committed as 100644 will fail with "permission denied" when an adopter
+# runs ./scripts/X — the failure mode is silent until they hit it.
+EXPECTED_EXEC_PATTERNS = (
+    re.compile(r"^prj$"),
+    re.compile(r"^setup\.sh$"),
+    re.compile(r"^scripts/.+\.sh$"),
+    re.compile(r"^scripts/validate/.+\.py$"),
+    re.compile(r"^tests/.+\.sh$"),
+)
+
+
+def check_exec_bits(repo_root: Path) -> list[str]:
+    import subprocess
+    errors: list[str] = []
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files", "-s"],
+            capture_output=True, text=True, check=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Not a git repo, or git unavailable — skip silently
+        return errors
+
+    for line in result.stdout.splitlines():
+        # Format: <mode> <hash> <stage>\t<path>
+        if "\t" not in line:
+            continue
+        meta, path = line.split("\t", 1)
+        parts = meta.split()
+        if len(parts) < 1:
+            continue
+        mode = parts[0]
+        # Check if path matches any expected-executable pattern
+        is_expected_exec = any(p.match(path) for p in EXPECTED_EXEC_PATTERNS)
+        if is_expected_exec and mode != "100755":
+            errors.append(
+                f"{path}: committed mode is {mode}, expected 100755 "
+                f"(run: chmod +x {path} && git update-index --chmod=+x {path})"
+            )
+    return errors
+
+
 # ── Runner ──────────────────────────────────────────────────────────────────
 
 CHECKS = [
@@ -294,6 +339,7 @@ CHECKS = [
     ("registry",    check_registry),
     ("lifecycle",   check_lifecycle),
     ("cross-refs",  check_cross_refs),
+    ("exec-bits",   check_exec_bits),
 ]
 
 

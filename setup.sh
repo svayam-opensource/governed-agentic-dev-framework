@@ -37,33 +37,39 @@ hard_stop() { echo ""; err "$*"; echo ""; exit 1; }
 
 # ── Read with EOF handling ────────────────────────────────────────────────────
 
+# NOTE: helpers below use unique internal variable names (__rabort_val,
+# __ask_val, __validated_val) to avoid shadowing the caller's __val via
+# bash's dynamic scoping. printf -v writes to the closest local in scope —
+# if both inner and outer scopes declare `local __val`, the inner wins
+# and the value never propagates back to the caller.
+
 _read_or_abort() {
-  local __varname="$1" __val
-  if ! IFS= read -r __val; then
+  local __varname="$1" __rabort_val
+  if ! IFS= read -r __rabort_val; then
     echo ""
     err "Aborted (no input)."
     exit 1
   fi
-  printf -v "$__varname" '%s' "$__val"
+  printf -v "$__varname" '%s' "$__rabort_val"
 }
 
 ask() {
-  local __var="$1" __prompt="$2" __default="${3:-}" __val
+  local __var="$1" __prompt="$2" __default="${3:-}" __ask_val
   if [[ -n "$__default" ]]; then
     printf "  ${BOLD}%s${NC} ${DIM}[%s]${NC}: " "$__prompt" "$__default"
   else
     printf "  ${BOLD}%s${NC}: " "$__prompt"
   fi
-  _read_or_abort __val
-  printf -v "$__var" '%s' "${__val:-$__default}"
+  _read_or_abort __ask_val
+  printf -v "$__var" '%s' "${__ask_val:-$__default}"
 }
 
 ask_required() {
-  local __var="$1" __prompt="$2" __default="${3:-}" __val
+  local __var="$1" __prompt="$2" __default="${3:-}" __validated_val
   while true; do
-    ask __val "$__prompt" "$__default"
-    if [[ -n "$__val" ]]; then
-      printf -v "$__var" '%s' "$__val"
+    ask __validated_val "$__prompt" "$__default"
+    if [[ -n "$__validated_val" ]]; then
+      printf -v "$__var" '%s' "$__validated_val"
       return
     fi
     err "Required."
@@ -72,11 +78,11 @@ ask_required() {
 
 # Slug: 2-6 chars, must start with a letter, A-Z and 0-9 only after.
 ask_slug() {
-  local __var="$1" __prompt="$2" __default="${3:-}" __val
+  local __var="$1" __prompt="$2" __default="${3:-}" __validated_val
   while true; do
-    ask __val "$__prompt" "$__default"
-    if [[ "$__val" =~ ^[A-Z][A-Z0-9]{1,5}$ ]]; then
-      printf -v "$__var" '%s' "$__val"
+    ask __validated_val "$__prompt" "$__default"
+    if [[ "$__validated_val" =~ ^[A-Z][A-Z0-9]{1,5}$ ]]; then
+      printf -v "$__var" '%s' "$__validated_val"
       return
     fi
     err "Must be 2-6 uppercase letters/digits, starting with a letter (e.g. ACME, NORDIC, SVM2)."
@@ -85,11 +91,11 @@ ask_slug() {
 
 # Date: YYYY-MM-DD format (lightweight check).
 ask_date() {
-  local __var="$1" __prompt="$2" __default="${3:-}" __val
+  local __var="$1" __prompt="$2" __default="${3:-}" __validated_val
   while true; do
-    ask __val "$__prompt" "$__default"
-    if [[ "$__val" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-      printf -v "$__var" '%s' "$__val"
+    ask __validated_val "$__prompt" "$__default"
+    if [[ "$__validated_val" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+      printf -v "$__var" '%s' "$__validated_val"
       return
     fi
     err "Must be YYYY-MM-DD format."

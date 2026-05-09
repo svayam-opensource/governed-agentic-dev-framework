@@ -65,3 +65,33 @@ jobs:
         env:
           STRICT_PLACEHOLDERS: ${{ github.base_ref == 'main' && '1' || '' }}
         run: python3 scripts/validate/run.py
+
+  tests:
+    # Behavior tests for scripts (exec bits, prj EOF, install-deps, setup.sh
+    # interactive flow, slug validation, template-origin refusal, no-yq path).
+    # Catches regressions in the polish items shipped in v0.1.0.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install pyyaml
+        run: pip install --quiet pyyaml
+
+      - name: Configure git identity (needed for tests/test_setup_*.sh which
+              spawn child repos that may invoke git config)
+        run: |
+          git config --global user.email "ci@example.com"
+          git config --global user.name "CI Runner"
+
+      - name: Run test suite
+        run: bash tests/run-all.sh
