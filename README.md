@@ -25,33 +25,37 @@ This framework gives you:
 
 > This is a **template repository.** You don't fork it — you use it to scaffold *your own* private workspace repo, which you then own and commit to. The framework's `publish` upstream stays clean; your private overlay (real projects, accumulated knowledge, your `org-config.yaml` values) lives only in your repo.
 
-```bash
-# 1. On GitHub, click "Use this template" on this repo's page.
-#    Pick a name (e.g. 000-acme-prj) and visibility (typically Private).
-#    GitHub creates a NEW repository under your account or org.
+**1. Create your repo from the template.** Open the framework's repo on GitHub:
 
-# 2. Clone YOUR new repository (not this template).
+> https://github.com/Svayamtech/agentic-development-framework
+
+Click the green **"Use this template"** button → **"Create a new repository"**. Pick a name (e.g. `000-acme-prj`) and visibility (typically Private). GitHub will create a new repository under your account or org.
+
+**2. Clone *your* new repo and run the setup.**
+
+```bash
+# Clone YOUR new repository (not this template).
 git clone https://github.com/<your-github-org>/<your-new-repo>.git
 cd <your-new-repo>
 
-# 3. Verify your environment (tools, gh auth, GitHub access).
-#    Hard gate — refuses to proceed if anything required is missing.
+# Verify your environment (tools, gh auth, GitHub access).
+# Hard gate — refuses to proceed if anything required is missing.
 bash scripts/install-deps.sh
 
-# 4. Configure the framework for your org. Interactive — prompts for
-#    org name, slug, role identities, etc., with sensible defaults
-#    detected from gh and git config. Substitutes throughout.
+# Configure the framework for your org. Interactive — prompts for
+# org name, slug, role identities, etc., with sensible defaults
+# detected from gh and git config. Substitutes throughout.
 bash setup.sh
 
-# 5. (Optional) Customize the policy text for your org.
+# (Optional) Customize the policy text for your org.
 $EDITOR knowledge/policies/agentic-development-policy.md
 
-# 6. Commit and push to YOUR repository.
+# Commit and push to YOUR repository.
 git add -A
 git commit -m "configure framework for <your-org>"
 git push origin main
 
-# 7. Start using it.
+# Start using it.
 ./prj
 ```
 
