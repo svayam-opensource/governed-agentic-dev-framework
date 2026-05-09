@@ -89,9 +89,17 @@ warn() { echo "WARNING [C02]: $*"; }
 info() { echo "  $*"; }
 
 confirm() {
+  local _ans
   printf "%s [y/N] " "$*"
-  read -r _ans
-  [[ "$_ans" == [yY] ]] || { echo "Aborted."; exit 0; }
+  if ! IFS= read -r _ans; then
+    echo ""
+    echo "Aborted (no input)."
+    exit 1
+  fi
+  if [[ "$_ans" != [yY] && "$_ans" != [yY][eE][sS] ]]; then
+    echo "Aborted."
+    exit 1
+  fi
 }
 
 # ── String helpers ────────────────────────────────────────────────────────────

@@ -62,6 +62,18 @@ CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
 
 # ── Prompt helpers ────────────────────────────────────────────────────────────
 
+# Read a line from stdin or exit with a clear message on EOF (Ctrl-D, closed pipe).
+# Sets the named variable. Returns 0 on success; calls exit on EOF.
+_read_or_abort() {
+  local __varname="$1" __val
+  if ! IFS= read -r __val; then
+    echo ""
+    err "Aborted (no input)."
+    exit 1
+  fi
+  printf -v "$__varname" '%s' "$__val"
+}
+
 # ask <var_name> <prompt> [default]
 ask() {
   local __var="$1" __prompt="$2" __default="${3:-}" __val
@@ -70,11 +82,11 @@ ask() {
   else
     printf "${BOLD}%s${NC}: " "$__prompt"
   fi
-  read -r __val
+  _read_or_abort __val
   __val="${__val:-$__default}"
   while [[ -z "$__val" ]]; do
     printf "${RED}Required.${NC} ${BOLD}%s${NC}: " "$__prompt"
-    read -r __val
+    _read_or_abort __val
   done
   printf -v "$__var" '%s' "$__val"
 }
@@ -87,7 +99,7 @@ ask_optional() {
   else
     printf "${BOLD}%s${NC} ${DIM}(optional)${NC}: " "$__prompt"
   fi
-  read -r __val
+  _read_or_abort __val
   printf -v "$__var" '%s' "${__val:-$__default}"
 }
 
@@ -101,7 +113,7 @@ ask_choice() {
   done
   while true; do
     printf "Choose [1-%d]: " "${#__opts[@]}"
-    read -r __val
+    _read_or_abort __val
     if [[ "$__val" =~ ^[0-9]+$ ]] && (( __val >= 1 && __val <= ${#__opts[@]} )); then
       printf -v "$__var" '%s' "${__opts[$((__val-1))]}"
       return
@@ -110,11 +122,20 @@ ask_choice() {
   done
 }
 
-# confirm <prompt> — exits if user says no
+# confirm <prompt> — exits non-zero if user says anything other than yes,
+# including EOF/empty input.
 confirm() {
+  local _ans
   printf "${YELLOW}%s${NC} ${DIM}[y/N]${NC}: " "$*"
-  read -r _ans
-  [[ "$_ans" == [yY] ]] || { echo "Aborted."; exit 0; }
+  if ! IFS= read -r _ans; then
+    echo ""
+    echo "Aborted (no input)."
+    exit 1
+  fi
+  if [[ "$_ans" != [yY] && "$_ans" != [yY][eE][sS] ]]; then
+    echo "Aborted."
+    exit 1
+  fi
 }
 
 # ── Project list helpers ──────────────────────────────────────────────────────
