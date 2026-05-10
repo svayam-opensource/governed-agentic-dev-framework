@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Verify install-deps.sh skips Phase 2 (GitHub identity & access checks) when
-# org-config.yaml is at template defaults — the bootstrap state for an adopter
-# who just cloned the template and hasn't yet run setup.sh.
+# Verify install-deps.sh runs cleanly regardless of org-config.yaml state.
+# (As of v0.1.1: install-deps is tools-only. GitHub identity / access
+# verification has moved into setup.sh, where the configured github_org
+# is known. This test confirms install-deps no longer reads org-config.yaml
+# and exits cleanly even when the file is at template defaults.)
 
 TEST_NAME="install_deps_template"
 source "$(dirname "$0")/lib.sh"
@@ -35,8 +37,14 @@ chmod +x "$SCRATCH/scripts/install-deps.sh"
 out=$(bash "$SCRATCH/scripts/install-deps.sh" --check 2>&1)
 exit_code=$?
 
-assert_exit_code 0 "$exit_code" "install-deps passes Phase 1 at template defaults"
-assert_contains "template defaults" "$out" "template-default state is detected"
-assert_contains "Phase 2" "$out" "Phase 2 skip is announced"
-assert_contains "Tools-only check passed" "$out" "tools-only success message"
-assert_not_contains "GitHub identity & access:" "$out" "Phase 2 not run"
+assert_exit_code 0 "$exit_code" "install-deps --check passes at template defaults"
+assert_contains "All required tools installed and gh authenticated" "$out" \
+                "success message printed"
+assert_contains "bash setup.sh" "$out" "directs user to setup.sh next"
+
+# The two-phase split was removed in v0.1.1: install-deps no longer reads
+# org-config.yaml and no longer mentions any 'Phase 2' or GitHub access checks.
+assert_not_contains "Phase 2" "$out" "no Phase 2 references"
+assert_not_contains "GitHub identity & access:" "$out" "no GitHub access section"
+assert_not_contains "template defaults" "$out" "no template-default branching"
+assert_not_contains "re-run this script" "$out" "no re-run-me-later message"

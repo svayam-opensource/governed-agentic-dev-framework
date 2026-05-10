@@ -63,7 +63,10 @@ MD
 #   sys_arch:        (Enter)
 #   data_arch:       (Enter)
 #   effective_date:  (Enter)
-out=$(printf 'TestCorp Industries\nTestCorp\nTST\n\n\n\n\n\n\n\n\n\n' | bash setup.sh 2>&1)
+# SETUP_SKIP_GITHUB_VERIFY=1 prevents setup.sh from trying to verify the
+# fake test-org-fixture github_org against real GitHub at the end of the run.
+out=$(printf 'TestCorp Industries\nTestCorp\nTST\n\n\n\n\n\n\n\n\n\n' \
+      | SETUP_SKIP_GITHUB_VERIFY=1 bash setup.sh 2>&1)
 exit_code=$?
 
 assert_exit_code 0 "$exit_code" "setup.sh exits 0 on happy path"

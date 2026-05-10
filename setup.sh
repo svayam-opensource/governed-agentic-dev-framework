@@ -386,14 +386,78 @@ done <<< "$FILE_LIST"
 
 ok "Placeholders substituted in $COUNT files"
 
+# ── Verify GitHub identity & access ──────────────────────────────────────────
+#
+# Skipped when:
+#   - --non-interactive   (CI / sync contexts where the auth might differ)
+#   - SETUP_SKIP_GITHUB_VERIFY=1   (test escape hatch)
+#
+# Hard-stops on any unmet precondition with an actionable remediation.
+
+if $NON_INTERACTIVE || [[ "${SETUP_SKIP_GITHUB_VERIFY:-}" == "1" ]]; then
+  :  # skip — appropriate for re-runs / CI / tests
+else
+  header "Verifying GitHub access"
+
+  # git user.email
+  GIT_EMAIL=$(git config user.email 2>/dev/null || echo "")
+  if [[ -z "$GIT_EMAIL" ]]; then
+    err "git config user.email is not set"
+    hard_stop "Set it: git config --global user.email 'you@example.com'"
+  fi
+  ok "git user.email:  $GIT_EMAIL"
+
+  # gh user
+  GH_USER=$(gh api user --jq .login 2>/dev/null || echo "")
+  if [[ -z "$GH_USER" ]]; then
+    hard_stop "Could not retrieve gh user. Run: gh auth login"
+  fi
+  ok "gh user:         $GH_USER"
+
+  # Org / user read access for github_org
+  if gh api "orgs/$GITHUB_ORG" &>/dev/null; then
+    ok "Read access to org '$GITHUB_ORG'"
+    GITHUB_ORG_TYPE="org"
+  elif gh api "users/$GITHUB_ORG" &>/dev/null; then
+    ok "'$GITHUB_ORG' is a user account (not an org) — accessible"
+    GITHUB_ORG_TYPE="user"
+  else
+    err "Cannot read '$GITHUB_ORG' — not found, or no access"
+    hard_stop "Verify github_org in org-config.yaml is correct, you are a member, and gh has 'read:org' scope:
+    gh auth refresh -h github.com -s read:org"
+  fi
+
+  # Token scopes
+  SCOPES=$(gh auth status 2>&1 | grep -i "Token scopes" | head -1 | sed -E 's/.*Token scopes:[[:space:]]*//' | tr -d "'\"" || echo "")
+  if [[ -n "$SCOPES" ]]; then
+    ok "Token scopes:    $SCOPES"
+    if ! echo "$SCOPES" | grep -qw "repo"; then
+      err "Missing required scope: repo"
+      hard_stop "Refresh: gh auth refresh -h github.com -s repo"
+    fi
+    if [[ "$GITHUB_ORG_TYPE" == "org" ]] && ! echo "$SCOPES" | grep -qw "read:org"; then
+      warn "Scope 'read:org' not detected — some org operations may fail"
+      echo "    Refresh: gh auth refresh -h github.com -s read:org"
+    fi
+  else
+    warn "Could not determine token scopes — assuming sufficient"
+  fi
+
+  # Origin remote reachable (lightweight: ls-remote)
+  if git ls-remote origin HEAD &>/dev/null; then
+    ok "Origin remote accessible"
+  else
+    warn "Could not contact 'origin' remote — verify with: git remote -v"
+  fi
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
 echo -e "${BOLD}${GREEN}Configured framework for: $ORG_NAME ($ORG_SLUG)${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Verify GitHub access:    bash scripts/install-deps.sh"
-echo "  2. Review changes:           git diff"
-echo "  3. Commit + push:            git add -A && git commit -m 'configure framework for $ORG_NAME' && git push origin $DEFAULT_BRANCH"
-echo "  4. Start using the CLI:      ./prj"
+echo "  1. Review changes:    git diff"
+echo "  2. Commit + push:     git add -A && git commit -m 'configure framework for $ORG_NAME' && git push origin $DEFAULT_BRANCH"
+echo "  3. Start using:       ./prj"
 echo ""

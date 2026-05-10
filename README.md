@@ -38,13 +38,14 @@ Click the green **"Use this template"** button → **"Create a new repository"**
 git clone https://github.com/<your-github-org>/<your-new-repo>.git
 cd <your-new-repo>
 
-# Verify your environment (tools, gh auth, GitHub access).
+# Verify the toolchain (git, gh, python3, pyyaml; yq optional).
 # Hard gate — refuses to proceed if anything required is missing.
 bash scripts/install-deps.sh
 
-# Configure the framework for your org. Interactive — prompts for
-# org name, slug, role identities, etc., with sensible defaults
-# detected from gh and git config. Substitutes throughout.
+# Configure the framework for your org and verify GitHub access.
+# Interactive: prompts for org name, slug, role identities, etc., with
+# sensible defaults detected from gh and git config. Substitutes
+# throughout, then checks gh user / org membership / scopes.
 bash setup.sh
 
 # (Optional) Customize the policy text for your org.

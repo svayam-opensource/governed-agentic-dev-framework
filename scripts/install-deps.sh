@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # install-deps.sh
-# Hard-gate environment check for the Agentic Development Framework.
+# Hard-gate tool check for the Agentic Development Framework.
 #
-# Two phases:
-#   Phase 1 — Tools: git, gh, python3, pyyaml are REQUIRED.
-#             yq is OPTIONAL (python3+pyyaml covers all functionality).
-#   Phase 2 — GitHub identity & access: only runs once org-config.yaml
-#             is configured for a real org (not template defaults).
+# Verifies the local toolchain is ready:
+#   Required: git, gh (authenticated), python3, pyyaml
+#   Optional: yq  (python3+pyyaml covers all functionality)
 #
-# Both phases must pass. The script exits non-zero on any unmet
-# precondition — callers cannot proceed with a partial environment.
+# Auto-installs missing required tools (or hard-stops in --check mode).
+#
+# GitHub identity & access verification (which org / which user) lives
+# in setup.sh, where the configured github_org is known. Run setup.sh
+# next to configure your org; it will verify access against the values
+# you provide.
 #
 # Supported platforms:
 #   - macOS       (via Homebrew)
@@ -283,100 +285,8 @@ if ! gh auth status &>/dev/null; then
 fi
 ok "gh authenticated"
 
-# ── Phase 2: GitHub identity & access (if org-config.yaml is configured) ─────
-
-read_yaml() {
-  local key="$1"
-  if command -v yq &>/dev/null; then
-    yq ".$key" "$CONFIG" 2>/dev/null | tr -d '"' | sed 's/^null$//'
-  else
-    python3 -c "import yaml; v = yaml.safe_load(open('$CONFIG')).get('$key', ''); print(v if v is not None else '')" 2>/dev/null
-  fi
-}
-
-if [[ ! -f "$CONFIG" ]]; then
-  hard_stop "org-config.yaml not found at $CONFIG"
-fi
-
-GITHUB_ORG=$(read_yaml github_org)
-
-# Detect template-default state — skip Phase 2, point user at setup.sh
-if [[ -z "$GITHUB_ORG" || "$GITHUB_ORG" == "your-github-org" ]]; then
-  echo ""
-  warn "org-config.yaml is at template defaults — Phase 2 (GitHub access) skipped."
-  echo ""
-  ok "Tools-only check passed."
-  echo ""
-  echo "Next: run setup.sh to configure for your org, then re-run this script"
-  echo "to verify GitHub access."
-  echo ""
-  exit 0
-fi
-
 echo ""
-echo "GitHub identity & access:"
-
-# git user.email
-GIT_EMAIL=$(git config user.email 2>/dev/null || echo "")
-if [[ -z "$GIT_EMAIL" ]]; then
-  fail "git config user.email is not set"
-  hard_stop "Set it: git config --global user.email 'you@example.com'"
-fi
-ok "git user.email:  $GIT_EMAIL"
-
-# gh user
-GH_USER=$(gh api user --jq .login 2>/dev/null || echo "")
-if [[ -z "$GH_USER" ]]; then
-  hard_stop "Could not retrieve gh user. Run: gh auth login"
-fi
-ok "gh user:         $GH_USER"
-
-# Org read access
-if gh api "orgs/$GITHUB_ORG" &>/dev/null; then
-  ok "Read access to org '$GITHUB_ORG'"
-else
-  # Maybe it's a personal account (gh users), not an org
-  if gh api "users/$GITHUB_ORG" &>/dev/null; then
-    ok "'$GITHUB_ORG' is a user account (not an org) — accessible"
-  else
-    fail "Cannot read '$GITHUB_ORG' — not found, or no access"
-    hard_stop "Verify github_org in org-config.yaml is correct, you are a member, and gh has 'read:org' scope:
-    gh auth refresh -h github.com -s read:org"
-  fi
-fi
-
-# Token scopes
-SCOPES=$(gh auth status 2>&1 | grep -i "Token scopes" | head -1 | sed -E 's/.*Token scopes:[[:space:]]*//' | tr -d "'\"" || echo "")
-if [[ -n "$SCOPES" ]]; then
-  ok "Token scopes:    $SCOPES"
-  for required in "repo"; do
-    if ! echo "$SCOPES" | grep -qw "$required"; then
-      fail "Missing required scope: $required"
-      hard_stop "Refresh: gh auth refresh -h github.com -s $required"
-    fi
-  done
-  # read:org is needed for org membership reads — only enforce if github_org is an org (not a user)
-  if gh api "orgs/$GITHUB_ORG" &>/dev/null; then
-    if ! echo "$SCOPES" | grep -qw "read:org"; then
-      warn "Scope 'read:org' not detected — some org operations may fail"
-      note "Refresh: gh auth refresh -h github.com -s read:org"
-    fi
-  fi
-else
-  warn "Could not determine token scopes — assuming sufficient"
-fi
-
-# Push access to workspace repo (lightweight: ls-remote)
-WORKSPACE_REPO=$(read_yaml workspace_repo)
-if [[ -n "$WORKSPACE_REPO" && "$WORKSPACE_REPO" != "000-org-prj" ]]; then
-  if cd "$REPO_ROOT" && git ls-remote origin HEAD &>/dev/null; then
-    ok "Origin remote accessible"
-  else
-    warn "Could not contact 'origin' remote — verify it's set and you have access"
-    note "Check: git remote -v"
-  fi
-fi
-
+ok "All required tools installed and gh authenticated."
 echo ""
-ok "Environment ready."
+echo "Next: bash setup.sh   (configure for your org and verify GitHub access)"
 echo ""
