@@ -43,9 +43,9 @@ run_rollback() {
   if [[ "$SEED_OK" == "1" ]]; then
     return 0
   fi
-  if [[ ${#CREATED_LOCAL_BRANCHES[@]:-0} -eq 0 \
-        && ${#PUSHED_REMOTE_BRANCHES[@]:-0} -eq 0 \
-        && ${#CREATED_PATHS[@]:-0} -eq 0 \
+  if [[ ${#CREATED_LOCAL_BRANCHES[@]} -eq 0 \
+        && ${#PUSHED_REMOTE_BRANCHES[@]} -eq 0 \
+        && ${#CREATED_PATHS[@]} -eq 0 \
         && -z "$REGISTRY_SNAPSHOT" ]]; then
     return 0
   fi
@@ -59,7 +59,7 @@ run_rollback() {
   fi
 
   # Delete pushed remote branches (reverse order)
-  if [[ ${#PUSHED_REMOTE_BRANCHES[@]:-0} -gt 0 ]]; then
+  if [[ ${#PUSHED_REMOTE_BRANCHES[@]} -gt 0 ]]; then
     for ((i=${#PUSHED_REMOTE_BRANCHES[@]}-1; i>=0; i--)); do
       local entry="${PUSHED_REMOTE_BRANCHES[$i]}"
       local path="${entry%%|*}"
@@ -69,7 +69,7 @@ run_rollback() {
   fi
 
   # Delete local branches (reverse order; switch off them first)
-  if [[ ${#CREATED_LOCAL_BRANCHES[@]:-0} -gt 0 ]]; then
+  if [[ ${#CREATED_LOCAL_BRANCHES[@]} -gt 0 ]]; then
     for ((i=${#CREATED_LOCAL_BRANCHES[@]}-1; i>=0; i--)); do
       local entry="${CREATED_LOCAL_BRANCHES[$i]}"
       local path="${entry%%|*}"
@@ -88,7 +88,7 @@ run_rollback() {
 
   # Delete created paths (reverse order — folders are usually created in order
   # of dependency, so reverse-deletion handles nested cases)
-  if [[ ${#CREATED_PATHS[@]:-0} -gt 0 ]]; then
+  if [[ ${#CREATED_PATHS[@]} -gt 0 ]]; then
     for ((i=${#CREATED_PATHS[@]}-1; i>=0; i--)); do
       [[ -n "${CREATED_PATHS[$i]}" ]] && rm -rf "${CREATED_PATHS[$i]}"
     done
@@ -211,7 +211,7 @@ if [[ -d "$AGENT_WORK_ROOT/$PROJECT_ID" ]]; then
   LEFTOVER+=("clones at '$AGENT_WORK_ROOT/$PROJECT_ID'")
 fi
 
-if [[ ${#LEFTOVER[@]:-0} -gt 0 ]]; then
+if [[ ${#LEFTOVER[@]} -gt 0 ]]; then
   echo ""
   warn "Detected leftover state from a previous failed run for $PROJECT_ID:"
   for item in "${LEFTOVER[@]}"; do
@@ -333,7 +333,7 @@ fi
 # Lookup helper for repo_url → base_branch (parallel-array lookup)
 get_repo_base() {
   local target="$1" i
-  for ((i=0; i<${#REPO_URL_LIST[@]:-0}; i++)); do
+  for ((i=0; i<${#REPO_URL_LIST[@]}; i++)); do
     if [[ "${REPO_URL_LIST[$i]}" == "$target" ]]; then
       echo "${REPO_BASE_LIST[$i]}"
       return 0
@@ -403,7 +403,7 @@ info "Scaffolded $PROJECT_DIR"
 
 # ── Clone repos and create project branches ───────────────────────────────────
 
-if [[ ${#REPO_URL_LIST[@]:-0} -gt 0 ]]; then
+if [[ ${#REPO_URL_LIST[@]} -gt 0 ]]; then
   mkdir -p "$AGENT_WORK_ROOT/$PROJECT_ID"
   CREATED_PATHS+=("$AGENT_WORK_ROOT/$PROJECT_ID")
   for repo_url in "${REPO_URL_LIST[@]}"; do
@@ -471,6 +471,6 @@ echo "=== Project seeded successfully!"
 echo "    ID:        $PROJECT_ID"
 echo "    Branch:    $BRANCH"
 echo "    Directory: $PROJECT_DIR"
-[[ ${#REPO_URL_LIST[@]:-0} -gt 0 ]] && \
+[[ ${#REPO_URL_LIST[@]} -gt 0 ]] && \
   echo "    Clones:    $AGENT_WORK_ROOT/$PROJECT_ID/"
 echo ""

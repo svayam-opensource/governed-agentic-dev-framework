@@ -53,6 +53,14 @@ check_file() {
     return 1
   fi
 
+  # Length-of-array combined with default-value modifier — invalid in bash 3.2.
+  # ${#arr[@]:-0} produces "bad substitution" because :-default only works on
+  # plain variable expansion, not the length form.  ${#arr[@]} alone is fine.
+  if echo "$stripped" | grep -qE '\$\{#[A-Za-z_][A-Za-z0-9_]*\[[@*]\]:-'; then
+    t_fail "$file uses invalid length-with-default substitution \${#arr[@]:-N}"
+    return 1
+  fi
+
   return 0
 }
 
