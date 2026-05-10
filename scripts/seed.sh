@@ -4,6 +4,13 @@
 #          Scaffolds workspace, clones repos, creates branches.
 # Usage:   bash seed.sh <github_project_url> <assignee>
 # Compliance: C01 for all validation gates (POL-056 to POL-075)
+#
+# Resilience:
+#   - Detects leftover state from a previous failed run for the same
+#     project ID and offers to clean it up before proceeding.
+#   - Tracks side effects in this run; on error, rolls them back so the
+#     workspace is restored to its pre-seed state.
+#   - bash 3.2 compatible (no associative arrays / mapfile / readarray).
 
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
@@ -20,6 +27,77 @@ ASSIGNEE="${2:-}"
 echo "=== seed: $GITHUB_PROJECT_URL"
 echo "    Assignee: $ASSIGNEE"
 echo ""
+
+# ── Rollback machinery ────────────────────────────────────────────────────────
+# Track artifacts created during this run so they can be reversed on failure.
+# Each list entry uses '<path>|<value>' to avoid bash3 associative arrays.
+
+CREATED_LOCAL_BRANCHES=()    # entries: "<repo-path>|<branch-name>"
+PUSHED_REMOTE_BRANCHES=()    # entries: "<repo-path>|<branch-name>"
+CREATED_PATHS=()              # entries: filesystem paths
+REGISTRY_SNAPSHOT=""
+SEED_OK=0
+
+run_rollback() {
+  local exit_code=$?
+  if [[ "$SEED_OK" == "1" ]]; then
+    return 0
+  fi
+  if [[ ${#CREATED_LOCAL_BRANCHES[@]:-0} -eq 0 \
+        && ${#PUSHED_REMOTE_BRANCHES[@]:-0} -eq 0 \
+        && ${#CREATED_PATHS[@]:-0} -eq 0 \
+        && -z "$REGISTRY_SNAPSHOT" ]]; then
+    return 0
+  fi
+  echo ""
+  warn "seed.sh failed (exit $exit_code). Rolling back partial state..."
+
+  # Restore registry from snapshot
+  if [[ -n "$REGISTRY_SNAPSHOT" && -f "$REGISTRY_SNAPSHOT" ]]; then
+    cp "$REGISTRY_SNAPSHOT" "$REGISTRY" 2>/dev/null || true
+    rm -f "$REGISTRY_SNAPSHOT"
+  fi
+
+  # Delete pushed remote branches (reverse order)
+  if [[ ${#PUSHED_REMOTE_BRANCHES[@]:-0} -gt 0 ]]; then
+    for ((i=${#PUSHED_REMOTE_BRANCHES[@]}-1; i>=0; i--)); do
+      local entry="${PUSHED_REMOTE_BRANCHES[$i]}"
+      local path="${entry%%|*}"
+      local branch="${entry#*|}"
+      git -C "$path" push origin --delete "$branch" 2>/dev/null || true
+    done
+  fi
+
+  # Delete local branches (reverse order; switch off them first)
+  if [[ ${#CREATED_LOCAL_BRANCHES[@]:-0} -gt 0 ]]; then
+    for ((i=${#CREATED_LOCAL_BRANCHES[@]}-1; i>=0; i--)); do
+      local entry="${CREATED_LOCAL_BRANCHES[$i]}"
+      local path="${entry%%|*}"
+      local branch="${entry#*|}"
+      local current=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+      if [[ "$current" == "$branch" ]]; then
+        git -C "$path" reset --hard HEAD 2>/dev/null || true
+        git -C "$path" checkout - 2>/dev/null \
+          || git -C "$path" checkout "$DEFAULT_BRANCH" 2>/dev/null \
+          || git -C "$path" checkout main 2>/dev/null \
+          || true
+      fi
+      git -C "$path" branch -D "$branch" 2>/dev/null || true
+    done
+  fi
+
+  # Delete created paths (reverse order — folders are usually created in order
+  # of dependency, so reverse-deletion handles nested cases)
+  if [[ ${#CREATED_PATHS[@]:-0} -gt 0 ]]; then
+    for ((i=${#CREATED_PATHS[@]}-1; i>=0; i--)); do
+      [[ -n "${CREATED_PATHS[$i]}" ]] && rm -rf "${CREATED_PATHS[$i]}"
+    done
+  fi
+
+  warn "Rollback complete. Workspace restored."
+}
+
+trap 'run_rollback' EXIT
 
 # ── C01 Validation Gates ──────────────────────────────────────────────────────
 
@@ -100,40 +178,110 @@ NNN=$(printf "%03d" $((LAST_ISSUED + 1)))
 PROJECT_ID="${ORG_SLUG}-${NNN}-${SHORT_SLUG}"
 BRANCH="${ORG_SLUG_LOWER}-${NNN}-${SHORT_SLUG}"
 TODAY=$(today)
+PROJECT_DIR="$REPO_ROOT/projects/$PROJECT_ID"
 
 echo "Project ID : $PROJECT_ID"
 echo "Branch     : $BRANCH"
 echo ""
 
-# Guard: registry conflict
-if python3 - "$REGISTRY" "$PROJECT_ID" <<'PY'; then
+# ── Leftover-state detection (graceful re-run after a failed run) ─────────────
+
+cd "$REPO_ROOT"
+
+LEFTOVER=()
+if git rev-parse --verify "$BRANCH" &>/dev/null; then
+  LEFTOVER+=("local branch '$BRANCH' in workspace repo")
+fi
+if git ls-remote --exit-code --heads origin "$BRANCH" &>/dev/null; then
+  LEFTOVER+=("remote branch 'origin/$BRANCH' in workspace repo")
+fi
+if [[ -d "$PROJECT_DIR" ]]; then
+  LEFTOVER+=("project folder 'projects/$PROJECT_ID'")
+fi
+if python3 - "$REGISTRY" "$PROJECT_ID" <<'PY'
 import sys, yaml
 c = yaml.safe_load(open(sys.argv[1]))
 ids = [p.get('id') for p in (c.get('projects') or []) if p]
 sys.exit(0 if sys.argv[2] in ids else 1)
 PY
-  hard_stop "Registry conflict: $PROJECT_ID already exists — manual registry inspection required."
+then
+  LEFTOVER+=("registry entry for '$PROJECT_ID'")
 fi
+if [[ -d "$AGENT_WORK_ROOT/$PROJECT_ID" ]]; then
+  LEFTOVER+=("clones at '$AGENT_WORK_ROOT/$PROJECT_ID'")
+fi
+
+if [[ ${#LEFTOVER[@]:-0} -gt 0 ]]; then
+  echo ""
+  warn "Detected leftover state from a previous failed run for $PROJECT_ID:"
+  for item in "${LEFTOVER[@]}"; do
+    echo "    - $item"
+  done
+  echo ""
+  echo "Options:"
+  echo "  (a) Clean up these artifacts and start fresh"
+  echo "  (b) Abort — inspect manually"
+  echo ""
+  printf "Choose [a/b]: "
+  read -r choice </dev/tty
+  case "$choice" in
+    a|A)
+      info "Cleaning up partial state..."
+      git reset --hard HEAD 2>/dev/null || true
+      current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+      if [[ "$current_branch" == "$BRANCH" ]]; then
+        git checkout "$DEFAULT_BRANCH" 2>/dev/null || true
+      fi
+      git pull --ff-only origin "$DEFAULT_BRANCH" 2>/dev/null || true
+      git branch -D "$BRANCH" 2>/dev/null || true
+      git push origin --delete "$BRANCH" 2>/dev/null || true
+      rm -rf "$PROJECT_DIR"
+      rm -rf "$AGENT_WORK_ROOT/$PROJECT_ID"
+      # Remove stray registry entry (rare; usually only present if a prior
+      # run got merged to default)
+      python3 - "$REGISTRY" "$PROJECT_ID" <<'PY' 2>/dev/null || true
+import sys, yaml
+registry, pid = sys.argv[1:]
+with open(registry) as f:
+    c = yaml.safe_load(f)
+projects = [p for p in (c.get('projects') or []) if p and p.get('id') != pid]
+c['projects'] = projects
+with open(registry, 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+PY
+      git checkout -- registry.yaml 2>/dev/null || true
+      info "Cleanup complete. Continuing seed..."
+      echo ""
+      ;;
+    *)
+      hard_stop "Aborted at user request. Inspect manually with:
+    git status
+    ls projects/$PROJECT_ID
+    cat registry.yaml | grep $PROJECT_ID"
+      ;;
+  esac
+fi
+
+# Snapshot registry before any edits — used by rollback
+REGISTRY_SNAPSHOT="/tmp/registry.yaml.seed.$$"
+cp "$REGISTRY" "$REGISTRY_SNAPSHOT"
 
 # ── Create branch in workspace repo ──────────────────────────────────────────
 
-cd "$REPO_ROOT"
 git fetch origin "$DEFAULT_BRANCH"
 git checkout "$DEFAULT_BRANCH"
 git pull origin "$DEFAULT_BRANCH"
-if git rev-parse --verify "$BRANCH" &>/dev/null; then
-  hard_stop "Branch '$BRANCH' already exists in workspace repo — investigate before proceeding."
-fi
 git checkout -b "$BRANCH"
+CREATED_LOCAL_BRANCHES+=("$REPO_ROOT|$BRANCH")
 echo "Created branch '$BRANCH' in workspace repo."
 echo ""
 
 # ── Scaffold project directory ────────────────────────────────────────────────
 
-PROJECT_DIR="$REPO_ROOT/projects/$PROJECT_ID"
 mkdir -p "$PROJECT_DIR"/{requirements,environment,knowledge}
+CREATED_PATHS+=("$PROJECT_DIR")
 
-# Discover repos linked to the project
+# Discover repos linked to the project (one URL per line)
 REPO_URLS=$(echo "$PROJECT_DATA" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
@@ -147,23 +295,32 @@ for i in p['items']['nodes']:
         print(r)
 ")
 
-# Build repos section for project.yaml, prompting for base_branch per repo
-REPOS_BLOCK=""
-declare -A REPO_BASE_MAP=()
+# Pre-load the URL list into an array. We use parallel arrays (URLS + BASES)
+# rather than an associative array (declare -A) so this works on bash 3.2.
+# We pre-load into the array BEFORE prompting so the inner `read` for the
+# base-branch prompt doesn't conflict with a `while read` consuming the
+# heredoc — that would silently EOF and exit the script.
+REPO_URL_LIST=()
+REPO_BASE_LIST=()
 
 if [[ -n "$REPO_URLS" ]]; then
-  while IFS= read -r repo_url; do
-    [[ -z "$repo_url" ]] && continue
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    REPO_URL_LIST+=("$line")
+  done <<< "$REPO_URLS"
+
+  REPOS_BLOCK=""
+  for repo_url in "${REPO_URL_LIST[@]}"; do
     printf "  Base branch for '%s' [%s]: " "$repo_url" "$DEFAULT_CODE_BRANCH"
-    read -r input_base
+    read -r input_base </dev/tty
     base="${input_base:-$DEFAULT_CODE_BRANCH}"
-    REPO_BASE_MAP["$repo_url"]="$base"
+    REPO_BASE_LIST+=("$base")
     REPOS_BLOCK+="  - url: $repo_url"$'\n'
     REPOS_BLOCK+="    role: primary"$'\n'
     REPOS_BLOCK+="    base_branch: $base"$'\n'
     REPOS_BLOCK+="    added_at: $TODAY"$'\n'
     REPOS_BLOCK+="    added_reason: ~"$'\n'
-  done <<< "$REPO_URLS"
+  done
 else
   warn "No repos detected from linked items — project.yaml repos[] left as placeholder."
   REPOS_BLOCK="  - url: ~"$'\n'
@@ -172,6 +329,18 @@ else
   REPOS_BLOCK+="    added_at: ~"$'\n'
   REPOS_BLOCK+="    added_reason: ~"$'\n'
 fi
+
+# Lookup helper for repo_url → base_branch (parallel-array lookup)
+get_repo_base() {
+  local target="$1" i
+  for ((i=0; i<${#REPO_URL_LIST[@]:-0}; i++)); do
+    if [[ "${REPO_URL_LIST[$i]}" == "$target" ]]; then
+      echo "${REPO_BASE_LIST[$i]}"
+      return 0
+    fi
+  done
+  echo "$DEFAULT_CODE_BRANCH"
+}
 
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "$ASSIGNEE")
 
@@ -234,12 +403,12 @@ info "Scaffolded $PROJECT_DIR"
 
 # ── Clone repos and create project branches ───────────────────────────────────
 
-if [[ -n "$REPO_URLS" ]]; then
+if [[ ${#REPO_URL_LIST[@]:-0} -gt 0 ]]; then
   mkdir -p "$AGENT_WORK_ROOT/$PROJECT_ID"
-  while IFS= read -r repo_url; do
-    [[ -z "$repo_url" ]] && continue
+  CREATED_PATHS+=("$AGENT_WORK_ROOT/$PROJECT_ID")
+  for repo_url in "${REPO_URL_LIST[@]}"; do
     REPO_NAME=$(get_repo_name "$repo_url")
-    REPO_BASE="${REPO_BASE_MAP[$repo_url]:-$DEFAULT_CODE_BRANCH}"
+    REPO_BASE=$(get_repo_base "$repo_url")
     REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
 
     echo "Processing repo: $repo_url"
@@ -249,7 +418,8 @@ if [[ -n "$REPO_URLS" ]]; then
     else
       info "Cloning into $REPO_DIR..."
       git clone "$repo_url" "$REPO_DIR" \
-        || hard_stop "Clone failed for $repo_url — script aborted (no partial scaffold)."
+        || hard_stop "Clone failed for $repo_url"
+      CREATED_PATHS+=("$REPO_DIR")
     fi
     git -C "$REPO_DIR" checkout "$REPO_BASE" \
       || hard_stop "Base branch '$REPO_BASE' not found in $repo_url"
@@ -258,10 +428,12 @@ if [[ -n "$REPO_URLS" ]]; then
       hard_stop "Branch '$BRANCH' already exists in $repo_url — investigate before proceeding."
     fi
     git -C "$REPO_DIR" checkout -b "$BRANCH"
+    CREATED_LOCAL_BRANCHES+=("$REPO_DIR|$BRANCH")
     git -C "$REPO_DIR" push -u origin "$BRANCH" \
       || hard_stop "Failed to push '$BRANCH' to $repo_url"
+    PUSHED_REMOTE_BRANCHES+=("$REPO_DIR|$BRANCH")
     info "Branch '$BRANCH' pushed to $repo_url"
-  done <<< "$REPO_URLS"
+  done
 fi
 
 # ── Update registry.yaml ──────────────────────────────────────────────────────
@@ -288,9 +460,17 @@ cd "$REPO_ROOT"
 git add "projects/$PROJECT_ID" registry.yaml
 git commit -m "seed: scaffold project $PROJECT_ID"
 git push -u origin "$BRANCH"
+PUSHED_REMOTE_BRANCHES+=("$REPO_ROOT|$BRANCH")
+
+# Mark seed complete — rollback trap will skip cleanup
+SEED_OK=1
+rm -f "$REGISTRY_SNAPSHOT"
 
 echo ""
 echo "=== Project seeded successfully!"
 echo "    ID:        $PROJECT_ID"
 echo "    Branch:    $BRANCH"
 echo "    Directory: $PROJECT_DIR"
+[[ ${#REPO_URL_LIST[@]:-0} -gt 0 ]] && \
+  echo "    Clones:    $AGENT_WORK_ROOT/$PROJECT_ID/"
+echo ""
