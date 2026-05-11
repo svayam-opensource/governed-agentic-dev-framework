@@ -60,6 +60,40 @@ fi
 
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
 
+# Verify git is configured with an author identity before any write op.
+# Without both user.name and user.email, git commit fails deep in the
+# flow with 'empty ident name' — confusing for users running ./prj
+# interactively. Call this at the top of each write command.
+require_git_identity() {
+  local missing=()
+  [[ -z "$(git config user.name 2>/dev/null)" ]]  && missing+=("user.name")
+  [[ -z "$(git config user.email 2>/dev/null)" ]] && missing+=("user.email")
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    local joined
+    joined=$(IFS='+'; echo "${missing[*]}")
+    joined=${joined//+/ + }
+    err "git $joined not set — required for commits this command will make."
+    echo ""
+    echo "  Set them globally (one-time):"
+    for f in "${missing[@]}"; do
+      case "$f" in
+        user.name)  echo "    git config --global user.name  'Your Name'" ;;
+        user.email) echo "    git config --global user.email 'you@example.com'" ;;
+      esac
+    done
+    echo ""
+    echo "  Or for this repo only:"
+    for f in "${missing[@]}"; do
+      case "$f" in
+        user.name)  echo "    git -C $(pwd) config user.name  'Your Name'" ;;
+        user.email) echo "    git -C $(pwd) config user.email 'you@example.com'" ;;
+      esac
+    done
+    echo ""
+    exit 1
+  fi
+}
+
 # ── Prompt helpers ────────────────────────────────────────────────────────────
 
 # NOTE: helpers below use unique internal variable names (__rabort_val,
@@ -317,7 +351,7 @@ PY
   )
   if [[ -n "$PRE_ASSIGNEE" && "$CURRENT_USER" != "$PRE_ASSIGNEE" ]]; then
     err "This project is assigned to '$PRE_ASSIGNEE'."
-    err "Only the assigned person may seed it. Ask the Policy Owner to reassign if needed."
+    err "Only the assigned person may seed it. Ask for a reassignment via './prj manage reassign' if needed."
     exit 1
   fi
 
@@ -569,18 +603,12 @@ cmd_deps() {
   bash "$SCRIPTS/install-deps.sh"
 }
 
-# ── Manage: Policy Owner assignment commands ──────────────────────────────────
-
-check_policy_owner() {
-  if [[ -z "$POLICY_OWNER_EMAIL" || "$CURRENT_USER" == "$POLICY_OWNER_EMAIL" ]]; then
-    return 0
-  fi
-  echo ""
-  warn "This section is intended for the Policy Owner (${POLICY_OWNER_EMAIL})."
-  warn "You are currently identified as: ${CURRENT_USER:-unknown}"
-  echo ""
-  confirm "Continue anyway?"
-}
+# ── Manage: project assignment commands ──────────────────────────────────────
+#
+# Open to anyone with write access to the workspace repo. GitHub enforces
+# write access at git push time, so there is no need to gate on identity
+# here — and pretending we do creates a Policy Owner bottleneck where
+# none is required. The git audit trail records who assigned whom.
 
 # Fetch GitHub org members (with email) and teams.
 # Outputs "value|display" per line.
@@ -1108,8 +1136,7 @@ PY
 }
 
 cmd_manage() {
-  check_policy_owner
-  header "Manage Assignments  ${DIM}(Policy Owner)${NC}"
+  header "Manage Assignments"
   divider
   echo ""
   echo -e "  ${CYAN}1)${NC} list       List all projects and their assignments"
@@ -1161,7 +1188,7 @@ show_menu() {
   echo -e "  ${CYAN}13)${NC} status       Show project status"
   echo -e "  ${CYAN}14)${NC} deps         Install / verify dependencies"
   echo ""
-  echo -e "  ${YELLOW}${BOLD}Admin${NC}  ${DIM}(Policy Owner)${NC}"
+  echo -e "  ${YELLOW}${BOLD}Manage${NC}"
   echo -e "  ${YELLOW}15)${NC} manage       List, assign, reassign, unassign projects"
   echo ""
   echo -e "  ${DIM}0)  Exit${NC}"
@@ -1170,6 +1197,13 @@ show_menu() {
   printf "  Choose: "
   read -r choice
   echo ""
+  # Write ops need a configured git identity; check before dispatching.
+  case "$choice" in
+    1|init|2|task|3|merge|4|pause|5|resume|6|sync|7|add-repo|8|cancel|9|close|10|knowledge|11|onboard|15|manage)
+      require_git_identity
+      ;;
+  esac
+
   case "$choice" in
     1|init)       cmd_init ;;
     2|task)       cmd_task ;;
@@ -1198,6 +1232,15 @@ show_menu() {
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 CMD="${1:-}"
+
+# Write commands need a configured git identity (they call git commit
+# during the flow). Read-only commands don't.
+case "$CMD" in
+  init|task|merge|pause|resume|sync|add-repo|cancel|close|knowledge|onboard|manage)
+    require_git_identity
+    ;;
+esac
+
 case "$CMD" in
   "")           show_menu ;;
   init)         cmd_init ;;
@@ -1234,7 +1277,7 @@ case "$CMD" in
     echo "  list        List all projects"
     echo "  status      Show project status"
     echo "  deps        Install / verify dependencies"
-    echo "  manage      List, assign, reassign, unassign projects (Policy Owner)"
+    echo "  manage      List, assign, reassign, unassign projects"
     echo ""
     echo "  Run without arguments for the interactive menu."
     echo ""

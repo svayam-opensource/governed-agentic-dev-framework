@@ -94,7 +94,7 @@ Current role holders are listed in `knowledge/policies/roles.md`. By default at 
 ./prj pause / resume / sync / cancel / close
 ./prj knowledge    # propose org knowledge changes
 ./prj onboard      # onboard a new code repo into the framework
-./prj manage       # Policy Owner: pre-assign or reassign projects
+./prj manage       # pre-assign / reassign projects (any repo collaborator)
 ./prj deps         # check or install dependencies
 ```
 
