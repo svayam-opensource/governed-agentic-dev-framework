@@ -374,14 +374,28 @@ get_repo_base() {
 
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "$ASSIGNEE")
 
+# Quote string scalars to keep YAML valid when values contain reserved chars
+# (e.g. a project title that starts with '@', a github handle starting with
+# '@', a URL containing ':'). Embedded double-quotes in user-controlled
+# strings are escaped to '\"'.
+yaml_quote() {
+  printf '"%s"' "$(printf '%s' "$1" | sed 's/"/\\"/g')"
+}
+Q_PROJECT_ID=$(yaml_quote "$PROJECT_ID")
+Q_SHORT_SLUG=$(yaml_quote "$SHORT_SLUG")
+Q_GITHUB_PROJECT_URL=$(yaml_quote "$GITHUB_PROJECT_URL")
+Q_PROJECT_TITLE=$(yaml_quote "$PROJECT_TITLE")
+Q_ASSIGNEE=$(yaml_quote "$ASSIGNEE")
+Q_CURRENT_USER=$(yaml_quote "$CURRENT_USER")
+
 cat > "$PROJECT_DIR/project.yaml" <<YAML
-id: $PROJECT_ID
-slug: $SHORT_SLUG
+id: $Q_PROJECT_ID
+slug: $Q_SHORT_SLUG
 description: ~
-github_project: $GITHUB_PROJECT_URL
-github_project_name: $PROJECT_TITLE
-assigned_to: $ASSIGNEE
-locked_by: $CURRENT_USER
+github_project: $Q_GITHUB_PROJECT_URL
+github_project_name: $Q_PROJECT_TITLE
+assigned_to: $Q_ASSIGNEE
+locked_by: $Q_CURRENT_USER
 status: active
 created_at: $TODAY
 started_at: $TODAY
