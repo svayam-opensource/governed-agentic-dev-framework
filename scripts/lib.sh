@@ -91,7 +91,12 @@ current_user_prefs_path() {
 }
 
 # Lazily create the current user's prefs file from the template if absent.
-# No-op if gh login is unavailable or the file already exists.
+# No-op if:
+#   - gh login is unavailable, OR
+#   - the prefs file already exists, OR
+#   - the template still contains {{PLACEHOLDER}} markers (workspace is
+#     in template state, not yet configured by setup.sh — copying now
+#     would persist unresolved placeholders into the user's prefs).
 ensure_user_prefs_file() {
   local path template
   path=$(current_user_prefs_path)
@@ -99,6 +104,11 @@ ensure_user_prefs_file() {
   [[ -f "$path" ]] && return 0
   template="$REPO_ROOT/knowledge/guidance/preferences-template.md"
   [[ -f "$template" ]] || return 0
+  # Refuse to seed from an un-substituted template. setup.sh is the
+  # right tool to substitute placeholders; only then can we copy.
+  if grep -q '{{[A-Z_a-z0-9]\+}}' "$template" 2>/dev/null; then
+    return 0
+  fi
   mkdir -p "$(dirname "$path")"
   cp "$template" "$path"
 }
