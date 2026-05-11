@@ -581,3 +581,31 @@ echo "    Directory: $PROJECT_DIR"
 [[ ${#REPO_URL_LIST[@]} -gt 0 ]] && \
   echo "    Clones:    $AGENT_WORK_ROOT/$PROJECT_ID/"
 echo ""
+echo "Next steps:"
+echo ""
+echo "  1. Point your agent at this project's knowledge entrypoint:"
+echo "       projects/$PROJECT_ID/agent.md"
+echo "     It links the four knowledge layers the agent must load before"
+echo "     writing any code (policy + org + repo + your prefs). Skipping"
+echo "     this is what makes 'agents abide by policy' fail."
+echo ""
+if [[ ${#REPO_URL_LIST[@]} -gt 0 ]]; then
+  echo "  2. Code work happens in the cloned code repo(s), not here:"
+  for repo_url in "${REPO_URL_LIST[@]}"; do
+    REPO_NAME=$(get_repo_name "$repo_url")
+    echo "       cd $AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
+  done
+  echo "     Each is on branch '$BRANCH'. Make changes there, not in"
+  echo "     '$WORKSPACE_REPO/'."
+  echo ""
+fi
+echo "  3. As you work, capture project context in:"
+echo "       projects/$PROJECT_ID/knowledge/             (decisions, exceptions, compliance)"
+echo "       projects/$PROJECT_ID/knowledge/todo.md      (intermediate to-dos that carry forward)"
+echo "     Don't wait until the end — close-project refuses an empty knowledge folder."
+echo ""
+echo "  4. When the project is complete, from the workspace repo:"
+echo "       ./prj close"
+echo "     (Merges work back, archives the branch, opens a knowledge"
+echo "     proposal PR for org-level review.)"
+echo ""

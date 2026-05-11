@@ -362,25 +362,37 @@ FILE_LIST=$(find "$REPO_ROOT" \
   \( -name '*.md' -o -name '*.yaml' -o -name '*.yml' -o -name 'CODEOWNERS' \))
 
 COUNT=0
+# Pass values via env vars and reference them in perl as $ENV{VAR}.
+# Bash-expanding into the perl script (e.g. "s|...|$POLICY_OWNER_EMAIL|g;")
+# is unsafe: perl treats unquoted '@' as an array sigil, so a value like
+# 'testowner@example.com' becomes 'testowner.com' (the @example part is
+# interpolated as an undefined array). Same hazard for github @-handles.
+# $ENV{...} bypasses perl's variable interpolation entirely.
+export ORG_NAME ORG_SHORT_NAME ORG_SLUG ORG_SLUG_LOWER GITHUB_ORG WORKSPACE_REPO \
+       DEFAULT_BRANCH DEFAULT_CODE_BRANCH \
+       POLICY_OWNER_EMAIL POLICY_OWNER_GITHUB \
+       LEGAL_OWNER_GITHUB INFRA_OWNER_GITHUB \
+       SYSTEM_ARCH_OWNER_GITHUB DATA_ARCH_OWNER_GITHUB \
+       POLICY_EFFECTIVE_DATE
 while IFS= read -r FILE; do
   [[ -z "$FILE" ]] && continue
-  perl -pi \
-    -e "s|\\{\\{ORG_NAME\\}\\}|$ORG_NAME|g;" \
-    -e "s|\\{\\{ORG_SHORT_NAME\\}\\}|$ORG_SHORT_NAME|g;" \
-    -e "s|\\{\\{ORG_SLUG\\}\\}|$ORG_SLUG|g;" \
-    -e "s|\\{\\{org_slug\\}\\}|$ORG_SLUG_LOWER|g;" \
-    -e "s|\\{\\{GITHUB_ORG\\}\\}|$GITHUB_ORG|g;" \
-    -e "s|\\{\\{WORKSPACE_REPO\\}\\}|$WORKSPACE_REPO|g;" \
-    -e "s|\\{\\{DEFAULT_BRANCH\\}\\}|$DEFAULT_BRANCH|g;" \
-    -e "s|\\{\\{DEFAULT_CODE_BRANCH\\}\\}|$DEFAULT_CODE_BRANCH|g;" \
-    -e "s|\\{\\{POLICY_OWNER_EMAIL\\}\\}|$POLICY_OWNER_EMAIL|g;" \
-    -e "s|\\{\\{POLICY_OWNER_GITHUB\\}\\}|$POLICY_OWNER_GITHUB|g;" \
-    -e "s|\\{\\{LEGAL_OWNER_GITHUB\\}\\}|$LEGAL_OWNER_GITHUB|g;" \
-    -e "s|\\{\\{INFRA_OWNER_GITHUB\\}\\}|$INFRA_OWNER_GITHUB|g;" \
-    -e "s|\\{\\{SYSTEM_ARCH_OWNER_GITHUB\\}\\}|$SYSTEM_ARCH_OWNER_GITHUB|g;" \
-    -e "s|\\{\\{DATA_ARCH_OWNER_GITHUB\\}\\}|$DATA_ARCH_OWNER_GITHUB|g;" \
-    -e "s|\\{\\{POLICY_EFFECTIVE_DATE\\}\\}|$POLICY_EFFECTIVE_DATE|g;" \
-    "$FILE"
+  perl -pi -e '
+    s|\{\{ORG_NAME\}\}|$ENV{ORG_NAME}|g;
+    s|\{\{ORG_SHORT_NAME\}\}|$ENV{ORG_SHORT_NAME}|g;
+    s|\{\{ORG_SLUG\}\}|$ENV{ORG_SLUG}|g;
+    s|\{\{org_slug\}\}|$ENV{ORG_SLUG_LOWER}|g;
+    s|\{\{GITHUB_ORG\}\}|$ENV{GITHUB_ORG}|g;
+    s|\{\{WORKSPACE_REPO\}\}|$ENV{WORKSPACE_REPO}|g;
+    s|\{\{DEFAULT_BRANCH\}\}|$ENV{DEFAULT_BRANCH}|g;
+    s|\{\{DEFAULT_CODE_BRANCH\}\}|$ENV{DEFAULT_CODE_BRANCH}|g;
+    s|\{\{POLICY_OWNER_EMAIL\}\}|$ENV{POLICY_OWNER_EMAIL}|g;
+    s|\{\{POLICY_OWNER_GITHUB\}\}|$ENV{POLICY_OWNER_GITHUB}|g;
+    s|\{\{LEGAL_OWNER_GITHUB\}\}|$ENV{LEGAL_OWNER_GITHUB}|g;
+    s|\{\{INFRA_OWNER_GITHUB\}\}|$ENV{INFRA_OWNER_GITHUB}|g;
+    s|\{\{SYSTEM_ARCH_OWNER_GITHUB\}\}|$ENV{SYSTEM_ARCH_OWNER_GITHUB}|g;
+    s|\{\{DATA_ARCH_OWNER_GITHUB\}\}|$ENV{DATA_ARCH_OWNER_GITHUB}|g;
+    s|\{\{POLICY_EFFECTIVE_DATE\}\}|$ENV{POLICY_EFFECTIVE_DATE}|g;
+  ' "$FILE"
   COUNT=$((COUNT + 1))
 done <<< "$FILE_LIST"
 
