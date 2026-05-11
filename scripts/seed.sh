@@ -2,12 +2,20 @@
 # Script: seed
 # Purpose: Transitions a project from PROPOSED to ACTIVE.
 #          Scaffolds workspace, clones repos, creates branches.
-# Usage:   bash seed.sh <github_project_url> <assignee>
+# Usage:   bash seed.sh [--non-interactive] <github_project_url> <assignee>
 # Compliance: C01 for all validation gates (POL-056 to POL-075)
+#
+# Flags:
+#   --non-interactive   Skip all interactive prompts. Uses $DEFAULT_CODE_BRANCH
+#                       as the base branch for every linked repo, and aborts
+#                       (instead of prompting) if leftover state is detected.
+#                       Required for CI / smoke-test contexts where /dev/tty
+#                       is not available.
 #
 # Resilience:
 #   - Detects leftover state from a previous failed run for the same
-#     project ID and offers to clean it up before proceeding.
+#     project ID and offers to clean it up before proceeding (interactive
+#     mode only; --non-interactive aborts instead).
 #   - Tracks side effects in this run; on error, rolls them back so the
 #     workspace is restored to its pre-seed state.
 #   - bash 3.2 compatible (no associative arrays / mapfile / readarray).
@@ -18,11 +26,20 @@ load_config
 
 # ── Inputs ────────────────────────────────────────────────────────────────────
 
-GITHUB_PROJECT_URL="${1:-}"
-ASSIGNEE="${2:-}"
+NON_INTERACTIVE=false
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --non-interactive) NON_INTERACTIVE=true ;;
+    *) ARGS+=("$arg") ;;
+  esac
+done
 
-[[ -n "$GITHUB_PROJECT_URL" ]] || hard_stop "Usage: $0 <github_project_url> <assignee>"
-[[ -n "$ASSIGNEE" ]]           || hard_stop "Usage: $0 <github_project_url> <assignee>"
+GITHUB_PROJECT_URL="${ARGS[0]:-}"
+ASSIGNEE="${ARGS[1]:-}"
+
+[[ -n "$GITHUB_PROJECT_URL" ]] || hard_stop "Usage: $0 [--non-interactive] <github_project_url> <assignee>"
+[[ -n "$ASSIGNEE" ]]           || hard_stop "Usage: $0 [--non-interactive] <github_project_url> <assignee>"
 
 echo "=== seed: $GITHUB_PROJECT_URL"
 echo "    Assignee: $ASSIGNEE"
@@ -218,6 +235,14 @@ if [[ ${#LEFTOVER[@]} -gt 0 ]]; then
     echo "    - $item"
   done
   echo ""
+  if $NON_INTERACTIVE; then
+    hard_stop "Leftover state detected for '$PROJECT_ID' and --non-interactive is set.
+    Clean up manually, then re-run. Inspect with:
+      git status
+      ls projects/$PROJECT_ID
+      grep $PROJECT_ID registry.yaml"
+  fi
+
   echo "Options:"
   echo "  (a) Clean up these artifacts and start fresh"
   echo "  (b) Abort — inspect manually"
@@ -311,9 +336,14 @@ if [[ -n "$REPO_URLS" ]]; then
 
   REPOS_BLOCK=""
   for repo_url in "${REPO_URL_LIST[@]}"; do
-    printf "  Base branch for '%s' [%s]: " "$repo_url" "$DEFAULT_CODE_BRANCH"
-    read -r input_base </dev/tty
-    base="${input_base:-$DEFAULT_CODE_BRANCH}"
+    if $NON_INTERACTIVE; then
+      base="$DEFAULT_CODE_BRANCH"
+      echo "  Base branch for '$repo_url': $base  (--non-interactive)"
+    else
+      printf "  Base branch for '%s' [%s]: " "$repo_url" "$DEFAULT_CODE_BRANCH"
+      read -r input_base </dev/tty
+      base="${input_base:-$DEFAULT_CODE_BRANCH}"
+    fi
     REPO_BASE_LIST+=("$base")
     REPOS_BLOCK+="  - url: $repo_url"$'\n'
     REPOS_BLOCK+="    role: primary"$'\n'
