@@ -82,6 +82,20 @@ if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1;
   hard_stop "Tag '$VERSION' already exists on origin. Pick a higher version."
 fi
 
+# Verify git identity is set — tag creation needs it. Fail fast here rather
+# than after a 3-minute smoke run.
+GIT_NAME=$(git config user.name 2>/dev/null || echo "")
+GIT_MAIL=$(git config user.email 2>/dev/null || echo "")
+if [[ -z "$GIT_NAME" || -z "$GIT_MAIL" ]] \
+   && [[ -z "${GIT_COMMITTER_NAME:-}" || -z "${GIT_COMMITTER_EMAIL:-}" ]]; then
+  hard_stop "git user.name/user.email not configured (and GIT_COMMITTER_* not in env).
+    Set them before tagging:
+      git config user.name 'Your Name'
+      git config user.email 'you@example.com'
+    Or export GIT_COMMITTER_NAME + GIT_COMMITTER_EMAIL (and the matching GIT_AUTHOR_*)
+    in your shell, then re-run this script."
+fi
+
 info "Fetching latest from origin..."
 git fetch origin publish --tags >/dev/null 2>&1 \
   || hard_stop "git fetch failed"
