@@ -97,13 +97,14 @@ do_cleanup() {
         local rest="${entry#branch:}"
         local owner_repo="${rest%%:*}"
         local branch_name="${rest##*:}"
-        gh api -X DELETE "/repos/$owner_repo/git/refs/heads/$branch_name" 2>/dev/null || true
+        # gh api emits 404 bodies on stdout; redirect both streams.
+        gh api -X DELETE "/repos/$owner_repo/git/refs/heads/$branch_name" >/dev/null 2>&1 || true
         ;;
       tag)
         local rest="${entry#tag:}"
         local owner_repo="${rest%%:*}"
         local tag_name="${rest##*:}"
-        gh api -X DELETE "/repos/$owner_repo/git/refs/tags/$tag_name" 2>/dev/null || true
+        gh api -X DELETE "/repos/$owner_repo/git/refs/tags/$tag_name" >/dev/null 2>&1 || true
         ;;
       local)
         rm -rf "${entry#local:}"
@@ -207,6 +208,55 @@ ACTIVE=$(gh api user --jq .login 2>/dev/null || echo "")
 [[ "$ACTIVE" == "$SMOKE_GH_LOGIN" ]] \
   || hard_stop "GH_TOKEN points to '$ACTIVE'; expected '$SMOKE_GH_LOGIN'"
 ok "gh authenticated as $ACTIVE (matches expected $SMOKE_GH_LOGIN)"
+
+# ── Pre-clean: remove stale smoke artifacts from linked fixture repos ────────
+#
+# The smoke creates branches like 'smk-NNN-...' and archive tags like
+# 'archive/smk-NNN-...' on every repo linked to the fixture Project (e.g.
+# svayam-rkant/sanskriti). The throwaway test repo is deleted at end of
+# each run (which cascades its branches+tags), but the *linked* repos are
+# real repos belonging to other projects — we can't delete them. So we
+# must scrub their smoke debris between runs, or close-project will fail
+# the next time it tries to archive against a tag that already exists.
+
+info "Pre-clean — scrubbing stale smoke artifacts from fixture-linked repos..."
+SMOKE_PREFIX=$(echo "$SMOKE_ORG_SLUG" | tr '[:upper:]' '[:lower:]')-
+FIXTURE_PROJ_NUM=$(echo "$SMOKE_FIXTURE_PROJECT_URL" | sed 's|.*/projects/||')
+LINKED_REPOS=$(gh project item-list "$FIXTURE_PROJ_NUM" --owner "$SMOKE_TEST_OWNER" \
+  --format json --limit 50 2>/dev/null \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+seen = set()
+for it in d.get('items', []):
+    c = it.get('content', {})
+    url = c.get('url', '')
+    if '/issues/' in url or '/pull/' in url:
+        repo = url.rsplit('/issues/', 1)[0].rsplit('/pull/', 1)[0]
+        owner_repo = repo.replace('https://github.com/', '')
+        if owner_repo not in seen:
+            seen.add(owner_repo)
+            print(owner_repo)
+" 2>/dev/null)
+
+for owner_repo in $LINKED_REPOS; do
+  # Delete stale branches matching the smoke prefix
+  while IFS= read -r branch; do
+    [[ -z "$branch" ]] && continue
+    gh api -X DELETE "repos/$owner_repo/git/refs/heads/$branch" >/dev/null 2>&1 \
+      && info "  cleaned branch $owner_repo:$branch"
+  done < <(gh api "repos/$owner_repo/branches" --jq '.[].name' 2>/dev/null \
+            | grep "^${SMOKE_PREFIX}" || true)
+
+  # Delete stale archive tags matching the smoke prefix
+  while IFS= read -r tag; do
+    [[ -z "$tag" ]] && continue
+    gh api -X DELETE "repos/$owner_repo/git/refs/tags/$tag" >/dev/null 2>&1 \
+      && info "  cleaned tag $owner_repo:$tag"
+  done < <(gh api "repos/$owner_repo/tags" --jq '.[].name' 2>/dev/null \
+            | grep "^archive/${SMOKE_PREFIX}" || true)
+done
+ok "fixture-linked repos clean"
 
 # ── Step 1: create empty test repo + push local publish HEAD into it ─────────
 #
@@ -395,7 +445,11 @@ ok "project knowledge curated and pushed"
 # ── Step 14: prj close (auto-fires close-knowledge) ──────────────────────────
 
 info "Step 14 — close-project.sh $PROJECT_ID (auto-fires close-knowledge)..."
-yes "" | /bin/bash scripts/close-project.sh "$PROJECT_ID" \
+# Don't pipe `yes ""` into close-project: with pipefail set, `yes` exits
+# with 141 on SIGPIPE after the script returns, marking the whole pipeline
+# as failed even when close-project succeeded. close-project has no
+# interactive prompts so stdin doesn't need feeding.
+/bin/bash scripts/close-project.sh "$PROJECT_ID" \
   >/tmp/smoke-close.log 2>&1 \
   || { tail -30 /tmp/smoke-close.log; hard_stop "close-project.sh failed"; }
 
