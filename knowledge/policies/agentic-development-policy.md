@@ -897,4 +897,8 @@ POL-164: Agents and developers must use the authorized scripts rather than perfo
 POL-165: The Script Inventory lists all authorized lifecycle and standalone scripts with their purposes.
 POL-166: Current role assignments and manager designations are maintained authoritatively in knowledge/policies/roles.md.
 POL-167: Changes to role assignments require a PR to knowledge/policies/roles.md approved by the Policy Owner.
+POL-168: Each project maintains a carry-forward to-do list at projects/{{ORG_SLUG}}-NNN-slug/knowledge/todo.md, scaffolded by seed.sh from knowledge/guidance/todo-template.md.
+POL-169: At session start, an agent must read the project's todo.md and surface its Open items to the developer before planning new work (C01).
+POL-170: During work, an agent (or developer) must capture intermediate to-dos in the project's todo.md as they arise — not at session end.
+POL-171: Projects are stateful and session-spanning; sessions are not project-bound. When an agent switches to a different project's branch within the same session, it must re-run the full session-start protocol for the new project (POL-113 through POL-116, POL-169) and must not carry forward in-memory context from the previous project.
 ```

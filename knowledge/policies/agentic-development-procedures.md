@@ -113,11 +113,24 @@ The developer or agent assigned to the project.
 
 3. **Pull latest** — fetch and pull `{{org_slug}}-NNN-slug` branch in all repos **(POL-116)**
 
+4. **Read project carry-forward to-do list** — `projects/{{ORG_SLUG}}-NNN-slug/knowledge/todo.md`. Surface the `## Open` items to the developer before planning new work. This list is project-stateful: it survives sessions and is the agent's mechanism for picking up intermediate work from prior sessions on this same project branch.
+
 ### During Work
 
 - All writes must go to `projects/{{ORG_SLUG}}-NNN-slug/` or to code in cloned repos on `{{org_slug}}-NNN-slug` branch **(POL-087 — C01)**
 - Do NOT write to `{{WORKSPACE_REPO}}/knowledge/` **(POL-087 — C01)**
+- Capture intermediate to-dos in `projects/{{ORG_SLUG}}-NNN-slug/knowledge/todo.md` (`## Open`) as they arise — not at session end.
 - If a C01 violation is detected mid-session: hard stop, commit nothing, surface to human immediately **(POL-117)**
+
+### Switching Projects Within a Session
+
+Sessions are agent-lifecycle (one continuous LLM conversation). Projects are git-branch-scoped (each `{{org_slug}}-NNN-slug` is its own context). A single session can span multiple project branches — switching is permitted but is **not** free.
+
+When the developer switches the workspace to a different project branch (e.g. `git checkout {{org_slug}}-002-other`), the agent must:
+
+1. Re-run **all** session-start steps for the new project (POL-113 through POL-116).
+2. Read the new project's `todo.md` — the previous project's open items remain in *its* todo.md on *its* branch and must NOT carry into the new project's working context.
+3. Drop any in-memory state derived from the previous project's knowledge layers.
 
 ### Session End (C02)
 

@@ -399,6 +399,9 @@ CLEANUP_ARTIFACTS+=("local:$HOME/work/$PROJECT_ID")
 # State assertions
 [[ -d "projects/$PROJECT_ID" ]] || hard_stop "project folder missing"
 [[ -f "projects/$PROJECT_ID/project.yaml" ]] || hard_stop "project.yaml missing"
+[[ -f "projects/$PROJECT_ID/knowledge/todo.md" ]] || hard_stop "knowledge/todo.md missing — seed should scaffold it from the template"
+grep -q "^# To-do for ${SMOKE_ORG_SLUG}-" "projects/$PROJECT_ID/knowledge/todo.md" \
+  || hard_stop "todo.md header missing project-specific substitution"
 status=$(python3 -c "import yaml; print(yaml.safe_load(open('projects/$PROJECT_ID/project.yaml'))['status'])")
 [[ "$status" == "active" ]] || hard_stop "expected status=active, got $status"
 git rev-parse --verify "$PROJECT_BRANCH" >/dev/null 2>&1 \

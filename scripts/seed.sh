@@ -306,6 +306,15 @@ echo ""
 mkdir -p "$PROJECT_DIR"/{requirements,environment,knowledge}
 CREATED_PATHS+=("$PROJECT_DIR")
 
+# Scaffold the per-project to-do carry-forward file from the org-substituted
+# template. The template has 'NNN-slug' as a literal placeholder for the
+# project's specific NNN-slug suffix; we replace it here per project.
+TODO_TEMPLATE="$REPO_ROOT/knowledge/guidance/todo-template.md"
+if [[ -f "$TODO_TEMPLATE" ]]; then
+  PROJECT_SUFFIX="${PROJECT_ID#${ORG_SLUG}-}"   # NNN-slug
+  sed "s/NNN-slug/$PROJECT_SUFFIX/g" "$TODO_TEMPLATE" > "$PROJECT_DIR/knowledge/todo.md"
+fi
+
 # Discover repos linked to the project (one URL per line)
 REPO_URLS=$(echo "$PROJECT_DATA" | python3 -c "
 import sys, json
@@ -437,6 +446,9 @@ cat > "$PROJECT_DIR/agent.md" <<MD
 2. Verify \`status: active\`
 3. Pull latest \`$BRANCH\` in all repos under \`$AGENT_WORK_ROOT/$PROJECT_ID/\`
 4. Load your own preferences file (see layer 4 above)
+5. Read \`projects/$PROJECT_ID/knowledge/todo.md\` and surface its \`## Open\`
+   items to the developer before planning new work. This is the project's
+   carry-forward list — intermediate to-dos from prior sessions live here.
 
 ## Workspace Layout
 
@@ -464,11 +476,19 @@ Your work happens across three locations:
 3. Do the work in the cloned code repos on the task sub-branch.
    Capture decisions, exceptions, and policy notes in
    \`projects/$PROJECT_ID/knowledge/\` as you go (not at the end).
+   Capture intermediate to-dos in \`projects/$PROJECT_ID/knowledge/todo.md\`
+   under \`## Open\` as they arise. Don't wait until session end.
 4. When the task is complete: \`./prj merge\`
    (merges sub-branch into \`$BRANCH\`, archives the sub-branch.)
 5. When the entire project is complete: \`./prj close\`
    (merges \`$BRANCH\` to default branch, archives, fires a knowledge
     proposal PR for domain-owner review.)
+
+When an item from \`todo.md\` is resolved, move it from \`## Open\` to
+\`## Done\` with a short note (commit SHA, PR link, or one-line outcome).
+Projects are stateful, sessions are not — when you switch to a different
+project's branch in the same session, re-run this checklist for the new
+project and read its own todo.md.
 
 ## Do Not
 
