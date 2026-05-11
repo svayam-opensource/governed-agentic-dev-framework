@@ -20,8 +20,8 @@
 #
 # After this script succeeds, the maintainer still needs to:
 #   - sync publish → main (bash scripts/sync-from-publish.sh)
-#   - run scripts/mirror-to-public.sh or push the publish branch to the
-#     public Svayamtech/agentic-development-framework remote
+#   - push publish to the public template repo at
+#     svayam-opensource/governed-agentic-dev-framework
 
 set -uo pipefail
 
@@ -167,5 +167,5 @@ echo "  2. Mirror publish to the public template repo:"
 echo "       (run your mirror script, or push publish + tag to the public remote)"
 echo ""
 echo "  3. (Optional) Create a GitHub Release on the public repo:"
-echo "       gh release create $VERSION --notes-from-tag --repo Svayamtech/agentic-development-framework"
+echo "       gh release create $VERSION --notes-from-tag --repo svayam-opensource/governed-agentic-dev-framework"
 echo ""

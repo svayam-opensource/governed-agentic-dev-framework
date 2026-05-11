@@ -154,7 +154,7 @@ if [[ -z "$ORIGIN_OWNER" || -z "$ORIGIN_REPO" ]]; then
 fi
 
 # Refuse if origin points at the framework's source template
-if [[ "$ORIGIN_OWNER" == "Svayamtech" && "$ORIGIN_REPO" == "agentic-development-framework" ]]; then
+if [[ "$ORIGIN_OWNER" == "svayam-opensource" && "$ORIGIN_REPO" == "governed-agentic-dev-framework" ]]; then
   hard_stop "This repo's 'origin' remote points at the framework's source template:
 
   $ORIGIN_URL
@@ -163,7 +163,7 @@ Your changes would commit to the upstream template, not your org's
 workspace. To fix:
 
   (a) RECOMMENDED: discard this clone. Go to
-        https://github.com/Svayamtech/agentic-development-framework
+        https://github.com/svayam-opensource/governed-agentic-dev-framework
       and click 'Use this template' to create your own private repo,
       then clone that.
 

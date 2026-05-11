@@ -8,13 +8,13 @@ source "$(dirname "$0")/lib.sh"
 
 # Build a scratch repo that mimics a fresh template clone:
 #   - copy of setup.sh + a minimal org-config.yaml
-#   - origin pointing at Svayamtech/agentic-development-framework
+#   - origin pointing at svayam-opensource/governed-agentic-dev-framework
 SCRATCH=$(mktemp -d)
 trap "rm -rf '$SCRATCH'" EXIT
 cd "$SCRATCH" || { t_fail "Cannot cd to scratch"; exit 1; }
 
 git init -q
-git remote add origin git@github.com:Svayamtech/agentic-development-framework.git
+git remote add origin git@github.com:svayam-opensource/governed-agentic-dev-framework.git
 cp "$REPO_ROOT/setup.sh" .
 chmod +x setup.sh
 cat > org-config.yaml <<'YAML'

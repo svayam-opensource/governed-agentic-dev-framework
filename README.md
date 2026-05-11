@@ -27,7 +27,7 @@ This framework gives you:
 
 **1. Create your repo from the template.** Open the framework's repo on GitHub:
 
-> https://github.com/Svayamtech/agentic-development-framework
+> https://github.com/svayam-opensource/governed-agentic-dev-framework
 
 Click the green **"Use this template"** button → **"Create a new repository"**. Pick a name (e.g. `000-acme-prj`) and visibility (typically Private). GitHub will create a new repository under your account or org.
 
