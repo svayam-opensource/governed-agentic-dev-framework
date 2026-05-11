@@ -73,7 +73,7 @@ The developer or agent assigned to the project.
 
 ### Pre-conditions
 - GitHub Project exists in `{{WORKSPACE_REPO}}` and meets minimum requirements (PROC-02)
-- Assignee has `agent_work_root` configured in their preferences
+- Assignee has `AGENT_WORK_ROOT` configured (env var; defaults to `~/work` if unset)
 - Assignee has push access to all repos that will be involved
 
 ### Steps
@@ -109,7 +109,7 @@ The developer or agent assigned to the project.
    - Layer 1: Read `{{WORKSPACE_REPO}}/knowledge/` (org-wide, from {{DEFAULT_BRANCH}}) **(POL-076)**
    - Layer 2: Read `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` (project knowledge) **(POL-077)**
    - Layer 3: Read `<cloned-repos>/knowledge/` (repo-local, from project branch) **(POL-078)**
-   - Layer 4: Read `<agent_work_root>/preferences/agent.md` (developer preferences) **(POL-079)**
+   - Layer 4: Read `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` (your own developer preferences only — do not read other developers' files in this folder) **(POL-079)**
 
 3. **Pull latest** — fetch and pull `{{org_slug}}-NNN-slug` branch in all repos **(POL-116)**
 

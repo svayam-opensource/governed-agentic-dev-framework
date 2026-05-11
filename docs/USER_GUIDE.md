@@ -46,9 +46,11 @@ When an agent or developer reads context, four layers apply, with explicit prece
 | 1. Org-wide (highest) | `knowledge/` in this repo | Policy, role definitions, organizational standards |
 | 2. Project | `projects/<id>/knowledge/` | Project-specific decisions, learnings, compliance notes |
 | 3. Repo-local | `knowledge/` in each code repo | Repo conventions, structure, build environment |
-| 4. Developer (lowest) | `<agent_work_root>/preferences/` | Personal preferences |
+| 4. Developer (lowest) | `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` | Personal preferences |
 
 Higher layer always wins. If org-wide policy says X and a developer preference says Y, X applies.
+
+The developer preferences file is **per-user**, keyed on your GitHub login. `setup.sh` creates one from `knowledge/guidance/preferences-template.md` the first time you run it (or `lib.sh` creates one lazily on your first `prj` write op if `setup.sh` ran without gh authenticated). To keep multiple profiles, save backups alongside (`<login>.md_work`, `<login>.md_oss`) and rotate by `mv`. The framework loads only the file at `<login>.md`.
 
 ### Compliance levels
 

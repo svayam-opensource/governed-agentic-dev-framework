@@ -451,6 +451,30 @@ else
   fi
 fi
 
+# ── Bootstrap the current user's preferences file ──────────────────────────
+#
+# Per-user preferences live at $AGENT_WORK_ROOT/preferences/<gh-login>.md.
+# Copy the template here so the developer has a starting point. Never
+# overwrite an existing file. Skip silently if no gh login is available.
+
+AGENT_WORK_ROOT="${AGENT_WORK_ROOT:-$HOME/work}"
+PREFS_LOGIN=$(gh api user --jq .login 2>/dev/null || echo "")
+PREFS_TEMPLATE="$REPO_ROOT/knowledge/guidance/preferences-template.md"
+if [[ -n "$PREFS_LOGIN" ]] && [[ -f "$PREFS_TEMPLATE" ]]; then
+  PREFS_DIR="$AGENT_WORK_ROOT/preferences"
+  PREFS_FILE="$PREFS_DIR/$PREFS_LOGIN.md"
+  mkdir -p "$PREFS_DIR"
+  if [[ -f "$PREFS_FILE" ]]; then
+    ok "Preferences:    $PREFS_FILE (kept existing)"
+  else
+    cp "$PREFS_TEMPLATE" "$PREFS_FILE"
+    ok "Preferences:    $PREFS_FILE (created from template)"
+  fi
+else
+  warn "Could not bootstrap preferences file (gh login unavailable)."
+  warn "It will be auto-created on first prj write op once gh auth is configured."
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
@@ -459,5 +483,6 @@ echo ""
 echo "Next steps:"
 echo "  1. Review changes:    git diff"
 echo "  2. Commit + push:     git add -A && git commit -m 'configure framework for $ORG_NAME' && git push origin $DEFAULT_BRANCH"
-echo "  3. Start using:       ./prj"
+echo "  3. Edit preferences:  ${PREFS_FILE:-<AGENT_WORK_ROOT>/preferences/<your-gh-login>.md}"
+echo "  4. Start using:       ./prj"
 echo ""

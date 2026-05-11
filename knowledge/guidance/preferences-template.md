@@ -1,20 +1,32 @@
 # Developer Preferences — C03 only. Org and repo knowledge always take precedence.
 #
-# LOCATION: <agent_work_root>/preferences/agent.md
+# LOCATION: $AGENT_WORK_ROOT/preferences/<your-gh-login>.md
+#   (where <your-gh-login> = `gh api user --jq .login`)
 # This file is NEVER committed to any repository.
 # It is the lowest-priority knowledge layer — it cannot override org or repo knowledge.
+#
+# Created automatically by setup.sh from this template. Edit freely.
 #
 # See: {{WORKSPACE_REPO}}/knowledge/policies/agentic-development-policy.md (POL-131 to POL-136)
 
 ---
 
-## Agent Work Root
+## Multi-profile Rotation
 
-```yaml
-agent_work_root: ~/work    # Change to your preferred local path
+If you want different preferences for different contexts (e.g. work-hours
+vs. open-source), keep extra copies alongside the active file and rotate
+by rename:
+
+```
+# Save the current active file under another name
+mv $AGENT_WORK_ROOT/preferences/<login>.md $AGENT_WORK_ROOT/preferences/<login>.md_work
+
+# Activate a previously-saved profile
+mv $AGENT_WORK_ROOT/preferences/<login>.md_oss $AGENT_WORK_ROOT/preferences/<login>.md
 ```
 
-Project repos are cloned into `<agent_work_root>/{{ORG_SLUG}}-NNN-slug/`.
+The framework loads only the file named `<login>.md` (no suffix). Other
+files in the directory are ignored — they're your backups, not loaded.
 
 ---
 

@@ -14,7 +14,7 @@ This file represents the **repo-local knowledge layer** — third priority in th
 1. Org-wide knowledge      → {{WORKSPACE_REPO}}/knowledge/        [HIGHEST]
 2. Project knowledge       → {{WORKSPACE_REPO}}/projects/{{ORG_SLUG}}-NNN-slug/knowledge/
 3. This repo's knowledge   → this file and knowledge/repo/  [THIS FILE]
-4. Developer preferences   → <agent_work_root>/preferences/
+4. Your developer prefs    → $AGENT_WORK_ROOT/preferences/<your-gh-login>.md
 ```
 
 **This file cannot override org-wide knowledge or policy.**

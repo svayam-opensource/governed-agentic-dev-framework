@@ -425,22 +425,65 @@ cat > "$PROJECT_DIR/agent.md" <<MD
 1. **Org-wide knowledge** → \`$WORKSPACE_REPO/knowledge/\`
 2. **This project** → \`$WORKSPACE_REPO/projects/$PROJECT_ID/knowledge/\`
 3. **Repo-local knowledge** → \`<repo>/knowledge/\`
-4. **Developer preferences** → \`<agent_work_root>/preferences/agent.md\`
+4. **Your developer preferences** → \`$AGENT_WORK_ROOT/preferences/<your-gh-login>.md\`
+   - At session start, run \`gh api user --jq .login\` to determine your handle.
+   - Load only the file matching your handle.
+   - Do NOT read other files in \`$AGENT_WORK_ROOT/preferences/\` — they belong
+     to other developers and are not your context.
 
 ## Session Start Checklist (C01)
 
 1. Verify \`project.yaml\` \`locked_by\` matches your identity
 2. Verify \`status: active\`
-3. Pull latest \`$BRANCH\` in all repos
+3. Pull latest \`$BRANCH\` in all repos under \`$AGENT_WORK_ROOT/$PROJECT_ID/\`
+4. Load your own preferences file (see layer 4 above)
+
+## Workspace Layout
+
+Your work happens across three locations:
+
+- **Workspace repo** (where this file lives): \`$WORKSPACE_REPO\`
+  Contains org policy & project metadata. Only \`projects/$PROJECT_ID/\` is
+  writable in this project.
+
+- **Code repo clones** (already cloned by seed):
+  \`$AGENT_WORK_ROOT/$PROJECT_ID/<repo-name>/\`
+  Each clone is on branch \`$BRANCH\`. Code changes go here — NOT in the
+  workspace repo's tree.
+
+- **GitHub Project board**: $GITHUB_PROJECT_URL
+  The source of truth for work units. Issues linked here become tasks.
+  Don't invent tasks; wait for issues on the board.
+
+## Operational Workflow
+
+1. Pick an issue from the GitHub Project board.
+2. Start a task sub-branch: \`./prj task <issue-url>\`
+   (creates \`$BRANCH/<task-slug>\` in workspace + all code repos;
+    assigns the GitHub Issue.)
+3. Do the work in the cloned code repos on the task sub-branch.
+   Capture decisions, exceptions, and policy notes in
+   \`projects/$PROJECT_ID/knowledge/\` as you go (not at the end).
+4. When the task is complete: \`./prj merge\`
+   (merges sub-branch into \`$BRANCH\`, archives the sub-branch.)
+5. When the entire project is complete: \`./prj close\`
+   (merges \`$BRANCH\` to default branch, archives, fires a knowledge
+    proposal PR for domain-owner review.)
+
+## Do Not
+
+- Edit \`project.yaml\` \`tasks\` list directly — use \`./prj task\` / \`./prj merge\`.
+- Create GitHub Issues unilaterally. Issues represent business intent that
+  humans add to the Project board.
+- Make code changes inside the workspace repo's tree. Code work belongs in
+  the cloned repos under \`$AGENT_WORK_ROOT\`.
+- Touch \`$WORKSPACE_REPO/knowledge/\` — read-only this project.
 
 ## Write Restrictions (C01)
 
-All writes are constrained to \`projects/$PROJECT_ID/\`.
+All writes in the workspace repo are constrained to \`projects/$PROJECT_ID/\`.
 \`$WORKSPACE_REPO/knowledge/\` is read-only during this project.
-
-## GitHub Project
-
-$GITHUB_PROJECT_URL
+Code repos have their own write rules (their own \`knowledge/agent.md\`).
 MD
 
 info "Scaffolded $PROJECT_DIR"

@@ -65,15 +65,42 @@ load_config() {
   export ORG_NAME ORG_SLUG ORG_SLUG_LOWER GITHUB_ORG WORKSPACE_REPO \
          DEFAULT_BRANCH DEFAULT_CODE_BRANCH POLICY_OWNER_EMAIL
 
-  # Agent work root — read from preferences file or fall back to ~/work
-  local prefs="$HOME/preferences/agent.md"
-  if [[ -f "$prefs" ]] && grep -q "agent_work_root:" "$prefs" 2>/dev/null; then
-    AGENT_WORK_ROOT=$(grep "agent_work_root:" "$prefs" | head -1 \
-      | sed "s/.*agent_work_root: *//;s/ *#.*//" | tr -d '"' | sed "s|^~|$HOME|")
-  else
-    AGENT_WORK_ROOT="$HOME/work"
-  fi
+  # Agent work root: env var > default ~/work.
+  # Previously this was read from a preferences file, but per-user preferences
+  # now live under $AGENT_WORK_ROOT/preferences/<gh-login>.md — circular if
+  # AGENT_WORK_ROOT were itself defined there. So it lives one level up: in
+  # the shell environment, or the default.
+  AGENT_WORK_ROOT="${AGENT_WORK_ROOT:-$HOME/work}"
   export AGENT_WORK_ROOT
+
+  # Lazy-create the current user's prefs file if setup.sh didn't already.
+  # No-op if gh login is unavailable; the file gets created on a later run
+  # once gh is configured. Failures here are non-fatal — preferences are C03.
+  ensure_user_prefs_file 2>/dev/null || true
+}
+
+# Resolve the current developer's preferences file path.
+# Returns the path on stdout, or empty string if no gh login is available.
+# Callers that need the file should also call ensure_user_prefs_file to
+# lazily create it from the template when missing.
+current_user_prefs_path() {
+  local login
+  login=$(gh api user --jq .login 2>/dev/null || echo "")
+  [[ -z "$login" ]] && return 0
+  echo "$AGENT_WORK_ROOT/preferences/$login.md"
+}
+
+# Lazily create the current user's prefs file from the template if absent.
+# No-op if gh login is unavailable or the file already exists.
+ensure_user_prefs_file() {
+  local path template
+  path=$(current_user_prefs_path)
+  [[ -z "$path" ]] && return 0
+  [[ -f "$path" ]] && return 0
+  template="$REPO_ROOT/knowledge/guidance/preferences-template.md"
+  [[ -f "$template" ]] || return 0
+  mkdir -p "$(dirname "$path")"
+  cp "$template" "$path"
 }
 
 # ── Terminal helpers ──────────────────────────────────────────────────────────

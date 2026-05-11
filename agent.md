@@ -24,7 +24,8 @@ Read this policy before beginning any work session.
 1. **Org-wide knowledge** → `knowledge/` (this repository, {{DEFAULT_BRANCH}} branch)
 2. **Project knowledge** → `projects/{{ORG_SLUG}}-NNN-slug/knowledge/`
 3. **Repo-local knowledge** → `<cloned-repo>/knowledge/`
-4. **Developer preferences** → `<agent_work_root>/preferences/agent.md`
+4. **Your developer preferences** → `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md`
+   (run `gh api user --jq .login` to get your handle; load only your file)
 
 Higher priority always wins. In case of conflict, apply the rule from the higher-priority layer.
 
