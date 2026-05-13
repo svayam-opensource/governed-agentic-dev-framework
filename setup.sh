@@ -359,7 +359,7 @@ FILE_LIST=$(find "$REPO_ROOT" \
   -not -path "$REPO_ROOT/.git/*" \
   -not -name 'org-config.yaml' \
   -not -name 'setup.sh' \
-  \( -name '*.md' -o -name '*.yaml' -o -name '*.yml' -o -name 'CODEOWNERS' \))
+  \( -name '*.md' -o -name '*.mdc' -o -name '*.yaml' -o -name '*.yml' -o -name 'CODEOWNERS' \))
 
 COUNT=0
 # Pass values via env vars and reference them in perl as $ENV{VAR}.

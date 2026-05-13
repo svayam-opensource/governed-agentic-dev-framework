@@ -83,7 +83,8 @@ Full details in [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 | Doc | For |
 |---|---|
 | [README](README.md) | First-time visitor — what this is, do you want it |
-| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Daily user — how to operate within the framework |
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Reference — concepts, roles, CLI surface |
+| [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | Day-in-the-life — step-by-step working on a project, prompting the agent |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor — proposing changes to the framework itself |
 | [SECURITY.md](SECURITY.md) | Security reporter |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |

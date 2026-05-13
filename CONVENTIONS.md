@@ -1,6 +1,6 @@
 # Agent Session-Start Protocol — {{ORG_NAME}}
 
-This file is the **Claude Code / `CLAUDE.md`** entrypoint for any AI coding agent working in this workspace. Equivalent files exist for other tools at their conventional paths (`CLAUDE.md`, `.cursor/rules/agent.mdc`, `CONVENTIONS.md`, etc.) — they all restate this same protocol.
+This file is the **Aider / `CONVENTIONS.md`** entrypoint for any AI coding agent working in this workspace. Equivalent files exist for other tools at their conventional paths (`CLAUDE.md`, `.cursor/rules/agent.mdc`, `CONVENTIONS.md`, etc.) — they all restate this same protocol.
 
 Before you change any code, complete the steps below.
 

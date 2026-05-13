@@ -508,6 +508,43 @@ MD
 
 info "Scaffolded $PROJECT_DIR"
 
+# ── Scaffold per-project tool-bootstrap files ────────────────────────────────
+#
+# The workspace repo carries a root-level bootstrap file for each major
+# LLM coding tool (AGENTS.md, .cursor/rules/agent.mdc, etc.) — those
+# files state the framework's session-start protocol with placeholder
+# tokens '<PROJECT_ID>' / '<repo-name>' to indicate per-project values.
+#
+# Here we copy each root file into projects/<PID>/ at the same relative
+# path, substituting '<PROJECT_ID>' with the actual project ID. The
+# result: a developer opening their tool with workspace rooted at
+# projects/<PID>/ will find the tool's expected config file with
+# project-specific context already filled in. The agent.md scaffolded
+# above remains the primary per-project entrypoint with workflow
+# specifics; the tool files are restatements for tool-discovery.
+#
+# Skip silently if a root file is missing (adopter may have removed
+# tools they don't use).
+
+TOOL_FILES=(
+  "AGENTS.md"
+  "CONVENTIONS.md"
+  ".cursor/rules/agent.mdc"
+  ".clinerules/agent.md"
+  ".windsurf/rules/agent.md"
+  ".github/copilot-instructions.md"
+  ".gemini/styleguide.md"
+  ".continue/rules.md"
+)
+
+for rel in "${TOOL_FILES[@]}"; do
+  src="$REPO_ROOT/$rel"
+  dst="$PROJECT_DIR/$rel"
+  [[ -f "$src" ]] || continue
+  mkdir -p "$(dirname "$dst")"
+  sed "s|<PROJECT_ID>|$PROJECT_ID|g" "$src" > "$dst"
+done
+
 # ── Clone repos and create project branches ───────────────────────────────────
 
 if [[ ${#REPO_URL_LIST[@]} -gt 0 ]]; then

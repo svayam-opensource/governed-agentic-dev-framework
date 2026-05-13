@@ -287,6 +287,7 @@ This scaffolds the `knowledge/` structure and raises a PR in that repo. Repo own
 
 ## Where to dig deeper
 
+- [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) — step-by-step day-in-the-life of working on a project, including how to prompt the agent
 - `knowledge/policies/agentic-development-policy.md` — the full policy text with all clause IDs
 - `knowledge/policies/roles.md` — current role holders
 - `knowledge/guidance/scripts/*-spec.md` — formal specifications for each script
