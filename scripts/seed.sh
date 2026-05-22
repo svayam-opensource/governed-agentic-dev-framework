@@ -622,8 +622,14 @@ if [[ ${#REPO_URL_LIST[@]} -gt 0 ]]; then
     REPO_DIR="$PROJECT_WORK_ROOT/$REPO_NAME"
 
     info "  cloning $repo_url → $REPO_DIR (base: $REPO_BASE)..."
-    git clone "$repo_url" "$REPO_DIR" >/dev/null 2>&1 \
-      || hard_stop "Clone failed for $repo_url"
+    # Retry once on network/transient clone failure. Suppress only stdout
+    # (progress) but keep stderr visible so real errors surface.
+    if ! git clone "$repo_url" "$REPO_DIR" >/dev/null; then
+      warn "  clone failed (likely transient) — retrying once..."
+      rm -rf "$REPO_DIR"
+      git clone "$repo_url" "$REPO_DIR" >/dev/null \
+        || hard_stop "Clone failed for $repo_url"
+    fi
     CREATED_PATHS+=("$REPO_DIR")
     git -C "$REPO_DIR" checkout "$REPO_BASE" >/dev/null 2>&1 \
       || hard_stop "Base branch '$REPO_BASE' not found in $repo_url"
