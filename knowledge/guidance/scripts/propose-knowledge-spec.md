@@ -17,14 +17,14 @@
 
 ## Pre-conditions
 
-- Requester must be an authorized GitHub user in `{{WORKSPACE_REPO}}`
+- Requester must be an authorized GitHub user in `<WORKSPACE_REPO>`
 - Branch `knowledge-<slug>` must not already exist
 
 ---
 
 ## Steps
 
-1. Create branch `knowledge-<slug>` from `{{DEFAULT_BRANCH}}` of `{{WORKSPACE_REPO}}`
+1. Create branch `knowledge-<slug>` from `<DEFAULT_BRANCH>` of `<WORKSPACE_REPO>`
 2. Switch to new branch
 3. Requester manually authors knowledge changes on this branch:
    - Add new files to appropriate `knowledge/` subfolders
@@ -32,7 +32,7 @@
    - No LLM synthesis — this is manually authored content
 4. Commit changes to `knowledge-<slug>` branch
 5. Push branch to remote
-6. Raise PR: `knowledge-<slug>` → `{{DEFAULT_BRANCH}}`
+6. Raise PR: `knowledge-<slug>` → `<DEFAULT_BRANCH>`
    - PR title: `[Knowledge Proposal] <description>`
    - PR description: human-written summary of what is being proposed and why
    - CODEOWNERS auto-assigns domain owners as reviewers based on folders touched
@@ -62,7 +62,7 @@
 |---|---|---|
 | Context | Standalone | After project close |
 | Authoring | Manual | LLM+RAG synthesis |
-| Branch prefix | `knowledge-<slug>` | `{{org_slug}}-NNN-slug-knowledge` |
+| Branch prefix | `knowledge-<slug>` | `brnch-NNN-<slug>-knowledge` |
 | Source | Human-written | Project knowledge folder |
 
 ---

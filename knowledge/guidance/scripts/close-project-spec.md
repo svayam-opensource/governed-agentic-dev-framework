@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `{{ORG_SLUG}}-007-invoice-api` |
+| `project_id` | Yes | e.g., `PRJ-007-invoice-api` |
 
 ---
 
@@ -18,8 +18,8 @@
 
 Script refuses to proceed if ANY of the following are missing:
 
-- `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` contains at least one file
-- `projects/{{ORG_SLUG}}-NNN-slug/knowledge/compliance.md` exists
+- `projects/PRJ-NNN-<slug>/knowledge/` contains at least one file
+- `projects/PRJ-NNN-<slug>/knowledge/compliance.md` exists
 - `project.yaml` has all mandatory fields populated
 - `completed_at` is NOT yet set (prevents double-close)
 
@@ -29,24 +29,24 @@ Script refuses to proceed if ANY of the following are missing:
 
 1. Run pre-close gate — hard stop on any failure
 2. For each repo in `repos[]`:
-   - Auto-merge `{{org_slug}}-NNN-slug` → `base_branch`
+   - Auto-merge `brnch-NNN-<slug>` → `base_branch`
    - If merge conflicts: **pause script**, surface conflicts to human developer
    - Human resolves conflicts, then re-runs script to continue
-3. Merge `{{org_slug}}-NNN-slug` → `{{DEFAULT_BRANCH}}` in `{{WORKSPACE_REPO}}`
-4. For each repo and `{{WORKSPACE_REPO}}`:
-   - Create archive tag `archive/{{org_slug}}-NNN-slug`
-   - Delete branch `{{org_slug}}-NNN-slug`
+3. Merge `brnch-NNN-<slug>` → `<DEFAULT_BRANCH>` in `<WORKSPACE_REPO>`
+4. For each repo and `<WORKSPACE_REPO>`:
+   - Create archive tag `archive/brnch-NNN-<slug>`
+   - Delete branch `brnch-NNN-<slug>`
 5. Set `project.yaml`:
    - `status: completed`
    - `completed_at: <today>`
-6. Commit final `project.yaml` to `{{DEFAULT_BRANCH}}` in `{{WORKSPACE_REPO}}`
+6. Commit final `project.yaml` to `<DEFAULT_BRANCH>` in `<WORKSPACE_REPO>`
 7. **Automatically trigger `close-knowledge` script**
 
 ---
 
 ## Outputs
 
-- All `{{org_slug}}-NNN-slug` branches merged to their respective base branches
+- All `brnch-NNN-<slug>` branches merged to their respective base branches
 - Archive tags created and branches deleted
 - `project.yaml` status: `completed`, `completed_at` stamped
 - `close-knowledge` triggered

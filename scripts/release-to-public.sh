@@ -26,7 +26,7 @@
 set -uo pipefail
 
 # ── Output helpers (self-contained — we don't source lib.sh because on the
-# publish branch, org-config.yaml is full of {{PLACEHOLDERS}} which trips
+# publish branch, org-config.yaml ships with empty values which would trip
 # lib.sh's load_config) ──────────────────────────────────────────────────────
 
 BOLD='\033[1m'; CYAN='\033[0;36m'; GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; NC='\033[0m'

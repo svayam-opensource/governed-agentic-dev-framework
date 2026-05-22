@@ -1,34 +1,29 @@
 #!/usr/bin/env bash
 # Script: sync-from-publish
-# Purpose: Pull universal/constant updates from the `publish` branch into
-#          `main`, then re-substitute placeholders to keep main's per-org
-#          values intact. Preserves main's private overlay (real projects,
-#          registry entries, org-config values).
+# Purpose: Pull universal framework updates from `publish` into `main`,
+#          preserving main's private overlay (org-config.yaml, registry.yaml,
+#          projects/). Direction A: framework files contain no placeholders,
+#          so this is a plain merge — no re-substitution step.
 #
 # Usage:   bash scripts/sync-from-publish.sh [--dry-run] [--no-push]
 #
 # Flags:
 #   --dry-run   Show what would be merged without making any changes.
-#   --no-push   Do the merge + substitution + validation locally; do not
-#               push to origin/main. Useful for inspection before pushing.
+#   --no-push   Do the merge + validation locally; do not push to origin/main.
 #
-# Compliance: enforces test-merge gate (local validation before push).
-#
-# Privacy: NEVER syncs main → publish. Only one-way (publish → main).
+# Privacy: NEVER syncs main → publish. One-way (publish → main).
 #
 # Strategy:
-#   1. Stash any uncommitted changes.
-#   2. Verify on main; pull main + publish from origin.
-#   3. Show commits to be merged; ask confirmation (skip if --dry-run).
-#   4. Create ephemeral test branch test-sync-from-publish from main.
-#   5. Merge publish with -X theirs (auto-prefer publish for content conflicts;
-#      this drops main's substituted values in favor of publish's placeholders).
-#   6. Restore main's private overlay (org-config.yaml, registry.yaml, projects/)
+#   1. Verify on main, clean, fast-forwardable from origin.
+#   2. Show commits to be merged; confirm (skip if --dry-run).
+#   3. Create ephemeral test branch test-sync-from-publish from main.
+#   4. Merge publish with -X theirs (auto-prefer publish for content conflicts).
+#   5. Restore main's private overlay (org-config.yaml, registry.yaml, projects/)
 #      from main's pre-merge state.
-#   7. Run setup.sh to re-substitute placeholders using main's org-config.yaml.
-#   8. Run validators with STRICT_PLACEHOLDERS=1 — fail if any placeholders leaked.
-#   9. On pass: fast-forward main to test branch tip, push, delete test branch.
-#  10. On fail: discard test branch, restore main, exit non-zero.
+#   6. Run validators — fail if any placeholders leaked (framework files must
+#      stay placeholder-free; validator's placeholder check is always-on).
+#   7. On pass: fast-forward main to test branch tip, push, delete test branch.
+#   8. On fail: discard test branch, restore main, exit non-zero.
 
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
@@ -93,8 +88,7 @@ if $DRY_RUN; then
   echo ""
   info "Dry-run: would merge the above commits into $DEFAULT_BRANCH using -X theirs,"
   info "         restore private overlay (org-config.yaml, registry.yaml, projects/),"
-  info "         re-substitute placeholders via setup.sh,"
-  info "         run validators with STRICT_PLACEHOLDERS=1,"
+  info "         run validators,"
   info "         and (unless --no-push) push to origin/$DEFAULT_BRANCH."
   exit 0
 fi
@@ -148,26 +142,7 @@ if git ls-tree HEAD^1 -- projects/ &>/dev/null; then
   git checkout HEAD^1 -- projects/
 fi
 
-# Stage restorations as part of the merge commit
-git add -A
-
-# ── Re-substitute placeholders via setup.sh ───────────────────────────────────
-
-info "Running setup.sh --non-interactive to substitute placeholders..."
-# --non-interactive is required: setup.sh's default is now interactive prompts
-# (added in commit e0f2642). Without this flag, sync would block forever
-# waiting for input — and `yes |` doesn't help because "y" doesn't pass
-# slug validation.
-if ! bash setup.sh --non-interactive; then
-  cleanup_on_fail
-  hard_stop "setup.sh failed during placeholder substitution."
-fi
-
-# Stage substitutions
-git add -A
-
-# ── Amend the merge commit with restorations + substitutions ──────────────────
-
+# Amend the merge commit with the overlay restorations.
 if [[ -n "$(git diff --cached --name-only)" ]]; then
   git commit --amend --no-edit
 fi
@@ -177,9 +152,9 @@ fi
 VALIDATOR="$REPO_ROOT/scripts/validate/run.py"
 if [[ -x "$VALIDATOR" ]]; then
   echo ""
-  info "Running validators against merged tree (STRICT_PLACEHOLDERS=1)..."
+  info "Running validators against merged tree..."
   echo ""
-  if ! STRICT_PLACEHOLDERS=1 python3 "$VALIDATOR" "$REPO_ROOT"; then
+  if ! python3 "$VALIDATOR" "$REPO_ROOT"; then
     echo ""
     cleanup_on_fail
     hard_stop "Validation FAILED — sync rolled back. '$DEFAULT_BRANCH' is unchanged."

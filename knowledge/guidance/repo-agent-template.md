@@ -11,15 +11,15 @@
 This file represents the **repo-local knowledge layer** — third priority in the knowledge hierarchy.
 
 ```
-1. Org-wide knowledge      → {{WORKSPACE_REPO}}/knowledge/        [HIGHEST]
-2. Project knowledge       → {{WORKSPACE_REPO}}/projects/{{ORG_SLUG}}-NNN-slug/knowledge/
+1. Org-wide knowledge      → <WORKSPACE_REPO>/knowledge/        [HIGHEST]
+2. Project knowledge       → <WORKSPACE_REPO>/projects/PRJ-NNN-<slug>/knowledge/
 3. This repo's knowledge   → this file and knowledge/repo/  [THIS FILE]
 4. Your developer prefs    → $AGENT_WORK_ROOT/preferences/<your-gh-login>.md
 ```
 
 **This file cannot override org-wide knowledge or policy.**
 In case of conflict, org-wide knowledge always wins.
-See `{{WORKSPACE_REPO}}/knowledge/policies/agentic-development-policy.md` for the governing policy.
+See `<WORKSPACE_REPO>/knowledge/policies/agentic-development-policy.md` for the governing policy.
 
 ---
 
@@ -39,7 +39,7 @@ Before starting work on a new project in this repo, check prior project impact:
 
 ```
 knowledge/projects/
-└── {{ORG_SLUG}}-NNN-slug/           ← one folder per project that touched this repo
+└── PRJ-NNN-<slug>/           ← one folder per project that touched this repo
     ├── changelog.md        ← what changed and why
     ├── decisions.md        ← architectural decisions made
     └── impact-summary.md   ← how the project affected this repo
@@ -53,7 +53,7 @@ Understanding prior project history prevents re-litigating settled decisions.
 
 During an active project:
 - Do NOT modify `knowledge/repo/` directly
-- All knowledge writes go to `{{WORKSPACE_REPO}}/projects/{{ORG_SLUG}}-NNN-slug/knowledge/`
+- All knowledge writes go to `<WORKSPACE_REPO>/projects/PRJ-NNN-<slug>/knowledge/`
 - Repo knowledge is updated only via the project's knowledge close PR
 
 ---
@@ -61,4 +61,4 @@ During an active project:
 ## Data Classification Reminder
 
 - Never commit credentials, secrets, API keys, or PII to this repository (C01)
-- See `{{WORKSPACE_REPO}}/knowledge/policies/data-classification.md` for full classification rules
+- See `<WORKSPACE_REPO>/knowledge/policies/data-classification.md` for full classification rules

@@ -7,7 +7,7 @@
 #
 # Created automatically by setup.sh from this template. Edit freely.
 #
-# See: {{WORKSPACE_REPO}}/knowledge/policies/agentic-development-policy.md (POL-131 to POL-136)
+# See: <WORKSPACE_REPO>/knowledge/policies/agentic-development-policy.md (POL-131 to POL-136)
 
 ---
 
@@ -77,6 +77,6 @@ The following must NEVER be placed in developer preferences (C01 violations):
 - Compliance level definitions or overrides
 - Assignment or locking rule overrides
 - Knowledge layer priority order changes
-- Anything that contradicts {{WORKSPACE_REPO}}/knowledge/policies/
+- Anything that contradicts <WORKSPACE_REPO>/knowledge/policies/
 
 If you need to change org policy, use the propose-knowledge script.

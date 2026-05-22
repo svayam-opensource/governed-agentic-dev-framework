@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `{{ORG_SLUG}}-007-invoice-api` |
+| `project_id` | Yes | e.g., `PRJ-007-invoice-api` |
 | `github_issue_url` | Yes | URL to the GitHub Issue this task addresses |
 | `assignee` | Yes | Individual email of the agent/developer for this task |
 
@@ -29,27 +29,27 @@
 
 1. Verify pre-conditions
 2. Derive `task-slug` from GitHub Issue title (lowercase, hyphen-separated)
-3. Compose sub-branch name: `{{org_slug}}-NNN-slug/task-slug`
-4. In `{{WORKSPACE_REPO}}`: create `{{org_slug}}-NNN-slug/task-slug` from `{{org_slug}}-NNN-slug`
-5. For each repo in `repos[]`: create `{{org_slug}}-NNN-slug/task-slug` from `{{org_slug}}-NNN-slug`
+3. Compose sub-branch name: `brnch-NNN-<slug>/task-slug`
+4. In `<WORKSPACE_REPO>`: create `brnch-NNN-<slug>/task-slug` from `brnch-NNN-<slug>`
+5. For each repo in `repos[]`: create `brnch-NNN-<slug>/task-slug` from `brnch-NNN-<slug>`
 6. Push all sub-branches to remote
 7. Assign GitHub Issue to `assignee`
 8. Add task entry to `tasks[]` in `project.yaml`:
    ```yaml
-   - id: {{org_slug}}-NNN-slug/task-slug
+   - id: brnch-NNN-<slug>/task-slug
      github_issue: <url>
      assigned_to: <assignee>
      status: active
      created_at: <today>
      completed_at: ~
    ```
-9. Commit updated `project.yaml` to `{{org_slug}}-NNN-slug`
+9. Commit updated `project.yaml` to `brnch-NNN-<slug>`
 
 ---
 
 ## Sub-branch Rules
 
-- Sub-branches merge back to `{{org_slug}}-NNN-slug` ONLY — never directly to {{DEFAULT_BRANCH}} or `base_branch`
+- Sub-branches merge back to `brnch-NNN-<slug>` ONLY — never directly to <DEFAULT_BRANCH> or `base_branch`
 - Each sub-branch has exactly one assignee — single-assignee rule applies at sub-branch level
 - Multiple sub-branches can be active simultaneously for multi-agent parallel work
 
@@ -57,7 +57,7 @@
 
 ## Outputs
 
-- Sub-branch `{{org_slug}}-NNN-slug/task-slug` created in all repos
+- Sub-branch `brnch-NNN-<slug>/task-slug` created in all repos
 - GitHub Issue assigned
 - `project.yaml` tasks[] updated
 

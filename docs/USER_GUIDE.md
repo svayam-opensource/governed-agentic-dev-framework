@@ -89,7 +89,7 @@ Current role holders are listed in `knowledge/policies/roles.md`. By default at 
 ```bash
 ./prj              # interactive menu
 ./prj list         # list all projects
-./prj status {{ORG_SLUG}}-007-invoice-api
+./prj status PRJ-007-invoice-api
 ./prj init         # seed a new project (prompts for GitHub Project, assignee)
 ./prj task         # create a sub-branch task on an active project
 ./prj merge        # merge a completed task back to the project branch
@@ -118,16 +118,15 @@ Prompts:
 3. Who to assign the project to (defaults to current user)
 4. For each repo the GitHub Project's issues touch: confirm and pick a base branch (defaults to `dev`)
 
-What it does:
-1. Validates the GitHub Project exists, has issues, has a name
-2. Reads `registry.yaml`, computes the next NNN, composes `<ORG_SLUG>-NNN-slug`
-3. Creates `projects/<id>/` with subfolders (`requirements/`, `environment/`, `knowledge/`)
-4. Writes `project.yaml` from the template, populated with everything known
-5. Creates branch `<org_slug>-NNN-slug` in this repo and in each code repo
-6. Updates `registry.yaml` with the new project entry
-7. Sets status to `active` and pushes everything
+What it does (Direction A — HOME stays on default branch throughout):
+1. Validates the GitHub Project exists, has issues, has a name.
+2. Reads `registry.yaml`, computes the next NNN, composes `PRJ-NNN-<slug>` and `brnch-NNN-<slug>`.
+3. **In the HOME workspace, on the default branch:** writes a `projects[]` entry to `registry.yaml`, creates `projects/PRJ-NNN-<slug>/.gitkeep` as a stub. Commits + pushes. Home checkout never leaves the default branch.
+4. **Creates the per-project workspace** at `$AGENT_WORK_ROOT/PRJ-NNN-<slug>/`:
+   - Clones this repo into `<workspace_repo>/`, creates `brnch-NNN-<slug>` from default. Full `projects/PRJ-NNN-<slug>/*` scaffolding (project.yaml, agent.md, knowledge/, etc.) lives here, on the project branch. Pushed.
+   - For each repo linked to the GitHub Project: clones into `<repo>/`, creates `brnch-NNN-<slug>` from base. Pushed.
 
-After seeding, your project workspace is ready. Read `agent.md` in the project folder for the priority-ordered list of context to load.
+After seeding, the init command prints a `cd` line and a ready-to-paste first-session prompt. Day-to-day project work happens entirely inside the per-project workspace; the HOME repo is only for `prj manage` operations.
 
 ### Creating a task (sub-branch)
 
@@ -137,7 +136,7 @@ For multi-agent or parallel work within a project, create sub-branches per task:
 ./prj task
 ```
 
-Each task corresponds to one GitHub Issue inside the project. The task gets its own sub-branch (`<org_slug>-NNN-slug/<task-slug>`) in every repo, with a single assignee. Multiple tasks can run in parallel.
+Each task corresponds to one GitHub Issue inside the project. The task gets its own sub-branch (`brnch-NNN-<slug>/<task-slug>`) in every repo, with a single assignee. Multiple tasks can run in parallel.
 
 When done, merge back:
 
@@ -150,8 +149,8 @@ This merges the sub-branch into the project branch (NOT into the code repo's bas
 ### Pausing / resuming
 
 ```bash
-./prj pause {{ORG_SLUG}}-007-invoice-api      # → status: paused
-./prj resume {{ORG_SLUG}}-007-invoice-api     # → status: active, pulls latest from default and base branches
+./prj pause PRJ-007-invoice-api      # → status: paused
+./prj resume PRJ-007-invoice-api     # → status: active, pulls latest from default and base branches
 ```
 
 Resume includes a mandatory sync of the workspace default branch and each code repo's base branch into the project branch. This pulls in any policy or knowledge updates that landed while the project was paused.
@@ -159,7 +158,7 @@ Resume includes a mandatory sync of the workspace default branch and each code r
 ### Sync (without pausing)
 
 ```bash
-./prj sync {{ORG_SLUG}}-007-invoice-api
+./prj sync PRJ-007-invoice-api
 ```
 
 Same merge-in-from-default behavior as resume, but without changing status. Use mid-project to pick up a freshly-merged policy update.
@@ -167,7 +166,7 @@ Same merge-in-from-default behavior as resume, but without changing status. Use 
 ### Closing
 
 ```bash
-./prj close {{ORG_SLUG}}-007-invoice-api
+./prj close PRJ-007-invoice-api
 ```
 
 Pre-close gate (C01, hard fail if not met):
@@ -189,7 +188,7 @@ If the test-merge gate fails, your local default branch is unchanged and you get
 
 After `close`, the framework offers to synthesize project knowledge into proposals for the org-wide knowledge base:
 
-1. A new branch is created: `<org_slug>-NNN-slug-knowledge`
+1. A new branch is created: `brnch-NNN-<slug>-knowledge`
 2. (LLM/agent step — currently manual) Project knowledge is reviewed and proposed updates to `knowledge/` are committed to that branch
 3. A PR is opened against the default branch
 4. CODEOWNERS auto-assigns reviewers
@@ -200,7 +199,7 @@ Knowledge close PRs are reviewed normally. Outcome (merged / rejected / abandone
 ### Cancelling
 
 ```bash
-./prj cancel {{ORG_SLUG}}-007-invoice-api "reason text"
+./prj cancel PRJ-007-invoice-api "reason text"
 ```
 
 Branches are tagged-then-deleted. **No merge to base branches**. No knowledge close. `cancellation_reason` is required (C01).

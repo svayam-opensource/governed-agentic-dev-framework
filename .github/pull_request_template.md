@@ -25,12 +25,12 @@ and why.
 - [ ] `python3 scripts/validate/run.py` — validators pass
 - [ ] If shell-script change: tested the affected script(s) manually
 - [ ] If policy change: confirmed compliance level is correct (C01/C02/C03)
-- [ ] If new placeholder added: also added to `setup.sh` substitutions
+- [ ] If new org value added: added to `org-config.yaml`, `setup.sh` prompt, and `lib.sh load_config`
 
 ## Privacy / scope
 
 - [ ] No per-org private values (real org names, emails, project IDs) committed
-- [ ] No `{{PLACEHOLDER}}` left in shell scripts (`setup.sh` only substitutes `.md`/`.yaml`/`CODEOWNERS`)
+- [ ] No double-curly placeholder tokens anywhere in framework files — framework reads org values from `org-config.yaml` at runtime; the only files that may diverge from upstream TEMPLATE are `org-config.yaml`, `registry.yaml`, and `projects/`
 - [ ] If targeting `publish`: change is universal, applies to any adopting org
 - [ ] If targeting `main`: change is org-specific or comes from upstream `publish` via sync
 

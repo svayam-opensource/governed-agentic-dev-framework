@@ -1,6 +1,6 @@
 # Script Specification: onboard-repo
 
-**Purpose:** Initializes the `knowledge/` folder structure in an existing code repo, bringing it under the {{ORG_NAME}} Agentic Development Policy.
+**Purpose:** Initializes the `knowledge/` folder structure in an existing code repo, bringing it under the <ORG_NAME> Agentic Development Policy.
 **Compliance:** C02 — repo owner must approve the PR
 **Policy Reference:** POL-108
 

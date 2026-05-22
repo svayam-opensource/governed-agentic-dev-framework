@@ -13,16 +13,31 @@ For the framework's concepts, roles, and CLI reference, see [USER_GUIDE.md](USER
 ## The path at a glance
 
 ```
-[ Pre-assignment ] → [ ./prj init ] → [ Each session: load + work + capture ]
-                                       ↓
-                                  [ ./prj task ] for parallel work units
-                                       ↓
-                                  [ ./prj merge ]
-                                       ↓
-                                  [ ./prj close ]
+[ COPY TEMPLATE ]                        ← one-time per org (gh repo create --template)
+       ↓
+[ ./setup.sh ]                           ← one-time per org (configures org-config.yaml)
+       ↓
+[ ./prj manage assign ]                  ← runs in HOME repo, on default branch
+       ↓
+[ ./prj init ]                           ← runs in HOME repo, on default branch
+       ↓ creates $AGENT_WORK_ROOT/<PRJ-NNN-slug>/
+       ↓   ├── <workspace_repo>/   ← clone of HOME on the project branch
+       ↓   └── <each-code-repo>/   ← clone on the project branch
+       ↓
+[ cd $AGENT_WORK_ROOT/<PRJ-NNN-slug>/<workspace_repo> ]
+       ↓
+[ Each session: load + work + capture ]
+       ↓
+[ ./prj task ] (parallel work) → [ ./prj merge ]
+       ↓
+[ ./prj close ]                          ← runs IN per-project workspace
 ```
 
-Roughly: assignment happens out-of-band, init happens once, sessions repeat, tasks slice work, close happens once.
+**Key invariant (Direction A):** the HOME workspace stays on the default branch
+the entire project lifetime. All project-branch work — code, scaffolding,
+knowledge — happens inside the per-project workspace under `$AGENT_WORK_ROOT`.
+N parallel projects ⇒ N per-project workspaces, but only one home checkout
+that never switches branches.
 
 ---
 
@@ -36,11 +51,16 @@ git config --global user.email   # must be set
 gh api user --jq .login          # should print your GitHub handle
 ```
 
-If `AGENT_WORK_ROOT` isn't set, the framework uses `~/work`. Override only if you want clones somewhere else:
+The framework reads `agent_work_root` from `org-config.yaml` (set when the
+Policy Owner ran `./setup.sh`). The default is `~/.<org_slug_lower>/projects`
+(e.g. `~/.acme/projects/`). To inspect:
 
 ```bash
-export AGENT_WORK_ROOT=~/code/agent-work
+yq '.agent_work_root' org-config.yaml
 ```
+
+To override for a single command (e.g. in a CI sandbox), export `AGENT_WORK_ROOT`
+in the shell — env wins over the org-config value.
 
 ### Confirm the project is assigned to you
 
@@ -50,28 +70,31 @@ The Policy Owner (or any repo collaborator with manage rights) creates the GitHu
 
 ## 2. Initialize the project
 
-From the workspace repo root:
+Run from the **HOME workspace** repo root, **on the default branch**:
 
 ```bash
-./prj
-# Choose: 1) init
+git checkout main         # must be on default branch
+./prj                     # → choose 1) init
 ```
 
 Walk through the prompts:
 
 1. **GitHub org / user owning the Project** — accept the default if it's right.
-2. **Pick the GitHub Project from the list** — only projects you're assigned to (or that are unassigned) appear.
+2. **Pick the GitHub Project from the list** — only projects assigned to you (or unassigned) appear.
 3. **Assignee email** — defaults to your `git config user.email`.
 4. **Confirm initialize** — `y` to proceed.
 
 What happens:
 
-- A project ID is allocated (e.g. `ABC-001-feature-x`) and a workspace branch (`abc-001-feature-x`) is created and pushed.
-- For each repo linked to the Project, the repo is cloned into `$AGENT_WORK_ROOT/ABC-001-feature-x/<repo>/` and the project branch is created from its base branch.
-- `projects/ABC-001-feature-x/` is scaffolded with: `project.yaml`, `agent.md`, `knowledge/`, `requirements/`, `environment/`, and `knowledge/todo.md` (empty).
-- The registry is updated and everything is committed and pushed.
+- A project ID is allocated, e.g. `PRJ-001-feature-x`, with a project branch `brnch-001-feature-x`.
+- **In the HOME workspace, on the default branch**: `registry.yaml` gets a `projects[]` entry, a `projects/PRJ-001-feature-x/.gitkeep` stub is written, all committed and pushed. The home checkout stays on the default branch.
+- **A per-project workspace is created** at `$AGENT_WORK_ROOT/PRJ-001-feature-x/`. Inside:
+  - The workspace repo is cloned (`<workspace_repo>/`) and checked out on `brnch-001-feature-x`. The full `projects/PRJ-001-feature-x/` scaffolding (project.yaml, agent.md, knowledge/, etc.) lives here, on the project branch.
+  - Each impacted code repo is cloned into `$AGENT_WORK_ROOT/PRJ-001-feature-x/<repo>/`, on the project branch.
 
-At the end you'll see a **"Next steps"** block telling you exactly where to point your agent. **Read it.** That output is the canonical "what to do next" guide for the project you just created.
+At the end you'll see a **"Next steps"** block printing the exact `cd` target plus a ready-to-paste first-session prompt with the project name baked in. **Read it.** That output is the canonical "what to do next" guide for the project you just created.
+
+**Important:** project-branch work (code, knowledge, project.yaml edits) all happens inside the per-project workspace. The HOME repo's `projects/PRJ-NNN-slug/` is just a stub on the default branch until `./prj close` merges the project branch back.
 
 ---
 
@@ -79,25 +102,31 @@ At the end you'll see a **"Next steps"** block telling you exactly where to poin
 
 ### Session-start protocol (C01 — non-negotiable)
 
+Sessions happen **inside the per-project workspace**, not in the HOME repo:
+
+```bash
+cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<workspace_repo>
+```
+
 Before any code change, the agent (or you, if working alone) must:
 
-1. **Verify you're on the project's branch in the workspace repo**:
+0. **Read `org-config.yaml` first** — every framework file references its values (`<ORG_NAME>`, `<DEFAULT_BRANCH>`, owners, etc.).
+1. **Confirm the project branch is current**:
    ```bash
-   git checkout abc-001-feature-x
-   git pull origin abc-001-feature-x
+   git status                   # should already be on brnch-001-feature-x
+   git pull origin brnch-001-feature-x
    ```
 2. **Verify `project.yaml`**: `locked_by` matches you, `status: active`.
 3. **Read all four knowledge layers, fresh** — never use cached context across sessions:
    - `knowledge/` (org-wide policy)
-   - `projects/ABC-001-feature-x/knowledge/` (project knowledge accumulated so far)
+   - `projects/PRJ-001-feature-x/knowledge/` (project knowledge accumulated so far)
    - `<repo>/knowledge/` for each code repo (repo conventions)
    - `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` (your own developer preferences)
-4. **Read `projects/ABC-001-feature-x/knowledge/todo.md`** — surface its `## Open` items before planning new work.
+4. **Read `projects/PRJ-001-feature-x/knowledge/todo.md`** — surface its `## Open` items before planning new work.
 5. **Pull latest on the project branch in each code repo**:
    ```bash
-   cd $AGENT_WORK_ROOT/ABC-001-feature-x/<repo>
-   git checkout abc-001-feature-x
-   git pull origin abc-001-feature-x
+   cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<repo>
+   git pull origin brnch-001-feature-x
    ```
 
 ### Prompting the agent (first prompt of a session)
@@ -105,13 +134,13 @@ Before any code change, the agent (or you, if working alone) must:
 A good opening prompt makes the agent's compliance posture explicit. Adapt this template:
 
 ```
-I'm starting a session on project ABC-001-feature-x.
+I'm starting a session on project PRJ-001-feature-x.
 
 Before any work:
-1. Read projects/ABC-001-feature-x/agent.md and confirm you've loaded
+1. Read projects/PRJ-001-feature-x/agent.md and confirm you've loaded
    the four knowledge layers it points at.
 2. Verify project.yaml: locked_by must match rkant@svayamtech.com, status active.
-3. Read projects/ABC-001-feature-x/knowledge/todo.md and surface any open items.
+3. Read projects/PRJ-001-feature-x/knowledge/todo.md and surface any open items.
 4. Briefly summarize: project status, locked_by, primary repo(s), and what
    carry-forward items exist from prior sessions.
 5. Wait for me to direct the work — do not propose tasks unilaterally,
@@ -122,12 +151,12 @@ The agent should respond with a short status summary, not a plan. You direct wha
 
 ### Doing the actual work
 
-- **Code changes** go in the cloned code repos under `$AGENT_WORK_ROOT/ABC-001-feature-x/<repo>/`, on the project branch.
-- **Project knowledge** goes in `projects/ABC-001-feature-x/knowledge/` in the workspace repo:
+- **Code changes** go in the cloned code repos under `$AGENT_WORK_ROOT/PRJ-001-feature-x/<repo>/`, on the project branch.
+- **Project knowledge** goes in `projects/PRJ-001-feature-x/knowledge/` in the workspace repo:
   - `compliance.md` — required at close; records C01 violations, C02 exceptions, C03 deviations.
   - `notes.md` — decisions, design rationale, anything future-you would need.
   - any other domain-specific files as needed (`security.md`, `migrations.md`, etc.).
-- **Intermediate to-dos** go in `projects/ABC-001-feature-x/knowledge/todo.md` under `## Open`. Capture them as they arise, not at session end.
+- **Intermediate to-dos** go in `projects/PRJ-001-feature-x/knowledge/todo.md` under `## Open`. Capture them as they arise, not at session end.
 - **NEVER** edit:
   - The workspace repo's `knowledge/` (read-only during the project).
   - `project.yaml`'s `tasks` list directly — use `./prj task` / `./prj merge`.
@@ -142,18 +171,22 @@ The agent should respond with a short status summary, not a plan. You direct wha
 
 ### Session-end protocol
 
-Before you walk away:
+Before you walk away (you're still inside the per-project workspace):
 
-1. **Commit** any pending changes in the workspace repo (`projects/ABC-001-feature-x/` and `registry.yaml` if changed).
+1. **Commit** any pending changes in the workspace-repo clone (`projects/PRJ-001-feature-x/` content). All commits go on `brnch-001-feature-x`.
 2. **Move resolved items** in `todo.md` from `## Open` to `## Done` with a short note.
 3. **Push** everything:
    ```bash
-   git push origin abc-001-feature-x
+   # In the workspace-repo clone:
+   cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<workspace_repo>
+   git push origin brnch-001-feature-x
    # And in each code repo:
-   cd $AGENT_WORK_ROOT/ABC-001-feature-x/<repo>
-   git push origin abc-001-feature-x
+   cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<repo>
+   git push origin brnch-001-feature-x
    ```
 4. Optionally: write a one-line session summary to `notes.md` so the next session knows where you stopped.
+
+The HOME repo stays on the default branch throughout — there's no `git push` needed there during the project.
 
 ---
 
@@ -165,13 +198,13 @@ If you (or another developer) want to work on something independently while the 
 ./prj task <linked-issue-url>
 ```
 
-This creates a sub-branch `abc-001-feature-x/<issue-slug>` in the workspace and in every linked code repo, and assigns the GitHub Issue. The sub-branch is where you do the work; when done:
+This creates a sub-branch `brnch-001-feature-x/<issue-slug>` in the workspace and in every linked code repo, and assigns the GitHub Issue. The sub-branch is where you do the work; when done:
 
 ```bash
 ./prj merge
 ```
 
-Merges the sub-branch back into `abc-001-feature-x` and archives it.
+Merges the sub-branch back into `brnch-001-feature-x` and archives it.
 
 **Use `./prj task` when**: the work is a discrete unit on the Project board, multiple people might work in parallel, or you want a clean PR trail.
 **Skip it when**: you're making a small ad-hoc change that's part of the main work stream — just commit directly on the project branch.
@@ -204,15 +237,26 @@ This is POL-171 in the policy ledger.
 
 ## 7. Closing the project
 
-When all goal-level work is done and project knowledge is curated:
+When all goal-level work is done and project knowledge is curated, run from the
+**per-project workspace** (not the HOME repo):
 
 ```bash
+cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<workspace_repo>
 ./prj close
+```
+
+The close command merges the project branch back into the default branch in
+the workspace repo and in every code repo. After it succeeds, you can pull
+the merged state into the HOME repo:
+
+```bash
+cd <your home checkout>
+git pull origin main
 ```
 
 What this enforces:
 
-- `projects/ABC-001-feature-x/knowledge/` must be non-empty.
+- `projects/PRJ-001-feature-x/knowledge/` must be non-empty.
 - `compliance.md` should exist (the close script will tell you if it doesn't).
 - `project.yaml`'s mandatory fields must be populated.
 
@@ -220,9 +264,9 @@ What this does:
 
 - Merges the project branch into the default code branch in each code repo.
 - Merges the project branch into the workspace's default branch.
-- Creates archive tags `archive/abc-001-feature-x` everywhere and deletes the project branch.
+- Creates archive tags `archive/brnch-001-feature-x` everywhere and deletes the project branch.
 - Auto-fires `close-knowledge.sh`, which:
-  - Creates `abc-001-feature-x-knowledge` branch.
+  - Creates `brnch-001-feature-x-knowledge` branch.
   - Synthesizes a knowledge-close proposal (or pauses for you/an agent to do so).
   - Opens a PR for domain owners (CODEOWNERS auto-assigns reviewers).
 
@@ -267,6 +311,54 @@ Per-project copies are scaffolded by `seed.sh` under `projects/<PID>/` so a deve
 - **Don't rely on transitive file loading.** Some tools follow file references (e.g. *"see `agent.md`"*), some don't. The bootstrap files restate the protocol verbatim so transitive loading isn't required.
 - **Verify your tool actually loaded the file.** First prompt of every session should ask the agent to summarize what it read. If it didn't load the framework protocol, the rest of the session is unguarded.
 - **Adopter customization vs framework intent.** These bootstrap files are designed to be edited by adopters — add org-specific extensions below the standard sections. Just don't remove or contradict the four-knowledge-layers protocol; doing so breaks the policy contract.
+
+---
+
+## 10. Framework upgrades from TEMPLATE
+
+The framework template lives at
+[`svayam-opensource/governed-agentic-dev-framework`](https://github.com/svayam-opensource/governed-agentic-dev-framework).
+Your org's repo was created from it (`gh repo create --template ...` or "Use
+this template" on GitHub). `./setup.sh` configured a `template` remote
+pointing at the upstream so you can pull future framework updates without
+touching org-specific values.
+
+### How upgrades work (Direction A)
+
+Framework files (`scripts/`, `knowledge/policies/`, `CLAUDE.md`, `AGENTS.md`,
+the per-tool rule files, etc.) contain **no org-specific values**. They use
+angle-bracketed tokens like `<ORG_NAME>` and `<DEFAULT_BRANCH>` that the agent
+resolves at runtime from `org-config.yaml`. After `./setup.sh`, the ONLY file
+that diverges from upstream TEMPLATE is `org-config.yaml` (plus `registry.yaml`
+and `projects/` as you do project work). That makes upgrades conflict-free.
+
+### Pulling an upgrade
+
+From your HOME repo on the default branch:
+
+```bash
+git fetch template
+git merge template/main
+```
+
+A clean fast-forward (or three-way merge that doesn't touch `org-config.yaml`)
+is the expected outcome. If you do see a conflict on a framework file:
+
+1. That file should not normally be edited locally — confirm you didn't edit
+   it intentionally.
+2. Resolve by taking the template version (`git checkout --theirs <file>`).
+3. If your org genuinely needs a local modification, file an exception and
+   document it in `knowledge/policies/exceptions/policy/` so future upgrades
+   know to expect the divergence.
+
+After upgrading, run `python3 scripts/validate/run.py` to confirm everything
+still parses and the placeholder-detector is satisfied.
+
+### What the test-merge gate catches
+
+CI runs the same validators against `template/main` merges. A regression on
+the upstream side (e.g. a framework file accidentally introducing a
+double-curly placeholder token) fails the gate before it lands.
 
 ---
 

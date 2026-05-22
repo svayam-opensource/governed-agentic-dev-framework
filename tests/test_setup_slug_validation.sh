@@ -7,31 +7,36 @@ TEST_NAME="setup_slug_validation"
 source "$(dirname "$0")/lib.sh"
 
 SCRATCH=$(mktemp -d)
-trap "rm -rf '$SCRATCH'" EXIT
+# Chain cleanup + test_summary; bare `trap "rm ..." EXIT` would clobber
+# lib.sh's trap and make the test exit 0 regardless of assertion failures.
+trap 'rm -rf "$SCRATCH"; test_summary' EXIT
 cd "$SCRATCH" || { t_fail "Cannot cd to scratch"; exit 1; }
 
-# Use a benign user-account origin (not the template) so the early refusal
-# doesn't fire. svayam-rkant is the gh-authenticated user in this session.
+# Use a benign user-account origin (not the template) so setup.sh doesn't
+# trigger the template-origin reconfigure flow.
 git init -q
 git remote add origin git@github.com:svayam-rkant/test-slug-validation.git
 cp "$REPO_ROOT/setup.sh" .
 chmod +x setup.sh
+# TEMPLATE-state org-config: every field empty (Direction A baseline).
 cat > org-config.yaml <<'YAML'
-org_name: "Test Corp"
-org_short_name: "Test"
-org_slug: "ORG"
-org_slug_lower: "org"
-github_org: "your-github-org"
-workspace_repo: "000-org-prj"
+org_name: ""
+org_short_name: ""
+org_slug: ""
+org_slug_lower: ""
+org_repo_url: ""
+github_org: ""
+workspace_repo: ""
 default_branch: "main"
 default_code_branch: "dev"
-policy_owner_email: "you@example.com"
-policy_owner_github: "@your-github-handle"
-legal_owner_github: "@legal-owner-tbd"
-infra_owner_github: "@infrastructure-owner-tbd"
-system_arch_owner_github: "@system-arch-owner-tbd"
-data_arch_owner_github: "@data-arch-owner-tbd"
-policy_effective_date: "2026-05-09"
+agent_work_root: ""
+policy_owner_email: ""
+policy_owner_github: ""
+legal_owner_github: ""
+infra_owner_github: ""
+system_arch_owner_github: ""
+data_arch_owner_github: ""
+policy_effective_date: ""
 YAML
 
 # Each test: pipe a sequence of inputs through setup.sh.
@@ -41,7 +46,7 @@ YAML
 
 run_setup() {
   local stdin="$1"
-  printf '%s' "$stdin" | bash setup.sh 2>&1 || true
+  printf '%s' "$stdin" | SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 bash setup.sh 2>&1 || true
 }
 
 # Bad slugs should produce the validation error message

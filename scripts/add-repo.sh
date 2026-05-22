@@ -57,7 +57,7 @@ for r in (c.get('repos') or []):
         sys.exit(1)
 PY
 
-BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
+BRANCH="brnch-${PROJECT_ID#PRJ-}"|BRANCH="brnch-${PROJECT_ID#PRJ-}"
 TODAY=$(today)
 
 # Prompt for base_branch if not provided

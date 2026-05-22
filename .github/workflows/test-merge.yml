@@ -59,11 +59,9 @@ jobs:
           git log --oneline -3
 
       - name: Run validators
-        # On main: enforce no leftover {{placeholders}} (publish→main sync
-        # has run setup.sh and substitutions should be complete).
-        # On publish: placeholders are expected; do not enforce.
-        env:
-          STRICT_PLACEHOLDERS: ${{ github.base_ref == 'main' && '1' || '' }}
+        # Framework files contain no placeholders in either branch (direction
+        # A: org values live only in org-config.yaml; framework reads at
+        # runtime). The validator's placeholder check is always-on.
         run: python3 scripts/validate/run.py
 
   tests:

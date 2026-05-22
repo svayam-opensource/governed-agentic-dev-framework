@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `{{ORG_SLUG}}-007-invoice-api` |
+| `project_id` | Yes | e.g., `PRJ-007-invoice-api` |
 | `repo_url` | Yes | Full GitHub repository URL |
 | `role` | Yes | `primary` \| `dependency` \| `read-only` |
 | `added_reason` | Yes | Why this repo is being added post-seed |
@@ -30,8 +30,8 @@
 
 1. Verify pre-conditions (C01 if status not active)
 2. Prompt for `base_branch` if not provided (default: `dev`)
-3. Clone repo into `<agent_work_root>/{{ORG_SLUG}}-NNN-slug/<repo-name>/`
-4. Create branch `{{org_slug}}-NNN-slug` from `base_branch`
+3. Clone repo into `<agent_work_root>/PRJ-NNN-<slug>/<repo-name>/`
+4. Create branch `brnch-NNN-<slug>` from `base_branch`
 5. Push branch to remote
 6. Add entry to `repos[]` in `project.yaml`:
    ```yaml
@@ -41,14 +41,14 @@
      added_at: <today>
      added_reason: <added_reason>
    ```
-7. Commit updated `project.yaml` to `{{org_slug}}-NNN-slug` branch in `{{WORKSPACE_REPO}}`
+7. Commit updated `project.yaml` to `brnch-NNN-<slug>` branch in `<WORKSPACE_REPO>`
 
 ---
 
 ## Outputs
 
 - Repo cloned locally under project work directory
-- Branch `{{org_slug}}-NNN-slug` created in repo and pushed
+- Branch `brnch-NNN-<slug>` created in repo and pushed
 - `project.yaml` updated with new repo entry
 
 ---

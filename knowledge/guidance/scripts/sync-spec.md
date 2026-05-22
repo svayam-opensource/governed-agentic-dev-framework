@@ -1,6 +1,6 @@
 # Script Specification: sync
 
-**Purpose:** Merges latest {{DEFAULT_BRANCH}}/base into active project branch on demand. Use when you want latest org knowledge mid-project without pausing/resuming.
+**Purpose:** Merges latest <DEFAULT_BRANCH>/base into active project branch on demand. Use when you want latest org knowledge mid-project without pausing/resuming.
 **Compliance:** C03 — encouraged but not mandatory
 **Policy Reference:** POL-122
 
@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `{{ORG_SLUG}}-007-invoice-api` |
+| `project_id` | Yes | e.g., `PRJ-007-invoice-api` |
 
 ---
 
@@ -24,12 +24,12 @@
 ## Steps
 
 1. Verify `status: active` and no uncommitted changes
-2. Fetch latest `{{DEFAULT_BRANCH}}` in `{{WORKSPACE_REPO}}`
-3. Merge `{{DEFAULT_BRANCH}}` → `{{org_slug}}-NNN-slug` in `{{WORKSPACE_REPO}}`
+2. Fetch latest `<DEFAULT_BRANCH>` in `<WORKSPACE_REPO>`
+3. Merge `<DEFAULT_BRANCH>` → `brnch-NNN-<slug>` in `<WORKSPACE_REPO>`
 4. Pause for human conflict resolution if needed, then continue
 5. For each repo in `repos[]`:
    - Fetch latest `base_branch`
-   - Merge `base_branch` → `{{org_slug}}-NNN-slug`
+   - Merge `base_branch` → `brnch-NNN-<slug>`
    - Pause on conflicts for human resolution
 6. Reload all four knowledge layers fresh
 7. Push updated branches

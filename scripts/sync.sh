@@ -24,7 +24,7 @@ check_project_exists "$PROJECT_ID"
 
 require_project_status "$PROJECT_YAML" "active"
 
-BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
+BRANCH="brnch-${PROJECT_ID#PRJ-}"|BRANCH="brnch-${PROJECT_ID#PRJ-}"
 
 echo "Checking for uncommitted changes..."
 check_clean "$REPO_ROOT"

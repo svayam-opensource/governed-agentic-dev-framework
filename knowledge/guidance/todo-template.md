@@ -1,4 +1,4 @@
-# To-do for {{ORG_SLUG}}-NNN-slug
+# To-do for PRJ-NNN-<slug>
 
 This file is the project's **carry-forward** list. Project goals live on
 the GitHub Project board; this is for intermediate work, decisions to

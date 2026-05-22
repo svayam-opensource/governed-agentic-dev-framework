@@ -1,20 +1,20 @@
-# CI/CD Pipeline Specification — {{WORKSPACE_REPO}}
+# CI/CD Pipeline Specification — <WORKSPACE_REPO>
 
-**Owner:** Infrastructure Owner (acting: `{{POLICY_OWNER_EMAIL}}`)
-**Scope:** This specification applies to `{{WORKSPACE_REPO}}` ONLY.
+**Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)
+**Scope:** This specification applies to `<WORKSPACE_REPO>` ONLY.
 **Note:** Other repos are not covered by this spec. They adopt the agentic development policy via the `onboard-repo` script without CI/CD changes.
 
 ---
 
 ## Overview
 
-The `{{WORKSPACE_REPO}}` CI/CD pipeline runs on every PR and every merge to `{{DEFAULT_BRANCH}}`. It enforces structural integrity and keeps knowledge publications current.
+The `<WORKSPACE_REPO>` CI/CD pipeline runs on every PR and every merge to `<DEFAULT_BRANCH>`. It enforces structural integrity and keeps knowledge publications current.
 
 ---
 
 ## On Every PR to Master (Validation Gates)
 
-These checks run on every PR targeting `{{DEFAULT_BRANCH}}`. Failures block the merge. **(C01)**
+These checks run on every PR targeting `<DEFAULT_BRANCH>`. Failures block the merge. **(C01)**
 
 ### 1. `project.yaml` Schema Validation
 - All files matching `projects/*/project.yaml` must conform to the required schema
@@ -30,15 +30,15 @@ These checks run on every PR targeting `{{DEFAULT_BRANCH}}`. Failures block the 
 ### 3. `registry.yaml` Integrity
 - `last_issued` must be a non-negative integer
 - No duplicate project IDs in `projects[]`
-- All IDs must match the `{{ORG_SLUG}}-NNN-slug` format
+- All IDs must match the `PRJ-NNN-<slug>` format
 
 ### 4. Active Project Workspace Structure
 - All `active` projects must have:
-  - `projects/{{ORG_SLUG}}-NNN-slug/requirements/` folder
-  - `projects/{{ORG_SLUG}}-NNN-slug/environment/` folder
-  - `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` folder
-  - `projects/{{ORG_SLUG}}-NNN-slug/agent.md`
-  - `projects/{{ORG_SLUG}}-NNN-slug/project.yaml`
+  - `projects/PRJ-NNN-<slug>/requirements/` folder
+  - `projects/PRJ-NNN-<slug>/environment/` folder
+  - `projects/PRJ-NNN-<slug>/knowledge/` folder
+  - `projects/PRJ-NNN-<slug>/agent.md`
+  - `projects/PRJ-NNN-<slug>/project.yaml`
 
 ### 5. Data Classification Scan
 - Scan all committed files for patterns matching Restricted data (credentials, keys, tokens)
@@ -48,7 +48,7 @@ These checks run on every PR targeting `{{DEFAULT_BRANCH}}`. Failures block the 
 
 ## On Merge to Master (Publication Pipeline)
 
-These jobs run after every successful merge to `{{DEFAULT_BRANCH}}`. **(C02)**
+These jobs run after every successful merge to `<DEFAULT_BRANCH>`. **(C02)**
 
 ### 1. Static Site Rebuild
 - Rebuild and redeploy the internal knowledge site

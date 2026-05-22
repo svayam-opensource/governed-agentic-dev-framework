@@ -38,7 +38,7 @@ if [[ ! -d "$KNOWLEDGE_DIR" ]] || [[ -z "$(find "$KNOWLEDGE_DIR" -type f 2>/dev/
   hard_stop "projects/$PROJECT_ID/knowledge/ is empty — nothing to synthesize."
 fi
 
-BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
+BRANCH="brnch-${PROJECT_ID#PRJ-}"|BRANCH="brnch-${PROJECT_ID#PRJ-}"
 KNOWLEDGE_BRANCH="${BRANCH}-knowledge"
 TODAY=$(today)
 

@@ -59,7 +59,7 @@ echo ""
 # or 'completed' (re-run after step 2/3 succeeded but later step failed).
 require_any_project_status "$PROJECT_YAML" "active" "completed"
 
-BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
+BRANCH="brnch-${PROJECT_ID#PRJ-}"|BRANCH="brnch-${PROJECT_ID#PRJ-}"
 TODAY=$(today)
 
 # ── Update state on project branch (so the gate validates it) ────────────────

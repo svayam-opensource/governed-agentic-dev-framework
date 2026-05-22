@@ -220,7 +220,8 @@ ok "gh authenticated as $ACTIVE (matches expected $SMOKE_GH_LOGIN)"
 # the next time it tries to archive against a tag that already exists.
 
 info "Pre-clean — scrubbing stale smoke artifacts from fixture-linked repos..."
-SMOKE_PREFIX=$(echo "$SMOKE_ORG_SLUG" | tr '[:upper:]' '[:lower:]')-
+# Direction A: all project branches use the literal "brnch-" prefix.
+SMOKE_PREFIX="brnch-"
 FIXTURE_PROJ_NUM=$(echo "$SMOKE_FIXTURE_PROJECT_URL" | sed 's|.*/projects/||')
 LINKED_REPOS=$(gh project item-list "$FIXTURE_PROJ_NUM" --owner "$SMOKE_TEST_OWNER" \
   --format json --limit 50 2>/dev/null \
@@ -321,15 +322,19 @@ ok "install-deps passes"
 # ── Step 4: pre-fill org-config.yaml ─────────────────────────────────────────
 
 info "Step 4 — pre-filling org-config.yaml with smoke values..."
+SMOKE_ORG_SLUG_LOWER=$(echo "$SMOKE_ORG_SLUG" | tr '[:upper:]' '[:lower:]')
+SMOKE_AGENT_WORK_ROOT="$HOME/.${SMOKE_ORG_SLUG_LOWER}/projects"
 cat > org-config.yaml <<EOF
 org_name: "$SMOKE_ORG_NAME"
 org_short_name: "$SMOKE_ORG_SHORT"
 org_slug: "$SMOKE_ORG_SLUG"
-org_slug_lower: "$(echo "$SMOKE_ORG_SLUG" | tr '[:upper:]' '[:lower:]')"
+org_slug_lower: "$SMOKE_ORG_SLUG_LOWER"
+org_repo_url: "https://github.com/$TEST_REPO.git"
 github_org: "$SMOKE_TEST_OWNER"
 workspace_repo: "$TEST_REPO_NAME"
 default_branch: "main"
 default_code_branch: "$SMOKE_FIXTURE_REPO_BRANCH"
+agent_work_root: "$SMOKE_AGENT_WORK_ROOT"
 policy_owner_email: "$SMOKE_POLICY_OWNER_EMAIL"
 policy_owner_github: "@$SMOKE_GH_LOGIN"
 legal_owner_github: "@$SMOKE_GH_LOGIN"
@@ -342,13 +347,15 @@ ok "org-config.yaml written"
 
 # ── Step 5: setup.sh --non-interactive ───────────────────────────────────────
 
-info "Step 5 — SETUP_SKIP_GITHUB_VERIFY=1 /bin/bash setup.sh --non-interactive..."
-SETUP_SKIP_GITHUB_VERIFY=1 /bin/bash setup.sh --non-interactive >/dev/null 2>&1 \
+info "Step 5 — SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 setup.sh --non-interactive..."
+SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 \
+  /bin/bash setup.sh --non-interactive >/dev/null 2>&1 \
   || hard_stop "setup.sh failed"
-# Verify substitution: STRICT_PLACEHOLDERS catches any leftover {{...}}
-STRICT_PLACEHOLDERS=1 python3 scripts/validate/run.py >/dev/null 2>&1 \
-  || hard_stop "validators failed after setup (likely leftover placeholders)"
-ok "setup substitution clean; validators pass with STRICT_PLACEHOLDERS=1"
+# Direction A: the validator's placeholder check is always-on; no flag needed.
+# Any leftover {{...}} would fail it.
+python3 scripts/validate/run.py >/dev/null 2>&1 \
+  || hard_stop "validators failed after setup"
+ok "setup complete; validators pass"
 
 # ── Step 6: commit + push ─────────────────────────────────────────────────────
 
@@ -388,39 +395,64 @@ info "Step 9 — seed against fixture project $SMOKE_FIXTURE_PROJECT_URL..."
   >/tmp/smoke-init.log 2>&1 \
   || { tail -30 /tmp/smoke-init.log; hard_stop "seed.sh failed"; }
 
-# Find the seeded project ID
-PROJECT_ID=$(ls projects/ 2>/dev/null | grep "^${SMOKE_ORG_SLUG}-" | head -1)
-[[ -n "$PROJECT_ID" ]] || hard_stop "no seeded project folder found under projects/"
-PROJECT_BRANCH=$(echo "$PROJECT_ID" | tr '[:upper:]' '[:lower:]')
+# Find the seeded project ID from the registry (Direction A: home's
+# projects/ has only a .gitkeep stub on main; project.yaml lives on the
+# project branch inside the per-project workspace).
+PROJECT_ID=$(python3 -c "
+import yaml
+c = yaml.safe_load(open('registry.yaml')) or {}
+for p in (c.get('projects') or []):
+    if p and p.get('id', '').startswith('PRJ-') and p.get('status') == 'active':
+        print(p['id']); break
+")
+[[ -n "$PROJECT_ID" ]] || hard_stop "no active PRJ-* entry in registry"
+PROJECT_BRANCH="brnch-${PROJECT_ID#PRJ-}"
 
-# Track artifacts for cleanup
-CLEANUP_ARTIFACTS+=("local:$HOME/work/$PROJECT_ID")
+PROJECT_WORK_ROOT="$SMOKE_AGENT_WORK_ROOT/$PROJECT_ID"
+ORG_GOV_CLONE="$PROJECT_WORK_ROOT/$TEST_REPO_NAME"
 
-# State assertions
-[[ -d "projects/$PROJECT_ID" ]] || hard_stop "project folder missing"
-[[ -f "projects/$PROJECT_ID/project.yaml" ]] || hard_stop "project.yaml missing"
-[[ -f "projects/$PROJECT_ID/knowledge/todo.md" ]] || hard_stop "knowledge/todo.md missing — seed should scaffold it from the template"
-grep -q "^# To-do for ${SMOKE_ORG_SLUG}-" "projects/$PROJECT_ID/knowledge/todo.md" \
-  || hard_stop "todo.md header missing project-specific substitution"
+# Track per-project workspace for cleanup
+CLEANUP_ARTIFACTS+=("local:$PROJECT_WORK_ROOT")
 
-# Per-project tool bootstrap files (one per supported LLM coding tool).
-# Sample two of the eight — flat and nested — to verify seed's scaffold loop.
-[[ -f "projects/$PROJECT_ID/AGENTS.md" ]] \
-  || hard_stop "per-project AGENTS.md missing — seed should scaffold from root"
-[[ -f "projects/$PROJECT_ID/.cursor/rules/agent.mdc" ]] \
-  || hard_stop "per-project .cursor/rules/agent.mdc missing — seed should scaffold from root"
-grep -q "$PROJECT_ID" "projects/$PROJECT_ID/AGENTS.md" \
-  || hard_stop "per-project AGENTS.md doesn't contain the project ID after substitution"
-status=$(python3 -c "import yaml; print(yaml.safe_load(open('projects/$PROJECT_ID/project.yaml'))['status'])")
-[[ "$status" == "active" ]] || hard_stop "expected status=active, got $status"
-git rev-parse --verify "$PROJECT_BRANCH" >/dev/null 2>&1 \
-  || hard_stop "local branch '$PROJECT_BRANCH' missing"
-git ls-remote --exit-code --heads origin "$PROJECT_BRANCH" >/dev/null 2>&1 \
-  || hard_stop "remote branch '$PROJECT_BRANCH' missing"
+# Direction A invariant: home workspace must stay on default branch
+HOME_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+[[ "$HOME_BRANCH" == "main" ]] \
+  || hard_stop "home workspace switched to '$HOME_BRANCH' — should have stayed on main"
+
+# Home has registry entry + stub folder on default branch
+[[ -d "projects/$PROJECT_ID" ]] || hard_stop "stub folder projects/$PROJECT_ID/ missing on home main"
+[[ -f "projects/$PROJECT_ID/.gitkeep" ]] || hard_stop "stub .gitkeep missing"
 in_registry=$(python3 -c "import yaml; ps=yaml.safe_load(open('registry.yaml')).get('projects') or []; print('yes' if any(p.get('id')=='$PROJECT_ID' for p in ps if p) else 'no')")
 [[ "$in_registry" == "yes" ]] || hard_stop "registry missing entry for $PROJECT_ID"
 
-ok "project $PROJECT_ID seeded; status=active; branch on remote"
+# Per-project workspace has full content on the project branch
+[[ -d "$ORG_GOV_CLONE" ]] \
+  || hard_stop "per-project ORG GOV clone missing at $ORG_GOV_CLONE"
+[[ -f "$ORG_GOV_CLONE/projects/$PROJECT_ID/project.yaml" ]] \
+  || hard_stop "project.yaml missing in per-project workspace"
+[[ -f "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge/todo.md" ]] \
+  || hard_stop "todo.md missing in per-project workspace"
+grep -q "^# To-do for ${PROJECT_ID#PRJ-}" "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge/todo.md" \
+  || hard_stop "todo.md header missing per-project substitution"
+
+# Per-project tool bootstrap files
+[[ -f "$ORG_GOV_CLONE/projects/$PROJECT_ID/AGENTS.md" ]] \
+  || hard_stop "per-project AGENTS.md missing in per-project workspace"
+[[ -f "$ORG_GOV_CLONE/projects/$PROJECT_ID/.cursor/rules/agent.mdc" ]] \
+  || hard_stop "per-project .cursor/rules/agent.mdc missing"
+grep -q "$PROJECT_ID" "$ORG_GOV_CLONE/projects/$PROJECT_ID/AGENTS.md" \
+  || hard_stop "per-project AGENTS.md doesn't contain project ID after substitution"
+
+status=$(python3 -c "import yaml; print(yaml.safe_load(open('$ORG_GOV_CLONE/projects/$PROJECT_ID/project.yaml'))['status'])")
+[[ "$status" == "active" ]] || hard_stop "expected status=active in per-project workspace, got $status"
+
+# Project branch lives on per-project workspace and on remote (not home)
+( cd "$ORG_GOV_CLONE" && git rev-parse --verify "$PROJECT_BRANCH" >/dev/null 2>&1 ) \
+  || hard_stop "project branch '$PROJECT_BRANCH' missing in per-project workspace"
+git ls-remote --exit-code --heads origin "$PROJECT_BRANCH" >/dev/null 2>&1 \
+  || hard_stop "remote branch '$PROJECT_BRANCH' missing on workspace repo"
+
+ok "project $PROJECT_ID seeded; home stayed on main; per-project workspace ready"
 
 # ── Step 10: prj list (shows seeded) ─────────────────────────────────────────
 
@@ -430,50 +462,44 @@ echo "$out" | grep -q "$PROJECT_ID" \
   || hard_stop "./prj list didn't show $PROJECT_ID"
 ok "registry has $PROJECT_ID"
 
-# ── Step 12 (was 11+13 dropped): curate project knowledge ────────────────────
+# ── Step 12: curate project knowledge (inside per-project workspace) ─────────
 
-info "Step 12 — curating project knowledge..."
-mkdir -p "projects/$PROJECT_ID/knowledge"
-cat > "projects/$PROJECT_ID/knowledge/compliance.md" <<EOF
+info "Step 12 — curating project knowledge (per-project workspace, project branch)..."
+mkdir -p "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge"
+cat > "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge/compliance.md" <<EOF
 # Compliance Log: $PROJECT_ID
 
 (smoke-test placeholder; real adopters fill this in during their project)
 EOF
-cat > "projects/$PROJECT_ID/knowledge/notes.md" <<EOF
+cat > "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge/notes.md" <<EOF
 # Project Notes
 
 Smoke-test placeholder content for $PROJECT_ID.
 EOF
 
-# Make sure we're on the project branch (seed.sh leaves us there)
-git checkout "$PROJECT_BRANCH" 2>/dev/null || true
-git add "projects/$PROJECT_ID/knowledge/"
-git commit -m "curate project knowledge for $PROJECT_ID" >/dev/null 2>&1 \
-  || hard_stop "commit of curated knowledge failed"
-git push origin "$PROJECT_BRANCH" >/dev/null 2>&1 \
-  || hard_stop "push of curated knowledge failed"
-ok "project knowledge curated and pushed"
+( cd "$ORG_GOV_CLONE" \
+  && git add "projects/$PROJECT_ID/knowledge/" \
+  && git commit -m "curate project knowledge for $PROJECT_ID" >/dev/null 2>&1 \
+  && git push origin "$PROJECT_BRANCH" >/dev/null 2>&1 ) \
+  || hard_stop "curate-knowledge commit/push failed in per-project workspace"
+ok "project knowledge curated and pushed on $PROJECT_BRANCH"
 
-# ── Step 14: prj close (auto-fires close-knowledge) ──────────────────────────
+# ── Step 14: prj close (auto-fires close-knowledge) — from per-project workspace ──
 
-info "Step 14 — close-project.sh $PROJECT_ID (auto-fires close-knowledge)..."
-# Don't pipe `yes ""` into close-project: with pipefail set, `yes` exits
-# with 141 on SIGPIPE after the script returns, marking the whole pipeline
-# as failed even when close-project succeeded. close-project has no
-# interactive prompts so stdin doesn't need feeding.
-/bin/bash scripts/close-project.sh "$PROJECT_ID" \
-  >/tmp/smoke-close.log 2>&1 \
+info "Step 14 — close-project.sh $PROJECT_ID (from per-project workspace)..."
+( cd "$ORG_GOV_CLONE" \
+  && /bin/bash scripts/close-project.sh "$PROJECT_ID" >/tmp/smoke-close.log 2>&1 ) \
   || { tail -30 /tmp/smoke-close.log; hard_stop "close-project.sh failed"; }
 
-# Verify state
-git fetch origin main >/dev/null 2>&1 || true
-git checkout main >/dev/null 2>&1 || true
-git pull origin main >/dev/null 2>&1 || true
-
-[[ -f "projects/$PROJECT_ID/project.yaml" ]] \
-  || hard_stop "project.yaml missing after close"
-status=$(python3 -c "import yaml; print(yaml.safe_load(open('projects/$PROJECT_ID/project.yaml'))['status'])")
+# Verify state: per-project workspace has status=completed
+status=$(python3 -c "import yaml; print(yaml.safe_load(open('$ORG_GOV_CLONE/projects/$PROJECT_ID/project.yaml'))['status'])")
 [[ "$status" == "completed" ]] || hard_stop "expected status=completed after close, got $status"
+
+# Pull the merge back to home so the next check reflects current registry state
+( cd "$TEST_CLONE" \
+  && git fetch origin main >/dev/null 2>&1 \
+  && git pull --ff-only origin main >/dev/null 2>&1 ) || true
+cd "$TEST_CLONE"
 
 # Knowledge close branch should exist
 KNOWLEDGE_BRANCH="${PROJECT_BRANCH}-knowledge"

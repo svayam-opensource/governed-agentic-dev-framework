@@ -46,31 +46,43 @@ load_config() {
     ORG_NAME=$(yq '.org_name'           "$CONFIG")
     ORG_SLUG=$(yq '.org_slug'           "$CONFIG")
     ORG_SLUG_LOWER=$(yq '.org_slug_lower' "$CONFIG")
+    ORG_REPO_URL=$(yq '.org_repo_url'   "$CONFIG" 2>/dev/null || echo "")
     GITHUB_ORG=$(yq '.github_org'       "$CONFIG")
     WORKSPACE_REPO=$(yq '.workspace_repo' "$CONFIG")
     DEFAULT_BRANCH=$(yq '.default_branch' "$CONFIG")
     DEFAULT_CODE_BRANCH=$(yq '.default_code_branch' "$CONFIG")
+    AGENT_WORK_ROOT_CFG=$(yq '.agent_work_root' "$CONFIG" 2>/dev/null || echo "")
     POLICY_OWNER_EMAIL=$(yq '.policy_owner_email' "$CONFIG")
   else
-    _py() { python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['$1'])"; }
+    _py() { python3 -c "import yaml; v = yaml.safe_load(open('$CONFIG')).get('$1', ''); print(v if v is not None else '')"; }
     ORG_NAME=$(_py org_name)
     ORG_SLUG=$(_py org_slug)
     ORG_SLUG_LOWER=$(_py org_slug_lower)
+    ORG_REPO_URL=$(_py org_repo_url)
     GITHUB_ORG=$(_py github_org)
     WORKSPACE_REPO=$(_py workspace_repo)
     DEFAULT_BRANCH=$(_py default_branch)
     DEFAULT_CODE_BRANCH=$(_py default_code_branch)
+    AGENT_WORK_ROOT_CFG=$(_py agent_work_root)
     POLICY_OWNER_EMAIL=$(_py policy_owner_email)
   fi
-  export ORG_NAME ORG_SLUG ORG_SLUG_LOWER GITHUB_ORG WORKSPACE_REPO \
+  # yq emits the literal "null" for missing keys; treat that as empty.
+  [[ "$AGENT_WORK_ROOT_CFG" == "null" ]] && AGENT_WORK_ROOT_CFG=""
+  [[ "$ORG_REPO_URL"        == "null" ]] && ORG_REPO_URL=""
+  export ORG_NAME ORG_SLUG ORG_SLUG_LOWER ORG_REPO_URL GITHUB_ORG WORKSPACE_REPO \
          DEFAULT_BRANCH DEFAULT_CODE_BRANCH POLICY_OWNER_EMAIL
 
-  # Agent work root: env var > default ~/work.
-  # Previously this was read from a preferences file, but per-user preferences
-  # now live under $AGENT_WORK_ROOT/preferences/<gh-login>.md — circular if
-  # AGENT_WORK_ROOT were itself defined there. So it lives one level up: in
-  # the shell environment, or the default.
-  AGENT_WORK_ROOT="${AGENT_WORK_ROOT:-$HOME/work}"
+  # Resolve AGENT_WORK_ROOT in priority order:
+  #   1. Env var (escape hatch for tests / overrides)
+  #   2. org-config.yaml agent_work_root
+  #   3. Fallback: ~/.<org_slug_lower>/projects (the documented default)
+  if [[ -z "${AGENT_WORK_ROOT:-}" ]]; then
+    if [[ -n "$AGENT_WORK_ROOT_CFG" ]]; then
+      AGENT_WORK_ROOT="$AGENT_WORK_ROOT_CFG"
+    else
+      AGENT_WORK_ROOT="$HOME/.${ORG_SLUG_LOWER:-org}/projects"
+    fi
+  fi
   export AGENT_WORK_ROOT
 
   # Lazy-create the current user's prefs file if setup.sh didn't already.

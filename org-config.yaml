@@ -1,30 +1,36 @@
 # Agentic Development Framework — Organization Configuration
 #
-# This file configures the framework for your organization.
-# After editing, run: bash setup.sh
+# This file is shipped empty by the framework template. An adopting org runs
+# ./setup.sh once after cloning the template; that fills in real values here.
+# Framework files (CLAUDE.md, AGENTS.md, knowledge/policies/, etc.) read these
+# values at runtime, so this is the ONLY file that diverges from the upstream
+# template after setup.
 #
-# This file is the single source of truth for all org-specific values.
-# Scripts read this file at runtime.
+# Re-run ./setup.sh to update. Do not edit by hand unless you know what you're
+# doing — setup.sh overwrites the file.
 
 # Full legal name of your organization
-org_name: "Your Organization Name"
+org_name: ""
 
 # Short display name (used in headings and prose)
-org_short_name: "YourOrg"
+org_short_name: ""
 
-# Uppercase slug used as prefix for all project IDs (e.g. ACME → ACME-001-my-project)
-# Keep it short (2-6 characters), uppercase, no spaces or special characters
-org_slug: "ORG"
+# Uppercase slug for human display and multi-org disambiguation (2-6 chars).
+# Not used in project IDs (which use a literal PRJ- prefix).
+org_slug: ""
 
-# Lowercase version of org_slug — used in branch names (e.g. acme-001-my-project)
-# Auto-derived from org_slug — usually no need to edit manually
-org_slug_lower: "org"
+# Lowercase derivation of org_slug — used for filesystem paths under
+# agent_work_root. Auto-derived from org_slug.
+org_slug_lower: ""
 
-# GitHub organization or username where all repos live
-github_org: "your-github-org"
+# Full URL of this workspace repository. 'origin' will be set to this.
+org_repo_url: ""
 
-# Name of this central workspace repository
-workspace_repo: "000-org-prj"
+# GitHub organization or username (derived from org_repo_url)
+github_org: ""
+
+# Name of this workspace repository (derived from org_repo_url)
+workspace_repo: ""
 
 # Default branch name for this workspace repo
 default_branch: "main"
@@ -32,15 +38,20 @@ default_branch: "main"
 # Default base branch for code repositories (used by seed script)
 default_code_branch: "dev"
 
-# Policy Owner details (current holder of all policy roles at launch)
-policy_owner_email: "you@example.com"
-policy_owner_github: "@your-github-handle"
+# Per-project workspaces are created under this path. Each gets its own
+# folder containing a clone of this workspace repo on the project branch
+# plus clones of each impacted code repo on the project branch.
+agent_work_root: ""
+
+# Policy Owner details (initial holder of all policy roles at launch)
+policy_owner_email: ""
+policy_owner_github: ""
 
 # Other role GitHub handles (update as roles are formally assigned)
-legal_owner_github: "@legal-owner-tbd"
-infra_owner_github: "@infrastructure-owner-tbd"
-system_arch_owner_github: "@system-arch-owner-tbd"
-data_arch_owner_github: "@data-arch-owner-tbd"
+legal_owner_github: ""
+infra_owner_github: ""
+system_arch_owner_github: ""
+data_arch_owner_github: ""
 
 # Effective date of the policy (YYYY-MM-DD)
-policy_effective_date: "YYYY-MM-DD"
+policy_effective_date: ""
