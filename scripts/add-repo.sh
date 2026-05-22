@@ -57,7 +57,7 @@ for r in (c.get('repos') or []):
         sys.exit(1)
 PY
 
-BRANCH="brnch-${PROJECT_ID#PRJ-}"|BRANCH="brnch-${PROJECT_ID#PRJ-}"
+BRANCH=$(project_branch_for_id "$PROJECT_ID")
 TODAY=$(today)
 
 # Prompt for base_branch if not provided

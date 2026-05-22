@@ -253,6 +253,38 @@ PY
 
 get_repo_name() { basename "$1" .git; }
 
+# Resolve the project branch name for a given PROJECT_ID. Prefers the
+# canonical value from registry.yaml's projects[<id>].branch; falls back to
+# deriving from the ID for backwards compatibility:
+#   - PRJ-NNN-slug  → brnch-NNN-slug   (v0.2.0+ convention)
+#   - <ANY>-NNN-slug → lowercase form  (pre-v0.2.0 convention; ORG_SLUG-NNN → org_slug-NNN)
+project_branch_for_id() {
+  local pid="$1" branch
+  branch=$(python3 - "$REGISTRY" "$pid" 2>/dev/null <<'PY'
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1])) or {}
+for p in (c.get('projects') or []):
+    if p and p.get('id') == sys.argv[2]:
+        b = p.get('branch')
+        if b:
+            print(b); sys.exit(0)
+sys.exit(1)
+PY
+)
+  if [[ -n "$branch" && "$branch" != "null" ]]; then
+    echo "$branch"
+    return 0
+  fi
+  # Fallback: derive from ID. PRJ- prefix gets the new brnch- mapping;
+  # legacy uppercase prefixes (e.g. ACME-001-foo) get the historical
+  # lowercase mapping (acme-001-foo).
+  if [[ "$pid" == PRJ-* ]]; then
+    echo "brnch-${pid#PRJ-}"
+  else
+    echo "$pid" | tr '[:upper:]' '[:lower:]'
+  fi
+}
+
 # Print active task IDs from project.yaml tasks[]
 get_project_tasks() {
   python3 - "$1" <<'PY'

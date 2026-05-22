@@ -151,9 +151,12 @@ def check_registry(repo_root: Path) -> list[str]:
         if not isinstance(entry, dict):
             continue
         pid = entry.get("id") or ""
-        m = re.match(r"^PRJ-(\d+)-", pid)
+        # Accept any uppercase prefix for backwards compatibility with pre-v0.2.0
+        # orgs whose projects use <ORG_SLUG>-NNN-slug. New projects (v0.2.0+)
+        # use the literal PRJ- prefix.
+        m = re.match(r"^[A-Z]+-(\d+)-", pid)
         if not m:
-            errors.append(f"registry.yaml: project entry has invalid id format: {pid!r} (expected PRJ-NNN-slug)")
+            errors.append(f"registry.yaml: project entry has invalid id format: {pid!r} (expected <PREFIX>-NNN-slug)")
             continue
         nnn = int(m.group(1))
         if nnn in nnn_seen:

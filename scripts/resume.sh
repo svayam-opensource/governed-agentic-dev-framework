@@ -30,7 +30,7 @@ if [[ -n "$CURRENT_USER" && "$CURRENT_USER" != "$LOCKED_BY" && "$CURRENT_USER" !
   hard_stop "Not authorized: current user '$CURRENT_USER' is not locked_by or assigned_to."
 fi
 
-BRANCH="brnch-${PROJECT_ID#PRJ-}"|BRANCH="brnch-${PROJECT_ID#PRJ-}"
+BRANCH=$(project_branch_for_id "$PROJECT_ID")
 
 # ── C01: Mandatory DEFAULT_BRANCH sync for workspace repo ────────────────────
 

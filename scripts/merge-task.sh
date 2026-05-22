@@ -27,7 +27,7 @@ check_project_exists "$PROJECT_ID"
 
 require_project_status "$PROJECT_YAML" "active"
 
-BRANCH="brnch-${PROJECT_ID#PRJ-}"|BRANCH="brnch-${PROJECT_ID#PRJ-}"
+BRANCH=$(project_branch_for_id "$PROJECT_ID")
 
 # Verify task exists and is active
 TASK_META=$(python3 - "$PROJECT_YAML" "$TASK_ID" <<'PY'

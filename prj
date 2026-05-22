@@ -663,11 +663,30 @@ PY
   return ${PIPESTATUS[0]}
 }
 
-# Derive the project branch name from a project_id: PRJ-NNN-slug → brnch-NNN-slug
-# Kept as a helper for callers that need to compute a branch name without
-# switching to it. The home workspace itself never checks out project branches.
+# Resolve the project branch name from a project_id. Prefers the canonical
+# value stored in registry.yaml's projects[<id>].branch (which seed.sh writes
+# at create time). Falls back to deriving from the ID, supporting both the
+# v0.2.0+ PRJ- prefix and legacy <ORG_SLUG>-NNN-slug projects.
 project_branch() {
-  echo "brnch-${1#PRJ-}"
+  local pid="$1" branch
+  branch=$(python3 - "$REGISTRY" "$pid" 2>/dev/null <<'PY'
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1])) or {}
+for p in (c.get('projects') or []):
+    if p and p.get('id') == sys.argv[2]:
+        b = p.get('branch')
+        if b:
+            print(b); sys.exit(0)
+sys.exit(1)
+PY
+)
+  if [[ -n "$branch" && "$branch" != "null" ]]; then
+    echo "$branch"
+  elif [[ "$pid" == PRJ-* ]]; then
+    echo "brnch-${pid#PRJ-}"
+  else
+    echo "$pid" | tr '[:upper:]' '[:lower:]'
+  fi
 }
 
 # Commit registry.yaml changes to the default branch and push.

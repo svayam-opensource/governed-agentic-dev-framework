@@ -24,7 +24,7 @@ check_project_exists "$PROJECT_ID"
 
 require_project_status "$PROJECT_YAML" "active"
 
-BRANCH="brnch-${PROJECT_ID#PRJ-}"|BRANCH="brnch-${PROJECT_ID#PRJ-}"
+BRANCH=$(project_branch_for_id "$PROJECT_ID")
 
 echo "Checking for uncommitted changes..."
 

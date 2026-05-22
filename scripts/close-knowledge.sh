@@ -38,7 +38,7 @@ if [[ ! -d "$KNOWLEDGE_DIR" ]] || [[ -z "$(find "$KNOWLEDGE_DIR" -type f 2>/dev/
   hard_stop "projects/$PROJECT_ID/knowledge/ is empty — nothing to synthesize."
 fi
 
-BRANCH="brnch-${PROJECT_ID#PRJ-}"|BRANCH="brnch-${PROJECT_ID#PRJ-}"
+BRANCH=$(project_branch_for_id "$PROJECT_ID")
 KNOWLEDGE_BRANCH="${BRANCH}-knowledge"
 TODAY=$(today)
 
