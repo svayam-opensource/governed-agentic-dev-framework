@@ -44,6 +44,7 @@ load_config() {
   check_deps
   if command -v yq &>/dev/null; then
     ORG_NAME=$(yq '.org_name'           "$CONFIG")
+    ORG_SHORT_NAME=$(yq '.org_short_name' "$CONFIG")
     ORG_SLUG=$(yq '.org_slug'           "$CONFIG")
     ORG_SLUG_LOWER=$(yq '.org_slug_lower' "$CONFIG")
     ORG_REPO_URL=$(yq '.org_repo_url'   "$CONFIG" 2>/dev/null || echo "")
@@ -56,6 +57,7 @@ load_config() {
   else
     _py() { python3 -c "import yaml; v = yaml.safe_load(open('$CONFIG')).get('$1', ''); print(v if v is not None else '')"; }
     ORG_NAME=$(_py org_name)
+    ORG_SHORT_NAME=$(_py org_short_name)
     ORG_SLUG=$(_py org_slug)
     ORG_SLUG_LOWER=$(_py org_slug_lower)
     ORG_REPO_URL=$(_py org_repo_url)
@@ -69,7 +71,9 @@ load_config() {
   # yq emits the literal "null" for missing keys; treat that as empty.
   [[ "$AGENT_WORK_ROOT_CFG" == "null" ]] && AGENT_WORK_ROOT_CFG=""
   [[ "$ORG_REPO_URL"        == "null" ]] && ORG_REPO_URL=""
-  export ORG_NAME ORG_SLUG ORG_SLUG_LOWER ORG_REPO_URL GITHUB_ORG WORKSPACE_REPO \
+  [[ "$ORG_SHORT_NAME"      == "null" ]] && ORG_SHORT_NAME=""
+  export ORG_NAME ORG_SHORT_NAME ORG_SLUG ORG_SLUG_LOWER ORG_REPO_URL \
+         GITHUB_ORG WORKSPACE_REPO \
          DEFAULT_BRANCH DEFAULT_CODE_BRANCH POLICY_OWNER_EMAIL
 
   # Resolve AGENT_WORK_ROOT in priority order:
