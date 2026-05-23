@@ -152,15 +152,27 @@ scaffold_prompt() {
 }
 
 # Two-way prompt: org's version diverges from framework's; ask what to do.
+# Falls through to "keep" if non-interactive (no TTY on stdin OR
+# NON_INTERACTIVE env var set).
 _prompt_2way() {
   local src_path="$1" dst_path="$2" dst="$3"
   log_diverged "$dst — your copy differs from the framework's. Diff (first 20 lines):"
   diff "$src_path" "$dst_path" | head -20 | sed 's/^/    /'
+
+  # Non-interactive mode: default to keep, do not block on input.
+  if [[ "${NON_INTERACTIVE:-false}" == "true" ]] || ! [[ -r /dev/tty ]] || ! tty -s </dev/tty 2>/dev/null; then
+    log_ok "$dst — kept your version (non-interactive)"
+    return 0
+  fi
+
   echo ""
   echo "  [k]eep your version  /  [r]eplace with framework's  /  [v]iew full diff  /  [s]kip (decide later)"
   while true; do
     printf "    Choose [k/r/v/s]: "
-    read -r choice </dev/tty 2>/dev/null || choice="k"
+    if ! read -r choice </dev/tty; then
+      log_warn "$dst — stdin closed; keeping your version"
+      return 0
+    fi
     case "$choice" in
       k|K) log_ok "$dst — kept your version"; return 0 ;;
       r|R) cp "$src_path" "$dst_path"; log_ok "$dst — replaced with framework's"; return 0 ;;
@@ -208,11 +220,24 @@ _three_way() {
     # Conflict; merged_file.new contains conflict markers
     log_diverged "$dst — 3-way merge conflict. Top of conflict region:"
     grep -A 20 '^<<<<<<<' "$merged_file.new" 2>/dev/null | head -30 | sed 's/^/    /'
+
+    # Non-interactive: write conflict markers, let the user resolve later.
+    if [[ "${NON_INTERACTIVE:-false}" == "true" ]] || ! [[ -r /dev/tty ]] || ! tty -s </dev/tty 2>/dev/null; then
+      cp "$merged_file.new" "$dst_path"
+      log_warn "$dst — conflict markers written (non-interactive); resolve before committing"
+      rm -f "$base_file" "$merged_file" "$merged_file.new"
+      return 0
+    fi
+
     echo ""
     echo "  [k]eep your version  /  [r]eplace with framework's  /  [m]anual: write conflict to file  /  [s]kip"
     while true; do
       printf "    Choose [k/r/m/s]: "
-      read -r choice </dev/tty 2>/dev/null || choice="k"
+      if ! read -r choice </dev/tty; then
+        cp "$merged_file.new" "$dst_path"
+        log_warn "$dst — stdin closed; conflict markers written"
+        break
+      fi
       case "$choice" in
         k|K) log_ok "$dst — kept your version (conflict abandoned)"; break ;;
         r|R) cp "$src_path" "$dst_path"; log_ok "$dst — replaced with framework's"; break ;;
