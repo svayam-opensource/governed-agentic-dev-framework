@@ -1,0 +1,57 @@
+# Agentic Development Framework — Organization Configuration
+#
+# This file is shipped empty by the framework template. An adopting org runs
+# ./setup.sh once after cloning the template; that fills in real values here.
+# Framework files (CLAUDE.md, AGENTS.md, knowledge/policies/, etc.) read these
+# values at runtime, so this is the ONLY file that diverges from the upstream
+# template after setup.
+#
+# Re-run ./setup.sh to update. Do not edit by hand unless you know what you're
+# doing — setup.sh overwrites the file.
+
+# Full legal name of your organization
+org_name: ""
+
+# Short display name (used in headings and prose)
+org_short_name: ""
+
+# Uppercase slug for human display and multi-org disambiguation (2-6 chars).
+# Not used in project IDs (which use a literal PRJ- prefix).
+org_slug: ""
+
+# Lowercase derivation of org_slug — used for filesystem paths under
+# agent_work_root. Auto-derived from org_slug.
+org_slug_lower: ""
+
+# Full URL of this workspace repository. 'origin' will be set to this.
+org_repo_url: ""
+
+# GitHub organization or username (derived from org_repo_url)
+github_org: ""
+
+# Name of this workspace repository (derived from org_repo_url)
+workspace_repo: ""
+
+# Default branch name for this workspace repo
+default_branch: "main"
+
+# Default base branch for code repositories (used by seed script)
+default_code_branch: "dev"
+
+# Per-project workspaces are created under this path. Each gets its own
+# folder containing a clone of this workspace repo on the project branch
+# plus clones of each impacted code repo on the project branch.
+agent_work_root: ""
+
+# Policy Owner details (initial holder of all policy roles at launch)
+policy_owner_email: ""
+policy_owner_github: ""
+
+# Other role GitHub handles (update as roles are formally assigned)
+legal_owner_github: ""
+infra_owner_github: ""
+system_arch_owner_github: ""
+data_arch_owner_github: ""
+
+# Effective date of the policy (YYYY-MM-DD)
+policy_effective_date: ""
