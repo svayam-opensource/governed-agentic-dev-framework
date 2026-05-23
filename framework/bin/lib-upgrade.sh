@@ -157,7 +157,9 @@ scaffold_prompt() {
 _prompt_2way() {
   local src_path="$1" dst_path="$2" dst="$3"
   log_diverged "$dst — your copy differs from the framework's. Diff (first 20 lines):"
-  diff "$src_path" "$dst_path" | head -20 | sed 's/^/    /'
+  # diff returns 1 when files differ; under `set -e + pipefail`, that would
+  # kill the script. Suppress with `|| true`.
+  diff "$src_path" "$dst_path" 2>/dev/null | head -20 | sed 's/^/    /' || true
 
   # Non-interactive mode: default to keep, do not block on input.
   if [[ "${NON_INTERACTIVE:-false}" == "true" ]] || ! [[ -r /dev/tty ]] || ! tty -s </dev/tty 2>/dev/null; then
@@ -219,7 +221,7 @@ _three_way() {
   else
     # Conflict; merged_file.new contains conflict markers
     log_diverged "$dst — 3-way merge conflict. Top of conflict region:"
-    grep -A 20 '^<<<<<<<' "$merged_file.new" 2>/dev/null | head -30 | sed 's/^/    /'
+    grep -A 20 '^<<<<<<<' "$merged_file.new" 2>/dev/null | head -30 | sed 's/^/    /' || true
 
     # Non-interactive: write conflict markers, let the user resolve later.
     if [[ "${NON_INTERACTIVE:-false}" == "true" ]] || ! [[ -r /dev/tty ]] || ! tty -s </dev/tty 2>/dev/null; then
