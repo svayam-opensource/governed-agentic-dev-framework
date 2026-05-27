@@ -65,12 +65,16 @@ load_config() {
   export ORG_NAME ORG_SLUG ORG_SLUG_LOWER GITHUB_ORG WORKSPACE_REPO \
          DEFAULT_BRANCH DEFAULT_CODE_BRANCH POLICY_OWNER_EMAIL
 
-  # Agent work root: env var > default ~/work.
-  # Previously this was read from a preferences file, but per-user preferences
-  # now live under $AGENT_WORK_ROOT/preferences/<gh-login>.md — circular if
-  # AGENT_WORK_ROOT were itself defined there. So it lives one level up: in
-  # the shell environment, or the default.
-  AGENT_WORK_ROOT="${AGENT_WORK_ROOT:-$HOME/work}"
+  # Project-governance root: where Gov.local, per-project clones, and developer
+  # preferences live. Resolution: $PRJ_GOV_LOC > legacy $AGENT_WORK_ROOT >
+  # default ~/prj_gov. It lives in the shell environment (not a config file) to
+  # avoid a bootstrap cycle with the per-user preferences kept under it.
+  PRJ_GOV_LOC="${PRJ_GOV_LOC:-${AGENT_WORK_ROOT:-$HOME/prj_gov}}"
+  export PRJ_GOV_LOC
+  # Back-compat alias: older scripts/users reference AGENT_WORK_ROOT as the
+  # project-clones root. Keep it pointing at the same place until the layout
+  # migration lands.
+  AGENT_WORK_ROOT="${AGENT_WORK_ROOT:-$PRJ_GOV_LOC}"
   export AGENT_WORK_ROOT
 
   # Lazy-create the current user's prefs file if setup.sh didn't already.
@@ -87,7 +91,7 @@ current_user_prefs_path() {
   local login
   login=$(gh api user --jq .login 2>/dev/null || echo "")
   [[ -z "$login" ]] && return 0
-  echo "$AGENT_WORK_ROOT/preferences/$login.md"
+  echo "$PRJ_GOV_LOC/preferences/$login.md"
 }
 
 # Lazily create the current user's prefs file from the template if absent.

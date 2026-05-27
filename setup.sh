@@ -515,15 +515,15 @@ fi
 
 # ── Bootstrap the current user's preferences file ──────────────────────────
 #
-# Per-user preferences live at $AGENT_WORK_ROOT/preferences/<gh-login>.md.
+# Per-user preferences live at $PRJ_GOV_LOC/preferences/<gh-login>.md.
 # Copy the template here so the developer has a starting point. Never
 # overwrite an existing file. Skip silently if no gh login is available.
 
-AGENT_WORK_ROOT="${AGENT_WORK_ROOT:-$HOME/work}"
+PRJ_GOV_LOC="${PRJ_GOV_LOC:-${AGENT_WORK_ROOT:-$HOME/prj_gov}}"
 PREFS_LOGIN=$(gh api user --jq .login 2>/dev/null || echo "")
 PREFS_TEMPLATE="$REPO_ROOT/knowledge/guidance/preferences-template.md"
 if [[ -n "$PREFS_LOGIN" ]] && [[ -f "$PREFS_TEMPLATE" ]]; then
-  PREFS_DIR="$AGENT_WORK_ROOT/preferences"
+  PREFS_DIR="$PRJ_GOV_LOC/preferences"
   PREFS_FILE="$PREFS_DIR/$PREFS_LOGIN.md"
   mkdir -p "$PREFS_DIR"
   if [[ -f "$PREFS_FILE" ]]; then
@@ -545,6 +545,6 @@ echo ""
 echo "Next steps:"
 echo "  1. Review changes:    git diff"
 echo "  2. Commit + push:     git add -A && git commit -m 'configure framework for $ORG_NAME' && git push origin $DEFAULT_BRANCH"
-echo "  3. Edit preferences:  ${PREFS_FILE:-<AGENT_WORK_ROOT>/preferences/<your-gh-login>.md}"
+echo "  3. Edit preferences:  ${PREFS_FILE:-<PRJ_GOV_LOC>/preferences/<your-gh-login>.md}"
 echo "  4. Start using:       ./prj"
 echo ""
