@@ -72,6 +72,32 @@ layers.
 
 ---
 
+## Project ownership & multi-user
+
+A project's **`assigned_to`** is the access control — either an **individual** or
+a **GitHub team**:
+
+- **Individual** → only that person may join and work the project (solo).
+- **Team** → any current member of that team may join and work it (multi-user),
+  resolved against GitHub team membership (needs `read:org`).
+
+`locked_by` is demoted to **`seeded_by`** — an audit record of who initiated the
+project, not a gate. **There is no single project owner**; ownership lives at the
+**task (sub-branch)** level — each task has exactly one assignee, its lock holder.
+So the session-start C01 check is **task-scoped** ("the sub-branch you're on is
+yours and active"), not a project-wide lock.
+
+| Mode | `assigned_to` | Who works | Tasks |
+|---|---|---|---|
+| **Solo** | individual | that person | optional — may commit directly on the project branch |
+| **Multi-user** | team | any team member | **mandatory** — all work on owned sub-branches; the project branch is integration-only |
+
+`prj merge` is a direct merge (no PR/review gate, for now); `prj close` runs once,
+by any authorized member, after all tasks are merged. See **gov.dev.11** (join)
+and the **Multi-user scenario** at the end for the team flow.
+
+---
+
 # Use Cases
 
 Each use case has a **header** (frequency, actor, command, dependency, purpose)
@@ -172,7 +198,7 @@ All management ops run from **Gov.local** on `main`.
 
 - **Frequency:** As required · **Actor:** Manager · **Depends on:** gov.init.2
 - **Runs:** `./prj manage assign`
-- **Purpose:** Pre-assign a GitHub Project to a developer so only they may seed it.
+- **Purpose:** Pre-assign a GitHub Project to a developer **or team** — only that assignee (or a team member) may seed it.
 
 ![gov.mgmt.1](diagrams/gov.mgmt.1.png)
 
@@ -193,10 +219,10 @@ sequenceDiagram
     Mgr->>GL: ./prj manage assign
     GL->>Board: gh project list --owner (read:project)
     Board-->>GL: open GitHub Projects
-    Mgr->>GL: pick project and assignee (developer)
+    Mgr->>GL: pick project and assignee (developer or team)
     GL->>GL: write pre_assignments in registry.yaml
     GL->>RG: commit and push main
-    Note over Mgr,RG: Project pre-assigned, only that developer may seed it
+    Note over Mgr,RG: Pre-assigned, only that assignee or a team member may seed it
 ```
 
 </details>
@@ -393,7 +419,7 @@ sequenceDiagram
     Dev->>GL: ./prj init, choose GitHub Project
     GL->>Board: gh GraphQL projectV2 (read:project)
     Board-->>GL: title, linked issues/PRs, repo URLs
-    Note over GL: C01 gates pass, NNN to PID
+    Note over GL: C01 gates pass, NNN to PID, record seeded_by
     GL->>RG: clone GOV.remote to PRJ_GOV (lands on main)
     PG->>PG: checkout -b org-NNN, scaffold projects, bump registry
     PG->>RG: push -u origin org-NNN
@@ -437,7 +463,7 @@ sequenceDiagram
 
     Note over Dev,PG: Session start (C01, POL-113 to 117)
     Dev->>PG: read agent.md, load 4 knowledge layers
-    Dev->>PG: verify project.yaml (locked_by is me, status active)
+    Dev->>PG: verify you own this task sub-branch (status active)
     Dev->>RG: pull origin org-NNN (PRJ_GOV)
     Dev->>RC: pull origin org-NNN (each PRJ_CODE)
     Dev->>UP: read own preferences file only
@@ -730,13 +756,13 @@ sequenceDiagram
 
 </details>
 
-### gov.dev.11 — Join an existing project (PROPOSED — multi-dev, #5)
+### gov.dev.11 — Join a project (team member, multi-user)
 
-- **Frequency:** As required · **Actor:** Developer (teammate) · **Depends on:** gov.dev.1 (by another dev)
+- **Frequency:** As required · **Actor:** Developer (team member) · **Depends on:** gov.dev.1 (by another member)
 - **Runs:** `./prj join ORG-007-foo` *(proposed command)*
-- **Purpose:** Let a second authorized developer set up their **own** PRJ_GOV +
-  PRJ_CODE clones on the existing project branch — no new `NNN`, no change to
-  `locked_by`.
+- **Purpose:** Let any authorized team member set up their **own** PRJ_GOV +
+  PRJ_CODE clones on the existing project branch — no new `NNN`, no ownership
+  change. Authorization = membership of `assigned_to` (POL-047).
 
 ![gov.dev.11](diagrams/gov.dev.11.png)
 
@@ -757,12 +783,57 @@ sequenceDiagram
     end
 
     Dev2->>GL: ./prj join ORG-NNN
-    GL->>GL: verify authorized (locked_by or team member, POL-047)
+    GL->>GL: verify authorized (member of assigned_to team, POL-047)
     GL->>RG: clone GOV.remote to PRJ_GOV, checkout org-NNN
     loop each code repo
         GL->>RC: clone to PRJ_CODE, checkout org-NNN
     end
     Note over Dev2,CODE: Share via project branch and task sub-branches
+```
+
+</details>
+
+---
+
+## Multi-user scenario — two developers in parallel
+
+`assigned_to` is a **team**; A and B are both members. Each joins, owns a task
+sub-branch, works on their own clones, and merges into the shared project branch.
+No project-level lock — ownership is per task.
+
+![multi-user parallel](diagrams/multi-user-parallel.png)
+
+<details><summary>diagram source (Mermaid) — edit here, then re-render</summary>
+
+```mermaid
+sequenceDiagram
+    autonumber
+    box AliceBlue Layer 2 - GitHub (github_owner) shared
+        participant RG as GOV.remote (project branch)
+        participant RC as repoN.remote
+    end
+    box Honeydew Layer 3 - Dev A machine
+        actor A as Developer A
+        participant PGA as PRJ_GOV A<br/>$PRJ_GOV_LOC/projects/PID/prj_wrk_gov
+        participant CA as PRJ_CODE A<br/>$PRJ_GOV_LOC/projects/PID/repos/repoN
+    end
+    box Honeydew Layer 3 - Dev B machine
+        actor B as Developer B
+        participant PGB as PRJ_GOV B (same paths)
+        participant CB as PRJ_CODE B (same paths)
+    end
+
+    Note over A,CB: assigned_to = team, A and B are both members
+    A->>RG: ./prj join PID (clone PRJ_GOV A and PRJ_CODE A on project branch)
+    B->>RG: ./prj join PID (clone PRJ_GOV B and PRJ_CODE B on project branch)
+    A->>PGA: ./prj task issueA (own org-NNN/taskA)
+    B->>PGB: ./prj task issueB (own org-NNN/taskB)
+    Note over A,CB: each task owned by one dev (per-task lock)
+    A->>CA: work on org-NNN/taskA, commit
+    B->>CB: work on org-NNN/taskB, commit
+    A->>RG: ./prj merge taskA (pull, merge into project branch, push)
+    B->>RG: ./prj merge taskB (pull first, merge into project branch, push)
+    Note over A,RG: when all tasks merged, any member runs ./prj close
 ```
 
 </details>
@@ -782,9 +853,10 @@ sequenceDiagram
   `main` in PRJ_GOV, because each clone is independent.
 - **`propose-knowledge` (gov.mgmt.6)** runs from **Gov.local** on `main`; it is
   not part of any per-project dir.
-- **Multi-developer (#5):** handled by **gov.dev.11** (`prj join`) — teammates
-  get their own clones on the project branch without re-seeding or changing
-  `locked_by`; `close` is run once after all sub-branches merge.
+- **Multi-developer (#5):** team-assigned projects — any team member runs
+  **gov.dev.11** (`prj join`) to get their own clones; ownership is **per-task**,
+  `seeded_by` is audit-only, the session lock is task-scoped; `close` is run once
+  by any member after all tasks merge.
 - **Developer preferences (USER_PREF):** `$PRJ_GOV_LOC/preferences/<github-user-slug>.md`
   — one file per developer (lowest knowledge layer, POL-080/127); you read only
   your own. A top-level sibling of `projects/`, since prefs span all projects.

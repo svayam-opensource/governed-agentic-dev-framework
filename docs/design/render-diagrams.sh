@@ -19,6 +19,7 @@ IDS=(
   gov.mgmt.1 gov.mgmt.2 gov.mgmt.3 gov.mgmt.4 gov.mgmt.5 gov.mgmt.6
   gov.dev.1 gov.dev.2 gov.dev.3 gov.dev.4 gov.dev.5 gov.dev.6
   gov.dev.7 gov.dev.8 gov.dev.9 gov.dev.10 gov.dev.11
+  multi-user-parallel
 )
 
 echo "Rendering Mermaid blocks from $DOC ..."
