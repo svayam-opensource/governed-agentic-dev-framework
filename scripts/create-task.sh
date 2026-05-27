@@ -87,7 +87,7 @@ info "Sub-branch '$TASK_ID' pushed to workspace repo"
 TODAY=$(today)
 while IFS= read -r repo_url; do
   REPO_NAME=$(get_repo_name "$repo_url")
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$REPO_NAME")"
   if [[ ! -d "$REPO_DIR/.git" ]]; then
     warn "Repo $REPO_NAME not cloned locally — skipping sub-branch creation (clone it first)."
     continue

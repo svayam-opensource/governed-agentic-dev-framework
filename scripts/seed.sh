@@ -224,8 +224,8 @@ PY
 then
   LEFTOVER+=("registry entry for '$PROJECT_ID'")
 fi
-if [[ -d "$AGENT_WORK_ROOT/$PROJECT_ID" ]]; then
-  LEFTOVER+=("clones at '$AGENT_WORK_ROOT/$PROJECT_ID'")
+if [[ -d "$(project_clone_root "$PROJECT_ID")" ]]; then
+  LEFTOVER+=("clones at '$PRJ_GOV_LOC/projects/$PROJECT_ID'")
 fi
 
 if [[ ${#LEFTOVER[@]} -gt 0 ]]; then
@@ -261,7 +261,7 @@ if [[ ${#LEFTOVER[@]} -gt 0 ]]; then
       git branch -D "$BRANCH" 2>/dev/null || true
       git push origin --delete "$BRANCH" 2>/dev/null || true
       rm -rf "$PROJECT_DIR"
-      rm -rf "$AGENT_WORK_ROOT/$PROJECT_ID"
+      rm -rf "$(project_clone_root "$PROJECT_ID")"
       # Remove stray registry entry (rare; usually only present if a prior
       # run got merged to default)
       python3 - "$REGISTRY" "$PROJECT_ID" <<'PY' 2>/dev/null || true
@@ -434,17 +434,17 @@ cat > "$PROJECT_DIR/agent.md" <<MD
 1. **Org-wide knowledge** → \`$WORKSPACE_REPO/knowledge/\`
 2. **This project** → \`$WORKSPACE_REPO/projects/$PROJECT_ID/knowledge/\`
 3. **Repo-local knowledge** → \`<repo>/knowledge/\`
-4. **Your developer preferences** → \`$AGENT_WORK_ROOT/preferences/<your-gh-login>.md\`
+4. **Your developer preferences** → \`$PRJ_GOV_LOC/preferences/<your-gh-login>.md\`
    - At session start, run \`gh api user --jq .login\` to determine your handle.
    - Load only the file matching your handle.
-   - Do NOT read other files in \`$AGENT_WORK_ROOT/preferences/\` — they belong
+   - Do NOT read other files in \`$PRJ_GOV_LOC/preferences/\` — they belong
      to other developers and are not your context.
 
 ## Session Start Checklist (C01)
 
 1. Verify \`project.yaml\` \`locked_by\` matches your identity
 2. Verify \`status: active\`
-3. Pull latest \`$BRANCH\` in all repos under \`$AGENT_WORK_ROOT/$PROJECT_ID/\`
+3. Pull latest \`$BRANCH\` in all repos under \`$PRJ_GOV_LOC/projects/$PROJECT_ID/repos/\`
 4. Load your own preferences file (see layer 4 above)
 5. Read \`projects/$PROJECT_ID/knowledge/todo.md\` and surface its \`## Open\`
    items to the developer before planning new work. This is the project's
@@ -459,7 +459,7 @@ Your work happens across three locations:
   writable in this project.
 
 - **Code repo clones** (already cloned by seed):
-  \`$AGENT_WORK_ROOT/$PROJECT_ID/<repo-name>/\`
+  \`$PRJ_GOV_LOC/projects/$PROJECT_ID/repos/<repo-name>/\`
   Each clone is on branch \`$BRANCH\`. Code changes go here — NOT in the
   workspace repo's tree.
 
@@ -496,7 +496,7 @@ project and read its own todo.md.
 - Create GitHub Issues unilaterally. Issues represent business intent that
   humans add to the Project board.
 - Make code changes inside the workspace repo's tree. Code work belongs in
-  the cloned repos under \`$AGENT_WORK_ROOT\`.
+  the cloned repos under \`$PRJ_GOV_LOC/projects/$PROJECT_ID/repos/\`.
 - Touch \`$WORKSPACE_REPO/knowledge/\` — read-only this project.
 
 ## Write Restrictions (C01)
@@ -548,12 +548,12 @@ done
 # ── Clone repos and create project branches ───────────────────────────────────
 
 if [[ ${#REPO_URL_LIST[@]} -gt 0 ]]; then
-  mkdir -p "$AGENT_WORK_ROOT/$PROJECT_ID"
-  CREATED_PATHS+=("$AGENT_WORK_ROOT/$PROJECT_ID")
+  mkdir -p "$(project_clone_root "$PROJECT_ID")/repos"
+  CREATED_PATHS+=("$(project_clone_root "$PROJECT_ID")")
   for repo_url in "${REPO_URL_LIST[@]}"; do
     REPO_NAME=$(get_repo_name "$repo_url")
     REPO_BASE=$(get_repo_base "$repo_url")
-    REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
+    REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$REPO_NAME")"
 
     echo "Processing repo: $repo_url"
     if [[ -d "$REPO_DIR/.git" ]]; then
@@ -606,43 +606,59 @@ git commit -m "seed: scaffold project $PROJECT_ID"
 git push -u origin "$BRANCH"
 PUSHED_REMOTE_BRANCHES+=("$REPO_ROOT|$BRANCH")
 
+# ── Per-project governance clone (PRJ_GOV) ───────────────────────────────────
+# Option 2: each project gets its own standalone clone of the governance repo,
+# on the project branch, beside the code clones under repos/. Lifecycle ops
+# (task/merge/sync/close) are run from here; this clone (Gov.local) returns to
+# the default branch below so management ops keep running from main.
+PRJ_GOV_DIR="$(project_clone_root "$PROJECT_ID")/$WORKSPACE_REPO"
+GOV_REMOTE_URL=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo "")
+if [[ -n "$GOV_REMOTE_URL" && ! -d "$PRJ_GOV_DIR/.git" ]]; then
+  info "Cloning per-project governance clone (PRJ_GOV) → $PRJ_GOV_DIR ..."
+  if git clone "$GOV_REMOTE_URL" "$PRJ_GOV_DIR" 2>/dev/null; then
+    git -C "$PRJ_GOV_DIR" checkout "$BRANCH" 2>/dev/null \
+      || warn "PRJ_GOV cloned but could not check out '$BRANCH' — check it out manually."
+  else
+    warn "Could not create PRJ_GOV clone — clone $WORKSPACE_REPO into $PRJ_GOV_DIR manually."
+  fi
+fi
+
+# Return Gov.local to the default branch — management ops run from main.
+git -C "$REPO_ROOT" checkout "$DEFAULT_BRANCH" 2>/dev/null || true
+
 # Mark seed complete — rollback trap will skip cleanup
 SEED_OK=1
 rm -f "$REGISTRY_SNAPSHOT"
 
+PRJ_DIR="$(project_clone_root "$PROJECT_ID")"
+
 echo ""
 echo "=== Project seeded successfully!"
-echo "    ID:        $PROJECT_ID"
-echo "    Branch:    $BRANCH"
-echo "    Directory: $PROJECT_DIR"
-[[ ${#REPO_URL_LIST[@]} -gt 0 ]] && \
-  echo "    Clones:    $AGENT_WORK_ROOT/$PROJECT_ID/"
+echo "    ID:       $PROJECT_ID"
+echo "    Branch:   $BRANCH"
+echo "    Project:  $PRJ_DIR/"
 echo ""
-echo "Next steps:"
+echo "Now choose what to do next:"
 echo ""
-echo "  1. Point your agent at this project's knowledge entrypoint:"
-echo "       projects/$PROJECT_ID/agent.md"
-echo "     It links the four knowledge layers the agent must load before"
-echo "     writing any code (policy + org + repo + your prefs). Skipping"
-echo "     this is what makes 'agents abide by policy' fail."
+echo "  ── WORK ON this project ──────────────────────────────────────────"
+echo "    cd $PRJ_DIR/$WORKSPACE_REPO"
+echo "       (per-project governance clone 'PRJ_GOV', on '$BRANCH';"
+echo "        code repos are under $PRJ_DIR/repos/)"
 echo ""
-if [[ ${#REPO_URL_LIST[@]} -gt 0 ]]; then
-  echo "  2. Code work happens in the cloned code repo(s), not here:"
-  for repo_url in "${REPO_URL_LIST[@]}"; do
-    REPO_NAME=$(get_repo_name "$repo_url")
-    echo "       cd $AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
-  done
-  echo "     Each is on branch '$BRANCH'. Make changes there, not in"
-  echo "     '$WORKSPACE_REPO/'."
-  echo ""
-fi
-echo "  3. As you work, capture project context in:"
-echo "       projects/$PROJECT_ID/knowledge/             (decisions, exceptions, compliance)"
-echo "       projects/$PROJECT_ID/knowledge/todo.md      (intermediate to-dos that carry forward)"
-echo "     Don't wait until the end — close-project refuses an empty knowledge folder."
+echo "    Then start your agent and paste this kickoff prompt:"
+echo "    ----------------------------------------------------------------"
+echo "    I'm starting a session on project $PROJECT_ID."
+echo "    1. Read projects/$PROJECT_ID/agent.md and load the four knowledge layers."
+echo "    2. Verify project.yaml: status active, and that I'm authorized to work it."
+echo "    3. Read projects/$PROJECT_ID/knowledge/todo.md and surface its open items."
+echo "    4. Summarize status + carry-forward, then wait for my direction."
+echo "    ----------------------------------------------------------------"
 echo ""
-echo "  4. When the project is complete, from the workspace repo:"
-echo "       ./prj close"
-echo "     (Merges work back, archives the branch, opens a knowledge"
-echo "     proposal PR for org-level review.)"
+echo "  ── Keep MANAGING (assign / seed / knowledge) ─────────────────────"
+echo "    stay in $REPO_ROOT"
+echo "       (Gov.local, on '$DEFAULT_BRANCH')"
+echo ""
+echo "  Capture context as you work in projects/$PROJECT_ID/knowledge/ and"
+echo "  knowledge/todo.md (close refuses an empty knowledge folder). When all"
+echo "  tasks are merged, run  ./prj close  from the PRJ_GOV clone above."
 echo ""

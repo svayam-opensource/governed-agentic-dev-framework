@@ -51,7 +51,7 @@ fi
 # ── Archive each code repo branch ────────────────────────────────────────────
 
 while IFS= read -r repo_url; do
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$(get_repo_name "$repo_url")"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$(get_repo_name "$repo_url")")"
   if [[ ! -d "$REPO_DIR/.git" ]]; then
     warn "Repo $(get_repo_name "$repo_url") not cloned locally — archiving via remote only."
     REPO_NAME=$(get_repo_name "$repo_url")

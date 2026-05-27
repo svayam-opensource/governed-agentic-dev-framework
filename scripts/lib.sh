@@ -241,6 +241,12 @@ PY
 
 get_repo_name() { basename "$1" .git; }
 
+# ── Per-project clone paths (Option 2 layout) ──────────────────────────────
+# Project working dir:         $PRJ_GOV_LOC/projects/<PID>
+# Code-repo clones live under: $PRJ_GOV_LOC/projects/<PID>/repos/<repo-name>
+project_clone_root() { echo "$PRJ_GOV_LOC/projects/$1"; }
+repo_clone_dir()     { echo "$PRJ_GOV_LOC/projects/$1/repos/$2"; }
+
 # Print active task IDs from project.yaml tasks[]
 get_project_tasks() {
   python3 - "$1" <<'PY'

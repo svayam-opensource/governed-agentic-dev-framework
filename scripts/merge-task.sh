@@ -51,7 +51,7 @@ check_clean "$REPO_ROOT"
 
 # Check no uncommitted changes in code repos
 while IFS= read -r repo_url; do
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$(get_repo_name "$repo_url")"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$(get_repo_name "$repo_url")")"
   [[ -d "$REPO_DIR/.git" ]] && check_clean "$REPO_DIR"
 done < <(get_project_repos "$PROJECT_YAML")
 
@@ -65,7 +65,7 @@ git push origin "$BRANCH"
 
 while IFS= read -r repo_url; do
   REPO_NAME=$(get_repo_name "$repo_url")
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$REPO_NAME")"
   if [[ ! -d "$REPO_DIR/.git" ]]; then
     warn "Repo $REPO_NAME not cloned locally — skipping merge."
     continue
@@ -84,7 +84,7 @@ echo "Archiving sub-branches..."
 archive_branch "$REPO_ROOT" "$TASK_ID"
 
 while IFS= read -r repo_url; do
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$(get_repo_name "$repo_url")"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$(get_repo_name "$repo_url")")"
   [[ -d "$REPO_DIR/.git" ]] && archive_branch "$REPO_DIR" "$TASK_ID"
 done < <(get_project_repos "$PROJECT_YAML")
 

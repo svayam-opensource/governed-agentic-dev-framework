@@ -68,11 +68,11 @@ if [[ -z "$BASE_BRANCH" ]]; then
 fi
 
 REPO_NAME=$(get_repo_name "$REPO_URL")
-REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
+REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$REPO_NAME")"
 
 # ── Clone and create branch ───────────────────────────────────────────────────
 
-mkdir -p "$AGENT_WORK_ROOT/$PROJECT_ID"
+mkdir -p "$(project_clone_root "$PROJECT_ID")/repos"
 
 if [[ -d "$REPO_DIR/.git" ]]; then
   info "Already cloned — fetching..."

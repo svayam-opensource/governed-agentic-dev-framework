@@ -108,7 +108,7 @@ echo "Merging code repo branches..."
 
 while IFS= read -r repo_url; do
   REPO_NAME=$(get_repo_name "$repo_url")
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$REPO_NAME")"
   REPO_BASE=$(get_repo_base_branch "$PROJECT_YAML" "$repo_url")
 
   if [[ ! -d "$REPO_DIR/.git" ]]; then
@@ -149,7 +149,7 @@ echo "Archiving branches..."
 archive_branch "$REPO_ROOT" "$BRANCH"
 
 while IFS= read -r repo_url; do
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$(get_repo_name "$repo_url")"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$(get_repo_name "$repo_url")")"
   [[ -d "$REPO_DIR/.git" ]] && archive_branch "$REPO_DIR" "$BRANCH"
 done < <(get_project_repos "$PROJECT_YAML")
 

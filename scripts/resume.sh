@@ -54,7 +54,7 @@ info "Workspace repo synced."
 
 while IFS= read -r repo_url; do
   REPO_NAME=$(get_repo_name "$repo_url")
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$REPO_NAME")"
   REPO_BASE=$(get_repo_base_branch "$PROJECT_YAML" "$repo_url")
 
   if [[ ! -d "$REPO_DIR/.git" ]]; then
@@ -97,4 +97,4 @@ echo "[ C01 ] Reload all four knowledge layers fresh before starting work:"
 echo "    1. $WORKSPACE_REPO/knowledge/"
 echo "    2. $WORKSPACE_REPO/projects/$PROJECT_ID/knowledge/"
 echo "    3. <repo>/knowledge/ for each repo"
-echo "    4. \$AGENT_WORK_ROOT/preferences/<your-gh-login>.md  (your own only)"
+echo "    4. \$PRJ_GOV_LOC/preferences/<your-gh-login>.md  (your own only)"
