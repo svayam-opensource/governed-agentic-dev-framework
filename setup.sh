@@ -102,6 +102,14 @@ ask_date() {
   done
 }
 
+# Yes/No confirm, defaults to No. Returns 0 on yes.
+confirm_yn() {
+  local __ans
+  printf "  ${BOLD}%s${NC} [y/N]: " "$1"
+  if ! IFS= read -r __ans; then echo ""; return 1; fi
+  [[ "$__ans" == [yY] || "$__ans" == [yY][eE][sS] ]]
+}
+
 # ── Read existing org-config.yaml values ──────────────────────────────────────
 
 read_yaml_field() {
@@ -409,53 +417,95 @@ ok "Placeholders substituted in $COUNT files"
 if $NON_INTERACTIVE || [[ "${SETUP_SKIP_GITHUB_VERIFY:-}" == "1" ]]; then
   :  # skip — appropriate for re-runs / CI / tests
 else
-  header "Verifying GitHub access"
+  header "Identity & GitHub access"
 
-  # git user.email
+  # ── git identity (offer to set, don't just fail) ──
+  GIT_NAME=$(git config user.name 2>/dev/null || echo "")
+  if [[ -z "$GIT_NAME" ]]; then
+    warn "git config user.name is not set"
+    ask GIT_NAME "Your name for git commits" ""
+    if [[ -n "$GIT_NAME" ]]; then
+      git config --global user.name "$GIT_NAME" && ok "Set git user.name: $GIT_NAME"
+    else
+      hard_stop "git user.name is required: git config --global user.name 'Your Name'"
+    fi
+  else
+    ok "git user.name:   $GIT_NAME"
+  fi
+
   GIT_EMAIL=$(git config user.email 2>/dev/null || echo "")
   if [[ -z "$GIT_EMAIL" ]]; then
-    err "git config user.email is not set"
-    hard_stop "Set it: git config --global user.email 'you@example.com'"
+    warn "git config user.email is not set"
+    ask GIT_EMAIL "Your email for git commits" ""
+    if [[ -n "$GIT_EMAIL" ]]; then
+      git config --global user.email "$GIT_EMAIL" && ok "Set git user.email: $GIT_EMAIL"
+    else
+      hard_stop "git user.email is required: git config --global user.email 'you@example.com'"
+    fi
+  else
+    ok "git user.email:  $GIT_EMAIL"
   fi
-  ok "git user.email:  $GIT_EMAIL"
 
-  # gh user
+  # ── gh login (offer to run it) ──
+  # The governance flow needs these scopes:
+  #   repo         — push project branches, raise PRs (close-knowledge, onboard)
+  #   read:org     — resolve team membership for team-assigned projects
+  #   read:project — list/read GitHub Projects (prj init, prj manage)
+  GOV_SCOPES="repo read:org read:project"
+  GOV_SCOPES_CSV="repo,read:org,read:project"
+
   GH_USER=$(gh api user --jq .login 2>/dev/null || echo "")
   if [[ -z "$GH_USER" ]]; then
-    hard_stop "Could not retrieve gh user. Run: gh auth login"
+    warn "Not logged in to the GitHub CLI (gh)."
+    if confirm_yn "Run 'gh auth login' now (recommended scopes will be requested)?"; then
+      gh auth login -h github.com -s "$GOV_SCOPES_CSV" || true
+      GH_USER=$(gh api user --jq .login 2>/dev/null || echo "")
+    fi
+    [[ -n "$GH_USER" ]] || hard_stop "Still not logged in. Run 'gh auth login' and re-run setup.sh."
   fi
   ok "gh user:         $GH_USER"
 
-  # Org / user read access for github_org
+  # ── required scopes (offer to acquire missing ones) ──
+  get_scopes() {
+    gh auth status 2>&1 | grep -i "Token scopes" | head -1 \
+      | sed -E 's/.*Token scopes:[[:space:]]*//' | tr -d "'\"" || echo ""
+  }
+  SCOPES=$(get_scopes)
+  MISSING=()
+  for s in $GOV_SCOPES; do
+    echo "$SCOPES" | grep -qw "$s" || MISSING+=("$s")
+  done
+  if [[ ${#MISSING[@]} -gt 0 ]]; then
+    warn "Missing gh scopes: ${MISSING[*]}"
+    info "Governance needs: $GOV_SCOPES"
+    info "  read:project — list/seed GitHub Projects;  read:org — team membership;  repo — push/PRs"
+    MISSING_CSV=$(IFS=,; echo "${MISSING[*]}")
+    if confirm_yn "Refresh now via 'gh auth refresh -s $MISSING_CSV'?"; then
+      gh auth refresh -h github.com -s "$MISSING_CSV" || warn "Refresh did not complete."
+      SCOPES=$(get_scopes)
+    fi
+    STILL=()
+    for s in $GOV_SCOPES; do echo "$SCOPES" | grep -qw "$s" || STILL+=("$s"); done
+    if [[ ${#STILL[@]} -gt 0 ]]; then
+      warn "Still missing: ${STILL[*]} — 'prj init'/'prj manage' may fail until added."
+      info "  (Fine if you use a fine-grained PAT that grants equivalent access.)"
+    else
+      ok "Token scopes:    $SCOPES"
+    fi
+  else
+    ok "Token scopes:    $SCOPES"
+  fi
+
+  # ── org / user read access for github_org ──
   if gh api "orgs/$GITHUB_ORG" &>/dev/null; then
     ok "Read access to org '$GITHUB_ORG'"
-    GITHUB_ORG_TYPE="org"
   elif gh api "users/$GITHUB_ORG" &>/dev/null; then
     ok "'$GITHUB_ORG' is a user account (not an org) — accessible"
-    GITHUB_ORG_TYPE="user"
   else
-    err "Cannot read '$GITHUB_ORG' — not found, or no access"
-    hard_stop "Verify github_org in org-config.yaml is correct, you are a member, and gh has 'read:org' scope:
-    gh auth refresh -h github.com -s read:org"
+    warn "Cannot read '$GITHUB_ORG' — verify github_org in org-config.yaml and your membership/scopes."
   fi
 
-  # Token scopes
-  SCOPES=$(gh auth status 2>&1 | grep -i "Token scopes" | head -1 | sed -E 's/.*Token scopes:[[:space:]]*//' | tr -d "'\"" || echo "")
-  if [[ -n "$SCOPES" ]]; then
-    ok "Token scopes:    $SCOPES"
-    if ! echo "$SCOPES" | grep -qw "repo"; then
-      err "Missing required scope: repo"
-      hard_stop "Refresh: gh auth refresh -h github.com -s repo"
-    fi
-    if [[ "$GITHUB_ORG_TYPE" == "org" ]] && ! echo "$SCOPES" | grep -qw "read:org"; then
-      warn "Scope 'read:org' not detected — some org operations may fail"
-      echo "    Refresh: gh auth refresh -h github.com -s read:org"
-    fi
-  else
-    warn "Could not determine token scopes — assuming sufficient"
-  fi
-
-  # Origin remote reachable (lightweight: ls-remote)
+  # ── origin remote reachable (lightweight: ls-remote) ──
   if git ls-remote origin HEAD &>/dev/null; then
     ok "Origin remote accessible"
   else
