@@ -66,7 +66,7 @@ Policy defines four layers. This spec adds **harness** and clarifies **project**
 │  1. Org-wide     {{WORKSPACE_REPO}}/knowledge/               │
 │  2. Project      projects/<PID>/knowledge/  [STAGING]        │
 │  3. Repo-local   <code-repo>/knowledge/                      │
-│  4. Developer    $AGENT_WORK_ROOT/preferences/<gh-login>.md  │
+│  4. Developer    $PRJ_GOV_LOC/preferences/<gh-login>.md  │
 └─────────────────────────────────────────────────────────────┘
          Higher ↑ overrides lower ↓ on conflict
 ```
@@ -79,13 +79,143 @@ After close (merged / rejected / abandoned), agents on **new** projects must not
 
 ### 3.2 Harness constraint
 
-Harness files may restate the session-start protocol for tool auto-load compatibility, but:
+Harness files deliver the session-start protocol into **system context** at launch. They are not a knowledge layer and **must not override** org, repo, or user knowledge.
 
-- They **must** point to the canonical org entrypoint: root `agent.md` or equivalent path.
-- They **must not** contain org policy, security mandates, or layer priority that could override layers 1–4.
+- Harness content **must** trace to a single canonical source (§3.3) — no hand-maintained duplicates.
+- Harness **must not** paraphrase org policy in ways that could drift from `knowledge/policies/`.
 - On conflict between harness text and org/repo knowledge, **layers 1–4 win**; the agent surfaces the discrepancy to the human (POL-133 pattern).
 
-**Target end state:** harness files are **generated thin pointers** from a single canonical protocol block; adopters append C03 customizations below a fixed boundary.
+### 3.3 Harness delivery strategy (canonical source → tool install paths)
+
+**Problem:** A text pointer (*"read `agent.md`"*) in system context is an instruction, not a file load. Content read via tools persists only in **chat transcript** until compaction or a new session. Harness text injected by the tool persists in **system/rules context** for the session.
+
+**Decision:** One canonical protocol file, two delivery mechanisms by tool capability.
+
+#### Canonical files (source of truth — edit these)
+
+```
+{{WORKSPACE_REPO}}/
+├── agent.md                      # Org entrypoint: repo purpose, layer map, policy pointers
+└── agent/
+    └── session-protocol.md       # C01 session-start protocol (POL-113–117, write rules, capture)
+```
+
+| File | Owns | Do not duplicate elsewhere |
+|---|---|---|
+| `agent/session-protocol.md` | Layer load order, C01 gates, write restrictions, session-end capture | Currently duplicated across `CLAUDE.md`, `.cursor/rules/agent.mdc`, `AGENTS.md`, … |
+| `agent.md` | Org workspace identity, compliance level summary, links into `knowledge/` | Harness install paths |
+
+Adopter **C03 extensions** go below a fixed marker in `agent/session-protocol.md` or in a gitignored `agent/session-protocol.local.md` (Claude: `@agent/session-protocol.local.md` after the canonical import).
+
+#### Tool install paths (generated or import — do not hand-edit)
+
+| Tool | Install path | Delivery mechanism | When `agent.md` content enters context |
+|---|---|---|---|
+| **Claude Code** | `CLAUDE.md` | **`@import`** expands at launch | Session start — every prompt until compaction |
+| **Cursor** | `.cursor/rules/agent.mdc` | **`render-harness.sh`** embeds protocol body + YAML frontmatter | Every chat/agent turn (`alwaysApply: true`) |
+| **Codex** | `AGENTS.md` | Generated from `session-protocol.md` | Session start |
+| **Others** | See DEVELOPER_GUIDE §9 | Generated from same source | Tool-dependent |
+
+#### Claude Code — `CLAUDE.md` (import, not pointer)
+
+```markdown
+@agent/session-protocol.md
+@agent.md
+
+<!-- ADOPTER_C03_EXTENSIONS — add org-specific lines below; do not contradict protocol above -->
+```
+
+- `@` imports expand into **startup context** at `claude` launch ([Claude Code memory docs](https://code.claude.com/docs/en/memory)).
+- First encounter shows an approval dialog for external imports; declining disables imports for that project.
+- **`AGENTS.md` is not read by Claude** unless imported — use `@AGENTS.md` only if Codex parity is needed without generation.
+
+**Do not** use a bare text pointer (*"see agent.md"*) as the only Claude bootstrap — it does not load the file.
+
+#### Cursor — `render-harness.sh` (generate, not pointer)
+
+Cursor does not expand `@agent.md` inside `.mdc` rules. Install path must contain the **full protocol text**.
+
+Script: `scripts/render-harness.sh` (to be implemented). Invoked from `setup.sh` and `seed.sh`.
+
+```
+Input:  agent/session-protocol.md
+Output: .cursor/rules/agent.mdc   (+ projects/<PID>/.cursor/rules/agent.mdc on seed)
+```
+
+Generated `.mdc` template:
+
+```markdown
+---
+description: Agentic Development Framework — session-start protocol (POL-113..117)
+globs: ["**/*"]
+alwaysApply: true
+# GENERATED FROM agent/session-protocol.md — do not edit; run ./scripts/render-harness.sh
+---
+
+{{body of agent/session-protocol.md}}
+```
+
+For **per-project** workspaces (`projects/<PID>/` as IDE root), seed composes:
+
+```
+agent/session-protocol.md
++ projects/<PID>/agent.md   (project-specific paths, repos, GitHub Project URL)
+→ projects/<PID>/.cursor/rules/agent.mdc
+```
+
+Claude per-project equivalent:
+
+```markdown
+@../../agent/session-protocol.md
+@agent.md
+```
+
+(path adjusted for project folder depth)
+
+#### What still requires explicit reads (all tools)
+
+Even with harness delivery, these are **not** in system context until Phase 2 structural load:
+
+| Content | Why not in harness |
+|---|---|
+| `knowledge/policies/*.md` (full text) | Too large; Tier A via read or RAG |
+| `projects/<PID>/knowledge/*` | Changes every session; staging layer |
+| Code repo `knowledge/` | Lives outside workspace repo |
+| Developer preferences | Outside repo; per-user |
+
+Harness delivers **protocol**; assembly delivers **knowledge**.
+
+#### Migration from current template (transitional)
+
+Today's template **inlines** duplicate protocol in eight harness paths. Migration steps:
+
+1. Extract shared text → `agent/session-protocol.md`
+2. Replace `CLAUDE.md` body with `@` imports (§3.3)
+3. Add `render-harness.sh`; regenerate `.cursor/rules/agent.mdc` and siblings
+4. Change `seed.sh` to call `render-harness.sh` for per-project copies (replace `sed` copy loop)
+5. CI check: `render-harness.sh --check` fails if install paths drift from canonical source
+
+Until migration completes, duplicated harness files remain valid but **must be updated in lockstep** with `agent/session-protocol.md`.
+
+### 3.4 Session context persistence (three mechanisms)
+
+Understanding what survives across prompts within one session:
+
+| Mechanism | What | Every prompt? | Survives new session? |
+|---|---|---|---|
+| **A — System / rules** | Tool-injected harness (`CLAUDE.md` imports, Cursor `alwaysApply`) | Yes | No — reload at launch (POL-116) |
+| **B — Transcript** | Prior turns including tool Read results (`project.yaml`, `knowledge/…`) | Yes, until window/compaction | No |
+| **C — Provider memory** | Cursor Memories, Claude auto memory | Varies | Partial — **not for org policy** (§11.2) |
+
+```
+Session start
+  ├─ (A) Harness: session-protocol [+ agent.md via @import or generate]
+  ├─ (B) empty transcript
+  └─ Agent Phase 2 reads: knowledge/, project knowledge, repo knowledge
+         └─ (B) read results append to transcript → visible on subsequent prompts
+```
+
+**Implication:** `@agent.md` / generated harness fixes **protocol** persistence (mechanism A). **Knowledge** still relies on reads (B) or future RAG/manifest (§9). Do not store org policy in mechanism C.
 
 ---
 
@@ -125,7 +255,7 @@ flowchart TD
 | Gate | Check | On failure |
 |---|---|---|
 | G0.1 | Active project context identified (`<PID>` from branch or explicit prompt) | Hard stop — ask human |
-| G0.2 | `project.yaml` `locked_by` matches current user identity | Hard stop (POL-114) |
+| G0.2 | `project.yaml` `assigned_to` matches current user identity | Hard stop (POL-114) |
 | G0.3 | `project.yaml` `status` is `active` (or defined read-only mode for paused — see §12) | Hard stop (POL-115) |
 | G0.4 | `agent_config.provider` on Approved/Provisional list | Hard stop (POL-138) |
 | G0.5 | Latest project branch pulled in workspace + code repos | Hard stop (POL-117) |
@@ -146,7 +276,7 @@ Walk **top-down**; each entrypoint lists the next files to read:
 3. projects/<PID>/agent.md
 4. For each active code repo:
      <repo>/knowledge/agent.md
-5. $AGENT_WORK_ROOT/preferences/<gh-login>.md
+5. $PRJ_GOV_LOC/preferences/<gh-login>.md
 ```
 
 Each `agent.md` should list **explicit paths** under its layer — assembly does not rely on transitive "see also" discovery alone (DEVELOPER_GUIDE §9 foot-gun).
@@ -213,7 +343,7 @@ Per scoped repo (§6.3):
 
 ### 7.4 Developer preferences
 
-Load **only** `$AGENT_WORK_ROOT/preferences/<gh-login>.md` for the current identity (POL-127).
+Load **only** `$PRJ_GOV_LOC/preferences/<gh-login>.md` for the current identity (POL-127).
 
 Validate opening declaration (POL-132). Strip or ignore any line attempting to override layer priority, compliance levels, or security rules (POL-133).
 
@@ -345,7 +475,7 @@ Every session's first agent response should reflect a manifest like:
 
 ```markdown
 ## Context manifest
-- Project: ACME-007-invoice-api (active, locked_by: you)
+- Project: ACME-007-invoice-api (active, assigned_to: you)
 - Branch: acme-007-invoice-api [/ task sub-branch if any]
 - Repos: invoice-api (primary), svm-util (dependency)
 - Open todos: 2 (surfaced below)
@@ -375,7 +505,7 @@ Different harnesses expose different surfaces. Assembly **maps the same context 
 | **Project rules** | `projects/<PID>/.cursor/rules` if present | Project-specific C03 notes only |
 | **First user turn** | Developer kickoff prompt | Manifest request, todo surfacing |
 | **File reads** | All harnesses | Full text of Tier A files; Tier B/C as needed |
-| **Tool-accessible docs** | MCP, `@` references | Repo paths under `$AGENT_WORK_ROOT/<PID>/` |
+| **Tool-accessible docs** | MCP, `@` references | Repo paths under `$PRJ_GOV_LOC/projects/<PID>/` |
 | **Provider memory** | Cursor memories, Claude projects | **Do not store org policy** — see §11 |
 
 **Rule:** Org policy and project compliance state are **re-loaded every session** into files or explicit reads — not stored in provider-native long-term memory (which bypasses git versioning and POL-116).
@@ -468,13 +598,16 @@ Project learnings that integrate into org (diagram updates, procedure edits) bec
 
 Suggested implementation order:
 
-1. **`context-manifest` schema** — JSON/YAML schema for SLOT-0 output; validator in `scripts/validate/`
-2. **`./prj context assemble [--project PID]`** — prints manifest + file list (no LLM required)
-3. **`./prj context refresh`** — git pull + re-assemble; for developer kickoff prompts
-4. **`knowledge/guidance/context-routing.yaml`** — path → org folder map (§7.5)
-5. **Chunk indexer** — implements §8.4 rules in CI (extends publication spec Form 3)
-6. **Harness generator** — thin pointers from canonical protocol (§3.2)
-7. **Session-start test** — CI fixture: given a project fixture, assert Tier A files present in assemble output
+1. **`agent/session-protocol.md`** — extract canonical text from current `CLAUDE.md` / `agent.mdc`
+2. **`scripts/render-harness.sh`** — generate Cursor `.mdc`, `AGENTS.md`, and other non-import harnesses; `--check` mode for CI
+3. **Thin `CLAUDE.md`** — `@agent/session-protocol.md` + `@agent.md` only (§3.3)
+4. **Wire `setup.sh` + `seed.sh`** — call `render-harness.sh` after scaffold; replace harness `sed` copy loop
+5. **`context-manifest` schema** — JSON/YAML schema for SLOT-0 output; validator in `scripts/validate/`
+6. **`./prj context assemble [--project PID]`** — manifest + Tier A file list (no LLM required)
+7. **`./prj context refresh`** — git pull + re-assemble
+8. **`knowledge/guidance/context-routing.yaml`** — path → org folder map (§7.5)
+9. **Chunk indexer** — implements §8.4 rules in CI (extends publication spec Form 3)
+10. **Session-start test** — CI fixture: harness `--check` passes; assemble output includes Tier A paths
 
 ---
 
@@ -488,6 +621,15 @@ Suggested implementation order:
 | D4 | `./prj context` output format | Markdown manifest vs JSON for tooling | DX |
 | D5 | Index repo knowledge in same store as org | Unified vs per-repo collections | Retrieval scope |
 | D6 | Auto-surface related exceptions when policy clause loaded | On vs off | Compliance UX |
+
+**Closed (2026-05-27):**
+
+| # | Decision |
+|---|---|
+| H1 | Canonical harness source: `agent/session-protocol.md` + `agent.md` |
+| H2 | Claude: `@import` in `CLAUDE.md` |
+| H3 | Cursor: `render-harness.sh` generates `.mdc` with embedded body |
+| H4 | Text-only pointers (*"see agent.md"*) are not sufficient for system context |
 
 ---
 
@@ -536,8 +678,177 @@ From knowledge/repo/patterns.md:
 
 ---
 
+## 19. Appendix C — `render-harness.sh` and `agent/harness-manifest.yaml`
+
+**Purpose:** Generate tool install paths from `agent/session-protocol.md`. Keep all **Tier B** tools in sync with Claude's `@import` source.
+
+**Manifest:** `agent/harness-manifest.yaml` is the authoritative list of supported harnesses, delivery tiers, install paths, and verification steps. `render-harness.sh` reads the manifest; do not duplicate path lists in shell code.
+
+### Usage
+
+```bash
+./scripts/render-harness.sh              # write all install paths at repo root
+./scripts/render-harness.sh --project PID  # also write projects/PID/ copies
+./scripts/render-harness.sh --check      # exit 1 if any install path differs (CI)
+```
+
+### Manifest-driven behavior
+
+| Manifest field | Meaning |
+|---|---|
+| `tier: import` | Skip generation; use `per_project_template` for Claude stubs |
+| `tier: generate_auto` | Emit `path` with embedded protocol body |
+| `tier: generate_manual` | Same as auto + document `invoke` (Aider) |
+| `tier: fallback` | No file; documented in DEVELOPER_GUIDE only |
+| `status: planned` | Ignored by render until flipped to `active` |
+| `seed_copy: true` | `seed.sh` emits per-project copy via `--project` |
+
+### Adding a new tool
+
+1. Confirm the tool's conventional install path from vendor docs.
+2. Add an entry to `agent/harness-manifest.yaml` under `harnesses:`.
+3. Implement or extend a `templates:` block if the format is new.
+4. Run `./scripts/render-harness.sh` and commit generated files.
+5. Document verify step in DEVELOPER_GUIDE §9 and Appendix D.
+
+### CI gate
+
+`render-harness.sh --check` runs on PRs that touch `agent/session-protocol.md`, `agent/harness-manifest.yaml`, or `agent.md`.
+
+### `seed.sh` integration
+
+Replace the current `TOOL_FILES` copy loop with:
+
+```bash
+./scripts/render-harness.sh --project "$PROJECT_ID"
+```
+
+---
+
+## 20. Appendix D — Tool matrix and session-start steps (Claude vs Cursor vs Gemini)
+
+### D.1 Full tool matrix
+
+See `agent/harness-manifest.yaml` for the machine-readable list. Summary:
+
+| Tool | Install path | Tier | Auto-load? | Protocol every prompt? | Seeded per project? |
+|---|---|---|---|---|---|
+| Claude Code | `CLAUDE.md` | import | Yes | Yes* | Yes (`CLAUDE.md` stub) |
+| Cursor | `.cursor/rules/agent.mdc` | generate_auto | Yes | Yes (Agent/Chat) | Yes |
+| OpenAI Codex | `AGENTS.md` | generate_auto | Yes | Session start | Yes |
+| Gemini Code Assist | `.gemini/styleguide.md` | generate_auto | Yes | Mostly | Yes |
+| GitHub Copilot | `.github/copilot-instructions.md` | generate_auto | Partial | On assist | Yes |
+| Windsurf | `.windsurf/rules/agent.md` | generate_auto | Yes | Mostly | Yes |
+| Cline / Roo | `.clinerules/agent.md` | generate_auto | Yes | Mostly | Yes |
+| Continue.dev | `.continue/rules.md` | generate_auto | Yes | Session start | Yes |
+| Aider | `CONVENTIONS.md` | generate_manual | **No** | If `--read` | Yes |
+
+\*Until context compaction.
+
+**Same for all tools after protocol is loaded:** agent must **Read** knowledge layers (org, project, repo, preferences). Harness does not embed `knowledge/`.
+
+### D.2 What is the same for every developer (policy)
+
+Regardless of tool, POL-113–118 requires before code changes:
+
+1. On project branch; pull latest (gov + code repos).
+2. Verify `project.yaml`: assignee/lock, `status: active`.
+3. Load four knowledge layers fresh.
+4. Surface `todo.md` open items.
+
+The **difference between tools** is only *how the session protocol reaches the model* and *when* — not *what* the protocol requires.
+
+### D.3 Side-by-side: Claude vs Cursor vs Gemini
+
+Assume project `ACME-007-foo`, workspace opened at `projects/ACME-007-foo/` (or gov repo root with project branch checked out).
+
+#### Phase 0 — Human setup (before talking to the agent)
+
+| Step | Claude Code | Cursor | Gemini Code Assist |
+|---|---|---|---|
+| 0.1 Open workspace | Terminal: `cd …/projects/ACME-007-foo` | **File → Open Folder** → `projects/ACME-007-foo` | VS Code or IntelliJ with Gemini extension; open same folder |
+| 0.2 Git branch | `git checkout acme-007-foo && git pull` | Same in terminal (or Cursor SCM) | Same in terminal |
+| 0.3 Code repos | Pull each repo under `$PRJ_GOV_LOC/projects/ACME-007-foo/` | Same | Same |
+
+#### Phase 1 — Tool automatic (no user message yet)
+
+| Step | Claude Code | Cursor | Gemini Code Assist |
+|---|---|---|---|
+| 1.1 Start tool | Run `claude` in project folder | Open **Agent** or **Chat** panel | Open Gemini chat in IDE |
+| 1.2 Harness discovery | Finds `CLAUDE.md` (or `projects/…/CLAUDE.md`) | Scans `.cursor/rules/*.mdc` | Finds `.gemini/styleguide.md` |
+| 1.3 Protocol load | **Expands** `@agent/session-protocol.md` + `@agent.md` into startup context | **Injects** `agent.mdc` body (`alwaysApply: true`) into system/rules | **Loads** styleguide into Gemini context |
+| 1.4 `agent.md` in context? | **Yes** — via `@import` at launch | **Partial** — protocol text embedded; full `agent.md` only if duplicated in `.mdc` or read later | **Partial** — protocol embedded in styleguide; project `agent.md` not automatic |
+| 1.5 Knowledge layers | **Not loaded** | **Not loaded** | **Not loaded** |
+| 1.6 Index / tools | Claude tool access per settings | Codebase index + MCP + editor context | IDE context + open files |
+
+#### Phase 2 — First user message (developer kickoff)
+
+Use the same intent; wording can match DEVELOPER_GUIDE §3:
+
+```
+Starting session on ACME-007-foo. Before any work:
+verify project.yaml, load four knowledge layers, surface todo.md Open items,
+summarize status — then wait for my direction.
+```
+
+| Step | Claude Code | Cursor | Gemini Code Assist |
+|---|---|---|---|
+| 2.1 You send kickoff | Type in Claude terminal | Type in Agent/Chat | Type in Gemini panel |
+| 2.2 Protocol already present? | Yes (from `@import`) | Yes (from `agent.mdc`) | Yes (from styleguide) |
+| 2.3 Agent reads knowledge | Claude **Read** tools on `knowledge/`, `projects/…/knowledge/`, etc. | Same via Cursor tools | Same via Gemini file tools |
+| 2.4 Verify load | `/memory` — lists CLAUDE.md + imports | Settings → Rules → **Always** on `agent.mdc` | Ask: "Summarize write restrictions from your loaded rules" |
+| 2.5 Expected reply | Short manifest: project, branch, todos | Same | Same |
+
+#### Phase 3 — Ongoing session
+
+| Concern | Claude Code | Cursor | Gemini Code Assist |
+|---|---|---|---|
+| Protocol persistence | Startup context until `/compact` | Re-injected each turn in same chat | Styleguide context; may vary by extension version |
+| Knowledge persistence | Chat transcript after reads | Chat transcript after reads | Chat transcript after reads |
+| New session | New `claude` → re-import | New chat tab → re-inject rules | New chat → re-load styleguide |
+| Switch project | New cwd + new session | Change folder or branch + new chat | Change folder + new chat |
+
+### D.4 Visual timeline
+
+```
+CLAUDE                          CURSOR                         GEMINI
+──────                          ──────                         ──────
+
+cd project/                     Open folder                    Open folder
+    │                               │                              │
+claude                          (index repo)                   (index repo)
+    │                               │                              │
+@imports expand ─────────────── Start chat ───────────────── Start chat
+    │                               │                              │
+    ├─ session-protocol             ├─ agent.mdc injected          ├─ styleguide loaded
+    └─ agent.md                     (alwaysApply)                  (protocol body)
+    │                               │                              │
+    │                          (protocol in context)          (protocol in context)
+    │                               │                              │
+User kickoff ───────────────── User kickoff ────────────────── User kickoff
+    │                               │                              │
+Agent READs knowledge/ ──────── Agent READs knowledge/ ─────── Agent READs knowledge/
+    │                               │                              │
+Work ─────────────────────────── Work ─────────────────────────── Work
+```
+
+### D.5 Common misconceptions
+
+| Misconception | Reality |
+|---|---|
+| "Opening the folder loads all knowledge" | Only **protocol** loads automatically (mechanism differs by tool). |
+| "Claude and Cursor steps are different policies" | Same POL-113–118; different **delivery** of protocol text. |
+| "Gemini styleguide = styling only" | In this framework it carries **session protocol**; name is Gemini's convention. |
+| "`agent.md` auto-loads for everyone" | Only Claude via `@import`; Cursor/Gemini get protocol body, not necessarily full `agent.md`. |
+| "Copilot = same as Cursor Agent" | Copilot is **edit-time**; weaker session gate. |
+
+---
+
 ## Document history
 
 | Date | Change |
 |---|---|
 | 2026-05-27 | Initial draft from knowledge management design interview |
+| 2026-05-27 | §3.3 harness delivery (Claude `@import`, Cursor `render-harness.sh`); §3.4 session persistence |
+| 2026-05-27 | `agent/harness-manifest.yaml`; Appendix D tool matrix and Claude/Cursor/Gemini steps |
+

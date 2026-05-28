@@ -24,7 +24,7 @@ Read this policy before beginning any work session.
 1. **Org-wide knowledge** → `knowledge/` (this repository, {{DEFAULT_BRANCH}} branch)
 2. **Project knowledge** → `projects/{{ORG_SLUG}}-NNN-slug/knowledge/`
 3. **Repo-local knowledge** → `<cloned-repo>/knowledge/`
-4. **Your developer preferences** → `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md`
+4. **Your developer preferences** → `$PRJ_GOV_LOC/preferences/<your-gh-login>.md`
    (run `gh api user --jq .login` to get your handle; load only your file)
 
 Higher priority always wins. In case of conflict, apply the rule from the higher-priority layer.
@@ -37,7 +37,7 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 
 ## Session Start Checklist (C01 — complete before any work)
 
-1. Read `projects/{{ORG_SLUG}}-NNN-slug/project.yaml` → verify `locked_by` matches your user identity
+1. Read `projects/{{ORG_SLUG}}-NNN-slug/project.yaml` → verify `assigned_to` matches your user identity
 2. Verify `status: active`
 3. Load all four knowledge layers fresh (never use cached layers from a prior session)
 4. Pull latest `{{org_slug}}-NNN-slug` branch in all repos

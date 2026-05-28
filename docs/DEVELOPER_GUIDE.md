@@ -36,10 +36,10 @@ git config --global user.email   # must be set
 gh api user --jq .login          # should print your GitHub handle
 ```
 
-If `AGENT_WORK_ROOT` isn't set, the framework uses `~/work`. Override only if you want clones somewhere else:
+If `PRJ_GOV_LOC` isn't set, the framework uses `~/prj_gov` as the governance root (the legacy `AGENT_WORK_ROOT` is still honored if it's set). Override only if you want the governance root somewhere else:
 
 ```bash
-export AGENT_WORK_ROOT=~/code/agent-work
+export PRJ_GOV_LOC=~/code/prj_gov
 ```
 
 ### Confirm the project is assigned to you
@@ -67,7 +67,7 @@ Walk through the prompts:
 What happens:
 
 - A project ID is allocated (e.g. `ABC-001-feature-x`) and a workspace branch (`abc-001-feature-x`) is created and pushed.
-- For each repo linked to the Project, the repo is cloned into `$AGENT_WORK_ROOT/ABC-001-feature-x/<repo>/` and the project branch is created from its base branch.
+- For each repo linked to the Project, the repo is cloned into `$PRJ_GOV_LOC/projects/ABC-001-feature-x/repos/<repo>/` and the project branch is created from its base branch.
 - `projects/ABC-001-feature-x/` is scaffolded with: `project.yaml`, `agent.md`, `knowledge/`, `requirements/`, `environment/`, and `knowledge/todo.md` (empty).
 - The registry is updated and everything is committed and pushed.
 
@@ -86,16 +86,16 @@ Before any code change, the agent (or you, if working alone) must:
    git checkout abc-001-feature-x
    git pull origin abc-001-feature-x
    ```
-2. **Verify `project.yaml`**: `locked_by` matches you, `status: active`.
+2. **Verify `project.yaml`**: `assigned_to` matches you, `status: active`.
 3. **Read all four knowledge layers, fresh** — never use cached context across sessions:
    - `knowledge/` (org-wide policy)
    - `projects/ABC-001-feature-x/knowledge/` (project knowledge accumulated so far)
    - `<repo>/knowledge/` for each code repo (repo conventions)
-   - `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` (your own developer preferences)
+   - `$PRJ_GOV_LOC/preferences/<your-gh-login>.md` (your own developer preferences)
 4. **Read `projects/ABC-001-feature-x/knowledge/todo.md`** — surface its `## Open` items before planning new work.
 5. **Pull latest on the project branch in each code repo**:
    ```bash
-   cd $AGENT_WORK_ROOT/ABC-001-feature-x/<repo>
+   cd $PRJ_GOV_LOC/projects/ABC-001-feature-x/repos/<repo>
    git checkout abc-001-feature-x
    git pull origin abc-001-feature-x
    ```
@@ -110,9 +110,9 @@ I'm starting a session on project ABC-001-feature-x.
 Before any work:
 1. Read projects/ABC-001-feature-x/agent.md and confirm you've loaded
    the four knowledge layers it points at.
-2. Verify project.yaml: locked_by must match rkant@svayamtech.com, status active.
+2. Verify project.yaml: assigned_to must match rkant@svayamtech.com, status active.
 3. Read projects/ABC-001-feature-x/knowledge/todo.md and surface any open items.
-4. Briefly summarize: project status, locked_by, primary repo(s), and what
+4. Briefly summarize: project status, assigned_to, primary repo(s), and what
    carry-forward items exist from prior sessions.
 5. Wait for me to direct the work — do not propose tasks unilaterally,
    issues come from the GitHub Project board.
@@ -120,9 +120,30 @@ Before any work:
 
 The agent should respond with a short status summary, not a plan. You direct what comes next.
 
+### Session start by tool — Claude vs Cursor vs Gemini
+
+**Same policy (POL-113–118) for everyone.** Tools differ only in *how protocol text gets into the model* before the first read of `knowledge/`.
+
+Open the workspace at **`projects/<PID>/`** (recommended) or gov repo root on the project branch.
+
+| Phase | What happens | Claude Code | Cursor | Gemini Code Assist |
+|---|---|---|---|---|
+| **You** | Open workspace + pull branches | `cd projects/<PID>/` | Open folder in Cursor | Open folder in VS Code / IntelliJ |
+| **You** | Start the AI | Run `claude` | Open Agent or Chat | Open Gemini chat panel |
+| **Tool** | Load protocol automatically | `@import` expands `CLAUDE.md` → protocol + `agent.md` | Injects `.cursor/rules/agent.mdc` every turn | Loads `.gemini/styleguide.md` |
+| **You** | Send kickoff prompt | See template below | Same template | Same template |
+| **Agent** | Read knowledge layers (required) | Read tool → `knowledge/`, project, repos, prefs | Same | Same |
+| **You** | Verify | `/memory` lists imports | Settings → Rules → `agent.mdc` = **Always** | Ask agent to summarize write restrictions |
+
+**Not automatic for any tool:** full `knowledge/policies/`, `projects/<PID>/knowledge/*`, code repo `knowledge/`, or preferences — the agent must read these (or you run `./prj context assemble` when available).
+
+Detailed step tables and timeline: [`docs/design/agent-context-assembly-spec.md`](design/agent-context-assembly-spec.md) Appendix D.
+
+Harness registry (all tools): [`agent/harness-manifest.yaml`](../agent/harness-manifest.yaml).
+
 ### Doing the actual work
 
-- **Code changes** go in the cloned code repos under `$AGENT_WORK_ROOT/ABC-001-feature-x/<repo>/`, on the project branch.
+- **Code changes** go in the cloned code repos under `$PRJ_GOV_LOC/projects/ABC-001-feature-x/repos/<repo>/`, on the project branch.
 - **Project knowledge** goes in `projects/ABC-001-feature-x/knowledge/` in the workspace repo:
   - `compliance.md` — required at close; records C01 violations, C02 exceptions, C03 deviations.
   - `notes.md` — decisions, design rationale, anything future-you would need.
@@ -130,13 +151,13 @@ The agent should respond with a short status summary, not a plan. You direct wha
 - **Intermediate to-dos** go in `projects/ABC-001-feature-x/knowledge/todo.md` under `## Open`. Capture them as they arise, not at session end.
 - **NEVER** edit:
   - The workspace repo's `knowledge/` (read-only during the project).
-  - `project.yaml`'s `tasks` list directly — use `./prj task` / `./prj merge`.
+  - Task state by hand — tasks are GitHub Issues on the board (open = active, closed = done); create with `./prj task`, land with `./prj merge`.
   - GitHub Issues unilaterally — those represent business intent humans add to the board.
 
 ### Prompting style during the session
 
 - Drive the work by **direction**, not by **delegation**. The agent shouldn't autonomously decide what to implement.
-- When asking the agent to make a change, point at the file path under `$AGENT_WORK_ROOT/...` so it doesn't get confused with the workspace repo's tree.
+- When asking the agent to make a change, point at the file path under `$PRJ_GOV_LOC/projects/...` so it doesn't get confused with the workspace repo's tree.
 - For non-obvious decisions, ask the agent to write the rationale into `projects/.../knowledge/notes.md` before the corresponding code change. That keeps the audit trail honest.
 - When a policy question comes up mid-session and an exception might be needed: stop, file an exception request in `knowledge/policies/exceptions/<domain>/`, and `./prj pause` until it's approved. Agents must hard-stop on unresolved C01 (POL-117).
 
@@ -150,7 +171,7 @@ Before you walk away:
    ```bash
    git push origin abc-001-feature-x
    # And in each code repo:
-   cd $AGENT_WORK_ROOT/ABC-001-feature-x/<repo>
+   cd $PRJ_GOV_LOC/projects/ABC-001-feature-x/repos/<repo>
    git push origin abc-001-feature-x
    ```
 4. Optionally: write a one-line session summary to `notes.md` so the next session knows where you stopped.
@@ -246,27 +267,52 @@ The project moves to `status: completed`. The knowledge PR is reviewed and merge
 
 ## 9. Tool-specific notes
 
-The framework's session-start protocol is identical regardless of which LLM coding tool you use; only the **invocation surface** differs. We ship a bootstrap file at each major tool's conventional path — the file restates the four-knowledge-layers protocol so any tool that auto-loads its convention file gets the framework's instructions without further setup.
+The session-start protocol is **one canonical source**, delivered through each tool's conventional install path. Full design: [`docs/design/agent-context-assembly-spec.md`](design/agent-context-assembly-spec.md) §3.3–§3.4.
 
-Per-project copies are scaffolded by `seed.sh` under `projects/<PID>/` so a developer opening their tool with the project directory as workspace still gets project-aware context.
+### Canonical source (edit these)
 
-| Tool | File the tool reads | Auto-load behavior | Quirks worth knowing |
-|---|---|---|---|
-| **Claude Code** | `CLAUDE.md` (root) | Loads `CLAUDE.md` automatically at session start | Existing pointer; predates this framework. Currently bootstraps to `agent.md`. |
-| **OpenAI Codex** | `AGENTS.md` (root) | Loads `AGENTS.md` at session start across Codex CLI, Codex Web, ChatGPT coding mode | Plain markdown; no frontmatter. Most adoptable convention right now. |
-| **Cursor** | `.cursor/rules/agent.mdc` | Loaded when `alwaysApply: true` is in frontmatter (we ship that) | `.mdc` requires YAML frontmatter — our file includes it. Legacy `.cursorrules` is deprecated; don't use it. |
-| **Aider** | `CONVENTIONS.md` (root) | Aider reads it when run with `--read CONVENTIONS.md` or via `/read` slash-command in session | Aider does not auto-load — you must explicitly invoke. Add `--read CONVENTIONS.md` to your shell alias. |
-| **Windsurf** | `.windsurf/rules/agent.md` | Loaded when present in the rules directory | Generally auto-loads; may require a one-time confirmation in the IDE settings. |
-| **Cline / Roo Code** | `.clinerules/agent.md` | Auto-loaded on VS Code startup when the extension is active | Supports nested `.clinerules/` per subdirectory — useful if you scope your editor to `projects/<PID>/`. |
-| **GitHub Copilot Workspace** | `.github/copilot-instructions.md` | Auto-loaded by Copilot on any repo file it edits | Effectively a "global system prompt" for Copilot in this repo. Don't add per-file rules here — keep it framework-level. |
-| **Gemini Code Assist** | `.gemini/styleguide.md` | Auto-loaded by Code Assist when the file is present | Convention is less standardized than the others; placement may evolve. Re-check Google's docs if behavior changes. |
-| **Continue.dev** | `.continue/rules.md` | Auto-loaded as a system message at session start | If you use Continue's config-as-yaml for context providers, this file complements (doesn't replace) that. |
+| File | Purpose |
+|---|---|
+| `agent/session-protocol.md` | C01 session protocol — layer load order, gates, write rules, capture (POL-113–117) |
+| `agent.md` | Org workspace entrypoint — policy pointers, repo identity |
+
+**Do not** hand-edit generated harness install paths (see below). Run `./scripts/render-harness.sh` after changing the canonical source.
+
+### How each tool gets protocol into system context
+
+Full matrix and Claude/Cursor/Gemini step-by-step: [`docs/design/agent-context-assembly-spec.md`](design/agent-context-assembly-spec.md) Appendix D. Registry: [`agent/harness-manifest.yaml`](../agent/harness-manifest.yaml).
+
+| Tool | Install path | Tier | Auto? | Verify |
+|---|---|---|---|---|
+| **Claude Code** | `CLAUDE.md` | import (`@`) | Yes | `/memory` |
+| **Cursor** | `.cursor/rules/agent.mdc` | generate_auto | Yes | Settings → Rules → Always |
+| **OpenAI Codex** | `AGENTS.md` | generate_auto | Yes | First-message summary |
+| **Gemini Code Assist** | `.gemini/styleguide.md` | generate_auto | Yes | Ask re write restrictions |
+| **GitHub Copilot** | `.github/copilot-instructions.md` | generate_auto | On assist | Weaker session gate |
+| **Windsurf** | `.windsurf/rules/agent.md` | generate_auto | Yes | First message |
+| **Cline / Roo Code** | `.clinerules/agent.md` | generate_auto | Yes | Startup / first message |
+| **Continue.dev** | `.continue/rules.md` | generate_auto | Yes | First message |
+| **Aider** | `CONVENTIONS.md` | generate_manual | **`--read` only** | Confirm in context |
+
+Per-project copies under `projects/<PID>/` are composed at seed time (protocol + `projects/<PID>/agent.md`) so opening the project folder as workspace still works.
+
+### What harness does *not* load
+
+Harness delivery covers **protocol only**. These still require agent reads (or `./prj context assemble`) each session:
+
+- Full `knowledge/policies/` text
+- `projects/<PID>/knowledge/*`
+- Code repo `knowledge/`
+- `$PRJ_GOV_LOC/preferences/<gh-login>.md`
+
+Reads persist in **chat transcript** for the rest of the session; they are not re-injected each turn like rules.
 
 ### General foot-guns regardless of tool
 
-- **Don't rely on transitive file loading.** Some tools follow file references (e.g. *"see `agent.md`"*), some don't. The bootstrap files restate the protocol verbatim so transitive loading isn't required.
-- **Verify your tool actually loaded the file.** First prompt of every session should ask the agent to summarize what it read. If it didn't load the framework protocol, the rest of the session is unguarded.
-- **Adopter customization vs framework intent.** These bootstrap files are designed to be edited by adopters — add org-specific extensions below the standard sections. Just don't remove or contradict the four-knowledge-layers protocol; doing so breaks the policy contract.
+- **Text pointers are not file loads.** *"See `agent.md`"* in a rule instructs the model; it does not embed the file. Use Claude `@import` or Cursor generation.
+- **Verify loading.** First prompt: ask for a context manifest (project, branch, open todos). Claude: `/memory`. Cursor: confirm Always rules in Settings → Rules.
+- **Adopter C03 extensions** go below the `ADOPTER_C03_EXTENSIONS` marker in `agent/session-protocol.local.md` or the generated harness footer — never contradict layer priority or C01/C02 rules.
+- **Migration note:** Until `agent/session-protocol.md` and `render-harness.sh` land, harness files still inline duplicate protocol — update them in lockstep if you edit protocol text.
 
 ---
 

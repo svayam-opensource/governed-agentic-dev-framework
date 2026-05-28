@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Editor / OS noise
+*.swp
+*~
+.idea/
+.vscode/
+
+# Local agent state (Claude Code) — never ship in the template
+.claude/
+.claude/settings.local.json
+
+# Governance working root (clones live outside the repo, but never commit a stray one)
+/prj_gov/

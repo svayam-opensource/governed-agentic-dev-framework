@@ -16,8 +16,8 @@ Read these in priority order (highest first). Never use cached layers from a pri
 
 1. **Org-wide knowledge** — `knowledge/` in this repo, from the `{{DEFAULT_BRANCH}}` branch.
 2. **Active project** — `projects/<PROJECT_ID>/knowledge/` plus the project's own entrypoint at `projects/<PROJECT_ID>/agent.md`. To determine the active `PROJECT_ID`: check `registry.yaml` for entries with `status: active`, and check the current git branch (project branches are named `{{org_slug}}-NNN-slug`).
-3. **Repo-local** — `<repo>/knowledge/` for each linked code repo at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`.
-4. **Your developer preferences** — `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md`. Run `gh api user --jq .login` to determine your handle; load **only** your file. Other files in that directory belong to other developers — do not read them.
+3. **Repo-local** — `<repo>/knowledge/` for each linked code repo at `$PRJ_GOV_LOC/projects/<PROJECT_ID>/repos/<repo-name>/`.
+4. **Your developer preferences** — `$PRJ_GOV_LOC/preferences/<your-gh-login>.md`. Run `gh api user --jq .login` to determine your handle; load **only** your file. Other files in that directory belong to other developers — do not read them.
 
 Higher layers always win. Developer preferences cannot override repo-local or org-wide knowledge.
 
@@ -25,7 +25,7 @@ Higher layers always win. Developer preferences cannot override repo-local or or
 
 If a project is active:
 
-- `project.yaml`'s `locked_by` must match the current user identity.
+- `project.yaml`'s `assigned_to` must match the current user identity.
 - `project.yaml`'s `status` must be `active`.
 - Read `projects/<PROJECT_ID>/knowledge/todo.md` and surface its `## Open` items to the developer before planning new work.
 
@@ -35,14 +35,14 @@ If any of these can't be verified, hard-stop and surface to the human. Do not co
 
 During an active project:
 
-- ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$AGENT_WORK_ROOT/<PROJECT_ID>/`.
+- ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$PRJ_GOV_LOC/projects/<PROJECT_ID>/`.
 - ❌ Read-only: `{{WORKSPACE_REPO}}/knowledge/` — never edit during an active project.
-- ❌ Don't edit `project.yaml`'s `tasks` list directly — use `./prj task` / `./prj merge`.
+- ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `./prj task`, land with `./prj merge`.
 - ❌ Don't create GitHub Issues unilaterally — those represent business intent that humans add to the GitHub Project board.
 
 ## 4. Where work happens
 
-- Code repos are cloned at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`, each on the project branch.
+- Code repos are cloned at `$PRJ_GOV_LOC/projects/<PROJECT_ID>/repos/<repo-name>/`, each on the project branch.
 - Code changes go in those cloned repos — **NOT** in the workspace repo's tree.
 - Project metadata (knowledge, decisions, to-dos) goes in `projects/<PROJECT_ID>/` in the workspace repo.
 
