@@ -1,6 +1,8 @@
+<!-- GENERATED FROM agent/session-protocol.md — do not edit; run ./scripts/render-harness.sh -->
+
 # Agent Session-Start Protocol — {{ORG_NAME}}
 
-This file is the **Gemini Code Assist / `.gemini/styleguide.md`** entrypoint for any AI coding agent working in this workspace. Equivalent files exist for other tools at their conventional paths (`CLAUDE.md`, `.cursor/rules/agent.mdc`, `CONVENTIONS.md`, etc.) — they all restate this same protocol.
+This is the **canonical** session-start protocol for any AI coding agent working in this workspace. It is delivered to each tool at its conventional path (`CLAUDE.md`, `.cursor/rules/agent.mdc`, `AGENTS.md`, `CONVENTIONS.md`, …) by `scripts/render-harness.sh`, driven by `agent/harness-manifest.yaml`. **Edit the protocol here, then re-render — never hand-edit the generated copies** (they carry a "do not edit" banner).
 
 Before you change any code, complete the steps below.
 

@@ -1,4 +1,4 @@
-# Harness manifest — drives scripts/render-harness.sh (to implement)
+# Harness manifest — drives scripts/render-harness.sh
 # Canonical protocol: agent/session-protocol.md + agent.md
 # Spec: docs/design/agent-context-assembly-spec.md §3.3, Appendix C, Appendix D
 #
@@ -188,7 +188,7 @@ harnesses:
     template: markdown-plain
     notes: "Path TBD."
 
-# Templates (render-harness.sh implements)
+# Templates (consumed by render-harness.sh)
 templates:
   cursor-mdc: |
     ---
