@@ -207,9 +207,9 @@ The repository `{{WORKSPACE_REPO}}` maintains `registry.yaml` as the single auth
 
 A project may be assigned to an individual (`assigned_to: user@email.com`) or to a team (`assigned_to: team-id`). **(POL-045)**
 
-The `locked_by` field records the individual who ran the `seed` script for the project. This field is set once at seed time and never changed except via a C02 reassignment exception. **(POL-046)**
+The `seeded_by` field records the individual who ran the `seed` script for the project. It is an audit record, set once at seed time; it is **not** an authorization gate. **(POL-046)**
 
-For team-assigned projects, authorized workers are: (a) the `locked_by` individual, or (b) any current member of the `assigned_to` team. **(POL-047)**
+Authorization to work a project derives from `assigned_to`: the named individual, or — when `assigned_to` is a team — any current member of that team (resolved via GitHub team membership). There is no single project-level lock; ownership of in-progress work is **per task** — each task sub-branch has exactly one assignee (POL-074) — and the session-start check verifies the worker owns the sub-branch they are on (POL-114). **(POL-047)**
 
 ### 4.5 Project Lifecycle States
 
@@ -217,7 +217,7 @@ Projects move through the following states:
 
 - **`proposed`**: The GitHub Project has been created by a stakeholder but the `seed` script has not yet been run. No project workspace exists yet. **(POL-048)**
 - **`active`**: The `seed` script has been run, the workspace has been scaffolded, and work is in progress. **(POL-049)**
-- **`paused`**: Work is temporarily halted. The assignee is unchanged. A project in `paused` state may be resumed by the `locked_by` individual or an authorized team member. **(POL-050)**
+- **`paused`**: Work is temporarily halted. The assignee is unchanged. A project in `paused` state may be resumed by any worker authorized via `assigned_to` (POL-047). **(POL-050)**
 - **`completed`**: All work is done, knowledge has been documented, and all project branches have been merged. **(POL-051)**
 - **`cancelled`**: The project has been abandoned. All project branches are archived. No knowledge close is performed on cancelled projects. **(POL-052)**
 
@@ -272,8 +272,8 @@ slug: invoice-api
 description: One-line project intent
 github_project: <url>
 github_project_name: Invoice API v2
-assigned_to: {{POLICY_OWNER_EMAIL}}
-locked_by: {{POLICY_OWNER_EMAIL}}
+assigned_to: {{POLICY_OWNER_EMAIL}}   # individual email OR team-id (access control)
+seeded_by: {{POLICY_OWNER_EMAIL}}     # who ran seed — audit record only, not a gate
 status: active
 created_at: 2026-05-05
 started_at: 2026-05-05
@@ -290,13 +290,9 @@ repos:
     base_branch: dev       # branch {{org_slug}}-NNN-slug created from; merge back here
     added_at: 2026-05-05
     added_reason: ~
-tasks:
-  - id: {{org_slug}}-007-invoice-api/api-design
-    github_issue: <url>
-    assigned_to: developer@your-org.com
-    status: active
-    created_at: 2026-05-05
-    completed_at: ~
+# tasks are NOT stored here — each task is a GitHub Issue on the board plus a
+# sub-branch ({{org_slug}}-007-invoice-api/<task-slug>); the board is the
+# source of truth for task state (POL-074)
 knowledge_status: pending_review   # pending_review | merged | rejected | under_revision | abandoned
 knowledge_pr: ~
 agent_config:
@@ -343,7 +339,7 @@ The following are **C02** requirements:
 
 Teams may conduct parallel work using sub-branches (`{{org_slug}}-NNN-slug/<task-slug>`). Each sub-branch is the responsibility of exactly one agent or developer. Multiple assignees per sub-branch are not permitted. **(POL-074)**
 
-Sub-branch tasks must be tracked as entries in the `tasks[]` array of `project.yaml`, each linked to a GitHub Issue. **(POL-075)**
+Each task corresponds to a GitHub Issue on the project board plus a sub-branch named `{{org_slug}}-NNN-slug/<task-slug>`. Task state lives on the board — an open issue is an active task, a closed issue is done — and is **not** duplicated in `project.yaml`. The board is the authoritative source for task assignment and status. **(POL-075)**
 
 ---
 
@@ -358,7 +354,7 @@ The layers in descending order of authority are:
 1. **Org-wide knowledge** — `{{WORKSPACE_REPO}}/knowledge/` — highest authority. **(POL-077)**
 2. **Project knowledge** — `{{WORKSPACE_REPO}}/projects/{{ORG_SLUG}}-NNN-slug/knowledge/` — second priority. **(POL-078)**
 3. **Repo-local knowledge** — `<repo>/knowledge/` — third priority. **(POL-079)**
-4. **Developer/agent preferences** — `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` — lowest priority. Per-user, keyed on GitHub login; an agent reads only the file matching its current GitHub identity. **(POL-080)**
+4. **Developer/agent preferences** — `$PRJ_GOV_LOC/preferences/<your-gh-login>.md` — lowest priority. Per-user, keyed on GitHub login; an agent reads only the file matching its current GitHub identity. **(POL-080)**
 
 Developer preferences cannot override repo-local knowledge. Repo-local knowledge cannot override org-wide knowledge. **(POL-081)**
 
@@ -486,13 +482,13 @@ Every agent work session is governed by a mandatory start protocol and a recomme
 
 Before performing any work whatsoever, an agent must complete all of the following steps in order **(POL-113)**:
 
-1. **Verify lock ownership**: Read `project.yaml` and confirm that the `locked_by` field matches the current user identity. If it does not match, the agent must refuse to proceed and surface this to the human immediately. **(POL-114)**
+1. **Verify authorization & task ownership**: Confirm the current user is authorized via `assigned_to` (the named individual, or a member of the `assigned_to` team). When working on a task sub-branch (`{{org_slug}}-NNN-slug/<task-slug>`), confirm that sub-branch's assignee is the current user (per-task lock). If authorization fails, the agent must refuse to proceed and surface this to the human immediately. (`seeded_by` is an audit record, not a gate.) **(POL-114)**
 2. **Verify project status**: Confirm that `status` in `project.yaml` is `active`. Any other status — `paused`, `completed`, `cancelled` — requires the agent to refuse and surface to the human. **(POL-115)**
 3. **Load knowledge layers fresh**: Load all four knowledge layers in priority order from their current state in the repository. Knowledge layers must never be used from a previous session's cache across session boundaries. The load order is: **(POL-116)**
    - `{{WORKSPACE_REPO}}/knowledge/` (org-wide, from `{{DEFAULT_BRANCH}}`)
    - `projects/{{ORG_SLUG}}-NNN-slug/knowledge/` (project knowledge)
    - `<cloned-repos>/knowledge/` (repo-local, from project branch)
-   - `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` (your own developer preferences only)
+   - `$PRJ_GOV_LOC/preferences/<your-gh-login>.md` (your own developer preferences only)
 4. **Pull latest branch**: Pull the latest commits from the `{{org_slug}}-NNN-slug` branch in all participating repositories. **(POL-117)**
 
 Only after all four steps are complete may the agent begin work. **(POL-118)**
@@ -510,15 +506,15 @@ At the conclusion of every work session, an agent should complete the following 
 
 If a C01 violation is detected at any point during a work session, the agent must immediately: hard stop all work, commit nothing, and surface the violation to the responsible human. The session may not continue until the human has explicitly resolved the violation. **(POL-124)**
 
-### 7.3 Agent Work Directory
+### 7.3 Project-Governance Root
 
-Each developer or agent must define an `AGENT_WORK_ROOT` directory — by exporting the env var in their shell, or accepting the framework default of `~/work`. This directory serves as the local working environment for all project work. **(POL-125)**
+Each developer or agent must define a `PRJ_GOV_LOC` directory — by exporting the env var in their shell (legacy `AGENT_WORK_ROOT` is still honored), or accepting the framework default of `~/prj_gov`. This is the local root for all project governance: the management gov clone, per-project clones, and developer preferences. **(POL-125)**
 
-Project repositories are cloned into `$AGENT_WORK_ROOT/{{ORG_SLUG}}-NNN-slug/` — one subdirectory per project. **(POL-126)**
+Per project, a governance clone and the code repos are placed under `$PRJ_GOV_LOC/projects/{{ORG_SLUG}}-NNN-slug/` — the gov clone at `$PRJ_GOV_LOC/projects/{{ORG_SLUG}}-NNN-slug/<gov-repo>/` and code repos under `.../repos/<repo-name>/`. **(POL-126)**
 
-Developer preferences are maintained at `$AGENT_WORK_ROOT/preferences/<gh-login>.md` — one file per developer, keyed on GitHub login. The framework loads only the file matching the current agent's identity; other files in that directory belong to other developers and must not be read by an agent. **(POL-127)**
+Developer preferences are maintained at `$PRJ_GOV_LOC/preferences/<gh-login>.md` — one file per developer, keyed on GitHub login. The framework loads only the file matching the current agent's identity; other files in that directory belong to other developers and must not be read by an agent. **(POL-127)**
 
-The `AGENT_WORK_ROOT` path and its contents must never be committed to any repository. **(POL-128)**
+The `PRJ_GOV_LOC` path and its contents must never be committed to any repository. **(POL-128)**
 
 ### 7.4 Developer and Agent Preferences
 
@@ -684,13 +680,13 @@ The Legal & Compliance Policy will govern legal compliance requirements applicab
 | **Org-wide knowledge** | Content in `{{WORKSPACE_REPO}}/knowledge/`. The highest-authority knowledge layer. |
 | **Project knowledge** | Content in `projects/{{ORG_SLUG}}-NNN-slug/knowledge/`. Second-priority knowledge layer. |
 | **Repo-local knowledge** | Content in `<repo>/knowledge/`. Third-priority knowledge layer. |
-| **Developer preferences** | Content in `$AGENT_WORK_ROOT/preferences/<gh-login>.md` — one file per developer. Lowest-priority knowledge layer; C03 only. |
+| **Developer preferences** | Content in `$PRJ_GOV_LOC/preferences/<gh-login>.md` — one file per developer. Lowest-priority knowledge layer; C03 only. |
 | **Seed** | The act of transitioning a project from `proposed` to `active` by running the `seed` script. Creates the project workspace and branches. |
 | **Knowledge close** | The process of synthesizing accumulated project knowledge into org-wide knowledge proposals after project completion. |
 | **C01** | Compliance level: Non-Negotiable. No exceptions. Agent hard stops on violation. |
 | **C02** | Compliance level: Always Apply. Exceptions require formal approval via PR by authorized domain representative. |
 | **C03** | Compliance level: Apply Intelligently. Strong default. Deviations allowed only when intent is honored and reasoning is documented. |
-| **locked_by** | The individual who ran the `seed` script for a project. Authorizes work sessions. Set once; immutable except via C02 exception. |
+| **seeded_by** | The individual who ran the `seed` script for a project — an audit record, set once. Not an authorization gate: authorization is via `assigned_to`, and ownership of in-progress work is per task. |
 | **base_branch** | The branch from which `{{org_slug}}-NNN-slug` was created in a code repository. The branch to which project changes are merged upon completion. |
 | **agent_work_root** | The local directory on a developer or agent's machine where project repositories are cloned. Never committed. |
 | **CODEOWNERS** | The GitHub file mapping repository folders to their responsible owners for PR review purposes. |
@@ -775,8 +771,8 @@ POL-042: Every project is identified by the format {{ORG_SLUG}}-NNN-slug (sequen
 POL-043: Project NNN sequence numbers are issued exclusively by the seed script from registry.yaml; never assigned manually.
 POL-044: registry.yaml in {{WORKSPACE_REPO}} is the single authoritative source of truth for all project IDs and statuses.
 POL-045: A project may be assigned to an individual (email) or a team (team-id).
-POL-046: locked_by records who ran the seed script; set once, never changed except via C02 reassignment exception.
-POL-047: For team projects, authorized workers are the locked_by individual or any current member of the assigned_to team.
+POL-046: seeded_by records who ran the seed script; an audit record set once — not an authorization gate.
+POL-047: Authorization derives from assigned_to (individual, or any member of the assigned_to team); no project-level lock — ownership is per task.
 POL-048: proposed status means the GitHub Project exists but the seed script has not been run.
 POL-049: active status means the seed script has been run and work is in progress.
 POL-050: paused status means work is temporarily halted; assignee is unchanged.
@@ -804,12 +800,12 @@ POL-071: The knowledge close process uses a dedicated branch named {{org_slug}}-
 POL-072: On completion or cancellation, all project branches must be tagged archive/{{org_slug}}-NNN-slug and deleted.
 POL-073: Sub-branches must merge to {{org_slug}}-NNN-slug only; never directly to {{DEFAULT_BRANCH}}, dev, or any base branch.
 POL-074: Each sub-branch is assigned to exactly one agent or developer; multiple assignees per sub-branch are not permitted.
-POL-075: Sub-branch tasks must be tracked as entries in tasks[] in project.yaml, each linked to a GitHub Issue.
+POL-075: Each task is a GitHub Issue on the board plus a sub-branch; task state lives on the board (open=active, closed=done), not in project.yaml.
 POL-076: When knowledge layers conflict, higher-priority layers always take precedence.
 POL-077: Org-wide knowledge in {{WORKSPACE_REPO}}/knowledge/ is the highest-authority knowledge layer.
 POL-078: Project knowledge in projects/{{ORG_SLUG}}-NNN-slug/knowledge/ is the second-priority knowledge layer.
 POL-079: Repo-local knowledge in <repo>/knowledge/ is the third-priority knowledge layer.
-POL-080: Developer preferences in $AGENT_WORK_ROOT/preferences/<gh-login>.md are the lowest-priority knowledge layer; per-user, keyed on GitHub login.
+POL-080: Developer preferences in $PRJ_GOV_LOC/preferences/<gh-login>.md are the lowest-priority knowledge layer; per-user, keyed on GitHub login.
 POL-081: Developer preferences cannot override repo knowledge; repo knowledge cannot override org knowledge.
 POL-082: The {{WORKSPACE_REPO}}/knowledge/ folder must follow the defined subdirectory structure exactly.
 POL-083: CODEOWNERS in {{WORKSPACE_REPO}} maps each knowledge/ subfolder to its domain owner for PR review.
@@ -843,7 +839,7 @@ POL-110: Project Knowledge Owner reviews accumulated project knowledge at projec
 POL-111: The close-knowledge script synthesizes org knowledge proposals using LLM+RAG.
 POL-112: The {{org_slug}}-NNN-slug-knowledge PR is the formal proposal mechanism; merged proposals are versioned by commit SHA.
 POL-113: Before any work, an agent must complete all four session start steps in order (C01).
-POL-114: Session start step 1 — verify locked_by matches current user identity; refuse and surface if mismatch (C01).
+POL-114: Session start step 1 — verify authorization (assigned_to individual/team) and, on a task sub-branch, that you own it; refuse and surface otherwise (C01).
 POL-115: Session start step 2 — verify status is active; refuse and surface if any other status (C01).
 POL-116: Session start step 3 — load all four knowledge layers fresh in priority order; never use cached layers across sessions (C01).
 POL-117: Session start step 4 — pull latest from {{org_slug}}-NNN-slug branch in all participating repositories (C01).
@@ -854,10 +850,10 @@ POL-121: Session end step 2 — update projects/{{ORG_SLUG}}-NNN-slug/knowledge/
 POL-122: Session end step 3 — update compliance.md if any compliance events occurred during the session.
 POL-123: Session end step 4 — push all commits to the remote.
 POL-124: A mid-session C01 violation requires immediate hard stop, no commits, and escalation to the human.
-POL-125: Each developer/agent must define an AGENT_WORK_ROOT directory (shell env var, or framework default of ~/work).
-POL-126: Project repositories are cloned into $AGENT_WORK_ROOT/{{ORG_SLUG}}-NNN-slug/.
-POL-127: Developer preferences are maintained at $AGENT_WORK_ROOT/preferences/<gh-login>.md — one file per developer, keyed on GitHub login.
-POL-128: AGENT_WORK_ROOT and its contents must never be committed to any repository.
+POL-125: Each developer/agent defines PRJ_GOV_LOC (shell env var; legacy AGENT_WORK_ROOT honored; default ~/prj_gov) — the local project-governance root.
+POL-126: Per-project clones live under $PRJ_GOV_LOC/projects/{{ORG_SLUG}}-NNN-slug/ (gov clone + repos/<repo-name>).
+POL-127: Developer preferences are maintained at $PRJ_GOV_LOC/preferences/<gh-login>.md — one file per developer, keyed on GitHub login.
+POL-128: PRJ_GOV_LOC and its contents must never be committed to any repository.
 POL-129: Developer and agent preferences are C03 instruments only.
 POL-130: Allowed preference customizations: coding style, preferred tools/models, local paths, shortcuts, communication style.
 POL-131: Prohibited preference content: org policies, security mandates, compliance levels, assignment rules, knowledge layer priority.
