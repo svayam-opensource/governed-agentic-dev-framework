@@ -16,7 +16,9 @@
 # Prerequisites:
 #   - GH_TOKEN env var set to admin@svayam.ai's PAT (see tests/e2e_config.env
 #     for the expected gh login)
-#   - PAT scopes: repo, delete_repo, read:org, project
+#   - PAT scopes: repo, workflow, delete_repo, read:org, project
+#       (workflow is required because the gov repo contains .github/workflows/;
+#        GitHub rejects PAT pushes touching workflow files without it)
 #   - Fixture GitHub Project pre-existing (see SMOKE_FIXTURE_PROJECT_URL)
 #   - /bin/bash (3.2 on macOS) — the smoke test deliberately uses stock bash
 #     to catch bash-4-only idioms in framework scripts
@@ -388,39 +390,50 @@ info "Step 9 — seed against fixture project $SMOKE_FIXTURE_PROJECT_URL..."
   >/tmp/smoke-init.log 2>&1 \
   || { tail -30 /tmp/smoke-init.log; hard_stop "seed.sh failed"; }
 
-# Find the seeded project ID
-PROJECT_ID=$(ls projects/ 2>/dev/null | grep "^${SMOKE_ORG_SLUG}-" | head -1)
-[[ -n "$PROJECT_ID" ]] || hard_stop "no seeded project folder found under projects/"
+# Option 2: seed authors the registry index entry on the DEFAULT branch and
+# leaves TEST_CLONE (the gov clone) on main; the scaffold + per-project clones
+# live under $PRJ_GOV_LOC/projects/<PID>/. Find the project via the registry.
+PGL="${PRJ_GOV_LOC:-$HOME/prj_gov}"
+PROJECT_ID=$(python3 -c "import yaml; ps=yaml.safe_load(open('registry.yaml')).get('projects') or []; a=[p['id'] for p in ps if p and p.get('status')=='active' and str(p.get('id','')).startswith('${SMOKE_ORG_SLUG}-')]; print(a[-1] if a else '')")
+[[ -n "$PROJECT_ID" ]] || hard_stop "no active ${SMOKE_ORG_SLUG}- project in registry.yaml on main (read fix?)"
 PROJECT_BRANCH=$(echo "$PROJECT_ID" | tr '[:upper:]' '[:lower:]')
+PRJDIR="$PGL/projects/$PROJECT_ID"
+PGOV="$PRJDIR/$TEST_REPO_NAME"
+SF="$PGOV/projects/$PROJECT_ID"
 
 # Track artifacts for cleanup
-CLEANUP_ARTIFACTS+=("local:$HOME/work/$PROJECT_ID")
+CLEANUP_ARTIFACTS+=("local:$PRJDIR")
 
-# State assertions
-[[ -d "projects/$PROJECT_ID" ]] || hard_stop "project folder missing"
-[[ -f "projects/$PROJECT_ID/project.yaml" ]] || hard_stop "project.yaml missing"
-[[ -f "projects/$PROJECT_ID/knowledge/todo.md" ]] || hard_stop "knowledge/todo.md missing — seed should scaffold it from the template"
-grep -q "^# To-do for ${SMOKE_ORG_SLUG}-" "projects/$PROJECT_ID/knowledge/todo.md" \
-  || hard_stop "todo.md header missing project-specific substitution"
-
-# Per-project tool bootstrap files (one per supported LLM coding tool).
-# Sample two of the eight — flat and nested — to verify seed's scaffold loop.
-[[ -f "projects/$PROJECT_ID/AGENTS.md" ]] \
-  || hard_stop "per-project AGENTS.md missing — seed should scaffold from root"
-[[ -f "projects/$PROJECT_ID/.cursor/rules/agent.mdc" ]] \
-  || hard_stop "per-project .cursor/rules/agent.mdc missing — seed should scaffold from root"
-grep -q "$PROJECT_ID" "projects/$PROJECT_ID/AGENTS.md" \
-  || hard_stop "per-project AGENTS.md doesn't contain the project ID after substitution"
-status=$(python3 -c "import yaml; print(yaml.safe_load(open('projects/$PROJECT_ID/project.yaml'))['status'])")
-[[ "$status" == "active" ]] || hard_stop "expected status=active, got $status"
-git rev-parse --verify "$PROJECT_BRANCH" >/dev/null 2>&1 \
-  || hard_stop "local branch '$PROJECT_BRANCH' missing"
-git ls-remote --exit-code --heads origin "$PROJECT_BRANCH" >/dev/null 2>&1 \
-  || hard_stop "remote branch '$PROJECT_BRANCH' missing"
+# Registry-on-main assertions (the read fix): entry present + carries assigned_to
 in_registry=$(python3 -c "import yaml; ps=yaml.safe_load(open('registry.yaml')).get('projects') or []; print('yes' if any(p.get('id')=='$PROJECT_ID' for p in ps if p) else 'no')")
-[[ "$in_registry" == "yes" ]] || hard_stop "registry missing entry for $PROJECT_ID"
+[[ "$in_registry" == "yes" ]] || hard_stop "registry (on main) missing entry for $PROJECT_ID"
+reg_assigned=$(python3 -c "import yaml; ps=yaml.safe_load(open('registry.yaml')).get('projects') or []; e=[p for p in ps if p and p.get('id')=='$PROJECT_ID']; print(e[0].get('assigned_to','') if e else '')")
+[[ -n "$reg_assigned" ]] || hard_stop "registry entry for $PROJECT_ID missing assigned_to (read fix?)"
 
-ok "project $PROJECT_ID seeded; status=active; branch on remote"
+# Per-project gov clone (PRJ_GOV) on the project branch, carrying the scaffold
+[[ -d "$PGOV/.git" ]] || hard_stop "PRJ_GOV clone missing at $PGOV"
+gb=$(git -C "$PGOV" rev-parse --abbrev-ref HEAD 2>/dev/null)
+[[ "$gb" == "$PROJECT_BRANCH" ]] || hard_stop "PRJ_GOV not on $PROJECT_BRANCH (got $gb)"
+[[ -f "$SF/project.yaml" ]] || hard_stop "project.yaml missing in PRJ_GOV scaffold"
+[[ -f "$SF/knowledge/todo.md" ]] || hard_stop "knowledge/todo.md missing in PRJ_GOV scaffold"
+grep -q "^# To-do for ${SMOKE_ORG_SLUG}-" "$SF/knowledge/todo.md" \
+  || hard_stop "todo.md header missing project-specific substitution"
+[[ -f "$SF/AGENTS.md" ]] || hard_stop "per-project AGENTS.md missing in PRJ_GOV scaffold"
+[[ -f "$SF/.cursor/rules/agent.mdc" ]] || hard_stop "per-project .cursor/rules/agent.mdc missing"
+grep -q "$PROJECT_ID" "$SF/AGENTS.md" || hard_stop "per-project AGENTS.md missing project ID after substitution"
+status=$(python3 -c "import yaml; print(yaml.safe_load(open('$SF/project.yaml'))['status'])")
+[[ "$status" == "active" ]] || hard_stop "expected status=active in PRJ_GOV, got $status"
+seeded=$(python3 -c "import yaml; print(yaml.safe_load(open('$SF/project.yaml')).get('seeded_by') or '')")
+[[ -n "$seeded" ]] || hard_stop "project.yaml missing seeded_by (ownership refactor)"
+
+# Code clones live under repos/
+[[ -d "$PRJDIR/repos" ]] || hard_stop "repos/ dir missing under $PRJDIR"
+
+# Remote project branch exists (pushed by seed)
+git -C "$PGOV" ls-remote --exit-code --heads origin "$PROJECT_BRANCH" >/dev/null 2>&1 \
+  || hard_stop "remote project branch '$PROJECT_BRANCH' missing"
+
+ok "$PROJECT_ID seeded; PRJ_GOV on branch; registry(active+assignee) on main; seeded_by set; repos/ present"
 
 # ── Step 10: prj list (shows seeded) ─────────────────────────────────────────
 
@@ -432,48 +445,49 @@ ok "registry has $PROJECT_ID"
 
 # ── Step 12 (was 11+13 dropped): curate project knowledge ────────────────────
 
-info "Step 12 — curating project knowledge..."
-mkdir -p "projects/$PROJECT_ID/knowledge"
-cat > "projects/$PROJECT_ID/knowledge/compliance.md" <<EOF
+info "Step 12 — curating project knowledge (in the PRJ_GOV clone)..."
+cat > "$SF/knowledge/compliance.md" <<EOF
 # Compliance Log: $PROJECT_ID
 
 (smoke-test placeholder; real adopters fill this in during their project)
 EOF
-cat > "projects/$PROJECT_ID/knowledge/notes.md" <<EOF
+cat > "$SF/knowledge/notes.md" <<EOF
 # Project Notes
 
 Smoke-test placeholder content for $PROJECT_ID.
 EOF
 
-# Make sure we're on the project branch (seed.sh leaves us there)
-git checkout "$PROJECT_BRANCH" 2>/dev/null || true
-git add "projects/$PROJECT_ID/knowledge/"
-git commit -m "curate project knowledge for $PROJECT_ID" >/dev/null 2>&1 \
+git -C "$PGOV" add "projects/$PROJECT_ID/knowledge/"
+git -C "$PGOV" commit -m "curate project knowledge for $PROJECT_ID" >/dev/null 2>&1 \
   || hard_stop "commit of curated knowledge failed"
-git push origin "$PROJECT_BRANCH" >/dev/null 2>&1 \
+git -C "$PGOV" push origin "$PROJECT_BRANCH" >/dev/null 2>&1 \
   || hard_stop "push of curated knowledge failed"
-ok "project knowledge curated and pushed"
+ok "project knowledge curated and pushed (from PRJ_GOV)"
 
 # ── Step 14: prj close (auto-fires close-knowledge) ──────────────────────────
 
-info "Step 14 — close-project.sh $PROJECT_ID (auto-fires close-knowledge)..."
-# Don't pipe `yes ""` into close-project: with pipefail set, `yes` exits
-# with 141 on SIGPIPE after the script returns, marking the whole pipeline
-# as failed even when close-project succeeded. close-project has no
-# interactive prompts so stdin doesn't need feeding.
-/bin/bash scripts/close-project.sh "$PROJECT_ID" \
+info "Step 14 — close-project from the PRJ_GOV clone (auto-fires close-knowledge)..."
+# Lifecycle ops run from the per-project gov clone (PRJ_GOV), where project work
+# happens. close merges to base + promotes to main via the test-merge gate, then
+# flips the registry index entry to completed on main.
+( cd "$PGOV" && /bin/bash scripts/close-project.sh "$PROJECT_ID" ) \
   >/tmp/smoke-close.log 2>&1 \
-  || { tail -30 /tmp/smoke-close.log; hard_stop "close-project.sh failed"; }
+  || { tail -40 /tmp/smoke-close.log; hard_stop "close-project.sh failed"; }
 
-# Verify state
+# Verify state on main (TEST_CLONE is the gov clone, resting on main):
 git fetch origin main >/dev/null 2>&1 || true
 git checkout main >/dev/null 2>&1 || true
 git pull origin main >/dev/null 2>&1 || true
 
+# Registry index flips to completed on main (read fix)
+reg_status=$(python3 -c "import yaml; ps=yaml.safe_load(open('registry.yaml')).get('projects') or []; e=[p for p in ps if p and p.get('id')=='$PROJECT_ID']; print(e[0].get('status','') if e else 'MISSING')")
+[[ "$reg_status" == "completed" ]] || hard_stop "registry status on main != completed after close (got $reg_status)"
+
+# project.yaml merged to main via the test-merge gate
 [[ -f "projects/$PROJECT_ID/project.yaml" ]] \
-  || hard_stop "project.yaml missing after close"
+  || hard_stop "project.yaml not merged to main after close"
 status=$(python3 -c "import yaml; print(yaml.safe_load(open('projects/$PROJECT_ID/project.yaml'))['status'])")
-[[ "$status" == "completed" ]] || hard_stop "expected status=completed after close, got $status"
+[[ "$status" == "completed" ]] || hard_stop "project.yaml status on main != completed, got $status"
 
 # Knowledge close branch should exist
 KNOWLEDGE_BRANCH="${PROJECT_BRANCH}-knowledge"
