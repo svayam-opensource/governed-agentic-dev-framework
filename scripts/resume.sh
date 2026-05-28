@@ -23,12 +23,9 @@ check_project_exists "$PROJECT_ID"
 
 require_project_status "$PROJECT_YAML" "paused"
 
-CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
-LOCKED_BY=$(yaml_get "$PROJECT_YAML" "locked_by")
 ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")
-if [[ -n "$CURRENT_USER" && "$CURRENT_USER" != "$LOCKED_BY" && "$CURRENT_USER" != "$ASSIGNED_TO" ]]; then
-  hard_stop "Not authorized: current user '$CURRENT_USER' is not locked_by or assigned_to."
-fi
+is_authorized "$ASSIGNED_TO" \
+  || hard_stop "Not authorized to resume: you are not '$ASSIGNED_TO' (nor a member, if it is a team)."
 
 BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
 
@@ -87,6 +84,11 @@ git checkout "$BRANCH"
 git add "projects/$PROJECT_ID/project.yaml"
 git commit -m "resume: $PROJECT_ID (synced with $DEFAULT_BRANCH)"
 git push origin "$BRANCH"
+
+# ── Reflect resume in the registry index on the default branch + README mirror ─
+registry_set_status_on_main "$PROJECT_ID" "active"
+project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "active" \
+  "$ASSIGNED_TO" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
 
 echo ""
 echo "=== Project resumed."
