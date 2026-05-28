@@ -12,12 +12,12 @@ load_config
 # ── Inputs ────────────────────────────────────────────────────────────────────
 
 PROJECT_ID="${1:-}"
-TASK_ID="${2:-}"
+ISSUE_URL="${2:-}"
 
-[[ -n "$PROJECT_ID" ]] || hard_stop "Usage: $0 <project_id> <task_id>"
-[[ -n "$TASK_ID"    ]] || hard_stop "Usage: $0 <project_id> <task_id>"
+[[ -n "$PROJECT_ID" ]] || hard_stop "Usage: $0 <project_id> <github_issue_url>"
+[[ -n "$ISSUE_URL"  ]] || hard_stop "Usage: $0 <project_id> <github_issue_url>"
 
-echo "=== merge-task: $PROJECT_ID / $TASK_ID"
+echo "=== merge-task: $PROJECT_ID / $ISSUE_URL"
 echo ""
 
 PROJECT_YAML=$(get_project_yaml "$PROJECT_ID")
@@ -29,22 +29,16 @@ require_project_status "$PROJECT_YAML" "active"
 
 BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
 
-# Verify task exists and is active
-TASK_META=$(python3 - "$PROJECT_YAML" "$TASK_ID" <<'PY'
-import sys, yaml, json
-c = yaml.safe_load(open(sys.argv[1]))
-for t in (c.get('tasks') or []):
-    if t and t.get('id') == sys.argv[2]:
-        print(json.dumps(t))
-        sys.exit(0)
-sys.exit(1)
-PY
-) || hard_stop "Task '$TASK_ID' not found in project.yaml — verify task_id."
+# Tasks-on-board model: derive the sub-branch from the issue title (same slugify
+# as create-task) — no project.yaml tasks[] lookup.
+ISSUE_TITLE=$(gh issue view "$ISSUE_URL" --json title -q '.title' 2>/dev/null) \
+  || hard_stop "Could not fetch issue title from $ISSUE_URL — verify the issue URL."
+TASK_SLUG=$(slugify "$ISSUE_TITLE")
+TASK_ID="${BRANCH}/${TASK_SLUG}"
 
-TASK_STATUS=$(echo "$TASK_META" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))")
-[[ "$TASK_STATUS" == "active" ]] || hard_stop "Task '$TASK_ID' status is '$TASK_STATUS', expected 'active'."
-
-ISSUE_URL=$(echo "$TASK_META" | python3 -c "import sys,json; print(json.load(sys.stdin).get('github_issue',''))")
+# Verify the task sub-branch exists on the remote
+git -C "$REPO_ROOT" ls-remote --exit-code --heads origin "$TASK_ID" >/dev/null 2>&1 \
+  || hard_stop "No sub-branch '$TASK_ID' on the remote for $ISSUE_URL — was the task created?"
 
 # Check no uncommitted changes in workspace
 check_clean "$REPO_ROOT"
@@ -88,36 +82,12 @@ while IFS= read -r repo_url; do
   [[ -d "$REPO_DIR/.git" ]] && archive_branch "$REPO_DIR" "$TASK_ID"
 done < <(get_project_repos "$PROJECT_YAML")
 
-# ── Close GitHub Issue ────────────────────────────────────────────────────────
-
-if [[ -n "$ISSUE_URL" ]]; then
-  gh issue close "$ISSUE_URL" --comment "Task \`$TASK_ID\` merged into \`$BRANCH\`." 2>/dev/null \
-    || warn "Could not close issue $ISSUE_URL — close manually."
-  info "Closed issue: $ISSUE_URL"
-fi
-
-# ── Update project.yaml tasks[] ──────────────────────────────────────────────
-
-TODAY=$(today)
-python3 - "$PROJECT_YAML" "$TASK_ID" "$TODAY" <<'PY'
-import sys, yaml
-pf, task_id, today = sys.argv[1:]
-with open(pf) as f:
-    c = yaml.safe_load(f)
-for t in (c.get('tasks') or []):
-    if t and t.get('id') == task_id:
-        t['status'] = 'completed'
-        t['completed_at'] = today
-        break
-with open(pf, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-
-cd "$REPO_ROOT"
-git checkout "$BRANCH"
-git add "projects/$PROJECT_ID/project.yaml"
-git commit -m "merge-task: complete task $TASK_ID"
-git push origin "$BRANCH"
+# ── Close the GitHub Issue + mark Done on the board (tasks-on-board) ──────────
+gh issue close "$ISSUE_URL" --comment "Task \`$TASK_ID\` merged into \`$BRANCH\`." 2>/dev/null \
+  || warn "Could not close issue $ISSUE_URL — close manually."
+info "Closed issue: $ISSUE_URL"
+GHPROJ=$(yaml_get "$PROJECT_YAML" "github_project")
+board_set_status "$GHPROJ" "$ISSUE_URL" "Done" || true
 
 echo ""
 echo "=== Task merged successfully!"

@@ -38,14 +38,10 @@ repos:
     added_at: ~               # YYYY-MM-DD
     added_reason: ~           # populated only for repos added post-seed via add-repo script
 
-# --- Tasks — sub-branches for multi-agent work (POL-074) ---
-tasks:
-  - id: ~                     # {{org_slug}}-NNN-slug/task-slug
-    github_issue: ~           # URL to the linked GitHub Issue
-    assigned_to: ~            # individual email
-    status: active            # active | completed | cancelled
-    created_at: ~             # YYYY-MM-DD
-    completed_at: ~           # YYYY-MM-DD
+# --- Tasks (tasks-on-board model — POL-074) ---
+# Tasks are NOT tracked in this file. Each task = a GitHub Issue on the project
+# board + a sub-branch ({{org_slug}}-NNN-slug/<task-slug>). The board's open vs
+# Done state is the source of truth; create with `prj task`, land with `prj merge`.
 
 # --- Knowledge Close (POL-101) ---
 knowledge_status: ~           # pending_review | merged | rejected | under_revision | abandoned

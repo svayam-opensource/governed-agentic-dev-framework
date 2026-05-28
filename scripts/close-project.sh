@@ -62,6 +62,12 @@ require_any_project_status "$PROJECT_YAML" "active" "completed"
 BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
 TODAY=$(today)
 
+# Tasks-on-board: a task is a sub-branch (<branch>/<task-slug>). Refuse to close
+# while any remain unmerged — merge them (prj merge) or cancel first.
+OPEN_TASKS=$(git -C "$REPO_ROOT" ls-remote --heads origin "$BRANCH/*" 2>/dev/null | awk '{print $2}' | sed 's|refs/heads/||')
+[[ -n "$OPEN_TASKS" ]] && hard_stop "Unmerged task sub-branches exist — merge or cancel them first:
+$OPEN_TASKS"
+
 # ── Update state on project branch (so the gate validates it) ────────────────
 
 echo "Updating project state on '$BRANCH'..."

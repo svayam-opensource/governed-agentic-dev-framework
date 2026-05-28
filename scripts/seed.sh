@@ -423,7 +423,6 @@ reassigned_at: ~
 reassigned_approved_by: ~
 repos:
 $REPOS_BLOCK
-tasks: []
 knowledge_status: ~
 knowledge_pr: ~
 agent_config:

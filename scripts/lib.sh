@@ -352,14 +352,81 @@ MD
 }
 
 # Print active task IDs from project.yaml tasks[]
+# Active tasks = OPEN/non-Done issues on the project board (tasks-on-board model;
+# the board is the source of truth for task state, not project.yaml). Echoes one
+# issue URL per line. Reads the board via gh (needs 'project' scope). Arg: project.yaml path.
 get_project_tasks() {
-  python3 - "$1" <<'PY'
-import sys, yaml
-c = yaml.safe_load(open(sys.argv[1]))
-for t in (c.get('tasks') or []):
-    if t and t.get('id') and t.get('status') == 'active':
-        print(t['id'])
-PY
+  local pf="$1"
+  local url; url=$(yaml_get "$pf" "github_project")
+  [[ -z "$url" || "$url" == "~" ]] && return 0
+  command -v gh >/dev/null 2>&1 || return 0
+  local num owner
+  num=$(echo "$url" | grep -oE '/projects/[0-9]+' | grep -oE '[0-9]+' || echo "")
+  [[ -z "$num" ]] && return 0
+  if echo "$url" | grep -q '/orgs/'; then
+    owner=$(echo "$url" | sed 's|.*/orgs/\([^/]*\)/.*|\1|')
+  else
+    owner=$(echo "$url" | sed 's|.*/users/\([^/]*\)/.*|\1|')
+  fi
+  gh project item-list "$num" --owner "$owner" --format json --limit 200 2>/dev/null | python3 -c "
+import sys, json
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+for i in d.get('items', []):
+    c = i.get('content') or {}
+    if c.get('type') == 'Issue' and str(i.get('status','')).strip().lower() != 'done':
+        u = c.get('url')
+        if u: print(u)
+" 2>/dev/null
+}
+
+# Best-effort: set a GitHub Project 'Status' single-select for an issue's item.
+# Needs the 'project' (write) scope; warns + returns 0 on any failure so it can
+# never break a task op. Args: project_url, issue_url, status_option_name.
+board_set_status() {
+  local url="$1" issue="$2" want="$3"
+  [[ -z "$url" || -z "$issue" ]] && return 0
+  command -v gh >/dev/null 2>&1 || return 0
+  local num owner
+  num=$(echo "$url" | grep -oE '/projects/[0-9]+' | grep -oE '[0-9]+' || echo "")
+  [[ -z "$num" ]] && return 0
+  if echo "$url" | grep -q '/orgs/'; then
+    owner=$(echo "$url" | sed 's|.*/orgs/\([^/]*\)/.*|\1|')
+  else
+    owner=$(echo "$url" | sed 's|.*/users/\([^/]*\)/.*|\1|')
+  fi
+  local pid fid oid iid
+  pid=$(gh project view "$num" --owner "$owner" --format json 2>/dev/null \
+        | python3 -c "import sys,json; print((json.load(sys.stdin) or {}).get('id',''))" 2>/dev/null)
+  read -r fid oid <<EOF2
+$(gh project field-list "$num" --owner "$owner" --format json 2>/dev/null | WANT="$want" python3 -c "
+import sys, json, os
+want = os.environ.get('WANT','').strip().lower()
+d = json.load(sys.stdin)
+for f in d.get('fields', []):
+    if f.get('name') == 'Status':
+        oid = ''
+        for o in (f.get('options') or []):
+            if o.get('name','').strip().lower() == want: oid = o.get('id','')
+        print(f.get('id',''), oid); break
+" 2>/dev/null)
+EOF2
+  iid=$(gh project item-list "$num" --owner "$owner" --format json --limit 200 2>/dev/null \
+        | ISSUE="$issue" python3 -c "
+import sys, json, os
+iss = os.environ.get('ISSUE','')
+d = json.load(sys.stdin)
+for i in d.get('items', []):
+    if (i.get('content') or {}).get('url') == iss: print(i.get('id','')); break
+" 2>/dev/null)
+  if [[ -z "$pid" || -z "$fid" || -z "$oid" || -z "$iid" ]]; then
+    warn "Board Status not set for $issue (need 'project' scope + a '$want' option)."
+    return 0
+  fi
+  gh project item-edit --id "$iid" --project-id "$pid" --field-id "$fid" \
+     --single-select-option-id "$oid" >/dev/null 2>&1 \
+    || warn "Board Status update to '$want' failed for $issue."
+  return 0
 }
 
 # ── Git helpers ───────────────────────────────────────────────────────────────

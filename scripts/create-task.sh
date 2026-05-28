@@ -56,15 +56,11 @@ ISSUE_TITLE=$(gh issue view "$ISSUE_URL" --json title -q '.title' 2>/dev/null) \
 TASK_SLUG=$(slugify "$ISSUE_TITLE")
 TASK_ID="${BRANCH}/${TASK_SLUG}"
 
-# Check no active task already exists for this issue
-python3 - "$PROJECT_YAML" "$ISSUE_URL" <<'PY'
-import sys, yaml
-c = yaml.safe_load(open(sys.argv[1]))
-for t in (c.get('tasks') or []):
-    if t and t.get('github_issue') == sys.argv[2] and t.get('status') == 'active':
-        print(f"CONFLICT: Issue already has active task: {t['id']}")
-        sys.exit(1)
-PY
+# Tasks-on-board model: the issue + its sub-branch ARE the task (no project.yaml
+# tasks[]). Refuse to task a closed issue; the sub-branch existence check below
+# prevents creating a duplicate task for the same issue.
+ISSUE_STATE=$(gh issue view "$ISSUE_URL" --json state -q '.state' 2>/dev/null || echo "")
+[[ "$ISSUE_STATE" == "CLOSED" ]] && hard_stop "Issue $ISSUE_URL is closed — cannot start a task on it."
 
 echo "Task ID : $TASK_ID"
 echo ""
@@ -106,33 +102,10 @@ done < <(get_project_repos "$PROJECT_YAML")
 gh issue edit "$ISSUE_URL" --add-assignee "$ASSIGNEE" 2>/dev/null \
   || warn "Could not assign issue to $ASSIGNEE — assign manually."
 
-# ── Update project.yaml tasks[] ──────────────────────────────────────────────
-
-python3 - "$PROJECT_YAML" "$TASK_ID" "$ISSUE_URL" "$ASSIGNEE" "$TODAY" <<'PY'
-import sys, yaml
-pf, task_id, issue, assignee, today = sys.argv[1:]
-with open(pf) as f:
-    c = yaml.safe_load(f)
-if not c.get('tasks'):
-    c['tasks'] = []
-c['tasks'].append({
-    'id': task_id,
-    'github_issue': issue,
-    'assigned_to': assignee,
-    'status': 'active',
-    'created_at': today,
-    'completed_at': None,
-})
-with open(pf, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-
-# Commit updated project.yaml to project branch
-cd "$REPO_ROOT"
-git checkout "$BRANCH"
-git add "projects/$PROJECT_ID/project.yaml"
-git commit -m "create-task: add task $TASK_ID"
-git push origin "$BRANCH"
+# ── Mark the task active on the board (tasks-on-board: no project.yaml tasks[]) ──
+# The issue + its sub-branch are the task record; reflect it on the board Status.
+GHPROJ=$(yaml_get "$PROJECT_YAML" "github_project")
+board_set_status "$GHPROJ" "$ISSUE_URL" "In progress" || true
 
 echo ""
 echo "=== Task created successfully!"
