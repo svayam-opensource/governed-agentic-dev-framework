@@ -588,28 +588,13 @@ if [[ ${#REPO_URL_LIST[@]} -gt 0 ]]; then
   done
 fi
 
-# ── Update registry.yaml ──────────────────────────────────────────────────────
-
-python3 - "$REGISTRY" "$PROJECT_ID" "$BRANCH" "$TODAY" "$GITHUB_PROJECT_URL" $((LAST_ISSUED + 1)) "$PROJECT_OWNER" <<'PY'
-import sys, yaml
-registry, pid, branch, today, gh_url, new_last, owner = sys.argv[1:]
-with open(registry) as f:
-    c = yaml.safe_load(f)
-c['last_issued'] = int(new_last)
-if not c.get('projects'):
-    c['projects'] = []
-c['projects'].append({'id': pid, 'branch': branch, 'github_project': gh_url,
-                      'github_owner': owner, 'created_at': today, 'status': 'active'})
-with open(registry, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-
-info "registry.yaml updated (last_issued → $NNN)"
-
-# ── Commit and push workspace branch ─────────────────────────────────────────
+# ── Commit and push the project scaffold on the project branch ───────────────
+# The registry index is authored on $DEFAULT_BRANCH (below), not here — it is the
+# global, always-visible source of truth (POL-044). The project branch carries
+# the per-project working data (project.yaml + knowledge/).
 
 cd "$REPO_ROOT"
-git add "projects/$PROJECT_ID" registry.yaml
+git add "projects/$PROJECT_ID"
 git commit -m "seed: scaffold project $PROJECT_ID"
 git push -u origin "$BRANCH"
 PUSHED_REMOTE_BRANCHES+=("$REPO_ROOT|$BRANCH")
@@ -631,8 +616,33 @@ if [[ -n "$GOV_REMOTE_URL" && ! -d "$PRJ_GOV_DIR/.git" ]]; then
   fi
 fi
 
-# Return Gov.local to the default branch — management ops run from main.
+# ── Author the registry index entry on $DEFAULT_BRANCH ───────────────────────
+# Gov.local returns to the default branch and records the project in the global
+# registry (id, branch, status, assignee, seeder) so management/read commands
+# see active projects without checking out the project branch.
 git -C "$REPO_ROOT" checkout "$DEFAULT_BRANCH" 2>/dev/null || true
+git -C "$REPO_ROOT" pull --ff-only origin "$DEFAULT_BRANCH" 2>/dev/null || true
+python3 - "$REGISTRY" "$PROJECT_ID" "$BRANCH" "$TODAY" "$GITHUB_PROJECT_URL" $((LAST_ISSUED + 1)) "$PROJECT_OWNER" "$ASSIGNEE" "$CURRENT_USER" <<'PY'
+import sys, yaml
+registry, pid, branch, today, gh_url, new_last, owner, assigned, seeded = sys.argv[1:]
+with open(registry) as f:
+    c = yaml.safe_load(f) or {}
+c['last_issued'] = max(int(c.get('last_issued') or 0), int(new_last))
+c['projects'] = [p for p in (c.get('projects') or []) if not (p and p.get('id') == pid)]
+c['projects'].append({'id': pid, 'branch': branch, 'github_project': gh_url,
+                      'github_owner': owner, 'created_at': today, 'status': 'active',
+                      'assigned_to': assigned, 'seeded_by': seeded})
+with open(registry, 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+PY
+git -C "$REPO_ROOT" add registry.yaml
+git -C "$REPO_ROOT" commit -m "registry: add $PROJECT_ID (active)" 2>/dev/null || true
+git -C "$REPO_ROOT" push origin "$DEFAULT_BRANCH" 2>/dev/null \
+  || warn "Could not push registry entry to $DEFAULT_BRANCH — push manually so $PROJECT_ID is listed."
+info "registry.yaml updated on $DEFAULT_BRANCH (last_issued → $NNN)"
+
+# Best-effort: mirror a read-only summary into the GitHub Project README.
+project_readme_mirror "$PROJECT_ID" "$GITHUB_PROJECT_URL" "active" "$ASSIGNEE" "$CURRENT_USER" "$BRANCH" || true
 
 # Mark seed complete — rollback trap will skip cleanup
 SEED_OK=1

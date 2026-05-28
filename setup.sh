@@ -448,11 +448,13 @@ else
 
   # ── gh login (offer to run it) ──
   # The governance flow needs these scopes:
-  #   repo         — push project branches, raise PRs (close-knowledge, onboard)
-  #   read:org     — resolve team membership for team-assigned projects
-  #   read:project — list/read GitHub Projects (prj init, prj manage)
-  GOV_SCOPES="repo read:org read:project"
-  GOV_SCOPES_CSV="repo,read:org,read:project"
+  #   repo      — push project branches, raise PRs (close-knowledge, onboard)
+  #   read:org  — resolve team membership for team-assigned projects
+  #   project   — read GitHub Projects (init/manage) AND write to them
+  #               (task Status field on the board + the README governance mirror).
+  #               'project' includes read, so it supersedes read:project.
+  GOV_SCOPES="repo read:org project"
+  GOV_SCOPES_CSV="repo,read:org,project"
 
   GH_USER=$(gh api user --jq .login 2>/dev/null || echo "")
   if [[ -z "$GH_USER" ]]; then
@@ -478,7 +480,7 @@ else
   if [[ ${#MISSING[@]} -gt 0 ]]; then
     warn "Missing gh scopes: ${MISSING[*]}"
     info "Governance needs: $GOV_SCOPES"
-    info "  read:project — list/seed GitHub Projects;  read:org — team membership;  repo — push/PRs"
+    info "  project — read/write GitHub Projects (init/manage, task status, README mirror);  read:org — team membership;  repo — push/PRs"
     MISSING_CSV=$(IFS=,; echo "${MISSING[*]}")
     if confirm_yn "Refresh now via 'gh auth refresh -s $MISSING_CSV'?"; then
       gh auth refresh -h github.com -s "$MISSING_CSV" || warn "Refresh did not complete."

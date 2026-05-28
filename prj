@@ -558,12 +558,14 @@ status_colour = {
 }
 NC = '\033[0m'
 BOLD = '\033[1m'
+DIM = '\033[2m'
 for p in projects:
     if not p:
         continue
     s = p.get('status', '?')
     c = status_colour.get(s, '')
-    print(f"  {BOLD}{p['id']}{NC}  {c}{s}{NC}")
+    a = p.get('assigned_to', '') or ''
+    print(f"  {BOLD}{p['id']}{NC}  {c}{s}{NC}  {DIM}{a}{NC}")
 PY
   echo ""
 }
@@ -576,6 +578,29 @@ cmd_status() {
   local PF="$SCRIPT_DIR/projects/$PROJECT_ID/project.yaml"
   echo ""
   divider
+  if [[ ! -f "$PF" ]]; then
+    # Active project: the manifest lives on the project branch, not on the
+    # default branch where Gov.local rests. Show the registry index summary
+    # (authoritative for status / assignee).
+    python3 - "$REGISTRY" "$PROJECT_ID" <<'PY'
+import sys, yaml
+reg, pid = sys.argv[1], sys.argv[2]
+c = yaml.safe_load(open(reg)) or {}
+e = next((p for p in (c.get('projects') or []) if p and p.get('id') == pid), None)
+BOLD='\033[1m'; NC='\033[0m'; DIM='\033[2m'
+if not e:
+    print(f"  {pid}: not found in registry."); sys.exit(0)
+print(f"  {BOLD}ID:{NC}          {e.get('id','')}")
+print(f"  {BOLD}Status:{NC}      {e.get('status','')}")
+print(f"  {BOLD}Assigned to:{NC} {e.get('assigned_to','')}")
+print(f"  {BOLD}Seeded by:{NC}   {e.get('seeded_by','')}")
+print(f"  {BOLD}Branch:{NC}      {e.get('branch','')}")
+print(f"  {BOLD}GitHub:{NC}      {e.get('github_project','')}")
+print(f"  {DIM}Full manifest (repos / tasks) lives on the project branch — run from the project's PRJ_GOV clone for detail.{NC}")
+PY
+    echo ""
+    return
+  fi
   python3 - "$PF" <<'PY'
 import sys, yaml
 BOLD='\033[1m'; NC='\033[0m'; DIM='\033[2m'; GREEN='\033[0;32m'
@@ -945,10 +970,11 @@ for gh in gh_projects:
         pid = reg.get('id', '—')
         s   = reg.get('status', '?')
         sc  = status_colour.get(s, '')
-        pf  = os.path.join(proj_dir, 'projects', pid, 'project.yaml')
-        assignee = ''
-        if os.path.exists(pf):
-            assignee = yaml.safe_load(open(pf)).get('assigned_to') or ''
+        assignee = reg.get('assigned_to') or ''
+        if not assignee:
+            pf = os.path.join(proj_dir, 'projects', pid, 'project.yaml')
+            if os.path.exists(pf):
+                assignee = (yaml.safe_load(open(pf)) or {}).get('assigned_to') or ''
         adisp = assignee if assignee else f'{DIM}(unassigned){NC}'
         print(f"  {title:<38} {BOLD}{pid:<22}{NC} {sc}{s:<12}{NC} {adisp}")
     elif url in pre_by_url:

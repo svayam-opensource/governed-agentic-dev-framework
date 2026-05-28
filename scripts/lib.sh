@@ -268,6 +268,89 @@ is_authorized() {
   return 1
 }
 
+# ── Registry-on-default-branch (Option 2 global index) ──────────────────────
+# registry.yaml is the authoritative index and lives on $DEFAULT_BRANCH so
+# management/read commands see all projects without checking out a project
+# branch. This sets a project's status there and pushes. Safe to call from a
+# standalone clone on any branch when the working tree is clean (callers commit
+# their own changes first); it switches to the default branch and back.
+registry_set_status_on_main() {
+  local pid="$1" status="$2"
+  local cur; cur=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  if [[ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]]; then
+    warn "Working tree not clean — skipping registry status update on $DEFAULT_BRANCH for $pid."
+    return 0
+  fi
+  git -C "$REPO_ROOT" fetch origin "$DEFAULT_BRANCH" 2>/dev/null || true
+  git -C "$REPO_ROOT" checkout "$DEFAULT_BRANCH" 2>/dev/null \
+    || { warn "Could not switch to $DEFAULT_BRANCH to update registry for $pid."; return 0; }
+  git -C "$REPO_ROOT" pull --ff-only origin "$DEFAULT_BRANCH" 2>/dev/null || true
+  python3 - "$REGISTRY" "$pid" "$status" <<'PY'
+import sys, yaml
+reg, pid, status = sys.argv[1:]
+c = yaml.safe_load(open(reg)) or {}
+for p in (c.get('projects') or []):
+    if p and p.get('id') == pid:
+        p['status'] = status
+        break
+with open(reg, 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+PY
+  if [[ -n "$(git -C "$REPO_ROOT" status --porcelain registry.yaml 2>/dev/null)" ]]; then
+    git -C "$REPO_ROOT" add registry.yaml
+    git -C "$REPO_ROOT" commit -m "registry: $pid status=$status" >/dev/null 2>&1 || true
+    git -C "$REPO_ROOT" push origin "$DEFAULT_BRANCH" 2>/dev/null \
+      || warn "Could not push registry status=$status for $pid to $DEFAULT_BRANCH."
+  fi
+  [[ -n "$cur" ]] && git -C "$REPO_ROOT" checkout "$cur" 2>/dev/null || true
+  return 0
+}
+
+# Best-effort: mirror a read-only governance summary into the GitHub Project
+# README. Needs the 'project' (write) scope; on any failure it warns and
+# returns 0 so it can never break a lifecycle op. git stays authoritative.
+project_readme_mirror() {
+  local pid="$1" gh_url="$2" status="$3" assigned="$4" seeded="$5" branch="$6"
+  [[ -z "$gh_url" ]] && return 0
+  command -v gh >/dev/null 2>&1 || return 0
+  local num owner field
+  num=$(echo "$gh_url" | grep -oE '/projects/[0-9]+' | grep -oE '[0-9]+' || echo "")
+  [[ -z "$num" ]] && return 0
+  if echo "$gh_url" | grep -q '/orgs/'; then
+    owner=$(echo "$gh_url" | sed 's|.*/orgs/\([^/]*\)/.*|\1|'); field="organization"
+  else
+    owner=$(echo "$gh_url" | sed 's|.*/users/\([^/]*\)/.*|\1|'); field="user"
+  fi
+  local node_id
+  node_id=$(gh api graphql -f query="query{ ${field}(login: \"$owner\"){ projectV2(number: $num){ id } } }" \
+    --jq ".data.${field}.projectV2.id" 2>/dev/null || echo "")
+  if [[ -z "$node_id" || "$node_id" == "null" ]]; then
+    warn "README mirror skipped for $pid (could not resolve project — needs 'project' scope)."
+    return 0
+  fi
+  local readme
+  readme=$(cat <<MD
+<!-- Managed by the agentic-dev framework — do not edit. Mirrored from registry.yaml. -->
+## Governance — $pid
+
+| Field | Value |
+|---|---|
+| Project ID | \`$pid\` |
+| Status | $status |
+| Assigned to | $assigned |
+| Seeded by | $seeded |
+| Branch | \`$branch\` |
+
+Authoritative record: \`registry.yaml\` + \`projects/$pid/\` in the governance repo.
+MD
+)
+  gh api graphql \
+    -f query='mutation($id:ID!,$r:String!){ updateProjectV2(input:{projectId:$id, readme:$r}){ projectV2 { id } } }' \
+    -f id="$node_id" -f r="$readme" >/dev/null 2>&1 \
+    || warn "README mirror skipped for $pid (write failed — needs 'project' scope)."
+  return 0
+}
+
 # Print active task IDs from project.yaml tasks[]
 get_project_tasks() {
   python3 - "$1" <<'PY'

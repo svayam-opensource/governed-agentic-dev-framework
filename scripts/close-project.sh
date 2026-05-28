@@ -83,19 +83,10 @@ fi
 yaml_set "$PROJECT_YAML" "status"       "completed"
 yaml_set "$PROJECT_YAML" "completed_at" "$TODAY"
 
-python3 - "$REGISTRY" "$PROJECT_ID" <<'PY'
-import sys, yaml
-with open(sys.argv[1]) as f:
-    c = yaml.safe_load(f)
-for p in (c.get('projects') or []):
-    if p and p.get('id') == sys.argv[2]:
-        p['status'] = 'completed'
-        break
-with open(sys.argv[1], 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-
-git add "projects/$PROJECT_ID/project.yaml" registry.yaml
+# project.yaml status lives on the project branch (merges to $DEFAULT_BRANCH
+# below). The registry index entry lives on $DEFAULT_BRANCH (authored at seed)
+# and is flipped to 'completed' after the merge, near the end of this script.
+git add "projects/$PROJECT_ID/project.yaml"
 if ! git diff --cached --quiet; then
   git commit -m "close-project: $PROJECT_ID — mark completed"
   git push origin "$BRANCH"
@@ -140,6 +131,11 @@ bash "$SCRIPT_DIR/test-merge.sh" "$BRANCH"
 
 cd "$REPO_ROOT"
 git push origin "$DEFAULT_BRANCH"
+
+# ── Flip the registry index entry to completed (on $DEFAULT_BRANCH) + mirror ──
+registry_set_status_on_main "$PROJECT_ID" "completed"
+project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "completed" \
+  "$(yaml_get "$PROJECT_YAML" assigned_to)" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
 
 # ── Archive branches ──────────────────────────────────────────────────────────
 

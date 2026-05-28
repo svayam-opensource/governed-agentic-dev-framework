@@ -70,36 +70,27 @@ while IFS= read -r repo_url; do
   fi
 done < <(get_project_repos "$PROJECT_YAML")
 
-# ── Update project.yaml and commit to DEFAULT_BRANCH ─────────────────────────
+# ── Record cancellation ──────────────────────────────────────────────────────
+# project.yaml status is recorded on the project branch (preserved in the
+# archive tag). The registry index entry is flipped to 'cancelled' on
+# $DEFAULT_BRANCH, where it lives (authored at seed).
 
 TODAY=$(today)
-yaml_set "$PROJECT_YAML" "status"               "cancelled"
-yaml_set "$PROJECT_YAML" "cancelled_at"         "$TODAY"
-yaml_set "$PROJECT_YAML" "cancellation_reason"  "$CANCELLATION_REASON"
-
-# Update registry
-python3 - "$REGISTRY" "$PROJECT_ID" <<'PY'
-import sys, yaml
-with open(sys.argv[1]) as f:
-    c = yaml.safe_load(f)
-for p in (c.get('projects') or []):
-    if p and p.get('id') == sys.argv[2]:
-        p['status'] = 'cancelled'
-        break
-with open(sys.argv[1], 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-
 cd "$REPO_ROOT"
-git checkout "$DEFAULT_BRANCH"
-git pull origin "$DEFAULT_BRANCH"
-git add "projects/$PROJECT_ID/project.yaml" registry.yaml
-git commit -m "cancel: $PROJECT_ID — $CANCELLATION_REASON"
+if [[ -f "$PROJECT_YAML" ]]; then
+  yaml_set "$PROJECT_YAML" "status"               "cancelled"
+  yaml_set "$PROJECT_YAML" "cancelled_at"         "$TODAY"
+  yaml_set "$PROJECT_YAML" "cancellation_reason"  "$CANCELLATION_REASON"
+  git add "projects/$PROJECT_ID/project.yaml"
+  if ! git diff --cached --quiet; then
+    git commit -m "cancel: $PROJECT_ID — $CANCELLATION_REASON"
+    git push origin "$BRANCH" 2>/dev/null || true
+  fi
+fi
 
-# Pre-push validation gate (rolls back commit if validators fail)
-validate_or_revert
-
-git push origin "$DEFAULT_BRANCH"
+registry_set_status_on_main "$PROJECT_ID" "cancelled"
+project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project 2>/dev/null)" "cancelled" \
+  "$(yaml_get "$PROJECT_YAML" assigned_to 2>/dev/null)" "$(yaml_get "$PROJECT_YAML" seeded_by 2>/dev/null)" "$BRANCH" || true
 
 echo ""
 echo "=== Project cancelled."
