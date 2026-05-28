@@ -247,6 +247,27 @@ get_repo_name() { basename "$1" .git; }
 project_clone_root() { echo "$PRJ_GOV_LOC/projects/$1"; }
 repo_clone_dir()     { echo "$PRJ_GOV_LOC/projects/$1/repos/$2"; }
 
+# Is the current user authorized to work this project? (per-task/team model)
+# assigned_to is either an individual email (contains '@') or a GitHub team slug.
+# Authorized when: assigned_to is empty/~ (unrestricted), OR equals the current
+# git email (individual), OR the current gh login is a member of the team
+# (needs read:org). seeded_by is an audit record and is NOT an authorization gate.
+is_authorized() {
+  local assigned="${1:-}"
+  [[ -z "$assigned" || "$assigned" == "~" ]] && return 0
+  local email; email=$(git config user.email 2>/dev/null || echo "")
+  [[ -n "$email" && "$assigned" == "$email" ]] && return 0
+  if [[ "$assigned" != *"@"* ]]; then            # treat as a GitHub team slug
+    local login team
+    login=$(gh api user --jq .login 2>/dev/null || echo "")
+    [[ -z "$login" ]] && return 1
+    team="${assigned#@}"; team="${team##*/}"       # strip leading @ and any org/ prefix
+    gh api "orgs/$GITHUB_ORG/teams/$team/members" --jq '.[].login' 2>/dev/null \
+      | grep -qx "$login" && return 0
+  fi
+  return 1
+}
+
 # Print active task IDs from project.yaml tasks[]
 get_project_tasks() {
   python3 - "$1" <<'PY'

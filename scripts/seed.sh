@@ -383,6 +383,12 @@ get_repo_base() {
 
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "$ASSIGNEE")
 
+# Authorization (per-task/team model): the person seeding must be authorized
+# for the assignee — match it (individual) or be a member (team). seeded_by
+# records who ran seed (audit); it is not itself a gate.
+is_authorized "$ASSIGNEE" \
+  || hard_stop "You ($CURRENT_USER) are not authorized for assignee '$ASSIGNEE' — must equal it (individual) or be a member (team)."
+
 # Quote string scalars to keep YAML valid when values contain reserved chars
 # (e.g. a project title that starts with '@', a github handle starting with
 # '@', a URL containing ':'). Embedded double-quotes in user-controlled
@@ -404,7 +410,7 @@ description: ~
 github_project: $Q_GITHUB_PROJECT_URL
 github_project_name: $Q_PROJECT_TITLE
 assigned_to: $Q_ASSIGNEE
-locked_by: $Q_CURRENT_USER
+seeded_by: $Q_CURRENT_USER
 status: active
 created_at: $TODAY
 started_at: $TODAY
@@ -442,8 +448,10 @@ cat > "$PROJECT_DIR/agent.md" <<MD
 
 ## Session Start Checklist (C01)
 
-1. Verify \`project.yaml\` \`locked_by\` matches your identity
-2. Verify \`status: active\`
+1. Verify \`status: active\` and that you're authorized to work it
+   (\`assigned_to\` is you, or a team you belong to). The lock is per-task:
+   when on a task sub-branch, that sub-branch's assignee must be you.
+2. Verify \`seeded_by\` records who initiated (audit only — not a gate)
 3. Pull latest \`$BRANCH\` in all repos under \`$PRJ_GOV_LOC/projects/$PROJECT_ID/repos/\`
 4. Load your own preferences file (see layer 4 above)
 5. Read \`projects/$PROJECT_ID/knowledge/todo.md\` and surface its \`## Open\`

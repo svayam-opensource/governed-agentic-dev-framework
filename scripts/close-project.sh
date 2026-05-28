@@ -38,7 +38,7 @@ if [[ ! -f "$KNOWLEDGE_DIR/compliance.md" ]]; then
 fi
 
 # 3. project.yaml mandatory fields populated
-for field in id slug assigned_to locked_by started_at; do
+for field in id slug assigned_to seeded_by started_at; do
   val=$(yaml_get "$PROJECT_YAML" "$field")
   [[ -z "$val" || "$val" == "~" ]] && GATE_FAILURES+=("project.yaml field '$field' is not populated.")
 done

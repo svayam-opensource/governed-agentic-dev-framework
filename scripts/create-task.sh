@@ -43,13 +43,12 @@ while IFS= read -r repo_url; do
 done < <(get_project_repos "$PROJECT_YAML")
 $REPO_FOUND || hard_stop "Repo '$ISSUE_REPO_URL' is not in project repos[]. Add it first via add-repo."
 
-# Check assignee is current user or project member (C01)
+# The person creating the task must be authorized on the project — assigned_to
+# individual or a member of the assigned_to team (per-task/team model, POL-047).
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
-LOCKED_BY=$(yaml_get "$PROJECT_YAML" "locked_by")
 ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")
-if [[ "$ASSIGNEE" != "$LOCKED_BY" && "$ASSIGNEE" != "$ASSIGNED_TO" && "$ASSIGNEE" != "$CURRENT_USER" ]]; then
-  hard_stop "Assignee '$ASSIGNEE' is not locked_by or assigned_to on this project (C01)."
-fi
+is_authorized "$ASSIGNED_TO" \
+  || hard_stop "You ($CURRENT_USER) are not authorized on this project (assigned_to: $ASSIGNED_TO)."
 
 # Derive task slug from issue title
 ISSUE_TITLE=$(gh issue view "$ISSUE_URL" --json title -q '.title' 2>/dev/null) \

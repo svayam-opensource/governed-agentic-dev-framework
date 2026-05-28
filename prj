@@ -367,6 +367,18 @@ PY
   bash "$SCRIPTS/seed.sh" "$SELECTED_URL" "$ASSIGNEE"
 }
 
+cmd_join() {
+  header "Join Project"
+  divider
+  label "Clone your own PRJ_GOV + code repos for an existing project (team member)."
+  echo ""
+  select_project PROJECT_ID "active"
+  echo ""
+  confirm "Join '$PROJECT_ID' — clone gov + code repos on its branch?"
+  echo ""
+  bash "$SCRIPTS/join.sh" "$PROJECT_ID"
+}
+
 cmd_task() {
   header "Create Task"
   divider
@@ -977,7 +989,6 @@ import sys, yaml
 pf, assignee = sys.argv[1], sys.argv[2]
 with open(pf) as f: c = yaml.safe_load(f)
 c['assigned_to'] = assignee
-c['locked_by']   = assignee
 with open(pf, 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
     commit_assignment "$MANAGE_SELECTED_PID"
@@ -1051,7 +1062,6 @@ import sys, yaml
 pf, new_assignee, reason, approved_by, today = sys.argv[1:]
 with open(pf) as f: c = yaml.safe_load(f)
 c['assigned_to']            = new_assignee
-c['locked_by']              = new_assignee
 c['reassignment_reason']    = reason
 c['reassigned_at']          = today
 c['reassigned_approved_by'] = approved_by
@@ -1115,7 +1125,6 @@ PY
 import sys, yaml
 with open(sys.argv[1]) as f: c = yaml.safe_load(f)
 c['assigned_to'] = None
-c['locked_by']   = None
 with open(sys.argv[1], 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
     commit_assignment "$MANAGE_SELECTED_PID"
@@ -1178,6 +1187,7 @@ show_menu() {
   echo -e "  ${CYAN}7)${NC}  add-repo     Add a repository to a project"
   echo -e "  ${CYAN}8)${NC}  cancel       Cancel a project"
   echo -e "  ${CYAN}9)${NC}  close        Close a completed project"
+  echo -e "  ${CYAN}16)${NC} join         Join an existing project (team member)"
   echo ""
   echo -e "  ${CYAN}${BOLD}Knowledge${NC}"
   echo -e "  ${CYAN}10)${NC} knowledge    Propose org knowledge changes"
@@ -1199,13 +1209,14 @@ show_menu() {
   echo ""
   # Write ops need a configured git identity; check before dispatching.
   case "$choice" in
-    1|init|2|task|3|merge|4|pause|5|resume|6|sync|7|add-repo|8|cancel|9|close|10|knowledge|11|onboard|15|manage)
+    1|init|2|task|3|merge|4|pause|5|resume|6|sync|7|add-repo|8|cancel|9|close|10|knowledge|11|onboard|15|manage|16|join)
       require_git_identity
       ;;
   esac
 
   case "$choice" in
     1|init)       cmd_init ;;
+    16|join)      cmd_join ;;
     2|task)       cmd_task ;;
     3|merge)      cmd_merge ;;
     4|pause)      cmd_pause ;;
@@ -1236,7 +1247,7 @@ CMD="${1:-}"
 # Write commands need a configured git identity (they call git commit
 # during the flow). Read-only commands don't.
 case "$CMD" in
-  init|task|merge|pause|resume|sync|add-repo|cancel|close|knowledge|onboard|manage)
+  init|join|task|merge|pause|resume|sync|add-repo|cancel|close|knowledge|onboard|manage)
     require_git_identity
     ;;
 esac
@@ -1244,6 +1255,7 @@ esac
 case "$CMD" in
   "")           show_menu ;;
   init)         cmd_init ;;
+  join)         cmd_join ;;
   task)         cmd_task ;;
   merge)        cmd_merge ;;
   pause)        cmd_pause ;;
@@ -1264,6 +1276,7 @@ case "$CMD" in
     echo ""
     echo -e "${BOLD}Commands:${NC}"
     echo "  init        Initialize a new project"
+    echo "  join        Join an existing project (team member)"
     echo "  task        Create a task for parallel work"
     echo "  merge       Merge a completed task"
     echo "  pause       Pause a project"
