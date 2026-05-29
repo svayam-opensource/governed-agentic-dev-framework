@@ -34,7 +34,7 @@ BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
 ISSUE_TITLE=$(gh issue view "$ISSUE_URL" --json title -q '.title' 2>/dev/null) \
   || hard_stop "Could not fetch issue title from $ISSUE_URL — verify the issue URL."
 TASK_SLUG=$(slugify "$ISSUE_TITLE")
-TASK_ID="${BRANCH}/${TASK_SLUG}"
+TASK_ID="${BRANCH}.${TASK_SLUG}"   # '.' separator — see create-task.sh for why not '/'
 
 # Verify the task sub-branch exists on the remote
 git -C "$REPO_ROOT" ls-remote --exit-code --heads origin "$TASK_ID" >/dev/null 2>&1 \

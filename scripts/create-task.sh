@@ -54,7 +54,11 @@ is_authorized "$ASSIGNED_TO" \
 ISSUE_TITLE=$(gh issue view "$ISSUE_URL" --json title -q '.title' 2>/dev/null) \
   || hard_stop "Could not fetch issue title from $ISSUE_URL"
 TASK_SLUG=$(slugify "$ISSUE_TITLE")
-TASK_ID="${BRANCH}/${TASK_SLUG}"
+# Task sub-branch name. NOTE the '.' separator (not '/'): git refuses to hold a
+# branch '<x>' and '<x>/<y>' at once (refs/heads/<x> is a file, not a dir), so
+# '<branch>/<slug>' would collide with the project branch. '<branch>.<slug>' is
+# collision-free and still lets close-project glob tasks as "<branch>.*".
+TASK_ID="${BRANCH}.${TASK_SLUG}"
 
 # Tasks-on-board model: the issue + its sub-branch ARE the task (no project.yaml
 # tasks[]). Refuse to task a closed issue; the sub-branch existence check below

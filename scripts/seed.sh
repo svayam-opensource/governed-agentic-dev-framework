@@ -478,7 +478,7 @@ Your work happens across three locations:
 
 1. Pick an issue from the GitHub Project board.
 2. Start a task sub-branch: \`./prj task <issue-url>\`
-   (creates \`$BRANCH/<task-slug>\` in workspace + all code repos;
+   (creates \`$BRANCH.<task-slug>\` in workspace + all code repos;
     assigns the GitHub Issue.)
 3. Do the work in the cloned code repos on the task sub-branch.
    Capture decisions, exceptions, and policy notes in
