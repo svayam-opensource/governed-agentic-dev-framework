@@ -197,13 +197,13 @@ templates:
     alwaysApply: {{template_extra.alwaysApply}}
     ---
 
-    {{generated_banner}}
+    {{render.generated_banner}}
 
-    {{body}}
+    {{render.body}}
   markdown-plain: |
-    {{generated_banner}}
+    {{render.generated_banner}}
 
-    {{body}}
+    {{render.body}}
   claude-import-stub: |
     @agent/session-protocol.md
     @agent.md
@@ -213,7 +213,7 @@ templates:
 # Per-project composition (seed / render-harness --project)
 per_project:
   compose_body: |
-    {{session_protocol_body}}
+    {{render.session_protocol_body}}
 
     ---
 

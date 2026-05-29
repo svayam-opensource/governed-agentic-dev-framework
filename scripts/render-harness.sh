@@ -50,8 +50,11 @@ body = open(protocol_path).read().rstrip("\n")
 
 def subst(tmpl, mapping, extra=None):
     out = tmpl
+    # Render markers are namespaced ({{render.X}} / {{template_extra.X}}) so the
+    # dot keeps them out of the org-placeholder regex ({{NAME}}, no dots), which
+    # setup.sh substitutes and STRICT_PLACEHOLDERS validates.
     for k, v in mapping.items():
-        out = out.replace("{{%s}}" % k, v)
+        out = out.replace("{{render.%s}}" % k, v)
     for k, v in (extra or {}).items():
         sv = "true" if v is True else "false" if v is False else str(v)
         out = out.replace("{{template_extra.%s}}" % k, sv)
