@@ -19,7 +19,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 MANIFEST="$REPO/agent/harness-manifest.yaml"
 PROTOCOL="$REPO/agent/session-protocol.md"
-ENTRYPOINT="$REPO/agent.md"
+ENTRYPOINT="$REPO/framework/agent.md"
 
 [[ -f "$MANIFEST" ]] || { echo "ERROR: manifest not found: $MANIFEST" >&2; exit 1; }
 [[ -f "$PROTOCOL" ]] || { echo "ERROR: canonical protocol not found: $PROTOCOL" >&2; exit 1; }

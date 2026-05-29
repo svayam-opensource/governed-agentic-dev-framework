@@ -1,0 +1,29 @@
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Local environment
+.env
+.env.local
+
+# Node (if any tooling pulls it in)
+node_modules/
+
+# Local agent / dev workspaces — created by the framework outside of org's tree
+work/
+
+# Per-user local IDE configurations
+.claude/local-settings.json

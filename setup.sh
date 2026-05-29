@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 # Agentic Development Framework — Organization Setup Script
 #
-# Interactive: prompts for each org-config value with sensible defaults.
-# Auto-derives github_org and workspace_repo from `git remote get-url origin`.
-# Refuses to proceed if origin points at the framework template (a common
-# adopter foot-gun: cloning the template directly instead of using
-# "Use this template" on GitHub).
+# One-time interactive setup for your organization. Writes org-specific values
+# to org-config.yaml and configures git remotes so future framework upgrades
+# can be pulled from the upstream TEMPLATE.
+#
+# Framework files (CLAUDE.md, AGENTS.md, knowledge/policies/, etc.) are NEVER
+# modified by this script — they reference values from org-config.yaml at
+# runtime. This keeps `git pull template main` conflict-free forever.
 #
 # Usage:
-#   bash setup.sh                  # interactive (default)
-#   bash setup.sh --non-interactive  # use existing org-config.yaml as-is,
-#                                    # skip prompts (for CI / re-runs)
+#   bash setup.sh                    # interactive (default)
+#   bash setup.sh --non-interactive  # re-use existing org-config.yaml values
+#                                    # (for CI / re-runs)
 #
-# After successful run, all {{PLACEHOLDER}} tokens in *.md, *.yaml, *.yml,
-# and CODEOWNERS files are substituted with the configured values.
+# Env escape hatches (testing):
+#   SETUP_SKIP_GITHUB_VERIFY=1       Skip the gh / scope checks.
+#   SETUP_SKIP_REMOTE_CONFIG=1       Skip rename/add of origin/template remotes.
 
 set -euo pipefail
 
@@ -22,6 +25,11 @@ NON_INTERACTIVE=false
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$REPO_ROOT/org-config.yaml"
+
+# The framework's canonical upstream — used to seed the `template` remote.
+TEMPLATE_REPO_URL="git@github.com:svayam-opensource/governed-agentic-dev-framework.git"
+TEMPLATE_OWNER="svayam-opensource"
+TEMPLATE_REPO="governed-agentic-dev-framework"
 
 # ── Output helpers ────────────────────────────────────────────────────────────
 
@@ -37,11 +45,11 @@ hard_stop() { echo ""; err "$*"; echo ""; exit 1; }
 
 # ── Read with EOF handling ────────────────────────────────────────────────────
 
-# NOTE: helpers below use unique internal variable names (__rabort_val,
-# __ask_val, __validated_val) to avoid shadowing the caller's __val via
-# bash's dynamic scoping. printf -v writes to the closest local in scope —
-# if both inner and outer scopes declare `local __val`, the inner wins
-# and the value never propagates back to the caller.
+# Helpers below use unique internal variable names (__rabort_val, __ask_val,
+# __validated_val) to avoid shadowing the caller's __val via bash's dynamic
+# scoping. printf -v writes to the closest local in scope — if both inner
+# and outer scopes declare `local __val`, the inner wins and the value
+# never propagates back to the caller.
 
 _read_or_abort() {
   local __varname="$1" __rabort_val
@@ -76,7 +84,6 @@ ask_required() {
   done
 }
 
-# Slug: 2-6 chars, must start with a letter, A-Z and 0-9 only after.
 ask_slug() {
   local __var="$1" __prompt="$2" __default="${3:-}" __validated_val
   while true; do
@@ -89,7 +96,6 @@ ask_slug() {
   done
 }
 
-# Date: YYYY-MM-DD format (lightweight check).
 ask_date() {
   local __var="$1" __prompt="$2" __default="${3:-}" __validated_val
   while true; do
@@ -102,12 +108,33 @@ ask_date() {
   done
 }
 
-# Yes/No confirm, defaults to No. Returns 0 on yes.
-confirm_yn() {
-  local __ans
-  printf "  ${BOLD}%s${NC} [y/N]: " "$1"
-  if ! IFS= read -r __ans; then echo ""; return 1; fi
-  [[ "$__ans" == [yY] || "$__ans" == [yY][eE][sS] ]]
+# Parse a GitHub URL into owner/repo. Accepts ssh and https forms (with or
+# without .git suffix). Returns 0 on success and sets the two named vars.
+parse_github_url() {
+  local url="$1" __owner_var="$2" __repo_var="$3"
+  local normalized="${url%.git}"
+  if [[ "$normalized" =~ github\.com[:/]([^/]+)/(.+)$ ]]; then
+    printf -v "$__owner_var" '%s' "${BASH_REMATCH[1]}"
+    printf -v "$__repo_var"  '%s' "${BASH_REMATCH[2]}"
+    return 0
+  fi
+  return 1
+}
+
+ask_github_url() {
+  local __var="$1" __prompt="$2" __default="${3:-}" __validated_val __owner __repo
+  while true; do
+    ask __validated_val "$__prompt" "$__default"
+    if [[ -z "$__validated_val" ]]; then
+      err "Required."
+      continue
+    fi
+    if parse_github_url "$__validated_val" __owner __repo; then
+      printf -v "$__var" '%s' "$__validated_val"
+      return
+    fi
+    err "Expected a GitHub URL (git@github.com:owner/repo[.git] or https://github.com/owner/repo[.git])."
+  done
 }
 
 # ── Read existing org-config.yaml values ──────────────────────────────────────
@@ -135,50 +162,22 @@ fi
 
 ORIGIN_URL=$(git remote get-url origin 2>/dev/null || echo "")
 if [[ -z "$ORIGIN_URL" ]]; then
-  hard_stop "No 'origin' remote configured.
-
-Set one up first:
-  git remote add origin <YOUR_REPO_URL>
-
-Then re-run setup.sh."
+  hard_stop "No 'origin' remote configured. Set one up first:
+    git remote add origin <YOUR_ORG_REPO_URL>
+  Then re-run setup.sh."
 fi
 
-# Parse owner/repo from URL.  Accepts:
-#   git@github.com:owner/repo.git
-#   git@github.com:owner/repo
-#   https://github.com/owner/repo.git
-#   https://github.com/owner/repo
-#   ssh://git@github.com/owner/repo.git
-ORIGIN_NORMALIZED="${ORIGIN_URL%.git}"
 ORIGIN_OWNER=""
 ORIGIN_REPO=""
-if [[ "$ORIGIN_NORMALIZED" =~ github\.com[:/]([^/]+)/(.+)$ ]]; then
-  ORIGIN_OWNER="${BASH_REMATCH[1]}"
-  ORIGIN_REPO="${BASH_REMATCH[2]}"
-fi
+parse_github_url "$ORIGIN_URL" ORIGIN_OWNER ORIGIN_REPO \
+  || hard_stop "Could not parse owner/repo from origin URL: $ORIGIN_URL"
 
-if [[ -z "$ORIGIN_OWNER" || -z "$ORIGIN_REPO" ]]; then
-  hard_stop "Could not parse owner/repo from origin URL: $ORIGIN_URL"
-fi
-
-# Refuse if origin points at the framework's source template
-if [[ "$ORIGIN_OWNER" == "svayam-opensource" && "$ORIGIN_REPO" == "governed-agentic-dev-framework" ]]; then
-  hard_stop "This repo's 'origin' remote points at the framework's source template:
-
-  $ORIGIN_URL
-
-Your changes would commit to the upstream template, not your org's
-workspace. To fix:
-
-  (a) RECOMMENDED: discard this clone. Go to
-        https://github.com/svayam-opensource/governed-agentic-dev-framework
-      and click 'Use this template' to create your own private repo,
-      then clone that.
-
-  (b) Or re-target this clone to YOUR repo:
-        git remote set-url origin <YOUR_REPO_URL>
-        git push -u origin main
-      Then re-run setup.sh."
+# Detect "origin still points at the framework TEMPLATE" — adopter cloned
+# TEMPLATE directly. We re-point origin at their org repo during setup
+# (not a hard stop the way it used to be — setup itself does the fix).
+ORIGIN_IS_TEMPLATE=false
+if [[ "$ORIGIN_OWNER" == "$TEMPLATE_OWNER" && "$ORIGIN_REPO" == "$TEMPLATE_REPO" ]]; then
+  ORIGIN_IS_TEMPLATE=true
 fi
 
 # ── Step 2: Read existing config + runtime detections ────────────────────────
@@ -186,8 +185,10 @@ fi
 CURRENT_ORG_NAME=$(read_yaml_field org_name)
 CURRENT_ORG_SHORT=$(read_yaml_field org_short_name)
 CURRENT_ORG_SLUG=$(read_yaml_field org_slug)
+CURRENT_ORG_REPO_URL=$(read_yaml_field org_repo_url)
 CURRENT_DEFAULT_BRANCH=$(read_yaml_field default_branch)
 CURRENT_DEFAULT_CODE_BRANCH=$(read_yaml_field default_code_branch)
+CURRENT_AGENT_WORK_ROOT=$(read_yaml_field agent_work_root)
 CURRENT_POLICY_OWNER_EMAIL=$(read_yaml_field policy_owner_email)
 CURRENT_POLICY_OWNER_GITHUB=$(read_yaml_field policy_owner_github)
 CURRENT_LEGAL=$(read_yaml_field legal_owner_github)
@@ -200,38 +201,24 @@ GH_USER=$(gh api user --jq .login 2>/dev/null || echo "")
 GIT_EMAIL=$(git config user.email 2>/dev/null || echo "")
 TODAY=$(date +%Y-%m-%d)
 
-# Helper: returns the second arg if the first is "" or matches a known template default.
-default_or() {
-  local current="$1" fallback="$2"
-  case "$current" in
-    "" | "Your Organization Name" | "YourOrg" | "ORG" | "org" \
-       | "your-github-org" | "000-org-prj" | "you@example.com" \
-       | "@your-github-handle" | "@legal-owner-tbd" \
-       | "@infrastructure-owner-tbd" | "@system-arch-owner-tbd" \
-       | "@data-arch-owner-tbd" | "YYYY-MM-DD")
-      echo "$fallback"
-      ;;
-    *)
-      echo "$current"
-      ;;
-  esac
-}
-
 # ── Step 3: Prompt (or skip in --non-interactive) ─────────────────────────────
 
 if $NON_INTERACTIVE; then
   warn "--non-interactive: using existing org-config.yaml values as-is."
-  if [[ -z "$CURRENT_ORG_NAME" || "$CURRENT_ORG_NAME" == "Your Organization Name" ]]; then
-    hard_stop "org-config.yaml is at template defaults. Run setup.sh interactively first."
-  fi
+  [[ -n "$CURRENT_ORG_NAME" ]] \
+    || hard_stop "org-config.yaml has no org_name. Run setup.sh interactively first."
   ORG_NAME="$CURRENT_ORG_NAME"
   ORG_SHORT_NAME="$CURRENT_ORG_SHORT"
   ORG_SLUG="$CURRENT_ORG_SLUG"
   ORG_SLUG_LOWER=$(echo "$ORG_SLUG" | tr '[:upper:]' '[:lower:]')
+  ORG_REPO_URL="${CURRENT_ORG_REPO_URL:-$ORIGIN_URL}"
+  parse_github_url "$ORG_REPO_URL" ORIGIN_OWNER ORIGIN_REPO || true
   GITHUB_ORG="$ORIGIN_OWNER"
   WORKSPACE_REPO="$ORIGIN_REPO"
   DEFAULT_BRANCH="$CURRENT_DEFAULT_BRANCH"
   DEFAULT_CODE_BRANCH="$CURRENT_DEFAULT_CODE_BRANCH"
+  AGENT_WORK_ROOT="$CURRENT_AGENT_WORK_ROOT"
+  [[ -n "$AGENT_WORK_ROOT" ]] || AGENT_WORK_ROOT="$HOME/.${ORG_SLUG_LOWER}/projects"
   POLICY_OWNER_EMAIL="$CURRENT_POLICY_OWNER_EMAIL"
   POLICY_OWNER_GITHUB="$CURRENT_POLICY_OWNER_GITHUB"
   LEGAL_OWNER_GITHUB="$CURRENT_LEGAL"
@@ -244,66 +231,85 @@ else
   echo -e "${BOLD}Agentic Development Framework — Setup${NC}"
   echo "─────────────────────────────────────────"
   echo ""
-  echo "  Origin remote:    ${ORIGIN_OWNER}/${ORIGIN_REPO}"
-  [[ -n "$GH_USER"   ]] && echo "  Detected gh user: ${GH_USER}"
-  [[ -n "$GIT_EMAIL" ]] && echo "  Git user.email:   ${GIT_EMAIL}"
+  echo "  Current 'origin':   ${ORIGIN_OWNER}/${ORIGIN_REPO}"
+  [[ -n "$GH_USER"   ]] && echo "  Detected gh user:   ${GH_USER}"
+  [[ -n "$GIT_EMAIL" ]] && echo "  Git user.email:     ${GIT_EMAIL}"
   echo ""
   echo "Press Enter to accept the [default] for any prompt."
 
+  if $ORIGIN_IS_TEMPLATE; then
+    header "Your organization's repository"
+    echo "  Your 'origin' remote points at the framework TEMPLATE:"
+    echo "    $ORIGIN_URL"
+    echo ""
+    echo "  Setup will re-point origin at your org's own repo and keep TEMPLATE"
+    echo "  as a separate remote called 'template' for future framework"
+    echo "  upgrades (git pull template main)."
+    echo ""
+    ask_github_url ORG_REPO_URL "Your org's repo URL (git@... or https://...)" "${CURRENT_ORG_REPO_URL:-}"
+    parse_github_url "$ORG_REPO_URL" ORIGIN_OWNER ORIGIN_REPO \
+      || hard_stop "Internal error: just-validated URL no longer parses."
+  else
+    ORG_REPO_URL="${CURRENT_ORG_REPO_URL:-$ORIGIN_URL}"
+  fi
+  GITHUB_ORG="$ORIGIN_OWNER"
+  WORKSPACE_REPO="$ORIGIN_REPO"
+
   header "Organization"
-  ask_required ORG_NAME       "Full legal name of your organization" "$(default_or "$CURRENT_ORG_NAME"  "")"
-  ask_required ORG_SHORT_NAME "Short display name (used in headings)"  "$(default_or "$CURRENT_ORG_SHORT" "")"
-  ask_slug     ORG_SLUG       "Org slug (uppercase, 2-6 chars; e.g. ACME, NORDIC)" "$(default_or "$CURRENT_ORG_SLUG" "")"
+  ask_required ORG_NAME       "Full legal name of your organization"          "$CURRENT_ORG_NAME"
+  ask_required ORG_SHORT_NAME "Short display name (used in headings)"          "$CURRENT_ORG_SHORT"
+  ask_slug     ORG_SLUG       "Org slug (uppercase, 2-6 chars; e.g. ACME)"     "$CURRENT_ORG_SLUG"
   ORG_SLUG_LOWER=$(echo "$ORG_SLUG" | tr '[:upper:]' '[:lower:]')
   echo ""
   ok "org_slug:        $ORG_SLUG"
   ok "org_slug_lower:  $ORG_SLUG_LOWER  (auto-derived)"
-  ok "github_org:      $ORIGIN_OWNER  (from origin remote)"
-  ok "workspace_repo:  $ORIGIN_REPO    (from origin remote)"
-  GITHUB_ORG="$ORIGIN_OWNER"
-  WORKSPACE_REPO="$ORIGIN_REPO"
+  ok "github_org:      $ORIGIN_OWNER    (from org repo URL)"
+  ok "workspace_repo:  $ORIGIN_REPO     (from org repo URL)"
 
   header "Branches"
-  ask DEFAULT_BRANCH      "Default branch for this workspace repo"     "$(default_or "$CURRENT_DEFAULT_BRANCH" "main")"
-  ask DEFAULT_CODE_BRANCH "Default base branch for code repositories"  "$(default_or "$CURRENT_DEFAULT_CODE_BRANCH" "dev")"
+  ask DEFAULT_BRANCH      "Default branch for this workspace repo"     "${CURRENT_DEFAULT_BRANCH:-main}"
+  ask DEFAULT_CODE_BRANCH "Default base branch for code repositories"  "${CURRENT_DEFAULT_CODE_BRANCH:-dev}"
+
+  header "Agent work root"
+  echo "  Per-project workspaces are created under this path. Each project"
+  echo "  gets its own folder containing a clone of this repo on the project"
+  echo "  branch plus clones of each impacted code repo on the project branch."
+  echo ""
+  ask AGENT_WORK_ROOT "Agent work root path" "${CURRENT_AGENT_WORK_ROOT:-$HOME/.${ORG_SLUG_LOWER}/projects}"
 
   header "Policy Owner (initial holder of all policy roles)"
-  POLICY_EMAIL_DEFAULT=$(default_or "$CURRENT_POLICY_OWNER_EMAIL" "$GIT_EMAIL")
-  ask_required POLICY_OWNER_EMAIL  "Policy Owner email"             "$POLICY_EMAIL_DEFAULT"
-  POLICY_GITHUB_DEFAULT=$(default_or "$CURRENT_POLICY_OWNER_GITHUB" "${GH_USER:+@$GH_USER}")
-  ask_required POLICY_OWNER_GITHUB "Policy Owner GitHub @-handle"   "$POLICY_GITHUB_DEFAULT"
+  ask_required POLICY_OWNER_EMAIL  "Policy Owner email"             "${CURRENT_POLICY_OWNER_EMAIL:-$GIT_EMAIL}"
+  ask_required POLICY_OWNER_GITHUB "Policy Owner GitHub @-handle"   "${CURRENT_POLICY_OWNER_GITHUB:-${GH_USER:+@$GH_USER}}"
 
   header "Domain Owners"
   echo "  Per the default policy, all domain roles are held by the Policy Owner"
   echo "  at launch. Press Enter to accept '$POLICY_OWNER_GITHUB' for each."
-  LEGAL_DEFAULT=$(default_or "$CURRENT_LEGAL"     "$POLICY_OWNER_GITHUB")
-  INFRA_DEFAULT=$(default_or "$CURRENT_INFRA"     "$POLICY_OWNER_GITHUB")
-  SYS_ARCH_DEFAULT=$(default_or "$CURRENT_SYS_ARCH" "$POLICY_OWNER_GITHUB")
-  DATA_ARCH_DEFAULT=$(default_or "$CURRENT_DATA_ARCH" "$POLICY_OWNER_GITHUB")
-  ask LEGAL_OWNER_GITHUB         "Legal Owner"                  "$LEGAL_DEFAULT"
-  ask INFRA_OWNER_GITHUB         "Infrastructure Owner"         "$INFRA_DEFAULT"
-  ask SYSTEM_ARCH_OWNER_GITHUB   "System Architecture Owner"    "$SYS_ARCH_DEFAULT"
-  ask DATA_ARCH_OWNER_GITHUB     "Data Architecture Owner"      "$DATA_ARCH_DEFAULT"
+  ask LEGAL_OWNER_GITHUB         "Legal Owner"                  "${CURRENT_LEGAL:-$POLICY_OWNER_GITHUB}"
+  ask INFRA_OWNER_GITHUB         "Infrastructure Owner"         "${CURRENT_INFRA:-$POLICY_OWNER_GITHUB}"
+  ask SYSTEM_ARCH_OWNER_GITHUB   "System Architecture Owner"    "${CURRENT_SYS_ARCH:-$POLICY_OWNER_GITHUB}"
+  ask DATA_ARCH_OWNER_GITHUB     "Data Architecture Owner"      "${CURRENT_DATA_ARCH:-$POLICY_OWNER_GITHUB}"
 
   header "Policy"
-  ask_date POLICY_EFFECTIVE_DATE "Policy effective date (YYYY-MM-DD)" "$(default_or "$CURRENT_POLICY_DATE" "$TODAY")"
+  ask_date POLICY_EFFECTIVE_DATE "Policy effective date (YYYY-MM-DD)" "${CURRENT_POLICY_DATE:-$TODAY}"
 
   echo ""
   echo "Configured values:"
-  echo "  org_name:                $ORG_NAME"
-  echo "  org_short_name:          $ORG_SHORT_NAME"
-  echo "  org_slug:                $ORG_SLUG"
-  echo "  github_org:              $GITHUB_ORG"
-  echo "  workspace_repo:          $WORKSPACE_REPO"
-  echo "  default_branch:          $DEFAULT_BRANCH"
-  echo "  default_code_branch:     $DEFAULT_CODE_BRANCH"
-  echo "  policy_owner_email:      $POLICY_OWNER_EMAIL"
-  echo "  policy_owner_github:     $POLICY_OWNER_GITHUB"
-  echo "  legal_owner_github:      $LEGAL_OWNER_GITHUB"
-  echo "  infra_owner_github:      $INFRA_OWNER_GITHUB"
-  echo "  system_arch_owner_github:$SYSTEM_ARCH_OWNER_GITHUB"
-  echo "  data_arch_owner_github:  $DATA_ARCH_OWNER_GITHUB"
-  echo "  policy_effective_date:   $POLICY_EFFECTIVE_DATE"
+  echo "  org_name:                  $ORG_NAME"
+  echo "  org_short_name:            $ORG_SHORT_NAME"
+  echo "  org_slug:                  $ORG_SLUG"
+  echo "  org_repo_url:              $ORG_REPO_URL"
+  echo "  github_org:                $GITHUB_ORG"
+  echo "  workspace_repo:            $WORKSPACE_REPO"
+  echo "  default_branch:            $DEFAULT_BRANCH"
+  echo "  default_code_branch:       $DEFAULT_CODE_BRANCH"
+  echo "  agent_work_root:           $AGENT_WORK_ROOT"
+  echo "  policy_owner_email:        $POLICY_OWNER_EMAIL"
+  echo "  policy_owner_github:       $POLICY_OWNER_GITHUB"
+  echo "  legal_owner_github:        $LEGAL_OWNER_GITHUB"
+  echo "  infra_owner_github:        $INFRA_OWNER_GITHUB"
+  echo "  system_arch_owner_github:  $SYSTEM_ARCH_OWNER_GITHUB"
+  echo "  data_arch_owner_github:    $DATA_ARCH_OWNER_GITHUB"
+  echo "  policy_effective_date:     $POLICY_EFFECTIVE_DATE"
   echo ""
 fi
 
@@ -312,8 +318,13 @@ fi
 cat > "$CONFIG" <<EOF
 # Agentic Development Framework — Organization Configuration
 #
-# This file is the single source of truth for org-specific values.
-# Re-run setup.sh after editing to substitute values throughout the framework.
+# Single source of truth for this organization's identity, defaults, and roles.
+# Framework scripts and agents read these values at runtime — no placeholder
+# substitution happens, so this file is the only thing that diverges from
+# the upstream framework template.
+#
+# Re-run ./setup.sh to update. Do not edit by hand unless you know what you're
+# doing (setup.sh overwrites the file).
 
 # Full legal name of your organization
 org_name: "$ORG_NAME"
@@ -321,18 +332,21 @@ org_name: "$ORG_NAME"
 # Short display name (used in headings and prose)
 org_short_name: "$ORG_SHORT_NAME"
 
-# Uppercase slug used as prefix for all project IDs (e.g. ACME → ACME-001-my-project)
-# Keep it short (2-6 characters), uppercase, no spaces or special characters
+# Uppercase slug for human display and multi-org disambiguation (2-6 chars).
+# Not used in project IDs (which use a literal PRJ- prefix).
 org_slug: "$ORG_SLUG"
 
-# Lowercase version of org_slug — used in branch names (e.g. acme-001-my-project)
-# Auto-derived from org_slug — usually no need to edit manually
+# Lowercase derivation of org_slug — used for filesystem paths under
+# agent_work_root. Auto-derived from org_slug.
 org_slug_lower: "$ORG_SLUG_LOWER"
 
-# GitHub organization or username where all repos live (auto-detected from origin)
+# Full URL of this workspace repository. 'origin' will be set to this.
+org_repo_url: "$ORG_REPO_URL"
+
+# GitHub organization or username (derived from org_repo_url)
 github_org: "$GITHUB_ORG"
 
-# Name of this central workspace repository (auto-detected from origin)
+# Name of this workspace repository (derived from org_repo_url)
 workspace_repo: "$WORKSPACE_REPO"
 
 # Default branch name for this workspace repo
@@ -341,7 +355,12 @@ default_branch: "$DEFAULT_BRANCH"
 # Default base branch for code repositories (used by seed script)
 default_code_branch: "$DEFAULT_CODE_BRANCH"
 
-# Policy Owner details (current holder of all policy roles at launch)
+# Per-project workspaces are created under this path. Each gets its own
+# folder containing a clone of this workspace repo on the project branch
+# plus clones of each impacted code repo on the project branch.
+agent_work_root: "$AGENT_WORK_ROOT"
+
+# Policy Owner details (initial holder of all policy roles at launch)
 policy_owner_email: "$POLICY_OWNER_EMAIL"
 policy_owner_github: "$POLICY_OWNER_GITHUB"
 
@@ -357,81 +376,52 @@ EOF
 
 ok "Wrote $CONFIG"
 
-# ── Step 5: Substitute placeholders throughout files ─────────────────────────
+# ── Step 5: Configure git remotes ─────────────────────────────────────────────
 
-header "Substituting placeholders"
-
-# Use perl for portable in-place editing (BSD sed -i and GNU sed -i differ).
-# Files: *.md, *.yaml, *.yml, CODEOWNERS — never org-config.yaml or setup.sh.
-FILE_LIST=$(find "$REPO_ROOT" \
-  -not -path "$REPO_ROOT/.git/*" \
-  -not -name 'org-config.yaml' \
-  -not -name 'setup.sh' \
-  \( -name '*.md' -o -name '*.mdc' -o -name '*.yaml' -o -name '*.yml' -o -name 'CODEOWNERS' \))
-
-COUNT=0
-# Pass values via env vars and reference them in perl as $ENV{VAR}.
-# Bash-expanding into the perl script (e.g. "s|...|$POLICY_OWNER_EMAIL|g;")
-# is unsafe: perl treats unquoted '@' as an array sigil, so a value like
-# 'testowner@example.com' becomes 'testowner.com' (the @example part is
-# interpolated as an undefined array). Same hazard for github @-handles.
-# $ENV{...} bypasses perl's variable interpolation entirely.
-export ORG_NAME ORG_SHORT_NAME ORG_SLUG ORG_SLUG_LOWER GITHUB_ORG WORKSPACE_REPO \
-       DEFAULT_BRANCH DEFAULT_CODE_BRANCH \
-       POLICY_OWNER_EMAIL POLICY_OWNER_GITHUB \
-       LEGAL_OWNER_GITHUB INFRA_OWNER_GITHUB \
-       SYSTEM_ARCH_OWNER_GITHUB DATA_ARCH_OWNER_GITHUB \
-       POLICY_EFFECTIVE_DATE
-while IFS= read -r FILE; do
-  [[ -z "$FILE" ]] && continue
-  perl -pi -e '
-    s|\{\{ORG_NAME\}\}|$ENV{ORG_NAME}|g;
-    s|\{\{ORG_SHORT_NAME\}\}|$ENV{ORG_SHORT_NAME}|g;
-    s|\{\{ORG_SLUG\}\}|$ENV{ORG_SLUG}|g;
-    s|\{\{org_slug\}\}|$ENV{ORG_SLUG_LOWER}|g;
-    s|\{\{GITHUB_ORG\}\}|$ENV{GITHUB_ORG}|g;
-    s|\{\{WORKSPACE_REPO\}\}|$ENV{WORKSPACE_REPO}|g;
-    s|\{\{DEFAULT_BRANCH\}\}|$ENV{DEFAULT_BRANCH}|g;
-    s|\{\{DEFAULT_CODE_BRANCH\}\}|$ENV{DEFAULT_CODE_BRANCH}|g;
-    s|\{\{POLICY_OWNER_EMAIL\}\}|$ENV{POLICY_OWNER_EMAIL}|g;
-    s|\{\{POLICY_OWNER_GITHUB\}\}|$ENV{POLICY_OWNER_GITHUB}|g;
-    s|\{\{LEGAL_OWNER_GITHUB\}\}|$ENV{LEGAL_OWNER_GITHUB}|g;
-    s|\{\{INFRA_OWNER_GITHUB\}\}|$ENV{INFRA_OWNER_GITHUB}|g;
-    s|\{\{SYSTEM_ARCH_OWNER_GITHUB\}\}|$ENV{SYSTEM_ARCH_OWNER_GITHUB}|g;
-    s|\{\{DATA_ARCH_OWNER_GITHUB\}\}|$ENV{DATA_ARCH_OWNER_GITHUB}|g;
-    s|\{\{POLICY_EFFECTIVE_DATE\}\}|$ENV{POLICY_EFFECTIVE_DATE}|g;
-  ' "$FILE"
-  COUNT=$((COUNT + 1))
-done <<< "$FILE_LIST"
-
-ok "Placeholders substituted in $COUNT files"
-
-# ── Verify GitHub identity & access ──────────────────────────────────────────
-#
-# Skipped when:
-#   - --non-interactive   (CI / sync contexts where the auth might differ)
-#   - SETUP_SKIP_GITHUB_VERIFY=1   (test escape hatch)
-#
-# Hard-stops on any unmet precondition with an actionable remediation.
-
-if $NON_INTERACTIVE || [[ "${SETUP_SKIP_GITHUB_VERIFY:-}" == "1" ]]; then
-  :  # skip — appropriate for re-runs / CI / tests
+if $NON_INTERACTIVE || [[ "${SETUP_SKIP_REMOTE_CONFIG:-}" == "1" ]]; then
+  :
 else
-  header "Identity & GitHub access"
+  header "Configuring git remotes"
 
-  # ── git identity (offer to set, don't just fail) ──
-  GIT_NAME=$(git config user.name 2>/dev/null || echo "")
-  if [[ -z "$GIT_NAME" ]]; then
-    warn "git config user.name is not set"
-    ask GIT_NAME "Your name for git commits" ""
-    if [[ -n "$GIT_NAME" ]]; then
-      git config --global user.name "$GIT_NAME" && ok "Set git user.name: $GIT_NAME"
+  CURRENT_ORIGIN_URL=$(git remote get-url origin 2>/dev/null || echo "")
+  if [[ "$CURRENT_ORIGIN_URL" != "$ORG_REPO_URL" ]]; then
+    if $ORIGIN_IS_TEMPLATE; then
+      info "Renaming current 'origin' (TEMPLATE) → 'template'"
+      git remote get-url template &>/dev/null && git remote remove template
+      git remote rename origin template
+      info "Setting new 'origin' → $ORG_REPO_URL"
+      git remote add origin "$ORG_REPO_URL"
     else
-      hard_stop "git user.name is required: git config --global user.name 'Your Name'"
+      info "Updating 'origin' → $ORG_REPO_URL"
+      git remote set-url origin "$ORG_REPO_URL"
     fi
   else
-    ok "git user.name:   $GIT_NAME"
+    ok "origin → $ORG_REPO_URL"
   fi
+
+  if git remote get-url template &>/dev/null; then
+    CURRENT_TEMPLATE_URL=$(git remote get-url template)
+    if [[ "$CURRENT_TEMPLATE_URL" != "$TEMPLATE_REPO_URL" ]]; then
+      info "Updating 'template' → $TEMPLATE_REPO_URL"
+      git remote set-url template "$TEMPLATE_REPO_URL"
+    else
+      ok "template → $TEMPLATE_REPO_URL"
+    fi
+  else
+    info "Adding 'template' remote → $TEMPLATE_REPO_URL"
+    git remote add template "$TEMPLATE_REPO_URL"
+  fi
+
+  ok "Remotes:"
+  git remote -v | sed 's/^/    /'
+fi
+
+# ── Step 6: GitHub identity & access verification ────────────────────────────
+
+if $NON_INTERACTIVE || [[ "${SETUP_SKIP_GITHUB_VERIFY:-}" == "1" ]]; then
+  :
+else
+  header "Identity & GitHub access"
 
   GIT_EMAIL=$(git config user.email 2>/dev/null || echo "")
   if [[ -z "$GIT_EMAIL" ]]; then
@@ -446,18 +436,6 @@ else
     ok "git user.email:  $GIT_EMAIL"
   fi
 
-  # ── gh login (offer to run it) ──
-  # The governance flow needs these scopes:
-  #   repo      — push project branches, raise PRs (close-knowledge, onboard)
-  #   workflow  — push the gov repo, which contains .github/workflows/*.yml
-  #               (GitHub rejects PAT pushes that touch workflow files otherwise)
-  #   read:org  — resolve team membership for team-assigned projects
-  #   project   — read GitHub Projects (init/manage) AND write to them
-  #               (task Status field on the board + the README governance mirror).
-  #               'project' includes read, so it supersedes read:project.
-  GOV_SCOPES="repo workflow read:org project"
-  GOV_SCOPES_CSV="repo,workflow,read:org,project"
-
   GH_USER=$(gh api user --jq .login 2>/dev/null || echo "")
   if [[ -z "$GH_USER" ]]; then
     warn "Not logged in to the GitHub CLI (gh)."
@@ -469,61 +447,49 @@ else
   fi
   ok "gh user:         $GH_USER"
 
-  # ── required scopes (offer to acquire missing ones) ──
-  get_scopes() {
-    gh auth status 2>&1 | grep -i "Token scopes" | head -1 \
-      | sed -E 's/.*Token scopes:[[:space:]]*//' | tr -d "'\"" || echo ""
-  }
-  SCOPES=$(get_scopes)
-  MISSING=()
-  for s in $GOV_SCOPES; do
-    echo "$SCOPES" | grep -qw "$s" || MISSING+=("$s")
-  done
-  if [[ ${#MISSING[@]} -gt 0 ]]; then
-    warn "Missing gh scopes: ${MISSING[*]}"
-    info "Governance needs: $GOV_SCOPES"
-    info "  repo+workflow — push the gov repo incl .github/workflows/;  project — GitHub Projects (init/manage, task status, README mirror);  read:org — team membership"
-    MISSING_CSV=$(IFS=,; echo "${MISSING[*]}")
-    if confirm_yn "Refresh now via 'gh auth refresh -s $MISSING_CSV'?"; then
-      gh auth refresh -h github.com -s "$MISSING_CSV" || warn "Refresh did not complete."
-      SCOPES=$(get_scopes)
-    fi
-    STILL=()
-    for s in $GOV_SCOPES; do echo "$SCOPES" | grep -qw "$s" || STILL+=("$s"); done
-    if [[ ${#STILL[@]} -gt 0 ]]; then
-      warn "Still missing: ${STILL[*]} — 'prj init'/'prj manage' may fail until added."
-      info "  (Fine if you use a fine-grained PAT that grants equivalent access.)"
-    else
-      ok "Token scopes:    $SCOPES"
-    fi
-  else
-    ok "Token scopes:    $SCOPES"
-  fi
-
-  # ── org / user read access for github_org ──
   if gh api "orgs/$GITHUB_ORG" &>/dev/null; then
     ok "Read access to org '$GITHUB_ORG'"
   elif gh api "users/$GITHUB_ORG" &>/dev/null; then
     ok "'$GITHUB_ORG' is a user account (not an org) — accessible"
   else
-    warn "Cannot read '$GITHUB_ORG' — verify github_org in org-config.yaml and your membership/scopes."
+    err "Cannot read '$GITHUB_ORG' — not found, or no access"
+    hard_stop "Verify github_org in org-config.yaml is correct, you are a member, and gh has 'read:org' scope:
+    gh auth refresh -h github.com -s read:org"
   fi
 
-  # ── origin remote reachable (lightweight: ls-remote) ──
+  SCOPES=$(gh auth status 2>&1 | grep -i "Token scopes" | head -1 | sed -E 's/.*Token scopes:[[:space:]]*//' | tr -d "'\"" || echo "")
+  if [[ -n "$SCOPES" ]]; then
+    ok "Token scopes:    $SCOPES"
+    if ! echo "$SCOPES" | grep -qw "repo"; then
+      err "Missing required scope: repo"
+      hard_stop "Refresh: gh auth refresh -h github.com -s repo"
+    fi
+    if [[ "$GITHUB_ORG_TYPE" == "org" ]] && ! echo "$SCOPES" | grep -qw "read:org"; then
+      warn "Scope 'read:org' not detected — some org operations may fail"
+      echo "    Refresh: gh auth refresh -h github.com -s read:org"
+    fi
+  else
+    warn "Could not determine token scopes — assuming sufficient"
+  fi
+
   if git ls-remote origin HEAD &>/dev/null; then
-    ok "Origin remote accessible"
+    ok "origin reachable"
   else
     warn "Could not contact 'origin' remote — verify with: git remote -v"
   fi
+  if git ls-remote template HEAD &>/dev/null; then
+    ok "template reachable"
+  else
+    warn "Could not contact 'template' remote — verify with: git remote -v"
+  fi
 fi
 
-# ── Bootstrap the current user's preferences file ──────────────────────────
+# ── Step 7: Bootstrap current user's preferences file ────────────────────────
 #
 # Per-user preferences live at $PRJ_GOV_LOC/preferences/<gh-login>.md.
 # Copy the template here so the developer has a starting point. Never
 # overwrite an existing file. Skip silently if no gh login is available.
 
-PRJ_GOV_LOC="${PRJ_GOV_LOC:-${AGENT_WORK_ROOT:-$HOME/prj_gov}}"
 PREFS_LOGIN=$(gh api user --jq .login 2>/dev/null || echo "")
 PREFS_TEMPLATE="$REPO_ROOT/knowledge/guidance/preferences-template.md"
 if [[ -n "$PREFS_LOGIN" ]] && [[ -f "$PREFS_TEMPLATE" ]]; then
@@ -547,8 +513,10 @@ echo ""
 echo -e "${BOLD}${GREEN}Configured framework for: $ORG_NAME ($ORG_SLUG)${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Review changes:    git diff"
-echo "  2. Commit + push:     git add -A && git commit -m 'configure framework for $ORG_NAME' && git push origin $DEFAULT_BRANCH"
-echo "  3. Edit preferences:  ${PREFS_FILE:-<PRJ_GOV_LOC>/preferences/<your-gh-login>.md}"
+echo "  1. Review changes:    git diff org-config.yaml"
+echo "  2. Commit + push:     git add org-config.yaml && git commit -m 'configure framework for $ORG_NAME' && git push origin $DEFAULT_BRANCH"
+echo "  3. Edit preferences:  ${PREFS_FILE:-<agent_work_root>/preferences/<your-gh-login>.md}"
 echo "  4. Start using:       ./prj"
+echo ""
+echo "  Framework upgrades:   git fetch template && git merge template/$DEFAULT_BRANCH"
 echo ""

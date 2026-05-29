@@ -657,6 +657,67 @@ cmd_deps() {
   bash "$SCRIPTS/install-deps.sh"
 }
 
+cmd_upgrade() {
+  header "Upgrade Framework"
+  divider
+  local target="${1:-}"
+  echo ""
+  label "Fetches a new framework version from the 'template' remote,"
+  label "applies it via framework/bin/setup.sh, and leaves changes staged"
+  label "for review + commit."
+  echo ""
+
+  # Pre-conditions
+  if [[ -n "$(git status --porcelain)" ]]; then
+    err "Working tree has uncommitted changes. Commit or stash first."
+    exit 1
+  fi
+  if ! git remote get-url template &>/dev/null; then
+    err "'template' remote not configured."
+    echo "  Add it: git remote add template git@github.com:svayam-opensource/governed-agentic-dev-framework.git"
+    exit 1
+  fi
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD)
+  if [[ "$current_branch" != "$DEFAULT_BRANCH" ]]; then
+    warn "You're on '$current_branch', not '$DEFAULT_BRANCH'. Framework upgrades should happen on the default branch."
+    confirm "Continue anyway?"
+  fi
+
+  # Resolve target version
+  if [[ -z "$target" ]]; then
+    target="template/$DEFAULT_BRANCH"
+    label "No version specified — using $target (latest)"
+  fi
+
+  echo ""
+  label "Fetching from template remote..."
+  git fetch template --tags 2>&1 | tail -3
+
+  echo ""
+  label "Checking out framework/ at $target..."
+  git checkout "$target" -- framework/ \
+    || { err "git checkout $target failed. Is the tag/branch published?"; exit 1; }
+
+  if [[ ! -d "$SCRIPT_DIR/framework" ]]; then
+    err "framework/ directory was not created by the checkout. Aborting."
+    exit 1
+  fi
+
+  echo ""
+  label "Running framework/bin/setup.sh..."
+  echo ""
+  bash "$SCRIPT_DIR/framework/bin/setup.sh"
+  echo ""
+
+  divider
+  ok "Framework upgrade complete."
+  echo ""
+  echo "  Review:  git diff HEAD  &&  git status"
+  echo "  Commit:  git add -A && git commit -m 'framework upgrade'"
+  echo "  Push:    git push origin $DEFAULT_BRANCH"
+}
+
 # ── Manage: project assignment commands ──────────────────────────────────────
 #
 # Open to anyone with write access to the workspace repo. GitHub enforces
@@ -717,37 +778,50 @@ PY
   return ${PIPESTATUS[0]}
 }
 
-# Derive lowercase branch name from a project_id (uppercase prefix → lowercase prefix)
+# Resolve the project branch name from a project_id. Prefers the canonical
+# value stored in registry.yaml's projects[<id>].branch (which seed.sh writes
+# at create time). Falls back to deriving from the ID, supporting both the
+# v0.2.0+ PRJ- prefix and legacy <ORG_SLUG>-NNN-slug projects.
 project_branch() {
-  echo "$1" | tr '[:upper:]' '[:lower:]'
+  local pid="$1" branch
+  branch=$(python3 - "$REGISTRY" "$pid" 2>/dev/null <<'PY'
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1])) or {}
+for p in (c.get('projects') or []):
+    if p and p.get('id') == sys.argv[2]:
+        b = p.get('branch')
+        if b:
+            print(b); sys.exit(0)
+sys.exit(1)
+PY
+)
+  if [[ -n "$branch" && "$branch" != "null" ]]; then
+    echo "$branch"
+  elif [[ "$pid" == PRJ-* ]]; then
+    echo "brnch-${pid#PRJ-}"
+  else
+    echo "$pid" | tr '[:upper:]' '[:lower:]'
+  fi
 }
 
-# Write assignment fields to project.yaml and commit to the right branch
-commit_assignment() {
-  local project_id="$1"
-  local pf="$SCRIPT_DIR/projects/$project_id/project.yaml"
-  local status branch
-
-  status=$(python3 -c "import yaml; print(yaml.safe_load(open('$pf')).get('status',''))" 2>/dev/null || echo "")
-  branch=$(project_branch "$project_id")
-
+# Commit registry.yaml changes to the default branch and push.
+# Caller must already have modified registry.yaml in place. The home workspace
+# must be on $DEFAULT_BRANCH — project branches live only in per-project
+# workspaces under $AGENT_WORK_ROOT.
+commit_registry() {
+  local msg="$1"
   cd "$SCRIPT_DIR"
-  case "$status" in
-    active|paused)
-      git checkout "$branch" 2>/dev/null || true
-      git add "projects/$project_id/project.yaml"
-      git commit -m "manage: update assignment for $project_id"
-      git push origin "$branch"
-      git checkout "$DEFAULT_BRANCH" 2>/dev/null || true
-      ;;
-    *)
-      git checkout "$DEFAULT_BRANCH"
-      git pull origin "$DEFAULT_BRANCH" 2>/dev/null || true
-      git add "projects/$project_id/project.yaml"
-      git commit -m "manage: update assignment for $project_id"
-      git push origin "$DEFAULT_BRANCH"
-      ;;
-  esac
+  local current
+  current=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  if [[ "$current" != "$DEFAULT_BRANCH" ]]; then
+    err "Home workspace is on '$current' but assignment changes must be made on '$DEFAULT_BRANCH'."
+    err "Switch back: git checkout $DEFAULT_BRANCH"
+    exit 1
+  fi
+  git pull --ff-only origin "$DEFAULT_BRANCH" 2>/dev/null || true
+  git add registry.yaml
+  git commit -m "$msg"
+  git push origin "$DEFAULT_BRANCH"
 }
 
 # select_from_owner_projects <id_var> <filter>
@@ -873,16 +947,6 @@ PY
     fi
     err "Invalid choice."
   done
-}
-
-# Commit registry.yaml pre_assignment changes on the default branch
-commit_pre_assignment() {
-  cd "$SCRIPT_DIR"
-  git checkout "$DEFAULT_BRANCH" 2>/dev/null || true
-  git pull origin "$DEFAULT_BRANCH" 2>/dev/null || true
-  git add registry.yaml
-  git commit -m "manage: update pre-assignment in registry"
-  git push origin "$DEFAULT_BRANCH"
 }
 
 # Pick an assignee from org members/teams or enter manually.
@@ -1026,18 +1090,25 @@ cmd_manage_assign() {
   today=$(date +%Y-%m-%d)
 
   if [[ -n "$MANAGE_SELECTED_PID" ]]; then
-    local pf="$SCRIPT_DIR/projects/$MANAGE_SELECTED_PID/project.yaml"
-    python3 - "$pf" "$ASSIGNEE" <<'PY'
+    # Seeded project — assignment lives on registry.yaml (default branch).
+    # Project.yaml's locked_by is the per-session operational lock and is
+    # managed inside the per-project workspace, not from here.
+    python3 - "$REGISTRY" "$MANAGE_SELECTED_PID" "$ASSIGNEE" <<'PY'
 import sys, yaml
-pf, assignee = sys.argv[1], sys.argv[2]
-with open(pf) as f: c = yaml.safe_load(f)
-c['assigned_to'] = assignee
-with open(pf, 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+registry_path, pid, assignee = sys.argv[1:]
+with open(registry_path) as f: c = yaml.safe_load(f) or {}
+for entry in (c.get('projects') or []):
+    if entry and entry.get('id') == pid:
+        entry['assigned_to'] = assignee
+        break
+with open(registry_path, 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
-    commit_assignment "$MANAGE_SELECTED_PID"
+    commit_registry "manage: assign $MANAGE_SELECTED_PID → $ASSIGNEE"
     echo ""
-    ok "'$MANAGE_SELECTED_PID' assigned to '$ASSIGNEE'."
+    ok "'$MANAGE_SELECTED_PID' assigned to '$ASSIGNEE' (registry on $DEFAULT_BRANCH)."
   else
+    # Unseeded project — pre_assignment in registry on default branch.
     python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" "$ASSIGNEE" "$CURRENT_USER" "$today" <<'PY'
 import sys, yaml
 registry_path, url, assignee, assigned_by, today = sys.argv[1:]
@@ -1045,9 +1116,10 @@ with open(registry_path) as f: c = yaml.safe_load(f) or {}
 pre = [a for a in (c.get('pre_assignments') or []) if a and a.get('github_project') != url]
 pre.append({'github_project': url, 'assigned_to': assignee, 'assigned_by': assigned_by, 'assigned_at': today})
 c['pre_assignments'] = pre
-with open(registry_path, 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+with open(registry_path, 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
-    commit_pre_assignment
+    commit_registry "manage: pre-assign $MANAGE_SELECTED_URL → $ASSIGNEE"
     echo ""
     ok "Project assigned to '$ASSIGNEE'. They may now run './prj init' to seed it."
   fi
@@ -1063,8 +1135,15 @@ cmd_manage_reassign() {
 
   local current_assignee=""
   if [[ -n "$MANAGE_SELECTED_PID" ]]; then
-    local pf="$SCRIPT_DIR/projects/$MANAGE_SELECTED_PID/project.yaml"
-    current_assignee=$(python3 -c "import yaml; print(yaml.safe_load(open('$pf')).get('assigned_to') or '')" 2>/dev/null || echo "")
+    current_assignee=$(python3 - "$REGISTRY" "$MANAGE_SELECTED_PID" <<'PY'
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1])) or {}
+for entry in (c.get('projects') or []):
+    if entry and entry.get('id') == sys.argv[2]:
+        print(entry.get('assigned_to') or ''); sys.exit(0)
+print('')
+PY
+    )
   else
     current_assignee=$(python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" <<'PY'
 import sys, yaml
@@ -1099,21 +1178,27 @@ PY
   confirm "Reassign this project?"
 
   if [[ -n "$MANAGE_SELECTED_PID" ]]; then
-    local pf="$SCRIPT_DIR/projects/$MANAGE_SELECTED_PID/project.yaml"
-    python3 - "$pf" "$NEW_ASSIGNEE" "$REASON" "$CURRENT_USER" "$today" <<'PY'
+    # Seeded — append reassignment record to registry entry's history.
+    python3 - "$REGISTRY" "$MANAGE_SELECTED_PID" "$current_assignee" "$NEW_ASSIGNEE" "$REASON" "$CURRENT_USER" "$today" <<'PY'
 import sys, yaml
-pf, new_assignee, reason, approved_by, today = sys.argv[1:]
-with open(pf) as f: c = yaml.safe_load(f)
-c['assigned_to']            = new_assignee
-c['reassignment_reason']    = reason
-c['reassigned_at']          = today
-c['reassigned_approved_by'] = approved_by
-with open(pf, 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+registry_path, pid, prev, new_assignee, reason, approved_by, today = sys.argv[1:]
+with open(registry_path) as f: c = yaml.safe_load(f) or {}
+for entry in (c.get('projects') or []):
+    if entry and entry.get('id') == pid:
+        entry['assigned_to'] = new_assignee
+        history = entry.get('reassignment_history') or []
+        history.append({'from': prev, 'to': new_assignee, 'reason': reason,
+                        'approved_by': approved_by, 'at': today})
+        entry['reassignment_history'] = history
+        break
+with open(registry_path, 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
-    commit_assignment "$MANAGE_SELECTED_PID"
+    commit_registry "manage: reassign $MANAGE_SELECTED_PID → $NEW_ASSIGNEE (C02)"
     echo ""
     ok "'$MANAGE_SELECTED_PID' reassigned to '$NEW_ASSIGNEE'."
   else
+    # Unseeded — update pre_assignment.
     python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" "$NEW_ASSIGNEE" "$REASON" "$CURRENT_USER" "$today" <<'PY'
 import sys, yaml
 registry_path, url, new_assignee, reason, approved_by, today = sys.argv[1:]
@@ -1125,13 +1210,14 @@ for a in (c.get('pre_assignments') or []):
         a['reassigned_at']          = today
         a['reassigned_approved_by'] = approved_by
         break
-with open(registry_path, 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+with open(registry_path, 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
-    commit_pre_assignment
+    commit_registry "manage: reassign pre-assignment → $NEW_ASSIGNEE (C02)"
     echo ""
     ok "Project reassigned to '$NEW_ASSIGNEE'."
   fi
-  ok "C02 fields written: reassignment_reason, reassigned_at, reassigned_approved_by."
+  ok "C02 fields recorded: reason, approver, timestamp."
 }
 
 cmd_manage_unassign() {
@@ -1144,8 +1230,15 @@ cmd_manage_unassign() {
 
   local current_assignee=""
   if [[ -n "$MANAGE_SELECTED_PID" ]]; then
-    local pf="$SCRIPT_DIR/projects/$MANAGE_SELECTED_PID/project.yaml"
-    current_assignee=$(python3 -c "import yaml; print(yaml.safe_load(open('$pf')).get('assigned_to') or '')" 2>/dev/null || echo "")
+    current_assignee=$(python3 - "$REGISTRY" "$MANAGE_SELECTED_PID" <<'PY'
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1])) or {}
+for entry in (c.get('projects') or []):
+    if entry and entry.get('id') == sys.argv[2]:
+        print(entry.get('assigned_to') or ''); sys.exit(0)
+print('')
+PY
+    )
   else
     current_assignee=$(python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" <<'PY'
 import sys, yaml
@@ -1163,25 +1256,32 @@ PY
   confirm "Remove assignment from this project?"
 
   if [[ -n "$MANAGE_SELECTED_PID" ]]; then
-    local pf="$SCRIPT_DIR/projects/$MANAGE_SELECTED_PID/project.yaml"
-    python3 - "$pf" <<'PY'
+    # Seeded — clear registry entry's assigned_to.
+    python3 - "$REGISTRY" "$MANAGE_SELECTED_PID" <<'PY'
 import sys, yaml
-with open(sys.argv[1]) as f: c = yaml.safe_load(f)
-c['assigned_to'] = None
-with open(sys.argv[1], 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+registry_path, pid = sys.argv[1:]
+with open(registry_path) as f: c = yaml.safe_load(f) or {}
+for entry in (c.get('projects') or []):
+    if entry and entry.get('id') == pid:
+        entry['assigned_to'] = None
+        break
+with open(registry_path, 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
-    commit_assignment "$MANAGE_SELECTED_PID"
+    commit_registry "manage: unassign $MANAGE_SELECTED_PID"
     echo ""
     ok "'$MANAGE_SELECTED_PID' is now unassigned."
   else
+    # Unseeded — drop pre_assignment.
     python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" <<'PY'
 import sys, yaml
-registry_path, url = sys.argv[1], sys.argv[2]
+registry_path, url = sys.argv[1:]
 with open(registry_path) as f: c = yaml.safe_load(f) or {}
 c['pre_assignments'] = [a for a in (c.get('pre_assignments') or []) if a and a.get('github_project') != url]
-with open(registry_path, 'w') as f: yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+with open(registry_path, 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
-    commit_pre_assignment
+    commit_registry "manage: drop pre-assignment for $MANAGE_SELECTED_URL"
     echo ""
     ok "Assignment removed. Project is now unassigned."
   fi
@@ -1243,6 +1343,7 @@ show_menu() {
   echo ""
   echo -e "  ${YELLOW}${BOLD}Manage${NC}"
   echo -e "  ${YELLOW}15)${NC} manage       List, assign, reassign, unassign projects"
+  echo -e "  ${YELLOW}16)${NC} upgrade      Pull a new framework version from template"
   echo ""
   echo -e "  ${DIM}0)  Exit${NC}"
   echo ""
@@ -1252,7 +1353,7 @@ show_menu() {
   echo ""
   # Write ops need a configured git identity; check before dispatching.
   case "$choice" in
-    1|init|2|task|3|merge|4|pause|5|resume|6|sync|7|add-repo|8|cancel|9|close|10|knowledge|11|onboard|15|manage|16|join)
+    1|init|2|task|3|merge|4|pause|5|resume|6|sync|7|add-repo|8|cancel|9|close|10|knowledge|11|onboard|15|manage|16|upgrade)
       require_git_identity
       ;;
   esac
@@ -1274,6 +1375,7 @@ show_menu() {
     13|status)    cmd_status ;;
     14|deps)      cmd_deps ;;
     15|manage)    cmd_manage ;;
+    16|upgrade)   cmd_upgrade ;;
     0|q|quit|exit) echo "Bye."; exit 0 ;;
     *) err "Unknown option '$choice'." ;;
   esac
@@ -1290,7 +1392,7 @@ CMD="${1:-}"
 # Write commands need a configured git identity (they call git commit
 # during the flow). Read-only commands don't.
 case "$CMD" in
-  init|join|task|merge|pause|resume|sync|add-repo|cancel|close|knowledge|onboard|manage)
+  init|task|merge|pause|resume|sync|add-repo|cancel|close|knowledge|onboard|manage|upgrade)
     require_git_identity
     ;;
 esac
@@ -1313,6 +1415,7 @@ case "$CMD" in
   status)       cmd_status ;;
   deps)         cmd_deps ;;
   manage)       cmd_manage ;;
+  upgrade)      cmd_upgrade "${2:-}" ;;
   help|--help|-h)
     echo ""
     echo -e "${BOLD}Usage:${NC} ./prj [command]"
@@ -1334,6 +1437,7 @@ case "$CMD" in
     echo "  status      Show project status"
     echo "  deps        Install / verify dependencies"
     echo "  manage      List, assign, reassign, unassign projects"
+    echo "  upgrade     Pull a new framework version from the template remote"
     echo ""
     echo "  Run without arguments for the interactive menu."
     echo ""

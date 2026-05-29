@@ -11,11 +11,11 @@ Usage:
 
 Exits 0 on pass, 1 on any validation failure.
 
-Env vars:
-    STRICT_PLACEHOLDERS=1
-        Fail if any {{PLACEHOLDER}} tokens are found in non-template files.
-        Set this on the main branch (post-setup.sh) — placeholders are a leak.
-        Do NOT set on publish (placeholders are expected there).
+Notes:
+    Framework files (all *.md, *.yaml, *.yml, CODEOWNERS) are scanned for
+    leftover {{PLACEHOLDER}} tokens unconditionally. Direction A: framework
+    files never carry placeholders — org values live in org-config.yaml only.
+    A placeholder anywhere is a regression.
 """
 
 import os
@@ -37,12 +37,12 @@ ALLOWED_KNOWLEDGE_STATUSES = {
 REQUIRED_PROJECT_FIELDS = ["id", "slug", "status"]
 REQUIRED_CONFIG_FIELDS = [
     "org_name", "org_short_name", "org_slug", "org_slug_lower",
-    "github_org", "workspace_repo", "default_branch", "default_code_branch",
+    "org_repo_url", "github_org", "workspace_repo",
+    "default_branch", "default_code_branch", "agent_work_root",
     "policy_owner_email", "policy_owner_github",
 ]
 PLACEHOLDER_RE = re.compile(r"\{\{[A-Z_a-z0-9]+\}\}")
-PLACEHOLDER_ALLOWED_FILES = {"setup.sh"}
-PLACEHOLDER_SCAN_SUFFIXES = {".md", ".yaml", ".yml"}
+PLACEHOLDER_SCAN_SUFFIXES = {".md", ".yaml", ".yml", ".mdc"}
 PLACEHOLDER_SCAN_NAMES = {"CODEOWNERS"}
 
 
@@ -61,10 +61,16 @@ def check_schema(repo_root: Path) -> list[str]:
     if not isinstance(config, dict):
         return [f"org-config.yaml: top-level must be a mapping, got {type(config).__name__}"]
 
+    # Template state: org-config.yaml ships from TEMPLATE with all values
+    # empty. After ./setup.sh runs, values are populated. The validator must
+    # accept both: structure (keys present) is always required; populated
+    # values are only required post-setup. Detect template state from org_name.
+    is_template_state = not bool(config.get("org_name"))
+
     for field in REQUIRED_CONFIG_FIELDS:
         if field not in config:
             errors.append(f"org-config.yaml: missing required field '{field}'")
-        elif config[field] in (None, ""):
+        elif not is_template_state and config[field] in (None, ""):
             errors.append(f"org-config.yaml: '{field}' is empty")
 
     registry_path = repo_root / "registry.yaml"
@@ -145,9 +151,12 @@ def check_registry(repo_root: Path) -> list[str]:
         if not isinstance(entry, dict):
             continue
         pid = entry.get("id") or ""
+        # Accept any uppercase prefix for backwards compatibility with pre-v0.2.0
+        # orgs whose projects use <ORG_SLUG>-NNN-slug. New projects (v0.2.0+)
+        # use the literal PRJ- prefix.
         m = re.match(r"^[A-Z]+-(\d+)-", pid)
         if not m:
-            errors.append(f"registry.yaml: project entry has invalid id format: {pid!r}")
+            errors.append(f"registry.yaml: project entry has invalid id format: {pid!r} (expected <PREFIX>-NNN-slug)")
             continue
         nnn = int(m.group(1))
         if nnn in nnn_seen:
@@ -260,24 +269,27 @@ def check_cross_refs(repo_root: Path) -> list[str]:
             if not target.exists():
                 errors.append(f"CODEOWNERS:{lineno}: path '{path_pattern}' does not exist")
 
-    if os.environ.get("STRICT_PLACEHOLDERS"):
-        for f in repo_root.rglob("*"):
-            if not f.is_file():
-                continue
-            if any(part.startswith(".") for part in f.relative_to(repo_root).parts):
-                continue
-            if f.name in PLACEHOLDER_ALLOWED_FILES:
-                continue
-            if f.suffix not in PLACEHOLDER_SCAN_SUFFIXES and f.name not in PLACEHOLDER_SCAN_NAMES:
-                continue
-            try:
-                text = f.read_text()
-            except Exception:
-                continue
-            for m in PLACEHOLDER_RE.finditer(text):
-                errors.append(
-                    f"{f.relative_to(repo_root)}: leftover placeholder {m.group(0)}"
-                )
+    # Framework files must NEVER contain {{PLACEHOLDER}} tokens — org values
+    # are read from org-config.yaml at runtime. .github/workflows/ files are
+    # excluded because they use GitHub Actions ${{ expr }} syntax legitimately.
+    for f in repo_root.rglob("*"):
+        if not f.is_file():
+            continue
+        rel_parts = f.relative_to(repo_root).parts
+        if any(part.startswith(".git") for part in rel_parts):
+            continue
+        if len(rel_parts) >= 2 and rel_parts[0] == ".github" and rel_parts[1] == "workflows":
+            continue
+        if f.suffix not in PLACEHOLDER_SCAN_SUFFIXES and f.name not in PLACEHOLDER_SCAN_NAMES:
+            continue
+        try:
+            text = f.read_text()
+        except Exception:
+            continue
+        for m in PLACEHOLDER_RE.finditer(text):
+            errors.append(
+                f"{f.relative_to(repo_root)}: leftover placeholder {m.group(0)}"
+            )
 
     return errors
 

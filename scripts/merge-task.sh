@@ -27,7 +27,7 @@ check_project_exists "$PROJECT_ID"
 
 require_project_status "$PROJECT_YAML" "active"
 
-BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
+BRANCH=$(project_branch_for_id "$PROJECT_ID")
 
 # Tasks-on-board model: derive the sub-branch from the issue title (same slugify
 # as create-task) — no project.yaml tasks[] lookup.

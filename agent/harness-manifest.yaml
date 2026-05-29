@@ -9,7 +9,7 @@ version: 1
 
 canonical:
   session_protocol: agent/session-protocol.md
-  org_entrypoint: agent.md
+  org_entrypoint: framework/agent.md
   adopter_marker: "<!-- ADOPTER_C03_EXTENSIONS -->"
 
 # Delivery tiers (see spec Appendix D)
@@ -36,7 +36,7 @@ harnesses:
     tool: Claude Code
     status: active
     tier: import
-    path: CLAUDE.md
+    path: framework/CLAUDE.md
     generated: false
     seed_copy: true
     per_project_path: projects/{project_id}/CLAUDE.md
@@ -55,7 +55,7 @@ harnesses:
     tool: Cursor
     status: active
     tier: generate_auto
-    path: .cursor/rules/agent.mdc
+    path: framework/.cursor/rules/agent.mdc
     generated: true
     seed_copy: true
     template: cursor-mdc
@@ -72,7 +72,7 @@ harnesses:
     tool: OpenAI Codex
     status: active
     tier: generate_auto
-    path: AGENTS.md
+    path: framework/AGENTS.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -83,7 +83,7 @@ harnesses:
     tool: Gemini Code Assist
     status: active
     tier: generate_auto
-    path: .gemini/styleguide.md
+    path: framework/.gemini/styleguide.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -96,7 +96,7 @@ harnesses:
     tool: GitHub Copilot
     status: active
     tier: generate_auto
-    path: .github/copilot-instructions.md
+    path: framework/.github/copilot-instructions.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -109,7 +109,7 @@ harnesses:
     tool: Windsurf
     status: active
     tier: generate_auto
-    path: .windsurf/rules/agent.md
+    path: framework/.windsurf/rules/agent.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -119,7 +119,7 @@ harnesses:
     tool: Cline / Roo Code
     status: active
     tier: generate_auto
-    path: .clinerules/agent.md
+    path: framework/.clinerules/agent.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -130,7 +130,7 @@ harnesses:
     tool: Continue.dev
     status: active
     tier: generate_auto
-    path: .continue/rules.md
+    path: framework/.continue/rules.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -142,7 +142,7 @@ harnesses:
     tool: Aider
     status: active
     tier: generate_manual
-    path: CONVENTIONS.md
+    path: framework/CONVENTIONS.md
     generated: true
     seed_copy: true
     template: markdown-plain

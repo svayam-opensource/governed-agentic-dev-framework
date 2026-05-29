@@ -27,7 +27,7 @@ ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")
 is_authorized "$ASSIGNED_TO" \
   || hard_stop "Not authorized to resume: you are not '$ASSIGNED_TO' (nor a member, if it is a team)."
 
-BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
+BRANCH=$(project_branch_for_id "$PROJECT_ID")
 
 # ── C01: Mandatory DEFAULT_BRANCH sync for workspace repo ────────────────────
 

@@ -33,7 +33,7 @@ if [[ -n "$CURRENT_USER" && -n "$LOCKED_BY" && "$CURRENT_USER" != "$LOCKED_BY" ]
   hard_stop "Not authorized: current user '$CURRENT_USER' is not locked_by ('$LOCKED_BY')."
 fi
 
-BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
+BRANCH=$(project_branch_for_id "$PROJECT_ID")
 
 confirm "Cancelling '$PROJECT_ID' is irreversible (branches archived, not merged). Continue?"
 

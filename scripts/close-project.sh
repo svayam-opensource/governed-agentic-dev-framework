@@ -59,7 +59,7 @@ echo ""
 # or 'completed' (re-run after step 2/3 succeeded but later step failed).
 require_any_project_status "$PROJECT_YAML" "active" "completed"
 
-BRANCH="${ORG_SLUG_LOWER}-$(echo "$PROJECT_ID" | sed "s/^${ORG_SLUG}-//")"
+BRANCH=$(project_branch_for_id "$PROJECT_ID")
 TODAY=$(today)
 
 # Tasks-on-board: a task is a sub-branch (<branch>.<task-slug>). Refuse to close
