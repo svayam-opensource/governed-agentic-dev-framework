@@ -100,22 +100,24 @@ Before any code change, the agent (or you, if working alone) must:
    git pull origin abc-001-feature-x
    ```
 
-### Prompting the agent (first prompt of a session)
+### Prompting the agent (Pattern 1 — agent speaks first)
 
-A good opening prompt makes the agent's compliance posture explicit. Adapt this template:
+**Pattern 1 is active** in `agent/session-protocol.md` §0. The agent should run the C01 checklist and post a **context manifest** as its **first reply** — you do not need to paste the long kickoff template every session.
+
+**How to try it (Cursor or Claude):**
+
+1. Open this repo (or `projects/<PID>/`) on the project branch; pull latest.
+2. **Cursor:** open a **new** Agent or Chat tab. **Claude:** run `claude` in the folder (new session).
+3. Send a minimal opener — e.g. `start` or `go` — or jump straight to a task; the agent should still lead with the manifest.
+4. Confirm the first reply includes `## Context manifest` with project, branch, todos, and layers loaded.
+5. **Cursor:** Settings → Rules → `agent.mdc` = **Always**. **Claude:** `/memory` should list `@agent/session-protocol.md`.
+
+If the agent skips the manifest, say: *"Follow session-protocol §0 — context manifest first."*
+
+**Optional human kickoff** (when you want to be explicit):
 
 ```
-I'm starting a session on project ABC-001-feature-x.
-
-Before any work:
-1. Read projects/ABC-001-feature-x/agent.md and confirm you've loaded
-   the four knowledge layers it points at.
-2. Verify project.yaml: assigned_to must match rkant@svayamtech.com, status active.
-3. Read projects/ABC-001-feature-x/knowledge/todo.md and surface any open items.
-4. Briefly summarize: project status, assigned_to, primary repo(s), and what
-   carry-forward items exist from prior sessions.
-5. Wait for me to direct the work — do not propose tasks unilaterally,
-   issues come from the GitHub Project board.
+Starting session on ABC-001-feature-x. Post context manifest per session-protocol §0, then wait.
 ```
 
 The agent should respond with a short status summary, not a plan. You direct what comes next.
@@ -131,7 +133,8 @@ Open the workspace at **`projects/<PID>/`** (recommended) or gov repo root on th
 | **You** | Open workspace + pull branches | `cd projects/<PID>/` | Open folder in Cursor | Open folder in VS Code / IntelliJ |
 | **You** | Start the AI | Run `claude` | Open Agent or Chat | Open Gemini chat panel |
 | **Tool** | Load protocol automatically | `@import` expands `CLAUDE.md` → protocol + `agent.md` | Injects `.cursor/rules/agent.mdc` every turn | Loads `.gemini/styleguide.md` |
-| **You** | Send kickoff prompt | See template below | Same template | Same template |
+| **You** | Send kickoff prompt | Minimal `start` / `go` (Pattern 1) or a specific task | Same | Same |
+| **Agent** | First reply (Pattern 1) | **Context manifest** per session-protocol §0, then wait | Same | Same |
 | **Agent** | Read knowledge layers (required) | Read tool → `knowledge/`, project, repos, prefs | Same | Same |
 | **You** | Verify | `/memory` lists imports | Settings → Rules → `agent.mdc` = **Always** | Ask agent to summarize write restrictions |
 

@@ -10,6 +10,40 @@ alwaysApply: true
 
 This is the **canonical** session-start protocol for any AI coding agent working in this workspace. It is delivered to each tool at its conventional path (`CLAUDE.md`, `.cursor/rules/agent.mdc`, `AGENTS.md`, `CONVENTIONS.md`, …) by `scripts/render-harness.sh`, driven by `agent/harness-manifest.yaml`. **Edit the protocol here, then re-render — never hand-edit the generated copies** (they carry a "do not edit" banner).
 
+## 0. New session — agent speaks first (Pattern 1)
+
+**Applies to:** every new Cursor Agent/Chat session, every new `claude` invocation, and every new conversation after `/clear`.
+
+When this protocol is loaded, your **first assistant message** in the session must run the C01 checklist (§1–§2 below) and post a **context manifest** — **before** planning work, proposing tasks, or editing files.
+
+| Trigger | What you do |
+|---|---|
+| User's first message is a greeting, "start", "go", "ready", or session opener | Run §1–§2, post manifest, **stop and wait** |
+| User's first message already contains a **specific work task** | Still run §1–§2 first; post a **short** manifest, then address the task |
+| No active project (framework/contrib mode; no `active` entry in `registry.yaml`) | Post manifest stating no active project; load org layer + `agent.md` only; wait for direction |
+
+**Do not** wait for the user to paste the kickoff prompt from `DEVELOPER_GUIDE.md` — that template is for humans; you execute the same steps proactively.
+
+### Context manifest (required format)
+
+Use this structure in your first reply:
+
+```markdown
+## Context manifest
+
+- **Project:** <PROJECT_ID or "none">
+- **Branch:** <current git branch>
+- **Status / assigned_to:** <from project.yaml, or n/a>
+- **Repos:** <primary repos from project.yaml, or n/a>
+- **Open todos:** <bullets from todo.md ## Open, or "none">
+- **Layers loaded:** org ✓/✗ · project ✓/✗ · repo ✓/✗ · prefs ✓/✗
+- **Awaiting:** your direction (no tasks proposed)
+```
+
+After the manifest, **stop**. Do not propose implementation work unless the user's first message already asked for something specific — and even then, complete the manifest first.
+
+---
+
 Before you change any code, complete the steps below.
 
 ## 1. Load four knowledge layers — fresh every session

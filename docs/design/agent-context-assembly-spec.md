@@ -217,6 +217,20 @@ Session start
 
 **Implication:** `@agent.md` / generated harness fixes **protocol** persistence (mechanism A). **Knowledge** still relies on reads (B) or future RAG/manifest (§9). Do not store org policy in mechanism C.
 
+### 3.5 Automated kickoff — Pattern 1 (trial: Cursor + Claude)
+
+**Status:** Active in `agent/session-protocol.md` §0 (2026-05-27).
+
+Instead of requiring the human to paste the DEVELOPER_GUIDE kickoff prompt, the protocol instructs the agent to **speak first**: run C01 checklist, post a **context manifest**, then wait.
+
+| Approach | Mechanism | Tools in trial |
+|---|---|---|
+| **Pattern 1** | Rule text in harness (`alwaysApply` / `@import`) | Cursor, Claude Code |
+| Pattern 2 (later) | `sessionStart` / `SessionStart` hooks inject manifest | Optional upgrade |
+| Pattern 3 (later) | `./prj session` wrapper with `-p` kickoff | Deterministic fallback |
+
+**Human test:** new Agent chat or `claude` → send `start` → first reply must include `## Context manifest`. See DEVELOPER_GUIDE §3.
+
 ---
 
 ## 4. Assembly overview
@@ -851,4 +865,5 @@ Work ─────────────────────────
 | 2026-05-27 | Initial draft from knowledge management design interview |
 | 2026-05-27 | §3.3 harness delivery (Claude `@import`, Cursor `render-harness.sh`); §3.4 session persistence |
 | 2026-05-27 | `agent/harness-manifest.yaml`; Appendix D tool matrix and Claude/Cursor/Gemini steps |
+| 2026-05-27 | §3.5 Pattern 1 (agent speaks first) in `agent/session-protocol.md` §0 |
 
