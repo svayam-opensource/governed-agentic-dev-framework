@@ -57,7 +57,7 @@ Policy owner: <POLICY_OWNER_EMAIL> (<POLICY_OWNER_GITHUB>)
 Legal: <LEGAL_OWNER_GITHUB>
 Effective: <POLICY_EFFECTIVE_DATE>
 MD
-ORIG_FIXTURE_SHA=$(shasum test-fixture.md | awk '{print $1}')
+ORIG_FIXTURE_SHA=$(sha test-fixture.md | awk '{print $1}')
 
 # Pipe answers (origin is NOT the template, so no org_repo_url prompt):
 #   org_name:           TestCorp Industries
@@ -96,7 +96,7 @@ assert_contains 'data_arch_owner_github: "@testowner"'  "$config" "data_arch def
 
 # Direction A: framework file is UNTOUCHED — tokens remain verbatim,
 # byte-for-byte hash matches the pre-setup version.
-NEW_FIXTURE_SHA=$(shasum test-fixture.md | awk '{print $1}')
+NEW_FIXTURE_SHA=$(sha test-fixture.md | awk '{print $1}')
 assert_eq "$ORIG_FIXTURE_SHA" "$NEW_FIXTURE_SHA" "framework file byte-identical after setup (no substitution)"
 fixture=$(cat test-fixture.md)
 assert_contains "<ORG_NAME>"          "$fixture" "<ORG_NAME> token preserved"

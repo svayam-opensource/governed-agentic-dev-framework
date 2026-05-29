@@ -41,7 +41,7 @@ git remote add origin git@github.com:test-org-collision/test-workspace.git
 manifest_before=$(cd "$TEMPLATE_STATE" && find . -type f \
   -not -path './.git/*' \
   -not -name 'org-config.yaml' \
-  | sort | xargs shasum 2>/dev/null)
+  | sort | xargs sha 2>/dev/null)
 
 # Run setup.sh non-interactively. We need org-config.yaml to have a value
 # for org_name to satisfy --non-interactive's precondition. Hand-edit it
@@ -75,7 +75,7 @@ assert_exit_code 0 "$exit_code" "setup.sh --non-interactive succeeded"
 manifest_after=$(cd "$WORK" && find . -type f \
   -not -path './.git/*' \
   -not -name 'org-config.yaml' \
-  | sort | xargs shasum 2>/dev/null)
+  | sort | xargs sha 2>/dev/null)
 
 # Compare. Anything that differs is a collision source.
 if [[ "$manifest_before" != "$manifest_after" ]]; then
@@ -87,6 +87,6 @@ else
 fi
 
 # Spot-check: org-config.yaml DID change (that's the whole point).
-sha_before=$(cd "$TEMPLATE_STATE" && shasum org-config.yaml | awk '{print $1}')
-sha_after=$(cd "$WORK" && shasum org-config.yaml | awk '{print $1}')
+sha_before=$(cd "$TEMPLATE_STATE" && sha org-config.yaml | awk '{print $1}')
+sha_after=$(cd "$WORK" && sha org-config.yaml | awk '{print $1}')
 assert_ne "$sha_before" "$sha_after" "org-config.yaml changed (expected — it's the org overlay)"

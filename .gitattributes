@@ -1,0 +1,12 @@
+# Cross-platform line endings: shell scripts MUST stay LF or they break on
+# a Windows checkout (CRLF corrupts the shebang and arg parsing under bash).
+* text=auto eol=lf
+*.sh   text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.mdc  text eol=lf
+prj      text eol=lf
+setup.sh text eol=lf
+*.png  binary

@@ -122,7 +122,7 @@ ensure_user_prefs_file() {
   [[ -f "$template" ]] || return 0
   # Refuse to seed from an un-substituted template. setup.sh is the
   # right tool to substitute placeholders; only then can we copy.
-  if grep -q '{{[A-Z_a-z0-9]\+}}' "$template" 2>/dev/null; then
+  if grep -q '{{[A-Z_a-z0-9][A-Z_a-z0-9]*}}' "$template" 2>/dev/null; then
     return 0
   fi
   mkdir -p "$(dirname "$path")"
@@ -159,7 +159,7 @@ confirm() {
 
 slugify() {
   echo "$1" | tr '[:upper:]' '[:lower:]' \
-    | sed 's/[^a-z0-9]/-/g' | sed 's/-\+/-/g' | sed 's/^-//;s/-$//'
+    | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
 }
 
 today() { date +%Y-%m-%d; }
