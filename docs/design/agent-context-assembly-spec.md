@@ -1,7 +1,7 @@
 # Agent Context Assembly Specification
 
 **Status:** Draft — design only, not implemented  
-**Owner:** Infrastructure Owner (acting: `{{POLICY_OWNER_EMAIL}}`)  
+**Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)  
 **Parent policy:** `knowledge/policies/agentic-development-policy.md` (POL-076–081, POL-113–123, POL-129–138)  
 **Related specs:** `knowledge/infrastructure/knowledge-publication-spec.md`, `knowledge/guidance/scripts/close-knowledge-spec.md`  
 **Audience:** Infrastructure Owner, Policy Owner, agent harness maintainers, framework implementers
@@ -63,7 +63,7 @@ Policy defines four layers. This spec adds **harness** and clarifies **project**
 ┌─────────────────────────────────────────────────────────────┐
 │  Harness (bootstrap only — points down, never overrides)     │
 ├─────────────────────────────────────────────────────────────┤
-│  1. Org-wide     {{WORKSPACE_REPO}}/knowledge/               │
+│  1. Org-wide     <WORKSPACE_REPO>/knowledge/               │
 │  2. Project      projects/<PID>/knowledge/  [STAGING]        │
 │  3. Repo-local   <code-repo>/knowledge/                      │
 │  4. Developer    $PRJ_GOV_LOC/preferences/<gh-login>.md  │
@@ -94,7 +94,7 @@ Harness files deliver the session-start protocol into **system context** at laun
 #### Canonical files (source of truth — edit these)
 
 ```
-{{WORKSPACE_REPO}}/
+<WORKSPACE_REPO>/
 ├── agent.md                      # Org entrypoint: repo purpose, layer map, policy pointers
 └── agent/
     └── session-protocol.md       # C01 session-start protocol (POL-113–117, write rules, capture)
@@ -286,7 +286,7 @@ Walk **top-down**; each entrypoint lists the next files to read:
 
 ```
 1. Harness bootstrap          (tool convention — protocol summary only)
-2. {{WORKSPACE_REPO}}/agent.md
+2. <WORKSPACE_REPO>/agent.md
 3. projects/<PID>/agent.md
 4. For each active code repo:
      <repo>/knowledge/agent.md
@@ -321,7 +321,7 @@ Structural retrieval is **deterministic** and does not depend on embeddings. The
 
 ### 7.1 Org-wide mandatory set
 
-Always load (from `{{DEFAULT_BRANCH}}` of workspace repo, even when project branch is checked out):
+Always load (from `<DEFAULT_BRANCH>` of workspace repo, even when project branch is checked out):
 
 | File / pattern | Reason |
 |---|---|
@@ -654,7 +654,7 @@ Suggested implementation order:
 **SLOT-1 excerpt (Tier A):**
 
 ```
-POL-086 (C01): No edits to {{WORKSPACE_REPO}}/knowledge/ during active project.
+POL-086 (C01): No edits to <WORKSPACE_REPO>/knowledge/ during active project.
 POL-143 (C01): Restricted data never in knowledge or LLM calls.
 POL-116 (C01): Load all four layers fresh — no cross-session cache.
 ```
