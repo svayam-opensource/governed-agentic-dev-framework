@@ -38,7 +38,7 @@ if [[ -d "$PRJ_GOV_DIR/.git" ]]; then
     || hard_stop "Branch '$BRANCH' not found in existing PRJ_GOV — investigate."
 else
   info "Cloning PRJ_GOV → $PRJ_GOV_DIR ..."
-  git clone "$GOV_REMOTE_URL" "$PRJ_GOV_DIR" || hard_stop "Could not clone the governance repo."
+  git_clone_retry "$GOV_REMOTE_URL" "$PRJ_GOV_DIR" || hard_stop "Could not clone the governance repo."
   git -C "$PRJ_GOV_DIR" checkout "$BRANCH" 2>/dev/null \
     || hard_stop "Branch '$BRANCH' not found — has $PROJECT_ID been seeded and pushed?"
 fi
@@ -63,7 +63,7 @@ while IFS= read -r repo_url; do
     git -C "$REPO_DIR" checkout "$BRANCH" 2>/dev/null || true
   else
     info "Cloning $REPO_NAME → $REPO_DIR ..."
-    if git clone "$repo_url" "$REPO_DIR" 2>/dev/null; then
+    if git_clone_retry "$repo_url" "$REPO_DIR"; then
       git -C "$REPO_DIR" checkout "$BRANCH" 2>/dev/null \
         || warn "Branch '$BRANCH' not in $REPO_NAME — check it out manually."
     else

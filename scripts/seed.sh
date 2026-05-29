@@ -568,8 +568,8 @@ if [[ ${#REPO_URL_LIST[@]} -gt 0 ]]; then
       git -C "$REPO_DIR" fetch origin
     else
       info "Cloning into $REPO_DIR..."
-      git clone "$repo_url" "$REPO_DIR" \
-        || hard_stop "Clone failed for $repo_url"
+      git_clone_retry "$repo_url" "$REPO_DIR" \
+        || hard_stop "Clone failed for $repo_url (after retries — check network/repo size)"
       CREATED_PATHS+=("$REPO_DIR")
     fi
     git -C "$REPO_DIR" checkout "$REPO_BASE" \
@@ -607,7 +607,7 @@ PRJ_GOV_DIR="$(project_clone_root "$PROJECT_ID")/$WORKSPACE_REPO"
 GOV_REMOTE_URL=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo "")
 if [[ -n "$GOV_REMOTE_URL" && ! -d "$PRJ_GOV_DIR/.git" ]]; then
   info "Cloning per-project governance clone (PRJ_GOV) → $PRJ_GOV_DIR ..."
-  if git clone "$GOV_REMOTE_URL" "$PRJ_GOV_DIR" 2>/dev/null; then
+  if git_clone_retry "$GOV_REMOTE_URL" "$PRJ_GOV_DIR"; then
     git -C "$PRJ_GOV_DIR" checkout "$BRANCH" 2>/dev/null \
       || warn "PRJ_GOV cloned but could not check out '$BRANCH' — check it out manually."
   else

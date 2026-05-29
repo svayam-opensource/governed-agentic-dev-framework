@@ -247,6 +247,29 @@ get_repo_name() { basename "$1" .git; }
 project_clone_root() { echo "$PRJ_GOV_LOC/projects/$1"; }
 repo_clone_dir()     { echo "$PRJ_GOV_LOC/projects/$1/repos/$2"; }
 
+# Clone with retry + backoff. Large repos over flaky links die mid-transfer with
+# "early EOF / unexpected disconnect while reading sideband packet"; a couple of
+# retries usually rides through a transient drop. Honors GIT_CLONE_ATTEMPTS
+# (default 3). Any extra git-clone args (a branch, --depth, …) pass through after
+# <dest>. Removes a partial <dest> before each attempt. Returns non-zero if all
+# attempts fail (callers decide whether that's fatal).
+git_clone_retry() {
+  local url="$1" dest="$2"; shift 2
+  local attempts="${GIT_CLONE_ATTEMPTS:-3}" n=1 delay=5
+  while true; do
+    rm -rf "$dest"
+    if git -c http.postBuffer=524288000 clone "$@" "$url" "$dest"; then
+      return 0
+    fi
+    if [[ "$n" -ge "$attempts" ]]; then
+      return 1
+    fi
+    warn "Clone of $url failed (attempt $n/$attempts) — retrying in ${delay}s..."
+    sleep "$delay"
+    n=$((n + 1)); delay=$((delay * 3))
+  done
+}
+
 # Is the current user authorized to work this project? (per-task/team model)
 # assigned_to is either an individual email (contains '@') or a GitHub team slug.
 # Authorized when: assigned_to is empty/~ (unrestricted), OR equals the current
