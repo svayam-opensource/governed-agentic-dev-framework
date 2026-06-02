@@ -336,6 +336,20 @@ is_authorized() {
   return 1
 }
 
+# Copy the developer's git identity from the workspace a lifecycle command runs
+# in ($REPO_ROOT, where setup.sh configured user.name/user.email) into a freshly
+# created per-project clone. Without this, the per-project workspace inherits
+# only the ambient global identity, so commits and C01 authorization there would
+# not reflect the developer who seeded/joined the project.
+set_clone_identity() {
+  local dir="$1" name email
+  name=$(git -C "$REPO_ROOT" config user.name 2>/dev/null || echo "")
+  email=$(git -C "$REPO_ROOT" config user.email 2>/dev/null || echo "")
+  [[ -n "$name" ]]  && git -C "$dir" config user.name  "$name"
+  [[ -n "$email" ]] && git -C "$dir" config user.email "$email"
+  return 0
+}
+
 # ── Registry-on-default-branch (Option 2 global index) ──────────────────────
 # registry.yaml is the authoritative index and lives on $DEFAULT_BRANCH so
 # management/read commands see all projects without checking out a project

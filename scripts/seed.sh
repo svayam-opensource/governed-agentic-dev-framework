@@ -427,6 +427,10 @@ git clone --local "$REPO_ROOT" "$ORG_GOV_CLONE" >/dev/null 2>&1 \
   || hard_stop "Failed to clone home workspace into $ORG_GOV_CLONE"
 CREATED_PATHS+=("$ORG_GOV_CLONE")
 
+# Carry the developer's git identity into the per-project clone so commits
+# and C01 authorization here reflect the seeder, not the ambient global.
+set_clone_identity "$ORG_GOV_CLONE"
+
 git -C "$ORG_GOV_CLONE" remote set-url origin "$ORG_REPO_URL"
 
 # Create the project branch in the clone
@@ -634,6 +638,7 @@ if [[ ${#REPO_URL_LIST[@]} -gt 0 ]]; then
         || hard_stop "Clone failed for $repo_url (after retries — check network/repo size)"
     fi
     CREATED_PATHS+=("$REPO_DIR")
+    set_clone_identity "$REPO_DIR"
     git -C "$REPO_DIR" checkout "$REPO_BASE" >/dev/null 2>&1 \
       || hard_stop "Base branch '$REPO_BASE' not found in $repo_url"
     if git -C "$REPO_DIR" rev-parse --verify "$BRANCH" &>/dev/null; then

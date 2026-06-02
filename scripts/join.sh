@@ -39,6 +39,10 @@ else
     || hard_stop "Branch '$BRANCH' not found — has $PROJECT_ID been seeded and pushed?"
 fi
 
+# Carry the joining developer's git identity into the per-project clone so
+# commits + C01 authorization here reflect them, not the ambient global.
+set_clone_identity "$ORG_GOV_DIR"
+
 PROJECT_YAML="$ORG_GOV_DIR/projects/$PROJECT_ID/project.yaml"
 [[ -f "$PROJECT_YAML" ]] || hard_stop "project.yaml not found on branch '$BRANCH'."
 
@@ -60,6 +64,7 @@ while IFS= read -r repo_url; do
   else
     info "Cloning $REPO_NAME → $REPO_DIR ..."
     if git_clone_retry "$repo_url" "$REPO_DIR"; then
+      set_clone_identity "$REPO_DIR"
       git -C "$REPO_DIR" checkout "$BRANCH" 2>/dev/null \
         || warn "Branch '$BRANCH' not in $REPO_NAME — check it out manually."
     else
