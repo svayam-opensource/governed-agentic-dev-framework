@@ -440,11 +440,11 @@ PROJECT_DIR="$ORG_GOV_CLONE/projects/$PROJECT_ID"
 rm -f "$PROJECT_DIR/.gitkeep"  # we're about to write real content
 mkdir -p "$PROJECT_DIR"/{requirements,environment,knowledge}
 
-# todo.md from template
-TODO_TEMPLATE="$ORG_GOV_CLONE/knowledge/guidance/todo-template.md"
+# todo.md from template. The template header placeholder is the full
+# project-id pattern 'PRJ-NNN-<slug>'; substitute the concrete PROJECT_ID.
+TODO_TEMPLATE="$ORG_GOV_CLONE/framework/knowledge/guidance/todo-template.md"
 if [[ -f "$TODO_TEMPLATE" ]]; then
-  PROJECT_SUFFIX="${PROJECT_ID#PRJ-}"
-  sed "s/NNN-slug/$PROJECT_SUFFIX/g" "$TODO_TEMPLATE" > "$PROJECT_DIR/knowledge/todo.md"
+  sed "s/PRJ-NNN-<slug>/$PROJECT_ID/g" "$TODO_TEMPLATE" > "$PROJECT_DIR/knowledge/todo.md"
 fi
 
 # Build repos[] YAML fragment
@@ -583,7 +583,7 @@ TOOL_FILES=(
 )
 
 for rel in "${TOOL_FILES[@]}"; do
-  src="$ORG_GOV_CLONE/$rel"
+  src="$ORG_GOV_CLONE/framework/$rel"
   dst="$PROJECT_DIR/$rel"
   [[ -f "$src" ]] || continue
   mkdir -p "$(dirname "$dst")"

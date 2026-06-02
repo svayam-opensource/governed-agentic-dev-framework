@@ -118,7 +118,7 @@ ensure_user_prefs_file() {
   path=$(current_user_prefs_path)
   [[ -z "$path" ]] && return 0
   [[ -f "$path" ]] && return 0
-  template="$REPO_ROOT/knowledge/guidance/preferences-template.md"
+  template="$REPO_ROOT/framework/knowledge/guidance/preferences-template.md"
   [[ -f "$template" ]] || return 0
   # Refuse to seed from an un-substituted template. setup.sh is the
   # right tool to substitute placeholders; only then can we copy.

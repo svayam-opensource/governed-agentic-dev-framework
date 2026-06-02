@@ -432,7 +432,7 @@ in_registry=$(python3 -c "import yaml; ps=yaml.safe_load(open('registry.yaml')).
   || hard_stop "project.yaml missing in per-project workspace"
 [[ -f "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge/todo.md" ]] \
   || hard_stop "todo.md missing in per-project workspace"
-grep -q "^# To-do for ${PROJECT_ID#PRJ-}" "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge/todo.md" \
+grep -q "^# To-do for ${PROJECT_ID}" "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge/todo.md" \
   || hard_stop "todo.md header missing per-project substitution"
 
 # Per-project tool bootstrap files
