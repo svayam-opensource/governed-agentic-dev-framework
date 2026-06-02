@@ -14,3 +14,5 @@
 
 # Governance working root (clones live outside the repo, but never commit a stray one)
 /prj_gov/
+# macOS Finder metadata
+.DS_Store
