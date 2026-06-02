@@ -421,27 +421,36 @@ fi
 if $NON_INTERACTIVE || [[ "${SETUP_SKIP_GITHUB_VERIFY:-}" == "1" ]]; then
   :
 else
-  header "Verifying GitHub access"
+  header "Identity & GitHub access"
 
   GIT_EMAIL=$(git config user.email 2>/dev/null || echo "")
   if [[ -z "$GIT_EMAIL" ]]; then
-    err "git config user.email is not set"
-    hard_stop "Set it: git config --global user.email 'you@example.com'"
+    warn "git config user.email is not set"
+    ask GIT_EMAIL "Your email for git commits" ""
+    if [[ -n "$GIT_EMAIL" ]]; then
+      git config --global user.email "$GIT_EMAIL" && ok "Set git user.email: $GIT_EMAIL"
+    else
+      hard_stop "git user.email is required: git config --global user.email 'you@example.com'"
+    fi
+  else
+    ok "git user.email:  $GIT_EMAIL"
   fi
-  ok "git user.email:  $GIT_EMAIL"
 
   GH_USER=$(gh api user --jq .login 2>/dev/null || echo "")
   if [[ -z "$GH_USER" ]]; then
-    hard_stop "Could not retrieve gh user. Run: gh auth login"
+    warn "Not logged in to the GitHub CLI (gh)."
+    if confirm_yn "Run 'gh auth login' now (recommended scopes will be requested)?"; then
+      gh auth login -h github.com -s "$GOV_SCOPES_CSV" || true
+      GH_USER=$(gh api user --jq .login 2>/dev/null || echo "")
+    fi
+    [[ -n "$GH_USER" ]] || hard_stop "Still not logged in. Run 'gh auth login' and re-run setup.sh."
   fi
   ok "gh user:         $GH_USER"
 
   if gh api "orgs/$GITHUB_ORG" &>/dev/null; then
     ok "Read access to org '$GITHUB_ORG'"
-    GITHUB_ORG_TYPE="org"
   elif gh api "users/$GITHUB_ORG" &>/dev/null; then
     ok "'$GITHUB_ORG' is a user account (not an org) — accessible"
-    GITHUB_ORG_TYPE="user"
   else
     err "Cannot read '$GITHUB_ORG' — not found, or no access"
     hard_stop "Verify github_org in org-config.yaml is correct, you are a member, and gh has 'read:org' scope:
@@ -477,14 +486,14 @@ fi
 
 # ── Step 7: Bootstrap current user's preferences file ────────────────────────
 #
-# Per-user preferences live at $AGENT_WORK_ROOT/preferences/<gh-login>.md.
+# Per-user preferences live at $PRJ_GOV_LOC/preferences/<gh-login>.md.
 # Copy the template here so the developer has a starting point. Never
 # overwrite an existing file. Skip silently if no gh login is available.
 
 PREFS_LOGIN=$(gh api user --jq .login 2>/dev/null || echo "")
 PREFS_TEMPLATE="$REPO_ROOT/knowledge/guidance/preferences-template.md"
 if [[ -n "$PREFS_LOGIN" ]] && [[ -f "$PREFS_TEMPLATE" ]]; then
-  PREFS_DIR="$AGENT_WORK_ROOT/preferences"
+  PREFS_DIR="$PRJ_GOV_LOC/preferences"
   PREFS_FILE="$PREFS_DIR/$PREFS_LOGIN.md"
   mkdir -p "$PREFS_DIR"
   if [[ -f "$PREFS_FILE" ]]; then

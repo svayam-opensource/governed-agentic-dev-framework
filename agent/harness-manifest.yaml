@@ -1,0 +1,225 @@
+# Harness manifest — drives scripts/render-harness.sh
+# Canonical protocol: agent/session-protocol.md + agent.md
+# Spec: docs/design/agent-context-assembly-spec.md §3.3, Appendix C, Appendix D
+#
+# Do not hand-edit generated install paths listed under harnesses[].path when
+# generated: true. Run ./scripts/render-harness.sh after editing session-protocol.
+
+version: 1
+
+canonical:
+  session_protocol: agent/session-protocol.md
+  org_entrypoint: framework/agent.md
+  adopter_marker: "<!-- ADOPTER_C03_EXTENSIONS -->"
+
+# Delivery tiers (see spec Appendix D)
+#   import         — file expand at launch (@import); Claude Code only today
+#   generate_auto  — render-harness embeds protocol; tool auto-loads install path
+#   generate_manual— render-harness embeds protocol; developer must invoke (--read)
+#   fallback       — no repo convention; paste ./prj context assemble output
+
+tiers:
+  import:
+    description: Expand canonical files into startup context at tool launch
+  generate_auto:
+    description: Generated install path auto-loaded by the tool
+  generate_manual:
+    description: Generated file exists but developer must pass a flag or slash-command
+  fallback:
+    description: No install path; use kickoff prompt + transcript reads
+
+generated_banner: "<!-- GENERATED FROM agent/session-protocol.md — do not edit; run ./scripts/render-harness.sh -->"
+
+harnesses:
+  # ── Tier: import ──────────────────────────────────────────────────────────
+  - id: claude-code
+    tool: Claude Code
+    status: active
+    tier: import
+    path: framework/CLAUDE.md
+    generated: false
+    seed_copy: true
+    per_project_path: projects/{project_id}/CLAUDE.md
+    per_project_template: |
+      @../../agent/session-protocol.md
+      @agent.md
+
+      <!-- ADOPTER_C03_EXTENSIONS -->
+    verify: "Run /memory — must list CLAUDE.md and imported agent files"
+    notes: |
+      Claude does not read AGENTS.md unless @AGENTS.md is added.
+      First @import shows approval dialog once per project.
+
+  # ── Tier: generate_auto ───────────────────────────────────────────────────
+  - id: cursor
+    tool: Cursor
+    status: active
+    tier: generate_auto
+    path: framework/.cursor/rules/agent.mdc
+    generated: true
+    seed_copy: true
+    template: cursor-mdc
+    template_extra:
+      description: "Agentic Development Framework — session-start protocol (POL-113..117)"
+      globs: '["**/*"]'
+      alwaysApply: true
+    verify: "Cursor Settings → Rules — agent.mdc must show Always"
+    notes: |
+      Injected on every Chat/Agent/Composer turn when alwaysApply is true.
+      Inline Edit (Cmd+K) may not receive full rules.
+
+  - id: openai-codex
+    tool: OpenAI Codex
+    status: active
+    tier: generate_auto
+    path: framework/AGENTS.md
+    generated: true
+    seed_copy: true
+    template: markdown-plain
+    verify: "First message — ask agent to summarize session protocol"
+    notes: "Plain markdown; Codex CLI, Codex Web, ChatGPT coding mode."
+
+  - id: gemini-code-assist
+    tool: Gemini Code Assist
+    status: active
+    tier: generate_auto
+    path: framework/.gemini/styleguide.md
+    generated: true
+    seed_copy: true
+    template: markdown-plain
+    verify: "First message — ask what styleguide/rules were loaded"
+    notes: |
+      Convention name is styleguide; content is session protocol.
+      Re-check Google docs when extension updates.
+
+  - id: github-copilot
+    tool: GitHub Copilot
+    status: active
+    tier: generate_auto
+    path: framework/.github/copilot-instructions.md
+    generated: true
+    seed_copy: true
+    template: markdown-plain
+    verify: "Copilot assist on a repo file — ask it to state write restrictions"
+    notes: |
+      Edit-time assist, not a full agent session. Weaker C01 gate than Cursor/Claude.
+      Same folder holds GitHub Actions — do not mix CI config into instructions.
+
+  - id: windsurf
+    tool: Windsurf
+    status: active
+    tier: generate_auto
+    path: framework/.windsurf/rules/agent.md
+    generated: true
+    seed_copy: true
+    template: markdown-plain
+    verify: "First message — confirm rules loaded"
+
+  - id: cline
+    tool: Cline / Roo Code
+    status: active
+    tier: generate_auto
+    path: framework/.clinerules/agent.md
+    generated: true
+    seed_copy: true
+    template: markdown-plain
+    verify: "Open projects/{project_id}/ as workspace; confirm rules on startup"
+    notes: "Supports nested .clinerules/ per subdirectory."
+
+  - id: continue
+    tool: Continue.dev
+    status: active
+    tier: generate_auto
+    path: framework/.continue/rules.md
+    generated: true
+    seed_copy: true
+    template: markdown-plain
+    verify: "First message — confirm system rules loaded"
+    notes: "Complements .continue/config.yaml context providers."
+
+  # ── Tier: generate_manual ─────────────────────────────────────────────────
+  - id: aider
+    tool: Aider
+    status: active
+    tier: generate_manual
+    path: framework/CONVENTIONS.md
+    generated: true
+    seed_copy: true
+    template: markdown-plain
+    invoke: "aider --read CONVENTIONS.md …"
+    verify: "Confirm CONVENTIONS.md in aider context at session start"
+
+  # ── Tier: fallback (registered, not generated) ────────────────────────────
+  - id: chatgpt-web
+    tool: ChatGPT (web) / custom GPT
+    status: registered
+    tier: fallback
+    path: null
+    verify: "Paste kickoff prompt from DEVELOPER_GUIDE §3"
+    notes: "No repo-local auto-load."
+
+  - id: jetbrains-ai
+    tool: JetBrains AI Assistant
+    status: planned
+    tier: generate_auto
+    path: .junie/guidelines.md
+    generated: true
+    seed_copy: false
+    template: markdown-plain
+    notes: "Verify path against JetBrains docs before enabling."
+
+  - id: amazon-q
+    tool: Amazon Q Developer
+    status: planned
+    tier: generate_auto
+    path: .amazonq/rules.md
+    generated: true
+    seed_copy: false
+    template: markdown-plain
+    notes: "Path TBD — confirm with AWS docs before enabling."
+
+  - id: sourcegraph-cody
+    tool: Sourcegraph Cody
+    status: planned
+    tier: generate_auto
+    path: .sourcegraph/cody-rules.md
+    generated: true
+    seed_copy: false
+    template: markdown-plain
+    notes: "Path TBD."
+
+# Templates (consumed by render-harness.sh)
+templates:
+  cursor-mdc: |
+    ---
+    description: {{template_extra.description}}
+    globs: {{template_extra.globs}}
+    alwaysApply: {{template_extra.alwaysApply}}
+    ---
+
+    {{render.generated_banner}}
+
+    {{render.body}}
+  markdown-plain: |
+    {{render.generated_banner}}
+
+    {{render.body}}
+  claude-import-stub: |
+    @agent/session-protocol.md
+    @agent.md
+
+    <!-- ADOPTER_C03_EXTENSIONS -->
+
+# Per-project composition (seed / render-harness --project)
+per_project:
+  compose_body: |
+    {{render.session_protocol_body}}
+
+    ---
+
+    # Project entrypoint
+
+    @agent.md
+  note: |
+    For Cursor/Aider/etc., render-harness concatenates session-protocol + projects/PID/agent.md
+    into the generated install path. For Claude, per_project_template uses separate @imports.

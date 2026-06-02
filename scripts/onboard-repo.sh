@@ -30,14 +30,14 @@ echo ""
 # ── Clone or locate repo ──────────────────────────────────────────────────────
 
 TMP_CLONE=false
-REPO_DIR="$AGENT_WORK_ROOT/onboard/$REPO_NAME"
+REPO_DIR="$PRJ_GOV_LOC/onboard/$REPO_NAME"
 
 if [[ -d "$REPO_DIR/.git" ]]; then
   info "Found existing clone at $REPO_DIR — fetching..."
   git -C "$REPO_DIR" fetch origin
 else
   info "Cloning $REPO_URL → $REPO_DIR..."
-  mkdir -p "$AGENT_WORK_ROOT/onboard"
+  mkdir -p "$PRJ_GOV_LOC/onboard"
   git clone "$REPO_URL" "$REPO_DIR" || hard_stop "Clone failed for $REPO_URL — verify access."
   TMP_CLONE=true
 fi
@@ -84,7 +84,7 @@ This file represents the **repo-local knowledge layer** — third priority.
 1. Org-wide knowledge      → $WORKSPACE_REPO/knowledge/        [HIGHEST]
 2. Project knowledge       → $WORKSPACE_REPO/projects/<project-id>/knowledge/
 3. This repo's knowledge   → this file and knowledge/repo/      [THIS FILE]
-4. Your developer prefs    → \$AGENT_WORK_ROOT/preferences/<your-gh-login>.md
+4. Your developer prefs    → \$PRJ_GOV_LOC/preferences/<your-gh-login>.md
 \`\`\`
 
 **This file cannot override org-wide knowledge or policy.**

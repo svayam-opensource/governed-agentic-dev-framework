@@ -133,19 +133,19 @@ fi
 rm -f "$KNOWLEDGE_SUMMARY_FILE"
 
 # Stage any knowledge/ changes the agent may have made
-git add "knowledge/" 2>/dev/null || true
+git add "framework/knowledge/" 2>/dev/null || true
 
 # If no changes were staged (fallback mode), there is nothing new to commit;
 # the PR will just carry the branch with existing org knowledge as baseline.
 if git diff --cached --quiet; then
   info "No knowledge/ changes staged — PR will describe manual review needed."
   # Create a placeholder note so the branch has at least one commit
-  mkdir -p "$REPO_ROOT/knowledge/accumulated"
-  cat >> "$REPO_ROOT/knowledge/accumulated/README.md" <<NOTE
+  mkdir -p "$REPO_ROOT/framework/knowledge/accumulated"
+  cat >> "$REPO_ROOT/framework/knowledge/accumulated/README.md" <<NOTE
 
 <!-- close-knowledge: $PROJECT_ID — manual review needed ($TODAY) -->
 NOTE
-  git add "knowledge/accumulated/README.md"
+  git add "framework/knowledge/accumulated/README.md"
 fi
 
 git commit -m "close-knowledge: $PROJECT_ID" --allow-empty

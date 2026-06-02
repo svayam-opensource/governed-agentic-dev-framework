@@ -178,7 +178,24 @@ _prompt_2way() {
     case "$choice" in
       k|K) log_ok "$dst — kept your version"; return 0 ;;
       r|R) cp "$src_path" "$dst_path"; log_ok "$dst — replaced with framework's"; return 0 ;;
-      v|V) diff "$src_path" "$dst_path" | less ;;
+      v|V)
+        # Dump the diff to a stable temp file path instead of piping to a
+        # pager. Pagers like `less` invite Ctrl-C-quits that kill the whole
+        # upgrade script and leave half-applied state. Writing to a file
+        # lets the user review at their leisure and come back to this same
+        # prompt to choose k/r/s.
+        # Use mktemp (O_EXCL, won't follow a planted symlink) rather than a
+        # predictable /tmp path — the latter is a symlink-overwrite risk on
+        # shared machines (CWE-377). This matches the 3-way merge path below.
+        local _tmp
+        _tmp=$(mktemp "/tmp/framework-upgrade-diff-$(echo "$dst" | tr '/' '_').XXXXXX.diff")
+        diff "$src_path" "$dst_path" > "$_tmp" 2>/dev/null || true
+        echo ""
+        echo "    Full diff saved to: $_tmp"
+        echo "    Review it in another terminal (e.g. \`less $_tmp\` or open in your editor),"
+        echo "    then come back here and pick [k/r/s]."
+        echo ""
+        ;;
       s|S) log_warn "$dst — skipped (you'll need to reconcile later)"; return 0 ;;
       *) echo "    Invalid choice." ;;
     esac

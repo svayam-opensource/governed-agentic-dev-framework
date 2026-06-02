@@ -31,7 +31,7 @@ echo "Checking for uncommitted changes..."
 check_clean "$REPO_ROOT"
 
 while IFS= read -r repo_url; do
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$(get_repo_name "$repo_url")"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$(get_repo_name "$repo_url")")"
   [[ -d "$REPO_DIR/.git" ]] && check_clean "$REPO_DIR"
 done < <(get_project_repos "$PROJECT_YAML")
 
@@ -52,11 +52,19 @@ git commit -m "pause: $PROJECT_ID"
 git push origin "$BRANCH"
 
 while IFS= read -r repo_url; do
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$(get_repo_name "$repo_url")"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$(get_repo_name "$repo_url")")"
   if [[ -d "$REPO_DIR/.git" ]]; then
     git -C "$REPO_DIR" push origin "$BRANCH" 2>/dev/null || warn "Push skipped for $repo_url (nothing to push)"
   fi
 done < <(get_project_repos "$PROJECT_YAML")
+
+# ── Reflect pause in the registry index on the default branch + README mirror ─
+# project.yaml status lives on the project branch; the authoritative index lives
+# on $DEFAULT_BRANCH. Flip it so `prj list`/`prj status` don't show a paused
+# project as active.
+registry_set_status_on_main "$PROJECT_ID" "paused"
+project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "paused" \
+  "$(yaml_get "$PROJECT_YAML" assigned_to)" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
 
 echo ""
 echo "=== Project paused."

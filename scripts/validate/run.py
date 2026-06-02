@@ -241,13 +241,8 @@ def check_lifecycle(repo_root: Path) -> list[str]:
         if p.get("completed_at") and p.get("cancelled_at"):
             errors.append(f"{rel}: both completed_at and cancelled_at are set")
 
-        if status in {"completed", "cancelled"}:
-            for task in (p.get("tasks") or []):
-                if isinstance(task, dict) and task.get("status") == "active":
-                    errors.append(
-                        f"{rel}: project status={status} but task '{task.get('id')}' "
-                        f"is still active"
-                    )
+        # Tasks-on-board model: tasks are not tracked in project.yaml (they are
+        # GitHub Issues + sub-branches), so there is no tasks[] to validate here.
 
     return errors
 

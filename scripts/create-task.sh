@@ -44,29 +44,28 @@ while IFS= read -r repo_url; do
 done < <(get_project_repos "$PROJECT_YAML")
 $REPO_FOUND || hard_stop "Repo '$ISSUE_REPO_URL' is not in project repos[]. Add it first via add-repo."
 
-# Check assignee is current user or project member (C01)
+# The person creating the task must be authorized on the project — assigned_to
+# individual or a member of the assigned_to team (per-task/team model, POL-047).
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
-LOCKED_BY=$(yaml_get "$PROJECT_YAML" "locked_by")
 ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")
-if [[ "$ASSIGNEE" != "$LOCKED_BY" && "$ASSIGNEE" != "$ASSIGNED_TO" && "$ASSIGNEE" != "$CURRENT_USER" ]]; then
-  hard_stop "Assignee '$ASSIGNEE' is not locked_by or assigned_to on this project (C01)."
-fi
+is_authorized "$ASSIGNED_TO" \
+  || hard_stop "You ($CURRENT_USER) are not authorized on this project (assigned_to: $ASSIGNED_TO)."
 
 # Derive task slug from issue title
 ISSUE_TITLE=$(gh issue view "$ISSUE_URL" --json title -q '.title' 2>/dev/null) \
   || hard_stop "Could not fetch issue title from $ISSUE_URL"
 TASK_SLUG=$(slugify "$ISSUE_TITLE")
-TASK_ID="${BRANCH}/${TASK_SLUG}"
+# Task sub-branch name. NOTE the '.' separator (not '/'): git refuses to hold a
+# branch '<x>' and '<x>/<y>' at once (refs/heads/<x> is a file, not a dir), so
+# '<branch>/<slug>' would collide with the project branch. '<branch>.<slug>' is
+# collision-free and still lets close-project glob tasks as "<branch>.*".
+TASK_ID="${BRANCH}.${TASK_SLUG}"
 
-# Check no active task already exists for this issue
-python3 - "$PROJECT_YAML" "$ISSUE_URL" <<'PY'
-import sys, yaml
-c = yaml.safe_load(open(sys.argv[1]))
-for t in (c.get('tasks') or []):
-    if t and t.get('github_issue') == sys.argv[2] and t.get('status') == 'active':
-        print(f"CONFLICT: Issue already has active task: {t['id']}")
-        sys.exit(1)
-PY
+# Tasks-on-board model: the issue + its sub-branch ARE the task (no project.yaml
+# tasks[]). Refuse to task a closed issue; the sub-branch existence check below
+# prevents creating a duplicate task for the same issue.
+ISSUE_STATE=$(gh issue view "$ISSUE_URL" --json state -q '.state' 2>/dev/null || echo "")
+[[ "$ISSUE_STATE" == "CLOSED" ]] && hard_stop "Issue $ISSUE_URL is closed — cannot start a task on it."
 
 echo "Task ID : $TASK_ID"
 echo ""
@@ -88,7 +87,7 @@ info "Sub-branch '$TASK_ID' pushed to workspace repo"
 TODAY=$(today)
 while IFS= read -r repo_url; do
   REPO_NAME=$(get_repo_name "$repo_url")
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$REPO_NAME")"
   if [[ ! -d "$REPO_DIR/.git" ]]; then
     warn "Repo $REPO_NAME not cloned locally — skipping sub-branch creation (clone it first)."
     continue
@@ -108,33 +107,10 @@ done < <(get_project_repos "$PROJECT_YAML")
 gh issue edit "$ISSUE_URL" --add-assignee "$ASSIGNEE" 2>/dev/null \
   || warn "Could not assign issue to $ASSIGNEE — assign manually."
 
-# ── Update project.yaml tasks[] ──────────────────────────────────────────────
-
-python3 - "$PROJECT_YAML" "$TASK_ID" "$ISSUE_URL" "$ASSIGNEE" "$TODAY" <<'PY'
-import sys, yaml
-pf, task_id, issue, assignee, today = sys.argv[1:]
-with open(pf) as f:
-    c = yaml.safe_load(f)
-if not c.get('tasks'):
-    c['tasks'] = []
-c['tasks'].append({
-    'id': task_id,
-    'github_issue': issue,
-    'assigned_to': assignee,
-    'status': 'active',
-    'created_at': today,
-    'completed_at': None,
-})
-with open(pf, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-
-# Commit updated project.yaml to project branch
-cd "$REPO_ROOT"
-git checkout "$BRANCH"
-git add "projects/$PROJECT_ID/project.yaml"
-git commit -m "create-task: add task $TASK_ID"
-git push origin "$BRANCH"
+# ── Mark the task active on the board (tasks-on-board: no project.yaml tasks[]) ──
+# The issue + its sub-branch are the task record; reflect it on the board Status.
+GHPROJ=$(yaml_get "$PROJECT_YAML" "github_project")
+board_set_status "$GHPROJ" "$ISSUE_URL" "In progress" || true
 
 echo ""
 echo "=== Task created successfully!"

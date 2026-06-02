@@ -23,12 +23,9 @@ check_project_exists "$PROJECT_ID"
 
 require_project_status "$PROJECT_YAML" "paused"
 
-CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
-LOCKED_BY=$(yaml_get "$PROJECT_YAML" "locked_by")
 ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")
-if [[ -n "$CURRENT_USER" && "$CURRENT_USER" != "$LOCKED_BY" && "$CURRENT_USER" != "$ASSIGNED_TO" ]]; then
-  hard_stop "Not authorized: current user '$CURRENT_USER' is not locked_by or assigned_to."
-fi
+is_authorized "$ASSIGNED_TO" \
+  || hard_stop "Not authorized to resume: you are not '$ASSIGNED_TO' (nor a member, if it is a team)."
 
 BRANCH=$(project_branch_for_id "$PROJECT_ID")
 
@@ -54,7 +51,7 @@ info "Workspace repo synced."
 
 while IFS= read -r repo_url; do
   REPO_NAME=$(get_repo_name "$repo_url")
-  REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$REPO_NAME")"
   REPO_BASE=$(get_repo_base_branch "$PROJECT_YAML" "$repo_url")
 
   if [[ ! -d "$REPO_DIR/.git" ]]; then
@@ -88,6 +85,11 @@ git add "projects/$PROJECT_ID/project.yaml"
 git commit -m "resume: $PROJECT_ID (synced with $DEFAULT_BRANCH)"
 git push origin "$BRANCH"
 
+# ── Reflect resume in the registry index on the default branch + README mirror ─
+registry_set_status_on_main "$PROJECT_ID" "active"
+project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "active" \
+  "$ASSIGNED_TO" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
+
 echo ""
 echo "=== Project resumed."
 echo "    Status: active"
@@ -97,4 +99,4 @@ echo "[ C01 ] Reload all four knowledge layers fresh before starting work:"
 echo "    1. $WORKSPACE_REPO/knowledge/"
 echo "    2. $WORKSPACE_REPO/projects/$PROJECT_ID/knowledge/"
 echo "    3. <repo>/knowledge/ for each repo"
-echo "    4. \$AGENT_WORK_ROOT/preferences/<your-gh-login>.md  (your own only)"
+echo "    4. \$PRJ_GOV_LOC/preferences/<your-gh-login>.md  (your own only)"

@@ -46,7 +46,7 @@ cat > FRAMEWORK_FILE.md <<'MD'
 # Framework file
 Tokens like <ORG_NAME>, <DEFAULT_BRANCH>, <GITHUB_ORG> should stay verbatim.
 MD
-ORIG_FRAMEWORK_SHA=$(shasum FRAMEWORK_FILE.md | awk '{print $1}')
+ORIG_FRAMEWORK_SHA=$(sha FRAMEWORK_FILE.md | awk '{print $1}')
 
 # Pipe answers (in prompt order):
 #   org_repo_url           (prompted because origin == TEMPLATE)
@@ -75,5 +75,5 @@ assert_contains 'github_org: "test-org"'                                     "$c
 assert_contains 'workspace_repo: "my-governance"'                            "$config" "workspace_repo derived from org_repo_url"
 
 # Framework file unchanged (direction A: no in-place substitution)
-NEW_FRAMEWORK_SHA=$(shasum FRAMEWORK_FILE.md | awk '{print $1}')
+NEW_FRAMEWORK_SHA=$(sha FRAMEWORK_FILE.md | awk '{print $1}')
 assert_eq "$ORIG_FRAMEWORK_SHA" "$NEW_FRAMEWORK_SHA" "framework file untouched by setup.sh"

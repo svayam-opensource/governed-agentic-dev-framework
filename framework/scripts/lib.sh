@@ -285,17 +285,217 @@ PY
   fi
 }
 
-# Print active task IDs from project.yaml tasks[]
-get_project_tasks() {
-  python3 - "$1" <<'PY'
-import sys, yaml
-c = yaml.safe_load(open(sys.argv[1]))
-for t in (c.get('tasks') or []):
-    if t and t.get('id') and t.get('status') == 'active':
-        print(t['id'])
-PY
+# Per-project workspace paths (Direction A layout)
+project_work_root() { echo "$AGENT_WORK_ROOT/$1"; }
+org_gov_clone()       { echo "$AGENT_WORK_ROOT/$1/$WORKSPACE_REPO"; }
+repo_clone_dir()      { echo "$AGENT_WORK_ROOT/$1/$2"; }
+# Back-compat aliases used by join.sh
+project_clone_root()  { project_work_root "$1"; }
+
+# Clone with retry + backoff.
+# "early EOF / unexpected disconnect while reading sideband packet"; a couple of
+# retries usually rides through a transient drop. Honors GIT_CLONE_ATTEMPTS
+# (default 3). Any extra git-clone args (a branch, --depth, …) pass through after
+# <dest>. Removes a partial <dest> before each attempt. Returns non-zero if all
+# attempts fail (callers decide whether that's fatal).
+git_clone_retry() {
+  local url="$1" dest="$2"; shift 2
+  local attempts="${GIT_CLONE_ATTEMPTS:-3}" n=1 delay=5
+  while true; do
+    rm -rf "$dest"
+    if git -c http.postBuffer=524288000 clone "$@" "$url" "$dest"; then
+      return 0
+    fi
+    if [[ "$n" -ge "$attempts" ]]; then
+      return 1
+    fi
+    warn "Clone of $url failed (attempt $n/$attempts) — retrying in ${delay}s..."
+    sleep "$delay"
+    n=$((n + 1)); delay=$((delay * 3))
+  done
 }
 
+# Is the current user authorized to work this project? (per-task/team model)
+# assigned_to is either an individual email (contains '@') or a GitHub team slug.
+# Authorized when: assigned_to is empty/~ (unrestricted), OR equals the current
+# git email (individual), OR the current gh login is a member of the team
+# (needs read:org). seeded_by is an audit record and is NOT an authorization gate.
+is_authorized() {
+  local assigned="${1:-}"
+  [[ -z "$assigned" || "$assigned" == "~" ]] && return 0
+  local email; email=$(git config user.email 2>/dev/null || echo "")
+  [[ -n "$email" && "$assigned" == "$email" ]] && return 0
+  if [[ "$assigned" != *"@"* ]]; then            # treat as a GitHub team slug
+    local login team
+    login=$(gh api user --jq .login 2>/dev/null || echo "")
+    [[ -z "$login" ]] && return 1
+    team="${assigned#@}"; team="${team##*/}"       # strip leading @ and any org/ prefix
+    gh api "orgs/$GITHUB_ORG/teams/$team/members" --jq '.[].login' 2>/dev/null \
+      | grep -qx "$login" && return 0
+  fi
+  return 1
+}
+
+# ── Registry-on-default-branch (Option 2 global index) ──────────────────────
+# registry.yaml is the authoritative index and lives on $DEFAULT_BRANCH so
+# management/read commands see all projects without checking out a project
+# branch. This sets a project's status there and pushes. Safe to call from a
+# standalone clone on any branch when the working tree is clean (callers commit
+# their own changes first); it switches to the default branch and back.
+registry_set_status_on_main() {
+  local pid="$1" status="$2"
+  local cur; cur=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  if [[ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]]; then
+    warn "Working tree not clean — skipping registry status update on $DEFAULT_BRANCH for $pid."
+    return 0
+  fi
+  git -C "$REPO_ROOT" fetch origin "$DEFAULT_BRANCH" 2>/dev/null || true
+  git -C "$REPO_ROOT" checkout "$DEFAULT_BRANCH" 2>/dev/null \
+    || { warn "Could not switch to $DEFAULT_BRANCH to update registry for $pid."; return 0; }
+  git -C "$REPO_ROOT" pull --ff-only origin "$DEFAULT_BRANCH" 2>/dev/null || true
+  python3 - "$REGISTRY" "$pid" "$status" <<'PY'
+import sys, yaml
+reg, pid, status = sys.argv[1:]
+c = yaml.safe_load(open(reg)) or {}
+for p in (c.get('projects') or []):
+    if p and p.get('id') == pid:
+        p['status'] = status
+        break
+with open(reg, 'w') as f:
+    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+PY
+  if [[ -n "$(git -C "$REPO_ROOT" status --porcelain registry.yaml 2>/dev/null)" ]]; then
+    git -C "$REPO_ROOT" add registry.yaml
+    git -C "$REPO_ROOT" commit -m "registry: $pid status=$status" >/dev/null 2>&1 || true
+    git -C "$REPO_ROOT" push origin "$DEFAULT_BRANCH" 2>/dev/null \
+      || warn "Could not push registry status=$status for $pid to $DEFAULT_BRANCH."
+  fi
+  [[ -n "$cur" ]] && git -C "$REPO_ROOT" checkout "$cur" 2>/dev/null || true
+  return 0
+}
+
+# Best-effort: mirror a read-only governance summary into the GitHub Project
+# README. Needs the 'project' (write) scope; on any failure it warns and
+# returns 0 so it can never break a lifecycle op. git stays authoritative.
+project_readme_mirror() {
+  local pid="$1" gh_url="$2" status="$3" assigned="$4" seeded="$5" branch="$6"
+  [[ -z "$gh_url" ]] && return 0
+  command -v gh >/dev/null 2>&1 || return 0
+  local num owner field
+  num=$(echo "$gh_url" | grep -oE '/projects/[0-9]+' | grep -oE '[0-9]+' || echo "")
+  [[ -z "$num" ]] && return 0
+  if echo "$gh_url" | grep -q '/orgs/'; then
+    owner=$(echo "$gh_url" | sed 's|.*/orgs/\([^/]*\)/.*|\1|'); field="organization"
+  else
+    owner=$(echo "$gh_url" | sed 's|.*/users/\([^/]*\)/.*|\1|'); field="user"
+  fi
+  local node_id
+  node_id=$(gh api graphql -f query="query{ ${field}(login: \"$owner\"){ projectV2(number: $num){ id } } }" \
+    --jq ".data.${field}.projectV2.id" 2>/dev/null || echo "")
+  if [[ -z "$node_id" || "$node_id" == "null" ]]; then
+    warn "README mirror skipped for $pid (could not resolve project — needs 'project' scope)."
+    return 0
+  fi
+  local readme
+  readme=$(cat <<MD
+<!-- Managed by the agentic-dev framework — do not edit. Mirrored from registry.yaml. -->
+## Governance — $pid
+
+| Field | Value |
+|---|---|
+| Project ID | \`$pid\` |
+| Status | $status |
+| Assigned to | $assigned |
+| Seeded by | $seeded |
+| Branch | \`$branch\` |
+
+Authoritative record: \`registry.yaml\` + \`projects/$pid/\` in the governance repo.
+MD
+)
+  gh api graphql \
+    -f query='mutation($id:ID!,$r:String!){ updateProjectV2(input:{projectId:$id, readme:$r}){ projectV2 { id } } }' \
+    -f id="$node_id" -f r="$readme" >/dev/null 2>&1 \
+    || warn "README mirror skipped for $pid (write failed — needs 'project' scope)."
+  return 0
+}
+
+# Print active task IDs from project.yaml tasks[]
+# Active tasks = OPEN/non-Done issues on the project board (tasks-on-board model;
+# the board is the source of truth for task state, not project.yaml). Echoes one
+# issue URL per line. Reads the board via gh (needs 'project' scope). Arg: project.yaml path.
+get_project_tasks() {
+  local pf="$1"
+  local url; url=$(yaml_get "$pf" "github_project")
+  [[ -z "$url" || "$url" == "~" ]] && return 0
+  command -v gh >/dev/null 2>&1 || return 0
+  local num owner
+  num=$(echo "$url" | grep -oE '/projects/[0-9]+' | grep -oE '[0-9]+' || echo "")
+  [[ -z "$num" ]] && return 0
+  if echo "$url" | grep -q '/orgs/'; then
+    owner=$(echo "$url" | sed 's|.*/orgs/\([^/]*\)/.*|\1|')
+  else
+    owner=$(echo "$url" | sed 's|.*/users/\([^/]*\)/.*|\1|')
+  fi
+  gh project item-list "$num" --owner "$owner" --format json --limit 200 2>/dev/null | python3 -c "
+import sys, json
+try: d = json.load(sys.stdin)
+except Exception: sys.exit(0)
+for i in d.get('items', []):
+    c = i.get('content') or {}
+    if c.get('type') == 'Issue' and str(i.get('status','')).strip().lower() != 'done':
+        u = c.get('url')
+        if u: print(u)
+" 2>/dev/null
+}
+
+# Best-effort: set a GitHub Project 'Status' single-select for an issue's item.
+# Needs the 'project' (write) scope; warns + returns 0 on any failure so it can
+# never break a task op. Args: project_url, issue_url, status_option_name.
+board_set_status() {
+  local url="$1" issue="$2" want="$3"
+  [[ -z "$url" || -z "$issue" ]] && return 0
+  command -v gh >/dev/null 2>&1 || return 0
+  local num owner
+  num=$(echo "$url" | grep -oE '/projects/[0-9]+' | grep -oE '[0-9]+' || echo "")
+  [[ -z "$num" ]] && return 0
+  if echo "$url" | grep -q '/orgs/'; then
+    owner=$(echo "$url" | sed 's|.*/orgs/\([^/]*\)/.*|\1|')
+  else
+    owner=$(echo "$url" | sed 's|.*/users/\([^/]*\)/.*|\1|')
+  fi
+  local pid fid oid iid
+  pid=$(gh project view "$num" --owner "$owner" --format json 2>/dev/null \
+        | python3 -c "import sys,json; print((json.load(sys.stdin) or {}).get('id',''))" 2>/dev/null)
+  read -r fid oid <<EOF2
+$(gh project field-list "$num" --owner "$owner" --format json 2>/dev/null | WANT="$want" python3 -c "
+import sys, json, os
+want = os.environ.get('WANT','').strip().lower()
+d = json.load(sys.stdin)
+for f in d.get('fields', []):
+    if f.get('name') == 'Status':
+        oid = ''
+        for o in (f.get('options') or []):
+            if o.get('name','').strip().lower() == want: oid = o.get('id','')
+        print(f.get('id',''), oid); break
+" 2>/dev/null)
+EOF2
+  iid=$(gh project item-list "$num" --owner "$owner" --format json --limit 200 2>/dev/null \
+        | ISSUE="$issue" python3 -c "
+import sys, json, os
+iss = os.environ.get('ISSUE','')
+d = json.load(sys.stdin)
+for i in d.get('items', []):
+    if (i.get('content') or {}).get('url') == iss: print(i.get('id','')); break
+" 2>/dev/null)
+  if [[ -z "$pid" || -z "$fid" || -z "$oid" || -z "$iid" ]]; then
+    warn "Board Status not set for $issue (need 'project' scope + a '$want' option)."
+    return 0
+  fi
+  gh project item-edit --id "$iid" --project-id "$pid" --field-id "$fid" \
+     --single-select-option-id "$oid" >/dev/null 2>&1 \
+    || warn "Board Status update to '$want' failed for $issue."
+  return 0
+}
 # ── Git helpers ───────────────────────────────────────────────────────────────
 
 check_clean() {

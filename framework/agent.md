@@ -38,7 +38,7 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 ## Session Start Checklist (C01 — complete before any work)
 
 1. Read `org-config.yaml` at workspace root — org identity, branches, owners, `agent_work_root`. Every other step references its values.
-2. Read `projects/PRJ-NNN-<slug>/project.yaml` → verify `locked_by` matches your user identity
+2. Read `projects/PRJ-NNN-<slug>/project.yaml` → verify you are authorized via `assigned_to` (or own the current task sub-branch)
 3. Verify `status: active`
 4. Load all four knowledge layers fresh (never use cached layers from a prior session)
 5. Pull latest `brnch-NNN-<slug>` branch in all repos

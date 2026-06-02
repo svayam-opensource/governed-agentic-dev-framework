@@ -30,6 +30,10 @@ t_fail() { echo -e "  ${RED}✗${NC} $*"; T_FAIL=$((T_FAIL+1)); T_FAILED_NAMES+=
 t_skip() { echo -e "  ${YELLOW}∼${NC} $*  ${DIM}(skipped)${NC}"; }
 t_info() { echo -e "  ${CYAN}→${NC} $*"; }
 
+# Portable SHA-1 of file(s). macOS ships `shasum`; Linux/Git-Bash ship `sha1sum`.
+# Same SHA-1 and `<hash>  <name>` output, so before/after comparisons match.
+sha() { if command -v shasum >/dev/null 2>&1; then shasum "$@"; else sha1sum "$@"; fi; }
+
 # assert_eq <expected> <actual> <description>
 assert_eq() {
   local expected="$1" actual="$2" desc="${3:-equality}"

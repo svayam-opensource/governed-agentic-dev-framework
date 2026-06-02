@@ -358,6 +358,9 @@ get_repo_base() {
 
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "$ASSIGNEE")
 
+is_authorized "$ASSIGNEE" \
+  || hard_stop "Not authorized: current user '$CURRENT_USER' is not assigned_to (or a member of the assigned team) for '$ASSIGNEE'."
+
 # ── Phase A: HOME workspace, default branch — registry stub + folder stub ──
 # We commit locally but do NOT push yet — pushing happens at the very end
 # once every other phase has succeeded. If something fails in B/C, we just
@@ -367,9 +370,9 @@ HOME_PRE_SEED_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
 
 info "Phase A: updating home registry + creating projects/$PROJECT_ID/ stub..."
 
-python3 - "$REGISTRY" "$PROJECT_ID" "$BRANCH" "$ASSIGNEE" "$TODAY" "$GITHUB_PROJECT_URL" "$NEW_LAST_ISSUED" "$PROJECT_OWNER" <<'PY'
+python3 - "$REGISTRY" "$PROJECT_ID" "$BRANCH" "$ASSIGNEE" "$TODAY" "$GITHUB_PROJECT_URL" "$NEW_LAST_ISSUED" "$PROJECT_OWNER" "$CURRENT_USER" <<'PY'
 import sys, yaml
-registry, pid, branch, assignee, today, gh_url, new_last, owner = sys.argv[1:]
+registry, pid, branch, assignee, today, gh_url, new_last, owner, seeded = sys.argv[1:]
 with open(registry) as f: c = yaml.safe_load(f) or {}
 c['last_issued'] = int(new_last)
 if not c.get('projects'): c['projects'] = []
@@ -379,6 +382,7 @@ c['projects'].append({
     'github_project': gh_url,
     'github_owner': owner,
     'assigned_to': assignee,
+    'seeded_by': seeded,
     'created_at': today,
     'status': 'active',
 })
@@ -482,7 +486,7 @@ description: ~
 github_project: $Q_GITHUB_PROJECT_URL
 github_project_name: $Q_PROJECT_TITLE
 assigned_to: $Q_ASSIGNEE
-locked_by: $Q_CURRENT_USER
+seeded_by: $Q_CURRENT_USER
 status: active
 created_at: $TODAY
 started_at: $TODAY
@@ -492,7 +496,6 @@ cancelled_at: ~
 cancellation_reason: ~
 repos:
 $REPOS_BLOCK
-tasks: []
 knowledge_status: ~
 knowledge_pr: ~
 agent_config:
@@ -533,8 +536,9 @@ done)
 
 ## Session Start Checklist (C01)
 
-1. Verify \`project.yaml\` \`locked_by\` matches your identity. If not, claim
-   it by updating \`locked_by\` first (single-session lock).
+1. Verify you are authorized via \`assigned_to\` in \`project.yaml\`
+   (\`assigned_to\` is you, or a team you belong to). When on a task sub-branch,
+   confirm that sub-branch's assignee is you.
 2. Verify \`status: active\` in \`project.yaml\`.
 3. Read \`projects/$PROJECT_ID/knowledge/todo.md\` and surface \`## Open\`
    items before planning new work.
@@ -556,7 +560,7 @@ done)
 
 ## Do Not
 
-- Edit \`project.yaml\` \`tasks\` list directly — use \`./prj task\` / \`./prj merge\`.
+- Never hand-manage task state — tasks are GitHub Issues on the board; use \`./prj task\` / \`./prj merge\`.
 - Create GitHub Issues unilaterally — those are humans-only.
 - Touch \`$WORKSPACE_REPO/knowledge/\` — read-only this project.
 - Push the project branch from the home ORG GOVERNANCE checkout — that
@@ -622,13 +626,12 @@ if [[ ${#REPO_URL_LIST[@]} -gt 0 ]]; then
     REPO_DIR="$PROJECT_WORK_ROOT/$REPO_NAME"
 
     info "  cloning $repo_url → $REPO_DIR (base: $REPO_BASE)..."
-    # Retry once on network/transient clone failure. Suppress only stdout
-    # (progress) but keep stderr visible so real errors surface.
-    if ! git clone "$repo_url" "$REPO_DIR" >/dev/null; then
-      warn "  clone failed (likely transient) — retrying once..."
-      rm -rf "$REPO_DIR"
-      git clone "$repo_url" "$REPO_DIR" >/dev/null \
-        || hard_stop "Clone failed for $repo_url"
+    if [[ -d "$REPO_DIR/.git" ]]; then
+      info "    already cloned — fetching..."
+      git -C "$REPO_DIR" fetch origin
+    else
+      git_clone_retry "$repo_url" "$REPO_DIR" \
+        || hard_stop "Clone failed for $repo_url (after retries — check network/repo size)"
     fi
     CREATED_PATHS+=("$REPO_DIR")
     git -C "$REPO_DIR" checkout "$REPO_BASE" >/dev/null 2>&1 \

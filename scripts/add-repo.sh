@@ -41,11 +41,9 @@ check_project_exists "$PROJECT_ID"
 require_project_status "$PROJECT_YAML" "active"
 
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
-LOCKED_BY=$(yaml_get "$PROJECT_YAML" "locked_by")
 ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")
-if [[ -n "$CURRENT_USER" && "$CURRENT_USER" != "$LOCKED_BY" && "$CURRENT_USER" != "$ASSIGNED_TO" ]]; then
-  hard_stop "Not authorized: '$CURRENT_USER' is not locked_by or assigned_to."
-fi
+is_authorized "$ASSIGNED_TO" \
+  || hard_stop "Not authorized: '$CURRENT_USER' is not assigned_to (or a member of the assigned team)."
 
 # Check repo is not already in the project
 python3 - "$PROJECT_YAML" "$REPO_URL" <<'PY'
