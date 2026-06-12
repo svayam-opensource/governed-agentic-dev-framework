@@ -1,0 +1,4 @@
+node_modules/
+.cache/
+# Generated PDFs land in <repo-root>/dist/pdf (git-ignored at root); never here.
+*.pdf
