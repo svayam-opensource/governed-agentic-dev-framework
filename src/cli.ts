@@ -58,8 +58,8 @@ async function cmdServe(cfg: any, _flags: Map<string, any>) {
   }
   engine.setIndexedSha(headSha(cfg.corpusRoot));
   const app = createRestApp(engine);
-  app.listen(cfg.port, "127.0.0.1", () =>
-    process.stderr.write(`[svm-rag] REST http://127.0.0.1:${cfg.port}/rag/v1 store=${storeKind}\n`));
+  app.listen(cfg.port, cfg.bindHost, () =>
+    process.stderr.write(`[svm-rag] REST http://${cfg.bindHost}:${cfg.port}/rag/v1 store=${storeKind}\n`));
 }
 
 async function cmdMcp(cfg: any) {

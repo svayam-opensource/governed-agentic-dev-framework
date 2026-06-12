@@ -11,6 +11,7 @@ export interface RagConfig {
   qdrantUrl: string;
   qdrantCollection: string;
   port: number;
+  bindHost: string;          // listen address; 127.0.0.1 for local dev, 0.0.0.0 in a container
 }
 
 const SVM_WORK = "/Users/rkant/.svm/projects/PRJ-010-practice-knowledge/svm-prj-work";
@@ -26,6 +27,10 @@ export function loadConfig(overrides: Partial<RagConfig> = {}): RagConfig {
     qdrantUrl: process.env.QDRANT_URL ?? "http://127.0.0.1:6333",
     qdrantCollection: process.env.QDRANT_COLLECTION ?? "svayam_knowledge",
     port: Number(process.env.RAG_PORT ?? 8080),
+    // Loopback by default (local dev / single-host). In the chinhut container set
+    // RAG_BIND_HOST=0.0.0.0 so the published VPC port reaches the listener; the
+    // host-side port-map (deploy/knowledge) restricts exposure to the VPC IP.
+    bindHost: process.env.RAG_BIND_HOST ?? "127.0.0.1",
     ...overrides,
   };
 }
