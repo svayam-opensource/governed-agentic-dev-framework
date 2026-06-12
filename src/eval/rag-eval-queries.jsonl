@@ -1,0 +1,40 @@
+// PRJ-010 #40 — gold recall-benchmark query set (rag-stack-decision §7).
+// Each line: {query, expected_paths[], layer, domain}. A query "hits@k" if any
+// expected_path appears in the top-k /search hits. Grounded in the LIVE corpus
+// (paths verified present + indexed). Where the migration left a doc at BOTH an
+// old top-level path and a new layer-subdir path, BOTH are accepted (either is a
+// correct citation of the same authoritative content). Covers every domain with
+// authored content and each layer (mandate -> spec). The canonical home named by
+// the decision doc is projects/PRJ-010-.../knowledge/design/rag-eval-queries.jsonl;
+// org knowledge/ is read-only this project, so the asset lives here and graduates
+// via the write-side proposal path (recorded in the report).
+{"query": "Which LLM providers and models are approved for agents to use?", "expected_paths": ["knowledge/policies/llm-governance.md"], "layer": "mandate", "domain": "policies"}
+{"query": "What data classification tiers exist and what may be sent to an LLM?", "expected_paths": ["knowledge/policies/data-classification.md"], "layer": "mandate", "domain": "policies"}
+{"query": "Who is the Infrastructure Owner and what are they accountable for?", "expected_paths": ["knowledge/policies/roles.md"], "layer": "mandate", "domain": "policies"}
+{"query": "What is the rule for where a document lives versus how it is navigated?", "expected_paths": ["knowledge/policies/knowledge-organization-standard.md"], "layer": "mandate", "domain": "policies"}
+{"query": "How are knowledge domains and their ownership tree structured?", "expected_paths": ["knowledge/policies/knowledge-organization-standard.md"], "layer": "mandate", "domain": "policies"}
+{"query": "What front-matter fields must every knowledge document carry?", "expected_paths": ["knowledge/policies/knowledge-organization-standard.md"], "layer": "mandate", "domain": "policies"}
+{"query": "How do I close a project and harvest its knowledge from evidence?", "expected_paths": ["knowledge/development/procedures/knowledge-harvest.md"], "layer": "procedure", "domain": "development"}
+{"query": "Which repository should a new backend API or library go in?", "expected_paths": ["knowledge/development/mandates/repo-placement.md"], "layer": "mandate", "domain": "development"}
+{"query": "How do I create a new Svayam HTTP API following the standard?", "expected_paths": ["knowledge/development/procedures/create-svayam-api.md", "knowledge/guidance/create-svayam-api.md", "knowledge/architecture/system/svayam-http-api-standard.md"], "layer": "procedure", "domain": "development"}
+{"query": "What is the mandate for authenticating users via the IAM broker?", "expected_paths": ["knowledge/architecture/system/mandates/iam-authentication-mandate.md"], "layer": "mandate", "domain": "architecture/system"}
+{"query": "What is the standard shape for a Svayam HTTP API request and response?", "expected_paths": ["knowledge/architecture/system/svayam-http-api-standard.md", "knowledge/architecture/system/mandates/svayam-http-api-standard.md"], "layer": "spec", "domain": "architecture/system"}
+{"query": "What does the IAM service expose and how does an app authenticate against it?", "expected_paths": ["knowledge/architecture/system/specs/iam-service.md"], "layer": "spec", "domain": "architecture/system"}
+{"query": "How does an app verify the svayam_jwt issued by the IAM broker?", "expected_paths": ["knowledge/architecture/system/specs/iam-client-sdk.md", "knowledge/architecture/system/mandates/iam-authentication-mandate.md"], "layer": "spec", "domain": "architecture/system"}
+{"query": "What is the IAM data model — users, groups, and identity records?", "expected_paths": ["knowledge/architecture/data/specs/iam-data-model.md"], "layer": "spec", "domain": "architecture/data"}
+{"query": "What validation gates run on a pull request and what runs on merge?", "expected_paths": ["knowledge/deployment/specs/cicd-spec.md", "knowledge/infrastructure/cicd-spec.md"], "layer": "spec", "domain": "deployment"}
+{"query": "How are IAM components deployed to each environment?", "expected_paths": ["knowledge/deployment/specs/iam-deployments.md", "knowledge/architecture/system/use-cases/connect-app-to-iam.md"], "layer": "spec", "domain": "deployment"}
+{"query": "How is the Jenkins build and publication pipeline configured?", "expected_paths": ["knowledge/infrastructure/jenkins.md", "knowledge/support/specs/jenkins.md"], "layer": "spec", "domain": "support"}
+{"query": "What is the GitHub organization structure and team taxonomy?", "expected_paths": ["knowledge/infrastructure/github-org-structure.md", "knowledge/support/specs/github.md"], "layer": "spec", "domain": "support"}
+{"query": "What internal applications does the platform run?", "expected_paths": ["knowledge/infrastructure/internal-apps.md", "knowledge/support/specs/internal-apps.md"], "layer": "spec", "domain": "support"}
+{"query": "How do I register a new OIDC application in Authentik?", "expected_paths": ["knowledge/support/procedures/register-oidc-app-authentik.md"], "layer": "procedure", "domain": "support"}
+{"query": "How is Authentik configured as the identity provider, its hosts and integrations?", "expected_paths": ["knowledge/support/specs/authentik.md"], "layer": "spec", "domain": "support"}
+{"query": "How is the private npm registry (Verdaccio) operated?", "expected_paths": ["knowledge/support/specs/verdaccio.md", "knowledge/infrastructure/verdaccio.md"], "layer": "spec", "domain": "support"}
+{"query": "How does the internal support ticketing and intake system work?", "expected_paths": ["knowledge/support/specs/ticketing.md"], "layer": "spec", "domain": "support"}
+{"query": "What are the platform host configuration and CI/CD conventions?", "expected_paths": ["knowledge/policies/platform-host-config-and-cicd-conventions.md"], "layer": "mandate", "domain": "policies"}
+{"query": "What does the agentic development policy require of coding agents?", "expected_paths": ["knowledge/policies/agentic-development-policy.md"], "layer": "mandate", "domain": "policies"}
+{"query": "What is the procedure for agentic development work sessions?", "expected_paths": ["knowledge/policies/procedures/agentic-development-procedures.md", "knowledge/policies/agentic-development-procedures.md"], "layer": "procedure", "domain": "policies"}
+{"query": "What rules govern building and publishing API packages to the registry?", "expected_paths": ["knowledge/policies/api-development-policy.md", "knowledge/architecture/system/mandates/api-development-policy.md", "knowledge/architecture/system/mandates/svayam-http-api-standard.md"], "layer": "mandate", "domain": "policies"}
+{"query": "What were the lessons learned building the IAM system?", "expected_paths": ["knowledge/development/patterns/iam-build-lessons.md"], "layer": "pattern", "domain": "development"}
+{"query": "How is org knowledge published and rendered for consumption (Form 3 RAG)?", "expected_paths": ["knowledge/infrastructure/specs/knowledge-publication-spec.md", "knowledge/infrastructure/knowledge-publication-spec.md"], "layer": "spec", "domain": "infrastructure"}
+{"query": "How do I send and receive mail through the internal webmail system?", "expected_paths": ["knowledge/support/specs/webmail.md", "knowledge/infrastructure/webmail.md"], "layer": "spec", "domain": "support"}
