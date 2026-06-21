@@ -1,0 +1,5 @@
+flowchart TD
+  P["prj"] --> GP["GitHub Projects<br/>a board IS a project<br/>(ownership &amp; status live here)"]
+  P --> GI["Issues<br/>units of work<br/>(the anchor issue carries ownership)"]
+  P --> GR["Repos<br/>where code lives<br/>(derived from the board's issues)"]
+  P --> GA["GitHub Actions<br/>CI gates that enforce the policy"]

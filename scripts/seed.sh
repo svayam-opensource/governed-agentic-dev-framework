@@ -62,6 +62,7 @@ echo ""
 
 CREATED_LOCAL_BRANCHES=()
 PUSHED_REMOTE_BRANCHES=()
+CREATED_WORKTREES=()
 CREATED_PATHS=()
 HOME_PRE_SEED_SHA=""
 SEED_OK=0
@@ -71,6 +72,7 @@ run_rollback() {
   if [[ "$SEED_OK" == "1" ]]; then return 0; fi
   if [[ ${#CREATED_LOCAL_BRANCHES[@]} -eq 0 \
         && ${#PUSHED_REMOTE_BRANCHES[@]} -eq 0 \
+        && ${#CREATED_WORKTREES[@]} -eq 0 \
         && ${#CREATED_PATHS[@]} -eq 0 \
         && -z "$HOME_PRE_SEED_SHA" ]]; then
     return 0
@@ -113,6 +115,19 @@ run_rollback() {
       fi
       git -C "$path" branch -D "$branch" 2>/dev/null || true
     fi
+  done
+
+  # Worktrees (ADR-0001 Phase 2): remove each worktree from its base repo,
+  # then delete the now-unchecked-out branch. Must run BEFORE the path rm
+  # below so the base's worktree registry stays consistent. rm + prune is the
+  # fallback if `worktree remove` refuses.
+  for ((i=${#CREATED_WORKTREES[@]}-1; i>=0; i--)); do
+    local wentry="${CREATED_WORKTREES[$i]}"
+    local wbase="${wentry%%|*}"; local wrest="${wentry#*|}"
+    local wpath="${wrest%%|*}"; local wbranch="${wrest#*|}"
+    git -C "$wbase" worktree remove --force "$wpath" 2>/dev/null \
+      || { rm -rf "$wpath"; git -C "$wbase" worktree prune 2>/dev/null || true; }
+    git -C "$wbase" branch -D "$wbranch" 2>/dev/null || true
   done
 
   # Created filesystem paths (reverse order — innermost first)
@@ -217,10 +232,18 @@ echo ""
 # ── Compute project ID ────────────────────────────────────────────────────────
 
 SHORT_SLUG=$(slugify "$PROJECT_TITLE")
+# A title that is all-punctuation / non-ASCII / '..' slugifies to empty, which
+# would compose a malformed 'PRJ-NNN-' / 'brnch-NNN-' (§5 slug-empty finding).
+[[ -n "$SHORT_SLUG" ]] \
+  || hard_stop "Project title '$PROJECT_TITLE' produced an empty slug. Rename the GitHub Project to include ASCII alphanumerics."
 LAST_ISSUED=$(yaml_get "$REGISTRY" "last_issued")
 NNN=$(printf "%03d" $((LAST_ISSUED + 1)))
 PROJECT_ID="PRJ-${NNN}-${SHORT_SLUG}"
-BRANCH="brnch-${NNN}-${SHORT_SLUG}"
+# POL-069 (scheme B): the project branch is keyed on the GitHub project NUMBER
+# (not the registry NNN) — e.g. PRJ-27-<slug> for project PRJ-013-<slug>. seed
+# stores this in registry/project.yaml so project_branch_for_id reads it
+# everywhere (existing brnch-NNN projects keep their stored name).
+BRANCH="PRJ-${PROJECT_NUMBER}-${SHORT_SLUG}"
 TODAY=$(today)
 NEW_LAST_ISSUED=$((LAST_ISSUED + 1))
 
@@ -308,18 +331,40 @@ fi
 
 # ── Discover linked repos + prompt for base branches ─────────────────────────
 
-REPO_URLS=$(echo "$PROJECT_DATA" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
+# The workspace repo is an implicit participant in every project and must
+# never be processed as a code repo (POL-057); otherwise its code-repo clone
+# path collides with the gov clone and seed false-positives on "branch already
+# exists" (line ~645). Filter it out of discovered repos here.
+REPO_URLS=$(PROJECT_DATA="$PROJECT_DATA" python3 <<'PY'
+import os, json, re
+org    = (os.environ.get('GITHUB_ORG') or '').lower()
+wsrepo = (os.environ.get('WORKSPACE_REPO') or '').lower()
+orgurl = (os.environ.get('ORG_REPO_URL') or '').lower()
+
+def slug(u):
+    if not u: return ''
+    u = re.sub(r'\.git$', '', u.strip().lower()).rstrip('/')
+    m = re.search(r'[:/]([^/:]+)/([^/]+)$', u)   # owner/name from ssh or https
+    return f'{m.group(1)}/{m.group(2)}' if m else u
+
+ws = set()
+if org and wsrepo: ws.add(f'{org}/{wsrepo}')
+if orgurl:         ws.add(slug(orgurl))
+
+d = json.loads(os.environ.get('PROJECT_DATA') or '{}')
 p = list(d['data'].values())[0]['projectV2']
 seen = set()
 for i in p['items']['nodes']:
     c = i.get('content') or {}
     r = (c.get('repository') or {}).get('url')
-    if r and r not in seen:
-        seen.add(r)
-        print(r)
-")
+    if not r or r in seen:
+        continue
+    if slug(r) in ws:          # workspace repo is implicit (POL-057) — skip
+        continue
+    seen.add(r)
+    print(r)
+PY
+)
 
 REPO_URL_LIST=()
 REPO_BASE_LIST=()
@@ -331,14 +376,26 @@ if [[ -n "$REPO_URLS" ]]; then
   done <<< "$REPO_URLS"
 
   for repo_url in "${REPO_URL_LIST[@]}"; do
+    # Pre-flight (ADR-0001): read the repo's real branches up front so a wrong
+    # repo or base is obvious HERE — before any registry commit or worktree —
+    # instead of failing mid-Phase-C and rolling back. Default to the repo's
+    # actual default branch, not the org-wide one.
+    _heads=$(git ls-remote --heads "$repo_url" 2>/dev/null | sed -E 's#.*refs/heads/##')
+    [[ -n "$_heads" ]] || hard_stop "Could not read branches of '$repo_url' (wrong repo URL, or no access?)."
+    _default=$(git ls-remote --symref "$repo_url" HEAD 2>/dev/null \
+                 | sed -nE 's#^ref:[[:space:]]+refs/heads/([^[:space:]]+)[[:space:]]+HEAD#\1#p')
+    [[ -n "$_default" ]] || _default="$DEFAULT_CODE_BRANCH"
     if $NON_INTERACTIVE; then
-      base="$DEFAULT_CODE_BRANCH"
+      base="$_default"
       echo "  Base branch for '$repo_url': $base  (--non-interactive)"
     else
-      printf "  Base branch for '%s' [%s]: " "$repo_url" "$DEFAULT_CODE_BRANCH"
+      echo "    branches in $repo_url: $(echo "$_heads" | tr '\n' ' ')"
+      printf "  Base branch for '%s' [%s]: " "$repo_url" "$_default"
       read -r input_base </dev/tty
-      base="${input_base:-$DEFAULT_CODE_BRANCH}"
+      base="${input_base:-$_default}"
     fi
+    grep -qx "$base" <<< "$_heads" \
+      || hard_stop "Base branch '$base' not found in '$repo_url'. Available: $(echo "$_heads" | tr '\n' ' '). (Wrong repo or base?)"
     REPO_BASE_LIST+=("$base")
   done
 else
@@ -358,8 +415,8 @@ get_repo_base() {
 
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "$ASSIGNEE")
 
-is_authorized "$ASSIGNEE" \
-  || hard_stop "Not authorized: current user '$CURRENT_USER' is not assigned_to (or a member of the assigned team) for '$ASSIGNEE'."
+is_authorized_for_project "$GITHUB_PROJECT_URL" "$ASSIGNEE" \
+  || hard_stop "Not authorized: '$CURRENT_USER' needs write access to the GitHub Project ($GITHUB_PROJECT_URL) to seed it."
 
 # ── Phase A: HOME workspace, default branch — registry stub + folder stub ──
 # We commit locally but do NOT push yet — pushing happens at the very end
@@ -419,24 +476,19 @@ info "Phase B: cloning ORG GOVERNANCE into per-project workspace..."
 mkdir -p "$PROJECT_WORK_ROOT"
 CREATED_PATHS+=("$PROJECT_WORK_ROOT")
 
-# Clone from local home repo (file://) so the clone has our just-committed
-# registry update + .gitkeep stub without needing to push first. We then
-# re-point origin to the org repo URL so subsequent `git push` goes to the
-# right place.
-git clone --local "$REPO_ROOT" "$ORG_GOV_CLONE" >/dev/null 2>&1 \
-  || hard_stop "Failed to clone home workspace into $ORG_GOV_CLONE"
-CREATED_PATHS+=("$ORG_GOV_CLONE")
+# ADR-0001 Phase 2: materialize the per-project governance workspace as a
+# WORKTREE of the home clone (REPO_ROOT), not a fresh local clone. A worktree
+# already carries REPO_ROOT's just-committed registry stub and shares its
+# origin remote, so the old clone + remote re-point is unnecessary. The new
+# project branch is created off $DEFAULT_BRANCH (the home branch).
+git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$ORG_GOV_CLONE" "$DEFAULT_BRANCH" >/dev/null 2>&1 \
+  || hard_stop "Failed to create governance worktree at $ORG_GOV_CLONE"
+CREATED_WORKTREES+=("$REPO_ROOT|$ORG_GOV_CLONE|$BRANCH")
 
-# Carry the developer's git identity into the per-project clone so commits
+# Carry the developer's git identity into the per-project workspace so commits
 # and C01 authorization here reflect the seeder, not the ambient global.
 set_clone_identity "$ORG_GOV_CLONE"
-
-git -C "$ORG_GOV_CLONE" remote set-url origin "$ORG_REPO_URL"
-
-# Create the project branch in the clone
-git -C "$ORG_GOV_CLONE" checkout -b "$BRANCH" >/dev/null 2>&1
-CREATED_LOCAL_BRANCHES+=("$ORG_GOV_CLONE|$BRANCH")
-info "  ✓ created branch '$BRANCH' in ORG GOV clone"
+info "  ✓ created branch '$BRANCH' in ORG GOV worktree"
 
 # ── Phase B.1: scaffold projects/<PID>/* inside the clone ────────────────────
 
@@ -470,9 +522,12 @@ else
   REPOS_BLOCK+="    added_reason: ~"$'\n'
 fi
 
-# Quote string scalars for YAML safety
+# Quote string scalars for YAML safety.
+# Escape backslash FIRST, then the double-quote, so an untrusted value ending
+# in '\' (e.g. a GitHub Project title) cannot escape the closing quote and
+# inject YAML (C10). Order matters: backslash before quote.
 yaml_quote() {
-  printf '"%s"' "$(printf '%s' "$1" | sed 's/"/\\"/g')"
+  printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 }
 Q_PROJECT_ID=$(yaml_quote "$PROJECT_ID")
 Q_SHORT_SLUG=$(yaml_quote "$SHORT_SLUG")
@@ -540,9 +595,10 @@ done)
 
 ## Session Start Checklist (C01)
 
-1. Verify you are authorized via \`assigned_to\` in \`project.yaml\`
-   (\`assigned_to\` is you, or a team you belong to). When on a task sub-branch,
-   confirm that sub-branch's assignee is you.
+1. Verify you are authorized: you have **write access to this project's linked
+   GitHub Project** (the authorization source of truth; an owner grants it via
+   \`./prj manage assign\`). \`assigned_to\` in \`project.yaml\` is a display
+   cache, not the gate. On a task sub-branch, confirm its assignee is you.
 2. Verify \`status: active\` in \`project.yaml\`.
 3. Read \`projects/$PROJECT_ID/knowledge/todo.md\` and surface \`## Open\`
    items before planning new work.
@@ -629,23 +685,27 @@ if [[ ${#REPO_URL_LIST[@]} -gt 0 ]]; then
     REPO_BASE=$(get_repo_base "$repo_url")
     REPO_DIR="$PROJECT_WORK_ROOT/$REPO_NAME"
 
-    info "  cloning $repo_url → $REPO_DIR (base: $REPO_BASE)..."
-    if [[ -d "$REPO_DIR/.git" ]]; then
-      info "    already cloned — fetching..."
-      git -C "$REPO_DIR" fetch origin
-    else
-      git_clone_retry "$repo_url" "$REPO_DIR" \
+    info "  setting up $repo_url → $REPO_DIR (worktree, base: $REPO_BASE)..."
+    # ADR-0001 Phase 2: one shared base clone per repo, project branch as a
+    # worktree off the base branch.
+    REPO_BASE_CLONE="$(base_clone_dir "$repo_url")"
+    if [[ ! -e "$REPO_BASE_CLONE/.git" ]]; then
+      mkdir -p "$(dirname "$REPO_BASE_CLONE")"
+      git_clone_retry "$repo_url" "$REPO_BASE_CLONE" \
         || hard_stop "Clone failed for $repo_url (after retries — check network/repo size)"
     fi
-    CREATED_PATHS+=("$REPO_DIR")
-    set_clone_identity "$REPO_DIR"
-    git -C "$REPO_DIR" checkout "$REPO_BASE" >/dev/null 2>&1 \
+    git -C "$REPO_BASE_CLONE" fetch origin "$REPO_BASE" >/dev/null 2>&1 \
+      || git -C "$REPO_BASE_CLONE" fetch origin >/dev/null 2>&1 || true
+    git -C "$REPO_BASE_CLONE" show-ref --verify --quiet "refs/remotes/origin/$REPO_BASE" \
       || hard_stop "Base branch '$REPO_BASE' not found in $repo_url"
-    if git -C "$REPO_DIR" rev-parse --verify "$BRANCH" &>/dev/null; then
+    if git -C "$REPO_BASE_CLONE" show-ref --verify --quiet "refs/heads/$BRANCH" \
+       || git -C "$REPO_BASE_CLONE" show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
       hard_stop "Branch '$BRANCH' already exists in $repo_url — investigate."
     fi
-    git -C "$REPO_DIR" checkout -b "$BRANCH" >/dev/null 2>&1
-    CREATED_LOCAL_BRANCHES+=("$REPO_DIR|$BRANCH")
+    git -C "$REPO_BASE_CLONE" worktree add -b "$BRANCH" "$REPO_DIR" "origin/$REPO_BASE" >/dev/null 2>&1 \
+      || hard_stop "Failed to create worktree for $repo_url on '$BRANCH'"
+    CREATED_WORKTREES+=("$REPO_BASE_CLONE|$REPO_DIR|$BRANCH")
+    set_clone_identity "$REPO_DIR"
     git -C "$REPO_DIR" push -u origin "$BRANCH" >/dev/null 2>&1 \
       || hard_stop "Failed to push '$BRANCH' to $repo_url"
     PUSHED_REMOTE_BRANCHES+=("$REPO_DIR|$BRANCH")

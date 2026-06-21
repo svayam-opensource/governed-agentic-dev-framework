@@ -6,7 +6,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# ADR-0001 Phase 4: honor $ADF_WORKSPACE (CLI installed separately from data);
+# otherwise default to the vendored layout (scripts/ inside the workspace repo)
+# — unchanged behavior.
+if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]]; then
+  REPO_ROOT="$ADF_WORKSPACE"
+else
+  REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
 CONFIG="$REPO_ROOT/org-config.yaml"
 REGISTRY="$REPO_ROOT/registry.yaml"
 
@@ -14,7 +21,8 @@ REGISTRY="$REPO_ROOT/registry.yaml"
 
 check_deps() {
   local missing=()
-  for dep in git gh yq python3; do
+  # perl is a hidden seed.sh dependency (#65/H6 audit) — required, no fallback.
+  for dep in git gh yq python3 perl; do
     command -v "$dep" &>/dev/null || missing+=("$dep")
   done
   # yq optional if python3 present; python3 optional if yq present
@@ -36,6 +44,11 @@ check_deps() {
     echo "Run: bash scripts/install-deps.sh" >&2
     exit 1
   fi
+
+  # #65/H7: presence is not enough — an unauthenticated gh fails cryptically
+  # deep inside lifecycle ops (e.g. a misleading "Project not found"). Fail fast.
+  gh auth status >/dev/null 2>&1 \
+    || hard_stop "gh is not authenticated — run: gh auth login"
 }
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -87,6 +100,14 @@ load_config() {
       AGENT_WORK_ROOT="$HOME/.${ORG_SLUG_LOWER:-org}/projects"
     fi
   fi
+  # Expand a leading ~ against the current user's $HOME. The config value is
+  # committed and shared, so it must stay portable (~/.svm/projects); without
+  # this, a literal "~" would be treated as a directory name and a path like
+  # "/Users/<other-user>" would fail on Windows/other machines.
+  case "$AGENT_WORK_ROOT" in
+    "~")    AGENT_WORK_ROOT="$HOME" ;;
+    "~/"*)  AGENT_WORK_ROOT="$HOME/${AGENT_WORK_ROOT#\~/}" ;;
+  esac
   export AGENT_WORK_ROOT
 
   # Lazy-create the current user's prefs file if setup.sh didn't already.
@@ -164,6 +185,48 @@ slugify() {
 
 today() { date +%Y-%m-%d; }
 
+# ── Concurrency / atomic writes ───────────────────────────────────────────────
+# Shared state (project.yaml, registry.yaml) is mutated by parallel agents
+# (audit C7/C8). Two guarantees protect it:
+#   * _with_lock — serialize a mutation behind an advisory file lock.
+#   * never truncate-write in place — write a temp file beside the target and
+#     atomically rename() over it, so a crash mid-write leaves the old file
+#     intact (POL-002 "recoverable").
+
+# Run <cmd...> while holding an exclusive advisory lock on <lockfile>.
+# Uses flock(1) when available. macOS/BSD ships no flock by default; when it is
+# absent we proceed WITHOUT the lock (still safe-ish thanks to the atomic
+# temp+rename writes below) rather than failing the operation.
+_with_lock() {
+  local lockfile="$1"; shift
+  if command -v flock &>/dev/null; then
+    exec 9>"$lockfile"
+    flock 9
+    "$@"
+    local rc=$?
+    flock -u 9
+    exec 9>&-
+    return $rc
+  fi
+  # flock absent (e.g. stock macOS): degrade gracefully — no lock, atomic write
+  # via temp+rename still prevents torn/partial files.
+  "$@"
+}
+
+# Atomically replace <file> with the contents written to stdin: write to a
+# temp file in the same directory (so rename() is atomic on the same FS) then
+# mv over the target. Preserves the original on any failure mid-write.
+atomic_write() {
+  local file="$1"
+  local tmp; tmp="$(mktemp "${file}.XXXXXX")" || return 1
+  if cat >"$tmp"; then
+    mv -f "$tmp" "$file"
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
 # ── YAML read/write ───────────────────────────────────────────────────────────
 
 yaml_get() {
@@ -186,20 +249,31 @@ PY
 
 yaml_set() {
   local file="$1" key="$2" value="$3"
+  _with_lock "$file.lock" _yaml_set_impl "$file" "$key" "$value"
+}
+
+# Internal: the actual mutation, run under _with_lock. KEY is an internal
+# constant and stays interpolated; VALUE is untrusted and is NEVER interpolated
+# into the yq expression (audit C9 — PoC value `x" | .assigned_to = "evil@x.com`
+# would otherwise rewrite an unrelated field). The value is passed via the
+# environment and read with yq's strenv(). The python3 fallback already passes
+# the value through argv (safe). Both backends write atomically (temp+rename,
+# audit C8) instead of truncating the file in place.
+_yaml_set_impl() {
+  local file="$1" key="$2" value="$3"
   if command -v yq &>/dev/null; then
     if [[ "$value" == "~" || "$value" == "null" ]]; then
-      yq -i ".$key = null" "$file"
+      yq ".$key = null" "$file" | atomic_write "$file"
     else
-      yq -i ".$key = \"$value\"" "$file"
+      VAL="$value" yq ".$key = strenv(VAL)" "$file" | atomic_write "$file"
     fi
   else
-    python3 - "$file" "$key" "$value" <<'PY'
+    python3 - "$file" "$key" "$value" <<'PY' | atomic_write "$file"
 import sys, yaml
 file, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
 c = yaml.safe_load(open(file))
 c[key] = None if value in ('~', 'null') else value
-with open(file, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+yaml.dump(c, sys.stdout, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
   fi
 }
@@ -231,6 +305,7 @@ require_any_project_status() {
 get_project_repos() {
   python3 - "$1" <<'PY'
 import sys, yaml
+sys.stdout.reconfigure(newline='\n')
 c = yaml.safe_load(open(sys.argv[1]))
 for r in (c.get('repos') or []):
     if r and r.get('url'):
@@ -242,6 +317,7 @@ PY
 get_repo_base_branch() {
   python3 - "$1" "$2" <<'PY'
 import sys, yaml
+sys.stdout.reconfigure(newline='\n')
 c = yaml.safe_load(open(sys.argv[1]))
 for r in (c.get('repos') or []):
     if r and r.get('url') == sys.argv[2]:
@@ -292,6 +368,47 @@ repo_clone_dir()      { echo "$AGENT_WORK_ROOT/$1/$2"; }
 # Back-compat aliases used by join.sh
 project_clone_root()  { project_work_root "$1"; }
 
+# Base clone shared by all per-project worktrees of a repo (ADR-0001 Phase 2).
+base_clone_dir() { echo "$AGENT_WORK_ROOT/.bases/$(get_repo_name "$1")"; }
+
+# Materialize <branch> of <repo_url> at <target_dir> as a git WORKTREE of a
+# single shared base clone (one base per repo under $AGENT_WORK_ROOT/.bases/),
+# instead of a full per-project clone. This is the ADR-0001 Phase 2 storage
+# model: one fetch/identity per repo, shared object store, far less disk.
+#
+# Backward compatible: if <target_dir> already exists (a legacy full clone or
+# an existing worktree), it is just fetched + checked out, never re-created.
+# Returns non-zero on failure so callers can warn/skip.
+ensure_repo_worktree() {
+  local url="$1" target="$2" branch="$3"
+  local base; base="$(base_clone_dir "$url")"
+
+  # Already materialized (legacy clone OR existing worktree) — update in place.
+  if [[ -e "$target/.git" ]]; then
+    git -C "$target" fetch origin "$branch" 2>/dev/null || true
+    git -C "$target" checkout "$branch" 2>/dev/null || return 1
+    return 0
+  fi
+
+  # Ensure the single shared base clone exists and knows the branch.
+  if [[ ! -e "$base/.git" ]]; then
+    mkdir -p "$(dirname "$base")"
+    git_clone_retry "$url" "$base" || return 1
+  fi
+  git -C "$base" fetch origin "$branch" 2>/dev/null \
+    || git -C "$base" fetch origin 2>/dev/null || true
+
+  mkdir -p "$(dirname "$target")"
+  # Add the worktree on the branch, tracking origin/<branch> when needed.
+  if git -C "$base" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$base" worktree add "$target" "$branch"
+  elif git -C "$base" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    git -C "$base" worktree add --track -b "$branch" "$target" "origin/$branch"
+  else
+    git -C "$base" worktree add -b "$branch" "$target"
+  fi
+}
+
 # Clone with retry + backoff.
 # "early EOF / unexpected disconnect while reading sideband packet"; a couple of
 # retries usually rides through a transient drop. Honors GIT_CLONE_ATTEMPTS
@@ -325,7 +442,7 @@ is_authorized() {
   [[ -z "$assigned" || "$assigned" == "~" ]] && return 0
   local email; email=$(git config user.email 2>/dev/null || echo "")
   [[ -n "$email" && "$assigned" == "$email" ]] && return 0
-  if [[ "$assigned" != *"@"* ]]; then            # treat as a GitHub team slug
+  if [[ "$assigned" == @* || "$assigned" != *"@"* ]]; then   # team: leading '@' or bare slug
     local login team
     login=$(gh api user --jq .login 2>/dev/null || echo "")
     [[ -z "$login" ]] && return 1
@@ -334,6 +451,105 @@ is_authorized() {
       | grep -qx "$login" && return 0
   fi
   return 1
+}
+
+# ── GitHub Project access — ADR-0001 Phase 3 authorization source of truth ───
+# Authorization moves from YAML assigned_to to "does the current GitHub user
+# have write access to the linked GitHub Project v2" (viewerCanUpdate). YAML
+# assigned_to becomes a display/audit cache. When GitHub is unreachable these
+# signal (rc 2) so callers fall back to the legacy YAML check.
+
+# Parse "<scope> <owner> <number>" from a Project v2 URL (scope = orgs|users).
+gh_project_owner_number() {
+  if [[ "$1" =~ /(orgs|users)/([^/]+)/projects/([0-9]+) ]]; then
+    printf '%s %s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
+    return 0
+  fi
+  return 1
+}
+_gh_owner_field() { [[ "$1" == "orgs" ]] && echo organization || echo user; }
+
+# Close the GitHub Project board for a project URL so a completed/cancelled
+# project stops showing as active in board-driven views (#56 Facet A). The
+# board's open/closed state is what `prj manage list` keys on (open-only), so
+# closing it both fixes the status display AND drops the project out of the
+# active-management view (registry-backed `prj list` still shows it). Idempotent
+# and non-fatal: a missing URL or already-closed board only warns.
+close_project_board() {
+  local url="$1" scope owner num
+  if ! read -r scope owner num < <(gh_project_owner_number "$url"); then
+    warn "Could not derive project number from '$url' — close the board manually."
+    return 0
+  fi
+  if gh project close "$num" --owner "$owner" >/dev/null 2>&1; then
+    info "Closed GitHub Project board #$num (owner $owner)"
+  else
+    warn "Could not close GitHub Project board #$num — close manually: gh project close $num --owner $owner"
+  fi
+  return 0
+}
+
+# Echo the ProjectV2 node id for a project URL (empty + non-zero on failure).
+gh_project_node_id() {
+  local scope owner num field id
+  read -r scope owner num < <(gh_project_owner_number "$1") || return 2
+  field=$(_gh_owner_field "$scope")
+  id=$(gh api graphql -f query="query{ $field(login:\"$owner\"){ projectV2(number:$num){ id } } }" \
+        --jq ".data.$field.projectV2.id" 2>/dev/null) || return 1
+  [[ -n "$id" && "$id" != "null" ]] && { echo "$id"; return 0; }
+  return 1
+}
+
+# rc 0 = current gh user can write the Project (authorized); rc 1 = cannot;
+# rc 2 = GitHub unreachable (caller should fall back to the YAML check).
+gh_viewer_can_update_project() {
+  local scope owner num field v
+  read -r scope owner num < <(gh_project_owner_number "$1") || return 2
+  field=$(_gh_owner_field "$scope")
+  v=$(gh api graphql -f query="query{ $field(login:\"$owner\"){ projectV2(number:$num){ viewerCanUpdate } } }" \
+        --jq ".data.$field.projectV2.viewerCanUpdate" 2>/dev/null) || return 2
+  [[ -z "$v" || "$v" == "null" ]] && return 2
+  [[ "$v" == "true" ]]
+}
+
+# Authorization gate (Phase 3). Args: <project_url> [yaml_assigned_to_for_fallback].
+is_authorized_for_project() {
+  local url="$1" yaml_assigned="${2:-}"
+  gh_viewer_can_update_project "$url"
+  case "$?" in
+    0) return 0 ;;
+    1) return 1 ;;
+    2) warn "Could not reach GitHub to check Project access — using cached assignment."
+       is_authorized "$yaml_assigned"; return $? ;;
+  esac
+  return 1
+}
+
+# Resolve an assignee token to "user <nodeId>" or "team <nodeId>".
+# Convention: '@slug' = a GitHub team; a bare 'login' = a GitHub user.
+# An email-style value (contains '@' not at the start) is legacy and unsupported.
+gh_resolve_actor() {
+  local who="$1" id
+  if [[ "$who" == @* ]]; then
+    local slug="${who#@}"; slug="${slug##*/}"
+    id=$(gh api graphql -f query="query{ organization(login:\"$GITHUB_ORG\"){ team(slug:\"$slug\"){ id } } }" --jq '.data.organization.team.id' 2>/dev/null)
+    [[ -n "$id" && "$id" != "null" ]] && { echo "team $id"; return 0; }
+    return 1
+  elif [[ "$who" != *"@"* ]]; then
+    id=$(gh api graphql -f query="query{ user(login:\"$who\"){ id } }" --jq '.data.user.id' 2>/dev/null)
+    [[ -n "$id" && "$id" != "null" ]] && { echo "user $id"; return 0; }
+    return 1
+  fi
+  return 1
+}
+
+# Grant/revoke Project access. role: WRITER (assign) | NONE (unassign).
+# kind: user|team. MUTATES real GitHub Project access. Returns gh's exit status.
+gh_project_set_access() {
+  local project_id="$1" kind="$2" actor_id="$3" role="$4" idfield
+  [[ "$kind" == "team" ]] && idfield="teamId" || idfield="userId"
+  gh api graphql -f query="mutation(\$p:ID!,\$a:ID!){ updateProjectV2Collaborators(input:{projectId:\$p, collaborators:[{$idfield:\$a, role:$role}]}){ clientMutationId } }" \
+    -f p="$project_id" -f a="$actor_id" >/dev/null 2>&1
 }
 
 # Copy the developer's git identity from the workspace a lifecycle command runs
@@ -356,6 +572,22 @@ set_clone_identity() {
 # branch. This sets a project's status there and pushes. Safe to call from a
 # standalone clone on any branch when the working tree is clean (callers commit
 # their own changes first); it switches to the default branch and back.
+# Internal: rewrite a project's status in registry.yaml atomically. Run under
+# _with_lock by registry_set_status_on_main. Writes to stdout and lets
+# atomic_write handle the temp+rename, never truncating the file in place.
+_registry_set_status_impl() {
+  python3 - "$1" "$2" "$3" <<'PY' | atomic_write "$1"
+import sys, yaml
+reg, pid, status = sys.argv[1:]
+c = yaml.safe_load(open(reg)) or {}
+for p in (c.get('projects') or []):
+    if p and p.get('id') == pid:
+        p['status'] = status
+        break
+yaml.dump(c, sys.stdout, default_flow_style=False, allow_unicode=True, sort_keys=False)
+PY
+}
+
 registry_set_status_on_main() {
   local pid="$1" status="$2"
   local cur; cur=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
@@ -367,17 +599,9 @@ registry_set_status_on_main() {
   git -C "$REPO_ROOT" checkout "$DEFAULT_BRANCH" 2>/dev/null \
     || { warn "Could not switch to $DEFAULT_BRANCH to update registry for $pid."; return 0; }
   git -C "$REPO_ROOT" pull --ff-only origin "$DEFAULT_BRANCH" 2>/dev/null || true
-  python3 - "$REGISTRY" "$pid" "$status" <<'PY'
-import sys, yaml
-reg, pid, status = sys.argv[1:]
-c = yaml.safe_load(open(reg)) or {}
-for p in (c.get('projects') or []):
-    if p and p.get('id') == pid:
-        p['status'] = status
-        break
-with open(reg, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
+  # Audit C7: serialize concurrent seed/status writers and write atomically
+  # (temp+rename) so a crash mid-write can't truncate the shared registry.
+  _with_lock "$REGISTRY.lock" _registry_set_status_impl "$REGISTRY" "$pid" "$status"
   if [[ -n "$(git -C "$REPO_ROOT" status --porcelain registry.yaml 2>/dev/null)" ]]; then
     git -C "$REPO_ROOT" add registry.yaml
     git -C "$REPO_ROOT" commit -m "registry: $pid status=$status" >/dev/null 2>&1 || true
@@ -587,4 +811,31 @@ validate_or_revert() {
     hard_stop "Local commit rolled back. Remote $DEFAULT_BRANCH is unchanged."
   fi
   info "✓ Validation passed."
+}
+
+# ── Framework version guard ───────────────────────────────────────────────────
+# No lower framework version may silently overwrite a higher one. Compare two
+# semver-ish versions (strip leading v + any -suffix). Echoes -1 / 0 / 1.
+version_cmp() {
+  local a="${1#v}" b="${2#v}"; a="${a%%-*}"; b="${b%%-*}"
+  [[ "$a" == "$b" ]] && { echo 0; return; }
+  local lo; lo="$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -n1)"
+  [[ "$lo" == "$a" ]] && echo -1 || echo 1
+}
+
+# Hard-stop if INCOMING framework version < CURRENT (a downgrade that would
+# overwrite newer framework code with older). Override only with the deliberate
+# ALLOW_DOWNGRADE=true escape hatch ("stop and take a careful look").
+assert_no_framework_downgrade() {
+  local incoming="$1" current="$2" context="${3:-framework sync}"
+  [[ -z "$incoming" || -z "$current" ]] && return 0
+  if [[ "$(version_cmp "$incoming" "$current")" == "-1" ]]; then
+    if [[ "${ALLOW_DOWNGRADE:-false}" == "true" ]]; then
+      warn "DOWNGRADE OVERRIDE ($context): applying v$incoming over v$current — proceeding (--allow-downgrade)."
+    else
+      hard_stop "Refusing $context: incoming framework v$incoming is LOWER than current v$current.
+This would overwrite newer framework code with an older version — stopped for a careful look.
+If this is genuinely intended, re-run with --allow-downgrade (ALLOW_DOWNGRADE=true)."
+    fi
+  fi
 }

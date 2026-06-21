@@ -68,8 +68,17 @@ jobs:
     # Behavior tests for scripts (exec bits, prj EOF, install-deps, setup.sh
     # interactive flow, slug validation, template-origin refusal, no-yq path).
     # Catches regressions in the polish items shipped in v0.1.0.
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    #
+    # Runs on a matrix of ubuntu-latest AND macos-latest so the suite exercises
+    # the BSD userland + the macOS-default bash 3.2 the framework promises to
+    # support (PRJ-013 audit H1 / issue #59). macOS-only bugs (e.g. GNU-only
+    # `sed`, finding C3) previously shipped green on the ubuntu-only leg.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
 
     steps:
       - name: Checkout merge commit

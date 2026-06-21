@@ -80,7 +80,7 @@ Higher layers always win. Developer preferences cannot override repo-local or or
 
 If a project is active:
 
-- Confirm you are authorized via `assigned_to` in `project.yaml` (the named individual, or a member of the `assigned_to` team). When on a task sub-branch (`brnch-NNN-<slug>/<task-slug>`), confirm that sub-branch's assignee is you.
+- Confirm you are authorized: you have **write access to the project's linked GitHub Project** (the authorization source of truth — an owner grants it via `./prj manage assign`). `assigned_to` in `project.yaml` is a display/audit cache, **not** the gate. When on a task sub-branch (`brnch-NNN-<slug>/<task-slug>`), confirm that sub-branch's assignee is you.
 - `project.yaml`'s `status` must be `active`.
 - Read `projects/<PROJECT_ID>/knowledge/todo.md` and surface its `## Open` items to the developer before planning new work.
 
@@ -104,6 +104,7 @@ During an active project:
 ## 6. During work
 
 - Capture decisions, exceptions, and policy notes in `projects/<PROJECT_ID>/knowledge/` as you make them — not at session end.
+- **Draw, don't just describe.** When the knowledge you're capturing has a flow, architecture, sequence, state machine, or relationship, author it as a **Mermaid diagram (text, never an image — POL-414)** instead of prose. One artifact serves both readers: it renders as a picture for humans and stays ~tens of diffable, RAG-indexable lines for agents and PR review. Default to a diagram for anything structural; reach for `flowchart`/`sequenceDiagram`/`stateDiagram`/`erDiagram`/`C4Context` as fits.
 - Capture intermediate to-dos in `projects/<PROJECT_ID>/knowledge/todo.md` under `## Open` as they arise.
 - When an item from `todo.md` is resolved, move it to `## Done` with a short note (commit SHA, PR link, or one-line outcome).
 

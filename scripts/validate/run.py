@@ -23,6 +23,12 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from check_knowledge import check_knowledge  # noqa: E402
+from check_secrets import check_secrets  # noqa: E402
+from check_protocol import check_protocol  # noqa: E402
+from check_version_sync import check_version_sync  # noqa: E402
+
 try:
     import yaml
 except ImportError:
@@ -347,6 +353,10 @@ CHECKS = [
     ("lifecycle",   check_lifecycle),
     ("cross-refs",  check_cross_refs),
     ("exec-bits",   check_exec_bits),
+    ("knowledge-org", check_knowledge),
+    ("secrets",     check_secrets),
+    ("protocol",    check_protocol),
+    ("version-sync", check_version_sync),
 ]
 
 

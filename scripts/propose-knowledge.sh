@@ -43,20 +43,47 @@ if [[ "$MODE" == "create" ]]; then
     hard_stop "Branch '$KNOWLEDGE_BRANCH' already exists — investigate before proceeding."
   fi
 
+  # Failure cleanup (#64): if branch creation/push fails part-way (e.g. push
+  # rejected after the local branch exists), undo what we made so a re-run does
+  # not hard-stop on "branch already exists". State flags gate each undo; the
+  # trap is disarmed once create mode completes successfully.
+  _PK_BRANCH_CREATED=false
+  _PK_BRANCH_PUSHED=false
+  _PK_DONE=false
+  cleanup_on_failure() {
+    local rc=$?
+    $_PK_DONE && return 0
+    [[ $rc -eq 0 ]] && return 0
+    warn "propose-knowledge failed (exit $rc) — cleaning up so the run is re-runnable."
+    if $_PK_BRANCH_CREATED; then
+      git -C "$REPO_ROOT" checkout "$DEFAULT_BRANCH" &>/dev/null || true
+      local scope="local"
+      if $_PK_BRANCH_PUSHED; then
+        git -C "$REPO_ROOT" push origin --delete "$KNOWLEDGE_BRANCH" &>/dev/null || true
+        scope="local + remote"
+      fi
+      git -C "$REPO_ROOT" branch -D "$KNOWLEDGE_BRANCH" &>/dev/null || true
+      info "Removed branch '$KNOWLEDGE_BRANCH' ($scope)."
+    fi
+  }
+  trap cleanup_on_failure EXIT
+
   git checkout "$DEFAULT_BRANCH"
   git pull origin "$DEFAULT_BRANCH"
   git checkout -b "$KNOWLEDGE_BRANCH"
+  _PK_BRANCH_CREATED=true
   git push -u origin "$KNOWLEDGE_BRANCH"
+  _PK_BRANCH_PUSHED=true
 
   echo "Branch '$KNOWLEDGE_BRANCH' created."
   echo ""
   echo "=== Next: Author your knowledge changes"
   echo ""
   echo "    1. Edit or add files under knowledge/ on branch '$KNOWLEDGE_BRANCH'."
-  echo "       - New content:     add to appropriate knowledge/ subfolders"
+  echo "       - New content:     add to the owning domain's layer (see knowledge/README.md)"
   echo "       - Policy updates:  edit knowledge/policies/"
-  echo "       - Patterns:        edit knowledge/patterns/"
-  echo "       - Architecture:    edit knowledge/architecture/"
+  echo "       - Patterns:        edit <domain>/patterns/"
+  echo "       - Architecture:    edit knowledge/architecture/{system,data}/"
   echo ""
   echo "    2. Commit your changes:"
   echo "       git add knowledge/"
@@ -66,6 +93,8 @@ if [[ "$MODE" == "create" ]]; then
   echo "    3. Then create the PR:"
   echo "       bash propose-knowledge.sh $BRANCH_SLUG \"$DESCRIPTION\" --submit"
   echo ""
+  # Success: branch is intentionally kept for the author — disarm cleanup.
+  _PK_DONE=true
   exit 0
 fi
 

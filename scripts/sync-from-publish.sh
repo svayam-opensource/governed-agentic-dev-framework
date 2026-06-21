@@ -36,6 +36,7 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
     --no-push) NO_PUSH=true ;;
+    --allow-downgrade) export ALLOW_DOWNGRADE=true ;;
     -h|--help)
       grep '^# ' "$0" | sed 's/^# //;s/^#//'
       exit 0
@@ -78,6 +79,12 @@ if [[ "$COMMITS_TO_SYNC" -eq 0 ]]; then
   echo "✓ '$DEFAULT_BRANCH' is already up to date with publish."
   exit 0
 fi
+
+# ── Framework version guard: never let an OLDER publish overwrite main ────────
+PUB_VER="$(git show origin/publish:framework/VERSION 2>/dev/null | tr -d '[:space:]')"
+CUR_VER="$(git show "$DEFAULT_BRANCH:framework/VERSION" 2>/dev/null | tr -d '[:space:]')"
+[[ -n "$PUB_VER" ]] && info "framework: publish v$PUB_VER → $DEFAULT_BRANCH v$CUR_VER"
+assert_no_framework_downgrade "$PUB_VER" "$CUR_VER" "sync-from-publish"
 
 echo ""
 echo "Commits on publish not yet on $DEFAULT_BRANCH ($COMMITS_TO_SYNC total):"
