@@ -33,8 +33,8 @@ _README_PIN_RE = re.compile(
 )
 
 
-def check_version_sync(repo_root: Path) -> list[str]:
-    errors: list[str] = []
+def check_version_sync(repo_root):
+    errors = []
 
     pkg_path = repo_root / "package.json"
     if not pkg_path.exists():
