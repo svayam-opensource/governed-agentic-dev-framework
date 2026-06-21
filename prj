@@ -1409,6 +1409,11 @@ cmd_upgrade() {
   label "for review + commit."
   echo ""
 
+  # Operate on the WORKSPACE (the governance data repo), not the CLI package.
+  # Under npm install, SCRIPT_DIR is the package dir; the workspace is resolved
+  # via $ADF_WORKSPACE / org-config discovery into $WORKSPACE_ROOT.
+  cd "$WORKSPACE_ROOT" || { err "Cannot cd to workspace: $WORKSPACE_ROOT"; exit 1; }
+
   # Pre-conditions
   if [[ -n "$(git status --porcelain)" ]]; then
     err "Working tree has uncommitted changes. Commit or stash first."
@@ -1441,15 +1446,15 @@ cmd_upgrade() {
   git checkout "$target" -- framework/ \
     || { err "git checkout $target failed. Is the tag/branch published?"; exit 1; }
 
-  if [[ ! -d "$SCRIPT_DIR/framework" ]]; then
-    err "framework/ directory was not created by the checkout. Aborting."
+  if [[ ! -f "$WORKSPACE_ROOT/framework/bin/setup.sh" ]]; then
+    err "framework/bin/setup.sh not found after checkout. Aborting."
     exit 1
   fi
 
   echo ""
   label "Running framework/bin/setup.sh..."
   echo ""
-  bash "$SCRIPT_DIR/framework/bin/setup.sh"
+  bash "$WORKSPACE_ROOT/framework/bin/setup.sh"
   echo ""
 
   divider
