@@ -3,8 +3,18 @@
 # Resolves the workspace (the governance repo) and execs the bundled `prj`.
 # The CLI code ships in this package; org data lives in the workspace.
 set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PKG="$(cd "$HERE/.." && pwd)"          # package root: <...>/node_modules/@svayam/prj
+# Resolve this script's real path — npm installs `bin/prj` as a SYMLINK in the
+# global bin dir, so BASH_SOURCE[0] is the symlink, not the package file. Follow
+# the chain (portable: macOS BSD readlink + Linux) so PKG is the actual package
+# dir, not the npm prefix.
+src="${BASH_SOURCE[0]}"
+while [[ -h "$src" ]]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  [[ "$src" != /* ]] && src="$dir/$src"
+done
+HERE="$(cd -P "$(dirname "$src")" && pwd)"
+PKG="$(cd "$HERE/.." && pwd)"          # package root: <...>/node_modules/@svayam-opensource/prj
 # Discover the workspace: explicit env, else nearest ancestor with org-config.yaml.
 if [[ -z "${ADF_WORKSPACE:-}" ]]; then
   d="$PWD"
