@@ -33,6 +33,15 @@ check_project_exists "$PROJECT_ID"
 
 require_project_status "$PROJECT_YAML" "completed"
 
+# The person closing knowledge must be authorized on the project — assigned_to
+# individual or a member of the assigned_to team (per-task/team model, POL-047).
+# Mirrors create-task.sh; closes the inconsistent-authz gap (#62/H9).
+CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
+ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")        # display/audit cache
+GH_PROJECT=$(yaml_get "$PROJECT_YAML" "github_project")
+is_authorized_for_project "$GH_PROJECT" "$ASSIGNED_TO" \
+  || hard_stop "You ($CURRENT_USER) are not authorized on this project — you need write access to its GitHub Project ($GH_PROJECT)."
+
 KNOWLEDGE_DIR="$PROJECT_DIR/knowledge"
 if [[ ! -d "$KNOWLEDGE_DIR" ]] || [[ -z "$(find "$KNOWLEDGE_DIR" -type f 2>/dev/null)" ]]; then
   hard_stop "projects/$PROJECT_ID/knowledge/ is empty — nothing to synthesize."
@@ -41,6 +50,34 @@ fi
 BRANCH=$(project_branch_for_id "$PROJECT_ID")
 KNOWLEDGE_BRANCH="${BRANCH}-knowledge"
 TODAY=$(today)
+
+# ── Failure cleanup (#64) ─────────────────────────────────────────────────────
+# On any failure, undo the branch/temp-file this run created so a failed run
+# leaves no orphan branch or context file and is re-runnable. State flags are
+# flipped as each resource is created; _CK_DONE disarms the trap on success.
+KNOWLEDGE_SUMMARY_FILE="$REPO_ROOT/.close-knowledge-context-$PROJECT_ID.md"
+_CK_BRANCH_CREATED=false
+_CK_BRANCH_PUSHED=false
+_CK_DONE=false
+
+cleanup_on_failure() {
+  local rc=$?
+  $_CK_DONE && return 0
+  [[ $rc -eq 0 ]] && return 0
+  warn "close-knowledge failed (exit $rc) — cleaning up so the run is re-runnable."
+  rm -f "$KNOWLEDGE_SUMMARY_FILE" 2>/dev/null || true
+  if $_CK_BRANCH_CREATED; then
+    git -C "$REPO_ROOT" checkout "$DEFAULT_BRANCH" &>/dev/null || true
+    local scope="local"
+    if $_CK_BRANCH_PUSHED; then
+      git -C "$REPO_ROOT" push origin --delete "$KNOWLEDGE_BRANCH" &>/dev/null || true
+      scope="local + remote"
+    fi
+    git -C "$REPO_ROOT" branch -D "$KNOWLEDGE_BRANCH" &>/dev/null || true
+    info "Removed knowledge branch '$KNOWLEDGE_BRANCH' ($scope)."
+  fi
+}
+trap cleanup_on_failure EXIT
 
 # ── Create knowledge branch ───────────────────────────────────────────────────
 
@@ -54,12 +91,11 @@ if git rev-parse --verify "$KNOWLEDGE_BRANCH" &>/dev/null; then
   hard_stop "Branch '$KNOWLEDGE_BRANCH' already exists — investigate before proceeding."
 fi
 git checkout -b "$KNOWLEDGE_BRANCH"
+_CK_BRANCH_CREATED=true
 
 # ── Collect project knowledge ─────────────────────────────────────────────────
 
 echo "Collecting project knowledge from $KNOWLEDGE_DIR..."
-
-KNOWLEDGE_SUMMARY_FILE="$REPO_ROOT/.close-knowledge-context-$PROJECT_ID.md"
 
 {
   echo "# Knowledge Close Context: $PROJECT_ID"
@@ -87,11 +123,17 @@ info "Context written to: $KNOWLEDGE_SUMMARY_FILE"
 
 # ── LLM synthesis step ────────────────────────────────────────────────────────
 #
-# The agent (Claude Code) running this script should now:
-#   1. Read all files in $KNOWLEDGE_DIR
-#   2. Read relevant org knowledge in $REPO_ROOT/knowledge/ for RAG context
-#   3. Synthesize: map project learnings → org knowledge locations
-#   4. Apply proposed changes to knowledge/ on this branch
+# The agent (Claude Code) running this script MUST follow the Knowledge Harvest
+# Protocol — knowledge/development/procedures/knowledge-harvest.md (POL-413, C01):
+#   1. Reconstruct from EVIDENCE (git log -p across project repos, merged issues,
+#      todo.md, all projects/$PROJECT_ID/knowledge/ docs) — not from memory.
+#   2. Enumerate → classify (graduate/local/discard) every durable artifact; mine
+#      the non-obvious (gotchas, failures-and-fixes); journey review;
+#      completeness-critic pass.
+#   3. Write the manifest projects/$PROJECT_ID/knowledge/knowledge-close.md
+#      (template in the protocol). close-project's gate checks it is present +
+#      structurally complete (no TBD).
+#   4. Apply proposed org-knowledge changes to knowledge/ on this branch.
 #   5. Call: bash close-knowledge.sh <project_id> --finalize <pr_description_file>
 #
 # If the agent is not available, we fall back to attaching raw knowledge.
@@ -150,6 +192,7 @@ fi
 
 git commit -m "close-knowledge: $PROJECT_ID" --allow-empty
 git push -u origin "$KNOWLEDGE_BRANCH"
+_CK_BRANCH_PUSHED=true
 
 # ── Raise PR ──────────────────────────────────────────────────────────────────
 
@@ -171,6 +214,12 @@ PR_URL=$(gh pr create \
   }
 
 info "PR created: $PR_URL"
+
+# Point of no return: the branch is now referenced by a PR, so deleting it on a
+# later failure would orphan the PR. Disarm the branch/temp-file cleanup but
+# still drop the temp context file (which is removed earlier anyway).
+_CK_DONE=true
+rm -f "$KNOWLEDGE_SUMMARY_FILE" 2>/dev/null || true
 
 # ── Update project.yaml ───────────────────────────────────────────────────────
 

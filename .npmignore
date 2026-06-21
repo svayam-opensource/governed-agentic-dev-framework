@@ -1,0 +1,9 @@
+# Keep the published @svayam/prj tarball clean. npm's `files` allowlist ignores
+# .gitignore, so build cruft must be excluded here (PRJ-013 prod-release fix:
+# dev bundles shipped stray .pyc from scripts/validate/__pycache__).
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+*.swp

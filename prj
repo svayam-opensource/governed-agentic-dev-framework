@@ -25,19 +25,36 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS="$SCRIPT_DIR/scripts"
-CONFIG="$SCRIPT_DIR/org-config.yaml"
-REGISTRY="$SCRIPT_DIR/registry.yaml"
+# ADR-0001 Phase 4: the CLI may be installed separately from the workspace
+# data. $ADF_WORKSPACE (exported by the installed `prj` wrapper, or set by
+# hand) points at the governance repo; default to the vendored layout (the
+# CLI lives inside the workspace) when it is unset — i.e. unchanged behavior.
+if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]]; then
+  WORKSPACE_ROOT="$ADF_WORKSPACE"
+else
+  WORKSPACE_ROOT="$SCRIPT_DIR"
+fi
+CONFIG="$WORKSPACE_ROOT/org-config.yaml"
+REGISTRY="$WORKSPACE_ROOT/registry.yaml"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 
 BOLD='\033[1m'; DIM='\033[2m'; CYAN='\033[0;36m'; GREEN='\033[0;32m'
 YELLOW='\033[1;33m'; RED='\033[0;31m'; MAGENTA='\033[0;35m'; NC='\033[0m'
 
+# Sentinel returned by interactive helpers when the user chooses "go back".
+# Every menu offers '0) ← back'; callers compare the result against $BACK and
+# step backward (or return to the previous menu) instead of proceeding.
+BACK='__back__'
+# is_back <value> — true if the helper result is the back sentinel.
+is_back() { [[ "$1" == "$BACK" ]]; }
+
 header() { echo -e "\n${BOLD}${CYAN}$*${NC}"; }
 label()  { echo -e "${DIM}$*${NC}"; }
 ok()     { echo -e "${GREEN}✓${NC} $*"; }
 warn()   { echo -e "${YELLOW}!${NC} $*"; }
 err()    { echo -e "${RED}✗${NC} $*" >&2; }
+info()   { echo -e "${DIM}›${NC} $*"; }
 divider(){ echo -e "${DIM}────────────────────────────────────────${NC}"; }
 
 # ── Read org config ───────────────────────────────────────────────────────────
@@ -47,6 +64,8 @@ if command -v yq &>/dev/null; then
   ORG_SLUG=$(yq '.org_slug'              "$CONFIG" 2>/dev/null || echo "")
   ORG_SLUG_LOWER=$(yq '.org_slug_lower'  "$CONFIG" 2>/dev/null || echo "")
   GITHUB_ORG=$(yq '.github_org'          "$CONFIG" 2>/dev/null || echo "")
+  WORKSPACE_REPO=$(yq '.workspace_repo'  "$CONFIG" 2>/dev/null || echo "")
+  AGENT_WORK_ROOT=$(yq '.agent_work_root' "$CONFIG" 2>/dev/null || echo "")
   DEFAULT_BRANCH=$(yq '.default_branch'  "$CONFIG" 2>/dev/null || echo "main")
   POLICY_OWNER_EMAIL=$(yq '.policy_owner_email' "$CONFIG" 2>/dev/null || echo "")
 else
@@ -54,11 +73,397 @@ else
   ORG_SLUG=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['org_slug'])" 2>/dev/null || echo "")
   ORG_SLUG_LOWER=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['org_slug_lower'])" 2>/dev/null || echo "")
   GITHUB_ORG=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['github_org'])" 2>/dev/null || echo "")
+  WORKSPACE_REPO=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['workspace_repo'])" 2>/dev/null || echo "")
+  AGENT_WORK_ROOT=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG')).get('agent_work_root',''))" 2>/dev/null || echo "")
   DEFAULT_BRANCH=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['default_branch'])" 2>/dev/null || echo "main")
   POLICY_OWNER_EMAIL=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['policy_owner_email'])" 2>/dev/null || echo "")
 fi
 
+AGENT_WORK_ROOT="${AGENT_WORK_ROOT/#\~/$HOME}"   # expand leading ~ for path use
+WORKSPACE_REPO="${WORKSPACE_REPO:-svm-prj-work}"
+
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
+
+# ── Navigation context + agent launch (#57) — prj-local (prj does not source lib.sh) ──
+org_gov_clone() { echo "$AGENT_WORK_ROOT/$1/$WORKSPACE_REPO"; }
+
+resolve_my_identities() {
+  git config user.email 2>/dev/null || true
+  gh api user --jq '.login' 2>/dev/null || true
+  gh api user/teams --jq '.[].slug' 2>/dev/null || true
+  gh api user/teams --jq '.[] | (.organization.login + "/" + .slug)' 2>/dev/null || true
+}
+
+# project_context_list <assignment:me|unassigned|any> <lifecycle:not-initiated|initiated|paused|ongoing|done|any>
+# TSV: <id-or-(not seeded)>\t<github_url>\t<status>\t<assigned_to>. Registry-backed
+# (board open/closed approximated from lifecycle, so no per-project GitHub calls).
+project_context_list() {
+  local assignment="${1:-any}" lifecycle="${2:-any}" me owned=""
+  me="$(resolve_my_identities | paste -sd '|' -)"
+  # #57 Increment 5: ownership ("me") is GitHub-definitive — the boards whose
+  # anchor issue is assigned to me. Resolve once here and pass to the filter.
+  # If empty (no anchors labelled yet, or API hiccup), the python falls back to
+  # the registry assigned_to cache so nav never breaks during the transition.
+  if [[ "$assignment" == "me" ]]; then
+    owned="$(my_github_project_numbers | paste -sd ' ' -)"
+  fi
+  ME="$me" OWNED_NUMS="$owned" python3 - "$REGISTRY" "$assignment" "$lifecycle" <<'PY'
+import sys, os, re, yaml
+registry, assignment, lifecycle = sys.argv[1], sys.argv[2], sys.argv[3]
+me = set(x for x in os.environ.get('ME', '').split('|') if x)
+owned = set(x for x in re.split(r'[ ,]+', os.environ.get('OWNED_NUMS', '')) if x)
+use_gh = bool(owned)   # GitHub anchor ownership known → authoritative; else cache
+doc = yaml.safe_load(open(registry)) or {}
+projects = [p for p in (doc.get('projects') or []) if p]
+preasn   = [a for a in (doc.get('pre_assignments') or []) if a]
+seeded   = {p.get('github_project') for p in projects}
+ONGOING, DONE = {'active', 'paused'}, {'completed', 'cancelled'}
+def board_num(url):
+    m = re.search(r'/projects/(\d+)', url or ''); return m.group(1) if m else ''
+def assign_ok(who, url):
+    if assignment == 'any':        return True
+    if assignment == 'unassigned': return not who
+    if assignment == 'me':
+        if use_gh:                 return board_num(url) in owned
+        return bool(who) and who in me
+    return True
+def nnn(pid):
+    m = re.search(r'-(\d+)-', pid or ''); return int(m.group(1)) if m else -1
+rows = []
+if lifecycle in ('initiated', 'paused', 'ongoing', 'done', 'any'):
+    for p in projects:
+        s = p.get('status', '')
+        url = p.get('github_project', '') or ''
+        ok = ((lifecycle == 'initiated' and s == 'active') or
+              (lifecycle == 'paused'    and s == 'paused') or
+              (lifecycle == 'ongoing'   and s in ONGOING) or
+              (lifecycle == 'done'      and s in DONE) or
+              (lifecycle == 'any'))
+        if ok and assign_ok(p.get('assigned_to'), url):
+            rows.append((nnn(p.get('id', '')), p['id'], url, s, p.get('assigned_to') or ''))
+if lifecycle in ('not-initiated', 'any'):
+    for a in preasn:
+        url = a.get('github_project', '') or ''
+        if url in seeded: continue
+        if assign_ok(a.get('assigned_to'), url):
+            rows.append((-1, '(not seeded)', url, 'not-initiated', a.get('assigned_to') or ''))
+for _, pid, url, s, who in sorted(rows, key=lambda r: r[0]):
+    print('\t'.join((pid, url, s, who)))
+PY
+}
+
+agent_session_start_prompt() {
+  printf 'Run the session-start protocol for %s now, before I send anything else: read org-config.yaml, projects/%s/agent.md, knowledge/policies/agentic-development-policy.md, and surface any "## Open" items from projects/%s/knowledge/todo.md; then post the context manifest and wait for my direction.' "$1" "$1" "$1"
+}
+
+SANCTIONED_AGENTS="claude cursor"
+launch_agent() {
+  local agent="$1" dir="$2" pid="$3" inject
+  [[ -d "$dir" ]] || { warn "Project worktree not found: $dir"; return 0; }
+  case " $SANCTIONED_AGENTS " in
+    *" $agent "*) : ;;
+    *) warn "Agent '$agent' is not sanctioned (sanctioned: $SANCTIONED_AGENTS; see knowledge/policies/sanctioned_agents.md)."; return 0 ;;
+  esac
+  inject="$(agent_session_start_prompt "$pid")"
+  case "$agent" in
+    claude)
+      command -v claude >/dev/null 2>&1 || { warn "claude not on PATH. Start manually: cd \"$dir\" && claude \"<session-start>\""; return 0; }
+      ok "Launching Claude in $dir (session-start runs first)..."; cd "$dir" && exec claude "$inject" ;;
+    cursor)
+      command -v cursor-agent >/dev/null 2>&1 || { warn "cursor-agent not on PATH (install: curl https://cursor.com/install -fsS | bash). Start manually: cd \"$dir\" && cursor-agent \"<session-start>\""; return 0; }
+      ok "Launching cursor-agent in $dir (session-start runs first)..."; cd "$dir" && exec cursor-agent "$inject" ;;
+  esac
+}
+
+prompt_and_launch_agent() {
+  local dir="$1" pid="$2" choice
+  if [[ ! -t 0 ]]; then
+    label "Project ready at $dir. Start your agent: cd \"$dir\" && claude \"<session-start>\"  (or cursor-agent)"
+    return 0
+  fi
+  echo ""
+  label "Start an agent in the project workspace (it runs the session-start protocol automatically):"
+  echo "  1) claude    2) cursor    0) none — I'll start it myself"
+  printf "  Choose [1]: "
+  IFS= read -r choice || choice=""
+  case "${choice:-1}" in
+    1|claude) launch_agent claude "$dir" "$pid" ;;
+    2|cursor) launch_agent cursor "$dir" "$pid" ;;
+    0|none|"") label "Skipped. Start later: cd \"$dir\" && claude \"<session-start>\"" ;;
+    *) warn "Unknown choice — skipped. Start later: cd \"$dir\" && claude \"<session-start>\"" ;;
+  esac
+}
+
+# ── GitHub-definitive ownership + repo helpers (manage/work redesign) ─────────
+# No cache: ownership = the project's anchor-issue assignees; repos = the board's
+# issues' repos. All read live from GitHub. See prj-manage-work-redesign-spec.md.
+ANCHOR_LABEL="anchor"
+
+# anchor_issue_ref <project_number> [owner]  → "owner/repo#number" of the board's
+# anchor issue (labelled 'anchor'), or empty. owner defaults to $GITHUB_ORG.
+anchor_issue_ref() {
+  local num="$1" owner="${2:-$GITHUB_ORG}"
+  gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ items(first:100){ nodes{ content{ __typename ... on Issue { number repository{nameWithOwner} labels(first:30){nodes{name}} } } } } } } }' \
+    -F o="$owner" -F n="$num" --jq '
+      [ .data.organization.projectV2.items.nodes[].content
+        | select(.__typename=="Issue")
+        | select(([.labels.nodes[].name] | index("anchor")) != null)
+        | "\(.repository.nameWithOwner)#\(.number)" ] | (.[0] // "")' 2>/dev/null
+}
+
+# project_owners <project_number> [owner]  → anchor-issue assignee logins (the
+# definitive, readable owners — no cache).
+project_owners() {
+  local ref; ref="$(anchor_issue_ref "$@")"
+  [[ -z "$ref" ]] && return 0
+  gh issue view "${ref##*#}" --repo "${ref%%#*}" --json assignees --jq '.assignees[].login' 2>/dev/null
+}
+
+# my_projects  → anchor issues assigned to me (TSV: owner/repo#num \t title).
+# "my projects" as one definitive query; map to a board via issue.projectItems.
+my_projects() {
+  local login; login="$(gh api user --jq .login 2>/dev/null || echo "")"
+  [[ -z "$login" ]] && return 0
+  # Flag form, NOT the inline "label:.. assignee:.. org:.." query string — the
+  # inline multi-qualifier form silently returns empty for this combination
+  # (verified against issue #78); the flags are reliable.
+  gh search issues --owner "$GITHUB_ORG" --label "$ANCHOR_LABEL" --assignee "$login" \
+    --json number,title,repository \
+    --jq '.[] | "\(.repository.nameWithOwner)#\(.number)\t\(.title)"' 2>/dev/null
+}
+
+# my_github_project_numbers  → the GitHub Project NUMBERS of boards whose anchor
+# issue is assigned to me (ownership, GitHub-definitive). Resolves each anchor
+# issue I'm assigned to → its board(s) via issue.projectItems. Empty if none
+# (or on API error) — callers fall back to the registry assigned_to cache so
+# nav never breaks before anchors are labelled. One number per line, deduped.
+my_github_project_numbers() {
+  local login repo num
+  login="$(gh api user --jq .login 2>/dev/null || echo "")"
+  [[ -z "$login" ]] && return 0
+  while IFS=$'\t' read -r repo num; do
+    [[ -z "$repo" || -z "$num" ]] && continue
+    gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){ issue(number:$n){ projectItems(first:20){ nodes{ ... on ProjectV2Item { project{ number } } } } } } }' \
+      -F o="${repo%%/*}" -F r="${repo##*/}" -F n="$num" \
+      --jq '.data.repository.issue.projectItems.nodes[].project.number' 2>/dev/null
+  done < <(gh search issues --owner "$GITHUB_ORG" --label "$ANCHOR_LABEL" --assignee "$login" \
+             --json number,repository \
+             --jq '.[] | "\(.repository.nameWithOwner)\t\(.number)"' 2>/dev/null) | sort -un
+}
+
+# project_repos <project_number> [owner]  → distinct repos of the board's items
+# (the project's repo set, derived — no repos[]; workspace repo is implicit).
+project_repos() {
+  local num="$1" owner="${2:-$GITHUB_ORG}"
+  gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ items(first:100){ nodes{ content{ ... on Issue { repository{nameWithOwner} } ... on PullRequest { repository{nameWithOwner} } } } } } } }' \
+    -F o="$owner" -F n="$num" --jq '
+      [ .data.organization.projectV2.items.nodes[].content | .repository.nameWithOwner | select(.) ] | unique | .[]' 2>/dev/null
+}
+
+# set_owner <add|remove> <project_number> <login> [owner]
+# Atomic owner change: (1) anchor-issue assignee (readable owner) + (2) project
+# write access (authorization gate, via project-access.sh). Fail-closed.
+set_owner() {
+  local action="$1" num="$2" login="$3" owner="${4:-$GITHUB_ORG}"
+  local ref repo inum url aflag pa
+  ref="$(anchor_issue_ref "$num" "$owner")"
+  [[ -z "$ref" ]] && { warn "No '$ANCHOR_LABEL' issue on project #$num — designate one first (prj manage)."; return 1; }
+  repo="${ref%%#*}"; inum="${ref##*#}"
+  url="https://github.com/orgs/$owner/projects/$num"
+  case "$action" in
+    add)    aflag="--add-assignee";    pa="grant" ;;
+    remove) aflag="--remove-assignee"; pa="revoke" ;;
+    *) warn "set_owner: action must be add|remove"; return 1 ;;
+  esac
+  gh issue edit "$inum" --repo "$repo" "$aflag" "$login" >/dev/null 2>&1 \
+    || { warn "Failed to $action anchor-issue assignee $login on $repo#$inum"; return 1; }
+  bash "$SCRIPTS/project-access.sh" "$pa" "$url" "$login" >/dev/null 2>&1 \
+    || warn "Assignee updated, but board write $pa failed — reconcile: bash scripts/project-access.sh $pa $url $login"
+  ok "${action}: owner $login on project #$num (anchor $repo#$inum + board $pa)"
+}
+
+# pid_for_project_number <num> → the registry project id whose github_project URL
+# ends in /projects/<num>, or empty if the board isn't seeded locally yet.
+pid_for_project_number() {
+  python3 - "$REGISTRY" "$1" <<'PY'
+import sys, re, yaml
+reg, num = sys.argv[1], sys.argv[2]
+d = yaml.safe_load(open(reg)) or {}
+for p in (d.get('projects') or []):
+    if not p: continue
+    m = re.search(r'/projects/(\d+)', p.get('github_project') or '')
+    if m and m.group(1) == num:
+        print(p.get('id', '')); break
+PY
+}
+
+# i_can_work_project <project_number> [owner] → 0 if the current GitHub user is a
+# project owner (anchor-issue assignee) OR is assigned to any of the board's issues
+# (GitHub-definitive authorization for `work`, no cache).
+i_can_work_project() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" me o
+  me="$(gh api user --jq .login 2>/dev/null || echo "")"
+  [[ -z "$me" ]] && return 1
+  while IFS= read -r o; do [[ "$o" == "$me" ]] && return 0; done < <(project_owners "$num" "$owner")
+  gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ items(first:100){ nodes{ content{ ... on Issue { assignees(first:20){nodes{login}} } } } } } } }' \
+    -F o="$owner" -F n="$num" \
+    --jq '.data.organization.projectV2.items.nodes[].content.assignees.nodes[].login' 2>/dev/null \
+    | grep -qx "$me" && return 0
+  return 1
+}
+
+# i_can_write_board <project_number> [owner] → 0 if I have write access to the
+# board (projectV2.viewerCanUpdate). Returns 0 (allow) when the check is
+# indeterminate — e.g. a user-owned board where the org query yields null — so
+# we never block on an unreadable signal; the downstream GitHub mutations
+# (seed/create-task/merge/close, project-access grant) remain the hard gate.
+i_can_write_board() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" vcu
+  vcu=$(gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ viewerCanUpdate } } }' \
+    -F o="$owner" -F n="$num" --jq '.data.organization.projectV2.viewerCanUpdate' 2>/dev/null || echo "")
+  [[ "$vcu" == "false" ]] && return 1
+  return 0
+}
+
+# ensure_issue_repo <owner/repo> <project_id> <project_branch> [base]
+# Repo-on-demand: if the issue's repo isn't in the project workspace, bring it in
+# (clone/worktree on the project branch). No repos[]. base = DEFAULT_CODE_BRANCH.
+ensure_issue_repo() {
+  local repo="$1" pid="$2" branch="$3" base="${4:-${DEFAULT_CODE_BRANCH:-dev}}"
+  local name dir
+  name="${repo##*/}"
+  dir="$AGENT_WORK_ROOT/$pid/$name"
+  if [[ -e "$dir/.git" ]]; then return 0; fi
+  info "Bringing in $repo on-demand (base $base) → $dir"
+  bash "$SCRIPTS/add-repo.sh" "$pid" "https://github.com/$repo" "dependency" \
+    "auto: brought in on-demand for an issue" "$base" 2>/dev/null \
+    || warn "Could not auto-add $repo (check access). It will be needed to work its issues."
+}
+
+# ── Registry-elimination derivation helpers (#57 / registry-elimination-spec) ──
+# GitHub is the sole SoT; the registry survives only as a FROZEN legacy shim
+# (grandfather: PRJ-001…013, whose ids/branches predate scheme B). Every helper
+# below checks the shim FIRST (by board number → its stored field) and otherwise
+# derives the value from GitHub. New projects are never in the shim → fully derived.
+# These are pure/read-only and not yet wired into the live flows (Increment 1).
+
+# slugify_str <text> — same rule as lib.sh slugify (prj does not source lib.sh).
+slugify_str() {
+  echo "$1" | tr '[:upper:]' '[:lower:]' \
+    | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+}
+
+# legacy_shim_field <board_number> <field>  → the stored registry value for the
+# legacy project on that board, or empty if the board isn't a legacy project.
+# field ∈ id | branch | status | assigned_to (anything in the registry entry).
+legacy_shim_field() {
+  python3 - "$REGISTRY" "$1" "$2" <<'PY'
+import sys, re, yaml
+reg, num, field = sys.argv[1], sys.argv[2], sys.argv[3]
+d = yaml.safe_load(open(reg)) or {}
+for p in (d.get('projects') or []):
+    if not p: continue
+    m = re.search(r'/projects/(\d+)', p.get('github_project') or '')
+    if m and m.group(1) == num:
+        v = p.get(field)
+        if v is not None: print(v)
+        break
+PY
+}
+
+# gh_board_title <board_number> [owner]  → the GitHub Project's title (for slug).
+gh_board_title() {
+  local num="$1" owner="${2:-$GITHUB_ORG}"
+  gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ title } } }' \
+    -F o="$owner" -F n="$num" --jq '.data.organization.projectV2.title // ""' 2>/dev/null
+}
+
+# derive_project_id <board_number> [owner]  → PRJ-<id>. Legacy → stored id;
+# else PRJ-<number>-<slug(title)> (scheme B; id == branch for new projects).
+derive_project_id() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" id slug
+  id="$(legacy_shim_field "$num" id)"
+  [[ -n "$id" ]] && { echo "$id"; return; }
+  slug="$(slugify_str "$(gh_board_title "$num" "$owner")")"
+  [[ -z "$slug" ]] && return 1
+  echo "PRJ-${num}-${slug}"
+}
+
+# derive_project_branch <board_number> [owner]  → branch. Legacy → stored branch;
+# else the scheme-B branch, which for new projects equals the derived id.
+derive_project_branch() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" br
+  br="$(legacy_shim_field "$num" branch)"
+  [[ -n "$br" ]] && { echo "$br"; return; }
+  derive_project_id "$num" "$owner"
+}
+
+# anchor_has_label <board_number> <label> [owner]  → 0 if the board's anchor issue
+# carries <label>. Used by status derivation (paused / cancelled live as labels).
+anchor_has_label() {
+  local num="$1" want="$2" owner="${3:-$GITHUB_ORG}" ref
+  ref="$(anchor_issue_ref "$num" "$owner")"
+  [[ -z "$ref" ]] && return 1
+  gh issue view "${ref##*#}" --repo "${ref%%#*}" --json labels \
+    --jq '.labels[].name' 2>/dev/null | grep -qx "$want"
+}
+
+# derive_project_status <board_number> [owner]  → active|paused|completed|cancelled.
+# Legacy → stored status (don't rewrite history). Else from GitHub:
+#   open  board: anchor 'paused'    → paused    else active
+#   closed board: anchor 'cancelled'→ cancelled else completed
+derive_project_status() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" s closed
+  s="$(legacy_shim_field "$num" status)"
+  [[ -n "$s" ]] && { echo "$s"; return; }
+  closed="$(gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ closed } } }' \
+    -F o="$owner" -F n="$num" --jq '.data.organization.projectV2.closed' 2>/dev/null)"
+  if [[ "$closed" == "true" ]]; then
+    anchor_has_label "$num" cancelled "$owner" && echo "cancelled" || echo "completed"
+  else
+    anchor_has_label "$num" paused "$owner" && echo "paused" || echo "active"
+  fi
+}
+
+# derive_workspace_dir <board_number> [owner]  → the project's local workspace dir.
+# Legacy → $AGENT_WORK_ROOT/<stored-id> (dirs predate scheme B). Else the existing
+# PRJ-<number>-* dir if one is present (rename-proof glob), else the derived path.
+derive_workspace_dir() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" id hit
+  id="$(legacy_shim_field "$num" id)"
+  [[ -n "$id" ]] && { echo "$AGENT_WORK_ROOT/$id"; return; }
+  for hit in "$AGENT_WORK_ROOT/PRJ-${num}-"*; do
+    [[ -d "$hit" ]] && { echo "$hit"; return; }
+  done
+  echo "$AGENT_WORK_ROOT/$(derive_project_id "$num" "$owner")"
+}
+
+# ensure_anchor_label <owner/repo>  — create the 'anchor' label if it's missing
+# (gh issue edit --add-label fails when the label doesn't exist in the repo).
+ensure_anchor_label() {
+  gh label create "$ANCHOR_LABEL" --repo "$1" --color 5319e7 \
+    --description "Project scope/anchor issue — its assignees are the project owners" \
+    >/dev/null 2>&1 || true
+}
+
+# create_anchor_issue <board_number> <board_title> [owner]  — create the project's
+# scope/anchor issue in the workspace repo, label it 'anchor', assign the current
+# user, and add it to the board. Echoes "owner/repo#number" (empty on failure).
+create_anchor_issue() {
+  local num="$1" title="$2" owner="${3:-$GITHUB_ORG}"
+  local repo="$owner/$WORKSPACE_REPO" me url body
+  me="$(gh api user --jq .login 2>/dev/null || echo "")"
+  ensure_anchor_label "$repo"
+  body="Anchor issue for the project on GitHub Project #$num — *$title*.
+
+Owners = this issue's assignees (managed via \`prj manage\` / \`prj work\`). Long-lived
+scope marker for the project; closed at project close."
+  url="$(gh issue create --repo "$repo" --title "$title: project scope & anchor" \
+          --label "$ANCHOR_LABEL" ${me:+--assignee "$me"} --body "$body" 2>/dev/null | tail -1)"
+  [[ -z "$url" ]] && return 1
+  gh project item-add "$num" --owner "$owner" --url "$url" >/dev/null 2>&1 || true
+  echo "${repo}#${url##*/}"
+}
 
 # Verify git is configured with an author identity before any write op.
 # Without both user.name and user.email, git commit fails deep in the
@@ -144,6 +549,8 @@ ask_optional() {
 }
 
 # ask_choice <var_name> <prompt> <option1> <option2> ...
+# Always offers '0) ← back'; on 0/b/back the var is set to $BACK and the function
+# returns 0 (callers must check is_back to step backward / return to the menu).
 ask_choice() {
   local __var="$1" __prompt="$2"; shift 2
   local __opts=("$@") __i __choice_val
@@ -151,9 +558,13 @@ ask_choice() {
   for __i in "${!__opts[@]}"; do
     printf "  ${CYAN}%d)${NC} %s\n" $((__i+1)) "${__opts[$__i]}"
   done
+  printf "  ${DIM}0) ← back${NC}\n"
   while true; do
-    printf "Choose [1-%d]: " "${#__opts[@]}"
+    printf "Choose [1-%d, 0=back]: " "${#__opts[@]}"
     _read_or_abort __choice_val
+    if [[ "$__choice_val" == "0" || "$__choice_val" == "b" || "$__choice_val" == "back" ]]; then
+      printf -v "$__var" '%s' "$BACK"; return
+    fi
     if [[ "$__choice_val" =~ ^[0-9]+$ ]] && (( __choice_val >= 1 && __choice_val <= ${#__opts[@]} )); then
       printf -v "$__var" '%s' "${__opts[$((__choice_val-1))]}"
       return
@@ -216,13 +627,59 @@ PY
       "${__ids[$i]}" \
       "$(echo "$__projects" | sed -n "$((i+1))p" | cut -d'|' -f2)"
   done
+  printf "  ${DIM}0) ← back${NC}\n"
 
   local __choice
   while true; do
-    printf "Choose [1-%d]: " "${#__ids[@]}"
+    printf "Choose [1-%d, 0=back]: " "${#__ids[@]}"
     read -r __choice
+    if [[ "$__choice" == "0" || "$__choice" == "b" || "$__choice" == "back" ]]; then
+      printf -v "$__var" '%s' "$BACK"; return
+    fi
     if [[ "$__choice" =~ ^[0-9]+$ ]] && (( __choice >= 1 && __choice <= ${#__ids[@]} )); then
       printf -v "$__var" '%s' "${__ids[$((__choice-1))]}"
+      return
+    fi
+    err "Invalid choice."
+  done
+}
+
+# select_project_ctx <var> <assignment> <lifecycle>  — navigation-context picker (#57).
+# Filters via project_context_list (lib.sh): assignment ∈ me|unassigned|any,
+# lifecycle ∈ not-initiated|initiated|paused|ongoing|done|any. Sets <var> to the
+# chosen project id (or, for not-initiated rows, the GitHub project URL).
+select_project_ctx() {
+  local __var="$1" __assignment="$2" __lifecycle="$3"
+  local __rows __vals=() __labels=()
+  __rows=$(project_context_list "$__assignment" "$__lifecycle")
+  if [[ -z "$__rows" ]]; then
+    err "No projects match (assignment=$__assignment, lifecycle=$__lifecycle)."
+    exit 1
+  fi
+  local id url status who
+  while IFS=$'\t' read -r id url status who; do
+    [[ -z "$id$url" ]] && continue
+    if [[ "$id" == "(not seeded)" ]]; then
+      __vals+=("$url");  __labels+=("$url  ${DIM}($status)${NC}")
+    else
+      __vals+=("$id");   __labels+=("$id  ${DIM}($status${who:+, $who})${NC}")
+    fi
+  done <<< "$__rows"
+  echo -e "${BOLD}Select project:${NC}"
+  local i
+  for i in "${!__labels[@]}"; do
+    printf "  ${CYAN}%d)${NC} %b\n" $((i+1)) "${__labels[$i]}"
+  done
+  printf "  ${DIM}0) ← back${NC}\n"
+  local __choice
+  while true; do
+    printf "Choose [1-%d, 0=back]: " "${#__vals[@]}"
+    read -r __choice || { err "No input."; exit 1; }
+    if [[ "$__choice" == "0" || "$__choice" == "b" || "$__choice" == "back" ]]; then
+      printf -v "$__var" '%s' "$BACK"; return
+    fi
+    if [[ "$__choice" =~ ^[0-9]+$ ]] && (( __choice >= 1 && __choice <= ${#__vals[@]} )); then
+      printf -v "$__var" '%s' "${__vals[$((__choice-1))]}"
       return
     fi
     err "Invalid choice."
@@ -273,11 +730,15 @@ for i in d.get('items', []):
   for i in "${!__urls[@]}"; do
     printf "  ${CYAN}%d)${NC} %s  ${DIM}%s${NC}\n" $((i+1)) "${__titles[$i]}" "${__urls[$i]}"
   done
+  printf "  ${DIM}0) ← back${NC}\n"
 
   local __choice
   while true; do
-    printf "Choose [1-%d]: " "${#__urls[@]}"
+    printf "Choose [1-%d, 0=back]: " "${#__urls[@]}"
     read -r __choice
+    if [[ "$__choice" == "0" || "$__choice" == "b" || "$__choice" == "back" ]]; then
+      printf -v "$__var" '%s' "$BACK"; return
+    fi
     if [[ "$__choice" =~ ^[0-9]+$ ]] && (( __choice >= 1 && __choice <= ${#__urls[@]} )); then
       printf -v "$__var" '%s' "${__urls[$((__choice-1))]}"
       return
@@ -355,33 +816,44 @@ for p in ps: print(p.get('number', ''))
   local SELECTED_TITLE="${TITLES[$((CHOICE-1))]}"
   local SELECTED_URL="${URLS[$((CHOICE-1))]}"
 
-  # Check pre_assignment — only the assigned person may seed
-  local PRE_ASSIGNEE
-  PRE_ASSIGNEE=$(python3 - "$REGISTRY" "$SELECTED_URL" <<'PY'
-import sys, yaml
-c = yaml.safe_load(open(sys.argv[1])) or {}
-for a in (c.get('pre_assignments') or []):
-    if a and a.get('github_project') == sys.argv[2]:
-        print(a.get('assigned_to') or ''); sys.exit(0)
-print('')
-PY
-  )
-  if [[ -n "$PRE_ASSIGNEE" && "$CURRENT_USER" != "$PRE_ASSIGNEE" ]]; then
-    err "This project is assigned to '$PRE_ASSIGNEE'."
-    err "Only the assigned person may seed it. Ask for a reassignment via './prj manage reassign' if needed."
+  # ── Phase 3 (ADR-0001): authorization = GitHub Project access ──────────────
+  # The seeder must have write access to the project's GitHub Project board (an
+  # owner grants it via './prj manage assign'). seed.sh enforces this
+  # authoritatively; here we check early for a friendly message. We no longer
+  # consult YAML pre_assignments — GitHub access is the source of truth.
+  local PNUM VCU
+  PNUM=$(printf '%s' "$SELECTED_URL" | sed -nE 's#.*/projects/([0-9]+).*#\1#p')
+  VCU=$(gh api graphql -f query="query{ organization(login:\"$GH_OWNER\"){ projectV2(number:$PNUM){ viewerCanUpdate } } }" \
+        --jq '.data.organization.projectV2.viewerCanUpdate' 2>/dev/null || echo "")
+  if [[ "$VCU" == "false" ]]; then
+    err "You don't have write access to this project's GitHub Project board."
+    err "Ask an owner to grant access (./prj manage assign), then retry."
     exit 1
-  fi
+  fi   # VCU empty = couldn't check (e.g. user project); seed.sh is the gate.
 
   echo ""
   echo -e "  ${BOLD}Project:${NC} $SELECTED_TITLE"
   echo -e "  ${BOLD}URL:${NC}     $SELECTED_URL"
   echo ""
 
-  ask ASSIGNEE "Assignee email" "${PRE_ASSIGNEE:-$CURRENT_USER}"
+  # The recorded assignee is a display/audit cache (authorization is GitHub
+  # access). Default to the seeder's GitHub login; accept a login or @team.
+  local CURRENT_LOGIN
+  CURRENT_LOGIN=$(gh api user --jq .login 2>/dev/null || echo "")
+  ask ASSIGNEE "Assignee (GitHub login or @team)" "${CURRENT_LOGIN:-$CURRENT_USER}"
   echo ""
   confirm "Initialize '$SELECTED_TITLE' assigned to '$ASSIGNEE'?"
   echo ""
-  bash "$SCRIPTS/seed.sh" "$SELECTED_URL" "$ASSIGNEE"
+  bash "$SCRIPTS/seed.sh" "$SELECTED_URL" "$ASSIGNEE" || return 1
+
+  # #57: resolve the just-seeded project, then offer to launch the chosen agent
+  # in its worktree with the session-start protocol pre-run.
+  local NEW_PID NEW_DIR
+  NEW_PID=$(python3 -c "import yaml; d=yaml.safe_load(open('$REGISTRY')) or {}; print(next((p['id'] for p in (d.get('projects') or []) if p and p.get('github_project')=='$SELECTED_URL'), ''))" 2>/dev/null)
+  if [[ -n "$NEW_PID" ]]; then
+    NEW_DIR="$(org_gov_clone "$NEW_PID")"
+    prompt_and_launch_agent "$NEW_DIR" "$NEW_PID"
+  fi
 }
 
 cmd_join() {
@@ -389,11 +861,254 @@ cmd_join() {
   divider
   label "Clone your own PRJ_GOV + code repos for an existing project (team member)."
   echo ""
-  select_project PROJECT_ID "active"
+  select_project_ctx PROJECT_ID me ongoing   # join = my active/paused projects (#57)
+  is_back "$PROJECT_ID" && return
   echo ""
   confirm "Join '$PROJECT_ID' — clone gov + code repos on its branch?"
   echo ""
   bash "$SCRIPTS/join.sh" "$PROJECT_ID"
+}
+
+# ── Phase-1 developer verb facade (ADR-0001) ─────────────────────────────────
+# A smaller, work-focused vocabulary layered over the existing lifecycle
+# commands. The old verbs keep working unchanged; these just give developers
+# one front door so they don't have to know join vs init vs task vs merge vs
+# close. No topology change yet — worktrees / GitHub-as-source-of-truth land
+# in later ADR-0001 phases.
+
+cmd_start() {
+  header "Start Work"
+  divider
+  label "One front door to get to work — routes to the right lifecycle command."
+  echo ""
+  local __what
+  ask_choice __what "What do you want to start?" \
+    "Join a project I'm assigned to" \
+    "Start a task (parallel work on a GitHub issue)" \
+    "Initialize a brand-new project"
+  is_back "$__what" && return
+  echo ""
+  case "$__what" in
+    "Join a project I'm assigned to")                 cmd_join ;;
+    "Start a task (parallel work on a GitHub issue)") cmd_task ;;
+    "Initialize a brand-new project")                 cmd_init ;;
+  esac
+}
+
+# cmd_work — GitHub-definitive Work/Finish front door (#57 redesign §4).
+#   Work:  select board → owner-or-assignee gate → ensure seeded+worktree →
+#          Existing branch (switch+sync) or New branch (pick issue[s], create
+#          task branch, repo-on-demand) → launch agent with session-start.
+#   Finish: delegated to cmd_finish (task submit / project close).
+# cmd_work — project-first front door (redesigned per the user flow; work now
+# absorbs init/join/task/finish):
+#   STEP 1     pick an open GitHub Project to work on.
+#   STEP 1.1   ensure it has an anchor issue WITH an owner (create/designate +
+#              claim ownership if not).
+#   STEP 1.2   initiated (seeded + cloned) ?
+#     1.2.1    NO  → seed/clone all the way → launch agent + session-start.  END.
+#     1.2.2    YES → pick a branch (project branch + task branches).
+#     1.2.3        → Continue (open in agent) / Task (new task branch) /
+#                    Finish (project branch → close, else → merge this task).
+# Back-navigable: every step offers '0) ← back'; state persists in outer locals.
+cmd_work() {
+  header "Work"
+  divider
+  echo ""
+  local PNUM PTITLE PID DIR BRANCH SEL ACT me yn
+  local step=pick
+  while true; do
+    case "$step" in
+
+    pick)   # STEP 1 — choose a project (all open GitHub Projects)
+      _pick_open_project PNUM PTITLE
+      is_back "$PNUM" && return
+      # Early authorization: fail fast with a friendly message if you can't write
+      # the board, rather than deep in seed/anchor/merge. Indeterminate = allow.
+      if ! i_can_write_board "$PNUM"; then
+        err "You don't have write access to '$PTITLE' (its GitHub Project board)."
+        err "Ask an owner to grant access (./prj manage), then retry."
+        echo ""; step=pick; continue
+      fi
+      echo ""
+      step=anchor ;;
+
+    anchor) # STEP 1.1 — ensure an anchor issue WITH an owner
+      local ref owners how
+      ref="$(anchor_issue_ref "$PNUM")"
+      owners="$(project_owners "$PNUM")"
+      if [[ -n "$ref" && -n "$owners" ]]; then
+        info "Anchor: $ref · owner(s): $(echo "$owners" | paste -sd ',' - | sed 's/,/, /g')"
+      else
+        warn "'$PTITLE' has no anchor issue with an owner yet — let's set it up."
+        if [[ -z "$ref" ]]; then
+          ask_choice how "Set up its scope/anchor issue:" \
+            "Create a new scope/anchor issue" "Designate an existing board issue"
+          is_back "$how" && { echo ""; step=pick; continue; }
+          if [[ "$how" == Create* ]]; then
+            ref="$(create_anchor_issue "$PNUM" "$PTITLE")"
+            [[ -z "$ref" ]] && { err "Could not create the anchor issue (check access)."; return 1; }
+            ok "Anchor created: $ref"
+          else
+            _pick_board_issue ref "$PNUM"
+            is_back "$ref" && { echo ""; step=pick; continue; }
+            ensure_anchor_label "${ref%%#*}"
+            gh issue edit "${ref##*#}" --repo "${ref%%#*}" --add-label "$ANCHOR_LABEL" >/dev/null 2>&1 \
+              && ok "Designated $ref as the anchor." || { err "Could not label $ref."; return 1; }
+          fi
+        fi
+        owners="$(project_owners "$PNUM")"
+        if [[ -z "$owners" ]]; then
+          me="$(gh api user --jq .login 2>/dev/null || echo "")"
+          [[ -z "$me" ]] && { err "Could not resolve your GitHub login."; return 1; }
+          ask_choice yn "Make you ('$me') the owner of '$PTITLE'?" "Yes — claim ownership"
+          is_back "$yn" && { echo ""; step=pick; continue; }
+          set_owner add "$PNUM" "$me"
+        fi
+      fi
+      echo ""
+      step=route ;;
+
+    route)  # STEP 1.2 — initiated (seeded + cloned locally) or not?
+      PID="$(pid_for_project_number "$PNUM")"
+      if [[ -z "$PID" ]]; then
+        # 1.2.1 NOT initiated → seed all the way to the agent + session-start.
+        require_git_identity
+        me="$(gh api user --jq .login 2>/dev/null || echo "$CURRENT_USER")"
+        info "Initializing '$PTITLE' (seed → branch → clone)…"
+        bash "$SCRIPTS/seed.sh" "https://github.com/orgs/$GITHUB_ORG/projects/$PNUM" "$me" || return 1
+        PID="$(pid_for_project_number "$PNUM")"
+        [[ -z "$PID" ]] && { err "Seed did not register the project."; return 1; }
+        DIR="$(org_gov_clone "$PID")"
+        prompt_and_launch_agent "$DIR" "$PID"
+        return
+      fi
+      DIR="$(org_gov_clone "$PID")"
+      BRANCH="$(project_branch "$PID")"
+      if [[ ! -e "$DIR/.git" ]]; then
+        # Seeded by someone, but no local clone yet → clone all the way + launch.
+        require_git_identity
+        info "Cloning your workspace for '$PID'…"
+        bash "$SCRIPTS/join.sh" "$PID" || return 1
+        prompt_and_launch_agent "$DIR" "$PID"
+        return
+      fi
+      echo ""
+      step=branch ;;
+
+    branch) # STEP 1.2.2 — pick a branch (project branch + task branches)
+      local brs=() b i c
+      while IFS= read -r b; do [[ -n "$b" ]] && brs+=("$b"); done < <(
+        git -C "$DIR" for-each-ref --format='%(refname:short)' \
+          "refs/heads/$BRANCH" "refs/heads/$BRANCH.*" 2>/dev/null)
+      if [[ ${#brs[@]} -eq 0 ]]; then err "No local branches for '$PID'."; echo ""; step=pick; continue; fi
+      echo -e "${BOLD}Select branch:${NC}"
+      for i in "${!brs[@]}"; do
+        if [[ "${brs[$i]}" == "$BRANCH" ]]; then
+          printf "  ${CYAN}%d)${NC} %s ${DIM}(project branch)${NC}\n" $((i+1)) "${brs[$i]}"
+        else
+          printf "  ${CYAN}%d)${NC} %s\n" $((i+1)) "${brs[$i]}"
+        fi
+      done
+      printf "  ${DIM}0) ← back${NC}\n"
+      SEL=""
+      while true; do
+        printf "Choose [1-%d, 0=back]: " "${#brs[@]}"; _read_or_abort c
+        if [[ "$c" == "0" || "$c" == "b" || "$c" == "back" ]]; then SEL="$BACK"; break; fi
+        if [[ "$c" =~ ^[0-9]+$ ]] && (( c>=1 && c<=${#brs[@]} )); then SEL="${brs[$((c-1))]}"; break; fi
+        err "Invalid choice."
+      done
+      is_back "$SEL" && { echo ""; step=pick; continue; }
+      echo ""
+      step=action ;;
+
+    action) # STEP 1.2.3 — Continue / Task / Finish on the selected branch
+      local fin_label
+      if [[ "$SEL" == "$BRANCH" ]]; then fin_label="Finish — close the project"; else fin_label="Finish — merge this task into the project branch"; fi
+      ask_choice ACT "On '$SEL' — what next?" \
+        "Continue — open this branch in an agent" \
+        "Task — start a new task branch (pick issue[s])" \
+        "$fin_label"
+      is_back "$ACT" && { echo ""; step=branch; continue; }
+      echo ""
+      case "$ACT" in
+        Continue*)
+          git -C "$DIR" checkout "$SEL" >/dev/null 2>&1 || { err "Could not switch to '$SEL'."; return 1; }
+          ok "On branch '$SEL'."
+          prompt_and_launch_agent "$DIR" "$PID"
+          return ;;
+        Task*)
+          # New task branch — pick open board issue(s) without a local task branch.
+          local refs=() titles=() ref title n sel picks=() tok urls=() bad=0 r joined
+          while IFS=$'\t' read -r ref title; do
+            [[ -z "$ref" ]] && continue
+            n="${ref##*#}"
+            git -C "$DIR" rev-parse --verify "refs/heads/$BRANCH.ISSUE-$n" &>/dev/null && continue
+            refs+=("$ref"); titles+=("$title")
+          done < <(
+            gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ items(first:100){ nodes{ content{ ... on Issue { number title state repository{nameWithOwner} } } } } } } }' \
+              -F o="$GITHUB_ORG" -F n="$PNUM" \
+              --jq '.data.organization.projectV2.items.nodes[].content | select(.number) | select(.state=="OPEN") | "\(.repository.nameWithOwner)#\(.number)\t\(.title)"' 2>/dev/null)
+          if [[ ${#refs[@]} -eq 0 ]]; then err "No open board issues without a local branch."; echo ""; step=action; continue; fi
+          echo -e "${BOLD}Select issue(s)${NC} ${DIM}— one, or several (e.g. 1,3) for a combined branch:${NC}"
+          for i in "${!refs[@]}"; do printf "  ${CYAN}%d)${NC} %s  ${DIM}%s${NC}\n" $((i+1)) "${titles[$i]}" "${refs[$i]}"; done
+          printf "  ${DIM}0) ← back${NC}\n"
+          ask_optional sel "Choose [1-${#refs[@]}, 0=back]" ""
+          if [[ -z "$sel" || "$sel" == "0" || "$sel" == "b" || "$sel" == "back" ]]; then echo ""; step=action; continue; fi
+          IFS=', ' read -ra picks <<< "$sel"
+          for tok in "${picks[@]}"; do
+            [[ -z "$tok" ]] && continue
+            if ! [[ "$tok" =~ ^[0-9]+$ ]] || (( tok<1 || tok>${#refs[@]} )); then err "Invalid selection: '$tok'."; bad=1; break; fi
+            r="${refs[$((tok-1))]}"; urls+=("https://github.com/${r%%#*}/issues/${r##*#}")
+          done
+          (( bad )) && { echo ""; step=action; continue; }
+          [[ ${#urls[@]} -eq 0 ]] && { err "Nothing selected."; echo ""; step=action; continue; }
+          require_git_identity
+          me="$(gh api user --jq .login 2>/dev/null || echo "$CURRENT_USER")"
+          joined="$(IFS=,; echo "${urls[*]}")"
+          ask_choice yn "Create a task branch for ${#urls[@]} issue(s) and assign to '$me'?" "Yes — create the branch"
+          is_back "$yn" && { echo ""; step=action; continue; }
+          echo ""
+          bash "$SCRIPTS/create-task.sh" "$PID" "$joined" "$me" || return 1
+          prompt_and_launch_agent "$DIR" "$PID"
+          return ;;
+        Finish*)
+          if [[ "$SEL" == "$BRANCH" ]]; then
+            ask_choice yn "Close project '$PID'? Merges all branches to base + triggers close-knowledge." "Yes — close the project"
+            is_back "$yn" && { echo ""; step=action; continue; }
+            echo ""
+            bash "$SCRIPTS/close-project.sh" "$PID"
+          else
+            ask_choice yn "Merge task branch '$SEL' into '$BRANCH' and close its issue(s)?" "Yes — merge the task"
+            is_back "$yn" && { echo ""; step=action; continue; }
+            echo ""
+            bash "$SCRIPTS/merge-task.sh" "$PID" "$SEL"
+          fi
+          return ;;
+      esac ;;
+
+    esac
+  done
+}
+
+cmd_finish() {
+  # 'finish' is context-aware: finishing a *task* hands it back to the project
+  # branch (merge); finishing the *project* runs the governance close gate
+  # (unchanged). The old 'submit'/'merge'/'close' verbs still work underneath.
+  header "Finish"
+  divider
+  label "Finish a task (hand it back) or finish the whole project (close)."
+  echo ""
+  local __what
+  ask_choice __what "What are you finishing?" \
+    "A task — submit it back to the project branch" \
+    "The whole project — close it (governance gate)"
+  is_back "$__what" && return
+  echo ""
+  case "$__what" in
+    "A task — submit it back to the project branch") cmd_merge ;;
+    "The whole project — close it (governance gate)") cmd_close ;;
+  esac
 }
 
 cmd_task() {
@@ -401,7 +1116,8 @@ cmd_task() {
   divider
   label "Creates a sub-branch for parallel work on a specific GitHub Issue."
   echo ""
-  select_project PROJECT_ID "active"
+  select_project_ctx PROJECT_ID me initiated
+  is_back "$PROJECT_ID" && return
   echo ""
   ask ISSUE_URL "GitHub Issue URL"
   ask ASSIGNEE  "Assignee email" "$CURRENT_USER"
@@ -416,9 +1132,11 @@ cmd_merge() {
   divider
   label "Merges a completed task sub-branch back to the project branch and closes the issue."
   echo ""
-  select_project PROJECT_ID "active"
+  select_project_ctx PROJECT_ID me initiated
+  is_back "$PROJECT_ID" && return
   echo ""
   select_task ISSUE_URL "$PROJECT_ID"
+  is_back "$ISSUE_URL" && return
   echo ""
   confirm "Merge the task for issue '$ISSUE_URL' into the project branch?"
   echo ""
@@ -430,7 +1148,8 @@ cmd_pause() {
   divider
   label "Commits and pushes all changes, then marks the project as paused."
   echo ""
-  select_project PROJECT_ID "active"
+  select_project_ctx PROJECT_ID me initiated
+  is_back "$PROJECT_ID" && return
   echo ""
   confirm "Pause '$PROJECT_ID'?"
   echo ""
@@ -442,7 +1161,8 @@ cmd_resume() {
   divider
   label "Syncs all branches with their base, then marks the project as active."
   echo ""
-  select_project PROJECT_ID "paused"
+  select_project_ctx PROJECT_ID me paused   # resume = my paused projects (#57)
+  is_back "$PROJECT_ID" && return
   echo ""
   confirm "Resume '$PROJECT_ID'? (base branches will be merged in)"
   echo ""
@@ -454,7 +1174,8 @@ cmd_sync() {
   divider
   label "Merges latest base branches into all project branches mid-project."
   echo ""
-  select_project PROJECT_ID "active"
+  select_project_ctx PROJECT_ID me initiated
+  is_back "$PROJECT_ID" && return
   echo ""
   confirm "Sync '$PROJECT_ID' with latest base branches?"
   echo ""
@@ -466,10 +1187,12 @@ cmd_add_repo() {
   divider
   label "Adds a new repo to an active project when scope expands."
   echo ""
-  select_project PROJECT_ID "active"
+  select_project_ctx PROJECT_ID me initiated
+  is_back "$PROJECT_ID" && return
   echo ""
   ask      REPO_URL     "Repository URL"
   ask_choice ROLE "Role for this repo" "primary" "dependency" "read-only"
+  is_back "$ROLE" && return
   ask      ADDED_REASON "Why is this repo being added?"
   ask_optional BASE_BRANCH "Base branch" "dev"
   echo ""
@@ -483,7 +1206,8 @@ cmd_cancel() {
   divider
   warn "Cancellation archives all branches. No code is merged. This cannot be undone."
   echo ""
-  select_project PROJECT_ID "active" "paused"
+  select_project_ctx PROJECT_ID me ongoing   # cancel = my active/paused projects (#57)
+  is_back "$PROJECT_ID" && return
   echo ""
   ask REASON "Cancellation reason (required — C01)"
   echo ""
@@ -497,7 +1221,8 @@ cmd_close() {
   divider
   label "Merges all branches to base, archives them, and triggers a knowledge close PR."
   echo ""
-  select_project PROJECT_ID "active"
+  select_project_ctx PROJECT_ID me initiated
+  is_back "$PROJECT_ID" && return
   echo ""
   confirm "Close '$PROJECT_ID'? This will merge all branches and trigger close-knowledge."
   echo ""
@@ -515,6 +1240,7 @@ cmd_knowledge() {
     "Create a new knowledge proposal branch" \
     "Submit PR for an existing knowledge branch" \
     "Archive a merged knowledge branch"
+  is_back "$SUB_CMD" && return
 
   case "$SUB_CMD" in
     "Create a new knowledge proposal branch")
@@ -558,31 +1284,46 @@ cmd_onboard() {
 }
 
 cmd_list() {
-  header "All Projects"
+  # Two registry-backed views (the registry is the SoT):
+  #   prj list       → ongoing only (active/paused) — stays readable as the
+  #                    registry grows; completed/cancelled are hidden.
+  #   prj list-all   → every project, newest first (reverse chronological by NNN).
+  local mode="open"
+  case "${1:-}" in all|--all|-a) mode="all" ;; esac
+  if [[ "$mode" == "all" ]]; then header "All Projects (newest first)"; else header "Ongoing Projects (active / paused)"; fi
   divider
-  python3 - "$REGISTRY" <<'PY'
-import sys, yaml
-c = yaml.safe_load(open(sys.argv[1]))
-projects = c.get('projects') or []
-if not projects:
-    print("  No projects found.")
-    sys.exit(0)
+  python3 - "$REGISTRY" "$mode" <<'PY'
+import sys, re, yaml
+registry, mode = sys.argv[1], sys.argv[2]
+doc = yaml.safe_load(open(registry)) or {}
+projects = [p for p in (doc.get('projects') or []) if p]
 status_colour = {
     'active':    '\033[0;32m',
     'paused':    '\033[1;33m',
     'completed': '\033[0;36m',
     'cancelled': '\033[0;31m',
 }
-NC = '\033[0m'
-BOLD = '\033[1m'
-DIM = '\033[2m'
-for p in projects:
-    if not p:
-        continue
-    s = p.get('status', '?')
-    c = status_colour.get(s, '')
-    a = p.get('assigned_to', '') or ''
-    print(f"  {BOLD}{p['id']}{NC}  {c}{s}{NC}  {DIM}{a}{NC}")
+NC = '\033[0m'; BOLD = '\033[1m'; DIM = '\033[2m'
+ONGOING = {'active', 'paused'}
+def nnn(p):
+    m = re.search(r'PRJ-(\d+)', p.get('id', '') or '')
+    return int(m.group(1)) if m else -1
+if mode == 'all':
+    rows = sorted(projects, key=nnn, reverse=True)          # newest first
+else:
+    rows = sorted([p for p in projects if (p.get('status') or '') in ONGOING], key=nnn)
+if not rows:
+    print("  No ongoing projects." if mode != 'all' else "  No projects found.")
+else:
+    for p in rows:
+        s = p.get('status', '?')
+        col = status_colour.get(s, '')
+        a = p.get('assigned_to', '') or ''
+        print(f"  {BOLD}{p['id']}{NC}  {col}{s}{NC}  {DIM}{a}{NC}")
+if mode != 'all':
+    hidden = sum(1 for p in projects if (p.get('status') or '') not in ONGOING)
+    if hidden:
+        print(f"\n  {DIM}{hidden} completed/cancelled hidden — 'prj list-all' to show all.{NC}")
 PY
   echo ""
 }
@@ -592,6 +1333,7 @@ cmd_status() {
   divider
   echo ""
   select_project PROJECT_ID
+  is_back "$PROJECT_ID" && return
   local PF="$SCRIPT_DIR/projects/$PROJECT_ID/project.yaml"
   echo ""
   divider
@@ -798,6 +1540,11 @@ PY
   if [[ -n "$branch" && "$branch" != "null" ]]; then
     echo "$branch"
   elif [[ "$pid" == PRJ-* ]]; then
+    # Defensive fallback only: every seeded project stores its branch above, so
+    # this is never hit for a registered project. Scheme B (POL-069,
+    # PRJ-<github_project_number>-<slug>) can't be derived from the registry id
+    # alone (needs the GitHub project number), so the legacy brnch- shape stays
+    # as a last resort for an unregistered/legacy id.
     echo "brnch-${pid#PRJ-}"
   else
     echo "$pid" | tr '[:upper:]' '[:lower:]'
@@ -888,7 +1635,7 @@ for gh in gh_projects:
         continue
     if filt == 'assigned' and not assignee:
         continue
-    print(f"{title}\t{url}\t{pid}\t{s}\t{assignee}")
+    print(f"{title}\x1f{url}\x1f{pid}\x1f{s}\x1f{assignee}")
 PY
   )
 
@@ -902,7 +1649,7 @@ PY
   fi
 
   local __titles=() __urls=() __pids=() __statuses=() __assignees=()
-  while IFS=$'\t' read -r title url pid status assignee; do
+  while IFS=$'\x1f' read -r title url pid status assignee; do
     [[ -z "$url" ]] && continue
     __titles+=("$title"); __urls+=("$url"); __pids+=("$pid")
     __statuses+=("$status"); __assignees+=("$assignee")
@@ -996,8 +1743,170 @@ select_assignee() {
   done
 }
 
+# _pick_open_project <numvar> <titlevar> [owner] — pick from open GitHub projects.
+_pick_open_project() {
+  local __nv="$1" __tv="$2" owner="${3:-$GITHUB_ORG}" __json __titles=() __nums=()
+  __json=$(gh project list --owner "$owner" --format json --limit 100 2>/dev/null) \
+    || { err "Could not list GitHub Projects for '$owner'."; exit 1; }
+  while IFS=$'\t' read -r t n; do __titles+=("$t"); __nums+=("$n"); done < <(echo "$__json" | python3 -c "
+import sys, json
+for p in json.load(sys.stdin).get('projects', []):
+    print('%s\t%s' % (p.get('title','(untitled)'), p.get('number','')))
+")
+  [[ ${#__nums[@]} -eq 0 ]] && { err "No open GitHub Projects for '$owner'."; exit 1; }
+  echo -e "${BOLD}Select project:${NC}"
+  local i
+  for i in "${!__titles[@]}"; do printf "  ${CYAN}%d)${NC} %s ${DIM}(#%s)${NC}\n" $((i+1)) "${__titles[$i]}" "${__nums[$i]}"; done
+  printf "  ${DIM}0) ← back${NC}\n"
+  local c
+  while true; do
+    printf "Choose [1-%d, 0=back]: " "${#__nums[@]}"; _read_or_abort c
+    if [[ "$c" == "0" || "$c" == "b" || "$c" == "back" ]]; then
+      printf -v "$__nv" '%s' "$BACK"; printf -v "$__tv" '%s' "$BACK"; return
+    fi
+    if [[ "$c" =~ ^[0-9]+$ ]] && (( c>=1 && c<=${#__nums[@]} )); then
+      printf -v "$__nv" '%s' "${__nums[$((c-1))]}"; printf -v "$__tv" '%s' "${__titles[$((c-1))]}"; return
+    fi
+    err "Invalid choice."
+  done
+}
+
+# _pick_board_issue <refvar> <project_number> [owner] — sets refvar to "owner/repo#number".
+_pick_board_issue() {
+  local __rv="$1" num="$2" owner="${3:-$GITHUB_ORG}" __refs=() __rows=()
+  while IFS=$'\t' read -r ref title; do [[ -z "$ref" ]] && continue; __refs+=("$ref"); __rows+=("$ref  $title"); done < <(
+    gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ items(first:100){ nodes{ content{ ... on Issue { number title repository{nameWithOwner} } } } } } } }' \
+      -F o="$owner" -F n="$num" --jq '.data.organization.projectV2.items.nodes[].content | select(.number) | "\(.repository.nameWithOwner)#\(.number)\t\(.title)"' 2>/dev/null)
+  [[ ${#__refs[@]} -eq 0 ]] && { err "No issues on this board."; exit 1; }
+  echo -e "${BOLD}Select issue:${NC}"
+  local i
+  for i in "${!__rows[@]}"; do printf "  ${CYAN}%d)${NC} %s\n" $((i+1)) "${__rows[$i]}"; done
+  printf "  ${DIM}0) ← back${NC}\n"
+  local c
+  while true; do
+    printf "Choose [1-%d, 0=back]: " "${#__refs[@]}"; _read_or_abort c
+    if [[ "$c" == "0" || "$c" == "b" || "$c" == "back" ]]; then printf -v "$__rv" '%s' "$BACK"; return; fi
+    if [[ "$c" =~ ^[0-9]+$ ]] && (( c>=1 && c<=${#__refs[@]} )); then printf -v "$__rv" '%s' "${__refs[$((c-1))]}"; return; fi
+    err "Invalid choice."
+  done
+}
+
+# cmd_manage_owners — GitHub-definitive assign/reassign/unassign, combined (#57 §3).
+# Project → owners = anchor-issue assignees (+ board write, via set_owner).
+# Issue   → assignees (native). No cache.
+cmd_manage_owners() {
+  header "Manage Assignment"
+  divider
+  echo ""
+  local PNUM PTITLE
+  _pick_open_project PNUM PTITLE
+  is_back "$PNUM" && return
+  echo ""
+  local SCOPE
+  ask_choice SCOPE "Manage the Project (owners) or an Issue (assignees)?" "Project (owners)" "Issue (assignees)"
+  is_back "$SCOPE" && return
+  echo ""
+  if [[ "$SCOPE" == "Project (owners)" ]]; then
+    local ref; ref="$(anchor_issue_ref "$PNUM")"
+    if [[ -z "$ref" ]]; then
+      warn "No '$ANCHOR_LABEL' issue on '$PTITLE' — owners are read from the anchor issue."
+      confirm "Designate an anchor issue now?"
+      local AREF; _pick_board_issue AREF "$PNUM"
+      is_back "$AREF" && return
+      gh issue edit "${AREF##*#}" --repo "${AREF%%#*}" --add-label "$ANCHOR_LABEL" >/dev/null 2>&1 \
+        && ok "Labelled $AREF as the anchor." || { err "Could not add '$ANCHOR_LABEL' label (does the label exist in ${AREF%%#*}?)."; exit 1; }
+      ref="$AREF"
+    fi
+    local owners; owners="$(project_owners "$PNUM" | paste -sd ',' - | sed 's/,/, /g')"
+    echo -e "  ${BOLD}Anchor:${NC} $ref"
+    echo -e "  ${BOLD}Current owners:${NC} ${owners:-(none)}"
+    echo ""
+    local ACT; ask_choice ACT "Add or remove an owner?" "Add owner" "Remove owner"
+    is_back "$ACT" && return
+    echo ""
+    if [[ "$ACT" == "Add owner" ]]; then
+      local WHO; ask WHO "GitHub login to add as owner (@me for yourself)" ""
+      [[ "$WHO" == "@me" ]] && WHO="$(gh api user --jq .login 2>/dev/null)"
+      [[ -z "$WHO" ]] && { err "No login given."; exit 1; }
+      confirm "Add '$WHO' as owner of '$PTITLE' (anchor assignee + board write)?"
+      set_owner add "$PNUM" "$WHO"
+    else
+      local cur; cur="$(project_owners "$PNUM")"
+      [[ -z "$cur" ]] && { err "No current owners to remove."; exit 1; }
+      local WHO; ask_choice WHO "Remove which owner?" $cur
+      is_back "$WHO" && return
+      confirm "Remove '$WHO' as owner of '$PTITLE' (unassign + revoke board write)?"
+      set_owner remove "$PNUM" "$WHO"
+    fi
+  else
+    local IREF; _pick_board_issue IREF "$PNUM"
+    is_back "$IREF" && return
+    local irepo="${IREF%%#*}" inum="${IREF##*#}"
+    local asn; asn="$(gh issue view "$inum" --repo "$irepo" --json assignees --jq '.assignees[].login' 2>/dev/null)"
+    echo -e "  ${BOLD}Issue:${NC} $IREF"
+    echo -e "  ${BOLD}Assignees:${NC} $(echo "$asn" | paste -sd ',' - | sed 's/,/, /g')"
+    echo ""
+    local ACT; ask_choice ACT "Add or remove an assignee?" "Add assignee" "Remove assignee"
+    is_back "$ACT" && return
+    echo ""
+    if [[ "$ACT" == "Add assignee" ]]; then
+      local WHO; ask WHO "GitHub login to assign (@me)" "@me"
+      gh issue edit "$inum" --repo "$irepo" --add-assignee "$WHO" >/dev/null 2>&1 && ok "Assigned $WHO to $IREF." || err "Failed to assign $WHO."
+    else
+      [[ -z "$asn" ]] && { err "No assignees to remove."; exit 1; }
+      local WHO; ask_choice WHO "Remove which assignee?" $asn
+      is_back "$WHO" && return
+      gh issue edit "$inum" --repo "$irepo" --remove-assignee "$WHO" >/dev/null 2>&1 && ok "Unassigned $WHO from $IREF." || err "Failed to unassign $WHO."
+    fi
+  fi
+}
+
 cmd_manage_list() {
-  header "Project Assignments"
+  # GitHub-definitive (registry-elimination Increment 2): the ONGOING project set
+  # is the org's OPEN GitHub Project boards (open = active/paused; closed boards =
+  # completed/cancelled, shown by 'manage list-all'). For each board, OWNERS are the
+  # anchor-issue assignees and STATUS is derived (board open/closed + anchor labels)
+  # via the derivation helpers — legacy projects (PRJ-001…013) resolve through the
+  # frozen registry shim, everything else 100% from GitHub. No assigned_to cache.
+  header "Ongoing Project Owners (live from GitHub)"
+  divider
+  label "Owners = anchor-issue assignees · status from the board + anchor labels · no cache."
+  echo ""
+  local owner="$GITHUB_ORG" json
+  json=$(gh project list --owner "$owner" --format json --limit 100 2>/dev/null) \
+    || { err "Could not list GitHub Projects for '$owner'."; return 1; }
+  local nums=() titles=()
+  while IFS=$'\t' read -r n t; do [[ -n "$n" ]] && nums+=("$n") && titles+=("$t"); done < <(
+    echo "$json" | python3 -c "
+import sys, json
+for p in json.load(sys.stdin).get('projects', []):
+    print('%s\t%s' % (p.get('number',''), (p.get('title') or '(untitled)')))
+")
+  if [[ ${#nums[@]} -eq 0 ]]; then echo "  No open GitHub Projects for '$owner'."; echo ""; return; fi
+  printf "  ${BOLD}%-34s %-10s %s${NC}\n" "PROJECT" "STATUS" "OWNERS"
+  printf "  ${DIM}%-34s %-10s %s${NC}\n" "──────────────────────────────────" "──────────" "─────────────────────"
+  local i id status owners scol
+  for i in "${!nums[@]}"; do
+    id="$(derive_project_id "${nums[$i]}" "$owner")"; [[ -z "$id" ]] && id="${titles[$i]}"
+    status="$(derive_project_status "${nums[$i]}" "$owner")"
+    owners="$(project_owners "${nums[$i]}" "$owner" | paste -sd ',' - | sed 's/,/, /g')"
+    case "$status" in active) scol="$GREEN" ;; paused) scol="$YELLOW" ;; *) scol="$DIM" ;; esac
+    if [[ -n "$owners" ]]; then
+      printf "  ${BOLD}%-34s${NC} ${scol}%-10s${NC} %s\n" "$id" "$status" "$owners"
+    else
+      printf "  ${BOLD}%-34s${NC} ${scol}%-10s${NC} ${YELLOW}⚠ no anchor set up yet${NC}\n" "$id" "$status"
+    fi
+  done
+  echo ""
+  label "Closed boards (completed/cancelled) are hidden — 'prj manage list-all' for the full board universe."
+  echo ""
+}
+
+cmd_manage_list_all() {
+  # Full board universe — sourced from GitHub (gh project list). Shows every
+  # GitHub Project incl. pre-assigned / not-yet-seeded ones, enriched with
+  # registry status/assignment. (#57: 'manage list-all' = from GitHub.)
+  header "All GitHub Projects (board universe)"
   divider
   echo ""
 
@@ -1085,6 +1994,12 @@ cmd_manage_assign() {
   echo -e "  ${BOLD}Assignee:${NC} $ASSIGNEE"
   echo ""
   confirm "Assign this project to '$ASSIGNEE'?"
+  echo ""
+
+  # Phase 3 (ADR-0001): the real assignment is WRITE access on the GitHub
+  # Project. Grant it; the YAML written below is a display/audit cache.
+  bash "$SCRIPTS/project-access.sh" grant "$MANAGE_SELECTED_URL" "$ASSIGNEE" \
+    || warn "GitHub access not granted — recorded in cache only; grant it manually."
 
   local today
   today=$(date +%Y-%m-%d)
@@ -1176,6 +2091,13 @@ PY
   echo -e "  ${BOLD}Approved by:${NC}  $CURRENT_USER"
   echo ""
   confirm "Reassign this project?"
+  echo ""
+
+  # Phase 3: move WRITE access on the GitHub Project from old to new assignee.
+  [[ -n "$current_assignee" ]] && { bash "$SCRIPTS/project-access.sh" revoke "$MANAGE_SELECTED_URL" "$current_assignee" \
+    || warn "Could not revoke access for '$current_assignee' — revoke manually."; }
+  bash "$SCRIPTS/project-access.sh" grant "$MANAGE_SELECTED_URL" "$NEW_ASSIGNEE" \
+    || warn "Could not grant access to '$NEW_ASSIGNEE' — grant manually."
 
   if [[ -n "$MANAGE_SELECTED_PID" ]]; then
     # Seeded — append reassignment record to registry entry's history.
@@ -1254,6 +2176,11 @@ PY
   echo -e "  ${BOLD}Current assignee:${NC} $current_assignee"
   echo ""
   confirm "Remove assignment from this project?"
+  echo ""
+
+  # Phase 3: revoke WRITE access on the GitHub Project (the real unassignment).
+  [[ -n "$current_assignee" ]] && { bash "$SCRIPTS/project-access.sh" revoke "$MANAGE_SELECTED_URL" "$current_assignee" \
+    || warn "Could not revoke access for '$current_assignee' — revoke manually."; }
 
   if [[ -n "$MANAGE_SELECTED_PID" ]]; then
     # Seeded — clear registry entry's assigned_to.
@@ -1288,25 +2215,27 @@ PY
 }
 
 cmd_manage() {
-  header "Manage Assignments"
-  divider
-  echo ""
-  echo -e "  ${CYAN}1)${NC} list       List all projects and their assignments"
-  echo -e "  ${CYAN}2)${NC} assign     Assign an unassigned project"
-  echo -e "  ${CYAN}3)${NC} reassign   Reassign a project to a different user (C02)"
-  echo -e "  ${CYAN}4)${NC} unassign   Remove assignment from a project"
-  echo -e "  ${DIM}0)  Back${NC}"
-  echo ""
-  printf "  Choose: "
-  read -r sub
-  echo ""
+  # Optional non-interactive subcommand: `prj manage list|list-all|assign|...`.
+  local sub="${1:-}"
+  if [[ -z "$sub" ]]; then
+    header "Manage Assignments"
+    divider
+    echo ""
+    echo -e "  ${CYAN}1)${NC} list       Ongoing assignments (registry cache, excl. completed)"
+    echo -e "  ${CYAN}2)${NC} list-all   Full board universe (from GitHub)"
+    echo -e "  ${CYAN}3)${NC} manage     Add/remove owners (project) or assignees (issue) — GitHub-definitive"
+    echo -e "  ${DIM}0)  Back${NC}"
+    echo ""
+    printf "  Choose: "
+    read -r sub
+    echo ""
+  fi
   case "$sub" in
-    1|list)      cmd_manage_list ;;
-    2|assign)    cmd_manage_assign ;;
-    3|reassign)  cmd_manage_reassign ;;
-    4|unassign)  cmd_manage_unassign ;;
-    0|back|"")   return ;;
-    *)           err "Unknown option '$sub'." ;;
+    1|list)                              cmd_manage_list ;;
+    2|list-all)                          cmd_manage_list_all ;;
+    3|manage|assign|reassign|unassign)   cmd_manage_owners ;;  # collapsed (#57 §3); old verbs aliased
+    0|back|"")                           return ;;
+    *)                                   err "Unknown option '$sub'." ;;
   esac
 }
 
@@ -1314,38 +2243,30 @@ cmd_manage() {
 
 show_menu() {
   clear
+  # Show the ACTUAL checked-out branch of the current repo (not the org default
+  # branch) — this is what the developer is on. Fall back to the org default if
+  # cwd isn't a git repo.
+  local cur_branch
+  cur_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "$DEFAULT_BRANCH")
   echo ""
   echo -e "${BOLD}${MAGENTA}  ▸ ${ORG_NAME} — Agentic Development Framework${NC}"
-  echo -e "${DIM}  Org: ${ORG_SLUG}  |  Branch: ${DEFAULT_BRANCH}  |  User: ${CURRENT_USER}${NC}"
+  echo -e "${DIM}  Org: ${ORG_SLUG}  |  Branch: ${cur_branch}  |  User: ${CURRENT_USER}${NC}"
   echo ""
   divider
   echo ""
-  echo -e "  ${CYAN}${BOLD}Project Lifecycle${NC}"
-  echo -e "  ${CYAN}1)${NC}  init         Initialize a new project"
-  echo -e "  ${CYAN}2)${NC}  task         Create a task for parallel work"
-  echo -e "  ${CYAN}3)${NC}  merge        Merge a completed task"
-  echo -e "  ${CYAN}4)${NC}  pause        Pause a project"
-  echo -e "  ${CYAN}5)${NC}  resume       Resume a paused project"
-  echo -e "  ${CYAN}6)${NC}  sync         Sync with latest base branches"
-  echo -e "  ${CYAN}7)${NC}  add-repo     Add a repository to a project"
-  echo -e "  ${CYAN}8)${NC}  cancel       Cancel a project"
-  echo -e "  ${CYAN}9)${NC}  close        Close a completed project"
-  echo -e "  ${CYAN}16)${NC} join         Join an existing project (team member)"
+  echo -e "  ${GREEN}${BOLD}Work${NC}  ${DIM}— developers start here${NC}"
+  echo -e "  ${GREEN}▸${NC}  work         Pick a project → init / continue / new task / finish (one front door)"
   echo ""
-  echo -e "  ${CYAN}${BOLD}Knowledge${NC}"
-  echo -e "  ${CYAN}10)${NC} knowledge    Propose org knowledge changes"
-  echo -e "  ${CYAN}11)${NC} onboard      Onboard a repository"
+  echo -e "  ${CYAN}${BOLD}Status${NC}     ${CYAN}list${NC} · ${CYAN}status${NC}"
   echo ""
-  echo -e "  ${CYAN}${BOLD}Info${NC}"
-  echo -e "  ${CYAN}12)${NC} list         List all projects"
-  echo -e "  ${CYAN}13)${NC} status       Show project status"
-  echo -e "  ${CYAN}14)${NC} deps         Install / verify dependencies"
+  echo -e "  ${YELLOW}${BOLD}Admin${NC}  ${DIM}(managers & maintenance)${NC}"
+  echo -e "      ${YELLOW}manage${NC}  ${DIM}assign / reassign / unassign — grants GitHub Project access${NC}"
+  echo -e "      ${YELLOW}knowledge${NC} · ${YELLOW}onboard${NC} · ${YELLOW}upgrade${NC} · ${YELLOW}deps${NC}"
   echo ""
-  echo -e "  ${YELLOW}${BOLD}Manage${NC}"
-  echo -e "  ${YELLOW}15)${NC} manage       List, assign, reassign, unassign projects"
-  echo -e "  ${YELLOW}16)${NC} upgrade      Pull a new framework version from template"
+  echo -e "  ${DIM}Direct lifecycle (normally reached via work):${NC}"
+  echo -e "  ${DIM}    init · join · task · merge · pause · resume · sync · add-repo · cancel · close${NC}"
   echo ""
-  echo -e "  ${DIM}0)  Exit${NC}"
+  echo -e "  ${DIM}Type a verb name or number; 0 to exit.${NC}"
   echo ""
   divider
   printf "  Choose: "
@@ -1353,7 +2274,7 @@ show_menu() {
   echo ""
   # Write ops need a configured git identity; check before dispatching.
   case "$choice" in
-    1|init|2|task|3|merge|4|pause|5|resume|6|sync|7|add-repo|8|cancel|9|close|10|knowledge|11|onboard|15|manage|16|upgrade)
+    1|init|2|task|3|merge|4|pause|5|resume|6|sync|7|add-repo|8|cancel|9|close|10|knowledge|11|onboard|15|manage|16|upgrade|start|work|finish)
       require_git_identity
       ;;
   esac
@@ -1361,6 +2282,9 @@ show_menu() {
   case "$choice" in
     1|init)       cmd_init ;;
     16|join)      cmd_join ;;
+    start)        cmd_start ;;
+    work)         cmd_work ;;
+    finish)       cmd_finish ;;
     2|task)       cmd_task ;;
     3|merge)      cmd_merge ;;
     4|pause)      cmd_pause ;;
@@ -1392,7 +2316,7 @@ CMD="${1:-}"
 # Write commands need a configured git identity (they call git commit
 # during the flow). Read-only commands don't.
 case "$CMD" in
-  init|task|merge|pause|resume|sync|add-repo|cancel|close|knowledge|onboard|manage|upgrade)
+  init|task|merge|pause|resume|sync|add-repo|cancel|close|knowledge|onboard|manage|upgrade|start|work|finish)
     require_git_identity
     ;;
 esac
@@ -1401,6 +2325,9 @@ case "$CMD" in
   "")           show_menu ;;
   init)         cmd_init ;;
   join)         cmd_join ;;
+  start)        cmd_start ;;
+  work)         cmd_work ;;
+  finish)       cmd_finish ;;
   task)         cmd_task ;;
   merge)        cmd_merge ;;
   pause)        cmd_pause ;;
@@ -1412,15 +2339,19 @@ case "$CMD" in
   knowledge)    cmd_knowledge ;;
   onboard)      cmd_onboard ;;
   list)         cmd_list ;;
+  list-all)     cmd_list all ;;
   status)       cmd_status ;;
   deps)         cmd_deps ;;
-  manage)       cmd_manage ;;
+  manage)       cmd_manage "${2:-}" ;;
   upgrade)      cmd_upgrade "${2:-}" ;;
   help|--help|-h)
     echo ""
     echo -e "${BOLD}Usage:${NC} ./prj [command]"
     echo ""
     echo -e "${BOLD}Commands:${NC}"
+    echo "  start       Begin work — join / new task / new project"
+    echo "  work        Continue work — sync your branch and keep going"
+    echo "  finish      Finish a task (submit) or the project (close)"
     echo "  init        Initialize a new project"
     echo "  join        Join an existing project (team member)"
     echo "  task        Create a task for parallel work"
@@ -1433,7 +2364,8 @@ case "$CMD" in
     echo "  close       Close a completed project"
     echo "  knowledge   Propose org knowledge changes"
     echo "  onboard     Onboard a repository"
-    echo "  list        List all projects"
+    echo "  list        List ongoing projects (active/paused)"
+    echo "  list-all    List all projects, newest first"
     echo "  status      Show project status"
     echo "  deps        Install / verify dependencies"
     echo "  manage      List, assign, reassign, unassign projects"

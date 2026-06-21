@@ -23,9 +23,10 @@ check_project_exists "$PROJECT_ID"
 
 require_project_status "$PROJECT_YAML" "paused"
 
-ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")
-is_authorized "$ASSIGNED_TO" \
-  || hard_stop "Not authorized to resume: you are not '$ASSIGNED_TO' (nor a member, if it is a team)."
+ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")        # display/audit cache
+GH_PROJECT=$(yaml_get "$PROJECT_YAML" "github_project")
+is_authorized_for_project "$GH_PROJECT" "$ASSIGNED_TO" \
+  || hard_stop "Not authorized to resume — you need write access to the project's GitHub Project ($GH_PROJECT)."
 
 BRANCH=$(project_branch_for_id "$PROJECT_ID")
 
@@ -54,7 +55,7 @@ while IFS= read -r repo_url; do
   REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$REPO_NAME")"
   REPO_BASE=$(get_repo_base_branch "$PROJECT_YAML" "$repo_url")
 
-  if [[ ! -d "$REPO_DIR/.git" ]]; then
+  if [[ ! -e "$REPO_DIR/.git" ]]; then
     warn "Repo $REPO_NAME not cloned locally — skipping sync."
     continue
   fi

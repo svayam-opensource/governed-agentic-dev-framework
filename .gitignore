@@ -1,18 +1,43 @@
-# macOS
+# Operating system
 .DS_Store
 **/.DS_Store
+Thumbs.db
 
-# Editor / OS noise
-*.swp
-*~
+# Editor / IDE
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 
-# Local agent state (Claude Code) — never ship in the template
-.claude/
-.claude/settings.local.json
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Local environment
+.env
+.env.local
+
+# Node (if any tooling pulls it in)
+node_modules/
+
+# Local agent / dev workspaces — created by the framework outside of org's tree
+work/
+
+# Per-user local Claude state stays local, but the #54 session-start enforcement
+# config is committed (default-on for everyone who clones). Ignore everything
+# under .claude/ except the committed hooks/command/settings.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/commands/
+.claude/.session-ack
 
 # Governance working root (clones live outside the repo, but never commit a stray one)
 /prj_gov/
-# macOS Finder metadata
-.DS_Store
+
+# Cursor session-start gate marker (per-session runtime state)
+.cursor/.session-ack

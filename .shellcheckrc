@@ -1,0 +1,24 @@
+# shellcheck configuration for the Agentic Development Framework.
+#
+# This is a shell-script product (PRJ-013 audit finding C4 / K dimension):
+# correctness lints stay ON, noisy style lints are disabled so the gate
+# signal stays high. The CI lint gate (.github/workflows/lint.yml) starts
+# at error severity (-S error) so it blocks on real bugs while warnings
+# remain advisory; tighten to warning/info as the tree is cleaned up.
+
+# Follow `source`/`.` into sibling files (lib.sh is sourced everywhere).
+external-sources=true
+
+# Default severity floor for direct shellcheck invocations. CI overrides
+# this with -S error to start the gate non-blocking on style/warnings.
+severity=warning
+
+# ── Disabled checks (noisy style / intentional patterns) ──────────────────────
+# SC2034 — var appears unused: many vars are sourced/exported across files.
+# SC2155 — declare and assign separately: pervasive `local x=$(...)` style.
+# SC2046 — quote to prevent word splitting: intentional in a few `git`/`gh` calls.
+# SC1090/SC1091 — non-constant / not-followed source: dynamic lib.sh paths.
+# SC2059 — printf format from variable: color-helper printf patterns.
+# NOTE: correctness checks (e.g. SC2086 unquoted expansion) are deliberately
+# NOT disabled here.
+disable=SC2034,SC2155,SC2046,SC1090,SC1091,SC2059

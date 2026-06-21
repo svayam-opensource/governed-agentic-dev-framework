@@ -23,25 +23,26 @@
 # `perm` is optional; defaults to 0644 (or 0755 if dst ends in .sh / .py or
 # is a known-executable name).
 
-version: "0.3.0-dev"
+version: "0.4.0"   # authoritative source: framework/VERSION
 
 # ─────────────────────────────────────────────────────────────────────────
-# Operational — CLI, scripts, CI. Always overwrite.
+# Operational — CLI, scripts, CI.
+#
+# UN-VENDORED (npm-only decision, 2026-06-21; ADR-0001 Ph4): the CLI is no
+# longer scaffolded into governance repos. Developers install it from npm
+# (`npm i -g @svayam-opensource/prj`); it operates on any workspace via
+# $ADF_WORKSPACE. Gov repos hold pure data + content; `prj upgrade` carries
+# framework CONTENT only. So `prj`, `scripts/`, and `tests/` are NOT scaffolded.
+#
+# FOLLOW-UP (remaining un-vendor work): the governance CI gates (lint /
+# test-merge / privacy) previously ran the vendored `scripts/validate/` +
+# `tests/`. They must be re-provided via the npm CLI (a `prj validate` surface)
+# before CI is re-scaffolded to adopters; until then `.github/workflows/` is
+# not scaffolded. See the CLI-distribution decisions ([[svm-two-lane-sot]]) +
+# Option C (CLI source → template repo).
 # ─────────────────────────────────────────────────────────────────────────
 
 files:
-
-  # Root-level executables
-  - { src: prj,       dst: prj,       mode: scaffold-auto, perm: 0755 }
-
-  # Scripts directory (lifecycle + lib + validator)
-  - { src: scripts/,  dst: scripts/,  mode: scaffold-auto }
-
-  # Test suite
-  - { src: tests/,    dst: tests/,    mode: scaffold-auto }
-
-  # CI workflows
-  - { src: .github/workflows/, dst: .github/workflows/, mode: scaffold-auto }
 
   # projects/README.md is framework-shipped boilerplate explaining the dir
   - { src: projects/README.md, dst: projects/README.md, mode: scaffold-auto }
@@ -77,6 +78,8 @@ files:
   - { src: knowledge/policies/data-classification.md,             dst: knowledge/policies/data-classification.md,             mode: scaffold-prompt }
   - { src: knowledge/policies/llm-governance.md,                  dst: knowledge/policies/llm-governance.md,                  mode: scaffold-prompt }
   - { src: knowledge/policies/roles.md,                           dst: knowledge/policies/roles.md,                           mode: scaffold-prompt }
+  - { src: knowledge/policies/knowledge-organization-standard.md,  dst: knowledge/policies/knowledge-organization-standard.md,  mode: scaffold-prompt }
+  - { src: knowledge/development/procedures/knowledge-harvest.md,  dst: knowledge/development/procedures/knowledge-harvest.md,  mode: scaffold-prompt }
   - { src: knowledge/policies/exceptions/architecture/TEMPLATE.md,    dst: knowledge/policies/exceptions/architecture/TEMPLATE.md,    mode: scaffold-prompt }
   - { src: knowledge/policies/exceptions/infrastructure/TEMPLATE.md,  dst: knowledge/policies/exceptions/infrastructure/TEMPLATE.md,  mode: scaffold-prompt }
   - { src: knowledge/policies/exceptions/legal/TEMPLATE.md,           dst: knowledge/policies/exceptions/legal/TEMPLATE.md,           mode: scaffold-prompt }

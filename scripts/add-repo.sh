@@ -41,9 +41,10 @@ check_project_exists "$PROJECT_ID"
 require_project_status "$PROJECT_YAML" "active"
 
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
-ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")
-is_authorized "$ASSIGNED_TO" \
-  || hard_stop "Not authorized: '$CURRENT_USER' is not assigned_to (or a member of the assigned team)."
+ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")        # display/audit cache
+GH_PROJECT=$(yaml_get "$PROJECT_YAML" "github_project")
+is_authorized_for_project "$GH_PROJECT" "$ASSIGNED_TO" \
+  || hard_stop "Not authorized: '$CURRENT_USER' needs write access to the project's GitHub Project ($GH_PROJECT)."
 
 # Check repo is not already in the project
 python3 - "$PROJECT_YAML" "$REPO_URL" <<'PY'
@@ -72,7 +73,7 @@ REPO_DIR="$AGENT_WORK_ROOT/$PROJECT_ID/$REPO_NAME"
 
 mkdir -p "$AGENT_WORK_ROOT/$PROJECT_ID"
 
-if [[ -d "$REPO_DIR/.git" ]]; then
+if [[ -e "$REPO_DIR/.git" ]]; then
   info "Already cloned — fetching..."
   git -C "$REPO_DIR" fetch origin
 else

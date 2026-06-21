@@ -20,11 +20,21 @@ source "$(dirname "$0")/lib.sh"
 
 cd "$REPO_ROOT" || { t_fail "Cannot cd to REPO_ROOT"; exit 1; }
 
-# Files to check
-SCRIPTS=(prj setup.sh)
+# Files to check.
+# Scan BOTH the org-side tree (scripts/, prj) AND the published Source-of-Truth
+# (framework/scripts/, framework/prj) — the SoT is what adopters consume, and it
+# was previously unguarded (PRJ-013 audit H2 / issue #59). Roots that don't
+# exist in a given tree (e.g. framework/ may be absent post-publish) are skipped
+# because find is given only the dirs present, and missing files are filtered
+# below by the `[[ ! -f ]]` guard.
+SCRIPTS=(prj setup.sh framework/prj)
+FIND_ROOTS=()
+for d in scripts tests framework/scripts framework/prj; do
+  [[ -d "$d" ]] && FIND_ROOTS+=("$d")
+done
 while IFS= read -r f; do
   SCRIPTS+=("$f")
-done < <(find scripts tests -name '*.sh' -not -name 'run-all.sh' -not -name 'lib.sh' 2>/dev/null)
+done < <(find "${FIND_ROOTS[@]}" -name '*.sh' -not -name 'run-all.sh' -not -name 'lib.sh' 2>/dev/null)
 
 # Patterns that fail on bash 3.2.
 # (Comments are stripped before matching so explanatory text mentioning

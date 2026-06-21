@@ -37,6 +37,22 @@ if [[ ! -f "$KNOWLEDGE_DIR/compliance.md" ]]; then
   GATE_FAILURES+=("projects/$PROJECT_ID/knowledge/compliance.md is missing — required before close.")
 fi
 
+# 2b. knowledge-close.md manifest present + structurally complete (POL-413/414).
+#     Presence + structure ONLY — quality is the Harvest Protocol + Owner PR review.
+MANIFEST="$KNOWLEDGE_DIR/knowledge-close.md"
+if [[ ! -f "$MANIFEST" ]]; then
+  GATE_FAILURES+=("knowledge-close.md is missing — run the Knowledge Harvest Protocol (knowledge/development/procedures/knowledge-harvest.md) first.")
+else
+  for section in "## Graduated to org knowledge" "## Kept project-local" "## Discarded" "## Journeys created / updated" "## Completeness critic"; do
+    grep -qF "$section" "$MANIFEST" || GATE_FAILURES+=("knowledge-close.md missing required section: '$section'")
+  done
+  # Case-SENSITIVE: placeholder markers are uppercase by convention; this avoids
+  # false-positives on the lowercase 'todo.md' filename (the standard project file).
+  if grep -qE '\b(TBD|TODO|FIXME|XXX)\b' "$MANIFEST"; then
+    GATE_FAILURES+=("knowledge-close.md still contains a TBD/TODO/FIXME placeholder — harvest incomplete.")
+  fi
+fi
+
 # 3. project.yaml mandatory fields populated
 for field in id slug assigned_to seeded_by started_at; do
   val=$(yaml_get "$PROJECT_YAML" "$field")
@@ -58,6 +74,16 @@ echo ""
 # Allow re-runs after partial failure: status may be 'active' (first run)
 # or 'completed' (re-run after step 2/3 succeeded but later step failed).
 require_any_project_status "$PROJECT_YAML" "active" "completed"
+
+# close-project is C01-destructive (merges to protected base branches, archives
+# branches). The person closing must be authorized on the project — assigned_to
+# individual or a member of the assigned_to team (POL-046/047). Mirrors the gate
+# in create-task.sh. (H9: authz was previously missing on this destructive op.)
+CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
+ASSIGNED_TO=$(yaml_get "$PROJECT_YAML" "assigned_to")        # display/audit cache
+GH_PROJECT=$(yaml_get "$PROJECT_YAML" "github_project")
+is_authorized_for_project "$GH_PROJECT" "$ASSIGNED_TO" \
+  || hard_stop "You ($CURRENT_USER) are not authorized to close this project — you need write access to its GitHub Project ($GH_PROJECT)."
 
 BRANCH=$(project_branch_for_id "$PROJECT_ID")
 TODAY=$(today)
@@ -99,40 +125,76 @@ if ! git diff --cached --quiet; then
   git push origin "$BRANCH"
 fi
 
-# ── Merge each code repo branch → base_branch ────────────────────────────────
+# ── Merge code repo branches → base_branch — LOCAL ONLY, NO PUSH (gate-before-push) ──
+#
+# H5/#64: previously each code repo was merged AND pushed here, BEFORE the
+# workspace test-merge gate ran. A gate failure therefore shipped the code while
+# leaving the registry 'active'. We now merge every repo LOCALLY first, then run
+# the gate, and only push base branches once ALL repos merged cleanly. Re-runs
+# are safe: a repo already merged (its base branch contains $BRANCH) is skipped.
+#
+# MERGED_REPOS queues "<name>|<base>" entries for the deferred-push phase below.
+# A '|'-delimited list is used (not a bash4 associative array) to stay bash-3.2
+# compatible — see the same convention in seed.sh.
+MERGED_REPOS=()
 
 echo ""
-echo "Merging code repo branches..."
+echo "Merging code repo branches locally (no push yet)..."
 
 while IFS= read -r repo_url; do
   REPO_NAME=$(get_repo_name "$repo_url")
   REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$REPO_NAME")"
   REPO_BASE=$(get_repo_base_branch "$PROJECT_YAML" "$repo_url")
 
-  if [[ ! -d "$REPO_DIR/.git" ]]; then
+  if [[ ! -e "$REPO_DIR/.git" ]]; then
     warn "Repo $REPO_NAME not cloned locally — skipping merge (merge manually)."
     continue
   fi
 
-  echo "Merging '$BRANCH' → '$REPO_BASE' in $REPO_NAME..."
   git -C "$REPO_DIR" fetch origin "$REPO_BASE"
   git -C "$REPO_DIR" fetch origin "$BRANCH" 2>/dev/null || true
   git -C "$REPO_DIR" checkout "$REPO_BASE"
+
+  MERGED_REPOS+=("$REPO_NAME|$REPO_BASE")
+
+  # Idempotency: if $BRANCH is already an ancestor of $REPO_BASE, this repo was
+  # merged on a prior run — nothing to merge, but still queued for push below in
+  # case a previous run failed before pushing.
+  if git -C "$REPO_DIR" merge-base --is-ancestor "$BRANCH" "$REPO_BASE" 2>/dev/null; then
+    info "$REPO_NAME: '$BRANCH' already merged into '$REPO_BASE' — skipping merge."
+    continue
+  fi
+
+  echo "Merging '$BRANCH' → '$REPO_BASE' in $REPO_NAME (local)..."
   if ! git -C "$REPO_DIR" merge --no-edit "$BRANCH" 2>/dev/null; then
     echo ""
     echo "MERGE CONFLICT: $BRANCH → $REPO_BASE in $REPO_NAME."
     echo "Resolve conflicts manually, commit, then re-run: bash close-project.sh $PROJECT_ID"
     exit 2
   fi
-  git -C "$REPO_DIR" push origin "$REPO_BASE"
-  info "$REPO_NAME: merged successfully."
+  info "$REPO_NAME: merged locally (push deferred until after gate)."
 done < <(get_project_repos "$PROJECT_YAML")
 
 # ── Test-merge gate: $BRANCH → $DEFAULT_BRANCH (workspace repo only) ─────────
+# Runs BEFORE any base-branch push. A failure here aborts with nothing shipped.
 
 echo ""
 echo "Running test-merge gate for workspace repo..."
 bash "$SCRIPT_DIR/test-merge.sh" "$BRANCH"
+
+# ── All repos merged cleanly AND the gate passed — now push base branches ─────
+# Order: code-repo base branches first, then $DEFAULT_BRANCH. Pushes are
+# idempotent (re-pushing an unchanged base branch is a no-op).
+
+echo ""
+echo "Gate passed — pushing code repo base branches..."
+for entry in "${MERGED_REPOS[@]+"${MERGED_REPOS[@]}"}"; do
+  REPO_NAME="${entry%%|*}"
+  REPO_BASE="${entry#*|}"
+  REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$REPO_NAME")"
+  git -C "$REPO_DIR" push origin "$REPO_BASE"
+  info "$REPO_NAME: pushed '$REPO_BASE'."
+done
 
 # ── Push $DEFAULT_BRANCH ──────────────────────────────────────────────────────
 
@@ -144,6 +206,9 @@ registry_set_status_on_main "$PROJECT_ID" "completed"
 project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "completed" \
   "$(yaml_get "$PROJECT_YAML" assigned_to)" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
 
+# Close the GitHub Project board so it stops reading as active (#56 Facet A).
+close_project_board "$GH_PROJECT"
+
 # ── Archive branches ──────────────────────────────────────────────────────────
 
 echo ""
@@ -153,7 +218,7 @@ archive_branch "$REPO_ROOT" "$BRANCH"
 
 while IFS= read -r repo_url; do
   REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$(get_repo_name "$repo_url")")"
-  [[ -d "$REPO_DIR/.git" ]] && archive_branch "$REPO_DIR" "$BRANCH"
+  [[ -e "$REPO_DIR/.git" ]] && archive_branch "$REPO_DIR" "$BRANCH"
 done < <(get_project_repos "$PROJECT_YAML")
 
 echo ""

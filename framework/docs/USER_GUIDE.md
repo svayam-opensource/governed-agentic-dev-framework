@@ -5,6 +5,8 @@ This guide is for daily users of the framework — people in an org that has alr
 If you're setting the framework up for the first time, see [README.md](../README.md) for the quickstart.
 If you're contributing back to the framework itself, see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
+The `prj` CLI runs vendored from each repo (`./prj`) by default, but can also be **installed once per machine** with `./install.sh` so repos carry only data instead of a vendored copy of the framework — see [installing.md](../../docs/installing.md).
+
 ---
 
 ## Concepts
@@ -35,7 +37,7 @@ Each project has:
 - A workspace branch: `acme-007-invoice-api` (lowercase) in this repo and in every code repo it touches
 - A manifest: `projects/ACME-007-invoice-api/project.yaml`
 - A lifecycle: `proposed` → `active` → (`paused` ↔ `active`) → `completed` or `cancelled`
-- An assignee — single person or team. Only the assignee may operate on the project.
+- An assignee — a display/audit cache recorded in `project.yaml`/`registry.yaml`. Authorization to operate on the project is **write access to its linked GitHub Project** (`projectV2.viewerCanUpdate`), granted by an owner via `./prj manage assign` — not the `assigned_to` value. (Org owners/admins have access to everything.)
 
 ### Knowledge layers
 
@@ -84,7 +86,17 @@ Current role holders are listed in `knowledge/policies/roles.md`. By default at 
 
 ## The `prj` CLI
 
-`./prj` is the entry point for most operations. Run it without arguments for an interactive menu, or with a subcommand:
+`./prj` is the entry point for most operations. Run it without arguments for an interactive menu, or with a subcommand.
+
+**Developer surface (primary).** A developer's normal path is three verbs:
+
+```bash
+./prj start        # join a project / start a task / start a new project
+./prj work         # sync with latest base and continue (the "get current" verb)
+./prj finish       # submit a task (merge) or close the project (governance gate)
+```
+
+**Lifecycle verbs (what runs underneath).** `start`/`work`/`finish` route to these; you can also call them directly for advanced or scripted use:
 
 ```bash
 ./prj              # interactive menu
@@ -94,9 +106,11 @@ Current role holders are listed in `knowledge/policies/roles.md`. By default at 
 ./prj task         # create a sub-branch task on an active project
 ./prj merge        # merge a completed task back to the project branch
 ./prj pause / resume / sync / cancel / close
+./prj add-repo     # add another code repo to an active project
 ./prj knowledge    # propose org knowledge changes
 ./prj onboard      # onboard a new code repo into the framework
-./prj manage       # pre-assign / reassign projects (any repo collaborator)
+./prj manage       # grant / change GitHub Project access (subcommands: list, assign, reassign, unassign)
+./prj upgrade      # pull a framework upgrade from the template remote
 ./prj deps         # check or install dependencies
 ```
 
@@ -108,40 +122,44 @@ Each subcommand wraps a script in `scripts/`. You can also call the scripts dire
 
 ### Seeding a project
 
+The developer entry point is `./prj start`, which routes to seeding when you're
+creating a new project; it runs the `init` flow below. You can also call
+`./prj init` directly.
+
 ```bash
-./prj init
+./prj start        # (or ./prj init)
 ```
 
 Prompts:
 1. Which GitHub org to look in for Projects (defaults to your org)
-2. Which GitHub Project to seed from
-3. Who to assign the project to (defaults to current user)
+2. Which GitHub Project to seed from (only Projects you have write access to)
+3. Who to record as assignee (defaults to current user; a display/audit cache)
 4. For each repo the GitHub Project's issues touch: confirm and pick a base branch (defaults to `dev`)
 
 What it does (Direction A — HOME stays on default branch throughout):
-1. Validates the GitHub Project exists, has issues, has a name.
+1. Validates the GitHub Project exists, has issues, has a name, and that you have write access to it (`projectV2.viewerCanUpdate`).
 2. Reads `registry.yaml`, computes the next NNN, composes `PRJ-NNN-<slug>` and `brnch-NNN-<slug>`.
 3. **In the HOME workspace, on the default branch:** writes a `projects[]` entry to `registry.yaml`, creates `projects/PRJ-NNN-<slug>/.gitkeep` as a stub. Commits + pushes. Home checkout never leaves the default branch.
-4. **Creates the per-project workspace** at `$AGENT_WORK_ROOT/PRJ-NNN-<slug>/`:
-   - Clones this repo into `<workspace_repo>/`, creates `brnch-NNN-<slug>` from default. Full `projects/PRJ-NNN-<slug>/*` scaffolding (project.yaml, agent.md, knowledge/, etc.) lives here, on the project branch. Pushed.
-   - For each repo linked to the GitHub Project: clones into `<repo>/`, creates `brnch-NNN-<slug>` from base. Pushed.
+4. **Creates the per-project workspace** at `$AGENT_WORK_ROOT/PRJ-NNN-<slug>/` as **git worktrees** of the shared base clones under `$AGENT_WORK_ROOT/.bases/` (not full per-project clones):
+   - Adds a worktree of this repo at `<workspace_repo>/` on `brnch-NNN-<slug>` (created from default). Full `projects/PRJ-NNN-<slug>/*` scaffolding (project.yaml, agent.md, knowledge/, etc.) lives here, on the project branch. Pushed.
+   - For each repo linked to the GitHub Project: adds a worktree at `<repo>/` on `brnch-NNN-<slug>` (created from base). Pushed.
 
-After seeding, the init command prints a `cd` line and a ready-to-paste first-session prompt. Day-to-day project work happens entirely inside the per-project workspace; the HOME repo is only for `prj manage` operations.
+After seeding, the command prints a `cd` line and a ready-to-paste first-session prompt. Day-to-day project work happens entirely inside the per-project workspace; the HOME repo is only for `prj manage` operations.
 
 ### Creating a task (sub-branch)
 
-For multi-agent or parallel work within a project, create sub-branches per task:
+For multi-agent or parallel work within a project, create sub-branches per task. The developer verb is `./prj start <issue>` (runs `./prj task` underneath):
 
 ```bash
-./prj task
+./prj start <issue>    # (or ./prj task)
 ```
 
 Each task corresponds to one GitHub Issue inside the project. The task gets its own sub-branch (`brnch-NNN-<slug>/<task-slug>`) in every repo, with a single assignee. Multiple tasks can run in parallel.
 
-When done, merge back:
+When done, submit it with `./prj finish` (runs `./prj merge` underneath):
 
 ```bash
-./prj merge
+./prj finish    # (or ./prj merge)
 ```
 
 This merges the sub-branch into the project branch (NOT into the code repo's base branch — that happens at project close), archives the sub-branch, and closes the GitHub issue.
@@ -161,12 +179,14 @@ Resume includes a mandatory sync of the workspace default branch and each code r
 ./prj sync PRJ-007-invoice-api
 ```
 
-Same merge-in-from-default behavior as resume, but without changing status. Use mid-project to pick up a freshly-merged policy update.
+Same merge-in-from-default behavior as resume, but without changing status. Use mid-project to pick up a freshly-merged policy update. In normal use `./prj work` performs this sync for you as part of "get current and continue," so you rarely call `sync` directly.
 
 ### Closing
 
+The developer verb is `./prj finish` — when there's no open task to submit it closes the project, running the same governance gate as `./prj close` (which it calls underneath):
+
 ```bash
-./prj close PRJ-007-invoice-api
+./prj finish PRJ-007-invoice-api    # (or ./prj close)
 ```
 
 Pre-close gate (C01, hard fail if not met):

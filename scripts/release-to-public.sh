@@ -82,6 +82,20 @@ if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1;
   hard_stop "Tag '$VERSION' already exists on origin. Pick a higher version."
 fi
 
+# ── Version-consistency + monotonic-release guard ─────────────────────────────
+# The tag must match framework/VERSION and never be lower than the latest release.
+FW_VER="$(cat "$REPO_ROOT/framework/VERSION" 2>/dev/null | tr -d '[:space:]')"
+if [[ -n "$FW_VER" && "${VERSION#v}" != "$FW_VER" ]]; then
+  hard_stop "Release tag $VERSION != framework/VERSION ($FW_VER). Bump framework/VERSION or fix the tag."
+fi
+LAST_TAG="$(git tag -l 'v*.*.*' | sort -V | tail -n1)"
+if [[ -n "$LAST_TAG" ]]; then
+  LO="$(printf '%s\n%s\n' "${VERSION#v}" "${LAST_TAG#v}" | sort -V | head -n1)"
+  if [[ "$LO" == "${VERSION#v}" && "${VERSION#v}" != "${LAST_TAG#v}" ]]; then
+    hard_stop "Release $VERSION is LOWER than the latest release $LAST_TAG — refusing a non-monotonic release."
+  fi
+fi
+
 # Verify git identity is set — tag creation needs it. Fail fast here rather
 # than after a 3-minute smoke run.
 GIT_NAME=$(git config user.name 2>/dev/null || echo "")

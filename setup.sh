@@ -218,7 +218,10 @@ if $NON_INTERACTIVE; then
   DEFAULT_BRANCH="$CURRENT_DEFAULT_BRANCH"
   DEFAULT_CODE_BRANCH="$CURRENT_DEFAULT_CODE_BRANCH"
   AGENT_WORK_ROOT="$CURRENT_AGENT_WORK_ROOT"
-  [[ -n "$AGENT_WORK_ROOT" ]] || AGENT_WORK_ROOT="$HOME/.${ORG_SLUG_LOWER}/projects"
+  # Store a PORTABLE tilde path, not the expanded $HOME — this value is
+  # committed to org-config.yaml and shared with the whole team. lib.sh
+  # expands the leading ~ per-developer at runtime.
+  [[ -n "$AGENT_WORK_ROOT" ]] || AGENT_WORK_ROOT="~/.${ORG_SLUG_LOWER}/projects"
   POLICY_OWNER_EMAIL="$CURRENT_POLICY_OWNER_EMAIL"
   POLICY_OWNER_GITHUB="$CURRENT_POLICY_OWNER_GITHUB"
   LEGAL_OWNER_GITHUB="$CURRENT_LEGAL"
@@ -275,7 +278,7 @@ else
   echo "  gets its own folder containing a clone of this repo on the project"
   echo "  branch plus clones of each impacted code repo on the project branch."
   echo ""
-  ask AGENT_WORK_ROOT "Agent work root path" "${CURRENT_AGENT_WORK_ROOT:-$HOME/.${ORG_SLUG_LOWER}/projects}"
+  ask AGENT_WORK_ROOT "Agent work root path" "${CURRENT_AGENT_WORK_ROOT:-~/.${ORG_SLUG_LOWER}/projects}"
 
   header "Policy Owner (initial holder of all policy roles)"
   ask_required POLICY_OWNER_EMAIL  "Policy Owner email"             "${CURRENT_POLICY_OWNER_EMAIL:-$GIT_EMAIL}"
@@ -486,14 +489,18 @@ fi
 
 # ── Step 7: Bootstrap current user's preferences file ────────────────────────
 #
-# Per-user preferences live at $PRJ_GOV_LOC/preferences/<gh-login>.md.
-# Copy the template here so the developer has a starting point. Never
-# overwrite an existing file. Skip silently if no gh login is available.
+# Per-user preferences live at $AGENT_WORK_ROOT/preferences/<gh-login>.md
+# (POL-127). Copy the template here so the developer has a starting point.
+# Never overwrite an existing file. Skip silently if no gh login is available.
+#
+# NOTE (#65/H6): this previously referenced an undefined $PRJ_GOV_LOC, which
+# aborted setup.sh under `set -u`. AGENT_WORK_ROOT is resolved above (with a
+# default); expand a leading ~ against $HOME so prefs land outside the repo.
 
 PREFS_LOGIN=$(gh api user --jq .login 2>/dev/null || echo "")
 PREFS_TEMPLATE="$REPO_ROOT/knowledge/guidance/preferences-template.md"
 if [[ -n "$PREFS_LOGIN" ]] && [[ -f "$PREFS_TEMPLATE" ]]; then
-  PREFS_DIR="$PRJ_GOV_LOC/preferences"
+  PREFS_DIR="${AGENT_WORK_ROOT/#\~/$HOME}/preferences"
   PREFS_FILE="$PREFS_DIR/$PREFS_LOGIN.md"
   mkdir -p "$PREFS_DIR"
   if [[ -f "$PREFS_FILE" ]]; then

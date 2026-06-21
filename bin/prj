@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# @svayam/prj — npm bin wrapper for the bash CLI.
+# Resolves the workspace (the governance repo) and execs the bundled `prj`.
+# The CLI code ships in this package; org data lives in the workspace.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PKG="$(cd "$HERE/.." && pwd)"          # package root: <...>/node_modules/@svayam/prj
+# Discover the workspace: explicit env, else nearest ancestor with org-config.yaml.
+if [[ -z "${ADF_WORKSPACE:-}" ]]; then
+  d="$PWD"
+  while [[ "$d" != "/" ]]; do
+    if [[ -f "$d/org-config.yaml" ]]; then ADF_WORKSPACE="$d"; break; fi
+    d="$(dirname "$d")"
+  done
+fi
+if [[ -z "${ADF_WORKSPACE:-}" || ! -f "${ADF_WORKSPACE:-}/org-config.yaml" ]]; then
+  echo "prj: no workspace found here. cd into your governance repo, or set ADF_WORKSPACE." >&2
+  exit 1
+fi
+export ADF_WORKSPACE
+exec "$PKG/prj" "$@"
