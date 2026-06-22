@@ -27,3 +27,13 @@ work/
 
 # Per-user local IDE configurations
 .claude/local-settings.json
+
+# Session-start gate (#54 Layer 2): commit the gate config, keep local state out.
+# Everything under .claude/ is ignored EXCEPT the committed gate files.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/commands/
+.claude/settings.local.json
+.claude/.session-ack
+.cursor/.session-ack

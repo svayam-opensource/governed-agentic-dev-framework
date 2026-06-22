@@ -1,0 +1,19 @@
+---
+description: Session-start enforcement gate (#54) — run the protocol, then acknowledge to unlock
+alwaysApply: true
+---
+
+This workspace enforces the session-start protocol for Cursor via
+`.cursor/hooks.json`. At the start of each session:
+
+1. Run the session-start protocol (`agent/session-protocol.md` §0): load the
+   layered context and **post the context manifest BEFORE changing code**.
+2. As the **last step**, acknowledge to unlock edits + shell:
+
+   ```bash
+   bash .cursor/hooks/session-ack.sh
+   ```
+
+Until you acknowledge, file writes (`preToolUse`/`Write`) and shell
+(`beforeShellExecution`) are denied by the hooks. (Layer-2 client gate; CI / merge
+enforce the same uniformly at Layer 3.)

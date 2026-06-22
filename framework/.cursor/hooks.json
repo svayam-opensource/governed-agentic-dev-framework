@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": ".cursor/hooks/session-start.sh" }
+    ],
+    "preToolUse": [
+      { "command": ".cursor/hooks/session-gate.sh", "matcher": "Write" }
+    ],
+    "beforeShellExecution": [
+      { "command": ".cursor/hooks/session-gate.sh" }
+    ]
+  }
+}

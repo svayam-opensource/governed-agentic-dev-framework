@@ -1,0 +1,27 @@
+{
+  "$comment": "Committed session-start enforcement (#54 Layer 2 — Claude Code client gate). Default-on for everyone who clones; Claude Code asks each developer to approve the hooks once. Local overrides live in .claude/settings.local.json (gitignored).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-tool-gate.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

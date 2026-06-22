@@ -68,6 +68,22 @@ files:
   - { src: .github/ISSUE_TEMPLATE/, dst: .github/ISSUE_TEMPLATE/, mode: scaffold-prompt }
 
   # ─────────────────────────────────────────────────────────────────────
+  # Session-start enforcement gate (#54 Layer 2 — client gates).
+  # Default-on for adopters: the hook scripts are framework-owned logic
+  # (scaffold-auto, do-not-edit); the wiring configs (settings.json /
+  # hooks.json) and the rule/command are scaffold-prompt so an org that has
+  # its own Claude/Cursor config merges rather than gets clobbered. Claude
+  # Code asks each developer to approve the hooks once. The gate references
+  # the rendered protocol at framework/CLAUDE.md.
+  # ─────────────────────────────────────────────────────────────────────
+  - { src: .claude/hooks/,                     dst: .claude/hooks/,                     mode: scaffold-auto }
+  - { src: .claude/commands/session-start.md,  dst: .claude/commands/session-start.md,  mode: scaffold-auto }
+  - { src: .claude/settings.json,              dst: .claude/settings.json,              mode: scaffold-prompt }
+  - { src: .cursor/hooks/,                     dst: .cursor/hooks/,                     mode: scaffold-auto }
+  - { src: .cursor/hooks.json,                 dst: .cursor/hooks.json,                 mode: scaffold-prompt }
+  - { src: .cursor/rules/session-start-gate.mdc, dst: .cursor/rules/session-start-gate.mdc, mode: scaffold-prompt }
+
+  # ─────────────────────────────────────────────────────────────────────
   # Knowledge — policy, guidance, architecture readmes.
   # Framework ships baseline; orgs add their own files alongside. 3-way
   # merge on upgrade only touches framework-owned paths listed here.
