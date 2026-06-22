@@ -26,7 +26,7 @@ ASSIGNEE="${3:-}"
 
 # Split the (comma-separated) issue list into an array, trimming whitespace.
 ISSUE_URLS=()
-while IFS= read -r __u; do
+while IFS= read -r __u || [[ -n "$__u" ]]; do
   __u="${__u#"${__u%%[![:space:]]*}"}"; __u="${__u%"${__u##*[![:space:]]}"}"
   [[ -n "$__u" ]] && ISSUE_URLS+=("$__u")
 done < <(printf '%s' "$ISSUE_ARG" | tr ',' '\n')

@@ -141,7 +141,7 @@ if [[ "$STATE" == "first-install" ]]; then
 
     ORG_SLUG_LOWER_INPUT=$(echo "$ORG_SLUG_INPUT" | tr '[:upper:]' '[:lower:]')
     GITHUB_ORG_INPUT=$(echo "$ORG_REPO_URL_INPUT" | sed -E 's|.*github.com[:/]([^/]+)/.*|\1|')
-    WORKSPACE_REPO_INPUT=$(echo "$ORG_REPO_URL_INPUT" | sed -E 's|.*/([^/]+?)(\.git)?$|\1|')
+    WORKSPACE_REPO_INPUT=$(basename "$ORG_REPO_URL_INPUT" .git)  # portable (BSD/macOS sed rejects non-greedy +?)
     AGENT_WORK_ROOT_INPUT="$HOME/.${ORG_SLUG_LOWER_INPUT}/projects"
     TODAY=$(date +%Y-%m-%d)
 
@@ -168,6 +168,12 @@ data_arch_owner_github: "$POLICY_OWNER_GITHUB_INPUT"
 policy_effective_date: "$TODAY"
 EOF
     log_ok "wrote org-config.yaml"
+  fi
+  # A fresh workspace needs an empty registry (lifecycle scripts read/write it;
+  # it is owned: never scaffolded). Create it once on first install.
+  if [[ ! -f "$REPO_ROOT/registry.yaml" ]]; then
+    printf 'last_issued: 0\nprojects: []\n' > "$REPO_ROOT/registry.yaml"
+    log_ok "created registry.yaml (empty)"
   fi
 fi
 
