@@ -32,7 +32,9 @@ Everything that defines your governance, with **no org-specific values baked in*
 - **Agent harness** — the canonical session-start protocol
   (`agent/session-protocol.md`), rendered to each tool's rules file
   (`CLAUDE.md`, `.cursor/…`, `AGENTS.md`, `.clinerules/…`, …) by
-  `scripts/render-harness.sh`.
+  `scripts/render-harness.sh`, plus the enforcement gate. See
+  **[docs/session-start-protocol.md](docs/session-start-protocol.md)** for how it
+  runs and how an admin customizes it.
 - **Install manifest** — `framework/MANIFEST.yaml`: what scaffolds where, and what
   an upgrade may touch vs. what your org owns (never overwritten).
 
