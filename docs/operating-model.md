@@ -48,7 +48,29 @@ flowchart TD
 
 ## (b) Governance-repo admin / user (an adopting org)
 
-*You run your org's governance **data** repo. You pull framework updates and feed changes back.*
+*You run your org's governance **data** repo. You stand it up once, then pull framework updates and feed changes back.*
+
+### Adopt — one-time, for a brand-new org
+
+1. **Install the CLI:** `npm i -g @svayam-opensource/prj` (prereqs: `bash`, `git`,
+   `gh` authenticated, `yq`, `python3`).
+2. **Create your org's governance repo** on GitHub (empty) — this becomes your
+   governance **data** workspace. It holds *no* CLI source.
+3. **Seed content + configure:** bring the framework content (`framework/`) in from
+   this template and run setup. Setup writes **`org-config.yaml`** (your org
+   identity, default branches, owners), wires the **`template` remote** (so future
+   `prj upgrade` can pull), scaffolds the content to its canonical paths, and
+   creates an empty **`registry.yaml`**.
+4. **Commit + push** to your org repo. You now have a configured governance data
+   workspace — the CLI lives in npm, the content tracks this template.
+5. **Start working:** `prj` (initialize/start your first project).
+
+> ⚠️ The exact bootstrap command sequence is being finalized — it shares the
+> first-`prj upgrade` reconciliation work (aligning a repo's `framework/` with the
+> template and adopting the canonical scaffold paths). Until then, treat steps 3–4
+> as the intended shape, not a frozen recipe.
+
+### Day-to-day
 
 | Goal | Path |
 |---|---|
@@ -73,5 +95,5 @@ flowchart TD
 ### One-line summary
 
 - **(a) maintainers** edit + publish the product (content → merge `main`; CLI → bump + Jenkins → npm).
-- **(b) admins** `prj upgrade` to pull content; propose via `prj knowledge` (local) or a template PR (framework-wide).
+- **(b) admins** adopt once (install CLI + seed content + configure), then `prj upgrade` to pull content; propose via `prj knowledge` (local) or a template PR (framework-wide).
 - **(c) developers** `npm i -g` the CLI; propose CLI changes via a template PR.
