@@ -359,9 +359,26 @@ CHECKS = [
     ("version-sync", check_version_sync),
 ]
 
+# Data-workspace subset: a pure governance DATA repo (a consumer that installs
+# the CLI from npm) has no scripts/ , agent/ harness, or package.json, so the
+# CLI/framework-dev checks (exec-bits, protocol render, version-sync) don't apply.
+# `prj validate` (and a consumer's CI) runs this subset via --data.
+DATA_CHECKS = [
+    ("schema",        check_schema),
+    ("registry",      check_registry),
+    ("lifecycle",     check_lifecycle),
+    ("cross-refs",    check_cross_refs),
+    ("knowledge-org", check_knowledge),
+    ("secrets",       check_secrets),
+]
+
 
 def main() -> int:
-    repo_root = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
+    argv = sys.argv[1:]
+    data_only = "--data" in argv
+    argv = [a for a in argv if a != "--data"]
+    repo_root = Path(argv[0] if argv else ".").resolve()
+    checks = DATA_CHECKS if data_only else CHECKS
 
     if not (repo_root / "registry.yaml").exists():
         print(
@@ -371,7 +388,7 @@ def main() -> int:
         return 1
 
     total_errors = 0
-    for name, check in CHECKS:
+    for name, check in checks:
         errors = check(repo_root)
         if errors:
             print(f"[FAIL] {name} ({len(errors)} error{'s' if len(errors) != 1 else ''}):")

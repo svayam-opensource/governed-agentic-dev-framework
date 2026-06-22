@@ -1465,6 +1465,18 @@ cmd_upgrade() {
   echo "  Push:    git push origin $DEFAULT_BRANCH"
 }
 
+# Validate a governance DATA workspace (schema/registry/lifecycle/cross-refs/
+# knowledge-org/secrets). This is the npm CLI surface that replaces a consumer
+# repo's vendored scripts/validate/ in CI (Option C un-vendor). Runs the data
+# subset (skips CLI/framework-dev checks) against $WORKSPACE_ROOT.
+# NB: privacy (org-config values must not leak into PUBLIC content) is a
+# publish-lane check — it lives in the template repo's CI, not here.
+cmd_validate() {
+  header "Validate Workspace"
+  divider
+  python3 "$SCRIPTS/validate/run.py" --data "$WORKSPACE_ROOT"
+}
+
 # ── Manage: project assignment commands ──────────────────────────────────────
 #
 # Open to anyone with write access to the workspace repo. GitHub enforces
@@ -2349,6 +2361,7 @@ case "$CMD" in
   deps)         cmd_deps ;;
   manage)       cmd_manage "${2:-}" ;;
   upgrade)      cmd_upgrade "${2:-}" ;;
+  validate)     cmd_validate ;;
   help|--help|-h)
     echo ""
     echo -e "${BOLD}Usage:${NC} ./prj [command]"
