@@ -97,3 +97,9 @@ flowchart TD
 - **(a) maintainers** edit + publish the product (content → merge `main`; CLI → bump + Jenkins → npm).
 - **(b) admins** adopt once (install CLI + seed content + configure), then `prj upgrade` to pull content; propose via `prj knowledge` (local) or a template PR (framework-wide).
 - **(c) developers** `npm i -g` the CLI; propose CLI changes via a template PR.
+
+---
+
+See also: **[session-start-protocol.md](session-start-protocol.md)** — what runs at
+the start of every agent session, the three enforcement layers, and how a
+governance admin customizes it.
