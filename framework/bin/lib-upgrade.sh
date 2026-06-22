@@ -162,7 +162,7 @@ _prompt_2way() {
   diff "$src_path" "$dst_path" 2>/dev/null | head -20 | sed 's/^/    /' || true
 
   # Non-interactive mode: default to keep, do not block on input.
-  if [[ "${NON_INTERACTIVE:-false}" == "true" ]] || ! [[ -r /dev/tty ]] || ! tty -s </dev/tty 2>/dev/null; then
+  if [[ "${NON_INTERACTIVE:-false}" == "true" ]] || ! [[ -r /dev/tty ]] || ! { tty -s 0</dev/tty; } 2>/dev/null; then
     log_ok "$dst — kept your version (non-interactive)"
     return 0
   fi
@@ -241,7 +241,7 @@ _three_way() {
     grep -A 20 '^<<<<<<<' "$merged_file.new" 2>/dev/null | head -30 | sed 's/^/    /' || true
 
     # Non-interactive: write conflict markers, let the user resolve later.
-    if [[ "${NON_INTERACTIVE:-false}" == "true" ]] || ! [[ -r /dev/tty ]] || ! tty -s </dev/tty 2>/dev/null; then
+    if [[ "${NON_INTERACTIVE:-false}" == "true" ]] || ! [[ -r /dev/tty ]] || ! { tty -s 0</dev/tty; } 2>/dev/null; then
       cp "$merged_file.new" "$dst_path"
       log_warn "$dst — conflict markers written (non-interactive); resolve before committing"
       rm -f "$base_file" "$merged_file" "$merged_file.new"
