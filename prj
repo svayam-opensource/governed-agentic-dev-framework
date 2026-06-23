@@ -2326,6 +2326,110 @@ show_menu() {
   show_menu
 }
 
+# ── Deploy (polymorphic backend; PRJ-012 deploy design) ────────────────────────
+# `prj deploy <target> --local|--dev|--uat|--prod [flags]`. ONE verb, backend by env:
+#   --local            → scripts/deploy/serve-local.sh   (watch/serve + Tier-2 ladder)
+#   --dev/--uat/--prod → scripts/deploy/jenkins.sh        (build-once-promote, remote)
+# Env is REQUIRED (no default — guards against an accidental prod deploy). Provisioning
+# is folded in via --provision (no separate verb). uat/prod confirm interactively unless
+# --yes; full token-gating is tracked in svm-prj-work#86.
+cmd_deploy() {
+  local DEPLOY="$SCRIPTS/deploy"
+  local target="" env="" action="up"
+  local detach=0 image=0 dryrun=0 yes=0 provision=0 follow=0 skipapproval=0
+  local pin="" branch="" agent="" config_dir="" register_app=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --local)              env="local" ;;
+      --dev|--development)   env="development" ;;
+      --uat|--staging)       env="staging" ;;
+      --prod|--production)   env="production" ;;
+      -d|--detach)           detach=1 ;;
+      --image)               image=1 ;;
+      --provision)           provision=1 ;;
+      --seed)                provision=1 ;;   # seed implies the provisioning path
+      --dry-run|--plan)      dryrun=1 ;;
+      -y|--yes)              yes=1 ;;
+      -f|--follow)           follow=1 ;;
+      --logs)                action="logs" ;;
+      --stop)                action="stop" ;;
+      --skip-approval)       skipapproval=1 ;;
+      --pin|--image-tag)     shift; pin="${1:-}" ;;
+      --branch)              shift; branch="${1:-}" ;;
+      --agent)               shift; agent="${1:-}" ;;
+      --config-dir)          shift; config_dir="${1:-}" ;;
+      --register-app)        shift; register_app="${1:-}" ;;
+      -*)                    err "deploy: unknown flag '$1'"; return 1 ;;
+      *) if [[ -z "$target" ]]; then target="$1"; else err "deploy: unexpected argument '$1'"; return 1; fi ;;
+    esac
+    shift
+  done
+  [[ -n "$target" ]] || { err "Usage: prj deploy <target> --local|--dev|--uat|--prod [flags]"; return 1; }
+  [[ -n "$env" ]]    || { err "deploy: an environment is REQUIRED — exactly one of --local | --dev | --uat | --prod."; return 1; }
+
+  export ADF_WORKSPACE="$WORKSPACE_ROOT"   # the deploy backends resolve the catalog/repos from this
+
+  # ── LOCAL: serve-local.sh (watch/serve orchestrator) ──────────────────────────
+  if [[ "$env" == "local" ]]; then
+    local args=("$target")
+    [[ "$action" == "stop" ]] && args+=(--stop)
+    [[ "$action" == "logs" ]] && args+=(--logs)
+    [[ "$detach"   == 1 ]]    && args+=(-d)
+    [[ "$image"    == 1 ]]    && args+=(--image)
+    [[ "$provision" == 1 ]]   && args+=(--provision)
+    if [[ "$dryrun" == 1 ]]; then
+      info "DRY-RUN (local): bash $DEPLOY/serve-local.sh ${args[*]}"
+      python3 "$DEPLOY/catalog.py" resolve "$target" --env local 2>/dev/null || true
+      return 0
+    fi
+    exec bash "$DEPLOY/serve-local.sh" "${args[@]}"
+  fi
+
+  # ── REMOTE (dev/uat/prod): trigger the Jenkins deploy job per built unit ───────
+  local suffix; case "$env" in development) suffix="dev";; staging) suffix="uat";; production) suffix="prod";; esac
+  local units
+  units=$(python3 "$DEPLOY/catalog.py" resolve "$target" --env "$env" --format json 2>/dev/null \
+    | python3 -c 'import sys,json
+try:
+    ms=json.load(sys.stdin)
+except Exception:
+    ms=[]
+print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>/dev/null)
+  [[ -n "$units" ]] || units="$target"
+
+  # Interim safety (svm-prj-work#86): confirm uat/prod unless --yes.
+  if [[ "$env" == "staging" || "$env" == "production" ]] && [[ "$yes" != 1 ]]; then
+    warn "Deploying '$target' to ${env^^} — units: $(echo "$units" | tr '\n' ' ')"
+    warn "Token-gated authorization is tracked in svm-prj-work#86; for now confirm interactively."
+    printf "  Type '%s' to proceed: " "$suffix"
+    read -r confirm
+    [[ "$confirm" == "$suffix" || "$confirm" == "$env" ]] || { err "Confirmation mismatch — aborted."; return 1; }
+  fi
+
+  local u rc=0
+  for u in $units; do
+    local job="deploy/${u}/${suffix}"
+    local params=("DEPLOY_ENV=$env")
+    [[ -n "$agent" ]]        && params+=("AGENT_LABEL=$agent")
+    [[ -n "$pin" ]]          && params+=("IMAGE_TAG_OVERRIDE=$pin")
+    [[ -n "$branch" ]]       && params+=("BUILD_BRANCH=$branch" "PORTAL_BRANCH=$branch")  # unit-specific; Jenkins ignores undeclared
+    [[ -n "$config_dir" ]]   && params+=("IAM_DEPLOY_DIR=$config_dir")
+    [[ -n "$register_app" ]] && params+=("REGISTER_APP_SPEC=$register_app")
+    [[ "$skipapproval" == 1 ]] && params+=("SKIP_PROD_APPROVAL=true")
+    if [[ "$dryrun" == 1 ]]; then
+      info "DRY-RUN (remote): bash $DEPLOY/jenkins.sh $([[ $follow == 1 ]] && echo run || echo trigger) $job ${params[*]}"
+      continue
+    fi
+    info "deploy: $job  (${params[*]})"
+    if [[ "$follow" == 1 ]]; then
+      bash "$DEPLOY/jenkins.sh" run "$job" "${params[@]}" || rc=$?
+    else
+      bash "$DEPLOY/jenkins.sh" trigger "$job" "${params[@]}" || rc=$?
+    fi
+  done
+  return $rc
+}
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 CMD="${1:-}"
@@ -2350,6 +2454,7 @@ case "$CMD" in
   pause)        cmd_pause ;;
   resume)       cmd_resume ;;
   sync)         cmd_sync ;;
+  deploy)       cmd_deploy "${@:2}" ;;
   add-repo)     cmd_add_repo ;;
   cancel)       cmd_cancel ;;
   close)        cmd_close ;;
@@ -2377,6 +2482,7 @@ case "$CMD" in
     echo "  pause       Pause a project"
     echo "  resume      Resume a paused project"
     echo "  sync        Sync with latest base branches"
+    echo "  deploy      Deploy a target — prj deploy <t> --local|--dev|--uat|--prod [--provision -d --image --pin --dry-run]"
     echo "  add-repo    Add a repository to a project"
     echo "  cancel      Cancel a project"
     echo "  close       Close a completed project"

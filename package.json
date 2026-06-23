@@ -10,6 +10,8 @@
     "bin/",
     "setup.sh",
     "scripts/*.sh",
+    "scripts/deploy/*.sh",
+    "scripts/deploy/*.py",
     "scripts/validate/*.py",
     "assets/readme/*.svg"
   ],
