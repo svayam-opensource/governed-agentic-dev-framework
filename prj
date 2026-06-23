@@ -2371,6 +2371,12 @@ cmd_deploy() {
 
   # ── LOCAL: serve-local.sh (watch/serve orchestrator) ──────────────────────────
   if [[ "$env" == "local" ]]; then
+    # Local reads the developer's WORKING TREE, so the workspace must be the CURRENT
+    # project — not a globally-pinned $ADF_WORKSPACE (which suits dev/uat/prod where the
+    # canonical catalog lives on main). Resolve from cwd, else prompt to choose a project.
+    local _lws; _lws="$(resolve_local_workspace)" || return 1
+    export ADF_WORKSPACE="$_lws"
+    info "local workspace: $_lws"
     local args=("$target")
     [[ "$action" == "stop" ]] && args+=(--stop)
     [[ "$action" == "logs" ]] && args+=(--logs)
@@ -2428,6 +2434,31 @@ print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>
     fi
   done
   return $rc
+}
+
+# ── Local workspace resolution (PRJ-012) ───────────────────────────────────────
+# For LOCAL deploys the workspace = the CURRENT project (devs iterate on their own
+# tree), NOT a globally-pinned $ADF_WORKSPACE. Resolve from cwd (nearest org-config.yaml);
+# if not inside a project, prompt to choose one from $AGENT_WORK_ROOT. Echoes the path.
+resolve_local_workspace() {
+  local d="$PWD"
+  while [[ "$d" != "/" ]]; do
+    [[ -f "$d/org-config.yaml" ]] && { echo "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
+  # Not inside a project — enumerate $AGENT_WORK_ROOT/<project>/<WORKSPACE_REPO>.
+  local -a ws=() labels=(); local p
+  for p in "$AGENT_WORK_ROOT"/*/"$WORKSPACE_REPO"/org-config.yaml; do
+    [[ -f "$p" ]] || continue
+    ws+=("$(dirname "$p")"); labels+=("$(basename "$(dirname "$(dirname "$p")")")")
+  done
+  [[ ${#ws[@]} -gt 0 ]] || { err "no projects under $AGENT_WORK_ROOT — cd into a project or set ADF_WORKSPACE." ; return 1; }
+  if [[ ${#ws[@]} -eq 1 ]]; then echo "${ws[0]}"; return 0; fi
+  echo "Select the project to deploy locally:" >&2
+  local i; for i in "${!ws[@]}"; do printf "  %d) %s\n" "$((i+1))" "${labels[$i]}" >&2; done
+  printf "  Choice [1]: " >&2; local c; read -r c; c="${c:-1}"
+  local idx=$((c-1)); [[ $idx -ge 0 && $idx -lt ${#ws[@]} ]] || { err "invalid choice"; return 1; }
+  echo "${ws[$idx]}"
 }
 
 # ── Catalog hooks (PRJ-012) — generic verb → app-owned script dispatch ──────────
@@ -2499,6 +2530,11 @@ case "$CMD" in
   manage)       cmd_manage "${2:-}" ;;
   upgrade)      cmd_upgrade "${2:-}" ;;
   validate)     cmd_validate ;;
+  version|--version|-v)
+    # Report the installed CLI version (the bundled package.json is the source of truth).
+    _v="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/package.json" 2>/dev/null | head -1)"
+    echo "prj ${_v:-unknown}"
+    ;;
   help|--help|-h)
     echo ""
     echo -e "${BOLD}Usage:${NC} ./prj [command]"
@@ -2528,6 +2564,7 @@ case "$CMD" in
     echo "  deps        Install / verify dependencies"
     echo "  manage      List, assign, reassign, unassign projects"
     echo "  upgrade     Pull a new framework version from the template remote"
+    echo "  version     Print the installed prj CLI version (--version, -v)"
     echo ""
     echo "  Run without arguments for the interactive menu."
     echo ""
