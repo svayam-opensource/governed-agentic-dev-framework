@@ -27,11 +27,12 @@ export ADF_WORKSPACE="$REPO_ROOT_SP"                               # so catalog.
 
 TARGET="${1:-}"; shift || true
 [[ -n "$TARGET" ]] || hard_stop "serve-local.sh <app|unit> [-d] [--image]"
-DETACH=0; IMAGE=0; ACTION="up"; PROVISION=0; SEED=0
+DETACH=0; IMAGE=0; ACTION="up"; PROVISION=0; SEED=0; ALL=0
 while [[ $# -gt 0 ]]; do case "$1" in
   -d|--detach) DETACH=1; shift ;;
   --image) IMAGE=1; shift ;;
   --stop) ACTION="stop"; shift ;;
+  --all) ALL=1; shift ;;               # with --stop: also bring down the catalog Tier-2 containers
   --logs) ACTION="logs"; shift ;;
   --provision) PROVISION=1; shift ;;   # auto bring-up an api member that isn't up yet (rung ① of the ladder)
   --seed) SEED=1; PROVISION=1; shift ;; # also load curated data (catalog seed hook); implies provision
@@ -44,18 +45,50 @@ PIDS_FILE="$STATE_DIR/pids"
 
 # ── Lifecycle: stop / logs (the same surface as dev/uat/prod, local backend) ───
 if [[ "$ACTION" == "stop" ]]; then
-  echo "=== prj stop $TARGET --local ==="
-  [[ -f "$PIDS_FILE" ]] || { info "nothing recorded as serving."; exit 0; }
-  while read -r u k p port; do
-    [[ -z "$p" ]] && continue
-    pkill -P "$p" 2>/dev/null || true                 # child procs (npx forks node)
-    kill "$p" 2>/dev/null || true                     # the recorded wrapper
-    prt="${port#:}"                                    # kill the actual listener by port
-    if [[ -n "$prt" ]]; then for x in $(lsof -ti tcp:"$prt" 2>/dev/null); do kill "$x" 2>/dev/null || true; done; fi
-    info "  stopped $u ($k) [pid $p ${port}]"
-  done < "$PIDS_FILE"
-  : > "$PIDS_FILE"
-  info "host dev-servers stopped. (shared containers like svm-ident/SVC_DB left running.)"
+  echo "=== prj stop $TARGET --local$([[ $ALL == 1 ]] && echo ' --all') ==="
+  if [[ -f "$PIDS_FILE" ]]; then
+    while read -r u k p port; do
+      [[ -z "$p" ]] && continue
+      pkill -P "$p" 2>/dev/null || true                 # child procs (npx forks node)
+      kill "$p" 2>/dev/null || true                     # the recorded wrapper
+      prt="${port#:}"                                    # kill the actual listener by port
+      if [[ -n "$prt" ]]; then for x in $(lsof -ti tcp:"$prt" 2>/dev/null); do kill "$x" 2>/dev/null || true; done; fi
+      info "  stopped $u ($k) [pid $p ${port}]"
+    done < "$PIDS_FILE"
+    : > "$PIDS_FILE"
+    info "host dev-servers stopped."
+  else
+    info "no host dev-servers recorded."
+  fi
+  # --all: also bring down the target's catalog-declared Tier-2 containers, via each
+  # owner's stop script (the inverse of --provision: dirname(provision)/stop.sh → compose
+  # stop, volume preserved). Without --all, shared containers are deliberately left up.
+  if [[ "$ALL" == 1 ]]; then
+    echo "--- --all: bringing down catalog Tier-2 containers ---"
+    python3 -c "
+import json, os.path
+c=json.load(open('$REPO_ROOT_SP/knowledge/deployment/catalog/graph.lock'))
+apps=c.get('applications',{}) or {}; units=c.get('units',{}) or {}; ps=c.get('platform_services',{}) or {}
+t='$TARGET'
+members=(apps.get(t,{}) or {}).get('members') or ([t] if t in units else list(units))
+seen=set()
+for m in members:
+    for r in (units.get(m,{}).get('requires') or []):
+        sp=ps.get(r,{})
+        if sp.get('provisioning')=='container' and sp.get('provision') and sp.get('owner'):
+            leaf=(units.get(sp['owner'],{}).get('repo') or '').split('/')[-1]
+            stopsh=os.path.dirname(sp['provision'])+'/stop.sh'
+            key=leaf+'|'+stopsh
+            if leaf and key not in seen: seen.add(key); print(key)
+" | while IFS='|' read -r leaf stopsh; do
+      [[ -z "$leaf" ]] && continue
+      script="$WORKSPACE_ROOT/$leaf/$stopsh"
+      if [[ -f "$script" ]]; then info "  ▶ stopping $leaf via $stopsh"; bash "$script" || warn "  stop script failed: $script"
+      else warn "  no stop script at $script — Tier-2 left running"; fi
+    done
+  else
+    info "  (shared Tier-2 containers like svm-ident/SVC_DB left running — use --all to bring them down too)"
+  fi
   exit 0
 fi
 if [[ "$ACTION" == "logs" ]]; then
