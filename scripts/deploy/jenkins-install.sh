@@ -43,13 +43,16 @@ folder_xml() {  # $1 = description. Canonical Cloudbees Folder (matches an exist
 EOF
 }
 
-# deploy job (CpsScmFlowDefinition). $1=desc $2=repo $3=scriptPath $4=deploy_env(staging|production) $5=extra_params_xml
+# deploy job (CpsScmFlowDefinition). $1=desc $2=repo $3=scriptPath $4=deploy_env(staging|production) $5=extra_params_xml $6=agent_label_override
 deploy_job_xml() {
   # Per-env deploy agents ($4 = env): dev → chinhut (dev host + reverse proxy),
   # uat → indiranagar (label 'uat'), prod → svm-iam-deploy (hazratganj).
   local agent_label='svm-iam-deploy'
   [ "$4" = development ] && agent_label='chinhut'
   [ "$4" = staging ] && agent_label='uat'
+  # Optional override ($6): a service whose envs all share ONE host (e.g. knowledge —
+  # dev/uat/prod colocate on chinhut, PRJ-014 DEC-003) pins the same label for every env.
+  [ -n "${6:-}" ] && agent_label="$6"
   # Each env deploys from ITS OWN env branch (prod must not depend on dev):
   # development→dev, staging→uat, production→prod. (Revised build/promote model.)
   local branch='prod'
@@ -155,6 +158,9 @@ R912=git@github.com:Svayamtech/912-SVM-LIB-UI.git
 PORTAL_PARAMS_UAT='<hudson.model.StringParameterDefinition><name>PORTAL_REPO</name><defaultValue>git@github.com:Svayamtech/912-SVM-LIB-UI.git</defaultValue><trim>false</trim></hudson.model.StringParameterDefinition><hudson.model.StringParameterDefinition><name>PORTAL_BRANCH</name><defaultValue>uat</defaultValue><trim>false</trim></hudson.model.StringParameterDefinition>'
 PORTAL_PARAMS_PROD='<hudson.model.StringParameterDefinition><name>PORTAL_REPO</name><defaultValue>git@github.com:Svayamtech/912-SVM-LIB-UI.git</defaultValue><trim>false</trim></hudson.model.StringParameterDefinition><hudson.model.StringParameterDefinition><name>PORTAL_BRANCH</name><defaultValue>prod</defaultValue><trim>false</trim></hudson.model.StringParameterDefinition>'
 IDENT_PARAMS='<hudson.model.StringParameterDefinition><name>IAM_DEPLOY_DIR</name><defaultValue></defaultValue><trim>false</trim></hudson.model.StringParameterDefinition><hudson.model.StringParameterDefinition><name>IMAGE_TAG_OVERRIDE</name><defaultValue></defaultValue><trim>false</trim></hudson.model.StringParameterDefinition>'
+# knowledge deploy params (beyond AGENT_LABEL/DEPLOY_ENV/SKIP_PROD_APPROVAL the template adds):
+# the host dir holding the per-env .env, and a rollback tag override. (PRJ-014 #93.)
+KNOWLEDGE_PARAMS='<hudson.model.StringParameterDefinition><name>KNOWLEDGE_DEPLOY_DIR</name><defaultValue></defaultValue><trim>false</trim></hudson.model.StringParameterDefinition><hudson.model.StringParameterDefinition><name>IMAGE_TAG_OVERRIDE</name><defaultValue></defaultValue><trim>false</trim></hudson.model.StringParameterDefinition>'
 
 echo "=== ensuring parent folder ${PARENT} ==="
 SSH "mkdir -p $JH/jobs/$PARENT"
@@ -168,6 +174,7 @@ for spec in \
   "deploy|Deploy a pinned artifact to an environment (per-service, per-env)" \
   "deploy/jobs/svm-ident|svm-ident broker deploy jobs" \
   "deploy/jobs/portal-spa|Portal SPA deploy jobs" \
+  "deploy/jobs/knowledge|Knowledge platform deploy jobs (qdrant+ollama+rag-api+site)" \
   "ops|start/stop/reconcile lifecycle jobs" \
   "ops/jobs/svm-ident|svm-ident lifecycle (start/stop)"; do
   path="${spec%%|*}"; desc="${spec#*|}"
@@ -177,15 +184,18 @@ for spec in \
 done
 
 echo "=== creating deploy jobs ==="
-mkjob() {  # $1=job-dir $2=desc $3=repo $4=scriptPath $5=env $6=params
+mkjob() {  # $1=job-dir $2=desc $3=repo $4=scriptPath $5=env $6=params $7=agent_label_override(optional)
   SSH "mkdir -p $JOBROOT/$1"
-  deploy_job_xml "$2" "$3" "$4" "$5" "$6" | PUT "$JOBROOT/$1/config.xml"
+  deploy_job_xml "$2" "$3" "$4" "$5" "$6" "${7:-}" | PUT "$JOBROOT/$1/config.xml"
   echo "  job: ${1//jobs\//}"
 }
 mkjob deploy/jobs/svm-ident/jobs/uat  "Deploy svm-ident to UAT (security-uat)." "$R911" "packages/libraries/ts/svm-ident/Jenkinsfile.deploy" staging    "$IDENT_PARAMS"
 mkjob deploy/jobs/svm-ident/jobs/prod "Deploy svm-ident to PROD (security)."    "$R911" "packages/libraries/ts/svm-ident/Jenkinsfile.deploy" production "$IDENT_PARAMS"
 mkjob deploy/jobs/portal-spa/jobs/uat  "Deploy Portal SPA to UAT (portal-uat)." "$R911" "deploy/portal/Jenkinsfile.deploy" staging    "$PORTAL_PARAMS_UAT"
 mkjob deploy/jobs/portal-spa/jobs/prod "Deploy Portal SPA to PROD (portal)."    "$R911" "deploy/portal/Jenkinsfile.deploy" production "$PORTAL_PARAMS_PROD"
+# knowledge: dev/uat/prod all colocate on chinhut (DEC-003) → pin AGENT_LABEL=chinhut for every env.
+mkjob deploy/jobs/knowledge/jobs/uat  "Deploy knowledge to UAT (knowledge-uat.svayamtech.com)." "$R911" "deploy/knowledge/Jenkinsfile.deploy" staging    "$KNOWLEDGE_PARAMS" chinhut
+mkjob deploy/jobs/knowledge/jobs/prod "Deploy knowledge to PROD (knowledge.svayamtech.com)."    "$R911" "deploy/knowledge/Jenkinsfile.deploy" production "$KNOWLEDGE_PARAMS" chinhut
 
 echo "=== creating build/image jobs (build-once -> :sha) ==="
 mkbuild() {  # $1=job-dir $2=desc $3=repo $4=scriptPath
@@ -195,9 +205,11 @@ mkbuild() {  # $1=job-dir $2=desc $3=repo $4=scriptPath
 }
 mkbuild build/jobs/image/jobs/svm-ident "Build the svm-ident IAM image once; push docker.svayamtech.com/svayam/svm-ident tagged by commit sha (build-once-promote)." "$R911" "deploy/build/Jenkinsfile.image-svm-ident"
 mkbuild build/jobs/image/jobs/portal-spa "Build the Portal SPA image once; push docker.svayamtech.com/svayam/portal-spa tagged by commit sha (build-once-promote)." "$R912" "1-apps/portal/Jenkinsfile.build"
+mkbuild build/jobs/image/jobs/knowledge "Build the knowledge-api image once; push docker.svayamtech.com/svayam/knowledge-api tagged by commit sha (build-once-promote)." "$R911" "deploy/build/Jenkinsfile.image-knowledge"
 
 echo "=== creating dev deploy jobs (Jenkinsfiles now support development; dev IAM host TODO) ==="
 mkjob deploy/jobs/svm-ident/jobs/dev  "Deploy svm-ident to DEV." "$R911" "packages/libraries/ts/svm-ident/Jenkinsfile.deploy" development "$IDENT_PARAMS"
+mkjob deploy/jobs/knowledge/jobs/dev  "Deploy knowledge to DEV (knowledge-dev.svayamtech.com)." "$R911" "deploy/knowledge/Jenkinsfile.deploy" development "$KNOWLEDGE_PARAMS" chinhut
 PORTAL_PARAMS_DEV='<hudson.model.StringParameterDefinition><name>PORTAL_REPO</name><defaultValue>git@github.com:Svayamtech/912-SVM-LIB-UI.git</defaultValue><trim>false</trim></hudson.model.StringParameterDefinition><hudson.model.StringParameterDefinition><name>PORTAL_BRANCH</name><defaultValue>dev</defaultValue><trim>false</trim></hudson.model.StringParameterDefinition>'
 mkjob deploy/jobs/portal-spa/jobs/dev "Deploy Portal SPA to DEV." "$R911" "deploy/portal/Jenkinsfile.deploy" development "$PORTAL_PARAMS_DEV"
 
@@ -220,4 +232,4 @@ mkjob ops/jobs/svm-ident/jobs/stop  "Stop svm-ident."                           
 
 echo "=== reload Jenkins config from disk ==="
 bash "$(dirname "$0")/jenkins.sh" reload || echo "  (reload via API failed — reload manually: Manage Jenkins -> Reload Configuration from Disk)"
-echo "DONE. New structure under ${PARENT}/: build/{image,lib}/*, deploy/{svm-ident,portal-spa}/{dev,uat,prod}, ops/svm-ident/{start,stop}."
+echo "DONE. New structure under ${PARENT}/: build/{image,lib}/*, deploy/{svm-ident,portal-spa,knowledge}/{dev,uat,prod}, ops/svm-ident/{start,stop}."
