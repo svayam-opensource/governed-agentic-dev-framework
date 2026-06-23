@@ -2336,7 +2336,7 @@ show_menu() {
 cmd_deploy() {
   local DEPLOY="$SCRIPTS/deploy"
   local target="" env="" action="up"
-  local detach=0 image=0 dryrun=0 yes=0 provision=0 follow=0 skipapproval=0
+  local detach=0 image=0 dryrun=0 yes=0 provision=0 noprovision=0 seed=0 follow=0 skipapproval=0
   local pin="" branch="" agent="" config_dir="" register_app=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2347,7 +2347,8 @@ cmd_deploy() {
       -d|--detach)           detach=1 ;;
       --image)               image=1 ;;
       --provision)           provision=1 ;;
-      --seed)                provision=1 ;;   # seed implies the provisioning path
+      --no-provision)        noprovision=1 ;;   # opt out of local's auto-provision
+      --seed)                seed=1 ;;          # also load curated data (implies provision)
       --dry-run|--plan)      dryrun=1 ;;
       -y|--yes)              yes=1 ;;
       -f|--follow)           follow=1 ;;
@@ -2367,6 +2368,14 @@ cmd_deploy() {
   [[ -n "$target" ]] || { err "Usage: prj deploy <target> --local|--dev|--uat|--prod [flags]"; return 1; }
   [[ -n "$env" ]]    || { err "deploy: an environment is REQUIRED — exactly one of --local | --dev | --uat | --prod."; return 1; }
 
+  # Provision policy: LOCAL auto-provisions (hermetic, disposable env — "deploy just works";
+  # bootstrap reuses the volume, never wipes), opt out with --no-provision. Remote stays
+  # explicit (--provision) so shared infra is never stood up silently. --seed needs the
+  # substrate up + migrated, so it forces provision regardless.
+  [[ "$env" == "local" && "$noprovision" == 0 ]] && provision=1
+  [[ "$noprovision" == 1 ]] && provision=0
+  [[ "$seed" == 1 ]] && provision=1
+
   export ADF_WORKSPACE="$WORKSPACE_ROOT"   # the deploy backends resolve the catalog/repos from this
 
   # ── LOCAL: serve-local.sh (watch/serve orchestrator) ──────────────────────────
@@ -2383,6 +2392,7 @@ cmd_deploy() {
     [[ "$detach"   == 1 ]]    && args+=(-d)
     [[ "$image"    == 1 ]]    && args+=(--image)
     [[ "$provision" == 1 ]]   && args+=(--provision)
+    [[ "$seed"     == 1 ]]    && args+=(--seed)
     if [[ "$dryrun" == 1 ]]; then
       info "DRY-RUN (local): bash $DEPLOY/serve-local.sh ${args[*]}"
       python3 "$DEPLOY/catalog.py" resolve "$target" --env local 2>/dev/null || true
@@ -2392,6 +2402,7 @@ cmd_deploy() {
   fi
 
   # ── REMOTE (dev/uat/prod): trigger the Jenkins deploy job per built unit ───────
+  [[ "$seed" == 1 ]] && warn "deploy: --seed is local-only for now (the seed hook targets the local DB); seed remote envs separately once the seed hook supports them."
   local suffix; case "$env" in development) suffix="dev";; staging) suffix="uat";; production) suffix="prod";; esac
   local units
   units=$(python3 "$DEPLOY/catalog.py" resolve "$target" --env "$env" --format json 2>/dev/null \
@@ -2550,7 +2561,7 @@ case "$CMD" in
     echo "  pause       Pause a project"
     echo "  resume      Resume a paused project"
     echo "  sync        Sync with latest base branches"
-    echo "  deploy      Deploy a target — prj deploy <t> --local|--dev|--uat|--prod [--provision -d --image --pin --dry-run]"
+    echo "  deploy      Deploy a target — prj deploy <t> --local|--dev|--uat|--prod [--seed --no-provision -d --image --pin --dry-run]"
     echo "  seed        Run the catalog-declared seed hook (app-owned; e.g. prj seed iam --env local)"
     echo "  iam-data    Run the catalog-declared data hook (app-owned; e.g. prj iam-data local)"
     echo "  add-repo    Add a repository to a project"
