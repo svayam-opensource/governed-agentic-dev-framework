@@ -1,0 +1,51 @@
+{
+    "_comment": "Per-package CI publish config for the knowledge-api deployable (#93). @svayam/svm-rag is the anchor package; deploy/knowledge/Dockerfile.rag builds it into the docker image svayam/knowledge-api. Mirrors packages/api/iam/envConfig.json so `prj deploy` + Jenkinsfile.deploy resolve the image the standard way. npm publish is incidental — svm-rag carries a Path-2 svm-util waiver (#91) and ships as a library too.",
+    "dev": {
+        "Build&Test": "any",
+        "Publish": {
+            "registry": "https://npm.svayamtech.com",
+            "auto_increment": "prerelease",
+            "dist-tag": "dev",
+            "NPM_TOKEN_CREDENTIALS_ID": "svm_npm_repo",
+            "NPM_AUTH_EMAIL": "support@svayam.ai",
+            "docker": {
+                "registry": "docker.svayamtech.com",
+                "image_path": "svayam/knowledge-api",
+                "tag_strategy": "version-and-channel",
+                "credentials_id": "svm_docker_registry"
+            }
+        }
+    },
+    "uat": {
+        "Build&Test": "any",
+        "Publish": {
+            "registry": "https://npm.svayamtech.com",
+            "auto_increment": "prerelease",
+            "dist-tag": "uat",
+            "NPM_TOKEN_CREDENTIALS_ID": "svm_npm_repo",
+            "NPM_AUTH_EMAIL": "support@svayam.ai",
+            "docker": {
+                "registry": "docker.svayamtech.com",
+                "image_path": "svayam/knowledge-api",
+                "tag_strategy": "version-and-channel",
+                "credentials_id": "svm_docker_registry"
+            }
+        }
+    },
+    "prod": {
+        "Build&Test": "any",
+        "Publish": {
+            "registry": "https://npm.svayamtech.com",
+            "auto_increment": "prerelease",
+            "dist-tag": "latest",
+            "NPM_TOKEN_CREDENTIALS_ID": "svm_npm_repo",
+            "NPM_AUTH_EMAIL": "support@svayam.ai",
+            "docker": {
+                "registry": "docker.svayamtech.com",
+                "image_path": "svayam/knowledge-api",
+                "tag_strategy": "version-and-latest",
+                "credentials_id": "svm_docker_registry"
+            }
+        }
+    }
+}
