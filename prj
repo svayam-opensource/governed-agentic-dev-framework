@@ -2430,6 +2430,36 @@ print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>
   return $rc
 }
 
+# ── Catalog hooks (PRJ-012) — generic verb → app-owned script dispatch ──────────
+# The catalog declares `hooks.<name> = { repo, cmd }`. prj orchestrates; the LOGIC
+# lives in the named repo (the app), not here — so app-specific tooling (e.g. IAM
+# seed / data) is invoked via a generic verb without shipping app internals in the
+# open-source CLI. The hook runs from the owner repo's dir with $ADF_WORKSPACE
+# exported and all extra args forwarded. Mirrors how deploy uses catalog provision.
+run_catalog_hook() {
+  local name="$1"; shift
+  local lock="$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock"
+  [[ -f "$lock" ]] || { err "$name: no catalog (knowledge/deployment/catalog/graph.lock) in this workspace."; return 1; }
+  # Resolve hooks.<name> → "<repo-leaf>|<cmd>" (repo dir = sibling of the workspace).
+  local spec
+  spec="$(python3 -c "
+import json,sys
+c=json.load(open('$lock'))
+h=(c.get('hooks') or {}).get('$name')
+if not h or not h.get('cmd'): sys.exit(1)
+repo=(h.get('repo') or '').split('/')[-1]
+print(repo+'|'+h['cmd'])
+" 2>/dev/null)" || { err "$name: no '$name' hook declared in the catalog (hooks.$name)."; return 1; }
+  local leaf="${spec%%|*}" cmd="${spec#*|}"
+  local repo_dir; repo_dir="$(cd "$WORKSPACE_ROOT/.." && pwd)/$leaf"
+  [[ -d "$repo_dir" ]] || { err "$name: owner repo '$leaf' not found at $repo_dir (clone it into the project)."; return 1; }
+  export ADF_WORKSPACE="$WORKSPACE_ROOT"
+  # Forward all extra args, shell-quoted so values with spaces survive the eval.
+  local q="" a
+  for a in "$@"; do q+=" $(printf '%q' "$a")"; done
+  ( cd "$repo_dir" && eval "$cmd$q" )
+}
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 CMD="${1:-}"
@@ -2455,6 +2485,8 @@ case "$CMD" in
   resume)       cmd_resume ;;
   sync)         cmd_sync ;;
   deploy)       cmd_deploy "${@:2}" ;;
+  seed)         run_catalog_hook seed "${@:2}" ;;
+  iam-data)     run_catalog_hook iam-data "${@:2}" ;;
   add-repo)     cmd_add_repo ;;
   cancel)       cmd_cancel ;;
   close)        cmd_close ;;
@@ -2483,6 +2515,8 @@ case "$CMD" in
     echo "  resume      Resume a paused project"
     echo "  sync        Sync with latest base branches"
     echo "  deploy      Deploy a target — prj deploy <t> --local|--dev|--uat|--prod [--provision -d --image --pin --dry-run]"
+    echo "  seed        Run the catalog-declared seed hook (app-owned; e.g. prj seed iam --env local)"
+    echo "  iam-data    Run the catalog-declared data hook (app-owned; e.g. prj iam-data local)"
     echo "  add-repo    Add a repository to a project"
     echo "  cancel      Cancel a project"
     echo "  close       Close a completed project"
