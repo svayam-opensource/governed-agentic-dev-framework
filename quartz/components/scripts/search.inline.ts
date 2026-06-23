@@ -2,6 +2,13 @@ import FlexSearch, { DefaultDocumentSearchResults } from "flexsearch"
 import { ContentDetails } from "../../plugins/emitters/contentIndex"
 import { registerEscapeHandler, removeAllChildren } from "./util"
 import { FullSlug, normalizeRelativeURLs, resolveRelative } from "../../util/path"
+import { ragSearch, hitsToItems } from "./ragSearch.inline"
+
+// #92: semantic search is SEMANTIC-FIRST with a LEXICAL fallback. These module-level
+// handles let a newer keystroke abort an in-flight RAG request (debounce + supersede).
+let semanticAbort: AbortController | null = null
+let semanticTimer: number | undefined
+const SEMANTIC_DEBOUNCE_MS = 200
 
 interface Item {
   id: number
@@ -165,6 +172,8 @@ async function setupSearch(searchElement: Element, currentSlug: FullSlug, data: 
   if (!searchLayout) return
 
   const idDataMap = Object.keys(data) as FullSlug[]
+  // #92: real site slugs, for grounding RAG hit paths to live URLs (no 404s).
+  const slugSet = new Set<string>(idDataMap as string[])
   const appendLayout = (el: HTMLElement) => {
     searchLayout.appendChild(el)
   }
@@ -300,12 +309,15 @@ async function setupSearch(searchElement: Element, currentSlug: FullSlug, data: 
     return new URL(resolveRelative(currentSlug, slug), location.toString())
   }
 
-  const resultToHTML = ({ slug, title, content, tags }: Item) => {
+  const resultToHTML = ({ slug, title, content, tags, headingSlug }: Item) => {
     const htmlTags = tags.length > 0 ? `<ul class="tags">${tags.join("")}</ul>` : ``
     const itemTile = document.createElement("a")
     itemTile.classList.add("result-card")
     itemTile.id = slug
-    itemTile.href = resolveUrl(slug).toString()
+    const url = resolveUrl(slug)
+    // #92: deep-link semantic hits to their section anchor when the RAG metadata has one.
+    if (headingSlug) url.hash = `#${headingSlug}`
+    itemTile.href = url.toString()
     itemTile.innerHTML = `
       <h3 class="card-title">${title}</h3>
       ${htmlTags}
@@ -397,6 +409,35 @@ async function setupSearch(searchElement: Element, currentSlug: FullSlug, data: 
     highlights[0]?.scrollIntoView({ block: "start" })
   }
 
+  // #92: semantic-first search. Debounces, aborts superseded requests, and maps RAG
+  // hits to display Items grounded in real slugs. Returns:
+  //   Item[]      → render these semantic results
+  //   "fallback"  → RAG down/empty; the caller runs the lexical FlexSearch path
+  //   "skip"      → a newer keystroke superseded this one; render nothing
+  async function trySemantic(term: string): Promise<Item[] | "fallback" | "skip"> {
+    if (!term) return "fallback"
+    semanticAbort?.abort()
+    semanticAbort = new AbortController()
+    const signal = semanticAbort.signal
+    await new Promise<void>((resolve) => {
+      clearTimeout(semanticTimer)
+      semanticTimer = window.setTimeout(resolve, SEMANTIC_DEBOUNCE_MS)
+    })
+    if (signal.aborted || term !== currentSearchTerm) return "skip"
+    const out = await ragSearch(term, numSearchResults, signal)
+    if (signal.aborted || term !== currentSearchTerm) return "skip"
+    if (!out.ok || out.hits.length === 0) return "fallback"
+    const items: Item[] = hitsToItems(out.hits, slugSet).map((it, i) => ({
+      id: i,
+      slug: it.slug as FullSlug,
+      title: highlight(term, it.title ?? ""),
+      content: it.content ? highlight(term, it.content, true) : "",
+      tags: [],
+      headingSlug: it.headingSlug,
+    }))
+    return items.length ? items : "fallback"
+  }
+
   async function onType(e: HTMLElementEventMap["input"]) {
     if (!searchLayout || !index) return
     currentSearchTerm = (e.target as HTMLInputElement).value
@@ -433,6 +474,13 @@ async function setupSearch(searchElement: Element, currentSlug: FullSlug, data: 
         })
       }
     } else if (searchType === "basic") {
+      // #92: try the semantic API first (same-origin RP proxy); fall back to lexical.
+      const semantic = await trySemantic(currentSearchTerm)
+      if (semantic === "skip") return // superseded by a newer keystroke — render nothing
+      if (semantic !== "fallback") {
+        await displayResults(semantic)
+        return
+      }
       searchResults = await index.searchAsync({
         query: currentSearchTerm,
         limit: numSearchResults,
