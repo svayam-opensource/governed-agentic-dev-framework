@@ -2336,7 +2336,7 @@ show_menu() {
 cmd_deploy() {
   local DEPLOY="$SCRIPTS/deploy"
   local target="" env="" action="up"
-  local detach=0 image=0 dryrun=0 yes=0 provision=0 noprovision=0 seed=0 follow=0 skipapproval=0
+  local detach=0 image=0 dryrun=0 yes=0 provision=0 noprovision=0 seed=0 all=0 follow=0 skipapproval=0
   local pin="" branch="" agent="" config_dir="" register_app=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2354,6 +2354,7 @@ cmd_deploy() {
       -f|--follow)           follow=1 ;;
       --logs)                action="logs" ;;
       --stop)                action="stop" ;;
+      --all)                 all=1 ;;            # with --stop: also bring down Tier-2 containers
       --skip-approval)       skipapproval=1 ;;
       --pin|--image-tag)     shift; pin="${1:-}" ;;
       --branch)              shift; branch="${1:-}" ;;
@@ -2388,6 +2389,7 @@ cmd_deploy() {
     info "local workspace: $_lws"
     local args=("$target")
     [[ "$action" == "stop" ]] && args+=(--stop)
+    [[ "$all"    == 1 ]]      && args+=(--all)
     [[ "$action" == "logs" ]] && args+=(--logs)
     [[ "$detach"   == 1 ]]    && args+=(-d)
     [[ "$image"    == 1 ]]    && args+=(--image)
@@ -2564,6 +2566,7 @@ case "$CMD" in
     echo "  resume      Resume a paused project"
     echo "  sync        Sync with latest base branches"
     echo "  deploy      Deploy a target — prj deploy <t> --local|--dev|--uat|--prod [--seed --no-provision -d --image --pin --dry-run]"
+    echo "              local lifecycle: --stop [--all] (--all also stops Tier-2 containers) · --logs"
     echo "  seed        Run the catalog-declared seed hook (app-owned; e.g. prj seed iam --env local)"
     echo "  iam-data    Run the catalog-declared data hook (app-owned; e.g. prj iam-data local)"
     echo "  add-repo    Add a repository to a project"
