@@ -16,7 +16,9 @@ import argparse
 import fnmatch
 import json
 import os
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -482,7 +484,34 @@ def _fmt_select_text(d):
     return "\n".join(lines)
 
 
+def _materialize_catalog_from_ref(ref):
+    """Env-aware catalog source (PRJ-012). For non-local envs, read the CANONICAL
+    catalog from a committed git ref in the gov repo (default `origin/main`) instead
+    of the developer's working tree — so the CLI's unit/job resolution agrees with
+    what Jenkins (which checks out main) actually deploys. Writes services.yaml +
+    graph.lock + pins.yaml from that ref into a temp dir and returns it."""
+    base = "knowledge/deployment/catalog"
+    d = Path(tempfile.mkdtemp(prefix="catalog-ref-"))
+    for fn in ("services.yaml", "graph.lock", "pins.yaml"):
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "show", f"{ref}:{base}/{fn}"],
+                capture_output=True, text=True, check=True,
+            ).stdout
+            (d / fn).write_text(out)
+        except subprocess.CalledProcessError:
+            pass  # graph.lock / pins.yaml may legitimately be absent at the ref
+    if not (d / "services.yaml").exists():
+        sys.exit(
+            f"catalog: cannot read {base}/services.yaml from '{ref}'. "
+            f"Commit + push the catalog to the gov repo's canonical branch first "
+            f"(or set CATALOG_REF). Local deploys (--local) read the working tree and need no commit."
+        )
+    return d
+
+
 def _main(argv=None):
+    global DEFAULT_CATALOG, DEFAULT_LOCK, DEFAULT_PINS
     ap = argparse.ArgumentParser(prog="catalog.py", description="Deploy catalog resolver (S1)")
     ap.add_argument("--catalog", help="path to services.yaml (default: workspace catalog)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -499,6 +528,18 @@ def _main(argv=None):
     sub.add_parser("build")    # derive → write graph.lock
     sub.add_parser("check")    # drift gate: re-derive & assert == lock + declared
     args = ap.parse_args(argv)
+    # Env-aware source: --local reads the working tree (devs iterate freely, no commit);
+    # dev/uat/prod resolve from the committed canonical catalog (gov repo `origin/main`,
+    # override via CATALOG_REF). Only the deploy-resolution reads honour this — pin
+    # management (pins/get-pin/set-pin/promote) and build/check stay on the working tree.
+    if (args.cmd in ("resolve", "preflight")
+            and getattr(args, "env", None) not in (None, "local")
+            and not args.catalog):
+        _ref = os.environ.get("CATALOG_REF", "origin/main")
+        _d = _materialize_catalog_from_ref(_ref)
+        DEFAULT_CATALOG = _d / "services.yaml"
+        DEFAULT_LOCK = _d / "graph.lock"
+        DEFAULT_PINS = _d / "pins.yaml"
     raw = load(args.catalog)
     # Read commands operate on the lock-merged (effective) catalog; build/check use raw.
     cat = raw if args.cmd in ("build", "check") else effective_cat(raw)
