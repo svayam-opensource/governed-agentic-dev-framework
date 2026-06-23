@@ -54,7 +54,12 @@ export interface NavManifest {
 function defaultNavDir(siteRoot: string): string {
   if (process.env.SVM_NAV_DIR) return resolve(process.env.SVM_NAV_DIR)
   const prjWork = process.env.SVM_PRJ_WORK ?? resolve(siteRoot, "../../../../svm-prj-work")
-  return resolve(prjWork, "projects/PRJ-010-practice-knowledge/knowledge/nav")
+  // Resolution order (PRJ-014 #52): the frozen home knowledge/nav/ once graduated
+  // at project close, else the PRJ-014 interim manifest (the COMPLETE one — all 9
+  // journeys placed). The old PRJ-010 interim placed only 2 journeys; superseded.
+  const frozen = resolve(prjWork, "knowledge/nav")
+  if (existsSync(join(frozen, "manifest.yaml"))) return frozen
+  return resolve(prjWork, "projects/PRJ-014-knowledge-app-backlog/knowledge/nav")
 }
 
 function safeYaml(path: string): any | null {
