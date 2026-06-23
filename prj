@@ -2529,6 +2529,8 @@ case "$CMD" in
   deploy)       cmd_deploy "${@:2}" ;;
   seed)         run_catalog_hook seed "${@:2}" ;;
   iam-data)     run_catalog_hook iam-data "${@:2}" ;;
+  creds)        bash "$SCRIPTS/creds.sh" "${@:2}" ;;
+  schedules)    bash "$SCRIPTS/deploy/schedules.sh" "${@:2}" ;;
   add-repo)     cmd_add_repo ;;
   cancel)       cmd_cancel ;;
   close)        cmd_close ;;
@@ -2576,6 +2578,8 @@ case "$CMD" in
     echo "  manage      List, assign, reassign, unassign projects"
     echo "  upgrade     Pull a new framework version from the template remote"
     echo "  version     Print the installed prj CLI version (--version, -v)"
+    echo "  creds       Manage your per-developer credentials (creds path|groups|add|set|check)"
+    echo "  schedules   Install/inspect catalog cron schedules (schedules list|install|uninstall)"
     echo ""
     echo "  Run without arguments for the interactive menu."
     echo ""
