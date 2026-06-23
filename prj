@@ -2371,6 +2371,12 @@ cmd_deploy() {
 
   # ── LOCAL: serve-local.sh (watch/serve orchestrator) ──────────────────────────
   if [[ "$env" == "local" ]]; then
+    # Local reads the developer's WORKING TREE, so the workspace must be the CURRENT
+    # project — not a globally-pinned $ADF_WORKSPACE (which suits dev/uat/prod where the
+    # canonical catalog lives on main). Resolve from cwd, else prompt to choose a project.
+    local _lws; _lws="$(resolve_local_workspace)" || return 1
+    export ADF_WORKSPACE="$_lws"
+    info "local workspace: $_lws"
     local args=("$target")
     [[ "$action" == "stop" ]] && args+=(--stop)
     [[ "$action" == "logs" ]] && args+=(--logs)
@@ -2430,6 +2436,61 @@ print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>
   return $rc
 }
 
+# ── Local workspace resolution (PRJ-012) ───────────────────────────────────────
+# For LOCAL deploys the workspace = the CURRENT project (devs iterate on their own
+# tree), NOT a globally-pinned $ADF_WORKSPACE. Resolve from cwd (nearest org-config.yaml);
+# if not inside a project, prompt to choose one from $AGENT_WORK_ROOT. Echoes the path.
+resolve_local_workspace() {
+  local d="$PWD"
+  while [[ "$d" != "/" ]]; do
+    [[ -f "$d/org-config.yaml" ]] && { echo "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
+  # Not inside a project — enumerate $AGENT_WORK_ROOT/<project>/<WORKSPACE_REPO>.
+  local -a ws=() labels=(); local p
+  for p in "$AGENT_WORK_ROOT"/*/"$WORKSPACE_REPO"/org-config.yaml; do
+    [[ -f "$p" ]] || continue
+    ws+=("$(dirname "$p")"); labels+=("$(basename "$(dirname "$(dirname "$p")")")")
+  done
+  [[ ${#ws[@]} -gt 0 ]] || { err "no projects under $AGENT_WORK_ROOT — cd into a project or set ADF_WORKSPACE." ; return 1; }
+  if [[ ${#ws[@]} -eq 1 ]]; then echo "${ws[0]}"; return 0; fi
+  echo "Select the project to deploy locally:" >&2
+  local i; for i in "${!ws[@]}"; do printf "  %d) %s\n" "$((i+1))" "${labels[$i]}" >&2; done
+  printf "  Choice [1]: " >&2; local c; read -r c; c="${c:-1}"
+  local idx=$((c-1)); [[ $idx -ge 0 && $idx -lt ${#ws[@]} ]] || { err "invalid choice"; return 1; }
+  echo "${ws[$idx]}"
+}
+
+# ── Catalog hooks (PRJ-012) — generic verb → app-owned script dispatch ──────────
+# The catalog declares `hooks.<name> = { repo, cmd }`. prj orchestrates; the LOGIC
+# lives in the named repo (the app), not here — so app-specific tooling (e.g. IAM
+# seed / data) is invoked via a generic verb without shipping app internals in the
+# open-source CLI. The hook runs from the owner repo's dir with $ADF_WORKSPACE
+# exported and all extra args forwarded. Mirrors how deploy uses catalog provision.
+run_catalog_hook() {
+  local name="$1"; shift
+  local lock="$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock"
+  [[ -f "$lock" ]] || { err "$name: no catalog (knowledge/deployment/catalog/graph.lock) in this workspace."; return 1; }
+  # Resolve hooks.<name> → "<repo-leaf>|<cmd>" (repo dir = sibling of the workspace).
+  local spec
+  spec="$(python3 -c "
+import json,sys
+c=json.load(open('$lock'))
+h=(c.get('hooks') or {}).get('$name')
+if not h or not h.get('cmd'): sys.exit(1)
+repo=(h.get('repo') or '').split('/')[-1]
+print(repo+'|'+h['cmd'])
+" 2>/dev/null)" || { err "$name: no '$name' hook declared in the catalog (hooks.$name)."; return 1; }
+  local leaf="${spec%%|*}" cmd="${spec#*|}"
+  local repo_dir; repo_dir="$(cd "$WORKSPACE_ROOT/.." && pwd)/$leaf"
+  [[ -d "$repo_dir" ]] || { err "$name: owner repo '$leaf' not found at $repo_dir (clone it into the project)."; return 1; }
+  export ADF_WORKSPACE="$WORKSPACE_ROOT"
+  # Forward all extra args, shell-quoted so values with spaces survive the eval.
+  local q="" a
+  for a in "$@"; do q+=" $(printf '%q' "$a")"; done
+  ( cd "$repo_dir" && eval "$cmd$q" )
+}
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 CMD="${1:-}"
@@ -2455,6 +2516,8 @@ case "$CMD" in
   resume)       cmd_resume ;;
   sync)         cmd_sync ;;
   deploy)       cmd_deploy "${@:2}" ;;
+  seed)         run_catalog_hook seed "${@:2}" ;;
+  iam-data)     run_catalog_hook iam-data "${@:2}" ;;
   add-repo)     cmd_add_repo ;;
   cancel)       cmd_cancel ;;
   close)        cmd_close ;;
@@ -2467,6 +2530,11 @@ case "$CMD" in
   manage)       cmd_manage "${2:-}" ;;
   upgrade)      cmd_upgrade "${2:-}" ;;
   validate)     cmd_validate ;;
+  version|--version|-v)
+    # Report the installed CLI version (the bundled package.json is the source of truth).
+    _v="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/package.json" 2>/dev/null | head -1)"
+    echo "prj ${_v:-unknown}"
+    ;;
   help|--help|-h)
     echo ""
     echo -e "${BOLD}Usage:${NC} ./prj [command]"
@@ -2483,6 +2551,8 @@ case "$CMD" in
     echo "  resume      Resume a paused project"
     echo "  sync        Sync with latest base branches"
     echo "  deploy      Deploy a target — prj deploy <t> --local|--dev|--uat|--prod [--provision -d --image --pin --dry-run]"
+    echo "  seed        Run the catalog-declared seed hook (app-owned; e.g. prj seed iam --env local)"
+    echo "  iam-data    Run the catalog-declared data hook (app-owned; e.g. prj iam-data local)"
     echo "  add-repo    Add a repository to a project"
     echo "  cancel      Cancel a project"
     echo "  close       Close a completed project"
@@ -2494,6 +2564,7 @@ case "$CMD" in
     echo "  deps        Install / verify dependencies"
     echo "  manage      List, assign, reassign, unassign projects"
     echo "  upgrade     Pull a new framework version from the template remote"
+    echo "  version     Print the installed prj CLI version (--version, -v)"
     echo ""
     echo "  Run without arguments for the interactive menu."
     echo ""

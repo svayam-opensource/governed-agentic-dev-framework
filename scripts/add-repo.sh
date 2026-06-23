@@ -59,11 +59,18 @@ PY
 BRANCH=$(project_branch_for_id "$PROJECT_ID")
 TODAY=$(today)
 
-# Prompt for base_branch if not provided
+# Prompt for base_branch if not provided. Repo-type-aware default (PRJ-012):
+#   gov/workspace repo  → $DEFAULT_BRANCH (main)    — governance lives on the default branch
+#   any other code repo → $DEFAULT_CODE_BRANCH (dev) — integration branch for code
 if [[ -z "$BASE_BRANCH" ]]; then
-  printf "  Base branch for '%s' [%s]: " "$REPO_URL" "$DEFAULT_CODE_BRANCH"
+  _default_base="$DEFAULT_CODE_BRANCH"
+  case "$REPO_URL" in
+    *"/$WORKSPACE_REPO" | *"/$WORKSPACE_REPO.git" | *":$WORKSPACE_REPO" | *":$WORKSPACE_REPO.git")
+      _default_base="$DEFAULT_BRANCH" ;;
+  esac
+  printf "  Base branch for '%s' [%s]: " "$REPO_URL" "$_default_base"
   read -r input_base
-  BASE_BRANCH="${input_base:-$DEFAULT_CODE_BRANCH}"
+  BASE_BRANCH="${input_base:-$_default_base}"
 fi
 
 REPO_NAME=$(get_repo_name "$REPO_URL")

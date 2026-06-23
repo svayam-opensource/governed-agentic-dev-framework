@@ -403,6 +403,9 @@ def build_lock(cat):
         "platform_services": cat.get("platform_services", {}) or {},
         "applications": cat.get("applications", {}) or {},
         "config_service_map": cat.get("config_service_map", {}) or {},
+        # Generic verb→app-owned-script hooks (e.g. seed, iam-data) — prj dispatches
+        # to these without embedding app logic in the CLI. Passed through verbatim.
+        "hooks": cat.get("hooks", {}) or {},
     }
 
 
