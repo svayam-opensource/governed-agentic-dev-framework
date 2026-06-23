@@ -27,13 +27,14 @@ export ADF_WORKSPACE="$REPO_ROOT_SP"                               # so catalog.
 
 TARGET="${1:-}"; shift || true
 [[ -n "$TARGET" ]] || hard_stop "serve-local.sh <app|unit> [-d] [--image]"
-DETACH=0; IMAGE=0; ACTION="up"; PROVISION=0
+DETACH=0; IMAGE=0; ACTION="up"; PROVISION=0; SEED=0
 while [[ $# -gt 0 ]]; do case "$1" in
   -d|--detach) DETACH=1; shift ;;
   --image) IMAGE=1; shift ;;
   --stop) ACTION="stop"; shift ;;
   --logs) ACTION="logs"; shift ;;
   --provision) PROVISION=1; shift ;;   # auto bring-up an api member that isn't up yet (rung ① of the ladder)
+  --seed) SEED=1; PROVISION=1; shift ;; # also load curated data (catalog seed hook); implies provision
   *) shift ;;
 esac; done
 
@@ -215,6 +216,30 @@ while IFS="|" read -r unit kind repo anchor serve hc; do
       info "  $unit ($kind) — no local backend yet" ;;
   esac
 done <<< "$MEMB_TSV"
+
+# ── 4b. Seed (--seed): load curated data via the catalog seed hook ────────────
+# Runs AFTER members are up (the api/IAM is healthy from the ladder) and BEFORE the
+# foreground tail. prj orchestrates; the seed LOGIC lives in the hook's app repo.
+if [[ "$SEED" == 1 ]]; then
+  echo "--- seed (--seed): catalog seed hook (env=local) ---"
+  SEED_SPEC="$(python3 -c "
+import json
+c=json.load(open('$REPO_ROOT_SP/knowledge/deployment/catalog/graph.lock'))
+h=(c.get('hooks') or {}).get('seed')
+print((h.get('repo') or '').split('/')[-1]+'|'+h['cmd']) if h and h.get('cmd') else ''
+" 2>/dev/null)"
+  if [[ -n "$SEED_SPEC" ]]; then
+    _sleaf="${SEED_SPEC%%|*}"; _scmd="${SEED_SPEC#*|}"; _sdir="$WORKSPACE_ROOT/$_sleaf"
+    if [[ -d "$_sdir" ]]; then
+      info "  ▶ seeding via $_sleaf ($_scmd --env local)"
+      ( cd "$_sdir" && eval "$_scmd --env local" ) && info "  ✓ seeded (env=local)" || warn "  seed failed (see output above)"
+    else
+      warn "  seed: owner repo '$_sleaf' not found at $_sdir — clone it into the project"
+    fi
+  else
+    warn "  seed: no 'seed' hook declared in the catalog (hooks.seed)"
+  fi
+fi
 
 # ── 5. Foreground tail or detach ──────────────────────────────────────────────
 echo "--- $TARGET is up locally ---"
