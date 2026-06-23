@@ -2504,6 +2504,176 @@ print(repo+'|'+h['cmd'])
   ( cd "$repo_dir" && eval "$cmd$q" )
 }
 
+# ── Help (short / --detail / per-command with examples) ────────────────────────
+cmd_help() {
+  local topic="${1:-}"
+  case "$topic" in
+    --detail|--all|-a)
+      echo ""
+      echo -e "${BOLD}Usage:${NC} prj <command> [args]   ·   prj help <command> for command-specific help"
+      echo ""
+      echo -e "${BOLD}Work${NC}"
+      echo "  start       Begin work — join / new task / new project"
+      echo "  work        Continue work — sync your branch and keep going"
+      echo "  finish      Finish a task (submit) or the project (close)"
+      echo "  task        Create a task for parallel work"
+      echo "  merge       Merge a completed task"
+      echo "  sync        Sync with latest base branches"
+      echo "  pause · resume · cancel · close    Project lifecycle"
+      echo ""
+      echo -e "${BOLD}Projects & repos${NC}"
+      echo "  init        Initialize a new project"
+      echo "  join        Join an existing project (team member)"
+      echo "  add-repo    Add a repository to a project"
+      echo "  onboard     Onboard a repository"
+      echo "  list · list-all · status           Project status"
+      echo "  manage      List, assign, reassign, unassign projects"
+      echo ""
+      echo -e "${BOLD}Deploy${NC}"
+      echo "  deploy      Deploy a target — local/dev/uat/prod"
+      echo "  seed        Run the catalog seed hook (app-owned)"
+      echo "  iam-data    Run the catalog data hook (app-owned)"
+      echo "  schedules   Install/inspect catalog cron schedules"
+      echo ""
+      echo -e "${BOLD}Setup & meta${NC}"
+      echo "  creds       Manage your per-developer credentials"
+      echo "  knowledge   Propose org knowledge changes"
+      echo "  deps        Install / verify dependencies"
+      echo "  upgrade     Pull a new framework version from the template remote"
+      echo "  version     Print the installed prj CLI version (--version, -v)"
+      echo ""
+      echo -e "  ${DIM}prj help <command>${NC}   command-specific help + examples"
+      echo ""
+      ;;
+    "")
+      echo ""
+      echo -e "${BOLD}Usage:${NC} prj <command> [args]"
+      echo ""
+      echo -e "${BOLD}Common commands${NC}"
+      echo "  work        Continue work — sync your branch and keep going"
+      echo "  deploy      Deploy a target — local/dev/uat/prod"
+      echo "  manage      List, assign, reassign, unassign projects"
+      echo "  version     Print the installed prj CLI version"
+      echo ""
+      echo -e "  ${DIM}prj help --detail${NC}    all commands"
+      echo -e "  ${DIM}prj help <command>${NC}   help + examples for one command"
+      echo -e "  ${DIM}prj${NC}                  (no args) interactive menu"
+      echo ""
+      ;;
+    deploy)
+      cat <<'EOF'
+prj deploy <target> --local | --dev | --uat | --prod [flags]
+
+Deploy an application or service. ONE verb; the backend differs by env:
+  --local              watch/serve orchestrator (auto-provisions; serves SPAs natively)
+  --dev/--uat/--prod   build-once-promote via Jenkins
+
+An environment is REQUIRED. <target> is an app (e.g. portal) or a service (e.g. svm-ident).
+
+Flags:
+  --seed             also load curated data (catalog seed hook); implies provisioning
+  --no-provision     local: skip auto-provision (local auto-provisions by default)
+  --provision        remote: stand up missing Tier-2 (remote default: halt-with-guidance)
+  -d, --detach       background it (local: detach serve; remote: don't tail the build)
+  --image            local: run the real container image instead of the native dev-server
+  --pin <tag>        pin an immutable image tag (rollback / build-once-promote)
+  --branch <name>    base branch for the build
+  --agent <label>    Jenkins agent label
+  --dry-run          show what would run; execute nothing
+  -y, --yes          skip the uat/prod confirmation prompt
+  --stop [--all]     local: stop the SPA (--all also stops Tier-2 containers)
+  --logs             local: tail the serve logs
+
+Examples:
+  prj deploy portal --local                    bring up locally (auto-provision + serve)
+  prj deploy portal --local --seed             + load curated data (fresh bring-up)
+  prj deploy portal --local -d                 detached (returns; serves in background)
+  prj deploy portal --local --stop --all       full local teardown (SPA + Tier-2)
+  prj deploy svm-ident --uat --pin 0.1.0-uat.3 promote a pinned rollback to uat
+  prj deploy portal --prod --dry-run           preview the prod deploy, run nothing
+EOF
+      ;;
+    seed)
+      cat <<'EOF'
+prj seed <args> — run the catalog-declared `seed` hook (app-owned script).
+
+The catalog declares hooks.seed = { repo, cmd }; prj runs it from the owner repo with
+$ADF_WORKSPACE exported and your args forwarded. App logic lives in the app, not the CLI.
+
+Examples:
+  prj seed iam --env local     seed the local IAM with curated data (env-data/local.yaml)
+EOF
+      ;;
+    iam-data)
+      cat <<'EOF'
+prj iam-data <env> [SQL | --tables] — run the catalog-declared `iam-data` hook.
+
+Query the IAM database for an env (local reads the bundled container; dev/uat/prod via ssh).
+
+Examples:
+  prj iam-data local              open an interactive mariadb shell on the local IAM
+  prj iam-data local --tables     list iam_* tables
+  prj iam-data uat "SELECT ..."   run a query against uat
+EOF
+      ;;
+    creds)
+      cat <<'EOF'
+prj creds <subcommand> — manage YOUR per-developer credentials (never shared/committed).
+
+  creds path             print your creds file path
+  creds groups           list known credential groups + what they're for
+  creds list             KEY names present (values hidden)
+  creds add <group>      guided add for a group (e.g. jenkins)
+  creds set <KEY> [VAL]  set one key (VAL omitted = hidden prompt)
+  creds check <group>    verify a group (e.g. jenkins → authenticates to Jenkins)
+
+Examples:
+  prj creds add jenkins
+  prj creds check jenkins
+EOF
+      ;;
+    schedules)
+      cat <<'EOF'
+prj schedules <subcommand> — install/inspect the catalog's scheduled deploys as cron jobs.
+
+  schedules list         show the generated crontab lines (incl. SKIPPED notes)
+  schedules install      write the runnable lines into YOUR crontab (idempotent)
+  schedules uninstall    remove them from your crontab
+EOF
+      ;;
+    version)
+      cat <<'EOF'
+prj version | --version | -v — print the installed prj CLI version (from the package).
+EOF
+      ;;
+    manage)
+      cat <<'EOF'
+prj manage [list | list-all | manage] — assign/reassign/unassign projects (GitHub-definitive).
+
+  manage list        ongoing assignments (registry cache)
+  manage list-all    full board universe (from GitHub)
+  manage manage      add/remove owners (project) or assignees (issue)
+EOF
+      ;;
+    work)
+      cat <<'EOF'
+prj work — continue work on your current project: sync your branch(es) with the latest
+base branches and keep going. The everyday "pick up where I left off" entry point.
+EOF
+      ;;
+    start|finish|task|merge|pause|resume|sync|init|join|add-repo|cancel|close|knowledge|onboard|list|list-all|status|deps|upgrade|validate)
+      echo ""
+      echo "prj $topic — run \`prj $topic\` (mostly interactive — follow the prompts)."
+      echo "  One-line summary: prj help --detail"
+      echo ""
+      ;;
+    *)
+      err "Unknown command '$topic'. Run 'prj help' for common commands, 'prj help --detail' for all."
+      return 1
+      ;;
+  esac
+}
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 CMD="${1:-}"
@@ -2550,43 +2720,7 @@ case "$CMD" in
     _v="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/package.json" 2>/dev/null | head -1)"
     echo "prj ${_v:-unknown}"
     ;;
-  help|--help|-h)
-    echo ""
-    echo -e "${BOLD}Usage:${NC} ./prj [command]"
-    echo ""
-    echo -e "${BOLD}Commands:${NC}"
-    echo "  start       Begin work — join / new task / new project"
-    echo "  work        Continue work — sync your branch and keep going"
-    echo "  finish      Finish a task (submit) or the project (close)"
-    echo "  init        Initialize a new project"
-    echo "  join        Join an existing project (team member)"
-    echo "  task        Create a task for parallel work"
-    echo "  merge       Merge a completed task"
-    echo "  pause       Pause a project"
-    echo "  resume      Resume a paused project"
-    echo "  sync        Sync with latest base branches"
-    echo "  deploy      Deploy a target — prj deploy <t> --local|--dev|--uat|--prod [--seed --no-provision -d --image --pin --dry-run]"
-    echo "              local lifecycle: --stop [--all] (--all also stops Tier-2 containers) · --logs"
-    echo "  seed        Run the catalog-declared seed hook (app-owned; e.g. prj seed iam --env local)"
-    echo "  iam-data    Run the catalog-declared data hook (app-owned; e.g. prj iam-data local)"
-    echo "  add-repo    Add a repository to a project"
-    echo "  cancel      Cancel a project"
-    echo "  close       Close a completed project"
-    echo "  knowledge   Propose org knowledge changes"
-    echo "  onboard     Onboard a repository"
-    echo "  list        List ongoing projects (active/paused)"
-    echo "  list-all    List all projects, newest first"
-    echo "  status      Show project status"
-    echo "  deps        Install / verify dependencies"
-    echo "  manage      List, assign, reassign, unassign projects"
-    echo "  upgrade     Pull a new framework version from the template remote"
-    echo "  version     Print the installed prj CLI version (--version, -v)"
-    echo "  creds       Manage your per-developer credentials (creds path|groups|add|set|check)"
-    echo "  schedules   Install/inspect catalog cron schedules (schedules list|install|uninstall)"
-    echo ""
-    echo "  Run without arguments for the interactive menu."
-    echo ""
-    ;;
+  help|--help|-h)  cmd_help "${2:-}" ;;
   *)
     err "Unknown command '$CMD'. Run './prj help' for usage."
     exit 1
