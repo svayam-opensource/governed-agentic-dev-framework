@@ -258,8 +258,12 @@ def check_lifecycle(repo_root: Path) -> list[str]:
 def check_cross_refs(repo_root: Path) -> list[str]:
     errors: list[str] = []
 
+    # CODEOWNERS path-existence only applies to a WORKSPACE (org tree at root). In the
+    # framework/template SOURCE repo (has framework/), the root CODEOWNERS describes the
+    # workspace layout it scaffolds (/knowledge/…), which legitimately isn't present here —
+    # so skip the existence check there. The placeholder scan below still runs everywhere.
     codeowners = repo_root / "CODEOWNERS"
-    if codeowners.exists():
+    if codeowners.exists() and not (repo_root / "framework").is_dir():
         for lineno, raw in enumerate(codeowners.read_text().splitlines(), 1):
             line = raw.strip()
             if not line or line.startswith("#"):

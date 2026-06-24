@@ -2459,7 +2459,7 @@ print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>
 
   # Interim safety (svm-prj-work#86): confirm uat/prod unless --yes.
   if [[ "$env" == "staging" || "$env" == "production" ]] && [[ "$yes" != 1 ]]; then
-    warn "Deploying '$target' to ${env^^} — units: $(echo "$units" | tr '\n' ' ')"
+    warn "Deploying '$target' to $(printf '%s' "$env" | tr '[:lower:]' '[:upper:]') — units: $(echo "$units" | tr '\n' ' ')"
     warn "Token-gated authorization is tracked in svm-prj-work#86; for now confirm interactively."
     printf "  Type '%s' to proceed: " "$suffix"
     read -r confirm

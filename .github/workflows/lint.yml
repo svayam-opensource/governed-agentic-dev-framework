@@ -56,12 +56,17 @@ jobs:
             setup.sh
             install.sh
           )
-          if [ ${#files[@]} -eq 0 ]; then
+          # Keep only files that actually exist — literal entries (e.g. framework/prj,
+          # install.sh) may be absent depending on layout; a missing literal must not
+          # hard-fail shellcheck with "does not exist".
+          existing=()
+          for f in "${files[@]}"; do [ -f "$f" ] && existing+=("$f"); done
+          if [ ${#existing[@]} -eq 0 ]; then
             echo "::error::no shell scripts found to lint"
             exit 1
           fi
-          printf '%s\n' "${files[@]}"
-          printf '%s\n' "${files[@]}" > /tmp/lint-files.txt
+          printf '%s\n' "${existing[@]}"
+          printf '%s\n' "${existing[@]}" > /tmp/lint-files.txt
 
       - name: Run shellcheck (error severity — hard fail on real bugs)
         run: |

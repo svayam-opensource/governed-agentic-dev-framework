@@ -38,9 +38,12 @@ out=$(bash "$SCRATCH/scripts/install-deps.sh" --check 2>&1)
 exit_code=$?
 
 assert_exit_code 0 "$exit_code" "install-deps --check passes at template defaults"
-assert_contains "All required tools installed and gh authenticated" "$out" \
+assert_contains "All required tools installed" "$out" \
                 "success message printed"
 assert_contains "bash setup.sh" "$out" "directs user to setup.sh next"
+# install-deps is tools-only — it must NOT verify gh auth (that lives in setup.sh; a
+# gh-auth gate here breaks unauthenticated CI and fresh machines pre-`gh auth login`).
+assert_not_contains "gh auth login" "$out" "no gh-auth gate in install-deps (tools-only)"
 
 # The two-phase split was removed in v0.1.1: install-deps no longer reads
 # org-config.yaml and no longer mentions any 'Phase 2' or GitHub access checks.
