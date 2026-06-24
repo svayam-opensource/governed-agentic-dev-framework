@@ -2371,7 +2371,7 @@ cmd_deploy() {
       --image)               image=1 ;;
       --provision)           provision=1 ;;
       --no-provision)        noprovision=1 ;;   # opt out of local's auto-provision
-      --seed)                seed=1 ;;          # also load curated data (implies provision)
+      --seed)                seed=1 ;;          # local: FRESH reseed — WIPE data + migrate + load curated init data (implies provision)
       --dry-run|--plan)      dryrun=1 ;;
       -y|--yes)              yes=1 ;;
       -f|--follow)           follow=1 ;;
@@ -2418,6 +2418,7 @@ cmd_deploy() {
     [[ "$image"    == 1 ]]    && args+=(--image)
     [[ "$provision" == 1 ]]   && args+=(--provision)
     [[ "$seed"     == 1 ]]    && args+=(--seed)
+    [[ "$yes"      == 1 ]]    && args+=(--yes)
     if [[ "$dryrun" == 1 ]]; then
       info "DRY-RUN (local): bash $DEPLOY/serve-local.sh ${args[*]}"
       python3 "$DEPLOY/catalog.py" resolve "$target" --env local 2>/dev/null || true
@@ -2615,7 +2616,9 @@ Deploy an application or service. ONE verb; the backend differs by env:
 An environment is REQUIRED. <target> is an app (e.g. portal) or a service (e.g. svm-ident).
 
 Flags:
-  --seed             also load curated data (catalog seed hook); implies provisioning
+  --seed             local: FRESH reseed — WIPES the data volume, re-migrates, then loads
+                     curated init data (a clean known baseline, not last-shutdown data).
+                     Implies provisioning; prompts to confirm unless -y/--yes.
   --no-provision     local: skip auto-provision (local auto-provisions by default)
   --provision        remote: stand up missing Tier-2 (remote default: halt-with-guidance)
   -d, --detach       background it (local: detach serve; remote: don't tail the build)
@@ -2624,7 +2627,7 @@ Flags:
   --branch <name>    base branch for the build
   --agent <label>    Jenkins agent label
   --dry-run          show what would run; execute nothing
-  -y, --yes          skip the uat/prod confirmation prompt
+  -y, --yes          skip confirmation prompts (uat/prod deploy; local --seed wipe)
   --stop [--all]     local: stop the SPA (--all also stops Tier-2 containers)
   --logs             local: tail the serve logs
 
@@ -2650,14 +2653,21 @@ EOF
       ;;
     iam-data)
       cat <<'EOF'
-prj iam-data <env> [SQL | --tables] — run the catalog-declared `iam-data` hook.
+prj iam-data <env> [ <name> [k=v…] | --list | --describe <name> | --tables | "<SQL>" ]
 
-Query the IAM database for an env (local reads the bundled container; dev/uat/prod via ssh).
+Run the catalog-declared `iam-data` hook against an env's IAM database (local = the
+bundled container; dev/uat/prod via ssh). Beyond ad-hoc SQL and an interactive shell,
+it ships CANNED diagnostic queries (diagnostics.sql) that encode the right joins +
+bi-temporal filters once; params bind as @vars (read-only, never interpolated).
 
-Examples:
-  prj iam-data local              open an interactive mariadb shell on the local IAM
-  prj iam-data local --tables     list iam_* tables
-  prj iam-data uat "SELECT ..."   run a query against uat
+  prj iam-data local --list                            list the canned queries
+  prj iam-data local --describe user-roles             show a query's SQL + params
+  prj iam-data local user-roles email=local1@svayam.ai account=1000 product=portal
+  prj iam-data local user-accounts email=local1@svayam.ai
+  prj iam-data local account-subscriptions account=1000
+  prj iam-data local --tables                          list iam_* tables + row counts
+  prj iam-data uat "SELECT ..."                        ad-hoc SQL (has spaces ⇒ raw)
+  prj iam-data local                                   interactive mariadb shell
 EOF
       ;;
     creds)
