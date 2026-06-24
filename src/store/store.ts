@@ -31,6 +31,14 @@ export interface VectorStore {
   count(): Promise<number>;
   health(): Promise<"ok" | "down">;
   clear(): Promise<void>;
+  /**
+   * The git sha the index was last ingested up to, PERSISTED with the index so it
+   * survives process boundaries (the CLI `ingest` and `serve` are separate processes)
+   * and restarts. Returns "" if never set. This is what makes `/readyz.indexedSha`
+   * truthful and lets incremental re-embed self-compute `--sinceSha` (#49).
+   */
+  getIndexedSha(): Promise<string>;
+  setIndexedSha(sha: string, dim: number): Promise<void>;
 }
 
 // ---- shared payload-filter semantics (AND across fields, OR within a field) ----

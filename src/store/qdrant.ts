@@ -137,6 +137,36 @@ export class QdrantStore implements VectorStore {
   async clear(): Promise<void> {
     await fetch(this.url(`/collections/${this.collection}`), { method: "DELETE" });
   }
+
+  // Durable indexedSha (#49): a single RESERVED meta-point in the collection holds the
+  // sha the index was ingested up to. It is removed by clear() (full re-ingest) and
+  // re-written when ingest completes, so it tracks the collection's lifecycle. The
+  // marker carries a zero vector and NO `status` field, so it never appears in search
+  // results (the default status=["current"] filter excludes it). It does add +1 to the
+  // raw point count — cosmetic; the count===0 "rebuilding" check is unaffected because
+  // the marker only exists after a successful ingest (real chunks present).
+  private static readonly META_ID = chunkIdToPointId("__svm_rag_indexed_sha__");
+
+  async getIndexedSha(): Promise<string> {
+    try {
+      const res = await this.req("POST", `/collections/${this.collection}/points`, {
+        ids: [QdrantStore.META_ID], with_payload: true,
+      });
+      return (res.result?.[0]?.payload?.indexedSha as string) ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  async setIndexedSha(sha: string, dim: number): Promise<void> {
+    await this.req("PUT", `/collections/${this.collection}/points?wait=true`, {
+      points: [{
+        id: QdrantStore.META_ID,
+        vector: new Array(dim).fill(0),
+        payload: { kind: "__meta__", indexedSha: sha },
+      }],
+    });
+  }
 }
 
 function flatten(p: StoredPoint): QPayload {

@@ -50,4 +50,10 @@ export class MemoryStore implements VectorStore {
   async count(): Promise<number> { return this.points.size; }
   async health(): Promise<"ok" | "down"> { return "ok"; }
   async clear(): Promise<void> { this.points.clear(); }
+
+  // Process-local only (the memory store is not persistent by design); kept here so
+  // the in-memory path mirrors the Qdrant contract for tests + local dev.
+  private _indexedSha = "";
+  async getIndexedSha(): Promise<string> { return this._indexedSha; }
+  async setIndexedSha(sha: string): Promise<void> { this._indexedSha = sha; }
 }

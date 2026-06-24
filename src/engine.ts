@@ -103,6 +103,8 @@ export class RagEngine {
       }
 
       this.indexedSha = job.sourceSha ?? this.indexedSha;
+      // Persist with the index so a restart / the separate serve process see it (#49).
+      if (this.indexedSha) await this.store.setIndexedSha(this.indexedSha, this.cfg.embedDim);
       job.status = "succeeded";
       job.finishedAt = new Date().toISOString();
     } catch (e: any) {
@@ -114,6 +116,20 @@ export class RagEngine {
   }
 
   getIngestJob(jobId: string): IngestJob | null { return this.jobs.get(jobId) ?? null; }
+
+  /**
+   * Authoritative indexedSha, read from the durable store (#49). The PERSISTED value
+   * is the source of truth so the long-running serve process never reports a stale sha
+   * after a SEPARATE process (CLI ingest) advances it. The in-memory field is kept warm
+   * as the fallback when the store is briefly unreachable, and honours an explicit
+   * RAG_INDEXED_SHA boot override while the store is still empty. The extra point-get is
+   * cheap (loopback Qdrant, tiny corpus).
+   */
+  private async currentIndexedSha(): Promise<string> {
+    const persisted = await this.store.getIndexedSha().catch(() => "");
+    if (persisted) this.indexedSha = persisted
+    return persisted || this.indexedSha;
+  }
 
   // ---- search ----------------------------------------------------------
   async search(req: SearchRequest): Promise<SearchResponse> {
@@ -128,7 +144,7 @@ export class RagEngine {
       chunkId: p.chunkId, score: round(p.score),
       text: includeText ? p.text : null, metadata: p.metadata,
     }));
-    return { hits, model: modelId(this.cfg), indexedSha: this.indexedSha, appliedFilter: filter };
+    return { hits, model: modelId(this.cfg), indexedSha: await this.currentIndexedSha(), appliedFilter: filter };
   }
 
   // ---- similar-docs ----------------------------------------------------
@@ -180,7 +196,7 @@ export class RagEngine {
         text: p.text, metadata: p.metadata,
       })),
       coverageVerdict: verdict,
-      model: modelId(this.cfg), indexedSha: this.indexedSha,
+      model: modelId(this.cfg), indexedSha: await this.currentIndexedSha(),
     };
   }
 
@@ -207,13 +223,14 @@ export class RagEngine {
       this.store.health(), this.embedder.health(), this.store.count().catch(() => 0),
     ]);
     const head = headSha(this.cfg.corpusRoot);
+    const indexedSha = await this.currentIndexedSha();
     let status: Readiness["status"] = "ready";
     if (qdrant === "down" || embedder === "down") status = "down";
     else if (embedder === "loading") status = "degraded";
     else if (count === 0) status = "rebuilding";
-    else if (this.indexedSha && head && this.indexedSha !== head) status = "degraded";
+    else if (indexedSha && head && indexedSha !== head) status = "degraded";
     return {
-      status, indexedSha: this.indexedSha, headSha: head,
+      status, indexedSha, headSha: head,
       chunkCount: count, model: modelId(this.cfg),
       dependencies: { qdrant, embedder },
     };
