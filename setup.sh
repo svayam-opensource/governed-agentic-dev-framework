@@ -514,6 +514,30 @@ else
   warn "It will be auto-created on first prj write op once gh auth is configured."
 fi
 
+# ── Persist ADF_WORKSPACE (the gov repo) ───────────────────────────────────────
+# This repo IS the gov workspace (stays on main). `prj`'s catalog/data/deploy commands
+# read the committed catalog from $ADF_WORKSPACE for dev/uat/prod and now REQUIRE it to be
+# set, so make it permanent in the developer's login shell. Idempotent managed block;
+# SETUP_SKIP_SHELL_RC=1 opts out (CI / manual management).
+ADF_ACTIVATED=false
+if [[ "${SETUP_SKIP_SHELL_RC:-}" != "1" ]]; then
+  case "$(basename "${SHELL:-bash}")" in
+    zsh)  ADF_RC="$HOME/.zshrc" ;;
+    bash) ADF_RC="$HOME/.bashrc" ;;
+    *)    ADF_RC="$HOME/.profile" ;;
+  esac
+  ADF_BEGIN="# >>> prj ADF_WORKSPACE (managed by setup.sh) >>>"
+  ADF_END="# <<< prj ADF_WORKSPACE <<<"
+  touch "$ADF_RC"
+  if grep -qF "$ADF_BEGIN" "$ADF_RC" 2>/dev/null; then     # drop any prior managed block
+    awk -v b="$ADF_BEGIN" -v e="$ADF_END" '$0==b{skip=1} !skip{print} $0==e{skip=0}' \
+      "$ADF_RC" > "$ADF_RC.tmp" && mv "$ADF_RC.tmp" "$ADF_RC"
+  fi
+  printf '%s\nexport ADF_WORKSPACE=%q\n%s\n' "$ADF_BEGIN" "$REPO_ROOT" "$ADF_END" >> "$ADF_RC"
+  ADF_ACTIVATED=true
+  ok "ADF_WORKSPACE → $REPO_ROOT  (added to $ADF_RC)"
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
@@ -523,7 +547,10 @@ echo "Next steps:"
 echo "  1. Review changes:    git diff org-config.yaml"
 echo "  2. Commit + push:     git add org-config.yaml && git commit -m 'configure framework for $ORG_NAME' && git push origin $DEFAULT_BRANCH"
 echo "  3. Edit preferences:  ${PREFS_FILE:-<agent_work_root>/preferences/<your-gh-login>.md}"
-echo "  4. Start using:       ./prj"
+if $ADF_ACTIVATED; then
+echo "  4. Activate now:      export ADF_WORKSPACE=\"$REPO_ROOT\"   (or open a new shell — it's in $ADF_RC)"
+fi
+echo "  5. Start using:       ./prj"
 echo ""
 echo "  Framework upgrades:   git fetch template && git merge template/$DEFAULT_BRANCH"
 echo ""
