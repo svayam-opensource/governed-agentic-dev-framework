@@ -27,7 +27,7 @@ Primary knowledge consumption interface for developers, governance teams, and au
 
 ### Content Coverage
 - All `knowledge/` subfolders and documents
-- All `projects/PRJ-NNN-<slug>/knowledge/` content
+- All `projects/PRJ-<board#>-<slug>/knowledge/` content
 - `registry.yaml` rendered as a project dashboard
 - CODEOWNERS rendered as domain ownership map
 - `knowledge/policies/roles.md` rendered as an org chart
@@ -75,7 +75,7 @@ Enables agents to semantically search org knowledge for context building without
 
 ### Agent Usage
 Agents query the vector store at session start to build relevant context:
-1. Pull project knowledge from `projects/PRJ-NNN-<slug>/`
+1. Pull project knowledge from `projects/PRJ-<board#>-<slug>/`
 2. Query vector store with project context to retrieve semantically relevant org knowledge
 3. Assemble context from retrieved chunks + full priority layer stack
 

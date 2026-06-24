@@ -76,7 +76,7 @@ If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still i
 Read these in priority order (highest first). Never use cached layers from a prior session:
 
 1. **Org-wide knowledge** — `knowledge/` in this repo, from the `<DEFAULT_BRANCH>` branch.
-2. **Active project** — `projects/<PROJECT_ID>/knowledge/` plus the project's own entrypoint at `projects/<PROJECT_ID>/agent.md`. To determine the active `PROJECT_ID`: check `registry.yaml` for entries with `status: active`, and check the current git branch (project branches are named `brnch-NNN-<slug>`).
+2. **Active project** — `projects/<PROJECT_ID>/knowledge/` plus the project's own entrypoint at `projects/<PROJECT_ID>/agent.md`. To determine the active `PROJECT_ID`: check `registry.yaml` for entries with `status: active`, and check the current git branch (project branches are named `BRNCH-<board#>-<slug>`, where `board#` is the GitHub project board number with no leading zero; the matching project id is `PRJ-<board#>-<slug>`. Pre-existing projects keep their legacy `brnch-NNN-<slug>` names).
 3. **Repo-local** — `<repo>/knowledge/` for each linked code repo at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`.
 4. **Your developer preferences** — `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md`. Run `gh api user --jq .login` to determine your handle; load **only** your file. Other files in that directory belong to other developers — do not read them.
 
@@ -86,7 +86,7 @@ Higher layers always win. Developer preferences cannot override repo-local or or
 
 If a project is active:
 
-- Confirm you are authorized: you have **write access to the project's linked GitHub Project** (the authorization source of truth — an owner grants it via `./prj manage assign`). `assigned_to` in `project.yaml` is a display/audit cache, **not** the gate. When on a task sub-branch (`brnch-NNN-<slug>/<task-slug>`), confirm that sub-branch's assignee is you.
+- Confirm you are authorized: you have **write access to the project's linked GitHub Project** (the authorization source of truth — an owner grants it via `./prj manage assign`). `assigned_to` in `project.yaml` is a display/audit cache, **not** the gate. When on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is you.
 - `project.yaml`'s `status` must be `active`.
 - Read `projects/<PROJECT_ID>/knowledge/todo.md` and surface its `## Open` items to the developer before planning new work.
 

@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `PRJ-007-invoice-api` |
+| `project_id` | Yes | e.g., `PRJ-26-invoice-api` |
 
 ---
 
@@ -18,8 +18,8 @@
 
 Script refuses to proceed if ANY of the following are missing:
 
-- `projects/PRJ-NNN-<slug>/knowledge/` contains at least one file
-- `projects/PRJ-NNN-<slug>/knowledge/compliance.md` exists
+- `projects/PRJ-<board#>-<slug>/knowledge/` contains at least one file
+- `projects/PRJ-<board#>-<slug>/knowledge/compliance.md` exists
 - `project.yaml` has all mandatory fields populated
 - `completed_at` is NOT yet set (prevents double-close)
 
@@ -29,13 +29,13 @@ Script refuses to proceed if ANY of the following are missing:
 
 1. Run pre-close gate — hard stop on any failure
 2. For each repo in `repos[]`:
-   - Auto-merge `brnch-NNN-<slug>` → `base_branch`
+   - Auto-merge `BRNCH-<board#>-<slug>` → `base_branch`
    - If merge conflicts: **pause script**, surface conflicts to human developer
    - Human resolves conflicts, then re-runs script to continue
-3. Merge `brnch-NNN-<slug>` → `<DEFAULT_BRANCH>` in `<WORKSPACE_REPO>`
+3. Merge `BRNCH-<board#>-<slug>` → `<DEFAULT_BRANCH>` in `<WORKSPACE_REPO>`
 4. For each repo and `<WORKSPACE_REPO>`:
-   - Create archive tag `archive/brnch-NNN-<slug>`
-   - Delete branch `brnch-NNN-<slug>`
+   - Create archive tag `archive/BRNCH-<board#>-<slug>`
+   - Delete branch `BRNCH-<board#>-<slug>`
 5. Set `project.yaml`:
    - `status: completed`
    - `completed_at: <today>`
@@ -46,7 +46,7 @@ Script refuses to proceed if ANY of the following are missing:
 
 ## Outputs
 
-- All `brnch-NNN-<slug>` branches merged to their respective base branches
+- All `BRNCH-<board#>-<slug>` branches merged to their respective base branches
 - Archive tags created and branches deleted
 - `project.yaml` status: `completed`, `completed_at` stamped
 - `close-knowledge` triggered

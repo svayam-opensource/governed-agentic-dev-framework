@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `PRJ-007-invoice-api` |
+| `project_id` | Yes | e.g., `PRJ-26-invoice-api` |
 
 ---
 
@@ -27,7 +27,7 @@
 2. Verify `status: active`
 3. Set `status: paused`
 4. Set `paused_at: <today>`
-5. Commit updated `project.yaml` to `brnch-NNN-<slug>` branch
+5. Commit updated `project.yaml` to `BRNCH-<board#>-<slug>` branch
 6. Push all branches to remote
 
 ---
