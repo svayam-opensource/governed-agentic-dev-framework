@@ -2510,14 +2510,27 @@ resolve_local_workspace() {
 # seed / data) is invoked via a generic verb without shipping app internals in the
 # open-source CLI. The hook runs from the owner repo's dir with $ADF_WORKSPACE
 # exported and all extra args forwarded. Mirrors how deploy uses catalog provision.
-# Ensure WORKSPACE_ROOT points at a workspace that actually has the deploy catalog.
-# When run outside a project with $ADF_WORKSPACE unset (e.g. from $HOME), the global
-# WORKSPACE_ROOT falls back to the CLI's own dir (no catalog) — so resolve from cwd like
-# `deploy --local` does (walk up for org-config.yaml; prompt to pick a project if none).
+# Ensure WORKSPACE_ROOT points at a workspace that has the deploy catalog. Unlike
+# `deploy --local` (where you genuinely PICK which project's tree to serve), the catalog
+# read by data/seed/iam-data is gov-global — there's nothing to choose. So resolve it
+# NON-interactively and never prompt a project picker:
+#   1. the current WORKSPACE_ROOT already has the catalog ($ADF_WORKSPACE set), or
+#   2. walk up from cwd: cwd is the workspace, OR cwd is inside a project tree and a
+#      sibling/child holds the catalog (e.g. run from a member repo 911/912 → svm-prj-work).
+# Only if none is found do we error with guidance (no 12-project menu).
 ensure_workspace_catalog() {
-  [[ -f "$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock" ]] && return 0
-  local _lws; _lws="$(resolve_local_workspace)" || return 1
-  WORKSPACE_ROOT="$_lws"; export ADF_WORKSPACE="$_lws"
+  local rel="knowledge/deployment/catalog/graph.lock"
+  [[ -f "$WORKSPACE_ROOT/$rel" ]] && return 0
+  local d="$PWD" hit
+  while [[ "$d" != "/" ]]; do
+    if [[ -f "$d/$rel" ]]; then WORKSPACE_ROOT="$d"; export ADF_WORKSPACE="$d"; return 0; fi
+    for hit in "$d"/*/"$rel"; do                       # a workspace clone under this ancestor
+      [[ -f "$hit" ]] && { WORKSPACE_ROOT="${hit%/$rel}"; export ADF_WORKSPACE="$WORKSPACE_ROOT"; return 0; }
+    done
+    d="$(dirname "$d")"
+  done
+  err "no deploy catalog found near $PWD. Set ADF_WORKSPACE to your workspace (the clone with $rel), or run from inside your project."
+  return 1
 }
 
 run_catalog_hook() {
