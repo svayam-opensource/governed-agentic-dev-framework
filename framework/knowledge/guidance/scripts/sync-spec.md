@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `PRJ-007-invoice-api` |
+| `project_id` | Yes | e.g., `PRJ-26-invoice-api` |
 
 ---
 
@@ -25,11 +25,11 @@
 
 1. Verify `status: active` and no uncommitted changes
 2. Fetch latest `<DEFAULT_BRANCH>` in `<WORKSPACE_REPO>`
-3. Merge `<DEFAULT_BRANCH>` → `brnch-NNN-<slug>` in `<WORKSPACE_REPO>`
+3. Merge `<DEFAULT_BRANCH>` → `BRNCH-<board#>-<slug>` in `<WORKSPACE_REPO>`
 4. Pause for human conflict resolution if needed, then continue
 5. For each repo in `repos[]`:
    - Fetch latest `base_branch`
-   - Merge `base_branch` → `brnch-NNN-<slug>`
+   - Merge `base_branch` → `BRNCH-<board#>-<slug>`
    - Pause on conflicts for human resolution
 6. Reload all four knowledge layers fresh
 7. Push updated branches

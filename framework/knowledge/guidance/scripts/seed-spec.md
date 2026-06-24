@@ -34,12 +34,12 @@
 1. Validate GitHub Project against gates above
 2. Slugify the GitHub Project name → `short-slug` (lowercase, hyphen-separated)
 3. Read `registry.yaml` → get `last_issued`, compute `NNN = last_issued + 1`
-4. Compose project ID: `PRJ-NNN-<slug>`
-5. Create branch `brnch-NNN-<slug>` from `<DEFAULT_BRANCH>` in `<WORKSPACE_REPO>`
+4. Compose project ID: `PRJ-<board#>-<slug>`
+5. Create branch `BRNCH-<board#>-<slug>` from `<DEFAULT_BRANCH>` in `<WORKSPACE_REPO>`
 6. Switch to new branch
-7. Create directory `projects/PRJ-NNN-<slug>/` with structure:
+7. Create directory `projects/PRJ-<board#>-<slug>/` with structure:
    ```
-   projects/PRJ-NNN-<slug>/
+   projects/PRJ-<board#>-<slug>/
    ├── project.yaml
    ├── requirements/
    ├── environment/
@@ -52,20 +52,20 @@
 11. For each repo identified:
     - Prompt: "Base branch for `<repo>`? [dev]:" (allow override)
     - Record `base_branch` in `project.yaml`
-    - Clone repo into `<agent_work_root>/PRJ-NNN-<slug>/<repo-name>/`
-    - Create branch `brnch-NNN-<slug>` from `base_branch`
+    - Clone repo into `<agent_work_root>/PRJ-<board#>-<slug>/<repo-name>/`
+    - Create branch `BRNCH-<board#>-<slug>` from `base_branch`
     - Push branch to remote
 12. Update `registry.yaml`: increment `last_issued`, append project to `projects[]`
 13. Set `project.yaml` status to `active`, populate `started_at`
-14. Commit all changes to `brnch-NNN-<slug>` branch in `<WORKSPACE_REPO>`
+14. Commit all changes to `BRNCH-<board#>-<slug>` branch in `<WORKSPACE_REPO>`
 15. Push branch to remote
 
 ---
 
 ## Outputs
 
-- `projects/PRJ-NNN-<slug>/` workspace scaffolded in `<WORKSPACE_REPO>`
-- Branch `brnch-NNN-<slug>` created in `<WORKSPACE_REPO>` and all identified repos
+- `projects/PRJ-<board#>-<slug>/` workspace scaffolded in `<WORKSPACE_REPO>`
+- Branch `BRNCH-<board#>-<slug>` created in `<WORKSPACE_REPO>` and all identified repos
 - `registry.yaml` updated with new project
 - `project.yaml` status: `active`
 

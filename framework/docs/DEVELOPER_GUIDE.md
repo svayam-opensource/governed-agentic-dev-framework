@@ -38,11 +38,11 @@ As a developer, your normal path is three verbs:
 [ owner: ./prj manage assign ]           ← grants you write access to the GitHub Project
        ↓
 [ ./prj start ]                          ← join a project / start a task / start a new project
-       ↓ creates a per-project workspace under $AGENT_WORK_ROOT/<PRJ-NNN-slug>/
+       ↓ creates a per-project workspace under $AGENT_WORK_ROOT/<PRJ-<board#>-slug>/
        ↓   ├── <workspace_repo>/   ← git worktree on the project branch
        ↓   └── <each-code-repo>/   ← git worktree on the project branch
        ↓
-[ cd $AGENT_WORK_ROOT/<PRJ-NNN-slug>/<workspace_repo> ]
+[ cd $AGENT_WORK_ROOT/<PRJ-<board#>-slug>/<workspace_repo> ]
        ↓
 [ ./prj work ]   ← sync with latest base and continue; repeat each session
        ↓
@@ -128,7 +128,7 @@ What happens:
 
 At the end you'll see a **"Next steps"** block printing the exact `cd` target plus a ready-to-paste first-session prompt with the project name baked in. **Read it.** That output is the canonical "what to do next" guide for the project you just created.
 
-**Important:** project-branch work (code, knowledge, project.yaml edits) all happens inside the per-project workspace. The HOME repo's `projects/PRJ-NNN-slug/` is just a stub on the default branch until `./prj close` merges the project branch back.
+**Important:** project-branch work (code, knowledge, project.yaml edits) all happens inside the per-project workspace. The HOME repo's `projects/PRJ-<board#>-slug/` is just a stub on the default branch until `./prj close` merges the project branch back.
 
 ---
 

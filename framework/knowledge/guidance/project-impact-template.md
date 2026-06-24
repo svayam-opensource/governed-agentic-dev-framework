@@ -1,13 +1,13 @@
-# Project Impact: PRJ-NNN-<slug>
+# Project Impact: PRJ-<board#>-<slug>
 
 **Repository:** [repo-name]
-**Project:** PRJ-NNN-<slug>
+**Project:** PRJ-<board#>-<slug>
 **Period:** YYYY-MM-DD to YYYY-MM-DD
 **Project Lead:** [locked_by value]
 
-This document records the impact of project PRJ-NNN-<slug> on this repository.
+This document records the impact of project PRJ-<board#>-<slug> on this repository.
 It is created by the close-project script and lives at:
-`<repo>/knowledge/projects/PRJ-NNN-<slug>/`
+`<repo>/knowledge/projects/PRJ-<board#>-<slug>/`
 
 ---
 

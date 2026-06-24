@@ -10,8 +10,8 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `PRJ-007-invoice-api` |
-| `task_id` | Yes | e.g., `brnch-007-invoice-api/api-design` |
+| `project_id` | Yes | e.g., `PRJ-26-invoice-api` |
+| `task_id` | Yes | e.g., `BRNCH-26-invoice-api.ISSUE-42` |
 
 ---
 
@@ -26,17 +26,17 @@
 ## Steps
 
 1. Verify pre-conditions
-2. In `<WORKSPACE_REPO>`: merge `brnch-NNN-<slug>/task-slug` → `brnch-NNN-<slug>`
-3. For each repo in `repos[]`: merge `brnch-NNN-<slug>/task-slug` → `brnch-NNN-<slug>`
+2. In `<WORKSPACE_REPO>`: merge `BRNCH-<board#>-<slug>.ISSUE-<n>` → `BRNCH-<board#>-<slug>`
+3. For each repo in `repos[]`: merge `BRNCH-<board#>-<slug>.ISSUE-<n>` → `BRNCH-<board#>-<slug>`
 4. Pause for human conflict resolution if merge conflicts exist, then resume
 5. In all repos and `<WORKSPACE_REPO>`:
-   - Create archive tag `archive/brnch-NNN-<slug>/task-slug`
-   - Delete sub-branch `brnch-NNN-<slug>/task-slug`
+   - Create archive tag `archive/BRNCH-<board#>-<slug>.ISSUE-<n>`
+   - Delete sub-branch `BRNCH-<board#>-<slug>.ISSUE-<n>`
 6. Mark GitHub Issue as resolved/closed
 7. Update task in `project.yaml` `tasks[]`:
    - `status: completed`
    - `completed_at: <today>`
-8. Commit updated `project.yaml` to `brnch-NNN-<slug>`
+8. Commit updated `project.yaml` to `BRNCH-<board#>-<slug>`
 
 ---
 

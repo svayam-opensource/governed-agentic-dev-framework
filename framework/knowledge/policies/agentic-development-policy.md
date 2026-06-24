@@ -245,12 +245,12 @@ The `<WORKSPACE_REPO>` repository is organized as follows:
 
 ```
 <WORKSPACE_REPO>/
-├── registry.yaml                    # project registry, issues <ORG_SLUG>-NNN
+├── registry.yaml                    # project registry, issues PRJ-<board#>-<slug>
 ├── CODEOWNERS                       # maps knowledge/ to domain owners
 ├── agent.md                         # org-level agent entry point
 ├── knowledge/                       # org-wide knowledge (see Section 6)
 └── projects/
-    └── PRJ-NNN-<slug>/                # one folder per project
+    └── PRJ-<board#>-<slug>/                # one folder per project
         ├── project.yaml             # project manifest
         ├── requirements/            # goals, scope, issues, features, tickets
         ├── environment/             # project-specific infra, tools, skills
@@ -267,7 +267,7 @@ Every active project must have a `project.yaml` file in its workspace folder. Th
 The following fields are mandatory in every `project.yaml`:
 
 ```yaml
-id: <ORG_SLUG>-007-invoice-api
+id: PRJ-26-invoice-api
 slug: invoice-api
 description: One-line project intent
 github_project: <url>
@@ -325,21 +325,21 @@ The following are **C02** requirements:
 
 **Code repository branching**: The default base branch for code repositories is `dev`. This may be overridden at seed time (for example, to target a production hotfix branch) by specifying a different `base_branch` in `project.yaml`. **(POL-068)**
 
-**Branch naming**: All project branches, in every repository, must be named `brnch-NNN-slug`. This naming convention is mandatory and must be enforced by the `seed` script. **(POL-069)**
+**Branch naming**: All project branches, in every repository, must be named `BRNCH-<board#>-<slug>`. This naming convention is mandatory and must be enforced by the `seed` script. **(POL-069)**
 
-**Sub-branches for multi-agent work**: When a project involves parallel work across multiple agents or developers, sub-branches are created in the format `brnch-NNN-slug/<task-slug>`. **(POL-070)**
+**Sub-branches for multi-agent work**: When a project involves parallel work across multiple agents or developers, sub-branches are created in the format `BRNCH-<board#>-<slug>.ISSUE-<n>`. **(POL-070)**
 
-**Knowledge close branch**: The knowledge close process uses a dedicated branch named `brnch-NNN-slug-knowledge`. **(POL-071)**
+**Knowledge close branch**: The knowledge close process uses a dedicated branch named `BRNCH-<board#>-<slug>-knowledge`. **(POL-071)**
 
-**Branch cleanup**: Upon project completion or cancellation, all project branches must be tagged for archival (`archive/brnch-NNN-slug`) and then deleted. **(POL-072)**
+**Branch cleanup**: Upon project completion or cancellation, all project branches must be tagged for archival (`archive/BRNCH-<board#>-<slug>`) and then deleted. **(POL-072)**
 
-**Sub-branch merge rule**: Sub-branches must merge back to the parent `brnch-NNN-slug` branch only. Sub-branches must never be merged directly to `<DEFAULT_BRANCH>`, `dev`, or any base branch. **(POL-073)**
+**Sub-branch merge rule**: Sub-branches must merge back to the parent `BRNCH-<board#>-<slug>` branch only. Sub-branches must never be merged directly to `<DEFAULT_BRANCH>`, `dev`, or any base branch. **(POL-073)**
 
 ### 5.6 Multi-Agent Coordination
 
-Teams may conduct parallel work using sub-branches (`brnch-NNN-slug/<task-slug>`). Each sub-branch is the responsibility of exactly one agent or developer. Multiple assignees per sub-branch are not permitted. **(POL-074)**
+Teams may conduct parallel work using sub-branches (`BRNCH-<board#>-<slug>.ISSUE-<n>`). Each sub-branch is the responsibility of exactly one agent or developer. Multiple assignees per sub-branch are not permitted. **(POL-074)**
 
-Each task corresponds to a GitHub Issue on the project board plus a sub-branch named `brnch-NNN-slug/<task-slug>`. Task state lives on the board — an open issue is an active task, a closed issue is done — and is **not** duplicated in `project.yaml`. The board is the authoritative source for task assignment and status. **(POL-075)**
+Each task corresponds to a GitHub Issue on the project board plus a sub-branch named `BRNCH-<board#>-<slug>.ISSUE-<n>`. Task state lives on the board — an open issue is an active task, a closed issue is done — and is **not** duplicated in `project.yaml`. The board is the authoritative source for task assignment and status. **(POL-075)**
 
 ---
 
@@ -352,7 +352,7 @@ Organizational knowledge is organized in four layers. When conflicts arise betwe
 The layers in descending order of authority are:
 
 1. **Org-wide knowledge** — `<WORKSPACE_REPO>/knowledge/` — highest authority. **(POL-077)**
-2. **Project knowledge** — `<WORKSPACE_REPO>/projects/PRJ-NNN-<slug>/knowledge/` — second priority. **(POL-078)**
+2. **Project knowledge** — `<WORKSPACE_REPO>/projects/PRJ-<board#>-<slug>/knowledge/` — second priority. **(POL-078)**
 3. **Repo-local knowledge** — `<repo>/knowledge/` — third priority. **(POL-079)**
 4. **Developer/agent preferences** — `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` — lowest priority. Per-user, keyed on GitHub login; an agent reads only the file matching its current GitHub identity. **(POL-080)**
 
@@ -394,7 +394,7 @@ knowledge/
 ├── agent.md           # repo knowledge entry point
 ├── repo/              # repo structure, environment, patterns
 └── projects/
-    └── PRJ-NNN-<slug>/  # impact of this project on this repo
+    └── PRJ-<board#>-<slug>/  # impact of this project on this repo
         ├── changelog.md
         ├── decisions.md
         └── impact-summary.md
@@ -408,7 +408,7 @@ This structure is initialized by the `onboard-repo` script. Repositories that ha
 
 During an active project, no changes are permitted to `<WORKSPACE_REPO>/knowledge/` for any reason **(C01, POL-086)**. This restriction exists to protect the integrity of org-wide knowledge during concurrent project work.
 
-All knowledge writes during an active project are strictly constrained to the project's own knowledge folder: `projects/PRJ-NNN-<slug>/knowledge/`. **(POL-087)**
+All knowledge writes during an active project are strictly constrained to the project's own knowledge folder: `projects/PRJ-<board#>-<slug>/knowledge/`. **(POL-087)**
 
 Project knowledge is intentionally free-form. There is no required structural coupling between project knowledge and org-wide knowledge structure during the project. **(POL-088)**
 
@@ -416,9 +416,9 @@ Project knowledge is intentionally free-form. There is no required structural co
 
 When a project is completed, accumulated project knowledge is synthesized and proposed for inclusion in org-wide knowledge through the knowledge close process. The steps are:
 
-1. **Pre-close consolidation**: The developer or agent consolidates all project learnings, decisions, and artifacts into `projects/PRJ-NNN-<slug>/knowledge/`. **(POL-089)**
+1. **Pre-close consolidation**: The developer or agent consolidates all project learnings, decisions, and artifacts into `projects/PRJ-<board#>-<slug>/knowledge/`. **(POL-089)**
 2. **Script execution**: The `close-knowledge` script is run. It uses LLM+RAG synthesis to map project knowledge to proposed changes in org-wide knowledge. **(POL-090)**
-3. **Branch creation**: The script creates a `brnch-NNN-slug-knowledge` branch from `<DEFAULT_BRANCH>`. **(POL-091)**
+3. **Branch creation**: The script creates a `BRNCH-<board#>-<slug>-knowledge` branch from `<DEFAULT_BRANCH>`. **(POL-091)**
 4. **PR creation**: The script proposes changes to `knowledge/` on that branch and raises a PR. CODEOWNERS automatically assigns the appropriate domain owners as reviewers. **(POL-092)**
 5. **Review**: The Policy Owner and relevant domain owners review the proposed changes and either merge, reject, request revision, or allow abandonment. **(POL-093)**
 
@@ -426,7 +426,7 @@ When a project is completed, accumulated project knowledge is synthesized and pr
 
 A knowledge PR may have one of four outcomes:
 
-- **Merged**: The proposed changes are accepted. The branch is tagged `archive/brnch-NNN-slug-knowledge` and deleted. `knowledge_status` in `project.yaml` is set to `merged`. **(POL-094)**
+- **Merged**: The proposed changes are accepted. The branch is tagged `archive/BRNCH-<board#>-<slug>-knowledge` and deleted. `knowledge_status` in `project.yaml` is set to `merged`. **(POL-094)**
 - **Rejected**: The proposed changes are not accepted. The branch is deleted or retained at the owner's discretion. `knowledge_status` is set to `rejected`. **(POL-095)**
 - **Under revision**: The owner requests changes. The developer revises on the same branch and submits a new PR. `knowledge_status` is set to `under_revision`. **(POL-096)**
 - **Abandoned**: The developer closes the PR and deletes the branch. `knowledge_status` is set to `abandoned`. **(POL-097)**
@@ -468,7 +468,7 @@ Project knowledge proposals to org-wide knowledge flow through the following pro
 
 1. The Project Knowledge Owner (`<POLICY_OWNER_EMAIL>`) reviews accumulated project knowledge at project close. **(POL-110)**
 2. The `close-knowledge` script synthesizes proposals using LLM+RAG. **(POL-111)**
-3. The `brnch-NNN-slug-knowledge` PR is the formal, auditable proposal mechanism. Proposals that are merged become the new org knowledge version, versioned by the commit SHA on `<DEFAULT_BRANCH>`. **(POL-112)**
+3. The `BRNCH-<board#>-<slug>-knowledge` PR is the formal, auditable proposal mechanism. Proposals that are merged become the new org knowledge version, versioned by the commit SHA on `<DEFAULT_BRANCH>`. **(POL-112)**
 
 ---
 
@@ -482,14 +482,14 @@ Every agent work session is governed by a mandatory start protocol and a recomme
 
 Before performing any work whatsoever, an agent must complete all of the following steps in order **(POL-113)**:
 
-1. **Verify authorization & task ownership**: Confirm the current user is authorized via `assigned_to` (the named individual, or a member of the `assigned_to` team). When working on a task sub-branch (`brnch-NNN-slug/<task-slug>`), confirm that sub-branch's assignee is the current user (per-task lock). If authorization fails, the agent must refuse to proceed and surface this to the human immediately. (`seeded_by` is an audit record, not a gate.) **(POL-114)**
+1. **Verify authorization & task ownership**: Confirm the current user is authorized via `assigned_to` (the named individual, or a member of the `assigned_to` team). When working on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is the current user (per-task lock). If authorization fails, the agent must refuse to proceed and surface this to the human immediately. (`seeded_by` is an audit record, not a gate.) **(POL-114)**
 2. **Verify project status**: Confirm that `status` in `project.yaml` is `active`. Any other status — `paused`, `completed`, `cancelled` — requires the agent to refuse and surface to the human. **(POL-115)**
 3. **Load knowledge layers fresh**: Load all four knowledge layers in priority order from their current state in the repository. Knowledge layers must never be used from a previous session's cache across session boundaries. The load order is: **(POL-116)**
    - `<WORKSPACE_REPO>/knowledge/` (org-wide, from `<DEFAULT_BRANCH>`)
-   - `projects/PRJ-NNN-<slug>/knowledge/` (project knowledge)
+   - `projects/PRJ-<board#>-<slug>/knowledge/` (project knowledge)
    - `<cloned-repos>/knowledge/` (repo-local, from project branch)
    - `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` (your own developer preferences only)
-4. **Pull latest branch**: Pull the latest commits from the `brnch-NNN-slug` branch in all participating repositories. **(POL-117)**
+4. **Pull latest branch**: Pull the latest commits from the `BRNCH-<board#>-<slug>` branch in all participating repositories. **(POL-117)**
 
 Only after all four steps are complete may the agent begin work. **(POL-118)**
 
@@ -497,8 +497,8 @@ Only after all four steps are complete may the agent begin work. **(POL-118)**
 
 At the conclusion of every work session, an agent should complete the following steps **(POL-119)**:
 
-1. Commit all changes to the `brnch-NNN-slug` branch. **(POL-120)**
-2. Update `projects/PRJ-NNN-<slug>/knowledge/` with any new learnings, decisions, or observations from the session. **(POL-121)**
+1. Commit all changes to the `BRNCH-<board#>-<slug>` branch. **(POL-120)**
+2. Update `projects/PRJ-<board#>-<slug>/knowledge/` with any new learnings, decisions, or observations from the session. **(POL-121)**
 3. Update `compliance.md` in the project knowledge folder if any compliance events — violations detected, exceptions exercised, C03 deviations made — occurred during the session. **(POL-122)**
 4. Push all commits to the remote. **(POL-123)**
 
@@ -510,7 +510,7 @@ If a C01 violation is detected at any point during a work session, the agent mus
 
 Each developer or agent must define a `AGENT_WORK_ROOT` directory — by exporting the env var in their shell (legacy `AGENT_WORK_ROOT` is still honored), or accepting the framework default of `~/prj_gov`. This is the local root for all project governance: the management gov clone, per-project clones, and developer preferences. **(POL-125)**
 
-Per project, a governance clone and the code repos are placed under `$AGENT_WORK_ROOT/projects/PRJ-NNN-<slug>/` — the gov clone at `$AGENT_WORK_ROOT/projects/PRJ-NNN-<slug>/<gov-repo>/` and code repos under `.../repos/<repo-name>/`. **(POL-126)**
+Per project, a governance clone and the code repos are placed under `$AGENT_WORK_ROOT/projects/PRJ-<board#>-<slug>/` — the gov clone at `$AGENT_WORK_ROOT/projects/PRJ-<board#>-<slug>/<gov-repo>/` and code repos under `.../repos/<repo-name>/`. **(POL-126)**
 
 Developer preferences are maintained at `$AGENT_WORK_ROOT/preferences/<gh-login>.md` — one file per developer, keyed on GitHub login. The framework loads only the file matching the current agent's identity; other files in that directory belong to other developers and must not be read by an agent. **(POL-127)**
 
@@ -594,7 +594,7 @@ CI/CD failures on structural validation are C01 events. A PR that fails CI/CD st
 
 Compliance events must be tracked at two levels:
 
-**Per-project compliance**: Every project must maintain a `compliance.md` file in `projects/PRJ-NNN-<slug>/knowledge/`. This file records: all C01 violations detected during the project, all C02 exceptions raised and their approval status, and all C03 deviations with their documented reasoning. **(POL-150)**
+**Per-project compliance**: Every project must maintain a `compliance.md` file in `projects/PRJ-<board#>-<slug>/knowledge/`. This file records: all C01 violations detected during the project, all C02 exceptions raised and their approval status, and all C03 deviations with their documented reasoning. **(POL-150)**
 
 **Org-wide compliance**: The `knowledge/compliance/` folder contains the organization-wide compliance summary. This summary is updated automatically at every project close and reviewed by the Policy Owner quarterly. **(POL-151)**
 
@@ -675,10 +675,10 @@ The Legal & Compliance Policy will govern legal compliance requirements applicab
 
 | Term | Definition |
 |---|---|
-| **Project** | A uniquely identifiable unit of work identified by `PRJ-NNN-<slug>`. All organizational work must be conducted through a project. |
-| **Workspace** | The folder `projects/PRJ-NNN-<slug>/` within `<WORKSPACE_REPO>`. Contains all project-specific files and knowledge. |
+| **Project** | A uniquely identifiable unit of work identified by `PRJ-<board#>-<slug>`. All organizational work must be conducted through a project. |
+| **Workspace** | The folder `projects/PRJ-<board#>-<slug>/` within `<WORKSPACE_REPO>`. Contains all project-specific files and knowledge. |
 | **Org-wide knowledge** | Content in `<WORKSPACE_REPO>/knowledge/`. The highest-authority knowledge layer. |
-| **Project knowledge** | Content in `projects/PRJ-NNN-<slug>/knowledge/`. Second-priority knowledge layer. |
+| **Project knowledge** | Content in `projects/PRJ-<board#>-<slug>/knowledge/`. Second-priority knowledge layer. |
 | **Repo-local knowledge** | Content in `<repo>/knowledge/`. Third-priority knowledge layer. |
 | **Developer preferences** | Content in `$AGENT_WORK_ROOT/preferences/<gh-login>.md` — one file per developer. Lowest-priority knowledge layer; C03 only. |
 | **Seed** | The act of transitioning a project from `proposed` to `active` by running the `seed` script. Creates the project workspace and branches. |
@@ -687,7 +687,7 @@ The Legal & Compliance Policy will govern legal compliance requirements applicab
 | **C02** | Compliance level: Always Apply. Exceptions require formal approval via PR by authorized domain representative. |
 | **C03** | Compliance level: Apply Intelligently. Strong default. Deviations allowed only when intent is honored and reasoning is documented. |
 | **seeded_by** | The individual who ran the `seed` script for a project — an audit record, set once. Not an authorization gate: authorization is via `assigned_to`, and ownership of in-progress work is per task. |
-| **base_branch** | The branch from which `brnch-NNN-slug` was created in a code repository. The branch to which project changes are merged upon completion. |
+| **base_branch** | The branch from which `BRNCH-<board#>-<slug>` was created in a code repository. The branch to which project changes are merged upon completion. |
 | **agent_work_root** | The local directory on a developer or agent's machine where project repositories are cloned. Never committed. |
 | **CODEOWNERS** | The GitHub file mapping repository folders to their responsible owners for PR review purposes. |
 | **registry.yaml** | The authoritative project registry in `<WORKSPACE_REPO>`. Source of truth for all project IDs and statuses. |
@@ -700,7 +700,7 @@ The following scripts constitute the authorized tooling for project and knowledg
 
 | Script | Context | Purpose |
 |---|---|---|
-| `seed` | Project lifecycle | Transitions a project from `proposed` to `active`. Scaffolds workspace, creates branches, issues <ORG_SLUG>-NNN. |
+| `seed` | Project lifecycle | Transitions a project from `proposed` to `active`. Scaffolds workspace, creates branches, issues PRJ-<board#>-<slug>. |
 | `add-repo` | Project lifecycle | Adds a new code repository to an active project mid-work. |
 | `pause` | Project lifecycle | Transitions a project from `active` to `paused`. |
 | `resume` | Project lifecycle | Transitions a project from `paused` to `active`. Pulls latest `<DEFAULT_BRANCH>` into project branch. |
@@ -708,8 +708,8 @@ The following scripts constitute the authorized tooling for project and knowledg
 | `close-project` | Project lifecycle | Transitions a project from `active` to `completed`. Merges all project branches to their base branches. |
 | `close-knowledge` | Project lifecycle | Runs LLM+RAG synthesis of project knowledge. Creates knowledge branch and raises knowledge PR. |
 | `sync` | Project lifecycle | Pulls latest `<DEFAULT_BRANCH>` changes into the project branch on demand. |
-| `create-task` | Multi-agent | Creates a sub-branch (`brnch-NNN-slug/<task-slug>`) linked to a GitHub Issue. |
-| `merge-task` | Multi-agent | Merges a sub-branch back to the parent `brnch-NNN-slug` branch. Archives sub-branch and closes linked Issue. |
+| `create-task` | Multi-agent | Creates a sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`) linked to a GitHub Issue. |
+| `merge-task` | Multi-agent | Merges a sub-branch back to the parent `BRNCH-<board#>-<slug>` branch. Archives sub-branch and closes linked Issue. |
 | `propose-knowledge` | Standalone | Proposes ad-hoc changes to org-wide knowledge outside any active project context. Raises a PR via CODEOWNERS. |
 | `onboard-repo` | Standalone | Initializes the `knowledge/` folder structure in an existing code repository. Raises a PR via CODEOWNERS. |
 
@@ -768,7 +768,7 @@ POL-039: Domain owners have final approval authority within their own domain; no
 POL-040: Cross-domain PRs require approval from each affected domain owner; Policy Owner resolves disputes.
 POL-041: All organizational work must be performed through an active, uniquely identifiable project.
 POL-042: Every project is identified by the format PRJ-<board#>-<slug> (GitHub project board number, no leading zero; lowercase slug from GitHub Project name).
-POL-043: Project IDs are issued exclusively by the seed script from the linked GitHub board; the branch mirrors the id as BRNCH-<board#>-<slug> (task sub-branches append .ISSUE-<n>); never assigned manually. Legacy PRJ-NNN/brnch-NNN projects keep their names.
+POL-043: Project IDs are issued exclusively by the seed script from the linked GitHub board; the branch mirrors the id as BRNCH-<board#>-<slug> (task sub-branches append .ISSUE-<n>); never assigned manually. Legacy PRJ-NNN / brnch-NNN projects keep their names.
 POL-044: registry.yaml in <WORKSPACE_REPO> is the single authoritative source of truth for all project IDs and statuses.
 POL-045: A project may be assigned to an individual (email) or a team (team-id).
 POL-046: seeded_by records who ran the seed script; an audit record set once — not an authorization gate.
@@ -794,16 +794,16 @@ POL-065: The GitHub Project must have a description before seeding (C02).
 POL-066: At least one linked Issue must mark the project's scope or goals before seeding (C02).
 POL-067: All <WORKSPACE_REPO> project work branches from <DEFAULT_BRANCH> and merges back to <DEFAULT_BRANCH>.
 POL-068: Default base branch for code repositories is dev; overridable at seed time via base_branch in project.yaml.
-POL-069: All project branches in every repository must be named brnch-NNN-slug.
-POL-070: Sub-branches for parallel multi-agent work are named brnch-NNN-slug/<task-slug>.
-POL-071: The knowledge close process uses a dedicated branch named brnch-NNN-slug-knowledge.
-POL-072: On completion or cancellation, all project branches must be tagged archive/brnch-NNN-slug and deleted.
-POL-073: Sub-branches must merge to brnch-NNN-slug only; never directly to <DEFAULT_BRANCH>, dev, or any base branch.
+POL-069: All project branches in every repository must be named BRNCH-<board#>-<slug>.
+POL-070: Sub-branches for parallel multi-agent work are named BRNCH-<board#>-<slug>.ISSUE-<n>.
+POL-071: The knowledge close process uses a dedicated branch named BRNCH-<board#>-<slug>-knowledge.
+POL-072: On completion or cancellation, all project branches must be tagged archive/BRNCH-<board#>-<slug> and deleted.
+POL-073: Sub-branches must merge to BRNCH-<board#>-<slug> only; never directly to <DEFAULT_BRANCH>, dev, or any base branch.
 POL-074: Each sub-branch is assigned to exactly one agent or developer; multiple assignees per sub-branch are not permitted.
 POL-075: Each task is a GitHub Issue on the board plus a sub-branch; task state lives on the board (open=active, closed=done), not in project.yaml.
 POL-076: When knowledge layers conflict, higher-priority layers always take precedence.
 POL-077: Org-wide knowledge in <WORKSPACE_REPO>/knowledge/ is the highest-authority knowledge layer.
-POL-078: Project knowledge in projects/PRJ-NNN-<slug>/knowledge/ is the second-priority knowledge layer.
+POL-078: Project knowledge in projects/PRJ-<board#>-<slug>/knowledge/ is the second-priority knowledge layer.
 POL-079: Repo-local knowledge in <repo>/knowledge/ is the third-priority knowledge layer.
 POL-080: Developer preferences in $AGENT_WORK_ROOT/preferences/<gh-login>.md are the lowest-priority knowledge layer; per-user, keyed on GitHub login.
 POL-081: Developer preferences cannot override repo knowledge; repo knowledge cannot override org knowledge.
@@ -812,11 +812,11 @@ POL-083: CODEOWNERS in <WORKSPACE_REPO> maps each knowledge/ subfolder to its do
 POL-084: Every participating code repository must contain a knowledge/ folder with the defined structure.
 POL-085: Repositories must be onboarded via the onboard-repo script before being added to any project.
 POL-086: During an active project, no changes are permitted to <WORKSPACE_REPO>/knowledge/ (C01).
-POL-087: All knowledge writes during an active project are constrained to projects/PRJ-NNN-<slug>/knowledge/ only.
+POL-087: All knowledge writes during an active project are constrained to projects/PRJ-<board#>-<slug>/knowledge/ only.
 POL-088: Project knowledge is intentionally free-form; no structural coupling to org knowledge is required during the project.
-POL-089: Pre-close consolidation: developer/agent consolidates all project learnings into projects/PRJ-NNN-<slug>/knowledge/.
+POL-089: Pre-close consolidation: developer/agent consolidates all project learnings into projects/PRJ-<board#>-<slug>/knowledge/.
 POL-090: The close-knowledge script uses LLM+RAG synthesis to map project knowledge to org knowledge proposals.
-POL-091: The close-knowledge script creates the brnch-NNN-slug-knowledge branch from <DEFAULT_BRANCH>.
+POL-091: The close-knowledge script creates the BRNCH-<board#>-<slug>-knowledge branch from <DEFAULT_BRANCH>.
 POL-092: The close-knowledge script raises a PR against <DEFAULT_BRANCH>; CODEOWNERS auto-assigns domain owners as reviewers.
 POL-093: Policy Owner and domain owners review the knowledge PR and determine its outcome.
 POL-094: A merged knowledge PR results in archive tag, branch deletion, and knowledge_status: merged.
@@ -837,21 +837,21 @@ POL-108: Per-project compliance.md files feed into the org-wide compliance summa
 POL-109: Critical C01 violations escalate to the Policy Owner immediately, regardless of quarterly review cadence.
 POL-110: Project Knowledge Owner reviews accumulated project knowledge at project close.
 POL-111: The close-knowledge script synthesizes org knowledge proposals using LLM+RAG.
-POL-112: The brnch-NNN-slug-knowledge PR is the formal proposal mechanism; merged proposals are versioned by commit SHA.
+POL-112: The BRNCH-<board#>-<slug>-knowledge PR is the formal proposal mechanism; merged proposals are versioned by commit SHA.
 POL-113: Before any work, an agent must complete all four session start steps in order (C01).
 POL-114: Session start step 1 — verify authorization (assigned_to individual/team) and, on a task sub-branch, that you own it; refuse and surface otherwise (C01).
 POL-115: Session start step 2 — verify status is active; refuse and surface if any other status (C01).
 POL-116: Session start step 3 — load all four knowledge layers fresh in priority order; never use cached layers across sessions (C01).
-POL-117: Session start step 4 — pull latest from brnch-NNN-slug branch in all participating repositories (C01).
+POL-117: Session start step 4 — pull latest from BRNCH-<board#>-<slug> branch in all participating repositories (C01).
 POL-118: No work may begin until all four session start steps are complete.
 POL-119: At session end, agents should complete the four-step end protocol (C02).
-POL-120: Session end step 1 — commit all changes to the brnch-NNN-slug branch.
-POL-121: Session end step 2 — update projects/PRJ-NNN-<slug>/knowledge/ with session learnings.
+POL-120: Session end step 1 — commit all changes to the BRNCH-<board#>-<slug> branch.
+POL-121: Session end step 2 — update projects/PRJ-<board#>-<slug>/knowledge/ with session learnings.
 POL-122: Session end step 3 — update compliance.md if any compliance events occurred during the session.
 POL-123: Session end step 4 — push all commits to the remote.
 POL-124: A mid-session C01 violation requires immediate hard stop, no commits, and escalation to the human.
 POL-125: Each developer/agent defines AGENT_WORK_ROOT (shell env var; legacy AGENT_WORK_ROOT honored; default ~/prj_gov) — the local project-governance root.
-POL-126: Per-project clones live under $AGENT_WORK_ROOT/projects/PRJ-NNN-<slug>/ (gov clone + repos/<repo-name>).
+POL-126: Per-project clones live under $AGENT_WORK_ROOT/projects/PRJ-<board#>-<slug>/ (gov clone + repos/<repo-name>).
 POL-127: Developer preferences are maintained at $AGENT_WORK_ROOT/preferences/<gh-login>.md — one file per developer, keyed on GitHub login.
 POL-128: AGENT_WORK_ROOT and its contents must never be committed to any repository.
 POL-129: Developer and agent preferences are C03 instruments only.
@@ -893,7 +893,7 @@ POL-164: Agents and developers must use the authorized scripts rather than perfo
 POL-165: The Script Inventory lists all authorized lifecycle and standalone scripts with their purposes.
 POL-166: Current role assignments and manager designations are maintained authoritatively in knowledge/policies/roles.md.
 POL-167: Changes to role assignments require a PR to knowledge/policies/roles.md approved by the Policy Owner.
-POL-168: Each project maintains a carry-forward to-do list at projects/PRJ-NNN-<slug>/knowledge/todo.md, scaffolded by seed.sh from knowledge/guidance/todo-template.md.
+POL-168: Each project maintains a carry-forward to-do list at projects/PRJ-<board#>-<slug>/knowledge/todo.md, scaffolded by seed.sh from knowledge/guidance/todo-template.md.
 POL-169: At session start, an agent must read the project's todo.md and surface its Open items to the developer before planning new work (C01).
 POL-170: During work, an agent (or developer) must capture intermediate to-dos in the project's todo.md as they arise — not at session end.
 POL-171: Projects are stateful and session-spanning; sessions are not project-bound. When an agent switches to a different project's branch within the same session, it must re-run the full session-start protocol for the new project (POL-113 through POL-116, POL-169) and must not carry forward in-memory context from the previous project.

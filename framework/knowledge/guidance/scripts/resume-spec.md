@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `PRJ-007-invoice-api` |
+| `project_id` | Yes | e.g., `PRJ-26-invoice-api` |
 
 ---
 
@@ -26,11 +26,11 @@
 1. Verify `status: paused` and authorization
 2. **Mandatory <DEFAULT_BRANCH> sync for `<WORKSPACE_REPO>`:**
    - Fetch latest `<DEFAULT_BRANCH>`
-   - Merge `<DEFAULT_BRANCH>` → `brnch-NNN-<slug>`
+   - Merge `<DEFAULT_BRANCH>` → `BRNCH-<board#>-<slug>`
    - If merge conflicts: pause script, surface conflicts to human developer for resolution, then resume
 3. **Mandatory <DEFAULT_BRANCH> sync for each repo in `repos[]`:**
    - Fetch latest `base_branch` for each repo
-   - Merge `base_branch` → `brnch-NNN-<slug>` in each repo
+   - Merge `base_branch` → `BRNCH-<board#>-<slug>` in each repo
    - Pause on conflicts for human resolution
 4. Clear `paused_at` (set to `~`)
 5. Set `status: active`

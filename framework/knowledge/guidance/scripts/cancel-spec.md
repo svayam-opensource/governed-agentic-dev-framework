@@ -10,7 +10,7 @@
 
 | Input | Required | Description |
 |---|---|---|
-| `project_id` | Yes | e.g., `PRJ-007-invoice-api` |
+| `project_id` | Yes | e.g., `PRJ-26-invoice-api` |
 | `cancellation_reason` | Yes | Why the project is being cancelled |
 
 ---
@@ -26,11 +26,11 @@
 
 1. Require `cancellation_reason` — hard stop if not provided
 2. In `<WORKSPACE_REPO>`:
-   - Create archive tag `archive/brnch-NNN-<slug>` at current branch tip
-   - Delete branch `brnch-NNN-<slug>`
+   - Create archive tag `archive/BRNCH-<board#>-<slug>` at current branch tip
+   - Delete branch `BRNCH-<board#>-<slug>`
 3. For each repo in `repos[]`:
-   - Create archive tag `archive/brnch-NNN-<slug>` at current branch tip
-   - Delete branch `brnch-NNN-<slug>`
+   - Create archive tag `archive/BRNCH-<board#>-<slug>` at current branch tip
+   - Delete branch `BRNCH-<board#>-<slug>`
 4. Set `project.yaml` fields:
    - `status: cancelled`
    - `cancelled_at: <today>`
@@ -43,8 +43,8 @@
 
 ## Outputs
 
-- Archive tags `archive/brnch-NNN-<slug>` created in all repos
-- All `brnch-NNN-<slug>` branches deleted
+- Archive tags `archive/BRNCH-<board#>-<slug>` created in all repos
+- All `BRNCH-<board#>-<slug>` branches deleted
 - `project.yaml` committed to <DEFAULT_BRANCH> with `status: cancelled`
 
 ---

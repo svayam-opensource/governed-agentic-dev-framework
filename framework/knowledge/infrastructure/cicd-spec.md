@@ -30,15 +30,15 @@ These checks run on every PR targeting `<DEFAULT_BRANCH>`. Failures block the me
 ### 3. `registry.yaml` Integrity
 - `last_issued` must be a non-negative integer
 - No duplicate project IDs in `projects[]`
-- All IDs must match the `PRJ-NNN-<slug>` format
+- All IDs must match the `PRJ-<board#>-<slug>` format
 
 ### 4. Active Project Workspace Structure
 - All `active` projects must have:
-  - `projects/PRJ-NNN-<slug>/requirements/` folder
-  - `projects/PRJ-NNN-<slug>/environment/` folder
-  - `projects/PRJ-NNN-<slug>/knowledge/` folder
-  - `projects/PRJ-NNN-<slug>/agent.md`
-  - `projects/PRJ-NNN-<slug>/project.yaml`
+  - `projects/PRJ-<board#>-<slug>/requirements/` folder
+  - `projects/PRJ-<board#>-<slug>/environment/` folder
+  - `projects/PRJ-<board#>-<slug>/knowledge/` folder
+  - `projects/PRJ-<board#>-<slug>/agent.md`
+  - `projects/PRJ-<board#>-<slug>/project.yaml`
 
 ### 5. Data Classification Scan
 - Scan all committed files for patterns matching Restricted data (credentials, keys, tokens)

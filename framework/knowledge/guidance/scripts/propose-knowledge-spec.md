@@ -62,7 +62,7 @@
 |---|---|---|
 | Context | Standalone | After project close |
 | Authoring | Manual | LLM+RAG synthesis |
-| Branch prefix | `knowledge-<slug>` | `brnch-NNN-<slug>-knowledge` |
+| Branch prefix | `knowledge-<slug>` | `BRNCH-<board#>-<slug>-knowledge` |
 | Source | Human-written | Project knowledge folder |
 
 ---

@@ -57,7 +57,7 @@ Any authorized GitHub user with access to `<WORKSPACE_REPO>`.
 6. Project is now in `PROPOSED` state — no workspace exists yet
 
 ### Notes
-- The project ID (`PRJ-NNN`) is NOT assigned at this stage — it is assigned by the seed script
+- The project ID (`PRJ-<board#>`) is NOT assigned at this stage — it is assigned by the seed script
 - `<WORKSPACE_REPO>` is always an implicit participant — do not create an Issue in it to include it
 
 ---
@@ -82,13 +82,13 @@ The developer or agent assigned to the project.
 3. Run: `seed <github_project_url> <assignee>`
 4. Script prompts for `base_branch` override per repo (default: `dev`) — specify if working on emergency fixes
 5. Script scaffolds workspace, clones repos, creates branches
-6. Verify: `projects/PRJ-NNN-<slug>/` exists on branch `brnch-NNN-<slug>`
-7. Verify: all repos cloned under `<agent_work_root>/PRJ-NNN-<slug>/`
+6. Verify: `projects/PRJ-<board#>-<slug>/` exists on branch `BRNCH-<board#>-<slug>`
+7. Verify: all repos cloned under `<agent_work_root>/PRJ-<board#>-<slug>/`
 8. Begin work — project is now `ACTIVE`
 
 ### Success Criteria
-- `projects/PRJ-NNN-<slug>/project.yaml` exists with `status: active`
-- Branch `brnch-NNN-<slug>` exists in `<WORKSPACE_REPO>` and all identified repos
+- `projects/PRJ-<board#>-<slug>/project.yaml` exists with `status: active`
+- Branch `BRNCH-<board#>-<slug>` exists in `<WORKSPACE_REPO>` and all identified repos
 - `registry.yaml` updated with new project entry
 
 ---
@@ -100,31 +100,31 @@ The developer or agent assigned to the project.
 
 ### Session Start (C01 — complete before any work)
 
-1. **Verify authorization** — read `projects/PRJ-NNN-<slug>/project.yaml`:
+1. **Verify authorization** — read `projects/PRJ-<board#>-<slug>/project.yaml`:
    - Confirm `locked_by` matches your identity, OR you are a member of `assigned_to` team
    - Confirm `status: active`
    - Hard stop if either check fails **(POL-113, POL-114)**
 
 2. **Load knowledge layers fresh** — never use cached layers from a prior session **(POL-115)**:
    - Layer 1: Read `<WORKSPACE_REPO>/knowledge/` (org-wide, from <DEFAULT_BRANCH>) **(POL-076)**
-   - Layer 2: Read `projects/PRJ-NNN-<slug>/knowledge/` (project knowledge) **(POL-077)**
+   - Layer 2: Read `projects/PRJ-<board#>-<slug>/knowledge/` (project knowledge) **(POL-077)**
    - Layer 3: Read `<cloned-repos>/knowledge/` (repo-local, from project branch) **(POL-078)**
    - Layer 4: Read `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` (your own developer preferences only — do not read other developers' files in this folder) **(POL-079)**
 
-3. **Pull latest** — fetch and pull `brnch-NNN-<slug>` branch in all repos **(POL-116)**
+3. **Pull latest** — fetch and pull `BRNCH-<board#>-<slug>` branch in all repos **(POL-116)**
 
-4. **Read project carry-forward to-do list** — `projects/PRJ-NNN-<slug>/knowledge/todo.md`. Surface the `## Open` items to the developer before planning new work. This list is project-stateful: it survives sessions and is the agent's mechanism for picking up intermediate work from prior sessions on this same project branch.
+4. **Read project carry-forward to-do list** — `projects/PRJ-<board#>-<slug>/knowledge/todo.md`. Surface the `## Open` items to the developer before planning new work. This list is project-stateful: it survives sessions and is the agent's mechanism for picking up intermediate work from prior sessions on this same project branch.
 
 ### During Work
 
-- All writes must go to `projects/PRJ-NNN-<slug>/` or to code in cloned repos on `brnch-NNN-<slug>` branch **(POL-087 — C01)**
+- All writes must go to `projects/PRJ-<board#>-<slug>/` or to code in cloned repos on `BRNCH-<board#>-<slug>` branch **(POL-087 — C01)**
 - Do NOT write to `<WORKSPACE_REPO>/knowledge/` **(POL-087 — C01)**
-- Capture intermediate to-dos in `projects/PRJ-NNN-<slug>/knowledge/todo.md` (`## Open`) as they arise — not at session end.
+- Capture intermediate to-dos in `projects/PRJ-<board#>-<slug>/knowledge/todo.md` (`## Open`) as they arise — not at session end.
 - If a C01 violation is detected mid-session: hard stop, commit nothing, surface to human immediately **(POL-117)**
 
 ### Switching Projects Within a Session
 
-Sessions are agent-lifecycle (one continuous LLM conversation). Projects are git-branch-scoped (each `brnch-NNN-<slug>` is its own context). A single session can span multiple project branches — switching is permitted but is **not** free.
+Sessions are agent-lifecycle (one continuous LLM conversation). Projects are git-branch-scoped (each `BRNCH-<board#>-<slug>` is its own context). A single session can span multiple project branches — switching is permitted but is **not** free.
 
 When the developer switches the workspace to a different project branch (e.g. `git checkout brnch-002-other`), the agent must:
 
@@ -134,9 +134,9 @@ When the developer switches the workspace to a different project branch (e.g. `g
 
 ### Session End (C02)
 
-1. Commit all changes to `brnch-NNN-<slug>` branch in all affected repos **(POL-118)**
-2. Update `projects/PRJ-NNN-<slug>/knowledge/` with new learnings **(POL-119)**
-3. Update `projects/PRJ-NNN-<slug>/knowledge/compliance.md` if any compliance events occurred **(POL-120)**
+1. Commit all changes to `BRNCH-<board#>-<slug>` branch in all affected repos **(POL-118)**
+2. Update `projects/PRJ-<board#>-<slug>/knowledge/` with new learnings **(POL-119)**
+3. Update `projects/PRJ-<board#>-<slug>/knowledge/compliance.md` if any compliance events occurred **(POL-120)**
 4. Push all branches to remote **(POL-121)**
 
 ---
@@ -153,13 +153,13 @@ When a team needs to split project work among multiple agents/developers working
 ### Steps
 1. Identify the GitHub Issue that defines this unit of work
 2. Run: `create-task <project_id> <github_issue_url> <assignee_email>`
-3. Script creates sub-branch `brnch-NNN-<slug>/<task-slug>` in all repos
+3. Script creates sub-branch `BRNCH-<board#>-<slug>.ISSUE-<n>` in all repos
 4. Assigned developer/agent works exclusively on this sub-branch
 5. Sub-branch session start: same as PROC-04 but on sub-branch
 6. Sub-branch session end: commit to sub-branch; use `merge-task` when done
 
 ### Rules
-- Sub-branches merge back to `brnch-NNN-<slug>` ONLY — never to <DEFAULT_BRANCH> **(POL-073)**
+- Sub-branches merge back to `BRNCH-<board#>-<slug>` ONLY — never to <DEFAULT_BRANCH> **(POL-073)**
 - Single assignee per sub-branch **(POL-074)**
 - Multiple sub-branches can be active simultaneously **(POL-075)**
 
@@ -174,7 +174,7 @@ When a team needs to split project work among multiple agents/developers working
 ### Steps
 1. Ensure all work on sub-branch is committed and pushed
 2. Run: `merge-task <project_id> <task_id>`
-3. Script merges sub-branch into `brnch-NNN-<slug>`
+3. Script merges sub-branch into `BRNCH-<board#>-<slug>`
 4. Resolve any merge conflicts if prompted
 5. Sub-branch is archived and deleted
 6. GitHub Issue is marked resolved
@@ -273,8 +273,8 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 
 ### Pre-close Checklist (C01 — must be complete before running close-project)
 
-- [ ] `projects/PRJ-NNN-<slug>/knowledge/` contains meaningful content
-- [ ] `projects/PRJ-NNN-<slug>/knowledge/compliance.md` exists and is current
+- [ ] `projects/PRJ-<board#>-<slug>/knowledge/` contains meaningful content
+- [ ] `projects/PRJ-<board#>-<slug>/knowledge/compliance.md` exists and is current
 - [ ] All task sub-branches are merged (via PROC-06)
 - [ ] All `project.yaml` mandatory fields are populated
 - [ ] `completed_at` is NOT yet set
@@ -289,9 +289,9 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 7. `close-knowledge` is triggered automatically
 
 ### Steps — Knowledge Close (auto-triggered)
-8. Script reads all content in `projects/PRJ-NNN-<slug>/knowledge/`
+8. Script reads all content in `projects/PRJ-<board#>-<slug>/knowledge/`
 9. LLM+RAG synthesizes proposals for org knowledge
-10. Branch `brnch-NNN-<slug>-knowledge` created from <DEFAULT_BRANCH>
+10. Branch `BRNCH-<board#>-<slug>-knowledge` created from <DEFAULT_BRANCH>
 11. PR raised with auto-assigned domain owner reviewers
 12. `project.yaml` updated: `knowledge_status: pending_review`
 
@@ -315,9 +315,9 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
    - Architecture constraint → `knowledge/policies/exceptions/architecture/`
    - Other policy constraint → `knowledge/policies/exceptions/policy/`
 2. Copy the appropriate `TEMPLATE.md` from that folder
-3. Rename: `YYYY-MM-DD-PRJ-NNN-<slug>-brief-description.md`
+3. Rename: `YYYY-MM-DD-PRJ-<board#>-<slug>-brief-description.md`
 4. Fill in all required fields
-5. Commit to your project branch `brnch-NNN-<slug>`
+5. Commit to your project branch `BRNCH-<board#>-<slug>`
 6. Raise PR to <DEFAULT_BRANCH>
 7. **Do NOT proceed with the excepted action until the PR is merged** **(POL-154 — C01)**
 8. Appropriate domain owner reviews and merges
