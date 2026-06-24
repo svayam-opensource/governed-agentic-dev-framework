@@ -2326,6 +2326,25 @@ show_menu() {
   show_menu
 }
 
+# ── Config (the (a)-step of config-as-build; PRJ-012 config-as-build design) ───
+# `prj config scaffold <unit> [--write]` | `prj config check <path>`. The tool PROPOSES
+# a per-unit deploy.yaml (derived facts re-derived; intent lifted for review) and CI
+# drift-gates the committed copy. Reads the WORKING TREE (a dev-machine authoring op),
+# like `deploy --local`. Step-1 additive: the gov services.yaml is still the catalog SoT.
+cmd_config() {
+  local DEPLOY="$SCRIPTS/deploy"
+  local action="${1:-}"; shift || true
+  case "$action" in
+    scaffold|check) ;;
+    ""|--help|-h) cmd_help config; return 0 ;;
+    *) err "config: unknown action '$action' (expected: scaffold | check)"; return 1 ;;
+  esac
+  # Authoring reads the developer's working tree → resolve the CURRENT project workspace.
+  local _lws; _lws="$(resolve_local_workspace)" || return 1
+  export ADF_WORKSPACE="$_lws"
+  exec python3 "$DEPLOY/catalog.py" descriptor "$action" "$@"
+}
+
 # ── Deploy (polymorphic backend; PRJ-012 deploy design) ────────────────────────
 # `prj deploy <target> --local|--dev|--uat|--prod [flags]`. ONE verb, backend by env:
 #   --local            → scripts/deploy/serve-local.sh   (watch/serve + Tier-2 ladder)
@@ -2530,6 +2549,7 @@ cmd_help() {
       echo "  manage      List, assign, reassign, unassign projects"
       echo ""
       echo -e "${BOLD}Deploy${NC}"
+      echo "  config      Scaffold / drift-check a unit's deploy.yaml (config-as-build)"
       echo "  deploy      Deploy a target — local/dev/uat/prod"
       echo "  seed        Run the catalog seed hook (app-owned)"
       echo "  iam-data    Run the catalog data hook (app-owned)"
@@ -2559,6 +2579,26 @@ cmd_help() {
       echo -e "  ${DIM}prj help <command>${NC}   help + examples for one command"
       echo -e "  ${DIM}prj${NC}                  (no args) interactive menu"
       echo ""
+      ;;
+    config)
+      cat <<'EOF'
+prj config scaffold <unit> [--write] | prj config check <path>
+
+The (a)-step of config-as-build: build a unit's deploy config like code is built. The tool
+PROPOSES a per-unit deploy.yaml — you review, never author from blank. Two halves:
+  derived:  mechanical facts re-derived from the unit's package.json closure + config map
+            (kind, artifact, paths, depends_on, requires). REVIEW; CI drift-gates them.
+  intent:   facts the tool can't know — edge slug, healthcheck, serve, hooks. AUTHOR/own.
+
+  scaffold <unit>        print a proposed deploy.yaml for the unit (reads the working tree)
+  scaffold <unit> --write  write it to <repo>/<anchor>/deploy.yaml
+  check <path>           drift gate: assert a committed deploy.yaml's derived block == fresh
+
+Examples:
+  prj config scaffold svm-ident             propose svm-ident's deploy.yaml for review
+  prj config scaffold svm-ident --write     write packages/api/iam/deploy.yaml
+  prj config check packages/api/iam/deploy.yaml   CI: fail if derived facts drifted
+EOF
       ;;
     deploy)
       cat <<'EOF'
@@ -2698,6 +2738,7 @@ case "$CMD" in
   pause)        cmd_pause ;;
   resume)       cmd_resume ;;
   sync)         cmd_sync ;;
+  config)       cmd_config "${@:2}" ;;
   deploy)       cmd_deploy "${@:2}" ;;
   seed)         run_catalog_hook seed "${@:2}" ;;
   iam-data)     run_catalog_hook iam-data "${@:2}" ;;
