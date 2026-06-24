@@ -156,17 +156,18 @@ iam_base_url() {
   [[ -f "$cfg" ]] && python3 -c "import json;print(json.load(open('$cfg')).get('iamBaseUrl',''))" 2>/dev/null || true
 }
 
-ensure_api() {   # $1=unit  — ensure the local container stack for an api/service is healthy
+ensure_api() {   # $1=unit  $2=base — ensure the local container stack for an api/service is healthy
   local unit="$1" base="$2"
   if [[ -n "$base" ]] && curl -fsS -m 5 "$base/health" >/dev/null 2>&1; then
     info "  ✓ $unit — already healthy at $base (reuse)"
     return 0
   fi
-  if [[ "$PROVISION" == 1 ]]; then
-    # rung ①: provision the member's own substrate (its dedicated SVC_DB engine+data).
-    # The owner + provision script come from the catalog (graph.lock), so we never
-    # hard-code app paths here. The script (e.g. bootstrap.sh) brings up the DB and migrates.
-    local prov; prov="$(python3 -c "
+  base="${base:-http://localhost:3060}"
+  # Resolve the member's substrate provision command from the catalog (graph.lock): the
+  # owner's bootstrap.sh (DB engine + migrate + seed). Its SIBLING start.sh brings up the
+  # long-running api SERVER — bootstrap deliberately does NOT (it's migrate/seed only). Both
+  # come from the catalog-declared provision path, so no app paths are hard-coded here.
+  local prov; prov="$(python3 -c "
 import json
 c=json.load(open('$REPO_ROOT_SP/knowledge/deployment/catalog/graph.lock'))
 u=c.get('units',{}).get('$unit',{}); ps=c.get('platform_services',{})
@@ -176,22 +177,36 @@ for r in u.get('requires',[]):
         repo=c.get('units',{}).get(own,{}).get('repo','')
         print((repo.split('/')[-1])+'|'+pv); break
 " 2>/dev/null)"
-    if [[ -n "$prov" ]]; then
-      local leaf="${prov%%|*}" rel="${prov#*|}" script="$WORKSPACE_ROOT/${prov%%|*}/${prov#*|}"
-      if [[ -f "$script" ]]; then
-        info "  ▶ $unit — provisioning via $leaf/$rel"
-        if bash "$script"; then
-          base="${base:-http://localhost:3060}"
-          for _ in $(seq 1 20); do curl -fsS -m 5 "$base/health" >/dev/null 2>&1 && { info "  ✓ $unit — provisioned & healthy at $base"; return 0; }; sleep 3; done
-          warn "  $unit provisioned but not healthy yet at $base — check its logs"; return 1
-        fi
-        warn "  $unit provision script failed ($script)"; return 1
-      fi
-      warn "  $unit — catalog provision script not found at $script"; return 1
-    fi
-    warn "  $unit — no catalog-declared provision command; bring it up manually"; return 1
+  local boot="" start=""
+  if [[ -n "$prov" ]]; then
+    local leaf="${prov%%|*}" rel="${prov#*|}"
+    boot="$WORKSPACE_ROOT/$leaf/$rel"
+    start="$(dirname "$boot")/start.sh"
   fi
-  warn "  $unit not healthy at ${base:-<unknown>} — pass --provision to auto-start it, or run its package start.sh"
+  # rung ①: provision the dedicated substrate (DB engine + migrate + seed) when asked.
+  if [[ "$PROVISION" == 1 ]]; then
+    if [[ -n "$boot" && -f "$boot" ]]; then
+      info "  ▶ $unit — provisioning substrate via $leaf/$rel"
+      bash "$boot" || { warn "  $unit provision script failed ($boot)"; return 1; }
+    elif [[ -n "$boot" ]]; then
+      warn "  $unit — catalog provision script not found at $boot"; return 1
+    else
+      warn "  $unit — no catalog-declared provision command; bring it up manually"; return 1
+    fi
+  fi
+  # rung ②: bring up the long-running api SERVER. This is the gap that left /health red
+  # after a DB-only provision (and also restarts a merely-stopped container). start.sh
+  # runs `compose up -d <unit>` and waits on /health itself.
+  if [[ -n "$start" && -f "$start" ]]; then
+    info "  ▶ $unit — starting server via $(basename "$(dirname "$start")")/start.sh"
+    if bash "$start" && curl -fsS -m 5 "$base/health" >/dev/null 2>&1; then
+      info "  ✓ $unit — healthy at $base"; return 0
+    fi
+    warn "  $unit started but not healthy yet at $base — check its container logs"; return 1
+  fi
+  # No start.sh in the catalog substrate dir — last-resort health poll.
+  for _ in $(seq 1 20); do curl -fsS -m 5 "$base/health" >/dev/null 2>&1 && { info "  ✓ $unit — healthy at $base"; return 0; }; sleep 3; done
+  warn "  $unit not healthy at $base — pass --provision to auto-start it, or run its package start.sh"
   return 1
 }
 
