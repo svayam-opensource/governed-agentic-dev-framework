@@ -37,6 +37,13 @@ fi
 CONFIG="$WORKSPACE_ROOT/org-config.yaml"
 REGISTRY="$WORKSPACE_ROOT/registry.yaml"
 
+# Remembered default workspace — the last gov workspace `prj` resolved (or one set via
+# `prj use`). Fallback for gov-global reads (data/seed/iam-data) so they work from anywhere
+# (e.g. $HOME) without re-stating context. The catalog is identical across per-project
+# clones, so reusing the last-seen one is correct for these commands.
+PRJ_STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/prj"
+PRJ_DEFAULT_WS_FILE="$PRJ_STATE_DIR/workspace"
+
 # ── Colours ───────────────────────────────────────────────────────────────────
 
 BOLD='\033[1m'; DIM='\033[2m'; CYAN='\033[0;36m'; GREEN='\033[0;32m'
@@ -2518,19 +2525,52 @@ resolve_local_workspace() {
 #   2. walk up from cwd: cwd is the workspace, OR cwd is inside a project tree and a
 #      sibling/child holds the catalog (e.g. run from a member repo 911/912 → svm-prj-work).
 # Only if none is found do we error with guidance (no 12-project menu).
+# Adopt a workspace: point WORKSPACE_ROOT/ADF_WORKSPACE at it and remember it as the default.
+_adopt_workspace() {
+  WORKSPACE_ROOT="$1"; export ADF_WORKSPACE="$1"
+  mkdir -p "$PRJ_STATE_DIR" 2>/dev/null && printf '%s\n' "$1" >"$PRJ_DEFAULT_WS_FILE" 2>/dev/null || true
+}
+
 ensure_workspace_catalog() {
   local rel="knowledge/deployment/catalog/graph.lock"
   [[ -f "$WORKSPACE_ROOT/$rel" ]] && return 0
   local d="$PWD" hit
   while [[ "$d" != "/" ]]; do
-    if [[ -f "$d/$rel" ]]; then WORKSPACE_ROOT="$d"; export ADF_WORKSPACE="$d"; return 0; fi
+    if [[ -f "$d/$rel" ]]; then _adopt_workspace "$d"; return 0; fi
     for hit in "$d"/*/"$rel"; do                       # a workspace clone under this ancestor
-      [[ -f "$hit" ]] && { WORKSPACE_ROOT="${hit%/$rel}"; export ADF_WORKSPACE="$WORKSPACE_ROOT"; return 0; }
+      [[ -f "$hit" ]] && { _adopt_workspace "${hit%/$rel}"; return 0; }
     done
     d="$(dirname "$d")"
   done
-  err "no deploy catalog found near $PWD. Set ADF_WORKSPACE to your workspace (the clone with $rel), or run from inside your project."
+  # Fallback: the remembered default workspace (last resolved, or set via `prj use`). The
+  # gov catalog is the same across clones, so this is correct for data/seed/iam-data reads.
+  if [[ -f "$PRJ_DEFAULT_WS_FILE" ]]; then
+    local def; def="$(head -1 "$PRJ_DEFAULT_WS_FILE" 2>/dev/null)"
+    [[ -n "$def" && -f "$def/$rel" ]] && { WORKSPACE_ROOT="$def"; export ADF_WORKSPACE="$def"; return 0; }
+  fi
+  err "no workspace found near $PWD and none remembered. Fix with one of:
+    • run once from inside your project (I'll remember it), or
+    • prj use <path-to-workspace>   (e.g. \$AGENT_WORK_ROOT/<project>/${WORKSPACE_REPO:-svm-prj-work}), or
+    • export ADF_WORKSPACE=<workspace>"
   return 1
+}
+
+# `prj use [<path>]` — set (or show) the remembered default workspace that data/seed/
+# iam-data fall back to when you're not inside a project and $ADF_WORKSPACE is unset.
+cmd_use() {
+  local p="${1:-}"
+  if [[ -z "$p" ]]; then
+    if [[ -f "$PRJ_DEFAULT_WS_FILE" ]]; then echo "default workspace: $(head -1 "$PRJ_DEFAULT_WS_FILE")"
+    else echo "no default workspace set — run a data/seed command from your project once, or: prj use <path>"; fi
+    return 0
+  fi
+  p="${p/#\~/$HOME}"
+  [[ -d "$p" ]] || { err "not a directory: $p"; return 1; }
+  p="$(cd "$p" && pwd)"
+  [[ -f "$p/knowledge/deployment/catalog/graph.lock" ]] || { err "no deploy catalog at $p (expected knowledge/deployment/catalog/graph.lock) — point at your workspace clone."; return 1; }
+  mkdir -p "$PRJ_STATE_DIR" && printf '%s\n' "$p" >"$PRJ_DEFAULT_WS_FILE"
+  info "default workspace set: $p"
+  info "  data/seed/iam-data now resolve it from anywhere (override per-shell with ADF_WORKSPACE)."
 }
 
 run_catalog_hook() {
@@ -2634,6 +2674,7 @@ cmd_help() {
       echo "  config      Scaffold / drift-check a unit's deploy.yaml (config-as-build)"
       echo "  deploy      Deploy a target — local/dev/uat/prod"
       echo "  data        Query a unit's datastore — 'data --list' for units, diagnostics per unit"
+      echo "  use         Set the default workspace data/seed/iam-data use from anywhere"
       echo "  seed        Run the catalog seed hook (app-owned)"
       echo "  iam-data    Query the IAM datastore (alias: data iam)"
       echo "  schedules   Install/inspect catalog cron schedules"
@@ -2799,6 +2840,24 @@ EOF
 prj version | --version | -v — print the installed prj CLI version (from the package).
 EOF
       ;;
+    use)
+      cat <<'EOF'
+prj use [<path>] — set (or show) the default workspace.
+
+`data`, `seed`, and `iam-data` read the gov deploy catalog (hook + host), which is the same
+across your per-project workspace clones. When you're not inside a project and $ADF_WORKSPACE
+is unset (e.g. running from $HOME), they fall back to this remembered default — so e.g.
+`prj data iam dev --list` works from anywhere. `prj` also remembers the last workspace it
+resolves automatically, so running once from a project sets it for you.
+
+  prj use                    show the current default workspace
+  prj use <path>             set it (point at your svm-prj-work clone)
+
+Examples:
+  prj use ~/.svm/projects/PRJ-012-portal-app-backlog/svm-prj-work
+  prj data iam dev --list    # now resolves from anywhere
+EOF
+      ;;
     manage)
       cat <<'EOF'
 prj manage [list | list-all | manage] — assign/reassign/unassign projects (GitHub-definitive).
@@ -2856,6 +2915,7 @@ case "$CMD" in
   seed)         run_catalog_hook seed "${@:2}" ;;
   data)         cmd_data "${@:2}" ;;
   iam-data)     run_catalog_hook iam-data "${@:2}" ;;
+  use)          cmd_use "${2:-}" ;;
   creds)        bash "$SCRIPTS/creds.sh" "${@:2}" ;;
   schedules)    bash "$SCRIPTS/deploy/schedules.sh" "${@:2}" ;;
   add-repo)     cmd_add_repo ;;
