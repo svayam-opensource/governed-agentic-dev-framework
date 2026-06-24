@@ -16,6 +16,7 @@ import argparse
 import fnmatch
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -43,6 +44,17 @@ PINS_HEADER = """# Machine-managed desired-version pins, per environment (PRJ-01
 # service's pin; `prj deploy --promote <from> <to>` copies pins env->env (build-once-
 # promote). The hand-maintained topology (services/apps/schedules) is in services.yaml.
 # An absent service = not deployed in that env.
+"""
+
+DESCRIPTOR_HEADER = """# deploy.yaml — per-unit deploy descriptor (config-as-build, PRJ-012).
+# SCAFFOLDED by `prj config` (catalog.py descriptor scaffold) — the developer reviews,
+# never authors from blank. Two halves:
+#   derived:  mechanical facts re-derived from this unit's package.json closure +
+#             config_service_map. REVIEW them; CI (`descriptor check`) drift-gates them.
+#   intent:   facts the tool can't know — edge identity, healthcheck, serve, hooks.
+#             AUTHOR / own these.
+# Step-1 migration: additive. The gov services.yaml is still the catalog SoT; this
+# descriptor mirrors it for review until dual-read (step 2) lands.
 """
 
 
@@ -381,6 +393,91 @@ def derive_unit(cat, name):
             "requires_derived": sorted(_derive_requires(cat, root, paths))}
 
 
+# ── Per-unit descriptor (deploy.yaml) — config-as-build step 1 (additive) ────────
+#    The tool PROPOSES a per-unit deploy.yaml from the same derivation engine `build`
+#    uses, splitting facts into `derived` (re-derivable, drift-gated) and `intent`
+#    (authored). Step-1 lifts intent from the existing gov services.yaml entry so the
+#    descriptor is faithful to today's catalog; the dev then owns/edits it. See
+#    config-as-build-design.md §3.1, §5.
+
+def _edge_intent(edge):
+    """Split a gov edge value into authored intent.
+    'security-<env>.svayamtech.com' -> {'slug': 'security'} (the gov template fills <env>);
+    a non-templated host -> {'host': <edge>} (vanity override). None -> None."""
+    if not edge:
+        return None
+    m = re.match(r"^(?P<slug>.+?)-<env>\.(?P<domain>.+)$", edge)
+    if m:
+        return {"slug": m.group("slug")}
+    return {"host": edge}
+
+
+def descriptor_for(cat, name):
+    """Build a proposed per-unit deploy.yaml dict (derived ⊕ intent) for review."""
+    s = _services(cat).get(name)
+    if s is None:
+        raise KeyError(f"unknown unit: {name}")
+    d = derive_unit(cat, name)
+    # Owning hooks: a generic catalog hook belongs to this unit when it runs out of the
+    # unit's repo and names the unit in its cmd path (e.g. .../svm-ident/scripts/seed-iam.py).
+    hooks = {hn: hv for hn, hv in (cat.get("hooks") or {}).items()
+             if hv.get("repo") == s.get("repo") and name in (hv.get("cmd") or "")}
+    return {
+        "schema": 1,
+        "unit": name,
+        "repo": s.get("repo"),
+        "anchor": s.get("anchor"),
+        # derived — re-derivable, REVIEW only (drift-gated by `descriptor check`).
+        "derived": {
+            "kind": d["kind"],
+            "artifact": d["artifact"],
+            "npm_name": d["npm_name"],
+            "paths": d["paths"],
+            "depends_on": d["depends_on"],
+            # declared requires is today's reviewed SoT; config-derived must be ⊆ it (checked).
+            "requires": list(s.get("requires") or []),
+        },
+        # intent — AUTHOR/own these (lifted from gov services.yaml for step-1 review).
+        "intent": {
+            "edge": _edge_intent(s.get("edge")),
+            "healthcheck": s.get("healthcheck"),
+            "serve": s.get("serve"),
+            "hooks": hooks or None,
+        },
+    }
+
+
+def descriptor_yaml(desc):
+    """Render a descriptor dict as commented YAML (insertion order preserved)."""
+    return DESCRIPTOR_HEADER + yaml.safe_dump(desc, default_flow_style=False, sort_keys=False)
+
+
+def check_descriptor(cat, path):
+    """Drift gate for a committed deploy.yaml: re-derive and assert its `derived` block
+    equals a fresh derivation, and that config-derived requires are covered. Returns a
+    list of (kind, field, msg) issues (empty = OK)."""
+    with open(path) as f:
+        doc = yaml.safe_load(f) or {}
+    unit = doc.get("unit")
+    if not unit:
+        return [("schema", "unit", "descriptor missing `unit`")]
+    if unit not in _services(cat):
+        return [("unknown-unit", unit, f"unit '{unit}' not in services.yaml")]
+    fresh = descriptor_for(cat, unit)
+    issues = []
+    committed = doc.get("derived") or {}
+    for k, v in fresh["derived"].items():
+        cv = committed.get(k)
+        if isinstance(v, list):
+            cv, v = sorted(cv or []), sorted(v)
+        if cv != v:
+            issues.append(("derived-drift", k, f"committed {cv!r} != derived {v!r} — re-scaffold"))
+    d = derive_unit(cat, unit)
+    for svc in sorted(set(d["requires_derived"]) - set(committed.get("requires") or [])):
+        issues.append(("requires-missing", "requires", f"config references {svc} but `requires` omits it"))
+    return issues
+
+
 def build_lock(cat):
     """Effective catalog = derived ⊕ declared. The thing deploy/serve read."""
     units = {}
@@ -530,6 +627,12 @@ def _main(argv=None):
     p = sub.add_parser("schedules"); p.add_argument("--workspace", default=None)
     sub.add_parser("build")    # derive → write graph.lock
     sub.add_parser("check")    # drift gate: re-derive & assert == lock + declared
+    p = sub.add_parser("descriptor")   # per-unit deploy.yaml: scaffold (propose) | check (drift)
+    p.add_argument("action", choices=["scaffold", "check"])
+    p.add_argument("target", help="unit name (scaffold) or path to a deploy.yaml (check)")
+    p.add_argument("--write", action="store_true",
+                   help="scaffold: write <repo>/<anchor>/deploy.yaml instead of printing")
+    p.add_argument("--format", choices=["yaml", "json"], default="yaml")
     args = ap.parse_args(argv)
     # Env-aware source: --local reads the working tree (devs iterate freely, no commit);
     # dev/uat/prod resolve from the committed canonical catalog (gov repo `origin/main`,
@@ -545,7 +648,7 @@ def _main(argv=None):
         DEFAULT_PINS = _d / "pins.yaml"
     raw = load(args.catalog)
     # Read commands operate on the lock-merged (effective) catalog; build/check use raw.
-    cat = raw if args.cmd in ("build", "check") else effective_cat(raw)
+    cat = raw if args.cmd in ("build", "check", "descriptor") else effective_cat(raw)
     try:
         if args.cmd == "build":
             lock = build_lock(raw)
@@ -558,6 +661,29 @@ def _main(argv=None):
                 print(f"  [{kind}] {name}: {msg}", file=sys.stderr)
             print(f"{'FAIL' if issues else 'OK'}: {len(issues)} issue(s)")
             return 1 if issues else 0
+        elif args.cmd == "descriptor":
+            if args.action == "scaffold":
+                desc = descriptor_for(cat, args.target)
+                text = (json.dumps(desc, indent=2) + "\n" if args.format == "json"
+                        else descriptor_yaml(desc))
+                if args.write:
+                    s = _services(cat)[args.target]
+                    anchor = s.get("anchor")
+                    if not anchor:
+                        print(f"cannot --write: '{args.target}' is declared-only (no anchor); "
+                              f"place deploy.yaml manually", file=sys.stderr)
+                        return 2
+                    dest = _repo_path(s["repo"]) / anchor / "deploy.yaml"
+                    dest.write_text(text)
+                    print(f"wrote {dest}")
+                else:
+                    sys.stdout.write(text)
+            else:  # check
+                issues = check_descriptor(cat, args.target)
+                for kind, fld, msg in issues:
+                    print(f"  [{kind}] {fld}: {msg}", file=sys.stderr)
+                print(f"{'FAIL' if issues else 'OK'}: {len(issues)} issue(s)")
+                return 1 if issues else 0
         elif args.cmd == "members":
             print(json.dumps(members_in_order(cat, args.app)))
         elif args.cmd == "resolve":
