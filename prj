@@ -37,13 +37,6 @@ fi
 CONFIG="$WORKSPACE_ROOT/org-config.yaml"
 REGISTRY="$WORKSPACE_ROOT/registry.yaml"
 
-# Remembered default workspace — the last gov workspace `prj` resolved (or one set via
-# `prj use`). Fallback for gov-global reads (data/seed/iam-data) so they work from anywhere
-# (e.g. $HOME) without re-stating context. The catalog is identical across per-project
-# clones, so reusing the last-seen one is correct for these commands.
-PRJ_STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/prj"
-PRJ_DEFAULT_WS_FILE="$PRJ_STATE_DIR/workspace"
-
 # ── Colours ───────────────────────────────────────────────────────────────────
 
 BOLD='\033[1m'; DIM='\033[2m'; CYAN='\033[0;36m'; GREEN='\033[0;32m'
@@ -2337,7 +2330,6 @@ show_menu() {
     seed)         cmd_help seed ;;
     catalog)      cmd_help catalog ;;
     data)         cmd_help data ;;
-    use)          cmd_use ;;
     0|q|quit|exit) echo "Bye."; exit 0 ;;
     *) err "Unknown option '$choice'." ;;
   esac
@@ -2360,9 +2352,9 @@ cmd_config() {
     ""|--help|-h) cmd_help config; return 0 ;;
     *) err "config: unknown action '$action' (expected: scaffold | check)"; return 1 ;;
   esac
-  # Authoring reads the developer's working tree → resolve the CURRENT project workspace.
-  local _lws; _lws="$(resolve_local_workspace)" || return 1
-  export ADF_WORKSPACE="$_lws"
+  # Authoring is always a WIP op → the PROJECT workspace (you can only author through a
+  # project; gov main is reached later via PR). cwd-resolved, else pick.
+  resolve_workspace local || return 1
   exec python3 "$DEPLOY/catalog.py" descriptor "$action" "$@"
 }
 
@@ -2417,16 +2409,13 @@ cmd_deploy() {
   [[ "$noprovision" == 1 ]] && provision=0
   [[ "$seed" == 1 ]] && provision=1
 
-  export ADF_WORKSPACE="$WORKSPACE_ROOT"   # the deploy backends resolve the catalog/repos from this
+  # Resolve the workspace by env (the SAME way every catalog/data command does): local reads
+  # the WIP PROJECT (working tree); dev/uat/prod read the gov repo (committed main).
+  resolve_workspace "$env" || return 1
 
   # ── LOCAL: serve-local.sh (watch/serve orchestrator) ──────────────────────────
   if [[ "$env" == "local" ]]; then
-    # Local reads the developer's WORKING TREE, so the workspace must be the CURRENT
-    # project — not a globally-pinned $ADF_WORKSPACE (which suits dev/uat/prod where the
-    # canonical catalog lives on main). Resolve from cwd, else prompt to choose a project.
-    local _lws; _lws="$(resolve_local_workspace)" || return 1
-    export ADF_WORKSPACE="$_lws"
-    info "local workspace: $_lws"
+    info "local workspace: $WORKSPACE_ROOT"
     local args=("$target")
     [[ "$action" == "stop" ]] && args+=(--stop)
     [[ "$all"    == 1 ]]      && args+=(--all)
@@ -2490,96 +2479,76 @@ print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>
   return $rc
 }
 
-# ── Local workspace resolution (PRJ-012) ───────────────────────────────────────
-# For LOCAL deploys the workspace = the CURRENT project (devs iterate on their own
-# tree), NOT a globally-pinned $ADF_WORKSPACE. Resolve from cwd (nearest org-config.yaml);
-# if not inside a project, prompt to choose one from $AGENT_WORK_ROOT. Echoes the path.
-resolve_local_workspace() {
-  local d="$PWD"
-  while [[ "$d" != "/" ]]; do
-    [[ -f "$d/org-config.yaml" ]] && { echo "$d"; return 0; }
-    d="$(dirname "$d")"
-  done
-  # Not inside a project — enumerate $AGENT_WORK_ROOT/<project>/<WORKSPACE_REPO>.
-  local -a ws=() labels=(); local p
-  for p in "$AGENT_WORK_ROOT"/*/"$WORKSPACE_REPO"/org-config.yaml; do
-    [[ -f "$p" ]] || continue
-    ws+=("$(dirname "$p")"); labels+=("$(basename "$(dirname "$(dirname "$p")")")")
-  done
-  [[ ${#ws[@]} -gt 0 ]] || { err "no projects under $AGENT_WORK_ROOT — cd into a project or set ADF_WORKSPACE." ; return 1; }
-  if [[ ${#ws[@]} -eq 1 ]]; then echo "${ws[0]}"; return 0; fi
-  echo "Select the project to deploy locally:" >&2
-  local i; for i in "${!ws[@]}"; do printf "  %d) %s\n" "$((i+1))" "${labels[$i]}" >&2; done
-  printf "  Choice [1]: " >&2; local c; read -r c; c="${c:-1}"
-  local idx=$((c-1)); [[ $idx -ge 0 && $idx -lt ${#ws[@]} ]] || { err "invalid choice"; return 1; }
-  echo "${ws[$idx]}"
+# ── Workspace context resolution (PRJ-012) ─────────────────────────────────────
+# Two clones, two sources of truth, chosen by the ENV the command targets:
+#   • GOV repo  = $ADF_WORKSPACE — cloned once, fixed, ALWAYS on `main`. The SoT for the
+#     COMMITTED / deployed catalog (and registry, org-config, knowledge). Used for
+#     dev|uat|prod. REQUIRED — if unset, we error (it's an environment precondition). Pulled
+#     before reading so other developers' changes are present.
+#   • PROJECT repo = a per-project clone under $AGENT_WORK_ROOT/<project>/ on a project
+#     BRANCH — the work-in-progress SoT. Used for `local` and for authoring (config, catalog
+#     build/check). Resolved from cwd (incl. a sibling member repo); else the developer picks
+#     (only the developer knows which WIP project is meant).
+# resolve_workspace <env> sets WORKSPACE_ROOT + ADF_WORKSPACE to the right clone.
+#   env = dev|uat|prod (or development|staging|production) → GOV
+#   env = local | "" (no-env authoring)                    → PROJECT
+resolve_workspace() {
+  case "${1:-local}" in
+    dev|uat|prod|development|staging|production) _resolve_gov_workspace ;;
+    local|"")                                   _resolve_project_workspace ;;
+    *) err "resolve_workspace: unknown env '$1'"; return 1 ;;
+  esac
 }
 
-# ── Catalog hooks (PRJ-012) — generic verb → app-owned script dispatch ──────────
-# The catalog declares `hooks.<name> = { repo, cmd }`. prj orchestrates; the LOGIC
-# lives in the named repo (the app), not here — so app-specific tooling (e.g. IAM
-# seed / data) is invoked via a generic verb without shipping app internals in the
-# open-source CLI. The hook runs from the owner repo's dir with $ADF_WORKSPACE
-# exported and all extra args forwarded. Mirrors how deploy uses catalog provision.
-# Ensure WORKSPACE_ROOT points at a workspace that has the deploy catalog. Unlike
-# `deploy --local` (where you genuinely PICK which project's tree to serve), the catalog
-# read by data/seed/iam-data is gov-global — there's nothing to choose. So resolve it
-# NON-interactively and never prompt a project picker:
-#   1. the current WORKSPACE_ROOT already has the catalog ($ADF_WORKSPACE set), or
-#   2. walk up from cwd: cwd is the workspace, OR cwd is inside a project tree and a
-#      sibling/child holds the catalog (e.g. run from a member repo 911/912 → svm-prj-work).
-# Only if none is found do we error with guidance (no 12-project menu).
-# Adopt a workspace: point WORKSPACE_ROOT/ADF_WORKSPACE at it and remember it as the default.
-_adopt_workspace() {
-  WORKSPACE_ROOT="$1"; export ADF_WORKSPACE="$1"
-  mkdir -p "$PRJ_STATE_DIR" 2>/dev/null && printf '%s\n' "$1" >"$PRJ_DEFAULT_WS_FILE" 2>/dev/null || true
+# GOV: $ADF_WORKSPACE (must be set + hold the catalog), pulled to latest main.
+_resolve_gov_workspace() {
+  local rel="knowledge/deployment/catalog/services.yaml"
+  if [[ -z "${ADF_WORKSPACE:-}" || ! -f "$ADF_WORKSPACE/$rel" ]]; then
+    err "dev/uat/prod read the COMMITTED catalog from the gov repo (always on main). Set it
+    in your environment first:  export ADF_WORKSPACE=<your $WORKSPACE_REPO clone on main>"
+    return 1
+  fi
+  WORKSPACE_ROOT="$ADF_WORKSPACE"
+  # The gov repo is the SoT for committed/main answers — pull so other devs' changes are in
+  # (best-effort; PRJ_NO_PULL=1 skips it for offline/scripted use).
+  [[ -n "${PRJ_NO_PULL:-}" ]] || git -C "$ADF_WORKSPACE" pull --ff-only -q 2>/dev/null \
+    || warn "could not pull $ADF_WORKSPACE — reading local state (try: git -C \"$ADF_WORKSPACE\" pull)"
 }
 
-ensure_workspace_catalog() {
-  local rel="knowledge/deployment/catalog/graph.lock"
-  [[ -f "$WORKSPACE_ROOT/$rel" ]] && return 0
-  local d="$PWD" hit
+# PROJECT (WIP): the project clone containing cwd (or a sibling member repo); else the dev
+# picks one. A project clone = a $WORKSPACE_REPO checkout on a project branch (NOT the gov
+# clone, which stays on main). Identified by the catalog source it carries.
+_resolve_project_workspace() {
+  local rel="knowledge/deployment/catalog/services.yaml" d="$PWD" hit
   while [[ "$d" != "/" ]]; do
-    if [[ -f "$d/$rel" ]]; then _adopt_workspace "$d"; return 0; fi
-    for hit in "$d"/*/"$rel"; do                       # a workspace clone under this ancestor
-      [[ -f "$hit" ]] && { _adopt_workspace "${hit%/$rel}"; return 0; }
+    [[ -f "$d/$rel" ]] && { WORKSPACE_ROOT="$d"; export ADF_WORKSPACE="$d"; return 0; }
+    for hit in "$d"/*/"$rel"; do                  # a workspace clone alongside (member-repo cwd)
+      [[ -f "$hit" ]] && { WORKSPACE_ROOT="${hit%/$rel}"; export ADF_WORKSPACE="${hit%/$rel}"; return 0; }
     done
     d="$(dirname "$d")"
   done
-  # Fallback: the remembered default workspace (last resolved, or set via `prj use`). The
-  # gov catalog is the same across clones, so this is correct for data/seed/iam-data reads.
-  if [[ -f "$PRJ_DEFAULT_WS_FILE" ]]; then
-    local def; def="$(head -1 "$PRJ_DEFAULT_WS_FILE" 2>/dev/null)"
-    [[ -n "$def" && -f "$def/$rel" ]] && { WORKSPACE_ROOT="$def"; export ADF_WORKSPACE="$def"; return 0; }
-  fi
-  err "no workspace found near $PWD and none remembered. Fix with one of:
-    • run once from inside your project (I'll remember it), or
-    • prj use <path-to-workspace>   (e.g. \$AGENT_WORK_ROOT/<project>/${WORKSPACE_REPO:-svm-prj-work}), or
-    • export ADF_WORKSPACE=<workspace>"
-  return 1
+  # Not inside a project tree — let the developer choose (WIP is project-specific).
+  local -a ws=() labels=(); local p wsdir
+  for p in "$AGENT_WORK_ROOT"/*/"$WORKSPACE_REPO"/"$rel"; do
+    [[ -f "$p" ]] || continue
+    wsdir="${p%/$rel}"
+    ws+=("$wsdir"); labels+=("$(basename "$(dirname "$wsdir")")")
+  done
+  [[ ${#ws[@]} -gt 0 ]] || { err "not inside a project and no projects under $AGENT_WORK_ROOT. cd into your project (or one of its member repos) and retry."; return 1; }
+  if [[ ${#ws[@]} -eq 1 ]]; then WORKSPACE_ROOT="${ws[0]}"; export ADF_WORKSPACE="${ws[0]}"; return 0; fi
+  echo "Select the project (work-in-progress) to use:" >&2
+  local i; for i in "${!ws[@]}"; do printf "  %d) %s\n" "$((i+1))" "${labels[$i]}" >&2; done
+  printf "  Choice [1]: " >&2; local c; read -r c; c="${c:-1}"
+  local idx=$((c-1)); [[ $idx -ge 0 && $idx -lt ${#ws[@]} ]] || { err "invalid choice"; return 1; }
+  WORKSPACE_ROOT="${ws[$idx]}"; export ADF_WORKSPACE="${ws[$idx]}"
 }
 
-# `prj use [<path>]` — set (or show) the remembered default workspace that data/seed/
-# iam-data fall back to when you're not inside a project and $ADF_WORKSPACE is unset.
-cmd_use() {
-  local p="${1:-}"
-  if [[ -z "$p" ]]; then
-    if [[ -f "$PRJ_DEFAULT_WS_FILE" ]]; then echo "default workspace: $(head -1 "$PRJ_DEFAULT_WS_FILE")"
-    else echo "no default workspace set — run a data/seed command from your project once, or: prj use <path>"; fi
-    return 0
-  fi
-  p="${p/#\~/$HOME}"
-  [[ -d "$p" ]] || { err "not a directory: $p"; return 1; }
-  p="$(cd "$p" && pwd)"
-  [[ -f "$p/knowledge/deployment/catalog/graph.lock" ]] || { err "no deploy catalog at $p (expected knowledge/deployment/catalog/graph.lock) — point at your workspace clone."; return 1; }
-  mkdir -p "$PRJ_STATE_DIR" && printf '%s\n' "$p" >"$PRJ_DEFAULT_WS_FILE"
-  info "default workspace set: $p"
-  info "  data/seed/iam-data now resolve it from anywhere (override per-shell with ADF_WORKSPACE)."
-}
-
+# ── Catalog hooks (PRJ-012) — generic verb → app-owned script dispatch ──────────
+# The catalog declares `hooks.<name> = { repo, cmd }`. prj orchestrates; the LOGIC lives in
+# the named repo (the app). The CALLER resolves the workspace (by env) first; the hook runs
+# from the owner repo's dir with $ADF_WORKSPACE exported and all extra args forwarded.
 run_catalog_hook() {
   local name="$1"; shift
-  ensure_workspace_catalog || return 1
   local lock="$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock"
   [[ -f "$lock" ]] || { err "$name: no catalog (knowledge/deployment/catalog/graph.lock) in this workspace."; return 1; }
   # Resolve hooks.<name> → "<repo-leaf>|<cmd>" (repo dir = sibling of the workspace).
@@ -2602,6 +2571,15 @@ print(repo+'|'+h['cmd'])
   ( cd "$repo_dir" && eval "$cmd$q" )
 }
 
+# `prj seed [--env <env>] <args>` — run the catalog `seed` hook against the right workspace.
+# env from --env (default local): local → WIP project; dev/uat/prod → gov repo (main).
+cmd_seed() {
+  local env="local" a prev=""
+  for a in "$@"; do [[ "$prev" == "--env" ]] && env="$a"; prev="$a"; done
+  resolve_workspace "$env" || return 1
+  run_catalog_hook seed "$@"
+}
+
 # ── Data — query a unit's datastore (generic over data-capable units) ─────────
 # `prj data` (or `--list`) enumerates the data-capable units (catalog hooks named
 # `<unit>-data`); `prj data <unit> <env> …` dispatches to that unit's data hook.
@@ -2610,26 +2588,24 @@ print(repo+'|'+h['cmd'])
 # `prj iam-data` remains as an alias for `prj data iam`.
 # `prj catalog <env>` — discover the units in the deploy catalog FOR AN ENV: per-env host,
 # DEPLOYED (pinned) version, and resolved edge. Env is REQUIRED — the catalog's meaningful
-# view (hosts, pins) is per-env. Reads the gov-global catalog (gov/remembered workspace),
-# never the local project picker.
+# view (hosts, pins) is per-env. dev/uat/prod read the gov repo (committed main); local
+# reads the WIP project.
 cmd_catalog() {
   case "${1:-}" in
     -h|--help) cmd_help catalog; return 0 ;;
     build|check)
-      # Authoring ops: (re)derive graph.lock from services.yaml + the member repos
-      # (build), or drift-gate it (check). These read the WORKING TREE, so resolve the
-      # PROJECT workspace like `prj config` / `deploy --local` (cwd walk-up; picker if
-      # not inside a project). Extra args (e.g. --catalog <path>) are forwarded.
+      # Authoring ops: (re)derive graph.lock from services.yaml + the member repos (build),
+      # or drift-gate it (check). WIP → the PROJECT workspace. Extra args forwarded.
       local action="$1"; shift
-      local _lws; _lws="$(resolve_local_workspace)" || return 1
-      export ADF_WORKSPACE="$_lws"
+      resolve_workspace local || return 1
       exec python3 "$SCRIPTS/deploy/catalog.py" "$action" "$@"
       ;;
   esac
   local env="${1:-}"
   [[ -n "$env" ]] || { err "usage: prj catalog <local|dev|uat|prod>  (env required)  |  prj catalog build | check"; return 1; }
   case "$env" in local|dev|uat|prod) ;; *) err "catalog: expected an env (local|dev|uat|prod) or 'build'/'check', got '$env'"; return 1 ;; esac
-  ensure_workspace_catalog || return 1
+  # local → WIP project; dev/uat/prod → gov repo (committed main).
+  resolve_workspace "$env" || return 1
   local cd="$WORKSPACE_ROOT/knowledge/deployment/catalog"
   [[ -f "$cd/graph.lock" ]] || { err "no catalog at $cd/graph.lock"; return 1; }
   python3 - "$cd/graph.lock" "$cd/pins.yaml" "$env" <<'PY'
@@ -2666,7 +2642,7 @@ PY
 # `prj data --list <env>`             list the data-capable units (for an env)
 # `prj data <unit> <env> [args…]`     query a unit's datastore — env-aware workspace:
 #   local       → the PROJECT workspace (projects-folder + selected project; cwd/picker)
-#   dev/uat/prod→ the GOV workspace ($ADF_WORKSPACE / remembered default) — no picker
+#   dev/uat/prod→ the gov repo ($ADF_WORKSPACE, always on main; committed catalog)
 cmd_data() {
   case "${1:-}" in
     -h|--help) cmd_help data; return 0 ;;
@@ -2676,7 +2652,7 @@ cmd_data() {
     local env="${2:-}"
     [[ -n "$env" ]] || { err "env required: prj data --list <local|dev|uat|prod>"; return 1; }
     case "$env" in local|dev|uat|prod) ;; *) err "env must be local|dev|uat|prod"; return 1 ;; esac
-    ensure_workspace_catalog || return 1
+    resolve_workspace "$env" || return 1
     local lock="$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock"
     echo ""
     echo -e "${BOLD}Data-capable units${NC}${DIM}  (env=$env)${NC}"
@@ -2696,13 +2672,8 @@ PY
   fi
   local unit="$1" env="${2:-}"; shift
   [[ -n "$env" ]] || { err "usage: prj data $unit <env> [<query> k=v | --list | --describe <name> | --tables]  (env required)"; return 1; }
-  # Env-aware workspace (mirrors deploy): local serves from the project tree; remote reads gov.
-  if [[ "$env" == "local" ]]; then
-    local _lws; _lws="$(resolve_local_workspace)" || return 1
-    WORKSPACE_ROOT="$_lws"; export ADF_WORKSPACE="$_lws"
-  else
-    ensure_workspace_catalog || return 1
-  fi
+  # Env-keyed workspace: local = the WIP project (working tree); dev/uat/prod = gov (main).
+  resolve_workspace "$env" || return 1
   local lock="$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock"
   if [[ -f "$lock" ]] && ! python3 -c "import json,sys; sys.exit(0 if (json.load(open('$lock')).get('hooks') or {}).get('${unit}-data',{}).get('cmd') else 1)" 2>/dev/null; then
     err "no data hook for unit '$unit'. Run 'prj data --list $env' to see data-capable units."
@@ -2741,7 +2712,6 @@ cmd_help() {
       echo "  deploy      Deploy a target — local/dev/uat/prod"
       echo "  catalog     Discover units in an env (<env>); build/check the derived graph.lock"
       echo "  data        Query a unit's datastore — 'data --list <env>' for units, diagnostics per unit"
-      echo "  use         Set the default workspace data/seed/iam-data use from anywhere"
       echo "  seed        Run the catalog seed hook (app-owned)"
       echo "  iam-data    Query the IAM datastore (alias: data iam)"
       echo "  schedules   Install/inspect catalog cron schedules"
@@ -2869,9 +2839,9 @@ Query a unit's datastore. `prj data --list <env>` enumerates the data-capable un
 data <unit> <env> …` dispatches to that unit's data hook. Units ship CANNED diagnostic
 queries (right joins + bi-temporal filters; params bind as @vars, read-only).
 
-Workspace resolution mirrors deploy: env=local uses the PROJECT workspace (projects folder +
-selected project); dev/uat/prod use the GOV workspace ($ADF_WORKSPACE / `prj use` default).
-`prj iam-data <env> …` == `prj data iam <env> …`.
+Workspace resolution is uniform across catalog/deploy/data and keyed on env: local = the WIP
+project you're in (cwd, incl. a member repo; else pick); dev/uat/prod = the gov repo
+($ADF_WORKSPACE, always on main — set it in your environment). `prj iam-data <env>` == `prj data iam <env>`.
 
 Examples:
   prj data --list dev                         which units have data
@@ -2932,24 +2902,6 @@ EOF
 prj version | --version | -v — print the installed prj CLI version (from the package).
 EOF
       ;;
-    use)
-      cat <<'EOF'
-prj use [<path>] — set (or show) the default workspace.
-
-`data`, `seed`, and `iam-data` read the gov deploy catalog (hook + host), which is the same
-across your per-project workspace clones. When you're not inside a project and $ADF_WORKSPACE
-is unset (e.g. running from $HOME), they fall back to this remembered default — so e.g.
-`prj data iam dev --list` works from anywhere. `prj` also remembers the last workspace it
-resolves automatically, so running once from a project sets it for you.
-
-  prj use                    show the current default workspace
-  prj use <path>             set it (point at your svm-prj-work clone)
-
-Examples:
-  prj use ~/.svm/projects/PRJ-012-portal-app-backlog/svm-prj-work
-  prj data iam dev --list    # now resolves from anywhere
-EOF
-      ;;
     manage)
       cat <<'EOF'
 prj manage [list | list-all | manage] — assign/reassign/unassign projects (GitHub-definitive).
@@ -3004,11 +2956,10 @@ case "$CMD" in
   sync)         cmd_sync ;;
   config)       cmd_config "${@:2}" ;;
   deploy)       cmd_deploy "${@:2}" ;;
-  seed)         run_catalog_hook seed "${@:2}" ;;
+  seed)         cmd_seed "${@:2}" ;;
   catalog)      cmd_catalog "${@:2}" ;;
   data)         cmd_data "${@:2}" ;;
   iam-data)     cmd_data iam "${@:2}" ;;     # alias: prj iam-data <env> … == prj data iam <env> …
-  use)          cmd_use "${2:-}" ;;
   creds)        bash "$SCRIPTS/creds.sh" "${@:2}" ;;
   schedules)    bash "$SCRIPTS/deploy/schedules.sh" "${@:2}" ;;
   add-repo)     cmd_add_repo ;;
