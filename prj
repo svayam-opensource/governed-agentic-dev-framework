@@ -2267,25 +2267,27 @@ show_menu() {
   # Show the ACTUAL checked-out branch of the current repo (not the org default
   # branch) — this is what the developer is on. Fall back to the org default if
   # cwd isn't a git repo.
-  local cur_branch
+  local cur_branch _ver
   cur_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "$DEFAULT_BRANCH")
+  _ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/package.json" 2>/dev/null | head -1)"
   echo ""
-  echo -e "${BOLD}${MAGENTA}  ▸ ${ORG_NAME} — Agentic Development Framework${NC}"
+  echo -e "${BOLD}${MAGENTA}  ▸ ${ORG_NAME} — Agentic Development Framework${NC}${DIM}${_ver:+ (v${_ver})}${NC}"
   echo -e "${DIM}  Org: ${ORG_SLUG}  |  Branch: ${cur_branch}  |  User: ${CURRENT_USER}${NC}"
   echo ""
   divider
   echo ""
-  echo -e "  ${GREEN}${BOLD}Work${NC}  ${DIM}— developers start here${NC}"
-  echo -e "  ${GREEN}▸${NC}  work         Pick a project → init / continue / new task / finish (one front door)"
+  echo -e "  ${CYAN}${BOLD}Status${NC}   ${DIM}project state${NC}        ${CYAN}list${NC} · ${CYAN}status${NC}"
   echo ""
-  echo -e "  ${CYAN}${BOLD}Status${NC}     ${CYAN}list${NC} · ${CYAN}status${NC}"
+  echo -e "  ${YELLOW}${BOLD}Manage${NC}   ${DIM}GitHub Project access${NC}  ${YELLOW}manage${NC}  ${DIM}(assign / reassign / unassign)${NC}"
   echo ""
-  echo -e "  ${YELLOW}${BOLD}Admin${NC}  ${DIM}(managers & maintenance)${NC}"
-  echo -e "      ${YELLOW}manage${NC}  ${DIM}assign / reassign / unassign — grants GitHub Project access${NC}"
-  echo -e "      ${YELLOW}knowledge${NC} · ${YELLOW}onboard${NC} · ${YELLOW}upgrade${NC} · ${YELLOW}deps${NC}"
+  echo -e "  ${GREEN}${BOLD}Work${NC}     ${DIM}developers start here${NC}  ${GREEN}work${NC}  ${DIM}pick a project → init / continue / task / finish${NC}"
   echo ""
-  echo -e "  ${DIM}Direct lifecycle (normally reached via work):${NC}"
-  echo -e "  ${DIM}    init · join · task · merge · pause · resume · sync · add-repo · cancel · close${NC}"
+  echo -e "  ${MAGENTA}${BOLD}Deploy${NC}   ${DIM}ship a target${NC}          ${MAGENTA}deploy${NC} ${DIM}<target> --local|--dev|--uat|--prod  ·  config · seed${NC}"
+  echo ""
+  echo -e "  ${MAGENTA}${BOLD}Data${NC}     ${DIM}query a datastore${NC}      ${MAGENTA}data${NC} ${DIM}[--list]  ·  data <unit> <env> …${NC}"
+  echo ""
+  echo -e "  ${YELLOW}${BOLD}Admin${NC}  ${DIM}(maintenance):${NC} ${YELLOW}knowledge${NC} · ${YELLOW}onboard${NC} · ${YELLOW}upgrade${NC} · ${YELLOW}deps${NC}"
+  echo -e "  ${DIM}Lifecycle (via work): init · join · task · merge · pause · resume · sync · add-repo · cancel · close${NC}"
   echo ""
   echo -e "  ${DIM}Type a verb name or number; 0 to exit.${NC}"
   echo ""
@@ -2321,6 +2323,10 @@ show_menu() {
     14|deps)      cmd_deps ;;
     15|manage)    cmd_manage ;;
     16|upgrade)   cmd_upgrade ;;
+    deploy)       cmd_help deploy ;;     # needs a target+env → show usage/examples
+    config)       cmd_help config ;;
+    seed)         cmd_help seed ;;
+    data)         cmd_data ;;            # no args → lists data-capable units
     0|q|quit|exit) echo "Bye."; exit 0 ;;
     *) err "Unknown option '$choice'." ;;
   esac
