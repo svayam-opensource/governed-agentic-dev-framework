@@ -2504,8 +2504,19 @@ resolve_local_workspace() {
 # seed / data) is invoked via a generic verb without shipping app internals in the
 # open-source CLI. The hook runs from the owner repo's dir with $ADF_WORKSPACE
 # exported and all extra args forwarded. Mirrors how deploy uses catalog provision.
+# Ensure WORKSPACE_ROOT points at a workspace that actually has the deploy catalog.
+# When run outside a project with $ADF_WORKSPACE unset (e.g. from $HOME), the global
+# WORKSPACE_ROOT falls back to the CLI's own dir (no catalog) — so resolve from cwd like
+# `deploy --local` does (walk up for org-config.yaml; prompt to pick a project if none).
+ensure_workspace_catalog() {
+  [[ -f "$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock" ]] && return 0
+  local _lws; _lws="$(resolve_local_workspace)" || return 1
+  WORKSPACE_ROOT="$_lws"; export ADF_WORKSPACE="$_lws"
+}
+
 run_catalog_hook() {
   local name="$1"; shift
+  ensure_workspace_catalog || return 1
   local lock="$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock"
   [[ -f "$lock" ]] || { err "$name: no catalog (knowledge/deployment/catalog/graph.lock) in this workspace."; return 1; }
   # Resolve hooks.<name> → "<repo-leaf>|<cmd>" (repo dir = sibling of the workspace).
@@ -2535,6 +2546,8 @@ print(repo+'|'+h['cmd'])
 # --list / --describe / <query-name> [k=v…] / --tables / "<SQL>" / interactive shell.
 # `prj iam-data` remains as an alias for `prj data iam`.
 cmd_data() {
+  case "${1:-}" in -h|--help) cmd_help data; return 0 ;; esac
+  ensure_workspace_catalog || return 1
   local lock="$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock"
   case "${1:-}" in
     ""|--list|-l|list)
