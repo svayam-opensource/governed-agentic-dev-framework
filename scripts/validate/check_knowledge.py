@@ -60,6 +60,12 @@ def check_knowledge(repo_root: Path) -> list[str]:
     errors: list[str] = []
     kroot = repo_root / "knowledge"
     if not kroot.is_dir():
+        # The framework/template SOURCE repo carries its template under framework/ and
+        # has NO instantiated org-knowledge tree at root (v0.3.3 skinny template: "remove
+        # root duplicates of framework files"). There is nothing to validate here — only a
+        # real WORKSPACE (which has no framework/ template dir) must ship a root knowledge/.
+        if (repo_root / "framework").is_dir():
+            return []
         return ["knowledge/ directory missing"]
 
     docs: dict[Path, str] = {

@@ -276,17 +276,13 @@ if [[ ${#MISSING_REQUIRED[@]} -gt 0 ]]; then
   echo ""
 fi
 
-# ── gh authentication ─────────────────────────────────────────────────────────
-
-echo "GitHub CLI auth:"
-if ! gh auth status &>/dev/null; then
-  fail "gh CLI is not authenticated"
-  hard_stop "Run: gh auth login"
-fi
-ok "gh authenticated"
+# gh AUTHENTICATION is intentionally NOT checked here — install-deps is tools-only
+# (v0.1.1). GitHub identity + access verification lives in setup.sh, where the configured
+# github_org is known. Checking `gh auth status` here also broke non-interactive CI (no
+# auth) and any fresh machine before `gh auth login`.
 
 echo ""
-ok "All required tools installed and gh authenticated."
+ok "All required tools installed."
 echo ""
 echo "Next: bash setup.sh   (configure for your org and verify GitHub access)"
 echo ""
