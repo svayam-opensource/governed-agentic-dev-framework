@@ -2291,7 +2291,7 @@ show_menu() {
   echo ""
   echo -e "  ${MAGENTA}${BOLD}Deploy${NC}   ${DIM}ship a target${NC}          ${MAGENTA}deploy${NC} ${DIM}<target> --local|--dev|--uat|--prod  ·  config · seed${NC}"
   echo ""
-  echo -e "  ${MAGENTA}${BOLD}Catalog${NC}  ${DIM}what's in an env${NC}       ${MAGENTA}catalog${NC} ${DIM}<env>  — units, hosts, deployed versions${NC}"
+  echo -e "  ${MAGENTA}${BOLD}Catalog${NC}  ${DIM}what's in an env${NC}       ${MAGENTA}catalog${NC} ${DIM}<env>  ·  catalog build · check${NC}"
   echo ""
   echo -e "  ${MAGENTA}${BOLD}Data${NC}     ${DIM}query a datastore${NC}      ${MAGENTA}data${NC} ${DIM}<unit> <env> …  ·  data --list <env>${NC}"
   echo ""
@@ -2613,10 +2613,22 @@ print(repo+'|'+h['cmd'])
 # view (hosts, pins) is per-env. Reads the gov-global catalog (gov/remembered workspace),
 # never the local project picker.
 cmd_catalog() {
-  case "${1:-}" in -h|--help) cmd_help catalog; return 0 ;; esac
+  case "${1:-}" in
+    -h|--help) cmd_help catalog; return 0 ;;
+    build|check)
+      # Authoring ops: (re)derive graph.lock from services.yaml + the member repos
+      # (build), or drift-gate it (check). These read the WORKING TREE, so resolve the
+      # PROJECT workspace like `prj config` / `deploy --local` (cwd walk-up; picker if
+      # not inside a project). Extra args (e.g. --catalog <path>) are forwarded.
+      local action="$1"; shift
+      local _lws; _lws="$(resolve_local_workspace)" || return 1
+      export ADF_WORKSPACE="$_lws"
+      exec python3 "$SCRIPTS/deploy/catalog.py" "$action" "$@"
+      ;;
+  esac
   local env="${1:-}"
-  [[ -n "$env" ]] || { err "usage: prj catalog <local|dev|uat|prod>  (env is required)"; return 1; }
-  case "$env" in local|dev|uat|prod) ;; *) err "catalog: env must be local|dev|uat|prod (got '$env')"; return 1 ;; esac
+  [[ -n "$env" ]] || { err "usage: prj catalog <local|dev|uat|prod>  (env required)  |  prj catalog build | check"; return 1; }
+  case "$env" in local|dev|uat|prod) ;; *) err "catalog: expected an env (local|dev|uat|prod) or 'build'/'check', got '$env'"; return 1 ;; esac
   ensure_workspace_catalog || return 1
   local cd="$WORKSPACE_ROOT/knowledge/deployment/catalog"
   [[ -f "$cd/graph.lock" ]] || { err "no catalog at $cd/graph.lock"; return 1; }
@@ -2727,7 +2739,7 @@ cmd_help() {
       echo -e "${BOLD}Deploy${NC}"
       echo "  config      Scaffold / drift-check a unit's deploy.yaml (config-as-build)"
       echo "  deploy      Deploy a target — local/dev/uat/prod"
-      echo "  catalog     Discover units in an env — hosts, deployed versions, edges"
+      echo "  catalog     Discover units in an env (<env>); build/check the derived graph.lock"
       echo "  data        Query a unit's datastore — 'data --list <env>' for units, diagnostics per unit"
       echo "  use         Set the default workspace data/seed/iam-data use from anywhere"
       echo "  seed        Run the catalog seed hook (app-owned)"
@@ -2828,16 +2840,24 @@ EOF
       ;;
     catalog)
       cat <<'EOF'
-prj catalog <env>          (env REQUIRED: local | dev | uat | prod)
+prj catalog <env>          discover units in an env (env REQUIRED: local|dev|uat|prod)
+prj catalog build          (re)derive graph.lock from services.yaml + the member repos
+prj catalog check          drift-gate: assert graph.lock == a fresh derivation
 
-Discover the units in the deploy catalog FOR AN ENV — each unit's kind, the host it runs on
-in that env, its DEPLOYED (pinned) version (– = not deployed there), and its resolved edge
-host; plus the applications (members) and platform services. Reads the gov-global catalog
-(no env contact), so it works wherever `prj data` does.
+LIST (prj catalog <env>): each unit's kind, the host it runs on in that env, its DEPLOYED
+(pinned) version (– = not deployed there), and its resolved edge host; plus applications
+(members) and platform services. Reads the gov-global catalog (no env contact).
+
+BUILD / CHECK author the catalog (config-as-build): after you edit the gov catalog
+services.yaml (add a unit, hosts, edge, requires, hooks…), `build` regenerates the derived
+graph.lock and `check` gates it. These read your WORKING TREE (the project's gov repo +
+member repos), so run them from inside your project; commit the result to the gov repo so
+remote envs (dev/uat/prod read origin/main) pick it up.
 
 Examples:
   prj catalog dev            units + hosts + what's deployed in dev
-  prj catalog prod           the prod picture
+  prj catalog build          regenerate graph.lock after editing services.yaml
+  prj catalog check          fail if the committed lock drifted from the repos
 EOF
       ;;
     data)
