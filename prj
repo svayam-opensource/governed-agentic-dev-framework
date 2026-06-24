@@ -2528,6 +2528,51 @@ print(repo+'|'+h['cmd'])
   ( cd "$repo_dir" && eval "$cmd$q" )
 }
 
+# ── Data — query a unit's datastore (generic over data-capable units) ─────────
+# `prj data` (or `--list`) enumerates the data-capable units (catalog hooks named
+# `<unit>-data`); `prj data <unit> <env> …` dispatches to that unit's data hook.
+# The unit's hook (e.g. svm-ident's iam-data.sh) provides the actual surface:
+# --list / --describe / <query-name> [k=v…] / --tables / "<SQL>" / interactive shell.
+# `prj iam-data` remains as an alias for `prj data iam`.
+cmd_data() {
+  local lock="$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock"
+  case "${1:-}" in
+    ""|--list|-l|list)
+      [[ -f "$lock" ]] || { err "no catalog (knowledge/deployment/catalog/graph.lock) in this workspace."; return 1; }
+      echo ""
+      echo -e "${BOLD}Data-capable units${NC}  (declared in the deploy catalog)"
+      python3 -c "
+import json
+c=json.load(open('$lock'))
+hooks=c.get('hooks') or {}
+rows=[]
+for k,v in sorted(hooks.items()):
+    if k.endswith('-data') and v.get('cmd'):
+        name=k[:-5]; repo=(v.get('repo') or '').split('/')[-1]
+        rows.append((name, repo))
+if not rows:
+    print('  (none — no <unit>-data hooks declared)')
+else:
+    print('  %-10s %-26s %s' % ('unit','owner repo','try'))
+    for name,repo in rows:
+        print('  %-10s %-26s prj data %s <env> --list' % (name, repo, name))
+"
+      echo ""
+      echo -e "  ${DIM}prj data <unit> <env> --list${NC}    canned queries for a unit"
+      echo -e "  ${DIM}prj data <unit> <env> <name> k=v${NC} run one (params bound, read-only)"
+      echo ""
+      return 0 ;;
+    -h|--help) cmd_help data; return 0 ;;
+  esac
+  local unit="$1"; shift
+  # Friendly error for an unknown unit (vs a raw "no hook" from the dispatcher).
+  if [[ -f "$lock" ]] && ! python3 -c "import json,sys; sys.exit(0 if (json.load(open('$lock')).get('hooks') or {}).get('${unit}-data',{}).get('cmd') else 1)" 2>/dev/null; then
+    err "no data hook for unit '$unit'. Run 'prj data --list' to see data-capable units."
+    return 1
+  fi
+  run_catalog_hook "${unit}-data" "$@"
+}
+
 # ── Help (short / --detail / per-command with examples) ────────────────────────
 cmd_help() {
   local topic="${1:-}"
@@ -2556,8 +2601,9 @@ cmd_help() {
       echo -e "${BOLD}Deploy${NC}"
       echo "  config      Scaffold / drift-check a unit's deploy.yaml (config-as-build)"
       echo "  deploy      Deploy a target — local/dev/uat/prod"
+      echo "  data        Query a unit's datastore — 'data --list' for units, diagnostics per unit"
       echo "  seed        Run the catalog seed hook (app-owned)"
-      echo "  iam-data    Run the catalog data hook (app-owned)"
+      echo "  iam-data    Query the IAM datastore (alias: data iam)"
       echo "  schedules   Install/inspect catalog cron schedules"
       echo ""
       echo -e "${BOLD}Setup & meta${NC}"
@@ -2577,6 +2623,7 @@ cmd_help() {
       echo -e "${BOLD}Common commands${NC}"
       echo "  work        Continue work — sync your branch and keep going"
       echo "  deploy      Deploy a target — local/dev/uat/prod"
+      echo "  data        Query a unit's datastore — list units + canned diagnostics"
       echo "  manage      List, assign, reassign, unassign projects"
       echo "  version     Print the installed prj CLI version"
       echo ""
@@ -2649,6 +2696,26 @@ $ADF_WORKSPACE exported and your args forwarded. App logic lives in the app, not
 
 Examples:
   prj seed iam --env local     seed the local IAM with curated data (env-data/local.yaml)
+EOF
+      ;;
+    data)
+      cat <<'EOF'
+prj data [--list]                          list the data-capable units (which units have a datastore)
+prj data <unit> <env> [ <name> [k=v…] | --list | --describe <name> | --tables | "<SQL>" ]
+
+Query a unit's datastore, generically. `prj data` (or `--list`) enumerates the data-capable
+units declared in the deploy catalog; `prj data <unit> <env> …` dispatches to that unit's
+data hook. Each unit ships CANNED diagnostic queries that encode the right joins +
+bi-temporal filters; params bind as @vars (read-only). `prj iam-data` == `prj data iam`.
+
+Examples:
+  prj data                                    which units have data?
+  prj data iam local --list                   the IAM unit's canned queries
+  prj data iam local --describe user-roles    show one query's SQL + params
+  prj data iam local user-roles email=local1@svayam.ai account=1000 product=portal
+  prj data iam local account-subscriptions account=1000
+  prj data iam uat "SELECT ..."               ad-hoc SQL (has spaces ⇒ raw)
+  prj data iam local                          interactive shell
 EOF
       ;;
     iam-data)
@@ -2755,6 +2822,7 @@ case "$CMD" in
   config)       cmd_config "${@:2}" ;;
   deploy)       cmd_deploy "${@:2}" ;;
   seed)         run_catalog_hook seed "${@:2}" ;;
+  data)         cmd_data "${@:2}" ;;
   iam-data)     run_catalog_hook iam-data "${@:2}" ;;
   creds)        bash "$SCRIPTS/creds.sh" "${@:2}" ;;
   schedules)    bash "$SCRIPTS/deploy/schedules.sh" "${@:2}" ;;
