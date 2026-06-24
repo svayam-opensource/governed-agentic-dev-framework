@@ -22,7 +22,10 @@
 # Compliance: C01 — workspace integrity gate
 
 set -euo pipefail
-source "$(dirname "$0")/lib.sh"
+# Capture the script's own dir BEFORE any `cd` — the validator ships WITH the CLI
+# (npm package), not vendored in the workspace data repo (Option C). Resolve it here.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
 load_config
 
 SOURCE_BRANCH="${1:-}"
@@ -32,7 +35,10 @@ cd "$REPO_ROOT"
 
 ORIGINAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 TEST_BRANCH="test-merge/$SOURCE_BRANCH"
-VALIDATOR="$REPO_ROOT/scripts/validate/run.py"
+# Packaged validator (alongside this script), NOT $REPO_ROOT/scripts/validate — the
+# workspace is a pure governance DATA repo and does not vendor scripts (matches CI's
+# `prj validate` / cmd_validate, which runs $SCRIPTS/validate/run.py).
+VALIDATOR="$SCRIPT_DIR/validate/run.py"
 
 [[ -x "$VALIDATOR" ]] || hard_stop "Validator not found or not executable: $VALIDATOR"
 
@@ -82,7 +88,7 @@ fi
 echo ""
 info "Running validators against merged tree..."
 echo ""
-if ! python3 "$VALIDATOR" "$REPO_ROOT"; then
+if ! python3 "$VALIDATOR" --data "$REPO_ROOT"; then
   echo ""
   on_fail
   hard_stop "Test-merge gate FAILED for '$SOURCE_BRANCH'. Local '$DEFAULT_BRANCH' is unchanged."
