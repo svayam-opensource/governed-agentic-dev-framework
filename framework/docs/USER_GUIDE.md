@@ -25,17 +25,17 @@ Code lives in separate repos that projects reference; the workspace repo coordin
 
 ### Project
 
-A unit of work with a unique, sequential ID — e.g., `ACME-007-invoice-api`. The ID is composed of:
+A unit of work with a unique ID — e.g., `PRJ-26-invoice-api`. The ID is composed of:
 
-- Your org's slug prefix (`ACME` here, set in `org-config.yaml`)
-- A zero-padded sequence number (`007`) issued by the seed script from `registry.yaml`
+- The fixed `PRJ-` prefix
+- The GitHub project **board number** (`26`) — the integer in the linked GitHub Project's URL, no leading zero — issued by the seed script
 - A slug derived from the project's GitHub Project name
 
 Each project has:
 
-- A folder: `projects/ACME-007-invoice-api/`
-- A workspace branch: `acme-007-invoice-api` (lowercase) in this repo and in every code repo it touches
-- A manifest: `projects/ACME-007-invoice-api/project.yaml`
+- A folder: `projects/PRJ-26-invoice-api/`
+- A workspace branch: `BRNCH-26-invoice-api` (same board number + slug, `BRNCH-` prefix) in this repo and in every code repo it touches; task sub-branches append `.ISSUE-<n>`
+- A manifest: `projects/PRJ-26-invoice-api/project.yaml`
 - A lifecycle: `proposed` → `active` → (`paused` ↔ `active`) → `completed` or `cancelled`
 - An assignee — a display/audit cache recorded in `project.yaml`/`registry.yaml`. Authorization to operate on the project is **write access to its linked GitHub Project** (`projectV2.viewerCanUpdate`), granted by an owner via `./prj manage assign` — not the `assigned_to` value. (Org owners/admins have access to everything.)
 

@@ -237,13 +237,16 @@ SHORT_SLUG=$(slugify "$PROJECT_TITLE")
 [[ -n "$SHORT_SLUG" ]] \
   || hard_stop "Project title '$PROJECT_TITLE' produced an empty slug. Rename the GitHub Project to include ASCII alphanumerics."
 LAST_ISSUED=$(yaml_get "$REGISTRY" "last_issued")
-NNN=$(printf "%03d" $((LAST_ISSUED + 1)))
-PROJECT_ID="PRJ-${NNN}-${SHORT_SLUG}"
-# POL-069 (scheme B): the project branch is keyed on the GitHub project NUMBER
-# (not the registry NNN) — e.g. PRJ-27-<slug> for project PRJ-013-<slug>. seed
-# stores this in registry/project.yaml so project_branch_for_id reads it
-# everywhere (existing brnch-NNN projects keep their stored name).
-BRANCH="PRJ-${PROJECT_NUMBER}-${SHORT_SLUG}"
+# Naming convention (POL-069, board-number scheme): both the project ID and its
+# branch are keyed on the GitHub project BOARD NUMBER (no leading zero) — NOT the
+# registry sequence. ID and branch differ only by their constant prefix:
+#   id      PRJ-<board#>-<slug>
+#   branch  BRNCH-<board#>-<slug>     (task branches: <branch>.ISSUE-<n>)
+# last_issued still advances as a project counter (registry bookkeeping). seed
+# stores the branch in registry/project.yaml so project_branch_for_id reads it
+# everywhere (existing PRJ-NNN / brnch-NNN projects keep their stored names).
+PROJECT_ID="PRJ-${PROJECT_NUMBER}-${SHORT_SLUG}"
+BRANCH="BRNCH-${PROJECT_NUMBER}-${SHORT_SLUG}"
 TODAY=$(today)
 NEW_LAST_ISSUED=$((LAST_ISSUED + 1))
 
