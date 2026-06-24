@@ -27,7 +27,7 @@ export ADF_WORKSPACE="$REPO_ROOT_SP"                               # so catalog.
 
 TARGET="${1:-}"; shift || true
 [[ -n "$TARGET" ]] || hard_stop "serve-local.sh <app|unit> [-d] [--image]"
-DETACH=0; IMAGE=0; ACTION="up"; PROVISION=0; SEED=0; ALL=0
+DETACH=0; IMAGE=0; ACTION="up"; PROVISION=0; SEED=0; ALL=0; YES=0
 while [[ $# -gt 0 ]]; do case "$1" in
   -d|--detach) DETACH=1; shift ;;
   --image) IMAGE=1; shift ;;
@@ -35,7 +35,8 @@ while [[ $# -gt 0 ]]; do case "$1" in
   --all) ALL=1; shift ;;               # with --stop: also bring down the catalog Tier-2 containers
   --logs) ACTION="logs"; shift ;;
   --provision) PROVISION=1; shift ;;   # auto bring-up an api member that isn't up yet (rung ① of the ladder)
-  --seed) SEED=1; PROVISION=1; shift ;; # also load curated data (catalog seed hook); implies provision
+  --seed) SEED=1; PROVISION=1; shift ;; # FRESH reseed: WIPE data + migrate + load curated init data (implies provision)
+  -y|--yes) YES=1; shift ;;            # skip the --seed wipe confirmation
   *) shift ;;
 esac; done
 
@@ -141,6 +142,42 @@ done < "$STATE_DIR/preflight.tsv"
 
 # Product code for the launcher home_url wiring (application's oidc_client, else the target).
 PRODUCT_CD="$(python3 -c "import json;c=json.load(open('$REPO_ROOT_SP/knowledge/deployment/catalog/graph.lock'));a=(c.get('applications') or {}).get('$TARGET') or {};print(a.get('oidc_client') or '$TARGET')" 2>/dev/null || echo "$TARGET")"
+
+# ── --seed = FRESH reseed: wipe the data substrate BEFORE provisioning ────────
+# Option B (PRJ-012): --seed means a clean known baseline, NOT last-shutdown data.
+# Drop each data-owner's volume (owner stop.sh --purge) so the subsequent provision
+# re-migrates clean and the seed step (4b) loads curated init data into a fresh DB.
+# Destructive → confirm unless --yes. Resolution mirrors `--stop --all`.
+seed_fresh_wipe() {
+  echo "--- --seed: FRESH reseed (wipes local data) ---"
+  if [[ "$YES" != 1 ]]; then
+    printf "  ⚠ This WIPES the local data volume(s) for '%s' and reseeds from curated init data.\n    Continue? [y/N] " "$TARGET"
+    local ans=""; read -r ans </dev/tty 2>/dev/null || true
+    [[ "$ans" =~ ^[Yy]$ ]] || { warn "  aborted — nothing wiped (pass --yes to skip this prompt)."; exit 1; }
+  fi
+  python3 -c "
+import json, os.path
+c=json.load(open('$REPO_ROOT_SP/knowledge/deployment/catalog/graph.lock'))
+apps=c.get('applications',{}) or {}; units=c.get('units',{}) or {}; ps=c.get('platform_services',{}) or {}
+t='$TARGET'
+members=(apps.get(t,{}) or {}).get('members') or ([t] if t in units else list(units))
+seen=set()
+for m in members:
+    for r in (units.get(m,{}).get('requires') or []):
+        sp=ps.get(r,{})
+        if sp.get('provisioning')=='container' and sp.get('provision') and sp.get('owner'):
+            leaf=(units.get(sp['owner'],{}).get('repo') or '').split('/')[-1]
+            stopsh=os.path.dirname(sp['provision'])+'/stop.sh'
+            key=leaf+'|'+stopsh
+            if leaf and key not in seen: seen.add(key); print(key)
+" | while IFS='|' read -r leaf stopsh; do
+    [[ -z "$leaf" ]] && continue
+    local script="$WORKSPACE_ROOT/$leaf/$stopsh"
+    if [[ -f "$script" ]]; then info "  ▶ wiping $leaf data volume via $stopsh --purge"; bash "$script" --purge || warn "  purge failed: $script"
+    else warn "  no stop.sh at $script — cannot wipe $leaf volume (it will reuse persisted data)"; fi
+  done
+}
+[[ "$SEED" == 1 ]] && seed_fresh_wipe
 
 # ── 2/4. Bring up members in dependency order ─────────────────────────────────
 echo "--- members (dependency order) ---"
