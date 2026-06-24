@@ -379,7 +379,7 @@ gh_board_title() {
 }
 
 # derive_project_id <board_number> [owner]  → PRJ-<id>. Legacy → stored id;
-# else PRJ-<number>-<slug(title)> (scheme B; id == branch for new projects).
+# else PRJ-<board#>-<slug(title)> (board-number scheme; no leading zero).
 derive_project_id() {
   local num="$1" owner="${2:-$GITHUB_ORG}" id slug
   id="$(legacy_shim_field "$num" id)"
@@ -390,12 +390,16 @@ derive_project_id() {
 }
 
 # derive_project_branch <board_number> [owner]  → branch. Legacy → stored branch;
-# else the scheme-B branch, which for new projects equals the derived id.
+# else BRNCH-<board#>-<slug> — same board number + slug as the id, distinct prefix
+# (task branches append .ISSUE-<n>). For new projects id and branch differ ONLY
+# by the PRJ-/BRNCH- constant.
 derive_project_branch() {
-  local num="$1" owner="${2:-$GITHUB_ORG}" br
+  local num="$1" owner="${2:-$GITHUB_ORG}" br slug
   br="$(legacy_shim_field "$num" branch)"
   [[ -n "$br" ]] && { echo "$br"; return; }
-  derive_project_id "$num" "$owner"
+  slug="$(slugify_str "$(gh_board_title "$num" "$owner")")"
+  [[ -z "$slug" ]] && return 1
+  echo "BRNCH-${num}-${slug}"
 }
 
 # anchor_has_label <board_number> <label> [owner]  → 0 if the board's anchor issue

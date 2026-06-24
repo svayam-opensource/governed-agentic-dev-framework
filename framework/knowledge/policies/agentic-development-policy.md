@@ -189,15 +189,15 @@ All work performed under the <ORG_NAME> GitHub organization must be done through
 
 ### 4.2 Project ID Format
 
-Every project is identified by a globally unique Project ID in the format `PRJ-NNN-<slug>`, where:
+Every project is identified by a globally unique Project ID in the format `PRJ-<board#>-<slug>`, where:
 
-- `<ORG_SLUG>` is the fixed organizational prefix.
-- `NNN` is a zero-padded sequential number (e.g., `007`, `042`, `100`).
+- `PRJ-` is the fixed prefix.
+- `<board#>` is the GitHub project **board number** — the integer in the linked GitHub Project's URL — with **no leading zero** (e.g., `7`, `26`, `100`).
 - `slug` is a lowercase, hyphenated identifier derived from the GitHub Project name at seed time.
 
 **(POL-042)**
 
-The NNN sequence number is issued exclusively by the `seed` script reading from `registry.yaml`. Project IDs must never be assigned manually. **(POL-043)**
+The Project ID is issued exclusively by the `seed` script from the linked GitHub project board; it must never be assigned manually. The project **branch** mirrors the ID with the `BRNCH-` prefix and the same board number and slug — `BRNCH-<board#>-<slug>` — and task sub-branches append `.ISSUE-<n>` (POL-074). `registry.yaml` records both the issued `id` and `branch`. Projects seeded under the earlier zero-padded sequence scheme (`PRJ-NNN-<slug>` / `brnch-NNN-<slug>`) keep their original names. **(POL-043)**
 
 ### 4.3 Project Registry
 
@@ -287,11 +287,11 @@ reassigned_approved_by: ~
 repos:
   - url: https://github.com/<GITHUB_ORG>/repo-A
     role: primary          # primary | dependency | read-only
-    base_branch: dev       # branch brnch-NNN-slug created from; merge back here
+    base_branch: dev       # branch BRNCH-<board#>-<slug> created from; merge back here
     added_at: 2026-05-05
     added_reason: ~
 # tasks are NOT stored here — each task is a GitHub Issue on the board plus a
-# sub-branch (brnch-007-invoice-api/<task-slug>); the board is the
+# sub-branch (BRNCH-26-invoice-api.ISSUE-42); the board is the
 # source of truth for task state (POL-074)
 knowledge_status: pending_review   # pending_review | merged | rejected | under_revision | abandoned
 knowledge_pr: ~
@@ -767,8 +767,8 @@ POL-038: Any change to role assignments requires a PR approved by the Policy Own
 POL-039: Domain owners have final approval authority within their own domain; no other role may approve domain PRs.
 POL-040: Cross-domain PRs require approval from each affected domain owner; Policy Owner resolves disputes.
 POL-041: All organizational work must be performed through an active, uniquely identifiable project.
-POL-042: Every project is identified by the format PRJ-NNN-<slug> (sequential NNN, lowercase slug from GitHub Project name).
-POL-043: Project NNN sequence numbers are issued exclusively by the seed script from registry.yaml; never assigned manually.
+POL-042: Every project is identified by the format PRJ-<board#>-<slug> (GitHub project board number, no leading zero; lowercase slug from GitHub Project name).
+POL-043: Project IDs are issued exclusively by the seed script from the linked GitHub board; the branch mirrors the id as BRNCH-<board#>-<slug> (task sub-branches append .ISSUE-<n>); never assigned manually. Legacy PRJ-NNN/brnch-NNN projects keep their names.
 POL-044: registry.yaml in <WORKSPACE_REPO> is the single authoritative source of truth for all project IDs and statuses.
 POL-045: A project may be assigned to an individual (email) or a team (team-id).
 POL-046: seeded_by records who ran the seed script; an audit record set once — not an authorization gate.

@@ -7,7 +7,7 @@
 `<WORKSPACE_REPO>` is <ORG_NAME>'s central workspace repository for all agentic development projects.
 It is NOT a code repository. It contains:
 - Org-wide knowledge (`knowledge/`)
-- All project workspaces (`projects/PRJ-NNN-<slug>/`)
+- All project workspaces (`projects/PRJ-<board#>-<slug>/`)
 - The project registry (`registry.yaml`)
 
 `<WORKSPACE_REPO>` is an implicit participant in every project — it does not need to be listed in `repos[]`.
@@ -22,7 +22,7 @@ Read this policy before beginning any work session.
 ## Knowledge Layer Priority (Highest to Lowest)
 
 1. **Org-wide knowledge** → `knowledge/` (this repository, <DEFAULT_BRANCH> branch)
-2. **Project knowledge** → `projects/PRJ-NNN-<slug>/knowledge/`
+2. **Project knowledge** → `projects/PRJ-<board#>-<slug>/knowledge/`
 3. **Repo-local knowledge** → `<cloned-repo>/knowledge/`
 4. **Your developer preferences** → `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md`
    (run `gh api user --jq .login` to get your handle; load only your file)
@@ -33,20 +33,20 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 
 - **C01 — Non-Negotiable**: Hard stop. Refuse to proceed. Surface to human immediately.
 - **C02 — Always Apply**: Block work. Require approved PR in `knowledge/policies/exceptions/` before continuing.
-- **C03 — Apply Intelligently**: Proceed with deviation, but document reasoning in `projects/PRJ-NNN-<slug>/knowledge/compliance.md`.
+- **C03 — Apply Intelligently**: Proceed with deviation, but document reasoning in `projects/PRJ-<board#>-<slug>/knowledge/compliance.md`.
 
 ## Session Start Checklist (C01 — complete before any work)
 
 1. Read `org-config.yaml` at workspace root — org identity, branches, owners, `agent_work_root`. Every other step references its values.
-2. Read `projects/PRJ-NNN-<slug>/project.yaml` → verify you are authorized via `assigned_to` (or own the current task sub-branch)
+2. Read `projects/PRJ-<board#>-<slug>/project.yaml` → verify you are authorized via `assigned_to` (or own the current task sub-branch)
 3. Verify `status: active`
 4. Load all four knowledge layers fresh (never use cached layers from a prior session)
-5. Pull latest `brnch-NNN-<slug>` branch in all repos
+5. Pull latest `BRNCH-<board#>-<slug>` branch in all repos
 
 ## Write Restrictions During Active Projects
 
 During an active project, NO changes are allowed to `knowledge/` (C01).
-All writes must be constrained to `projects/PRJ-NNN-<slug>/` only.
+All writes must be constrained to `projects/PRJ-<board#>-<slug>/` only.
 Org knowledge is read-only during projects — updated only via knowledge close PRs.
 
 ## Data Classification — Hard Rules
