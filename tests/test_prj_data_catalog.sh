@@ -12,8 +12,9 @@ source "$(dirname "$0")/lib.sh"
 PRJ="$REPO_ROOT/prj"
 export PRJ_NO_PULL=1   # don't git-pull the gov fixture during tests
 
-mkcat() {  # mkcat <dir> [pin]  — write a deploy catalog (services.yaml [+ pins]) into <dir>
+mkcat() {  # mkcat <dir> [pin]  — make a gov-repo-shaped clone: org-config.yaml + deploy catalog
   mkdir -p "$1/knowledge/deployment/catalog"
+  : > "$1/org-config.yaml"   # the gov-repo signature ensure_adf_workspace checks
   cat > "$1/knowledge/deployment/catalog/services.yaml" <<'YAML'
 version: 2
 config_service_map: {}

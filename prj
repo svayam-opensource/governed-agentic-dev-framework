@@ -2500,14 +2500,48 @@ resolve_workspace() {
   esac
 }
 
-# GOV: $ADF_WORKSPACE (must be set + hold the catalog), pulled to latest main.
-_resolve_gov_workspace() {
-  local rel="knowledge/deployment/catalog/services.yaml"
-  if [[ -z "${ADF_WORKSPACE:-}" || ! -f "$ADF_WORKSPACE/$rel" ]]; then
-    err "dev/uat/prod read the COMMITTED catalog from the gov repo (always on main). Set it
-    in your environment first:  export ADF_WORKSPACE=<your $WORKSPACE_REPO clone on main>"
+# Persist ADF_WORKSPACE so future shells pick it up automatically — to the developer's login
+# SHELL RC (a user-specific OS setting; NEVER committed to the repo). Idempotent managed block.
+_persist_adf_workspace() {
+  local ws="$1" rc begin="# >>> prj ADF_WORKSPACE (managed by setup.sh) >>>" end="# <<< prj ADF_WORKSPACE <<<"
+  case "$(basename "${SHELL:-bash}")" in
+    zsh)  rc="$HOME/.zshrc" ;;
+    bash) rc="$HOME/.bashrc" ;;
+    *)    rc="$HOME/.profile" ;;
+  esac
+  touch "$rc" 2>/dev/null || { warn "could not write $rc — add 'export ADF_WORKSPACE=$ws' manually."; return 0; }
+  if grep -qF "$begin" "$rc" 2>/dev/null; then            # replace any prior managed block
+    awk -v b="$begin" -v e="$end" '$0==b{skip=1} !skip{print} $0==e{skip=0}' "$rc" >"$rc.tmp" && mv "$rc.tmp" "$rc"
+  fi
+  printf '%s\nexport ADF_WORKSPACE=%q\n%s\n' "$begin" "$ws" "$end" >> "$rc"
+  info "Saved ADF_WORKSPACE to $rc — automatic in new shells (this run already uses it)."
+}
+
+# Ensure $ADF_WORKSPACE points at the gov repo. The shared contract for every command that
+# needs it: set+valid → use; missing → ASK (interactive) and persist to the shell rc;
+# non-interactive → error. Marker = org-config.yaml (the gov-repo signature).
+ensure_adf_workspace() {
+  [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]] && return 0
+  if [[ ! -t 0 ]]; then
+    err "ADF_WORKSPACE is not set to your gov repo. Set it (the $WORKSPACE_REPO clone on main) and retry:
+    export ADF_WORKSPACE=<path>"
     return 1
   fi
+  local p
+  printf "  Your gov repo (\$ADF_WORKSPACE) isn't set. Enter the path to your %s clone (on main): " "$WORKSPACE_REPO" >&2
+  IFS= read -r p || { err "aborted (no input)."; return 1; }
+  p="${p/#\~/$HOME}"
+  [[ -n "$p" && -d "$p" ]] || { err "not a directory: ${p:-<empty>}"; return 1; }
+  p="$(cd "$p" && pwd)"
+  [[ -f "$p/org-config.yaml" ]] || { err "$p doesn't look like a gov repo (no org-config.yaml)."; return 1; }
+  export ADF_WORKSPACE="$p"
+  _persist_adf_workspace "$p"
+  ok "ADF_WORKSPACE → $p"
+}
+
+# GOV: ensure $ADF_WORKSPACE (the gov repo), then read its latest main.
+_resolve_gov_workspace() {
+  ensure_adf_workspace || return 1
   WORKSPACE_ROOT="$ADF_WORKSPACE"
   # The gov repo is the SoT for committed/main answers — pull so other devs' changes are in
   # (best-effort; PRJ_NO_PULL=1 skips it for offline/scripted use).
