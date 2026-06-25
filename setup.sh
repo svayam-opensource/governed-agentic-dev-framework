@@ -514,6 +514,37 @@ else
   warn "It will be auto-created on first prj write op once gh auth is configured."
 fi
 
+# ── Ensure ADF_WORKSPACE (the gov repo) ────────────────────────────────────────
+# prj's dev/uat/prod commands read the committed catalog from $ADF_WORKSPACE (the gov repo
+# on main) and REQUIRE it. Same contract everywhere: if it's already in the environment, use
+# it; otherwise ASK and persist to the login shell rc (a user-specific OS setting — never the
+# repo). Skipped non-interactively / SETUP_SKIP_SHELL_RC=1 (CI); SETUP_FORCE_SHELL_RC=1 forces.
+ADF_ACTIVATED=false; ADF_WS=""
+if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]]; then
+  ok "ADF_WORKSPACE:  $ADF_WORKSPACE (already set)"
+elif [[ "${SETUP_SKIP_SHELL_RC:-}" != "1" ]] && { [[ -t 0 ]] || [[ "${SETUP_FORCE_SHELL_RC:-}" == "1" ]]; }; then
+  ADF_DEFAULT=""; [[ -f "$REPO_ROOT/knowledge/deployment/catalog/services.yaml" ]] && ADF_DEFAULT="$REPO_ROOT"
+  ask ADF_WS "Path to your gov repo (the $WORKSPACE_REPO clone on main) = \$ADF_WORKSPACE" "$ADF_DEFAULT"
+  ADF_WS="${ADF_WS/#\~/$HOME}"
+  if [[ -d "$ADF_WS" && -f "$ADF_WS/org-config.yaml" ]]; then
+    ADF_WS="$(cd "$ADF_WS" && pwd)"
+    ADF_RC="$HOME/.profile"
+    case "$(basename "${SHELL:-bash}")" in zsh) ADF_RC="$HOME/.zshrc";; bash) ADF_RC="$HOME/.bashrc";; esac
+    ADF_BEGIN="# >>> prj ADF_WORKSPACE (managed by setup.sh) >>>"; ADF_END="# <<< prj ADF_WORKSPACE <<<"
+    touch "$ADF_RC"
+    if grep -qF "$ADF_BEGIN" "$ADF_RC" 2>/dev/null; then
+      awk -v b="$ADF_BEGIN" -v e="$ADF_END" '$0==b{skip=1} !skip{print} $0==e{skip=0}' "$ADF_RC" >"$ADF_RC.tmp" && mv "$ADF_RC.tmp" "$ADF_RC"
+    fi
+    printf '%s\nexport ADF_WORKSPACE=%q\n%s\n' "$ADF_BEGIN" "$ADF_WS" "$ADF_END" >> "$ADF_RC"
+    ADF_ACTIVATED=true
+    ok "ADF_WORKSPACE → $ADF_WS  (saved to $ADF_RC)"
+  else
+    warn "'$ADF_WS' isn't a gov repo (no org-config.yaml) — set ADF_WORKSPACE yourself: export ADF_WORKSPACE=<path>"
+  fi
+else
+  warn "ADF_WORKSPACE not set — set it before prj's dev/uat/prod commands: export ADF_WORKSPACE=<gov repo>"
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
@@ -523,7 +554,12 @@ echo "Next steps:"
 echo "  1. Review changes:    git diff org-config.yaml"
 echo "  2. Commit + push:     git add org-config.yaml && git commit -m 'configure framework for $ORG_NAME' && git push origin $DEFAULT_BRANCH"
 echo "  3. Edit preferences:  ${PREFS_FILE:-<agent_work_root>/preferences/<your-gh-login>.md}"
+if $ADF_ACTIVATED; then
+echo "  4. Activate now:      export ADF_WORKSPACE=\"$ADF_WS\"   (or open a new shell — it's in $ADF_RC)"
+echo "  5. Start using:       ./prj"
+else
 echo "  4. Start using:       ./prj"
+fi
 echo ""
 echo "  Framework upgrades:   git fetch template && git merge template/$DEFAULT_BRANCH"
 echo ""
