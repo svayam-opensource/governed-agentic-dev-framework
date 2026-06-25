@@ -64,11 +64,11 @@ while IFS= read -r repo_url; do
   fi
 done < <(get_project_repos "$PROJECT_YAML")
 
-# ── Reflect pause in the registry index on the default branch + README mirror ─
-# project.yaml status lives on the project branch; the authoritative index lives
-# on $DEFAULT_BRANCH. Flip it so `prj list`/`prj status` don't show a paused
-# project as active.
-registry_set_status_on_main "$PROJECT_ID" "paused"
+# ── Reflect pause on GitHub (the status SoT) + README mirror ──────────────────
+# paused = board OPEN + anchor issue carries the 'paused' label. No registry
+# write (registry-elimination Increment 2); `prj list`/`prj status` derive the
+# paused state from the anchor label.
+anchor_set_label add "$(yaml_get "$PROJECT_YAML" github_project)" paused
 project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "paused" \
   "$(yaml_get "$PROJECT_YAML" assigned_to)" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
 

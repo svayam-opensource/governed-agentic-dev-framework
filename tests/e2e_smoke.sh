@@ -395,18 +395,13 @@ info "Step 9 — seed against fixture project $SMOKE_FIXTURE_PROJECT_URL..."
   >/tmp/smoke-init.log 2>&1 \
   || { tail -30 /tmp/smoke-init.log; hard_stop "seed.sh failed"; }
 
-# Find the seeded project ID from the registry (Direction A: home's
-# projects/ has only a .gitkeep stub on main; project.yaml lives on the
-# project branch inside the per-project workspace).
-PROJECT_ID=$(python3 -c "
-import yaml
-c = yaml.safe_load(open('registry.yaml')) or {}
-for p in (c.get('projects') or []):
-    if p and p.get('id', '').startswith('PRJ-') and p.get('status') == 'active':
-        print(p['id']); break
-")
-[[ -n "$PROJECT_ID" ]] || hard_stop "no active PRJ-* entry in registry"
-PROJECT_BRANCH="brnch-${PROJECT_ID#PRJ-}"
+# Find the seeded project ID from the project FOLDER stub on the default branch
+# (registry-elimination: there is no registry entry; seed scaffolds
+# projects/<PID>/ on main + an anchor issue on GitHub). The fixture workspace
+# started empty (Step 7), so the single PRJ-* folder is the one just seeded.
+PROJECT_ID=$(basename "$(ls -d projects/PRJ-*/ 2>/dev/null | head -1)" 2>/dev/null)
+[[ -n "$PROJECT_ID" ]] || hard_stop "no PRJ-* project folder after seed"
+PROJECT_BRANCH="BRNCH-${PROJECT_ID#PRJ-}"
 
 PROJECT_WORK_ROOT="$SMOKE_AGENT_WORK_ROOT/$PROJECT_ID"
 ORG_GOV_CLONE="$PROJECT_WORK_ROOT/$TEST_REPO_NAME"
@@ -419,11 +414,10 @@ HOME_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ "$HOME_BRANCH" == "main" ]] \
   || hard_stop "home workspace switched to '$HOME_BRANCH' — should have stayed on main"
 
-# Home has registry entry + stub folder on default branch
+# Home has the stub folder on the default branch (no registry entry — GitHub is
+# the project SoT; registry-elimination Increment 2).
 [[ -d "projects/$PROJECT_ID" ]] || hard_stop "stub folder projects/$PROJECT_ID/ missing on home main"
 [[ -f "projects/$PROJECT_ID/.gitkeep" ]] || hard_stop "stub .gitkeep missing"
-in_registry=$(python3 -c "import yaml; ps=yaml.safe_load(open('registry.yaml')).get('projects') or []; print('yes' if any(p.get('id')=='$PROJECT_ID' for p in ps if p) else 'no')")
-[[ "$in_registry" == "yes" ]] || hard_stop "registry missing entry for $PROJECT_ID"
 
 # Per-project workspace has full content on the project branch
 [[ -d "$ORG_GOV_CLONE" ]] \
@@ -460,7 +454,7 @@ info "Step 10 — ./prj list (should show $PROJECT_ID)..."
 out=$(/bin/bash ./prj list 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
 echo "$out" | grep -q "$PROJECT_ID" \
   || hard_stop "./prj list didn't show $PROJECT_ID"
-ok "registry has $PROJECT_ID"
+ok "prj list (GitHub-derived) shows $PROJECT_ID"
 
 # ── Step 11: task lifecycle (create-task → work on sub-branch → merge-task) ───
 
@@ -542,15 +536,21 @@ info "Step 14 — close-project.sh $PROJECT_ID (from per-project workspace)..."
   && /bin/bash scripts/close-project.sh "$PROJECT_ID" >/tmp/smoke-close.log 2>&1 ) \
   || { tail -30 /tmp/smoke-close.log; hard_stop "close-project.sh failed"; }
 
-# Verify state: per-project workspace has status=completed
-status=$(python3 -c "import yaml; print(yaml.safe_load(open('$ORG_GOV_CLONE/projects/$PROJECT_ID/project.yaml'))['status'])")
-[[ "$status" == "completed" ]] || hard_stop "expected status=completed after close, got $status"
-
-# Pull the merge back to home so the next check reflects current registry state
+# close-project promotes the project folder to main via a PR AND removes the
+# per-project workspace (registry-elimination + workspace cleanup). Pull main to
+# home so we can verify the promoted state.
 ( cd "$TEST_CLONE" \
   && git fetch origin main >/dev/null 2>&1 \
   && git pull --ff-only origin main >/dev/null 2>&1 ) || true
 cd "$TEST_CLONE"
+
+# The per-project workspace must have been removed by close.
+[[ ! -d "$ORG_GOV_CLONE" ]] \
+  || warn "per-project workspace $ORG_GOV_CLONE still present after close (cleanup may have warned)"
+
+# project.yaml (now on main via the close PR) records status=completed.
+status=$(python3 -c "import yaml; print(yaml.safe_load(open('projects/$PROJECT_ID/project.yaml'))['status'])" 2>/dev/null)
+[[ "$status" == "completed" ]] || hard_stop "expected status=completed on main after close, got '$status'"
 
 # Knowledge close branch should exist
 KNOWLEDGE_BRANCH="${PROJECT_BRANCH}-knowledge"
@@ -568,13 +568,15 @@ ok "project $PROJECT_ID closed; status=completed"
 
 # ── Step 15: prj list (shows completed) ──────────────────────────────────────
 
-info "Step 15 — ./prj list (should show $PROJECT_ID as completed)..."
-out=$(/bin/bash ./prj list 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+# Board is closed at close → 'prj list' (ongoing only) hides it; 'prj list-all'
+# shows it as completed (GitHub-derived).
+info "Step 15 — ./prj list-all (should show $PROJECT_ID as completed)..."
+out=$(/bin/bash ./prj list-all 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
 echo "$out" | grep -q "$PROJECT_ID" \
-  || hard_stop "./prj list missing $PROJECT_ID"
+  || hard_stop "./prj list-all missing $PROJECT_ID"
 echo "$out" | grep -qi "completed" \
-  || warn "./prj list output doesn't show 'completed' status (may render differently)"
-ok "$PROJECT_ID listed"
+  || warn "./prj list-all output doesn't show 'completed' status (may render differently)"
+ok "$PROJECT_ID listed as completed (GitHub-derived)"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 

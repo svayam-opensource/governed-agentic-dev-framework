@@ -86,8 +86,10 @@ git add "projects/$PROJECT_ID/project.yaml"
 git commit -m "resume: $PROJECT_ID (synced with $DEFAULT_BRANCH)"
 git push origin "$BRANCH"
 
-# ── Reflect resume in the registry index on the default branch + README mirror ─
-registry_set_status_on_main "$PROJECT_ID" "active"
+# ── Reflect resume on GitHub (the status SoT) + README mirror ─────────────────
+# active = board OPEN + anchor issue NO LONGER carries 'paused'. No registry
+# write (registry-elimination Increment 2).
+anchor_set_label remove "$(yaml_get "$PROJECT_YAML" github_project)" paused
 project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "active" \
   "$ASSIGNED_TO" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
 

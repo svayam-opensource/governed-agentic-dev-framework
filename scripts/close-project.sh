@@ -196,17 +196,57 @@ for entry in "${MERGED_REPOS[@]+"${MERGED_REPOS[@]}"}"; do
   info "$REPO_NAME: pushed '$REPO_BASE'."
 done
 
-# ── Push $DEFAULT_BRANCH ──────────────────────────────────────────────────────
+# ── Promote $BRANCH → $DEFAULT_BRANCH via a pull request (worktree-safe) ──────
+# We NEVER `git checkout $DEFAULT_BRANCH` here. The workspace clone may be a git
+# worktree that shares its .git with the home governance checkout already holding
+# $DEFAULT_BRANCH, so a local checkout/ff/push of the default branch is
+# impossible (the old `git push origin $DEFAULT_BRANCH` after a local fast-forward
+# is what collided with the worktree). Instead we push the branch and open a PR;
+# merging it moves the project folder + project.yaml status to $DEFAULT_BRANCH
+# atomically. Status itself is GitHub-derived (board closed below) — there is no
+# registry flip to ship (registry-elimination Increment 2).
 
 cd "$REPO_ROOT"
-git push origin "$DEFAULT_BRANCH"
+git push origin "$BRANCH"
 
-# ── Flip the registry index entry to completed (on $DEFAULT_BRANCH) + mirror ──
-registry_set_status_on_main "$PROJECT_ID" "completed"
+CLOSE_PR_TITLE="close-project: $PROJECT_ID → $DEFAULT_BRANCH"
+CLOSE_PR_BODY="Automated project close for **$PROJECT_ID** ($TODAY).
+
+Moves to \`$DEFAULT_BRANCH\` atomically on merge:
+- \`projects/$PROJECT_ID/\` workspace + knowledge state
+- \`projects/$PROJECT_ID/project.yaml\` → status: completed
+
+Status is GitHub-derived: the board is closed at close, so the project reads as
+*completed* with no registry write. Gate: test-merge validators PASSED before
+this PR was opened."
+
+if PR_URL="$(gh pr create --repo "$GITHUB_ORG/$WORKSPACE_REPO" \
+      --base "$DEFAULT_BRANCH" --head "$BRANCH" \
+      --title "$CLOSE_PR_TITLE" --body "$CLOSE_PR_BODY" 2>/dev/null)"; then
+  info "Opened close PR: $PR_URL"
+else
+  PR_URL="$(gh pr view "$BRANCH" --repo "$GITHUB_ORG/$WORKSPACE_REPO" --json url -q .url 2>/dev/null || echo "")"
+  [[ -n "$PR_URL" ]] && info "Reusing existing close PR: $PR_URL"
+fi
+
+info "Merging close PR into '$DEFAULT_BRANCH'..."
+if ! gh pr merge "$BRANCH" --repo "$GITHUB_ORG/$WORKSPACE_REPO" --merge --admin 2>/dev/null; then
+  if gh pr view "$BRANCH" --repo "$GITHUB_ORG/$WORKSPACE_REPO" --json state -q .state 2>/dev/null | grep -q MERGED; then
+    info "Close PR already merged."
+  else
+    hard_stop "Could not merge the close PR automatically. Merge it manually, then re-run: bash close-project.sh $PROJECT_ID"
+  fi
+fi
+
+# Make the local repo aware of the new $DEFAULT_BRANCH tip (no checkout).
+git fetch origin "$DEFAULT_BRANCH" 2>/dev/null || true
+
+# Mirror governance summary (best-effort, GitHub-side — not the registry).
 project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "completed" \
   "$(yaml_get "$PROJECT_YAML" assigned_to)" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
 
-# Close the GitHub Project board so it stops reading as active (#56 Facet A).
+# Close the GitHub Project board — THIS is what makes the project read as
+# 'completed' (board closed, anchor not 'cancelled'). #56 Facet A.
 close_project_board "$GH_PROJECT"
 
 # ── Archive branches ──────────────────────────────────────────────────────────
@@ -231,3 +271,15 @@ echo ""
 
 echo "Triggering close-knowledge..."
 bash "$(dirname "$0")/close-knowledge.sh" "$PROJECT_ID"
+
+# ── Remove the per-project workspace ─────────────────────────────────────────
+# The project folder has been promoted to $DEFAULT_BRANCH via the close PR, so
+# the local working copy at $AGENT_WORK_ROOT/$PROJECT_ID is no longer needed.
+# This deletes the directory we are standing in (cd's out first) — your shell
+# will be left in a removed dir; cd elsewhere afterwards.
+echo ""
+echo "Removing per-project workspace (content now on $DEFAULT_BRANCH via the close PR)..."
+cleanup_project_workspace "$PROJECT_ID"
+echo ""
+echo "    Workspace removed: $AGENT_WORK_ROOT/$PROJECT_ID"
+echo "    (your shell may be in a deleted directory — cd \$HOME or elsewhere.)"

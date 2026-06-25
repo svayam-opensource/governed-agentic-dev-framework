@@ -124,8 +124,9 @@ fi
 
 # ── Record cancellation ──────────────────────────────────────────────────────
 # project.yaml status is recorded on the project branch (preserved in the
-# archive tag). The registry index entry is flipped to 'cancelled' on
-# $DEFAULT_BRANCH, where it lives (authored at seed).
+# archive tag). Cancelled status is GitHub-derived: the anchor issue gets the
+# 'cancelled' label and the board is closed below (no registry write —
+# registry-elimination Increment 2).
 
 TODAY=$(today)
 cd "$REPO_ROOT"
@@ -140,7 +141,7 @@ if [[ -f "$PROJECT_YAML" ]]; then
   fi
 fi
 
-registry_set_status_on_main "$PROJECT_ID" "cancelled"
+anchor_set_label add "$(yaml_get "$PROJECT_YAML" github_project 2>/dev/null)" cancelled
 project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project 2>/dev/null)" "cancelled" \
   "$(yaml_get "$PROJECT_YAML" assigned_to 2>/dev/null)" "$(yaml_get "$PROJECT_YAML" seeded_by 2>/dev/null)" "$BRANCH" || true
 

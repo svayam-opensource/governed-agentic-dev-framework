@@ -236,19 +236,17 @@ SHORT_SLUG=$(slugify "$PROJECT_TITLE")
 # would compose a malformed 'PRJ-NNN-' / 'brnch-NNN-' (§5 slug-empty finding).
 [[ -n "$SHORT_SLUG" ]] \
   || hard_stop "Project title '$PROJECT_TITLE' produced an empty slug. Rename the GitHub Project to include ASCII alphanumerics."
-LAST_ISSUED=$(yaml_get "$REGISTRY" "last_issued")
 # Naming convention (POL-069, board-number scheme): both the project ID and its
-# branch are keyed on the GitHub project BOARD NUMBER (no leading zero) — NOT the
-# registry sequence. ID and branch differ only by their constant prefix:
+# branch are keyed on the GitHub project BOARD NUMBER (no leading zero). ID and
+# branch differ only by their constant prefix:
 #   id      PRJ-<board#>-<slug>
 #   branch  BRNCH-<board#>-<slug>     (task branches: <branch>.ISSUE-<n>)
-# last_issued still advances as a project counter (registry bookkeeping). seed
-# stores the branch in registry/project.yaml so project_branch_for_id reads it
-# everywhere (existing PRJ-NNN / brnch-NNN projects keep their stored names).
+# Registry-elimination Increment 2: the GitHub project number IS the monotonic
+# allocator — no last_issued counter, no registry entry. id/branch are fully
+# derived from the board number + title; project_branch_for_id derives the same.
 PROJECT_ID="PRJ-${PROJECT_NUMBER}-${SHORT_SLUG}"
 BRANCH="BRNCH-${PROJECT_NUMBER}-${SHORT_SLUG}"
 TODAY=$(today)
-NEW_LAST_ISSUED=$((LAST_ISSUED + 1))
 
 PROJECT_WORK_ROOT="$AGENT_WORK_ROOT/$PROJECT_ID"
 ORG_GOV_CLONE="$PROJECT_WORK_ROOT/$WORKSPACE_REPO"
@@ -313,16 +311,9 @@ if [[ ${#LEFTOVER[@]} -gt 0 ]]; then
       rm -rf "$PROJECT_WORK_ROOT"
       # Home stub folder (was created by a prior partial seed)
       rm -rf "$REPO_ROOT/projects/$PROJECT_ID"
-      # Stray registry entry
-      python3 - "$REGISTRY" "$PROJECT_ID" <<'PY' 2>/dev/null || true
-import sys, yaml
-registry, pid = sys.argv[1:]
-with open(registry) as f: c = yaml.safe_load(f) or {}
-c['projects'] = [p for p in (c.get('projects') or []) if p and p.get('id') != pid]
-with open(registry, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-      git checkout -- registry.yaml 2>/dev/null || true
+      # No registry entry to clean (registry-elimination Increment 2: seed never
+      # writes registry.yaml). A stale anchor issue from a prior partial seed, if
+      # any, can be closed manually — it is harmless (re-seed reuses the board).
       info "Cleanup complete. Continuing seed..."
       echo ""
       ;;
@@ -421,55 +412,34 @@ CURRENT_USER=$(git config user.email 2>/dev/null || echo "$ASSIGNEE")
 is_authorized_for_project "$GITHUB_PROJECT_URL" "$ASSIGNEE" \
   || hard_stop "Not authorized: '$CURRENT_USER' needs write access to the GitHub Project ($GITHUB_PROJECT_URL) to seed it."
 
-# ── Phase A: HOME workspace, default branch — registry stub + folder stub ──
-# We commit locally but do NOT push yet — pushing happens at the very end
-# once every other phase has succeeded. If something fails in B/C, we just
-# git reset --hard back to the pre-seed SHA (recorded below).
+# ── Phase A: HOME workspace, default branch — project folder stub ──
+# Registry-elimination Increment 2: NO registry write. We create only a stub
+# folder on $DEFAULT_BRANCH so the project has a presence on main before close
+# (and a stable home for `projects/<PID>/` cross-refs). Committed locally but
+# NOT pushed yet — pushing happens at the very end once every phase succeeds.
+# On failure in B/C we git reset --hard back to the pre-seed SHA (below).
 
 HOME_PRE_SEED_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
 
-info "Phase A: updating home registry + creating projects/$PROJECT_ID/ stub..."
-
-python3 - "$REGISTRY" "$PROJECT_ID" "$BRANCH" "$ASSIGNEE" "$TODAY" "$GITHUB_PROJECT_URL" "$NEW_LAST_ISSUED" "$PROJECT_OWNER" "$CURRENT_USER" <<'PY'
-import sys, yaml
-registry, pid, branch, assignee, today, gh_url, new_last, owner, seeded = sys.argv[1:]
-with open(registry) as f: c = yaml.safe_load(f) or {}
-c['last_issued'] = int(new_last)
-if not c.get('projects'): c['projects'] = []
-c['projects'].append({
-    'id': pid,
-    'branch': branch,
-    'github_project': gh_url,
-    'github_owner': owner,
-    'assigned_to': assignee,
-    'seeded_by': seeded,
-    'created_at': today,
-    'status': 'active',
-})
-# Drop any matching pre_assignment now that we have a real registry entry.
-c['pre_assignments'] = [a for a in (c.get('pre_assignments') or [])
-                        if a and a.get('github_project') != gh_url]
-with open(registry, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
+info "Phase A: creating projects/$PROJECT_ID/ stub on $DEFAULT_BRANCH (no registry write)..."
 
 mkdir -p "$REPO_ROOT/projects/$PROJECT_ID"
 cat > "$REPO_ROOT/projects/$PROJECT_ID/.gitkeep" <<EOF
 # Active project — full content lives on branch '$BRANCH'.
 #
-# This folder is a stub on $DEFAULT_BRANCH so the registry entry has a folder
-# to point at (validator requirement). The full project content (project.yaml,
-# agent.md, knowledge/, etc.) lives on branch '$BRANCH' inside the per-project
-# workspace at:
+# This folder is a stub on $DEFAULT_BRANCH. The project is registered on GitHub
+# (Project #$PROJECT_NUMBER + its 'anchor' issue), NOT in registry.yaml — GitHub
+# is the sole source of truth (registry-elimination). The full project content
+# (project.yaml, agent.md, knowledge/, etc.) lives on branch '$BRANCH' at:
 #
 #   $AGENT_WORK_ROOT/$PROJECT_ID/$WORKSPACE_REPO/projects/$PROJECT_ID/
 #
-# On close-project, the project branch merges back to $DEFAULT_BRANCH and the
-# full content arrives here, overwriting this stub.
+# On close-project, the project branch merges back to $DEFAULT_BRANCH (via PR)
+# and the full content arrives here, overwriting this stub.
 EOF
 
-git -C "$REPO_ROOT" add registry.yaml "projects/$PROJECT_ID/.gitkeep"
-git -C "$REPO_ROOT" commit -m "seed: register project $PROJECT_ID (assigned to $ASSIGNEE)" >/dev/null
+git -C "$REPO_ROOT" add "projects/$PROJECT_ID/.gitkeep"
+git -C "$REPO_ROOT" commit -m "seed: scaffold project folder for $PROJECT_ID (GitHub #$PROJECT_NUMBER)" >/dev/null
 info "  ✓ home commit recorded locally (will push after all phases succeed)"
 
 # ── Phase B: per-project workspace — clone ORG GOVERNANCE on project branch ──
@@ -726,10 +696,21 @@ git -C "$ORG_GOV_CLONE" push -u origin "$BRANCH" >/dev/null 2>&1 \
 PUSHED_REMOTE_BRANCHES+=("$ORG_GOV_CLONE|$BRANCH")
 info "  ✓ pushed $BRANCH to $ORG_REPO_URL"
 
-# Push home's default branch (the registry update + stub folder commit)
+# Push home's default branch (the stub folder commit)
 git -C "$REPO_ROOT" push origin "$DEFAULT_BRANCH" >/dev/null 2>&1 \
   || hard_stop "Failed to push $DEFAULT_BRANCH from home workspace"
-info "  ✓ pushed $DEFAULT_BRANCH (registry update) to $ORG_REPO_URL"
+info "  ✓ pushed $DEFAULT_BRANCH (project folder stub) to $ORG_REPO_URL"
+
+# ── Create the project's anchor issue (GitHub-SoT status + ownership) ─────────
+# The anchor issue carries project status (paused/cancelled labels) and
+# ownership (assignees) on GitHub — the registry no longer does. Best-effort:
+# if it fails, the project still seeds; designate one later with `prj manage`.
+ANCHOR_REF="$(create_anchor_issue "$PROJECT_NUMBER" "$PROJECT_TITLE" "$PROJECT_OWNER" 2>/dev/null || echo "")"
+if [[ -n "$ANCHOR_REF" ]]; then
+  info "  ✓ created anchor issue $ANCHOR_REF (project status + ownership carrier)"
+else
+  warn "  Could not auto-create the anchor issue — designate one with: prj manage"
+fi
 
 # ── Done — disarm rollback ───────────────────────────────────────────────────
 
