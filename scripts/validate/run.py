@@ -79,29 +79,32 @@ def check_schema(repo_root: Path) -> list[str]:
         elif not is_template_state and config[field] in (None, ""):
             errors.append(f"org-config.yaml: '{field}' is empty")
 
+    # registry.yaml is a FROZEN LEGACY SHIM (registry-elimination Increment 2):
+    # GitHub is the authoritative project index. It is OPTIONAL — when present we
+    # only sanity-check its shape. last_issued is vestigial (the GitHub board
+    # number allocates ids now), so it is optional too. We do NOT early-return on
+    # its absence; the projects/ folder checks below always run.
     registry_path = repo_root / "registry.yaml"
-    if not registry_path.exists():
-        errors.append("registry.yaml not found")
-        return errors
-    try:
-        registry = yaml.safe_load(registry_path.read_text())
-    except yaml.YAMLError as e:
-        errors.append(f"registry.yaml does not parse: {e}")
-        return errors
-    if not isinstance(registry, dict):
-        errors.append("registry.yaml: top-level must be a mapping")
-        return errors
-
-    if not isinstance(registry.get("last_issued"), int) or registry["last_issued"] < 0:
-        errors.append(
-            f"registry.yaml: last_issued must be non-negative int, "
-            f"got {registry.get('last_issued')!r}"
-        )
-    projects = registry.get("projects")
-    if projects is not None and not isinstance(projects, list):
-        errors.append(
-            f"registry.yaml: 'projects' must be a list, got {type(projects).__name__}"
-        )
+    if registry_path.exists():
+        try:
+            registry = yaml.safe_load(registry_path.read_text())
+        except yaml.YAMLError as e:
+            errors.append(f"registry.yaml does not parse: {e}")
+            registry = None
+        if registry is not None:
+            if not isinstance(registry, dict):
+                errors.append("registry.yaml: top-level must be a mapping")
+            else:
+                li = registry.get("last_issued")
+                if li is not None and (not isinstance(li, int) or li < 0):
+                    errors.append(
+                        f"registry.yaml: last_issued, if present, must be a non-negative int, got {li!r}"
+                    )
+                projects = registry.get("projects")
+                if projects is not None and not isinstance(projects, list):
+                    errors.append(
+                        f"registry.yaml: 'projects' must be a list, got {type(projects).__name__}"
+                    )
 
     projects_dir = repo_root / "projects"
     if projects_dir.is_dir():
@@ -139,67 +142,43 @@ def check_schema(repo_root: Path) -> list[str]:
 # ── Registry consistency ────────────────────────────────────────────────────
 
 def check_registry(repo_root: Path) -> list[str]:
+    # registry.yaml is a FROZEN LEGACY SHIM (registry-elimination Increment 2):
+    # GitHub is the authoritative project index, so the registry is OPTIONAL and
+    # is NEVER cross-checked against the projects/ folders — new projects are not
+    # added to the shim, so a folder with no shim entry is expected, and a shim
+    # entry for a now-archived project may have no folder. last_issued no longer
+    # allocates ids. We only sanity-check the shim's OWN hygiene: each entry's id
+    # format and no duplicate board number within the shim.
     errors: list[str] = []
     registry_path = repo_root / "registry.yaml"
+    if not registry_path.exists():
+        return errors
     try:
         registry = yaml.safe_load(registry_path.read_text())
     except Exception as e:
         return [f"registry.yaml: {e}"]
+    if registry is None:
+        return errors
     if not isinstance(registry, dict):
         return ["registry.yaml: top-level must be a mapping"]
 
     projects = registry.get("projects") or []
-    last_issued = registry.get("last_issued", 0)
-
     nnn_seen: dict[int, str] = {}
-    max_nnn = 0
     for entry in projects:
         if not isinstance(entry, dict):
             continue
         pid = entry.get("id") or ""
-        # Accept any uppercase prefix for backwards compatibility with pre-v0.2.0
-        # orgs whose projects use <ORG_SLUG>-NNN-slug. New projects (v0.2.0+)
-        # use the literal PRJ- prefix.
+        # Accept any uppercase prefix (pre-v0.2.0 <ORG_SLUG>-NNN-slug + PRJ-NNN).
         m = re.match(r"^[A-Z]+-(\d+)-", pid)
         if not m:
-            errors.append(f"registry.yaml: project entry has invalid id format: {pid!r} (expected <PREFIX>-NNN-slug)")
+            errors.append(f"registry.yaml (shim): entry has invalid id format: {pid!r} (expected <PREFIX>-NNN-slug)")
             continue
         nnn = int(m.group(1))
         if nnn in nnn_seen:
             errors.append(
-                f"registry.yaml: duplicate NNN {nnn:03d} ({nnn_seen[nnn]} and {pid})"
+                f"registry.yaml (shim): duplicate NNN {nnn:03d} ({nnn_seen[nnn]} and {pid})"
             )
         nnn_seen[nnn] = pid
-        max_nnn = max(max_nnn, nnn)
-
-    if isinstance(last_issued, int) and last_issued < max_nnn:
-        errors.append(
-            f"registry.yaml: last_issued ({last_issued}) < max NNN in projects[] ({max_nnn})"
-        )
-
-    projects_dir = repo_root / "projects"
-    registered_ids = {e.get("id") for e in projects if isinstance(e, dict) and e.get("id")}
-
-    for entry in projects:
-        if not isinstance(entry, dict):
-            continue
-        pid = entry.get("id")
-        if not pid:
-            continue
-        folder = projects_dir / pid
-        if not folder.is_dir():
-            errors.append(f"registry.yaml: project '{pid}' has no folder at projects/{pid}")
-
-    if projects_dir.is_dir():
-        for folder in sorted(projects_dir.iterdir()):
-            if not folder.is_dir():
-                continue
-            if folder.name in {".gitkeep"}:
-                continue
-            if folder.name not in registered_ids:
-                errors.append(
-                    f"projects/{folder.name}: folder exists but no entry in registry.yaml"
-                )
 
     return errors
 

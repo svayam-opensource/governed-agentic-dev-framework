@@ -98,55 +98,98 @@ resolve_my_identities() {
 # TSV: <id-or-(not seeded)>\t<github_url>\t<status>\t<assigned_to>. Registry-backed
 # (board open/closed approximated from lifecycle, so no per-project GitHub calls).
 project_context_list() {
-  local assignment="${1:-any}" lifecycle="${2:-any}" me owned=""
-  me="$(resolve_my_identities | paste -sd '|' -)"
-  # #57 Increment 5: ownership ("me") is GitHub-definitive — the boards whose
-  # anchor issue is assigned to me. Resolve once here and pass to the filter.
-  # If empty (no anchors labelled yet, or API hiccup), the python falls back to
-  # the registry assigned_to cache so nav never breaks during the transition.
-  if [[ "$assignment" == "me" ]]; then
-    owned="$(my_github_project_numbers | paste -sd ' ' -)"
-  fi
-  ME="$me" OWNED_NUMS="$owned" python3 - "$REGISTRY" "$assignment" "$lifecycle" <<'PY'
-import sys, os, re, yaml
-registry, assignment, lifecycle = sys.argv[1], sys.argv[2], sys.argv[3]
-me = set(x for x in os.environ.get('ME', '').split('|') if x)
-owned = set(x for x in re.split(r'[ ,]+', os.environ.get('OWNED_NUMS', '')) if x)
-use_gh = bool(owned)   # GitHub anchor ownership known → authoritative; else cache
-doc = yaml.safe_load(open(registry)) or {}
-projects = [p for p in (doc.get('projects') or []) if p]
-preasn   = [a for a in (doc.get('pre_assignments') or []) if a]
-seeded   = {p.get('github_project') for p in projects}
-ONGOING, DONE = {'active', 'paused'}, {'completed', 'cancelled'}
-def board_num(url):
-    m = re.search(r'/projects/(\d+)', url or ''); return m.group(1) if m else ''
-def assign_ok(who, url):
-    if assignment == 'any':        return True
-    if assignment == 'unassigned': return not who
-    if assignment == 'me':
-        if use_gh:                 return board_num(url) in owned
-        return bool(who) and who in me
-    return True
-def nnn(pid):
-    m = re.search(r'-(\d+)-', pid or ''); return int(m.group(1)) if m else -1
+  # GitHub-derived nav engine (registry-elimination). ONE batched GraphQL query
+  # fetches every org board + its items' anchor issue (labels + assignees), so
+  # status/ownership/seeded-ness are all computed from GitHub in a single call.
+  # The frozen registry shim only grandfathers legacy ids/branches (PRJ-001…013
+  # + already-seeded boards whose NNN ≠ board number). assignment ∈ me|unassigned
+  # |any · lifecycle ∈ not-initiated|initiated|paused|ongoing|done|any.
+  local assignment="${1:-any}" lifecycle="${2:-any}" me
+  me="$(gh api user --jq .login 2>/dev/null || echo "")"
+  ME="$me" ASSIGNMENT="$assignment" LIFECYCLE="$lifecycle" \
+  python3 - "$REGISTRY" "$GITHUB_ORG" <<'PY'
+import sys, os, re, json, subprocess, yaml
+registry, owner = sys.argv[1], sys.argv[2]
+me = os.environ.get('ME', '')
+assignment = os.environ.get('ASSIGNMENT', 'any')
+lifecycle  = os.environ.get('LIFECYCLE', 'any')
+
+# Frozen shim: board number → grandfathered id/branch (identity only, not status).
+shim = {}
+try:
+    doc = yaml.safe_load(open(registry)) or {}
+    for p in (doc.get('projects') or []):
+        if not p: continue
+        m = re.search(r'/projects/(\d+)', p.get('github_project') or '')
+        if m: shim[m.group(1)] = p
+except Exception:
+    pass
+
+def slug(t):
+    return re.sub(r'-+', '-', re.sub(r'[^a-z0-9]', '-', (t or '').lower())).strip('-')
+
+q = '''query($o:String!){ organization(login:$o){ projectsV2(first:100){ nodes{
+  number title closed
+  items(first:50){ nodes{ content{ __typename
+    ... on Issue { labels(first:10){nodes{name}} assignees(first:10){nodes{login}} } } } } } } } }'''
+r = subprocess.run(['gh','api','graphql','-f','query='+q,'-F','o='+owner],
+                   capture_output=True, text=True)
+if r.returncode != 0:
+    sys.exit(0)
+nodes = (json.loads(r.stdout).get('data',{}).get('organization',{}) or {}).get('projectsV2',{}).get('nodes',[]) or []
+
+ONGOING, DONE = {'active','paused'}, {'completed','cancelled'}
 rows = []
-if lifecycle in ('initiated', 'paused', 'ongoing', 'done', 'any'):
-    for p in projects:
-        s = p.get('status', '')
-        url = p.get('github_project', '') or ''
-        ok = ((lifecycle == 'initiated' and s == 'active') or
-              (lifecycle == 'paused'    and s == 'paused') or
-              (lifecycle == 'ongoing'   and s in ONGOING) or
-              (lifecycle == 'done'      and s in DONE) or
-              (lifecycle == 'any'))
-        if ok and assign_ok(p.get('assigned_to'), url):
-            rows.append((nnn(p.get('id', '')), p['id'], url, s, p.get('assigned_to') or ''))
-if lifecycle in ('not-initiated', 'any'):
-    for a in preasn:
-        url = a.get('github_project', '') or ''
-        if url in seeded: continue
-        if assign_ok(a.get('assigned_to'), url):
-            rows.append((-1, '(not seeded)', url, 'not-initiated', a.get('assigned_to') or ''))
+for nd in nodes:
+    num = str(nd.get('number') or '')
+    if not num: continue
+    title = nd.get('title') or '(untitled)'
+    closed = bool(nd.get('closed'))
+    # anchor issue = an item Issue labelled 'anchor'
+    anchor = None
+    for it in (nd.get('items',{}).get('nodes',[]) or []):
+        c = it.get('content') or {}
+        if c.get('__typename') != 'Issue': continue
+        names = [l['name'] for l in (c.get('labels',{}).get('nodes',[]) or [])]
+        if 'anchor' in names:
+            anchor = {'labels': names,
+                      'assignees': [a['login'] for a in (c.get('assignees',{}).get('nodes',[]) or [])]}
+            break
+    # Seeded = has an anchor issue OR is a grandfathered shim project (older
+    # projects were seeded before anchors existed, so they have no anchor).
+    seeded = (anchor is not None) or (num in shim)
+    if not seeded:
+        status = 'not-initiated'
+    else:
+        labels = anchor['labels'] if anchor else []
+        if closed:
+            status = 'cancelled' if 'cancelled' in labels else 'completed'
+        else:
+            status = 'paused' if 'paused' in labels else 'active'
+    owners = anchor['assignees'] if anchor else []
+    who = ','.join(owners)
+
+    # lifecycle filter
+    keep = ((lifecycle == 'any') or
+            (lifecycle == 'not-initiated' and status == 'not-initiated') or
+            (lifecycle == 'initiated'     and status == 'active') or
+            (lifecycle == 'paused'        and status == 'paused') or
+            (lifecycle == 'ongoing'       and status in ONGOING) or
+            (lifecycle == 'done'          and status in DONE))
+    if not keep: continue
+    # assignment filter
+    if assignment == 'me'         and me not in owners: continue
+    if assignment == 'unassigned' and owners:           continue
+
+    if status == 'not-initiated':
+        pid = '(not seeded)'
+    elif num in shim and shim[num].get('id'):
+        pid = shim[num]['id']
+    else:
+        pid = 'PRJ-%s-%s' % (num, slug(title))
+    url = 'https://github.com/orgs/%s/projects/%s' % (owner, num)
+    rows.append((int(num), pid, url, status, who))
+
 for _, pid, url, s, who in sorted(rows, key=lambda r: r[0]):
     print('\t'.join((pid, url, s, who)))
 PY
@@ -282,19 +325,32 @@ set_owner() {
   ok "${action}: owner $login on project #$num (anchor $repo#$inum + board $pa)"
 }
 
-# pid_for_project_number <num> → the registry project id whose github_project URL
-# ends in /projects/<num>, or empty if the board isn't seeded locally yet.
+# pid_for_project_number <num> [owner] → the project id for a board number.
+# GitHub-derived (registry-elimination): PRJ-<num>-<slug(board title)>, with the
+# frozen shim grandfathering legacy ids whose NNN differs from the board number.
 pid_for_project_number() {
-  python3 - "$REGISTRY" "$1" <<'PY'
+  derive_project_id "$1" "${2:-$GITHUB_ORG}"
+}
+
+# board_number_for_pid <project_id> → the GitHub board number for a project id.
+# New ids encode it (PRJ-<num>-slug → <num>); grandfathered ids (PRJ-014 whose
+# NNN ≠ board #24) resolve via the frozen shim's github_project URL.
+board_number_for_pid() {
+  local pid="$1" num
+  num="$(python3 - "$REGISTRY" "$pid" 2>/dev/null <<'PY'
 import sys, re, yaml
-reg, num = sys.argv[1], sys.argv[2]
+reg, pid = sys.argv[1], sys.argv[2]
 d = yaml.safe_load(open(reg)) or {}
 for p in (d.get('projects') or []):
-    if not p: continue
-    m = re.search(r'/projects/(\d+)', p.get('github_project') or '')
-    if m and m.group(1) == num:
-        print(p.get('id', '')); break
+    if p and p.get('id') == pid:
+        m = re.search(r'/projects/(\d+)', p.get('github_project') or '')
+        if m: print(m.group(1))
+        break
 PY
+)"
+  [[ -n "$num" ]] && { echo "$num"; return 0; }
+  [[ "$pid" =~ ^PRJ-([0-9]+)- ]] && { echo "${BASH_REMATCH[1]}"; return 0; }
+  return 1
 }
 
 # i_can_work_project <project_number> [owner] → 0 if the current GitHub user is a
@@ -413,13 +469,13 @@ anchor_has_label() {
 }
 
 # derive_project_status <board_number> [owner]  → active|paused|completed|cancelled.
-# Legacy → stored status (don't rewrite history). Else from GitHub:
+# ALWAYS GitHub-derived — the frozen shim grandfathers IDENTITY (id/branch) only,
+# never status. Status is mutable and GitHub owns it, so closing a grandfathered
+# board actually completes the project:
 #   open  board: anchor 'paused'    → paused    else active
 #   closed board: anchor 'cancelled'→ cancelled else completed
 derive_project_status() {
-  local num="$1" owner="${2:-$GITHUB_ORG}" s closed
-  s="$(legacy_shim_field "$num" status)"
-  [[ -n "$s" ]] && { echo "$s"; return; }
+  local num="$1" owner="${2:-$GITHUB_ORG}" closed
   closed="$(gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ closed } } }' \
     -F o="$owner" -F n="$num" --jq '.data.organization.projectV2.closed' 2>/dev/null)"
   if [[ "$closed" == "true" ]]; then
@@ -596,40 +652,44 @@ confirm() {
 # ── Project list helpers ──────────────────────────────────────────────────────
 
 # select_project <var_name> [status_filter...]  (no filter = all)
+# GitHub-derived (registry-elimination): the candidate set is the org's GitHub
+# Project boards (incl. closed), each project's status/id derived live.
 select_project() {
   local __var="$1"; shift
   local __filters=("$@")
+  local owner="$GITHUB_ORG" json
+  json=$(gh project list --owner "$owner" --closed --format json --limit 200 2>/dev/null)
+  [[ -z "$json" ]] && { err "Could not list GitHub Projects for '$owner'."; exit 1; }
 
-  local __projects
-  __projects=$(python3 - "$REGISTRY" "${__filters[@]:-}" <<'PY'
-import sys, yaml
-registry = sys.argv[1]
-filters = sys.argv[2:]
-c = yaml.safe_load(open(registry))
-projects = c.get('projects') or []
-for p in projects:
-    if not p:
-        continue
-    if not filters or p.get('status') in filters:
-        print(f"{p['id']}|{p.get('status','?')}")
-PY
-)
+  local __nums=()
+  while IFS= read -r n; do [[ -n "$n" ]] && __nums+=("$n"); done < <(
+    echo "$json" | python3 -c "
+import sys, json
+rows=[p.get('number') for p in json.load(sys.stdin).get('projects', []) if p.get('number')]
+rows.sort(reverse=True)
+for n in rows: print(n)
+")
 
-  if [[ -z "$__projects" ]]; then
+  local __ids=() __statuses=() n id status f match
+  for n in "${__nums[@]}"; do
+    status="$(derive_project_status "$n" "$owner")"
+    if [[ ${#__filters[@]} -gt 0 ]]; then
+      match=0; for f in "${__filters[@]}"; do [[ "$f" == "$status" ]] && match=1; done
+      [[ $match -eq 0 ]] && continue
+    fi
+    id="$(derive_project_id "$n" "$owner")"; [[ -z "$id" ]] && continue
+    __ids+=("$id"); __statuses+=("$status")
+  done
+
+  if [[ ${#__ids[@]} -eq 0 ]]; then
     err "No matching projects found."
     exit 1
   fi
 
-  local __ids=()
-  while IFS='|' read -r id status; do
-    __ids+=("$id")
-  done <<< "$__projects"
-
   echo -e "${BOLD}Select project:${NC}"
   for i in "${!__ids[@]}"; do
     printf "  ${CYAN}%d)${NC} %s  ${DIM}(%s)${NC}\n" $((i+1)) \
-      "${__ids[$i]}" \
-      "$(echo "$__projects" | sed -n "$((i+1))p" | cut -d'|' -f2)"
+      "${__ids[$i]}" "${__statuses[$i]}"
   done
   printf "  ${DIM}0) ← back${NC}\n"
 
@@ -852,8 +912,10 @@ for p in ps: print(p.get('number', ''))
 
   # #57: resolve the just-seeded project, then offer to launch the chosen agent
   # in its worktree with the session-start protocol pre-run.
-  local NEW_PID NEW_DIR
-  NEW_PID=$(python3 -c "import yaml; d=yaml.safe_load(open('$REGISTRY')) or {}; print(next((p['id'] for p in (d.get('projects') or []) if p and p.get('github_project')=='$SELECTED_URL'), ''))" 2>/dev/null)
+  local NEW_PID NEW_DIR _so _sn
+  _so=$(echo "$SELECTED_URL" | sed -n 's#.*/\(orgs\|users\)/\([^/]*\)/projects/.*#\2#p')
+  _sn=$(echo "$SELECTED_URL" | sed -n 's#.*/projects/\([0-9]*\).*#\1#p')
+  NEW_PID=$(derive_project_id "$_sn" "${_so:-$GITHUB_ORG}" 2>/dev/null)
   if [[ -n "$NEW_PID" ]]; then
     NEW_DIR="$(org_gov_clone "$NEW_PID")"
     prompt_and_launch_agent "$NEW_DIR" "$NEW_PID"
@@ -1288,47 +1350,43 @@ cmd_onboard() {
 }
 
 cmd_list() {
-  # Two registry-backed views (the registry is the SoT):
-  #   prj list       → ongoing only (active/paused) — stays readable as the
-  #                    registry grows; completed/cancelled are hidden.
-  #   prj list-all   → every project, newest first (reverse chronological by NNN).
+  # GitHub-derived (registry-elimination): the project set is the org's GitHub
+  # Project boards — no registry read.
+  #   prj list       → ongoing only: OPEN boards (active/paused).
+  #   prj list-all   → every board incl. closed (completed/cancelled), newest first.
+  # id/status/owners are derived; the frozen shim grandfathers legacy ids only.
   local mode="open"
   case "${1:-}" in all|--all|-a) mode="all" ;; esac
   if [[ "$mode" == "all" ]]; then header "All Projects (newest first)"; else header "Ongoing Projects (active / paused)"; fi
   divider
-  python3 - "$REGISTRY" "$mode" <<'PY'
-import sys, re, yaml
-registry, mode = sys.argv[1], sys.argv[2]
-doc = yaml.safe_load(open(registry)) or {}
-projects = [p for p in (doc.get('projects') or []) if p]
-status_colour = {
-    'active':    '\033[0;32m',
-    'paused':    '\033[1;33m',
-    'completed': '\033[0;36m',
-    'cancelled': '\033[0;31m',
-}
-NC = '\033[0m'; BOLD = '\033[1m'; DIM = '\033[2m'
-ONGOING = {'active', 'paused'}
-def nnn(p):
-    m = re.search(r'PRJ-(\d+)', p.get('id', '') or '')
-    return int(m.group(1)) if m else -1
-if mode == 'all':
-    rows = sorted(projects, key=nnn, reverse=True)          # newest first
-else:
-    rows = sorted([p for p in projects if (p.get('status') or '') in ONGOING], key=nnn)
-if not rows:
-    print("  No ongoing projects." if mode != 'all' else "  No projects found.")
-else:
-    for p in rows:
-        s = p.get('status', '?')
-        col = status_colour.get(s, '')
-        a = p.get('assigned_to', '') or ''
-        print(f"  {BOLD}{p['id']}{NC}  {col}{s}{NC}  {DIM}{a}{NC}")
-if mode != 'all':
-    hidden = sum(1 for p in projects if (p.get('status') or '') not in ONGOING)
-    if hidden:
-        print(f"\n  {DIM}{hidden} completed/cancelled hidden — 'prj list-all' to show all.{NC}")
-PY
+  # Reuse project_context_list — ONE batched GraphQL query (fast), not a per-board
+  # fan-out. ongoing = open boards (active/paused); all = ongoing + done. We never
+  # show 'not-initiated' (un-seeded) boards here — those are project candidates,
+  # not projects.
+  local lifecycle rows
+  [[ "$mode" == "all" ]] && lifecycle="any" || lifecycle="ongoing"
+  rows="$(project_context_list any "$lifecycle")"
+  local pid url status who scol shown=0
+  local out=""
+  while IFS=$'\t' read -r pid url status who; do
+    [[ -z "$pid" || "$pid" == "(not seeded)" || "$status" == "not-initiated" ]] && continue
+    case "$status" in
+      active) scol="$GREEN" ;; paused) scol="$YELLOW" ;;
+      completed) scol="$CYAN" ;; cancelled) scol="$RED" ;; *) scol="$DIM" ;;
+    esac
+    out+="$(printf "  ${BOLD}%-32s${NC} ${scol}%-11s${NC} ${DIM}%s${NC}" "$pid" "$status" "${who//,/, }")"$'\n'
+    shown=$((shown+1))
+  done <<< "$rows"
+  # newest first for list-all (project_context_list returns ascending by board #)
+  if [[ "$mode" == "all" ]]; then
+    printf '%s' "$out" | { tac 2>/dev/null || tail -r 2>/dev/null || cat; }
+  else
+    printf '%s' "$out"
+  fi
+  [[ $shown -eq 0 ]] && echo "  No ${mode/open/ongoing} projects."
+  if [[ "$mode" != "all" ]]; then
+    echo ""; echo -e "  ${DIM}Closed boards (completed/cancelled) hidden — 'prj list-all' to show all.${NC}"
+  fi
   echo ""
 }
 
@@ -1343,24 +1401,25 @@ cmd_status() {
   divider
   if [[ ! -f "$PF" ]]; then
     # Active project: the manifest lives on the project branch, not on the
-    # default branch where Gov.local rests. Show the registry index summary
-    # (authoritative for status / assignee).
-    python3 - "$REGISTRY" "$PROJECT_ID" <<'PY'
-import sys, yaml
-reg, pid = sys.argv[1], sys.argv[2]
-c = yaml.safe_load(open(reg)) or {}
-e = next((p for p in (c.get('projects') or []) if p and p.get('id') == pid), None)
-BOLD='\033[1m'; NC='\033[0m'; DIM='\033[2m'
-if not e:
-    print(f"  {pid}: not found in registry."); sys.exit(0)
-print(f"  {BOLD}ID:{NC}          {e.get('id','')}")
-print(f"  {BOLD}Status:{NC}      {e.get('status','')}")
-print(f"  {BOLD}Assigned to:{NC} {e.get('assigned_to','')}")
-print(f"  {BOLD}Seeded by:{NC}   {e.get('seeded_by','')}")
-print(f"  {BOLD}Branch:{NC}      {e.get('branch','')}")
-print(f"  {BOLD}GitHub:{NC}      {e.get('github_project','')}")
-print(f"  {DIM}Full manifest (repos / tasks) lives on the project branch — run from the project's PRJ_GOV clone for detail.{NC}")
-PY
+    # default branch where Gov.local rests. Derive the summary live from GitHub
+    # (registry-elimination — no registry read).
+    local NUM owner status branch owners gh_url scol
+    NUM="$(board_number_for_pid "$PROJECT_ID")"
+    if [[ -z "$NUM" ]]; then
+      echo "  $PROJECT_ID: no GitHub board found."; echo ""; return
+    fi
+    owner="$GITHUB_ORG"
+    status="$(derive_project_status "$NUM" "$owner")"
+    branch="$(derive_project_branch "$NUM" "$owner")"
+    owners="$(project_owners "$NUM" "$owner" | paste -sd ',' - | sed 's/,/, /g')"
+    gh_url="https://github.com/orgs/$owner/projects/$NUM"
+    case "$status" in active) scol="$GREEN";; paused) scol="$YELLOW";; completed) scol="$CYAN";; cancelled) scol="$RED";; *) scol="$DIM";; esac
+    echo -e "  ${BOLD}ID:${NC}          $PROJECT_ID"
+    echo -e "  ${BOLD}Status:${NC}      ${scol}${status}${NC}"
+    echo -e "  ${BOLD}Owners:${NC}      ${owners:-(no anchor assignees)}"
+    echo -e "  ${BOLD}Branch:${NC}      $branch"
+    echo -e "  ${BOLD}GitHub:${NC}      $gh_url"
+    echo -e "  ${DIM}Full manifest (repos / tasks) lives on the project branch — run from the project's PRJ_GOV clone for detail.${NC}"
     echo ""
     return
   fi
@@ -1513,10 +1572,12 @@ if gr.returncode == 0 and gr.stdout.strip():
         for n in nodes:
             login = n.get('login', '')
             email = n.get('email') or ''
-            if email:
-                print(f"{email}|{email}  ({login})")
-            else:
-                print(f"|{login}  (no public email)")
+            if not login:
+                continue
+            # Value is the GitHub LOGIN (registry-elimination: ownership = anchor
+            # issue assignees + board access, both keyed on login, not email).
+            disp = f"{email}  ({login})" if email else f"{login}  (no public email)"
+            print(f"{login}|{disp}")
         members_done = True
     except (json.JSONDecodeError, KeyError, TypeError):
         pass
@@ -1528,7 +1589,7 @@ if not members_done:
     if r.returncode == 0 and r.stdout.strip():
         for login in r.stdout.strip().splitlines():
             if login.strip():
-                print(f"|{login.strip()}  (no public email)")
+                print(f"{login.strip()}|{login.strip()}  (no public email)")
 
 # Org teams
 tr = subprocess.run(['gh', 'api', f'/orgs/{owner}/teams', '--jq', '.[].slug'],
@@ -1561,102 +1622,86 @@ PY
   if [[ -n "$branch" && "$branch" != "null" ]]; then
     echo "$branch"
   elif [[ "$pid" == PRJ-* ]]; then
-    # Defensive fallback only: every seeded project stores its branch above, so
-    # this is never hit for a registered project. Scheme B (POL-069,
-    # PRJ-<github_project_number>-<slug>) can't be derived from the registry id
-    # alone (needs the GitHub project number), so the legacy brnch- shape stays
-    # as a last resort for an unregistered/legacy id.
-    echo "brnch-${pid#PRJ-}"
+    # Registry-elimination: new projects aren't in the (frozen) shim, so derive
+    # the branch from the id — id PRJ-<board#>-slug → branch BRNCH-<board#>-slug
+    # (they differ only by the constant prefix).
+    echo "BRNCH-${pid#PRJ-}"
   else
     echo "$pid" | tr '[:upper:]' '[:lower:]'
   fi
 }
 
-# Commit registry.yaml changes to the default branch and push.
-# Caller must already have modified registry.yaml in place. The home workspace
-# must be on $DEFAULT_BRANCH — project branches live only in per-project
-# workspaces under $AGENT_WORK_ROOT.
-commit_registry() {
-  local msg="$1"
-  cd "$SCRIPT_DIR"
-  local current
-  current=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  if [[ "$current" != "$DEFAULT_BRANCH" ]]; then
-    err "Home workspace is on '$current' but assignment changes must be made on '$DEFAULT_BRANCH'."
-    err "Switch back: git checkout $DEFAULT_BRANCH"
-    exit 1
-  fi
-  git pull --ff-only origin "$DEFAULT_BRANCH" 2>/dev/null || true
-  git add registry.yaml
-  git commit -m "$msg"
-  git push origin "$DEFAULT_BRANCH"
-}
+# (registry-elimination Increment 2) commit_registry() removed — no command
+# writes registry.yaml anymore. Assignment lives on the anchor issue (assignees)
+# + board write access; status on the board (open/closed) + anchor labels.
 
 # select_from_owner_projects <id_var> <filter>
 # filter: "unassigned" | "assigned"
-# Shows ALL GitHub Projects for owner, filtered by assignment state.
-# Un-seeded projects use pre_assignments in registry.yaml; seeded projects use project.yaml.
-# Side-effects: sets GH_OWNER, MANAGE_SELECTED_URL, MANAGE_SELECTED_PID.
+# GitHub-derived (registry-elimination): ownership = the board's ANCHOR-issue
+# assignees. A board WITH anchor assignees is 'assigned'; WITHOUT is 'unassigned'
+# (incl. boards with no anchor yet = not seeded). The frozen shim only
+# grandfathers legacy ids. Side-effects: sets GH_OWNER, MANAGE_SELECTED_URL,
+# MANAGE_SELECTED_PID, MANAGE_SELECTED_NUM.
 MANAGE_SELECTED_URL=""
 MANAGE_SELECTED_PID=""
+MANAGE_SELECTED_NUM=""
 select_from_owner_projects() {
   local __var="$1" __filter="${2:-unassigned}"
-  MANAGE_SELECTED_URL=""
-  MANAGE_SELECTED_PID=""
+  MANAGE_SELECTED_URL=""; MANAGE_SELECTED_PID=""; MANAGE_SELECTED_NUM=""
 
   ask GH_OWNER "GitHub org or username" "$GITHUB_ORG"
   echo ""
-  label "Fetching GitHub Projects for ${GH_OWNER}..."
+  label "Fetching GitHub Projects + ownership for ${GH_OWNER} (live)..."
   echo ""
 
   local __raw
-  __raw=$(python3 - "$REGISTRY" "$SCRIPT_DIR" "$GH_OWNER" "$__filter" <<'PY'
-import sys, os, json, subprocess, yaml
+  __raw=$(FILT="$__filter" python3 - "$REGISTRY" "$GH_OWNER" <<'PY'
+import sys, os, re, json, subprocess, yaml
+registry_path, owner = sys.argv[1], sys.argv[2]
+filt = os.environ.get('FILT', 'unassigned')
 
-registry_path, proj_dir, owner, filt = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+shim = {}
+try:
+    c = yaml.safe_load(open(registry_path)) or {}
+    for p in (c.get('projects') or []):
+        if not p: continue
+        m = re.search(r'/projects/(\d+)', p.get('github_project') or '')
+        if m: shim[m.group(1)] = p
+except Exception:
+    pass
+def slug(t): return re.sub(r'-+','-',re.sub(r'[^a-z0-9]','-',(t or '').lower())).strip('-')
 
-result = subprocess.run(
-    ['gh', 'project', 'list', '--owner', owner, '--format', 'json', '--limit', '100'],
-    capture_output=True, text=True
-)
-if result.returncode != 0 or not result.stdout.strip():
+q = '''query($o:String!){ organization(login:$o){ projectsV2(first:100){ nodes{
+  number title closed
+  items(first:50){ nodes{ content{ __typename
+    ... on Issue { labels(first:10){nodes{name}} assignees(first:10){nodes{login}} } } } } } } } }'''
+r = subprocess.run(['gh','api','graphql','-f','query='+q,'-F','o='+owner], capture_output=True, text=True)
+if r.returncode != 0:
     sys.exit(0)
-
-gh_projects = json.loads(result.stdout).get('projects', [])
-c = yaml.safe_load(open(registry_path)) or {}
-
-reg_by_url = {}
-for p in (c.get('projects') or []):
-    if p and p.get('github_project'):
-        reg_by_url[p['github_project']] = p
-
-pre_by_url = {}
-for a in (c.get('pre_assignments') or []):
-    if a and a.get('github_project'):
-        pre_by_url[a['github_project']] = a
-
-for gh in gh_projects:
-    title    = (gh.get('title') or '').replace('\t', ' ')
-    url      = gh.get('url', '')
-    pid      = ''
-    s        = ''
-    assignee = ''
-
-    if url in reg_by_url:
-        reg = reg_by_url[url]
-        pid = reg.get('id', '')
-        s   = reg.get('status', '')
-        pf  = os.path.join(proj_dir, 'projects', pid, 'project.yaml')
-        if os.path.exists(pf):
-            assignee = yaml.safe_load(open(pf)).get('assigned_to') or ''
-    elif url in pre_by_url:
-        assignee = pre_by_url[url].get('assigned_to') or ''
-
-    if filt == 'unassigned' and assignee:
-        continue
-    if filt == 'assigned' and not assignee:
-        continue
-    print(f"{title}\x1f{url}\x1f{pid}\x1f{s}\x1f{assignee}")
+nodes = (json.loads(r.stdout).get('data',{}).get('organization',{}) or {}).get('projectsV2',{}).get('nodes',[]) or []
+for nd in nodes:
+    num = str(nd.get('number') or '')
+    if not num: continue
+    title = (nd.get('title') or '').replace('\t',' ')
+    anchor = None
+    for it in (nd.get('items',{}).get('nodes',[]) or []):
+        cc = it.get('content') or {}
+        if cc.get('__typename') != 'Issue': continue
+        names = [l['name'] for l in (cc.get('labels',{}).get('nodes',[]) or [])]
+        if 'anchor' in names:
+            anchor = [a['login'] for a in (cc.get('assignees',{}).get('nodes',[]) or [])]
+            break
+    # Seeded = has an anchor OR is a grandfathered shim project (pre-anchor era).
+    seeded = (anchor is not None) or (num in shim)
+    assignee = ','.join(anchor or [])
+    if filt == 'unassigned' and assignee: continue
+    if filt == 'assigned' and not assignee: continue
+    if seeded:
+        pid = shim[num]['id'] if (num in shim and shim[num].get('id')) else ('PRJ-%s-%s' % (num, slug(title)))
+    else:
+        pid = ''
+    url = 'https://github.com/orgs/%s/projects/%s' % (owner, num)
+    print('%s\x1f%s\x1f%s\x1f%s\x1f%s' % (title, url, pid, num, assignee))
 PY
   )
 
@@ -1669,19 +1714,15 @@ PY
     exit 1
   fi
 
-  local __titles=() __urls=() __pids=() __statuses=() __assignees=()
-  while IFS=$'\x1f' read -r title url pid status assignee; do
+  local __titles=() __urls=() __pids=() __nums=() __assignees=()
+  while IFS=$'\x1f' read -r title url pid num assignee; do
     [[ -z "$url" ]] && continue
     __titles+=("$title"); __urls+=("$url"); __pids+=("$pid")
-    __statuses+=("$status"); __assignees+=("$assignee")
+    __nums+=("$num"); __assignees+=("$assignee")
   done <<< "$__raw"
 
   if [[ ${#__urls[@]} -eq 0 ]]; then
-    case "$__filter" in
-      unassigned) err "No unassigned GitHub Projects found for '${GH_OWNER}'." ;;
-      assigned)   err "No assigned projects found for '${GH_OWNER}'." ;;
-      *)          err "No matching projects found." ;;
-    esac
+    err "No matching projects found."
     exit 1
   fi
 
@@ -1711,6 +1752,7 @@ PY
       printf -v "$__var" '%s' "${__pids[$__idx]}"
       MANAGE_SELECTED_URL="${__urls[$__idx]}"
       MANAGE_SELECTED_PID="${__pids[$__idx]}"
+      MANAGE_SELECTED_NUM="${__nums[$__idx]}"
       return
     fi
     err "Invalid choice."
@@ -1936,67 +1978,99 @@ cmd_manage_list_all() {
   label "Fetching GitHub Projects for ${GH_OWNER}..."
   echo ""
 
-  python3 - "$REGISTRY" "$SCRIPT_DIR" "$GH_OWNER" <<'PY'
-import sys, os, json, subprocess, yaml
-
-registry_path, proj_dir, owner = sys.argv[1], sys.argv[2], sys.argv[3]
+  python3 - "$REGISTRY" "$GH_OWNER" <<'PY'
+import sys, re, json, subprocess, yaml
+# GitHub-derived full board universe (registry-elimination): ONE batched query
+# over the org's boards + anchor labels/assignees. Status/owners/seeded-ness are
+# all from GitHub; the frozen shim only grandfathers legacy ids.
+registry_path, owner = sys.argv[1], sys.argv[2]
 BOLD='\033[1m'; NC='\033[0m'; DIM='\033[2m'
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'
 status_colour = {'active': GREEN, 'paused': YELLOW, 'completed': CYAN, 'cancelled': RED}
 
-result = subprocess.run(
-    ['gh', 'project', 'list', '--owner', owner, '--format', 'json', '--limit', '100'],
-    capture_output=True, text=True
-)
-if result.returncode != 0 or not result.stdout.strip():
+shim = {}
+try:
+    c = yaml.safe_load(open(registry_path)) or {}
+    for p in (c.get('projects') or []):
+        if not p: continue
+        m = re.search(r'/projects/(\d+)', p.get('github_project') or '')
+        if m: shim[m.group(1)] = p
+except Exception:
+    pass
+def slug(t): return re.sub(r'-+','-',re.sub(r'[^a-z0-9]','-',(t or '').lower())).strip('-')
+
+q = '''query($o:String!){ organization(login:$o){ projectsV2(first:100){ nodes{
+  number title closed
+  items(first:50){ nodes{ content{ __typename
+    ... on Issue { labels(first:10){nodes{name}} assignees(first:10){nodes{login}} } } } } } } } }'''
+r = subprocess.run(['gh','api','graphql','-f','query='+q,'-F','o='+owner], capture_output=True, text=True)
+if r.returncode != 0 or not r.stdout.strip():
     print(f"  Could not fetch GitHub Projects for '{owner}'.")
     print(f"  {DIM}Tip: gh project list --owner {owner}{NC}")
     sys.exit(0)
-
-gh_projects = json.loads(result.stdout).get('projects', [])
-if not gh_projects:
-    print(f"  No open GitHub Projects found for '{owner}'.")
+nodes = (json.loads(r.stdout).get('data',{}).get('organization',{}) or {}).get('projectsV2',{}).get('nodes',[]) or []
+if not nodes:
+    print(f"  No GitHub Projects found for '{owner}'.")
     sys.exit(0)
 
-c = yaml.safe_load(open(registry_path)) or {}
-reg_by_url = {}
-for p in (c.get('projects') or []):
-    if p and p.get('github_project'):
-        reg_by_url[p['github_project']] = p
-
-pre_by_url = {}
-for a in (c.get('pre_assignments') or []):
-    if a and a.get('github_project'):
-        pre_by_url[a['github_project']] = a
-
-print(f"  {BOLD}{'GITHUB PROJECT':<38} {'SEEDED AS':<22} {'STATUS':<12} ASSIGNED TO{NC}")
+print(f"  {BOLD}{'GITHUB PROJECT':<38} {'SEEDED AS':<22} {'STATUS':<12} OWNERS{NC}")
 print(f"  {DIM}{'─'*38} {'─'*22} {'─'*12} {'─'*25}{NC}")
 
-for gh in gh_projects:
-    title = (gh.get('title') or '(untitled)')[:36]
-    url   = gh.get('url', '')
-
-    if url in reg_by_url:
-        reg = reg_by_url[url]
-        pid = reg.get('id', '—')
-        s   = reg.get('status', '?')
-        sc  = status_colour.get(s, '')
-        assignee = reg.get('assigned_to') or ''
-        if not assignee:
-            pf = os.path.join(proj_dir, 'projects', pid, 'project.yaml')
-            if os.path.exists(pf):
-                assignee = (yaml.safe_load(open(pf)) or {}).get('assigned_to') or ''
-        adisp = assignee if assignee else f'{DIM}(unassigned){NC}'
-        print(f"  {title:<38} {BOLD}{pid:<22}{NC} {sc}{s:<12}{NC} {adisp}")
-    elif url in pre_by_url:
-        assignee = pre_by_url[url].get('assigned_to') or ''
-        adisp = assignee if assignee else f'{DIM}(unassigned){NC}'
-        print(f"  {title:<38} {DIM}{'(not seeded)':<22}{'pre-assigned':<12}{NC} {adisp}")
+rows = []
+for nd in nodes:
+    num = str(nd.get('number') or '')
+    if not num: continue
+    title = (nd.get('title') or '(untitled)')
+    closed = bool(nd.get('closed'))
+    anchor = None
+    for it in (nd.get('items',{}).get('nodes',[]) or []):
+        cc = it.get('content') or {}
+        if cc.get('__typename') != 'Issue': continue
+        names = [l['name'] for l in (cc.get('labels',{}).get('nodes',[]) or [])]
+        if 'anchor' in names:
+            anchor = {'labels': names, 'assignees': [a['login'] for a in (cc.get('assignees',{}).get('nodes',[]) or [])]}
+            break
+    # Seeded = has an anchor OR is a grandfathered shim project (pre-anchor era).
+    seeded = (anchor is not None) or (num in shim)
+    if not seeded:
+        status = 'not-initiated'; pid = '(not seeded)'; owners = ''
     else:
-        print(f"  {title:<38} {DIM}{'(not seeded)':<22}{'—':<12}(unassigned){NC}")
+        labels = anchor['labels'] if anchor else []
+        status = ('cancelled' if 'cancelled' in labels else 'completed') if closed \
+                 else ('paused' if 'paused' in labels else 'active')
+        pid = shim[num]['id'] if (num in shim and shim[num].get('id')) else 'PRJ-%s-%s' % (num, slug(title))
+        owners = ', '.join(anchor['assignees']) if anchor else ''
+    rows.append((int(num), title[:36], pid, status, owners))
 
+for _, title, pid, status, owners in sorted(rows, key=lambda r: r[0], reverse=True):
+    sc = status_colour.get(status, DIM)
+    adisp = owners if owners else f'{DIM}(unassigned){NC}'
+    pidc = BOLD if pid != '(not seeded)' else DIM
+    print(f"  {title:<38} {pidc}{pid:<22}{NC} {sc}{status:<12}{NC} {adisp}")
 print()
 PY
+}
+
+# manage_apply_owner <add|remove> <board_number> <project_url> <assignee>
+# GitHub-SoT ownership change (registry-elimination): for a USER login, set the
+# anchor-issue assignee (if the board has an anchor) AND board write access; for
+# a @team, board write access only (issues can't be assigned to teams). No
+# registry/pre_assignments write.
+manage_apply_owner() {
+  local action="$1" num="$2" url="$3" who="$4" pa ref
+  [[ "$action" == "add" ]] && pa="grant" || pa="revoke"
+  if [[ "$who" == @* ]]; then
+    bash "$SCRIPTS/project-access.sh" "$pa" "$url" "$who" \
+      || warn "Could not $pa board access for team '$who'."
+    return 0
+  fi
+  ref="$(anchor_issue_ref "$num" "$GH_OWNER")"
+  if [[ -n "$ref" ]]; then
+    gh issue edit "${ref##*#}" --repo "${ref%%#*}" "--${action}-assignee" "$who" >/dev/null 2>&1 \
+      || warn "Could not ${action} anchor assignee '$who' on $ref."
+  fi
+  bash "$SCRIPTS/project-access.sh" "$pa" "$url" "$who" \
+    || warn "Could not $pa board access for '$who'."
 }
 
 cmd_manage_assign() {
@@ -2017,47 +2091,15 @@ cmd_manage_assign() {
   confirm "Assign this project to '$ASSIGNEE'?"
   echo ""
 
-  # Phase 3 (ADR-0001): the real assignment is WRITE access on the GitHub
-  # Project. Grant it; the YAML written below is a display/audit cache.
-  bash "$SCRIPTS/project-access.sh" grant "$MANAGE_SELECTED_URL" "$ASSIGNEE" \
-    || warn "GitHub access not granted — recorded in cache only; grant it manually."
-
-  local today
-  today=$(date +%Y-%m-%d)
-
+  # Ownership = anchor-issue assignee + board write access (GitHub-SoT). The
+  # registry/pre_assignments cache is gone. For not-yet-seeded boards (no anchor)
+  # this grants board access only; the seeder becomes the anchor owner at seed.
+  manage_apply_owner add "$MANAGE_SELECTED_NUM" "$MANAGE_SELECTED_URL" "$ASSIGNEE"
+  echo ""
   if [[ -n "$MANAGE_SELECTED_PID" ]]; then
-    # Seeded project — assignment lives on registry.yaml (default branch).
-    # Project.yaml's locked_by is the per-session operational lock and is
-    # managed inside the per-project workspace, not from here.
-    python3 - "$REGISTRY" "$MANAGE_SELECTED_PID" "$ASSIGNEE" <<'PY'
-import sys, yaml
-registry_path, pid, assignee = sys.argv[1:]
-with open(registry_path) as f: c = yaml.safe_load(f) or {}
-for entry in (c.get('projects') or []):
-    if entry and entry.get('id') == pid:
-        entry['assigned_to'] = assignee
-        break
-with open(registry_path, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-    commit_registry "manage: assign $MANAGE_SELECTED_PID → $ASSIGNEE"
-    echo ""
-    ok "'$MANAGE_SELECTED_PID' assigned to '$ASSIGNEE' (registry on $DEFAULT_BRANCH)."
+    ok "'$MANAGE_SELECTED_PID' assigned to '$ASSIGNEE' (anchor assignee + board access)."
   else
-    # Unseeded project — pre_assignment in registry on default branch.
-    python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" "$ASSIGNEE" "$CURRENT_USER" "$today" <<'PY'
-import sys, yaml
-registry_path, url, assignee, assigned_by, today = sys.argv[1:]
-with open(registry_path) as f: c = yaml.safe_load(f) or {}
-pre = [a for a in (c.get('pre_assignments') or []) if a and a.get('github_project') != url]
-pre.append({'github_project': url, 'assigned_to': assignee, 'assigned_by': assigned_by, 'assigned_at': today})
-c['pre_assignments'] = pre
-with open(registry_path, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-    commit_registry "manage: pre-assign $MANAGE_SELECTED_URL → $ASSIGNEE"
-    echo ""
-    ok "Project assigned to '$ASSIGNEE'. They may now run './prj init' to seed it."
+    ok "Board granted to '$ASSIGNEE' (board access). They may now run './prj init' to seed it."
   fi
 }
 
@@ -2070,27 +2112,7 @@ cmd_manage_reassign() {
   echo ""
 
   local current_assignee=""
-  if [[ -n "$MANAGE_SELECTED_PID" ]]; then
-    current_assignee=$(python3 - "$REGISTRY" "$MANAGE_SELECTED_PID" <<'PY'
-import sys, yaml
-c = yaml.safe_load(open(sys.argv[1])) or {}
-for entry in (c.get('projects') or []):
-    if entry and entry.get('id') == sys.argv[2]:
-        print(entry.get('assigned_to') or ''); sys.exit(0)
-print('')
-PY
-    )
-  else
-    current_assignee=$(python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" <<'PY'
-import sys, yaml
-c = yaml.safe_load(open(sys.argv[1])) or {}
-for a in (c.get('pre_assignments') or []):
-    if a and a.get('github_project') == sys.argv[2]:
-        print(a.get('assigned_to') or ''); sys.exit(0)
-print('')
-PY
-    )
-  fi
+  current_assignee="$(project_owners "$MANAGE_SELECTED_NUM" "$GH_OWNER" | paste -sd ',' -)"
 
   echo -e "  ${BOLD}Current assignee:${NC} ${current_assignee:-${DIM}(unassigned)${NC}}"
   echo ""
@@ -2114,53 +2136,33 @@ PY
   confirm "Reassign this project?"
   echo ""
 
-  # Phase 3: move WRITE access on the GitHub Project from old to new assignee.
-  [[ -n "$current_assignee" ]] && { bash "$SCRIPTS/project-access.sh" revoke "$MANAGE_SELECTED_URL" "$current_assignee" \
-    || warn "Could not revoke access for '$current_assignee' — revoke manually."; }
-  bash "$SCRIPTS/project-access.sh" grant "$MANAGE_SELECTED_URL" "$NEW_ASSIGNEE" \
-    || warn "Could not grant access to '$NEW_ASSIGNEE' — grant manually."
-
-  if [[ -n "$MANAGE_SELECTED_PID" ]]; then
-    # Seeded — append reassignment record to registry entry's history.
-    python3 - "$REGISTRY" "$MANAGE_SELECTED_PID" "$current_assignee" "$NEW_ASSIGNEE" "$REASON" "$CURRENT_USER" "$today" <<'PY'
-import sys, yaml
-registry_path, pid, prev, new_assignee, reason, approved_by, today = sys.argv[1:]
-with open(registry_path) as f: c = yaml.safe_load(f) or {}
-for entry in (c.get('projects') or []):
-    if entry and entry.get('id') == pid:
-        entry['assigned_to'] = new_assignee
-        history = entry.get('reassignment_history') or []
-        history.append({'from': prev, 'to': new_assignee, 'reason': reason,
-                        'approved_by': approved_by, 'at': today})
-        entry['reassignment_history'] = history
-        break
-with open(registry_path, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-    commit_registry "manage: reassign $MANAGE_SELECTED_PID → $NEW_ASSIGNEE (C02)"
-    echo ""
-    ok "'$MANAGE_SELECTED_PID' reassigned to '$NEW_ASSIGNEE'."
-  else
-    # Unseeded — update pre_assignment.
-    python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" "$NEW_ASSIGNEE" "$REASON" "$CURRENT_USER" "$today" <<'PY'
-import sys, yaml
-registry_path, url, new_assignee, reason, approved_by, today = sys.argv[1:]
-with open(registry_path) as f: c = yaml.safe_load(f) or {}
-for a in (c.get('pre_assignments') or []):
-    if a and a.get('github_project') == url:
-        a['assigned_to']            = new_assignee
-        a['reassignment_reason']    = reason
-        a['reassigned_at']          = today
-        a['reassigned_approved_by'] = approved_by
-        break
-with open(registry_path, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-    commit_registry "manage: reassign pre-assignment → $NEW_ASSIGNEE (C02)"
-    echo ""
-    ok "Project reassigned to '$NEW_ASSIGNEE'."
+  # Move ownership: remove each current owner, add the new one (anchor assignee +
+  # board access). GitHub-SoT — no registry write.
+  local _o
+  if [[ -n "$current_assignee" ]]; then
+    IFS=',' read -ra _olist <<< "$current_assignee"
+    for _o in "${_olist[@]}"; do
+      [[ -n "$_o" ]] && manage_apply_owner remove "$MANAGE_SELECTED_NUM" "$MANAGE_SELECTED_URL" "$_o"
+    done
   fi
-  ok "C02 fields recorded: reason, approver, timestamp."
+  manage_apply_owner add "$MANAGE_SELECTED_NUM" "$MANAGE_SELECTED_URL" "$NEW_ASSIGNEE"
+
+  # C02 audit trail → a structured comment on the anchor issue (audit lives in
+  # GitHub next to ownership; no registry history).
+  local aref; aref="$(anchor_issue_ref "$MANAGE_SELECTED_NUM" "$GH_OWNER")"
+  if [[ -n "$aref" ]]; then
+    gh issue comment "${aref##*#}" --repo "${aref%%#*}" --body "**C02 reassignment** — $today
+- from: ${current_assignee:-(unassigned)}
+- to: $NEW_ASSIGNEE
+- reason: $REASON
+- approved-by: $CURRENT_USER" >/dev/null 2>&1 \
+      && ok "C02 audit comment posted on anchor $aref." \
+      || warn "Could not post C02 audit comment on anchor $aref — record it manually."
+  else
+    warn "No anchor issue on this board — C02 audit comment not posted (seed the project to create one)."
+  fi
+  echo ""
+  ok "Reassigned to '$NEW_ASSIGNEE'. C02 recorded: reason, approver, timestamp."
 }
 
 cmd_manage_unassign() {
@@ -2172,67 +2174,24 @@ cmd_manage_unassign() {
   echo ""
 
   local current_assignee=""
-  if [[ -n "$MANAGE_SELECTED_PID" ]]; then
-    current_assignee=$(python3 - "$REGISTRY" "$MANAGE_SELECTED_PID" <<'PY'
-import sys, yaml
-c = yaml.safe_load(open(sys.argv[1])) or {}
-for entry in (c.get('projects') or []):
-    if entry and entry.get('id') == sys.argv[2]:
-        print(entry.get('assigned_to') or ''); sys.exit(0)
-print('')
-PY
-    )
-  else
-    current_assignee=$(python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" <<'PY'
-import sys, yaml
-c = yaml.safe_load(open(sys.argv[1])) or {}
-for a in (c.get('pre_assignments') or []):
-    if a and a.get('github_project') == sys.argv[2]:
-        print(a.get('assigned_to') or ''); sys.exit(0)
-print('')
-PY
-    )
-  fi
+  current_assignee="$(project_owners "$MANAGE_SELECTED_NUM" "$GH_OWNER" | paste -sd ',' -)"
 
-  echo -e "  ${BOLD}Current assignee:${NC} $current_assignee"
+  echo -e "  ${BOLD}Current assignee:${NC} ${current_assignee:-${DIM}(unassigned)${NC}}"
   echo ""
   confirm "Remove assignment from this project?"
   echo ""
 
-  # Phase 3: revoke WRITE access on the GitHub Project (the real unassignment).
-  [[ -n "$current_assignee" ]] && { bash "$SCRIPTS/project-access.sh" revoke "$MANAGE_SELECTED_URL" "$current_assignee" \
-    || warn "Could not revoke access for '$current_assignee' — revoke manually."; }
-
-  if [[ -n "$MANAGE_SELECTED_PID" ]]; then
-    # Seeded — clear registry entry's assigned_to.
-    python3 - "$REGISTRY" "$MANAGE_SELECTED_PID" <<'PY'
-import sys, yaml
-registry_path, pid = sys.argv[1:]
-with open(registry_path) as f: c = yaml.safe_load(f) or {}
-for entry in (c.get('projects') or []):
-    if entry and entry.get('id') == pid:
-        entry['assigned_to'] = None
-        break
-with open(registry_path, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-    commit_registry "manage: unassign $MANAGE_SELECTED_PID"
-    echo ""
-    ok "'$MANAGE_SELECTED_PID' is now unassigned."
-  else
-    # Unseeded — drop pre_assignment.
-    python3 - "$REGISTRY" "$MANAGE_SELECTED_URL" <<'PY'
-import sys, yaml
-registry_path, url = sys.argv[1:]
-with open(registry_path) as f: c = yaml.safe_load(f) or {}
-c['pre_assignments'] = [a for a in (c.get('pre_assignments') or []) if a and a.get('github_project') != url]
-with open(registry_path, 'w') as f:
-    yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-    commit_registry "manage: drop pre-assignment for $MANAGE_SELECTED_URL"
-    echo ""
-    ok "Assignment removed. Project is now unassigned."
+  # Remove every current owner: anchor assignee + board write access (GitHub-SoT,
+  # no registry write).
+  local _o
+  if [[ -n "$current_assignee" ]]; then
+    IFS=',' read -ra _olist <<< "$current_assignee"
+    for _o in "${_olist[@]}"; do
+      [[ -n "$_o" ]] && manage_apply_owner remove "$MANAGE_SELECTED_NUM" "$MANAGE_SELECTED_URL" "$_o"
+    done
   fi
+  echo ""
+  ok "${MANAGE_SELECTED_PID:-Board} is now unassigned (anchor assignees cleared + board access revoked)."
 }
 
 cmd_manage() {

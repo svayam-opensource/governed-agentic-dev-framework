@@ -329,11 +329,13 @@ PY
 
 get_repo_name() { basename "$1" .git; }
 
-# Resolve the project branch name for a given PROJECT_ID. Prefers the
-# canonical value from registry.yaml's projects[<id>].branch; falls back to
-# deriving from the ID for backwards compatibility:
-#   - PRJ-NNN-slug  → brnch-NNN-slug   (v0.2.0+ convention)
-#   - <ANY>-NNN-slug → lowercase form  (pre-v0.2.0 convention; ORG_SLUG-NNN → org_slug-NNN)
+# Resolve the project branch name for a given PROJECT_ID.
+# Registry-elimination Increment 2: registry.yaml is a FROZEN legacy shim — read
+# only to grandfather ids/branches that predate the board-number scheme
+# (PRJ-001…013 + the already-seeded PRJ-014/015/032 whose branches differ from
+# the derived form). For everything else the branch is DERIVED from the id:
+#   - PRJ-<board#>-slug → BRNCH-<board#>-slug   (current scheme; GitHub is SoT)
+#   - <ANY>-NNN-slug    → lowercase form        (pre-v0.2.0 legacy)
 project_branch_for_id() {
   local pid="$1" branch
   branch=$(python3 - "$REGISTRY" "$pid" 2>/dev/null <<'PY'
@@ -351,11 +353,12 @@ PY
     echo "$branch"
     return 0
   fi
-  # Fallback: derive from ID. PRJ- prefix gets the new brnch- mapping;
-  # legacy uppercase prefixes (e.g. ACME-001-foo) get the historical
-  # lowercase mapping (acme-001-foo).
+  # Fallback: derive from ID. PRJ-<board#>-slug → BRNCH-<board#>-slug (current
+  # board-number scheme — id and branch differ only by the constant prefix).
+  # Legacy uppercase prefixes (e.g. ACME-001-foo) get the historical lowercase
+  # mapping (acme-001-foo).
   if [[ "$pid" == PRJ-* ]]; then
-    echo "brnch-${pid#PRJ-}"
+    echo "BRNCH-${pid#PRJ-}"
   else
     echo "$pid" | tr '[:upper:]' '[:lower:]'
   fi
@@ -469,6 +472,89 @@ gh_project_owner_number() {
 }
 _gh_owner_field() { [[ "$1" == "orgs" ]] && echo organization || echo user; }
 
+# ── Anchor-issue status (registry-elimination Increment 2) ────────────────────
+# GitHub is the sole SoT for project status. The board's open/closed state plus
+# two labels on the project's ANCHOR issue carry the full lifecycle:
+#   active    = board open,   anchor NOT 'paused'
+#   paused    = board open,   anchor 'paused'
+#   completed = board closed,  anchor NOT 'cancelled'
+#   cancelled = board closed,  anchor 'cancelled'
+# The lifecycle scripts no longer write registry.yaml; they call the helpers
+# below (labels) + close_project_board (open/closed). Status is derived, never
+# stored — see derive_project_status in the prj dispatcher.
+ANCHOR_LABEL="anchor"
+
+# anchor_issue_ref <project_number> [owner]  → "owner/repo#number" of the board's
+# anchor issue (labelled 'anchor'), or empty. owner defaults to $GITHUB_ORG.
+anchor_issue_ref() {
+  local num="$1" owner="${2:-$GITHUB_ORG}"
+  gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ items(first:100){ nodes{ content{ __typename ... on Issue { number repository{nameWithOwner} labels(first:30){nodes{name}} } } } } } } }' \
+    -F o="$owner" -F n="$num" --jq '
+      [ .data.organization.projectV2.items.nodes[].content
+        | select(.__typename=="Issue")
+        | select(([.labels.nodes[].name] | index("'"$ANCHOR_LABEL"'")) != null)
+        | "\(.repository.nameWithOwner)#\(.number)" ] | (.[0] // "")' 2>/dev/null
+}
+
+# anchor_set_label <add|remove> <project_url> <label>  → add/remove a lifecycle
+# label ('paused'|'cancelled') on the board's anchor issue. Best-effort: a
+# missing board number or anchor issue only warns (status then derives from the
+# board's open/closed state alone). Creates the label on first 'add'.
+anchor_set_label() {
+  local action="$1" url="$2" label="$3" scope owner num ref repo inum
+  if ! read -r scope owner num < <(gh_project_owner_number "$url"); then
+    warn "Could not derive project number from '$url' — '$label' label not ${action}ed."
+    return 0
+  fi
+  ref="$(anchor_issue_ref "$num" "$owner")"
+  if [[ -z "$ref" ]]; then
+    warn "No '$ANCHOR_LABEL' issue on project #$num — '$label' not ${action}ed (status will derive from board open/closed only)."
+    return 0
+  fi
+  repo="${ref%%#*}"; inum="${ref##*#}"
+  if [[ "$action" == "add" ]]; then
+    gh label create "$label" --repo "$repo" --color ededed \
+      --description "Project lifecycle status (registry-elimination): $label" >/dev/null 2>&1 || true
+  fi
+  if gh issue edit "$inum" --repo "$repo" "--${action}-label" "$label" >/dev/null 2>&1; then
+    info "Anchor $repo#$inum: ${action}ed '$label' label."
+  else
+    warn "Could not ${action} '$label' on anchor $repo#$inum — reconcile manually."
+  fi
+  return 0
+}
+
+# ensure_anchor_label <owner/repo>  — create the 'anchor' label if missing
+# (gh issue create --label fails when the label doesn't exist in the repo).
+ensure_anchor_label() {
+  gh label create "$ANCHOR_LABEL" --repo "$1" --color 5319e7 \
+    --description "Project scope/anchor issue — its assignees are the project owners" \
+    >/dev/null 2>&1 || true
+}
+
+# create_anchor_issue <project_number> <board_title> [owner]  — create the
+# project's scope/anchor issue in the workspace repo, label it 'anchor', assign
+# the current user (the seeder/owner), and add it to the board. The anchor is the
+# GitHub-SoT carrier of project status (paused/cancelled labels) and ownership
+# (assignees). Echoes "owner/repo#number" (empty on failure).
+create_anchor_issue() {
+  local num="$1" title="$2" owner="${3:-$GITHUB_ORG}"
+  local repo="$owner/$WORKSPACE_REPO" me url body
+  me="$(gh api user --jq .login 2>/dev/null || echo "")"
+  ensure_anchor_label "$repo"
+  body="Anchor issue for the project on GitHub Project #$num — *$title*.
+
+Owners = this issue's assignees (managed via \`prj manage\`). Status carrier:
+a \`paused\` or \`cancelled\` label here drives the project's derived lifecycle
+status (with the board's open/closed state). Long-lived scope marker; closed at
+project close."
+  url="$(gh issue create --repo "$repo" --title "$title: project scope & anchor" \
+          --label "$ANCHOR_LABEL" ${me:+--assignee "$me"} --body "$body" 2>/dev/null | tail -1)"
+  [[ -z "$url" ]] && return 1
+  gh project item-add "$num" --owner "$owner" --url "$url" >/dev/null 2>&1 || true
+  echo "${repo}#${url##*/}"
+}
+
 # Close the GitHub Project board for a project URL so a completed/cancelled
 # project stops showing as active in board-driven views (#56 Facet A). The
 # board's open/closed state is what `prj manage list` keys on (open-only), so
@@ -566,51 +652,14 @@ set_clone_identity() {
   return 0
 }
 
-# ── Registry-on-default-branch (Option 2 global index) ──────────────────────
-# registry.yaml is the authoritative index and lives on $DEFAULT_BRANCH so
-# management/read commands see all projects without checking out a project
-# branch. This sets a project's status there and pushes. Safe to call from a
-# standalone clone on any branch when the working tree is clean (callers commit
-# their own changes first); it switches to the default branch and back.
-# Internal: rewrite a project's status in registry.yaml atomically. Run under
-# _with_lock by registry_set_status_on_main. Writes to stdout and lets
-# atomic_write handle the temp+rename, never truncating the file in place.
-_registry_set_status_impl() {
-  python3 - "$1" "$2" "$3" <<'PY' | atomic_write "$1"
-import sys, yaml
-reg, pid, status = sys.argv[1:]
-c = yaml.safe_load(open(reg)) or {}
-for p in (c.get('projects') or []):
-    if p and p.get('id') == pid:
-        p['status'] = status
-        break
-yaml.dump(c, sys.stdout, default_flow_style=False, allow_unicode=True, sort_keys=False)
-PY
-}
-
-registry_set_status_on_main() {
-  local pid="$1" status="$2"
-  local cur; cur=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  if [[ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ]]; then
-    warn "Working tree not clean — skipping registry status update on $DEFAULT_BRANCH for $pid."
-    return 0
-  fi
-  git -C "$REPO_ROOT" fetch origin "$DEFAULT_BRANCH" 2>/dev/null || true
-  git -C "$REPO_ROOT" checkout "$DEFAULT_BRANCH" 2>/dev/null \
-    || { warn "Could not switch to $DEFAULT_BRANCH to update registry for $pid."; return 0; }
-  git -C "$REPO_ROOT" pull --ff-only origin "$DEFAULT_BRANCH" 2>/dev/null || true
-  # Audit C7: serialize concurrent seed/status writers and write atomically
-  # (temp+rename) so a crash mid-write can't truncate the shared registry.
-  _with_lock "$REGISTRY.lock" _registry_set_status_impl "$REGISTRY" "$pid" "$status"
-  if [[ -n "$(git -C "$REPO_ROOT" status --porcelain registry.yaml 2>/dev/null)" ]]; then
-    git -C "$REPO_ROOT" add registry.yaml
-    git -C "$REPO_ROOT" commit -m "registry: $pid status=$status" >/dev/null 2>&1 || true
-    git -C "$REPO_ROOT" push origin "$DEFAULT_BRANCH" 2>/dev/null \
-      || warn "Could not push registry status=$status for $pid to $DEFAULT_BRANCH."
-  fi
-  [[ -n "$cur" ]] && git -C "$REPO_ROOT" checkout "$cur" 2>/dev/null || true
-  return 0
-}
+# ── Project status — GitHub is the SoT (registry-elimination Increment 2) ─────
+# The former registry_set_status_on_main()/_registry_set_status_impl() pair —
+# which checked out $DEFAULT_BRANCH, rewrote registry.yaml's projects[<id>].status
+# and pushed — is REMOVED. That shared-file-on-main write was the root cause of
+# the worktree-collision close failure (it forced a local $DEFAULT_BRANCH
+# checkout) and the registry corruption. Status now lives entirely on GitHub:
+# the lifecycle scripts call anchor_set_label (paused/cancelled) and
+# close_project_board (open/closed); `prj`'s derive_project_status reads it back.
 
 # Best-effort: mirror a read-only governance summary into the GitHub Project
 # README. Needs the 'project' (write) scope; on any failure it warns and
@@ -770,6 +819,45 @@ archive_branch() {
     && info "Deleted remote branch '$branch'" \
     || warn "Remote branch '$branch' not found (may already be deleted)"
   git -C "$path" branch -D "$branch" 2>/dev/null || true
+}
+
+# cleanup_project_workspace <project_id>  — remove the per-project workspace at
+# $AGENT_WORK_ROOT/<id> after close. The project's content has been promoted to
+# $DEFAULT_BRANCH via the close PR, so the local working copy is no longer
+# needed. The governance clone (and code clones) under it are git WORKTREES of
+# their base checkouts, so we detach them with `git worktree remove` (run from
+# each worktree's MAIN checkout, which lives OUTSIDE the dir we delete) before
+# rm -rf. Best-effort: any failure warns, never fails an otherwise-good close.
+# NOTE: this deletes the directory the caller may be standing in — we cd out
+# first; the caller's shell will still be in a now-removed dir (expected).
+cleanup_project_workspace() {
+  local pid="$1"
+  local ws="$AGENT_WORK_ROOT/$pid"
+  [[ -d "$ws" ]] || { info "No per-project workspace at $ws — nothing to clean."; return 0; }
+
+  # Step out of the tree we're about to delete.
+  cd "$AGENT_WORK_ROOT" 2>/dev/null || cd / || true
+
+  # Detach any git worktrees rooted under $ws from their MAIN checkout.
+  local d main
+  for d in "$ws"/*/; do
+    d="${d%/}"
+    [[ -e "$d/.git" ]] || continue
+    main="$(git -C "$d" worktree list --porcelain 2>/dev/null | awk 'NR==1{print $2}')"
+    if [[ -n "$main" && "$main" != "$d" && -d "$main" ]]; then
+      git -C "$main" worktree remove --force "$d" 2>/dev/null \
+        && info "Removed worktree $(basename "$d") (from $main)" \
+        || warn "Could not remove worktree '$d' — remove manually."
+      git -C "$main" worktree prune 2>/dev/null || true
+    fi
+  done
+
+  if rm -rf "$ws" 2>/dev/null; then
+    info "Removed per-project workspace: $ws"
+  else
+    warn "Could not remove '$ws' — remove it manually."
+  fi
+  return 0
 }
 
 # Merge one branch into another; exit 2 on conflict so caller can handle
