@@ -46,7 +46,7 @@ YAML
 
 run_setup() {
   local stdin="$1"
-  printf '%s' "$stdin" | SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 bash setup.sh 2>&1 || true
+  printf '%s' "$stdin" | SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 SETUP_SKIP_SHELL_RC=1 bash setup.sh 2>&1 || true
 }
 
 # Bad slugs should produce the validation error message

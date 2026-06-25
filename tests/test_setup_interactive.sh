@@ -71,7 +71,7 @@ ORIG_FIXTURE_SHA=$(sha test-fixture.md | awk '{print $1}')
 #   legal/infra/sys/data: (Enter ×4 — default to policy_owner_github)
 #   effective_date:     (Enter — default today)
 out=$(printf 'TestCorp Industries\nTestCorp\nTST\n\n\n\ntestowner@example.com\n@testowner\n\n\n\n\n\n' \
-      | SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 bash setup.sh 2>&1)
+      | SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 SETUP_SKIP_SHELL_RC=1 bash setup.sh 2>&1)
 exit_code=$?
 
 assert_exit_code 0 "$exit_code" "setup.sh exits 0 on happy path"

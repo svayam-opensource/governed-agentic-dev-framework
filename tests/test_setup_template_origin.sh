@@ -61,7 +61,7 @@ ORIG_FRAMEWORK_SHA=$(sha FRAMEWORK_FILE.md | awk '{print $1}')
 #   legal/infra/sys_arch/data_arch  (Enter ×4)
 #   policy_effective_date  (Enter = today)
 out=$(printf 'git@github.com:test-org/my-governance.git\nTestCorp Industries\nTestCorp\nTST\n\n\n\nowner@test.com\n@owner\n\n\n\n\n\n' \
-      | SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 bash setup.sh 2>&1)
+      | SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 SETUP_SKIP_SHELL_RC=1 bash setup.sh 2>&1)
 exit_code=$?
 
 assert_exit_code 0 "$exit_code" "setup.sh succeeds (reconfigures rather than refuses)"
