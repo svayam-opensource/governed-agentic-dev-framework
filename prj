@@ -2339,7 +2339,9 @@ menu_catalog() {
     printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
     case "$c" in
       1) e=$(_menu_pick_env "View units for which env?"); [[ -n "$e" ]] && ( cmd_catalog "$e" ) ;;
-      2) e=$(_menu_pick_env "DAG for which env?"); [[ -n "$e" ]] && ( cmd_catalog dag --env "$e" ) ;;
+      2) e=$(_menu_pick_env "DAG for which env?"); [[ -z "$e" ]] && { _menu_pause; continue; }
+         u=$(_menu_pick_unit "$e" all); [[ -z "$u" ]] && { _menu_pause; continue; }
+         ( cmd_catalog dag "$u" --env "$e" ) ;;
       3) ( cmd_catalog build ) ;;
       4) ( cmd_catalog check ) ;;
       5) menu_config ;;
@@ -2439,16 +2441,23 @@ menu_deploy_unit() {
 
 menu_help() {
   local c t
-  header "Help — prj command-line use"
-  echo "  (1) full reference (all commands, grouped)"
-  echo "  (2) help for one command"
-  echo "  (0) back"; echo ""
-  printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
-  case "$c" in
-    1) ( cmd_help --detail ) ;;
-    2) printf "  command name: "; read -r t; [[ -n "$t" ]] && ( cmd_help "$t" ) ;;
-    *) return ;;
-  esac
+  while true; do
+    header "Help — prj command-line use"
+    echo "  (1) full reference (all commands, grouped)"
+    echo "  (2) help for one command"
+    echo "  (0) back"; echo ""
+    printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
+    case "$c" in
+      1) ( cmd_help --detail ) ;;
+      2) printf "  command name (e.g. catalog, deploy, work): "; read -r t; t="${t%$'\r'}"; echo ""
+         # accept "catalog view" etc. — help is per-command, so use the first word.
+         # shellcheck disable=SC2086
+         set -- $t; [[ -n "${1:-}" ]] && ( cmd_help "$1" ) ;;
+      0|q|back|"") return ;;
+      *) err "Unknown option '$c'." ;;
+    esac
+    _menu_pause
+  done
 }
 
 # ── Main menu ─────────────────────────────────────────────────────────────────
