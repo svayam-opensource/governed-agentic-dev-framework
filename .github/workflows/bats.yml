@@ -64,6 +64,8 @@ jobs:
           docker run --rm -v "$PWD":/w -w /w "${{ matrix.image }}" bash -lc '
             set -e
             export PATH="$HOME/.local/bin:$PATH"
+            # diff is a bats-assert runtime dep; fedora:latest ships without it.
+            command -v diff >/dev/null || { command -v dnf >/dev/null && dnf -y install diffutils >/dev/null; } || true
             bash scripts/install-deps.sh
             bash tests/bats/run.sh
           '

@@ -124,7 +124,8 @@ install_gh_binary() {
   local INSTALL_DIR="${HOME}/.local/bin"
   mkdir -p "$INSTALL_DIR"
   local TMP=$(mktemp -d)
-  curl -fsSL "$BINARY_URL" | tar -xz -C "$TMP"
+  _download "$BINARY_URL" "$TMP/gh.tgz" || { warn "could not download gh"; rm -rf "$TMP"; return 1; }
+  tar -xzf "$TMP/gh.tgz" -C "$TMP"
   cp "$TMP/gh_${GH_VERSION}_linux_${ARCH_TAG}/bin/gh" "$INSTALL_DIR/gh"
   chmod +x "$INSTALL_DIR/gh"
   rm -rf "$TMP"
@@ -135,17 +136,21 @@ install_gh_binary() {
   fi
 }
 
-# Ensure curl exists (the gh binary download needs it). Best-effort per distro.
-_ensure_curl() {
-  command -v curl &>/dev/null && return 0
-  case "$PKG_MGR" in
-    apt)      $SUDO apt-get install -y curl ;;
-    dnf)      $SUDO dnf install -y curl ;;
-    yum)      $SUDO yum install -y curl ;;
-    pacman)   $SUDO pacman -S --noconfirm curl ;;
-    apk)      $SUDO apk add --no-cache curl ;;
-    slackpkg) slackpkg_install curl ca-certificates ;;
-  esac
+# Download <url> to <dest> using whatever works: a FUNCTIONAL curl, else the
+# python3 we install as a required dep. Slackware's slackpkg curl is often
+# dependency-broken (missing libnghttp2), so we never assume curl works.
+_download() {
+  local url="$1" dest="$2"
+  if command -v curl &>/dev/null && curl --version &>/dev/null; then
+    curl -fsSL "$url" -o "$dest" && return 0
+  fi
+  if command -v python3 &>/dev/null; then
+    python3 - "$url" "$dest" <<'PY' && return 0
+import sys, urllib.request
+urllib.request.urlretrieve(sys.argv[1], sys.argv[2])
+PY
+  fi
+  return 1
 }
 
 install_gh() {
@@ -155,7 +160,7 @@ install_gh() {
     # package repos (apt keyring, dnf config-manager) drift and break across
     # versions (e.g. dnf5 dropped --add-repo); the static glibc binary is
     # uniform and works on ubuntu/fedora/slackware/alpine alike.
-    linux)        _ensure_curl; install_gh_binary ;;
+    linux)        install_gh_binary ;;
     windows-bash) warn "Install GitHub CLI from https://cli.github.com or: winget install GitHub.cli" ;;
     *)            warn "Could not auto-install gh — see https://cli.github.com" ;;
   esac
@@ -205,7 +210,9 @@ echo "  Pkg manager: ${PKG_MGR:-n/a}"
 echo ""
 echo "Tools:"
 
-REQUIRED=(git gh python3)
+# Order matters: python3 before gh, because the gh binary is downloaded with
+# python3 when curl is unavailable/broken (e.g. Slackware).
+REQUIRED=(git python3 gh)
 MISSING_REQUIRED=()
 
 for dep in "${REQUIRED[@]}"; do

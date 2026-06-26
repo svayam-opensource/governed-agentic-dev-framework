@@ -34,7 +34,8 @@ data_arch_owner_github: ""
 policy_effective_date: ""
 YAML
   printf 'TestCorp Industries\nTestCorp\nTST\n\n\n\ntestowner@example.com\n@testowner\n\n\n\n\n\n' \
-    | SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 bash setup.sh >/dev/null 2>&1
+    | SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 bash setup.sh > "$TEST_TMP/setup.out" 2>&1 \
+    || { echo "=== setup.sh failed; output: ==="; cat "$TEST_TMP/setup.out"; return 1; }
 }
 
 @test "setup populates org-config (org repo established)" {
