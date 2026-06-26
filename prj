@@ -2219,6 +2219,238 @@ cmd_manage() {
   esac
 }
 
+# ── Interactive menu helpers (numbered submenus; harmonized with `prj help`) ──
+
+_menu_pause() { echo ""; printf "${DIM}  Press Enter to continue…${NC}"; read -r _; }
+
+# Numbered environment picker. Echoes one of local|dev|uat|prod (empty on back).
+# All UI goes to stderr so the chosen value is the only thing on stdout.
+_menu_pick_env() {
+  local prompt="${1:-Select an environment}" with_local="${2:-1}" c
+  {
+    echo ""
+    echo -e "  ${BOLD}${prompt}${NC}"
+    if [[ "$with_local" == 1 ]]; then echo "    (1) local   (2) dev   (3) uat   (4) prod"
+    else echo "    (1) dev   (2) uat   (3) prod"; fi
+    echo "    (0) back"
+    printf "  Choose: "
+  } >&2
+  read -r c
+  if [[ "$with_local" == 1 ]]; then
+    case "$c" in 1) echo local ;; 2) echo dev ;; 3) echo uat ;; 4) echo prod ;; *) echo "" ;; esac
+  else
+    case "$c" in 1) echo dev ;; 2) echo uat ;; 3) echo prod ;; *) echo "" ;; esac
+  fi
+}
+
+# Numbered unit picker for an env, from graph.lock. $1=env  $2=mode(all|data).
+# Echoes the chosen unit (empty on back/none). UI → stderr.
+_menu_pick_unit() {
+  local env="$1" mode="${2:-all}" c lock names u
+  if ! resolve_workspace "$env" >/dev/null 2>&1; then { err "could not resolve workspace for env '$env'"; } >&2; echo ""; return; fi
+  lock="$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock"
+  if [[ ! -f "$lock" ]]; then { err "no catalog (graph.lock) for env '$env'"; } >&2; echo ""; return; fi
+  names=$(python3 - "$lock" "$mode" <<'PY'
+import json,sys
+c=json.load(open(sys.argv[1])); mode=sys.argv[2]; out=[]
+if mode=='data':
+    for k,v in (c.get('hooks') or {}).items():
+        if k.endswith('-data') and v.get('cmd'): out.append(k[:-5])
+else:
+    out += list((c.get('applications') or {}).keys())
+    out += list((c.get('units') or {}).keys())
+for n in sorted(set(out)): print(n)
+PY
+)
+  if [[ -z "$names" ]]; then { err "no units found for env '$env'"; } >&2; echo ""; return; fi
+  local arr=() i=1
+  while IFS= read -r u; do [[ -n "$u" ]] && arr+=("$u"); done <<< "$names"
+  {
+    echo ""
+    echo -e "  ${BOLD}Units${NC} ${DIM}(env=$env)${NC}"
+    for u in "${arr[@]}"; do printf "    (%d) %s\n" "$i" "$u"; i=$((i+1)); done
+    echo "    (0) back"
+    printf "  Choose: "
+  } >&2
+  read -r c
+  if [[ "$c" =~ ^[0-9]+$ ]] && (( c>=1 && c<=${#arr[@]} )); then echo "${arr[$((c-1))]}"; else echo ""; fi
+}
+
+menu_status() {
+  local c
+  while true; do
+    header "Status"
+    echo "  (1) list        ongoing projects"
+    echo "  (2) list-all    all projects (incl. closed)"
+    echo "  (3) status      detailed status of one project"
+    echo "  (0) back"; echo ""
+    printf "  Choose: "; read -r c; echo ""
+    case "$c" in
+      1) ( cmd_list ) ;;
+      2) ( cmd_list all ) ;;
+      3) ( cmd_status ) ;;
+      0|q|back|"") return ;;
+      *) err "Unknown option '$c'." ;;
+    esac
+    _menu_pause
+  done
+}
+
+menu_admin() {
+  local c
+  while true; do
+    header "Admin — administer governance"
+    echo "  (1) manage        project access — assign / reassign / unassign"
+    echo "  (2) knowledge     propose org knowledge changes"
+    echo "  (3) onboard       onboard a repository"
+    echo "  (4) add-repo      add a repository to a project"
+    echo "  (5) migrate-home  relocate the gov repo to its canonical home"
+    echo "  (6) upgrade       pull a new framework version"
+    echo "  (7) deps          install / verify dependencies"
+    echo "  (8) creds         manage your credentials"
+    echo "  (0) back"; echo ""
+    printf "  Choose: "; read -r c; echo ""
+    case "$c" in
+      1) require_git_identity; ( cmd_manage ) ;;
+      2) require_git_identity; ( cmd_knowledge ) ;;
+      3) require_git_identity; ( cmd_onboard ) ;;
+      4) require_git_identity; ( cmd_add_repo ) ;;
+      5) ( cmd_migrate_home ) ;;
+      6) require_git_identity; ( cmd_upgrade ) ;;
+      7) ( cmd_deps ) ;;
+      8) ( bash "$SCRIPTS/creds.sh" ) ;;
+      0|q|back|"") return ;;
+      *) err "Unknown option '$c'." ;;
+    esac
+    _menu_pause
+  done
+}
+
+menu_catalog() {
+  local c e
+  while true; do
+    header "Catalog — units for build & deploy"
+    echo "  (1) view     units in an env"
+    echo "  (2) dag      dependency DAG"
+    echo "  (3) build    (re)derive graph.lock"
+    echo "  (4) check    drift-check graph.lock"
+    echo "  (5) config   scaffold / check a unit's deploy.yaml"
+    echo "  (0) back"; echo ""
+    printf "  Choose: "; read -r c; echo ""
+    case "$c" in
+      1) e=$(_menu_pick_env "View units for which env?"); [[ -n "$e" ]] && ( cmd_catalog "$e" ) ;;
+      2) e=$(_menu_pick_env "DAG for which env?"); [[ -n "$e" ]] && ( cmd_catalog dag --env "$e" ) ;;
+      3) ( cmd_catalog build ) ;;
+      4) ( cmd_catalog check ) ;;
+      5) menu_config ;;
+      0|q|back|"") return ;;
+      *) err "Unknown option '$c'." ;;
+    esac
+    _menu_pause
+  done
+}
+
+menu_config() {
+  local c u p
+  header "Config — deploy.yaml"
+  echo "  (1) scaffold a unit's deploy.yaml"
+  echo "  (2) check a deploy.yaml for drift"
+  echo "  (0) back"; echo ""
+  printf "  Choose: "; read -r c; echo ""
+  case "$c" in
+    1) u=$(_menu_pick_unit local all); [[ -n "$u" ]] && ( cmd_config scaffold "$u" ) ;;
+    2) printf "  path to deploy.yaml: "; read -r p; [[ -n "$p" ]] && ( cmd_config check "$p" ) ;;
+    *) return ;;
+  esac
+}
+
+menu_data() {
+  local c e u
+  while true; do
+    header "Data — query a datastore"
+    echo "  (1) list     data-capable units in an env"
+    echo "  (2) query    query a unit's datastore"
+    echo "  (0) back"; echo ""
+    printf "  Choose: "; read -r c; echo ""
+    case "$c" in
+      1) e=$(_menu_pick_env "List units for which env?"); [[ -n "$e" ]] && ( cmd_data --list "$e" ) ;;
+      2) e=$(_menu_pick_env "Query in which env?"); [[ -z "$e" ]] && { _menu_pause; continue; }
+         u=$(_menu_pick_unit "$e" data); [[ -z "$u" ]] && { _menu_pause; continue; }
+         menu_data_query "$u" "$e" ;;
+      0|q|back|"") return ;;
+      *) err "Unknown option '$c'." ;;
+    esac
+    _menu_pause
+  done
+}
+
+menu_data_query() {
+  local u="$1" e="$2" c t q
+  header "Data — $u ($e)"
+  echo "  (1) tables       list tables"
+  echo "  (2) list         canned list query"
+  echo "  (3) describe     describe a table"
+  echo "  (4) SQL          run custom SQL"
+  echo "  (0) back"; echo ""
+  printf "  Choose: "; read -r c; echo ""
+  case "$c" in
+    1) ( cmd_data "$u" "$e" --tables ) ;;
+    2) ( cmd_data "$u" "$e" --list ) ;;
+    3) printf "  table name: "; read -r t; [[ -n "$t" ]] && ( cmd_data "$u" "$e" --describe "$t" ) ;;
+    4) printf "  SQL: "; read -r q; [[ -n "$q" ]] && ( cmd_data "$u" "$e" "$q" ) ;;
+    *) return ;;
+  esac
+}
+
+menu_deploy() {
+  local c u
+  while true; do
+    header "Deploy — build & deploy units"
+    echo "  (1) deploy a unit   pick unit → env → provision? → seed?"
+    echo "  (2) seed (local)    wipe + reload a unit's curated data"
+    echo "  (3) schedules       install / inspect cron schedules"
+    echo "  (0) back"; echo ""
+    printf "  Choose: "; read -r c; echo ""
+    case "$c" in
+      1) menu_deploy_unit ;;
+      2) u=$(_menu_pick_unit local all); [[ -n "$u" ]] && { require_git_identity; ( cmd_deploy "$u" --local --seed ); } ;;
+      3) ( bash "$SCRIPTS/deploy/schedules.sh" ) ;;
+      0|q|back|"") return ;;
+      *) err "Unknown option '$c'." ;;
+    esac
+    _menu_pause
+  done
+}
+
+menu_deploy_unit() {
+  local e u yn; local -a args
+  e=$(_menu_pick_env "Deploy to which env?"); [[ -z "$e" ]] && return
+  u=$(_menu_pick_unit "$e" all); [[ -z "$u" ]] && return
+  args=("$u" "--$e")
+  if [[ "$e" == local ]]; then
+    printf "  Provision (stand up the local substrate)? [Y/n]: "; read -r yn; [[ "$yn" =~ ^[Nn] ]] && args+=(--no-provision)
+    printf "  Seed (WIPE data + reload curated)? [y/N]: "; read -r yn; [[ "$yn" =~ ^[Yy] ]] && args+=(--seed)
+  else
+    printf "  Provision (stand up shared infra)? [y/N]: "; read -r yn; [[ "$yn" =~ ^[Yy] ]] && args+=(--provision)
+  fi
+  require_git_identity
+  ( cmd_deploy "${args[@]}" )
+}
+
+menu_help() {
+  local c t
+  header "Help — prj command-line use"
+  echo "  (1) full reference (all commands, grouped)"
+  echo "  (2) help for one command"
+  echo "  (0) back"; echo ""
+  printf "  Choose: "; read -r c; echo ""
+  case "$c" in
+    1) ( cmd_help --detail ) ;;
+    2) printf "  command name: "; read -r t; [[ -n "$t" ]] && ( cmd_help "$t" ) ;;
+    *) return ;;
+  esac
+}
+
 # ── Main menu ─────────────────────────────────────────────────────────────────
 
 show_menu() {
@@ -2235,66 +2467,33 @@ show_menu() {
   echo ""
   divider
   echo ""
-  echo -e "  ${CYAN}${BOLD}Status${NC}   ${DIM}project state${NC}        ${CYAN}list${NC} · ${CYAN}status${NC}"
+  echo -e "  ${BOLD}Action${NC}              ${BOLD}Description${NC}                       ${DIM}Goes to${NC}"
+  echo -e "  ${DIM}------------------  ---------------------------------  ------------------------------${NC}"
+  echo -e "  ${CYAN}${BOLD}(1) Status${NC}          Review current state               ${DIM}list · status${NC}"
+  echo -e "  ${GREEN}${BOLD}(2) Work${NC}            Start / continue a project         ${DIM}pick a project${NC}"
+  echo -e "  ${MAGENTA}${BOLD}(3) Catalog${NC}         Units for build & deploy           ${DIM}view · dag · build · check · config${NC}"
+  echo -e "  ${MAGENTA}${BOLD}(4) Data${NC}            Query a datastore                  ${DIM}list · query${NC}"
+  echo -e "  ${MAGENTA}${BOLD}(5) Deploy${NC}          Build & deploy units               ${DIM}unit → env → provision? → seed?${NC}"
+  echo -e "  ${YELLOW}${BOLD}(6) Admin${NC}           Administer governance              ${DIM}manage · knowledge · onboard · …${NC}"
+  echo -e "  ${BOLD}(7) Help${NC}            prj command-line use               ${DIM}pick a command${NC}"
   echo ""
-  echo -e "  ${YELLOW}${BOLD}Manage${NC}   ${DIM}GitHub Project access${NC}  ${YELLOW}manage${NC}  ${DIM}(assign / reassign / unassign)${NC}"
-  echo ""
-  echo -e "  ${GREEN}${BOLD}Work${NC}     ${DIM}developers start here${NC}  ${GREEN}work${NC}  ${DIM}pick a project → init / continue / task / finish${NC}"
-  echo ""
-  echo -e "  ${MAGENTA}${BOLD}Deploy${NC}   ${DIM}ship a target${NC}          ${MAGENTA}deploy${NC} ${DIM}<target> --local|--dev|--uat|--prod  ·  config · seed${NC}"
-  echo ""
-  echo -e "  ${MAGENTA}${BOLD}Catalog${NC}  ${DIM}units · DAG · author${NC}    ${MAGENTA}catalog${NC} ${DIM}<env> · dag · add/update/rm · build/check${NC}"
-  echo ""
-  echo -e "  ${MAGENTA}${BOLD}Data${NC}     ${DIM}query a datastore${NC}      ${MAGENTA}data${NC} ${DIM}<unit> <env> …  ·  data --list <env>${NC}"
-  echo ""
-  echo -e "  ${YELLOW}${BOLD}Admin${NC}  ${DIM}(maintenance):${NC} ${YELLOW}knowledge${NC} · ${YELLOW}onboard${NC} · ${YELLOW}upgrade${NC} · ${YELLOW}deps${NC}"
-  echo -e "  ${DIM}Lifecycle (via work): init · join · task · merge · pause · resume · sync · add-repo · cancel · close${NC}"
-  echo ""
-  echo -e "  ${DIM}Type a verb name or number; 0 to exit.${NC}"
+  echo -e "  ${DIM}Type a number; 0 to exit.${NC}"
   echo ""
   divider
   printf "  Choose: "
   read -r choice
   echo ""
-  # Write ops need a configured git identity; check before dispatching.
   case "$choice" in
-    1|init|2|task|3|merge|4|pause|5|resume|6|sync|7|add-repo|8|cancel|9|close|10|knowledge|11|onboard|15|manage|16|upgrade|start|work|finish)
-      require_git_identity
-      ;;
-  esac
-
-  case "$choice" in
-    1|init)       cmd_init ;;
-    16|join)      cmd_join ;;
-    start)        cmd_start ;;
-    work)         cmd_work ;;
-    finish)       cmd_finish ;;
-    2|task)       cmd_task ;;
-    3|merge)      cmd_merge ;;
-    4|pause)      cmd_pause ;;
-    5|resume)     cmd_resume ;;
-    6|sync)       cmd_sync ;;
-    7|add-repo)   cmd_add_repo ;;
-    8|cancel)     cmd_cancel ;;
-    9|close)      cmd_close ;;
-    10|knowledge) cmd_knowledge ;;
-    11|onboard)   cmd_onboard ;;
-    12|list)      cmd_list ;;
-    13|status)    cmd_status ;;
-    14|deps)      cmd_deps ;;
-    15|manage)    cmd_manage ;;
-    16|upgrade)   cmd_upgrade ;;
-    deploy)       cmd_help deploy ;;     # these need args (target/env) → show usage/examples
-    config)       cmd_help config ;;
-    seed)         cmd_help seed ;;
-    catalog)      cmd_help catalog ;;
-    data)         cmd_help data ;;
+    1)             menu_status ;;
+    2)             require_git_identity; ( cmd_work ); _menu_pause ;;
+    3)             menu_catalog ;;
+    4)             menu_data ;;
+    5)             menu_deploy ;;
+    6)             menu_admin ;;
+    7)             menu_help ;;
     0|q|quit|exit) echo "Bye."; exit 0 ;;
-    *) err "Unknown option '$choice'." ;;
+    *) err "Unknown option '$choice' — type a number 1-7, or 0 to exit."; _menu_pause ;;
   esac
-  echo ""
-  printf "${DIM}Press Enter to return to menu...${NC}"
-  read -r
   show_menu
 }
 
@@ -2763,41 +2962,47 @@ cmd_help() {
   case "$topic" in
     --detail|--all|-a)
       echo ""
-      echo -e "${BOLD}Usage:${NC} prj <command> [args]   ·   prj help <command> for command-specific help"
+      echo -e "${BOLD}Usage:${NC} prj <command> [args]   ·   prj help <command> for examples   ·   prj  (no args) = menu"
+      echo -e "${DIM}Groups (1-7) mirror the interactive menu.${NC}"
       echo ""
-      echo -e "${BOLD}Work${NC}"
-      echo "  start       Begin work — join / new task / new project"
-      echo "  work        Continue work — sync your branch and keep going"
-      echo "  finish      Finish a task (submit) or the project (close)"
-      echo "  task        Create a task for parallel work"
-      echo "  merge       Merge a completed task"
-      echo "  sync        Sync with latest base branches"
-      echo "  pause · resume · cancel · close    Project lifecycle"
+      echo -e "${BOLD}(1) Status${NC}   ${DIM}review current state${NC}"
+      echo "  list · list-all    ongoing / all projects (GitHub-derived)"
+      echo "  status             detailed status of one project"
       echo ""
-      echo -e "${BOLD}Projects & repos${NC}"
-      echo "  init        Initialize a new project"
-      echo "  join        Join an existing project (team member)"
-      echo "  add-repo    Add a repository to a project"
-      echo "  onboard     Onboard a repository"
-      echo "  list · list-all · status           Project status"
-      echo "  manage      List, assign, reassign, unassign projects"
-      echo "  migrate-home  Relocate the gov repo to its canonical home (~/.<slug>/gov_repo)"
+      echo -e "${BOLD}(2) Work${NC}   ${DIM}start / continue a project${NC}"
+      echo "  work               pick a project → init if new, else continue → run session-start"
+      echo "  start · finish     begin (join / new task / new project) · finish a task or close the project"
+      echo "  task · merge       create a task sub-branch · merge a completed task"
+      echo "  sync               sync your branch with the latest base branches"
+      echo "  init · join        (advanced) initialize / join a project directly"
+      echo "  pause · resume · cancel · close    project lifecycle"
       echo ""
-      echo -e "${BOLD}Deploy${NC}"
-      echo "  config      Scaffold / drift-check a unit's deploy.yaml (config-as-build)"
-      echo "  deploy      Deploy a target — local/dev/uat/prod"
-      echo "  catalog     Discover units in an env (<env>); build/check the derived graph.lock"
-      echo "  data        Query a unit's datastore — 'data --list <env>' for units, diagnostics per unit"
-      echo "  seed        Run the catalog seed hook (app-owned)"
-      echo "  iam-data    Query the IAM datastore (alias: data iam)"
-      echo "  schedules   Install/inspect catalog cron schedules"
+      echo -e "${BOLD}(3) Catalog${NC}   ${DIM}units for build & deploy${NC}"
+      echo "  catalog <env>                   view units for an env"
+      echo "  catalog dag | build | check     DAG · (re)derive graph.lock · drift-check"
+      echo "  catalog add | update | rm <unit>   author catalog units"
+      echo "  config                          scaffold / drift-check a unit's deploy.yaml"
       echo ""
-      echo -e "${BOLD}Setup & meta${NC}"
-      echo "  creds       Manage your per-developer credentials"
-      echo "  knowledge   Propose org knowledge changes"
-      echo "  deps        Install / verify dependencies"
-      echo "  upgrade     Pull a new framework version from the template remote"
-      echo "  version     Print the installed prj CLI version (--version, -v)"
+      echo -e "${BOLD}(4) Data${NC}   ${DIM}query a datastore${NC}"
+      echo "  data --list <env>               list data-capable units"
+      echo "  data <unit> <env> [query]       --tables | --list | --describe <t> | \"<SQL>\""
+      echo "  iam-data                        query the IAM datastore (alias: data iam)"
+      echo ""
+      echo -e "${BOLD}(5) Deploy${NC}   ${DIM}build & deploy units${NC}"
+      echo "  deploy <unit> --local|--dev|--uat|--prod [--provision] [--seed]"
+      echo "  seed                            run the catalog seed hook (local)"
+      echo "  schedules                       install / inspect catalog cron schedules"
+      echo ""
+      echo -e "${BOLD}(6) Admin${NC}   ${DIM}administer governance${NC}"
+      echo "  manage                          project access — assign / reassign / unassign"
+      echo "  knowledge                       propose org knowledge changes"
+      echo "  onboard · add-repo              onboard a repo · add a repo to a project"
+      echo "  migrate-home                    relocate the gov repo to ~/.<slug>/gov_repo"
+      echo "  upgrade · deps · creds          framework upgrade · dependencies · credentials"
+      echo ""
+      echo -e "${BOLD}(7) Help${NC}   ${DIM}prj command-line use${NC}"
+      echo "  help [--detail] · help <command>   this reference · per-command examples"
+      echo "  version                         print the installed prj CLI version"
       echo ""
       echo -e "  ${DIM}prj help <command>${NC}   command-specific help + examples"
       echo ""
