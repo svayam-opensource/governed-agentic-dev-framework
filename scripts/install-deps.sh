@@ -203,23 +203,30 @@ install_perl() {
 install_pyyaml() {
   python3 -c "import yaml" &>/dev/null && return 0
   info "Installing PyYAML for the active python3..."
-  # Target the ACTIVE python3 (e.g. a setup-python/hostedtoolcache interpreter),
-  # not whatever the distro's system python is — installing python3-yaml via the
-  # package manager can land in a different interpreter and leave `import yaml`
-  # broken. pip into the active interpreter; fall back across PEP-668 + distro.
-  python3 -m pip install --user pyyaml &>/dev/null && return 0
-  python3 -m pip install --user --break-system-packages pyyaml &>/dev/null && return 0
-  # No CA bundle (e.g. Slackware) breaks pip's TLS — trust PyPI hosts as a last
-  # resort (same rationale as the gh binary's unverified fetch).
-  python3 -m pip install --user --break-system-packages \
-    --trusted-host pypi.org --trusted-host files.pythonhosted.org pyyaml &>/dev/null && return 0
+  # As root (CI containers) install SYSTEM-WIDE so `import yaml` works under ANY
+  # $HOME (the test bed sandboxes HOME); as a normal user fall back to --user.
+  local userflag="--user"
+  [[ "${EUID:-$(id -u)}" -eq 0 ]] && userflag=""
+  # Bootstrap pip if the python lacks it (Slackware's python3 ships no pip).
+  python3 -m pip --version &>/dev/null || python3 -m ensurepip --upgrade &>/dev/null || true
+  # Try pip with widening permissiveness (PEP-668, then no-CA trusted-host).
+  # Verify `import yaml` after each — only a real import counts as success.
+  local extra
+  for extra in "" "--break-system-packages" \
+               "--break-system-packages --trusted-host pypi.org --trusted-host files.pythonhosted.org"; do
+    # shellcheck disable=SC2086
+    if python3 -m pip install $userflag $extra pyyaml &>/dev/null && python3 -c "import yaml" &>/dev/null; then
+      return 0
+    fi
+  done
+  # Distro package (system python) as a final fallback.
   case "$OS-$PKG_MGR" in
-    macos-*)        python3 -m pip install --break-system-packages pyyaml 2>/dev/null || true ;;
-    linux-apt)      $SUDO apt-get install -y python3-yaml 2>/dev/null || true ;;
-    linux-dnf)      $SUDO dnf install -y python3-pyyaml 2>/dev/null || true ;;
-    linux-yum)      $SUDO yum install -y python3-pyyaml 2>/dev/null || true ;;
-    linux-pacman)   $SUDO pacman -S --noconfirm python-yaml 2>/dev/null || true ;;
-    linux-apk)      $SUDO apk add --no-cache py3-yaml 2>/dev/null || true ;;
+    macos-*)        : ;;
+    linux-apt)      $SUDO apt-get install -y python3-yaml   &>/dev/null || true ;;
+    linux-dnf)      $SUDO dnf install -y python3-pyyaml     &>/dev/null || true ;;
+    linux-yum)      $SUDO yum install -y python3-pyyaml     &>/dev/null || true ;;
+    linux-pacman)   $SUDO pacman -S --noconfirm python-yaml &>/dev/null || true ;;
+    linux-apk)      $SUDO apk add --no-cache py3-yaml       &>/dev/null || true ;;
   esac
   python3 -c "import yaml" &>/dev/null
 }
