@@ -2235,7 +2235,7 @@ _menu_pick_env() {
     echo "    (0) back"
     printf "  Choose: "
   } >&2
-  read -r c
+  read -r c; c="${c%$'\r'}"
   if [[ "$with_local" == 1 ]]; then
     case "$c" in 1) echo local ;; 2) echo dev ;; 3) echo uat ;; 4) echo prod ;; *) echo "" ;; esac
   else
@@ -2272,7 +2272,7 @@ PY
     echo "    (0) back"
     printf "  Choose: "
   } >&2
-  read -r c
+  read -r c; c="${c%$'\r'}"
   if [[ "$c" =~ ^[0-9]+$ ]] && (( c>=1 && c<=${#arr[@]} )); then echo "${arr[$((c-1))]}"; else echo ""; fi
 }
 
@@ -2284,7 +2284,7 @@ menu_status() {
     echo "  (2) list-all    all projects (incl. closed)"
     echo "  (3) status      detailed status of one project"
     echo "  (0) back"; echo ""
-    printf "  Choose: "; read -r c; echo ""
+    printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
     case "$c" in
       1) ( cmd_list ) ;;
       2) ( cmd_list all ) ;;
@@ -2309,7 +2309,7 @@ menu_admin() {
     echo "  (7) deps          install / verify dependencies"
     echo "  (8) creds         manage your credentials"
     echo "  (0) back"; echo ""
-    printf "  Choose: "; read -r c; echo ""
+    printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
     case "$c" in
       1) require_git_identity; ( cmd_manage ) ;;
       2) require_git_identity; ( cmd_knowledge ) ;;
@@ -2336,7 +2336,7 @@ menu_catalog() {
     echo "  (4) check    drift-check graph.lock"
     echo "  (5) config   scaffold / check a unit's deploy.yaml"
     echo "  (0) back"; echo ""
-    printf "  Choose: "; read -r c; echo ""
+    printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
     case "$c" in
       1) e=$(_menu_pick_env "View units for which env?"); [[ -n "$e" ]] && ( cmd_catalog "$e" ) ;;
       2) e=$(_menu_pick_env "DAG for which env?"); [[ -n "$e" ]] && ( cmd_catalog dag --env "$e" ) ;;
@@ -2356,7 +2356,7 @@ menu_config() {
   echo "  (1) scaffold a unit's deploy.yaml"
   echo "  (2) check a deploy.yaml for drift"
   echo "  (0) back"; echo ""
-  printf "  Choose: "; read -r c; echo ""
+  printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
   case "$c" in
     1) u=$(_menu_pick_unit local all); [[ -n "$u" ]] && ( cmd_config scaffold "$u" ) ;;
     2) printf "  path to deploy.yaml: "; read -r p; [[ -n "$p" ]] && ( cmd_config check "$p" ) ;;
@@ -2371,7 +2371,7 @@ menu_data() {
     echo "  (1) list     data-capable units in an env"
     echo "  (2) query    query a unit's datastore"
     echo "  (0) back"; echo ""
-    printf "  Choose: "; read -r c; echo ""
+    printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
     case "$c" in
       1) e=$(_menu_pick_env "List units for which env?"); [[ -n "$e" ]] && ( cmd_data --list "$e" ) ;;
       2) e=$(_menu_pick_env "Query in which env?"); [[ -z "$e" ]] && { _menu_pause; continue; }
@@ -2392,7 +2392,7 @@ menu_data_query() {
   echo "  (3) describe     describe a table"
   echo "  (4) SQL          run custom SQL"
   echo "  (0) back"; echo ""
-  printf "  Choose: "; read -r c; echo ""
+  printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
   case "$c" in
     1) ( cmd_data "$u" "$e" --tables ) ;;
     2) ( cmd_data "$u" "$e" --list ) ;;
@@ -2410,7 +2410,7 @@ menu_deploy() {
     echo "  (2) seed (local)    wipe + reload a unit's curated data"
     echo "  (3) schedules       install / inspect cron schedules"
     echo "  (0) back"; echo ""
-    printf "  Choose: "; read -r c; echo ""
+    printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
     case "$c" in
       1) menu_deploy_unit ;;
       2) u=$(_menu_pick_unit local all); [[ -n "$u" ]] && { require_git_identity; ( cmd_deploy "$u" --local --seed ); } ;;
@@ -2428,10 +2428,10 @@ menu_deploy_unit() {
   u=$(_menu_pick_unit "$e" all); [[ -z "$u" ]] && return
   args=("$u" "--$e")
   if [[ "$e" == local ]]; then
-    printf "  Provision (stand up the local substrate)? [Y/n]: "; read -r yn; [[ "$yn" =~ ^[Nn] ]] && args+=(--no-provision)
-    printf "  Seed (WIPE data + reload curated)? [y/N]: "; read -r yn; [[ "$yn" =~ ^[Yy] ]] && args+=(--seed)
+    printf "  Provision (stand up the local substrate)? [Y/n]: "; read -r yn; yn="${yn%$'\r'}"; [[ "$yn" =~ ^[Nn] ]] && args+=(--no-provision)
+    printf "  Seed (WIPE data + reload curated)? [y/N]: "; read -r yn; yn="${yn%$'\r'}"; [[ "$yn" =~ ^[Yy] ]] && args+=(--seed)
   else
-    printf "  Provision (stand up shared infra)? [y/N]: "; read -r yn; [[ "$yn" =~ ^[Yy] ]] && args+=(--provision)
+    printf "  Provision (stand up shared infra)? [y/N]: "; read -r yn; yn="${yn%$'\r'}"; [[ "$yn" =~ ^[Yy] ]] && args+=(--provision)
   fi
   require_git_identity
   ( cmd_deploy "${args[@]}" )
@@ -2443,7 +2443,7 @@ menu_help() {
   echo "  (1) full reference (all commands, grouped)"
   echo "  (2) help for one command"
   echo "  (0) back"; echo ""
-  printf "  Choose: "; read -r c; echo ""
+  printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
   case "$c" in
     1) ( cmd_help --detail ) ;;
     2) printf "  command name: "; read -r t; [[ -n "$t" ]] && ( cmd_help "$t" ) ;;
@@ -2481,7 +2481,7 @@ show_menu() {
   echo ""
   divider
   printf "  Choose: "
-  read -r choice
+  read -r choice; choice="${choice%$'\r'}"
   echo ""
   case "$choice" in
     1)             menu_status ;;

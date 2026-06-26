@@ -47,6 +47,7 @@ if ! adf_ok "${ADF_WORKSPACE:-}" && [[ -t 0 && -e /dev/tty ]]; then
   echo "prj: no governance workspace (gov_repo) found." >&2
   printf "     Path to your gov repo (the dir with org-config.yaml): " >&2
   IFS= read -r ans < /dev/tty || ans=""
+  ans="${ans%$'\r'}"   # tolerate CRLF-piped input on Windows
   case "$ans" in "~/"*) ans="$HOME/${ans#\~/}" ;; "~") ans="$HOME" ;; esac
   if adf_ok "$ans"; then
     ans="$(cd "$ans" && pwd)"

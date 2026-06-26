@@ -213,6 +213,7 @@ confirm() {
     echo "Aborted (no input)."
     exit 1
   fi
+  _ans="${_ans%$'\r'}"   # tolerate CRLF-piped input on Windows
   if [[ "$_ans" != [yY] && "$_ans" != [yY][eE][sS] ]]; then
     echo "Aborted."
     exit 1

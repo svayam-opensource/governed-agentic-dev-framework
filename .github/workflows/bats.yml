@@ -1,10 +1,10 @@
 name: bats test bed
 
-# Governance test bed (BATS) — Tier A (hermetic). Runs the per-command tests,
-# the gov-home resolution regression suite, the command-coverage ratchet, and
-# the CLI-surface snapshot on every PR. P0 = Ubuntu; P1 adds macOS/Windows +
-# Fedora/Slackware containers (see tests/TESTBED-DESIGN.md). The same
-# `tests/bats/run.sh` gates the npm publish in the Jenkinsfile.
+# Governance test bed (BATS) — Tier A (hermetic), P1 OS matrix:
+# hosted macOS / Windows (Git Bash) / Ubuntu, plus Fedora & Slackware via
+# `docker run` (checkout runs on the host so actions/* don't need node in the
+# distro image). The same tests/bats/run.sh gates the npm publish (Jenkinsfile).
+# See tests/TESTBED-DESIGN.md.
 
 on:
   pull_request:
@@ -18,10 +18,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  bats:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  hosted:
+    name: bats (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - name: Run the governance test bed
+        shell: bash
         run: bash tests/bats/run.sh
+
+  containers:
+    name: bats (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Fedora base lacks diffutils (help.bats uses `diff`); install it.
+          - { name: fedora,    image: "fedora:latest",         deps: "dnf -y install diffutils >/dev/null" }
+          # Slackware base ships bash/coreutils/sed/gawk/grep/diffutils — no deps.
+          - { name: slackware, image: "aclemons/slackware:15.0", deps: "true" }
+    steps:
+      - uses: actions/checkout@v4
+      # Fetch the bats libs on the HOST (git lives here), so the container needs
+      # no git/CA-certs/network — only bash + coreutils + diff. bootstrap.sh in
+      # run.sh then no-ops because .libs/ is already populated (mounted in).
+      - name: Fetch bats libs on the host
+        run: bash tests/bats/bootstrap.sh
+      - name: ${{ matrix.name }} — run the governance test bed
+        run: |
+          docker run --rm -v "$PWD":/w -w /w "${{ matrix.image }}" bash -lc '
+            set -e
+            ${{ matrix.deps }}
+            bash tests/bats/run.sh
+          '
