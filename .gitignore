@@ -17,6 +17,12 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 
+# Test-bed fixture build artifacts (graph.lock is derived by `catalog build`;
+# the .bak files are sed -i.bak backups left by drift tests). The committed
+# fixture ships only services.yaml + member package.json sources.
+tests/fixtures/**/graph.lock
+tests/fixtures/**/*.bak
+
 # Local environment
 .env
 .env.local
