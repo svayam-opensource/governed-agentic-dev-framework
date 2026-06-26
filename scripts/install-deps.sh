@@ -135,34 +135,29 @@ install_gh_binary() {
   fi
 }
 
+# Ensure curl exists (the gh binary download needs it). Best-effort per distro.
+_ensure_curl() {
+  command -v curl &>/dev/null && return 0
+  case "$PKG_MGR" in
+    apt)      $SUDO apt-get install -y curl ;;
+    dnf)      $SUDO dnf install -y curl ;;
+    yum)      $SUDO yum install -y curl ;;
+    pacman)   $SUDO pacman -S --noconfirm curl ;;
+    apk)      $SUDO apk add --no-cache curl ;;
+    slackpkg) slackpkg_install curl ca-certificates ;;
+  esac
+}
+
 install_gh() {
-  case "$OS-$PKG_MGR" in
-    macos-*)
-      install_brew; brew install gh
-      ;;
-    linux-apt)
-      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | $SUDO dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-        | $SUDO tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-      $SUDO apt-get update -q
-      $SUDO apt-get install -y gh
-      ;;
-    linux-dnf)
-      $SUDO dnf install -y 'dnf-command(config-manager)'
-      $SUDO dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
-      $SUDO dnf install -y gh
-      ;;
-    linux-yum)
-      $SUDO yum-config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
-      $SUDO yum install -y gh
-      ;;
-    linux-pacman)   $SUDO pacman -S --noconfirm github-cli ;;
-    linux-apk)      install_gh_binary ;;
-    linux-slackpkg) slackpkg_install curl ca-certificates; install_gh_binary ;;
-    linux-unknown)  install_gh_binary ;;
-    windows-bash-*) warn "Install GitHub CLI from https://cli.github.com or: winget install GitHub.cli" ;;
-    *)              warn "Could not auto-install gh — see https://cli.github.com" ;;
+  case "$OS" in
+    macos)        install_brew; brew install gh ;;
+    # Every Linux distro: use the official gh release binary. The per-distro
+    # package repos (apt keyring, dnf config-manager) drift and break across
+    # versions (e.g. dnf5 dropped --add-repo); the static glibc binary is
+    # uniform and works on ubuntu/fedora/slackware/alpine alike.
+    linux)        _ensure_curl; install_gh_binary ;;
+    windows-bash) warn "Install GitHub CLI from https://cli.github.com or: winget install GitHub.cli" ;;
+    *)            warn "Could not auto-install gh — see https://cli.github.com" ;;
   esac
 }
 
@@ -180,34 +175,23 @@ install_python3() {
 }
 
 install_pyyaml() {
-  if python3 -c "import yaml" &>/dev/null; then
-    return 0
-  fi
-  info "Installing PyYAML..."
+  python3 -c "import yaml" &>/dev/null && return 0
+  info "Installing PyYAML for the active python3..."
+  # Target the ACTIVE python3 (e.g. a setup-python/hostedtoolcache interpreter),
+  # not whatever the distro's system python is — installing python3-yaml via the
+  # package manager can land in a different interpreter and leave `import yaml`
+  # broken. pip into the active interpreter; fall back across PEP-668 + distro.
+  python3 -m pip install --user pyyaml &>/dev/null && return 0
+  python3 -m pip install --user --break-system-packages pyyaml &>/dev/null && return 0
   case "$OS-$PKG_MGR" in
-    macos-*)
-      pip3 install --break-system-packages pyyaml \
-        || { warn "pip3 failed — trying brew pyyaml..."; brew install pyyaml 2>/dev/null || true; }
-      ;;
-    linux-apt)
-      $SUDO apt-get install -y python3-yaml 2>/dev/null \
-        || pip3 install --user pyyaml
-      ;;
-    linux-dnf)
-      $SUDO dnf install -y python3-pyyaml 2>/dev/null \
-        || pip3 install --user pyyaml
-      ;;
-    linux-yum)
-      $SUDO yum install -y python3-pyyaml 2>/dev/null \
-        || pip3 install --user pyyaml
-      ;;
-    linux-pacman) $SUDO pacman -S --noconfirm python-yaml ;;
-    linux-apk)    $SUDO apk add --no-cache py3-yaml ;;
-    *)
-      pip3 install --user pyyaml \
-        || warn "Could not install PyYAML — install manually: pip3 install --user pyyaml"
-      ;;
+    macos-*)        python3 -m pip install --break-system-packages pyyaml 2>/dev/null || true ;;
+    linux-apt)      $SUDO apt-get install -y python3-yaml 2>/dev/null || true ;;
+    linux-dnf)      $SUDO dnf install -y python3-pyyaml 2>/dev/null || true ;;
+    linux-yum)      $SUDO yum install -y python3-pyyaml 2>/dev/null || true ;;
+    linux-pacman)   $SUDO pacman -S --noconfirm python-yaml 2>/dev/null || true ;;
+    linux-apk)      $SUDO apk add --no-cache py3-yaml 2>/dev/null || true ;;
   esac
+  python3 -c "import yaml" &>/dev/null
 }
 
 # ── Phase 1: Required + optional tool checks ─────────────────────────────────
