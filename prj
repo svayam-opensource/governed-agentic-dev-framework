@@ -2671,8 +2671,14 @@ cmd_catalog() {
       ;;
   esac
   local env="${1:-}"
-  [[ -n "$env" ]] || { err "usage: prj catalog <local|dev|uat|prod>  (env required)  |  prj catalog build | check"; return 1; }
-  case "$env" in local|dev|uat|prod) ;; *) err "catalog: expected an env (local|dev|uat|prod) or 'build'/'check', got '$env'"; return 1 ;; esac
+  [[ -n "$env" ]] || { err "usage: prj catalog <local|dev|uat|prod>  (env view; env required)
+       subcommands: prj catalog <dag|add|update|rm|build|check> …"; return 1; }
+  case "$env" in
+    local|dev|uat|prod) ;;
+    *) err "catalog: '$env' is not an env or subcommand (note: subcommand comes FIRST, e.g. 'prj catalog dag $env').
+       env view:    prj catalog <local|dev|uat|prod>
+       subcommands: prj catalog dag [<unit|app>] [--env <env>] | add [<unit>] | update <unit> | rm <unit> | build | check"; return 1 ;;
+  esac
   # local → WIP project; dev/uat/prod → gov repo (committed main).
   resolve_workspace "$env" || return 1
   local cd="$WORKSPACE_ROOT/knowledge/deployment/catalog"
@@ -2880,7 +2886,7 @@ EOF
     catalog)
       cat <<'EOF'
 prj catalog <local|dev|uat|prod>        discover units in an env (env REQUIRED)
-prj catalog dag [<unit>] [--env <env>] [--format <tree|mermaid>]
+prj catalog dag [<unit|app>] [--env <env>] [--format <tree|mermaid>]
                                         show the derived dependency DAG
 prj catalog add [<unit>]                define a NEW unit (interactive, env-agnostic)
 prj catalog update <unit>               revise an existing unit's declared facts
