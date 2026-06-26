@@ -317,6 +317,19 @@ if [[ ${#MISSING_REQUIRED[@]} -gt 0 ]]; then
   echo ""
 fi
 
+# pyyaml needs python3. If python3 was absent at the initial check (e.g. a fresh
+# Fedora/Slackware container), the pyyaml check above was skipped — so ensure it
+# now that python3 is guaranteed present.
+if command -v python3 &>/dev/null && ! python3 -c "import yaml" &>/dev/null; then
+  if $CHECK_ONLY; then
+    hard_stop "pyyaml (python3 module) is missing. Run without --check to auto-install."
+  fi
+  info "Installing PyYAML (python3 is now present)..."
+  install_pyyaml && ok "pyyaml  (python3 module)" \
+    || hard_stop "Could not install PyYAML. Install manually: python3 -m pip install pyyaml"
+  echo ""
+fi
+
 # gh AUTHENTICATION is intentionally NOT checked here — install-deps is tools-only
 # (v0.1.1). GitHub identity + access verification lives in setup.sh, where the configured
 # github_org is known. Checking `gh auth status` here also broke non-interactive CI (no
