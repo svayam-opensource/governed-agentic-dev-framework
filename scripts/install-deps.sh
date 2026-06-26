@@ -244,6 +244,31 @@ install_pyyaml() {
   python3 -c "import yaml" &>/dev/null
 }
 
+# Install the yq static binary (the yaml-reader alternative to python+pyyaml).
+# A single self-contained Go binary — no pip/CA gymnastics — so it works where
+# pyyaml can't be built/installed (minimal Slackware).
+install_yq_binary() {
+  info "Downloading yq binary from GitHub releases..."
+  local YQ_VERSION="v4.44.3" ARCH TAG
+  ARCH=$(uname -m); case "$ARCH" in x86_64) TAG=amd64 ;; aarch64|arm64) TAG=arm64 ;; *) TAG=amd64 ;; esac
+  local DEST="${HOME}/.local/bin"; mkdir -p "$DEST"
+  local TMP; TMP=$(mktemp)
+  _download "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${TAG}" "$TMP" \
+    || { warn "could not download yq"; rm -f "$TMP"; return 1; }
+  cp "$TMP" "$DEST/yq"; chmod +x "$DEST/yq"; rm -f "$TMP"
+  case ":$PATH:" in *":$DEST:"*) ;; *) export PATH="$DEST:$PATH" ;; esac
+  command -v yq &>/dev/null
+}
+
+# Ensure a yaml reader exists: yq OR python3+pyyaml (lib.sh accepts either).
+ensure_yaml_reader() {
+  command -v yq &>/dev/null && return 0
+  python3 -c "import yaml" &>/dev/null && return 0
+  install_pyyaml && return 0
+  [[ "$OS" == linux ]] && install_yq_binary && return 0
+  return 1
+}
+
 # ── Phase 1: Required + optional tool checks ─────────────────────────────────
 
 echo ""
@@ -270,12 +295,14 @@ for dep in "${REQUIRED[@]}"; do
   fi
 done
 
-# pyyaml as a python3 module
-if command -v python3 &>/dev/null && python3 -c "import yaml" &>/dev/null; then
-  ok "pyyaml  (python3 module)"
-elif command -v python3 &>/dev/null; then
-  fail "pyyaml  — required python3 module, not found"
-  MISSING_REQUIRED+=("pyyaml")
+# yaml reader = yq OR python3+pyyaml (lib.sh accepts either). Ensured AFTER the
+# install loop, since it may depend on a python3 that's about to be installed.
+if command -v yq &>/dev/null; then
+  ok "yaml reader  (yq)"
+elif command -v python3 &>/dev/null && python3 -c "import yaml" &>/dev/null; then
+  ok "yaml reader  (python3 + pyyaml)"
+else
+  info "yaml reader  not yet present  ${DIM}[will install pyyaml or the yq binary]${NC}"
 fi
 
 # yq is optional — python3 + pyyaml covers all functionality
@@ -330,16 +357,16 @@ if [[ ${#MISSING_REQUIRED[@]} -gt 0 ]]; then
   echo ""
 fi
 
-# pyyaml needs python3. If python3 was absent at the initial check (e.g. a fresh
-# Fedora/Slackware container), the pyyaml check above was skipped — so ensure it
-# now that python3 is guaranteed present.
-if command -v python3 &>/dev/null && ! python3 -c "import yaml" &>/dev/null; then
+# Ensure a yaml reader (yq OR python3+pyyaml) now that python3 is guaranteed
+# present. pyyaml is preferred; the yq static binary is the fallback where pip
+# can't install pyyaml (minimal Slackware: no pip/CA bundle).
+if ! command -v yq &>/dev/null && ! python3 -c "import yaml" &>/dev/null 2>&1; then
   if $CHECK_ONLY; then
-    hard_stop "pyyaml (python3 module) is missing. Run without --check to auto-install."
+    hard_stop "No yaml reader (yq or python3+pyyaml). Run without --check to auto-install."
   fi
-  info "Installing PyYAML (python3 is now present)..."
-  install_pyyaml && ok "pyyaml  (python3 module)" \
-    || hard_stop "Could not install PyYAML. Install manually: python3 -m pip install pyyaml"
+  info "Installing a yaml reader (pyyaml, or the yq binary as fallback)..."
+  ensure_yaml_reader && ok "yaml reader ready" \
+    || hard_stop "Could not install a yaml reader. Install yq, or: python3 -m pip install pyyaml"
   echo ""
 fi
 
