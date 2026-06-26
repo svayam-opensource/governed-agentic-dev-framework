@@ -40,6 +40,24 @@ if ! adf_ok "${ADF_WORKSPACE:-}"; then
     if adf_ok "$gov"; then ADF_WORKSPACE="$gov"; fi
   fi
 fi
+# Interactive recovery (TTY only): nothing resolved and no pointer yet — ask
+# once, validate, and record the pointer so future runs (incl. non-interactive)
+# resolve deterministically. Non-interactive shells skip this and hard-error.
+if ! adf_ok "${ADF_WORKSPACE:-}" && [[ -t 0 && -e /dev/tty ]]; then
+  echo "prj: no governance workspace (gov_repo) found." >&2
+  printf "     Path to your gov repo (the dir with org-config.yaml): " >&2
+  IFS= read -r ans < /dev/tty || ans=""
+  case "$ans" in "~/"*) ans="$HOME/${ans#\~/}" ;; "~") ans="$HOME" ;; esac
+  if adf_ok "$ans"; then
+    ans="$(cd "$ans" && pwd)"
+    pdir="${XDG_CONFIG_HOME:-$HOME/.config}/prj"
+    mkdir -p "$pdir" 2>/dev/null && printf '%s\n' "$ans" > "$pdir/gov-workspace" 2>/dev/null \
+      && echo "prj: recorded gov home → $pdir/gov-workspace" >&2
+    ADF_WORKSPACE="$ans"
+  elif [[ -n "$ans" ]]; then
+    echo "prj: '$ans' is not a gov repo (no org-config.yaml, or a .bases clone)." >&2
+  fi
+fi
 if ! adf_ok "${ADF_WORKSPACE:-}"; then
   echo "prj: could not locate your governance workspace (gov_repo)." >&2
   echo "     Run setup.sh in your gov repo, or set ADF_WORKSPACE=<path-to-gov_repo>." >&2

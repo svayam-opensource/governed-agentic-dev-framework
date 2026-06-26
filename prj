@@ -2781,6 +2781,7 @@ cmd_help() {
       echo "  onboard     Onboard a repository"
       echo "  list · list-all · status           Project status"
       echo "  manage      List, assign, reassign, unassign projects"
+      echo "  migrate-home  Relocate the gov repo to its canonical home (~/.<slug>/gov_repo)"
       echo ""
       echo -e "${BOLD}Deploy${NC}"
       echo "  config      Scaffold / drift-check a unit's deploy.yaml (config-as-build)"
@@ -3009,6 +3010,20 @@ prj work — continue work on your current project: sync your branch(es) with th
 base branches and keep going. The everyday "pick up where I left off" entry point.
 EOF
       ;;
+    migrate-home)
+      cat <<'EOF'
+prj migrate-home — relocate the home governance repo ("gov_repo") to its canonical
+deterministic location (gov_workspace, e.g. ~/.<slug>/gov_repo), preserving every
+per-project worktree + branch, and record the gov-home pointer file.
+
+  migrate-home            interactive (asks to confirm)
+  migrate-home --yes      non-interactive
+  migrate-home --to <dir> override the target
+
+Copies (never deletes) the old home; repairs worktrees in place. Idempotent — a
+no-op if already canonical.
+EOF
+      ;;
     start|finish|task|merge|pause|resume|sync|init|join|add-repo|cancel|close|knowledge|onboard|list|list-all|status|deps|upgrade|validate)
       echo ""
       echo "prj $topic — run \`prj $topic\` (mostly interactive — follow the prompts)."
@@ -3021,6 +3036,8 @@ EOF
       ;;
   esac
 }
+
+cmd_migrate_home() { bash "$SCRIPTS/migrate-home.sh" "$@"; }
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -3065,6 +3082,7 @@ case "$CMD" in
   deps)         cmd_deps ;;
   manage)       cmd_manage "${2:-}" ;;
   upgrade)      cmd_upgrade "${2:-}" ;;
+  migrate-home) cmd_migrate_home "${@:2}" ;;
   validate)     cmd_validate ;;
   version|--version|-v)
     # Report the installed CLI version (the bundled package.json is the source of truth).
