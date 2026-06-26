@@ -187,24 +187,86 @@ install_python3() {
   esac
 }
 
+install_perl() {
+  case "$OS-$PKG_MGR" in
+    macos-*)        : ;;  # perl ships with macOS
+    linux-apt)      $SUDO apt-get install -y perl ;;
+    linux-dnf)      $SUDO dnf install -y perl ;;
+    linux-yum)      $SUDO yum install -y perl ;;
+    linux-pacman)   $SUDO pacman -S --noconfirm perl ;;
+    linux-apk)      $SUDO apk add --no-cache perl ;;
+    linux-slackpkg) slackpkg_install perl ;;
+    *)              warn "Install perl manually (a framework dependency)." ;;
+  esac
+}
+
 install_pyyaml() {
   python3 -c "import yaml" &>/dev/null && return 0
   info "Installing PyYAML for the active python3..."
-  # Target the ACTIVE python3 (e.g. a setup-python/hostedtoolcache interpreter),
-  # not whatever the distro's system python is — installing python3-yaml via the
-  # package manager can land in a different interpreter and leave `import yaml`
-  # broken. pip into the active interpreter; fall back across PEP-668 + distro.
-  python3 -m pip install --user pyyaml &>/dev/null && return 0
-  python3 -m pip install --user --break-system-packages pyyaml &>/dev/null && return 0
+  # Slackware ships no CA bundle, which breaks pip/get-pip TLS. Install the certs
+  # (a dependency-free data package) and build the bundle so TLS just works.
+  if [[ "$PKG_MGR" == slackpkg ]]; then
+    slackpkg_install ca-certificates &>/dev/null || true
+    update-ca-certificates &>/dev/null || /usr/sbin/update-ca-certificates &>/dev/null || true
+    [[ -f /etc/ssl/certs/ca-certificates.crt ]] && export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+  fi
+  # As root (CI containers) install SYSTEM-WIDE so `import yaml` works under ANY
+  # $HOME (the test bed sandboxes HOME); as a normal user fall back to --user.
+  local userflag="--user"
+  [[ "${EUID:-$(id -u)}" -eq 0 ]] && userflag=""
+  # Bootstrap pip if the python lacks it (Slackware ships python3 without pip
+  # AND without ensurepip): fall back to get-pip.py, downloaded with the same
+  # no-CA-tolerant fetch used for the gh binary.
+  if ! python3 -m pip --version &>/dev/null && ! python3 -m ensurepip --upgrade &>/dev/null; then
+    local _gp; _gp="$(mktemp)"
+    _download "https://bootstrap.pypa.io/get-pip.py" "$_gp" && python3 "$_gp" &>/dev/null || true
+    rm -f "$_gp"
+  fi
+  # Try pip with widening permissiveness (PEP-668, then no-CA trusted-host).
+  # Verify `import yaml` after each — only a real import counts as success.
+  local extra
+  for extra in "" "--break-system-packages" \
+               "--break-system-packages --trusted-host pypi.org --trusted-host files.pythonhosted.org"; do
+    # shellcheck disable=SC2086
+    if python3 -m pip install $userflag $extra pyyaml &>/dev/null && python3 -c "import yaml" &>/dev/null; then
+      return 0
+    fi
+  done
+  # Distro package (system python) as a final fallback.
   case "$OS-$PKG_MGR" in
-    macos-*)        python3 -m pip install --break-system-packages pyyaml 2>/dev/null || true ;;
-    linux-apt)      $SUDO apt-get install -y python3-yaml 2>/dev/null || true ;;
-    linux-dnf)      $SUDO dnf install -y python3-pyyaml 2>/dev/null || true ;;
-    linux-yum)      $SUDO yum install -y python3-pyyaml 2>/dev/null || true ;;
-    linux-pacman)   $SUDO pacman -S --noconfirm python-yaml 2>/dev/null || true ;;
-    linux-apk)      $SUDO apk add --no-cache py3-yaml 2>/dev/null || true ;;
+    macos-*)        : ;;
+    linux-apt)      $SUDO apt-get install -y python3-yaml   &>/dev/null || true ;;
+    linux-dnf)      $SUDO dnf install -y python3-pyyaml     &>/dev/null || true ;;
+    linux-yum)      $SUDO yum install -y python3-pyyaml     &>/dev/null || true ;;
+    linux-pacman)   $SUDO pacman -S --noconfirm python-yaml &>/dev/null || true ;;
+    linux-apk)      $SUDO apk add --no-cache py3-yaml       &>/dev/null || true ;;
   esac
   python3 -c "import yaml" &>/dev/null
+}
+
+# Install the yq static binary (the yaml-reader alternative to python+pyyaml).
+# A single self-contained Go binary — no pip/CA gymnastics — so it works where
+# pyyaml can't be built/installed (minimal Slackware).
+install_yq_binary() {
+  info "Downloading yq binary from GitHub releases..."
+  local YQ_VERSION="v4.44.3" ARCH TAG
+  ARCH=$(uname -m); case "$ARCH" in x86_64) TAG=amd64 ;; aarch64|arm64) TAG=arm64 ;; *) TAG=amd64 ;; esac
+  local DEST="${HOME}/.local/bin"; mkdir -p "$DEST"
+  local TMP; TMP=$(mktemp)
+  _download "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${TAG}" "$TMP" \
+    || { warn "could not download yq"; rm -f "$TMP"; return 1; }
+  cp "$TMP" "$DEST/yq"; chmod +x "$DEST/yq"; rm -f "$TMP"
+  case ":$PATH:" in *":$DEST:"*) ;; *) export PATH="$DEST:$PATH" ;; esac
+  command -v yq &>/dev/null
+}
+
+# Ensure a yaml reader exists: yq OR python3+pyyaml (lib.sh accepts either).
+ensure_yaml_reader() {
+  command -v yq &>/dev/null && return 0
+  python3 -c "import yaml" &>/dev/null && return 0
+  install_pyyaml && return 0
+  [[ "$OS" == linux ]] && install_yq_binary && return 0
+  return 1
 }
 
 # ── Phase 1: Required + optional tool checks ─────────────────────────────────
@@ -219,8 +281,9 @@ echo ""
 echo "Tools:"
 
 # Order matters: python3 before gh, because the gh binary is downloaded with
-# python3 when curl is unavailable/broken (e.g. Slackware).
-REQUIRED=(git python3 gh)
+# python3 when curl is unavailable/broken (e.g. Slackware). perl is a framework
+# dependency (lib.sh check_deps / seed.sh) — install it so a prepared env passes.
+REQUIRED=(git python3 perl gh)
 MISSING_REQUIRED=()
 
 for dep in "${REQUIRED[@]}"; do
@@ -232,12 +295,14 @@ for dep in "${REQUIRED[@]}"; do
   fi
 done
 
-# pyyaml as a python3 module
-if command -v python3 &>/dev/null && python3 -c "import yaml" &>/dev/null; then
-  ok "pyyaml  (python3 module)"
-elif command -v python3 &>/dev/null; then
-  fail "pyyaml  — required python3 module, not found"
-  MISSING_REQUIRED+=("pyyaml")
+# yaml reader = yq OR python3+pyyaml (lib.sh accepts either). Ensured AFTER the
+# install loop, since it may depend on a python3 that's about to be installed.
+if command -v yq &>/dev/null; then
+  ok "yaml reader  (yq)"
+elif command -v python3 &>/dev/null && python3 -c "import yaml" &>/dev/null; then
+  ok "yaml reader  (python3 + pyyaml)"
+else
+  info "yaml reader  not yet present  ${DIM}[will install pyyaml or the yq binary]${NC}"
 fi
 
 # yq is optional — python3 + pyyaml covers all functionality
@@ -262,6 +327,7 @@ if [[ ${#MISSING_REQUIRED[@]} -gt 0 ]]; then
       git)     install_git ;;
       gh)      install_gh ;;
       python3) install_python3 ;;
+      perl)    install_perl ;;
       pyyaml)  install_pyyaml ;;
     esac
   done
@@ -288,6 +354,19 @@ if [[ ${#MISSING_REQUIRED[@]} -gt 0 ]]; then
     fi
   done
   $ALL_OK || hard_stop "Required tools could not be installed. See warnings above; install manually then re-run."
+  echo ""
+fi
+
+# Ensure a yaml reader (yq OR python3+pyyaml) now that python3 is guaranteed
+# present. pyyaml is preferred; the yq static binary is the fallback where pip
+# can't install pyyaml (minimal Slackware: no pip/CA bundle).
+if ! command -v yq &>/dev/null && ! python3 -c "import yaml" &>/dev/null 2>&1; then
+  if $CHECK_ONLY; then
+    hard_stop "No yaml reader (yq or python3+pyyaml). Run without --check to auto-install."
+  fi
+  info "Installing a yaml reader (pyyaml, or the yq binary as fallback)..."
+  ensure_yaml_reader && ok "yaml reader ready" \
+    || hard_stop "Could not install a yaml reader. Install yq, or: python3 -m pip install pyyaml"
   echo ""
 fi
 

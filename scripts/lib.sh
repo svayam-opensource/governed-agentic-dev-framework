@@ -79,7 +79,11 @@ load_config() {
     GOV_WORKSPACE_CFG=$(yq '.gov_workspace' "$CONFIG" 2>/dev/null || echo "")
     POLICY_OWNER_EMAIL=$(yq '.policy_owner_email' "$CONFIG")
   else
-    _py() { python3 -c "import yaml; v = yaml.safe_load(open('$CONFIG')).get('$1', ''); print(v if v is not None else '')"; }
+    # Read the field via STDIN (bash opens $CONFIG, python reads stdin) so a
+    # native python on Git Bash never sees an MSYS path (/c/...) it can't open;
+    # tolerant (|| true) so a missing pyyaml/value degrades to empty, never
+    # aborting the caller under set -e.
+    _py() { python3 -c "import yaml,sys; v=(yaml.safe_load(sys.stdin) or {}).get('$1',''); print(v if v is not None else '')" < "$CONFIG" 2>/dev/null || true; }
     ORG_NAME=$(_py org_name)
     ORG_SHORT_NAME=$(_py org_short_name)
     ORG_SLUG=$(_py org_slug)
