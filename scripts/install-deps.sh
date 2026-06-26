@@ -203,6 +203,13 @@ install_perl() {
 install_pyyaml() {
   python3 -c "import yaml" &>/dev/null && return 0
   info "Installing PyYAML for the active python3..."
+  # Slackware ships no CA bundle, which breaks pip/get-pip TLS. Install the certs
+  # (a dependency-free data package) and build the bundle so TLS just works.
+  if [[ "$PKG_MGR" == slackpkg ]]; then
+    slackpkg_install ca-certificates &>/dev/null || true
+    update-ca-certificates &>/dev/null || /usr/sbin/update-ca-certificates &>/dev/null || true
+    [[ -f /etc/ssl/certs/ca-certificates.crt ]] && export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+  fi
   # As root (CI containers) install SYSTEM-WIDE so `import yaml` works under ANY
   # $HOME (the test bed sandboxes HOME); as a normal user fall back to --user.
   local userflag="--user"
