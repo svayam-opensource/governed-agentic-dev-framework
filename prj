@@ -2677,7 +2677,7 @@ cmd_catalog() {
     local|dev|uat|prod) ;;
     *) err "catalog: '$env' is not an env or subcommand (note: subcommand comes FIRST, e.g. 'prj catalog dag $env').
        env view:    prj catalog <local|dev|uat|prod>
-       subcommands: prj catalog dag [<unit|app>] [--env <env>] | add [<unit>] | update <unit> | rm <unit> | build | check"; return 1 ;;
+       subcommands: prj catalog dag [<unit|app|service>] [--env <env>] | add [<unit>] | update <unit> | rm <unit> | build | check"; return 1 ;;
   esac
   # local → WIP project; dev/uat/prod → gov repo (committed main).
   resolve_workspace "$env" || return 1
@@ -2886,7 +2886,7 @@ EOF
     catalog)
       cat <<'EOF'
 prj catalog <local|dev|uat|prod>        discover units in an env (env REQUIRED)
-prj catalog dag [<unit|app>] [--env <env>] [--format <tree|mermaid>]
+prj catalog dag [<unit|app|service>] [--env <env>] [--format <tree|mermaid>]
                                         show the derived dependency DAG
 prj catalog add [<unit>]                define a NEW unit (interactive, env-agnostic)
 prj catalog update <unit>               revise an existing unit's declared facts
@@ -2903,6 +2903,9 @@ to platform services). The TOPOLOGY is env-invariant, so `--env` is OPTIONAL: wi
 get the structure; with `--env` each node is decorated with that env's host / pin / edge and
 each runtime edge is resolved to its endpoint (e.g. SVC_OIDC → auth.svayamtech.com). Derived
 LIVE (never reads/writes graph.lock). `--format mermaid` emits a paste-able diagram.
+A platform-service target shows its detail: DATA stores show type / model version / data
+location + seed/restore; EXTERNAL targets show surface / protocol / auth / identity / secret
+LOCATION (a reference — never the secret). Unit edges tag the dep as data/stateful/external.
 
 ADD / UPDATE / RM author the catalog. A unit is defined ONCE for ALL envs (no --env) — only
 its deploy PIN promotes dev→uat→prod (`prj deploy <unit> --<env>`). `add`/`update` prompt for
