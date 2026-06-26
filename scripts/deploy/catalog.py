@@ -584,6 +584,158 @@ def _fmt_select_text(d):
     return "\n".join(lines)
 
 
+# ── DAG view (developer-facing; derived LIVE, never written) ──────────────────
+# The dependency TOPOLOGY (depends_on build edges + requires runtime edges) is
+# env-invariant — derived from code + declared requires. Only the DECORATION
+# (host / pin / edge / what-satisfies-a-requires) is per-env, applied when --env
+# is given. So env is OPTIONAL here: no env = topology; --env = resolved graph.
+def _platform_endpoint(ps, svc, env):
+    s = ps.get(svc) or {}
+    return (s.get("endpoints") or {}).get(env) or (s.get("hosts") or {}).get(env) or ""
+
+def _dag_include(units, names):
+    incl = set(names)
+    for n in list(names):
+        incl.update(units.get(n, {}).get("depends_on") or [])
+    return incl
+
+def _fmt_dag_tree(units, ps, names, env, epins):
+    out = []
+    for n in names:
+        d = units.get(n, {})
+        head = f"{n}  ({d.get('kind') or '?'} · {d.get('artifact') or '—'})"
+        if env:
+            host = (d.get("hosts") or {}).get(env) or "-"
+            edge = (d.get("edge") or "").replace("<env>", env) or "-"
+            head += f"   [env={env}: host={host} · pin={epins.get(n) or '-'} · edge={edge}]"
+        out.append(head)
+        deps = d.get("depends_on") or []
+        out.append(f"  ├─ build deps : {', '.join(deps) if deps else '(none)'}")
+        reqs = (d.get("requires") or []) or (d.get("requires_derived") or [])
+        if not reqs:
+            out.append(f"  └─ requires   : (none)")
+        else:
+            parts = []
+            for r in reqs:
+                if env:
+                    parts.append(f"{r} → {_platform_endpoint(ps, r, env) or '(unresolved)'}")
+                else:
+                    parts.append(f"{r} [{'platform' if r in ps else 'unit'}]")
+            out.append(f"  └─ requires   : {', '.join(parts)}")
+    return "\n".join(out) or "  (no units)"
+
+def _fmt_dag_mermaid(units, ps, names, env, epins):
+    incl = _dag_include(units, names)
+    lines = ["graph LR", f"  %% deploy DAG {'(env=' + env + ')' if env else '(topology — env-invariant)'}"]
+    drawn = set()
+    for n in sorted(incl):
+        d = units.get(n, {})
+        lines.append(f'  {n}["{n}<br/>{d.get("kind") or "?"}"]')
+        for dep in (d.get("depends_on") or []):
+            lines.append(f"  {n} --> {dep}")
+        for r in ((d.get("requires") or []) or (d.get("requires_derived") or [])):
+            if r in ps and r not in drawn:
+                lines.append(f'  {r}(["{r}<br/>platform"])'); drawn.add(r)
+            lines.append(f"  {n} -.->|requires| {r}")
+    return "\n".join(lines)
+
+def dag(cat, target=None, env=None, fmt="tree"):
+    """Render the derived DAG (live; never reads/writes graph.lock)."""
+    lock = build_lock(cat)
+    units, ps = lock["units"], lock["platform_services"]
+    epins = (load_pins().get(env) or {}) if env else {}
+    if target:
+        if target not in units:
+            raise KeyError(f"no such unit '{target}' (units: {', '.join(sorted(units)) or 'none'})")
+        names = [target]
+    else:
+        names = sorted(units)
+    return _fmt_dag_mermaid(units, ps, names, env, epins) if fmt == "mermaid" \
+        else _fmt_dag_tree(units, ps, names, env, epins)
+
+
+# ── Authoring: add / update / rm a unit (PROPOSE — print a YAML block) ─────────
+# services.yaml is comment-rich and PyYAML can't round-trip comments, so we never
+# re-serialize the whole file. `add` can safely APPEND a block; `update`/`rm`
+# print the change for review (rm --write does a targeted block removal).
+def _yaml_block_for_unit(spec):
+    """Render a 2-space-indented services.yaml block from a spec dict. Declared
+    facts only — paths/depends_on/kind(inferred)/artifact are DERIVED by build."""
+    name = spec["name"]
+    L = [f"  {name}:"]
+    L.append(f"    repo: {spec['repo']}")
+    if spec.get("anchor"):
+        L.append(f"    anchor: {spec['anchor']}")
+    else:
+        # declared-only: derivation is skipped, so kind/artifact/paths are hand-given
+        if spec.get("kind"):     L.append(f"    kind: {spec['kind']}")
+        if spec.get("artifact"): L.append(f"    artifact: {spec['artifact']}")
+        if spec.get("paths"):    L.append(f"    paths: [{', '.join(repr(p) for p in spec['paths'])}]")
+    if spec.get("anchor") and spec.get("kind"):
+        L.append(f"    kind: {spec['kind']}                # override of inference")
+    if spec.get("requires"):
+        L.append(f"    requires: [{', '.join(spec['requires'])}]")
+    if spec.get("hosts"):
+        hs = ", ".join(f"{e}: {h}" for e, h in spec["hosts"].items() if h)
+        L.append(f"    hosts: {{ {hs} }}")
+    if spec.get("edge"):        L.append(f"    edge: {spec['edge']}")
+    if spec.get("serve"):       L.append(f"    serve: {spec['serve']}")
+    if spec.get("healthcheck"): L.append(f"    healthcheck: {spec['healthcheck']}")
+    return "\n".join(L) + "\n"
+
+def _load_spec(spec_path):
+    with open(spec_path) as f:
+        return json.load(f)
+
+def add_unit(cat, spec_path, catalog_path, write=False):
+    spec = _load_spec(spec_path)
+    name = spec["name"]
+    if name in _services(cat):
+        return 2, f"unit '{name}' already exists — use `update` instead."
+    block = _yaml_block_for_unit(spec)
+    if write:
+        p = Path(catalog_path)
+        text = p.read_text()
+        # append under the existing `services:` mapping (end-of-services heuristic:
+        # insert before the next top-level key after services, else at EOF).
+        import re as _re
+        m = _re.search(r"(?m)^services:\s*$", text)
+        if not m:
+            return 2, "no top-level `services:` key in services.yaml — add it manually."
+        nxt = _re.search(r"(?m)^[A-Za-z_]", text[m.end():])
+        ins = m.end() + (nxt.start() if nxt else len(text[m.end():]))
+        text = text[:ins].rstrip("\n") + "\n\n" + block + "\n" + text[ins:].lstrip("\n")
+        p.write_text(text)
+        return 0, f"appended unit '{name}' to {p}\n\nNext: `catalog build` (derive) then `catalog check` (validate)."
+    return 0, ("# Proposed services.yaml block (place under `services:`):\n\n" + block +
+               "\n# Then: `prj catalog build` (derive paths/depends_on) + `prj catalog check`.")
+
+def update_unit(cat, spec_path, name):
+    if name not in _services(cat):
+        return 2, f"no such unit '{name}'."
+    cur = dict(_services(cat)[name])
+    spec = _load_spec(spec_path)
+    cur.update({k: v for k, v in spec.items() if k != "name" and v not in (None, "", [], {})})
+    cur["name"] = name
+    block = _yaml_block_for_unit(cur)
+    return 0, ("# Updated block for '%s' — replace the existing `%s:` block under `services:`:\n\n" % (name, name)
+               + block + "\n# Then: `prj catalog build` + `prj catalog check`.")
+
+def rm_unit(cat, name):
+    if name not in _services(cat):
+        return 2, f"no such unit '{name}'."
+    # dangling-edge scan: who references this unit?
+    dependents = [n for n, s in _services(cat).items()
+                  if name in (s.get("depends_on") or []) or name in (s.get("requires") or [])]
+    msg = [f"# Remove the `{name}:` block from `services:` in services.yaml, plus any\n"
+           f"# pins for it in pins.yaml. Then: `prj catalog build` + `prj catalog check`."]
+    if dependents:
+        msg.append(f"\n# ⚠ WARNING — these units still reference '{name}' (fix their requires/depends_on first):")
+        for d in dependents:
+            msg.append(f"#   - {d}")
+    return 0, "\n".join(msg)
+
+
 def _materialize_catalog_from_ref(ref):
     """Env-aware catalog source (PRJ-012). For non-local envs, read the CANONICAL
     catalog from a committed git ref in the gov repo (default `origin/main`) instead
@@ -633,6 +785,19 @@ def _main(argv=None):
     p.add_argument("--write", action="store_true",
                    help="scaffold: write <repo>/<anchor>/deploy.yaml instead of printing")
     p.add_argument("--format", choices=["yaml", "json"], default="yaml")
+    # ── developer-facing DAG (derived live) ──
+    p = sub.add_parser("dag")          # render the derived DAG (no env = topology)
+    p.add_argument("target", nargs="?", default=None, help="a unit (else the whole graph)")
+    p.add_argument("--env", default=None, help="decorate with per-env host/pin/edge/endpoints")
+    p.add_argument("--format", choices=["tree", "mermaid"], default="tree")
+    # ── authoring: add / update / rm a unit (PROPOSE) ──
+    p = sub.add_parser("add")          # propose a new unit block (env-agnostic)
+    p.add_argument("--spec", required=True, help="path to a JSON spec (built by `prj catalog add`)")
+    p.add_argument("--write", action="store_true", help="append the block to services.yaml")
+    p = sub.add_parser("update")       # propose an updated block for an existing unit
+    p.add_argument("name"); p.add_argument("--spec", required=True)
+    p = sub.add_parser("rm")           # show how to remove a unit + dangling-edge scan
+    p.add_argument("name")
     args = ap.parse_args(argv)
     # Env-aware source: --local reads the working tree (devs iterate freely, no commit);
     # dev/uat/prod resolve from the committed canonical catalog (gov repo `origin/main`,
@@ -648,7 +813,7 @@ def _main(argv=None):
         DEFAULT_PINS = _d / "pins.yaml"
     raw = load(args.catalog)
     # Read commands operate on the lock-merged (effective) catalog; build/check use raw.
-    cat = raw if args.cmd in ("build", "check", "descriptor") else effective_cat(raw)
+    cat = raw if args.cmd in ("build", "check", "descriptor", "dag", "add", "update", "rm") else effective_cat(raw)
     try:
         if args.cmd == "build":
             lock = build_lock(raw)
@@ -709,6 +874,17 @@ def _main(argv=None):
         elif args.cmd == "schedules":
             for line in crontab_lines(args.catalog, args.workspace):
                 print(line)
+        elif args.cmd == "dag":
+            print(dag(cat, args.target, args.env, args.format))
+        elif args.cmd == "add":
+            rc, msg = add_unit(cat, args.spec, str(DEFAULT_CATALOG), args.write)
+            print(msg); return rc
+        elif args.cmd == "update":
+            rc, msg = update_unit(cat, args.spec, args.name)
+            print(msg); return rc
+        elif args.cmd == "rm":
+            rc, msg = rm_unit(cat, args.name)
+            print(msg); return rc
     except (KeyError, ValueError) as e:
         print(f"catalog error: {e}", file=sys.stderr)
         return 2
