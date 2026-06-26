@@ -63,6 +63,18 @@ catpy() { ADF_WORKSPACE="$FXG" python3 "$CATPY" "$@"; }
   assert_output --partial "requires-unknown"
 }
 
+@test "catalog fixture: build works without PyYAML, via the yq shim" {
+  # The catalog tool must run on pyyaml-less environments (e.g. minimal
+  # Slackware) where `prj deps` installs the static yq binary instead. `-S`
+  # drops site-packages so `import yaml` fails, forcing catalog.py's yq-backed
+  # shim. (On the hosted ubuntu/slackware runners pyyaml is absent anyway, so
+  # the other tests already take this path; this pins it on every OS.)
+  command -v yq >/dev/null || skip "yq not installed — run 'prj deps' first"
+  run env ADF_WORKSPACE="$FXG" python3 -S "$CATPY" build
+  assert_success
+  assert_output --partial "2 units"
+}
+
 @test "catalog fixture: dag spa shows its runtime requires edge to api" {
   catpy build
   run catpy dag spa --env local
