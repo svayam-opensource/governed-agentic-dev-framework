@@ -141,6 +141,17 @@ load_config() {
   esac
   export GOV_WORKSPACE
 
+  # Self-heal the gov-home pointer file. If we resolved a real home (NOT under
+  # $AGENT_WORK_ROOT — so not a .bases base clone or a per-project worktree) and
+  # no pointer file exists yet, write it. This auto-migrates installs upgrading
+  # from a version that only exported $ADF_WORKSPACE in a shell rc: the first
+  # normal run records the deterministic anchor, so non-interactive shells
+  # resolve correctly thereafter — no forced setup.sh re-run. Best-effort.
+  if [[ ! -f "$_adf_gov_ptr" && -n "$REPO_ROOT" && "$REPO_ROOT" != "$AGENT_WORK_ROOT"/* && -f "$REPO_ROOT/org-config.yaml" ]]; then
+    mkdir -p "$(dirname "$_adf_gov_ptr")" 2>/dev/null \
+      && printf '%s\n' "$REPO_ROOT" > "$_adf_gov_ptr" 2>/dev/null || true
+  fi
+
   # Lazy-create the current user's prefs file if setup.sh didn't already.
   # No-op if gh login is unavailable; the file gets created on a later run
   # once gh is configured. Failures here are non-fatal — preferences are C03.
