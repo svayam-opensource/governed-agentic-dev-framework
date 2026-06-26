@@ -2361,7 +2361,10 @@ menu_config() {
   printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
   case "$c" in
     1) u=$(_menu_pick_unit local all); [[ -n "$u" ]] && ( cmd_config scaffold "$u" ) ;;
-    2) printf "  path to deploy.yaml: "; read -r p; [[ -n "$p" ]] && ( cmd_config check "$p" ) ;;
+    2) echo "  A unit's deploy.yaml lives in its repo at <repo>/<unit-path>/deploy.yaml."
+       echo "  (See Catalog -> view for units; 'config -> scaffold' (re)generates one.)"
+       printf "  path to deploy.yaml: "; read -r p; p="${p%$'\r'}"
+       [[ -n "$p" ]] && ( cmd_config check "$p" ) ;;
     *) return ;;
   esac
 }
@@ -2913,7 +2916,16 @@ print(B+"Units"+N+D+"  (env=%s)"%env+N)
 print(D+"  %-13s %-5s %-10s %-10s %s"%("unit","kind","host","deployed","edge")+N)
 for u in sorted(units):
     d=units[u]; host=(d.get('hosts') or {}).get(env) or '-'
-    pin=epins.get(u) or '-'; edge=(d.get('edge') or '').replace('<env>',env) or '-'
+    pin=epins.get(u) or '-'
+    if env == 'local':
+        # local isn't a public domain — it's served on localhost. Show the port
+        # when the unit declares one (serve/healthcheck), else just 'localhost'.
+        sv=d.get('serve') if isinstance(d.get('serve'), dict) else {}
+        hc=d.get('healthcheck') if isinstance(d.get('healthcheck'), dict) else {}
+        port=sv.get('port') or hc.get('port')
+        edge='localhost'+((':%s'%port) if port else '')
+    else:
+        edge=(d.get('edge') or '').replace('<env>',env) or '-'
     print("  %-13s %-5s %-10s %-10s %s"%(u, d.get('kind') or '', host, pin, edge))
 print(D+"  deployed = pinned version in '%s'  (- = not deployed there)"%env+N)
 print()
