@@ -40,9 +40,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Fedora base lacks diffutils (help.bats uses `diff`); install it.
-          - { name: fedora,    image: "fedora:latest",         deps: "dnf -y install diffutils >/dev/null" }
-          # Slackware base ships bash/coreutils/sed/gawk/grep/diffutils — no deps.
+          # Fedora base lacks git + diffutils; install both → full coverage
+          # (incl. the setup E2E and the CRLF guard, which need git).
+          - { name: fedora,    image: "fedora:latest",         deps: "dnf -y install git diffutils >/dev/null" }
+          # Slackware base ships bash/coreutils/sed/gawk/grep/diffutils but no
+          # git (its package install is fragile in CI) — the few git-dependent
+          # tests skip gracefully there; everything else runs.
           - { name: slackware, image: "aclemons/slackware:15.0", deps: "true" }
     steps:
       - uses: actions/checkout@v4

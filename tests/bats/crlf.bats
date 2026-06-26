@@ -8,6 +8,7 @@ setup() { sandbox_up; }
 teardown() { sandbox_down; }
 
 @test "no CRLF in tracked CLI / test files" {
+  command -v git >/dev/null || skip "git not available (e.g. minimal container)"
   cd "$REPO_SRC"
   local cr bad
   cr=$(printf '\r')
