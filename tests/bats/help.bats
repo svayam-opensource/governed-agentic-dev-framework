@@ -7,11 +7,15 @@ setup() { sandbox_up; make_gov_repo "$TEST_TMP/gov"; export ADF_WORKSPACE="$TEST
 teardown() { sandbox_down; }
 
 @test "help --detail matches the golden surface snapshot" {
-  local actual="$TEST_TMP/help-detail.txt"
-  ADF_WORKSPACE="$ADF_WORKSPACE" bash "$PRJ_BIN" help --detail \
-    | sed -E 's/\x1b\[[0-9;]*m//g' > "$actual"
-  run diff -u "${BATS_TEST_DIRNAME}/golden/help-detail.txt" "$actual"
-  assert_success
+  local golden actual
+  golden=$(cat "${BATS_TEST_DIRNAME}/golden/help-detail.txt")
+  actual=$(ADF_WORKSPACE="$ADF_WORKSPACE" bash "$PRJ_BIN" help --detail | sed -E 's/\x1b\[[0-9;]*m//g')
+  if [ "$golden" != "$actual" ]; then
+    echo "--- golden (tests/bats/golden/help-detail.txt) ---"; echo "$golden"
+    echo "--- actual (prj help --detail) ---"; echo "$actual"
+    echo "If this change is intentional, run tests/bats/update-golden.sh."
+    return 1
+  fi
 }
 
 @test "help: groups mirror the 7 menu categories" {

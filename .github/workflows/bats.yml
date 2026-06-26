@@ -1,10 +1,11 @@
 name: bats test bed
 
-# Governance test bed (BATS) — Tier A (hermetic), P1 OS matrix:
-# hosted macOS / Windows (Git Bash) / Ubuntu, plus Fedora & Slackware via
-# `docker run` (checkout runs on the host so actions/* don't need node in the
-# distro image). The same tests/bats/run.sh gates the npm publish (Jenkinsfile).
-# See tests/TESTBED-DESIGN.md.
+# Governance test bed (BATS) — P1 OS matrix with environment preparation.
+# Every job first PREPARES THE ENVIRONMENT with the framework's own dependency
+# installer (scripts/install-deps.sh — what `prj deps` runs). That dogfoods the
+# `deps` command on every OS (macOS / Windows / Ubuntu / Fedora / Slackware) AND
+# guarantees the bed runs with NO skipped conditions. Then it runs the full bed,
+# which also gates the npm publish (Jenkinsfile). See tests/TESTBED-DESIGN.md.
 
 on:
   pull_request:
@@ -21,40 +22,50 @@ jobs:
   hosted:
     name: bats (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Prepare environment (prj deps)
+        shell: bash
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          bash scripts/install-deps.sh
       - name: Run the governance test bed
         shell: bash
-        run: bash tests/bats/run.sh
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          bash tests/bats/run.sh
 
   containers:
     name: bats (${{ matrix.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Fedora base lacks diffutils (help.bats uses `diff`); install it.
-          - { name: fedora,    image: "fedora:latest",         deps: "dnf -y install diffutils >/dev/null" }
-          # Slackware base ships bash/coreutils/sed/gawk/grep/diffutils — no deps.
-          - { name: slackware, image: "aclemons/slackware:15.0", deps: "true" }
+          - { name: fedora,    image: "fedora:latest" }
+          - { name: slackware, image: "aclemons/slackware:15.0" }
     steps:
       - uses: actions/checkout@v4
-      # Fetch the bats libs on the HOST (git lives here), so the container needs
-      # no git/CA-certs/network — only bash + coreutils + diff. bootstrap.sh in
-      # run.sh then no-ops because .libs/ is already populated (mounted in).
+      # Pre-fetch bats libs on the host so the bats clone never needs git/network
+      # inside the container; install-deps.sh then prepares the rest in-container.
       - name: Fetch bats libs on the host
         run: bash tests/bats/bootstrap.sh
-      - name: ${{ matrix.name }} — run the governance test bed
+      - name: ${{ matrix.name }} — prepare env (prj deps) + run the bed
         run: |
           docker run --rm -v "$PWD":/w -w /w "${{ matrix.image }}" bash -lc '
             set -e
-            ${{ matrix.deps }}
+            export PATH="$HOME/.local/bin:$PATH"
+            # diff is a bats-assert runtime dep; fedora:latest ships without it.
+            command -v diff >/dev/null || { command -v dnf >/dev/null && dnf -y install diffutils >/dev/null; } || true
+            bash scripts/install-deps.sh
             bash tests/bats/run.sh
           '

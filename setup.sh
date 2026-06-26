@@ -141,13 +141,16 @@ ask_github_url() {
 
 read_yaml_field() {
   local key="$1"
+  local v=""
   if command -v yq &>/dev/null; then
-    local v
-    v=$(yq ".$key" "$CONFIG" 2>/dev/null)
-    [[ "$v" == "null" ]] && echo "" || echo "$v"
-  else
-    python3 -c "import yaml; v = yaml.safe_load(open('$CONFIG')).get('$key', ''); print(v if v is not None else '')" 2>/dev/null
+    v=$(yq ".$key" "$CONFIG" 2>/dev/null) || v=""
+  elif command -v python3 &>/dev/null; then
+    v=$(python3 -c "import yaml; v = yaml.safe_load(open('$CONFIG')).get('$key', ''); print(v if v is not None else '')" 2>/dev/null) || v=""
   fi
+  # Never abort the caller (set -e) just because a field couldn't be read — a
+  # missing yq/pyyaml or a bad value degrades to empty, and prompts use defaults.
+  [[ "$v" == "null" ]] && v=""
+  printf '%s\n' "$v"
 }
 
 # ── Step 1: Pre-conditions ────────────────────────────────────────────────────

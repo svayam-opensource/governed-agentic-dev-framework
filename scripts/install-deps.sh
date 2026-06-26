@@ -31,6 +31,11 @@ set -euo pipefail
 CHECK_ONLY=false
 [[ "${1:-}" == "--check" ]] && CHECK_ONLY=true
 
+# Privilege shim: use $SUDO only when not already root AND $SUDO exists. Root
+# containers (CI) have no sudo; non-root dev machines do. So $SUDO works in both.
+SUDO=""
+if [[ "${EUID:-$(id -u)}" -ne 0 ]] && command -v sudo &>/dev/null; then SUDO="sudo"; fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG="$REPO_ROOT/org-config.yaml"
@@ -62,6 +67,7 @@ detect_os() {
       elif command -v yum     &>/dev/null; then PKG_MGR="yum"
       elif command -v pacman  &>/dev/null; then PKG_MGR="pacman"
       elif command -v apk     &>/dev/null; then PKG_MGR="apk"
+      elif command -v slackpkg &>/dev/null; then PKG_MGR="slackpkg"
       else PKG_MGR="unknown"
       fi
       ;;
@@ -83,14 +89,22 @@ install_brew() {
   fi
 }
 
+# Slackware: non-interactive slackpkg install (mirror preconfigured on the image).
+slackpkg_install() {
+  $SUDO slackpkg -batch=on -default_answer=y update gpg >/dev/null 2>&1 || true
+  $SUDO slackpkg -batch=on -default_answer=y update     >/dev/null 2>&1 || true
+  $SUDO slackpkg -batch=on -default_answer=y install "$@" >/dev/null 2>&1 || true
+}
+
 install_git() {
   case "$OS-$PKG_MGR" in
     macos-*)        install_brew; brew install git ;;
-    linux-apt)      sudo apt-get install -y git ;;
-    linux-dnf)      sudo dnf install -y git ;;
-    linux-yum)      sudo yum install -y git ;;
-    linux-pacman)   sudo pacman -S --noconfirm git ;;
-    linux-apk)      sudo apk add --no-cache git ;;
+    linux-apt)      $SUDO apt-get install -y git ;;
+    linux-dnf)      $SUDO dnf install -y git ;;
+    linux-yum)      $SUDO yum install -y git ;;
+    linux-pacman)   $SUDO pacman -S --noconfirm git ;;
+    linux-apk)      $SUDO apk add --no-cache git ;;
+    linux-slackpkg) slackpkg_install git ;;
     windows-bash-*) warn "Install Git for Windows from https://git-scm.com/download/win" ;;
     *)              warn "Could not auto-install git — install manually." ;;
   esac
@@ -110,7 +124,8 @@ install_gh_binary() {
   local INSTALL_DIR="${HOME}/.local/bin"
   mkdir -p "$INSTALL_DIR"
   local TMP=$(mktemp -d)
-  curl -fsSL "$BINARY_URL" | tar -xz -C "$TMP"
+  _download "$BINARY_URL" "$TMP/gh.tgz" || { warn "could not download gh"; rm -rf "$TMP"; return 1; }
+  tar -xzf "$TMP/gh.tgz" -C "$TMP"
   cp "$TMP/gh_${GH_VERSION}_linux_${ARCH_TAG}/bin/gh" "$INSTALL_DIR/gh"
   chmod +x "$INSTALL_DIR/gh"
   rm -rf "$TMP"
@@ -121,77 +136,75 @@ install_gh_binary() {
   fi
 }
 
+# Download <url> to <dest> using whatever works: a FUNCTIONAL curl, else the
+# python3 we install as a required dep. Slackware's slackpkg curl is often
+# dependency-broken (missing libnghttp2), so we never assume curl works.
+_download() {
+  local url="$1" dest="$2"
+  if command -v curl &>/dev/null && curl --version &>/dev/null; then
+    curl -fsSL "$url" -o "$dest" && return 0
+  fi
+  if command -v python3 &>/dev/null; then
+    python3 - "$url" "$dest" <<'PY' && return 0
+import sys, ssl, urllib.request
+url, dest = sys.argv[1], sys.argv[2]
+try:
+    urllib.request.urlretrieve(url, dest)            # verified TLS first
+except Exception:
+    # Some minimal distros (e.g. Slackware) ship no CA bundle. For fetching a
+    # public release binary in CI, fall back to an unverified context.
+    ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    with urllib.request.urlopen(url, context=ctx) as r, open(dest, "wb") as f:
+        f.write(r.read())
+PY
+  fi
+  return 1
+}
+
 install_gh() {
-  case "$OS-$PKG_MGR" in
-    macos-*)
-      install_brew; brew install gh
-      ;;
-    linux-apt)
-      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-        | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-      sudo apt-get update -q
-      sudo apt-get install -y gh
-      ;;
-    linux-dnf)
-      sudo dnf install -y 'dnf-command(config-manager)'
-      sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
-      sudo dnf install -y gh
-      ;;
-    linux-yum)
-      sudo yum-config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
-      sudo yum install -y gh
-      ;;
-    linux-pacman)   sudo pacman -S --noconfirm github-cli ;;
-    linux-apk)      install_gh_binary ;;
-    linux-unknown)  install_gh_binary ;;
-    windows-bash-*) warn "Install GitHub CLI from https://cli.github.com or: winget install GitHub.cli" ;;
-    *)              warn "Could not auto-install gh — see https://cli.github.com" ;;
+  case "$OS" in
+    macos)        install_brew; brew install gh ;;
+    # Every Linux distro: use the official gh release binary. The per-distro
+    # package repos (apt keyring, dnf config-manager) drift and break across
+    # versions (e.g. dnf5 dropped --add-repo); the static glibc binary is
+    # uniform and works on ubuntu/fedora/slackware/alpine alike.
+    linux)        install_gh_binary ;;
+    windows-bash) warn "Install GitHub CLI from https://cli.github.com or: winget install GitHub.cli" ;;
+    *)            warn "Could not auto-install gh — see https://cli.github.com" ;;
   esac
 }
 
 install_python3() {
   case "$OS-$PKG_MGR" in
     macos-*)      install_brew; brew install python3 ;;
-    linux-apt)    sudo apt-get install -y python3 python3-pip ;;
-    linux-dnf)    sudo dnf install -y python3 python3-pip ;;
-    linux-yum)    sudo yum install -y python3 python3-pip ;;
-    linux-pacman) sudo pacman -S --noconfirm python python-pip ;;
-    linux-apk)    sudo apk add --no-cache python3 py3-pip ;;
+    linux-apt)    $SUDO apt-get install -y python3 python3-pip ;;
+    linux-dnf)    $SUDO dnf install -y python3 python3-pip ;;
+    linux-yum)    $SUDO yum install -y python3 python3-pip ;;
+    linux-pacman) $SUDO pacman -S --noconfirm python python-pip ;;
+    linux-apk)    $SUDO apk add --no-cache python3 py3-pip ;;
+    linux-slackpkg) slackpkg_install python3 ;;
     *)            warn "Install python3 manually from https://python.org" ;;
   esac
 }
 
 install_pyyaml() {
-  if python3 -c "import yaml" &>/dev/null; then
-    return 0
-  fi
-  info "Installing PyYAML..."
+  python3 -c "import yaml" &>/dev/null && return 0
+  info "Installing PyYAML for the active python3..."
+  # Target the ACTIVE python3 (e.g. a setup-python/hostedtoolcache interpreter),
+  # not whatever the distro's system python is — installing python3-yaml via the
+  # package manager can land in a different interpreter and leave `import yaml`
+  # broken. pip into the active interpreter; fall back across PEP-668 + distro.
+  python3 -m pip install --user pyyaml &>/dev/null && return 0
+  python3 -m pip install --user --break-system-packages pyyaml &>/dev/null && return 0
   case "$OS-$PKG_MGR" in
-    macos-*)
-      pip3 install --break-system-packages pyyaml \
-        || { warn "pip3 failed — trying brew pyyaml..."; brew install pyyaml 2>/dev/null || true; }
-      ;;
-    linux-apt)
-      sudo apt-get install -y python3-yaml 2>/dev/null \
-        || pip3 install --user pyyaml
-      ;;
-    linux-dnf)
-      sudo dnf install -y python3-pyyaml 2>/dev/null \
-        || pip3 install --user pyyaml
-      ;;
-    linux-yum)
-      sudo yum install -y python3-pyyaml 2>/dev/null \
-        || pip3 install --user pyyaml
-      ;;
-    linux-pacman) sudo pacman -S --noconfirm python-yaml ;;
-    linux-apk)    sudo apk add --no-cache py3-yaml ;;
-    *)
-      pip3 install --user pyyaml \
-        || warn "Could not install PyYAML — install manually: pip3 install --user pyyaml"
-      ;;
+    macos-*)        python3 -m pip install --break-system-packages pyyaml 2>/dev/null || true ;;
+    linux-apt)      $SUDO apt-get install -y python3-yaml 2>/dev/null || true ;;
+    linux-dnf)      $SUDO dnf install -y python3-pyyaml 2>/dev/null || true ;;
+    linux-yum)      $SUDO yum install -y python3-pyyaml 2>/dev/null || true ;;
+    linux-pacman)   $SUDO pacman -S --noconfirm python-yaml 2>/dev/null || true ;;
+    linux-apk)      $SUDO apk add --no-cache py3-yaml 2>/dev/null || true ;;
   esac
+  python3 -c "import yaml" &>/dev/null
 }
 
 # ── Phase 1: Required + optional tool checks ─────────────────────────────────
@@ -205,7 +218,9 @@ echo "  Pkg manager: ${PKG_MGR:-n/a}"
 echo ""
 echo "Tools:"
 
-REQUIRED=(git gh python3)
+# Order matters: python3 before gh, because the gh binary is downloaded with
+# python3 when curl is unavailable/broken (e.g. Slackware).
+REQUIRED=(git python3 gh)
 MISSING_REQUIRED=()
 
 for dep in "${REQUIRED[@]}"; do
