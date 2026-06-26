@@ -2454,7 +2454,7 @@ menu_help() {
 # ── Main menu ─────────────────────────────────────────────────────────────────
 
 show_menu() {
-  clear
+  clear 2>/dev/null || true   # tolerate a dumb/no-TERM terminal (CI, pipes)
   # Show the ACTUAL checked-out branch of the current repo (not the org default
   # branch) — this is what the developer is on. Fall back to the org default if
   # cwd isn't a git repo.
