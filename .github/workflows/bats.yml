@@ -40,23 +40,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: fedora
-            image: fedora:latest
-            deps: dnf -y install git bash python3 diffutils tar gzip >/dev/null
-          - name: slackware
-            image: aclemons/slackware:15.0
-            # Slackware base may be minimal — install git/python3 via slackpkg if
-            # missing (mirror is preconfigured in this image).
-            deps: |
-              command -v git >/dev/null     || { yes | slackpkg -batch=on -default_answer=y update >/dev/null 2>&1; yes | slackpkg -batch=on -default_answer=y install git >/dev/null 2>&1; }
-              command -v python3 >/dev/null  || { yes | slackpkg -batch=on -default_answer=y install python3 >/dev/null 2>&1; }
+          # Fedora base lacks diffutils (help.bats uses `diff`); install it.
+          - { name: fedora,    image: "fedora:latest",         deps: "dnf -y install diffutils >/dev/null" }
+          # Slackware base ships bash/coreutils/sed/gawk/grep/diffutils — no deps.
+          - { name: slackware, image: "aclemons/slackware:15.0", deps: "true" }
     steps:
       - uses: actions/checkout@v4
+      # Fetch the bats libs on the HOST (git lives here), so the container needs
+      # no git/CA-certs/network — only bash + coreutils + diff. bootstrap.sh in
+      # run.sh then no-ops because .libs/ is already populated (mounted in).
+      - name: Fetch bats libs on the host
+        run: bash tests/bats/bootstrap.sh
       - name: ${{ matrix.name }} — run the governance test bed
         run: |
           docker run --rm -v "$PWD":/w -w /w "${{ matrix.image }}" bash -lc '
             set -e
             ${{ matrix.deps }}
-            git config --global --add safe.directory /w 2>/dev/null || true
             bash tests/bats/run.sh
           '
