@@ -618,7 +618,10 @@ def _fmt_dag_tree(units, ps, names, env, epins):
             parts = []
             for r in reqs:
                 if env:
-                    parts.append(f"{r} → {_platform_endpoint(ps, r, env) or '(unresolved)'}")
+                    if r in ps:
+                        parts.append(f"{r} → {_platform_endpoint(ps, r, env) or '(unresolved)'}")
+                    else:  # unit→unit edge: resolve to that unit's host in this env
+                        parts.append(f"{r} → {(units.get(r, {}).get('hosts') or {}).get(env) or '(unit)'}")
                 else:
                     parts.append(f"{r} [{'platform' if r in ps else 'unit'}]")
             out.append(f"  └─ requires   : {', '.join(parts)}")
@@ -640,14 +643,23 @@ def _fmt_dag_mermaid(units, ps, names, env, epins):
     return "\n".join(lines)
 
 def dag(cat, target=None, env=None, fmt="tree"):
-    """Render the derived DAG (live; never reads/writes graph.lock)."""
+    """Render the derived DAG (live; never reads/writes graph.lock). <target> may
+    be a UNIT or an APPLICATION (renders the app's member units), matching the
+    targets `prj deploy` accepts. No target = the whole graph."""
     lock = build_lock(cat)
     units, ps = lock["units"], lock["platform_services"]
+    apps = lock.get("applications", {}) or {}
     epins = (load_pins().get(env) or {}) if env else {}
     if target:
-        if target not in units:
-            raise KeyError(f"no such unit '{target}' (units: {', '.join(sorted(units)) or 'none'})")
-        names = [target]
+        if target in units:
+            names = [target]
+        elif target in apps:
+            names = [m for m in (apps[target].get("members") or []) if m in units]
+        else:
+            raise KeyError(
+                f"no such unit or application '{target}'.  "
+                f"units: {', '.join(sorted(units)) or '(none)'}  ·  "
+                f"applications: {', '.join(sorted(apps)) or '(none)'}")
     else:
         names = sorted(units)
     return _fmt_dag_mermaid(units, ps, names, env, epins) if fmt == "mermaid" \
