@@ -593,6 +593,75 @@ def _platform_endpoint(ps, svc, env):
     s = ps.get(svc) or {}
     return (s.get("endpoints") or {}).get(env) or (s.get("hosts") or {}).get(env) or ""
 
+def _svc_category(s):
+    """Classify a platform service:
+      data     — carries a data lifecycle (seed/checkpoint/restore): a DATASTORE.
+      stateful — self-hosted (provisioning: container) but no declared data lifecycle.
+      external — saas / external API (provisioning: saas)."""
+    s = s or {}
+    if any(k in s for k in ("seed", "checkpoint", "restore")):
+        return "data"
+    if s.get("provisioning") == "container":
+        return "stateful"
+    return "external"
+
+def _platform_tag(s):
+    """Short inline tag for a requires-edge (marks datastores + their version)."""
+    cat, ver = _svc_category(s), (s or {}).get("version")
+    if cat in ("data", "stateful") and ver:
+        return f"{cat} · {ver}"
+    return cat
+
+def _fmt_platform_detail(name, s, env, ps_users):
+    cat = _svc_category(s)
+    hdr = {"data": "DATA store — stateful, preserve & never recreate",
+           "stateful": "stateful — preserve, never recreate",
+           "external": "external (saas)"}[cat]
+    L = [f"{name}  [platform service · {hdr}]"]
+    if s.get("scope"):
+        L.append(f"  scope        : {s['scope']}" + (f"  (owner: {s['owner']})" if s.get("owner") else ""))
+    if s.get("provisioning"):
+        L.append(f"  provisioning : {s['provisioning']}" + (f"  ·  {s['version']}" if s.get("version") else ""))
+    if env:
+        loc = (s.get("hosts") or {}).get(env) or (s.get("endpoints") or {}).get(env) or "-"
+        L.append(f"  location ({env}) : {loc}        # where it lives / is reached in {env}")
+    h = s.get("health") or {}
+    if h:
+        L.append(f"  health       : {h.get('probe','?')}" + (f" :{h['port']}" if h.get("port") else "") + (f" {h['path']}" if h.get("path") else ""))
+    # DATA service facts: WHAT it is + WHERE it lives (optional `datastore:` block).
+    ds = s.get("datastore") or {}
+    if ds:
+        L.append("  datastore:")
+        for k, lbl in (("kind", "type"), ("model_version", "model version"), ("location", "data location")):
+            if ds.get(k):
+                L.append(f"    {lbl:14}: {ds[k]}")
+    # EXTERNAL target facts: HOW to reach & talk to it (optional `target:` block).
+    # secret_ref is a LOCATION/reference only — never the secret (data-classification C01).
+    tg = s.get("target") or {}
+    if s.get("broker_client") and "identity" not in tg:
+        tg = {**tg, "identity": s["broker_client"]}     # existing field → identity
+    if tg:
+        L.append("  target:")
+        for k, lbl in (("surface", "surface"), ("protocol", "protocol"), ("version", "version"),
+                       ("auth", "auth method"), ("identity", "identity (as)"), ("secret_ref", "secret ⟵ (location)")):
+            if tg.get(k):
+                L.append(f"    {lbl:18}: {tg[k]}")
+    # DATA: where the data is loaded from + how it's preserved (the important bit).
+    dl = [(lbl, s[k]) for k, lbl in (("provision", "provision"), ("seed", "seed (load from)"),
+                                     ("checkpoint", "checkpoint"), ("restore", "restore")) if s.get(k)]
+    if dl:
+        L.append("  data:")
+        for lbl, v in dl:
+            L.append(f"    {lbl:14}: {v}")
+    lc = s.get("lifecycle") or {}
+    if lc.get("start") or lc.get("stop"):
+        L.append("  lifecycle:")
+        for k in ("start", "stop"):
+            if lc.get(k):
+                L.append(f"    {k:14}: {lc[k]}")
+    L.append(f"  required by  : {', '.join(ps_users) if ps_users else '(no units)'}")
+    return "\n".join(L)
+
 def _dag_include(units, names):
     incl = set(names)
     for n in list(names):
@@ -617,13 +686,17 @@ def _fmt_dag_tree(units, ps, names, env, epins):
         else:
             parts = []
             for r in reqs:
-                if env:
-                    if r in ps:
-                        parts.append(f"{r} → {_platform_endpoint(ps, r, env) or '(unresolved)'}")
-                    else:  # unit→unit edge: resolve to that unit's host in this env
+                if r in ps:                       # platform service — surface DATA vs external
+                    tag = _platform_tag(ps[r])
+                    if env:
+                        parts.append(f"{r} → {_platform_endpoint(ps, r, env) or '(unresolved)'} [{tag}]")
+                    else:
+                        parts.append(f"{r} [{tag}]")
+                else:                             # unit→unit edge
+                    if env:
                         parts.append(f"{r} → {(units.get(r, {}).get('hosts') or {}).get(env) or '(unit)'}")
-                else:
-                    parts.append(f"{r} [{'platform' if r in ps else 'unit'}]")
+                    else:
+                        parts.append(f"{r} [unit]")
             out.append(f"  └─ requires   : {', '.join(parts)}")
     return "\n".join(out) or "  (no units)"
 
@@ -651,15 +724,20 @@ def dag(cat, target=None, env=None, fmt="tree"):
     apps = lock.get("applications", {}) or {}
     epins = (load_pins().get(env) or {}) if env else {}
     if target:
+        if target in ps:
+            # platform service target → its detail view (data/stateful facts + users)
+            users = sorted(n for n, u in units.items() if target in (u.get("requires") or []))
+            return _fmt_platform_detail(target, ps[target], env, users)
         if target in units:
             names = [target]
         elif target in apps:
             names = [m for m in (apps[target].get("members") or []) if m in units]
         else:
             raise KeyError(
-                f"no such unit or application '{target}'.  "
+                f"no such unit, application or platform service '{target}'.  "
                 f"units: {', '.join(sorted(units)) or '(none)'}  ·  "
-                f"applications: {', '.join(sorted(apps)) or '(none)'}")
+                f"applications: {', '.join(sorted(apps)) or '(none)'}  ·  "
+                f"platform services: {', '.join(sorted(ps)) or '(none)'}")
     else:
         names = sorted(units)
     return _fmt_dag_mermaid(units, ps, names, env, epins) if fmt == "mermaid" \
