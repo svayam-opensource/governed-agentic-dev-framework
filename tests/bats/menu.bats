@@ -16,3 +16,10 @@ teardown() { sandbox_down; }
   run bash -c "printf '99\n0\n' | ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN'"
   assert_output --partial "Unknown option"
 }
+
+@test "menu: Help -> full reference shows grouped commands (issue #102 item 4)" {
+  run bash -c "printf '7\n1\n\n0\n0\n' | ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN'"
+  assert_success
+  assert_output --partial "(2) Work"
+  assert_output --partial "(5) Deploy"
+}
