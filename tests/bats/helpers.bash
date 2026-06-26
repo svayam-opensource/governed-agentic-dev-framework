@@ -45,8 +45,10 @@ case "$1 $2" in
   "auth status") exit 0 ;;
 esac
 case "$*" in
+  *"api graphql"*)     echo "{\"data\":{}}" ;;   # valid-but-empty: nav engine + access checks parse to "nothing"
   *"api user"*)        echo "testbot" ;;
   *"project list"*)    echo "{\"projects\":[]}" ;;
+  *"project item-list"*) echo "{\"items\":[]}" ;;
   *)                   exit 0 ;;
 esac'
 }
