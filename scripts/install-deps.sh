@@ -187,6 +187,19 @@ install_python3() {
   esac
 }
 
+install_perl() {
+  case "$OS-$PKG_MGR" in
+    macos-*)        : ;;  # perl ships with macOS
+    linux-apt)      $SUDO apt-get install -y perl ;;
+    linux-dnf)      $SUDO dnf install -y perl ;;
+    linux-yum)      $SUDO yum install -y perl ;;
+    linux-pacman)   $SUDO pacman -S --noconfirm perl ;;
+    linux-apk)      $SUDO apk add --no-cache perl ;;
+    linux-slackpkg) slackpkg_install perl ;;
+    *)              warn "Install perl manually (a framework dependency)." ;;
+  esac
+}
+
 install_pyyaml() {
   python3 -c "import yaml" &>/dev/null && return 0
   info "Installing PyYAML for the active python3..."
@@ -219,8 +232,9 @@ echo ""
 echo "Tools:"
 
 # Order matters: python3 before gh, because the gh binary is downloaded with
-# python3 when curl is unavailable/broken (e.g. Slackware).
-REQUIRED=(git python3 gh)
+# python3 when curl is unavailable/broken (e.g. Slackware). perl is a framework
+# dependency (lib.sh check_deps / seed.sh) — install it so a prepared env passes.
+REQUIRED=(git python3 perl gh)
 MISSING_REQUIRED=()
 
 for dep in "${REQUIRED[@]}"; do
@@ -262,6 +276,7 @@ if [[ ${#MISSING_REQUIRED[@]} -gt 0 ]]; then
       git)     install_git ;;
       gh)      install_gh ;;
       python3) install_python3 ;;
+      perl)    install_perl ;;
       pyyaml)  install_pyyaml ;;
     esac
   done
