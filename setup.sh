@@ -283,12 +283,10 @@ else
   echo ""
   ask AGENT_WORK_ROOT "Agent work root path" "${CURRENT_AGENT_WORK_ROOT:-~/.${ORG_SLUG_LOWER}/projects}"
 
-  header "Gov workspace (home gov_repo)"
-  echo "  The home governance-repo clone that seed/init operate from. prj"
-  echo "  resolves it deterministically (a pointer file written below) so it"
-  echo "  works in non-interactive shells. Keep it parallel to agent_work_root."
-  echo ""
-  ask GOV_WORKSPACE "Gov workspace path (gov_repo)" "${CURRENT_GOV_WORKSPACE:-~/.${ORG_SLUG_LOWER}/gov_repo}"
+  # gov_workspace is deterministic, not prompted — keep the canonical default
+  # (parallel to agent_work_root) unless org-config already records one. prj
+  # resolves the gov home at runtime from the pointer file written below.
+  GOV_WORKSPACE="${CURRENT_GOV_WORKSPACE:-~/.${ORG_SLUG_LOWER}/gov_repo}"
 
   header "Policy Owner (initial holder of all policy roles)"
   ask_required POLICY_OWNER_EMAIL  "Policy Owner email"             "${CURRENT_POLICY_OWNER_EMAIL:-$GIT_EMAIL}"
