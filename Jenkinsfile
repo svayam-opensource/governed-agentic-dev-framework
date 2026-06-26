@@ -61,12 +61,10 @@ pipeline {
 
     stage('Gate — framework correctness') {
       steps {
-        // The npm package ships the CLI (prj + scripts/ + agent/ + setup.sh) —
-        // NOT the org knowledge/registry/projects. So gate on CLI correctness
-        // + packaging only: bash syntax of every shipped script, and that the
-        // tarball builds. (scripts/validate/run.py validates ORG content and is
-        // the org repo's own CI, not a CLI-publish gate; e2e_smoke.sh Phase 2
-        // needs a GH PAT + fixture project and is a maintainer step.)
+        // Gate the publish on CLI correctness + packaging + the governance test
+        // bed. (scripts/validate/run.py validates ORG content and is the org
+        // repo's own CI; the Tier-B real-deploy suite needs live infra and is a
+        // separate gated job — see tests/TESTBED-DESIGN.md.)
         sh '''
           set -e
           for f in prj scripts/*.sh scripts/validate/*.py ci/jenkins/*.sh install.sh setup.sh bin/prj; do
@@ -76,6 +74,11 @@ pipeline {
           # .framework-version (and README diagram URLs must stay @latest).
           # Blocks the publish on any drift.
           python3 scripts/validate/check_version_sync.py
+          # Governance test bed (BATS): per-command tests, the gov-home
+          # resolution regression suite, the command-coverage ratchet, and the
+          # CLI-surface snapshot. A new/changed command with no test fails here,
+          # so the test bed cannot drift behind the CLI. (P0; Tier-A hermetic.)
+          bash tests/bats/run.sh
           npm pack --dry-run >/dev/null
         '''
       }

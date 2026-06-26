@@ -1,0 +1,34 @@
+# Accepted pre-existing untested commands (coverage ratchet baseline).
+# Remove a line when you add tests/bats/<cmd>.bats. NEW commands must NOT
+# be added here — add a real test instead (enforced at publish).
+add-repo
+cancel
+catalog
+close
+config
+creds
+data
+deploy
+deps
+finish
+iam-data
+init
+join
+knowledge
+list
+list-all
+manage
+merge
+migrate-home
+onboard
+pause
+resume
+schedules
+seed
+start
+status
+sync
+task
+upgrade
+validate
+work

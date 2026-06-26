@@ -81,9 +81,34 @@ The framework uses double-curly placeholder syntax for values substituted by `se
 
 `setup.sh` only substitutes placeholders in `*.md`, `*.yaml`, `*.yml`, and `CODEOWNERS` files. **Do not put placeholders in shell scripts or Python** — they won't get substituted and will leak through to downstream consumers as literal placeholder text. Use prose or runtime config reads instead.
 
-### Tests
+### Tests — the governance test bed (BATS)
 
-This framework doesn't have a unit test suite yet. The validators in `scripts/validate/run.py` serve as integration-level invariant checks. If you change something the validators should catch, update the validator. If you add a new lifecycle script, the test-merge gate should still produce a valid post-merge state when your script runs.
+The governance test bed lives in `tests/bats/` (BATS). Run it locally with:
+
+```bash
+bash tests/bats/run.sh        # fetches pinned bats libs, runs every tests/bats/*.bats
+```
+
+It runs on every PR (`.github/workflows/bats.yml`) **and gates the npm publish**
+(Jenkinsfile) — so the test bed cannot drift behind the CLI. Design + roadmap:
+`tests/TESTBED-DESIGN.md`.
+
+**Rule: a new or changed command must adjust the test bed in the same PR.** Two
+gates enforce it automatically:
+
+- **Command-coverage ratchet** (`tests/bats/check_coverage.sh`): every command in
+  `prj`'s dispatch must have a `tests/bats/<command>.bats`, or be listed in
+  `tests/bats/coverage-baseline.txt` (accepted pre-existing debt — only shrinks).
+  Add a command without a test → the gate fails. Don't add new commands to the
+  baseline; write the test.
+- **CLI-surface snapshot** (`tests/bats/help.bats` vs
+  `tests/bats/golden/help-detail.txt`): any change to the command/option surface
+  flips the snapshot. After a *deliberate* change run
+  `bash tests/bats/update-golden.sh`, review the diff, and make sure the affected
+  command's `.bats` was updated too.
+
+The legacy `scripts/validate/run.py` validators still run as org-content
+invariant checks; the existing `tests/*.sh` are being migrated into the BATS bed.
 
 ---
 
