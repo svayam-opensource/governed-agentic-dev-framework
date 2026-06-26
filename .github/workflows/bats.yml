@@ -1,0 +1,27 @@
+name: bats test bed
+
+# Governance test bed (BATS) — Tier A (hermetic). Runs the per-command tests,
+# the gov-home resolution regression suite, the command-coverage ratchet, and
+# the CLI-surface snapshot on every PR. P0 = Ubuntu; P1 adds macOS/Windows +
+# Fedora/Slackware containers (see tests/TESTBED-DESIGN.md). The same
+# `tests/bats/run.sh` gates the npm publish in the Jenkinsfile.
+
+on:
+  pull_request:
+    branches: [main, publish]
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [main]
+
+concurrency:
+  group: bats-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the governance test bed
+        run: bash tests/bats/run.sh

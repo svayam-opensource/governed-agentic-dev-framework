@@ -64,4 +64,7 @@ if ! adf_ok "${ADF_WORKSPACE:-}"; then
   exit 1
 fi
 export ADF_WORKSPACE
+# Test hook: print the resolved workspace and exit (used by the test bed to
+# assert deterministic gov-home resolution without side effects).
+[[ -n "${PRJ_PRINT_WORKSPACE:-}" ]] && { printf '%s\n' "$ADF_WORKSPACE"; exit 0; }
 exec "$PKG/prj" "$@"

@@ -1,0 +1,45 @@
+
+Usage: prj <command> [args]   ·   prj help <command> for examples   ·   prj  (no args) = menu
+Groups (1-7) mirror the interactive menu.
+
+(1) Status   review current state
+  list · list-all    ongoing / all projects (GitHub-derived)
+  status             detailed status of one project
+
+(2) Work   start / continue a project
+  work               pick a project → init if new, else continue → run session-start
+  start · finish     begin (join / new task / new project) · finish a task or close the project
+  task · merge       create a task sub-branch · merge a completed task
+  sync               sync your branch with the latest base branches
+  init · join        (advanced) initialize / join a project directly
+  pause · resume · cancel · close    project lifecycle
+
+(3) Catalog   units for build & deploy
+  catalog <env>                   view units for an env
+  catalog dag | build | check     DAG · (re)derive graph.lock · drift-check
+  catalog add | update | rm <unit>   author catalog units
+  config                          scaffold / drift-check a unit's deploy.yaml
+
+(4) Data   query a datastore
+  data --list <env>               list data-capable units
+  data <unit> <env> [query]       --tables | --list | --describe <t> | "<SQL>"
+  iam-data                        query the IAM datastore (alias: data iam)
+
+(5) Deploy   build & deploy units
+  deploy <unit> --local|--dev|--uat|--prod [--provision] [--seed]
+  seed                            run the catalog seed hook (local)
+  schedules                       install / inspect catalog cron schedules
+
+(6) Admin   administer governance
+  manage                          project access — assign / reassign / unassign
+  knowledge                       propose org knowledge changes
+  onboard · add-repo              onboard a repo · add a repo to a project
+  migrate-home                    relocate the gov repo to ~/.<slug>/gov_repo
+  upgrade · deps · creds          framework upgrade · dependencies · credentials
+
+(7) Help   prj command-line use
+  help [--detail] · help <command>   this reference · per-command examples
+  version                         print the installed prj CLI version
+
+  prj help <command>   command-specific help + examples
+
