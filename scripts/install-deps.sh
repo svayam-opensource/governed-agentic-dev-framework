@@ -207,8 +207,14 @@ install_pyyaml() {
   # $HOME (the test bed sandboxes HOME); as a normal user fall back to --user.
   local userflag="--user"
   [[ "${EUID:-$(id -u)}" -eq 0 ]] && userflag=""
-  # Bootstrap pip if the python lacks it (Slackware's python3 ships no pip).
-  python3 -m pip --version &>/dev/null || python3 -m ensurepip --upgrade &>/dev/null || true
+  # Bootstrap pip if the python lacks it (Slackware ships python3 without pip
+  # AND without ensurepip): fall back to get-pip.py, downloaded with the same
+  # no-CA-tolerant fetch used for the gh binary.
+  if ! python3 -m pip --version &>/dev/null && ! python3 -m ensurepip --upgrade &>/dev/null; then
+    local _gp; _gp="$(mktemp)"
+    _download "https://bootstrap.pypa.io/get-pip.py" "$_gp" && python3 "$_gp" &>/dev/null || true
+    rm -f "$_gp"
+  fi
   # Try pip with widening permissiveness (PEP-668, then no-CA trusted-host).
   # Verify `import yaml` after each — only a real import counts as success.
   local extra
