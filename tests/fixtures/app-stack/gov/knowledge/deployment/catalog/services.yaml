@@ -1,0 +1,42 @@
+# Test-bed fixture catalog (P4). Self-contained app stack: SPA -> API -> DB.
+# The "member repos" are sibling dirs of this gov workspace (catalog resolves
+# $WORKSPACE_ROOT/../<reponame>), so `catalog build/check/dag` run with no
+# network. Layout under tests/fixtures/app-stack/:
+#     gov/        <- this workspace ($ADF_WORKSPACE points here)
+#     api-repo/   <- member repo (anchor packages/api)
+#     spa-repo/   <- member repo (anchor apps/spa)
+version: 2
+
+config_service_map:
+  DATA_STORE: SVC_DB
+
+services:
+  api:
+    repo: fixture/api-repo
+    anchor: packages/api
+    kind: api
+    artifact: fixture/api
+    build: jenkins-shared-lib
+    requires: [SVC_DB]
+    hosts: { dev: dev-host, uat: uat-host, prod: prod-host }
+    edge: api-<env>.fixture.test
+    serve: { port: 8080 }
+    healthcheck: { path: /health, port: 8080 }
+
+  spa:
+    repo: fixture/spa-repo
+    anchor: apps/spa
+    kind: spa
+    artifact: fixture/spa
+    build: jenkins-shared-lib
+    requires: [api]
+    hosts: { dev: dev-host, uat: uat-host, prod: prod-host }
+    edge: spa-<env>.fixture.test
+    serve: { port: 5173 }
+    healthcheck: { path: /health, port: 5173 }
+
+platform_services:
+  SVC_DB:
+    kind: database
+    scope: dedicated
+    hosts: { dev: dev-db, uat: uat-db, prod: prod-db }

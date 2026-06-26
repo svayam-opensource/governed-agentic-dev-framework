@@ -17,12 +17,57 @@ import fnmatch
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-import yaml
+try:
+    import yaml
+except ModuleNotFoundError:
+    # PyYAML isn't importable — e.g. minimal Slackware where pip can't build it.
+    # `prj deps` guarantees a yaml reader on EVERY supported OS: PyYAML *or* the
+    # static `yq` binary (Mike Farah's Go yq). Bridge that binary to the small
+    # yaml surface this tool uses (safe_load / safe_dump) so the shipped catalog
+    # works without PyYAML. graph.lock is written as JSON, so only services.yaml
+    # / pins.yaml / deploy.yaml round-trip through here.
+    class _YqYaml:
+        def __init__(self):
+            self._yq = shutil.which("yq")
+            if not self._yq:
+                raise ModuleNotFoundError(
+                    "no yaml backend: neither PyYAML nor the `yq` binary is "
+                    "available — run `prj deps` to prepare this environment")
+
+        def _run(self, args, text):
+            return subprocess.run([self._yq, *args, "eval", ".", "-"], input=text,
+                                  capture_output=True, text=True, check=True).stdout
+
+        def safe_load(self, stream):
+            text = stream.read() if hasattr(stream, "read") else stream
+            if not text or not text.strip():
+                return None
+            out = self._run(["-o=json"], text)            # yaml in (default) -> json out
+            return json.loads(out) if out.strip() else None
+
+        def safe_dump(self, data, stream=None, **_):
+            out = self._run(["-p=json", "-o=yaml"], json.dumps(data))   # json in -> yaml out
+            if stream is not None:
+                stream.write(out)
+                return None
+            return out
+
+    yaml = _YqYaml()
+
+# Windows consoles default to cp1252; the dag/view printers emit box-drawing
+# glyphs (├─ └─) and arrows (→). Force UTF-8 so those don't crash the command
+# with a 'charmap' codec encode error (Git Bash / native python on Windows).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 # Promoted to the framework CLI: resolve the governance workspace from $ADF_WORKSPACE
 # (exported by `prj` / serve-local.sh), NOT from this file's location — which is now the
