@@ -119,8 +119,12 @@ with open(pf, 'w') as f:
     yaml.dump(c, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 PY
 
-cd "$REPO_ROOT"
-git checkout "$BRANCH"
+# Commit the manifest update in whichever gov checkout actually holds it — the
+# per-project clone on the project branch, NOT the home checkout (which stays on
+# the default branch). Derive that dir from the resolved $PROJECT_YAML so it stays
+# correct regardless of which layout get_project_yaml resolved (#102.9).
+GOV_DIR="$(cd "$(dirname "$PROJECT_YAML")/../.." && pwd)"
+cd "$GOV_DIR"
 git add "projects/$PROJECT_ID/project.yaml"
 git commit -m "add-repo: $REPO_NAME to $PROJECT_ID"
 git push origin "$BRANCH"

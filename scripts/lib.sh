@@ -328,8 +328,21 @@ PY
 
 # ── Project YAML helpers ──────────────────────────────────────────────────────
 
-get_project_yaml() { echo "$REPO_ROOT/projects/$1/project.yaml"; }
-get_project_dir()  { echo "$REPO_ROOT/projects/$1"; }
+# A project's manifest lives on the PROJECT BRANCH, inside that project's own gov
+# clone ($AGENT_WORK_ROOT/<id>/<workspace_repo>), NOT in the home checkout — which
+# stays on the default branch and so doesn't carry projects/<id>/. Resolve the
+# per-project clone first; fall back to the home checkout for legacy/on-main layouts
+# (#102.9 — the registry-elimination workspace-resolution gap that broke add-repo).
+get_project_dir() {
+  local pid="$1" clone; clone="$(org_gov_clone "$pid")/projects/$pid"
+  [[ -d "$clone" ]] && { echo "$clone"; return; }
+  echo "$REPO_ROOT/projects/$pid"
+}
+get_project_yaml() {
+  local pid="$1" clone; clone="$(org_gov_clone "$pid")/projects/$pid/project.yaml"
+  [[ -f "$clone" ]] && { echo "$clone"; return; }
+  echo "$REPO_ROOT/projects/$pid/project.yaml"
+}
 
 check_project_exists() {
   local pf; pf=$(get_project_yaml "$1")

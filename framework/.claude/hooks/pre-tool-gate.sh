@@ -3,7 +3,9 @@
 # Deny mutating tools (Edit|MultiEdit|Write|NotebookEdit|Bash) until the agent
 # has run /session-start this session (which writes the ack marker). Read|Grep|
 # Glob stay ungated so the protocol's own reads work. The session-ack command is
-# always whitelisted so the agent can unlock.
+# always whitelisted so the agent can unlock. A tiny allowlist of read-only
+# identity probes (`gh api user`, `gh auth status`) is also allowed pre-ack so the
+# protocol can confirm the developer's GitHub login/access (#102.3).
 # Fail-OPEN on any error — a client nudge must never brick the workspace; the
 # tool-agnostic server gate (Layer 3) is the real enforcement.
 set +e
@@ -14,16 +16,21 @@ input="$(cat 2>/dev/null)"
 # Is this the whitelisted ack command? Parse the Bash command precisely; on any
 # parse error (e.g. no python3) fail open.
 ack="$(printf '%s' "$input" | python3 -c '
-import sys, json
+import sys, json, re
 try:
     d = json.load(sys.stdin)
-    cmd = (d.get("tool_input") or {}).get("command", "") or ""
-    print("yes" if "session-ack" in cmd else "no")
+    cmd = ((d.get("tool_input") or {}).get("command", "") or "").strip()
+    if "session-ack" in cmd:
+        print("yes")
+    elif re.fullmatch(r"gh api user(\s+--jq\s+\S+)?", cmd) or re.fullmatch(r"gh auth status(\s+--\S+)*", cmd):
+        print("probe")   # read-only identity probe the session-start protocol needs pre-ack
+    else:
+        print("no")
 except Exception:
     print("err")
 ' 2>/dev/null)"
 case "$ack" in
-  yes|err|"") exit 0 ;;   # ack command, parse error, or no python3 → allow
+  yes|probe|err|"") exit 0 ;;   # ack cmd, whitelisted read-only identity probe, parse error, or no python3 → allow
 esac
 
 # Session already acknowledged → allow.
