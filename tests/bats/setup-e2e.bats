@@ -3,7 +3,7 @@
 # result is a usable gov repo: org-config populated, gov_workspace recorded, the
 # deterministic gov-home pointer written, and `prj` resolving to it from anywhere.
 load helpers
-setup() { sandbox_up; command -v git >/dev/null || skip "git not available (e.g. minimal container)"; }
+setup() { sandbox_up; }
 teardown() { sandbox_down; }
 
 # Mimic a fresh adopter clone in $TEST_TMP/clone and run setup.sh in it.
