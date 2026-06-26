@@ -6,14 +6,24 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# ADR-0001 Phase 4: honor $ADF_WORKSPACE (CLI installed separately from data);
-# otherwise default to the vendored layout (scripts/ inside the workspace repo)
-# — unchanged behavior.
-if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]]; then
+# Resolve REPO_ROOT (the governance / "gov_repo" workspace). Order:
+#   1. $ADF_WORKSPACE (set by bin/prj or the user) — but NEVER a shared base
+#      clone (.bases/*); a base clone is not a valid workspace.
+#   2. the deterministic gov-home pointer written by setup.sh — works in
+#      non-interactive shells with no env and no login-shell rc sourcing.
+#   3. the vendored layout (scripts/ inside the workspace repo) — legacy.
+# (2) is what stops the silent fallback that corrupted the PRJ-43 seed (an
+# unset env + a $PWD inside .bases resolved the workspace to the base clone).
+_adf_gov_ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
+REPO_ROOT=""
+if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" && "$ADF_WORKSPACE" != */.bases/* ]]; then
   REPO_ROOT="$ADF_WORKSPACE"
-else
-  REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+elif [[ -f "$_adf_gov_ptr" ]]; then
+  _adf_gov="$(head -n1 "$_adf_gov_ptr" | tr -d '[:space:]')"
+  case "$_adf_gov" in "~/"*) _adf_gov="$HOME/${_adf_gov#\~/}" ;; "~") _adf_gov="$HOME" ;; esac
+  if [[ -n "$_adf_gov" && -f "$_adf_gov/org-config.yaml" ]]; then REPO_ROOT="$_adf_gov"; fi
 fi
+if [[ -z "$REPO_ROOT" ]]; then REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"; fi
 CONFIG="$REPO_ROOT/org-config.yaml"
 REGISTRY="$REPO_ROOT/registry.yaml"
 
@@ -66,6 +76,7 @@ load_config() {
     DEFAULT_BRANCH=$(yq '.default_branch' "$CONFIG")
     DEFAULT_CODE_BRANCH=$(yq '.default_code_branch' "$CONFIG")
     AGENT_WORK_ROOT_CFG=$(yq '.agent_work_root' "$CONFIG" 2>/dev/null || echo "")
+    GOV_WORKSPACE_CFG=$(yq '.gov_workspace' "$CONFIG" 2>/dev/null || echo "")
     POLICY_OWNER_EMAIL=$(yq '.policy_owner_email' "$CONFIG")
   else
     _py() { python3 -c "import yaml; v = yaml.safe_load(open('$CONFIG')).get('$1', ''); print(v if v is not None else '')"; }
@@ -79,10 +90,12 @@ load_config() {
     DEFAULT_BRANCH=$(_py default_branch)
     DEFAULT_CODE_BRANCH=$(_py default_code_branch)
     AGENT_WORK_ROOT_CFG=$(_py agent_work_root)
+    GOV_WORKSPACE_CFG=$(_py gov_workspace)
     POLICY_OWNER_EMAIL=$(_py policy_owner_email)
   fi
   # yq emits the literal "null" for missing keys; treat that as empty.
   [[ "$AGENT_WORK_ROOT_CFG" == "null" ]] && AGENT_WORK_ROOT_CFG=""
+  [[ "$GOV_WORKSPACE_CFG"   == "null" ]] && GOV_WORKSPACE_CFG=""
   [[ "$ORG_REPO_URL"        == "null" ]] && ORG_REPO_URL=""
   [[ "$ORG_SHORT_NAME"      == "null" ]] && ORG_SHORT_NAME=""
   export ORG_NAME ORG_SHORT_NAME ORG_SLUG ORG_SLUG_LOWER ORG_REPO_URL \
@@ -109,6 +122,24 @@ load_config() {
     "~/"*)  AGENT_WORK_ROOT="$HOME/${AGENT_WORK_ROOT#\~/}" ;;
   esac
   export AGENT_WORK_ROOT
+
+  # Resolve GOV_WORKSPACE (the canonical home "gov_repo"), same priority as
+  # AGENT_WORK_ROOT: env override → org-config gov_workspace → default
+  # ~/.<org_slug_lower>/gov_repo. This is the RECORDED canonical location
+  # (setup.sh clones here and writes the pointer file); REPO_ROOT above is the
+  # runtime anchor (env/pointer). Both should agree on a healthy install.
+  if [[ -z "${GOV_WORKSPACE:-}" ]]; then
+    if [[ -n "$GOV_WORKSPACE_CFG" ]]; then
+      GOV_WORKSPACE="$GOV_WORKSPACE_CFG"
+    else
+      GOV_WORKSPACE="$HOME/.${ORG_SLUG_LOWER:-org}/gov_repo"
+    fi
+  fi
+  case "$GOV_WORKSPACE" in
+    "~")    GOV_WORKSPACE="$HOME" ;;
+    "~/"*)  GOV_WORKSPACE="$HOME/${GOV_WORKSPACE#\~/}" ;;
+  esac
+  export GOV_WORKSPACE
 
   # Lazy-create the current user's prefs file if setup.sh didn't already.
   # No-op if gh login is unavailable; the file gets created on a later run

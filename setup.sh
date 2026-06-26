@@ -189,6 +189,7 @@ CURRENT_ORG_REPO_URL=$(read_yaml_field org_repo_url)
 CURRENT_DEFAULT_BRANCH=$(read_yaml_field default_branch)
 CURRENT_DEFAULT_CODE_BRANCH=$(read_yaml_field default_code_branch)
 CURRENT_AGENT_WORK_ROOT=$(read_yaml_field agent_work_root)
+CURRENT_GOV_WORKSPACE=$(read_yaml_field gov_workspace)
 CURRENT_POLICY_OWNER_EMAIL=$(read_yaml_field policy_owner_email)
 CURRENT_POLICY_OWNER_GITHUB=$(read_yaml_field policy_owner_github)
 CURRENT_LEGAL=$(read_yaml_field legal_owner_github)
@@ -222,6 +223,8 @@ if $NON_INTERACTIVE; then
   # committed to org-config.yaml and shared with the whole team. lib.sh
   # expands the leading ~ per-developer at runtime.
   [[ -n "$AGENT_WORK_ROOT" ]] || AGENT_WORK_ROOT="~/.${ORG_SLUG_LOWER}/projects"
+  GOV_WORKSPACE="$CURRENT_GOV_WORKSPACE"
+  [[ -n "$GOV_WORKSPACE" ]] || GOV_WORKSPACE="~/.${ORG_SLUG_LOWER}/gov_repo"
   POLICY_OWNER_EMAIL="$CURRENT_POLICY_OWNER_EMAIL"
   POLICY_OWNER_GITHUB="$CURRENT_POLICY_OWNER_GITHUB"
   LEGAL_OWNER_GITHUB="$CURRENT_LEGAL"
@@ -280,6 +283,13 @@ else
   echo ""
   ask AGENT_WORK_ROOT "Agent work root path" "${CURRENT_AGENT_WORK_ROOT:-~/.${ORG_SLUG_LOWER}/projects}"
 
+  header "Gov workspace (home gov_repo)"
+  echo "  The home governance-repo clone that seed/init operate from. prj"
+  echo "  resolves it deterministically (a pointer file written below) so it"
+  echo "  works in non-interactive shells. Keep it parallel to agent_work_root."
+  echo ""
+  ask GOV_WORKSPACE "Gov workspace path (gov_repo)" "${CURRENT_GOV_WORKSPACE:-~/.${ORG_SLUG_LOWER}/gov_repo}"
+
   header "Policy Owner (initial holder of all policy roles)"
   ask_required POLICY_OWNER_EMAIL  "Policy Owner email"             "${CURRENT_POLICY_OWNER_EMAIL:-$GIT_EMAIL}"
   ask_required POLICY_OWNER_GITHUB "Policy Owner GitHub @-handle"   "${CURRENT_POLICY_OWNER_GITHUB:-${GH_USER:+@$GH_USER}}"
@@ -306,6 +316,7 @@ else
   echo "  default_branch:            $DEFAULT_BRANCH"
   echo "  default_code_branch:       $DEFAULT_CODE_BRANCH"
   echo "  agent_work_root:           $AGENT_WORK_ROOT"
+  echo "  gov_workspace:             $GOV_WORKSPACE"
   echo "  policy_owner_email:        $POLICY_OWNER_EMAIL"
   echo "  policy_owner_github:       $POLICY_OWNER_GITHUB"
   echo "  legal_owner_github:        $LEGAL_OWNER_GITHUB"
@@ -362,6 +373,12 @@ default_code_branch: "$DEFAULT_CODE_BRANCH"
 # folder containing a clone of this workspace repo on the project branch
 # plus clones of each impacted code repo on the project branch.
 agent_work_root: "$AGENT_WORK_ROOT"
+
+# The home governance-repo clone ("gov_repo") — the deterministic on-main
+# workspace seed/init operate from. Recorded here (parallel to agent_work_root);
+# at runtime prj resolves it from the pointer file written by setup.sh so it
+# works in non-interactive shells. Keep it PORTABLE (leading ~ expanded at runtime).
+gov_workspace: "$GOV_WORKSPACE"
 
 # Policy Owner details (initial holder of all policy roles at launch)
 policy_owner_email: "$POLICY_OWNER_EMAIL"
@@ -514,35 +531,38 @@ else
   warn "It will be auto-created on first prj write op once gh auth is configured."
 fi
 
-# ── Ensure ADF_WORKSPACE (the gov repo) ────────────────────────────────────────
-# prj's dev/uat/prod commands read the committed catalog from $ADF_WORKSPACE (the gov repo
-# on main) and REQUIRE it. Same contract everywhere: if it's already in the environment, use
-# it; otherwise ASK and persist to the login shell rc (a user-specific OS setting — never the
-# repo). Skipped non-interactively / SETUP_SKIP_SHELL_RC=1 (CI); SETUP_FORCE_SHELL_RC=1 forces.
-ADF_ACTIVATED=false; ADF_WS=""
-if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]]; then
-  ok "ADF_WORKSPACE:  $ADF_WORKSPACE (already set)"
-elif [[ "${SETUP_SKIP_SHELL_RC:-}" != "1" ]] && { [[ -t 0 ]] || [[ "${SETUP_FORCE_SHELL_RC:-}" == "1" ]]; }; then
-  ADF_DEFAULT=""; [[ -f "$REPO_ROOT/knowledge/deployment/catalog/services.yaml" ]] && ADF_DEFAULT="$REPO_ROOT"
-  ask ADF_WS "Path to your gov repo (the $WORKSPACE_REPO clone on main) = \$ADF_WORKSPACE" "$ADF_DEFAULT"
-  ADF_WS="${ADF_WS/#\~/$HOME}"
-  if [[ -d "$ADF_WS" && -f "$ADF_WS/org-config.yaml" ]]; then
-    ADF_WS="$(cd "$ADF_WS" && pwd)"
-    ADF_RC="$HOME/.profile"
-    case "$(basename "${SHELL:-bash}")" in zsh) ADF_RC="$HOME/.zshrc";; bash) ADF_RC="$HOME/.bashrc";; esac
-    ADF_BEGIN="# >>> prj ADF_WORKSPACE (managed by setup.sh) >>>"; ADF_END="# <<< prj ADF_WORKSPACE <<<"
-    touch "$ADF_RC"
-    if grep -qF "$ADF_BEGIN" "$ADF_RC" 2>/dev/null; then
-      awk -v b="$ADF_BEGIN" -v e="$ADF_END" '$0==b{skip=1} !skip{print} $0==e{skip=0}' "$ADF_RC" >"$ADF_RC.tmp" && mv "$ADF_RC.tmp" "$ADF_RC"
-    fi
-    printf '%s\nexport ADF_WORKSPACE=%q\n%s\n' "$ADF_BEGIN" "$ADF_WS" "$ADF_END" >> "$ADF_RC"
-    ADF_ACTIVATED=true
-    ok "ADF_WORKSPACE → $ADF_WS  (saved to $ADF_RC)"
-  else
-    warn "'$ADF_WS' isn't a gov repo (no org-config.yaml) — set ADF_WORKSPACE yourself: export ADF_WORKSPACE=<path>"
+# ── Record the gov home: deterministic pointer file ────────────────────────────
+# prj resolves the governance workspace ("gov_repo") from a pointer file at a
+# fixed, org-agnostic location. This is the deterministic anchor (parallel to
+# agent_work_root): unlike the old `export ADF_WORKSPACE` written to .zshrc, a
+# file is read by NON-interactive shells too (agents, CI, `bash -c`) with no
+# profile sourcing — which is the class of bug that silently let `seed` fall
+# back to a `.bases` base clone and corrupt a project (PRJ-43).
+#
+# $ADF_WORKSPACE remains an optional manual override; we no longer pin it in a
+# shell rc (pinning the home there breaks mid-project commands, which must run
+# from the per-project workspace).
+GOV_HOME="$REPO_ROOT"                       # setup runs inside the gov repo
+PTR_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/prj"
+PTR_FILE="$PTR_DIR/gov-workspace"
+if [[ -f "$GOV_HOME/org-config.yaml" ]]; then
+  mkdir -p "$PTR_DIR"
+  printf '%s\n' "$GOV_HOME" > "$PTR_FILE"
+  ok "gov workspace pointer → $PTR_FILE"
+  ok "                       ($GOV_HOME)"
+  # Heads-up if the actual location differs from the recorded canonical path.
+  GOV_CANON="${GOV_WORKSPACE/#\~/$HOME}"
+  if [[ -n "$GOV_CANON" && "$GOV_CANON" != "$GOV_HOME" ]]; then
+    warn "gov repo is at '$GOV_HOME' but org-config gov_workspace is '$GOV_WORKSPACE'."
+    warn "Consider relocating the gov repo to the canonical path, then re-run setup.sh."
+  fi
+  # An exported ADF_WORKSPACE that disagrees will override the pointer file.
+  if [[ -n "${ADF_WORKSPACE:-}" && "$ADF_WORKSPACE" != "$GOV_HOME" ]]; then
+    warn "\$ADF_WORKSPACE='$ADF_WORKSPACE' is set and overrides the pointer file."
+    warn "Remove any 'export ADF_WORKSPACE' from your shell rc unless intentional."
   fi
 else
-  warn "ADF_WORKSPACE not set — set it before prj's dev/uat/prod commands: export ADF_WORKSPACE=<gov repo>"
+  warn "Could not write gov workspace pointer — '$GOV_HOME' has no org-config.yaml."
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
@@ -554,12 +574,7 @@ echo "Next steps:"
 echo "  1. Review changes:    git diff org-config.yaml"
 echo "  2. Commit + push:     git add org-config.yaml && git commit -m 'configure framework for $ORG_NAME' && git push origin $DEFAULT_BRANCH"
 echo "  3. Edit preferences:  ${PREFS_FILE:-<agent_work_root>/preferences/<your-gh-login>.md}"
-if $ADF_ACTIVATED; then
-echo "  4. Activate now:      export ADF_WORKSPACE=\"$ADF_WS\"   (or open a new shell — it's in $ADF_RC)"
-echo "  5. Start using:       ./prj"
-else
-echo "  4. Start using:       ./prj"
-fi
+echo "  4. Start using:       ./prj   (gov home resolved from $PTR_FILE — no env needed)"
 echo ""
 echo "  Framework upgrades:   git fetch template && git merge template/$DEFAULT_BRANCH"
 echo ""

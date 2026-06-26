@@ -31,6 +31,29 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 load_config
 
+# ── Home-anchor guard (PRJ-43 seed-corruption class) ──────────────────────────
+# seed/init is a HOME operation: it creates the per-project workspace as a
+# worktree of the gov home. If REPO_ROOT resolved to something *under*
+# $AGENT_WORK_ROOT — a .bases base clone, or an existing per-project workspace
+# we happened to be invoked from — re-anchor to the deterministic gov home
+# (the pointer file). Never seed off a base clone or another project's worktree.
+if [[ "$REPO_ROOT" == "$AGENT_WORK_ROOT"/* ]]; then
+  _seed_ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
+  _seed_gov=""
+  if [[ -f "$_seed_ptr" ]]; then
+    _seed_gov="$(head -n1 "$_seed_ptr" | tr -d '[:space:]')"
+    case "$_seed_gov" in "~/"*) _seed_gov="$HOME/${_seed_gov#\~/}" ;; "~") _seed_gov="$HOME" ;; esac
+  fi
+  if [[ -n "$_seed_gov" && -f "$_seed_gov/org-config.yaml" && "$_seed_gov" != "$AGENT_WORK_ROOT"/* ]]; then
+    REPO_ROOT="$_seed_gov"; CONFIG="$REPO_ROOT/org-config.yaml"; REGISTRY="$REPO_ROOT/registry.yaml"
+    echo "  (re-anchored to gov home: $REPO_ROOT)"
+  else
+    hard_stop "seed/init must run from the gov home, not under \$AGENT_WORK_ROOT ($AGENT_WORK_ROOT).
+    Resolved workspace was: $REPO_ROOT
+    Run setup.sh to record your gov home, or run from your gov_repo."
+  fi
+fi
+
 # ── Inputs ────────────────────────────────────────────────────────────────────
 
 NON_INTERACTIVE=false
