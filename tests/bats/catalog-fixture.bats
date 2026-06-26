@@ -34,8 +34,12 @@ catpy() { ADF_WORKSPACE="$FXG" python3 "$CATPY" "$@"; }
 
 @test "catalog fixture: build reads each anchor package.json (npm_name not null)" {
   catpy build
-  run python3 -c "import json,sys; d=json.load(open('$LOCK')); u=d['units']; sys.exit(0 if u['api']['npm_name']=='@fixture/api' and u['spa']['npm_name']=='@fixture/spa' else 1)"
+  # Read the lock with cat (MSYS-aware) rather than feeding the path to native
+  # Windows python, which can't resolve a /c/... string embedded in -c.
+  run cat "$LOCK"
   assert_success
+  assert_output --partial '"npm_name": "@fixture/api"'
+  assert_output --partial '"npm_name": "@fixture/spa"'
 }
 
 @test "catalog fixture: check is clean once built (lock fresh, no drift)" {

@@ -60,6 +60,15 @@ except ModuleNotFoundError:
 
     yaml = _YqYaml()
 
+# Windows consoles default to cp1252; the dag/view printers emit box-drawing
+# glyphs (├─ └─) and arrows (→). Force UTF-8 so those don't crash the command
+# with a 'charmap' codec encode error (Git Bash / native python on Windows).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # Promoted to the framework CLI: resolve the governance workspace from $ADF_WORKSPACE
 # (exported by `prj` / serve-local.sh), NOT from this file's location — which is now the
 # CLI package, not the workspace. Fall back to the vendored layout (CLI inside the
