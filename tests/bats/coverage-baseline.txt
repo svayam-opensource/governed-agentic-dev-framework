@@ -1,25 +1,7 @@
 # Accepted pre-existing untested commands (coverage ratchet baseline).
 # Remove a line when you add tests/bats/<cmd>.bats. NEW commands must NOT
 # be added here — add a real test instead (enforced at publish).
-cancel
-close
-finish
-init
-join
-knowledge
-list
-list-all
-manage
-merge
-onboard
-pause
-resume
-schedules
-seed
-start
-status
-sync
-task
-upgrade
-validate
-work
+#
+# Empty: every dispatched command now has a tests/bats/<cmd>.bats. The ratchet
+# only tightens — keep it that way (a new command needs its own test, not a
+# line here).

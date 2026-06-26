@@ -108,16 +108,22 @@ project_context_list() {
   me="$(gh api user --jq .login 2>/dev/null || echo "")"
   ME="$me" ASSIGNMENT="$assignment" LIFECYCLE="$lifecycle" \
   python3 - "$REGISTRY" "$GITHUB_ORG" <<'PY'
-import sys, os, re, json, subprocess, yaml
+import sys, os, re, json, subprocess
+try:
+    import yaml                       # only used for the legacy registry shim below
+except ImportError:
+    yaml = None                       # pyyaml-less env (e.g. minimal Slackware) — shim stays empty
 registry, owner = sys.argv[1], sys.argv[2]
 me = os.environ.get('ME', '')
 assignment = os.environ.get('ASSIGNMENT', 'any')
 lifecycle  = os.environ.get('LIFECYCLE', 'any')
 
 # Frozen shim: board number → grandfathered id/branch (identity only, not status).
+# Best-effort: a missing registry OR no pyyaml just yields an empty shim (the
+# GitHub board is the source of truth; the shim only grandfathers legacy ids).
 shim = {}
 try:
-    doc = yaml.safe_load(open(registry)) or {}
+    doc = (yaml.safe_load(open(registry)) or {}) if yaml else {}
     for p in (doc.get('projects') or []):
         if not p: continue
         m = re.search(r'/projects/(\d+)', p.get('github_project') or '')
