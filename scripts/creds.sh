@@ -24,7 +24,9 @@ load_config
 LOGIN=$(gh api user --jq .login 2>/dev/null || echo "")
 [[ -n "$LOGIN" ]] || hard_stop "Cannot resolve your GitHub login ('gh auth login') to locate your creds file."
 CREDFILE="$AGENT_WORK_ROOT/preferences/$LOGIN/credentials"
-HOST=$(hostname -s 2>/dev/null || hostname)
+# Tolerant host label — `hostname` isn't installed everywhere (e.g. minimal
+# Fedora); never let a missing binary abort creds under set -e.
+HOST=$(hostname -s 2>/dev/null || hostname 2>/dev/null || uname -n 2>/dev/null || echo localhost)
 
 # Known credential groups: <group> -> "KEY1 KEY2 ..." + a human description + guidance.
 group_keys() { case "$1" in
