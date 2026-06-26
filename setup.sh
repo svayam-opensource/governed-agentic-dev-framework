@@ -145,7 +145,8 @@ read_yaml_field() {
   if command -v yq &>/dev/null; then
     v=$(yq ".$key" "$CONFIG" 2>/dev/null) || v=""
   elif command -v python3 &>/dev/null; then
-    v=$(python3 -c "import yaml; v = yaml.safe_load(open('$CONFIG')).get('$key', ''); print(v if v is not None else '')" 2>/dev/null) || v=""
+    # Read via STDIN so a native python on Git Bash never sees an MSYS path.
+    v=$(python3 -c "import yaml,sys; v=(yaml.safe_load(sys.stdin) or {}).get('$key',''); print(v if v is not None else '')" < "$CONFIG" 2>/dev/null) || v=""
   fi
   # Never abort the caller (set -e) just because a field couldn't be read — a
   # missing yq/pyyaml or a bad value degrades to empty, and prompts use defaults.

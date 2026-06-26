@@ -209,6 +209,10 @@ install_pyyaml() {
   # broken. pip into the active interpreter; fall back across PEP-668 + distro.
   python3 -m pip install --user pyyaml &>/dev/null && return 0
   python3 -m pip install --user --break-system-packages pyyaml &>/dev/null && return 0
+  # No CA bundle (e.g. Slackware) breaks pip's TLS — trust PyPI hosts as a last
+  # resort (same rationale as the gh binary's unverified fetch).
+  python3 -m pip install --user --break-system-packages \
+    --trusted-host pypi.org --trusted-host files.pythonhosted.org pyyaml &>/dev/null && return 0
   case "$OS-$PKG_MGR" in
     macos-*)        python3 -m pip install --break-system-packages pyyaml 2>/dev/null || true ;;
     linux-apt)      $SUDO apt-get install -y python3-yaml 2>/dev/null || true ;;
