@@ -15,16 +15,52 @@ while [[ -h "$src" ]]; do
 done
 HERE="$(cd -P "$(dirname "$src")" && pwd)"
 PKG="$(cd "$HERE/.." && pwd)"          # package root: <...>/node_modules/@svayam-opensource/prj
-# Discover the workspace: explicit env, else nearest ancestor with org-config.yaml.
-if [[ -z "${ADF_WORKSPACE:-}" ]]; then
+# Discover the governance workspace ("gov_repo"). Order:
+#   1. $ADF_WORKSPACE (explicit override) — but NEVER a shared base clone (.bases/*).
+#   2. nearest ancestor of $PWD with org-config.yaml (this is how per-project
+#      workspaces are picked up), skipping any .bases/* base clone.
+#   3. the deterministic gov-home pointer written by setup.sh
+#      (${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace) — so the home is
+#      reachable in non-interactive shells without a login-shell rc.
+# (1)/(2) previously fell through to a .bases base clone and corrupted seeds.
+adf_ok() { [[ -n "$1" && -f "$1/org-config.yaml" && "$1" != */.bases/* ]]; }
+if ! adf_ok "${ADF_WORKSPACE:-}"; then
+  ADF_WORKSPACE=""
   d="$PWD"
   while [[ "$d" != "/" ]]; do
-    if [[ -f "$d/org-config.yaml" ]]; then ADF_WORKSPACE="$d"; break; fi
+    if [[ -f "$d/org-config.yaml" && "$d" != */.bases/* ]]; then ADF_WORKSPACE="$d"; break; fi
     d="$(dirname "$d")"
   done
 fi
-if [[ -z "${ADF_WORKSPACE:-}" || ! -f "${ADF_WORKSPACE:-}/org-config.yaml" ]]; then
-  echo "prj: no workspace found here. cd into your governance repo, or set ADF_WORKSPACE." >&2
+if ! adf_ok "${ADF_WORKSPACE:-}"; then
+  ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
+  if [[ -f "$ptr" ]]; then
+    gov="$(head -n1 "$ptr" | tr -d '[:space:]')"
+    case "$gov" in "~/"*) gov="$HOME/${gov#\~/}" ;; "~") gov="$HOME" ;; esac
+    if adf_ok "$gov"; then ADF_WORKSPACE="$gov"; fi
+  fi
+fi
+# Interactive recovery (TTY only): nothing resolved and no pointer yet — ask
+# once, validate, and record the pointer so future runs (incl. non-interactive)
+# resolve deterministically. Non-interactive shells skip this and hard-error.
+if ! adf_ok "${ADF_WORKSPACE:-}" && [[ -t 0 && -e /dev/tty ]]; then
+  echo "prj: no governance workspace (gov_repo) found." >&2
+  printf "     Path to your gov repo (the dir with org-config.yaml): " >&2
+  IFS= read -r ans < /dev/tty || ans=""
+  case "$ans" in "~/"*) ans="$HOME/${ans#\~/}" ;; "~") ans="$HOME" ;; esac
+  if adf_ok "$ans"; then
+    ans="$(cd "$ans" && pwd)"
+    pdir="${XDG_CONFIG_HOME:-$HOME/.config}/prj"
+    mkdir -p "$pdir" 2>/dev/null && printf '%s\n' "$ans" > "$pdir/gov-workspace" 2>/dev/null \
+      && echo "prj: recorded gov home → $pdir/gov-workspace" >&2
+    ADF_WORKSPACE="$ans"
+  elif [[ -n "$ans" ]]; then
+    echo "prj: '$ans' is not a gov repo (no org-config.yaml, or a .bases clone)." >&2
+  fi
+fi
+if ! adf_ok "${ADF_WORKSPACE:-}"; then
+  echo "prj: could not locate your governance workspace (gov_repo)." >&2
+  echo "     Run setup.sh in your gov repo, or set ADF_WORKSPACE=<path-to-gov_repo>." >&2
   exit 1
 fi
 export ADF_WORKSPACE

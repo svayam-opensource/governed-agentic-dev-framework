@@ -43,6 +43,14 @@ default_code_branch: "dev"
 # plus clones of each impacted code repo on the project branch.
 agent_work_root: ""
 
+# The home governance-repo clone ("gov_repo") — the deterministic location of
+# the on-main workspace that seed/init operate from. Mandated and recorded here
+# (parallel to agent_work_root). At runtime prj resolves the gov home from the
+# pointer file ${XDG_CONFIG_HOME:-~/.config}/prj/gov-workspace (written by
+# setup.sh) so it works in non-interactive shells; this value is the recorded
+# canonical path. Keep it PORTABLE (leading ~ expanded per-developer).
+gov_workspace: ""
+
 # Policy Owner details (initial holder of all policy roles at launch)
 policy_owner_email: ""
 policy_owner_github: ""
