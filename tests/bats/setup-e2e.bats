@@ -37,13 +37,7 @@ YAML
   printf 'TestCorp Industries\nTestCorp\nTST\n\n\n\ntestowner@example.com\n@testowner\n\n\n\n\n\n' \
     | SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 bash setup.sh > "$TEST_TMP/setup.out" 2>&1 || rc=$?
   if [ "$rc" -ne 0 ]; then
-    echo "=== setup.sh exit=$rc  ($(wc -l < "$TEST_TMP/setup.out") lines, python3=$(command -v python3), yq=$(command -v yq || echo none)) ==="
-    cat "$TEST_TMP/setup.out"
-    echo "=== bash -x trace (last 25 lines) ==="
-    printf 'TestCorp Industries\nTestCorp\nTST\n\n\n\nt@e.com\n@t\n\n\n\n\n\n' \
-      | SETUP_SKIP_GITHUB_VERIFY=1 SETUP_SKIP_REMOTE_CONFIG=1 bash -x setup.sh > "$TEST_TMP/trace.out" 2>&1 || true
-    tail -25 "$TEST_TMP/trace.out"
-    return 1
+    echo "=== setup.sh exit=$rc ==="; cat "$TEST_TMP/setup.out"; return 1
   fi
 }
 
