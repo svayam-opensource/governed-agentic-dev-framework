@@ -914,6 +914,12 @@ def _main(argv=None):
             issues = check(raw)
             for kind, name, msg in issues:
                 print(f"  [{kind}] {name}: {msg}", file=sys.stderr)
+            if any(k == "anchor-missing" for k, _, _ in issues):
+                print("", file=sys.stderr)
+                print("  Note: 'anchor-missing' means a unit's member repo isn't cloned in THIS", file=sys.stderr)
+                print("  workspace, so `check` can't read its package.json. Run `check` where the", file=sys.stderr)
+                print("  member repos are present (a project workspace after `prj work` brings them", file=sys.stderr)
+                print("  in) — not the bare gov/common project.", file=sys.stderr)
             print(f"{'FAIL' if issues else 'OK'}: {len(issues)} issue(s)")
             return 1 if issues else 0
         elif args.cmd == "descriptor":
