@@ -1,12 +1,14 @@
 #!/usr/bin/env bats
-# P3 coverage — `prj work`: dispatches to the project-first front door; the
-# board picker finds no GitHub Projects (stubbed) and aborts non-zero. Hermetic.
+# P3 coverage + #102.2 — `prj work` lists only the projects ASSIGNED to you (not
+# the full board universe). With none assigned it points you at Admin → manage and
+# steps back cleanly. Hermetic (stub gh + sandbox).
 load helpers
 setup() { sandbox_up; make_gov_repo "$TEST_TMP/gov"; export ADF_WORKSPACE="$TEST_TMP/gov"; stub_gh_authed; }
 teardown() { sandbox_down; }
 
-@test "work: dispatches and aborts when no GitHub Projects exist" {
+@test "work: shows only assigned projects; none -> guidance + back (#102.2)" {
   run bash -c "ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN' work </dev/null"
-  assert_failure
-  assert_output --partial "No open GitHub Projects"
+  assert_success
+  assert_output --partial "No active projects assigned to you"
+  assert_output --partial "manage"
 }

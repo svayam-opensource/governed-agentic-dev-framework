@@ -992,8 +992,8 @@ cmd_work() {
   while true; do
     case "$step" in
 
-    pick)   # STEP 1 — choose a project (all open GitHub Projects)
-      _pick_open_project PNUM PTITLE
+    pick)   # STEP 1 — choose a project ASSIGNED to you (#102.2: not the full board list)
+      _pick_my_project PNUM PTITLE
       is_back "$PNUM" && return
       # Early authorization: fail fast with a friendly message if you can't write
       # the board, rather than deep in seed/anchor/merge. Indeterminate = allow.
@@ -1400,21 +1400,21 @@ cmd_status() {
   header "Project Status"
   divider
   echo ""
-  select_project PROJECT_ID
-  is_back "$PROJECT_ID" && return
-  local PF="$SCRIPT_DIR/projects/$PROJECT_ID/project.yaml"
+  # #102.1: ask for the GitHub project NUMBER directly. Listing every board to
+  # pick from is slow; the number is right there in the board URL (…/projects/<N>).
+  local owner="$GITHUB_ORG" NUM PROJECT_ID PF title
+  ask NUM "GitHub project number (from the board URL …/projects/<N>)"
+  [[ "$NUM" =~ ^[0-9]+$ ]] || { err "Project number must be numeric (e.g. 43)."; return 1; }
+  title="$(gh_board_title "$NUM" "$owner" 2>/dev/null)"
+  [[ -n "$title" ]] || { err "No GitHub Project #$NUM under '$owner' (or you lack access)."; return 1; }
+  PROJECT_ID="$(derive_project_id "$NUM" "$owner" 2>/dev/null)"
+  PF="$SCRIPT_DIR/projects/${PROJECT_ID}/project.yaml"
   echo ""
   divider
-  if [[ ! -f "$PF" ]]; then
-    # Active project: the manifest lives on the project branch, not on the
-    # default branch where Gov.local rests. Derive the summary live from GitHub
-    # (registry-elimination — no registry read).
-    local NUM owner status branch owners gh_url scol
-    NUM="$(board_number_for_pid "$PROJECT_ID")"
-    if [[ -z "$NUM" ]]; then
-      echo "  $PROJECT_ID: no GitHub board found."; echo ""; return
-    fi
-    owner="$GITHUB_ORG"
+  if [[ -z "$PROJECT_ID" || ! -f "$PF" ]]; then
+    # Active project: the manifest lives on the project branch (or this is the
+    # gov/common home). Derive the summary live from GitHub (registry-elimination).
+    local status branch owners gh_url scol
     status="$(derive_project_status "$NUM" "$owner")"
     branch="$(derive_project_branch "$NUM" "$owner")"
     owners="$(project_owners "$NUM" "$owner" | paste -sd ',' - | sed 's/,/, /g')"
@@ -1835,6 +1835,46 @@ for p in json.load(sys.stdin).get('projects', []):
     fi
     if [[ "$c" =~ ^[0-9]+$ ]] && (( c>=1 && c<=${#__nums[@]} )); then
       printf -v "$__nv" '%s' "${__nums[$((c-1))]}"; printf -v "$__tv" '%s' "${__titles[$((c-1))]}"; return
+    fi
+    err "Invalid choice."
+  done
+}
+
+# _pick_my_project <numvar> <titlevar> — like _pick_open_project but scoped to the
+# projects ASSIGNED to you and still ongoing (active/paused), via the GitHub-derived
+# nav engine (#102.2). Sets <numvar>=board number, <titlevar>=board title; both
+# $BACK on back or when nothing is assigned (caller treats as back). If a project
+# you expect isn't listed, get assigned first (Admin → manage).
+_pick_my_project() {
+  local __nv="$1" __tv="$2" me rows vals=() labels=()
+  me="$(gh api user --jq .login 2>/dev/null || echo "")"
+  rows="$(project_context_list me ongoing)"
+  if [[ -z "$rows" ]]; then
+    err "No active projects assigned to you${me:+ ($me)}."
+    echo -e "  ${DIM}Get assigned first: Admin → manage (or ./prj manage), then retry.${NC}"
+    printf -v "$__nv" '%s' "$BACK"; printf -v "$__tv" '%s' "$BACK"; return
+  fi
+  local pid url status who num
+  while IFS=$'\t' read -r pid url status who; do
+    [[ -z "$url" ]] && continue
+    num="${url##*/projects/}"; num="${num%%/*}"
+    vals+=("$num"); labels+=("$pid  ${DIM}($status)${NC}")
+  done <<< "$rows"
+  echo -e "${BOLD}Select a project assigned to you:${NC}"
+  local i
+  for i in "${!labels[@]}"; do printf "  ${CYAN}%d)${NC} %b\n" $((i+1)) "${labels[$i]}"; done
+  printf "  ${DIM}0) ← back${NC}\n"
+  local c
+  while true; do
+    printf "Choose [1-%d, 0=back]: " "${#vals[@]}"; _read_or_abort c
+    if [[ "$c" == "0" || "$c" == "b" || "$c" == "back" ]]; then
+      printf -v "$__nv" '%s' "$BACK"; printf -v "$__tv" '%s' "$BACK"; return
+    fi
+    if [[ "$c" =~ ^[0-9]+$ ]] && (( c>=1 && c<=${#vals[@]} )); then
+      local sel="${vals[$((c-1))]}"
+      printf -v "$__nv" '%s' "$sel"
+      printf -v "$__tv" '%s' "$(gh_board_title "$sel" 2>/dev/null)"
+      return
     fi
     err "Invalid choice."
   done
