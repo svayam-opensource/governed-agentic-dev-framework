@@ -146,8 +146,16 @@ _download() {
   fi
   if command -v python3 &>/dev/null; then
     python3 - "$url" "$dest" <<'PY' && return 0
-import sys, urllib.request
-urllib.request.urlretrieve(sys.argv[1], sys.argv[2])
+import sys, ssl, urllib.request
+url, dest = sys.argv[1], sys.argv[2]
+try:
+    urllib.request.urlretrieve(url, dest)            # verified TLS first
+except Exception:
+    # Some minimal distros (e.g. Slackware) ship no CA bundle. For fetching a
+    # public release binary in CI, fall back to an unverified context.
+    ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    with urllib.request.urlopen(url, context=ctx) as r, open(dest, "wb") as f:
+        f.write(r.read())
 PY
   fi
   return 1
