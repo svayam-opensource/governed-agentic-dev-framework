@@ -2673,7 +2673,8 @@ print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>
 
   local u rc=0
   for u in $units; do
-    local job="deploy/${u}/${suffix}"
+    # Job path per the jenkins-job-organization standard: <workspace_repo>/<activity>/<env>/<unit>.
+    local job="${WORKSPACE_REPO}/deploy/${suffix}/${u}"
     local params=("DEPLOY_ENV=$env")
     [[ -n "$agent" ]]        && params+=("AGENT_LABEL=$agent")
     [[ -n "$pin" ]]          && params+=("IMAGE_TAG_OVERRIDE=$pin")
@@ -2682,9 +2683,13 @@ print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>
     [[ -n "$register_app" ]] && params+=("REGISTER_APP_SPEC=$register_app")
     [[ "$skipapproval" == 1 ]] && params+=("SKIP_PROD_APPROVAL=true")
     if [[ "$dryrun" == 1 ]]; then
-      info "DRY-RUN (remote): bash $DEPLOY/jenkins.sh $([[ $follow == 1 ]] && echo run || echo trigger) $job ${params[*]}"
+      info "DRY-RUN (remote): ensure-job $job; then $([[ $follow == 1 ]] && echo run || echo trigger) ${params[*]}"
       continue
     fi
+    # Provision the job from the catalog if it's a first-time unit (no human in
+    # Jenkins): create the folder chain + Pipeline-from-SCM job, then trigger.
+    JENKINS_SCM_URL="$ORG_REPO_URL" JENKINS_SCM_BRANCH="${DEFAULT_BRANCH:-main}" \
+      bash "$DEPLOY/jenkins.sh" ensure-job "$job" || { rc=$?; warn "deploy: could not ensure job $job — skipping trigger."; continue; }
     info "deploy: $job  (${params[*]})"
     if [[ "$follow" == 1 ]]; then
       bash "$DEPLOY/jenkins.sh" run "$job" "${params[@]}" || rc=$?

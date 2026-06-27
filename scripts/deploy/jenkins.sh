@@ -143,6 +143,101 @@ cmd_run() {
   [[ "$res" == "SUCCESS" ]]
 }
 
+# ── Idempotent job provisioning (jenkins-job-organization.md) ──────────────────
+# `prj` creates a unit's jobs itself (no human in Jenkins): the folder chain
+# <workspace_repo>/<activity>/<env> + a Pipeline-from-SCM leaf job that runs the
+# central catalog-driven pipeline (knowledge/deployment/pipelines/<activity>.Jenkinsfile).
+
+# Does the job/folder at <slash-path> already exist?
+_jk_exists() {
+  local code; code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 30 \
+    "${JK_AUTH[@]}" "${BASE}/$(_jp "$1")/api/json" 2>/dev/null || echo 000)
+  [[ "$code" == 200 ]]
+}
+
+# POST a config.xml to createItem under <parent-slash-path|""> with <name>.
+_jk_create() {
+  local parent="$1" name="$2" cfg="$3" c url
+  c=$(_crumb)
+  if [[ -n "$parent" ]]; then url="${BASE}/$(_jp "$parent")/createItem?name=${name}"; else url="${BASE}/createItem?name=${name}"; fi
+  curl -fsS --connect-timeout 10 --max-time 60 "${JK_AUTH[@]}" ${c:+-H "$c"} \
+    -H "Content-Type: application/xml" --data-binary @"$cfg" "$url"
+}
+
+_folder_xml() {
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n<com.cloudbees.hudson.plugins.folder.Folder><actions/><description>Created by prj (jenkins-job-organization.md)</description><properties/><folderViews/><healthMetrics/></com.cloudbees.hudson.plugins.folder.Folder>\n'
+}
+
+# Pipeline-from-SCM job XML: SCM=workspace repo, script=the central activity pipeline,
+# params UNIT+DEPLOY_ENV. Optional credentialsId via $JENKINS_SCM_CREDENTIAL_ID.
+_pipeline_xml() {
+  local script="$1" scm="$2" branch="$3" unit="$4" env="$5" cred=""
+  [[ -n "${JENKINS_SCM_CREDENTIAL_ID:-}" ]] && cred="<credentialsId>${JENKINS_SCM_CREDENTIAL_ID}</credentialsId>"
+  cat <<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<flow-definition plugin="workflow-job">
+  <description>Auto-created by prj — see knowledge/deployment/jenkins-job-organization.md</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.StringParameterDefinition><name>UNIT</name><defaultValue>${unit}</defaultValue><description>catalog unit</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>DEPLOY_ENV</name><defaultValue>${env}</defaultValue><description>dev|uat|prod</description></hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition" plugin="workflow-cps">
+    <scm class="hudson.plugins.git.GitSCM" plugin="git">
+      <userRemoteConfigs><hudson.plugins.git.UserRemoteConfig><url>${scm}</url>${cred}</hudson.plugins.git.UserRemoteConfig></userRemoteConfigs>
+      <branches><hudson.plugins.git.BranchSpec><name>*/${branch}</name></hudson.plugins.git.BranchSpec></branches>
+      <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+      <submoduleCfg class="empty-list"/>
+      <extensions/>
+    </scm>
+    <scriptPath>${script}</scriptPath>
+    <lightweight>true</lightweight>
+  </definition>
+  <disabled>false</disabled>
+</flow-definition>
+XML
+}
+
+# ensure-job <workspace>/<activity>/<env>/<unit> — create the folder chain + the
+# leaf pipeline job if missing (idempotent). SCM from $JENKINS_SCM_URL (+ optional
+# $JENKINS_SCM_BRANCH, default main). Safe to call before every trigger.
+cmd_ensure_job() {
+  local path="$1"
+  [[ -n "$path" ]] || hard_stop "ensure-job: <workspace>/<activity>/<env>/<unit> required."
+  local oldIFS="$IFS"; IFS=/; set -f; local segs=($path); set +f; IFS="$oldIFS"
+  local n=${#segs[@]}
+  (( n >= 4 )) || hard_stop "ensure-job: path must be <workspace>/<activity>/<env>/<unit> (got '$path')."
+  local activity="${segs[1]}" unit="${segs[$((n-1))]}" env="${segs[$((n-2))]}"
+  local scm="${JENKINS_SCM_URL:-}" branch="${JENKINS_SCM_BRANCH:-main}"
+  [[ -n "$scm" ]] || hard_stop "ensure-job: JENKINS_SCM_URL (the workspace repo git URL) is required."
+  local script="knowledge/deployment/pipelines/${activity}.Jenkinsfile"
+  # Folder chain: every segment except the leaf.
+  local parent="" i here f
+  for (( i=0; i<n-1; i++ )); do
+    here="${parent:+$parent/}${segs[$i]}"
+    if ! _jk_exists "$here"; then
+      f=$(mktemp); _folder_xml > "$f"
+      _jk_create "$parent" "${segs[$i]}" "$f" >/dev/null 2>&1 \
+        && echo "  + folder $here" || hard_stop "ensure-job: could not create folder '$here' (perms?)."
+      rm -f "$f"
+    fi
+    parent="$here"
+  done
+  # Leaf pipeline job.
+  if _jk_exists "$path"; then
+    echo "  = job $path (exists)"
+  else
+    f=$(mktemp); _pipeline_xml "$script" "$scm" "$branch" "$unit" "$env" > "$f"
+    _jk_create "$parent" "$unit" "$f" >/dev/null 2>&1 \
+      && echo "  + job $path  (Pipeline-from-SCM → $script)" || hard_stop "ensure-job: could not create job '$path' (perms?)."
+    rm -f "$f"
+  fi
+}
+
 CMD="${1:-}"; shift || true
 case "$CMD" in
   whoami)  cmd_whoami ;;
@@ -150,5 +245,6 @@ case "$CMD" in
   trigger) cmd_trigger "$@" ;;
   run)     cmd_run "$@" ;;
   status)  cmd_status "$@" ;;
-  *) hard_stop "Usage: jenkins.sh {whoami|reload|trigger <job> [P=v...]|run <job> [P=v...]|status <job>}" ;;
+  ensure-job) cmd_ensure_job "$@" ;;
+  *) hard_stop "Usage: jenkins.sh {whoami|reload|trigger <job> [P=v...]|run <job> [P=v...]|status <job>|ensure-job <ws>/<activity>/<env>/<unit>}" ;;
 esac
