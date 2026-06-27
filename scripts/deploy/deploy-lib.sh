@@ -36,7 +36,17 @@ creds_get() {
 # else (2) the per-developer creds file. A Jenkins API token is PER-HUMAN; never
 # shared, never echoed. hard_stops with onboarding guidance if missing.
 resolve_jenkins_creds() {
-  if [[ -n "${JENKINS_URL:-}" && -n "${JENKINS_USER:-}" && -n "${JENKINS_API_TOKEN:-}" ]]; then
+  # Two auth methods (see auth-tokens-and-clients.md):
+  #   • Bearer — JENKINS_BEARER_TOKEN: an Authentik OIDC access token, required
+  #     when Jenkins is OIDC-fronted (its own user:API-token Basic auth is
+  #     rejected by the SSO layer). Preferred when present.
+  #   • Basic  — JENKINS_USER + JENKINS_API_TOKEN: a native Jenkins API token,
+  #     for a directly-reachable Jenkins.
+  # Need: JENKINS_URL + (a bearer token OR user+API token).
+  _jk_have_bearer() { [[ -n "${JENKINS_BEARER_TOKEN:-}" ]]; }
+  _jk_have_basic()  { [[ -n "${JENKINS_USER:-}" && -n "${JENKINS_API_TOKEN:-}" ]]; }
+  if [[ -n "${JENKINS_URL:-}" ]] && { _jk_have_bearer || _jk_have_basic; }; then
+    export JENKINS_URL JENKINS_USER JENKINS_API_TOKEN JENKINS_BEARER_TOKEN
     return 0
   fi
   local login credfile
@@ -46,16 +56,19 @@ resolve_jenkins_creds() {
   : "${JENKINS_URL:=$(creds_get "$credfile" JENKINS_URL)}"
   : "${JENKINS_USER:=$(creds_get "$credfile" JENKINS_USER)}"
   : "${JENKINS_API_TOKEN:=$(creds_get "$credfile" JENKINS_API_TOKEN)}"
-  if [[ -z "${JENKINS_URL:-}" || -z "${JENKINS_USER:-}" || -z "${JENKINS_API_TOKEN:-}" ]]; then
-    hard_stop "Jenkins API credentials not found.
-  This is a PER-HUMAN credential — generate your own token and store it where the tooling reads it:
-    1. Jenkins -> top-right (your name) -> Security -> API Token -> 'Add new Token' -> copy it.
-    2. Add to '$credfile' (create the dir if needed):
+  : "${JENKINS_BEARER_TOKEN:=$(creds_get "$credfile" JENKINS_BEARER_TOKEN)}"
+  if [[ -z "${JENKINS_URL:-}" ]] || { ! _jk_have_bearer && ! _jk_have_basic; }; then
+    hard_stop "Jenkins API credentials not found. This is a PER-HUMAN credential.
+  Pick the method that matches your Jenkins ('prj creds groups' for detail):
+    • OIDC-fronted Jenkins (e.g. behind Authentik) — Bearer:
          JENKINS_URL=https://jenkins.svayamtech.com/
+         JENKINS_BEARER_TOKEN=<Authentik OIDC access token>
+    • Native Jenkins — Basic:
+         JENKINS_URL=https://jenkins.example.com/
          JENKINS_USER=$login
-         JENKINS_API_TOKEN=<your token>
-       (or 'export' the three JENKINS_* vars instead).
-  Never share or commit the token."
+         JENKINS_API_TOKEN=<your Jenkins API token>
+  Add to '$credfile' (or 'export' the vars). Never share or commit the token.
+  See auth-tokens-and-clients.md for how to tell which one you need."
   fi
-  export JENKINS_URL JENKINS_USER JENKINS_API_TOKEN
+  export JENKINS_URL JENKINS_USER JENKINS_API_TOKEN JENKINS_BEARER_TOKEN
 }

@@ -30,10 +30,10 @@ HOST=$(hostname -s 2>/dev/null || hostname 2>/dev/null || uname -n 2>/dev/null |
 
 # Known credential groups: <group> -> "KEY1 KEY2 ..." + a human description + guidance.
 group_keys() { case "$1" in
-  jenkins) echo "JENKINS_URL JENKINS_USER JENKINS_API_TOKEN" ;;
+  jenkins) echo "JENKINS_URL JENKINS_BEARER_TOKEN JENKINS_USER JENKINS_API_TOKEN" ;;
   *) echo "" ;; esac; }
 group_desc() { case "$1" in
-  jenkins) echo "Jenkins API token — for 'prj deploy' to trigger/inspect jobs." ;;
+  jenkins) echo "Jenkins access for 'prj deploy'. Bearer (OIDC/Authentik token) OR Basic (native user+API token) — see auth-tokens-and-clients.md." ;;
   *) echo "" ;; esac; }
 
 _ensure_file() {
@@ -85,19 +85,37 @@ cmd_add() {
   local keys; keys=$(group_keys "$group")
   [[ -n "$keys" ]] || hard_stop "Unknown group '$group'. Try: creds groups"
   if [[ "$group" == "jenkins" ]]; then
-    echo "Jenkins is an OIDC (OpenID Connect) client — you LOG IN via auth.svayamtech.com, but the API"
-    echo "uses a token you generate INSIDE Jenkins:"
-    echo "  1. Open Jenkins (you'll be sent through the OIDC login)."
-    echo "  2. Your user id is in your profile URL: https://jenkins.svayamtech.com/user/<THIS>/"
-    echo "  3. There: Security -> API Token -> Add new Token -> copy it."
+    echo "Jenkins access for 'prj deploy'. Two methods — pick the one that matches your Jenkins:"
+    echo "  • Bearer (OIDC) — if Jenkins is fronted by SSO (e.g. Authentik). You provide an"
+    echo "    Authentik OIDC ACCESS TOKEN; its own API token (Basic) is rejected by the SSO layer."
+    echo "  • Basic — a directly-reachable Jenkins: your Jenkins user + an API token."
+    echo "  Not sure? Run:  curl -sI <jenkins-url>/api/json  — if it redirects to an SSO login,"
+    echo "  you need Bearer. (Details: auth-tokens-and-clients.md.)"
     echo ""
-    local url user token
+    local url method
     read -rp "JENKINS_URL [https://jenkins.svayamtech.com/]: " url; url="${url:-https://jenkins.svayamtech.com/}"
-    read -rp "JENKINS_USER (your Jenkins user id from step 2): " user
-    read -rsp "JENKINS_API_TOKEN (hidden): " token; echo
-    [[ -n "$user" && -n "$token" ]] || hard_stop "JENKINS_USER and JENKINS_API_TOKEN are required."
-    _set_key JENKINS_URL "$url"; _set_key JENKINS_USER "$user"; _set_key JENKINS_API_TOKEN "$token"
-    echo "Saved Jenkins creds to $(cmd_path)  (token not echoed)."
+    _set_key JENKINS_URL "$url"
+    read -rp "Auth method — [1] Bearer (OIDC/Authentik)  [2] Basic (native API token): " method
+    case "$method" in
+      1)
+        echo "Obtain an Authentik OIDC access token for the Jenkins application (a service account /"
+        echo "client-credentials grant). The Jenkins admin must also enable oic-auth 'bearer token access'."
+        local btok; read -rsp "JENKINS_BEARER_TOKEN (hidden): " btok; echo
+        [[ -n "$btok" ]] || hard_stop "JENKINS_BEARER_TOKEN is required for the Bearer method."
+        _set_key JENKINS_BEARER_TOKEN "$btok"
+        echo "Saved Jenkins Bearer (OIDC) creds to $(cmd_path)  (token not echoed)."
+        ;;
+      2)
+        echo "Generate a Jenkins API token: Jenkins -> your profile -> Security -> API Token -> Add new Token."
+        local user token
+        read -rp "JENKINS_USER (your Jenkins user id): " user
+        read -rsp "JENKINS_API_TOKEN (hidden): " token; echo
+        [[ -n "$user" && -n "$token" ]] || hard_stop "JENKINS_USER and JENKINS_API_TOKEN are required for the Basic method."
+        _set_key JENKINS_USER "$user"; _set_key JENKINS_API_TOKEN "$token"
+        echo "Saved Jenkins Basic creds to $(cmd_path)  (token not echoed)."
+        ;;
+      *) hard_stop "Pick 1 (Bearer) or 2 (Basic)." ;;
+    esac
     echo "Verify: prj creds check jenkins"
   fi
 }
