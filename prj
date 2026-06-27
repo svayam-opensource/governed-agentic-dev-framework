@@ -82,6 +82,16 @@ fi
 AGENT_WORK_ROOT="${AGENT_WORK_ROOT/#\~/$HOME}"   # expand leading ~ for path use
 WORKSPACE_REPO="${WORKSPACE_REPO:-svm-prj-work}"
 
+# Base code branch for member repos (used when materializing a unit's owner repo
+# on demand — #109). prj does not source lib.sh, so read it here directly.
+if command -v yq &>/dev/null; then
+  DEFAULT_CODE_BRANCH=$(yq '.default_code_branch' "$CONFIG" 2>/dev/null || echo "dev")
+else
+  DEFAULT_CODE_BRANCH=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG')).get('default_code_branch','dev'))" 2>/dev/null || echo "dev")
+fi
+[[ -z "$DEFAULT_CODE_BRANCH" || "$DEFAULT_CODE_BRANCH" == "null" ]] && DEFAULT_CODE_BRANCH="dev"
+export DEFAULT_CODE_BRANCH AGENT_WORK_ROOT GITHUB_ORG
+
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
 
 # ── Navigation context + agent launch (#57) — prj-local (prj does not source lib.sh) ──
@@ -2746,6 +2756,13 @@ PY
 #   env = dev|uat|prod (or development|staging|production) → GOV
 #   env = local | "" (no-env authoring)                    → PROJECT
 resolve_workspace() {
+  # Record the canonical env so hooks (run_catalog_hook → materialize-repo.sh)
+  # know which env to materialize the owner repo for (#109).
+  case "${1:-local}" in
+    development) RESOLVED_ENV=dev ;; staging) RESOLVED_ENV=uat ;; production) RESOLVED_ENV=prod ;;
+    *) RESOLVED_ENV="${1:-local}" ;;
+  esac
+  export RESOLVED_ENV
   case "${1:-local}" in
     dev|uat|prod|development|staging|production) _resolve_gov_workspace ;;
     local|"")                                   _resolve_project_workspace ;;
@@ -2845,12 +2862,19 @@ import json,sys
 c=json.load(open('$lock'))
 h=(c.get('hooks') or {}).get('$name')
 if not h or not h.get('cmd'): sys.exit(1)
-repo=(h.get('repo') or '').split('/')[-1]
-print(repo+'|'+h['cmd'])
+print((h.get('repo') or '')+'|'+h['cmd'])
 " 2>/dev/null)" || { err "$name: no '$name' hook declared in the catalog (hooks.$name)."; return 1; }
-  local leaf="${spec%%|*}" cmd="${spec#*|}"
-  local repo_dir; repo_dir="$(cd "$WORKSPACE_ROOT/.." && pwd)/$leaf"
-  [[ -d "$repo_dir" ]] || { err "$name: owner repo '$leaf' not found at $repo_dir (clone it into the project)."; return 1; }
+  local repo="${spec%%|*}" cmd="${spec#*|}"
+  [[ -n "$repo" ]] || { err "$name: hook '$name' declares no owner repo."; return 1; }
+  # Materialize the owner repo on demand (#109) — the hook's logic lives in a
+  # member repo that may not be cloned into the project (shared libs never are).
+  # local → worktree of the project branch (reusing a cloned-in sibling);
+  # dev/uat/prod → worktree of the env code branch in the per-env folder. The
+  # repo is fetched/reset to upstream first, so the answer reflects live source.
+  local env="${RESOLVED_ENV:-local}" repo_dir
+  repo_dir="$("$SCRIPTS/deploy/materialize-repo.sh" "$repo" "$env" "$WORKSPACE_ROOT")" \
+    || { err "$name: could not materialize owner repo '$repo' for env=$env."; return 1; }
+  [[ -n "$repo_dir" && -d "$repo_dir" ]] || { err "$name: materialized repo dir invalid ('$repo_dir')."; return 1; }
   export ADF_WORKSPACE="$WORKSPACE_ROOT"
   # Forward all extra args, shell-quoted so values with spaces survive the eval.
   local q="" a
@@ -2920,7 +2944,10 @@ cmd_catalog() {
       # or drift-gate it (check). WIP → the PROJECT workspace. Extra args forwarded.
       local action="$1"; shift
       resolve_workspace local || return 1
-      exec python3 "$SCRIPTS/deploy/catalog.py" "$action" "$@"
+      # Derivation needs the member repos' source — materialize any that aren't
+      # cloned into the project on demand (#109) rather than failing.
+      CATALOG_MATERIALIZE=1 CATALOG_ENV=local \
+        exec python3 "$SCRIPTS/deploy/catalog.py" "$action" "$@"
       ;;
     dag)
       # Derived DAG, live. Topology is env-invariant; --env <env> decorates with
