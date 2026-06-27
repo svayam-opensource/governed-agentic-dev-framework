@@ -284,10 +284,37 @@ CLEANUP_ARTIFACTS+=("repo:$TEST_REPO")
 ok "test repo created: $TEST_REPO"
 
 info "Step 1b — pushing local publish HEAD ($(cd "$REPO_ROOT" && git rev-parse --short HEAD)) to $TEST_REPO as main..."
-( cd "$REPO_ROOT" && git push "https://github.com/$TEST_REPO.git" "HEAD:main" ) \
-  >/dev/null 2>&1 \
-  || hard_stop "git push of publish HEAD to test repo failed"
-ok "local publish HEAD pushed to $TEST_REPO/main"
+_PUSH_URL="https://github.com/$TEST_REPO.git"
+if ( cd "$REPO_ROOT" && git push "$_PUSH_URL" "HEAD:main" ) >/dev/null 2>&1; then
+  ok "local publish HEAD pushed to $TEST_REPO/main"
+else
+  # A repo-scoped PAT (no `workflow` scope) cannot push ANY commit that touches
+  # .github/workflows/* — and pushing the full history into the empty test repo
+  # replays every historical commit, including ones that added workflows. So
+  # retry as a SINGLE ORPHAN commit of the tree minus .github/workflows: no
+  # history ⇒ no pushed commit touches a workflow file. The throwaway workspace
+  # exercises the governance lifecycle, not CI, so the workflows aren't needed.
+  # Keeps the bot PAT at least-privilege (`repo` scope only).
+  warn "direct push rejected — retrying as a single orphan commit without .github/workflows"
+  _WT="$(mktemp -d)"
+  _rc=0
+  ( cd "$REPO_ROOT" && git worktree add -q --detach "$_WT" HEAD ) || _rc=1
+  if [[ $_rc -eq 0 ]]; then
+    (
+      cd "$_WT" || exit 1
+      git checkout -q --orphan _e2e_pub || exit 1
+      rm -rf .github/workflows
+      git add -A || exit 1
+      git -c user.email="${GIT_AUTHOR_EMAIL:-$(git config user.email 2>/dev/null || echo e2e@local)}" \
+          -c user.name="${GIT_AUTHOR_NAME:-$(git config user.name 2>/dev/null || echo prj-e2e)}" \
+          commit -q -m "e2e: publish HEAD ($(git -C "$REPO_ROOT" rev-parse --short HEAD), CI workflows stripped)" || exit 1
+      git push "$_PUSH_URL" "HEAD:main" || exit 1
+    ) >/dev/null 2>&1 || _rc=1
+    ( cd "$REPO_ROOT" && git worktree remove --force "$_WT" ) >/dev/null 2>&1 || rm -rf "$_WT"
+  fi
+  [[ $_rc -eq 0 ]] || hard_stop "git push of publish HEAD to test repo failed (even after stripping .github/workflows)"
+  ok "local publish HEAD (minus CI workflows, orphan commit) pushed to $TEST_REPO/main"
+fi
 
 # Brief pause so GitHub registers the default branch
 sleep 2
@@ -377,12 +404,25 @@ ok "configured workspace pushed to $TEST_REPO"
 
 # ── Step 7: prj list (empty) ─────────────────────────────────────────────────
 
-info "Step 7 — ./prj list (expect empty)..."
+info "Step 7 — ./prj list (fresh workspace)..."
 out=$(/bin/bash ./prj list 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
-echo "$out" | grep -qi "no projects found" \
-  || hard_stop "prj list output didn't say 'No projects found':
+if [[ -n "${SMOKE_SKIP_EMPTY_LIST:-}" ]]; then
+  # Org-sandbox mode: the fixture board is PROVISIONED by the harness, so it
+  # legitimately shows as an active project here. The real fresh-workspace
+  # invariant is that no project FOLDERS exist locally yet (seed creates them in
+  # Step 9). Just assert prj list ran cleanly + the local workspace is clean.
+  echo "$out" | grep -qiE "ongoing projects|no projects found" \
+    || hard_stop "prj list did not run cleanly:
 $out"
-ok "registry is empty"
+  [[ -z "$(ls -d projects/PRJ-*/ 2>/dev/null)" ]] \
+    || hard_stop "fresh workspace already has project folder(s) before seed"
+  ok "prj list runs; local workspace clean (pre-seed)"
+else
+  echo "$out" | grep -qi "no projects found" \
+    || hard_stop "prj list output didn't say 'No projects found':
+$out"
+  ok "registry is empty"
+fi
 
 # ── Step 8: prj deps ──────────────────────────────────────────────────────────
 
@@ -523,7 +563,31 @@ EOF
 cat > "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge/notes.md" <<EOF
 # Project Notes
 
-Smoke-test placeholder content for $PROJECT_ID.
+Smoke-test content for $PROJECT_ID.
+EOF
+# knowledge-close.md — required by the C01 pre-close gate (POL-413/414): the
+# Knowledge Harvest manifest, structurally complete (5 sections, no
+# TBD/TODO/FIXME/XXX markers — those would fail the gate as "harvest incomplete").
+cat > "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge/knowledge-close.md" <<EOF
+# Knowledge Close Manifest: $PROJECT_ID
+
+Automated end-to-end smoke run — no real learnings to harvest.
+
+## Graduated to org knowledge
+(none — automated smoke run)
+
+## Kept project-local
+- notes.md
+- compliance.md
+
+## Discarded
+(none)
+
+## Journeys created / updated
+(none)
+
+## Completeness critic
+Nothing outstanding; lifecycle exercised by tests/e2e_smoke.sh.
 EOF
 
 ( cd "$ORG_GOV_CLONE" \
