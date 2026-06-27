@@ -144,6 +144,9 @@ trap on_exit EXIT
 # Phase 1: Internal correctness
 # ════════════════════════════════════════════════════════════════════════════
 
+if [[ -n "${SMOKE_SKIP_PHASE1:-}" ]]; then
+  info "Phase 1 skipped (SMOKE_SKIP_PHASE1 set — e.g. CI already runs validators + bats in the matrix)"
+else
 header "Phase 1: Internal correctness (publish branch source)"
 
 cd "$REPO_ROOT"
@@ -191,6 +194,7 @@ done
 ok "all scripts run cleanly under /bin/bash 3.2"
 
 ok "Phase 1 complete ($(($(date +%s) - START_TIME))s elapsed)"
+fi
 
 # ════════════════════════════════════════════════════════════════════════════
 # Phase 2: Adopter flow
