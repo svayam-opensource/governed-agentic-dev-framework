@@ -323,9 +323,45 @@ def select_artifact(cat, token, changed_paths):
 #    The DRIFT-PRONE facts are DERIVED from each unit's `anchor` package.json closure,
 #    NOT hand-maintained. Cadence: CI (build/check), never deploy. See SoT-and-dependency-dag.md.
 
+# #109 — on-demand member-repo materialization for derivation. Deriving the
+# build facts (paths/depends_on/semver/content-sha) needs the member repo's
+# SOURCE, which may not be cloned into the project (shared libs never are). When
+# CATALOG_MATERIALIZE=1, materialize it via materialize-repo.sh (worktree of the
+# right branch for CATALOG_ENV, pulled) instead of pointing at an absent sibling.
+# Viewing the DAG reads graph.lock and needs none of this (see the #108 spec).
+_MATERIALIZE = os.environ.get("CATALOG_MATERIALIZE") == "1"
+_CAT_ENV = os.environ.get("CATALOG_ENV", "local")
+_MAT_SCRIPT = Path(__file__).resolve().parent / "materialize-repo.sh"
+_repo_path_cache = {}
+
+
 def _repo_path(repo):
-    """'Svayamtech/911-SVM-LIB-SVC' -> <workspace>/911-SVM-LIB-SVC (sibling of svm-prj-work)."""
-    return WORKSPACE_ROOT / repo.split("/")[-1]
+    """'Svayamtech/911-SVM-LIB-SVC' -> the repo dir.
+
+    Normally a sibling of the workspace (WORKSPACE_ROOT/<name>). When
+    CATALOG_MATERIALIZE=1 and that sibling is absent, materialize the repo on
+    demand (#109) via materialize-repo.sh and use the materialized path (cached
+    so each repo is materialized at most once per process)."""
+    name = repo.split("/")[-1]
+    sib = WORKSPACE_ROOT / name
+    if sib.exists() or not _MATERIALIZE:
+        return sib
+    if repo in _repo_path_cache:
+        return _repo_path_cache[repo]
+    p = sib
+    try:
+        import subprocess
+        r = subprocess.run(["bash", str(_MAT_SCRIPT), repo, _CAT_ENV, str(REPO_ROOT)],
+                           capture_output=True, text=True, timeout=600)
+        out = (r.stdout or "").strip().splitlines()
+        if r.returncode == 0 and out and out[-1].strip():
+            p = Path(out[-1].strip())
+        elif r.stderr:
+            sys.stderr.write(r.stderr)
+    except Exception as e:
+        sys.stderr.write("materialize %s failed: %s\n" % (repo, e))
+    _repo_path_cache[repo] = p
+    return p
 
 
 def _read_json(p):
