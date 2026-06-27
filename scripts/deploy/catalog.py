@@ -945,7 +945,9 @@ def _fmt_dag_tree(units, ps, names, env, epins, allpins=None):
         if bc.get("base_image"):
             bi.append("base " + bc["base_image"])
         if bc.get("anchor"):
-            bi.append("anchor " + bc["anchor"])
+            # show the repo with the anchor so it's clear WHERE the source lives
+            repo = d.get("repo")
+            bi.append("anchor %s:%s" % (repo, bc["anchor"]) if repo else "anchor " + bc["anchor"])
         deps = d.get("depends_on") or []
         reqs = (d.get("requires") or []) or (d.get("requires_derived") or [])
         # #108.2 — built version + per-env pins (deployed bits per env).
@@ -983,11 +985,15 @@ def _fmt_dag_mermaid(units, ps, names, env, epins):
     return "\n".join(lines)
 
 def dag(cat, target=None, env=None, fmt="tree"):
-    """Render the derived DAG (live; never reads/writes graph.lock). <target> may
-    be a UNIT or an APPLICATION (renders the app's member units), matching the
-    targets `prj deploy` accepts. No target = the whole graph."""
-    lock = build_lock(cat)
-    units, ps = lock["units"], lock["platform_services"]
+    """Render the DAG from the COMMITTED graph.lock — the SoT for derived facts, so
+    the build graph + version are visible WITHOUT cloning any repo (#108). This is
+    why a `dag --env dev|prod` from the bare gov repo still shows real build
+    inputs/deps: it reads the lock, it does NOT re-derive live (a live derive there
+    has no member repos and would show empty closures). Falls back to a live
+    derivation only when no lock exists yet. <target> may be a UNIT or an
+    APPLICATION (renders the app's member units). No target = the whole graph."""
+    lock = load_lock() or build_lock(cat)
+    units, ps = lock.get("units", {}) or {}, lock.get("platform_services", {}) or {}
     apps = lock.get("applications", {}) or {}
     allpins = load_pins()                              # all envs, for the version line
     epins = (allpins.get(env) or {}) if env else {}
