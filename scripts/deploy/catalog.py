@@ -14,6 +14,7 @@ Pure stdlib + pyyaml (same as scripts/validate/*). Library + CLI.
 """
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -439,6 +440,107 @@ def _derive_requires(cat, root, paths):
     return found
 
 
+# ── Artifact version (#108.2) + build closure (#108.1) ───────────────────────────
+#    A unit's artifact version is `<semver> + <content-sha>` (mirrors #101's
+#    "semver + derived fingerprint", but for the BUILT bits, not the served
+#    interface). semver is resolved per artifact type; content-sha fingerprints the
+#    transitive build closure so identical inputs ⇒ identical sha and any build-input
+#    change ⇒ a new sha. See unit-versioning-and-build-graph.md.
+
+def _read_text(p):
+    try:
+        return Path(p).read_text(errors="ignore")
+    except Exception:
+        return ""
+
+
+# FROM <img> (skips an optional --platform=… and an `AS <stage>` suffix).
+_FROM_RE = re.compile(r"(?im)^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)")
+# org.opencontainers.image.version label, tolerant of LABEL k=v / k "v" forms.
+_OCI_VER_RE = re.compile(r"""org\.opencontainers\.image\.version["'\s=]+v?([0-9][^\s"']*)""")
+
+
+def _base_image(root, anchor):
+    """The base image a docker artifact builds FROM (display + closure input). The
+    Dockerfile's full text is already folded into the path-set content-sha; this is
+    the human-readable FROM ref (a tag/ref, not a pulled registry digest)."""
+    froms = _FROM_RE.findall(_read_text(root / anchor / "Dockerfile"))
+    # Last stage's base is the runtime base in a multi-stage build; fall back to first.
+    return (froms[-1] if froms else None)
+
+
+def _resolve_semver(kind, root, anchor, anchor_pkg):
+    """semver per artifact type (§1):
+         lib (npm)     → the anchor package.json `version`
+         api/spa (img) → org.opencontainers.image.version label, or a VERSION file,
+                         else the anchor package.json version (most repos version there)."""
+    if not anchor:
+        return None
+    if kind == "lib":
+        return anchor_pkg.get("version")
+    m = _OCI_VER_RE.search(_read_text(root / anchor / "Dockerfile"))
+    if m:
+        return m.group(1)
+    for vf in (root / anchor / "VERSION", root / "VERSION"):
+        if vf.exists():
+            first = _read_text(vf).strip().splitlines()
+            if first and first[0].strip():
+                return first[0].strip().lstrip("v")
+    return anchor_pkg.get("version")
+
+
+def _git_tree_sha(root, path):
+    """git object id of <path> at HEAD — a cheap, faithful fingerprint of that
+    sub-tree's content (§6). '' when the repo/path isn't available (deterministic:
+    build and check then agree on '')."""
+    rel = path[:-3] if path.endswith("/**") else path
+    rel = rel.rstrip("/")
+    ref = f"HEAD:{rel}" if rel and rel != "." else "HEAD^{tree}"
+    try:
+        r = subprocess.run(["git", "-C", str(root), "rev-parse", ref],
+                           capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _content_sha_map(cat, derived):
+    """content-sha per unit = sha256 of (semver + base image + path-set tree-shas +
+    rolled-up build-dep shas), TRANSITIVE over depends_on. A lib change thus
+    re-fingerprints everything built on it. Memoized; cycle-safe."""
+    roots = {n: _repo_path(_services(cat)[n]["repo"]) for n in derived}
+    cache, stack = {}, set()
+
+    def sha(name):
+        if name in cache:
+            return cache[name]
+        if name in stack or name not in derived:
+            return ""                                   # cycle / unknown → neutral
+        stack.add(name)
+        d = derived[name]
+        h = hashlib.sha256()
+        h.update(("semver:%s\n" % (d.get("semver") or "")).encode())
+        h.update(("base:%s\n" % (d.get("base_image") or "")).encode())
+        for p in sorted(d.get("paths") or []):
+            h.update(("path:%s=%s\n" % (p, _git_tree_sha(roots[name], p))).encode())
+        for dep in sorted(d.get("depends_on") or []):
+            h.update(("dep:%s=%s\n" % (dep, sha(dep))).encode())
+        stack.discard(name)
+        cache[name] = h.hexdigest()
+        return cache[name]
+
+    return {n: sha(n) for n in derived}
+
+
+def artifact_version(unit_lock):
+    """Render a lock unit's artifact version as `<semver>+<sha7>` (or '' if unknown)."""
+    sv = unit_lock.get("semver")
+    sha = (unit_lock.get("content_sha") or "")[:7]
+    if sv and sha:
+        return f"{sv}+{sha}"
+    return sv or (("+" + sha) if sha else "")
+
+
 def derive_unit(cat, name):
     """Derive the drift-prone facts for a Tier-1 unit from its repo."""
     s = _services(cat)[name]
@@ -447,7 +549,8 @@ def derive_unit(cat, name):
     if not anchor:
         return {"paths": s.get("paths") or [], "depends_on": s.get("depends_on") or [],
                 "kind": s.get("kind"), "artifact": s.get("artifact"),
-                "npm_name": None, "requires_derived": []}
+                "npm_name": None, "requires_derived": [],
+                "semver": None, "base_image": None}
     idx = _repo_pkg_index(repo)
     name2unit = _anchor_name_to_unit(cat)
     anchor_pkg = _read_json(root / anchor / "package.json")
@@ -471,7 +574,9 @@ def derive_unit(cat, name):
     artifact = s.get("artifact") or _infer_artifact(kind, name, anchor_pkg)
     return {"paths": sorted(paths), "depends_on": sorted(depends), "kind": kind,
             "artifact": artifact, "npm_name": anchor_pkg.get("name"),
-            "requires_derived": sorted(_derive_requires(cat, root, paths))}
+            "requires_derived": sorted(_derive_requires(cat, root, paths)),
+            "semver": _resolve_semver(kind, root, anchor, anchor_pkg),
+            "base_image": (None if kind == "lib" else _base_image(root, anchor))}
 
 
 # ── Per-unit descriptor (deploy.yaml) — config-as-build step 1 (additive) ────────
@@ -560,10 +665,16 @@ def check_descriptor(cat, path):
 
 
 def build_lock(cat):
-    """Effective catalog = derived ⊕ declared. The thing deploy/serve read."""
+    """Effective catalog = derived ⊕ declared. The thing deploy/serve read.
+
+    Also derives the #108 artifact version (semver + content_sha) and build
+    closure (#108.1) per unit, so the build graph + version are visible from the
+    lock without cloning any repo."""
+    derived = {name: derive_unit(cat, name) for name in _services(cat)}
+    shas = _content_sha_map(cat, derived)        # transitive over depends_on
     units = {}
     for name in _services(cat):
-        d = derive_unit(cat, name)
+        d = derived[name]
         decl = _services(cat)[name]
         units[name] = {
             "repo": decl.get("repo"), "anchor": decl.get("anchor"),
@@ -573,6 +684,14 @@ def build_lock(cat):
             "hosts": decl.get("hosts"), "edge": decl.get("edge"),
             "serve": decl.get("serve"), "healthcheck": decl.get("healthcheck"),
             "build": decl.get("build"),
+            # #108.2 artifact version + #108.1 build closure (the build-side DAG).
+            "semver": d.get("semver"),
+            "content_sha": shas.get(name),
+            "build_closure": {
+                "base_image": d.get("base_image"),
+                "anchor": decl.get("anchor"),
+                "build_dep_units": d["depends_on"],   # transitive cross-repo build-deps
+            },
         }
     return {
         "_generated_by": "catalog.py build — DO NOT EDIT; regenerate from services.yaml + repos",
@@ -749,36 +868,63 @@ def _dag_include(units, names):
         incl.update(units.get(n, {}).get("depends_on") or [])
     return incl
 
-def _fmt_dag_tree(units, ps, names, env, epins):
+def _fmt_requires(reqs, ps, units, env):
+    if not reqs:
+        return "(none)"
+    parts = []
+    for r in reqs:
+        if r in ps:                           # platform service — surface DATA vs external
+            tag = _platform_tag(ps[r])
+            if env:
+                parts.append(f"{r} → {_platform_endpoint(ps, r, env) or '(unresolved)'} [{tag}]")
+            else:
+                parts.append(f"{r} [{tag}]")
+        else:                                 # unit→unit edge
+            if env:
+                parts.append(f"{r} → {(units.get(r, {}).get('hosts') or {}).get(env) or '(unit)'}")
+            else:
+                parts.append(f"{r} [unit]")
+    return ", ".join(parts)
+
+
+def _fmt_dag_tree(units, ps, names, env, epins, allpins=None):
+    allpins = allpins or {}
     out = []
     for n in names:
         d = units.get(n, {})
-        head = f"{n}  ({d.get('kind') or '?'} · {d.get('artifact') or '—'})"
+        ver = artifact_version(d)
+        head = f"{n}  ({d.get('kind') or '?'} · {d.get('artifact') or '—'}{'@' + ver if ver else ''})"
         if env:
             host = (d.get("hosts") or {}).get(env) or "-"
             edge = (d.get("edge") or "").replace("<env>", env) or "-"
-            head += f"   [env={env}: host={host} · pin={epins.get(n) or '-'} · edge={edge}]"
+            head += f"   [env={env}: host={host} · edge={edge}]"
         out.append(head)
+        # #108.1 — build INPUTS → artifact (the build side; was an empty leaf line).
+        bc = d.get("build_closure") or {}
+        bi = []
+        if bc.get("base_image"):
+            bi.append("base " + bc["base_image"])
+        if bc.get("anchor"):
+            bi.append("anchor " + bc["anchor"])
         deps = d.get("depends_on") or []
-        out.append(f"  ├─ build deps : {', '.join(deps) if deps else '(none)'}")
         reqs = (d.get("requires") or []) or (d.get("requires_derived") or [])
-        if not reqs:
-            out.append(f"  └─ requires   : (none)")
-        else:
-            parts = []
-            for r in reqs:
-                if r in ps:                       # platform service — surface DATA vs external
-                    tag = _platform_tag(ps[r])
-                    if env:
-                        parts.append(f"{r} → {_platform_endpoint(ps, r, env) or '(unresolved)'} [{tag}]")
-                    else:
-                        parts.append(f"{r} [{tag}]")
-                else:                             # unit→unit edge
-                    if env:
-                        parts.append(f"{r} → {(units.get(r, {}).get('hosts') or {}).get(env) or '(unit)'}")
-                    else:
-                        parts.append(f"{r} [unit]")
-            out.append(f"  └─ requires   : {', '.join(parts)}")
+        # #108.2 — built version + per-env pins (deployed bits per env).
+        vline = ("built " + ver) if ver else "(unversioned)"
+        pin_str = " · ".join(f"{e} {allpins.get(e, {}).get(n)}"
+                             for e in ("dev", "uat", "prod") if allpins.get(e, {}).get(n))
+        if env and epins.get(n):
+            vline += f"  ·  pin[{env}]={epins.get(n)}"
+        elif pin_str:
+            vline += "  ·  pins: " + pin_str
+        rows = [
+            ("build inputs", ", ".join(bi) if bi else "(declared-only)"),
+            ("build deps", ", ".join(deps) if deps else "(none)"),
+            ("requires", _fmt_requires(reqs, ps, units, env)),
+            ("version", vline),
+        ]
+        for i, (lbl, val) in enumerate(rows):
+            conn = "└─" if i == len(rows) - 1 else "├─"
+            out.append(f"  {conn} {lbl:12}: {val}")
     return "\n".join(out) or "  (no units)"
 
 def _fmt_dag_mermaid(units, ps, names, env, epins):
@@ -803,7 +949,8 @@ def dag(cat, target=None, env=None, fmt="tree"):
     lock = build_lock(cat)
     units, ps = lock["units"], lock["platform_services"]
     apps = lock.get("applications", {}) or {}
-    epins = (load_pins().get(env) or {}) if env else {}
+    allpins = load_pins()                              # all envs, for the version line
+    epins = (allpins.get(env) or {}) if env else {}
     if target:
         if target in ps:
             # platform service target → its detail view (data/stateful facts + users)
@@ -822,7 +969,7 @@ def dag(cat, target=None, env=None, fmt="tree"):
     else:
         names = sorted(units)
     return _fmt_dag_mermaid(units, ps, names, env, epins) if fmt == "mermaid" \
-        else _fmt_dag_tree(units, ps, names, env, epins)
+        else _fmt_dag_tree(units, ps, names, env, epins, allpins)
 
 
 # ── Authoring: add / update / rm a unit (PROPOSE — print a YAML block) ─────────
@@ -944,6 +1091,7 @@ def _main(argv=None):
     p = sub.add_parser("preflight"); p.add_argument("target"); p.add_argument("--env", required=True)
     p = sub.add_parser("select"); p.add_argument("--token", required=True); p.add_argument("--changed", nargs="*", default=[]); p.add_argument("--format", choices=["json", "text"], default="json")
     p = sub.add_parser("pins"); p.add_argument("env")
+    p = sub.add_parser("version"); p.add_argument("unit")   # artifact version <semver>+<sha> (#108.2)
     p = sub.add_parser("get-pin"); p.add_argument("service"); p.add_argument("env")
     p = sub.add_parser("set-pin"); p.add_argument("service"); p.add_argument("env"); p.add_argument("version")
     p = sub.add_parser("promote"); p.add_argument("from_env"); p.add_argument("to_env"); p.add_argument("services", nargs="*")
@@ -1038,6 +1186,13 @@ def _main(argv=None):
         elif args.cmd == "select":
             d = select_artifact(cat, args.token, args.changed)
             print(_fmt_select_text(d) if args.format == "text" else json.dumps(d, indent=2))
+        elif args.cmd == "version":
+            lock = load_lock() or build_lock(cat)
+            u = (lock.get("units") or {}).get(args.unit)
+            if u is None:
+                print(f"no such unit: {args.unit}", file=sys.stderr)
+                return 2
+            print(artifact_version(u))
         elif args.cmd == "pins":
             print(json.dumps(load_pins().get(args.env, {}) or {}, indent=2))
         elif args.cmd == "get-pin":
