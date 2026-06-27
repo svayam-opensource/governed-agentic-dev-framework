@@ -6,22 +6,39 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Resolve REPO_ROOT (the governance / "gov_repo" workspace). Order:
-#   1. $ADF_WORKSPACE (set by bin/prj or the user) — but NEVER a shared base
-#      clone (.bases/*); a base clone is not a valid workspace.
-#   2. the deterministic gov-home pointer written by setup.sh — works in
-#      non-interactive shells with no env and no login-shell rc sourcing.
-#   3. the vendored layout (scripts/ inside the workspace repo) — legacy.
-# (2) is what stops the silent fallback that corrupted the PRJ-43 seed (an
-# unset env + a $PWD inside .bases resolved the workspace to the base clone).
+# Resolve REPO_ROOT (the governance / "gov_repo" workspace). The CLI must NOT
+# depend on an ambient $ADF_WORKSPACE — a stale login-shell export must never
+# misdirect it (the pointer file is the deterministic anchor). Order:
+#   0. If a prj entrypoint already resolved the workspace ($PRJ_WS_RESOLVED=1),
+#      trust the $ADF_WORKSPACE it handed us (bin/prj did the deterministic work
+#      and exports it to sub-scripts) — but still never a .bases/* base clone.
+#   1. Otherwise (a script run directly, not via prj): the deterministic gov-home
+#      POINTER written by setup.sh — AUTHORITATIVE; an ambient $ADF_WORKSPACE is
+#      ignored when the pointer resolves.
+#   2. BOOTSTRAP only if the pointer is missing/broken: if an ambient
+#      $ADF_WORKSPACE is a valid gov repo, use it AND write the pointer from it.
+#   3. the vendored layout (scripts/ inside the workspace repo) — legacy fallback.
 _adf_gov_ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
+_adf_ok() { [[ -n "$1" && -f "$1/org-config.yaml" && "$1" != */.bases/* ]]; }
+_adf_read_ptr() {
+  [[ -f "$_adf_gov_ptr" ]] || return 1
+  local p; p="$(head -n1 "$_adf_gov_ptr" | tr -d '[:space:]')"
+  case "$p" in "~/"*) p="$HOME/${p#\~/}" ;; "~") p="$HOME" ;; esac
+  _adf_ok "$p" && { printf '%s' "$p"; return 0; }
+  return 1
+}
 REPO_ROOT=""
-if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" && "$ADF_WORKSPACE" != */.bases/* ]]; then
-  REPO_ROOT="$ADF_WORKSPACE"
-elif [[ -f "$_adf_gov_ptr" ]]; then
-  _adf_gov="$(head -n1 "$_adf_gov_ptr" | tr -d '[:space:]')"
-  case "$_adf_gov" in "~/"*) _adf_gov="$HOME/${_adf_gov#\~/}" ;; "~") _adf_gov="$HOME" ;; esac
-  if [[ -n "$_adf_gov" && -f "$_adf_gov/org-config.yaml" ]]; then REPO_ROOT="$_adf_gov"; fi
+if [[ "${PRJ_WS_RESOLVED:-}" == "1" ]] && _adf_ok "${ADF_WORKSPACE:-}"; then
+  REPO_ROOT="$ADF_WORKSPACE"                       # trust the prj entrypoint's deterministic resolution
+else
+  _adf_inbound="${ADF_WORKSPACE:-}"                # ambient — bootstrap-only, NOT authoritative
+  if _p="$(_adf_read_ptr)"; then
+    REPO_ROOT="$_p"                                # pointer wins; ambient env ignored
+  elif _adf_ok "$_adf_inbound"; then              # pointer missing/broken → bootstrap from env + record it
+    REPO_ROOT="$(cd "$_adf_inbound" && pwd)"
+    mkdir -p "$(dirname "$_adf_gov_ptr")" 2>/dev/null \
+      && printf '%s\n' "$REPO_ROOT" > "$_adf_gov_ptr" 2>/dev/null || true
+  fi
 fi
 if [[ -z "$REPO_ROOT" ]]; then REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"; fi
 CONFIG="$REPO_ROOT/org-config.yaml"
@@ -145,17 +162,11 @@ load_config() {
   esac
   export GOV_WORKSPACE
 
-  # Self-heal the gov-home pointer file — but ONLY when the home was resolved
-  # from an explicit $ADF_WORKSPACE (the genuine "upgrading from a version that
-  # exported it in a shell rc" signal). We deliberately do NOT write the pointer
-  # from the vendored fallback or a transient fixture dir (which would record a
-  # bogus anchor). Guards: pointer absent, env-sourced, a real home (not under
-  # $AGENT_WORK_ROOT), has org-config. Best-effort.
-  if [[ ! -f "$_adf_gov_ptr" && -n "${ADF_WORKSPACE:-}" && "$REPO_ROOT" == "${ADF_WORKSPACE:-}" \
-        && "$REPO_ROOT" != "$AGENT_WORK_ROOT"/* && -f "$REPO_ROOT/org-config.yaml" ]]; then
-    mkdir -p "$(dirname "$_adf_gov_ptr")" 2>/dev/null \
-      && printf '%s\n' "$REPO_ROOT" > "$_adf_gov_ptr" 2>/dev/null || true
-  fi
+  # (Gov-home pointer self-heal moved to REPO_ROOT resolution at the top of this
+  # file: the pointer is now the deterministic anchor and is bootstrapped there
+  # from an inbound $ADF_WORKSPACE only when it's missing/broken. The old block
+  # here wrote the pointer from a transient $ADF_WORKSPACE — the mechanism that
+  # could record a bogus anchor — so it has been removed.)
 
   # Lazy-create the current user's prefs file if setup.sh didn't already.
   # No-op if gh login is unavailable; the file gets created on a later run

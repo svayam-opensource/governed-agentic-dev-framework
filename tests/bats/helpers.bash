@@ -20,6 +20,10 @@ sandbox_up() {
   export XDG_CONFIG_HOME="$HOME/.config"
   export AGENT_WORK_ROOT="$TEST_TMP/work"; mkdir -p "$AGENT_WORK_ROOT"
   unset ADF_WORKSPACE
+  # Neutral cwd: stand outside any org-config tree so prj's cwd-walk doesn't pick
+  # up the framework repo itself. Gov-home resolution then comes from the pointer
+  # (write_pointer) or the ADF_WORKSPACE bootstrap, exactly as in real use.
+  cd "$TEST_TMP" || true
   # A git identity so require_git_identity-gated commands don't prompt/abort.
   git config --global user.email "testbot@example.com" 2>/dev/null || true
   git config --global user.name  "Test Bot" 2>/dev/null || true

@@ -15,30 +15,41 @@ while [[ -h "$src" ]]; do
 done
 HERE="$(cd -P "$(dirname "$src")" && pwd)"
 PKG="$(cd "$HERE/.." && pwd)"          # package root: <...>/node_modules/@svayam-opensource/prj
-# Discover the governance workspace ("gov_repo"). Order:
-#   1. $ADF_WORKSPACE (explicit override) — but NEVER a shared base clone (.bases/*).
-#   2. nearest ancestor of $PWD with org-config.yaml (this is how per-project
-#      workspaces are picked up), skipping any .bases/* base clone.
-#   3. the deterministic gov-home pointer written by setup.sh
-#      (${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace) — so the home is
-#      reachable in non-interactive shells without a login-shell rc.
-# (1)/(2) previously fell through to a .bases base clone and corrupted seeds.
+# Discover the governance workspace ("gov_repo"). The CLI must NOT depend on an
+# ambient $ADF_WORKSPACE — a stale login-shell export must never misdirect it.
+# Resolution is deterministic; an inbound $ADF_WORKSPACE is only a bootstrap seed
+# used when the pointer isn't working yet. Order:
+#   1. nearest ancestor of $PWD with org-config.yaml (per-project workspaces),
+#      skipping any .bases/* base clone — deterministic from cwd.
+#   2. the deterministic gov-home POINTER (setup.sh writes it at
+#      ${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace) — AUTHORITATIVE; if it
+#      resolves, an ambient $ADF_WORKSPACE is ignored entirely.
+#   3. BOOTSTRAP only when 1+2 fail (pointer missing/broken): if an ambient
+#      $ADF_WORKSPACE is a valid gov repo, use it AND write the pointer from it so
+#      every future run resolves deterministically without the env var.
 adf_ok() { [[ -n "$1" && -f "$1/org-config.yaml" && "$1" != */.bases/* ]]; }
-if ! adf_ok "${ADF_WORKSPACE:-}"; then
-  ADF_WORKSPACE=""
-  d="$PWD"
-  while [[ "$d" != "/" ]]; do
-    if [[ -f "$d/org-config.yaml" && "$d" != */.bases/* ]]; then ADF_WORKSPACE="$d"; break; fi
-    d="$(dirname "$d")"
-  done
+ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
+inbound_adf="${ADF_WORKSPACE:-}"   # ambient (e.g. .zshrc) — bootstrap-only, NOT authoritative
+ADF_WORKSPACE=""
+# (1) cwd workspace
+d="$PWD"
+while [[ "$d" != "/" ]]; do
+  if [[ -f "$d/org-config.yaml" && "$d" != */.bases/* ]]; then ADF_WORKSPACE="$d"; break; fi
+  d="$(dirname "$d")"
+done
+# (2) pointer file — authoritative gov home (ambient env not consulted)
+if ! adf_ok "${ADF_WORKSPACE:-}" && [[ -f "$ptr" ]]; then
+  gov="$(head -n1 "$ptr" | tr -d '[:space:]')"
+  case "$gov" in "~/"*) gov="$HOME/${gov#\~/}" ;; "~") gov="$HOME" ;; esac
+  if adf_ok "$gov"; then ADF_WORKSPACE="$gov"; fi
 fi
-if ! adf_ok "${ADF_WORKSPACE:-}"; then
-  ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
-  if [[ -f "$ptr" ]]; then
-    gov="$(head -n1 "$ptr" | tr -d '[:space:]')"
-    case "$gov" in "~/"*) gov="$HOME/${gov#\~/}" ;; "~") gov="$HOME" ;; esac
-    if adf_ok "$gov"; then ADF_WORKSPACE="$gov"; fi
-  fi
+# (3) bootstrap the pointer from an inbound ADF_WORKSPACE — only if nothing resolved
+if ! adf_ok "${ADF_WORKSPACE:-}" && adf_ok "$inbound_adf"; then
+  gov="$(cd "$inbound_adf" && pwd)"
+  mkdir -p "$(dirname "$ptr")" 2>/dev/null \
+    && printf '%s\n' "$gov" > "$ptr" 2>/dev/null \
+    && echo "prj: recorded gov home → $ptr (bootstrapped from ADF_WORKSPACE)" >&2
+  ADF_WORKSPACE="$gov"
 fi
 # Interactive recovery (TTY only): nothing resolved and no pointer yet — ask
 # once, validate, and record the pointer so future runs (incl. non-interactive)
@@ -61,10 +72,16 @@ if ! adf_ok "${ADF_WORKSPACE:-}" && [[ -t 0 && -e /dev/tty ]]; then
 fi
 if ! adf_ok "${ADF_WORKSPACE:-}"; then
   echo "prj: could not locate your governance workspace (gov_repo)." >&2
-  echo "     Run setup.sh in your gov repo, or set ADF_WORKSPACE=<path-to-gov_repo>." >&2
+  echo "     Run setup.sh in your gov repo to record the deterministic pointer" >&2
+  echo "     (${XDG_CONFIG_HOME:-\$HOME/.config}/prj/gov-workspace)." >&2
   exit 1
 fi
 export ADF_WORKSPACE
+# Trust flag: tells lib.sh this ADF_WORKSPACE was resolved by a prj entrypoint
+# (deterministic), so sub-scripts inherit it instead of re-resolving. When ABSENT
+# (a script run directly, not via prj), lib.sh re-resolves pointer-first and never
+# trusts an ambient ADF_WORKSPACE — the CLI never depends on the env var.
+export PRJ_WS_RESOLVED=1
 # Test hook: print the resolved workspace and exit (used by the test bed to
 # assert deterministic gov-home resolution without side effects).
 [[ -n "${PRJ_PRINT_WORKSPACE:-}" ]] && { printf '%s\n' "$ADF_WORKSPACE"; exit 0; }
