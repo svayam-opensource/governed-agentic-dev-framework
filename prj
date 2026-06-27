@@ -2742,6 +2742,55 @@ PY
   return $rc
 }
 
+# ── Publish — ship the prj CLI to npm via the governed Jenkins job (single interface) ──
+# `prj publish [<ref>] [--dist-tag <tag>] [--dry-run] [-y] [--no-follow]`
+# Triggers <workspace>/publish/prod/prj (auto-provisioned): clones the CLI source
+# repo at <ref>, gates it (syntax + version-sync + npm pack), then `npm publish`
+# with the npm token from the Jenkins credential `npmjs-token` — the token lives in
+# Jenkins, never on a laptop. Default <ref> = v<package.json version>.
+cmd_publish() {
+  case "${1:-}" in -h|--help) cmd_help publish; return 0 ;; esac
+  local DEPLOY="$SCRIPTS/deploy"
+  local ref="" dist="latest" dryrun=0 follow=1 yes=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dist-tag)  dist="${2:-latest}"; shift 2 ;;
+      --dry-run)   dryrun=1; shift ;;
+      --no-follow) follow=0; shift ;;
+      -y|--yes)    yes=1; shift ;;
+      -*)          err "publish: unknown flag '$1'"; return 1 ;;
+      *)           ref="$1"; shift ;;
+    esac
+  done
+  # CLI source repo + default version come from THIS checkout's package.json.
+  local pkgjson="$SCRIPT_DIR/package.json"
+  [[ -f "$pkgjson" ]] || { err "publish: package.json not found at $pkgjson"; return 1; }
+  local pubrepo ver
+  pubrepo=$(python3 -c "import json,re; r=json.load(open('$pkgjson')).get('repository',{}); u=r.get('url','') if isinstance(r,dict) else r; m=re.search(r'github\.com[/:]([^/]+/[^/.]+)', u or ''); print(m.group(1) if m else '')")
+  ver=$(python3 -c "import json; print(json.load(open('$pkgjson')).get('version',''))")
+  [[ -n "$pubrepo" ]] || { err "publish: could not derive the CLI repo from package.json repository.url"; return 1; }
+  [[ -n "$ref" ]] || ref="v$ver"
+  local job="${WORKSPACE_REPO}/publish/prod/prj"
+  local dval; dval=$([[ $dryrun == 1 ]] && echo true || echo false)
+  local params=("PUBLISH_REPO=$pubrepo" "PUBLISH_REF=$ref" "DIST_TAG=$dist" "DRY_RUN=$dval")
+  header "Publish CLI — $pubrepo@$ref → npm (dist-tag=$dist · dry-run=$dval)"
+  if [[ $dryrun == 0 && $yes == 0 ]]; then
+    confirm "Publish $pubrepo@$ref to npm as '$dist'? This is IRREVERSIBLE." || { info "aborted."; return 1; }
+  fi
+  # Auto-provision the publish job (folder chain + Pipeline-from-SCM publish.Jenkinsfile);
+  # the job's SCM is the gov repo on its default branch.
+  JENKINS_SCM_URL="git@github.com:${GITHUB_ORG}/${WORKSPACE_REPO}.git" JENKINS_SCM_BRANCH="${DEFAULT_BRANCH:-main}" \
+    bash "$DEPLOY/jenkins.sh" ensure-job "$job" || { err "publish: could not ensure job $job."; return 1; }
+  info "publish: $job  (${params[*]})"
+  local rc=0
+  if [[ "$follow" == 1 ]]; then
+    bash "$DEPLOY/jenkins.sh" run "$job" "${params[@]}" || rc=$?
+  else
+    bash "$DEPLOY/jenkins.sh" trigger "$job" "${params[@]}" || rc=$?
+  fi
+  return $rc
+}
+
 # ── Workspace context resolution (PRJ-012) ─────────────────────────────────────
 # Two clones, two sources of truth, chosen by the ENV the command targets:
 #   • GOV repo  = $ADF_WORKSPACE — cloned once, fixed, ALWAYS on `main`. The SoT for the
@@ -3120,6 +3169,7 @@ cmd_help() {
       echo -e "${BOLD}(5) Deploy${NC}   ${DIM}build & deploy units${NC}"
       echo "  deploy <unit> --local|--dev|--uat|--prod [--provision] [--seed]"
       echo "  seed                            run the catalog seed hook (local)"
+      echo "  publish [<ref>] [--dry-run]     ship the prj CLI to npm via the Jenkins job"
       echo "  schedules                       install / inspect catalog cron schedules"
       echo ""
       echo -e "${BOLD}(6) Admin${NC}   ${DIM}administer governance${NC}"
@@ -3205,6 +3255,28 @@ Examples:
   prj deploy portal --local --stop --all       full local teardown (SPA + Tier-2)
   prj deploy svm-ident --uat --pin 0.1.0-uat.3 promote a pinned rollback to uat
   prj deploy portal --prod --dry-run           preview the prod deploy, run nothing
+EOF
+      ;;
+    publish)
+      cat <<'EOF'
+prj publish [<ref>] [--dist-tag <tag>] [--dry-run] [-y] [--no-follow]
+
+Ship the prj CLI to npm through the framework's OWN governed Jenkins job (the
+single interface — no laptop `npm publish`). Triggers <workspace>/publish/prod/prj
+(auto-provisioned): clones the CLI source repo at <ref>, gates it (syntax +
+version-sync + npm pack), then `npm publish` with the npm token from the Jenkins
+credential `npmjs-token`. The token lives in Jenkins, never on a developer machine.
+
+  <ref>           tag/branch/SHA to publish (default: v<package.json version>)
+  --dist-tag      npm dist-tag (default: latest)
+  --dry-run       run the gate + `npm publish --dry-run` only — publishes nothing
+  -y, --yes       skip the irreversible-publish confirmation
+  --no-follow     trigger and return (don't tail the Jenkins build)
+
+Examples:
+  prj publish --dry-run            full gate + dry-run for the current version
+  prj publish v0.8.0               publish tag v0.8.0 to npm as 'latest'
+  prj publish v0.8.1 --dist-tag next   publish under the 'next' tag
 EOF
       ;;
     seed)
@@ -3596,6 +3668,7 @@ case "$CMD" in
   config)       cmd_config "${@:2}" ;;
   deploy)       cmd_deploy "${@:2}" ;;
   seed)         cmd_seed "${@:2}" ;;
+  publish)      cmd_publish "${@:2}" ;;
   catalog)      cmd_catalog "${@:2}" ;;
   data)         cmd_data "${@:2}" ;;
   iam-data)     cmd_data iam "${@:2}" ;;     # alias: prj iam-data <env> … == prj data iam <env> …
