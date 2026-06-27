@@ -563,7 +563,31 @@ EOF
 cat > "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge/notes.md" <<EOF
 # Project Notes
 
-Smoke-test placeholder content for $PROJECT_ID.
+Smoke-test content for $PROJECT_ID.
+EOF
+# knowledge-close.md — required by the C01 pre-close gate (POL-413/414): the
+# Knowledge Harvest manifest, structurally complete (5 sections, no
+# TBD/TODO/FIXME/XXX markers — those would fail the gate as "harvest incomplete").
+cat > "$ORG_GOV_CLONE/projects/$PROJECT_ID/knowledge/knowledge-close.md" <<EOF
+# Knowledge Close Manifest: $PROJECT_ID
+
+Automated end-to-end smoke run — no real learnings to harvest.
+
+## Graduated to org knowledge
+(none — automated smoke run)
+
+## Kept project-local
+- notes.md
+- compliance.md
+
+## Discarded
+(none)
+
+## Journeys created / updated
+(none)
+
+## Completeness critic
+Nothing outstanding; lifecycle exercised by tests/e2e_smoke.sh.
 EOF
 
 ( cd "$ORG_GOV_CLONE" \
