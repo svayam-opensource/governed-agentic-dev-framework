@@ -96,25 +96,42 @@ print('ok')
   refute_output --partial ".svayamtech.com"   # local is never a public domain
 }
 
-@test "local-port (#108.3): a unit without a declared port gets a stable derived port" {
+@test "local-port (#108.3): a SERVED unit without a declared port gets a stable derived port; a lib gets none" {
   local root="$TEST_TMP/lp"; mkdir -p "$root/gov/knowledge/deployment/catalog"
   cat > "$root/gov/knowledge/deployment/catalog/services.yaml" <<'YAML'
 version: 2
 services:
-  noport:
-    repo: acme/noport-repo
-    anchor: packages/noport
+  svc:
+    repo: acme/svc-repo
+    anchor: packages/svc
+  mylib:
+    repo: acme/lib-repo
+    anchor: packages/mylib
 YAML
-  mkdir -p "$root/noport-repo/packages/noport"
-  echo '{"name":"@svayam/noport","version":"1.0.0"}' > "$root/noport-repo/packages/noport/package.json"
-  git init -q "$root/noport-repo"; git -C "$root/noport-repo" add -A; git -C "$root/noport-repo" commit -qm init
+  # svc has a Dockerfile -> kind=api (served, no declared port) -> derived port.
+  mkdir -p "$root/svc-repo/packages/svc"
+  echo '{"name":"@svayam/svc","version":"1.0.0"}' > "$root/svc-repo/packages/svc/package.json"
+  printf 'FROM node:20-alpine\n' > "$root/svc-repo/packages/svc/Dockerfile"
+  git init -q "$root/svc-repo"; git -C "$root/svc-repo" add -A; git -C "$root/svc-repo" commit -qm init
+  # mylib is a plain package -> kind=lib (NOT served) -> no local port/edge.
+  mkdir -p "$root/lib-repo/packages/mylib"
+  echo '{"name":"@svayam/mylib","version":"1.0.0"}' > "$root/lib-repo/packages/mylib/package.json"
+  git init -q "$root/lib-repo"; git -C "$root/lib-repo" add -A; git -C "$root/lib-repo" commit -qm init
   local L="$root/gov/knowledge/deployment/catalog/graph.lock"
   ADF_WORKSPACE="$root/gov" python3 "$CATPY" build
-  local p1; p1="$(python3 -c "import json;print(json.load(open('$L'))['units']['noport']['local_port'])")"
+  # served unit: derived port in range
+  local p1; p1="$(python3 -c "import json;print(json.load(open('$L'))['units']['svc']['local_port'])")"
   [ "$p1" -ge 39000 ] && [ "$p1" -le 39999 ]
-  # deterministic — a rebuild yields the same port (stable per unit across runs)
+  # lib: no local port (null)
+  run python3 -c "import json;print(json.load(open('$L'))['units']['mylib']['local_port'])"
+  assert_output "None"
+  # lib renders no local edge in the dag
+  run env ADF_WORKSPACE="$root/gov" python3 "$CATPY" dag mylib --env local
+  assert_success
+  refute_output --partial "localhost"
+  # deterministic — a rebuild yields the same served port
   ADF_WORKSPACE="$root/gov" python3 "$CATPY" build
-  local p2; p2="$(python3 -c "import json;print(json.load(open('$L'))['units']['noport']['local_port'])")"
+  local p2; p2="$(python3 -c "import json;print(json.load(open('$L'))['units']['svc']['local_port'])")"
   assert_equal "$p1" "$p2"
 }
 
