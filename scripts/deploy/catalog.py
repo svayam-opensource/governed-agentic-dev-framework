@@ -1000,6 +1000,13 @@ def dag(cat, target=None, env=None, fmt="tree"):
             names = [target]
         elif target in apps:
             names = [m for m in (apps[target].get("members") or []) if m in units]
+        elif target in ("build", "check", "add", "update", "rm", "dag"):
+            # A sibling catalog SUBCOMMAND was passed where a dag TARGET is expected
+            # (e.g. `prj catalog dag check`). Point at the right grammar.
+            raise ValueError(
+                f"'{target}' is a catalog subcommand, not a dag target. "
+                f"Did you mean `prj catalog {target}`?  "
+                f"Dag grammar: `prj catalog dag [<unit|app|service>] [--env <env>]`.")
         else:
             raise KeyError(
                 f"no such unit, application or platform service '{target}'.  "
