@@ -404,12 +404,25 @@ ok "configured workspace pushed to $TEST_REPO"
 
 # ── Step 7: prj list (empty) ─────────────────────────────────────────────────
 
-info "Step 7 — ./prj list (expect empty)..."
+info "Step 7 — ./prj list (fresh workspace)..."
 out=$(/bin/bash ./prj list 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
-echo "$out" | grep -qi "no projects found" \
-  || hard_stop "prj list output didn't say 'No projects found':
+if [[ -n "${SMOKE_SKIP_EMPTY_LIST:-}" ]]; then
+  # Org-sandbox mode: the fixture board is PROVISIONED by the harness, so it
+  # legitimately shows as an active project here. The real fresh-workspace
+  # invariant is that no project FOLDERS exist locally yet (seed creates them in
+  # Step 9). Just assert prj list ran cleanly + the local workspace is clean.
+  echo "$out" | grep -qiE "ongoing projects|no projects found" \
+    || hard_stop "prj list did not run cleanly:
 $out"
-ok "registry is empty"
+  [[ -z "$(ls -d projects/PRJ-*/ 2>/dev/null)" ]] \
+    || hard_stop "fresh workspace already has project folder(s) before seed"
+  ok "prj list runs; local workspace clean (pre-seed)"
+else
+  echo "$out" | grep -qi "no projects found" \
+    || hard_stop "prj list output didn't say 'No projects found':
+$out"
+  ok "registry is empty"
+fi
 
 # ── Step 8: prj deps ──────────────────────────────────────────────────────────
 

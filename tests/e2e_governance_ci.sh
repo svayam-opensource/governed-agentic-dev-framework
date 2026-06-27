@@ -64,6 +64,7 @@ SMOKE_TEST_OWNER_TYPE="org" \
 SMOKE_FIXTURE_PROJECT_URL="$BOARD_URL" \
 SMOKE_FIXTURE_REPO_BRANCH="main" \
 SMOKE_SKIP_PHASE1=1 \
+SMOKE_SKIP_EMPTY_LIST=1 \
   bash "$REPO_ROOT/tests/e2e_smoke.sh" --always-clean
 rc=$?
 [[ $rc -eq 0 ]] && echo "✓ P6 governance E2E passed" || echo "✗ P6 governance E2E failed (rc=$rc)"
