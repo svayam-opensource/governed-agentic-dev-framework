@@ -41,6 +41,13 @@ is_authorized_for_project "$GH_PROJECT" "$ASSIGNED_TO" \
 
 BRANCH=$(project_branch_for_id "$PROJECT_ID")
 
+# Workspace-repo operations target the PER-PROJECT gov clone (on the project
+# branch), not $REPO_ROOT — which the deterministic resolver (#57) makes the home
+# clone (on main). The project branch is checked out in the per-project worktree
+# (shared base), so home-clone git ops would clash. Fall back to REPO_ROOT.
+WS_CLONE="$(org_gov_clone "$PROJECT_ID")"
+[[ -e "$WS_CLONE/.git" ]] || WS_CLONE="$REPO_ROOT"
+
 # Resolve arg2 → the task sub-branch (TASK_ID) and every issue it closes.
 # Scheme B (POL-070): sub-branch = BRANCH.ISSUE-<n1>-<n2>-…, keyed on issue NUMBERS.
 #  - issue URL  → TASK_ID = BRANCH.ISSUE-<that number>; closes that one issue.
@@ -85,11 +92,11 @@ else
 fi
 
 # Verify the task sub-branch exists on the remote
-git -C "$REPO_ROOT" ls-remote --exit-code --heads origin "$TASK_ID" >/dev/null 2>&1 \
+git -C "$WS_CLONE" ls-remote --exit-code --heads origin "$TASK_ID" >/dev/null 2>&1 \
   || hard_stop "No sub-branch '$TASK_ID' on the remote — was the task created?"
 
 # Check no uncommitted changes in workspace
-check_clean "$REPO_ROOT"
+check_clean "$WS_CLONE"
 
 # Check no uncommitted changes in code repos
 while IFS= read -r repo_url; do
@@ -119,8 +126,8 @@ merge_task_into_branch() {
   git -C "$path" push origin "$BRANCH"
 }
 
-cd "$REPO_ROOT"
-merge_task_into_branch "$REPO_ROOT" "workspace repo"
+cd "$WS_CLONE"
+merge_task_into_branch "$WS_CLONE" "workspace repo"
 
 while IFS= read -r repo_url; do
   REPO_NAME=$(get_repo_name "$repo_url")
@@ -140,7 +147,7 @@ done < <(get_project_repos "$PROJECT_YAML")
 echo ""
 echo "Archiving sub-branches..."
 
-archive_branch "$REPO_ROOT" "$TASK_ID"
+archive_branch "$WS_CLONE" "$TASK_ID"
 
 while IFS= read -r repo_url; do
   REPO_DIR="$(repo_clone_dir "$PROJECT_ID" "$(get_repo_name "$repo_url")")"
