@@ -20,6 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Don't leave the workflow GITHUB_TOKEN auth header in git config — it's
+          # scoped to THIS repo and would override the bot's gh credential when the
+          # E2E pushes to the sandbox org. gh auth setup-git supplies the bot token.
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
