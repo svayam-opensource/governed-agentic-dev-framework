@@ -639,9 +639,19 @@ ok "project $PROJECT_ID closed; status=completed"
 # Board is closed at close → 'prj list' (ongoing only) hides it; 'prj list-all'
 # shows it as completed (GitHub-derived).
 info "Step 15 — ./prj list-all (should show $PROJECT_ID as completed)..."
-out=$(/bin/bash ./prj list-all 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+# list-all is GitHub-derived (a GraphQL query over the org's boards). Closing the
+# board at Step 14 is eventually consistent — the just-closed board can lag a few
+# seconds before the org query reflects it. Poll briefly rather than asserting once.
+out=""
+for _attempt in 1 2 3 4 5 6; do
+  out=$(/bin/bash ./prj list-all 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+  echo "$out" | grep -q "$PROJECT_ID" && break
+  info "  list-all not yet reflecting $PROJECT_ID (attempt $_attempt) — waiting for GitHub to propagate..."
+  sleep 5
+done
 echo "$out" | grep -q "$PROJECT_ID" \
-  || hard_stop "./prj list-all missing $PROJECT_ID"
+  || hard_stop "./prj list-all missing $PROJECT_ID (after retries):
+$out"
 echo "$out" | grep -qi "completed" \
   || warn "./prj list-all output doesn't show 'completed' status (may render differently)"
 ok "$PROJECT_ID listed as completed (GitHub-derived)"
