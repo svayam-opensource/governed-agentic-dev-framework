@@ -161,6 +161,12 @@ while IFS= read -r repo_url; do
 
   git -C "$REPO_DIR" fetch origin "$REPO_BASE"
   git -C "$REPO_DIR" fetch origin "$BRANCH" 2>/dev/null || true
+  # The per-project repo is a worktree of a shared base clone (ADR-0001). If that
+  # base clone "holds" $REPO_BASE (e.g. it's sitting on main), the worktree can't
+  # check it out → "already used by worktree". Detach the base's HEAD to free the
+  # branch (the base is an object store, not a working checkout).
+  _RBASE_CLONE="$(base_clone_dir "$repo_url")"
+  [[ -e "$_RBASE_CLONE/.git" ]] && git -C "$_RBASE_CLONE" checkout --detach -q 2>/dev/null || true
   git -C "$REPO_DIR" checkout "$REPO_BASE"
 
   MERGED_REPOS+=("$REPO_NAME|$REPO_BASE")
