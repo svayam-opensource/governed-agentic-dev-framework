@@ -30,7 +30,7 @@ teardown() { sandbox_down; }
 @test "help: every command gives real CLI help (no generic stub)" {
   local cmds=(start finish task merge pause resume sync init join add-repo cancel
               close knowledge onboard list list-all status deps upgrade validate
-              config deploy seed catalog data iam-data creds schedules manage work)
+              config deploy seed publish catalog data iam-data creds schedules manage work)
   local c out
   for c in "${cmds[@]}"; do
     out="$(ADF_WORKSPACE="$ADF_WORKSPACE" bash "$PRJ_BIN" help "$c" 2>&1)"

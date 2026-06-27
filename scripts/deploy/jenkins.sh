@@ -170,8 +170,37 @@ _folder_xml() {
 
 # Pipeline-from-SCM job XML: SCM=workspace repo, script=the central activity pipeline,
 # params UNIT+DEPLOY_ENV. Optional credentialsId via $JENKINS_SCM_CREDENTIAL_ID.
+# Parameter definitions per activity. The job XML must declare the params the
+# Jenkinsfile expects so the FIRST buildWithParameters honours prj's values
+# (a Pipeline-from-SCM job only learns its Jenkinsfile params after a build).
+_param_defs() {
+  local activity="$1" unit="$2" env="$3"
+  case "$activity" in
+    publish)
+      cat <<XML
+        <hudson.model.StringParameterDefinition><name>PUBLISH_REPO</name><defaultValue>svayam-opensource/governed-agentic-dev-framework</defaultValue><description>CLI source repo owner/name or git URL (set by prj)</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>PUBLISH_REF</name><defaultValue></defaultValue><description>tag/branch/SHA to publish, e.g. v0.8.0 (set by prj)</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>DIST_TAG</name><defaultValue>latest</defaultValue><description>npm dist-tag</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>DRY_RUN</name><defaultValue>true</defaultValue><description>true = gate + npm publish --dry-run only</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>PUBLISH_AGENT</name><defaultValue>built-in</defaultValue><description>agent label with node+npm</description></hudson.model.StringParameterDefinition>
+XML
+      ;;
+    *)  # deploy / build / ops — the host-deploy param set
+      cat <<XML
+        <hudson.model.StringParameterDefinition><name>UNIT</name><defaultValue>${unit}</defaultValue><description>catalog unit</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>DEPLOY_ENV</name><defaultValue>${env}</defaultValue><description>dev|uat|prod</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>UNIT_REPO</name><defaultValue></defaultValue><description>owner/name or git URL (set by prj)</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>DEPLOY_HOST</name><defaultValue></defaultValue><description>target host == agent label (set by prj)</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>SERVE_PORT</name><defaultValue>8080</defaultValue><description>container/host port (set by prj)</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>HEALTH_PATH</name><defaultValue>/health</defaultValue><description>healthcheck path (set by prj)</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>ACTION</name><defaultValue>up</defaultValue><description>up (deploy) | stop (tear down)</description></hudson.model.StringParameterDefinition>
+XML
+      ;;
+  esac
+}
+
 _pipeline_xml() {
-  local script="$1" scm="$2" branch="$3" unit="$4" env="$5" cred=""
+  local script="$1" scm="$2" branch="$3" unit="$4" env="$5" activity="${6:-deploy}" cred=""
   [[ -n "${JENKINS_SCM_CREDENTIAL_ID:-}" ]] && cred="<credentialsId>${JENKINS_SCM_CREDENTIAL_ID}</credentialsId>"
   cat <<XML
 <?xml version="1.0" encoding="UTF-8"?>
@@ -181,13 +210,7 @@ _pipeline_xml() {
   <properties>
     <hudson.model.ParametersDefinitionProperty>
       <parameterDefinitions>
-        <hudson.model.StringParameterDefinition><name>UNIT</name><defaultValue>${unit}</defaultValue><description>catalog unit</description></hudson.model.StringParameterDefinition>
-        <hudson.model.StringParameterDefinition><name>DEPLOY_ENV</name><defaultValue>${env}</defaultValue><description>dev|uat|prod</description></hudson.model.StringParameterDefinition>
-        <hudson.model.StringParameterDefinition><name>UNIT_REPO</name><defaultValue></defaultValue><description>owner/name or git URL (set by prj)</description></hudson.model.StringParameterDefinition>
-        <hudson.model.StringParameterDefinition><name>DEPLOY_HOST</name><defaultValue></defaultValue><description>target host == agent label (set by prj)</description></hudson.model.StringParameterDefinition>
-        <hudson.model.StringParameterDefinition><name>SERVE_PORT</name><defaultValue>8080</defaultValue><description>container/host port (set by prj)</description></hudson.model.StringParameterDefinition>
-        <hudson.model.StringParameterDefinition><name>HEALTH_PATH</name><defaultValue>/health</defaultValue><description>healthcheck path (set by prj)</description></hudson.model.StringParameterDefinition>
-        <hudson.model.StringParameterDefinition><name>ACTION</name><defaultValue>up</defaultValue><description>up (deploy) | stop (tear down)</description></hudson.model.StringParameterDefinition>
+$(_param_defs "$activity" "$unit" "$env")
       </parameterDefinitions>
     </hudson.model.ParametersDefinitionProperty>
   </properties>
@@ -236,7 +259,7 @@ cmd_ensure_job() {
   if _jk_exists "$path"; then
     echo "  = job $path (exists)"
   else
-    f=$(mktemp); _pipeline_xml "$script" "$scm" "$branch" "$unit" "$env" > "$f"
+    f=$(mktemp); _pipeline_xml "$script" "$scm" "$branch" "$unit" "$env" "$activity" > "$f"
     _jk_create "$parent" "$unit" "$f" >/dev/null 2>&1 \
       && echo "  + job $path  (Pipeline-from-SCM → $script)" || hard_stop "ensure-job: could not create job '$path' (perms?)."
     rm -f "$f"
