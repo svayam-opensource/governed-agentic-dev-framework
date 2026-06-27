@@ -1,0 +1,8 @@
+{
+  "name": "@svayam/prj-e2e-sandbox",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Throwaway sandbox service for prj real-deploy E2E (pure app code).",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" }
+}

@@ -2653,13 +2653,17 @@ cmd_deploy() {
   [[ "$seed" == 1 ]] && warn "deploy: --seed is local-only for now (the seed hook targets the local DB); seed remote envs separately once the seed hook supports them."
   local suffix; case "$env" in development) suffix="dev";; staging) suffix="uat";; production) suffix="prod";; esac
   local units
+  # `resolve` exits non-zero for a target not yet in graph.lock (e.g. a brand-new
+  # unit) — tolerate that under `set -e` so the fallback below applies (the unit is
+  # still in the raw services.yaml the pipeline reads). The trailing `|| true`
+  # keeps the command substitution from aborting the script.
   units=$(python3 "$DEPLOY/catalog.py" resolve "$target" --env "$env" --format json 2>/dev/null \
     | python3 -c 'import sys,json
 try:
     ms=json.load(sys.stdin)
 except Exception:
     ms=[]
-print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>/dev/null)
+print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>/dev/null || true)
   [[ -n "$units" ]] || units="$target"
 
   # Interim safety (svm-prj-work#86): confirm uat/prod unless --yes.
@@ -2671,11 +2675,37 @@ print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>
     [[ "$confirm" == "$suffix" || "$confirm" == "$env" ]] || { err "Confirmation mismatch — aborted."; return 1; }
   fi
 
+  # Read a unit's catalog fact (prj is the single interface: it resolves the facts
+  # and passes them to the param-driven pipeline). yq if present, else pyyaml.
+  _cat_get() {  # <unit> <dot-path-after-unit>
+    local cf="$WORKSPACE_ROOT/knowledge/deployment/catalog/services.yaml" v
+    if command -v yq >/dev/null 2>&1; then
+      v=$(yq ".services.\"$1\".$2" "$cf" 2>/dev/null)
+    else
+      v=$(SVC="$1" P="$2" python3 - "$cf" <<'PY' 2>/dev/null
+import sys, os, yaml
+d = (yaml.safe_load(open(sys.argv[1])) or {}).get('services', {}).get(os.environ['SVC'], {})
+for k in os.environ['P'].split('.'):
+    d = (d or {}).get(k) if isinstance(d, dict) else None
+print('' if d is None else d)
+PY
+)
+    fi
+    [[ "$v" == "null" ]] && v=""
+    printf '%s' "$v"
+  }
   local u rc=0
   for u in $units; do
     # Job path per the jenkins-job-organization standard: <workspace_repo>/<activity>/<env>/<unit>.
     local job="${WORKSPACE_REPO}/deploy/${suffix}/${u}"
-    local params=("DEPLOY_ENV=$env")
+    # Resolve the unit's deploy facts from the catalog and pass them to the pipeline.
+    local urepo uhost uport uhealth
+    urepo=$(_cat_get "$u" repo)
+    uhost=$(_cat_get "$u" "hosts.$suffix")
+    uport=$(_cat_get "$u" "serve.port"); [[ -z "$uport" ]] && uport="8080"
+    uhealth=$(_cat_get "$u" "healthcheck.path"); [[ -z "$uhealth" ]] && uhealth="/health"
+    local params=("UNIT=$u" "DEPLOY_ENV=$env" "UNIT_REPO=$urepo" "DEPLOY_HOST=$uhost" "SERVE_PORT=$uport" "HEALTH_PATH=$uhealth")
+    [[ "$action" == "stop" ]] && params+=("ACTION=stop")
     [[ -n "$agent" ]]        && params+=("AGENT_LABEL=$agent")
     [[ -n "$pin" ]]          && params+=("IMAGE_TAG_OVERRIDE=$pin")
     [[ -n "$branch" ]]       && params+=("BUILD_BRANCH=$branch" "PORTAL_BRANCH=$branch")  # unit-specific; Jenkins ignores undeclared
@@ -2688,7 +2718,9 @@ print("\n".join(m["service"] for m in ms if m.get("kind") in ("api","spa")))' 2>
     fi
     # Provision the job from the catalog if it's a first-time unit (no human in
     # Jenkins): create the folder chain + Pipeline-from-SCM job, then trigger.
-    JENKINS_SCM_URL="$ORG_REPO_URL" JENKINS_SCM_BRANCH="${DEFAULT_BRANCH:-main}" \
+    # The job's SCM is the gov repo (built from github_org + workspace_repo —
+    # prj reads those, not org_repo_url). credentialsId via $JENKINS_SCM_CREDENTIAL_ID.
+    JENKINS_SCM_URL="git@github.com:${GITHUB_ORG}/${WORKSPACE_REPO}.git" JENKINS_SCM_BRANCH="${DEFAULT_BRANCH:-main}" \
       bash "$DEPLOY/jenkins.sh" ensure-job "$job" || { rc=$?; warn "deploy: could not ensure job $job — skipping trigger."; continue; }
     info "deploy: $job  (${params[*]})"
     if [[ "$follow" == 1 ]]; then
