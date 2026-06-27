@@ -28,9 +28,21 @@ teardown() { sandbox_down; }
   assert_output "$GOV"
 }
 
-@test "honors a valid ADF_WORKSPACE override" {
+@test "ignores an ambient ADF_WORKSPACE when the pointer resolves (deterministic)" {
+  # The CLI must NOT depend on an ambient ADF_WORKSPACE: a working pointer wins,
+  # so a stale login-shell export can never misdirect it.
   write_pointer "$GOV"; OTHER="$TEST_TMP/other"; make_gov_repo "$OTHER"
   ADF_WORKSPACE="$OTHER" run resolved_workspace
+  assert_output "$GOV"
+}
+
+@test "bootstraps the pointer from ADF_WORKSPACE only when no pointer exists" {
+  # No pointer yet → an inbound ADF_WORKSPACE seeds it (and is recorded), so
+  # every future run resolves deterministically without the env var.
+  OTHER="$TEST_TMP/other"; make_gov_repo "$OTHER"
+  ADF_WORKSPACE="$OTHER" run resolved_workspace
+  assert_output "$OTHER"
+  run cat "$XDG_CONFIG_HOME/prj/gov-workspace"
   assert_output "$OTHER"
 }
 
