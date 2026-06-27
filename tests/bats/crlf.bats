@@ -44,7 +44,7 @@ print('\n'.join(bad))
 
 @test "menu tolerates CRLF-piped input" {
   make_gov_repo "$TEST_TMP/gov"; export ADF_WORKSPACE="$TEST_TMP/gov"
-  run bash -c "printf '7\r\n0\r\n0\r\n' | ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN'"
+  run bash -c "printf '4\r\n0\r\n0\r\n' | ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN'"
   assert_success
   assert_output --partial "Help — prj command-line use"
   assert_output --partial "Bye."
