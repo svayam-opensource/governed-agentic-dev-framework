@@ -532,11 +532,15 @@ def _content_sha_map(cat, derived):
     return {n: sha(n) for n in derived}
 
 
-def _local_port(name, serve, healthcheck):
-    """Stable local port for a unit (#108.3): its declared serve/healthcheck port
-    if any, else a port DERIVED from the unit name — assigned at build and reused
-    across runs (deterministic, stable per unit). Range 39000-39999 to avoid the
-    common service ports. The local edge is then `localhost:<this>`."""
+def _local_port(name, kind, serve, healthcheck):
+    """Stable local port for a SERVED unit (#108.3): its declared serve/healthcheck
+    port if any, else a port DERIVED from the unit name — assigned at build and
+    reused across runs (deterministic, stable per unit; range 39000-39999). The
+    local edge is then `localhost:<this>`.
+
+    Libraries (kind == 'lib') are NOT served — they're npm packages consumed as
+    build inputs, with no host/port/edge — so they get None (no local endpoint),
+    unless they explicitly declare a port."""
     sv = serve if isinstance(serve, dict) else {}
     hc = healthcheck if isinstance(healthcheck, dict) else {}
     p = sv.get("port") or hc.get("port")
@@ -545,13 +549,16 @@ def _local_port(name, serve, healthcheck):
             return int(p)
         except (TypeError, ValueError):
             pass
+    if kind == "lib":
+        return None
     return 39000 + int(hashlib.sha256(name.encode()).hexdigest(), 16) % 1000
 
 
 def local_edge(unit_lock):
-    """The local edge for a lock unit: `localhost:<local_port>` (#108.3)."""
+    """The local edge for a lock unit: `localhost:<local_port>` for a served unit,
+    or '-' when it has no local endpoint (e.g. a library) (#108.3)."""
     port = unit_lock.get("local_port")
-    return "localhost:%s" % port if port else "localhost"
+    return "localhost:%s" % port if port else "-"
 
 
 def artifact_version(unit_lock):
@@ -707,7 +714,7 @@ def build_lock(cat):
             "serve": decl.get("serve"), "healthcheck": decl.get("healthcheck"),
             "build": decl.get("build"),
             # #108.3 — stable local port (assigned at build, reused): edge = localhost:<port>.
-            "local_port": _local_port(name, decl.get("serve"), decl.get("healthcheck")),
+            "local_port": _local_port(name, d["kind"], decl.get("serve"), decl.get("healthcheck")),
             # #108.2 artifact version + #108.1 build closure (the build-side DAG).
             "semver": d.get("semver"),
             "content_sha": shas.get(name),
@@ -920,9 +927,13 @@ def _fmt_dag_tree(units, ps, names, env, epins, allpins=None):
         head = f"{n}  ({d.get('kind') or '?'} · {d.get('artifact') or '—'}{'@' + ver if ver else ''})"
         if env:
             if env == "local":
-                # local isn't a public domain — it's served on localhost at the
-                # unit's stable assigned port (#108.3), not <unit>-local.<domain>.
-                host, edge = "localhost", local_edge(d)
+                # local isn't a public domain — served units run on localhost at
+                # their stable assigned port (#108.3). Non-served units (libs) have
+                # NO endpoint → host/edge are '-'.
+                if d.get("local_port"):
+                    host, edge = "localhost", "localhost:%s" % d["local_port"]
+                else:
+                    host, edge = "-", "-"
             else:
                 host = (d.get("hosts") or {}).get(env) or "-"
                 edge = (d.get("edge") or "").replace("<env>", env) or "-"

@@ -3077,10 +3077,11 @@ for u in sorted(units):
     d=units[u]; host=(d.get('hosts') or {}).get(env) or '-'
     pin=epins.get(u) or '-'
     if env == 'local':
-        # local isn't a public domain — it's served on localhost at the unit's
-        # stable assigned port (#108.3, in the lock as local_port), never a domain.
+        # local isn't a public domain — a SERVED unit runs on localhost at its
+        # stable assigned port (#108.3, lock local_port). Non-served units (libs)
+        # have NO endpoint → '-'.
         port=d.get('local_port')
-        edge='localhost'+((':%s'%port) if port else '')
+        edge=('localhost:%s'%port) if port else '-'
     else:
         edge=(d.get('edge') or '').replace('<env>',env) or '-'
     print("  %-13s %-5s %-10s %-10s %s"%(u, d.get('kind') or '', host, pin, edge))
