@@ -23,8 +23,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      - name: Prepare environment (prj deps)
-        run: bash scripts/install-deps.sh || true
+      - name: Prepare environment (prj deps + pyyaml)
+        run: |
+          python -m pip install --quiet pyyaml || pip install --quiet pyyaml || true
+          bash scripts/install-deps.sh || true
       - name: Configure git + gh for the bot
         env:
           GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
