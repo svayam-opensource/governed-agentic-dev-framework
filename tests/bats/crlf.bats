@@ -17,6 +17,21 @@ teardown() { sandbox_down; }
   if [ -n "$bad" ]; then echo "CRLF found in:"; echo "$bad"; return 1; fi
 }
 
+@test "bats @test names are ASCII (Windows bats mangles non-ASCII names)" {
+  cd "$REPO_SRC"
+  run python3 -c "
+import glob
+bad=[]
+for f in glob.glob('tests/bats/*.bats'):
+    for i,l in enumerate(open(f, encoding='utf-8'), 1):
+        if l.startswith('@test ') and any(ord(c) > 127 for c in l):
+            bad.append('%s:%d: %s' % (f, i, l.strip()))
+print('\n'.join(bad))
+"
+  assert_success
+  assert_output ""
+}
+
 @test "resolution tolerates a CRLF gov-workspace pointer file" {
   make_gov_repo "$TEST_TMP/gov"
   mkdir -p "$XDG_CONFIG_HOME/prj"

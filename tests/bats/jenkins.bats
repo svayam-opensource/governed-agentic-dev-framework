@@ -75,7 +75,7 @@ exit 0"
   assert_output --partial "name=demo"
 }
 
-@test "ensure-job: idempotent — creates nothing when everything already exists" {
+@test "ensure-job: idempotent - creates nothing when everything already exists" {
   _stub_curl_provision
   run env JENKINS_URL=https://jenkins.test JENKINS_BEARER_TOKEN=tok \
       JENKINS_SCM_URL=git@github.com:Svayamtech/svm-prj-work.git FAKE_HTTP=200 \
