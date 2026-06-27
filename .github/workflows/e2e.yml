@@ -39,6 +39,10 @@ jobs:
           git config --global user.email "prj-e2e-bot@svayam.ai"
           git config --global user.name  "prj-e2e bot"
           git config --global init.defaultBranch main
+          # Route every https://github.com/ git op through the bot token (robust
+          # vs checkout's extraheader / credential-helper quirks; the E2E pushes
+          # to the sandbox org which the workflow GITHUB_TOKEN can't write).
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
           gh auth setup-git
       - name: Governance lifecycle E2E (org sandbox)
         env:
