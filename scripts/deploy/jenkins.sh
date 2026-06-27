@@ -183,6 +183,11 @@ _pipeline_xml() {
       <parameterDefinitions>
         <hudson.model.StringParameterDefinition><name>UNIT</name><defaultValue>${unit}</defaultValue><description>catalog unit</description></hudson.model.StringParameterDefinition>
         <hudson.model.StringParameterDefinition><name>DEPLOY_ENV</name><defaultValue>${env}</defaultValue><description>dev|uat|prod</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>UNIT_REPO</name><defaultValue></defaultValue><description>owner/name or git URL (set by prj)</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>DEPLOY_HOST</name><defaultValue></defaultValue><description>target host == agent label (set by prj)</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>SERVE_PORT</name><defaultValue>8080</defaultValue><description>container/host port (set by prj)</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>HEALTH_PATH</name><defaultValue>/health</defaultValue><description>healthcheck path (set by prj)</description></hudson.model.StringParameterDefinition>
+        <hudson.model.StringParameterDefinition><name>ACTION</name><defaultValue>up</defaultValue><description>up (deploy) | stop (tear down)</description></hudson.model.StringParameterDefinition>
       </parameterDefinitions>
     </hudson.model.ParametersDefinitionProperty>
   </properties>
