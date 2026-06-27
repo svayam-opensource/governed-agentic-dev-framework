@@ -532,6 +532,28 @@ def _content_sha_map(cat, derived):
     return {n: sha(n) for n in derived}
 
 
+def _local_port(name, serve, healthcheck):
+    """Stable local port for a unit (#108.3): its declared serve/healthcheck port
+    if any, else a port DERIVED from the unit name — assigned at build and reused
+    across runs (deterministic, stable per unit). Range 39000-39999 to avoid the
+    common service ports. The local edge is then `localhost:<this>`."""
+    sv = serve if isinstance(serve, dict) else {}
+    hc = healthcheck if isinstance(healthcheck, dict) else {}
+    p = sv.get("port") or hc.get("port")
+    if p:
+        try:
+            return int(p)
+        except (TypeError, ValueError):
+            pass
+    return 39000 + int(hashlib.sha256(name.encode()).hexdigest(), 16) % 1000
+
+
+def local_edge(unit_lock):
+    """The local edge for a lock unit: `localhost:<local_port>` (#108.3)."""
+    port = unit_lock.get("local_port")
+    return "localhost:%s" % port if port else "localhost"
+
+
 def artifact_version(unit_lock):
     """Render a lock unit's artifact version as `<semver>+<sha7>` (or '' if unknown)."""
     sv = unit_lock.get("semver")
@@ -684,6 +706,8 @@ def build_lock(cat):
             "hosts": decl.get("hosts"), "edge": decl.get("edge"),
             "serve": decl.get("serve"), "healthcheck": decl.get("healthcheck"),
             "build": decl.get("build"),
+            # #108.3 — stable local port (assigned at build, reused): edge = localhost:<port>.
+            "local_port": _local_port(name, decl.get("serve"), decl.get("healthcheck")),
             # #108.2 artifact version + #108.1 build closure (the build-side DAG).
             "semver": d.get("semver"),
             "content_sha": shas.get(name),
@@ -895,8 +919,13 @@ def _fmt_dag_tree(units, ps, names, env, epins, allpins=None):
         ver = artifact_version(d)
         head = f"{n}  ({d.get('kind') or '?'} · {d.get('artifact') or '—'}{'@' + ver if ver else ''})"
         if env:
-            host = (d.get("hosts") or {}).get(env) or "-"
-            edge = (d.get("edge") or "").replace("<env>", env) or "-"
+            if env == "local":
+                # local isn't a public domain — it's served on localhost at the
+                # unit's stable assigned port (#108.3), not <unit>-local.<domain>.
+                host, edge = "localhost", local_edge(d)
+            else:
+                host = (d.get("hosts") or {}).get(env) or "-"
+                edge = (d.get("edge") or "").replace("<env>", env) or "-"
             head += f"   [env={env}: host={host} · edge={edge}]"
         out.append(head)
         # #108.1 — build INPUTS → artifact (the build side; was an empty leaf line).
