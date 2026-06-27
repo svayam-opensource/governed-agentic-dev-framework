@@ -85,6 +85,39 @@ print('ok')
   assert_output --partial "version"
 }
 
+@test "local-port (#108.3): declared serve/healthcheck port becomes the local edge" {
+  catpy build
+  # fixture api declares serve.port 8080 → local_port 8080, edge localhost:8080
+  run python3 -c "import json;print(json.load(open('$LOCK'))['units']['api']['local_port'])"
+  assert_output "8080"
+  run catpy dag api --env local
+  assert_success
+  assert_output --partial "edge=localhost:8080"
+  refute_output --partial ".svayamtech.com"   # local is never a public domain
+}
+
+@test "local-port (#108.3): a unit without a declared port gets a stable derived port" {
+  local root="$TEST_TMP/lp"; mkdir -p "$root/gov/knowledge/deployment/catalog"
+  cat > "$root/gov/knowledge/deployment/catalog/services.yaml" <<'YAML'
+version: 2
+services:
+  noport:
+    repo: acme/noport-repo
+    anchor: packages/noport
+YAML
+  mkdir -p "$root/noport-repo/packages/noport"
+  echo '{"name":"@svayam/noport","version":"1.0.0"}' > "$root/noport-repo/packages/noport/package.json"
+  git init -q "$root/noport-repo"; git -C "$root/noport-repo" add -A; git -C "$root/noport-repo" commit -qm init
+  local L="$root/gov/knowledge/deployment/catalog/graph.lock"
+  ADF_WORKSPACE="$root/gov" python3 "$CATPY" build
+  local p1; p1="$(python3 -c "import json;print(json.load(open('$L'))['units']['noport']['local_port'])")"
+  [ "$p1" -ge 39000 ] && [ "$p1" -le 39999 ]
+  # deterministic — a rebuild yields the same port (stable per unit across runs)
+  ADF_WORKSPACE="$root/gov" python3 "$CATPY" build
+  local p2; p2="$(python3 -c "import json;print(json.load(open('$L'))['units']['noport']['local_port'])")"
+  assert_equal "$p1" "$p2"
+}
+
 @test "versioning: a build-dep change rolls up into the dependent's content_sha" {
   # Synthetic @svayam lib <- app catalog so the cross-repo build edge is derived
   # (_svayam_deps tracks @svayam/*). lib + app are sibling repos of a gov ws.

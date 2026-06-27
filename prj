@@ -3028,11 +3028,9 @@ for u in sorted(units):
     d=units[u]; host=(d.get('hosts') or {}).get(env) or '-'
     pin=epins.get(u) or '-'
     if env == 'local':
-        # local isn't a public domain — it's served on localhost. Show the port
-        # when the unit declares one (serve/healthcheck), else just 'localhost'.
-        sv=d.get('serve') if isinstance(d.get('serve'), dict) else {}
-        hc=d.get('healthcheck') if isinstance(d.get('healthcheck'), dict) else {}
-        port=sv.get('port') or hc.get('port')
+        # local isn't a public domain — it's served on localhost at the unit's
+        # stable assigned port (#108.3, in the lock as local_port), never a domain.
+        port=d.get('local_port')
         edge='localhost'+((':%s'%port) if port else '')
     else:
         edge=(d.get('edge') or '').replace('<env>',env) or '-'
@@ -3360,11 +3358,207 @@ Copies (never deletes) the old home; repairs worktrees in place. Idempotent — 
 no-op if already canonical.
 EOF
       ;;
-    start|finish|task|merge|pause|resume|sync|init|join|add-repo|cancel|close|knowledge|onboard|list|list-all|status|deps|upgrade|validate)
-      echo ""
-      echo "prj $topic — run \`prj $topic\` (mostly interactive — follow the prompts)."
-      echo "  One-line summary: prj help --detail"
-      echo ""
+    start)
+      cat <<'EOF'
+prj start — guided entry to BEGIN work: join an existing project, create a new
+task on a project you're already on, or start a brand-new project. Interactive.
+
+Most days you want `prj work` (continue where you left off). Reach for `start`
+when beginning something new and you want to be walked through the choices.
+
+Examples:
+  prj start            walk me through join / new-task / new-project
+EOF
+      ;;
+    finish)
+      cat <<'EOF'
+prj finish — finish the current unit of work: merge a completed TASK back into the
+project branch, or — if you're on the project branch — CLOSE the project.
+Interactive (detects your context and confirms before acting).
+
+Examples:
+  prj finish           merge this task, or close the project if on its branch
+EOF
+      ;;
+    task)
+      cat <<'EOF'
+prj task — create a TASK sub-branch for parallel work on the current project.
+Branches off the project branch so multiple agents/devs work without colliding;
+merge it back with `prj merge`. Interactive (prompts for the task name).
+
+Examples:
+  prj task             create a new task sub-branch off the project branch
+EOF
+      ;;
+    merge)
+      cat <<'EOF'
+prj merge — merge a completed TASK sub-branch back into the project branch, then
+clean the task branch up. Interactive: pick the task to merge. The pair of
+`prj task`.
+
+Examples:
+  prj merge            pick a finished task and merge it into the project branch
+EOF
+      ;;
+    pause)
+      cat <<'EOF'
+prj pause — pause an ACTIVE project (status active → paused), preserving its
+branch and worktrees so nothing is lost. Resume later with `prj resume`.
+Interactive: pick from your active projects.
+
+Examples:
+  prj pause            pause an active project (keeps all branches/worktrees)
+EOF
+      ;;
+    resume)
+      cat <<'EOF'
+prj resume — resume a PAUSED project (status paused → active). Interactive: pick
+from your paused projects.
+
+Examples:
+  prj resume           reactivate a paused project
+EOF
+      ;;
+    sync)
+      cat <<'EOF'
+prj sync — sync your project branch(es) with the latest BASE branches, so you
+build on current code (pulls the base in for the workspace + each member repo).
+Interactive.
+
+Examples:
+  prj sync             bring the latest base branches into your project branch
+EOF
+      ;;
+    init)
+      cat <<'EOF'
+prj init — (ADVANCED) initialize a new project directly from an anchor issue,
+without the guided `start` flow. Most users should use `prj start` or `prj work`.
+Interactive.
+
+Examples:
+  prj init             create a project workspace from an anchor issue directly
+EOF
+      ;;
+    join)
+      cat <<'EOF'
+prj join — JOIN an existing project: clone its workspace + member repos and check
+out the project branch into your $AGENT_WORK_ROOT. Interactive: pick the project.
+
+Examples:
+  prj join             clone + check out an existing project to work on it
+EOF
+      ;;
+    add-repo)
+      cat <<'EOF'
+prj add-repo — add a code repository to the ACTIVE project: records it in
+project.yaml repos[] and clones it on the project branch. Interactive (prompts
+for the repo URL + reason). For bringing a repo INTO the framework, see `onboard`.
+
+Examples:
+  prj add-repo         attach another code repo to the current project
+EOF
+      ;;
+    cancel)
+      cat <<'EOF'
+prj cancel — CANCEL a project (status → cancelled) with a recorded reason. Use for
+abandoned work; `prj close` is for COMPLETED work. Interactive.
+
+Examples:
+  prj cancel           cancel a project and record why
+EOF
+      ;;
+    close)
+      cat <<'EOF'
+prj close — close a COMPLETED project (status → completed): finalize it, promote
+any project knowledge via PR, and archive the project branch. Interactive.
+(Standing/common projects don't close — promote their knowledge with `prj knowledge`.)
+
+Examples:
+  prj close            wrap up a finished project (+ knowledge promotion)
+EOF
+      ;;
+    knowledge)
+      cat <<'EOF'
+prj knowledge — propose ORG-knowledge changes via a `knowledge-<slug>` branch off
+main → C02 PR. (During an active project, knowledge/ is read-only — changes go
+through this reviewed flow, not direct commits.) Interactive; three sub-flows:
+
+  create    make a new knowledge-<slug> branch (then edit knowledge/ + commit)
+  submit    open the PR for an existing knowledge branch
+  archive   tag + delete a merged knowledge branch
+
+Examples:
+  prj knowledge        create / submit / archive a knowledge proposal branch
+EOF
+      ;;
+    onboard)
+      cat <<'EOF'
+prj onboard — onboard a code repository INTO the framework: add the knowledge/
+scaffold, agent entry points, and CI hooks so it participates in governed
+development. Interactive. (Distinct from `add-repo`, which attaches an already-
+onboarded repo to a specific project.)
+
+Examples:
+  prj onboard          prepare a repo to participate in governed development
+EOF
+      ;;
+    list)
+      cat <<'EOF'
+prj list — list ONGOING projects (active + paused), derived live from the GitHub
+boards. No args. See also `prj list-all`.
+
+Examples:
+  prj list             show active + paused projects
+EOF
+      ;;
+    list-all)
+      cat <<'EOF'
+prj list-all — list ALL projects (every board: not-started, ongoing, done),
+derived live from GitHub. No args. See also `prj list`.
+
+Examples:
+  prj list-all         show the full project universe
+EOF
+      ;;
+    status)
+      cat <<'EOF'
+prj status [<board-number>] — show one project's status: lifecycle, assignment,
+branch, repos, and open board items. Asks for the board NUMBER if omitted.
+
+Examples:
+  prj status 43        status of PRJ-43 (GitHub board #43)
+  prj status           prompt for the board number
+EOF
+      ;;
+    deps)
+      cat <<'EOF'
+prj deps — install / verify the tools prj needs for THIS OS (gh, git, jq, and a
+YAML reader: PyYAML or the yq binary). Idempotent; safe to re-run. No args.
+
+Examples:
+  prj deps             check + install missing dependencies
+EOF
+      ;;
+    upgrade)
+      cat <<'EOF'
+prj upgrade [<version>] — pull a new framework version from the `template` git
+remote and apply it, preserving your org-config + project data. Requires a remote
+named `template`. Omit <version> for the latest.
+
+Examples:
+  prj upgrade          upgrade to the latest template version
+  prj upgrade 0.7.4    upgrade to a specific version / tag
+EOF
+      ;;
+    validate)
+      cat <<'EOF'
+prj validate — run the workspace VALIDATOR over knowledge/ + the registry (schema,
+front-matter, links, lifecycle, secrets, exec-bits, version-sync) — the same gate
+CI runs. No args; non-zero exit on any violation.
+
+Examples:
+  prj validate         run all workspace checks locally before pushing
+EOF
       ;;
     *)
       err "Unknown command '$topic'. Run 'prj help' for common commands, 'prj help --detail' for all."
