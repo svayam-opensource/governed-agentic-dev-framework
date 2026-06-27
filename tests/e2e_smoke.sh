@@ -284,10 +284,29 @@ CLEANUP_ARTIFACTS+=("repo:$TEST_REPO")
 ok "test repo created: $TEST_REPO"
 
 info "Step 1b — pushing local publish HEAD ($(cd "$REPO_ROOT" && git rev-parse --short HEAD)) to $TEST_REPO as main..."
-( cd "$REPO_ROOT" && git push "https://github.com/$TEST_REPO.git" "HEAD:main" ) \
-  >/dev/null 2>&1 \
-  || hard_stop "git push of publish HEAD to test repo failed"
-ok "local publish HEAD pushed to $TEST_REPO/main"
+_PUSH_URL="https://github.com/$TEST_REPO.git"
+if ( cd "$REPO_ROOT" && git push "$_PUSH_URL" "HEAD:main" ) >/dev/null 2>&1; then
+  ok "local publish HEAD pushed to $TEST_REPO/main"
+else
+  # A repo-scoped PAT (no `workflow` scope) cannot push commits that touch
+  # .github/workflows/*. The throwaway test workspace exercises the governance
+  # lifecycle, not CI, so retry from a detached worktree with that dir stripped —
+  # this keeps the bot PAT at least-privilege (`repo` scope only).
+  warn "direct push rejected — retrying without .github/workflows (no 'workflow' scope needed)"
+  _WT="$(mktemp -d)"
+  _rc=0
+  ( cd "$REPO_ROOT" && git worktree add -q --detach "$_WT" HEAD ) || _rc=1
+  if [[ $_rc -eq 0 ]]; then
+    rm -rf "$_WT/.github/workflows"
+    git -C "$_WT" -c user.email="${GIT_AUTHOR_EMAIL:-$(git config user.email 2>/dev/null || echo e2e@local)}" \
+                  -c user.name="${GIT_AUTHOR_NAME:-$(git config user.name 2>/dev/null || echo prj-e2e)}" \
+                  commit -q -am "e2e: strip CI workflows for throwaway test repo" >/dev/null 2>&1 || true
+    git -C "$_WT" push "$_PUSH_URL" "HEAD:main" >/dev/null 2>&1 || _rc=1
+    ( cd "$REPO_ROOT" && git worktree remove --force "$_WT" ) >/dev/null 2>&1 || rm -rf "$_WT"
+  fi
+  [[ $_rc -eq 0 ]] || hard_stop "git push of publish HEAD to test repo failed (even after stripping .github/workflows)"
+  ok "local publish HEAD (minus CI workflows) pushed to $TEST_REPO/main"
+fi
 
 # Brief pause so GitHub registers the default branch
 sleep 2
