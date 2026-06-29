@@ -2839,7 +2839,7 @@ if yaml:
     try: pins=(yaml.safe_load(open(sys.argv[2])) or {}).get('pins',{}) or {}
     except Exception: pins={}
 env=sys.argv[3]
-units=lock.get('units',{}) or {}; apps=lock.get('applications',{}) or {}; ps=lock.get('platform_services',{}) or {}
+units=lock.get('units',{}) or {}; apps=lock.get('applications',{}) or {}; ps=(lock.get('external') or lock.get('platform_services') or {})
 epins=pins.get(env,{}) or {}
 print()
 if apps:
@@ -2858,12 +2858,19 @@ for u in sorted(units):
         # have NO endpoint → '-'.
         port=d.get('local_port')
         edge=('localhost:%s'%port) if port else '-'
+        # a served unit runs ON localhost in local — default the host when not declared.
+        if host=='-' and port: host='localhost'
     else:
         edge=(d.get('edge') or '').replace('<env>',env) or '-'
     print("  %-13s %-5s %-10s %-10s %s"%(u, d.get('kind') or '', host, pin, edge))
 print(D+"  deployed = pinned version in '%s'  (- = not deployed there)"%env+N)
 print()
-if ps: print(B+"Platform services"+N+": "+" · ".join(sorted(ps.keys())))
+if ps:
+    print(B+"External"+N+D+"  (env=%s)  — consumed, not deployed by us"%env+N)
+    print(D+"  %-15s %-8s %s"%("dep","sub_type","endpoint")+N)
+    for n in sorted(ps):
+        x=ps[n]; ep=(x.get('endpoints') or {}).get(env) or (x.get('hosts') or {}).get(env) or '-'
+        print("  %-15s %-8s %s"%(n, x.get('sub_type') or x.get('type') or '', ep))
 print()
 PY
 }
