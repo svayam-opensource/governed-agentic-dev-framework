@@ -192,10 +192,14 @@ def crontab_lines(catalog_path=None, workspace=None):
     return out
 
 
-# ── v3 unit model (P1.2) — type/sub_type/id, with a transitional v2 upcast ───────
-# kind (v2) → (type, sub_type) for the v2→v3 upcast. Lets the engine run on a uniform
-# v3 model while services.yaml migrates (P1.2b). platform_services fold = a later slice.
-_KIND_TO_TYPE = {
+# ── v3 unit model (P1.2) — one unified model for BOTH on-disk schemas ────────────
+# The engine (build AND deploy/serve/check) runs on a single normalized unit map.
+# v3 `units:` is read directly; a v2 `services:`+`platform_services:` catalog is
+# upcast into the same shape — and v3 units are back-filled with v2-compat fields —
+# so neither the runtime nor the lock cares which schema is on disk. The TIER split
+# (Tier-1 built / Tier-2 standing infra) is derived structurally: a unit with a
+# `repo` is buildable (Tier-1); one without is declared-only standing infra (Tier-2).
+_KIND_TO_TYPE = {            # v2 kind → (type, sub_type)
     "api": ("svc", "api"), "spa": ("svc", "spa"), "web": ("svc", "web"),
     "worker": ("svc", "worker"), "lib": ("lib", "typescript"),
 }
@@ -207,36 +211,84 @@ def _stable_id(name):
     return "u-" + hashlib.sha256(("unit:" + name).encode()).hexdigest()[:8]
 
 
+def _kind_of(t, st):
+    """v3 (type, sub_type) → legacy `kind` for back-compat readers (resolve/serve)."""
+    if t == "svc":
+        return st                       # api / spa / web / worker / data
+    if t == "external":
+        return None                     # external infra had no `kind` in v2
+    return t                            # lib / cli / mobile / schedule
+
+
+def _platform_type(ps):
+    """Classify a v2 platform_service → (type, sub_type) for the upcast (cosmetic;
+    not taxonomy-validated for v2). Reuses _svc_category (data / stateful / external)."""
+    c = _svc_category(ps)
+    if c == "data":
+        return ("svc", "data")
+    if c == "stateful":
+        return ("svc", "web")           # self-hosted standing service
+    return ("external", "saas")
+
+
+def _backfill_legacy(name, v):
+    """Add v2-compat fields onto a v3 unit so legacy readers (resolve/check/serve)
+    keep working unchanged: id, kind (from type/sub_type), requires (= deploy_deps),
+    and for declared-only infra provisioning/version (from type/engine)."""
+    v.setdefault("id", v.get("id") or _stable_id(name))
+    t, st = v.get("type"), v.get("sub_type")
+    if "kind" not in v:
+        v["kind"] = _kind_of(t, st)
+    if "requires" not in v:
+        v["requires"] = list(v.get("deploy_deps") or [])
+    if not v.get("repo"):                                  # Tier-2 standing infra
+        if "provisioning" not in v:
+            v["provisioning"] = "saas" if t == "external" else "container"
+        if "version" not in v and v.get("engine"):
+            v["version"] = v["engine"]
+    return v
+
+
 def _units(cat):
-    """Normalized v3 unit map {name: {…, type, sub_type, id, deploy_deps, …}}.
-    v3 input (`units:`) is used directly (declared type/sub_type/id); a v2 input
-    (`services:`) is UPCAST transitionally (kind→type/sub_type; requires→deploy_deps;
-    id derived). `kind` is preserved during the transition so existing derive/deploy
-    paths keep working."""
+    """Unified, normalized unit map {name: {type, sub_type, id, deploy_deps, kind,
+    requires, …}} — the single model the whole engine runs on. v3 `units:` is read
+    directly and back-filled with v2-compat fields; a v2 `services:`+`platform_services:`
+    catalog is UPCAST into the same shape (kind→type/sub_type, requires→deploy_deps,
+    platform version→engine)."""
     raw = cat.get("units")
     if raw:                                   # native v3
-        out = {}
-        for name, u in raw.items():
-            v = dict(u or {})
-            v.setdefault("id", v.get("id") or _stable_id(name))
-            out[name] = v
-        return out
-    out = {}                                  # v2 upcast (services only; platform fold later)
+        return {name: _backfill_legacy(name, dict(u or {})) for name, u in raw.items()}
+    out = {}                                  # v2 upcast — services + platform unified
     for name, s in (cat.get("services") or {}).items():
         v = dict(s or {})
         if "type" not in v:
-            t, st = _KIND_TO_TYPE.get(s.get("kind"), ("svc", s.get("kind") or "api"))
-            v["type"], v["sub_type"] = t, st
+            v["type"], v["sub_type"] = _KIND_TO_TYPE.get(s.get("kind"), ("svc", s.get("kind") or "api"))
         v.setdefault("id", _stable_id(name))
         v.setdefault("deploy_deps", s.get("requires") or [])
+        out[name] = v
+    for name, ps in (cat.get("platform_services") or {}).items():
+        v = dict(ps or {})
+        if "type" not in v:
+            v["type"], v["sub_type"] = _platform_type(ps)
+        v.setdefault("id", _stable_id(name))
+        v.setdefault("deploy_deps", ps.get("requires") or [])
+        if "engine" not in v and ps.get("version"):
+            v["engine"] = ps.get("version")
         out[name] = v
     return out
 
 
 def _services(cat):
-    # v3-aware: callers get the normalized unit model (type/sub_type/id added,
-    # `kind` preserved transitionally). v3 `units:` or v2 `services:` both supported.
-    return _units(cat)
+    """Tier-1 view = buildable units (those with a `repo`). For a v2 catalog this is
+    exactly `services:`; for v3 it is the repo-bearing `units:`."""
+    return {n: u for n, u in _units(cat).items() if u.get("repo")}
+
+
+def _platform_services(cat):
+    """Tier-2 view = declared-only standing infra (units WITHOUT a `repo`). For a v2
+    catalog this is exactly `platform_services:`; for v3 it is the repo-less `units:`
+    (data / external / self-hosted), back-filled with provisioning/version."""
+    return {n: u for n, u in _units(cat).items() if not u.get("repo")}
 
 
 def _load_taxonomy():
@@ -260,7 +312,10 @@ def _validate_units(cat):
     if not tax:
         return []
     errs = []
-    for name, u in _units(cat).items():
+    # v3: validate every declared unit (incl. data/external). v2: only Tier-1 services
+    # — the platform_services upcast types are inferred/cosmetic, not declared.
+    targets = _units(cat) if cat.get("units") else _services(cat)
+    for name, u in targets.items():
         t, st = u.get("type"), u.get("sub_type")
         if not t:
             errs.append(f"{name}: missing `type`")
@@ -344,7 +399,7 @@ def requirements(cat, target, env):
     The readiness ladder (deploy/serve) consumes this."""
     rows = resolve(cat, target, env)
     units = _services(cat)
-    pservices = cat.get("platform_services", {}) or {}
+    pservices = _platform_services(cat)
     members = {r["service"] for r in rows}
     out, seen = [], set()
     for m in rows:
@@ -793,32 +848,22 @@ def build_lock(cat):
     closure (#108.1) per unit, so the build graph + version are visible from the
     lock without cloning any repo."""
     allu = _units(cat)
-    # BUILDABLE = has a repo (we derive + fingerprint it). DECLARED-ONLY = no repo
-    # (v3 `external` / referenced units): identity + declared facts only, no derivation.
+    # TIER split is structural: BUILDABLE (has a repo) → Tier-1 `units`, derived +
+    # fingerprinted. DECLARED-ONLY (no repo) → Tier-2 `platform_services`, standing
+    # infra carried as-is (full v3 identity + declared facts; no derivation).
     buildable = {n for n, u in allu.items() if u.get("repo")}
     derived = {name: derive_unit(cat, name) for name in buildable}
     shas = _sha_maps(cat, derived)               # {name: {code_sha, content_sha}}, transitive
     units = {}
-    for name, decl in allu.items():
-        # v3 unit identity (P1.2): `type`/`sub_type` declared (v3) or upcast from
-        # kind (v2); `id` = stable u-8hex. `kind` stays during the transition so the
-        # deploy/derive paths keep working (dropped at P1.2b).
-        ident = {
+    for name in buildable:
+        decl, d = allu[name], derived[name]
+        # v3 unit identity (P1.2): type/sub_type declared (v3) or upcast from kind (v2);
+        # id = stable u-8hex. `kind`/`requires` are back-filled so legacy readers work.
+        units[name] = {
+            "repo": decl.get("repo"), "anchor": decl.get("anchor"),
             "id": decl.get("id"), "type": decl.get("type"), "sub_type": decl.get("sub_type"),
             "engine": decl.get("engine"),
             "deploy_deps": decl.get("deploy_deps") or decl.get("requires") or [],
-        }
-        if name not in buildable:
-            # declared-only (external / referenced): no repo to derive from.
-            units[name] = {**ident, "repo": None, "anchor": None, "kind": decl.get("kind"),
-                           "declared_only": True,
-                           "endpoints": decl.get("endpoints"), "health": decl.get("health"),
-                           "secret_ref": decl.get("secret_ref")}
-            continue
-        d = derived[name]
-        units[name] = {
-            "repo": decl.get("repo"), "anchor": decl.get("anchor"),
-            **ident,
             "kind": d["kind"], "artifact": d["artifact"], "npm_name": d["npm_name"],
             "paths": d["paths"], "depends_on": d["depends_on"],
             "requires": decl.get("requires") or [], "requires_derived": d["requires_derived"],
@@ -838,11 +883,15 @@ def build_lock(cat):
                 "build_dep_units": d["depends_on"],   # transitive cross-repo build-deps
             },
         }
+    # Tier-2 — standing infra (declared-only). The normalized unit already carries
+    # id/type/sub_type/engine/deploy_deps + back-filled provisioning/version alongside
+    # the declared facts (scope/owner/endpoints/hosts/health/lifecycle) deploy/serve read.
+    platform = {name: dict(allu[name]) for name in allu if name not in buildable}
     return {
         "_generated_by": "catalog.py build — DO NOT EDIT; regenerate from services.yaml + repos",
         "version": cat.get("version"),
         "units": units,
-        "platform_services": cat.get("platform_services", {}) or {},
+        "platform_services": platform,
         "applications": cat.get("applications", {}) or {},
         "config_service_map": cat.get("config_service_map", {}) or {},
         # Generic verb→app-owned-script hooks (e.g. seed, iam-data) — prj dispatches
@@ -887,7 +936,7 @@ def check(cat):
     issues = []
     for e in _validate_units(cat):                 # T1 — type/sub_type vs taxonomy
         issues.append(("taxonomy", e.split(":", 1)[0], e.split(":", 1)[1].strip()))
-    pservices = set(cat.get("platform_services", {}) or {})
+    pservices = set(_platform_services(cat))
     units = set(_services(cat))
     for name, s in _services(cat).items():
         # Referential integrity of declared requires (always).
