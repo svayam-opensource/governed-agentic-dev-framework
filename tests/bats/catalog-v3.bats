@@ -67,6 +67,28 @@ print('ok')
   assert_output "mariadb@11.8"
 }
 
+@test "v3: deploy preflight resolves deps via the bridge - Tier-1 unit vs Tier-2 infra" {
+  # iam-svc deploy_deps = [iam-data (buildable -> Tier-1), twofactor-sms (external -> Tier-2)].
+  # requirements() reads deploy_deps via back-filled `requires`; classifies each by tier.
+  # Call the function directly (the `preflight` CLI reads the committed catalog from a
+  # git ref; the function operates on the raw catalog, exercising the same bridge logic).
+  run python3 -c "
+import importlib.util, os
+os.environ['ADF_WORKSPACE']='$(pp "$ROOT/gov")'
+s=importlib.util.spec_from_file_location('cat','$(pp "$CATPY")'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)
+cat=m.load(m.DEFAULT_CATALOG)
+rows={r['name']:r for r in m.requirements(cat,'iam-svc','dev')}
+assert rows['iam-data']['tier']==1, rows['iam-data']            # buildable data unit -> Tier-1
+sms=rows['twofactor-sms']
+assert sms['tier']==2, sms                                       # external -> Tier-2 standing infra
+assert sms['provisioning']=='saas', sms                          # back-filled from type=external
+assert sms['endpoint']=='https://sms.dev', sms                   # per-env endpoint resolved
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
 _write_taxonomy() {
   mkdir -p "$ROOT/gov/knowledge/deployment/taxonomy"
   cat > "$ROOT/gov/knowledge/deployment/taxonomy/types.yaml" <<'YAML'
@@ -104,13 +126,15 @@ PY
   assert_success
 }
 
-@test "v3: an external unit is declared-only - identity + refs, no build fingerprint" {
+@test "v3: a repo-less external unit lands in Tier-2 platform_services (not units), identity + refs only" {
   catpy build
   run python3 -c "
-import json; u=json.load(open('$LOCK'))['units']['twofactor-sms']
+import json; L=json.load(open('$LOCK'))
+assert 'twofactor-sms' not in L['units'], 'external (no repo) must NOT be a Tier-1 unit'
+u=L['platform_services']['twofactor-sms']
 assert u['type']=='external' and u['sub_type']=='sms', (u['type'], u['sub_type'])
-assert u.get('declared_only') is True, 'external must be declared-only'
-assert u.get('content_sha') in (None,), 'external is not built -> no content_sha'
+assert u.get('content_sha') is None, 'external is not built -> no content_sha'
+assert u.get('provisioning')=='saas', 'external back-fills provisioning=saas for legacy readers'
 assert u.get('secret_ref')=='ci:sms-api-key', u.get('secret_ref')   # ref only (C01)
 assert u.get('endpoints',{}).get('prod')=='https://sms.prod', u.get('endpoints')
 print('ok')
