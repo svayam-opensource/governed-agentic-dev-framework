@@ -15,7 +15,7 @@ setup() {
   sandbox_up
   cp -R "$FIXTURE_SRC" "$TEST_TMP/stack"
   export FXG="$TEST_TMP/stack/gov"
-  export LOCK="$FXG/knowledge/deployment/catalog/graph.lock"
+  export LOCK="$(pp "$FXG/knowledge/deployment/catalog/graph.lock")"   # pp: Windows-Python-openable form
   # git-init each member repo so content-sha tree-shas are real (not '').
   for r in api-repo spa-repo; do
     git init -q "$TEST_TMP/stack/$r"
@@ -137,7 +137,7 @@ YAML
   mkdir -p "$root/lib-repo/packages/mylib"
   echo '{"name":"@svayam/mylib","version":"1.0.0"}' > "$root/lib-repo/packages/mylib/package.json"
   git init -q "$root/lib-repo"; git -C "$root/lib-repo" add -A; git -C "$root/lib-repo" commit -qm init
-  local L="$root/gov/knowledge/deployment/catalog/graph.lock"
+  local L="$(pp "$root/gov/knowledge/deployment/catalog/graph.lock")"   # pp: Windows-Python-openable form
   ADF_WORKSPACE="$root/gov" python3 "$CATPY" build
   # served unit: derived port in range
   local p1; p1="$(python3 -c "import json;print(json.load(open('$L'))['units']['svc']['local_port'])")"
@@ -177,7 +177,7 @@ YAML
   for r in lib-repo app-repo; do
     git init -q "$root/$r"; git -C "$root/$r" add -A; git -C "$root/$r" commit -qm init
   done
-  local L="$root/gov/knowledge/deployment/catalog/graph.lock"
+  local L="$(pp "$root/gov/knowledge/deployment/catalog/graph.lock")"   # pp: Windows-Python-openable form
   ADF_WORKSPACE="$root/gov" python3 "$CATPY" build
   # app's build closure includes the cross-repo build-dep unit 'lib'
   run python3 -c "import json;print(json.load(open('$L'))['units']['app']['build_closure']['build_dep_units'])"

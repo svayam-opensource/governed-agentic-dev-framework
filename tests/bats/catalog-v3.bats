@@ -11,7 +11,7 @@ setup() {
   sandbox_up
   ROOT="$TEST_TMP/v3"
   mkdir -p "$ROOT/gov/knowledge/deployment/catalog"
-  export LOCK="$ROOT/gov/knowledge/deployment/catalog/graph.lock"
+  export LOCK="$(pp "$ROOT/gov/knowledge/deployment/catalog/graph.lock")"   # pp: Windows-Python-openable form
   cat > "$ROOT/gov/knowledge/deployment/catalog/services.yaml" <<'YAML'
 version: 3
 units:
