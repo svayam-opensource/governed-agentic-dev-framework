@@ -504,32 +504,46 @@ def _git_tree_sha(root, path):
         return ""
 
 
-def _content_sha_map(cat, derived):
-    """content-sha per unit = sha256 of (semver + base image + path-set tree-shas +
-    rolled-up build-dep shas), TRANSITIVE over depends_on. A lib change thus
-    re-fingerprints everything built on it. Memoized; cycle-safe."""
+def _sha_maps(cat, derived):
+    """Per unit, compute TWO fingerprints (P1.1, design B1):
+      - `code_sha`    — sha256 over the CODE closure ONLY (path-set tree-shas +
+                        rolled-up dependency `code_sha`s, TRANSITIVE over depends_on).
+                        The promote **integrity anchor**: identical across packagings/
+                        envs for a given code state (no semver/packaging mixed in).
+      - `content_sha` — the packaging-inclusive artifact fingerprint = `code_sha` +
+                        packaging mechanics (base image) + semver. What actually runs;
+                        unique per (unit, packaging). A lib change re-fingerprints both
+                        for everything built on it.
+    Memoized; cycle-safe. Returns {name: {"code_sha":…, "content_sha":…}}."""
     roots = {n: _repo_path(_services(cat)[n]["repo"]) for n in derived}
-    cache, stack = {}, set()
+    code_cache, stack = {}, set()
 
-    def sha(name):
-        if name in cache:
-            return cache[name]
+    def code_sha(name):
+        if name in code_cache:
+            return code_cache[name]
         if name in stack or name not in derived:
             return ""                                   # cycle / unknown → neutral
         stack.add(name)
         d = derived[name]
         h = hashlib.sha256()
-        h.update(("semver:%s\n" % (d.get("semver") or "")).encode())
-        h.update(("base:%s\n" % (d.get("base_image") or "")).encode())
         for p in sorted(d.get("paths") or []):
             h.update(("path:%s=%s\n" % (p, _git_tree_sha(roots[name], p))).encode())
         for dep in sorted(d.get("depends_on") or []):
-            h.update(("dep:%s=%s\n" % (dep, sha(dep))).encode())
+            h.update(("dep:%s=%s\n" % (dep, code_sha(dep))).encode())
         stack.discard(name)
-        cache[name] = h.hexdigest()
-        return cache[name]
+        code_cache[name] = h.hexdigest()
+        return code_cache[name]
 
-    return {n: sha(n) for n in derived}
+    out = {}
+    for n in derived:
+        cs = code_sha(n)
+        d = derived[n]
+        h = hashlib.sha256()
+        h.update(("code:%s\n" % cs).encode())
+        h.update(("semver:%s\n" % (d.get("semver") or "")).encode())
+        h.update(("base:%s\n" % (d.get("base_image") or "")).encode())
+        out[n] = {"code_sha": cs, "content_sha": h.hexdigest()}
+    return out
 
 
 def _local_port(name, kind, serve, healthcheck):
@@ -700,7 +714,7 @@ def build_lock(cat):
     closure (#108.1) per unit, so the build graph + version are visible from the
     lock without cloning any repo."""
     derived = {name: derive_unit(cat, name) for name in _services(cat)}
-    shas = _content_sha_map(cat, derived)        # transitive over depends_on
+    shas = _sha_maps(cat, derived)               # {name: {code_sha, content_sha}}, transitive
     units = {}
     for name in _services(cat):
         d = derived[name]
@@ -717,7 +731,9 @@ def build_lock(cat):
             "local_port": _local_port(name, d["kind"], decl.get("serve"), decl.get("healthcheck")),
             # #108.2 artifact version + #108.1 build closure (the build-side DAG).
             "semver": d.get("semver"),
-            "content_sha": shas.get(name),
+            "content_sha": (shas.get(name) or {}).get("content_sha"),
+            # P1.1 / B1 — code-only fingerprint = the promote integrity anchor.
+            "code_sha": (shas.get(name) or {}).get("code_sha"),
             "build_closure": {
                 "base_image": d.get("base_image"),
                 "anchor": decl.get("anchor"),

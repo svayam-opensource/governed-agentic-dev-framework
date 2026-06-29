@@ -41,6 +41,26 @@ print('ok')
   assert_output "ok"
 }
 
+@test "versioning (P1.1): build records code_sha (integrity anchor), distinct from content_sha, with teeth" {
+  catpy build
+  run python3 -c "
+import json; u=json.load(open('$LOCK'))['units']['api']
+cs=u.get('code_sha'); ct=u.get('content_sha')
+assert cs and len(cs)==64, ('code_sha bad', cs)
+assert ct and len(ct)==64, ('content_sha bad', ct)
+assert cs != ct, 'code_sha must differ from content_sha (content folds in semver+base)'
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+  local before; before="$(python3 -c "import json;print(json.load(open('$LOCK'))['units']['api']['code_sha'][:12])")"
+  echo "console.log('x')" > "$TEST_TMP/stack/api-repo/packages/api/handler.js"
+  git -C "$TEST_TMP/stack/api-repo" add -A; git -C "$TEST_TMP/stack/api-repo" commit -qm edit
+  catpy build
+  local after; after="$(python3 -c "import json;print(json.load(open('$LOCK'))['units']['api']['code_sha'][:12])")"
+  [ "$before" != "$after" ]
+}
+
 @test "versioning: version subcommand prints <semver>+<sha7>" {
   catpy build
   run catpy version spa
