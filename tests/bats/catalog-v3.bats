@@ -22,13 +22,15 @@ units:
     repo: acme/iam-repo
     anchor: packages/api/iam
     deploy_deps: [iam-data, twofactor-sms]
-  iam-data:
+  iam-data:                      # data unit = repo (DDL + init DML) + engine (mariadb)
     id: u-11112222
     type: svc
     sub_type: data
-    engine: mariadb@11.8
+    owner: iam-svc
     repo: acme/iam-repo
-    anchor: packages/data/iam
+    anchor: packages/data/iam     # holds the DDL/DML source → content_sha
+    engine:
+      - {name: mariadb, role: datastore, version: "11.8"}
   twofactor-sms:
     id: u-99998888
     type: external
@@ -61,10 +63,24 @@ print('ok')
   assert_output "ok"
 }
 
-@test "v3: a data unit carries its engine through to the lock" {
+@test "v3: a data unit is a buildable unit + engine stack (engine folds into content_sha)" {
   catpy build
-  run python3 -c "import json;print(json.load(open('$LOCK'))['units']['iam-data']['engine'])"
-  assert_output "mariadb@11.8"
+  run python3 -c "
+import json; u=json.load(open('$LOCK'))['units']['iam-data']
+assert u['type']=='svc' and u['sub_type']=='data', (u['type'],u['sub_type'])
+e=u['engine']; assert isinstance(e,list) and e[0]['name']=='mariadb', e
+assert e[0]['role']=='datastore' and e[0]['version']=='11.8', e   # role + version preserved
+assert u.get('content_sha') and len(u['content_sha'])==64, 'data unit is fingerprinted'
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+  # engine bump moves content_sha (teeth) — deploy reconcile would roll it
+  local before; before="$(python3 -c "import json;print(json.load(open('$LOCK'))['units']['iam-data']['content_sha'][:12])")"
+  sed -i.bak 's/version: "11.8"/version: "11.9"/' "$ROOT/gov/knowledge/deployment/catalog/services.yaml"
+  catpy build
+  local after; after="$(python3 -c "import json;print(json.load(open('$LOCK'))['units']['iam-data']['content_sha'][:12])")"
+  [ "$before" != "$after" ]
 }
 
 @test "v3: deploy preflight resolves deps via the bridge - Tier-1 unit vs Tier-2 infra" {
@@ -126,12 +142,12 @@ PY
   assert_success
 }
 
-@test "v3: a repo-less external unit lands in Tier-2 platform_services (not units), identity + refs only" {
+@test "v3: an external dep lands in the 'external' bucket (not units), identity + refs only" {
   catpy build
   run python3 -c "
 import json; L=json.load(open('$LOCK'))
-assert 'twofactor-sms' not in L['units'], 'external (no repo) must NOT be a Tier-1 unit'
-u=L['platform_services']['twofactor-sms']
+assert 'twofactor-sms' not in L['units'], 'external must NOT be a deploy unit'
+u=L['external']['twofactor-sms']
 assert u['type']=='external' and u['sub_type']=='sms', (u['type'], u['sub_type'])
 assert u.get('content_sha') is None, 'external is not built -> no content_sha'
 assert u.get('provisioning')=='saas', 'external back-fills provisioning=saas for legacy readers'
