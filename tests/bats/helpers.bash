@@ -69,3 +69,12 @@ resolved_workspace() { PRJ_PRINT_WORKSPACE=1 bash "$BIN_PRJ" 2>/dev/null; }
 
 # Run the prj CLI (source build, not the installed npm package).
 run_prj() { run bash "$PRJ_BIN" "$@"; }
+
+# Native-form a path for embedding INSIDE a `python3 -c "...open('$(pp "$LOCK")')..."`
+# string. On Windows Git-bash, MSYS auto-translates standalone path args/env (so the
+# build's ADF_WORKSPACE resolves), but it does NOT translate a path buried inside a
+# larger `-c` argument — there a `/c/...` MSYS path reaches Windows-Python literally
+# and fails to open (read as C:\c\Users\...). cygpath -m yields the mixed C:/... form
+# Windows-Python opens correctly. No-op on macOS/Linux (cygpath absent), so paths and
+# the green platforms are untouched.
+pp() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }

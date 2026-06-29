@@ -192,8 +192,87 @@ def crontab_lines(catalog_path=None, workspace=None):
     return out
 
 
+# ── v3 unit model (P1.2) — type/sub_type/id, with a transitional v2 upcast ───────
+# kind (v2) → (type, sub_type) for the v2→v3 upcast. Lets the engine run on a uniform
+# v3 model while services.yaml migrates (P1.2b). platform_services fold = a later slice.
+_KIND_TO_TYPE = {
+    "api": ("svc", "api"), "spa": ("svc", "spa"), "web": ("svc", "web"),
+    "worker": ("svc", "worker"), "lib": ("lib", "typescript"),
+}
+
+
+def _stable_id(name):
+    """Deterministic u-8hex id from the name (stable across builds — no drift).
+    The P1.2b migration assigns/stores explicit ids; until then this is the lock id."""
+    return "u-" + hashlib.sha256(("unit:" + name).encode()).hexdigest()[:8]
+
+
+def _units(cat):
+    """Normalized v3 unit map {name: {…, type, sub_type, id, deploy_deps, …}}.
+    v3 input (`units:`) is used directly (declared type/sub_type/id); a v2 input
+    (`services:`) is UPCAST transitionally (kind→type/sub_type; requires→deploy_deps;
+    id derived). `kind` is preserved during the transition so existing derive/deploy
+    paths keep working."""
+    raw = cat.get("units")
+    if raw:                                   # native v3
+        out = {}
+        for name, u in raw.items():
+            v = dict(u or {})
+            v.setdefault("id", v.get("id") or _stable_id(name))
+            out[name] = v
+        return out
+    out = {}                                  # v2 upcast (services only; platform fold later)
+    for name, s in (cat.get("services") or {}).items():
+        v = dict(s or {})
+        if "type" not in v:
+            t, st = _KIND_TO_TYPE.get(s.get("kind"), ("svc", s.get("kind") or "api"))
+            v["type"], v["sub_type"] = t, st
+        v.setdefault("id", _stable_id(name))
+        v.setdefault("deploy_deps", s.get("requires") or [])
+        out[name] = v
+    return out
+
+
 def _services(cat):
-    return cat.get("services", {}) or {}
+    # v3-aware: callers get the normalized unit model (type/sub_type/id added,
+    # `kind` preserved transitionally). v3 `units:` or v2 `services:` both supported.
+    return _units(cat)
+
+
+def _load_taxonomy():
+    """The org type taxonomy ({type: {sub_types:[...]}}), or None when absent.
+    Lives at knowledge/deployment/taxonomy/types.yaml (P0). Absent (e.g. a bare test
+    fixture) → validation is skipped, not failed (graceful — taxonomy is org-layer)."""
+    p = REPO_ROOT / "knowledge/deployment/taxonomy/types.yaml"
+    if not p.exists():
+        return None
+    try:
+        return (load(p) or {}).get("types") or {}
+    except Exception:
+        return None
+
+
+def _validate_units(cat):
+    """Validate each unit's type/sub_type against the taxonomy (T1). Returns a list
+    of human-readable errors ([] = clean / no taxonomy). EXTENSIBLE by design: a new
+    type or sub_type is added in types.yaml, no code change (T0/D7)."""
+    tax = _load_taxonomy()
+    if not tax:
+        return []
+    errs = []
+    for name, u in _units(cat).items():
+        t, st = u.get("type"), u.get("sub_type")
+        if not t:
+            errs.append(f"{name}: missing `type`")
+            continue
+        if t not in tax:
+            errs.append(f"{name}: unknown type '{t}' (taxonomy: {', '.join(sorted(tax))})")
+            continue
+        allowed = tax[t].get("sub_types") or []
+        if st is not None and allowed and st not in allowed:
+            errs.append(f"{name}: unknown sub_type '{st}' for type '{t}' "
+                        f"(allowed: {', '.join(allowed)})")
+    return errs
 
 
 def _applications(cat):
@@ -713,14 +792,33 @@ def build_lock(cat):
     Also derives the #108 artifact version (semver + content_sha) and build
     closure (#108.1) per unit, so the build graph + version are visible from the
     lock without cloning any repo."""
-    derived = {name: derive_unit(cat, name) for name in _services(cat)}
+    allu = _units(cat)
+    # BUILDABLE = has a repo (we derive + fingerprint it). DECLARED-ONLY = no repo
+    # (v3 `external` / referenced units): identity + declared facts only, no derivation.
+    buildable = {n for n, u in allu.items() if u.get("repo")}
+    derived = {name: derive_unit(cat, name) for name in buildable}
     shas = _sha_maps(cat, derived)               # {name: {code_sha, content_sha}}, transitive
     units = {}
-    for name in _services(cat):
+    for name, decl in allu.items():
+        # v3 unit identity (P1.2): `type`/`sub_type` declared (v3) or upcast from
+        # kind (v2); `id` = stable u-8hex. `kind` stays during the transition so the
+        # deploy/derive paths keep working (dropped at P1.2b).
+        ident = {
+            "id": decl.get("id"), "type": decl.get("type"), "sub_type": decl.get("sub_type"),
+            "engine": decl.get("engine"),
+            "deploy_deps": decl.get("deploy_deps") or decl.get("requires") or [],
+        }
+        if name not in buildable:
+            # declared-only (external / referenced): no repo to derive from.
+            units[name] = {**ident, "repo": None, "anchor": None, "kind": decl.get("kind"),
+                           "declared_only": True,
+                           "endpoints": decl.get("endpoints"), "health": decl.get("health"),
+                           "secret_ref": decl.get("secret_ref")}
+            continue
         d = derived[name]
-        decl = _services(cat)[name]
         units[name] = {
             "repo": decl.get("repo"), "anchor": decl.get("anchor"),
+            **ident,
             "kind": d["kind"], "artifact": d["artifact"], "npm_name": d["npm_name"],
             "paths": d["paths"], "depends_on": d["depends_on"],
             "requires": decl.get("requires") or [], "requires_derived": d["requires_derived"],
@@ -787,6 +885,8 @@ def effective_cat(cat):
 def check(cat):
     """Drift gate: re-derive and assert the declared overlay + committed lock agree."""
     issues = []
+    for e in _validate_units(cat):                 # T1 — type/sub_type vs taxonomy
+        issues.append(("taxonomy", e.split(":", 1)[0], e.split(":", 1)[1].strip()))
     pservices = set(cat.get("platform_services", {}) or {})
     units = set(_services(cat))
     for name, s in _services(cat).items():
@@ -1204,6 +1304,13 @@ def _main(argv=None):
     cat = raw if args.cmd in ("build", "check", "descriptor", "dag", "add", "update", "rm") else effective_cat(raw)
     try:
         if args.cmd == "build":
+            tax_errs = _validate_units(raw)        # T1 — type/sub_type vs taxonomy
+            if tax_errs:
+                for e in tax_errs:
+                    print(f"  [taxonomy] {e}", file=sys.stderr)
+                print("FAIL: catalog has invalid unit types — fix services.yaml or "
+                      "extend knowledge/deployment/taxonomy/types.yaml", file=sys.stderr)
+                return 1
             lock = build_lock(raw)
             write_lock(lock)
             print(f"wrote {DEFAULT_LOCK} — {len(lock['units'])} units, "
