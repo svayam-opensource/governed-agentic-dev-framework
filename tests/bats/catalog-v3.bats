@@ -74,8 +74,8 @@ print('ok')
   # git ref; the function operates on the raw catalog, exercising the same bridge logic).
   run python3 -c "
 import importlib.util, os
-os.environ['ADF_WORKSPACE']='$ROOT/gov'
-s=importlib.util.spec_from_file_location('cat','$CATPY'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)
+os.environ['ADF_WORKSPACE']='$(pp "$ROOT/gov")'
+s=importlib.util.spec_from_file_location('cat','$(pp "$CATPY")'); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)
 cat=m.load(m.DEFAULT_CATALOG)
 rows={r['name']:r for r in m.requirements(cat,'iam-svc','dev')}
 assert rows['iam-data']['tier']==1, rows['iam-data']            # buildable data unit -> Tier-1
