@@ -69,13 +69,13 @@ if [[ "$ACTION" == "stop" ]]; then
     python3 -c "
 import json, os.path
 c=json.load(open('$REPO_ROOT_SP/knowledge/deployment/catalog/graph.lock'))
-apps=c.get('applications',{}) or {}; units=c.get('units',{}) or {}; ps=c.get('platform_services',{}) or {}
+apps=c.get('applications',{}) or {}; units=c.get('units',{}) or {}; ps=(c.get('external') or c.get('platform_services') or {})
 t='$TARGET'
 members=(apps.get(t,{}) or {}).get('members') or ([t] if t in units else list(units))
 seen=set()
 for m in members:
     for r in (units.get(m,{}).get('requires') or []):
-        sp=ps.get(r,{})
+        sp=ps.get(r) or units.get(r) or {}
         if sp.get('provisioning')=='container' and sp.get('provision') and sp.get('owner'):
             leaf=(units.get(sp['owner'],{}).get('repo') or '').split('/')[-1]
             stopsh=os.path.dirname(sp['provision'])+'/stop.sh'
@@ -158,13 +158,13 @@ seed_fresh_wipe() {
   python3 -c "
 import json, os.path
 c=json.load(open('$REPO_ROOT_SP/knowledge/deployment/catalog/graph.lock'))
-apps=c.get('applications',{}) or {}; units=c.get('units',{}) or {}; ps=c.get('platform_services',{}) or {}
+apps=c.get('applications',{}) or {}; units=c.get('units',{}) or {}; ps=(c.get('external') or c.get('platform_services') or {})
 t='$TARGET'
 members=(apps.get(t,{}) or {}).get('members') or ([t] if t in units else list(units))
 seen=set()
 for m in members:
     for r in (units.get(m,{}).get('requires') or []):
-        sp=ps.get(r,{})
+        sp=ps.get(r) or units.get(r) or {}
         if sp.get('provisioning')=='container' and sp.get('provision') and sp.get('owner'):
             leaf=(units.get(sp['owner'],{}).get('repo') or '').split('/')[-1]
             stopsh=os.path.dirname(sp['provision'])+'/stop.sh'
@@ -207,9 +207,9 @@ ensure_api() {   # $1=unit  $2=base — ensure the local container stack for an 
   local prov; prov="$(python3 -c "
 import json
 c=json.load(open('$REPO_ROOT_SP/knowledge/deployment/catalog/graph.lock'))
-u=c.get('units',{}).get('$unit',{}); ps=c.get('platform_services',{})
+u=c.get('units',{}).get('$unit',{}); ps=(c.get('external') or c.get('platform_services') or {})
 for r in u.get('requires',[]):
-    sp=ps.get(r,{}); pv=sp.get('provision'); own=sp.get('owner')
+    sp=ps.get(r) or c.get('units',{}).get(r) or {}; pv=sp.get('provision'); own=sp.get('owner')
     if pv and own:
         repo=c.get('units',{}).get(own,{}).get('repo','')
         print((repo.split('/')[-1])+'|'+pv); break

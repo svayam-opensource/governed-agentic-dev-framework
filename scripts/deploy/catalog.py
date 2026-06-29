@@ -211,6 +211,22 @@ def _stable_id(name):
     return "u-" + hashlib.sha256(("unit:" + name).encode()).hexdigest()[:8]
 
 
+def _engine_sha(engine):
+    """content_sha for an ENGINE-unit = sha256 over its engine stack (name@version,
+    sorted). A component version bump re-fingerprints it (so deploy reconcile rolls it).
+    None when no engine is declared. Accepts a list of {name,role,version} or a scalar."""
+    if not engine:
+        return None
+    items = engine if isinstance(engine, list) else [engine]
+    parts = []
+    for e in items:
+        if isinstance(e, dict):
+            parts.append("%s@%s" % (e.get("name"), e.get("version")))
+        else:
+            parts.append(str(e))
+    return hashlib.sha256(("engine:" + "\n".join(sorted(parts))).encode()).hexdigest()
+
+
 def _kind_of(t, st):
     """v3 (type, sub_type) → legacy `kind` for back-compat readers (resolve/serve)."""
     if t == "svc":
@@ -234,18 +250,18 @@ def _platform_type(ps):
 def _backfill_legacy(name, v):
     """Add v2-compat fields onto a v3 unit so legacy readers (resolve/check/serve)
     keep working unchanged: id, kind (from type/sub_type), requires (= deploy_deps),
-    and for declared-only infra provisioning/version (from type/engine)."""
+    and provisioning (external → saas; a repo-less engine-unit → container)."""
     v.setdefault("id", v.get("id") or _stable_id(name))
     t, st = v.get("type"), v.get("sub_type")
     if "kind" not in v:
         v["kind"] = _kind_of(t, st)
     if "requires" not in v:
         v["requires"] = list(v.get("deploy_deps") or [])
-    if not v.get("repo"):                                  # Tier-2 standing infra
-        if "provisioning" not in v:
-            v["provisioning"] = "saas" if t == "external" else "container"
-        if "version" not in v and v.get("engine"):
-            v["version"] = v["engine"]
+    if "provisioning" not in v:
+        if t == "external":
+            v["provisioning"] = "saas"              # consumed third-party
+        elif not v.get("repo"):
+            v["provisioning"] = "container"         # engine-unit we self-host
     return v
 
 
@@ -255,9 +271,13 @@ def _units(cat):
     directly and back-filled with v2-compat fields; a v2 `services:`+`platform_services:`
     catalog is UPCAST into the same shape (kind→type/sub_type, requires→deploy_deps,
     platform version→engine)."""
-    raw = cat.get("units")
-    if raw:                                   # native v3
-        return {name: _backfill_legacy(name, dict(u or {})) for name, u in raw.items()}
+    raw, ext = cat.get("units"), cat.get("external")
+    if raw or ext:                            # native v3 — `units:` (owned) + `external:` (consumed)
+        out = {}                              # two blocks for readability; `type` is authoritative
+        for src in ((raw or {}), (ext or {})):
+            for name, u in src.items():
+                out[name] = _backfill_legacy(name, dict(u or {}))
+        return out
     out = {}                                  # v2 upcast — services + platform unified
     for name, s in (cat.get("services") or {}).items():
         v = dict(s or {})
@@ -279,16 +299,26 @@ def _units(cat):
 
 
 def _services(cat):
-    """Tier-1 view = buildable units (those with a `repo`). For a v2 catalog this is
-    exactly `services:`; for v3 it is the repo-bearing `units:`."""
+    """Units WE deploy/own — everything that is NOT `type: external`. Includes both
+    BUILDABLE units (have a `repo`, fingerprinted from source) and ENGINE-units (no
+    repo — a datastore/self-hosted stack, versioned by its `engine`). This is the
+    deploy-facing 'units' view used by resolve/requirements/build_lock."""
+    return {n: u for n, u in _units(cat).items() if u.get("type") != "external"}
+
+
+def _external(cat):
+    """External / consume-only dependencies — exactly `type: external` (third-party
+    SaaS we point at, never deploy). The 'external' bucket in services.yaml / the lock."""
+    return {n: u for n, u in _units(cat).items() if u.get("type") == "external"}
+
+
+def _buildable(cat):
+    """Units derived + fingerprinted from source: a `repo` is present."""
     return {n: u for n, u in _units(cat).items() if u.get("repo")}
 
 
-def _platform_services(cat):
-    """Tier-2 view = declared-only standing infra (units WITHOUT a `repo`). For a v2
-    catalog this is exactly `platform_services:`; for v3 it is the repo-less `units:`
-    (data / external / self-hosted), back-filled with provisioning/version."""
-    return {n: u for n, u in _units(cat).items() if not u.get("repo")}
+# Back-compat alias (old name) — some call sites still say _platform_services.
+_platform_services = _external
 
 
 def _load_taxonomy():
@@ -721,13 +751,13 @@ def artifact_version(unit_lock):
 def derive_unit(cat, name):
     """Derive the drift-prone facts for a Tier-1 unit from its repo."""
     s = _services(cat)[name]
-    repo, anchor = s["repo"], s.get("anchor")
-    root = _repo_path(repo)
-    if not anchor:
+    repo, anchor = s.get("repo"), s.get("anchor")
+    if not repo or not anchor:                    # engine-unit / declared-only: nothing to derive
         return {"paths": s.get("paths") or [], "depends_on": s.get("depends_on") or [],
                 "kind": s.get("kind"), "artifact": s.get("artifact"),
                 "npm_name": None, "requires_derived": [],
                 "semver": None, "base_image": None}
+    root = _repo_path(repo)
     idx = _repo_pkg_index(repo)
     name2unit = _anchor_name_to_unit(cat)
     anchor_pkg = _read_json(root / anchor / "package.json")
@@ -848,50 +878,63 @@ def build_lock(cat):
     closure (#108.1) per unit, so the build graph + version are visible from the
     lock without cloning any repo."""
     allu = _units(cat)
-    # TIER split is structural: BUILDABLE (has a repo) → Tier-1 `units`, derived +
-    # fingerprinted. DECLARED-ONLY (no repo) → Tier-2 `platform_services`, standing
-    # infra carried as-is (full v3 identity + declared facts; no derivation).
+    # Bucket by NATURE: units we DEPLOY (type != external) → `units`; EXTERNAL deps we
+    # consume (type == external) → `external`. Within units, BUILDABLE (has a repo) are
+    # derived + fingerprinted from source; ENGINE-units (no repo — a datastore/self-
+    # hosted stack) are versioned by their `engine` stack (content_sha over it).
     buildable = {n for n, u in allu.items() if u.get("repo")}
     derived = {name: derive_unit(cat, name) for name in buildable}
     shas = _sha_maps(cat, derived)               # {name: {code_sha, content_sha}}, transitive
-    units = {}
-    for name in buildable:
-        decl, d = allu[name], derived[name]
-        # v3 unit identity (P1.2): type/sub_type declared (v3) or upcast from kind (v2);
-        # id = stable u-8hex. `kind`/`requires` are back-filled so legacy readers work.
-        units[name] = {
-            "repo": decl.get("repo"), "anchor": decl.get("anchor"),
+    units, external = {}, {}
+    for name, decl in allu.items():
+        # identity + declared deploy facts every unit/dep carries
+        ident = {
             "id": decl.get("id"), "type": decl.get("type"), "sub_type": decl.get("sub_type"),
             "engine": decl.get("engine"),
             "deploy_deps": decl.get("deploy_deps") or decl.get("requires") or [],
-            "kind": d["kind"], "artifact": d["artifact"], "npm_name": d["npm_name"],
-            "paths": d["paths"], "depends_on": d["depends_on"],
-            "requires": decl.get("requires") or [], "requires_derived": d["requires_derived"],
-            "hosts": decl.get("hosts"), "edge": decl.get("edge"),
-            "serve": decl.get("serve"), "healthcheck": decl.get("healthcheck"),
-            "build": decl.get("build"),
-            # #108.3 — stable local port (assigned at build, reused): edge = localhost:<port>.
-            "local_port": _local_port(name, d["kind"], decl.get("serve"), decl.get("healthcheck")),
-            # #108.2 artifact version + #108.1 build closure (the build-side DAG).
-            "semver": d.get("semver"),
-            "content_sha": (shas.get(name) or {}).get("content_sha"),
-            # P1.1 / B1 — code-only fingerprint = the promote integrity anchor.
-            "code_sha": (shas.get(name) or {}).get("code_sha"),
-            "build_closure": {
-                "base_image": d.get("base_image"),
-                "anchor": decl.get("anchor"),
-                "build_dep_units": d["depends_on"],   # transitive cross-repo build-deps
-            },
+            "kind": decl.get("kind"), "requires": decl.get("requires") or [],
+            "hosts": decl.get("hosts"), "host": decl.get("host"), "edge": decl.get("edge"),
+            "healthcheck": decl.get("healthcheck"), "health": decl.get("health"),
+            "owner": decl.get("owner"), "scope": decl.get("scope"),
+            "provisioning": decl.get("provisioning"), "endpoints": decl.get("endpoints"),
+            "lifecycle": decl.get("lifecycle"), "secret_ref": decl.get("secret_ref"),
         }
-    # Tier-2 — standing infra (declared-only). The normalized unit already carries
-    # id/type/sub_type/engine/deploy_deps + back-filled provisioning/version alongside
-    # the declared facts (scope/owner/endpoints/hosts/health/lifecycle) deploy/serve read.
-    platform = {name: dict(allu[name]) for name in allu if name not in buildable}
+        if decl.get("type") == "external":
+            external[name] = {**ident, "repo": None}        # consume-only
+            continue
+        if name in buildable:
+            d = derived[name]
+            content_sha = (shas.get(name) or {}).get("content_sha")
+            # A data unit's deploy identity = its DDL/DML source AND the engine that
+            # applies them — fold the engine stack in so a `mariadb@11.8→11.9` bump rolls it.
+            if decl.get("engine"):
+                content_sha = hashlib.sha256(
+                    ("content:%s\nengine:%s" % (content_sha, _engine_sha(decl["engine"]))).encode()
+                ).hexdigest()
+            units[name] = {**ident,
+                "repo": decl.get("repo"), "anchor": decl.get("anchor"),
+                "kind": d["kind"], "artifact": d["artifact"], "npm_name": d["npm_name"],
+                "paths": d["paths"], "depends_on": d["depends_on"],
+                "requires_derived": d["requires_derived"],
+                "serve": decl.get("serve"), "build": decl.get("build"),
+                # #108.3 — stable local port (assigned at build, reused): localhost:<port>.
+                "local_port": _local_port(name, d["kind"], decl.get("serve"), decl.get("healthcheck")),
+                "semver": d.get("semver"),
+                "content_sha": content_sha,
+                "code_sha": (shas.get(name) or {}).get("code_sha"),     # P1.1 promote anchor
+                "build_closure": {"base_image": d.get("base_image"), "anchor": decl.get("anchor"),
+                                  "build_dep_units": d["depends_on"]},
+            }
+        else:
+            # ENGINE-unit (no source): deploy identity = its engine stack. content_sha
+            # over the stack so a component version bump re-fingerprints + redeploys it.
+            units[name] = {**ident, "repo": None, "anchor": None,
+                "content_sha": _engine_sha(decl.get("engine")), "code_sha": None, "semver": None}
     return {
         "_generated_by": "catalog.py build — DO NOT EDIT; regenerate from services.yaml + repos",
         "version": cat.get("version"),
         "units": units,
-        "platform_services": platform,
+        "external": external,
         "applications": cat.get("applications", {}) or {},
         "config_service_map": cat.get("config_service_map", {}) or {},
         # Generic verb→app-owned-script hooks (e.g. seed, iam-data) — prj dispatches
@@ -916,18 +959,24 @@ def load_lock(lock_path=None):
 
 
 def effective_cat(cat):
-    """Merge graph.lock (derived) over services.yaml (declared) so read commands are lock-aware."""
+    """Merge graph.lock (derived) over services.yaml (declared) so read commands are
+    lock-aware. Emits a v3 `units:` map (lock `units` + `external`, both overlaid on the
+    declared unit), so downstream reads run the v3 path uniformly."""
     lock = load_lock()
     if not lock:
         return cat
+    declared = _units(cat)
+    units = {}
+    lock_external = lock.get("external", lock.get("platform_services", {})) or {}   # back-compat
+    for src in ((lock.get("units") or {}), lock_external):
+        for name, u in src.items():
+            base = dict(declared.get(name, {}))
+            base.update({k: v for k, v in u.items() if v is not None})
+            units[name] = base
     merged = dict(cat)
-    svc = {}
-    for name, u in (lock.get("units") or {}).items():
-        base = dict((cat.get("services") or {}).get(name, {}))
-        base.update({k: v for k, v in u.items() if v is not None})
-        svc[name] = base
-    merged["services"] = svc
-    merged["platform_services"] = lock.get("platform_services", cat.get("platform_services", {}))
+    merged.pop("services", None)
+    merged.pop("platform_services", None)
+    merged["units"] = units
     return merged
 
 
@@ -1158,7 +1207,7 @@ def dag(cat, target=None, env=None, fmt="tree"):
     derivation only when no lock exists yet. <target> may be a UNIT or an
     APPLICATION (renders the app's member units). No target = the whole graph."""
     lock = load_lock() or build_lock(cat)
-    units, ps = lock.get("units", {}) or {}, lock.get("platform_services", {}) or {}
+    units, ps = lock.get("units", {}) or {}, (lock.get("external") or lock.get("platform_services") or {})
     apps = lock.get("applications", {}) or {}
     allpins = load_pins()                              # all envs, for the version line
     epins = (allpins.get(env) or {}) if env else {}
@@ -1363,7 +1412,7 @@ def _main(argv=None):
             lock = build_lock(raw)
             write_lock(lock)
             print(f"wrote {DEFAULT_LOCK} — {len(lock['units'])} units, "
-                  f"{len(lock['platform_services'])} platform services")
+                  f"{len(lock.get('external') or {})} external")
         elif args.cmd == "check":
             issues = check(raw)
             for kind, name, msg in issues:

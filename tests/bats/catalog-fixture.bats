@@ -24,11 +24,11 @@ teardown() { sandbox_down; }
 
 catpy() { ADF_WORKSPACE="$FXG" python3 "$CATPY" "$@"; }
 
-@test "catalog fixture: build derives both units + the platform service" {
+@test "catalog fixture: build derives both units + the external dep" {
   run catpy build
   assert_success
   assert_output --partial "2 units"
-  assert_output --partial "1 platform service"
+  assert_output --partial "1 external"   # bare SVC_DB (no provisioning/lifecycle) → external bucket
   [ -f "$LOCK" ]
 }
 
