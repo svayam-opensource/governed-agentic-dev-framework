@@ -271,9 +271,13 @@ def _units(cat):
     directly and back-filled with v2-compat fields; a v2 `services:`+`platform_services:`
     catalog is UPCAST into the same shape (kind→type/sub_type, requires→deploy_deps,
     platform version→engine)."""
-    raw = cat.get("units")
-    if raw:                                   # native v3
-        return {name: _backfill_legacy(name, dict(u or {})) for name, u in raw.items()}
+    raw, ext = cat.get("units"), cat.get("external")
+    if raw or ext:                            # native v3 — `units:` (owned) + `external:` (consumed)
+        out = {}                              # two blocks for readability; `type` is authoritative
+        for src in ((raw or {}), (ext or {})):
+            for name, u in src.items():
+                out[name] = _backfill_legacy(name, dict(u or {}))
+        return out
     out = {}                                  # v2 upcast — services + platform unified
     for name, s in (cat.get("services") or {}).items():
         v = dict(s or {})

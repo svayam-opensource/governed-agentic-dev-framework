@@ -31,6 +31,7 @@ units:
     anchor: packages/data/iam     # holds the DDL/DML source → content_sha
     engine:
       - {name: mariadb, role: datastore, version: "11.8"}
+external:                        # consume-only deps, separate block (type authoritative)
   twofactor-sms:
     id: u-99998888
     type: external
