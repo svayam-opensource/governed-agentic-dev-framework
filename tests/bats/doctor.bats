@@ -12,9 +12,11 @@ setup() {
   # Use stdlib `re` only — ubuntu CI's python3 has no pyyaml module.
   python3 - "$GOV/org-config.yaml" "$WR" <<'PY'
 import sys, re
-p, wr = sys.argv[1], sys.argv[2]
+p, wr = sys.argv[1], sys.argv[2].replace('\\', '/')   # forward slashes (MSYS may hand us C:\..)
+# single-quote the value: a Windows path's backslashes are invalid escapes in a YAML
+# DOUBLE-quoted string and parse to empty; single-quoted YAML has no escapes.
+line = "agent_work_root: '%s'" % wr
 s = open(p).read()
-line = 'agent_work_root: "%s"' % wr
 if re.search(r'(?m)^agent_work_root:', s):
     s = re.sub(r'(?m)^agent_work_root:.*$', line, s)
 else:
