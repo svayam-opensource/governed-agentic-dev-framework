@@ -34,3 +34,27 @@ teardown() { sandbox_down; }
   assert_output --partial "(2) Work"
   assert_output --partial "(5) Deploy"
 }
+
+# Regression: #75 dropped menu_status/menu_admin but left the dispatch calling them, so
+# choosing 1 or 3 hit "command not found" and (under set -euo pipefail) exited silently.
+@test "menu: Status (option 1) reaches its submenu - menu_status is defined" {
+  run bash -c "printf '1\n0\n0\n' | ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN'"
+  assert_success
+  assert_output --partial "ongoing projects"
+  refute_output --partial "command not found"
+}
+
+@test "menu: Admin (option 3) reaches its submenu - menu_admin is defined" {
+  run bash -c "printf '3\n0\n0\n' | ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN'"
+  assert_success
+  assert_output --partial "project access"
+  refute_output --partial "command not found"
+}
+
+# Regression (Windows CRLF): Python print() emits \r\n, so the last read field kept a \r,
+# making the board number "45\r" → display artifact + gh failure + silent exit. The
+# _pick_open_project loop must strip it. (Windows-only at runtime; source-guard here.)
+@test "menu: _pick_open_project strips the trailing CR from the board number" {
+  run grep -nE 'IFS=\$.\\t. read -r t n;.*n="\$\{n%\$.\\r.\}"' "$PRJ_BIN"
+  assert_success
+}

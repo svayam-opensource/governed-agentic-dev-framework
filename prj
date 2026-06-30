@@ -861,17 +861,18 @@ cmd_init() {
 
   # Parse and display projects (bash 3.2 compatible — no mapfile)
   local TITLES=() URLS=() NUMS=()
-  while IFS= read -r line; do TITLES+=("$line"); done < <(echo "$PROJECTS_JSON" | python3 -c "
+  # strip trailing \r — Python print() emits CRLF on Windows (see _pick_open_project).
+  while IFS= read -r line; do TITLES+=("${line%$'\r'}"); done < <(echo "$PROJECTS_JSON" | python3 -c "
 import sys, json
 ps = json.load(sys.stdin).get('projects', [])
 for p in ps: print(p.get('title', '(untitled)'))
 ")
-  while IFS= read -r line; do URLS+=("$line"); done < <(echo "$PROJECTS_JSON" | python3 -c "
+  while IFS= read -r line; do URLS+=("${line%$'\r'}"); done < <(echo "$PROJECTS_JSON" | python3 -c "
 import sys, json
 ps = json.load(sys.stdin).get('projects', [])
 for p in ps: print(p.get('url', ''))
 ")
-  while IFS= read -r line; do NUMS+=("$line"); done < <(echo "$PROJECTS_JSON" | python3 -c "
+  while IFS= read -r line; do NUMS+=("${line%$'\r'}"); done < <(echo "$PROJECTS_JSON" | python3 -c "
 import sys, json
 ps = json.load(sys.stdin).get('projects', [])
 for p in ps: print(p.get('number', ''))
@@ -1827,7 +1828,10 @@ _pick_open_project() {
   local __nv="$1" __tv="$2" owner="${3:-$GITHUB_ORG}" __json __titles=() __nums=()
   __json=$(gh project list --owner "$owner" --format json --limit 100 2>/dev/null) \
     || { err "Could not list GitHub Projects for '$owner'."; exit 1; }
-  while IFS=$'\t' read -r t n; do __titles+=("$t"); __nums+=("$n"); done < <(echo "$__json" | python3 -c "
+  # NOTE: Python's print() emits CRLF on Windows, so `n` (the last field) keeps a trailing
+  # \r — strip it, else the number becomes "45\r" (display artifact + non-numeric → gh fails
+  # → silent exit under set -euo pipefail). See also the read prompts elsewhere (% $'\r').
+  while IFS=$'\t' read -r t n; do n="${n%$'\r'}"; __titles+=("$t"); __nums+=("$n"); done < <(echo "$__json" | python3 -c "
 import sys, json
 for p in json.load(sys.stdin).get('projects', []):
     print('%s\t%s' % (p.get('title','(untitled)'), p.get('number','')))
@@ -2278,6 +2282,58 @@ cmd_manage() {
 # ── Interactive menu helpers (numbered submenus; harmonized with `prj help`) ──
 
 _menu_pause() { echo ""; printf "${DIM}  Press Enter to continue…${NC}"; read -r _; }
+
+# Restored (#75 removed catalog/deploy/data submenus but inadvertently dropped these two,
+# leaving the dispatch calling undefined menu_status/menu_admin → "command not found").
+menu_status() {
+  local c
+  while true; do
+    header "Status"
+    echo "  (1) list        ongoing projects"
+    echo "  (2) list-all    all projects (incl. closed)"
+    echo "  (3) status      detailed status of one project"
+    echo "  (0) back"; echo ""
+    printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
+    case "$c" in
+      1) ( cmd_list ) ;;
+      2) ( cmd_list all ) ;;
+      3) ( cmd_status ) ;;
+      0|q|back|"") return ;;
+      *) err "Unknown option '$c'." ;;
+    esac
+    _menu_pause
+  done
+}
+
+menu_admin() {
+  local c
+  while true; do
+    header "Admin — administer governance"
+    echo "  (1) manage        project access — assign / reassign / unassign"
+    echo "  (2) knowledge     propose org knowledge changes"
+    echo "  (3) onboard       onboard a repository"
+    echo "  (4) add-repo      add a repository to a project"
+    echo "  (5) migrate-home  relocate the gov repo to its canonical home"
+    echo "  (6) upgrade       pull a new framework version"
+    echo "  (7) deps          install / verify dependencies"
+    echo "  (8) creds         manage your credentials"
+    echo "  (0) back"; echo ""
+    printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
+    case "$c" in
+      1) require_git_identity; ( cmd_manage ) ;;
+      2) require_git_identity; ( cmd_knowledge ) ;;
+      3) require_git_identity; ( cmd_onboard ) ;;
+      4) require_git_identity; ( cmd_add_repo ) ;;
+      5) ( cmd_migrate_home ) ;;
+      6) require_git_identity; ( cmd_upgrade ) ;;
+      7) ( cmd_deps ) ;;
+      8) ( bash "$SCRIPTS/creds.sh" ) ;;
+      0|q|back|"") return ;;
+      *) err "Unknown option '$c'." ;;
+    esac
+    _menu_pause
+  done
+}
 
 menu_help() {
   local c t
