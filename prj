@@ -1058,7 +1058,15 @@ cmd_work() {
 
     route)  # STEP 1.2 — initiated (seeded + cloned locally) or not?
       PID="$(pid_for_project_number "$PNUM")"
-      if [[ -z "$PID" ]]; then
+      # SEEDED iff the workspace carries the seed-complete sentinel (PRJ-43 D). A derivable
+      # PID or a leftover folder is NOT enough — a partial seed (failed mid-way) must re-seed.
+      _pid_guess="${PID:-$(derive_project_id "$PNUM" "$GITHUB_ORG" 2>/dev/null)}"
+      if [[ -z "$PID" ]] || ! _seed_complete "$_pid_guess"; then
+        # clean a partial leftover first (a failed-seed folder with no sentinel)
+        if [[ -n "$_pid_guess" && -d "$AGENT_WORK_ROOT/$_pid_guess" ]] && ! _seed_complete "$_pid_guess"; then
+          warn "Found an INCOMPLETE seed at $AGENT_WORK_ROOT/$_pid_guess (no .seed-complete)."
+          _clean_partial_seed "$_pid_guess" && info "cleaned the partial; re-seeding fresh."
+        fi
         # 1.2.1 NOT initiated → seed all the way to the agent + session-start.
         require_git_identity
         me="$(gh api user --jq .login 2>/dev/null || echo "$CURRENT_USER")"
@@ -2343,6 +2351,7 @@ menu_admin() {
     echo "  (6) upgrade       pull a new framework version"
     echo "  (7) deps          install / verify dependencies"
     echo "  (8) creds         manage your credentials"
+    echo "  (9) doctor        find / clean partial (failed) seeds"
     echo "  (0) back"; echo ""
     printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
     case "$c" in
@@ -2354,6 +2363,7 @@ menu_admin() {
       6) require_git_identity; ( cmd_upgrade ) ;;
       7) ( cmd_deps ) ;;
       8) ( bash "$SCRIPTS/creds.sh" ) ;;
+      9) ( cmd_doctor ) ;;
       0|q|back|"") return ;;
       *) err "Unknown option '$c'." ;;
     esac
@@ -2407,6 +2417,52 @@ cmd_org() {
       ;;
     *) err "unknown: prj org $sub   (prj org [list] | prj org use <github_org>)"; return 1 ;;
   esac
+}
+
+# ── Partial-seed detection + repair (PRJ-43 C/D) ──────────────────────────────
+# A seed writes a `.seed-complete` sentinel LAST. A project work dir WITHOUT it is a
+# partial (a seed that failed mid-way) — not a real project. _clean_partial_seed removes
+# one safely; `prj doctor` finds + offers to clean them all.
+_seed_complete() { [[ -n "$1" && -f "$AGENT_WORK_ROOT/$1/.seed-complete" ]]; }
+
+_clean_partial_seed() {                    # <project-id> — remove a partial workspace + home stub
+  local pid="$1" wdir="$AGENT_WORK_ROOT/$1" gclone
+  [[ -n "$pid" && -d "$wdir" ]] || return 0
+  gclone="$wdir/$WORKSPACE_REPO"
+  # detach any worktree registration from the base clone, then delete the work dir
+  [[ -e "$gclone/.git" ]] && git -C "$gclone" worktree prune 2>/dev/null || true
+  rm -rf "$wdir"
+  # home stub left on the gov repo (uncommitted or committed) — best-effort
+  [[ -d "$REPO_ROOT/projects/$pid" ]] && { git -C "$REPO_ROOT" rm -rq "projects/$pid" 2>/dev/null || rm -rf "$REPO_ROOT/projects/$pid"; }
+  # prune stale worktrees in the base clone(s) for this project
+  local base; for base in "$AGENT_WORK_ROOT"/.bases/*; do
+    [[ -d "$base/.git" || -e "$base/.git" ]] && git -C "$base" worktree prune 2>/dev/null || true
+  done
+  return 0
+}
+
+cmd_doctor() {
+  header "Doctor — orphaned / partial seeds"
+  divider
+  local found=0 d pid
+  for d in "$AGENT_WORK_ROOT"/*/; do
+    [[ -d "$d" ]] || continue
+    pid="$(basename "$d")"
+    case "$pid" in .bases|preferences) continue ;; esac
+    if [[ ! -f "$d/.seed-complete" ]]; then
+      found=1; echo -e "  ${YELLOW}partial${NC}  $pid   ${DIM}($d — no .seed-complete)${NC}"
+    fi
+  done
+  if [[ "$found" == 0 ]]; then ok "no partial seeds — everything is clean."; return 0; fi
+  echo ""
+  local yn; ask_choice yn "Clean the partial seed(s) above?" "Yes — remove them"
+  is_back "$yn" && { info "left as-is."; return 0; }
+  for d in "$AGENT_WORK_ROOT"/*/; do
+    [[ -d "$d" ]] || continue; pid="$(basename "$d")"
+    case "$pid" in .bases|preferences) continue ;; esac
+    [[ -f "$d/.seed-complete" ]] && continue
+    _clean_partial_seed "$pid" && ok "cleaned: $pid"
+  done
 }
 
 # ── Main menu ─────────────────────────────────────────────────────────────────
@@ -3586,6 +3642,7 @@ case "$CMD" in
   upgrade)      cmd_upgrade "${2:-}" ;;
   migrate-home) cmd_migrate_home "${@:2}" ;;
   org)          cmd_org "${@:2}" ;;
+  doctor)       cmd_doctor ;;
   validate)     cmd_validate ;;
   version|--version|-v)
     # Report the installed CLI version (the bundled package.json is the source of truth).

@@ -80,6 +80,17 @@ ASSIGNEE="${ARGS[1]:-}"
 [[ -n "$GITHUB_PROJECT_URL" ]] || hard_stop "Usage: $0 [--non-interactive] <github_project_url> <assignee>"
 [[ -n "$ASSIGNEE" ]]           || hard_stop "Usage: $0 [--non-interactive] <github_project_url> <assignee>"
 
+# ── Authorization PRE-FLIGHT (B) ──────────────────────────────────────────────
+# Reject an unauthorized user BEFORE any state is created OR any prior partial seed is
+# touched (the prior-partial cleanup below does `rm -rf`). Write access to the linked
+# GitHub Project is the gate; assignment is a display cache. This is intentionally the
+# FIRST GitHub-dependent step so a "not allowed" exits cleanly, leaving nothing behind.
+CURRENT_USER=$(git config user.email 2>/dev/null || echo "$ASSIGNEE")
+is_authorized_for_project "$GITHUB_PROJECT_URL" "$ASSIGNEE" \
+  || hard_stop "Not authorized: '$CURRENT_USER' needs write access to the GitHub Project
+  ($GITHUB_PROJECT_URL) to seed it. Ask an owner to grant access (prj manage assign).
+  No project state was created."
+
 [[ -n "$ORG_REPO_URL" ]] \
   || hard_stop "org_repo_url not set in org-config.yaml. Run ./setup.sh first."
 
@@ -439,10 +450,7 @@ get_repo_base() {
   echo "$DEFAULT_CODE_BRANCH"
 }
 
-CURRENT_USER=$(git config user.email 2>/dev/null || echo "$ASSIGNEE")
-
-is_authorized_for_project "$GITHUB_PROJECT_URL" "$ASSIGNEE" \
-  || hard_stop "Not authorized: '$CURRENT_USER' needs write access to the GitHub Project ($GITHUB_PROJECT_URL) to seed it."
+# (authorization was pre-flighted up top, before any state — see "Authorization PRE-FLIGHT").
 
 # ── Phase A: HOME workspace, default branch — project folder stub ──
 # Registry-elimination Increment 2: NO registry write. We create only a stub
@@ -744,7 +752,13 @@ else
   warn "  Could not auto-create the anchor issue — designate one with: prj manage"
 fi
 
-# ── Done — disarm rollback ───────────────────────────────────────────────────
+# ── Done — write the seed-complete sentinel, then disarm rollback ────────────
+# The sentinel is the LAST artifact written — its presence means the seed finished.
+# `prj work` gates on it (a folder without it is a partial seed, not a project), and
+# `prj doctor` treats a project work dir lacking it as an orphaned partial to clean (D/C).
+{
+  printf 'project_id: %s\nseeded_by: %s\ngov_home: %s\n' "$PROJECT_ID" "$CURRENT_USER" "$REPO_ROOT"
+} > "$PROJECT_WORK_ROOT/.seed-complete" 2>/dev/null || true
 
 SEED_OK=1
 
