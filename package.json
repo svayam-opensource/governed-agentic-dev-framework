@@ -1,6 +1,6 @@
 {
   "name": "@svayam-opensource/prj",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Governed Agentic Development Framework CLI (prj). A bash CLI wrapped for npm; operates on a governance workspace resolved via $ADF_WORKSPACE or the nearest org-config.yaml. Runtime prerequisites (not npm deps): bash, git, gh, yq, python3 (use Git Bash on Windows).",
   "bin": {
     "prj": "bin/prj"
