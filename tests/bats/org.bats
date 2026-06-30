@@ -71,3 +71,48 @@ teardown() { sandbox_down; }
   run bash "$BIN_PRJ" org             # must NOT hard-fail on ambiguity — you fix it here
   assert_success
 }
+
+# ── self-healing auto-learn (PRJ-43, the Svayamtech-not-registered bug) ───────────
+# prj resolved an org by walking cwd but never PERSISTED it, so from a neutral cwd the
+# org was unknown (menu hid the switch hint, `org use` couldn't reach it). The resolver
+# now learns the org's CANONICAL gov_workspace from the config — not the walked dir, which
+# may be a project CLONE that also carries org-config.yaml.
+
+@test "auto-learn: walking an org's tree registers its CANONICAL gov home, not the cwd clone" {
+  mkdir -p "$HOME/canon"; printf 'github_org: NewOrg\n' > "$HOME/canon/org-config.yaml"   # canonical home
+  CLONE="$TEST_TMP/proj/PRJ-1/wsrepo"; mkdir -p "$CLONE"                                  # a project clone
+  printf 'github_org: NewOrg\ngov_workspace: "~/canon"\n' > "$CLONE/org-config.yaml"
+  source "$REPO_SRC/scripts/gov-registry.sh"
+  cd "$CLONE"
+  run prj_resolve_gov
+  assert_success; assert_output "$CLONE"          # the CLONE resolves for work (cwd-walk)
+  run prj_reg_list                                 # but the registry learned the CANONICAL home
+  assert_output --partial "NewOrg"
+  assert_output --partial "$HOME/canon"
+  refute_output --partial "PRJ-1"                  # NOT the project-clone path
+}
+
+@test "auto-learn: does NOT change the active org (standing in a tree must not flip your default)" {
+  _two_orgs                                        # aarambh active (last add)
+  mkdir -p "$HOME/canon"; printf 'github_org: NewOrg\n' > "$HOME/canon/org-config.yaml"
+  CLONE="$TEST_TMP/proj/wsrepo"; mkdir -p "$CLONE"
+  printf 'github_org: NewOrg\ngov_workspace: "~/canon"\n' > "$CLONE/org-config.yaml"
+  cd "$CLONE"; run resolved_workspace              # triggers cwd-walk → learn
+  cd /tmp
+  run cat "$XDG_CONFIG_HOME/prj/active-org"
+  assert_output "aarambhwillbeback"                # learn left active untouched
+}
+
+@test "prj org add: registers a gov home and makes it active" {
+  mkdir -p "$HOME/h1"; printf 'github_org: OrgX\n' > "$HOME/h1/org-config.yaml"
+  run bash "$BIN_PRJ" org add OrgX "$HOME/h1"
+  assert_success; assert_output --partial "OrgX"
+  run cat "$XDG_CONFIG_HOME/prj/active-org"; assert_output "OrgX"
+}
+
+@test "prj org add: rejects a path that is not a governance workspace" {
+  mkdir -p "$HOME/notgov"                           # no org-config.yaml
+  run bash "$BIN_PRJ" org add OrgX "$HOME/notgov"
+  assert_failure
+  assert_output --partial "not a governance workspace"
+}

@@ -33,3 +33,21 @@ load helpers
   assert_success
   assert_output --partial "OK"
 }
+
+@test "lint: the agent launcher and its menu stay consistent (every offered agent is dispatched + sanctioned)" {
+  # The menu, the dispatch case, launch_agent's case arms, and SANCTIONED_AGENTS must agree.
+  # A drift here (e.g. menu offers an agent launch_agent can't handle, like the cursor-GUI vs
+  # cursor-agent split) is a silent no-op at runtime that no syntax/shellcheck pass catches.
+  run bash -c '
+    src="'"$PRJ_BIN"'"
+    miss=""
+    grep -q "cursor (GUI app)"        "$src" || miss="$miss menu-gui-label"
+    grep -q "launch_agent cursor-gui" "$src" || miss="$miss menu-gui-dispatch"
+    grep -qE "^[[:space:]]*cursor-gui\)" "$src" || miss="$miss launch-gui-case"
+    grep -qE "^[[:space:]]*cursor\)"     "$src" || miss="$miss launch-agent-case"
+    grep -E "^SANCTIONED_AGENTS=" "$src" | grep -q "cursor-gui" || miss="$miss sanctioned-gui"
+    [ -z "$miss" ] && echo OK || { echo "AGENT-LAUNCHER-DRIFT:$miss"; exit 1; }
+  '
+  assert_success
+  assert_output --partial "OK"
+}
