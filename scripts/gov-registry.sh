@@ -43,7 +43,7 @@ _prj_reg_migrate() {                       # legacy single pointer → registry 
   printf '%s\t%s\n' "$org" "$p" >> "$reg"  # register regardless — resolves as the single home
 }
 
-prj_reg_add() {                            # <github_org> <gov_home> — upsert + set active
+_prj_reg_upsert() {                        # <github_org> <gov_home> — add/replace mapping; does NOT touch active-org
   local org="$1" home="$2" reg tmp       # org may be empty (unconfigured template)
   [[ -n "$home" ]] || return 1
   reg="$(_prj_reg_file)"; mkdir -p "$(_prj_cfg_dir)" 2>/dev/null || true; touch "$reg"
@@ -51,7 +51,29 @@ prj_reg_add() {                            # <github_org> <gov_home> — upsert 
   awk -F'\t' -v o="$org" '$1!=o' "$reg" > "$tmp" 2>/dev/null || true
   printf '%s\t%s\n' "$org" "$home" >> "$tmp"
   mv "$tmp" "$reg"
-  printf '%s\n' "$org" > "$(_prj_active_file)"
+}
+
+prj_reg_add() {                            # <github_org> <gov_home> — upsert + set active
+  _prj_reg_upsert "$1" "$2" || return 1
+  printf '%s\n' "$1" > "$(_prj_active_file)"
+}
+
+# Self-healing: teach the registry an org's CANONICAL gov home from a config we walked into,
+# WITHOUT changing the active org (standing in a tree must not flip your default). Reads
+# gov_workspace (the canonical home), NOT the walked dir — which may be a project CLONE that
+# also carries org-config.yaml. Cheap, no churn: skips entirely if the org is already known.
+# grep/sed only (no python/yq) so it stays light on the resolver's hot path.
+_prj_reg_learn() {                         # <config-dir>
+  local cd="$1" cfg org home reg tab; tab="$(printf '\t')"
+  cfg="$cd/org-config.yaml"; [[ -f "$cfg" ]] || return 0
+  org="$(sed -nE 's/^github_org:[[:space:]]*"?([^"#]*)"?.*/\1/p' "$cfg" | head -1 | tr -d '[:space:]')"
+  [[ -n "$org" ]] || return 0                                  # unconfigured template → nothing to learn
+  reg="$(_prj_reg_file)"
+  [[ -f "$reg" ]] && grep -q "^${org}${tab}" "$reg" && return 0  # already known → no work
+  home="$(sed -nE 's/^gov_workspace:[[:space:]]*"?([^"#]*)"?.*/\1/p' "$cfg" | head -1 | tr -d '[:space:]')"
+  home="$(_prj_expand_tilde "$home")"
+  _prj_home_ok "$home" || return 0                            # canonical home not on disk → don't register
+  _prj_reg_upsert "$org" "$home"
 }
 
 prj_reg_list() {                           # prints "<org>\t<home>" for valid, deduped homes
@@ -91,7 +113,10 @@ prj_reg_set_active() {                     # <github_org>
 prj_resolve_gov() {
   local d="$PWD"
   while [[ "$d" != "/" && -n "$d" ]]; do
-    if [[ -f "$d/org-config.yaml" && "$d" != */.bases/* ]]; then printf '%s' "$d"; return 0; fi
+    if [[ -f "$d/org-config.yaml" && "$d" != */.bases/* ]]; then
+      _prj_reg_learn "$d" 2>/dev/null || true   # self-heal: persist this org's canonical home so future neutral-cwd runs + the menu know it
+      printf '%s' "$d"; return 0
+    fi
     d="$(dirname "$d")"
   done
   local h list n
