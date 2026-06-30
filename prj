@@ -2444,6 +2444,12 @@ _clean_partial_seed() {                    # <project-id> — remove a partial w
 cmd_doctor() {
   header "Doctor — orphaned / partial seeds"
   divider
+  # SAFETY: never scan/clean an empty or root AGENT_WORK_ROOT — a misconfig must not
+  # make doctor offer to delete /bin, /etc, … (seen on a Windows misresolve).
+  case "${AGENT_WORK_ROOT:-}" in
+    ""|"/"|"//") err "AGENT_WORK_ROOT is not a usable directory ('${AGENT_WORK_ROOT:-}') — refusing to scan."; return 1 ;;
+  esac
+  [[ -d "$AGENT_WORK_ROOT" ]] || { ok "no work root yet ($AGENT_WORK_ROOT) — nothing to check."; return 0; }
   local found=0 d pid
   for d in "$AGENT_WORK_ROOT"/*/; do
     [[ -d "$d" ]] || continue

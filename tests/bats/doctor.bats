@@ -8,13 +8,18 @@ setup() {
   sandbox_up
   GOV="$TEST_TMP/gov"; make_gov_repo "$GOV"
   WR="$TEST_TMP/wr"; mkdir -p "$WR"
-  # point agent_work_root at our sandbox dir so doctor/work scan it (absolute path)
+  # point agent_work_root at our sandbox dir so doctor/work scan it (absolute path).
+  # Use stdlib `re` only — ubuntu CI's python3 has no pyyaml module.
   python3 - "$GOV/org-config.yaml" "$WR" <<'PY'
-import sys, yaml
+import sys, re
 p, wr = sys.argv[1], sys.argv[2]
-c = yaml.safe_load(open(p)) or {}
-c['agent_work_root'] = wr
-yaml.safe_dump(c, open(p, 'w'))
+s = open(p).read()
+line = 'agent_work_root: "%s"' % wr
+if re.search(r'(?m)^agent_work_root:', s):
+    s = re.sub(r'(?m)^agent_work_root:.*$', line, s)
+else:
+    s = s.rstrip() + '\n' + line + '\n'
+open(p, 'w').write(s)
 PY
   export ADF_WORKSPACE="$GOV"
 }
