@@ -567,6 +567,23 @@ else
   warn "Could not write gov workspace pointer — '$GOV_HOME' has no org-config.yaml."
 fi
 
+# ── Multi-home registry (PRJ-43): register THIS gov home + make it active ───────
+# A developer in several orgs has several gov repos. The single pointer above can
+# only name one (whichever setup ran last) — so prj also keeps a registry keyed by
+# github_org and an active-org selection. This UPSERTS (never clobbers other orgs).
+if [[ -f "$GOV_HOME/org-config.yaml" && -n "${GITHUB_ORG:-}" ]]; then
+  REG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/prj"
+  REG_FILE="$REG_DIR/gov-workspaces"
+  mkdir -p "$REG_DIR" 2>/dev/null || true
+  touch "$REG_FILE" 2>/dev/null || true
+  awk -F'\t' -v o="$GITHUB_ORG" '$1!=o' "$REG_FILE" > "$REG_FILE.tmp.$$" 2>/dev/null || true
+  printf '%s\t%s\n' "$GITHUB_ORG" "$GOV_HOME" >> "$REG_FILE.tmp.$$"
+  mv "$REG_FILE.tmp.$$" "$REG_FILE" 2>/dev/null || true
+  printf '%s\n' "$GITHUB_ORG" > "$REG_DIR/active-org" 2>/dev/null || true
+  ok "registered gov home in the registry ($GITHUB_ORG) and set it active"
+  ok "  switch orgs anytime with:  prj org use <github_org>"
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""

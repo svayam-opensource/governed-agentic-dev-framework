@@ -18,26 +18,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   2. BOOTSTRAP only if the pointer is missing/broken: if an ambient
 #      $ADF_WORKSPACE is a valid gov repo, use it AND write the pointer from it.
 #   3. the vendored layout (scripts/ inside the workspace repo) — legacy fallback.
-_adf_gov_ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
 _adf_ok() { [[ -n "$1" && -f "$1/org-config.yaml" && "$1" != */.bases/* ]]; }
-_adf_read_ptr() {
-  [[ -f "$_adf_gov_ptr" ]] || return 1
-  local p; p="$(head -n1 "$_adf_gov_ptr" | tr -d '[:space:]')"
-  case "$p" in "~/"*) p="$HOME/${p#\~/}" ;; "~") p="$HOME" ;; esac
-  _adf_ok "$p" && { printf '%s' "$p"; return 0; }
-  return 1
-}
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/gov-registry.sh" 2>/dev/null || true   # multi-home registry (prj_resolve_gov)
 REPO_ROOT=""
 if [[ "${PRJ_WS_RESOLVED:-}" == "1" ]] && _adf_ok "${ADF_WORKSPACE:-}"; then
   REPO_ROOT="$ADF_WORKSPACE"                       # trust the prj entrypoint's deterministic resolution
-else
-  _adf_inbound="${ADF_WORKSPACE:-}"                # ambient — bootstrap-only, NOT authoritative
-  if _p="$(_adf_read_ptr)"; then
-    REPO_ROOT="$_p"                                # pointer wins; ambient env ignored
-  elif _adf_ok "$_adf_inbound"; then              # pointer missing/broken → bootstrap from env + record it
-    REPO_ROOT="$(cd "$_adf_inbound" && pwd)"
-    mkdir -p "$(dirname "$_adf_gov_ptr")" 2>/dev/null \
-      && printf '%s\n' "$REPO_ROOT" > "$_adf_gov_ptr" 2>/dev/null || true
+elif command -v prj_resolve_gov >/dev/null 2>&1; then
+  _rc=0; REPO_ROOT="$(prj_resolve_gov 2>/dev/null)" || _rc=$?   # cwd → active → single → (rc2 ambiguous)
+  if [[ "${_rc:-0}" -ne 0 ]]; then
+    _adf_inbound="${ADF_WORKSPACE:-}"               # bootstrap-only fallback — register it
+    if _adf_ok "$_adf_inbound"; then
+      REPO_ROOT="$(cd "$_adf_inbound" && pwd)"
+      _o="$(_prj_org_of_home "$REPO_ROOT" 2>/dev/null || true)"
+      prj_reg_add "$_o" "$REPO_ROOT" 2>/dev/null || true
+    fi
   fi
 fi
 if [[ -z "$REPO_ROOT" ]]; then REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"; fi

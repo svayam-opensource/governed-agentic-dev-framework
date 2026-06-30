@@ -36,13 +36,14 @@ teardown() { sandbox_down; }
   assert_output "$GOV"
 }
 
-@test "bootstraps the pointer from ADF_WORKSPACE only when no pointer exists" {
-  # No pointer yet → an inbound ADF_WORKSPACE seeds it (and is recorded), so
-  # every future run resolves deterministically without the env var.
+@test "bootstraps the registry from ADF_WORKSPACE only when nothing is registered" {
+  # Nothing registered yet → an inbound ADF_WORKSPACE seeds the registry (and is
+  # recorded), so a FUTURE run resolves deterministically without the env var.
   OTHER="$TEST_TMP/other"; make_gov_repo "$OTHER"
   ADF_WORKSPACE="$OTHER" run resolved_workspace
   assert_output "$OTHER"
-  run cat "$XDG_CONFIG_HOME/prj/gov-workspace"
+  # persisted in the registry → next run (no env, neutral cwd) still resolves it
+  cd /tmp; run resolved_workspace
   assert_output "$OTHER"
 }
 
@@ -53,8 +54,9 @@ teardown() { sandbox_down; }
 }
 
 @test "hard-errors when nothing resolves (no env, no pointer, non-interactive)" {
+  # a HOME-REQUIRING command (status) — version/help/org are intentionally homeless-OK.
   cd /tmp
-  run bash "$BIN_PRJ" version
+  run bash "$BIN_PRJ" status
   assert_failure
   assert_output --partial "could not locate"
 }

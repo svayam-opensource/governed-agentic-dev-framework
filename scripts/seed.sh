@@ -38,11 +38,20 @@ load_config
 # we happened to be invoked from — re-anchor to the deterministic gov home
 # (the pointer file). Never seed off a base clone or another project's worktree.
 if [[ "$REPO_ROOT" == "$AGENT_WORK_ROOT"/* ]]; then
-  _seed_ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
+  # Re-anchor to the gov HOME of the SAME org as this workspace (multi-org safe) — NOT the
+  # globally-active org. Derive the org from the in-workspace config, look it up in the
+  # registry; fall back to the legacy single pointer only if the registry can't resolve it.
   _seed_gov=""
-  if [[ -f "$_seed_ptr" ]]; then
-    _seed_gov="$(head -n1 "$_seed_ptr" | tr -d '[:space:]')"
-    case "$_seed_gov" in "~/"*) _seed_gov="$HOME/${_seed_gov#\~/}" ;; "~") _seed_gov="$HOME" ;; esac
+  if command -v prj_reg_list >/dev/null 2>&1; then
+    _seed_org="$(_prj_org_of_home "$REPO_ROOT" 2>/dev/null)"
+    [[ -n "$_seed_org" ]] && _seed_gov="$(prj_reg_list | awk -F'\t' -v o="$_seed_org" '$1==o{print $2; exit}')"
+  fi
+  if [[ -z "$_seed_gov" ]]; then
+    _seed_ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
+    if [[ -f "$_seed_ptr" ]]; then
+      _seed_gov="$(head -n1 "$_seed_ptr" | tr -d '[:space:]')"
+      case "$_seed_gov" in "~/"*) _seed_gov="$HOME/${_seed_gov#\~/}" ;; "~") _seed_gov="$HOME" ;; esac
+    fi
   fi
   if [[ -n "$_seed_gov" && -f "$_seed_gov/org-config.yaml" && "$_seed_gov" != "$AGENT_WORK_ROOT"/* ]]; then
     REPO_ROOT="$_seed_gov"; CONFIG="$REPO_ROOT/org-config.yaml"; REGISTRY="$REPO_ROOT/registry.yaml"
@@ -70,6 +79,17 @@ ASSIGNEE="${ARGS[1]:-}"
 
 [[ -n "$GITHUB_PROJECT_URL" ]] || hard_stop "Usage: $0 [--non-interactive] <github_project_url> <assignee>"
 [[ -n "$ASSIGNEE" ]]           || hard_stop "Usage: $0 [--non-interactive] <github_project_url> <assignee>"
+
+# ── Authorization PRE-FLIGHT (B) ──────────────────────────────────────────────
+# Reject an unauthorized user BEFORE any state is created OR any prior partial seed is
+# touched (the prior-partial cleanup below does `rm -rf`). Write access to the linked
+# GitHub Project is the gate; assignment is a display cache. This is intentionally the
+# FIRST GitHub-dependent step so a "not allowed" exits cleanly, leaving nothing behind.
+CURRENT_USER=$(git config user.email 2>/dev/null || echo "$ASSIGNEE")
+is_authorized_for_project "$GITHUB_PROJECT_URL" "$ASSIGNEE" \
+  || hard_stop "Not authorized: '$CURRENT_USER' needs write access to the GitHub Project
+  ($GITHUB_PROJECT_URL) to seed it. Ask an owner to grant access (prj manage assign).
+  No project state was created."
 
 [[ -n "$ORG_REPO_URL" ]] \
   || hard_stop "org_repo_url not set in org-config.yaml. Run ./setup.sh first."
@@ -430,10 +450,7 @@ get_repo_base() {
   echo "$DEFAULT_CODE_BRANCH"
 }
 
-CURRENT_USER=$(git config user.email 2>/dev/null || echo "$ASSIGNEE")
-
-is_authorized_for_project "$GITHUB_PROJECT_URL" "$ASSIGNEE" \
-  || hard_stop "Not authorized: '$CURRENT_USER' needs write access to the GitHub Project ($GITHUB_PROJECT_URL) to seed it."
+# (authorization was pre-flighted up top, before any state — see "Authorization PRE-FLIGHT").
 
 # ── Phase A: HOME workspace, default branch — project folder stub ──
 # Registry-elimination Increment 2: NO registry write. We create only a stub
@@ -735,7 +752,13 @@ else
   warn "  Could not auto-create the anchor issue — designate one with: prj manage"
 fi
 
-# ── Done — disarm rollback ───────────────────────────────────────────────────
+# ── Done — write the seed-complete sentinel, then disarm rollback ────────────
+# The sentinel is the LAST artifact written — its presence means the seed finished.
+# `prj work` gates on it (a folder without it is a partial seed, not a project), and
+# `prj doctor` treats a project work dir lacking it as an orphaned partial to clean (D/C).
+{
+  printf 'project_id: %s\nseeded_by: %s\ngov_home: %s\n' "$PROJECT_ID" "$CURRENT_USER" "$REPO_ROOT"
+} > "$PROJECT_WORK_ROOT/.seed-complete" 2>/dev/null || true
 
 SEED_OK=1
 

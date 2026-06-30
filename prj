@@ -25,6 +25,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS="$SCRIPT_DIR/scripts"
+# Multi-home gov registry helpers (prj_org_*, prj_reg_*) — prj does NOT source lib.sh,
+# so source the registry directly for `prj org` + the menu's active-org header (PRJ-43).
+# shellcheck source=/dev/null
+. "$SCRIPTS/gov-registry.sh" 2>/dev/null || true
 # ADR-0001 Phase 4: the CLI may be installed separately from the workspace
 # data. $ADF_WORKSPACE (exported by the installed `prj` wrapper, or set by
 # hand) points at the governance repo; default to the vendored layout (the
@@ -1054,7 +1058,15 @@ cmd_work() {
 
     route)  # STEP 1.2 — initiated (seeded + cloned locally) or not?
       PID="$(pid_for_project_number "$PNUM")"
-      if [[ -z "$PID" ]]; then
+      # SEEDED iff the workspace carries the seed-complete sentinel (PRJ-43 D). A derivable
+      # PID or a leftover folder is NOT enough — a partial seed (failed mid-way) must re-seed.
+      _pid_guess="${PID:-$(derive_project_id "$PNUM" "$GITHUB_ORG" 2>/dev/null)}"
+      if [[ -z "$PID" ]] || ! _seed_complete "$_pid_guess"; then
+        # clean a partial leftover first (a failed-seed folder with no sentinel)
+        if [[ -n "$_pid_guess" && -d "$AGENT_WORK_ROOT/$_pid_guess" ]] && ! _seed_complete "$_pid_guess"; then
+          warn "Found an INCOMPLETE seed at $AGENT_WORK_ROOT/$_pid_guess (no .seed-complete)."
+          _clean_partial_seed "$_pid_guess" && info "cleaned the partial; re-seeding fresh."
+        fi
         # 1.2.1 NOT initiated → seed all the way to the agent + session-start.
         require_git_identity
         me="$(gh api user --jq .login 2>/dev/null || echo "$CURRENT_USER")"
@@ -2283,6 +2295,28 @@ cmd_manage() {
 
 _menu_pause() { echo ""; printf "${DIM}  Press Enter to continue…${NC}"; read -r _; }
 
+# Switch the active governance workspace (org) from the menu — picks from the registry.
+_menu_switch_org() {
+  header "Switch active org"
+  local orgs=() line org home i=1 active n
+  active="$(prj_reg_active_org 2>/dev/null || true)"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    org="${line%%	*}"; home="${line#*	}"; orgs+=("$org")
+    local mark="  "; [[ -n "$active" && "$org" == "$active" ]] && mark="* "
+    printf "  %s(%d) %-26s ${DIM}%s${NC}\n" "$mark" "$i" "${org:-<unconfigured>}" "$home"; i=$((i+1))
+  done < <(prj_reg_list 2>/dev/null)
+  [[ ${#orgs[@]} -eq 0 ]] && { echo "  (none registered — run setup.sh in a gov repo)"; return; }
+  echo ""; printf "  Pick org # (0 to cancel): "; read -r n; n="${n%$'\r'}"; echo ""
+  [[ "$n" == 0 || -z "$n" ]] && return
+  if [[ "$n" =~ ^[0-9]+$ ]] && (( n>=1 && n<=${#orgs[@]} )); then
+    if prj_reg_set_active "${orgs[$((n-1))]}"; then
+      ok "active org → ${orgs[$((n-1))]}"
+      warn "applies to your NEXT prj run — re-run prj to operate on it (this session keeps the current org)."
+    fi
+  else err "invalid choice '$n'."; fi
+}
+
 # Restored (#75 removed catalog/deploy/data submenus but inadvertently dropped these two,
 # leaving the dispatch calling undefined menu_status/menu_admin → "command not found").
 menu_status() {
@@ -2317,6 +2351,7 @@ menu_admin() {
     echo "  (6) upgrade       pull a new framework version"
     echo "  (7) deps          install / verify dependencies"
     echo "  (8) creds         manage your credentials"
+    echo "  (9) doctor        find / clean partial (failed) seeds"
     echo "  (0) back"; echo ""
     printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
     case "$c" in
@@ -2328,6 +2363,7 @@ menu_admin() {
       6) require_git_identity; ( cmd_upgrade ) ;;
       7) ( cmd_deps ) ;;
       8) ( bash "$SCRIPTS/creds.sh" ) ;;
+      9) ( cmd_doctor ) ;;
       0|q|back|"") return ;;
       *) err "Unknown option '$c'." ;;
     esac
@@ -2356,6 +2392,85 @@ menu_help() {
   done
 }
 
+# ── Org switching (multi-home registry; PRJ-43) ───────────────────────────────
+# `prj org` (list + active) | `prj org use <github_org>`. Lets a developer in
+# several orgs pick which governance workspace prj operates on when cwd is neutral.
+cmd_org() {
+  case "${1:-}" in -h|--help) cmd_help org 2>/dev/null || echo "prj org [list] | prj org use <github_org>"; return 0 ;; esac
+  local sub="${1:-list}" active line org home mark any=0
+  active="$(prj_reg_active_org 2>/dev/null || true)"
+  case "$sub" in
+    list|"")
+      header "Governance workspaces"
+      while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        org="${line%%	*}"; home="${line#*	}"
+        any=1; mark="  "; [[ -n "$active" && "$org" == "$active" ]] && mark="${GREEN}* ${NC}"
+        printf "  %b%-28s${DIM}%s${NC}\n" "$mark" "${org:-<unconfigured>}" "$home"
+      done < <(prj_reg_list 2>/dev/null)
+      [[ "$any" == 0 ]] && echo "  (none registered — run setup.sh in a gov repo)"
+      echo ""; echo -e "  ${DIM}* = active.  Switch with:${NC} ${BOLD}prj org use <github_org>${NC}"
+      ;;
+    use)
+      [[ -n "${2:-}" ]] || { err "usage: prj org use <github_org>"; return 1; }
+      if prj_reg_set_active "$2"; then ok "active org → $2"; else return 1; fi
+      ;;
+    *) err "unknown: prj org $sub   (prj org [list] | prj org use <github_org>)"; return 1 ;;
+  esac
+}
+
+# ── Partial-seed detection + repair (PRJ-43 C/D) ──────────────────────────────
+# A seed writes a `.seed-complete` sentinel LAST. A project work dir WITHOUT it is a
+# partial (a seed that failed mid-way) — not a real project. _clean_partial_seed removes
+# one safely; `prj doctor` finds + offers to clean them all.
+_seed_complete() { [[ -n "$1" && -f "$AGENT_WORK_ROOT/$1/.seed-complete" ]]; }
+
+_clean_partial_seed() {                    # <project-id> — remove a partial workspace + home stub
+  local pid="$1" wdir="$AGENT_WORK_ROOT/$1" gclone
+  [[ -n "$pid" && -d "$wdir" ]] || return 0
+  gclone="$wdir/$WORKSPACE_REPO"
+  # detach any worktree registration from the base clone, then delete the work dir
+  [[ -e "$gclone/.git" ]] && git -C "$gclone" worktree prune 2>/dev/null || true
+  rm -rf "$wdir"
+  # home stub left on the gov repo (uncommitted or committed) — best-effort
+  [[ -d "$REPO_ROOT/projects/$pid" ]] && { git -C "$REPO_ROOT" rm -rq "projects/$pid" 2>/dev/null || rm -rf "$REPO_ROOT/projects/$pid"; }
+  # prune stale worktrees in the base clone(s) for this project
+  local base; for base in "$AGENT_WORK_ROOT"/.bases/*; do
+    [[ -d "$base/.git" || -e "$base/.git" ]] && git -C "$base" worktree prune 2>/dev/null || true
+  done
+  return 0
+}
+
+cmd_doctor() {
+  header "Doctor — orphaned / partial seeds"
+  divider
+  # SAFETY: never scan/clean an empty or root AGENT_WORK_ROOT — a misconfig must not
+  # make doctor offer to delete /bin, /etc, … (seen on a Windows misresolve).
+  case "${AGENT_WORK_ROOT:-}" in
+    ""|"/"|"//") err "AGENT_WORK_ROOT is not a usable directory ('${AGENT_WORK_ROOT:-}') — refusing to scan."; return 1 ;;
+  esac
+  [[ -d "$AGENT_WORK_ROOT" ]] || { ok "no work root yet ($AGENT_WORK_ROOT) — nothing to check."; return 0; }
+  local found=0 d pid
+  for d in "$AGENT_WORK_ROOT"/*/; do
+    [[ -d "$d" ]] || continue
+    pid="$(basename "$d")"
+    case "$pid" in .bases|preferences) continue ;; esac
+    if [[ ! -f "$d/.seed-complete" ]]; then
+      found=1; echo -e "  ${YELLOW}partial${NC}  $pid   ${DIM}($d — no .seed-complete)${NC}"
+    fi
+  done
+  if [[ "$found" == 0 ]]; then ok "no partial seeds — everything is clean."; return 0; fi
+  echo ""
+  local yn; ask_choice yn "Clean the partial seed(s) above?" "Yes — remove them"
+  is_back "$yn" && { info "left as-is."; return 0; }
+  for d in "$AGENT_WORK_ROOT"/*/; do
+    [[ -d "$d" ]] || continue; pid="$(basename "$d")"
+    case "$pid" in .bases|preferences) continue ;; esac
+    [[ -f "$d/.seed-complete" ]] && continue
+    _clean_partial_seed "$pid" && ok "cleaned: $pid"
+  done
+}
+
 # ── Main menu ─────────────────────────────────────────────────────────────────
 
 show_menu() {
@@ -2363,12 +2478,17 @@ show_menu() {
   # Show the ACTUAL checked-out branch of the current repo (not the org default
   # branch) — this is what the developer is on. Fall back to the org default if
   # cwd isn't a git repo.
-  local cur_branch _ver
+  local cur_branch _ver _active _norgs
   cur_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "$DEFAULT_BRANCH")
   _ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/package.json" 2>/dev/null | head -1)"
+  _active="$(prj_reg_active_org 2>/dev/null || true)"
+  _norgs="$(prj_reg_list 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
   echo ""
   echo -e "${BOLD}${MAGENTA}  ▸ ${ORG_NAME} — Agentic Development Framework${NC}${DIM}${_ver:+ (v${_ver})}${NC}"
-  echo -e "${DIM}  Org: ${ORG_SLUG}  |  Branch: ${cur_branch}  |  User: ${CURRENT_USER}${NC}"
+  echo -e "${DIM}  Org: ${BOLD}${_active:-$ORG_SLUG}${NC}${DIM}  |  Branch: ${cur_branch}  |  User: ${CURRENT_USER}${NC}"
+  if [[ "${_norgs:-0}" -gt 1 ]]; then
+    echo -e "${DIM}  ${_norgs} governance workspaces registered — press ${BOLD}o${NC}${DIM} to switch the active org.${NC}"
+  fi
   echo ""
   divider
   echo ""
@@ -2391,8 +2511,9 @@ show_menu() {
     2)             require_git_identity; ( cmd_work ); _menu_pause ;;
     3)             menu_admin ;;
     4)             menu_help ;;
+    o|O)           _menu_switch_org; _menu_pause ;;
     0|q|quit|exit) echo "Bye."; exit 0 ;;
-    *) err "Unknown option '$choice' — type a number 1-4, or 0 to exit."; _menu_pause ;;
+    *) err "Unknown option '$choice' — type a number 1-4 (or 'o' to switch org), 0 to exit."; _menu_pause ;;
   esac
   show_menu
 }
@@ -3526,6 +3647,8 @@ case "$CMD" in
   manage)       cmd_manage "${2:-}" ;;
   upgrade)      cmd_upgrade "${2:-}" ;;
   migrate-home) cmd_migrate_home "${@:2}" ;;
+  org)          cmd_org "${@:2}" ;;
+  doctor)       cmd_doctor ;;
   validate)     cmd_validate ;;
   version|--version|-v)
     # Report the installed CLI version (the bundled package.json is the source of truth).
