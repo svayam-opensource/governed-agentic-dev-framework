@@ -1,5 +1,9 @@
 # shellcheck shell=bash
 # Common helpers for the governance test bed (BATS). Load with: load helpers
+#
+# ADDING OR CHANGING TESTS? Read ./TESTING-GUIDE.md first — it codifies the coverage gaps
+# that let real bugs ship (undefined-function dispatch, Windows CRLF reads, untested menu
+# branches) and the lints/patterns that close them. New invariants → a lint in prj-lint.bats.
 _BATS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_SRC="$(cd "$_BATS_DIR/../.." && pwd)"     # framework repo root (ships prj)
 PRJ_BIN="$REPO_SRC/prj"
