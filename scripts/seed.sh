@@ -38,11 +38,20 @@ load_config
 # we happened to be invoked from — re-anchor to the deterministic gov home
 # (the pointer file). Never seed off a base clone or another project's worktree.
 if [[ "$REPO_ROOT" == "$AGENT_WORK_ROOT"/* ]]; then
-  _seed_ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
+  # Re-anchor to the gov HOME of the SAME org as this workspace (multi-org safe) — NOT the
+  # globally-active org. Derive the org from the in-workspace config, look it up in the
+  # registry; fall back to the legacy single pointer only if the registry can't resolve it.
   _seed_gov=""
-  if [[ -f "$_seed_ptr" ]]; then
-    _seed_gov="$(head -n1 "$_seed_ptr" | tr -d '[:space:]')"
-    case "$_seed_gov" in "~/"*) _seed_gov="$HOME/${_seed_gov#\~/}" ;; "~") _seed_gov="$HOME" ;; esac
+  if command -v prj_reg_list >/dev/null 2>&1; then
+    _seed_org="$(_prj_org_of_home "$REPO_ROOT" 2>/dev/null)"
+    [[ -n "$_seed_org" ]] && _seed_gov="$(prj_reg_list | awk -F'\t' -v o="$_seed_org" '$1==o{print $2; exit}')"
+  fi
+  if [[ -z "$_seed_gov" ]]; then
+    _seed_ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
+    if [[ -f "$_seed_ptr" ]]; then
+      _seed_gov="$(head -n1 "$_seed_ptr" | tr -d '[:space:]')"
+      case "$_seed_gov" in "~/"*) _seed_gov="$HOME/${_seed_gov#\~/}" ;; "~") _seed_gov="$HOME" ;; esac
+    fi
   fi
   if [[ -n "$_seed_gov" && -f "$_seed_gov/org-config.yaml" && "$_seed_gov" != "$AGENT_WORK_ROOT"/* ]]; then
     REPO_ROOT="$_seed_gov"; CONFIG="$REPO_ROOT/org-config.yaml"; REGISTRY="$REPO_ROOT/registry.yaml"
