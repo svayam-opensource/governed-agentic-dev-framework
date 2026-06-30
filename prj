@@ -2432,8 +2432,10 @@ _clean_partial_seed() {                    # <project-id> — remove a partial w
   # detach any worktree registration from the base clone, then delete the work dir
   [[ -e "$gclone/.git" ]] && git -C "$gclone" worktree prune 2>/dev/null || true
   rm -rf "$wdir"
-  # home stub left on the gov repo (uncommitted or committed) — best-effort
-  [[ -d "$REPO_ROOT/projects/$pid" ]] && { git -C "$REPO_ROOT" rm -rq "projects/$pid" 2>/dev/null || rm -rf "$REPO_ROOT/projects/$pid"; }
+  # home stub left on the gov repo (uncommitted or committed) — best-effort.
+  # prj's gov home is $WORKSPACE_ROOT (REPO_ROOT is a lib.sh name — unbound here under set -u).
+  local gh="${WORKSPACE_ROOT:-${ADF_WORKSPACE:-}}"
+  [[ -n "$gh" && -d "$gh/projects/$pid" ]] && { git -C "$gh" rm -rq "projects/$pid" 2>/dev/null || rm -rf "$gh/projects/$pid"; }
   # prune stale worktrees in the base clone(s) for this project
   local base; for base in "$AGENT_WORK_ROOT"/.bases/*; do
     [[ -d "$base/.git" || -e "$base/.git" ]] && git -C "$base" worktree prune 2>/dev/null || true
