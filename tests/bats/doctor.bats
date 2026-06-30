@@ -7,20 +7,17 @@ load helpers
 setup() {
   sandbox_up
   GOV="$TEST_TMP/gov"; make_gov_repo "$GOV"
-  WR="$TEST_TMP/wr"; mkdir -p "$WR"
-  # point agent_work_root at our sandbox dir so doctor/work scan it (absolute path).
-  # Use stdlib `re` only — ubuntu CI's python3 has no pyyaml module.
-  python3 - "$GOV/org-config.yaml" "$WR" <<'PY'
+  # Point agent_work_root at a TILDE path ('~/wr') — prj expands ~ to $HOME (the sandbox).
+  # An ABSOLUTE injected path doesn't survive Windows MSYS translation into YAML (it lands as
+  # C:\.. → invalid escapes → empty); the template's own agent_work_root is tilde-based for
+  # exactly this reason. stdlib `re` only (ubuntu CI has no pyyaml).
+  WR="$HOME/wr"; mkdir -p "$WR"
+  python3 - "$GOV/org-config.yaml" <<'PY'
 import sys, re
-p, wr = sys.argv[1], sys.argv[2].replace('\\', '/')   # forward slashes (MSYS may hand us C:\..)
-# single-quote the value: a Windows path's backslashes are invalid escapes in a YAML
-# DOUBLE-quoted string and parse to empty; single-quoted YAML has no escapes.
-line = "agent_work_root: '%s'" % wr
+p = sys.argv[1]; line = "agent_work_root: '~/wr'"
 s = open(p).read()
-if re.search(r'(?m)^agent_work_root:', s):
-    s = re.sub(r'(?m)^agent_work_root:.*$', line, s)
-else:
-    s = s.rstrip() + '\n' + line + '\n'
+s = re.sub(r'(?m)^agent_work_root:.*$', line, s) if re.search(r'(?m)^agent_work_root:', s) \
+    else s.rstrip() + '\n' + line + '\n'
 open(p, 'w').write(s)
 PY
   export ADF_WORKSPACE="$GOV"
