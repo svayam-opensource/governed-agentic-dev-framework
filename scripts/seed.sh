@@ -419,9 +419,16 @@ if [[ -n "$REPO_URLS" ]]; then
     # actual default branch, not the org-wide one.
     _heads=$(git ls-remote --heads "$repo_url" 2>/dev/null | sed -E 's#.*refs/heads/##')
     [[ -n "$_heads" ]] || hard_stop "Could not read branches of '$repo_url' (wrong repo URL, or no access?)."
-    _default=$(git ls-remote --symref "$repo_url" HEAD 2>/dev/null \
-                 | sed -nE 's#^ref:[[:space:]]+refs/heads/([^[:space:]]+)[[:space:]]+HEAD#\1#p')
-    [[ -n "$_default" ]] || _default="$DEFAULT_CODE_BRANCH"
+    # Default base = the org code-integration branch ($DEFAULT_CODE_BRANCH, e.g. dev) WHEN the
+    # repo has it (honors org policy + matches add-repo.sh); otherwise the repo's actual
+    # default branch (a fresh repo may only have main — can't base off a dev that doesn't exist).
+    if printf '%s\n' "$_heads" | grep -qx "$DEFAULT_CODE_BRANCH"; then
+      _default="$DEFAULT_CODE_BRANCH"
+    else
+      _default=$(git ls-remote --symref "$repo_url" HEAD 2>/dev/null \
+                   | sed -nE 's#^ref:[[:space:]]+refs/heads/([^[:space:]]+)[[:space:]]+HEAD#\1#p')
+      [[ -n "$_default" ]] || _default="$DEFAULT_CODE_BRANCH"
+    fi
     if $NON_INTERACTIVE; then
       base="$_default"
       echo "  Base branch for '$repo_url': $base  (--non-interactive)"

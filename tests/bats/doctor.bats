@@ -52,8 +52,11 @@ _skip_msys() { case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) skip "age
   _skip_msys
   mkdir -p "$WR/PRJ-1-good"; : > "$WR/PRJ-1-good/.seed-complete"
   mkdir -p "$WR/PRJ-9-partial/svm-prj-work"
+  mkdir -p "$GOV/projects/PRJ-9-partial"      # home stub → exercises the gov-home cleanup branch
   run bash -c "printf '1\n' | ADF_WORKSPACE='$GOV' bash '$PRJ_BIN' doctor"   # confirm clean
+  assert_success                              # must NOT crash mid-clean (e.g. unbound REPO_ROOT)
   assert [ ! -d "$WR/PRJ-9-partial" ]         # partial removed
+  assert [ ! -d "$GOV/projects/PRJ-9-partial" ]  # home stub removed
   assert [ -d "$WR/PRJ-1-good" ]              # complete kept
 }
 
