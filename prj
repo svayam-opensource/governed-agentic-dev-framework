@@ -29,6 +29,8 @@ SCRIPTS="$SCRIPT_DIR/scripts"
 # so source the registry directly for `prj org` + the menu's active-org header (PRJ-43).
 # shellcheck source=/dev/null
 . "$SCRIPTS/gov-registry.sh" 2>/dev/null || true
+# shellcheck source=/dev/null
+. "$SCRIPTS/agent-launch.sh" 2>/dev/null || true   # cursor-gui project-root + auto-start rule helpers
 # ADR-0001 Phase 4: the CLI may be installed separately from the workspace
 # data. $ADF_WORKSPACE (exported by the installed `prj` wrapper, or set by
 # hand) points at the governance repo; default to the vendored layout (the
@@ -233,18 +235,23 @@ launch_agent() {
       command -v claude >/dev/null 2>&1 || { warn "claude not on PATH. Start manually: cd \"$dir\" && claude \"<session-start>\""; return 0; }
       ok "Launching Claude in $dir (session-start runs first)..."; cd "$dir" && exec claude "$inject" ;;
     cursor-gui)
-      # Open the Cursor GUI app at the project. The app can't take the session-start prompt as
-      # an argv (that's a cursor-agent/CLI feature), so the seeded .cursor/rules/agent.mdc carries
-      # the protocol in-app; we also echo the prompt for the developer to paste into Cursor's chat.
+      # Open the Cursor GUI at the PROJECT ROOT (the folder holding the gov clone + every code
+      # repo) so all repos are visible — not the gov clone alone. The app can't take the prompt
+      # as an argv, so we drop an alwaysApply rule at the root that makes the agent run the
+      # session-start protocol on its first turn (Pattern 1) — no copy-paste.
+      local proj_root gov_name
+      proj_root="$(_project_root_of_clone "$dir")"; gov_name="$(basename "$dir")"
+      _ensure_cursor_autostart_rule "$proj_root" "$gov_name" "$pid" || warn "could not write the Cursor auto-start rule at $proj_root (opening anyway)."
       if command -v cursor >/dev/null 2>&1; then
-        ok "Opening Cursor (GUI) at $dir ..."; ( cd "$dir" && cursor "$dir" >/dev/null 2>&1 & )
+        ok "Opening Cursor (GUI) at the project root $proj_root (all repos; protocol auto-runs)..."
+        ( cd "$proj_root" && cursor "$proj_root" >/dev/null 2>&1 & )
       elif [[ "$(uname -s 2>/dev/null)" == Darwin ]] && open -Ra "Cursor" >/dev/null 2>&1; then
-        ok "Opening Cursor (GUI) at $dir ..."; open -a "Cursor" "$dir"
+        ok "Opening Cursor (GUI) at the project root $proj_root (all repos; protocol auto-runs)..."
+        open -a "Cursor" "$proj_root"
       else
         warn "Cursor GUI not found (install Cursor, or pick cursor-agent / start manually: cd \"$dir\" && cursor-agent \"<session-start>\")."; return 0
       fi
-      label "In Cursor's chat, run the session-start protocol (the .cursor/rules apply it; or paste the prompt below):"
-      printf '%s\n' "$inject" ;;
+      label "Open Cursor's Agent panel and say 'go' — it runs the session-start protocol automatically (no paste needed)." ;;
     cursor)
       command -v cursor-agent >/dev/null 2>&1 || { warn "cursor-agent not on PATH (install: curl https://cursor.com/install -fsS | bash). Start manually: cd \"$dir\" && cursor-agent \"<session-start>\""; return 0; }
       ok "Launching cursor-agent in $dir (session-start runs first)..."; cd "$dir" && exec cursor-agent "$inject" ;;
