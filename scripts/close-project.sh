@@ -256,6 +256,7 @@ fi
 git fetch origin "$DEFAULT_BRANCH" 2>/dev/null || true
 
 # Mirror governance summary (best-effort, GitHub-side — not the registry).
+anchor_set_state "$(yaml_get "$PROJECT_YAML" github_project)" completed
 project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "completed" \
   "$(yaml_get "$PROJECT_YAML" assigned_to)" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
 

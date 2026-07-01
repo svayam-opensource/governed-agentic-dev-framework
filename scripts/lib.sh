@@ -560,7 +560,9 @@ anchor_issue_ref() {
       [ .data.organization.projectV2.items.nodes[].content
         | select(.__typename=="Issue")
         | select(([.labels.nodes[].name] | index("'"$ANCHOR_LABEL"'")) != null)
-        | "\(.repository.nameWithOwner)#\(.number)" ] | (.[0] // "")' 2>/dev/null
+        | {r: .repository.nameWithOwner, n: .number} ]
+      | sort_by(.n)                                    # DETERMINISTIC: lowest issue # wins if >1 anchor
+      | if length>0 then "\(.[0].r)#\(.[0].n)" else "" end' 2>/dev/null
 }
 
 # anchor_set_label <add|remove> <project_url> <label>  → add/remove a lifecycle
@@ -591,6 +593,45 @@ anchor_set_label() {
   return 0
 }
 
+# The four mutually-exclusive searchable lifecycle labels. `state:<x>` is the
+# server-side-searchable projection of status (board open/closed + cancelled stays
+# the source of truth); transitions keep exactly one of these on the anchor.
+STATE_PREFIX="state:"
+STATE_LABELS="active paused completed cancelled"
+
+# anchor_set_state <project_url> <active|paused|completed|cancelled>
+# Stamp the ONE searchable state:* label on the board's anchor issue and remove the
+# other three (mutually exclusive by construction). Best-effort, like anchor_set_label.
+anchor_set_state() {
+  local url="$1" want="$2" scope owner num ref repo inum s
+  case " $STATE_LABELS " in *" $want "*) : ;; *) warn "anchor_set_state: bad state '$want'"; return 1 ;; esac
+  if ! read -r scope owner num < <(gh_project_owner_number "$url"); then
+    warn "Could not derive project number from '$url' — state:'$want' not stamped."; return 0
+  fi
+  ref="$(anchor_issue_ref "$num" "$owner")"
+  [[ -z "$ref" ]] && { warn "No '$ANCHOR_LABEL' issue on project #$num — state:'$want' not stamped (status derives from board)."; return 0; }
+  repo="${ref%%#*}"; inum="${ref##*#}"
+  gh label create "${STATE_PREFIX}${want}" --repo "$repo" --color 0e8a16 \
+    --description "Searchable lifecycle state" >/dev/null 2>&1 || true
+  gh issue edit "$inum" --repo "$repo" --add-label "${STATE_PREFIX}${want}" >/dev/null 2>&1 \
+    && info "Anchor $repo#$inum: state → ${want}." \
+    || warn "Could not stamp state:'$want' on anchor $repo#$inum — reconcile manually."
+  for s in $STATE_LABELS; do
+    [[ "$s" == "$want" ]] && continue
+    gh issue edit "$inum" --repo "$repo" --remove-label "${STATE_PREFIX}${s}" >/dev/null 2>&1 || true
+  done
+  return 0
+}
+
+# anchor_state_of <project_number> [owner]  → the state:* value on the anchor
+# (active|paused|completed|cancelled), or empty if none (un-migrated anchor).
+anchor_state_of() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" ref
+  ref="$(anchor_issue_ref "$num" "$owner")"; [[ -z "$ref" ]] && return 0
+  gh issue view "${ref##*#}" --repo "${ref%%#*}" --json labels --jq \
+    '.labels[].name | select(startswith("'"$STATE_PREFIX"'")) | sub("^'"$STATE_PREFIX"'";"")' 2>/dev/null | head -1
+}
+
 # ensure_anchor_label <owner/repo>  — create the 'anchor' label if missing
 # (gh issue create --label fails when the label doesn't exist in the repo).
 ensure_anchor_label() {
@@ -619,6 +660,9 @@ project close."
           --label "$ANCHOR_LABEL" ${me:+--assignee "$me"} --body "$body" 2>/dev/null | tail -1)"
   [[ -z "$url" ]] && return 1
   gh project item-add "$num" --owner "$owner" --url "$url" >/dev/null 2>&1 || true
+  # searchable initial state (a fresh open board with an anchor is 'active')
+  gh label create "${STATE_PREFIX}active" --repo "$repo" --color 0e8a16 --description "Searchable lifecycle state" >/dev/null 2>&1 || true
+  gh issue edit "${url##*/}" --repo "$repo" --add-label "${STATE_PREFIX}active" >/dev/null 2>&1 || true
   echo "${repo}#${url##*/}"
 }
 

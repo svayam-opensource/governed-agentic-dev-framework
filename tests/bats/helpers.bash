@@ -63,7 +63,19 @@ esac'
 sandbox_down() { [[ -n "${TEST_TMP:-}" && -d "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; }
 
 # Make a minimal valid gov repo (the org-config.yaml signature) at $1.
-make_gov_repo() { mkdir -p "$1"; cp "$REPO_SRC/org-config.yaml" "$1/org-config.yaml"; }
+make_gov_repo() {
+  mkdir -p "$1"; cp "$REPO_SRC/org-config.yaml" "$1/org-config.yaml"
+  # A REAL gov workspace always names its org — the shipped template has github_org: ""
+  # which prj_resolve_gov now (correctly) SKIPS during cwd-walk. Reflect reality so the
+  # fixture is a resolvable workspace, not an unconfigured template.
+  python3 - "$1/org-config.yaml" <<'PY'
+import sys, re
+p = sys.argv[1]; s = open(p).read()
+s = re.sub(r'(?m)^github_org:.*$', 'github_org: "testorg"', s) if re.search(r'(?m)^github_org:', s) \
+    else s.rstrip() + '\ngithub_org: "testorg"\n'
+open(p, 'w').write(s)
+PY
+}
 
 # Write the gov-home pointer file to <path>.
 write_pointer() { mkdir -p "$XDG_CONFIG_HOME/prj"; printf '%s\n' "$1" > "$XDG_CONFIG_HOME/prj/gov-workspace"; }

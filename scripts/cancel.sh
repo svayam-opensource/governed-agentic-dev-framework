@@ -142,6 +142,7 @@ if [[ -f "$PROJECT_YAML" ]]; then
 fi
 
 anchor_set_label add "$(yaml_get "$PROJECT_YAML" github_project 2>/dev/null)" cancelled
+anchor_set_state "$(yaml_get "$PROJECT_YAML" github_project 2>/dev/null)" cancelled
 project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project 2>/dev/null)" "cancelled" \
   "$(yaml_get "$PROJECT_YAML" assigned_to 2>/dev/null)" "$(yaml_get "$PROJECT_YAML" seeded_by 2>/dev/null)" "$BRANCH" || true
 
