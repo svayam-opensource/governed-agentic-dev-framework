@@ -8,25 +8,21 @@ load helpers
 setup() { sandbox_up; make_gov_repo "$TEST_TMP/gov"; export ADF_WORKSPACE="$TEST_TMP/gov"; stub_gh_authed; }
 teardown() { sandbox_down; }
 
-# Overwrite the gh stub with one team-owned board (#7), no individual assignees,
-# anchor labelled owner-team:developers + state:<STATE>. `api user/teams` → developers,
-# so the current user (testbot) owns it via the team. STATE controls derived status.
+# Re-stub gh to return one team-owned board (#7), no individual assignees, anchor
+# labelled owner-team:developers + state:<STATE>. `api user/teams` → developers, so
+# the current user (testbot) owns it via the team. The board JSON lives in a sibling
+# file the stub cats — NO nested heredocs (which corrupt under Windows MSYS CRLF).
 _gh_stub_team_board() {
-  local state="$1"
-  cat > "$_STUB_DIR/gh" <<STUB
-#!/usr/bin/env bash
-case "\$1 \$2" in "auth status") exit 0 ;; esac
-case "\$*" in
+  local state="$1" jf="$_STUB_DIR/board.json"
+  printf '%s\n' '{"data":{"organization":{"projectsV2":{"nodes":[{"number":7,"title":"Team Owned","closed":false,"items":{"nodes":[{"content":{"__typename":"Issue","labels":{"nodes":[{"name":"anchor"},{"name":"owner-team:developers"},{"name":"state:'"$state"'"}]},"assignees":{"nodes":[]}}}]}}]}}}}' > "$jf"
+  stub_bin gh '
+case "$1 $2" in "auth status") exit 0 ;; esac
+case "$*" in
   *"api user/teams"*) echo "developers" ;;
   *"api user"*)       echo "testbot" ;;
-  *"api graphql"*)    cat <<'JSON'
-{"data":{"organization":{"projectsV2":{"nodes":[{"number":7,"title":"Team Owned","closed":false,"items":{"nodes":[{"content":{"__typename":"Issue","labels":{"nodes":[{"name":"anchor"},{"name":"owner-team:developers"},{"name":"state:$state"}]},"assignees":{"nodes":[]}}}]}}]}}}}
-JSON
-    ;;
+  *"api graphql"*)    cat "'"$jf"'" ;;
   *) exit 0 ;;
-esac
-STUB
-  chmod +x "$_STUB_DIR/gh"
+esac'
 }
 
 @test "searchable-state: list derives status from the state:* label (paused wins over board-open)" {

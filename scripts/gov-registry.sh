@@ -26,6 +26,16 @@ _prj_expand_tilde() {
 
 _prj_home_ok() { [[ -n "$1" && -f "$1/org-config.yaml" && "$1" != */.bases/* ]]; }
 
+# A gov home is only USABLE if its org-config names a real org. The framework/template
+# repo ships an UNCONFIGURED org-config.yaml (github_org: "") that setup.sh later fills;
+# cwd-walking into it must NOT resolve it as the workspace (empty GITHUB_ORG → no org name,
+# no projects). grep/sed only (hot path).
+_prj_org_configured() {
+  local go
+  go="$(sed -nE 's/^github_org:[[:space:]]*"?([^"#]*)"?.*/\1/p' "$1/org-config.yaml" 2>/dev/null | head -1 | tr -d '[:space:]')"
+  [[ -n "$go" ]]
+}
+
 _prj_org_of_home() {                       # github_org of a gov home's org-config.yaml
   local cfg="$1/org-config.yaml"; [[ -f "$cfg" ]] || return 1
   if command -v yq >/dev/null 2>&1; then yq '.github_org' "$cfg" 2>/dev/null
@@ -113,7 +123,7 @@ prj_reg_set_active() {                     # <github_org>
 prj_resolve_gov() {
   local d="$PWD"
   while [[ "$d" != "/" && -n "$d" ]]; do
-    if [[ -f "$d/org-config.yaml" && "$d" != */.bases/* ]]; then
+    if [[ -f "$d/org-config.yaml" && "$d" != */.bases/* ]] && _prj_org_configured "$d"; then
       _prj_reg_learn "$d" 2>/dev/null || true   # self-heal: persist this org's canonical home so future neutral-cwd runs + the menu know it
       printf '%s' "$d"; return 0
     fi

@@ -53,6 +53,18 @@ teardown() { sandbox_down; }
   assert_output "$PROJ"
 }
 
+@test "PWD-walk SKIPS an unconfigured template org-config (empty github_org)" {
+  # The shipped framework/template org-config has github_org: "". Running prj from
+  # inside such a dir (e.g. the framework repo) must NOT resolve it as the workspace
+  # (empty GITHUB_ORG -> no org name, no projects); fall through to the pointer home.
+  write_pointer "$GOV"
+  local TMPL="$AGENT_WORK_ROOT/tmpl"; mkdir -p "$TMPL"
+  cp "$REPO_SRC/org-config.yaml" "$TMPL/org-config.yaml"   # RAW template: github_org: ""
+  cd "$TMPL"
+  run resolved_workspace
+  assert_output "$GOV"          # fell through to the pointer home, not the template dir
+}
+
 @test "hard-errors when nothing resolves (no env, no pointer, non-interactive)" {
   # a HOME-REQUIRING command (status) — version/help/org are intentionally homeless-OK.
   cd /tmp
