@@ -54,3 +54,44 @@ PY
   assert_output --partial "MORE THAN ONE anchor"
   assert_output --partial "#7"
 }
+
+# ── move anchor (re-designate) with migration ─────────────────────────────────
+# All gh-from-BASH (no python), so this runs on ALL platforms incl. Windows. A logging
+# stub records every `issue edit` so we can assert the migration mutations.
+_gh_move_stub() {
+  MOVE_LOG="$_STUB_DIR/edits.log"; : > "$MOVE_LOG"
+  stub_bin gh '
+case "$1 $2" in "auth status") exit 0 ;; esac
+case "$*" in
+  *"issue edit"*)             echo "$*" >> "'"$MOVE_LOG"'" ;;   # record mutations
+  *"issue view"*assignees*)   echo "alice" ;;                    # OLD anchor assignees
+  *"issue view"*owner-team*)  echo "developers" ;;               # OLD owner-team labels
+  *"issue view"*state*)       echo "active" ;;                   # OLD state label
+  *"api graphql"*)            echo "testorg/repo#5" ;;           # anchor_issue_ref → OLD anchor
+  *"api user"*)               echo "testbot" ;;
+  *) exit 0 ;;
+esac'
+}
+
+@test "anchor move: migrates owners, team-owners & state to the new issue and strips the old" {
+  _gh_move_stub
+  run bash -c "ADF_WORKSPACE='$GOV' bash '$PRJ_BIN' anchor move 7 testorg/repo#8"
+  assert_success
+  run cat "$_STUB_DIR/edits.log"
+  # NEW issue #8 gains everything the anchor carries
+  assert_output --partial "issue edit 8 --repo testorg/repo --add-label anchor"
+  assert_output --partial "--add-assignee alice"
+  assert_output --partial "--add-label owner-team:developers"
+  assert_output --partial "--add-label state:active"
+  # OLD issue #5 loses the anchor marker
+  assert_output --partial "issue edit 5 --repo testorg/repo --remove-label anchor"
+}
+
+@test "anchor move: rejects a bad new-ref and a same-as-current move" {
+  run bash -c "ADF_WORKSPACE='$GOV' bash '$PRJ_BIN' anchor move 7 notaref"
+  assert_failure
+  assert_output --partial "owner/repo#issue"
+  _gh_move_stub
+  run bash -c "ADF_WORKSPACE='$GOV' bash '$PRJ_BIN' anchor move 7 testorg/repo#5"
+  assert_output --partial "already the anchor"
+}

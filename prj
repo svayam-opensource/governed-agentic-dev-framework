@@ -481,6 +481,45 @@ set_owner_team() {
   ok "${action}: team @$owner/$slug on project #$num (anchor label + board $pa)"
 }
 
+# move_anchor <project_number> <new_ref "owner/repo#num"> [owner]
+# Re-designate the project's anchor to a different board issue, MIGRATING everything the
+# anchor carries — assignees (owners), owner-team:* labels (team owners), and the state:*
+# label — to the new issue, then stripping those markers from the old one. Board write
+# access is board-level (unchanged by the move). Operates on explicit refs (never the
+# num-based resolvers) so it's safe while both issues transiently carry the anchor label.
+move_anchor() {
+  local num="$1" new_ref="$2" owner="${3:-$GITHUB_ORG}"
+  local old_ref old_repo old_num new_repo new_num assignees teams state a t
+  old_ref="$(anchor_issue_ref "$num" "$owner")"
+  [[ -z "$old_ref" ]] && { warn "No current anchor on project #$num — use 'designate' first."; return 1; }
+  [[ "$old_ref" == "$new_ref" ]] && { warn "$new_ref is already the anchor — nothing to move."; return 1; }
+  old_repo="${old_ref%%#*}"; old_num="${old_ref##*#}"
+  new_repo="${new_ref%%#*}"; new_num="${new_ref##*#}"
+  # read what to migrate off the OLD anchor
+  assignees="$(gh issue view "$old_num" --repo "$old_repo" --json assignees --jq '.assignees[].login' 2>/dev/null)"
+  teams="$(gh issue view "$old_num" --repo "$old_repo" --json labels --jq '.labels[].name | select(startswith("'"$OWNER_TEAM_PREFIX"'")) | sub("^'"$OWNER_TEAM_PREFIX"'";"")' 2>/dev/null)"
+  state="$(gh issue view "$old_num" --repo "$old_repo" --json labels --jq '.labels[].name | select(startswith("'"$STATE_PREFIX"'")) | sub("^'"$STATE_PREFIX"'";"")' 2>/dev/null | head -1)"
+  # stamp the NEW anchor
+  ensure_anchor_label "$new_repo"
+  gh issue edit "$new_num" --repo "$new_repo" --add-label "$ANCHOR_LABEL" >/dev/null 2>&1 \
+    || { err "Could not label $new_ref as the anchor (repo access / permissions?)."; return 1; }
+  while IFS= read -r a; do [[ -n "$a" ]] && gh issue edit "$new_num" --repo "$new_repo" --add-assignee "$a" >/dev/null 2>&1 || true; done <<< "$assignees"
+  while IFS= read -r t; do
+    [[ -z "$t" ]] && continue
+    gh label create "${OWNER_TEAM_PREFIX}${t}" --repo "$new_repo" --color 1d76db --description "Team owner (identity/discovery): $t" >/dev/null 2>&1 || true
+    gh issue edit "$new_num" --repo "$new_repo" --add-label "${OWNER_TEAM_PREFIX}${t}" >/dev/null 2>&1 || true
+  done <<< "$teams"
+  if [[ -n "$state" ]]; then
+    gh label create "${STATE_PREFIX}${state}" --repo "$new_repo" --color 0e8a16 --description "Searchable lifecycle state" >/dev/null 2>&1 || true
+    gh issue edit "$new_num" --repo "$new_repo" --add-label "${STATE_PREFIX}${state}" >/dev/null 2>&1 || true
+  fi
+  # strip anchor markers from the OLD issue (its assignees stay — harmless; owners are on NEW now)
+  gh issue edit "$old_num" --repo "$old_repo" --remove-label "$ANCHOR_LABEL" >/dev/null 2>&1 || true
+  while IFS= read -r t; do [[ -n "$t" ]] && gh issue edit "$old_num" --repo "$old_repo" --remove-label "${OWNER_TEAM_PREFIX}${t}" >/dev/null 2>&1 || true; done <<< "$teams"
+  [[ -n "$state" ]] && gh issue edit "$old_num" --repo "$old_repo" --remove-label "${STATE_PREFIX}${state}" >/dev/null 2>&1 || true
+  ok "Moved anchor: $old_ref → $new_ref  (owners, team-owners & state migrated; board access unchanged)."
+}
+
 # pid_for_project_number <num> [owner] → the project id for a board number.
 # GitHub-derived (registry-elimination): PRJ-<num>-<slug(board title)>, with the
 # frozen shim grandfathering legacy ids whose NNN differs from the board number.
@@ -2145,10 +2184,15 @@ cmd_manage_owners() {
     echo -e "  ${BOLD}Current team owners:${NC} ${oteams:-(none)}"
     echo ""
     local ACT; ask_choice ACT "What would you like to do?" \
-      "Add owner" "Remove owner" "Add team owner" "Remove team owner"
+      "Add owner" "Remove owner" "Add team owner" "Remove team owner" "Move anchor to another issue"
     is_back "$ACT" && return
     echo ""
-    if [[ "$ACT" == "Add owner" ]]; then
+    if [[ "$ACT" == "Move anchor to another issue" ]]; then
+      local NREF; _pick_board_issue NREF "$PNUM"
+      is_back "$NREF" && return
+      confirm "Move the anchor from $ref to $NREF? (owners, team-owners & state migrate to the new issue; the old issue keeps its assignees but is no longer the anchor)"
+      move_anchor "$PNUM" "$NREF"
+    elif [[ "$ACT" == "Add owner" ]]; then
       local WHO; ask WHO "GitHub login to add as owner (@me for yourself)" ""
       [[ "$WHO" == "@me" ]] && WHO="$(gh api user --jq .login 2>/dev/null)"
       [[ -z "$WHO" ]] && { err "No login given."; exit 1; }
@@ -2469,27 +2513,16 @@ cmd_manage_unassign() {
 }
 
 cmd_manage() {
-  # Optional non-interactive subcommand: `prj manage list|list-all|assign|...`.
-  local sub="${1:-}"
-  if [[ -z "$sub" ]]; then
-    header "Manage Assignments"
-    divider
-    echo ""
-    echo -e "  ${CYAN}1)${NC} list       Ongoing assignments (GitHub-derived, excl. completed)"
-    echo -e "  ${CYAN}2)${NC} list-all   Full board universe (from GitHub)"
-    echo -e "  ${CYAN}3)${NC} manage     Add/remove owners (project) or assignees (issue) — GitHub-definitive"
-    echo -e "  ${DIM}0)  Back${NC}"
-    echo ""
-    printf "  Choose: "
-    read -r sub
-    echo ""
-  fi
-  case "$sub" in
-    1|list)                              cmd_manage_list ;;
-    2|list-all)                          cmd_manage_list_all ;;
-    3|manage|assign|reassign|unassign)   cmd_manage_owners ;;  # collapsed (#57 §3); old verbs aliased
-    0|back|"")                           return ;;
-    *)                                   err "Unknown option '$sub'." ;;
+  # `prj manage` (interactive, incl. Admin → manage) goes STRAIGHT to owner/assignee
+  # management — no intermediate submenu. The old list/list-all/manage submenu was a
+  # redundant hop: list/list-all already live under Status (and `prj list`/`prj list-all`).
+  # They remain as explicit non-interactive subcommands for scripting.
+  case "${1:-}" in
+    list)                                cmd_manage_list ;;
+    list-all)                            cmd_manage_list_all ;;
+    ""|manage|assign|reassign|unassign)  cmd_manage_owners ;;
+    0|back)                              return ;;
+    *)                                   err "Unknown option '${1}'   (prj manage [list | list-all])." ;;
   esac
 }
 
@@ -2651,6 +2684,22 @@ _clean_partial_seed() {                    # <project-id> — remove a partial w
     [[ -d "$base/.git" || -e "$base/.git" ]] && git -C "$base" worktree prune 2>/dev/null || true
   done
   return 0
+}
+
+# `prj anchor move <project_number> <owner/repo#issue>` — re-designate the anchor to another
+# board issue, migrating owners/team-owners/state (same as manage → "Move anchor"). Scriptable
+# + the testable entrypoint for move_anchor.
+cmd_anchor() {
+  case "${1:-}" in
+    move)
+      local num="${2:-}" newref="${3:-}"
+      [[ -n "$num" && -n "$newref" ]] || { err "usage: prj anchor move <project_number> <owner/repo#issue>"; return 1; }
+      [[ "$newref" == *"#"* ]] || { err "new anchor must be 'owner/repo#issue' (e.g. acme/app#42)."; return 1; }
+      move_anchor "$num" "$newref"
+      ;;
+    -h|--help|"") echo "prj anchor move <project_number> <owner/repo#issue>   — re-designate the anchor (migrates owners, team-owners & state)"; return 0 ;;
+    *) err "unknown: prj anchor ${1}   (prj anchor move <project_number> <owner/repo#issue>)"; return 1 ;;
+  esac
 }
 
 cmd_backfill_state() {
@@ -3898,6 +3947,7 @@ case "$CMD" in
   org)          cmd_org "${@:2}" ;;
   doctor)       cmd_doctor ;;
   backfill-state) cmd_backfill_state ;;
+  anchor)       cmd_anchor "${@:2}" ;;
   validate)     cmd_validate ;;
   version|--version|-v)
     # Report the installed CLI version (the bundled package.json is the source of truth).
