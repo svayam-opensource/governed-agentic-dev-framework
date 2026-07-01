@@ -8,6 +8,12 @@ load helpers
 setup() { sandbox_up; make_gov_repo "$TEST_TMP/gov"; export ADF_WORKSPACE="$TEST_TMP/gov"; stub_gh_authed; }
 teardown() { sandbox_down; }
 
+# project_context_list invokes gh via Python subprocess; Windows Python can't exec a
+# shebang-only `gh` stub (no .exe/.cmd), so a DATA-returning stub yields nothing there.
+# The team + state LOGIC is covered on macOS + 4 Linux runners; skip the 3 data-driven
+# cases on Windows (same limitation doctor.bats skips for).
+_skip_msys() { case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) skip "python-subprocess gh stub not executable under Windows MSYS" ;; esac; }
+
 # Re-stub gh to return one team-owned board (#7), no individual assignees, anchor
 # labelled owner-team:developers + state:<STATE>. `api user/teams` → developers, so
 # the current user (testbot) owns it via the team. The board JSON lives in a sibling
@@ -26,6 +32,7 @@ esac'
 }
 
 @test "searchable-state: list derives status from the state:* label (paused wins over board-open)" {
+  _skip_msys
   _gh_stub_team_board paused
   run bash -c "ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN' list </dev/null"
   assert_success
@@ -34,6 +41,7 @@ esac'
 }
 
 @test "searchable-state: an active state:* label renders as active" {
+  _skip_msys
   _gh_stub_team_board active
   run bash -c "ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN' list </dev/null"
   assert_success
@@ -42,6 +50,7 @@ esac'
 }
 
 @test "team-ownership: work lists a project you own via TEAM membership (no assignee)" {
+  _skip_msys
   _gh_stub_team_board active
   run bash -c "ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN' work </dev/null"
   # the picker prints the assigned list before reading a choice
