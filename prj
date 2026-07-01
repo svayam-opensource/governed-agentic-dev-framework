@@ -35,15 +35,23 @@ SCRIPTS="$SCRIPT_DIR/scripts"
 # data. $ADF_WORKSPACE (exported by the installed `prj` wrapper, or set by
 # hand) points at the governance repo; default to the vendored layout (the
 # CLI lives inside the workspace) when it is unset — i.e. unchanged behavior.
-if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]] && _prj_org_configured "$ADF_WORKSPACE" 2>/dev/null; then
-  WORKSPACE_ROOT="$ADF_WORKSPACE"
+# Workspace resolution — MUST match bin/prj + lib.sh (see resolution-parity.bats). Trust an
+# ambient ADF_WORKSPACE ONLY as the deterministic handoff from bin/prj (PRJ_WS_RESOLVED=1);
+# otherwise resolve via prj_resolve_gov (cwd-walk skips unconfigured templates → active-org →
+# single home) — never trust a stale ambient export, and never default to $SCRIPT_DIR (the
+# framework/template repo) while a real workspace resolves.
+if [[ "${PRJ_WS_RESOLVED:-}" == 1 && -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]]; then
+  WORKSPACE_ROOT="$ADF_WORKSPACE"                       # trusted handoff (already resolved)
 else
-  # No usable ADF_WORKSPACE → resolve via the registry (cwd-walk skips unconfigured
-  # templates → active-org → single home). Only fall back to the vendored layout
-  # ($SCRIPT_DIR) when nothing real resolves — otherwise running the standalone `prj`
-  # from the framework/template repo would load its EMPTY org-config (no org, no projects).
   WORKSPACE_ROOT="$(prj_resolve_gov 2>/dev/null || true)"
-  [[ -n "$WORKSPACE_ROOT" && -f "$WORKSPACE_ROOT/org-config.yaml" ]] || WORKSPACE_ROOT="$SCRIPT_DIR"
+  if [[ -z "$WORKSPACE_ROOT" || ! -f "$WORKSPACE_ROOT/org-config.yaml" ]]; then
+    # nothing registered → bootstrap from a CONFIGURED ambient ADF_WORKSPACE, else vendored layout
+    if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]] && _prj_org_configured "$ADF_WORKSPACE" 2>/dev/null; then
+      WORKSPACE_ROOT="$ADF_WORKSPACE"
+    else
+      WORKSPACE_ROOT="$SCRIPT_DIR"
+    fi
+  fi
 fi
 CONFIG="$WORKSPACE_ROOT/org-config.yaml"
 REGISTRY="$WORKSPACE_ROOT/registry.yaml"

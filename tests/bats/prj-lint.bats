@@ -51,3 +51,21 @@ load helpers
   assert_success
   assert_output --partial "OK"
 }
+
+@test "lint: every prj entrypoint resolves through prj_resolve_gov (no hand-rolled workspace path)" {
+  # The recurring "wrong workspace / no projects / blank org name" bug: an entrypoint computed
+  # the workspace WITHOUT the canonical resolver, so it diverged. Both the wrapper and the
+  # standalone script MUST reference prj_resolve_gov. (Behavioural parity is proven in
+  # resolution-parity.bats; this static check fails fast if a NEW entrypoint forgets it.)
+  run bash -c '
+    miss=""
+    grep -q "prj_resolve_gov" "'"$PRJ_BIN"'"          || miss="$miss prj(main-script)"
+    grep -q "prj_resolve_gov" "'"$REPO_SRC"'/bin/prj" || miss="$miss bin/prj(wrapper)"
+    # the main script must not silently default to $SCRIPT_DIR without also resolving
+    grep -qE "WORKSPACE_ROOT=\"\$SCRIPT_DIR\"" "'"$PRJ_BIN"'" && ! grep -q "prj_resolve_gov" "'"$PRJ_BIN"'" \
+      && miss="$miss main-defaults-to-SCRIPT_DIR-without-resolving"
+    [ -z "$miss" ] && echo OK || { echo "ENTRYPOINT-RESOLUTION-DRIFT:$miss"; exit 1; }
+  '
+  assert_success
+  assert_output --partial "OK"
+}

@@ -37,6 +37,17 @@ escape, so treat them as load-bearing, not style.
    (`prj task/merge/close`); the **interactive menu is a separate surface it never touches**.
    Every surface (menu, each subcommand, the pickers) needs its own coverage.
 
+6. **When logic exists at MULTIPLE entry points, test PARITY across all of them — not one.**
+   The same job done in more than one place will drift; a test that exercises only one point
+   passes while the other rots. *Escape:* workspace resolution lives in **three** places —
+   `bin/prj` (wrapper), `prj` (standalone), `lib.sh` (scripts). The resolution suite drove only
+   `bin/prj`, so the standalone `prj` silently diverged (fell back to `$SCRIPT_DIR` = the empty
+   template repo → blank org name, no projects, empty `manage`). The **same simple bug recurred
+   three times** because each fix patched one path. *Guard:* `resolution-parity.bats` runs
+   **every** entry point (via the `PRJ_PRINT_WORKSPACE` probe) under identical env/cwd and
+   asserts they agree; `prj-lint.bats` statically requires each entrypoint to reference
+   `prj_resolve_gov`. Add an entrypoint → add it to `_ENTRYPOINTS`.
+
 ## Checklist — adding a feature, or doing a refactor
 
 - [ ] Every interactive menu / `case` option is driven by a test to its handler (+ `refute "command not found"`).
@@ -45,11 +56,15 @@ escape, so treat them as load-bearing, not style.
 - [ ] Paths embedded *inside* a `python3 -c "…"` string use `pp()` (Windows MSYS won't translate them — see `helpers.bash`).
 - [ ] `@test` names are **ASCII** (`crlf.bats`; Windows `bats` mangles non-ASCII names — em-dashes/arrows bite repeatedly).
 - [ ] New `cmd_*`/`menu_*` is reachable + tested, not just defined.
+- [ ] Touching **workspace resolution**? `resolution-parity.bats` still green (all entrypoints agree); new entrypoint added to `_ENTRYPOINTS`.
 
 ## The lints (`prj-lint.bats`) — keep them green, extend them
 
 - **dispatch integrity** — every `cmd_*`/`menu_*` referenced is defined (catches the bug-1 class).
 - **CRLF read safety** — every python-piped `read` strips `\r` (catches the bug-2 class).
+- **agent-launcher consistency** — the menu/dispatch/case/`SANCTIONED_AGENTS` for agents agree.
+- **entrypoint-resolution parity** — every prj entrypoint resolves via `prj_resolve_gov`
+  (`prj-lint.bats` static + `resolution-parity.bats` behavioural; catches the bug-6 class).
 
 Both run on **all platforms** and were **verified to flag the 0.9.3 bugs on the pre-fix source**.
 When you add a new *class* of invariant (a "this must always be true of `prj`" rule), add a
