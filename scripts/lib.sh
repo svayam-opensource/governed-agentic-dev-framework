@@ -560,7 +560,9 @@ anchor_issue_ref() {
       [ .data.organization.projectV2.items.nodes[].content
         | select(.__typename=="Issue")
         | select(([.labels.nodes[].name] | index("'"$ANCHOR_LABEL"'")) != null)
-        | "\(.repository.nameWithOwner)#\(.number)" ] | (.[0] // "")' 2>/dev/null
+        | {r: .repository.nameWithOwner, n: .number} ]
+      | sort_by(.n)                                    # DETERMINISTIC: lowest issue # wins if >1 anchor
+      | if length>0 then "\(.[0].r)#\(.[0].n)" else "" end' 2>/dev/null
 }
 
 # anchor_set_label <add|remove> <project_url> <label>  → add/remove a lifecycle

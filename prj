@@ -173,7 +173,7 @@ def slug(t):
 q = '''query($o:String!){ organization(login:$o){ projectsV2(first:100){ nodes{
   number title closed
   items(first:50){ nodes{ content{ __typename
-    ... on Issue { labels(first:10){nodes{name}} assignees(first:10){nodes{login}} } } } } } } } }'''
+    ... on Issue { number labels(first:10){nodes{name}} assignees(first:10){nodes{login}} } } } } } } } }'''
 r = subprocess.run(['gh','api','graphql','-f','query='+q,'-F','o='+owner],
                    capture_output=True, text=True)
 if r.returncode != 0:
@@ -187,16 +187,19 @@ for nd in nodes:
     if not num: continue
     title = nd.get('title') or '(untitled)'
     closed = bool(nd.get('closed'))
-    # anchor issue = an item Issue labelled 'anchor'
-    anchor = None
+    # anchor issue = an item Issue labelled 'anchor'. If a board has MORE THAN ONE,
+    # pick the LOWEST issue number — deterministic, matching anchor_issue_ref (never
+    # board order, which is unstable). `prj doctor` flags such ambiguous boards.
+    anchors = []
     for it in (nd.get('items',{}).get('nodes',[]) or []):
         c = it.get('content') or {}
         if c.get('__typename') != 'Issue': continue
         names = [l['name'] for l in (c.get('labels',{}).get('nodes',[]) or [])]
         if 'anchor' in names:
-            anchor = {'labels': names,
-                      'assignees': [a['login'] for a in (c.get('assignees',{}).get('nodes',[]) or [])]}
-            break
+            anchors.append((c.get('number') or 0,
+                            {'labels': names,
+                             'assignees': [a['login'] for a in (c.get('assignees',{}).get('nodes',[]) or [])]}))
+    anchor = min(anchors, key=lambda a: a[0])[1] if anchors else None
     # Seeded = has an anchor issue OR is a grandfathered shim project (older
     # projects were seeded before anchors existed, so they have no anchor).
     seeded = (anchor is not None) or (num in shim)
@@ -320,7 +323,34 @@ anchor_issue_ref() {
       [ .data.organization.projectV2.items.nodes[].content
         | select(.__typename=="Issue")
         | select(([.labels.nodes[].name] | index("anchor")) != null)
-        | "\(.repository.nameWithOwner)#\(.number)" ] | (.[0] // "")' 2>/dev/null
+        | {r: .repository.nameWithOwner, n: .number} ]
+      | sort_by(.n)                                    # DETERMINISTIC: lowest issue # wins if >1 anchor
+      | if length>0 then "\(.[0].r)#\(.[0].n)" else "" end' 2>/dev/null
+}
+
+# anchor_count <project_number> [owner]  → how many anchor-labelled issues are on the
+# board (>1 means an ambiguous project — see prj doctor). 0 on error/none.
+anchor_count() {
+  local num="$1" owner="${2:-$GITHUB_ORG}"
+  gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ items(first:100){ nodes{ content{ __typename ... on Issue { labels(first:30){nodes{name}} } } } } } } }' \
+    -F o="$owner" -F n="$num" --jq '
+      [ .data.organization.projectV2.items.nodes[].content
+        | select(.__typename=="Issue")
+        | select(([.labels.nodes[].name] | index("anchor")) != null) ] | length' 2>/dev/null || echo 0
+}
+
+# boards_with_multiple_anchors  → "num<TAB>title<TAB>count" for every org board carrying
+# MORE THAN ONE anchor issue (ambiguous — ownership/status silently read the lowest #).
+# ONE batched query; gh from bash (stub-friendly on all platforms).
+boards_with_multiple_anchors() {
+  gh api graphql -f query='query($o:String!){ organization(login:$o){ projectsV2(first:100){ nodes{ number title items(first:100){ nodes{ content{ __typename ... on Issue { labels(first:30){nodes{name}} } } } } } } } }' \
+    -F o="$GITHUB_ORG" --jq '
+      .data.organization.projectsV2.nodes[]
+      | . as $p
+      | ([ $p.items.nodes[].content | select(.__typename=="Issue")
+           | select(([.labels.nodes[].name] | index("anchor")) != null) ] | length) as $c
+      | select($c > 1)
+      | "\($p.number)\t\($p.title)\t\($c)"' 2>/dev/null
 }
 
 # project_owners <project_number> [owner]  → anchor-issue assignee logins (the
@@ -2102,8 +2132,10 @@ cmd_manage_owners() {
       confirm "Designate an anchor issue now?"
       local AREF; _pick_board_issue AREF "$PNUM"
       is_back "$AREF" && return
+      ensure_anchor_label "${AREF%%#*}"   # create the 'anchor' label first (gh --add-label fails if it doesn't exist)
       gh issue edit "${AREF##*#}" --repo "${AREF%%#*}" --add-label "$ANCHOR_LABEL" >/dev/null 2>&1 \
-        && ok "Labelled $AREF as the anchor." || { err "Could not add '$ANCHOR_LABEL' label (does the label exist in ${AREF%%#*}?)."; exit 1; }
+        && { stamp_state "$PNUM" active 2>/dev/null || true; ok "Labelled $AREF as the anchor."; } \
+        || { err "Could not add '$ANCHOR_LABEL' label on ${AREF%%#*} (check repo access / permissions)."; exit 1; }
       ref="$AREF"
     fi
     local owners oteams; owners="$(project_owners "$PNUM" | paste -sd ',' - | sed 's/,/, /g')"
@@ -2661,7 +2693,21 @@ cmd_doctor() {
       found=1; echo -e "  ${YELLOW}partial${NC}  $pid   ${DIM}($d — no .seed-complete)${NC}"
     fi
   done
-  if [[ "$found" == 0 ]]; then ok "no partial seeds — everything is clean."; return 0; fi
+  # Ambiguous anchors — a board with >1 'anchor' issue makes ownership/status silently read
+  # the LOWEST issue # (deterministic, but a misconfig). Informational: remediate on GitHub.
+  local amb=""
+  [[ -n "${GITHUB_ORG:-}" ]] && amb="$(boards_with_multiple_anchors 2>/dev/null || true)"
+  if [[ -n "$amb" ]]; then
+    echo ""
+    warn "Boards with MORE THAN ONE anchor issue (ownership/status read the LOWEST #; remove the extras):"
+    local _n _t _c
+    while IFS=$'\t' read -r _n _t _c; do [[ -n "$_n" ]] && echo -e "  ${YELLOW}#$_n${NC}  $_t  ${DIM}($_c anchors)${NC}"; done <<< "$amb"
+  fi
+  if [[ "$found" == 0 ]]; then
+    [[ -z "$amb" ]] && ok "no partial seeds or ambiguous anchors — everything is clean." \
+                    || info "No partial seeds to clean. Fix the ambiguous anchors above on GitHub (remove the extra 'anchor' labels)."
+    return 0
+  fi
   echo ""
   local yn; ask_choice yn "Clean the partial seed(s) above?" "Yes — remove them"
   is_back "$yn" && { info "left as-is."; return 0; }
