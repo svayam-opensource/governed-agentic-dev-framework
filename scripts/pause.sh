@@ -69,6 +69,7 @@ done < <(get_project_repos "$PROJECT_YAML")
 # write (registry-elimination Increment 2); `prj list`/`prj status` derive the
 # paused state from the anchor label.
 anchor_set_label add "$(yaml_get "$PROJECT_YAML" github_project)" paused
+anchor_set_state "$(yaml_get "$PROJECT_YAML" github_project)" paused
 project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "paused" \
   "$(yaml_get "$PROJECT_YAML" assigned_to)" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
 

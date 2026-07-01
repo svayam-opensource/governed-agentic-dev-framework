@@ -120,9 +120,11 @@ project_context_list() {
   # The frozen registry shim only grandfathers legacy ids/branches (PRJ-001…013
   # + already-seeded boards whose NNN ≠ board number). assignment ∈ me|unassigned
   # |any · lifecycle ∈ not-initiated|initiated|paused|ongoing|done|any.
-  local assignment="${1:-any}" lifecycle="${2:-any}" me
+  local assignment="${1:-any}" lifecycle="${2:-any}" me myteams=""
   me="$(gh api user --jq .login 2>/dev/null || echo "")"
-  ME="$me" ASSIGNMENT="$assignment" LIFECYCLE="$lifecycle" \
+  # team ownership matters only for the 'me' scope — fetch my team slugs just then
+  [[ "$assignment" == "me" ]] && myteams="$(my_team_slugs 2>/dev/null | paste -sd , -)"
+  ME="$me" MY_TEAMS="$myteams" ASSIGNMENT="$assignment" LIFECYCLE="$lifecycle" \
   python3 - "$REGISTRY" "$GITHUB_ORG" <<'PY'
 import sys, os, re, json, subprocess
 try:
@@ -131,8 +133,10 @@ except ImportError:
     yaml = None                       # pyyaml-less env (e.g. minimal Slackware) — shim stays empty
 registry, owner = sys.argv[1], sys.argv[2]
 me = os.environ.get('ME', '')
+my_teams = set(t for t in os.environ.get('MY_TEAMS','').split(',') if t)
 assignment = os.environ.get('ASSIGNMENT', 'any')
 lifecycle  = os.environ.get('LIFECYCLE', 'any')
+SP, OTP = 'state:', 'owner-team:'
 
 # Frozen shim: board number → grandfathered id/branch (identity only, not status).
 # Best-effort: a missing registry OR no pyyaml just yields an empty shim (the
@@ -184,11 +188,15 @@ for nd in nodes:
         status = 'not-initiated'
     else:
         labels = anchor['labels'] if anchor else []
-        if closed:
+        state = next((l[len(SP):] for l in labels if l.startswith(SP)), None)
+        if state in ('active','paused','completed','cancelled'):
+            status = state                                   # searchable state: label wins (0.10.0)
+        elif closed:
             status = 'cancelled' if 'cancelled' in labels else 'completed'
         else:
             status = 'paused' if 'paused' in labels else 'active'
     owners = anchor['assignees'] if anchor else []
+    owner_teams = set(l[len(OTP):] for l in (anchor['labels'] if anchor else []) if l.startswith(OTP))
     who = ','.join(owners)
 
     # lifecycle filter
@@ -199,8 +207,8 @@ for nd in nodes:
             (lifecycle == 'ongoing'       and status in ONGOING) or
             (lifecycle == 'done'          and status in DONE))
     if not keep: continue
-    # assignment filter
-    if assignment == 'me'         and me not in owners: continue
+    # assignment filter — 'me' includes team ownership (member of an owner-team)
+    if assignment == 'me'         and me not in owners and not (my_teams & owner_teams): continue
     if assignment == 'unassigned' and owners:           continue
 
     if status == 'not-initiated':
@@ -280,8 +288,12 @@ prompt_and_launch_agent() {
 
 # ── GitHub-definitive ownership + repo helpers (manage/work redesign) ─────────
 # No cache: ownership = the project's anchor-issue assignees; repos = the board's
-# issues' repos. All read live from GitHub. See prj-manage-work-redesign-spec.md.
+# issues' repos. All read live from GitHub. See prj-manage-work-redesign-spec.md
+# and docs/design/team-ownership-and-searchable-state.md.
 ANCHOR_LABEL="anchor"
+OWNER_TEAM_PREFIX="owner-team:"          # anchor label marking a TEAM owner (owner-team:<slug>)
+STATE_PREFIX="state:"                     # searchable lifecycle label (state:active|paused|completed|cancelled)
+STATE_LABELS="active paused completed cancelled"
 
 # anchor_issue_ref <project_number> [owner]  → "owner/repo#number" of the board's
 # anchor issue (labelled 'anchor'), or empty. owner defaults to $GITHUB_ORG.
@@ -322,17 +334,25 @@ my_projects() {
 # (or on API error) — callers fall back to the registry assigned_to cache so
 # nav never breaks before anchors are labelled. One number per line, deduped.
 my_github_project_numbers() {
-  local login repo num
+  local login repo num slug
   login="$(gh api user --jq .login 2>/dev/null || echo "")"
   [[ -z "$login" ]] && return 0
-  while IFS=$'\t' read -r repo num; do
+  {
+    # (a) anchors assigned to me — INDIVIDUAL owner
+    gh search issues --owner "$GITHUB_ORG" --label "$ANCHOR_LABEL" --assignee "$login" \
+      --json number,repository --jq '.[] | "\(.repository.nameWithOwner)\t\(.number)"' 2>/dev/null
+    # (b) anchors owned by any team I'm in — TEAM owner (label AND is server-side)
+    while IFS= read -r slug; do
+      [[ -z "$slug" ]] && continue
+      gh search issues --owner "$GITHUB_ORG" --label "$ANCHOR_LABEL" --label "${OWNER_TEAM_PREFIX}${slug}" \
+        --json number,repository --jq '.[] | "\(.repository.nameWithOwner)\t\(.number)"' 2>/dev/null
+    done < <(my_team_slugs)
+  } | sort -u | while IFS=$'\t' read -r repo num; do
     [[ -z "$repo" || -z "$num" ]] && continue
     gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){ issue(number:$n){ projectItems(first:20){ nodes{ ... on ProjectV2Item { project{ number } } } } } } }' \
       -F o="${repo%%/*}" -F r="${repo##*/}" -F n="$num" \
       --jq '.data.repository.issue.projectItems.nodes[].project.number' 2>/dev/null
-  done < <(gh search issues --owner "$GITHUB_ORG" --label "$ANCHOR_LABEL" --assignee "$login" \
-             --json number,repository \
-             --jq '.[] | "\(.repository.nameWithOwner)\t\(.number)"' 2>/dev/null) | sort -un
+  done | sort -un
 }
 
 # project_repos <project_number> [owner]  → distinct repos of the board's items
@@ -364,6 +384,55 @@ set_owner() {
   bash "$SCRIPTS/project-access.sh" "$pa" "$url" "$login" >/dev/null 2>&1 \
     || warn "Assignee updated, but board write $pa failed — reconcile: bash scripts/project-access.sh $pa $url $login"
   ok "${action}: owner $login on project #$num (anchor $repo#$inum + board $pa)"
+}
+
+# ── Team ownership (docs/design/team-ownership-and-searchable-state.md) ────────
+# Issue assignees can't be teams, so a TEAM owner rides two other primitives:
+#   identity/discovery → anchor label 'owner-team:<slug>' (server-side searchable)
+#   authorization      → the team granted board WRITER (project-access.sh @<slug>)
+# Effective owners = assignees ∪ members of every owner-team. Kept atomic like set_owner.
+
+# my_team_slugs → the current user's team slugs in $GITHUB_ORG (one per line).
+my_team_slugs() {
+  gh api user/teams --jq ".[] | select(.organization.login==\"$GITHUB_ORG\") | .slug" 2>/dev/null
+}
+
+# team_members <slug> → member logins of an org team (one per line).
+team_members() {
+  gh api "/orgs/$GITHUB_ORG/teams/$1/members" --jq '.[].login' 2>/dev/null
+}
+
+# project_owner_teams <num> [owner] → team slugs from the anchor's owner-team:* labels.
+project_owner_teams() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" ref
+  ref="$(anchor_issue_ref "$num" "$owner")"; [[ -z "$ref" ]] && return 0
+  gh issue view "${ref##*#}" --repo "${ref%%#*}" --json labels --jq \
+    '.labels[].name | select(startswith("'"$OWNER_TEAM_PREFIX"'")) | sub("^'"$OWNER_TEAM_PREFIX"'";"")' 2>/dev/null
+}
+
+# set_owner_team <add|remove> <num> <slug> [owner]
+# Atomic team-owner change: (1) anchor 'owner-team:<slug>' label + (2) team board WRITER.
+set_owner_team() {
+  local action="$1" num="$2" slug="$3" owner="${4:-$GITHUB_ORG}"
+  local ref repo inum url lact pa
+  ref="$(anchor_issue_ref "$num" "$owner")"
+  [[ -z "$ref" ]] && { warn "No '$ANCHOR_LABEL' issue on project #$num — designate one first (prj manage)."; return 1; }
+  repo="${ref%%#*}"; inum="${ref##*#}"; url="https://github.com/orgs/$owner/projects/$num"
+  case "$action" in
+    add)    lact="--add-label";    pa="grant"  ;;
+    remove) lact="--remove-label"; pa="revoke" ;;
+    *) warn "set_owner_team: action must be add|remove"; return 1 ;;
+  esac
+  # verify the team exists before mutating (fail-closed)
+  gh api "/orgs/$owner/teams/$slug" --jq .slug >/dev/null 2>&1 \
+    || { warn "No team '@$owner/$slug' — check the slug (prj org / GitHub teams)."; return 1; }
+  [[ "$action" == "add" ]] && gh label create "${OWNER_TEAM_PREFIX}${slug}" --repo "$repo" --color 1d76db \
+      --description "Team owner (identity/discovery): $slug" >/dev/null 2>&1 || true
+  gh issue edit "$inum" --repo "$repo" "$lact" "${OWNER_TEAM_PREFIX}${slug}" >/dev/null 2>&1 \
+    || { warn "Failed to $action owner-team label on $repo#$inum"; return 1; }
+  bash "$SCRIPTS/project-access.sh" "$pa" "$url" "@$slug" >/dev/null 2>&1 \
+    || warn "Label updated, but team board $pa failed — reconcile: bash scripts/project-access.sh $pa $url @$slug"
+  ok "${action}: team @$owner/$slug on project #$num (anchor label + board $pa)"
 }
 
 # pid_for_project_number <num> [owner] → the project id for a board number.
@@ -401,7 +470,16 @@ i_can_work_project() {
   local num="$1" owner="${2:-$GITHUB_ORG}" me o
   me="$(gh api user --jq .login 2>/dev/null || echo "")"
   [[ -z "$me" ]] && return 1
+  # (1) individual owner = anchor assignee
   while IFS= read -r o; do [[ "$o" == "$me" ]] && return 0; done < <(project_owners "$num" "$owner")
+  # (2) team owner = member of any of the anchor's owner-team:* teams
+  local ot mine; mine="$(my_team_slugs)"
+  if [[ -n "$mine" ]]; then
+    while IFS= read -r ot; do
+      [[ -n "$ot" ]] && printf '%s\n' "$mine" | grep -qx "$ot" && return 0
+    done < <(project_owner_teams "$num" "$owner")
+  fi
+  # (3) assigned to any board issue
   gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ items(first:100){ nodes{ content{ ... on Issue { assignees(first:20){nodes{login}} } } } } } } }' \
     -F o="$owner" -F n="$num" \
     --jq '.data.organization.projectV2.items.nodes[].content.assignees.nodes[].login' 2>/dev/null \
@@ -515,8 +593,36 @@ anchor_has_label() {
 # board actually completes the project:
 #   open  board: anchor 'paused'    → paused    else active
 #   closed board: anchor 'cancelled'→ cancelled else completed
+# anchor_state_label <num> [owner] → the searchable state:* value on the anchor,
+# or empty (un-migrated anchor). Prefer this over board-derivation when present.
+anchor_state_label() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" ref
+  ref="$(anchor_issue_ref "$num" "$owner")"; [[ -z "$ref" ]] && return 0
+  gh issue view "${ref##*#}" --repo "${ref%%#*}" --json labels --jq \
+    '.labels[].name | select(startswith("'"$STATE_PREFIX"'")) | sub("^'"$STATE_PREFIX"'";"")' 2>/dev/null | head -1
+}
+
+# stamp_state <num> <active|paused|completed|cancelled> [owner]  — set the one
+# searchable state:* label on the anchor, remove the other three. Mutually exclusive.
+stamp_state() {
+  local num="$1" want="$2" owner="${3:-$GITHUB_ORG}" ref repo inum s
+  case " $STATE_LABELS " in *" $want "*) : ;; *) return 1 ;; esac
+  ref="$(anchor_issue_ref "$num" "$owner")"; [[ -z "$ref" ]] && return 1
+  repo="${ref%%#*}"; inum="${ref##*#}"
+  gh label create "${STATE_PREFIX}${want}" --repo "$repo" --color 0e8a16 --description "Searchable lifecycle state" >/dev/null 2>&1 || true
+  gh issue edit "$inum" --repo "$repo" --add-label "${STATE_PREFIX}${want}" >/dev/null 2>&1 || return 1
+  for s in $STATE_LABELS; do
+    [[ "$s" == "$want" ]] && continue
+    gh issue edit "$inum" --repo "$repo" --remove-label "${STATE_PREFIX}${s}" >/dev/null 2>&1 || true
+  done
+}
+
 derive_project_status() {
-  local num="$1" owner="${2:-$GITHUB_ORG}" closed
+  local num="$1" owner="${2:-$GITHUB_ORG}" closed st
+  # Prefer the searchable state:* label (0.10.0); fall back to board open/closed +
+  # legacy paused/cancelled for anchors not yet migrated/backfilled.
+  st="$(anchor_state_label "$num" "$owner")"
+  case "$st" in active|paused|completed|cancelled) echo "$st"; return ;; esac
   closed="$(gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ closed } } }' \
     -F o="$owner" -F n="$num" --jq '.data.organization.projectV2.closed' 2>/dev/null)"
   if [[ "$closed" == "true" ]]; then
@@ -563,6 +669,9 @@ scope marker for the project; closed at project close."
           --label "$ANCHOR_LABEL" ${me:+--assignee "$me"} --body "$body" 2>/dev/null | tail -1)"
   [[ -z "$url" ]] && return 1
   gh project item-add "$num" --owner "$owner" --url "$url" >/dev/null 2>&1 || true
+  # searchable initial state (a fresh open board with an anchor is 'active')
+  gh label create "${STATE_PREFIX}active" --repo "$repo" --color 0e8a16 --description "Searchable lifecycle state" >/dev/null 2>&1 || true
+  gh issue edit "${url##*/}" --repo "$repo" --add-label "${STATE_PREFIX}active" >/dev/null 2>&1 || true
   echo "${repo}#${url##*/}"
 }
 
@@ -1438,6 +1547,8 @@ cmd_list() {
     echo ""; echo -e "  ${DIM}Closed boards (completed/cancelled) hidden — 'prj list-all' to show all.${NC}"
   fi
   echo ""
+  echo -e "  ${DIM}Note: projects not having an anchor issue are not included in the list.${NC}"
+  echo ""
 }
 
 cmd_status() {
@@ -1898,7 +2009,9 @@ _pick_my_project() {
   rows="$(project_context_list me ongoing)"
   if [[ -z "$rows" ]]; then
     err "No active projects assigned to you${me:+ ($me)}."
-    echo -e "  ${DIM}Get assigned first: Admin → manage (or ./prj manage), then retry.${NC}"
+    echo -e "  ${DIM}List only includes projects you are either owner and/or have access to it. If you"
+    echo -e "  want to work on a project that is not in this list, please contact an admin to get"
+    echo -e "  that project assigned to you.${NC}"
     printf -v "$__nv" '%s' "$BACK"; printf -v "$__tv" '%s' "$BACK"; return
   fi
   local pid url status who num
@@ -1911,6 +2024,10 @@ _pick_my_project() {
   local i
   for i in "${!labels[@]}"; do printf "  ${CYAN}%d)${NC} %b\n" $((i+1)) "${labels[$i]}"; done
   printf "  ${DIM}0) ← back${NC}\n"
+  echo ""
+  echo -e "  ${DIM}List only includes projects you are either owner and/or have access to it. If you"
+  echo -e "  want to work on a project that is not in this list, please contact an admin to get"
+  echo -e "  that project assigned to you.${NC}"
   local c
   while true; do
     printf "Choose [1-%d, 0=back]: " "${#vals[@]}"; _read_or_abort c
@@ -1973,11 +2090,14 @@ cmd_manage_owners() {
         && ok "Labelled $AREF as the anchor." || { err "Could not add '$ANCHOR_LABEL' label (does the label exist in ${AREF%%#*}?)."; exit 1; }
       ref="$AREF"
     fi
-    local owners; owners="$(project_owners "$PNUM" | paste -sd ',' - | sed 's/,/, /g')"
+    local owners oteams; owners="$(project_owners "$PNUM" | paste -sd ',' - | sed 's/,/, /g')"
+    oteams="$(project_owner_teams "$PNUM" | paste -sd ',' - | sed 's/,/, /g')"
     echo -e "  ${BOLD}Anchor:${NC} $ref"
-    echo -e "  ${BOLD}Current owners:${NC} ${owners:-(none)}"
+    echo -e "  ${BOLD}Current owners:${NC}      ${owners:-(none)}"
+    echo -e "  ${BOLD}Current team owners:${NC} ${oteams:-(none)}"
     echo ""
-    local ACT; ask_choice ACT "Add or remove an owner?" "Add owner" "Remove owner"
+    local ACT; ask_choice ACT "What would you like to do?" \
+      "Add owner" "Remove owner" "Add team owner" "Remove team owner"
     is_back "$ACT" && return
     echo ""
     if [[ "$ACT" == "Add owner" ]]; then
@@ -1986,13 +2106,26 @@ cmd_manage_owners() {
       [[ -z "$WHO" ]] && { err "No login given."; exit 1; }
       confirm "Add '$WHO' as owner of '$PTITLE' (anchor assignee + board write)?"
       set_owner add "$PNUM" "$WHO"
-    else
+    elif [[ "$ACT" == "Remove owner" ]]; then
       local cur; cur="$(project_owners "$PNUM")"
       [[ -z "$cur" ]] && { err "No current owners to remove."; exit 1; }
       local WHO; ask_choice WHO "Remove which owner?" $cur
       is_back "$WHO" && return
       confirm "Remove '$WHO' as owner of '$PTITLE' (unassign + revoke board write)?"
       set_owner remove "$PNUM" "$WHO"
+    elif [[ "$ACT" == "Add team owner" ]]; then
+      local TEAM; ask TEAM "Team slug to add as owner (e.g. developers)" ""
+      TEAM="${TEAM#@}"; TEAM="${TEAM##*/}"
+      [[ -z "$TEAM" ]] && { err "No team slug given."; exit 1; }
+      confirm "Add team '@$GITHUB_ORG/$TEAM' as owner of '$PTITLE' (owner-team label + team board write)?"
+      set_owner_team add "$PNUM" "$TEAM"
+    else
+      local curt; curt="$(project_owner_teams "$PNUM")"
+      [[ -z "$curt" ]] && { err "No current team owners to remove."; exit 1; }
+      local TEAM; ask_choice TEAM "Remove which team owner?" $curt
+      is_back "$TEAM" && return
+      confirm "Remove team '@$GITHUB_ORG/$TEAM' as owner of '$PTITLE' (drop label + revoke team board write)?"
+      set_owner_team remove "$PNUM" "$TEAM"
     fi
   else
     local IREF; _pick_board_issue IREF "$PNUM"
@@ -2470,6 +2603,28 @@ _clean_partial_seed() {                    # <project-id> — remove a partial w
     [[ -d "$base/.git" || -e "$base/.git" ]] && git -C "$base" worktree prune 2>/dev/null || true
   done
   return 0
+}
+
+cmd_backfill_state() {
+  header "Backfill searchable state labels"
+  divider
+  label "Stamps state:<active|paused|completed|cancelled> on every anchor that lacks it,"
+  label "from its currently-derived status — so 'label:state:*' search covers all projects."
+  echo ""
+  local rows pid url status who num n=0 skipped=0
+  rows="$(project_context_list any any)"
+  while IFS=$'\t' read -r pid url status who; do
+    [[ -z "$url" || "$status" == "not-initiated" ]] && continue
+    num="${url##*/projects/}"; num="${num%%/*}"
+    if [[ -n "$(anchor_state_label "$num")" ]]; then skipped=$((skipped+1)); continue; fi
+    if stamp_state "$num" "$status"; then
+      ok "  $pid → state:$status"; n=$((n+1))
+    else
+      warn "  $pid — could not stamp (no anchor?)"
+    fi
+  done <<< "$rows"
+  echo ""
+  ok "Backfilled $n project(s); $skipped already had a state label."
 }
 
 cmd_doctor() {
@@ -3680,6 +3835,7 @@ case "$CMD" in
   migrate-home) cmd_migrate_home "${@:2}" ;;
   org)          cmd_org "${@:2}" ;;
   doctor)       cmd_doctor ;;
+  backfill-state) cmd_backfill_state ;;
   validate)     cmd_validate ;;
   version|--version|-v)
     # Report the installed CLI version (the bundled package.json is the source of truth).

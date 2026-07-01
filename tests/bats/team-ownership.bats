@@ -1,0 +1,55 @@
+#!/usr/bin/env bats
+# prj 0.10.0 — team ownership + searchable state, exercised through the list/work
+# surfaces with a gh stub that returns ONE board whose anchor carries owner-team +
+# state:* labels. Proves: (a) status derives from the searchable state:* label, and
+# (b) 'work' includes a project you own via TEAM membership (no assignee).
+# See docs/design/team-ownership-and-searchable-state.md.
+load helpers
+setup() { sandbox_up; make_gov_repo "$TEST_TMP/gov"; export ADF_WORKSPACE="$TEST_TMP/gov"; stub_gh_authed; }
+teardown() { sandbox_down; }
+
+# Overwrite the gh stub with one team-owned board (#7), no individual assignees,
+# anchor labelled owner-team:developers + state:<STATE>. `api user/teams` → developers,
+# so the current user (testbot) owns it via the team. STATE controls derived status.
+_gh_stub_team_board() {
+  local state="$1"
+  cat > "$_STUB_DIR/gh" <<STUB
+#!/usr/bin/env bash
+case "\$1 \$2" in "auth status") exit 0 ;; esac
+case "\$*" in
+  *"api user/teams"*) echo "developers" ;;
+  *"api user"*)       echo "testbot" ;;
+  *"api graphql"*)    cat <<'JSON'
+{"data":{"organization":{"projectsV2":{"nodes":[{"number":7,"title":"Team Owned","closed":false,"items":{"nodes":[{"content":{"__typename":"Issue","labels":{"nodes":[{"name":"anchor"},{"name":"owner-team:developers"},{"name":"state:$state"}]},"assignees":{"nodes":[]}}}]}}]}}}}
+JSON
+    ;;
+  *) exit 0 ;;
+esac
+STUB
+  chmod +x "$_STUB_DIR/gh"
+}
+
+@test "searchable-state: list derives status from the state:* label (paused wins over board-open)" {
+  _gh_stub_team_board paused
+  run bash -c "ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN' list </dev/null"
+  assert_success
+  assert_output --partial "PRJ-7"        # board rendered as a project
+  assert_output --partial "paused"       # status came from state:paused, not board open/closed
+}
+
+@test "searchable-state: an active state:* label renders as active" {
+  _gh_stub_team_board active
+  run bash -c "ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN' list </dev/null"
+  assert_success
+  assert_output --partial "PRJ-7"
+  assert_output --partial "active"
+}
+
+@test "team-ownership: work lists a project you own via TEAM membership (no assignee)" {
+  _gh_stub_team_board active
+  run bash -c "ADF_WORKSPACE='$ADF_WORKSPACE' bash '$PRJ_BIN' work </dev/null"
+  # the picker prints the assigned list before reading a choice
+  assert_output --partial "Select a project assigned to you"
+  assert_output --partial "PRJ-7"        # included via owner-team:developers ∩ my teams
+  assert_output --partial "contact an admin"   # the 0.10.0 access footer
+}
