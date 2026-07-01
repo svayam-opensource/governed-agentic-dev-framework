@@ -35,13 +35,21 @@ SCRIPTS="$SCRIPT_DIR/scripts"
 # data. $ADF_WORKSPACE (exported by the installed `prj` wrapper, or set by
 # hand) points at the governance repo; default to the vendored layout (the
 # CLI lives inside the workspace) when it is unset — i.e. unchanged behavior.
-if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]]; then
+if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]] && _prj_org_configured "$ADF_WORKSPACE" 2>/dev/null; then
   WORKSPACE_ROOT="$ADF_WORKSPACE"
 else
-  WORKSPACE_ROOT="$SCRIPT_DIR"
+  # No usable ADF_WORKSPACE → resolve via the registry (cwd-walk skips unconfigured
+  # templates → active-org → single home). Only fall back to the vendored layout
+  # ($SCRIPT_DIR) when nothing real resolves — otherwise running the standalone `prj`
+  # from the framework/template repo would load its EMPTY org-config (no org, no projects).
+  WORKSPACE_ROOT="$(prj_resolve_gov 2>/dev/null || true)"
+  [[ -n "$WORKSPACE_ROOT" && -f "$WORKSPACE_ROOT/org-config.yaml" ]] || WORKSPACE_ROOT="$SCRIPT_DIR"
 fi
 CONFIG="$WORKSPACE_ROOT/org-config.yaml"
 REGISTRY="$WORKSPACE_ROOT/registry.yaml"
+# Testable resolution probe (mirrors bin/prj) — the standalone `prj` must resolve the
+# SAME workspace the wrapper does. Print it and exit before any config/gh work.
+[[ -n "${PRJ_PRINT_WORKSPACE:-}" ]] && { printf '%s\n' "$WORKSPACE_ROOT"; exit 0; }
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 
