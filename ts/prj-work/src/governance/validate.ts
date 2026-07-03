@@ -20,6 +20,8 @@ export interface ValidateContext {
   readonly fs: Fs;
   /** Absolute repo root the validator inspects. */
   readonly repoRoot: string;
+  /** Repo-relative tracked files (e.g. from `git ls-files`); used by file scanners. */
+  readonly files?: readonly string[];
 }
 
 /** A single check. Pure over the context. */
