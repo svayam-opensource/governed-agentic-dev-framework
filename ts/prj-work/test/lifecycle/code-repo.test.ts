@@ -60,6 +60,7 @@ function fakeVcs(existingRefs: Set<string> = new Set()) {
     currentBranch: () => "BRNCH-43-x",
     isAncestor: () => false,
     isClean: () => true,
+    remoteBranchesMatching: () => [],
     checkout: () => {},
     checkoutNew: () => {},
     mergeNoEdit: () => "merged",

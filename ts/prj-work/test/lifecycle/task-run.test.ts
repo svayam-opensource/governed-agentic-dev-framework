@@ -61,6 +61,7 @@ function fakeIssues(state: IssueState = "OPEN") {
     setBoardStatus: (_r, u, s) => acted.push(`status ${u} ${s}`),
     close: (u) => acted.push(`close ${u}`),
     resolveIssueUrl: () => null,
+    closeBoard: () => {},
   };
   return { issues, acted };
 }
@@ -77,6 +78,7 @@ function fakeVcs(branch = "BRNCH-43-governance-common-project") {
     currentBranch: () => branch,
     isAncestor: () => false,
     isClean: () => true,
+    remoteBranchesMatching: () => [],
     addPath: () => {},
     commit: () => {},
     resetHard: () => {},

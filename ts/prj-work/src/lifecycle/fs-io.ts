@@ -18,6 +18,8 @@ export interface Fs extends FsProbe {
   readFile(file: string): string | null;
   /** Remove `target` recursively (best-effort; no error if absent). */
   rm(target: string): void;
+  /** List entry names in `dir` (empty array if it doesn't exist). */
+  readdir(dir: string): string[];
 }
 
 /** The real node:fs-backed writer. */
@@ -40,6 +42,13 @@ export function createNodeFs(): Fs {
     },
     rm: (target) => {
       fs.rmSync(target, { recursive: true, force: true });
+    },
+    readdir: (dir) => {
+      try {
+        return fs.readdirSync(dir);
+      } catch {
+        return [];
+      }
     },
   };
 }

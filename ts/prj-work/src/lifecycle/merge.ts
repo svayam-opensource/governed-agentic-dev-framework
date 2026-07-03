@@ -65,8 +65,8 @@ export type MergeResult =
   | { readonly ok: false; readonly code: number; readonly reason: MergeFailReason; readonly message: string; readonly repoDir?: string };
 
 /** Archive a merged sub-branch: tag `archive/<branch>` + push it, then delete the
- *  branch locally + remotely (delete is best-effort). */
-function archiveBranch(vcs: Vcs, repoDir: string, branch: string, remote: string): void {
+ *  branch locally + remotely (delete is best-effort). Shared with close. */
+export function archiveBranch(vcs: Vcs, repoDir: string, branch: string, remote: string): void {
   const tag = `archive/${branch}`;
   vcs.tag(repoDir, tag); // gating: a failed archive must not delete the branch
   vcs.push(repoDir, remote, tag);

@@ -23,6 +23,8 @@ export interface Issues {
   close(issueUrl: string, comment: string): void;
   /** Resolve an issue number to its URL on the board, or null. */
   resolveIssueUrl(ref: BoardRef, issueNumber: number): string | null;
+  /** Close the project board (best-effort) — makes the project read as completed. */
+  closeBoard(ref: BoardRef): void;
 }
 
 /** An {@link Issues} backed by the `gh` CLI. `runGh` is injectable for tests. */
@@ -77,6 +79,13 @@ export function createGhIssues(runGh: RunGh): Issues {
         /* unparseable — give up */
       }
       return null;
+    },
+    closeBoard(ref) {
+      try {
+        runGh(["project", "close", String(ref.number), "--owner", ref.owner]);
+      } catch {
+        /* non-fatal — close the board manually if this fails */
+      }
     },
   };
 }

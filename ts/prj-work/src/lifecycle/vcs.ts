@@ -32,6 +32,8 @@ export interface Vcs {
   isAncestor(repoDir: string, ancestor: string, descendant: string): boolean;
   /** True if `repoDir`'s working tree has no uncommitted changes. */
   isClean(repoDir: string): boolean;
+  /** Remote branch names matching `pattern` (e.g. `BRNCH-43-x.*`), from `remote`. */
+  remoteBranchesMatching(repoDir: string, remote: string, pattern: string): string[];
 
   // ── mutations ────────────────────────────────────────────────────────────────
   /** Stage `pathspec` in `repoDir`. */
@@ -132,6 +134,14 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     isClean(repoDir) {
       const r = runGit(["-C", repoDir, "status", "--porcelain"]);
       return r.status === 0 && r.stdout.trim() === "";
+    },
+    remoteBranchesMatching(repoDir, remote, pattern) {
+      const r = runGit(["-C", repoDir, "ls-remote", "--heads", remote, pattern]);
+      if (r.status !== 0) return [];
+      return r.stdout
+        .split("\n")
+        .map((l) => l.match(/refs\/heads\/(.+)$/)?.[1] ?? "")
+        .filter((n) => n.length > 0);
     },
 
     addPath(repoDir, pathspec) {

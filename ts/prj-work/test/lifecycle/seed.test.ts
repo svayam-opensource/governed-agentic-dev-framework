@@ -60,6 +60,7 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
     currentBranch: () => "main",
     isAncestor: () => false,
     isClean: () => true,
+    remoteBranchesMatching: () => [],
     checkout: (r) => log.push(`checkout ${r}`),
     checkoutNew: (r) => log.push(`checkoutNew ${r}`),
     mergeNoEdit: () => "merged",
@@ -92,6 +93,7 @@ function fakeFs(existing: Set<string> = new Set()) {
     writeFile: (f) => writes.push(f),
     readFile: () => null, // no todo template / tool files in these tests
     rm: () => {},
+    readdir: () => [],
   };
   return { fsPort, writes };
 }

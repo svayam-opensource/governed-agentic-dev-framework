@@ -24,6 +24,7 @@ function fakeIssues() {
     setBoardStatus: (_r, u, s) => acted.push(`status ${u} ${s}`),
     close: (u, c) => acted.push(`close ${u} :: ${c}`),
     resolveIssueUrl: () => null,
+    closeBoard: () => {},
   };
   return { issues, acted };
 }
@@ -40,6 +41,7 @@ function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: bo
     currentBranch: () => "BRNCH-43-governance-common-project",
     isAncestor: () => opts.alreadyMerged ?? false,
     isClean: () => !(opts.dirty ?? false),
+    remoteBranchesMatching: () => [],
     addPath: () => {},
     commit: () => {},
     resetHard: () => {},

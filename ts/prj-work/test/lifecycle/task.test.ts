@@ -46,6 +46,7 @@ function fakeVcs(opts: { hasTask?: boolean; taskSha?: string | null; baseSha?: s
     currentBranch: () => "BRNCH-43-x",
     isAncestor: () => false,
     isClean: () => true,
+    remoteBranchesMatching: () => [],
     addPath: () => {},
     commit: () => {},
     resetHard: () => {},
