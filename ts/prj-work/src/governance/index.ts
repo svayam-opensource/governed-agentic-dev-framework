@@ -5,3 +5,4 @@ export * from "./validate.js";
 export * from "./version-sync.js";
 export * from "./secrets.js";
 export * from "./protocol.js";
+export * from "./knowledge.js";
