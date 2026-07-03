@@ -8,6 +8,7 @@
  * (dispatch.ts) is exhaustively unit-tested.
  */
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv } from "../resolve/node-env.js";
@@ -22,6 +23,7 @@ import { createGhPulls } from "../lifecycle/pulls.js";
 import { makeCloneRepo } from "../lifecycle/code-repo.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
+import { doctor, formatDoctorReport } from "../maintain/doctor.js";
 import { parseArgv } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 
@@ -60,6 +62,30 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   }
 
   const env = createNodeEnv();
+
+  // `prj doctor` reports on the environment (incl. whether resolution works), so
+  // it runs pre-resolve too.
+  if (parsed.command === "doctor") {
+    const resolve = prjResolveGov(env);
+    const home = resolve.ok ? resolve.home : process.cwd();
+    let cliVersion = "unknown";
+    try {
+      const pkg = fs.readFile(fileURLToPath(new URL("../../../package.json", import.meta.url)));
+      if (pkg) cliVersion = (JSON.parse(pkg) as { version?: string }).version ?? "unknown";
+    } catch {
+      /* leave "unknown" */
+    }
+    const report = doctor({
+      gitPresent: tryRun("git", ["--version"]) !== undefined,
+      ghPresent: tryRun("gh", ["--version"]) !== undefined,
+      resolve,
+      activeOrg: env.readActiveOrg(),
+      cliVersion,
+      frameworkVersion: fs.readFile(path.join(home, ".framework-version"))?.trim() ?? null,
+    });
+    for (const line of formatDoctorReport(report)) process.stdout.write(`${line}\n`);
+    return report.ok ? 0 : 1;
+  }
 
   // `prj org …` runs BEFORE resolution — it's the bootstrap that makes resolution
   // work (registering a gov home / selecting the active org).
