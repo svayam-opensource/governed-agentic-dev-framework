@@ -25,6 +25,8 @@ import { seed } from "../lifecycle/seed.js";
 import { task } from "../lifecycle/task-run.js";
 import { merge } from "../lifecycle/merge.js";
 import { close } from "../lifecycle/close.js";
+import { sync } from "../lifecycle/sync.js";
+import { addRepo } from "../lifecycle/add-repo.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
 import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org.js";
 import { expandTilde } from "../resolve/node-env.js";
@@ -164,6 +166,29 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         : { code: r.code, lines: [r.message, ...(r.failures ?? [])] };
     }
 
+    case "sync": {
+      const r = sync(
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, authorize: ctx.authorize, log: ctx.log },
+        { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo, defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch },
+        { govClone: ctx.home, projectWorkRoot },
+      );
+      return r.ok
+        ? { code: 0, lines: [`Synced ${r.projectBranch}`, `  ${r.synced.length} repo(s) up to date`] }
+        : { code: r.code, lines: [r.message] };
+    }
+
+    case "add-repo": {
+      if (positionals.length < 1) return usage("add-repo <repo-url> [base-branch]");
+      const r = addRepo(
+        { vcs: ctx.vcs, fs: ctx.fs, cloneRepo: ctx.cloneRepo, authorize: ctx.authorize, log: ctx.log },
+        { githubOrg: c.githubOrg, ownerField, agentWorkRoot: c.agentWorkRoot, defaultCodeBranch: c.defaultCodeBranch },
+        { govClone: ctx.home, projectWorkRoot, repoUrl: positionals[0], baseBranch: positionals[1], identity: ctx.identity },
+      );
+      return r.ok
+        ? { code: 0, lines: [`Added ${r.repoDir} on ${r.projectBranch}`] }
+        : { code: r.code, lines: [r.message] };
+    }
+
     case "pause":
     case "resume":
     case "cancel": {
@@ -179,6 +204,6 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     }
 
     default:
-      return { code: 2, lines: [`unknown command '${command}'`, "commands: seed task merge close pause resume cancel"] };
+      return { code: 2, lines: [`unknown command '${command}'`, "commands: seed task merge sync add-repo close pause resume cancel org"] };
   }
 }

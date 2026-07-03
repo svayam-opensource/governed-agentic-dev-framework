@@ -18,6 +18,8 @@ export * from "./task.js";
 export * from "./issues.js";
 export * from "./task-run.js";
 export * from "./merge.js";
+export * from "./sync.js";
+export * from "./add-repo.js";
 export * from "./close-gate.js";
 export * from "./pulls.js";
 export * from "./close.js";
