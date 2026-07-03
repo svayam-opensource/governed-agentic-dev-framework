@@ -14,6 +14,8 @@ export interface BoardProject {
   readonly shortDescription: string | null;
   /** Count of board items that link an Issue or PR (content != null). */
   readonly linkedItemCount: number;
+  /** Distinct repo URLs from the linked items (Phase C; workspace repo filtered by the caller). */
+  readonly repoUrls: readonly string[];
 }
 
 /** Read-side of a GitHub Project board. */

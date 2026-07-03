@@ -22,6 +22,7 @@ const project = (over: Partial<BoardProject> = {}): BoardProject => ({
   title: "@Governance Common Project",
   shortDescription: "the prj CLI",
   linkedItemCount: 3,
+  repoUrls: [],
   ...over,
 });
 
@@ -86,7 +87,23 @@ describe("prj-work Phase 2 — gh board adapter", () => {
       title: "@Governance Common Project",
       shortDescription: "the prj CLI",
       linkedItemCount: 1, // one content, one null
+      repoUrls: [],
     });
+  });
+
+  it("extracts distinct repo URLs from linked items", () => {
+    const resp = ghResponse({
+      nodes: [
+        { content: { repository: { url: "https://github.com/O/a" } } },
+        { content: { repository: { url: "https://github.com/O/a" } } }, // dup
+        { content: { repository: { url: "https://github.com/O/b" } } },
+        { content: null },
+      ],
+    });
+    expect(parseProjectResponse(resp).repoUrls).to.deep.equal([
+      "https://github.com/O/a",
+      "https://github.com/O/b",
+    ]);
   });
 
   it("normalizes null title/description", () => {

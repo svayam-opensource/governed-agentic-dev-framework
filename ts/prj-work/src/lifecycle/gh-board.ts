@@ -35,7 +35,7 @@ export function buildProjectQuery(ref: BoardRef): string {
 }
 
 interface GraphQLNode {
-  content?: unknown | null;
+  content?: { repository?: { url?: string } } | null;
 }
 interface ProjectV2 {
   id: string;
@@ -63,13 +63,16 @@ export function parseProjectResponse(stdout: string): BoardProject {
   const ownerVal = Object.values(data)[0] as { projectV2?: ProjectV2 | null } | undefined;
   const pv = ownerVal?.projectV2;
   if (!pv) throw new BoardFetchError("GitHub Project not found or not accessible.");
-  const nodes = pv.items?.nodes ?? [];
-  const linkedItemCount = nodes.filter((n) => n != null && n.content != null).length;
+  const linked = (pv.items?.nodes ?? []).filter((n) => n != null && n.content != null);
+  const repoUrls = [
+    ...new Set(linked.map((n) => n.content?.repository?.url).filter((u): u is string => !!u)),
+  ];
   return {
     id: pv.id,
     title: pv.title ?? "",
     shortDescription: pv.shortDescription ?? null,
-    linkedItemCount,
+    linkedItemCount: linked.length,
+    repoUrls,
   };
 }
 

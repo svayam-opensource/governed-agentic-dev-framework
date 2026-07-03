@@ -11,3 +11,6 @@ export * from "./repo.js";
 export * from "./retry.js";
 export * from "./code-repo.js";
 export * from "./content.js";
+export * from "./fs-io.js";
+export * from "./anchor.js";
+export * from "./seed.js";
