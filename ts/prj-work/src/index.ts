@@ -43,3 +43,6 @@ export const MIGRATION_PHASES: readonly MigrationPhase[] = [
 
 /** Package identity — the transitional Node name; promoted to the package root at cutover. */
 export const PACKAGE_NAME = "@svayam-opensource/prj-work" as const;
+
+// Phase 1 — governance-home resolution (SDD-013/040/041/042).
+export * from "./resolve/index.js";
