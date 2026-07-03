@@ -46,3 +46,6 @@ export const PACKAGE_NAME = "@svayam-opensource/prj-work" as const;
 
 // Phase 1 — governance-home resolution (SDD-013/040/041/042).
 export * from "./resolve/index.js";
+
+// Phase 2 — project lifecycle (SDD Part B): seed / task / merge / close.
+export * from "./lifecycle/index.js";
