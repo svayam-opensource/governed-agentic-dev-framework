@@ -1,105 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * Pure content generators for seed (SDD Part B, phase B.1): project.yaml,
- * agent.md, todo.md, and tool-file token substitution. This replaces the bash
- * heredocs + `perl` token substitution with typed, testable Node — no perl/yq.
- * Output is faithful to the bash seed (double-quoted string scalars, `~` nulls).
+ * Pure content generators for seed (SDD Part B, phase B.1) — the *authored
+ * content* scaffold: agent.md (the project entrypoint), todo.md, and tool-file
+ * token substitution. Replaces the bash heredocs + `perl` pass with typed Node.
+ *
+ * NOTE (SDD-012, model A): there is **no `project.yaml`** — GitHub is the sole
+ * source of truth (board + anchor issue + linked items). We only generate
+ * repo-committed *content*, never machine state.
  */
-
-/**
- * Quote a string as a YAML double-quoted scalar, injection-safe. Escape the
- * backslash FIRST, then the double-quote, so a value ending in `\` (e.g. a
- * hostile GitHub Project title) cannot escape the closing quote (seed.sh C10).
- */
-export function yamlQuote(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
-/** A `repos[]` entry in project.yaml. */
-export interface RepoEntry {
-  readonly url: string | null;
-  readonly role: string;
-  readonly base_branch: string;
-  readonly added_at: string | null;
-  readonly added_reason: string | null;
-}
-
-/** The typed project manifest rendered into project.yaml. */
-export interface ProjectManifest {
-  readonly id: string;
-  readonly slug: string;
-  readonly branch: string;
-  readonly description: string | null;
-  readonly github_project: string;
-  readonly github_project_name: string;
-  readonly assigned_to: string;
-  readonly seeded_by: string;
-  readonly status: string;
-  readonly created_at: string;
-  readonly started_at: string;
-  readonly completed_at: string | null;
-  readonly paused_at: string | null;
-  readonly cancelled_at: string | null;
-  readonly cancellation_reason: string | null;
-  readonly repos: readonly RepoEntry[];
-  readonly knowledge_status: string | null;
-  readonly knowledge_pr: string | null;
-  readonly agent_config: { readonly model: string; readonly provider: string };
-}
-
-/** `~` for null, else a bare (unquoted) date/enum literal. */
-const bare = (v: string | null): string => (v === null ? "~" : v);
-/** `~` for null, else a double-quoted string scalar. */
-const quoted = (v: string | null): string => (v === null ? "~" : yamlQuote(v));
-
-/** Render the `repos:` block body (unquoted scalars, matching the bash seed). */
-export function renderReposBlock(repos: readonly RepoEntry[], defaultCodeBranch: string): string {
-  const list = repos.length
-    ? repos
-    : [{ url: null, role: "primary", base_branch: defaultCodeBranch, added_at: null, added_reason: null }];
-  return list
-    .map((r) =>
-      [
-        `  - url: ${bare(r.url)}`,
-        `    role: ${r.role}`,
-        `    base_branch: ${r.base_branch}`,
-        `    added_at: ${bare(r.added_at)}`,
-        `    added_reason: ${bare(r.added_reason)}`,
-      ].join("\n"),
-    )
-    .join("\n");
-}
-
-/** Render project.yaml from a manifest (field order matches the live files). */
-export function renderProjectYaml(m: ProjectManifest, defaultCodeBranch: string): string {
-  return (
-    [
-      `id: ${yamlQuote(m.id)}`,
-      `slug: ${yamlQuote(m.slug)}`,
-      `branch: ${yamlQuote(m.branch)}`,
-      `description: ${quoted(m.description)}`,
-      `github_project: ${yamlQuote(m.github_project)}`,
-      `github_project_name: ${yamlQuote(m.github_project_name)}`,
-      `assigned_to: ${yamlQuote(m.assigned_to)}`,
-      `seeded_by: ${yamlQuote(m.seeded_by)}`,
-      `status: ${m.status}`,
-      `created_at: ${m.created_at}`,
-      `started_at: ${m.started_at}`,
-      `completed_at: ${bare(m.completed_at)}`,
-      `paused_at: ${bare(m.paused_at)}`,
-      `cancelled_at: ${bare(m.cancelled_at)}`,
-      `cancellation_reason: ${quoted(m.cancellation_reason)}`,
-      `repos:`,
-      renderReposBlock(m.repos, defaultCodeBranch),
-      `knowledge_status: ${bare(m.knowledge_status)}`,
-      `knowledge_pr: ${bare(m.knowledge_pr)}`,
-      `agent_config:`,
-      `  model: ${m.agent_config.model}`,
-      `  provider: ${m.agent_config.provider}`,
-    ].join("\n") + "\n"
-  );
-}
 
 /** Inputs for the project agent.md entrypoint. */
 export interface AgentMdParams {
@@ -151,9 +60,9 @@ ${repoLinesInside}
 ## Session Start Checklist (C01)
 
 1. Verify you are authorized: you have **write access to this project's linked
-   GitHub Project** (the authorization source of truth). \`assigned_to\` in
-   \`project.yaml\` is a display cache, not the gate.
-2. Verify \`status: active\` in \`project.yaml\`.
+   GitHub Project** (the authoritative gate — GitHub is the source of truth).
+2. Confirm the project is active: its **board is open** (a \`paused\`/\`cancelled\`
+   label on the anchor issue drives derived status). There is no \`project.yaml\`.
 3. Read \`projects/${p.projectId}/knowledge/todo.md\` and surface \`## Open\` items.
 4. Load all four knowledge layers fresh.
 

@@ -19,14 +19,7 @@ import type { Fs } from "./fs-io.js";
 import type { AnchorCreator } from "./anchor.js";
 import { deriveProjectIdentity, parseBoardUrl } from "./identity.js";
 import { seedPathsFor, detectLeftovers, leftoversMessage, type LeftoverArtifact } from "./leftover.js";
-import {
-  renderProjectYaml,
-  renderAgentMd,
-  renderTodoMd,
-  substituteTokens,
-  type ProjectManifest,
-  type RepoEntry,
-} from "./content.js";
+import { renderAgentMd, renderTodoMd, substituteTokens } from "./content.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
 import { repoNameFromUrl } from "./repo.js";
 
@@ -94,9 +87,9 @@ function gitkeepStub(i: {
   return `# Active project — full content lives on branch '${i.branch}'.
 #
 # This folder is a stub on ${i.defaultBranch}. The project is registered on GitHub
-# (Project #${i.boardNumber} + its 'anchor' issue), NOT in registry.yaml — GitHub
-# is the sole source of truth (registry-elimination). The full project content
-# (project.yaml, agent.md, knowledge/, etc.) lives on branch '${i.branch}'.
+# (Project #${i.boardNumber} + its 'anchor' issue) — GitHub is the SOLE source of
+# truth (no project.yaml / registry.yaml, SDD-012). The authored content
+# (agent.md, knowledge/) lives on branch '${i.branch}'.
 `;
 }
 
@@ -117,7 +110,7 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
   if (!idr.ok) {
     return { ok: false, code: 1, reason: idr.reason, message: `Cannot derive project id (${idr.reason}).` };
   }
-  const { projectId, branch, slug } = idr;
+  const { projectId, branch } = idr;
   const paths = seedPathsFor({ govHome: config.govHome, agentWorkRoot: config.agentWorkRoot, projectId, branch });
   const orgGovClone = path.join(paths.projectWorkRoot, config.workspaceRepo);
   const projectDir = path.join(orgGovClone, "projects", projectId);
@@ -159,38 +152,10 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     );
     if (input.identity) deps.vcs.setIdentity(orgGovClone, input.identity);
 
-    // ── Phase B.1: scaffold project content ───────────────────────────────────
+    // ── Phase B.1: scaffold authored content (agent.md/todo/tool-files) ───────
+    // No project.yaml — GitHub is the sole source of truth (SDD-012, model A).
     log("Phase B.1: scaffold content");
     deps.fs.rm(path.join(projectDir, ".gitkeep")); // replacing the stub with real content
-    const repoEntries: RepoEntry[] = codeRepoUrls.map((url) => ({
-      url,
-      role: "primary",
-      base_branch: input.repoBases?.[url] ?? config.defaultCodeBranch,
-      added_at: input.today,
-      added_reason: null,
-    }));
-    const manifest: ProjectManifest = {
-      id: projectId,
-      slug,
-      branch,
-      description: null,
-      github_project: input.boardUrl,
-      github_project_name: board.title,
-      assigned_to: input.assignee,
-      seeded_by: input.seededBy,
-      status: "active",
-      created_at: input.today,
-      started_at: input.today,
-      completed_at: null,
-      paused_at: null,
-      cancelled_at: null,
-      cancellation_reason: null,
-      repos: repoEntries,
-      knowledge_status: null,
-      knowledge_pr: null,
-      agent_config: { model: "auto", provider: "cursor" },
-    };
-    deps.fs.writeFile(path.join(projectDir, "project.yaml"), renderProjectYaml(manifest, config.defaultCodeBranch));
     deps.fs.writeFile(
       path.join(projectDir, "agent.md"),
       renderAgentMd({
