@@ -3,19 +3,41 @@
 /**
  * The `Vcs` port (git) + `FsProbe` port, with `git`-CLI / node:fs adapters.
  * `git` is an external tool (not a legacy script), driven via an injected runner
- * so the adapter is testable without a real repo. Read-only methods land here in
- * seed slice 3; the mutating operations (clone / worktree / push / delete) arrive
- * in slice 4.
+ * so the adapter is testable without a real repo. Read-only queries + the
+ * mutating operations seed needs for phases A/B/D and rollback.
  */
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 
-/** Version-control queries seed needs (read-only for now). */
+/** Version-control operations seed needs. */
 export interface Vcs {
+  // ── reads ──────────────────────────────────────────────────────────────────
   /** True if `branch` exists locally in `repoDir`. */
   localBranchExists(repoDir: string, branch: string): boolean;
   /** True if `branch` exists on `remote` (as seen from `repoDir`). */
   remoteBranchExists(repoDir: string, remote: string, branch: string): boolean;
+  /** The current HEAD sha of `repoDir`. */
+  headSha(repoDir: string): string;
+
+  // ── mutations ────────────────────────────────────────────────────────────────
+  /** Stage `pathspec` in `repoDir`. */
+  addPath(repoDir: string, pathspec: string): void;
+  /** Commit staged changes with `message`. */
+  commit(repoDir: string, message: string): void;
+  /** Hard-reset `repoDir` to `sha`. */
+  resetHard(repoDir: string, sha: string): void;
+  /** Remove untracked files under `pathspec`. */
+  cleanUntracked(repoDir: string, pathspec: string): void;
+  /** `git worktree add -b <newBranch> <worktreePath> <startPoint>` from `baseRepo`. */
+  worktreeAdd(baseRepo: string, newBranch: string, worktreePath: string, startPoint: string): void;
+  /** Remove the worktree at `worktreePath` (force; falls back to rm + prune). */
+  worktreeRemove(baseRepo: string, worktreePath: string): void;
+  /** Delete local `branch` in `repoDir`. */
+  branchDelete(repoDir: string, branch: string): void;
+  /** Push `branch` to `remote` (optionally setting upstream). */
+  push(repoDir: string, remote: string, branch: string, opts?: { setUpstream?: boolean }): void;
+  /** Delete `branch` on `remote`. */
+  pushDelete(repoDir: string, remote: string, branch: string): void;
 }
 
 /** A minimal filesystem-existence probe (kept separate from git). */
@@ -23,16 +45,25 @@ export interface FsProbe {
   pathExists(path: string): boolean;
 }
 
-/** Runs `git <args>`; returns the exit status + stdout (never throws). */
-export type RunGit = (args: string[]) => { status: number; stdout: string };
+/** Runs `git <args>`; returns exit status + stdout/stderr (never throws). */
+export type RunGit = (args: string[]) => { status: number; stdout: string; stderr?: string };
 
 const defaultRunGit: RunGit = (args) => {
   const r = spawnSync("git", args, { encoding: "utf8" });
-  return { status: r.status ?? 1, stdout: r.stdout ?? "" };
+  return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 };
 
 /** A {@link Vcs} backed by the `git` CLI. `runGit` is injectable for tests. */
 export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
+  /** Run a git command, throwing on non-zero exit (for mutating steps). */
+  const must = (args: string[]): string => {
+    const r = runGit(args);
+    if (r.status !== 0) {
+      throw new Error(`git ${args.join(" ")} failed (exit ${r.status})${r.stderr ? `: ${r.stderr.trim()}` : ""}`);
+    }
+    return r.stdout;
+  };
+
   return {
     localBranchExists(repoDir, branch) {
       return (
@@ -42,6 +73,47 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     },
     remoteBranchExists(repoDir, remote, branch) {
       return runGit(["-C", repoDir, "ls-remote", "--exit-code", "--heads", remote, branch]).status === 0;
+    },
+    headSha(repoDir) {
+      return must(["-C", repoDir, "rev-parse", "HEAD"]).trim();
+    },
+
+    addPath(repoDir, pathspec) {
+      must(["-C", repoDir, "add", pathspec]);
+    },
+    commit(repoDir, message) {
+      must(["-C", repoDir, "commit", "-m", message]);
+    },
+    resetHard(repoDir, sha) {
+      must(["-C", repoDir, "reset", "--hard", sha]);
+    },
+    cleanUntracked(repoDir, pathspec) {
+      must(["-C", repoDir, "clean", "-fd", pathspec]);
+    },
+    worktreeAdd(baseRepo, newBranch, worktreePath, startPoint) {
+      must(["-C", baseRepo, "worktree", "add", "-b", newBranch, worktreePath, startPoint]);
+    },
+    worktreeRemove(baseRepo, worktreePath) {
+      const r = runGit(["-C", baseRepo, "worktree", "remove", "--force", worktreePath]);
+      if (r.status !== 0) {
+        // Fallback: rm the tree, then prune the base's worktree registry.
+        try {
+          fs.rmSync(worktreePath, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+        runGit(["-C", baseRepo, "worktree", "prune"]);
+      }
+    },
+    branchDelete(repoDir, branch) {
+      must(["-C", repoDir, "branch", "-D", branch]);
+    },
+    push(repoDir, remote, branch, opts) {
+      const up = opts?.setUpstream ? ["-u"] : [];
+      must(["-C", repoDir, "push", ...up, remote, branch]);
+    },
+    pushDelete(repoDir, remote, branch) {
+      must(["-C", repoDir, "push", remote, "--delete", branch]);
     },
   };
 }
