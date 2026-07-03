@@ -11,6 +11,7 @@ org_slug: "SVM"
 org_slug_lower: "svm"
 github_org: "Svayamtech"
 workspace_repo: "svm-prj-work"
+org_repo_url: "git@github.com:Svayamtech/svm-prj-work.git"
 default_branch: "main"
 default_code_branch: "dev"
 agent_work_root: "~/.svm/projects"
@@ -28,6 +29,7 @@ describe("prj-work — parseOrgConfig", () => {
       orgSlugLower: "svm",
       githubOrg: "Svayamtech",
       workspaceRepo: "svm-prj-work",
+      orgRepoUrl: "git@github.com:Svayamtech/svm-prj-work.git",
       defaultBranch: "main",
       defaultCodeBranch: "dev",
       agentWorkRoot: "/home/rk/.svm/projects",

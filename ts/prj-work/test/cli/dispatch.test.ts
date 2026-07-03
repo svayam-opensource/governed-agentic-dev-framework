@@ -31,7 +31,8 @@ describe("prj-work — parseArgv", () => {
 
 const CONFIG: OrgConfig = {
   orgName: "Svayam", orgShortName: "Svayam", orgSlug: "SVM", orgSlugLower: "svm",
-  githubOrg: "Svayamtech", workspaceRepo: "svm-prj-work", defaultBranch: "main", defaultCodeBranch: "dev",
+  githubOrg: "Svayamtech", workspaceRepo: "svm-prj-work", orgRepoUrl: "git@github.com:Svayamtech/svm-prj-work.git",
+  defaultBranch: "main", defaultCodeBranch: "dev",
   agentWorkRoot: "/awr", govWorkspace: "/gov", policyOwnerEmail: "rk@x", orgTokens: {},
 };
 

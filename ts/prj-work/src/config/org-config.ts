@@ -17,6 +17,8 @@ export interface OrgConfig {
   readonly orgSlugLower: string;
   readonly githubOrg: string;
   readonly workspaceRepo: string;
+  /** `org_repo_url` — the gov repo clone URL (used by join). */
+  readonly orgRepoUrl: string;
   readonly defaultBranch: string;
   readonly defaultCodeBranch: string;
   /** `agent_work_root`, expanded to an absolute path. */
@@ -38,6 +40,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
   const orgSlugLower = get("org_slug_lower");
   const githubOrg = get("github_org");
   const workspaceRepo = get("workspace_repo");
+  const orgRepoUrl = get("org_repo_url");
   const defaultBranch = get("default_branch");
   const defaultCodeBranch = get("default_code_branch");
   const agentWorkRoot = expandTilde(get("agent_work_root"), home);
@@ -64,6 +67,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
     orgSlugLower,
     githubOrg,
     workspaceRepo,
+    orgRepoUrl,
     defaultBranch,
     defaultCodeBranch,
     agentWorkRoot,
