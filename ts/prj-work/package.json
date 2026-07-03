@@ -1,0 +1,46 @@
+{
+  "name": "@svayam-opensource/prj-work",
+  "version": "0.0.0",
+  "description": "prj-work — the OSS core of the prj governance CLI, migrated from Bash to Node 24 / TypeScript (AD-6.1 conformance). Coexists with the legacy bash CLI during transition; promoted to the package root at cutover.",
+  "type": "module",
+  "main": "./lib/cjs/index.js",
+  "module": "./lib/esm/index.js",
+  "types": "./lib/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "import": { "types": "./lib/esm/index.d.ts", "default": "./lib/esm/index.js" },
+      "require": { "types": "./lib/cjs/index.d.ts", "default": "./lib/cjs/index.js" }
+    }
+  },
+  "files": ["lib/"],
+  "engines": { "node": ">=24" },
+  "publishConfig": { "registry": "https://registry.npmjs.org/", "access": "public" },
+  "scripts": {
+    "clean": "rm -rf lib",
+    "build": "npm run clean && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json",
+    "test": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/**/*.test.ts'",
+    "lint": "eslint .",
+    "prepublishOnly": "npm run build && npm run test",
+    "tsc": "npm run build"
+  },
+  "keywords": ["prj", "prj-work", "governance", "agentic", "cli"],
+  "author": "Svayam Infoware Pvt. Ltd.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/svayam-opensource/governed-agentic-dev-framework.git",
+    "directory": "ts/prj-work"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.0.0",
+    "chai": "^4.5.0",
+    "jiti": "^2.4.2",
+    "mocha": "^10.8.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.56.0"
+  }
+}

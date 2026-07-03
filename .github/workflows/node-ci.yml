@@ -1,0 +1,42 @@
+name: node-ci
+
+# Build + lint + test the Node/TypeScript packages under ts/* on Node 24 (AD-6.1).
+# These are the in-flight Bash → Node migration of prj-work (PRJ-43, issue #91):
+# during the transition they live alongside the legacy bash CLI and get their own
+# real push/PR green. The bash lint/bats/e2e workflows stay for the bash CLI at the
+# repo root. Path-filtered so pure-bash changes don't spin this up.
+
+on:
+  pull_request:
+    paths:
+      - "ts/prj-work/**"
+      - ".github/workflows/node-ci.yml"
+  push:
+    branches: ["**"]
+    paths:
+      - "ts/prj-work/**"
+      - ".github/workflows/node-ci.yml"
+
+concurrency:
+  group: node-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: ts/prj-work
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ts/prj-work
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ts/prj-work/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npm test
