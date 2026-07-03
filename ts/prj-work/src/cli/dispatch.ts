@@ -26,6 +26,8 @@ import { task } from "../lifecycle/task-run.js";
 import { merge } from "../lifecycle/merge.js";
 import { close } from "../lifecycle/close.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
+import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org.js";
+import { expandTilde } from "../resolve/node-env.js";
 
 /** Tool files seed token-substitutes into the project (bash TOOL_FILES). */
 export const TOOL_FILES = [
@@ -64,6 +66,32 @@ export interface CommandResult {
 }
 
 const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: prj ${spec}`] });
+
+/**
+ * Route `prj org …` — the multi-home registry commands. Handled SEPARATELY from
+ * {@link route} because they run WITHOUT a resolved workspace (`prj org add` is
+ * the bootstrap that makes resolution work).
+ */
+export function routeOrg(positionals: readonly string[], deps: OrgDeps): CommandResult {
+  const [sub, ...rest] = positionals;
+  const toResult = (r: ReturnType<typeof orgList>): CommandResult =>
+    r.ok ? { code: 0, lines: r.lines } : { code: r.code, lines: [r.message] };
+  switch (sub) {
+    case "add":
+      if (rest.length < 2) return usage("org add <github_org> <home-path>");
+      return toResult(orgAdd(deps, rest[0], path.resolve(expandTilde(rest[1]))));
+    case "use":
+      if (rest.length < 1) return usage("org use <github_org>");
+      return toResult(orgUse(deps, rest[0]));
+    case "list":
+      return toResult(orgList(deps));
+    case "remove":
+      if (rest.length < 1) return usage("org remove <github_org>");
+      return toResult(orgRemove(deps, rest[0]));
+    default:
+      return usage("org <add|use|list|remove> …");
+  }
+}
 
 /** Route a parsed command to its orchestrator; returns an exit code + output. */
 export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {

@@ -51,3 +51,8 @@ export function upsertHome(
 export function homeForOrg(homes: readonly GovHome[], org: string): string | null {
   return homes.find((h) => h.org === org)?.home ?? null;
 }
+
+/** Remove the entry for `org` (pure; returns a new array). */
+export function removeOrg(homes: readonly GovHome[], org: string): GovHome[] {
+  return homes.filter((h) => h.org !== org);
+}

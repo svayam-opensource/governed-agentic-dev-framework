@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv } from "../resolve/node-env.js";
+import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
 import { createGitVcs } from "../lifecycle/vcs.js";
@@ -21,7 +22,7 @@ import { createGhPulls } from "../lifecycle/pulls.js";
 import { makeCloneRepo } from "../lifecycle/code-repo.js";
 import { runSuite } from "../governance/suite.js";
 import { parseArgv } from "./args.js";
-import { route, type CliContext } from "./dispatch.js";
+import { route, routeOrg, type CliContext } from "./dispatch.js";
 
 /** Run a command, swallowing failures (returns undefined). */
 function tryRun(cmd: string, args: string[]): string | undefined {
@@ -43,8 +44,18 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     return 2;
   }
 
+  const env = createNodeEnv();
+
+  // `prj org …` runs BEFORE resolution — it's the bootstrap that makes resolution
+  // work (registering a gov home / selecting the active org).
+  if (parsed.command === "org") {
+    const orgResult = routeOrg(parsed.positionals, { store: createNodeRegistryStore(), govConfigAt: (p) => env.govConfigAt(p) });
+    for (const line of orgResult.lines) process.stdout.write(`${line}\n`);
+    return orgResult.code;
+  }
+
   // Resolve the gov workspace (the gov home for seed, the project clone otherwise).
-  const resolved = prjResolveGov(createNodeEnv());
+  const resolved = prjResolveGov(env);
   if (!resolved.ok) {
     process.stderr.write(`${resolveFailureMessage(resolved)}\n`);
     return resolved.code;
