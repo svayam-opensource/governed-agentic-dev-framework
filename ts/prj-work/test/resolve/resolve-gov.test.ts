@@ -1,138 +1,172 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { prjResolveGov } from "../../src/resolve/resolve-gov.js";
-import type { GovHome, ResolveEnv } from "../../src/resolve/types.js";
+import { prjResolveGov, resolveFailureMessage } from "../../src/resolve/resolve-gov.js";
+import type { GovConfig, ResolveEnv, ResolveResult } from "../../src/resolve/types.js";
 
-/** In-memory ResolveEnv double; records writeHomes calls for side-effect assertions. */
+/** In-memory, read-only ResolveEnv double. */
 function makeEnv(cfg: {
   cwd: string;
-  orgAt?: Record<string, string>; // gov-repo path → github_org
-  homes?: GovHome[];
+  govAt?: Record<string, { org: string; govWorkspace?: string | null }>; // dir → org-config
   activeOrg?: string | null;
-  legacyPointer?: string | null;
-}): { env: ResolveEnv; writes: GovHome[][] } {
-  const orgAt = cfg.orgAt ?? {};
-  let homes: readonly GovHome[] = cfg.homes ?? [];
-  const writes: GovHome[][] = [];
-  const env: ResolveEnv = {
+  homes?: Record<string, string>; // org → registry home
+}): ResolveEnv {
+  const govAt = cfg.govAt ?? {};
+  const homes = cfg.homes ?? {};
+  return {
     cwd: cfg.cwd,
     parentOf(p) {
       if (p === "/") return null;
       const idx = p.lastIndexOf("/");
       return idx <= 0 ? "/" : p.slice(0, idx);
     },
-    govOrgAt(p) {
-      return orgAt[p] ?? null;
+    govConfigAt(p): GovConfig | null {
+      const c = govAt[p];
+      return c ? { org: c.org, govWorkspace: c.govWorkspace ?? null } : null;
     },
-    readRegistry() {
-      return { homes, activeOrg: cfg.activeOrg ?? null, legacyPointer: cfg.legacyPointer ?? null };
+    readActiveOrg() {
+      return cfg.activeOrg ?? null;
     },
-    writeHomes(h) {
-      homes = [...h];
-      writes.push([...h]);
+    homeForOrg(org) {
+      return homes[org] ?? null;
+    },
+    sameHome(a, b) {
+      return a === b; // test paths are already normalized strings
     },
   };
-  return { env, writes };
 }
 
-describe("prj-work Phase 1 — prjResolveGov (SDD-013/040)", () => {
-  it("(1) cwd-walk: resolves the nearest ancestor gov repo and self-heals it", () => {
-    const { env, writes } = makeEnv({
-      cwd: "/w/PRJ-43/svm-prj-work/projects/PRJ-43",
-      orgAt: { "/w/PRJ-43/svm-prj-work": "Svayamtech" },
+function fail(r: ResolveResult) {
+  expect(r.ok).to.equal(false);
+  return r as Extract<ResolveResult, { ok: false }>;
+}
+
+describe("prj-work Phase 1 — prjResolveGov (SDD-040, active-org anchored)", () => {
+  it("[rule a] no active-org is a hardstop — even when cwd sits in a gov repo", () => {
+    const env = makeEnv({
+      cwd: "/w/gov/sub",
+      govAt: { "/w/gov": { org: "Svayamtech" } },
+      activeOrg: null,
     });
-    const r = prjResolveGov(env);
-    expect(r).to.deep.equal({
+    const r = fail(prjResolveGov(env));
+    expect(r.reason).to.equal("no-active-org");
+    expect(resolveFailureMessage(r)).to.match(/prj org use/);
+  });
+
+  it("O2 == O1: resolves to the cwd workspace (project clone included)", () => {
+    const env = makeEnv({
+      cwd: "/w/PRJ-43/svm-prj-work/projects/PRJ-43",
+      govAt: {
+        // a project clone: org matches, but gov_workspace points at the canonical home
+        "/w/PRJ-43/svm-prj-work": { org: "Svayamtech", govWorkspace: "/home/.svm/gov_repo" },
+      },
+      activeOrg: "Svayamtech",
+      homes: { Svayamtech: "/home/.svm/gov_repo" },
+    });
+    expect(prjResolveGov(env)).to.deep.equal({
       ok: true,
       home: "/w/PRJ-43/svm-prj-work",
       org: "Svayamtech",
-      via: "cwd-walk",
+      via: "cwd",
     });
-    expect(writes).to.deep.equal([[{ org: "Svayamtech", home: "/w/PRJ-43/svm-prj-work" }]]);
   });
 
-  it("(1) cwd-walk self-heal is idempotent — no write when already registered", () => {
-    const { env, writes } = makeEnv({
-      cwd: "/w/gov/sub",
-      orgAt: { "/w/gov": "Org" },
-      homes: [{ org: "Org", home: "/w/gov" }],
+  it("O2 ≠ O1: standing in a different org's tree is a conflict hardstop", () => {
+    const env = makeEnv({
+      cwd: "/w/acme/gov/x",
+      govAt: { "/w/acme/gov": { org: "AcmeOrg" } },
+      activeOrg: "Svayamtech",
     });
-    const r = prjResolveGov(env);
-    expect(r.ok).to.equal(true);
-    expect(writes).to.have.lengthOf(0);
+    const r = fail(prjResolveGov(env));
+    expect(r).to.include({ reason: "org-conflict", cwdOrg: "AcmeOrg", activeOrg: "Svayamtech" });
+    expect(resolveFailureMessage(r)).to.match(/prj org use AcmeOrg/);
   });
 
-  it("(2) active-org: wins over a lone home when a different active-org is set", () => {
-    const { env } = makeEnv({
-      cwd: "/nowhere",
-      homes: [
-        { org: "A", home: "/a" },
-        { org: "B", home: "/b" },
-      ],
-      activeOrg: "B",
+  it("O2 none: resolves via active-org's registry home when the pointer checks out", () => {
+    const env = makeEnv({
+      cwd: "/tmp/nowhere",
+      activeOrg: "Svayamtech",
+      homes: { Svayamtech: "/home/.svm/gov_repo" },
+      govAt: {
+        // canonical home: org matches AND gov_workspace points at itself
+        "/home/.svm/gov_repo": { org: "Svayamtech", govWorkspace: "/home/.svm/gov_repo" },
+      },
     });
-    expect(prjResolveGov(env)).to.deep.equal({ ok: true, home: "/b", org: "B", via: "active-org" });
-  });
-
-  it("(2→3) active-org set but unregistered falls through to the single home", () => {
-    const { env } = makeEnv({
-      cwd: "/nowhere",
-      homes: [{ org: "A", home: "/a" }],
-      activeOrg: "ghost",
-    });
-    expect(prjResolveGov(env)).to.deep.equal({ ok: true, home: "/a", org: "A", via: "single-home" });
-  });
-
-  it("(3) single home: resolves it when no cwd match and no active-org", () => {
-    const { env } = makeEnv({ cwd: "/nowhere", homes: [{ org: "Solo", home: "/solo" }] });
-    expect(prjResolveGov(env)).to.deep.equal({ ok: true, home: "/solo", org: "Solo", via: "single-home" });
-  });
-
-  it("(4) ambiguous: >1 home, no cwd match, no active-org → rc=2 with candidates", () => {
-    const homes = [
-      { org: "A", home: "/a" },
-      { org: "B", home: "/b" },
-    ];
-    const { env } = makeEnv({ cwd: "/nowhere", homes });
     expect(prjResolveGov(env)).to.deep.equal({
-      ok: false,
-      code: 2,
-      reason: "ambiguous",
-      candidates: homes,
+      ok: true,
+      home: "/home/.svm/gov_repo",
+      org: "Svayamtech",
+      via: "active-org",
     });
   });
 
-  it("none: nothing registered and no cwd match → rc=1", () => {
-    const { env } = makeEnv({ cwd: "/nowhere" });
-    expect(prjResolveGov(env)).to.deep.equal({ ok: false, code: 1, reason: "none" });
+  it("O2 none + no registered home: hardstop asking to add one", () => {
+    const env = makeEnv({ cwd: "/tmp/nowhere", activeOrg: "Svayamtech" });
+    const r = fail(prjResolveGov(env));
+    expect(r).to.include({ reason: "no-home", activeOrg: "Svayamtech" });
+    expect(resolveFailureMessage(r)).to.match(/prj org add Svayamtech/);
   });
 
-  it("legacy: migrates the single-path pointer once, then resolves it", () => {
-    const { env, writes } = makeEnv({
-      cwd: "/nowhere",
-      legacyPointer: "/legacy/gov",
-      orgAt: { "/legacy/gov": "LegacyOrg" },
+  describe("[rule b] registry-home double-check against org-config", () => {
+    it("rejects a home that is not a gov repo", () => {
+      const env = makeEnv({
+        cwd: "/tmp/nowhere",
+        activeOrg: "Svayamtech",
+        homes: { Svayamtech: "/gone" },
+        govAt: {}, // govConfigAt('/gone') → null
+      });
+      const r = fail(prjResolveGov(env));
+      expect(r).to.include({ reason: "pointer-mismatch", home: "/gone" });
+      if (r.reason === "pointer-mismatch") expect(r.detail.why).to.equal("not-a-gov-repo");
     });
-    const r = prjResolveGov(env);
-    expect(r).to.deep.equal({ ok: true, home: "/legacy/gov", org: "LegacyOrg", via: "single-home" });
-    expect(writes).to.deep.equal([[{ org: "LegacyOrg", home: "/legacy/gov" }]]);
-  });
 
-  it("legacy: a stale pointer (no longer a gov repo) is not migrated → rc=1", () => {
-    const { env, writes } = makeEnv({ cwd: "/nowhere", legacyPointer: "/gone" });
-    expect(prjResolveGov(env)).to.deep.equal({ ok: false, code: 1, reason: "none" });
-    expect(writes).to.have.lengthOf(0);
-  });
-
-  it("cwd-walk outranks the registry (deterministic-from-cwd beats active-org)", () => {
-    const { env } = makeEnv({
-      cwd: "/here/gov/x",
-      orgAt: { "/here/gov": "HereOrg" },
-      homes: [{ org: "Other", home: "/other" }],
-      activeOrg: "Other",
+    it("rejects a home whose org-config names a different org", () => {
+      const env = makeEnv({
+        cwd: "/tmp/nowhere",
+        activeOrg: "Svayamtech",
+        homes: { Svayamtech: "/home/other" },
+        govAt: { "/home/other": { org: "AcmeOrg", govWorkspace: "/home/other" } },
+      });
+      const r = fail(prjResolveGov(env));
+      if (r.reason === "pointer-mismatch") {
+        expect(r.detail).to.deep.equal({ why: "org-mismatch", found: "AcmeOrg" });
+      } else expect.fail("expected pointer-mismatch");
     });
-    const r = prjResolveGov(env);
-    expect(r).to.deep.include({ ok: true, org: "HereOrg", via: "cwd-walk" });
+
+    it("rejects a non-canonical home (its gov_workspace points elsewhere) — the pollution guard", () => {
+      const env = makeEnv({
+        cwd: "/tmp/nowhere",
+        activeOrg: "Svayamtech",
+        // registry accidentally points at a PROJECT CLONE, not the canonical home
+        homes: { Svayamtech: "/w/PRJ-43/svm-prj-work" },
+        govAt: {
+          "/w/PRJ-43/svm-prj-work": { org: "Svayamtech", govWorkspace: "/home/.svm/gov_repo" },
+        },
+      });
+      const r = fail(prjResolveGov(env));
+      if (r.reason === "pointer-mismatch") {
+        expect(r.detail).to.deep.equal({ why: "not-canonical", found: "/home/.svm/gov_repo" });
+        expect(resolveFailureMessage(r)).to.match(/not a canonical gov home/);
+      } else expect.fail("expected pointer-mismatch");
+    });
+
+    it("accepts a canonical home whose gov_workspace field is absent (null → skip that check)", () => {
+      const env = makeEnv({
+        cwd: "/tmp/nowhere",
+        activeOrg: "Svayamtech",
+        homes: { Svayamtech: "/home/.svm/gov_repo" },
+        govAt: { "/home/.svm/gov_repo": { org: "Svayamtech", govWorkspace: null } },
+      });
+      expect(prjResolveGov(env)).to.include({ ok: true, via: "active-org" });
+    });
+  });
+
+  it("cwd-walk climbs ancestors to find the nearest gov repo", () => {
+    const env = makeEnv({
+      cwd: "/a/b/c/d",
+      govAt: { "/a/b": { org: "Svayamtech", govWorkspace: "/a/b" } },
+      activeOrg: "Svayamtech",
+    });
+    expect(prjResolveGov(env)).to.include({ ok: true, home: "/a/b", via: "cwd" });
   });
 });

@@ -16,7 +16,7 @@ describe("prj-work Phase 1 — node-env helpers", () => {
   it("readTopLevelScalar reads quoted, unquoted, and single-quoted values", () => {
     expect(readTopLevelScalar('github_org: "Svayamtech"', "github_org")).to.equal("Svayamtech");
     expect(readTopLevelScalar("github_org: Svayamtech", "github_org")).to.equal("Svayamtech");
-    expect(readTopLevelScalar("github_org: 'Acme'", "github_org")).to.equal("Acme");
+    expect(readTopLevelScalar("gov_workspace: '~/x'", "gov_workspace")).to.equal("~/x");
   });
 
   it("readTopLevelScalar strips inline comments on unquoted scalars", () => {
@@ -31,7 +31,6 @@ describe("prj-work Phase 1 — node-env helpers", () => {
   it("containsBasesSegment flags .bases clones but not similar names", () => {
     expect(containsBasesSegment("/w/.bases/repo")).to.equal(true);
     expect(containsBasesSegment("/w/bases/repo")).to.equal(false);
-    expect(containsBasesSegment("/w/gov")).to.equal(false);
   });
 
   it("expandTilde expands ~ and ~/… but leaves absolute paths", () => {
@@ -47,53 +46,86 @@ describe("prj-work Phase 1 — createNodeEnv (fs-backed, temp dir)", () => {
   let govDir: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "prjwork-"));
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "prjwork-")));
     configDir = path.join(tmp, "config", "prj");
     govDir = path.join(tmp, "gov_repo");
     fs.mkdirSync(govDir, { recursive: true });
-    fs.writeFileSync(path.join(govDir, "org-config.yaml"), 'github_org: "Svayamtech"\n');
+    // A canonical gov home: github_org set, gov_workspace points at itself.
+    fs.writeFileSync(
+      path.join(govDir, "org-config.yaml"),
+      `github_org: "Svayamtech"\ngov_workspace: "${govDir}"\n`,
+    );
   });
 
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("govOrgAt reads github_org, and skips .bases clones", () => {
+  it("govConfigAt reads github_org + gov_workspace, and skips .bases clones", () => {
     const env = createNodeEnv({ cwd: govDir, configDir });
-    expect(env.govOrgAt(govDir)).to.equal("Svayamtech");
-    expect(env.govOrgAt(path.join(tmp, "does-not-exist"))).to.equal(null);
+    expect(env.govConfigAt(govDir)).to.deep.equal({ org: "Svayamtech", govWorkspace: govDir });
+    expect(env.govConfigAt(path.join(tmp, "missing"))).to.equal(null);
 
     const baseClone = path.join(tmp, ".bases", "gov_repo");
     fs.mkdirSync(baseClone, { recursive: true });
     fs.writeFileSync(path.join(baseClone, "org-config.yaml"), "github_org: X\n");
-    expect(env.govOrgAt(baseClone)).to.equal(null); // .bases → skipped
+    expect(env.govConfigAt(baseClone)).to.equal(null); // .bases → skipped
   });
 
-  it("readRegistry reads gov-workspaces, active-org, and the legacy pointer", () => {
+  it("readActiveOrg and homeForOrg read the registry files", () => {
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(path.join(configDir, "gov-workspaces"), "Svayamtech\t/x\n");
     fs.writeFileSync(path.join(configDir, "active-org"), "Svayamtech\n");
-    fs.writeFileSync(path.join(configDir, "gov-workspace"), "/legacy/home\n");
-    const snap = createNodeEnv({ cwd: tmp, configDir }).readRegistry();
-    expect(snap.homes).to.deep.equal([{ org: "Svayamtech", home: "/x" }]);
-    expect(snap.activeOrg).to.equal("Svayamtech");
-    expect(snap.legacyPointer).to.equal("/legacy/home");
-  });
-
-  it("writeHomes persists atomically and round-trips via readRegistry", () => {
+    fs.writeFileSync(path.join(configDir, "gov-workspaces"), `Svayamtech\t${govDir}\n`);
     const env = createNodeEnv({ cwd: tmp, configDir });
-    env.writeHomes([{ org: "A", home: "/a" }]);
-    expect(env.readRegistry().homes).to.deep.equal([{ org: "A", home: "/a" }]);
+    expect(env.readActiveOrg()).to.equal("Svayamtech");
+    expect(env.homeForOrg("Svayamtech")).to.equal(govDir);
+    expect(env.homeForOrg("Nope")).to.equal(null);
   });
 
-  it("end-to-end: cwd inside a real gov repo resolves + self-heals the registry file", () => {
+  it("readActiveOrg is null when unset; sameHome is realpath/~-aware", () => {
+    const env = createNodeEnv({ cwd: tmp, configDir, home: tmp });
+    expect(env.readActiveOrg()).to.equal(null);
+    expect(env.sameHome(govDir, govDir)).to.equal(true);
+    expect(env.sameHome("~/gov_repo", govDir)).to.equal(true); // ~ expands to home=tmp
+    expect(env.sameHome(govDir, path.join(tmp, "other"))).to.equal(false);
+  });
+
+  it("end-to-end: cwd inside a real gov repo + matching active-org resolves via cwd", () => {
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, "active-org"), "Svayamtech\n");
     const nested = path.join(govDir, "projects", "PRJ-1");
     fs.mkdirSync(nested, { recursive: true });
     const env = createNodeEnv({ cwd: nested, configDir });
-    const r = prjResolveGov(env);
-    expect(r).to.deep.include({ ok: true, home: govDir, org: "Svayamtech", via: "cwd-walk" });
-    // self-heal wrote the registry file
-    const written = fs.readFileSync(path.join(configDir, "gov-workspaces"), "utf8");
-    expect(written).to.equal(`Svayamtech\t${govDir}\n`);
+    expect(prjResolveGov(env)).to.deep.include({ ok: true, home: govDir, org: "Svayamtech", via: "cwd" });
+  });
+
+  it("end-to-end: outside any workspace resolves via active-org's canonical registry home", () => {
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, "active-org"), "Svayamtech\n");
+    fs.writeFileSync(path.join(configDir, "gov-workspaces"), `Svayamtech\t${govDir}\n`);
+    const outside = path.join(tmp, "elsewhere");
+    fs.mkdirSync(outside, { recursive: true });
+    const env = createNodeEnv({ cwd: outside, configDir });
+    expect(prjResolveGov(env)).to.deep.include({ ok: true, home: govDir, org: "Svayamtech", via: "active-org" });
+  });
+
+  it("end-to-end: a project-clone pointer in the registry is rejected (not canonical)", () => {
+    // Registry points active-org at a project clone whose gov_workspace ≠ itself.
+    const clone = path.join(tmp, "projects", "PRJ-9", "svm-prj-work");
+    fs.mkdirSync(clone, { recursive: true });
+    fs.writeFileSync(
+      path.join(clone, "org-config.yaml"),
+      `github_org: "Svayamtech"\ngov_workspace: "${govDir}"\n`,
+    );
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, "active-org"), "Svayamtech\n");
+    fs.writeFileSync(path.join(configDir, "gov-workspaces"), `Svayamtech\t${clone}\n`);
+    const outside = path.join(tmp, "elsewhere");
+    fs.mkdirSync(outside, { recursive: true });
+    const r = prjResolveGov(createNodeEnv({ cwd: outside, configDir }));
+    expect(r.ok).to.equal(false);
+    if (!r.ok && r.reason === "pointer-mismatch") {
+      expect(r.detail.why).to.equal("not-canonical");
+    } else expect.fail("expected pointer-mismatch/not-canonical");
   });
 });

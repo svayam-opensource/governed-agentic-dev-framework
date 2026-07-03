@@ -3,80 +3,90 @@
 /**
  * `prjResolveGov` — the deterministic governance-home resolver (SDD-013 / SDD-040).
  *
- * Ordered strategy (first match wins):
- *   1. cwd-walk  — nearest ancestor of cwd that is a gov repo (`org-config.yaml`
- *                  with a `github_org`, skipping `.bases/*`). Self-heals the
- *                  discovered {org, home} into the registry.
- *   2. active-org — the `active-org` selection, if it maps to a registered home.
- *   3. single    — exactly one home registered.
- *   4. ambiguous — rc=2 (`prj org use <org>` or cd into a workspace).
- * Nothing at all registered and no cwd match → rc=1 (none).
- *
- * Legacy back-compat (SDD-041): if no `gov-workspaces` homes exist yet but the
- * legacy single-path `gov-workspace` pointer does and resolves to a gov repo,
- * it is migrated once into the registry and used.
- *
- * Pure over `ResolveEnv` — the only side effect is `writeHomes` (self-heal /
- * legacy migration), invoked exactly when the registry actually changes.
+ * active-org is the anchor; cwd-walk is a cross-check (see types.ts for the full
+ * decision table). The function is PURE — it only reads through `ResolveEnv` and
+ * never writes, so resolution cannot pollute the registry.
  */
-import type { GovHome, ResolveEnv, ResolveResult } from "./types.js";
-import { homeForOrg, upsertHome } from "./registry.js";
+import type { HomeCheckFailure, ResolveEnv, ResolveResult } from "./types.js";
 
 export function prjResolveGov(env: ResolveEnv): ResolveResult {
-  // (1) cwd-walk — deterministic from where the developer stands.
-  for (let dir: string | null = env.cwd; dir !== null; dir = env.parentOf(dir)) {
-    const org = env.govOrgAt(dir);
-    if (org !== null) {
-      selfHeal(env, org, dir);
-      return { ok: true, home: dir, org, via: "cwd-walk" };
+  // [rule a] active-org is mandatory — no silent fallback.
+  const activeOrg = env.readActiveOrg();
+  if (!activeOrg) return { ok: false, code: 2, reason: "no-active-org" };
+
+  // cwd-walk: the org whose workspace we're standing in (nearest ancestor), if any.
+  const cwdHit = walkForOrg(env);
+
+  if (cwdHit) {
+    if (cwdHit.org !== activeOrg) {
+      // Standing in a different org's tree than the active one — never guess.
+      return { ok: false, code: 2, reason: "org-conflict", cwdOrg: cwdHit.org, activeOrg };
     }
+    // Same org: operate on the cwd workspace (project clone or the home itself).
+    // Identity is already confirmed — org was read straight from its org-config.
+    return { ok: true, home: cwdHit.home, org: activeOrg, via: "cwd" };
   }
 
-  // Load (and, if needed, migrate) the registry once for steps 2–4.
-  const { homes, activeOrg } = loadHomes(env);
+  // Outside any workspace: resolve via the registry pointer for active-org.
+  const home = env.homeForOrg(activeOrg);
+  if (!home) return { ok: false, code: 2, reason: "no-home", activeOrg };
 
-  // (2) active-org — explicit selection wins over a lone home.
-  if (activeOrg !== null) {
-    const home = homeForOrg(homes, activeOrg);
-    if (home !== null) {
-      return { ok: true, home, org: activeOrg, via: "active-org" };
-    }
-  }
+  // [rule b] double-check the pointer against the home's own org-config.
+  const detail = confirmHome(env, home, activeOrg);
+  if (detail) return { ok: false, code: 2, reason: "pointer-mismatch", home, activeOrg, detail };
 
-  // (3) single home registered.
-  if (homes.length === 1) {
-    return { ok: true, home: homes[0].home, org: homes[0].org, via: "single-home" };
-  }
-
-  // (4) ambiguous vs. none.
-  if (homes.length > 1) {
-    return { ok: false, code: 2, reason: "ambiguous", candidates: homes };
-  }
-  return { ok: false, code: 1, reason: "none" };
+  return { ok: true, home, org: activeOrg, via: "active-org" };
 }
 
-/** Ensure {org, home} is in the registry, writing only when it actually changes. */
-function selfHeal(env: ResolveEnv, org: string, home: string): void {
-  const { homes } = env.readRegistry();
-  if (homes.some((h) => h.org === org && h.home === home)) return; // already current
-  env.writeHomes(upsertHome(homes, org, home));
+/** Walk cwd → ancestors for the nearest gov repo; return its org + dir, or null. */
+function walkForOrg(env: ResolveEnv): { org: string; home: string } | null {
+  for (let dir: string | null = env.cwd; dir !== null; dir = env.parentOf(dir)) {
+    const cfg = env.govConfigAt(dir);
+    if (cfg !== null) return { org: cfg.org, home: dir };
+  }
+  return null;
 }
 
 /**
- * Registry homes for steps 2–4, migrating the legacy single-path pointer once
- * if there are no homes yet. Returns the (possibly migrated) homes + activeOrg.
+ * [rule b] Confirm a registry-resolved home against its own `org-config.yaml`:
+ * the org must match, and the home must be canonical (its `gov_workspace` points
+ * at itself — this rejects a stray project-clone pointer). Returns the failure,
+ * or null when the pointer checks out.
  */
-function loadHomes(env: ResolveEnv): { homes: readonly GovHome[]; activeOrg: string | null } {
-  const snap = env.readRegistry();
-  if (snap.homes.length > 0 || snap.legacyPointer === null) {
-    return { homes: snap.homes, activeOrg: snap.activeOrg };
+function confirmHome(env: ResolveEnv, home: string, org: string): HomeCheckFailure | null {
+  const cfg = env.govConfigAt(home);
+  if (cfg === null) return { why: "not-a-gov-repo" };
+  if (cfg.org !== org) return { why: "org-mismatch", found: cfg.org };
+  if (cfg.govWorkspace !== null && !env.sameHome(cfg.govWorkspace, home)) {
+    return { why: "not-canonical", found: cfg.govWorkspace };
   }
-  // Migrate the legacy pointer — but only if it still names a real gov repo.
-  const org = env.govOrgAt(snap.legacyPointer);
-  if (org === null) {
-    return { homes: snap.homes, activeOrg: snap.activeOrg };
+  return null;
+}
+
+/** Render a resolution failure as an actionable one-line CLI message. */
+export function resolveFailureMessage(r: Extract<ResolveResult, { ok: false }>): string {
+  switch (r.reason) {
+    case "no-active-org":
+      return "No active org is set. Run `prj org use <github_org>` to choose one.";
+    case "org-conflict":
+      return (
+        `You're in ${r.cwdOrg}'s workspace but the active org is ${r.activeOrg}. ` +
+        `Run \`prj org use ${r.cwdOrg}\` (or cd into a ${r.activeOrg} workspace).`
+      );
+    case "no-home":
+      return (
+        `Active org ${r.activeOrg} has no registered gov home. ` +
+        `Run \`prj org add ${r.activeOrg} <path-to-gov-repo>\`.`
+      );
+    case "pointer-mismatch": {
+      const base = `The registry points ${r.activeOrg} → ${r.home}, but `;
+      const tail =
+        r.detail.why === "not-a-gov-repo"
+          ? "that path is not a gov repo (no org-config.yaml)."
+          : r.detail.why === "org-mismatch"
+            ? `its org-config says github_org=${r.detail.found}.`
+            : `it is not a canonical gov home (its gov_workspace is ${r.detail.found}).`;
+      return base + tail + " Fix it with `prj org add`.";
+    }
   }
-  const migrated = upsertHome(snap.homes, org, snap.legacyPointer);
-  env.writeHomes(migrated);
-  return { homes: migrated, activeOrg: snap.activeOrg };
 }
