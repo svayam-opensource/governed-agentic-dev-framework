@@ -8,3 +8,4 @@ export * from "./protocol.js";
 export * from "./knowledge.js";
 export * from "./privacy.js";
 export * from "./suite.js";
+export * from "./session-gate.js";
