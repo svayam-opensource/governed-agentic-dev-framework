@@ -52,3 +52,6 @@ export * from "./lifecycle/index.js";
 
 // Org config (SDD-012) — the one remaining repo config file.
 export * from "./config/org-config.js";
+
+// Phase 3 — governance (SDD Part C): the validation suite.
+export * from "./governance/index.js";
