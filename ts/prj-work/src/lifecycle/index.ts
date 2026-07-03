@@ -14,3 +14,4 @@ export * from "./content.js";
 export * from "./fs-io.js";
 export * from "./anchor.js";
 export * from "./seed.js";
+export * from "./task.js";

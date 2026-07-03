@@ -24,6 +24,8 @@ export interface Vcs {
   lsRemoteHeads(url: string): string[];
   /** The default branch `url`'s HEAD points at, or null. */
   defaultBranch(url: string): string | null;
+  /** Resolve `rev` to a sha, or null if it doesn't resolve. */
+  revParse(repoDir: string, rev: string): string | null;
 
   // ── mutations ────────────────────────────────────────────────────────────────
   /** Stage `pathspec` in `repoDir`. */
@@ -50,6 +52,10 @@ export interface Vcs {
   fetch(repoDir: string, remote: string, ref?: string): void;
   /** Set local git identity in `repoDir` (skips undefined fields). */
   setIdentity(repoDir: string, identity: { name?: string; email?: string }): void;
+  /** Check out an existing `branch` in `repoDir`. */
+  checkout(repoDir: string, branch: string): void;
+  /** Create and check out a new `branch` in `repoDir`. */
+  checkoutNew(repoDir: string, branch: string): void;
 }
 
 /** A minimal filesystem-existence probe (kept separate from git). */
@@ -103,6 +109,10 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
       if (r.status !== 0) return null;
       return r.stdout.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m)?.[1] ?? null;
     },
+    revParse(repoDir, rev) {
+      const r = runGit(["-C", repoDir, "rev-parse", "--verify", "--quiet", rev]);
+      return r.status === 0 ? r.stdout.trim() : null;
+    },
 
     addPath(repoDir, pathspec) {
       must(["-C", repoDir, "add", pathspec]);
@@ -150,6 +160,12 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     setIdentity(repoDir, identity) {
       if (identity.name) must(["-C", repoDir, "config", "user.name", identity.name]);
       if (identity.email) must(["-C", repoDir, "config", "user.email", identity.email]);
+    },
+    checkout(repoDir, branch) {
+      must(["-C", repoDir, "checkout", branch]);
+    },
+    checkoutNew(repoDir, branch) {
+      must(["-C", repoDir, "checkout", "-b", branch]);
     },
   };
 }
