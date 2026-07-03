@@ -1,0 +1,156 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * The `prj` command router — maps a parsed command to its lifecycle orchestrator,
+ * building each command's config/input from the assembled {@link CliContext} +
+ * argv. Model A (SDD-012): project context comes from the resolved workspace +
+ * GitHub, never a state file. Pure over the injected ports, so it's fully testable.
+ *
+ * Context asymmetry: `seed` runs from the gov HOME (creates the workspace);
+ * task/merge/close/pause/resume/cancel run from WITHIN the project workspace
+ * (ctx.home is the project clone; projectWorkRoot is its parent).
+ */
+import * as path from "node:path";
+import { type ParsedArgs, flagStr } from "./args.js";
+import type { OrgConfig } from "../config/org-config.js";
+import type { Board } from "../lifecycle/board.js";
+import type { Vcs } from "../lifecycle/vcs.js";
+import type { Fs } from "../lifecycle/fs-io.js";
+import type { Issues } from "../lifecycle/issues.js";
+import type { AnchorCreator } from "../lifecycle/anchor.js";
+import type { Pulls } from "../lifecycle/pulls.js";
+import type { BoardRef } from "../lifecycle/identity.js";
+import type { GateResult } from "../lifecycle/close-gate.js";
+import { seed } from "../lifecycle/seed.js";
+import { task } from "../lifecycle/task-run.js";
+import { merge } from "../lifecycle/merge.js";
+import { close } from "../lifecycle/close.js";
+import { pause, resume, cancel } from "../lifecycle/state.js";
+
+/** Tool files seed token-substitutes into the project (bash TOOL_FILES). */
+export const TOOL_FILES = [
+  "AGENTS.md", "CONVENTIONS.md", ".cursor/rules/agent.mdc", ".clinerules/agent.md",
+  ".windsurf/rules/agent.md", ".github/copilot-instructions.md", ".gemini/styleguide.md",
+  ".continue/rules.md", "CLAUDE.md",
+] as const;
+
+/** Everything the router needs: config, the resolved workspace, identity + ports. */
+export interface CliContext {
+  readonly config: OrgConfig;
+  /** The resolved gov workspace — the gov HOME for seed, else the project clone. */
+  readonly home: string;
+  readonly today: string;
+  /** The current user's git email — recorded as seeded_by. */
+  readonly seededBy: string;
+  /** The current user's gh login — the default issue assignee / anchor assignee. */
+  readonly login?: string;
+  readonly identity?: { name?: string; email?: string };
+  readonly board: Board;
+  readonly vcs: Vcs;
+  readonly fs: Fs;
+  readonly issues: Issues;
+  readonly anchor: AnchorCreator;
+  readonly pulls: Pulls;
+  readonly cloneRepo: (url: string, dest: string) => void;
+  readonly authorize?: (ref: BoardRef) => boolean;
+  /** close's test-merge gate (wire governance.runSuite here). */
+  readonly gate?: () => GateResult;
+  readonly log?: (msg: string) => void;
+}
+
+export interface CommandResult {
+  readonly code: number;
+  readonly lines: readonly string[];
+}
+
+const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: prj ${spec}`] });
+
+/** Route a parsed command to its orchestrator; returns an exit code + output. */
+export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
+  const { command, positionals, flags } = parsed;
+  const c = ctx.config;
+  const projectWorkRoot = path.dirname(ctx.home);
+  const ownerField = "organization" as const;
+
+  switch (command) {
+    case "seed": {
+      if (positionals.length < 1) return usage("seed <board-url> [assignee]");
+      const r = seed(
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log },
+        {
+          govHome: ctx.home,
+          workspaceRepo: c.workspaceRepo,
+          agentWorkRoot: c.agentWorkRoot,
+          defaultBranch: c.defaultBranch,
+          defaultCodeBranch: c.defaultCodeBranch,
+          githubOrg: c.githubOrg,
+          orgTokens: c.orgTokens,
+          toolFiles: [...TOOL_FILES],
+        },
+        {
+          boardUrl: positionals[0],
+          assignee: positionals[1] ?? ctx.seededBy,
+          seededBy: ctx.seededBy,
+          today: ctx.today,
+          identity: ctx.identity,
+          seederLogin: flagStr(flags, "login") ?? ctx.login ?? null,
+        },
+      );
+      return r.ok
+        ? { code: 0, lines: [`Project ${r.projectId} seeded on ${r.branch}`, `  workspace: ${r.projectWorkRoot}`, `  anchor: ${r.anchorRef ?? "(none — designate with prj manage)"}`] }
+        : { code: r.code, lines: [r.message] };
+    }
+
+    case "task": {
+      if (positionals.length < 1) return usage("task <issue-url[,issue-url...]>");
+      const r = task(
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, authorize: ctx.authorize, log: ctx.log },
+        { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo },
+        { govClone: ctx.home, projectWorkRoot, issueUrls: positionals[0].split(","), assignee: flagStr(flags, "assignee") ?? ctx.login ?? ctx.seededBy },
+      );
+      return r.ok
+        ? { code: 0, lines: [`Task ${r.taskId}`, `  branched: ${r.reposBranched.length} repo(s)`, ...(r.reposSkipped.length ? [`  skipped (not cloned): ${r.reposSkipped.join(", ")}`] : [])] }
+        : { code: r.code, lines: [r.message] };
+    }
+
+    case "merge": {
+      if (positionals.length < 1) return usage("merge <issue-url | task-branch>");
+      const r = merge(
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, authorize: ctx.authorize, log: ctx.log },
+        { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo },
+        { govClone: ctx.home, projectWorkRoot, taskArg: positionals[0] },
+      );
+      return r.ok
+        ? { code: 0, lines: [`Merged ${r.taskId} → ${r.projectBranch}`, `  closed issue(s): ${r.issueUrls.length}`] }
+        : { code: r.code, lines: [r.message] };
+    }
+
+    case "close": {
+      const r = close(
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, pulls: ctx.pulls, authorize: ctx.authorize, gate: ctx.gate, log: ctx.log },
+        { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo, defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch },
+        { govClone: ctx.home, projectWorkRoot, today: ctx.today },
+      );
+      return r.ok
+        ? { code: 0, lines: [`Project ${r.projectId} closed`, `  PR: ${r.prUrl ?? "(merged)"}`] }
+        : { code: r.code, lines: [r.message, ...(r.failures ?? [])] };
+    }
+
+    case "pause":
+    case "resume":
+    case "cancel": {
+      const fn = command === "pause" ? pause : command === "resume" ? resume : cancel;
+      const r = fn(
+        { vcs: ctx.vcs, anchor: ctx.anchor, issues: ctx.issues, authorize: ctx.authorize, log: ctx.log },
+        { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo },
+        { govClone: ctx.home },
+      );
+      return r.ok
+        ? { code: 0, lines: [`Project #${r.boardNumber} → ${r.status}${r.applied ? "" : " (anchor label not applied — check gh access)"}`] }
+        : { code: r.code, lines: [r.message] };
+    }
+
+    default:
+      return { code: 2, lines: [`unknown command '${command}'`, "commands: seed task merge close pause resume cancel"] };
+  }
+}

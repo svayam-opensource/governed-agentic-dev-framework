@@ -55,3 +55,6 @@ export * from "./config/org-config.js";
 
 // Phase 3 — governance (SDD Part C): the validation suite.
 export * from "./governance/index.js";
+
+// The prj dispatcher (SDD-011): argv parsing + command routing.
+export * from "./cli/index.js";

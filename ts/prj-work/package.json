@@ -6,6 +6,7 @@
   "main": "./lib/cjs/index.js",
   "module": "./lib/esm/index.js",
   "types": "./lib/esm/index.d.ts",
+  "bin": { "prj-work": "./lib/esm/cli/bin.js" },
   "exports": {
     ".": {
       "import": { "types": "./lib/esm/index.d.ts", "default": "./lib/esm/index.js" },
