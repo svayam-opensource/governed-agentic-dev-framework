@@ -7,3 +7,6 @@ export * from "./gh-board.js";
 export * from "./vcs.js";
 export * from "./leftover.js";
 export * from "./transaction.js";
+export * from "./repo.js";
+export * from "./retry.js";
+export * from "./code-repo.js";

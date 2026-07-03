@@ -18,6 +18,12 @@ export interface Vcs {
   remoteBranchExists(repoDir: string, remote: string, branch: string): boolean;
   /** The current HEAD sha of `repoDir`. */
   headSha(repoDir: string): string;
+  /** True if `ref` (e.g. `refs/heads/x`, `refs/remotes/origin/x`) exists in `repoDir`. */
+  refExists(repoDir: string, ref: string): boolean;
+  /** The branch names on `url`'s remote (`ls-remote --heads`). */
+  lsRemoteHeads(url: string): string[];
+  /** The default branch `url`'s HEAD points at, or null. */
+  defaultBranch(url: string): string | null;
 
   // ── mutations ────────────────────────────────────────────────────────────────
   /** Stage `pathspec` in `repoDir`. */
@@ -38,6 +44,12 @@ export interface Vcs {
   push(repoDir: string, remote: string, branch: string, opts?: { setUpstream?: boolean }): void;
   /** Delete `branch` on `remote`. */
   pushDelete(repoDir: string, remote: string, branch: string): void;
+  /** Clone `url` into `dest` (single attempt; throws on failure). */
+  clone(url: string, dest: string): void;
+  /** Fetch `ref` (or everything) from `remote` into `repoDir`; best-effort (no throw). */
+  fetch(repoDir: string, remote: string, ref?: string): void;
+  /** Set local git identity in `repoDir` (skips undefined fields). */
+  setIdentity(repoDir: string, identity: { name?: string; email?: string }): void;
 }
 
 /** A minimal filesystem-existence probe (kept separate from git). */
@@ -77,6 +89,20 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     headSha(repoDir) {
       return must(["-C", repoDir, "rev-parse", "HEAD"]).trim();
     },
+    refExists(repoDir, ref) {
+      return runGit(["-C", repoDir, "show-ref", "--verify", "--quiet", ref]).status === 0;
+    },
+    lsRemoteHeads(url) {
+      return must(["ls-remote", "--heads", url])
+        .split("\n")
+        .map((l) => l.match(/refs\/heads\/(.+)$/)?.[1] ?? "")
+        .filter((n) => n.length > 0);
+    },
+    defaultBranch(url) {
+      const r = runGit(["ls-remote", "--symref", url, "HEAD"]);
+      if (r.status !== 0) return null;
+      return r.stdout.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m)?.[1] ?? null;
+    },
 
     addPath(repoDir, pathspec) {
       must(["-C", repoDir, "add", pathspec]);
@@ -114,6 +140,16 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     },
     pushDelete(repoDir, remote, branch) {
       must(["-C", repoDir, "push", remote, "--delete", branch]);
+    },
+    clone(url, dest) {
+      must(["-c", "http.postBuffer=524288000", "clone", url, dest]);
+    },
+    fetch(repoDir, remote, ref) {
+      runGit(["-C", repoDir, "fetch", remote, ...(ref ? [ref] : [])]); // best-effort
+    },
+    setIdentity(repoDir, identity) {
+      if (identity.name) must(["-C", repoDir, "config", "user.name", identity.name]);
+      if (identity.email) must(["-C", repoDir, "config", "user.email", identity.email]);
     },
   };
 }
