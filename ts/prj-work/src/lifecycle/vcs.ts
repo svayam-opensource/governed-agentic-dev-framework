@@ -26,6 +26,8 @@ export interface Vcs {
   defaultBranch(url: string): string | null;
   /** Resolve `rev` to a sha, or null if it doesn't resolve. */
   revParse(repoDir: string, rev: string): string | null;
+  /** The current branch of `repoDir` (`rev-parse --abbrev-ref HEAD`). */
+  currentBranch(repoDir: string): string;
 
   // ── mutations ────────────────────────────────────────────────────────────────
   /** Stage `pathspec` in `repoDir`. */
@@ -112,6 +114,9 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     revParse(repoDir, rev) {
       const r = runGit(["-C", repoDir, "rev-parse", "--verify", "--quiet", rev]);
       return r.status === 0 ? r.stdout.trim() : null;
+    },
+    currentBranch(repoDir) {
+      return must(["-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD"]).trim();
     },
 
     addPath(repoDir, pathspec) {

@@ -57,6 +57,7 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
     lsRemoteHeads: () => [],
     defaultBranch: () => null,
     revParse: () => null,
+    currentBranch: () => "main",
     checkout: (r) => log.push(`checkout ${r}`),
     checkoutNew: (r) => log.push(`checkoutNew ${r}`),
     addPath: (r) => log.push(`addPath ${r}`),

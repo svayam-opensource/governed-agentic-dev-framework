@@ -15,3 +15,5 @@ export * from "./fs-io.js";
 export * from "./anchor.js";
 export * from "./seed.js";
 export * from "./task.js";
+export * from "./issues.js";
+export * from "./task-run.js";

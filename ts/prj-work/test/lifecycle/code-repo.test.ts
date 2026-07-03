@@ -57,6 +57,7 @@ function fakeVcs(existingRefs: Set<string> = new Set()) {
     lsRemoteHeads: () => [],
     defaultBranch: () => null,
     revParse: () => null,
+    currentBranch: () => "BRNCH-43-x",
     checkout: () => {},
     checkoutNew: () => {},
     addPath: () => {},

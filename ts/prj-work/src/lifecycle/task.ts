@@ -30,6 +30,17 @@ export function taskIdFor(branch: string, issueNumbers: readonly number[]): stri
   return `${branch}.ISSUE-${suffix}`;
 }
 
+/** Strip any `.ISSUE-…` task suffix, yielding the project branch. */
+export function projectBranchOf(branch: string): string {
+  return branch.split(".ISSUE-")[0];
+}
+
+/** The board number from a project branch (`BRNCH-<n>-…`), or null. */
+export function boardNumberFromBranch(branch: string): number | null {
+  const m = projectBranchOf(branch).match(/^brnch-(\d+)-/i);
+  return m ? Number(m[1]) : null;
+}
+
 /**
  * Normalize a git remote URL to a comparable `owner/repo` tail (lowercased, no
  * scheme/host/`.git`/trailing slash) so `https://…/o/r` and `git@…:o/r.git`
