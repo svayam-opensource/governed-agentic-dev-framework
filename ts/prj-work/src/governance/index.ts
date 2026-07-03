@@ -6,3 +6,5 @@ export * from "./version-sync.js";
 export * from "./secrets.js";
 export * from "./protocol.js";
 export * from "./knowledge.js";
+export * from "./privacy.js";
+export * from "./suite.js";
