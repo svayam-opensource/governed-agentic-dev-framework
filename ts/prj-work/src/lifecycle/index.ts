@@ -21,3 +21,4 @@ export * from "./merge.js";
 export * from "./close-gate.js";
 export * from "./pulls.js";
 export * from "./close.js";
+export * from "./state.js";
