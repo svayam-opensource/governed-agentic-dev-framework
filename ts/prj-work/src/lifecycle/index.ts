@@ -17,3 +17,4 @@ export * from "./seed.js";
 export * from "./task.js";
 export * from "./issues.js";
 export * from "./task-run.js";
+export * from "./merge.js";

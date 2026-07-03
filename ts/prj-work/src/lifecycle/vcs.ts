@@ -28,6 +28,10 @@ export interface Vcs {
   revParse(repoDir: string, rev: string): string | null;
   /** The current branch of `repoDir` (`rev-parse --abbrev-ref HEAD`). */
   currentBranch(repoDir: string): string;
+  /** True if `ancestor` is an ancestor of `descendant` (`merge-base --is-ancestor`). */
+  isAncestor(repoDir: string, ancestor: string, descendant: string): boolean;
+  /** True if `repoDir`'s working tree has no uncommitted changes. */
+  isClean(repoDir: string): boolean;
 
   // ── mutations ────────────────────────────────────────────────────────────────
   /** Stage `pathspec` in `repoDir`. */
@@ -58,6 +62,10 @@ export interface Vcs {
   checkout(repoDir: string, branch: string): void;
   /** Create and check out a new `branch` in `repoDir`. */
   checkoutNew(repoDir: string, branch: string): void;
+  /** Merge `from` into the current branch (`--no-edit`); "merged" or "conflict" (no throw). */
+  mergeNoEdit(repoDir: string, from: string): "merged" | "conflict";
+  /** Create a tag `name` at HEAD in `repoDir`. */
+  tag(repoDir: string, name: string): void;
 }
 
 /** A minimal filesystem-existence probe (kept separate from git). */
@@ -118,6 +126,13 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     currentBranch(repoDir) {
       return must(["-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD"]).trim();
     },
+    isAncestor(repoDir, ancestor, descendant) {
+      return runGit(["-C", repoDir, "merge-base", "--is-ancestor", ancestor, descendant]).status === 0;
+    },
+    isClean(repoDir) {
+      const r = runGit(["-C", repoDir, "status", "--porcelain"]);
+      return r.status === 0 && r.stdout.trim() === "";
+    },
 
     addPath(repoDir, pathspec) {
       must(["-C", repoDir, "add", pathspec]);
@@ -171,6 +186,12 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     },
     checkoutNew(repoDir, branch) {
       must(["-C", repoDir, "checkout", "-b", branch]);
+    },
+    mergeNoEdit(repoDir, from) {
+      return runGit(["-C", repoDir, "merge", "--no-edit", from]).status === 0 ? "merged" : "conflict";
+    },
+    tag(repoDir, name) {
+      must(["-C", repoDir, "tag", name]);
     },
   };
 }

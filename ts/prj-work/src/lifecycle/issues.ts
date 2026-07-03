@@ -19,6 +19,10 @@ export interface Issues {
   assign(issueUrl: string, assignee: string): void;
   /** Set the issue's Status on the project board (best-effort; no throw). */
   setBoardStatus(ref: BoardRef, issueUrl: string, status: string): void;
+  /** Close an issue with a comment (best-effort; no throw). */
+  close(issueUrl: string, comment: string): void;
+  /** Resolve an issue number to its URL on the board, or null. */
+  resolveIssueUrl(ref: BoardRef, issueNumber: number): string | null;
 }
 
 /** An {@link Issues} backed by the `gh` CLI. `runGh` is injectable for tests. */
@@ -49,6 +53,30 @@ export function createGhIssues(runGh: RunGh): Issues {
       } catch {
         /* non-fatal */
       }
+    },
+    close(issueUrl, comment) {
+      try {
+        runGh(["issue", "close", issueUrl, "--comment", comment]);
+      } catch {
+        /* best-effort — close manually if this fails */
+      }
+    },
+    resolveIssueUrl(ref, issueNumber) {
+      let out: string;
+      try {
+        out = runGh(["project", "item-list", String(ref.number), "--owner", ref.owner, "--format", "json", "--limit", "200"]);
+      } catch {
+        return null;
+      }
+      try {
+        const data = JSON.parse(out) as { items?: Array<{ content?: { number?: number; url?: string } }> };
+        for (const it of data.items ?? []) {
+          if (it.content?.number === issueNumber && it.content.url) return it.content.url;
+        }
+      } catch {
+        /* unparseable — give up */
+      }
+      return null;
     },
   };
 }

@@ -44,6 +44,8 @@ function fakeVcs(opts: { hasTask?: boolean; taskSha?: string | null; baseSha?: s
     defaultBranch: () => null,
     revParse: (_r, rev) => (rev.includes("origin/") || rev.endsWith("BRNCH-43-x") ? (opts.baseSha ?? null) : (opts.taskSha ?? null)),
     currentBranch: () => "BRNCH-43-x",
+    isAncestor: () => false,
+    isClean: () => true,
     addPath: () => {},
     commit: () => {},
     resetHard: () => {},
@@ -58,6 +60,8 @@ function fakeVcs(opts: { hasTask?: boolean; taskSha?: string | null; baseSha?: s
     setIdentity: () => {},
     checkout: (r, b) => log.push(`checkout ${r} ${b}`),
     checkoutNew: (r, b) => log.push(`checkoutNew ${r} ${b}`),
+    mergeNoEdit: () => "merged",
+    tag: () => {},
   };
   return { vcs, log };
 }

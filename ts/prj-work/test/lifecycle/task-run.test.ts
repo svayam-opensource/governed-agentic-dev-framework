@@ -59,6 +59,8 @@ function fakeIssues(state: IssueState = "OPEN") {
     state: () => state,
     assign: (u, a) => acted.push(`assign ${u} ${a}`),
     setBoardStatus: (_r, u, s) => acted.push(`status ${u} ${s}`),
+    close: (u) => acted.push(`close ${u}`),
+    resolveIssueUrl: () => null,
   };
   return { issues, acted };
 }
@@ -73,6 +75,8 @@ function fakeVcs(branch = "BRNCH-43-governance-common-project") {
     defaultBranch: () => null,
     revParse: () => null,
     currentBranch: () => branch,
+    isAncestor: () => false,
+    isClean: () => true,
     addPath: () => {},
     commit: () => {},
     resetHard: () => {},
@@ -87,6 +91,8 @@ function fakeVcs(branch = "BRNCH-43-governance-common-project") {
     setIdentity: () => {},
     checkout: (r, b) => log.push(`checkout ${r} ${b}`),
     checkoutNew: (r, b) => log.push(`checkoutNew ${r} ${b}`),
+    mergeNoEdit: () => "merged",
+    tag: () => {},
   };
   return { vcs, log };
 }
