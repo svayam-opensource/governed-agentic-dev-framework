@@ -49,3 +49,6 @@ export * from "./resolve/index.js";
 
 // Phase 2 — project lifecycle (SDD Part B): seed / task / merge / close.
 export * from "./lifecycle/index.js";
+
+// Org config (SDD-012) — the one remaining repo config file.
+export * from "./config/org-config.js";
