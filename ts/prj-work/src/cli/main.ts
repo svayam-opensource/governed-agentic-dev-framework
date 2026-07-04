@@ -119,7 +119,9 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   }
   const config = parseOrgConfig(cfgText);
 
-  const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8" });
+  // Capture (don't inherit) stderr so best-effort gh failures — e.g. an
+  // unsupported board op — don't spew gh's usage text to the terminal.
+  const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   const vcs = createGitVcs();
   const seededBy = tryRun("git", ["-C", home, "config", "user.email"]) ?? "";
   const name = tryRun("git", ["-C", home, "config", "user.name"]);

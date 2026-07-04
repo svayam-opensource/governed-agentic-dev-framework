@@ -48,13 +48,15 @@ export function createGhIssues(runGh: RunGh): Issues {
       }
     },
     setBoardStatus(ref, issueUrl, status) {
-      try {
-        // Best-effort: reflect Status on the board. Full field/option resolution
-        // is a follow-up; a failure here never blocks the task.
-        runGh(["project", "item-edit", "--url", issueUrl, "--owner", ref.owner, "--field", "Status", "--value", status]);
-      } catch {
-        /* non-fatal */
-      }
+      // KNOWN LIMITATION (found in e2e): setting a Project single-select field via
+      // gh needs the item-id + project-id + field-id + option-id, not `--url/--field/
+      // --value` (which gh rejects). Proper impl: resolve those IDs, then
+      // `gh project item-edit --id … --project-id … --field-id … --single-select-option-id …`.
+      // Deferred; best-effort so it never blocks a command. Assignment + issue
+      // open/close (which actually drive the workflow) DO work.
+      void ref;
+      void issueUrl;
+      void status;
     },
     close(issueUrl, comment) {
       try {
