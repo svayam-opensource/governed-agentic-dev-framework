@@ -31,7 +31,7 @@ import { join } from "../lifecycle/join.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
 import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org.js";
 import { expandTilde } from "../resolve/node-env.js";
-import { manageList, manageAssign, formatOwnerRows, anchorShow } from "../lifecycle/manage.js";
+import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus } from "../lifecycle/manage.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 
@@ -206,6 +206,19 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         : { code: r.code, lines: [r.message] };
     }
 
+    case "list":
+    case "list-all": {
+      const rows = manageList({ projects: ctx.projects, anchor: ctx.anchor }, { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo }, command === "list-all");
+      return { code: 0, lines: [command === "list-all" ? "All projects:" : "Ongoing projects:", ...formatOwnerRows(rows)] };
+    }
+
+    case "status": {
+      const r = projectStatus({ vcs: ctx.vcs, projects: ctx.projects, anchor: ctx.anchor }, { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo }, ctx.home);
+      return r.ok
+        ? { code: 0, lines: [`Project #${r.boardNumber}: ${r.title}`, `  status: ${r.status}`, `  owners: ${r.owners.join(", ") || "(none)"}`, `  board:  ${r.url}`] }
+        : { code: r.code, lines: [r.message] };
+    }
+
     case "manage": {
       const sub = positionals[0];
       const mcfg = { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo };
@@ -262,7 +275,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         lines: [
           `unknown command '${command}'`,
           "lifecycle: seed join task merge sync add-repo close pause resume cancel",
-          "info+owners: list status manage anchor",
+          "info+owners: list list-all status manage anchor validate",
           "knowledge+org+maintain: knowledge org bump-version doctor deps publish upgrade",
         ],
       };

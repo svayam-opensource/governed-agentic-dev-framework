@@ -151,6 +151,19 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   }
   const config = parseOrgConfig(cfgText);
 
+  // `prj validate` — run the governance validate suite on the resolved workspace.
+  if (parsed.command === "validate") {
+    const files = (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean);
+    const r = runSuite({ fs, repoRoot: home, files });
+    if (r.ok) {
+      process.stdout.write("validate: PASS (all validators)\n");
+      return 0;
+    }
+    process.stdout.write("validate: FAIL\n");
+    for (const f of r.failures) process.stdout.write(`  - ${f}\n`);
+    return 1;
+  }
+
   // Capture (don't inherit) stderr so best-effort gh failures — e.g. an
   // unsupported board op — don't spew gh's usage text to the terminal.
   const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });

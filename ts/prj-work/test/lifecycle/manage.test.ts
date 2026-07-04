@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { manageList, manageAssign, anchorShow, formatOwnerRows } from "../../src/lifecycle/manage.js";
+import { manageList, manageAssign, anchorShow, formatOwnerRows, projectStatus } from "../../src/lifecycle/manage.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
@@ -56,6 +56,17 @@ describe("prj-work — manage", () => {
     const { anchor } = anchorPort({});
     expect(manageAssign({ vcs: fakeVcs("main"), anchor }, CONFIG, "/gov", "x", "add")).to.include({ ok: false, reason: "not-a-project-branch" });
     expect(manageAssign({ vcs: fakeVcs("BRNCH-43-x"), anchor }, CONFIG, "/gov", "x", "add")).to.include({ ok: false, reason: "no-anchor" });
+  });
+
+  it("status derives the current project's status from board + anchor labels", () => {
+    const { anchor } = anchorPort({ 43: { labels: ["paused"], assignees: ["rk"] } });
+    const deps = { vcs: fakeVcs("BRNCH-43-x"), projects: projects([{ number: 43, title: "Gov", closed: false }]), anchor };
+    const r = projectStatus(deps, CONFIG, "/gov");
+    expect(r.ok).to.equal(true);
+    if (r.ok) expect(r).to.include({ boardNumber: 43, title: "Gov", status: "paused" });
+    // off a project branch → not-a-project-branch; board missing → not-found
+    expect(projectStatus({ ...deps, vcs: fakeVcs("main") }, CONFIG, "/gov")).to.include({ ok: false, reason: "not-a-project-branch" });
+    expect(projectStatus({ ...deps, projects: projects([]) }, CONFIG, "/gov")).to.include({ ok: false, reason: "not-found" });
   });
 
   it("anchor show returns the anchor's url/labels/owners", () => {

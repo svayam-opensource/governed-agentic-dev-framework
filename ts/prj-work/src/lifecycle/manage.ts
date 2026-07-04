@@ -91,3 +91,19 @@ export function anchorShow(deps: ManageAssignDeps, config: ManageConfig, govClon
   if (!anchor) return { ok: false, code: 1, reason: "no-anchor", message: `No anchor issue for project #${boardNumber}.` };
   return { ok: true, url: anchor.url, number: anchor.number, labels: [...anchor.labels], owners: [...anchor.assignees] };
 }
+
+// ── status (the CURRENT project's derived status) ─────────────────────────────
+export type ProjectStatusResult =
+  | { readonly ok: true; readonly boardNumber: number; readonly title: string; readonly url: string; readonly status: ProjectStatus; readonly owners: readonly string[] }
+  | { readonly ok: false; readonly code: number; readonly reason: "not-a-project-branch" | "not-found"; readonly message: string };
+
+/** `prj status` — derive the current project's board# from cwd, report live status. */
+export function projectStatus(deps: { vcs: Vcs; projects: Projects; anchor: AnchorCreator }, config: ManageConfig, govClone: string): ProjectStatusResult {
+  const projectBranch = projectBranchOf(deps.vcs.currentBranch(govClone));
+  const boardNumber = boardNumberFromBranch(projectBranch);
+  if (boardNumber === null) return { ok: false, code: 1, reason: "not-a-project-branch", message: `'${projectBranch}' is not a project branch.` };
+  const board = deps.projects.listBoards(config.githubOrg).find((b) => b.number === boardNumber);
+  if (!board) return { ok: false, code: 1, reason: "not-found", message: `Project #${boardNumber} not found on GitHub.` };
+  const anchor = deps.anchor.find({ owner: config.githubOrg, ownerField: config.ownerField ?? "organization", number: boardNumber }, config.workspaceRepo);
+  return { ok: true, boardNumber, title: board.title, url: board.url, status: deriveStatus(!board.closed, anchor?.labels ?? []), owners: anchor ? [...anchor.assignees] : [] };
+}
