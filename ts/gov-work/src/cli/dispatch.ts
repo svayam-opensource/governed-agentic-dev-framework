@@ -285,6 +285,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         code: 2,
         lines: [
           `unknown command '${command}'`,
+          "bootstrap: setup org",
           "lifecycle: seed join task merge sync add-repo close pause resume cancel",
           "info+owners: list list-all status manage anchor validate",
           "repo+knowledge+org: onboard knowledge org",

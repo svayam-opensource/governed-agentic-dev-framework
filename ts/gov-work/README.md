@@ -1,38 +1,45 @@
-# @svayam-opensource/prj-work
+# @svayam-opensource/gov
 
-The OSS core of the `prj` governance CLI, being migrated **Bash → Node 24 / TypeScript**
-(AD-6.1 conformance; see PRJ-43 issue #91). During the transition this package lives
-here at `ts/prj-work/` and is built/tested independently, while the legacy Bash CLI at
-the repo root keeps publishing as `@svayam-opensource/prj`. At **cutover**, the repo
-root `bin/prj` is repointed to this package's compiled `lib/` entry.
+The OSS governance CLI (**command `gov`**) for the Governed Agentic Development
+Framework — the unit **gov-work**. Reimplemented **Bash → Node 24 / TypeScript**
+(AD-6.1 conformance; PRJ-43, issue #91).
+
+It ships as a **new** npm package rather than continuing `@svayam-opensource/prj`:
+the legacy bash CLI is **frozen** at npm `0.10.0`, and `gov` starts fresh at
+`1.0.0`. Installing `@svayam-opensource/gov` provides the `gov` command; the two
+coexist so adopters migrate at their own pace.
 
 ## Layout
 
-Mirrors the `prj-deploy` (prj-operate) package conventions: ESM + CJS dual `tsc`
-build, `mocha` + `chai` + `tsx` tests, flat-config `eslint`, Node 24.
+ESM + CJS dual `tsc` build, `mocha` + `chai` + `tsx` tests, flat-config `eslint`,
+Node 24.
 
 ```
-ts/prj-work/
-  package.json          # @svayam-opensource/prj-work
+ts/gov-work/
+  package.json          # @svayam-opensource/gov  (bin: gov)
   tsconfig.json         # ESM build → lib/esm
   tsconfig-cjs.json     # CJS build → lib/cjs
   eslint.config.ts
-  src/                  # source (index.ts = entry + migration roadmap)
-  test/                 # *.test.ts (mocha)
+  src/                  # source (index.ts = entry + roadmap)
+  test/                 # *.test.ts (mocha) — incl. test/e2e (full-flow gate)
 ```
 
 ## Develop
 
 ```bash
-cd ts/prj-work
+cd ts/gov-work
 npm install
-npm run build   # dual tsc → lib/esm + lib/cjs
-npm run lint    # eslint (flat config)
-npm test        # mocha + chai via tsx
+npm run build     # dual tsc → lib/esm + lib/cjs
+npm run lint      # eslint (flat config)
+npm test          # mocha + chai via tsx
+npm run test:e2e  # the mandatory full-flow e2e gate (seed → task → merge)
 ```
 
-## Phases
+## Command surface
 
-Blueprint: `units/prj-work/SDD.md`. Phase 0 = scaffold + CI (this). Phase 1 =
-`prj_resolve_gov` deterministic resolver + registry. See `src/index.ts`
-(`MIGRATION_PHASES`) for the full roadmap.
+Lifecycle: `seed · join · task · merge · sync · add-repo · close · pause · resume · cancel`.
+Governance/org: `validate · manage · anchor · knowledge · onboard · org`.
+Info/maintain: `list · list-all · status · doctor · deps · publish · upgrade`.
+Run `gov` with no arguments for the interactive menu.
+
+Blueprint: `units/gov-work/SDD.md`.

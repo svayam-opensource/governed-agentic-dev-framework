@@ -8,8 +8,11 @@
  * (dispatch.ts) is exhaustively unit-tested.
  */
 import * as path from "node:path";
+import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { runSetup } from "../setup/setup-run.js";
+import { readExistingOrgConfig } from "../setup/setup.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -41,7 +44,57 @@ function tryRun(cmd: string, args: string[]): string | undefined {
 }
 
 /**
- * The `prj` entry point. Returns a process exit code. `now` is injected (an
+ * `gov setup` — the interactive workspace BOOTSTRAP (port of setup.sh). Async
+ * (readline prompts), so bin.ts routes it here instead of through sync `main`.
+ * Runs in cwd (the cloned framework repo), before any resolution.
+ */
+export async function runSetupCommand(argv: readonly string[], now: string = new Date().toISOString()): Promise<number> {
+  const parsed = parseArgv(argv);
+  const nonInteractiveFlag = !("error" in parsed) && "non-interactive" in parsed.flags;
+  const fs = createNodeFs();
+  const cwd = process.cwd();
+  if (tryRun("git", ["-C", cwd, "rev-parse", "--git-dir"]) === undefined) {
+    process.stderr.write("gov setup: not a git repository — clone the framework repo (or `git init`) first.\n");
+    return 1;
+  }
+  const originUrl = tryRun("git", ["-C", cwd, "remote", "get-url", "origin"]) ?? "";
+  const existingText = fs.readFile(path.join(cwd, "org-config.yaml"));
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const ask = (q: string, def: string): Promise<string> =>
+    new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || def)));
+  try {
+    return await runSetup(
+      {
+        fs,
+        cwd,
+        originUrl,
+        ghUser: tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null,
+        gitEmail: tryRun("git", ["-C", cwd, "config", "user.email"]) ?? null,
+        today: now.slice(0, 10),
+        existing: existingText ? readExistingOrgConfig(existingText) : undefined,
+        prompt: ask,
+        print: (l) => process.stdout.write(`${l}\n`),
+        setOriginRemote: (url) => {
+          try {
+            execFileSync("git", ["-C", cwd, "remote", "set-url", "origin", url], { stdio: "ignore" });
+          } catch {
+            try {
+              execFileSync("git", ["-C", cwd, "remote", "add", "origin", url], { stdio: "ignore" });
+            } catch {
+              /* leave remote as-is */
+            }
+          }
+        },
+      },
+      !nonInteractiveFlag && process.stdin.isTTY,
+    );
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * The `gov` entry point. Returns a process exit code. `now` is injected (an
  * ISO-8601 instant) so the composition stays deterministic + testable.
  */
 export function main(argv: readonly string[], now: string = new Date().toISOString()): number {

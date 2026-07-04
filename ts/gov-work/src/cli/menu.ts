@@ -8,7 +8,7 @@
 import * as readline from "node:readline";
 
 export const MENU_COMMANDS = [
-  "seed", "join", "task", "merge", "sync", "add-repo", "close",
+  "setup", "seed", "join", "task", "merge", "sync", "add-repo", "close",
   "pause", "resume", "cancel", "manage", "anchor", "knowledge",
   "list", "status", "org", "validate", "doctor", "deps", "upgrade",
 ] as const;
