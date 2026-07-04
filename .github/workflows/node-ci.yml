@@ -7,7 +7,7 @@ name: node-ci
 # repo root. Path-filtered so pure-bash changes don't spin this up.
 
 on:
-  # PRs: NO path filter — so `ts/prj-work` always runs + reports, letting it be a
+  # PRs: NO path filter — so `ts/gov-work` always runs + reports, letting it be a
   # REQUIRED status check (a path-filtered required check blocks PRs that don't
   # touch the paths, since the check never runs). The build is cached + fast when
   # nothing changed.
@@ -16,7 +16,7 @@ on:
   push:
     branches: ["**"]
     paths:
-      - "ts/prj-work/**"
+      - "ts/gov-work/**"
       - ".github/workflows/node-ci.yml"
 
 concurrency:
@@ -25,19 +25,19 @@ concurrency:
 
 jobs:
   build-test:
-    name: ts/prj-work
+    name: ts/gov-work
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: ts/prj-work
+        working-directory: ts/gov-work
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: ts/prj-work/package-lock.json
+          cache-dependency-path: ts/gov-work/package-lock.json
       - run: npm ci
       - run: npm run build
       - run: npm run lint

@@ -39,5 +39,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/svayam-opensource/governed-agentic-dev-framework.git"
+  },
+  "private": true,
+  "scripts": {
+    "prepublishOnly": "node -e \"console.error('@svayam-opensource/prj is FROZEN (bash CLI). The Node CLI ships as @svayam-opensource/gov. Publishing is blocked.'); process.exit(1)\""
   }
 }

@@ -29,6 +29,6 @@ describe("prj-work Phase 0 — scaffold smoke", () => {
   });
 
   it("carries the transitional package identity", () => {
-    expect(PACKAGE_NAME).to.equal("@svayam-opensource/prj-work");
+    expect(PACKAGE_NAME).to.equal("@svayam-opensource/gov");
   });
 });

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
-// The `prj` executable entry (Node/TS). At cutover, the framework root bin/prj
-// is repointed here. No args on a TTY → the interactive menu; else run the command.
+// The `gov` executable entry (Node/TS) — the bin of @svayam-opensource/gov, the
+// OSS governance CLI (unit gov-work). Succeeds the frozen bash @svayam-opensource/prj.
+// No args on a TTY → the interactive menu; else run the command.
 import { main } from "./main.js";
 import { runMenu } from "./menu.js";
 

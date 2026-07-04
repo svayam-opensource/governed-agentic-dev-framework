@@ -1,12 +1,12 @@
 {
-  "name": "@svayam-opensource/prj-work",
-  "version": "0.0.0",
-  "description": "prj-work — the OSS core of the prj governance CLI, migrated from Bash to Node 24 / TypeScript (AD-6.1 conformance). Coexists with the legacy bash CLI during transition; promoted to the package root at cutover.",
+  "name": "@svayam-opensource/gov",
+  "version": "1.0.0",
+  "description": "gov — the OSS governance CLI (unit gov-work) for the Governed Agentic Development Framework. Node 24 / TypeScript. Succeeds the legacy bash @svayam-opensource/prj (which is frozen at 0.10.0).",
   "type": "module",
   "main": "./lib/cjs/index.js",
   "module": "./lib/esm/index.js",
   "types": "./lib/esm/index.d.ts",
-  "bin": { "prj-work": "./lib/esm/cli/bin.js" },
+  "bin": { "gov": "./lib/esm/cli/bin.js" },
   "exports": {
     ".": {
       "import": { "types": "./lib/esm/index.d.ts", "default": "./lib/esm/index.js" },
@@ -25,13 +25,13 @@
     "prepublishOnly": "npm run build && npm run test",
     "tsc": "npm run build"
   },
-  "keywords": ["prj", "prj-work", "governance", "agentic", "cli"],
+  "keywords": ["gov", "gov-work", "prj", "governance", "agentic", "cli"],
   "author": "Svayam Infoware Pvt. Ltd.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/svayam-opensource/governed-agentic-dev-framework.git",
-    "directory": "ts/prj-work"
+    "directory": "ts/gov-work"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
