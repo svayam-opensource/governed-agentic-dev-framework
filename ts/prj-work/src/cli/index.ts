@@ -4,3 +4,4 @@
 export * from "./args.js";
 export * from "./dispatch.js";
 export * from "./main.js";
+export * from "./menu.js";

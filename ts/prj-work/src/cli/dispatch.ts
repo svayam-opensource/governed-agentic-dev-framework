@@ -33,6 +33,7 @@ import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org
 import { expandTilde } from "../resolve/node-env.js";
 import { manageList, manageAssign, formatOwnerRows, anchorShow } from "../lifecycle/manage.js";
 import type { Projects } from "../lifecycle/project-list.js";
+import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 
 /** Tool files seed token-substitutes into the project (bash TOOL_FILES). */
 export const TOOL_FILES = [
@@ -222,6 +223,18 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       return usage("manage <list|list-all|assign|unassign> …");
     }
 
+    case "knowledge": {
+      const sub = positionals[0];
+      const kcfg = { defaultBranch: c.defaultBranch, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo };
+      const r =
+        sub === "propose" ? proposeKnowledge(ctx.vcs, kcfg, ctx.home, positionals[1])
+        : sub === "submit" ? submitKnowledge(ctx.pulls, kcfg, positionals[1], positionals.slice(2).join(" "))
+        : sub === "archive" ? archiveKnowledge(ctx.vcs, kcfg, ctx.home, positionals[1])
+        : null;
+      if (r === null) return usage("knowledge <propose|submit|archive> <slug> [description]");
+      return r.ok ? { code: 0, lines: r.lines } : { code: r.code, lines: [r.message] };
+    }
+
     case "anchor": {
       const r = anchorShow({ vcs: ctx.vcs, anchor: ctx.anchor }, { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo }, ctx.home);
       return r.ok
@@ -250,7 +263,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           `unknown command '${command}'`,
           "lifecycle: seed join task merge sync add-repo close pause resume cancel",
           "info+owners: list status manage anchor",
-          "org+maintain: org bump-version doctor deps publish upgrade",
+          "knowledge+org+maintain: knowledge org bump-version doctor deps publish upgrade",
         ],
       };
   }
