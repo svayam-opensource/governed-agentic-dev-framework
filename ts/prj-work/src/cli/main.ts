@@ -11,7 +11,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
-import { createNodeEnv } from "../resolve/node-env.js";
+import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
@@ -24,7 +24,7 @@ import { makeCloneRepo } from "../lifecycle/code-repo.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
-import { parseArgv } from "./args.js";
+import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 
 /** Run a command, swallowing failures (returns undefined). */
@@ -96,12 +96,21 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   }
 
   // Resolve the gov workspace (the gov home for seed, the project clone otherwise).
-  const resolved = prjResolveGov(env);
-  if (!resolved.ok) {
-    process.stderr.write(`${resolveFailureMessage(resolved)}\n`);
-    return resolved.code;
+  // `--gov-home <path>` / $PRJ_GOV_HOME target an EXPLICIT gov workspace and skip
+  // the registry/resolver (for testing, CI, or a throwaway workspace). Unlike the
+  // bash `$ADF_WORKSPACE` this is a per-invocation flag, so it can't stale-misdirect.
+  const govHomeOverride = flagStr(parsed.flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
+  let home: string;
+  if (govHomeOverride) {
+    home = path.resolve(expandTilde(govHomeOverride));
+  } else {
+    const resolved = prjResolveGov(env);
+    if (!resolved.ok) {
+      process.stderr.write(`${resolveFailureMessage(resolved)}\n`);
+      return resolved.code;
+    }
+    home = resolved.home;
   }
-  const home = resolved.home;
 
   const cfgText = fs.readFile(path.join(home, "org-config.yaml"));
   if (cfgText === null) {
