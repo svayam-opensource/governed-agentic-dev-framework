@@ -28,3 +28,4 @@ export * from "./state.js";
 export * from "./project-list.js";
 export * from "./manage.js";
 export * from "./knowledge.js";
+export * from "./onboard.js";

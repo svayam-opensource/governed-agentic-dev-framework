@@ -34,6 +34,7 @@ import { expandTilde } from "../resolve/node-env.js";
 import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus } from "../lifecycle/manage.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
+import { onboard } from "../lifecycle/onboard.js";
 
 /** Tool files seed token-substitutes into the project (bash TOOL_FILES). */
 export const TOOL_FILES = [
@@ -236,6 +237,16 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       return usage("manage <list|list-all|assign|unassign> …");
     }
 
+    case "onboard": {
+      if (positionals.length < 3) return usage("onboard <repo-url> <owner> <description>");
+      const r = onboard(
+        { vcs: ctx.vcs, fs: ctx.fs, pulls: ctx.pulls, cloneRepo: ctx.cloneRepo, log: ctx.log },
+        { agentWorkRoot: c.agentWorkRoot, workspaceRepo: c.workspaceRepo, orgName: c.orgName },
+        { repoUrl: positionals[0], owner: positionals[1], description: positionals.slice(2).join(" ") },
+      );
+      return r.ok ? { code: 0, lines: r.lines } : { code: r.code, lines: [r.message] };
+    }
+
     case "knowledge": {
       const sub = positionals[0];
       const kcfg = { defaultBranch: c.defaultBranch, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo };
@@ -276,7 +287,8 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           `unknown command '${command}'`,
           "lifecycle: seed join task merge sync add-repo close pause resume cancel",
           "info+owners: list list-all status manage anchor validate",
-          "knowledge+org+maintain: knowledge org bump-version doctor deps publish upgrade",
+          "repo+knowledge+org: onboard knowledge org",
+          "maintain: bump-version doctor deps publish upgrade",
         ],
       };
   }
