@@ -39,6 +39,8 @@ function fakeAnchor() {
       calls.push(`${action} ${label} #${ref.number}`);
       return true;
     },
+    find: () => null,
+    setAssignee: () => true,
   };
   return { anchor, calls };
 }

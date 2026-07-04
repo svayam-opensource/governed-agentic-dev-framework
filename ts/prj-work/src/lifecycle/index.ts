@@ -25,3 +25,5 @@ export * from "./close-gate.js";
 export * from "./pulls.js";
 export * from "./close.js";
 export * from "./state.js";
+export * from "./project-list.js";
+export * from "./manage.js";

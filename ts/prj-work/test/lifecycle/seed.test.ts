@@ -101,6 +101,8 @@ function fakeFs(existing: Set<string> = new Set()) {
 const fakeAnchor = (ref: string | null = "Svayamtech/svm-prj-work#1"): AnchorCreator => ({
   createAnchorIssue: () => ref,
   setState: () => true,
+  find: () => null,
+  setAssignee: () => true,
 });
 
 describe("prj-work Phase 2 — seed orchestrator", () => {

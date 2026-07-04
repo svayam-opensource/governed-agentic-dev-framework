@@ -21,6 +21,7 @@ import { createGhIssues } from "../lifecycle/issues.js";
 import { createGhAnchor } from "../lifecycle/anchor.js";
 import { createGhPulls } from "../lifecycle/pulls.js";
 import { makeCloneRepo } from "../lifecycle/code-repo.js";
+import { createGhProjects } from "../lifecycle/project-list.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
@@ -171,6 +172,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     issues: createGhIssues(runGh),
     anchor: createGhAnchor(runGh),
     pulls: createGhPulls(runGh),
+    projects: createGhProjects(runGh),
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
     gate: () => runSuite({ fs, repoRoot: home, files: (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean) }),
     log: (m) => process.stderr.write(`${m}\n`),

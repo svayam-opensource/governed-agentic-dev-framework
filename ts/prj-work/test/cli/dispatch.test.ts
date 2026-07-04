@@ -57,7 +57,7 @@ const pulls: Pulls = { create: () => "pr", merge: () => "merged" };
 function ctx(over: Partial<CliContext> = {}): CliContext {
   return {
     config: CONFIG, home: "/awr/PRJ-43-governance-common-project/svm-prj-work", today: "2026-07-03",
-    seededBy: "svayam-rkant", board, vcs: fakeVcs(), fs, issues, anchor, pulls, cloneRepo: () => {}, ...over,
+    seededBy: "svayam-rkant", board, vcs: fakeVcs(), fs, issues, anchor, pulls, projects: { listBoards: () => [] }, cloneRepo: () => {}, ...over,
   };
 }
 

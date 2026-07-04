@@ -35,6 +35,18 @@ export interface AnchorCreator {
    * status is carried on GitHub (SDD-012).
    */
   setState(ref: BoardRef, workspaceRepo: string, label: AnchorStateLabel, action: "add" | "remove"): boolean;
+  /** Find the board's anchor issue (url + number + labels + assignees), or null. */
+  find(ref: BoardRef, workspaceRepo: string): AnchorInfo | null;
+  /** Add/remove an anchor-issue assignee (an "owner"); best-effort. */
+  setAssignee(issueUrl: string, login: string, action: "add" | "remove"): boolean;
+}
+
+/** The anchor issue's live state (owners = assignees; status labels). */
+export interface AnchorInfo {
+  readonly url: string;
+  readonly number: number;
+  readonly labels: readonly string[];
+  readonly assignees: readonly string[];
 }
 
 /** The anchor issue body (matches seed.sh wording). */
@@ -92,21 +104,36 @@ export function createGhAnchor(runGh: RunGh): AnchorCreator {
 
       return `${repo}#${url.split("/").pop()}`;
     },
-    setState(ref, workspaceRepo, label, action) {
+    find(ref, workspaceRepo) {
       const repo = `${ref.owner}/${workspaceRepo}`;
-      // Find this board's anchor issue: the anchor-labelled issue whose body
-      // references the board number (best-effort).
-      let anchorUrl: string | null;
       try {
-        const out = runGh(["issue", "list", "--repo", repo, "--label", DEFAULT_ANCHOR_LABEL, "--state", "all", "--json", "url,body", "--limit", "100"]);
-        const items = JSON.parse(out) as Array<{ url?: string; body?: string }>;
-        anchorUrl = items.find((i) => i.body?.includes(`Project #${ref.number}`))?.url ?? null;
+        const out = runGh(["issue", "list", "--repo", repo, "--label", DEFAULT_ANCHOR_LABEL, "--state", "all", "--json", "url,number,body,labels,assignees", "--limit", "100"]);
+        const items = JSON.parse(out) as Array<{ url?: string; number?: number; body?: string; labels?: Array<{ name?: string }>; assignees?: Array<{ login?: string }> }>;
+        const it = items.find((i) => i.body?.includes(`Project #${ref.number}`));
+        if (!it?.url || it.number === undefined) return null;
+        return {
+          url: it.url,
+          number: it.number,
+          labels: (it.labels ?? []).map((l) => l.name ?? "").filter(Boolean),
+          assignees: (it.assignees ?? []).map((a) => a.login ?? "").filter(Boolean),
+        };
+      } catch {
+        return null;
+      }
+    },
+    setState(ref, workspaceRepo, label, action) {
+      const anchor = this.find(ref, workspaceRepo);
+      if (!anchor) return false;
+      try {
+        runGh(["issue", "edit", anchor.url, `--${action}-label`, label]);
+        return true;
       } catch {
         return false;
       }
-      if (!anchorUrl) return false;
+    },
+    setAssignee(issueUrl, login, action) {
       try {
-        runGh(["issue", "edit", anchorUrl, `--${action}-label`, label]);
+        runGh(["issue", "edit", issueUrl, `--${action}-assignee`, login]);
         return true;
       } catch {
         return false;

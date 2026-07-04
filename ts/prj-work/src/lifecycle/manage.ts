@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * `manage` (SDD Part D, cmd_manage) — GitHub-definitive project ownership.
+ * `list`/`list-all`: the org's boards with owners (anchor-issue assignees) +
+ * derived status. `assign`/`unassign`: add/remove an owner on the current
+ * project's anchor issue. Pure over the Projects + AnchorCreator + Vcs ports.
+ */
+import type { AnchorCreator } from "./anchor.js";
+import type { Projects, BoardSummary } from "./project-list.js";
+import type { Vcs } from "./vcs.js";
+import type { BoardRef } from "./identity.js";
+import { deriveStatus, type ProjectStatus } from "./state.js";
+import { projectBranchOf, boardNumberFromBranch } from "./task.js";
+
+export interface ManageConfig {
+  readonly githubOrg: string;
+  readonly ownerField?: "organization" | "user";
+  readonly workspaceRepo: string;
+}
+
+export interface OwnerRow {
+  readonly boardNumber: number;
+  readonly title: string;
+  readonly url: string;
+  readonly status: ProjectStatus;
+  readonly owners: readonly string[];
+}
+
+export interface ManageListDeps {
+  readonly projects: Projects;
+  readonly anchor: AnchorCreator;
+}
+
+/** List boards with owners + derived status. `all` includes closed (completed/cancelled). */
+export function manageList(deps: ManageListDeps, config: ManageConfig, all: boolean): OwnerRow[] {
+  const ownerField = config.ownerField ?? "organization";
+  const boards: BoardSummary[] = deps.projects.listBoards(config.githubOrg);
+  const rows: OwnerRow[] = [];
+  for (const b of boards) {
+    if (!all && b.closed) continue; // ongoing = open boards only
+    const ref: BoardRef = { owner: config.githubOrg, ownerField, number: b.number };
+    const anchor = deps.anchor.find(ref, config.workspaceRepo);
+    rows.push({
+      boardNumber: b.number,
+      title: b.title,
+      url: b.url,
+      status: deriveStatus(!b.closed, anchor?.labels ?? []),
+      owners: anchor ? [...anchor.assignees] : [],
+    });
+  }
+  return rows;
+}
+
+export function formatOwnerRows(rows: readonly OwnerRow[]): string[] {
+  if (rows.length === 0) return ["(no projects)"];
+  return rows.map((r) => `  #${r.boardNumber} [${r.status}] ${r.title} — owners: ${r.owners.length ? r.owners.join(", ") : "(none)"}`);
+}
+
+export interface ManageAssignDeps {
+  readonly vcs: Vcs;
+  readonly anchor: AnchorCreator;
+}
+
+export type ManageAssignResult =
+  | { readonly ok: true; readonly login: string; readonly action: "add" | "remove"; readonly applied: boolean; readonly anchorUrl: string }
+  | { readonly ok: false; readonly code: number; readonly reason: "not-a-project-branch" | "no-anchor"; readonly message: string };
+
+/** Add/remove an owner (anchor-issue assignee) on the CURRENT project. */
+export function manageAssign(deps: ManageAssignDeps, config: ManageConfig, govClone: string, login: string, action: "add" | "remove"): ManageAssignResult {
+  const projectBranch = projectBranchOf(deps.vcs.currentBranch(govClone));
+  const boardNumber = boardNumberFromBranch(projectBranch);
+  if (boardNumber === null) return { ok: false, code: 1, reason: "not-a-project-branch", message: `'${projectBranch}' is not a project branch.` };
+  const ref: BoardRef = { owner: config.githubOrg, ownerField: config.ownerField ?? "organization", number: boardNumber };
+  const anchor = deps.anchor.find(ref, config.workspaceRepo);
+  if (!anchor) return { ok: false, code: 1, reason: "no-anchor", message: `No anchor issue for project #${boardNumber} — designate one first.` };
+  return { ok: true, login, action, applied: deps.anchor.setAssignee(anchor.url, login, action), anchorUrl: anchor.url };
+}
+
+// ── anchor (direct anchor op — show the current project's anchor issue) ────────
+export type AnchorShowResult =
+  | { readonly ok: true; readonly url: string; readonly number: number; readonly labels: readonly string[]; readonly owners: readonly string[] }
+  | { readonly ok: false; readonly code: number; readonly reason: "not-a-project-branch" | "no-anchor"; readonly message: string };
+
+/** `prj anchor` — find + show the CURRENT project's anchor issue (debug op). */
+export function anchorShow(deps: ManageAssignDeps, config: ManageConfig, govClone: string): AnchorShowResult {
+  const projectBranch = projectBranchOf(deps.vcs.currentBranch(govClone));
+  const boardNumber = boardNumberFromBranch(projectBranch);
+  if (boardNumber === null) return { ok: false, code: 1, reason: "not-a-project-branch", message: `'${projectBranch}' is not a project branch.` };
+  const anchor = deps.anchor.find({ owner: config.githubOrg, ownerField: config.ownerField ?? "organization", number: boardNumber }, config.workspaceRepo);
+  if (!anchor) return { ok: false, code: 1, reason: "no-anchor", message: `No anchor issue for project #${boardNumber}.` };
+  return { ok: true, url: anchor.url, number: anchor.number, labels: [...anchor.labels], owners: [...anchor.assignees] };
+}

@@ -31,6 +31,8 @@ import { join } from "../lifecycle/join.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
 import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org.js";
 import { expandTilde } from "../resolve/node-env.js";
+import { manageList, manageAssign, formatOwnerRows, anchorShow } from "../lifecycle/manage.js";
+import type { Projects } from "../lifecycle/project-list.js";
 
 /** Tool files seed token-substitutes into the project (bash TOOL_FILES). */
 export const TOOL_FILES = [
@@ -56,6 +58,7 @@ export interface CliContext {
   readonly issues: Issues;
   readonly anchor: AnchorCreator;
   readonly pulls: Pulls;
+  readonly projects: Projects;
   readonly cloneRepo: (url: string, dest: string) => void;
   readonly authorize?: (ref: BoardRef) => boolean;
   /** close's test-merge gate (wire governance.runSuite here). */
@@ -202,6 +205,30 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         : { code: r.code, lines: [r.message] };
     }
 
+    case "manage": {
+      const sub = positionals[0];
+      const mcfg = { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo };
+      if (sub === "list" || sub === "list-all") {
+        const rows = manageList({ projects: ctx.projects, anchor: ctx.anchor }, mcfg, sub === "list-all");
+        return { code: 0, lines: ["Projects (owners = anchor assignees):", ...formatOwnerRows(rows)] };
+      }
+      if (sub === "assign" || sub === "unassign") {
+        if (positionals.length < 2) return usage(`manage ${sub} <github-login>`);
+        const r = manageAssign({ vcs: ctx.vcs, anchor: ctx.anchor }, mcfg, ctx.home, positionals[1], sub === "assign" ? "add" : "remove");
+        return r.ok
+          ? { code: 0, lines: [`${r.action === "add" ? "Added" : "Removed"} owner ${r.login}${r.applied ? "" : " (not applied — check gh access)"}`] }
+          : { code: r.code, lines: [r.message] };
+      }
+      return usage("manage <list|list-all|assign|unassign> …");
+    }
+
+    case "anchor": {
+      const r = anchorShow({ vcs: ctx.vcs, anchor: ctx.anchor }, { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo }, ctx.home);
+      return r.ok
+        ? { code: 0, lines: [`Anchor #${r.number}: ${r.url}`, `  labels: ${r.labels.join(", ") || "(none)"}`, `  owners: ${r.owners.join(", ") || "(none)"}`] }
+        : { code: r.code, lines: [r.message] };
+    }
+
     case "pause":
     case "resume":
     case "cancel": {
@@ -222,6 +249,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         lines: [
           `unknown command '${command}'`,
           "lifecycle: seed join task merge sync add-repo close pause resume cancel",
+          "info+owners: list status manage anchor",
           "org+maintain: org bump-version doctor deps publish upgrade",
         ],
       };
