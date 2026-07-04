@@ -7,10 +7,12 @@ name: node-ci
 # repo root. Path-filtered so pure-bash changes don't spin this up.
 
 on:
+  # PRs: NO path filter — so `ts/prj-work` always runs + reports, letting it be a
+  # REQUIRED status check (a path-filtered required check blocks PRs that don't
+  # touch the paths, since the check never runs). The build is cached + fast when
+  # nothing changed.
   pull_request:
-    paths:
-      - "ts/prj-work/**"
-      - ".github/workflows/node-ci.yml"
+  # Pushes stay path-filtered (don't spin up on unrelated feature-branch pushes).
   push:
     branches: ["**"]
     paths:
