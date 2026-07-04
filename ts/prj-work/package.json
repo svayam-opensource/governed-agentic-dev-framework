@@ -20,6 +20,7 @@
     "clean": "rm -rf lib",
     "build": "npm run clean && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json",
     "test": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/**/*.test.ts'",
+    "test:e2e": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/e2e/**/*.test.ts'",
     "lint": "eslint .",
     "prepublishOnly": "npm run build && npm run test",
     "tsc": "npm run build"
