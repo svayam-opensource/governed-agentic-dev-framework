@@ -24,6 +24,9 @@ import { makeCloneRepo } from "../lifecycle/code-repo.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
+import { checkDeps, formatDepsReport } from "../maintain/deps.js";
+import { publishGate, formatPublishGate } from "../maintain/publish.js";
+import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 
@@ -59,6 +62,34 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     }
     process.stderr.write(`${r.error}\n`);
     return r.code;
+  }
+
+  // `prj deps` — report runtime prerequisites (git/gh); pre-resolve.
+  if (parsed.command === "deps") {
+    const report = checkDeps((n) => tryRun(n, ["--version"]) !== undefined, process.platform);
+    for (const line of formatDepsReport(report)) process.stdout.write(`${line}\n`);
+    return report.ok ? 0 : 1;
+  }
+
+  // `prj publish` — the pre-publish GATE (version-sync); never publishes by hand.
+  if (parsed.command === "publish") {
+    const gate = publishGate(fs, process.cwd());
+    for (const line of formatPublishGate(gate)) process.stdout.write(`${line}\n`);
+    return gate.ok ? 0 : 1;
+  }
+
+  // `prj upgrade [<x.y.z>]` — plan + guidance (full self-update deferred).
+  if (parsed.command === "upgrade") {
+    let cliVersion = "0.0.0";
+    try {
+      const pkg = fs.readFile(fileURLToPath(new URL("../../../package.json", import.meta.url)));
+      if (pkg) cliVersion = (JSON.parse(pkg) as { version?: string }).version ?? "0.0.0";
+    } catch {
+      /* keep default */
+    }
+    const plan = upgradePlan(cliVersion, parsed.positionals[0] ?? null);
+    for (const line of formatUpgradePlan(plan)) process.stdout.write(`${line}\n`);
+    return plan.kind === "error" ? 2 : 0;
   }
 
   const env = createNodeEnv();

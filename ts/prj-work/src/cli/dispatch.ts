@@ -217,6 +217,13 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     }
 
     default:
-      return { code: 2, lines: [`unknown command '${command}'`, "commands: seed join task merge sync add-repo close pause resume cancel org"] };
+      return {
+        code: 2,
+        lines: [
+          `unknown command '${command}'`,
+          "lifecycle: seed join task merge sync add-repo close pause resume cancel",
+          "org+maintain: org bump-version doctor deps publish upgrade",
+        ],
+      };
   }
 }
