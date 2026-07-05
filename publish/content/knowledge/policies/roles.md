@@ -1,4 +1,9 @@
 ---
+domain: policies
+layer: mandate
+compliance: C01
+status: current
+owner: <POLICY_OWNER_EMAIL>
 maintained_by: Policy Owner
 last_updated_by: <POLICY_OWNER_EMAIL>
 last_updated_at: 2026-05-05

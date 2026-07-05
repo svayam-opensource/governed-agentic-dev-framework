@@ -1,3 +1,11 @@
+---
+domain: infrastructure
+layer: spec
+compliance: descriptive
+status: current
+owner: <POLICY_OWNER_EMAIL>
+---
+
 # Knowledge Publication Specification
 
 **Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)

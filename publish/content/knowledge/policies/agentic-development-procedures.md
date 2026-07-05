@@ -1,4 +1,9 @@
 ---
+domain: policies
+layer: procedure
+compliance: C01
+status: current
+owner: <POLICY_OWNER_EMAIL>
 version: pending-first-commit
 effective_date: 2026-05-05
 policy_owner: <POLICY_OWNER_EMAIL>

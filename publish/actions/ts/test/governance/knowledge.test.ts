@@ -109,3 +109,33 @@ describe("prj-work Phase 3 — checkKnowledge (port of check_knowledge.py)", () 
     expect(r).to.deep.equal({ name: "knowledge", ok: false, errors: ["knowledge/ directory missing"] });
   });
 });
+
+describe("gov-work — knowledge validator exemptions (README indexes + templates)", () => {
+  it("index README needs no front-matter and de-orphans the docs it links", () => {
+    const r = checkKnowledge(
+      ctx({
+        "knowledge/policies/README.md": `# Policies\n\n- [roles](roles.md)\n`, // no front-matter — exempt
+        "knowledge/policies/roles.md": `${FM({ layer: "mandate" })}\n# Roles\n`,
+      }),
+    );
+    expect(r.ok, r.errors.join("; ")).to.equal(true);
+  });
+
+  it("TEMPLATE.md and *-template.md are skeletons — never validated (no front-matter OK, not orphans)", () => {
+    const r = checkKnowledge(
+      ctx({
+        "knowledge/policies/README.md": `# Policies\n\n- [p](p.md)\n`,
+        "knowledge/policies/p.md": `${FM()}\n# P\n`,
+        "knowledge/policies/exceptions/architecture/TEMPLATE.md": `# Exception Template\n\nfill me in\n`,
+        "knowledge/guidance/todo-template.md": `# Todo Template\n\n## Open\n`,
+      }),
+    );
+    expect(r.ok, r.errors.join("; ")).to.equal(true);
+  });
+
+  it("a NON-README, NON-template doc without front-matter still fails (exemption is scoped)", () => {
+    const r = checkKnowledge(ctx({ "knowledge/policies/loose.md": `# Loose\n` }));
+    expect(r.ok).to.equal(false);
+    expect(r.errors.join("\n")).to.match(/loose\.md: missing front-matter/);
+  });
+});

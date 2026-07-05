@@ -74,7 +74,12 @@ export function checkKnowledge(ctx: ValidateContext): ValidationResult {
     return { name: "knowledge", ok: false, errors: ["knowledge/ directory missing"] };
   }
 
-  const docs = (ctx.files ?? []).filter((f) => f.startsWith("knowledge/") && f.endsWith(".md")).sort();
+  // Templates (fill-in skeletons) are not knowledge artifacts — never validated.
+  const isTemplate = (f: string): boolean => {
+    const b = f.split("/").pop() ?? "";
+    return b === "TEMPLATE.md" || /-template\.md$/.test(b);
+  };
+  const docs = (ctx.files ?? []).filter((f) => f.startsWith("knowledge/") && f.endsWith(".md") && !isTemplate(f)).sort();
   const content = new Map<string, string>();
   for (const rel of docs) {
     const t = ctx.fs.readFile(abs(rel));
@@ -109,6 +114,9 @@ export function checkKnowledge(ctx: ValidateContext): ValidationResult {
 
   // ── Pass 2: front-matter, folder agreement, orphan, journey purity ─────────
   for (const rel of docs) {
+    // Index READMEs are link SOURCES (scanned in Pass 1); they don't carry the
+    // POL-408 taxonomy and are exempt from the orphan check by definition.
+    if (rel.endsWith("/README.md")) continue;
     const text = content.get(rel) ?? "";
     const fm = frontMatter(text);
     if (fm === null) {

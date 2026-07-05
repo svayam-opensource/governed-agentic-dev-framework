@@ -111,6 +111,8 @@ files:
   - { src: knowledge/compliance/README.md,         dst: knowledge/compliance/README.md,         mode: scaffold-prompt }
   - { src: knowledge/legal/README.md,              dst: knowledge/legal/README.md,              mode: scaffold-prompt }
   - { src: knowledge/patterns/README.md,           dst: knowledge/patterns/README.md,           mode: scaffold-prompt }
+  - { src: knowledge/policies/README.md,           dst: knowledge/policies/README.md,           mode: scaffold-prompt }
+  - { src: knowledge/infrastructure/README.md,     dst: knowledge/infrastructure/README.md,     mode: scaffold-prompt }
 
   # ─────────────────────────────────────────────────────────────────────
   # Documentation

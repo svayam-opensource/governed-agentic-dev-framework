@@ -1,3 +1,11 @@
+---
+domain: policies
+layer: mandate
+compliance: C01
+status: current
+owner: <POLICY_OWNER_EMAIL>
+---
+
 # Data Classification Policy
 
 **Owner:** Policy Owner (`<POLICY_OWNER_EMAIL>`)

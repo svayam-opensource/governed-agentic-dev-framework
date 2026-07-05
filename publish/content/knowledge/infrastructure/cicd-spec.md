@@ -1,3 +1,11 @@
+---
+domain: infrastructure
+layer: spec
+compliance: descriptive
+status: current
+owner: <POLICY_OWNER_EMAIL>
+---
+
 # CI/CD Pipeline Specification — <WORKSPACE_REPO>
 
 **Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)

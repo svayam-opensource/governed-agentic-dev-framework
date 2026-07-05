@@ -1,3 +1,11 @@
+---
+domain: policies
+layer: mandate
+compliance: C01
+status: current
+owner: <POLICY_OWNER_EMAIL>
+---
+
 # LLM Governance Policy
 
 **Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)
