@@ -12,7 +12,7 @@ export interface ParsedArgs {
 }
 
 export function parseArgv(argv: readonly string[]): ParsedArgs | { error: string } {
-  if (argv.length === 0) return { error: "no command given (try: prj <command>)" };
+  if (argv.length === 0) return { error: "no command given (try: gov <command>)" };
   const [command, ...rest] = argv;
   const positionals: string[] = [];
   const flags: Record<string, string | boolean> = {};

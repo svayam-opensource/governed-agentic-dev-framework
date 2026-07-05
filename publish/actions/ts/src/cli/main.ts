@@ -13,7 +13,8 @@ import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
-import { runPluginCommand as delegateToPlugin, type PluginCliContext } from "../plugin/loader.js";
+import { runPluginCommand as delegateToPlugin, loadGovOperate, type PluginCliContext } from "../plugin/loader.js";
+import type { MenuContext } from "./menu.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -97,6 +98,47 @@ export async function runSetupCommand(argv: readonly string[], now: string = new
   }
 }
 
+/** Gather the best-effort banner context for the interactive menu (all optional). */
+export async function gatherMenuContext(): Promise<MenuContext> {
+  const fs = createNodeFs();
+  const env = createNodeEnv();
+  let cliVersion: string | undefined;
+  try {
+    const pkg = fs.readFile(fileURLToPath(new URL("../../../package.json", import.meta.url)));
+    if (pkg) cliVersion = (JSON.parse(pkg) as { version?: string }).version;
+  } catch {
+    /* omit */
+  }
+  let orgName: string | undefined;
+  let githubOrg: string | undefined;
+  let branch: string | undefined;
+  const resolve = prjResolveGov(env);
+  if (resolve.ok) {
+    const cfg = fs.readFile(path.join(resolve.home, "org-config.yaml"));
+    if (cfg) {
+      const c = parseOrgConfig(cfg);
+      orgName = c.orgName || undefined;
+      githubOrg = c.githubOrg || undefined;
+      branch = c.defaultBranch || undefined;
+    }
+    branch = tryRun("git", ["-C", resolve.home, "rev-parse", "--abbrev-ref", "HEAD"]) ?? branch;
+  }
+  const user = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? tryRun("git", ["config", "user.email"]) ?? undefined;
+  let workspaceCount: number | undefined;
+  try {
+    workspaceCount = createNodeRegistryStore().readHomes().length;
+  } catch {
+    /* omit */
+  }
+  let operateInstalled = false;
+  try {
+    operateInstalled = (await loadGovOperate()).ok;
+  } catch {
+    /* not installed */
+  }
+  return { orgName, githubOrg, branch, user, workspaceCount, cliVersion, operateInstalled };
+}
+
 /**
  * Enterprise plugin commands (`deploy`/`catalog`/`data`/…) — resolve the gov
  * workspace + config, then delegate to `@svayam/gov-operate` via the seam. Async
@@ -158,7 +200,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     return r.code;
   }
 
-  // `prj deps` — report runtime prerequisites (git/gh); pre-resolve.
+  // `gov deps` — report runtime prerequisites (git/gh); pre-resolve.
   if (parsed.command === "deps") {
     const report = checkDeps((n) => tryRun(n, ["--version"]) !== undefined, process.platform);
     for (const line of formatDepsReport(report)) process.stdout.write(`${line}\n`);
@@ -235,7 +277,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
 
   const env = createNodeEnv();
 
-  // `prj doctor` reports on the environment (incl. whether resolution works), so
+  // `gov doctor` reports on the environment (incl. whether resolution works), so
   // it runs pre-resolve too.
   if (parsed.command === "doctor") {
     const resolve = prjResolveGov(env);
@@ -293,7 +335,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   }
   const config = parseOrgConfig(cfgText);
 
-  // `prj validate` — run the governance validate suite on the resolved workspace.
+  // `gov validate` — run the governance validate suite on the resolved workspace.
   if (parsed.command === "validate") {
     const files = (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean);
     const r = runSuite({ fs, repoRoot: home, files });

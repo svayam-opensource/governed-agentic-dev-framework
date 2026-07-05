@@ -77,7 +77,7 @@ const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: prj $
 
 /**
  * Route `prj org …` — the multi-home registry commands. Handled SEPARATELY from
- * {@link route} because they run WITHOUT a resolved workspace (`prj org add` is
+ * {@link route} because they run WITHOUT a resolved workspace (`gov org add` is
  * the bootstrap that makes resolution work).
  */
 export function routeOrg(positionals: readonly string[], deps: OrgDeps): CommandResult {

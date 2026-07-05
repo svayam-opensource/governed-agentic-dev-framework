@@ -28,7 +28,7 @@ export function formatUpgradePlan(p: UpgradePlan): string[] {
     case "up-to-date":
       return [`upgrade: already on ${p.version}`];
     case "install":
-      return [`upgrade → ${p.version}:`, `  ${p.command}`, "  then re-run `prj doctor` to confirm no drift."];
+      return [`upgrade → ${p.version}:`, `  ${p.command}`, "  then re-run `gov doctor` to confirm no drift."];
     case "error":
       return [`upgrade: ${p.message}`];
   }

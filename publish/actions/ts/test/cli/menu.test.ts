@@ -1,27 +1,40 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { resolveMenuChoice, formatMenu, MENU_COMMANDS } from "../../src/cli/menu.js";
+import { menuCategories, formatMainMenu, resolveTopChoice, type MenuContext } from "../../src/cli/menu.js";
 
-describe("prj-work — interactive menu", () => {
-  it("resolves a number to the nth command", () => {
-    expect(resolveMenuChoice("1")).to.equal(MENU_COMMANDS[0]);
-    expect(resolveMenuChoice("3")).to.equal(MENU_COMMANDS[2]);
-    expect(resolveMenuChoice(String(MENU_COMMANDS.length))).to.equal(MENU_COMMANDS[MENU_COMMANDS.length - 1]);
+const CTX: MenuContext = { orgName: "Acme Inc", githubOrg: "Acme", branch: "main", user: "rk", workspaceCount: 2, cliVersion: "1.0.0" };
+
+describe("gov-work — interactive menu", () => {
+  it("categories: Status/Work/Admin/Maintain; adds Operate only when the plugin is installed", () => {
+    expect(menuCategories(false).map((c) => c.label)).to.deep.equal(["Status", "Work", "Admin", "Maintain"]);
+    expect(menuCategories(true).map((c) => c.label)).to.include("Operate");
   });
-  it("resolves a command name typed directly", () => {
-    expect(resolveMenuChoice("manage")).to.equal("manage");
-    expect(resolveMenuChoice("  knowledge  ")).to.equal("knowledge");
+
+  it("renders a prj-style banner (org · branch · user · workspaces) + the action table", () => {
+    const m = formatMainMenu(CTX).join("\n");
+    expect(m).to.match(/▸ Acme Inc — Governed Agentic Development Framework \(v1\.0\.0\)/);
+    expect(m).to.match(/Org: Acme\s+\|\s+Branch: main\s+\|\s+User: rk/);
+    expect(m).to.match(/2 governance workspace\(s\) registered/);
+    expect(m).to.match(/\(1\) Status/);
+    expect(m).to.match(/\(2\) Work/);
+    // no plugin → the enterprise hint, no Operate row
+    expect(m).to.match(/need the enterprise plugin/);
+    expect(m).to.not.match(/\(5\) Operate/);
   });
-  it("returns null for out-of-range / unknown", () => {
-    expect(resolveMenuChoice("0")).to.equal(null);
-    expect(resolveMenuChoice("999")).to.equal(null);
-    expect(resolveMenuChoice("frobnicate")).to.equal(null);
+
+  it("shows an Operate row (no hint) when the plugin is installed", () => {
+    const m = formatMainMenu({ ...CTX, operateInstalled: true }).join("\n");
+    expect(m).to.match(/\(5\) Operate/);
+    expect(m).to.not.match(/need the enterprise plugin/);
   });
-  it("renders a numbered menu with a quit row", () => {
-    const m = formatMenu();
-    expect(m[0]).to.match(/pick a command/);
-    expect(m).to.include("   0) quit");
-    expect(m.some((l) => /manage/.test(l))).to.equal(true);
+
+  it("resolves a top-level choice to a category / org / quit", () => {
+    expect(resolveTopChoice("2", CTX)).to.deep.include({ kind: "category" });
+    expect((resolveTopChoice("2", CTX) as { category: { key: string } }).category.key).to.equal("work");
+    expect(resolveTopChoice("admin", CTX)).to.deep.include({ kind: "category" });
+    expect(resolveTopChoice("o", CTX)).to.deep.equal({ kind: "org" });
+    expect(resolveTopChoice("0", CTX)).to.deep.equal({ kind: "quit" });
+    expect(resolveTopChoice("999", CTX)).to.deep.equal({ kind: "unknown" });
   });
 });

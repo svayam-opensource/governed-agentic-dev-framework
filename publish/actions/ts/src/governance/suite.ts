@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
  * The assembled validation suite (SDD-032) — the concrete validator set behind
- * `prj validate` and the close test-merge gate. `runSuite` returns a shape
+ * `gov validate` and the close test-merge gate. `runSuite` returns a shape
  * compatible with close's injected `gate` ({ ok, failures }), so the dispatcher
  * can wire it in directly: `close({ …, gate: () => runSuite(ctx) }, …)`.
  */
