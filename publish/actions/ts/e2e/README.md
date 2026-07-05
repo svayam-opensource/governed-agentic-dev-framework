@@ -15,6 +15,9 @@ binary** over the local adopter surface — meta flags · `gov setup` · org reg
 for everyone (the `smoke` job of `.github/workflows/adopter-e2e.yml`). The board/
 issue lifecycle is covered hermetically by the in-process e2e (`npm run test:e2e`).
 
+**Drop-in:** `adopter-smoke.sh` sources every `e2e/smoke.d/*.sh` in order — add a
+check = drop a new `e2e/smoke.d/NN-name.sh` (no runner edit). See `test/README.md`.
+
 ## Tier 2 — live journey (maintainer, own sandbox)
 
 ```bash
