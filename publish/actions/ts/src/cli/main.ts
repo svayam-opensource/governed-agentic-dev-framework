@@ -34,6 +34,7 @@ import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
 import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } from "../maintain/upgrade-run.js";
 import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
+import { checkVersionCompat } from "../maintain/version-compat.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 
@@ -253,6 +254,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       resolve,
       activeOrg: env.readActiveOrg(),
       cliVersion,
+      contentVersion: fs.readFile(path.join(home, "VERSION"))?.trim() ?? null,
       staleArtifacts: RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
     });
     for (const line of formatDoctorReport(report)) process.stdout.write(`${line}\n`);
@@ -302,6 +304,26 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     process.stdout.write("validate: FAIL\n");
     for (const f of r.failures) process.stdout.write(`  - ${f}\n`);
     return 1;
+  }
+
+  // CLI ↔ content version guard (preflight): a MAJOR-behind CLI must not operate
+  // on newer content — it may misread the layout. Smaller gaps just warn.
+  {
+    let cliVersion = "0.0.0";
+    try {
+      const pkg = fs.readFile(fileURLToPath(new URL("../../../package.json", import.meta.url)));
+      if (pkg) cliVersion = (JSON.parse(pkg) as { version?: string }).version ?? "0.0.0";
+    } catch {
+      /* keep default */
+    }
+    const compat = checkVersionCompat(cliVersion, fs.readFile(path.join(home, "VERSION"))?.trim() ?? null);
+    if (!compat.ok) {
+      process.stderr.write(`${compat.message}\n`);
+      return 1;
+    }
+    if (compat.status === "cli-behind" || compat.status === "content-behind") {
+      process.stderr.write(`gov: ${compat.message}\n`);
+    }
   }
 
   // Capture (don't inherit) stderr so best-effort gh failures — e.g. an

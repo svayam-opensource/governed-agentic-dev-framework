@@ -7,6 +7,7 @@
  */
 import type { ResolveResult } from "../resolve/types.js";
 import { resolveFailureMessage } from "../resolve/resolve-gov.js";
+import { checkVersionCompat } from "./version-compat.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
 
@@ -31,6 +32,8 @@ export interface DoctorFacts {
   readonly cliVersion: string;
   /** Old-world artifacts found in the workspace (framework/, registry.yaml, …). */
   readonly staleArtifacts?: readonly string[];
+  /** The workspace's content VERSION marker, or null. */
+  readonly contentVersion?: string | null;
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -44,6 +47,10 @@ export function doctor(facts: DoctorFacts): DoctorReport {
       ? { name: "active org", status: "ok", detail: facts.activeOrg }
       : { name: "active org", status: "warn", detail: "not set — run `gov org use <org>`" },
     { name: "CLI version", status: "ok", detail: facts.cliVersion },
+    ((): Diagnostic => {
+      const c = checkVersionCompat(facts.cliVersion, facts.contentVersion ?? null);
+      return { name: "version compat", status: c.ok ? (c.status === "ok" || c.status === "no-marker" ? "ok" : "warn") : "fail", detail: c.message };
+    })(),
     (facts.staleArtifacts && facts.staleArtifacts.length)
       ? { name: "content layout", status: "warn", detail: `old-world artifacts (${facts.staleArtifacts.join(", ")}) — run \`gov upgrade --from <content>\`` }
       : { name: "content layout", status: "ok", detail: "current" },
