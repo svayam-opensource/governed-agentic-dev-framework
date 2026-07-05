@@ -40,11 +40,16 @@ teardown() {
 }
 trap teardown EXIT
 
-# ── 0. Bootstrap: node 24 · install the packed gov · authenticate gh ─────────
-step "Bootstrap (node 24 · gov · gh auth)"
-export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"
-nvm install 24 >/dev/null 2>&1; nvm use 24 >/dev/null
-node -v | grep -q '^v24' && ok "node $(node -v)" || die "node 24 not active"
+# ── 0. Bootstrap: node ≥24 · install the packed gov · authenticate gh ────────
+# Node acquisition is source-agnostic: use the runtime's node if it's already
+# ≥24 (node:24 image, CI runner), else fall back to nvm (the local gyan image).
+step "Bootstrap (node ≥24 · gov · gh auth)"
+if node -v 2>/dev/null | grep -qE '^v(2[4-9]|[3-9][0-9])'; then
+  :
+elif [ -s "$HOME/.nvm/nvm.sh" ]; then
+  export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; nvm install 24 >/dev/null 2>&1; nvm use 24 >/dev/null
+fi
+node -v 2>/dev/null | grep -qE '^v(2[4-9]|[3-9][0-9])' && ok "node $(node -v)" || die "node ≥24 required (install it, or provide nvm)"
 npm i -g "$GOV_TARBALL" >/dev/null 2>&1
 command -v gov >/dev/null && ok "gov installed: $(gov --version 2>/dev/null || echo '?')" || die "gov not on PATH"
 # GH_TOKEN in the env authenticates gh directly (no `gh auth login` needed).

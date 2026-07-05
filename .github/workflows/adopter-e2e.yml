@@ -1,0 +1,86 @@
+name: adopter-e2e
+
+# The first-adopter journey, in two tiers (TESTBED-DESIGN — generalized for ANY
+# gov maintainer, not a personal setup):
+#   • smoke — HERMETIC (stub gh, no token/org/network). Runs for everyone, every
+#     PR. Exercises the real gov binary + shipped content (setup · org · validate
+#     · doctor · --gov-home).
+#   • live  — the full journey against REAL GitHub in an ephemeral runner. Runs
+#     ONLY when a maintainer has configured a throwaway sandbox: secret
+#     GOV_E2E_TOKEN (scopes: repo, workflow, project, read:org, delete_repo) +
+#     var GOV_E2E_ORG. Self-cleaning. Skips (never fails) when unset, so forks /
+#     contributors without a sandbox aren't blocked.
+
+on:
+  pull_request:
+    paths:
+      - "publish/**"
+      - ".github/workflows/adopter-e2e.yml"
+  push:
+    branches: ["**"]
+    paths:
+      - "publish/**"
+      - ".github/workflows/adopter-e2e.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: adopter-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: adopter-smoke (hermetic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: publish/actions/ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: publish/actions/ts/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Hermetic adopter smoke (no token / org / network)
+        run: npm run test:adopter:smoke
+
+  live:
+    name: adopter-journey (live GitHub)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard — is a sandbox org + token configured?
+        id: guard
+        env:
+          TOK: ${{ secrets.GOV_E2E_TOKEN }}
+          ORG: ${{ vars.GOV_E2E_ORG }}
+        run: |
+          if [ -n "$TOK" ] && [ -n "$ORG" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::live adopter-journey skipped — set secret GOV_E2E_TOKEN + var GOV_E2E_ORG (a throwaway org you own) to enable."
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.run == 'true'
+        with:
+          node-version: "24"
+      - name: Build + pack gov (test the exact artifact)
+        if: steps.guard.outputs.run == 'true'
+        working-directory: publish/actions/ts
+        run: npm ci && npm run build && npm pack
+      - name: Run adopter journey (real GitHub, self-cleaning)
+        if: steps.guard.outputs.run == 'true'
+        env:
+          E2E_ORG: ${{ vars.GOV_E2E_ORG }}
+          GH_TOKEN: ${{ secrets.GOV_E2E_TOKEN }}
+        run: |
+          # The ephemeral runner IS the clean slate — run the journey directly
+          # (node 24 + gh are present); no container needed in CI.
+          TARBALL="$(ls publish/actions/ts/svayam-opensource-gov-*.tgz | head -1)"
+          GOV_TARBALL="$PWD/$TARBALL" CONTENT_DIR="$PWD/publish/content" \
+            bash publish/actions/ts/e2e/adopter-journey.sh

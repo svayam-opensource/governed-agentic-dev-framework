@@ -39,7 +39,9 @@
     "lint": "eslint .",
     "prepublishOnly": "npm run build && npm run test",
     "tsc": "npm run build",
-    "postbuild": "chmod +x lib/esm/cli/bin.js"
+    "postbuild": "chmod +x lib/esm/cli/bin.js",
+    "test:adopter": "bash e2e/run-adopter-e2e.sh",
+    "test:adopter:smoke": "bash e2e/adopter-smoke.sh"
   },
   "keywords": [
     "gov",

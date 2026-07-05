@@ -3,19 +3,28 @@
 # Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 #
 # HOST orchestrator for the adopter-journey e2e. Packs the LOCAL gov build (so we
-# test the exact artifact about to be published), spins a FRESH container off the
-# gyan image (clean slate every run), and executes the in-container journey
-# against real GitHub. Run on publish / when content or actions change.
+# test the exact artifact about to be published), spins a FRESH container off a
+# reproducible image (clean slate every run), and executes the in-container
+# journey against real GitHub. Run on publish / when content or actions change.
+#
+# Portable: builds its own image from e2e/Dockerfile — no dependency on any
+# personal/pre-existing image. Bring your OWN throwaway org + token.
 #
 # Usage:  E2E_ORG=<your-throwaway-org> GH_TOKEN=<token> ./run-adopter-e2e.sh
-# Env:    E2E_IMAGE (default gyan-e2e-img:latest) · E2E_KEEP=1 to skip teardown
+# Env:    E2E_IMAGE (default gov-adopter-e2e:latest, auto-built) · E2E_KEEP=1 to skip teardown
 set -euo pipefail
 : "${E2E_ORG:?set E2E_ORG (a throwaway GitHub org you own)}"
-: "${GH_TOKEN:?set GH_TOKEN (scopes: repo, project, read:org)}"
-IMAGE="${E2E_IMAGE:-gyan-e2e-img:latest}"
+: "${GH_TOKEN:?set GH_TOKEN (scopes: repo, workflow, project, read:org, delete_repo)}"
+IMAGE="${E2E_IMAGE:-gov-adopter-e2e:latest}"
 HERE="$(cd "$(dirname "$0")" && pwd)"          # publish/actions/ts/e2e
 TS_DIR="$(cd "$HERE/.." && pwd)"               # publish/actions/ts
 CONTENT_DIR="$(cd "$TS_DIR/../../content" && pwd)" # publish/content
+
+# Reproducible clean-slate image — build it once if it isn't present locally.
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  echo "▶ building the adopter image ($IMAGE) from e2e/Dockerfile"
+  docker build -t "$IMAGE" "$HERE"
+fi
 
 echo "▶ build + pack the local gov ($TS_DIR)"
 ( cd "$TS_DIR" && npm run build >/dev/null && npm pack --silent >/dev/null )
