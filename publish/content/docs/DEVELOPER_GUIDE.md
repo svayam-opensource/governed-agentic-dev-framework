@@ -353,7 +353,7 @@ The session-start protocol is **one canonical source**, delivered through each t
 | `agent/session-protocol.md` | C01 session protocol — layer load order, gates, write rules, capture (POL-113–117) |
 | `agent.md` | Org workspace entrypoint — policy pointers, repo identity |
 
-**Do not** hand-edit generated harness install paths (see below). Run `./scripts/render-harness.sh` after changing the canonical source.
+**Do not** hand-edit generated harness install paths (see below). Run `node agent/render-harness.mjs` after changing the canonical source.
 
 ### How each tool gets protocol into system context
 
@@ -389,7 +389,7 @@ Reads persist in **chat transcript** for the rest of the session; they are not r
 - **Text pointers are not file loads.** *"See `agent.md`"* in a rule instructs the model; it does not embed the file. Use Claude `@import` or Cursor generation.
 - **Verify loading.** First prompt: ask for a context manifest (project, branch, open todos). Claude: `/memory`. Cursor: confirm Always rules in Settings → Rules.
 - **Adopter C03 extensions** go below the `ADOPTER_C03_EXTENSIONS` marker in `agent/session-protocol.local.md` or the generated harness footer — never contradict layer priority or C01/C02 rules.
-- **Migration note:** Until `agent/session-protocol.md` and `render-harness.sh` land, harness files still inline duplicate protocol — update them in lockstep if you edit protocol text.
+- **Migration note:** Until `agent/session-protocol.md` and `agent/render-harness.mjs` land, harness files still inline duplicate protocol — update them in lockstep if you edit protocol text.
 
 ---
 

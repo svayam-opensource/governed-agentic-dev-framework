@@ -4,10 +4,18 @@
   "private": true,
   "description": "Governed Agentic Development Framework — repository root (private; never published). The OSS CLI is @svayam-opensource/gov at publish/actions/ts; framework content ships from publish/content; the frozen legacy bash CLI is archived under publish/actions/deprecated.",
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/svayam-opensource/governed-agentic-dev-framework.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/svayam-opensource/governed-agentic-dev-framework.git"
+  },
   "scripts": {
     "build": "npm --prefix publish/actions/ts run build",
     "test": "npm --prefix publish/actions/ts test",
-    "lint": "npm --prefix publish/actions/ts run lint"
+    "lint": "npm --prefix publish/actions/ts run lint",
+    "render-harness": "node agent/render-harness.mjs",
+    "render-harness:check": "node agent/render-harness.mjs --check"
+  },
+  "devDependencies": {
+    "js-yaml": "^4.1.0"
   }
 }

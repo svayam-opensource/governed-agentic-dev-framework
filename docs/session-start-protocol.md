@@ -50,7 +50,7 @@ The `/session-start` steps the agent performs:
 
 The protocol body is single-sourced at **`agent/session-protocol.md`** and rendered
 to each tool's conventional rules file (`CLAUDE.md`, `.cursor/rules/agent.mdc`,
-`AGENTS.md`, `.clinerules/agent.md`, …) by `scripts/render-harness.sh`. Edit the
+`AGENTS.md`, `.clinerules/agent.md`, …) by `agent/render-harness.mjs`. Edit the
 source and re-render — the generated files carry a "do not edit" banner.
 
 ## How a governance admin customizes session-start

@@ -1,9 +1,9 @@
-# Harness manifest — drives scripts/render-harness.sh
+# Harness manifest — drives agent/render-harness.mjs
 # Canonical protocol: agent/session-protocol.md + agent.md
 # Spec: docs/design/agent-context-assembly-spec.md §3.3, Appendix C, Appendix D
 #
 # Do not hand-edit generated install paths listed under harnesses[].path when
-# generated: true. Run ./scripts/render-harness.sh after editing session-protocol.
+# generated: true. Run node agent/render-harness.mjs after editing session-protocol.
 
 version: 1
 
@@ -188,7 +188,7 @@ harnesses:
     template: markdown-plain
     notes: "Path TBD."
 
-# Templates (consumed by render-harness.sh)
+# Templates (consumed by agent/render-harness.mjs)
 templates:
   cursor-mdc: |
     ---
