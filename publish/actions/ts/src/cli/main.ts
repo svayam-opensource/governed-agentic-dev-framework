@@ -100,13 +100,24 @@ export async function runSetupCommand(argv: readonly string[], now: string = new
   }
 }
 
-/** Read the CLI's own version from its package.json (falls back to "?"). */
+/** Read the CLI's own version from its package.json. Walks up from this module
+ *  so it resolves in both the built layout (lib/esm/cli) and src-via-tsx. */
 export function readCliVersion(): string {
-  try {
-    const pkg = createNodeFs().readFile(fileURLToPath(new URL("../../../package.json", import.meta.url)));
-    if (pkg) return (JSON.parse(pkg) as { version?: string }).version ?? "?";
-  } catch {
-    /* fall through */
+  const fs = createNodeFs();
+  let dir = fileURLToPath(new URL(".", import.meta.url));
+  for (let i = 0; i < 6; i++) {
+    const raw = fs.readFile(path.join(dir, "package.json"));
+    if (raw) {
+      try {
+        const pkg = JSON.parse(raw) as { name?: string; version?: string };
+        if (pkg.name === "@svayam-opensource/gov" && pkg.version) return pkg.version;
+      } catch {
+        /* keep walking */
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
   return "?";
 }

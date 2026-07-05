@@ -10,8 +10,8 @@ describe("gov-work — meta flags (--version / --help work without a workspace)"
   it("helpLines() lists the grouped command reference", () => {
     const h = helpLines().join("\n");
     expect(h).to.match(/command reference/);
-    expect(h).to.match(/Lifecycle:/);
-    expect(h).to.match(/Governance:/);
+    expect(h).to.match(/Lifecycle\s+seed/);
+    expect(h).to.match(/Governance\s+manage/);
     expect(h).to.match(/seed · join · task/);
   });
   it("helpLines(command) gives per-command guidance", () => {
