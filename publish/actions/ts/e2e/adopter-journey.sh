@@ -180,11 +180,13 @@ CLOSE_OUT=$(gov close 2>&1) || { echo "$CLOSE_OUT" | tail -12; die "gov close fa
 [ "$(gh project view "$PROJ_NUM" --owner "$E2E_ORG" --format json --jq .closed 2>/dev/null)" = "true" ] && ok "close shut the board" \
   || assert_contains "$CLOSE_OUT" "close" "close ran the gate"
 
-# ── 8. Gap-2: --gov-home resolves from an unrelated cwd ──────────────────────
+# ── 8. Gap-2: --gov-home resolves from an unrelated cwd (project-state-agnostic) ─
+# `doctor --gov-home <ws>` reports the resolved home path regardless of project
+# state — the cleanest proof the override bypasses cwd-based resolution.
 step "Gap-2 — --gov-home override"
 cd /tmp
-STATUS_OUT=$(gov status --gov-home "$ROOT/$WS_REPO" 2>&1 || true)
-assert_contains "$STATUS_OUT" "$SLUG" "gov --gov-home resolved the workspace from an unrelated cwd"
+DOC_OUT=$(gov doctor --gov-home "$ROOT/$WS_REPO" 2>&1 || true)
+assert_contains "$DOC_OUT" "$WS_REPO" "gov --gov-home resolved the workspace from an unrelated cwd"
 
 printf '\n\033[1m═══ adopter-journey: %d passed, %d failed ═══\033[0m\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
