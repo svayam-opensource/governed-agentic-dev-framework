@@ -46,4 +46,6 @@ npm install
 npm run build && npm run lint && npm test   # incl. the full-flow e2e gate
 ```
 
+Contributing / adding tests: **[CONTRIBUTING.md](CONTRIBUTING.md)** — both required gates (`gov-work`, `adopter-smoke`) grow by drop-in; see also [`publish/actions/ts/test/README.md`](publish/actions/ts/test/README.md).
+
 Licensed under [MIT](LICENSE).
