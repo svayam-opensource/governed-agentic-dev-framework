@@ -1,48 +1,43 @@
-# framework/MANIFEST.yaml
+# publish/content/MANIFEST.yaml
 #
-# Classifies every file the framework ships. Read by framework/bin/setup.sh
-# on initial install and on upgrade.
+# Classifies every file the framework CONTENT ships. Read by `gov setup` on
+# initial install and by `gov upgrade` on subsequent syncs.
 #
 # Modes:
 #   scaffold-auto    — overwrite the canonical-path copy without prompting.
 #                      Framework owns the file; org should not customize.
-#                      (Operational scripts, CLI, CI workflow.)
-#   scaffold-prompt  — 3-way merge between (previous framework version,
-#                      current org copy, new framework version). If org has
-#                      customized, prompt before applying. (Agent rule files,
-#                      policy text, guidance — places org might extend.)
-#   overlay-schema   — framework defines the schema, org owns the values.
-#                      Upgrade adds new keys with empty defaults but never
-#                      modifies existing values. (org-config.yaml.)
+#   scaffold-prompt  — 3-way merge between (previous content version, current
+#                      org copy, new content version). If org has customized,
+#                      prompt before applying. (Agent rule files, policy text,
+#                      guidance — places an org might extend.)
+#   overlay-schema   — framework defines the schema, org owns the VALUES.
+#                      On upgrade: ADD keys newly introduced by the template,
+#                      COMMENT OUT keys removed from the template, and NEVER
+#                      modify a value the organization provided. (org-config.yaml)
 #
 # A directory entry applies the mode to every file under it recursively.
 # Individual file entries override directory defaults.
 #
-# Paths in `src` are relative to framework/ (i.e. the SoT inside this dir).
-# Paths in `dst` are relative to the repo root (the canonical path on ORG side).
-# `perm` is optional; defaults to 0644 (or 0755 if dst ends in .sh / .py or
-# is a known-executable name).
+# Paths in `src` are relative to publish/content/ (the SoT inside this dir).
+# Paths in `dst` are relative to the adopter repo root (the canonical path).
+# `perm` is optional; defaults to 0644.
 
-version: "0.4.0"   # authoritative source: framework/VERSION
+version: "1.0.0"   # authoritative source: publish/content/VERSION
 
 # ─────────────────────────────────────────────────────────────────────────
-# Operational — CLI, scripts, CI.
-#
-# UN-VENDORED (npm-only decision, 2026-06-21; ADR-0001 Ph4): the CLI is no
-# longer scaffolded into governance repos. Developers install it from npm
-# (`npm i -g @svayam-opensource/prj`); it operates on any workspace via
-# $ADF_WORKSPACE. Gov repos hold pure data + content; `prj upgrade` carries
-# framework CONTENT only. So `prj`, `scripts/`, and `tests/` are NOT scaffolded.
-#
-# FOLLOW-UP (remaining un-vendor work): the governance CI gates (lint /
-# test-merge / privacy) previously ran the vendored `scripts/validate/` +
-# `tests/`. They must be re-provided via the npm CLI (a `prj validate` surface)
-# before CI is re-scaffolded to adopters; until then `.github/workflows/` is
-# not scaffolded. See the CLI-distribution decisions ([[svm-two-lane-sot]]) +
-# Option C (CLI source → template repo).
+# The CLI is NOT scaffolded into governance repos. Developers install it from
+# npm (`npm i -g @svayam-opensource/gov`, command `gov`); it operates on any
+# resolved gov workspace (model A — GitHub is the source of truth; no
+# $ADF_WORKSPACE, no state files). Gov repos hold pure data + content; `gov
+# upgrade` carries framework CONTENT only. Governance CI gates are provided by
+# the CLI (`gov validate`), so the framework's own `.github/workflows/` is not
+# scaffolded to adopters.
 # ─────────────────────────────────────────────────────────────────────────
 
 files:
+
+  # The installed content-version marker (replaces .framework-version).
+  - { src: VERSION, dst: VERSION, mode: scaffold-auto }
 
   # projects/README.md is framework-shipped boilerplate explaining the dir
   - { src: projects/README.md, dst: projects/README.md, mode: scaffold-auto }
@@ -68,13 +63,10 @@ files:
   - { src: .github/ISSUE_TEMPLATE/, dst: .github/ISSUE_TEMPLATE/, mode: scaffold-prompt }
 
   # ─────────────────────────────────────────────────────────────────────
-  # Session-start enforcement gate (#54 Layer 2 — client gates).
-  # Default-on for adopters: the hook scripts are framework-owned logic
+  # Session-start enforcement gate. Hook scripts are framework-owned logic
   # (scaffold-auto, do-not-edit); the wiring configs (settings.json /
-  # hooks.json) and the rule/command are scaffold-prompt so an org that has
-  # its own Claude/Cursor config merges rather than gets clobbered. Claude
-  # Code asks each developer to approve the hooks once. The gate references
-  # the rendered protocol at framework/CLAUDE.md.
+  # hooks.json) and the rule/command are scaffold-prompt so an org with its
+  # own Claude/Cursor config merges rather than gets clobbered.
   # ─────────────────────────────────────────────────────────────────────
   - { src: .claude/hooks/,                     dst: .claude/hooks/,                     mode: scaffold-auto }
   - { src: .claude/commands/session-start.md,  dst: .claude/commands/session-start.md,  mode: scaffold-auto }
@@ -84,9 +76,9 @@ files:
   - { src: .cursor/rules/session-start-gate.mdc, dst: .cursor/rules/session-start-gate.mdc, mode: scaffold-prompt }
 
   # ─────────────────────────────────────────────────────────────────────
-  # Knowledge — policy, guidance, architecture readmes.
-  # Framework ships baseline; orgs add their own files alongside. 3-way
-  # merge on upgrade only touches framework-owned paths listed here.
+  # Knowledge — policy, guidance, architecture readmes. Framework ships
+  # baseline; orgs add their own files alongside. 3-way merge on upgrade only
+  # touches framework-owned paths listed here.
   # ─────────────────────────────────────────────────────────────────────
 
   - { src: knowledge/policies/agentic-development-policy.md,      dst: knowledge/policies/agentic-development-policy.md,      mode: scaffold-prompt }
@@ -127,27 +119,24 @@ files:
 
   - { src: README.md,    dst: README.md,    mode: scaffold-prompt }
   - { src: CODEOWNERS,   dst: CODEOWNERS,   mode: scaffold-prompt }
-  - { src: .gitignore,   dst: .gitignore,   mode: scaffold-prompt }
 
   # ─────────────────────────────────────────────────────────────────────
-  # Overlay: schema source for org-config.yaml. Setup creates it on first
-  # install; upgrade extends schema (adds missing keys with empty values)
-  # without overwriting existing values.
+  # Schema source for org-config.yaml. `gov setup` writes org-config.yaml from
+  # this template on first install; `gov upgrade` extends the schema (adds new
+  # keys, comments out removed keys) WITHOUT overwriting org-provided values.
   # ─────────────────────────────────────────────────────────────────────
 
-  - { src: overlay/org-config.yaml.example, dst: org-config.yaml, mode: overlay-schema }
+  - { src: org-config.example.yaml, dst: org-config.yaml, mode: overlay-schema }
 
 
 # ─────────────────────────────────────────────────────────────────────────
 # Paths the framework promises NEVER to touch on upgrade. Listed here for
-# documentation and as a validator hint. Setup will refuse to overwrite
-# anything matching these patterns even if a manifest entry says otherwise.
+# documentation and as a validator hint. Upgrade refuses to overwrite anything
+# matching these patterns even if a manifest entry says otherwise.
 # ─────────────────────────────────────────────────────────────────────────
 
 owned:
-  - registry.yaml
-  - projects/PRJ-*/
-  - "projects/[A-Z]*-*/"          # legacy <ORG_SLUG>-NNN-slug folders
-  - .framework-version             # written by setup, read on next upgrade
+  - org-config.yaml                # org-owned VALUES (only schema is extended)
+  - projects/PRJ-*/                # project workspaces
   - knowledge/policies/exceptions/*/[0-9]*.md  # dated exception filings
-  # Anything org adds at paths NOT listed in `files:` above is implicitly owned.
+  # Anything an org adds at paths NOT listed in `files:` above is implicitly owned.
