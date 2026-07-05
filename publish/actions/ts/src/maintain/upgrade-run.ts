@@ -128,3 +128,31 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   }
   return { code: 0, lines: [`Opened upgrade PR: ${prUrl}`, `  ${branch} → ${base} · ${res.applied.length} file(s) changed`, `  Review per-file; keep your customizations where the diff replaces them, then merge.`] };
 }
+
+import * as os from "node:os";
+
+/** The published framework repo — the default template source. */
+export const DEFAULT_TEMPLATE = "https://github.com/svayam-opensource/governed-agentic-dev-framework.git";
+
+/**
+ * Fetch publish/content from the template remote into a temp dir (sparse, shallow
+ * — only publish/content is materialized). Returns the content dir + a cleanup fn.
+ * `templateUrl` may be a URL or a local path (for testing).
+ */
+export function fetchTemplateContent(templateUrl: string, ref: string): { contentDir: string; cleanup: () => void } {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gov-content-"));
+  const cleanup = () => fs.rmSync(tmp, { recursive: true, force: true });
+  try {
+    execFileSync("git", ["clone", "--depth", "1", "--filter=blob:none", "--sparse", "--branch", ref, templateUrl, tmp], { stdio: ["ignore", "pipe", "pipe"] });
+    execFileSync("git", ["-C", tmp, "sparse-checkout", "set", "publish/content"], { stdio: ["ignore", "pipe", "pipe"] });
+  } catch (e) {
+    cleanup();
+    throw new Error(`could not fetch content from ${templateUrl}@${ref}: ${(e as Error).message.split("\n").pop()}`, { cause: e });
+  }
+  const contentDir = path.join(tmp, "publish", "content");
+  if (!fs.existsSync(path.join(contentDir, "MANIFEST.yaml"))) {
+    cleanup();
+    throw new Error(`fetched ${templateUrl}@${ref} but publish/content/MANIFEST.yaml is not there`);
+  }
+  return { contentDir, cleanup };
+}

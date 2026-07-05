@@ -32,7 +32,7 @@ import { doctor, formatDoctorReport } from "../maintain/doctor.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
-import { runUpgradeSync, runUpgradePr } from "../maintain/upgrade-run.js";
+import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } from "../maintain/upgrade-run.js";
 import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
@@ -176,7 +176,10 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   // the CLI self-update guidance.
   if (parsed.command === "upgrade") {
     const from = flagStr(parsed.flags, "from");
-    if (from) {
+    // Content sync (fetch from the template, or --from a local dir) unless a
+    // positional version was given (that's CLI self-update guidance).
+    const contentSync = from !== undefined || "pr" in parsed.flags || "apply" in parsed.flags || "template" in parsed.flags || "ref" in parsed.flags || parsed.positionals.length === 0;
+    if (contentSync) {
       const env = createNodeEnv();
       const govHomeOverride = flagStr(parsed.flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
       let home: string;
@@ -190,12 +193,32 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         }
         home = resolved.home;
       }
-      const contentDir = path.resolve(expandTilde(from));
-      const res = "pr" in parsed.flags
-        ? runUpgradePr(contentDir, home, { branch: flagStr(parsed.flags, "branch") })
-        : runUpgradeSync(contentDir, home, { apply: "apply" in parsed.flags });
-      for (const line of res.lines) process.stdout.write(`${line}\n`);
-      return res.code;
+      let contentDir: string;
+      let cleanup = (): void => {};
+      if (from) {
+        contentDir = path.resolve(expandTilde(from));
+      } else {
+        const template = flagStr(parsed.flags, "template") ?? DEFAULT_TEMPLATE;
+        const ref = flagStr(parsed.flags, "ref") ?? "main";
+        process.stderr.write(`fetching content from ${template}@${ref} …\n`);
+        try {
+          const fetched = fetchTemplateContent(template, ref);
+          contentDir = fetched.contentDir;
+          cleanup = fetched.cleanup;
+        } catch (e) {
+          process.stderr.write(`gov upgrade: ${(e as Error).message}\n`);
+          return 1;
+        }
+      }
+      try {
+        const res = "pr" in parsed.flags
+          ? runUpgradePr(contentDir, home, { branch: flagStr(parsed.flags, "branch") })
+          : runUpgradeSync(contentDir, home, { apply: "apply" in parsed.flags });
+        for (const line of res.lines) process.stdout.write(`${line}\n`);
+        return res.code;
+      } finally {
+        cleanup();
+      }
     }
     let cliVersion = "0.0.0";
     try {
