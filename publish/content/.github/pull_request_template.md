@@ -21,16 +21,14 @@ and why.
 
 ## Local checks
 
-- [ ] `bash -n scripts/lib.sh scripts/*.sh prj` — no syntax errors
-- [ ] `python3 scripts/validate/run.py` — validators pass
-- [ ] If shell-script change: tested the affected script(s) manually
+- [ ] `gov validate` — validators pass
 - [ ] If policy change: confirmed compliance level is correct (C01/C02/C03)
-- [ ] If new org value added: added to `org-config.yaml`, `setup.sh` prompt, and `lib.sh load_config`
+- [ ] If new org value added: added to `org-config.yaml` and the `gov setup` prompt
 
 ## Privacy / scope
 
 - [ ] No per-org private values (real org names, emails, project IDs) committed
-- [ ] No double-curly placeholder tokens anywhere in framework files — framework reads org values from `org-config.yaml` at runtime; the only files that may diverge from upstream TEMPLATE are `org-config.yaml`, `registry.yaml`, and `projects/`
+- [ ] No double-curly placeholder tokens anywhere in framework files — framework reads org values from `org-config.yaml` at runtime; the only files that may diverge from upstream TEMPLATE are `org-config.yaml` and `projects/`
 - [ ] If targeting `publish`: change is universal, applies to any adopting org
 - [ ] If targeting `main`: change is org-specific or comes from upstream `publish` via sync
 

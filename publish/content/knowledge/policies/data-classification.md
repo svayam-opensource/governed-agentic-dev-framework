@@ -43,7 +43,7 @@ Sensitive business data. Disclosure could harm business interests, client relati
 
 **Knowledge base:** Allowed only with explicit C02 approval.
 **Repositories:** Allowed with appropriate access controls.
-**Agent context:** Allowed only after C02 approval is documented in `project.yaml`.
+**Agent context:** Allowed only after C02 approval is recorded via an approved exception PR in `knowledge/policies/exceptions/policy/`.
 **Process:** Raise exception request in `knowledge/policies/exceptions/policy/` and obtain Policy Owner approval before including.
 
 ---

@@ -2,7 +2,7 @@
 
 **Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)
 **Scope:** This specification applies to `<WORKSPACE_REPO>` ONLY.
-**Note:** Other repos are not covered by this spec. They adopt the agentic development policy via the `onboard-repo` script without CI/CD changes.
+**Note:** Other repos are not covered by this spec. They adopt the agentic development policy via `gov onboard` without CI/CD changes.
 
 ---
 
@@ -14,33 +14,27 @@ The `<WORKSPACE_REPO>` CI/CD pipeline runs on every PR and every merge to `<DEFA
 
 ## On Every PR to Master (Validation Gates)
 
-These checks run on every PR targeting `<DEFAULT_BRANCH>`. Failures block the merge. **(C01)**
+These checks run on every PR targeting `<DEFAULT_BRANCH>` — the same validators `gov validate` runs locally. Failures block the merge. **(C01)**
 
-### 1. `project.yaml` Schema Validation
-- All files matching `projects/*/project.yaml` must conform to the required schema
-- All mandatory fields must be present
-- `status` must be a valid enum value
-- `repos[].role` must be `primary`, `dependency`, or `read-only`
-- `knowledge_status` must be a valid enum value if set
+Project state is derived live from GitHub (Project boards + anchor issues); there is no `registry.yaml` or `project.yaml` to validate. The gates below check structural and naming invariants against that GitHub-derived state.
+
+### 1. Project ID & Branch Naming
+- Every project folder under `projects/` must be named `PRJ-<board#>-<slug>` and correspond to a GitHub Project board
+- No duplicate project IDs
+- Project branches follow `BRNCH-<board#>-<slug>` (legacy `brnch-NNN-<slug>` projects keep their names)
 
 ### 2. CODEOWNERS Coverage
 - Every subfolder in `knowledge/` must have a mapped owner in `CODEOWNERS`
 - No unmapped paths
 
-### 3. `registry.yaml` Integrity
-- `last_issued` must be a non-negative integer
-- No duplicate project IDs in `projects[]`
-- All IDs must match the `PRJ-<board#>-<slug>` format
-
-### 4. Active Project Workspace Structure
-- All `active` projects must have:
+### 3. Active Project Workspace Structure
+- All active projects (those whose GitHub board is open) must have:
   - `projects/PRJ-<board#>-<slug>/requirements/` folder
   - `projects/PRJ-<board#>-<slug>/environment/` folder
   - `projects/PRJ-<board#>-<slug>/knowledge/` folder
   - `projects/PRJ-<board#>-<slug>/agent.md`
-  - `projects/PRJ-<board#>-<slug>/project.yaml`
 
-### 5. Data Classification Scan
+### 4. Data Classification Scan
 - Scan all committed files for patterns matching Restricted data (credentials, keys, tokens)
 - Hard block if detected **(C01)**
 
@@ -63,7 +57,7 @@ These jobs run after every successful merge to `<DEFAULT_BRANCH>`. **(C02)**
 ### 3. Vector Re-embedding
 - Re-embed only the knowledge files changed in this merge (not a full re-index)
 - Update vector store with new embeddings
-- Used by agents for RAG-based context building and by `close-knowledge` script
+- Used by agents for RAG-based context building and by the knowledge-close step of `gov close`
 
 ### 4. Compliance Summary Update
 - Aggregate per-project `compliance.md` files into `knowledge/compliance/`

@@ -1,7 +1,7 @@
 # Project Compliance Log: PRJ-<board#>-<slug>
 
 **Project:** PRJ-<board#>-<slug>
-**Assignee:** [locked_by value]
+**Assignee:** [anchor issue assignee]
 **Period:** YYYY-MM-DD to YYYY-MM-DD
 **Status:** [active | completed | cancelled]
 

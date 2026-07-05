@@ -18,7 +18,7 @@ This policy governs which LLM providers and models may be used by agents and dev
 Vetted providers and models that have been reviewed for security, data residency, and compliance requirements.
 
 **Usage:** Default allowed. No additional approval needed.
-**Agent config:** Use approved provider/model in `project.yaml` `agent_config`.
+**Agent config:** Use an approved provider/model in the agent's run configuration.
 
 **Current approved list:**
 
@@ -26,7 +26,7 @@ Vetted providers and models that have been reviewed for security, data residency
 |---|---|---|
 | Cursor | auto | Default — `model: auto, provider: cursor` |
 
-*Maintained by Infrastructure Owner. Updated via `propose-knowledge` script.*
+*Maintained by Infrastructure Owner. Updated via `gov knowledge`.*
 
 ---
 
@@ -35,7 +35,7 @@ Providers or models not yet vetted. May be used for specific projects with Infra
 
 **Usage:** Allowed with Infrastructure Owner C02 approval documented in project exception folder.
 **Process:** Raise exception in `knowledge/policies/exceptions/infrastructure/` before use.
-**Agent config:** Must still be declared in `project.yaml` `agent_config`.
+**Agent config:** Must still be declared in the agent's run configuration.
 
 ---
 
@@ -58,7 +58,7 @@ agent_config:
   provider: cursor
 ```
 
-This must be declared in `project.yaml`. Agents must not use a different provider without updating this field and obtaining appropriate approval.
+This must be declared in the agent's run configuration. Agents must not use a different provider without updating this declaration and obtaining appropriate approval.
 
 ---
 
@@ -78,5 +78,5 @@ See `knowledge/policies/data-classification.md` for data classification definiti
 
 - Maintain the Approved providers list in this file
 - Review and approve Provisional provider requests
-- Update this policy via `propose-knowledge` script as new providers are vetted
+- Update this policy via `gov knowledge` as new providers are vetted
 - Ensure CI/CD pipeline and vector store use only Approved providers

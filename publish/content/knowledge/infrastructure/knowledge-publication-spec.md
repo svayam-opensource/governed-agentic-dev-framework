@@ -28,7 +28,7 @@ Primary knowledge consumption interface for developers, governance teams, and au
 ### Content Coverage
 - All `knowledge/` subfolders and documents
 - All `projects/PRJ-<board#>-<slug>/knowledge/` content
-- `registry.yaml` rendered as a project dashboard
+- A project dashboard derived from GitHub (Project boards + anchor issues) — there is no `registry.yaml`
 - CODEOWNERS rendered as domain ownership map
 - `knowledge/policies/roles.md` rendered as an org chart
 
@@ -63,14 +63,14 @@ Formal documents suitable for regulators, external auditors, and legal review.
 ## Form 3: Vector Embeddings (RAG)
 
 ### Purpose
-Enables agents to semantically search org knowledge for context building without reading all files. Also used by `close-knowledge` script for LLM synthesis.
+Enables agents to semantically search org knowledge for context building without reading all files. Also used by the knowledge-close step of `gov close` for LLM synthesis.
 
 ### Requirements
 - **Scope:** All files in `knowledge/` are embedded
 - **Update strategy:** Re-embed only changed files on each <DEFAULT_BRANCH> merge (not full re-index)
 - **Chunking:** Each document section (defined by `##` headings) is a separate chunk with sufficient surrounding context to be self-contained
 - **Metadata per chunk:** file path, section heading, last modified commit SHA, domain owner
-- **Access:** Internal API accessible to agents during work sessions and to `close-knowledge` script
+- **Access:** Internal API accessible to agents during work sessions and to the knowledge-close step of `gov close`
 - **Infrastructure Owner** is responsible for vector store choice, maintenance, and uptime
 
 ### Agent Usage
@@ -79,8 +79,8 @@ Agents query the vector store at session start to build relevant context:
 2. Query vector store with project context to retrieve semantically relevant org knowledge
 3. Assemble context from retrieved chunks + full priority layer stack
 
-### close-knowledge Usage
-The `close-knowledge` script queries the vector store to find existing org knowledge relevant to project learnings before proposing updates — ensuring proposals are additive and non-redundant.
+### Knowledge-close Usage
+The knowledge-close step of `gov close` queries the vector store to find existing org knowledge relevant to project learnings before proposing updates — ensuring proposals are additive and non-redundant.
 
 ---
 

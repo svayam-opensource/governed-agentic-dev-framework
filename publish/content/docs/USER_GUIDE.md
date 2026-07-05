@@ -5,7 +5,7 @@ This guide is for daily users of the framework — people in an org that has alr
 If you're setting the framework up for the first time, see [README.md](../README.md) for the quickstart.
 If you're contributing back to the framework itself, see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-The `prj` CLI runs vendored from each repo (`./prj`) by default, but can also be **installed once per machine** with `./install.sh` so repos carry only data instead of a vendored copy of the framework — see [installing.md](../../docs/installing.md).
+The `gov` CLI is installed from npm — `npm i -g @svayam-opensource/gov` (requires Node 24). It is **not** vendored into repos, so repos carry only data instead of a copy of the framework.
 
 ---
 
@@ -16,10 +16,10 @@ The `prj` CLI runs vendored from each repo (`./prj`) by default, but can also be
 The repository containing this guide is the **workspace repo**. It's not a code repo — it holds:
 
 - `knowledge/` — org-wide policy, guidance, architecture, accumulated learnings
-- `projects/` — one folder per project, with a manifest (`project.yaml`) and project-specific knowledge
-- `registry.yaml` — the authoritative project counter and index
-- `scripts/` — automation
+- `projects/` — one folder per project, holding project-specific knowledge
 - `org-config.yaml` — your org's specific values (org name, slug, GitHub org, role holders)
+
+There are no per-project state files. Project state — the project index, active/done status, ownership, authorization — is derived live from GitHub (project boards plus their anchor issues); GitHub is the sole source of truth.
 
 Code lives in separate repos that projects reference; the workspace repo coordinates them.
 
@@ -28,16 +28,15 @@ Code lives in separate repos that projects reference; the workspace repo coordin
 A unit of work with a unique ID — e.g., `PRJ-26-invoice-api`. The ID is composed of:
 
 - The fixed `PRJ-` prefix
-- The GitHub project **board number** (`26`) — the integer in the linked GitHub Project's URL, no leading zero — issued by the seed script
+- The GitHub project **board number** (`26`) — the integer in the linked GitHub Project's URL, no leading zero — issued by `gov seed`
 - A slug derived from the project's GitHub Project name
 
 Each project has:
 
 - A folder: `projects/PRJ-26-invoice-api/`
 - A workspace branch: `BRNCH-26-invoice-api` (same board number + slug, `BRNCH-` prefix) in this repo and in every code repo it touches; task sub-branches append `.ISSUE-<n>`
-- A manifest: `projects/PRJ-26-invoice-api/project.yaml`
-- A lifecycle: `proposed` → `active` → (`paused` ↔ `active`) → `completed` or `cancelled`
-- An assignee — a display/audit cache recorded in `project.yaml`/`registry.yaml`. Authorization to operate on the project is **write access to its linked GitHub Project** (`projectV2.viewerCanUpdate`), granted by an owner via `./prj manage assign` — not the `assigned_to` value. (Org owners/admins have access to everything.)
+- A lifecycle: `proposed` → `active` → (`paused` ↔ `active`) → `completed` or `cancelled`, tracked by the state of the GitHub board (open = active) rather than a state file
+- Ownership — the anchor issue's assignees. Authorization to operate on the project is **write access to its linked GitHub Project** (`projectV2.viewerCanUpdate`), granted by an owner via `gov manage assign`. (Org owners/admins have access to everything.)
 
 ### Knowledge layers
 
@@ -48,21 +47,21 @@ When an agent or developer reads context, four layers apply, with explicit prece
 | 1. Org-wide (highest) | `knowledge/` in this repo | Policy, role definitions, organizational standards |
 | 2. Project | `projects/<id>/knowledge/` | Project-specific decisions, learnings, compliance notes |
 | 3. Repo-local | `knowledge/` in each code repo | Repo conventions, structure, build environment |
-| 4. Developer (lowest) | `$PRJ_GOV_LOC/preferences/<your-gh-login>.md` | Personal preferences |
+| 4. Developer (lowest) | `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` | Personal preferences |
 
 Higher layer always wins. If org-wide policy says X and a developer preference says Y, X applies.
 
-The developer preferences file is **per-user**, keyed on your GitHub login. `setup.sh` creates one from `knowledge/guidance/preferences-template.md` the first time you run it (or `lib.sh` creates one lazily on your first `prj` write op if `setup.sh` ran without gh authenticated). To keep multiple profiles, save backups alongside (`<login>.md_work`, `<login>.md_oss`) and rotate by `mv`. The framework loads only the file at `<login>.md`.
+The developer preferences file is **per-user**, keyed on your GitHub login. `gov setup` creates one from `knowledge/guidance/preferences-template.md` the first time you run it (or `gov` creates one lazily on your first write op if `gov setup` ran without gh authenticated). To keep multiple profiles, save backups alongside (`<login>.md_work`, `<login>.md_oss`) and rotate by `mv`. The framework loads only the file at `<login>.md`.
 
 ### Compliance levels
 
 Every rule in the policy is tagged with a level:
 
-- **C01 — Non-Negotiable**: Hard stop. Scripts refuse to proceed. Exceptions require Policy Owner approval via PR.
+- **C01 — Non-Negotiable**: Hard stop. `gov` refuses to proceed. Exceptions require Policy Owner approval via PR.
 - **C02 — Always Apply**: Block work pending an approved exception PR (in `knowledge/policies/exceptions/`).
 - **C03 — Apply Intelligently**: Proceed if you have good reason; document the deviation in the project's `compliance.md`.
 
-The validators (`scripts/validate/run.py`) enforce structural invariants. The compliance levels apply to *interpretation* of policy by humans and agents.
+The validators (`gov validate`) enforce structural invariants. The compliance levels apply to *interpretation* of policy by humans and agents.
 
 ---
 
@@ -72,7 +71,7 @@ Two role types: **Owners** (accountable, approve PRs) and **Managers** (delegate
 
 | Role | Approves what |
 |---|---|
-| Policy Owner | Any change to `knowledge/policies/`, registry, agent.md |
+| Policy Owner | Any change to `knowledge/policies/`, roles, agent.md |
 | Legal Owner | `knowledge/legal/` |
 | Infrastructure Owner | `knowledge/infrastructure/`, CI/CD |
 | System Architecture Owner | `knowledge/architecture/system/` |
@@ -84,37 +83,41 @@ Current role holders are listed in `knowledge/policies/roles.md`. By default at 
 
 ---
 
-## The `prj` CLI
+## The `gov` CLI
 
-`./prj` is the entry point for most operations. Run it without arguments for an interactive menu, or with a subcommand.
+`gov` is the entry point for most operations. Run it without arguments for an interactive menu, or with a subcommand.
 
-**Developer surface (primary).** A developer's normal path is three verbs:
-
-```bash
-./prj start        # join a project / start a task / start a new project
-./prj work         # sync with latest base and continue (the "get current" verb)
-./prj finish       # submit a task (merge) or close the project (governance gate)
-```
-
-**Lifecycle verbs (what runs underneath).** `start`/`work`/`finish` route to these; you can also call them directly for advanced or scripted use:
+**The everyday flow.** A developer's normal path runs through these verbs:
 
 ```bash
-./prj              # interactive menu
-./prj list         # list all projects
-./prj status PRJ-26-invoice-api
-./prj init         # seed a new project (prompts for GitHub Project, assignee)
-./prj task         # create a sub-branch task on an active project
-./prj merge        # merge a completed task back to the project branch
-./prj pause / resume / sync / cancel / close
-./prj add-repo     # add another code repo to an active project
-./prj knowledge    # propose org knowledge changes
-./prj onboard      # onboard a new code repo into the framework
-./prj manage       # grant / change GitHub Project access (subcommands: list, assign, reassign, unassign)
-./prj upgrade      # pull a framework upgrade from the template remote
-./prj deps         # check or install dependencies
+gov seed           # seed a new project (prompts for GitHub Project)
+gov join           # join an existing project
+gov task           # start a sub-branch task on an active project
+gov sync           # sync with latest base and continue (the "get current" verb)
+gov merge          # submit a completed task back to the project branch
+gov close          # close the project (runs the governance gate)
 ```
 
-Each subcommand wraps a script in `scripts/`. You can also call the scripts directly — `./prj` is just an interactive shell over them.
+**The rest of the lifecycle and admin verbs:**
+
+```bash
+gov                # interactive menu
+gov list           # list all projects
+gov status PRJ-26-invoice-api
+gov pause / resume / cancel
+gov add-repo       # add another code repo to an active project
+gov knowledge      # propose org knowledge changes
+gov onboard        # onboard a new code repo into the framework
+gov anchor         # manage a project's anchor issue
+gov manage         # grant / change GitHub Project access (subcommands: list, assign, reassign, unassign)
+gov org            # org-level configuration
+gov validate       # run the structural validators
+gov setup          # bootstrap the workspace (first-time or re-run)
+gov doctor         # check the environment and dependencies
+gov upgrade        # pull a framework upgrade
+```
+
+The full subcommand set is: `seed`, `join`, `task`, `merge`, `sync`, `add-repo`, `close`, `pause`, `resume`, `cancel`, `manage`, `anchor`, `knowledge`, `onboard`, `validate`, `list`, `status`, `org`, `setup`, `doctor`, `upgrade`.
 
 ---
 
@@ -122,44 +125,42 @@ Each subcommand wraps a script in `scripts/`. You can also call the scripts dire
 
 ### Seeding a project
 
-The developer entry point is `./prj start`, which routes to seeding when you're
-creating a new project; it runs the `init` flow below. You can also call
-`./prj init` directly.
+Seed a new project with `gov seed`:
 
 ```bash
-./prj start        # (or ./prj init)
+gov seed
 ```
 
 Prompts:
 1. Which GitHub org to look in for Projects (defaults to your org)
 2. Which GitHub Project to seed from (only Projects you have write access to)
-3. Who to record as assignee (defaults to current user; a display/audit cache)
+3. Who to assign as project owner (defaults to current user; recorded as the anchor issue's assignee)
 4. For each repo the GitHub Project's issues touch: confirm and pick a base branch (defaults to `dev`)
 
 What it does (Direction A — HOME stays on default branch throughout):
 1. Validates the GitHub Project exists, has issues, has a name, and that you have write access to it (`projectV2.viewerCanUpdate`).
-2. Reads the GitHub project board number, composes `PRJ-<board#>-<slug>` and `BRNCH-<board#>-<slug>` (and advances `registry.yaml`'s project counter).
-3. **In the HOME workspace, on the default branch:** writes a `projects[]` entry to `registry.yaml`, creates `projects/PRJ-<board#>-<slug>/.gitkeep` as a stub. Commits + pushes. Home checkout never leaves the default branch.
+2. Reads the GitHub project board number and composes `PRJ-<board#>-<slug>` and `BRNCH-<board#>-<slug>`.
+3. **In the HOME workspace, on the default branch:** creates `projects/PRJ-<board#>-<slug>/.gitkeep` as a stub. Commits + pushes. Home checkout never leaves the default branch.
 4. **Creates the per-project workspace** at `$AGENT_WORK_ROOT/PRJ-<board#>-<slug>/` as **git worktrees** of the shared base clones under `$AGENT_WORK_ROOT/.bases/` (not full per-project clones):
-   - Adds a worktree of this repo at `<workspace_repo>/` on `BRNCH-<board#>-<slug>` (created from default). Full `projects/PRJ-<board#>-<slug>/*` scaffolding (project.yaml, agent.md, knowledge/, etc.) lives here, on the project branch. Pushed.
+   - Adds a worktree of this repo at `<workspace_repo>/` on `BRNCH-<board#>-<slug>` (created from default). Full `projects/PRJ-<board#>-<slug>/*` scaffolding (agent.md, knowledge/, etc.) lives here, on the project branch. Pushed.
    - For each repo linked to the GitHub Project: adds a worktree at `<repo>/` on `BRNCH-<board#>-<slug>` (created from base). Pushed.
 
-After seeding, the command prints a `cd` line and a ready-to-paste first-session prompt. Day-to-day project work happens entirely inside the per-project workspace; the HOME repo is only for `prj manage` operations.
+After seeding, the command prints a `cd` line and a ready-to-paste first-session prompt. Day-to-day project work happens entirely inside the per-project workspace; the HOME repo is only for `gov manage` operations.
 
 ### Creating a task (sub-branch)
 
-For multi-agent or parallel work within a project, create sub-branches per task. The developer verb is `./prj start <issue>` (runs `./prj task` underneath):
+For multi-agent or parallel work within a project, create sub-branches per task with `gov task`:
 
 ```bash
-./prj start <issue>    # (or ./prj task)
+gov task
 ```
 
 Each task corresponds to one GitHub Issue inside the project. The task gets its own sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`) in every repo, with a single assignee. Multiple tasks can run in parallel.
 
-When done, submit it with `./prj finish` (runs `./prj merge` underneath):
+When done, submit it with `gov merge`:
 
 ```bash
-./prj finish    # (or ./prj merge)
+gov merge
 ```
 
 This merges the sub-branch into the project branch (NOT into the code repo's base branch — that happens at project close), archives the sub-branch, and closes the GitHub issue.
@@ -167,8 +168,8 @@ This merges the sub-branch into the project branch (NOT into the code repo's bas
 ### Pausing / resuming
 
 ```bash
-./prj pause PRJ-26-invoice-api      # → status: paused
-./prj resume PRJ-26-invoice-api     # → status: active, pulls latest from default and base branches
+gov pause PRJ-26-invoice-api      # → status: paused
+gov resume PRJ-26-invoice-api     # → status: active, pulls latest from default and base branches
 ```
 
 Resume includes a mandatory sync of the workspace default branch and each code repo's base branch into the project branch. This pulls in any policy or knowledge updates that landed while the project was paused.
@@ -176,50 +177,50 @@ Resume includes a mandatory sync of the workspace default branch and each code r
 ### Sync (without pausing)
 
 ```bash
-./prj sync PRJ-26-invoice-api
+gov sync PRJ-26-invoice-api
 ```
 
-Same merge-in-from-default behavior as resume, but without changing status. Use mid-project to pick up a freshly-merged policy update. In normal use `./prj work` performs this sync for you as part of "get current and continue," so you rarely call `sync` directly.
+Same merge-in-from-default behavior as resume, but without changing status. Use mid-project to pick up a freshly-merged policy update. This is the "get current and continue" verb you run day-to-day.
 
 ### Closing
 
-The developer verb is `./prj finish` — when there's no open task to submit it closes the project, running the same governance gate as `./prj close` (which it calls underneath):
+Close the project with `gov close`, which runs the governance gate:
 
 ```bash
-./prj finish PRJ-26-invoice-api    # (or ./prj close)
+gov close PRJ-26-invoice-api
 ```
 
 Pre-close gate (C01, hard fail if not met):
 - `projects/<id>/knowledge/` contains at least one file
 - `projects/<id>/knowledge/compliance.md` exists
-- `project.yaml` mandatory fields are populated
+- The project's anchor issue is present and its assignees are set
 
 Then:
 1. Project branch is merged into each code repo's `base_branch`
-2. Project state (status, completed_at, registry entry) is updated on the project branch and pushed
+2. Project completion is recorded on GitHub — the board is closed (status → done)
 3. The **test-merge gate** runs locally: validators check the proposed post-merge state of the workspace default branch
 4. If validators pass, the project branch is fast-forwarded into the local default and pushed
 5. Project branches are archived (tag) and deleted in all repos
-6. `close-knowledge.sh` runs automatically — see below
+6. The knowledge-close step of `gov close` runs automatically — see below
 
-If the test-merge gate fails, your local default branch is unchanged and you get specific error messages. Fix the cause, re-run `close`.
+If the test-merge gate fails, your local default branch is unchanged and you get specific error messages. Fix the cause, re-run `gov close`.
 
 ### Knowledge close
 
-After `close`, the framework offers to synthesize project knowledge into proposals for the org-wide knowledge base:
+After `gov close`, the framework offers to synthesize project knowledge into proposals for the org-wide knowledge base:
 
 1. A new branch is created: `BRNCH-<board#>-<slug>-knowledge`
 2. (LLM/agent step — currently manual) Project knowledge is reviewed and proposed updates to `knowledge/` are committed to that branch
 3. A PR is opened against the default branch
 4. CODEOWNERS auto-assigns reviewers
-5. `project.yaml`'s `knowledge_status` is set to `pending_review`
+5. The knowledge-close status is reflected by the state of that PR (open = pending review)
 
-Knowledge close PRs are reviewed normally. Outcome (merged / rejected / abandoned / under_revision) is reflected in `knowledge_status` later.
+Knowledge close PRs are reviewed normally. Outcome (merged / rejected / abandoned) is reflected by the PR's state.
 
 ### Cancelling
 
 ```bash
-./prj cancel PRJ-26-invoice-api "reason text"
+gov cancel PRJ-26-invoice-api "reason text"
 ```
 
 Branches are tagged-then-deleted. **No merge to base branches**. No knowledge close. `cancellation_reason` is required (C01).
@@ -233,7 +234,7 @@ Code changes are preserved in archive tags (`archive/<branch>`) — recoverable 
 For policy updates, ad-hoc learnings, or initial bootstrap knowledge — anything that isn't tied to a specific project:
 
 ```bash
-./prj knowledge
+gov knowledge
 ```
 
 Walks you through:
@@ -281,7 +282,7 @@ Code repos under the framework have their own `knowledge/` folder:
 To onboard an existing code repo:
 
 ```bash
-./prj onboard
+gov onboard
 ```
 
 This scaffolds the `knowledge/` structure and raises a PR in that repo. Repo owners populate the placeholder files post-merge.
@@ -290,15 +291,15 @@ This scaffolds the `knowledge/` structure and raises a PR in that repo. Repo own
 
 ## Common pitfalls
 
-**Validators failing on local close-project.** Usually means a project field isn't populated, the registry has drifted, or there's a leftover placeholder somewhere. Read the specific error — the validators name files and lines.
+**Validators failing on local `gov close`.** Usually means required project knowledge is missing, the anchor issue is misconfigured, or there's a leftover placeholder somewhere. Read the specific error — the validators name files and lines.
 
 **"Branch already exists" errors during seed.** Someone may have manually created a branch matching the pattern. Resolve manually and re-run.
 
-**Test-merge gate fails after a sync.** Pull happens correctly but a downstream check sees something it doesn't like. Check the validator output: it tells you which check (schema/registry/lifecycle/cross-refs) and which file/line. The fix is in your branch; re-run after fixing.
+**Test-merge gate fails after a sync.** Pull happens correctly but a downstream check sees something it doesn't like. Check the validator output: it tells you which check (schema/lifecycle/cross-refs) and which file/line. The fix is in your branch; re-run after fixing.
 
 **Knowledge close PR has nothing to review.** That happens if no LLM/agent synthesis ran and there were no manual edits. The branch still gets created so the project state can transition; the PR may be closed without merge if nothing's worth proposing.
 
-**Lost track of which branch you're on.** `./prj status <id>` shows the project state and branch. `./prj list` shows all projects.
+**Lost track of which branch you're on.** `gov status <id>` shows the project state and branch. `gov list` shows all projects.
 
 **Want to undo a close.** Don't. Undoing a close requires reverting merges in multiple repos and re-creating archived branches. Better to seed a follow-up project.
 
@@ -309,9 +310,8 @@ This scaffolds the `knowledge/` structure and raises a PR in that repo. Repo own
 - [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) — step-by-step day-in-the-life of working on a project, including how to prompt the agent
 - `knowledge/policies/agentic-development-policy.md` — the full policy text with all clause IDs
 - `knowledge/policies/roles.md` — current role holders
-- `knowledge/guidance/scripts/*-spec.md` — formal specifications for each script
-- `scripts/validate/run.py` — exactly which invariants are checked
-- `scripts/test-merge.sh` — the local pre-merge gate orchestrator
-- `scripts/sync-from-publish.sh` — pulling upstream framework updates
+- `gov validate` — exactly which invariants are checked
+- The local pre-merge gate — the validators `gov` runs before a merge or close
+- `gov upgrade` — pulling upstream framework updates
 
-The framework is intentionally small — every script under 300 lines, the policy under 1000 lines, the validators under 400 lines. Read the source when in doubt.
+The framework is intentionally small — the policy under 1000 lines and the validators compact. Read the source when in doubt.

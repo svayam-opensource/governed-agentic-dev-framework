@@ -13,7 +13,7 @@ acknowledge (step 3), `Edit`/`Write`/`Bash` are blocked by the PreToolUse gate �
    - `knowledge/policies/agentic-development-policy.md` (policy layer)
    - your developer prefs, if present.
 2. **Post the context manifest** in the required format (Project, Branch,
-   Status / assigned_to, Repos, Open todos, Layers loaded, Awaiting). Then
+   Status (GitHub board open/closed), Repos, Open todos, Layers loaded, Awaiting). Then
    **stop for direction** — unless the user's first message already asked for
    something specific, in which case complete the manifest first, then proceed.
 3. **Acknowledge** (last step — unlocks mutating tools for this session):

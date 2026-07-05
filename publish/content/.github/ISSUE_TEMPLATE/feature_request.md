@@ -21,9 +21,8 @@ labels: enhancement
 
 <!-- Which parts of the framework would change? -->
 
-- [ ] Scripts (`scripts/`)
-- [ ] CLI (`prj`)
-- [ ] Validators (`scripts/validate/`)
+- [ ] CLI (`gov`)
+- [ ] Validators (`gov validate`)
 - [ ] Policy / governance templates (`knowledge/policies/`)
 - [ ] Guidance / templates (`knowledge/guidance/`)
 - [ ] CI workflows (`.github/workflows/`)

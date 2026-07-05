@@ -2,57 +2,52 @@
 
 This document is for the **developer or agent** doing actual work on an active project. It assumes:
 
-- The org has already adopted the framework (`setup.sh` ran successfully).
+- The org has already adopted the framework (`gov setup` ran successfully).
 - A GitHub Project has been created and at least one Issue is linked to it from a repo you can push to.
 - You have `gh auth status` showing a usable identity.
 
 For the framework's concepts, roles, and CLI reference, see [USER_GUIDE.md](USER_GUIDE.md). For the policy ledger that governs every step below, see [`knowledge/policies/agentic-development-policy.md`](../knowledge/policies/agentic-development-policy.md).
 
 > **Current model at a glance (ADR-0001).** The framework is converging on a small surface:
-> - **Developer verbs:** `prj start` · `prj work` · `prj finish`. The lifecycle verbs
->   (`init`/`join`/`task`/`merge`/`close`/`sync`) still work underneath.
+> - **Developer verbs:** `gov seed` · `gov join` · `gov task` · `gov sync` · `gov merge` ·
+>   `gov close`. These are the lifecycle surface you work with directly.
 > - **Authorization = GitHub Project access.** You may seed/join/work on a project if you
 >   have **write access to its linked GitHub Project** (`projectV2.viewerCanUpdate`); an
->   owner grants it with `./prj manage assign`. `assigned_to` in YAML is a display/audit
->   cache, **not** the gate.
+>   owner grants it with `gov manage assign`. There is no per-project state file — GitHub
+>   Project write access is the sole gate.
 > - **Per-project workspaces are git worktrees** of one shared base clone per repo (under
 >   `$AGENT_WORK_ROOT/.bases/`), not full per-project clones.
-> - **The CLI can be installed** once per machine (`./install.sh`) so repos carry data, not a
->   vendored copy of the framework. See [installing.md](../../docs/installing.md) and
+> - **The gov CLI is installed from npm** — `npm i -g @svayam-opensource/gov` (requires
+>   Node 24) — so repos carry only data, never a vendored copy of the framework. See
 >   [ADR-0001](../../docs/adr/ADR-0001-simplify-developer-experience.md).
->
-> Some prose further down still describes the older `assigned_to`-as-gate flow; it is being
-> migrated. Where they disagree, the bullets above are authoritative.
 
 ---
 
 ## The path at a glance
 
-As a developer, your normal path is three verbs:
+As a developer, your normal path runs through a handful of `gov` verbs:
 
 ```
 [ COPY TEMPLATE ]                        ← one-time per org (gh repo create --template)
        ↓
-[ ./setup.sh ]   (and optionally ./install.sh, once per machine)
+[ npm i -g @svayam-opensource/gov  →  gov setup ]
        ↓
-[ owner: ./prj manage assign ]           ← grants you write access to the GitHub Project
+[ owner: gov manage assign ]             ← grants you write access to the GitHub Project
        ↓
-[ ./prj start ]                          ← join a project / start a task / start a new project
+[ gov seed / gov join ]                  ← start a new project / join an existing one
        ↓ creates a per-project workspace under $AGENT_WORK_ROOT/<PRJ-<board#>-slug>/
        ↓   ├── <workspace_repo>/   ← git worktree on the project branch
        ↓   └── <each-code-repo>/   ← git worktree on the project branch
        ↓
 [ cd $AGENT_WORK_ROOT/<PRJ-<board#>-slug>/<workspace_repo> ]
        ↓
-[ ./prj work ]   ← sync with latest base and continue; repeat each session
+[ gov sync ]     ← sync with latest base and continue; repeat each session
        ↓
-[ ./prj finish ] ← submit a task (merge) or close the project (governance gate)
+[ gov merge / gov close ] ← submit a task (merge) or close the project (governance gate)
 ```
 
-`start` / `work` / `finish` are the primary surface. The lifecycle verbs
-(`init`/`join`/`task`/`merge`/`sync`/`close` and the rest) are what runs
-underneath; you can still call them directly for advanced or scripted use, and
-the sections below describe them in detail.
+`gov seed`/`gov join`, `gov task`, `gov sync`, `gov merge`, and `gov close` are
+the developer surface; the sections below describe each in detail.
 
 **Key invariant (Direction A):** the HOME workspace stays on the default branch
 the entire project lifetime. All project-branch work — code, scaffolding,
@@ -75,7 +70,7 @@ gh api user --jq .login          # should print your GitHub handle
 ```
 
 The framework reads `agent_work_root` from `org-config.yaml` (set when the
-Policy Owner ran `./setup.sh`). The default is `~/.<org_slug_lower>/projects`
+Policy Owner ran `gov setup`). The default is `~/.<org_slug_lower>/projects`
 (e.g. `~/.acme/projects/`). To inspect:
 
 ```bash
@@ -90,45 +85,43 @@ in the shell — env wins over the org-config value.
 Authorization is **write access to the project's linked GitHub Project**
 (`projectV2.viewerCanUpdate`). The Policy Owner (or any repo collaborator with
 manage rights) creates the GitHub Project and grants you that access via
-`./prj manage assign`; org owners/admins already have access to everything.
-If you lack write access, `start`/`init` won't let you seed or join the project
-— ask an owner to run `./prj manage assign`. The `assigned_to` value in
-`project.yaml`/`registry.yaml` is a display/audit cache, **not** the gate.
+`gov manage assign`; org owners/admins already have access to everything.
+If you lack write access, `gov seed`/`gov join` won't let you seed or join the
+project — ask an owner to run `gov manage assign`. There is no per-project state
+file; GitHub Project write access is the sole gate.
 
 ---
 
 ## 2. Start the project
 
-The developer entry point is `./prj start`, which routes to the right action
-(join a project, start a task, or start a new project). Underneath, starting a
-**new** project runs the `init` flow described here; you can also invoke
-`./prj init` directly.
+To start a **new** project, run `gov seed`. To join an **existing** one, run
+`gov join`. This section walks through the `gov seed` flow.
 
 Run from the **HOME workspace** repo root, **on the default branch**:
 
 ```bash
 git checkout main         # must be on default branch
-./prj start               # (or ./prj init directly)
+gov seed                  # (or gov join for an existing project)
 ```
 
 Walk through the prompts:
 
 1. **GitHub org / user owning the Project** — accept the default if it's right.
 2. **Pick the GitHub Project from the list** — only projects you have write access to appear.
-3. **Assignee email** — defaults to your `git config user.email` (recorded as a display/audit cache).
+3. **Assignee email** — defaults to your `git config user.email`.
 4. **Confirm initialize** — `y` to proceed.
 
 What happens:
 
 - A project ID is allocated, e.g. `PRJ-001-feature-x`, with a project branch `brnch-001-feature-x`.
-- **In the HOME workspace, on the default branch**: `registry.yaml` gets a `projects[]` entry, a `projects/PRJ-001-feature-x/.gitkeep` stub is written, all committed and pushed. The home checkout stays on the default branch.
+- **In the HOME workspace, on the default branch**: a `projects/PRJ-001-feature-x/.gitkeep` stub is written, committed, and pushed. Project state lives in GitHub (the board and its anchor issue), not in any per-project state file. The home checkout stays on the default branch.
 - **A per-project workspace is created** at `$AGENT_WORK_ROOT/PRJ-001-feature-x/`. Inside:
-  - The workspace repo is checked out as a **git worktree** (`<workspace_repo>/`) on `brnch-001-feature-x` from the shared base clone under `$AGENT_WORK_ROOT/.bases/`. The full `projects/PRJ-001-feature-x/` scaffolding (project.yaml, agent.md, knowledge/, etc.) lives here, on the project branch.
+  - The workspace repo is checked out as a **git worktree** (`<workspace_repo>/`) on `brnch-001-feature-x` from the shared base clone under `$AGENT_WORK_ROOT/.bases/`. The full `projects/PRJ-001-feature-x/` scaffolding (agent.md, knowledge/, etc.) lives here, on the project branch.
   - Each impacted code repo gets a **git worktree** at `$AGENT_WORK_ROOT/PRJ-001-feature-x/<repo>/`, on the project branch, from that repo's shared base clone.
 
 At the end you'll see a **"Next steps"** block printing the exact `cd` target plus a ready-to-paste first-session prompt with the project name baked in. **Read it.** That output is the canonical "what to do next" guide for the project you just created.
 
-**Important:** project-branch work (code, knowledge, project.yaml edits) all happens inside the per-project workspace. The HOME repo's `projects/PRJ-<board#>-slug/` is just a stub on the default branch until `./prj close` merges the project branch back.
+**Important:** project-branch work (code, knowledge) all happens inside the per-project workspace. The HOME repo's `projects/PRJ-<board#>-slug/` is just a stub on the default branch until `gov close` merges the project branch back.
 
 ---
 
@@ -142,10 +135,10 @@ Sessions happen **inside the per-project workspace**, not in the HOME repo:
 cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<workspace_repo>
 ```
 
-`./prj work` is the developer shorthand for "sync with latest and continue" — it
-syncs the project branch with the latest base and drops you into the worktree,
-so you can run it instead of the manual pull steps below. The full protocol the
-agent (or you, if working alone) must satisfy before any code change is:
+`gov sync` is the "sync with latest and continue" verb — it syncs the project
+branch with the latest base and drops you into the worktree, so you can run it
+instead of the manual pull steps below. The full protocol the agent (or you, if
+working alone) must satisfy before any code change is:
 
 0. **Read `org-config.yaml` first** — every framework file references its values (`<ORG_NAME>`, `<DEFAULT_BRANCH>`, owners, etc.).
 1. **Confirm the project branch is current**:
@@ -153,7 +146,7 @@ agent (or you, if working alone) must satisfy before any code change is:
    git status                   # should already be on brnch-001-feature-x
    git pull origin brnch-001-feature-x
    ```
-2. **Verify `project.yaml`**: `status: active` (the `assigned_to` field is a display/audit cache; your authorization comes from write access to the linked GitHub Project, not this field).
+2. **Verify the project's GitHub board is open (active)** — your authorization comes from write access to the linked GitHub Project, and status is derived from whether the board is open.
 3. **Read all four knowledge layers, fresh** — never use cached context across sessions:
    - `knowledge/` (org-wide policy)
    - `projects/PRJ-001-feature-x/knowledge/` (project knowledge accumulated so far)
@@ -204,7 +197,7 @@ Open the workspace at **`projects/<PID>/`** (recommended) or gov repo root on th
 | **Agent** | Read knowledge layers (required) | Read tool → `knowledge/`, project, repos, prefs | Same | Same |
 | **You** | Verify | `/memory` lists imports | Settings → Rules → `agent.mdc` = **Always** | Ask agent to summarize write restrictions |
 
-**Not automatic for any tool:** full `knowledge/policies/`, `projects/<PID>/knowledge/*`, code repo `knowledge/`, or preferences — the agent must read these (or you run `./prj context assemble` when available).
+**Not automatic for any tool:** full `knowledge/policies/`, `projects/<PID>/knowledge/*`, code repo `knowledge/`, or preferences — the agent must read these each session.
 
 Detailed step tables and timeline: [`docs/design/agent-context-assembly-spec.md`](design/agent-context-assembly-spec.md) Appendix D.
 
@@ -220,15 +213,15 @@ Harness registry (all tools): [`agent/harness-manifest.yaml`](../agent/harness-m
 - **Intermediate to-dos** go in `projects/PRJ-001-feature-x/knowledge/todo.md` under `## Open`. Capture them as they arise, not at session end.
 - **NEVER** edit:
   - The workspace repo's `knowledge/` (read-only during the project).
-  - Task state by hand — tasks are GitHub Issues on the board (open = active, closed = done); create with `./prj task`, land with `./prj merge`.
+  - Task state by hand — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
   - GitHub Issues unilaterally — those represent business intent humans add to the board.
 
 ### Prompting style during the session
 
 - Drive the work by **direction**, not by **delegation**. The agent shouldn't autonomously decide what to implement.
-- When asking the agent to make a change, point at the file path under `$PRJ_GOV_LOC/projects/...` so it doesn't get confused with the workspace repo's tree.
+- When asking the agent to make a change, point at the file path under `$AGENT_WORK_ROOT/projects/...` so it doesn't get confused with the workspace repo's tree.
 - For non-obvious decisions, ask the agent to write the rationale into `projects/.../knowledge/notes.md` before the corresponding code change. That keeps the audit trail honest.
-- When a policy question comes up mid-session and an exception might be needed: stop, file an exception request in `knowledge/policies/exceptions/<domain>/`, and `./prj pause` until it's approved. Agents must hard-stop on unresolved C01 (POL-117).
+- When a policy question comes up mid-session and an exception might be needed: stop, file an exception request in `knowledge/policies/exceptions/<domain>/`, and `gov pause` until it's approved. Agents must hard-stop on unresolved C01 (POL-117).
 
 ### Session-end protocol
 
@@ -254,18 +247,16 @@ The HOME repo stays on the default branch throughout — there's no `git push` n
 ## 4. Parallel work — when to use tasks
 
 If you (or another developer) want to work on something independently while the
-main project work continues, start a task. The developer surface is
-`./prj start <linked-issue-url>` (starting a task), which runs `./prj task`
-underneath; you can also call `./prj task` directly:
+main project work continues, start a task with `gov task`:
 
 ```bash
-./prj start <linked-issue-url>   # (or ./prj task <linked-issue-url>)
+gov task <linked-issue-url>
 ```
 
-This creates a sub-branch `brnch-001-feature-x/<issue-slug>` in the workspace and in every linked code repo, and assigns the GitHub Issue. The sub-branch is where you do the work; when done, submit it with `./prj finish` (which runs `./prj merge` underneath):
+This creates a sub-branch `brnch-001-feature-x/<issue-slug>` in the workspace and in every linked code repo, and assigns the GitHub Issue. The sub-branch is where you do the work; when done, submit it with `gov merge`:
 
 ```bash
-./prj finish        # (or ./prj merge)
+gov merge
 ```
 
 Merges the sub-branch back into `brnch-001-feature-x` and archives it.
@@ -277,9 +268,9 @@ Merges the sub-branch back into `brnch-001-feature-x` and archives it.
 
 ## 5. Pausing, resuming, syncing
 
-- **`./prj pause`** — for "I need to stop and come back later, possibly weeks." Marks status `paused`. Must be cleanly committed first.
-- **`./prj resume`** — re-runs session-start protocol effectively; pulls latest, merges base into project branch, surfaces conflicts.
-- **`./prj sync`** — for "I want to pull upstream changes mid-project without pausing." Same merge mechanics as resume, but stays `active`. In normal use, `./prj work` does this sync for you as part of "get current and continue," so you rarely call `sync` directly.
+- **`gov pause`** — for "I need to stop and come back later, possibly weeks." Marks the project paused. Must be cleanly committed first.
+- **`gov resume`** — re-runs session-start protocol effectively; pulls latest, merges base into project branch, surfaces conflicts.
+- **`gov sync`** — for "I want to pull upstream changes mid-project without pausing." Same merge mechanics as resume, but keeps the project active and drops you back into the worktree to continue.
 
 After any of these, **re-load all four knowledge layers** before doing anything else.
 
@@ -301,17 +292,15 @@ This is POL-171 in the policy ledger.
 
 ## 7. Closing the project
 
-When all goal-level work is done and project knowledge is curated, run from the
-**per-project workspace** (not the HOME repo). The developer verb is
-`./prj finish` — when there's no open task to submit, it closes the project and
-runs the same governance gate as `./prj close` (which it calls underneath):
+When all goal-level work is done and project knowledge is curated, run `gov close`
+from the **per-project workspace** (not the HOME repo):
 
 ```bash
 cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<workspace_repo>
-./prj finish        # (or ./prj close)
+gov close
 ```
 
-The close runs the same governance gate either way: it merges the project branch back into the default branch in
+The close runs a governance gate: it merges the project branch back into the default branch in
 the workspace repo and in every code repo. After it succeeds, you can pull
 the merged state into the HOME repo:
 
@@ -323,20 +312,19 @@ git pull origin main
 What this enforces:
 
 - `projects/PRJ-001-feature-x/knowledge/` must be non-empty.
-- `compliance.md` should exist (the close script will tell you if it doesn't).
-- `project.yaml`'s mandatory fields must be populated.
+- `compliance.md` should exist (`gov close` will tell you if it doesn't).
 
 What this does:
 
 - Merges the project branch into the default code branch in each code repo.
 - Merges the project branch into the workspace's default branch.
 - Creates archive tags `archive/brnch-001-feature-x` everywhere and deletes the project branch.
-- Auto-fires `close-knowledge.sh`, which:
+- Runs the knowledge-close step of `gov close`, which:
   - Creates `brnch-001-feature-x-knowledge` branch.
   - Synthesizes a knowledge-close proposal (or pauses for you/an agent to do so).
   - Opens a PR for domain owners (CODEOWNERS auto-assigns reviewers).
 
-The project moves to `status: completed`. The knowledge PR is reviewed and merged separately — that lands new project-derived learnings into org-wide knowledge.
+The project's GitHub board is closed (done). The knowledge PR is reviewed and merged separately — that lands new project-derived learnings into org-wide knowledge.
 
 ---
 
@@ -346,11 +334,11 @@ The project moves to `status: completed`. The knowledge PR is reviewed and merge
 
 **"I forgot to check `todo.md` last time and now there are stale open items."** — That's the system working. Surface them, resolve or de-scope them, move what's resolved to `## Done`, leave the rest.
 
-**"My agent doesn't have `gh` access."** — Most operations don't need it, but starting a new project and finishing/closing one do (`./prj start`/`init` and `./prj finish`/`close` — Project queries, authorization check, PR creation). Give the agent a PAT scoped to `repo` + `project` for the run, or hand off those specific commands to a human-driven shell.
+**"My agent doesn't have `gh` access."** — Most operations don't need it, but seeding a new project and closing one do (`gov seed`/`gov join` and `gov close` — Project queries, authorization check, PR creation). Give the agent a PAT scoped to `repo` + `project` for the run, or hand off those specific commands to a human-driven shell.
 
 **"I'm not sure if a change is C01, C02, or C03."** — Default to surfacing it as C02 (write to `compliance.md` and file an exception if needed). Only C01 hard-stops require pausing.
 
-**"I want to know what's left."** — `./prj list` shows projects + statuses. For an individual project, `./prj status <PROJECT_ID>`. For carry-forward work, `projects/<PID>/knowledge/todo.md`.
+**"I want to know what's left."** — `gov list` shows projects + statuses. For an individual project, `gov status <PROJECT_ID>`. For carry-forward work, `projects/<PID>/knowledge/todo.md`.
 
 ---
 
@@ -387,12 +375,12 @@ Per-project copies under `projects/<PID>/` are composed at seed time (protocol +
 
 ### What harness does *not* load
 
-Harness delivery covers **protocol only**. These still require agent reads (or `./prj context assemble`) each session:
+Harness delivery covers **protocol only**. The agent must read these each session:
 
 - Full `knowledge/policies/` text
 - `projects/<PID>/knowledge/*`
 - Code repo `knowledge/`
-- `$PRJ_GOV_LOC/preferences/<gh-login>.md`
+- `$AGENT_WORK_ROOT/preferences/<gh-login>.md`
 
 Reads persist in **chat transcript** for the rest of the session; they are not re-injected each turn like rules.
 
@@ -410,25 +398,25 @@ Reads persist in **chat transcript** for the rest of the session; they are not r
 The framework template lives at
 [`svayam-opensource/governed-agentic-dev-framework`](https://github.com/svayam-opensource/governed-agentic-dev-framework).
 Your org's repo was created from it (`gh repo create --template ...` or "Use
-this template" on GitHub). `./setup.sh` configured a `template` remote
+this template" on GitHub). `gov setup` configured a `template` remote
 pointing at the upstream so you can pull future framework updates without
 touching org-specific values.
 
-> **Installed CLI option.** You can instead install `prj` **once per machine**
-> with `./install.sh` (see [installing.md](../../docs/installing.md)). Then repos carry
-> only data (`org-config.yaml`, `registry.yaml`, `projects/`, `knowledge/`)
-> instead of a vendored copy of the framework, and you upgrade the CLI by
-> re-running `install.sh` from an updated framework checkout — independently of
-> any project's data. The `prj upgrade` flow below is the vendored equivalent.
+> **The gov CLI is installed from npm** — `npm i -g @svayam-opensource/gov`
+> (requires Node 24), never vendored into a repo. Repos carry only data
+> (`org-config.yaml`, `projects/`, `knowledge/`), and you upgrade the CLI itself
+> with `npm i -g @svayam-opensource/gov@latest`, independently of any project's
+> data. Framework *content* (policies, scaffolded files) upgrades separately via
+> `gov upgrade`, described below.
 
 ### How upgrades work (Direction A)
 
-Framework files (`scripts/`, `knowledge/policies/`, `CLAUDE.md`, `AGENTS.md`,
+Framework files (`knowledge/policies/`, `CLAUDE.md`, `AGENTS.md`,
 the per-tool rule files, etc.) contain **no org-specific values**. They use
 angle-bracketed tokens like `<ORG_NAME>` and `<DEFAULT_BRANCH>` that the agent
-resolves at runtime from `org-config.yaml`. After `./setup.sh`, the ONLY file
-that diverges from upstream TEMPLATE is `org-config.yaml` (plus `registry.yaml`
-and `projects/` as you do project work). That makes upgrades conflict-free.
+resolves at runtime from `org-config.yaml`. After `gov setup`, the ONLY file
+that diverges from upstream TEMPLATE is `org-config.yaml` (plus `projects/` as
+you do project work). That makes upgrades conflict-free.
 
 ### Pulling an upgrade (v0.3.0+)
 
@@ -441,40 +429,27 @@ paths populated by the framework.
 From your HOME repo on the default branch:
 
 ```bash
-./prj upgrade [version]      # e.g. ./prj upgrade v0.3.1
+gov upgrade [version]      # e.g. gov upgrade v0.3.1
 ```
 
-That:
-1. Fetches the `template` remote and checks out `framework/` at the
-   requested version (or `template/main` if no version is given).
-2. Runs `framework/bin/setup.sh`, which:
-   - Reads `framework/MANIFEST.yaml` to find every file the framework ships.
-   - For `scaffold-auto` files (scripts, CLI, CI): overwrites the canonical
-     copy without asking.
+That fetches the `template` remote at the requested version (or `template/main`
+if no version is given) and applies the framework update:
+1. Checks out `framework/` at the requested version.
+2. Applies the framework's `MANIFEST.yaml`, which governs how each shipped file
+   lands:
+   - For `scaffold-auto` files (scripts, CI): overwrites the canonical copy
+     without asking.
    - For `scaffold-prompt` files (agent rule files, policy text): 3-way
      merges against the previous framework version. Prompts only when your
      org has customized AND the framework also changed the same file.
    - For `overlay-schema` files (`org-config.yaml`): adds new keys with
      empty values; never modifies existing values.
-   - Leaves `registry.yaml`, `projects/`, and your custom knowledge files
-     completely untouched.
+   - Leaves `projects/` and your custom knowledge files completely untouched.
 3. Writes `.framework-version` to record what's now installed.
 4. Deletes `framework/` from the working tree.
 5. Stages everything for your review.
 
-Manual equivalent if `./prj upgrade` isn't available (e.g. you're migrating
-from pre-v0.3.0):
-
-```bash
-git fetch template --tags
-git checkout v0.3.0 -- framework/
-bash framework/bin/setup.sh
-git add -A && git commit -m "framework upgrade"
-git push
-```
-
-After upgrading, run `python3 scripts/validate/run.py` to confirm
-everything still validates.
+After upgrading, run `gov validate` to confirm everything still validates.
 
 ### What the test-merge gate catches
 

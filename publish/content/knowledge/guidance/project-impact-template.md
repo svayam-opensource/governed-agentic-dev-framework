@@ -3,10 +3,10 @@
 **Repository:** [repo-name]
 **Project:** PRJ-<board#>-<slug>
 **Period:** YYYY-MM-DD to YYYY-MM-DD
-**Project Lead:** [locked_by value]
+**Project Lead:** [anchor issue assignee]
 
 This document records the impact of project PRJ-<board#>-<slug> on this repository.
-It is created by the close-project script and lives at:
+It is created by `gov close` and lives at:
 `<repo>/knowledge/projects/PRJ-<board#>-<slug>/`
 
 ---
