@@ -32,6 +32,14 @@ describe("gov-work — doctor", () => {
     expect(r.diagnostics.find((d) => d.name === "gov workspace")!.status).to.equal("fail");
   });
 
+  it("warns on old-world content artifacts (points to gov upgrade)", () => {
+    const r = doctor(facts({ staleArtifacts: ["framework/", "registry.yaml"] }));
+    expect(r.ok).to.equal(true);
+    const cl = r.diagnostics.find((d) => d.name === "content layout");
+    expect(cl.status).to.equal("warn");
+    expect(cl.detail).to.match(/gov upgrade/);
+  });
+
   it("warns (still ok) on no active org", () => {
     const noOrg = doctor(facts({ activeOrg: null }));
     expect(noOrg.ok).to.equal(true);

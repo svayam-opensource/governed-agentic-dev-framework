@@ -32,6 +32,8 @@ import { doctor, formatDoctorReport } from "../maintain/doctor.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
+import { runUpgradeSync } from "../maintain/upgrade-run.js";
+import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 
@@ -169,8 +171,29 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     return gate.ok ? 0 : 1;
   }
 
-  // `prj upgrade [<x.y.z>]` — plan + guidance (full self-update deferred).
+  // `gov upgrade --from <content-dir> [--apply]` — overlay-sync an adopter
+  // workspace to the published content (dry-run by default). Without --from it's
+  // the CLI self-update guidance.
   if (parsed.command === "upgrade") {
+    const from = flagStr(parsed.flags, "from");
+    if (from) {
+      const env = createNodeEnv();
+      const govHomeOverride = flagStr(parsed.flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
+      let home: string;
+      if (govHomeOverride) {
+        home = path.resolve(expandTilde(govHomeOverride));
+      } else {
+        const resolved = prjResolveGov(env);
+        if (!resolved.ok) {
+          process.stderr.write(`${resolveFailureMessage(resolved)}\n`);
+          return resolved.code;
+        }
+        home = resolved.home;
+      }
+      const res = runUpgradeSync(path.resolve(expandTilde(from)), home, { apply: "apply" in parsed.flags });
+      for (const line of res.lines) process.stdout.write(`${line}\n`);
+      return res.code;
+    }
     let cliVersion = "0.0.0";
     try {
       const pkg = fs.readFile(fileURLToPath(new URL("../../../package.json", import.meta.url)));
@@ -196,12 +219,15 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     } catch {
       /* leave "unknown" */
     }
+    const doctorHomeOverride = flagStr(parsed.flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
+    const home = doctorHomeOverride ? path.resolve(expandTilde(doctorHomeOverride)) : resolve.ok ? resolve.home : process.cwd();
     const report = doctor({
       gitPresent: tryRun("git", ["--version"]) !== undefined,
       ghPresent: tryRun("gh", ["--version"]) !== undefined,
       resolve,
       activeOrg: env.readActiveOrg(),
       cliVersion,
+      staleArtifacts: RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
     });
     for (const line of formatDoctorReport(report)) process.stdout.write(`${line}\n`);
     return report.ok ? 0 : 1;

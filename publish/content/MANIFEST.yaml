@@ -47,6 +47,9 @@ files:
   # Org may extend these; 3-way merge on upgrade.
   # ─────────────────────────────────────────────────────────────────────
 
+  # The canonical protocol (Claude's CLAUDE.md @imports agent/session-protocol.md).
+  - { src: agent/session-protocol.md,          dst: agent/session-protocol.md,          mode: scaffold-auto }
+
   - { src: CLAUDE.md,                          dst: CLAUDE.md,                          mode: scaffold-prompt }
   - { src: AGENTS.md,                          dst: AGENTS.md,                          mode: scaffold-prompt }
   - { src: agent.md,                           dst: agent.md,                           mode: scaffold-prompt }

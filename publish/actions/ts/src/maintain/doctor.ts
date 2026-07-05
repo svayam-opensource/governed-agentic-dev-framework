@@ -29,6 +29,8 @@ export interface DoctorFacts {
   readonly resolve: ResolveResult;
   readonly activeOrg: string | null;
   readonly cliVersion: string;
+  /** Old-world artifacts found in the workspace (framework/, registry.yaml, …). */
+  readonly staleArtifacts?: readonly string[];
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -42,6 +44,9 @@ export function doctor(facts: DoctorFacts): DoctorReport {
       ? { name: "active org", status: "ok", detail: facts.activeOrg }
       : { name: "active org", status: "warn", detail: "not set — run `gov org use <org>`" },
     { name: "CLI version", status: "ok", detail: facts.cliVersion },
+    (facts.staleArtifacts && facts.staleArtifacts.length)
+      ? { name: "content layout", status: "warn", detail: `old-world artifacts (${facts.staleArtifacts.join(", ")}) — run \`gov upgrade --from <content>\`` }
+      : { name: "content layout", status: "ok", detail: "current" },
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
 }
