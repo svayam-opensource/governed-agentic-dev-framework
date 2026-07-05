@@ -12,10 +12,11 @@ name: adopter-e2e
 #     contributors without a sandbox aren't blocked.
 
 on:
+  # PRs: NO path filter — so the hermetic `smoke` job always runs + reports,
+  # letting it be a REQUIRED status check (a path-filtered required check blocks
+  # PRs that don't touch the paths, since the check never runs). It's cached + fast.
   pull_request:
-    paths:
-      - "publish/**"
-      - ".github/workflows/adopter-e2e.yml"
+  # Pushes stay path-filtered (don't spin up on unrelated feature-branch pushes).
   push:
     branches: ["**"]
     paths:
