@@ -32,7 +32,7 @@ import { doctor, formatDoctorReport } from "../maintain/doctor.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
-import { runUpgradeSync } from "../maintain/upgrade-run.js";
+import { runUpgradeSync, runUpgradePr } from "../maintain/upgrade-run.js";
 import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
@@ -190,7 +190,10 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         }
         home = resolved.home;
       }
-      const res = runUpgradeSync(path.resolve(expandTilde(from)), home, { apply: "apply" in parsed.flags });
+      const contentDir = path.resolve(expandTilde(from));
+      const res = "pr" in parsed.flags
+        ? runUpgradePr(contentDir, home, { branch: flagStr(parsed.flags, "branch") })
+        : runUpgradeSync(contentDir, home, { apply: "apply" in parsed.flags });
       for (const line of res.lines) process.stdout.write(`${line}\n`);
       return res.code;
     }

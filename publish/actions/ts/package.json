@@ -1,7 +1,7 @@
 {
   "name": "@svayam-opensource/gov",
   "version": "1.0.0",
-  "description": "gov \u2014 the OSS governance CLI (unit gov-work) for the Governed Agentic Development Framework. Node 24 / TypeScript. Succeeds the legacy bash @svayam-opensource/prj (which is frozen at 0.10.0).",
+  "description": "gov — the OSS governance CLI (unit gov-work) for the Governed Agentic Development Framework. Node 24 / TypeScript. Succeeds the legacy bash @svayam-opensource/prj (which is frozen at 0.10.0).",
   "type": "module",
   "main": "./lib/cjs/index.js",
   "module": "./lib/esm/index.js",
@@ -38,7 +38,8 @@
     "test:e2e": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/e2e/**/*.test.ts'",
     "lint": "eslint .",
     "prepublishOnly": "npm run build && npm run test",
-    "tsc": "npm run build"
+    "tsc": "npm run build",
+    "postbuild": "chmod +x lib/esm/cli/bin.js"
   },
   "keywords": [
     "gov",
