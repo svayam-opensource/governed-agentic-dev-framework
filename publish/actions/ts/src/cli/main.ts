@@ -100,17 +100,22 @@ export async function runSetupCommand(argv: readonly string[], now: string = new
   }
 }
 
+/** Read the CLI's own version from its package.json (falls back to "?"). */
+export function readCliVersion(): string {
+  try {
+    const pkg = createNodeFs().readFile(fileURLToPath(new URL("../../../package.json", import.meta.url)));
+    if (pkg) return (JSON.parse(pkg) as { version?: string }).version ?? "?";
+  } catch {
+    /* fall through */
+  }
+  return "?";
+}
+
 /** Gather the best-effort banner context for the interactive menu (all optional). */
 export async function gatherMenuContext(): Promise<MenuContext> {
   const fs = createNodeFs();
   const env = createNodeEnv();
-  let cliVersion: string | undefined;
-  try {
-    const pkg = fs.readFile(fileURLToPath(new URL("../../../package.json", import.meta.url)));
-    if (pkg) cliVersion = (JSON.parse(pkg) as { version?: string }).version;
-  } catch {
-    /* omit */
-  }
+  const cliVersion = readCliVersion();
   let orgName: string | undefined;
   let githubOrg: string | undefined;
   let branch: string | undefined;
@@ -149,7 +154,7 @@ export function runAny(argv: readonly string[]): Promise<number> | number {
 }
 
 /** The command reference shown under the Help menu (grouped) / per-command. */
-function helpLines(command?: string): string[] {
+export function helpLines(command?: string): string[] {
   if (command) return ["", `  gov ${command} — run \`gov ${command} --help\`, or see the README command reference.`, ""];
   const groups: Record<string, string[]> = {
     Lifecycle: ["seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel"],

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 #
-# Clean-slate ADOPTER-JOURNEY e2e — runs INSIDE the gyan container (fresh每run).
+# Clean-slate ADOPTER-JOURNEY e2e — runs INSIDE the gyan container (fresh per run).
 # Exercises the whole first-adopter path against REAL GitHub, asserting a
 # specific outcome at each step, then tears everything down. Run on publish,
 # every time content or actions change.
@@ -47,8 +47,8 @@ nvm install 24 >/dev/null 2>&1; nvm use 24 >/dev/null
 node -v | grep -q '^v24' && ok "node $(node -v)" || die "node 24 not active"
 npm i -g "$GOV_TARBALL" >/dev/null 2>&1
 command -v gov >/dev/null && ok "gov installed: $(gov --version 2>/dev/null || echo '?')" || die "gov not on PATH"
-echo "$GH_TOKEN" | gh auth login --with-token
-gh auth status >/dev/null 2>&1 && ok "gh authenticated as $(gh api user --jq .login)" || die "gh auth failed"
+# GH_TOKEN in the env authenticates gh directly (no `gh auth login` needed).
+gh api user --jq .login >/dev/null 2>&1 && ok "gh authenticated as $(gh api user --jq .login)" || die "gh auth failed (is GH_TOKEN set + valid?)"
 
 # ── 1. Create the workspace repo from the framework template ─────────────────
 step "Create adopter workspace repo ($E2E_ORG/$WS_REPO) from template content"
