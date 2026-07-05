@@ -152,7 +152,6 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   // it runs pre-resolve too.
   if (parsed.command === "doctor") {
     const resolve = prjResolveGov(env);
-    const home = resolve.ok ? resolve.home : process.cwd();
     let cliVersion = "unknown";
     try {
       const pkg = fs.readFile(fileURLToPath(new URL("../../../package.json", import.meta.url)));
@@ -166,7 +165,6 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       resolve,
       activeOrg: env.readActiveOrg(),
       cliVersion,
-      frameworkVersion: fs.readFile(path.join(home, ".framework-version"))?.trim() ?? null,
     });
     for (const line of formatDoctorReport(report)) process.stdout.write(`${line}\n`);
     return report.ok ? 0 : 1;

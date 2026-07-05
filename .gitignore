@@ -32,7 +32,7 @@ node_modules/
 
 # TypeScript build output for the ts/* packages (prj-work migration, #91).
 # Compiled at publish time; package-lock.json IS committed so CI can `npm ci`.
-ts/*/lib/
+publish/actions/ts/lib/
 
 # Local agent / dev workspaces — created by the framework outside of org's tree
 work/

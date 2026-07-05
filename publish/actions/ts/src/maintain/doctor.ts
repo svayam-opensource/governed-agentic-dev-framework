@@ -2,9 +2,8 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
  * `doctor` (SDD Part E, SDD-052) — a health check: external tools present, the
- * gov workspace resolves, an active org is selected, and the CLI version matches
- * the workspace's `.framework-version` (drift detection). Pure over injected
- * facts, so it's fully testable; the real facts are gathered in main().
+ * gov workspace resolves, an active org is selected, and the CLI version. Pure
+ * over injected facts, so it's fully testable; the real facts are gathered in main().
  */
 import type { ResolveResult } from "../resolve/types.js";
 import { resolveFailureMessage } from "../resolve/resolve-gov.js";
@@ -30,8 +29,6 @@ export interface DoctorFacts {
   readonly resolve: ResolveResult;
   readonly activeOrg: string | null;
   readonly cliVersion: string;
-  /** The workspace's `.framework-version`, or null if absent. */
-  readonly frameworkVersion: string | null;
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -43,12 +40,8 @@ export function doctor(facts: DoctorFacts): DoctorReport {
       : { name: "gov workspace", status: "fail", detail: resolveFailureMessage(facts.resolve) },
     facts.activeOrg
       ? { name: "active org", status: "ok", detail: facts.activeOrg }
-      : { name: "active org", status: "warn", detail: "not set — run `prj org use <org>`" },
-    facts.frameworkVersion === null
-      ? { name: "version drift", status: "warn", detail: "no .framework-version in the workspace" }
-      : facts.frameworkVersion === facts.cliVersion
-        ? { name: "version drift", status: "ok", detail: `CLI ${facts.cliVersion} == workspace ${facts.frameworkVersion}` }
-        : { name: "version drift", status: "warn", detail: `CLI ${facts.cliVersion} != workspace ${facts.frameworkVersion} — run \`prj upgrade\`` },
+      : { name: "active org", status: "warn", detail: "not set — run `gov org use <org>`" },
+    { name: "CLI version", status: "ok", detail: facts.cliVersion },
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
 }

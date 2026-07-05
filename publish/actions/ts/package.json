@@ -1,21 +1,36 @@
 {
   "name": "@svayam-opensource/gov",
   "version": "1.0.0",
-  "description": "gov — the OSS governance CLI (unit gov-work) for the Governed Agentic Development Framework. Node 24 / TypeScript. Succeeds the legacy bash @svayam-opensource/prj (which is frozen at 0.10.0).",
+  "description": "gov \u2014 the OSS governance CLI (unit gov-work) for the Governed Agentic Development Framework. Node 24 / TypeScript. Succeeds the legacy bash @svayam-opensource/prj (which is frozen at 0.10.0).",
   "type": "module",
   "main": "./lib/cjs/index.js",
   "module": "./lib/esm/index.js",
   "types": "./lib/esm/index.d.ts",
-  "bin": { "gov": "./lib/esm/cli/bin.js" },
+  "bin": {
+    "gov": "./lib/esm/cli/bin.js"
+  },
   "exports": {
     ".": {
-      "import": { "types": "./lib/esm/index.d.ts", "default": "./lib/esm/index.js" },
-      "require": { "types": "./lib/cjs/index.d.ts", "default": "./lib/cjs/index.js" }
+      "import": {
+        "types": "./lib/esm/index.d.ts",
+        "default": "./lib/esm/index.js"
+      },
+      "require": {
+        "types": "./lib/cjs/index.d.ts",
+        "default": "./lib/cjs/index.js"
+      }
     }
   },
-  "files": ["lib/"],
-  "engines": { "node": ">=24" },
-  "publishConfig": { "registry": "https://registry.npmjs.org/", "access": "public" },
+  "files": [
+    "lib/"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "scripts": {
     "clean": "rm -rf lib",
     "build": "npm run clean && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json",
@@ -25,13 +40,20 @@
     "prepublishOnly": "npm run build && npm run test",
     "tsc": "npm run build"
   },
-  "keywords": ["gov", "gov-work", "prj", "governance", "agentic", "cli"],
+  "keywords": [
+    "gov",
+    "gov-work",
+    "prj",
+    "governance",
+    "agentic",
+    "cli"
+  ],
   "author": "Svayam Infoware Pvt. Ltd.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/svayam-opensource/governed-agentic-dev-framework.git",
-    "directory": "ts/gov-work"
+    "directory": "publish/actions/ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

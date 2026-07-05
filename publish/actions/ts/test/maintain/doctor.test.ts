@@ -12,16 +12,16 @@ const facts = (over: Partial<DoctorFacts> = {}): DoctorFacts => ({
   ghPresent: true,
   resolve: resolved,
   activeOrg: "Svayamtech",
-  cliVersion: "0.8.0",
-  frameworkVersion: "0.8.0",
+  cliVersion: "1.0.0",
   ...over,
 });
 
-describe("prj-work Phase E — doctor", () => {
-  it("all green when tools present, workspace resolves, versions match", () => {
+describe("gov-work — doctor", () => {
+  it("all green when tools present, workspace resolves, active org set", () => {
     const r = doctor(facts());
     expect(r.ok).to.equal(true);
     expect(r.diagnostics.every((d) => d.status === "ok")).to.equal(true);
+    expect(r.diagnostics.find((d) => d.name === "CLI version")!.detail).to.equal("1.0.0");
   });
 
   it("fails (not ok) when git/gh missing or the workspace won't resolve", () => {
@@ -32,16 +32,12 @@ describe("prj-work Phase E — doctor", () => {
     expect(r.diagnostics.find((d) => d.name === "gov workspace")!.status).to.equal("fail");
   });
 
-  it("warns (still ok) on no active org and on version drift", () => {
+  it("warns (still ok) on no active org", () => {
     const noOrg = doctor(facts({ activeOrg: null }));
     expect(noOrg.ok).to.equal(true);
-    expect(noOrg.diagnostics.find((d) => d.name === "active org")!.status).to.equal("warn");
-
-    const drift = doctor(facts({ frameworkVersion: "0.7.4" }));
-    expect(drift.ok).to.equal(true);
-    const v = drift.diagnostics.find((d) => d.name === "version drift")!;
-    expect(v.status).to.equal("warn");
-    expect(v.detail).to.match(/prj upgrade/);
+    const org = noOrg.diagnostics.find((d) => d.name === "active org")!;
+    expect(org.status).to.equal("warn");
+    expect(org.detail).to.match(/gov org use/);
   });
 
   it("formats a printable report ending in the overall verdict", () => {

@@ -26,10 +26,10 @@ describe("prj-work Phase E — deps", () => {
 
 describe("prj-work Phase E — publish gate", () => {
   it("PASS when versions agree; BLOCKED with the version-sync reasons otherwise", () => {
-    const good = publishGate(memFs({ "package.json": '{"version":"1.0.0"}', "framework/VERSION": "1.0.0", ".framework-version": "1.0.0" }), "/repo");
+    const good = publishGate(memFs({ "publish/actions/ts/package.json": '{"version":"1.0.0"}', "publish/content/VERSION": "1.0.0" }), "/repo");
     expect(good.ok).to.equal(true);
     expect(formatPublishGate(good)[0]).to.match(/PASS/);
-    const bad = publishGate(memFs({ "package.json": '{"version":"1.0.0"}', "framework/VERSION": "0.9.9" }), "/repo");
+    const bad = publishGate(memFs({ "publish/actions/ts/package.json": '{"version":"1.0.0"}', "publish/content/VERSION": "0.9.9" }), "/repo");
     expect(bad.ok).to.equal(false);
     expect(bad.blockers.join()).to.match(/version-sync:/);
     expect(formatPublishGate(bad)[0]).to.match(/BLOCKED/);

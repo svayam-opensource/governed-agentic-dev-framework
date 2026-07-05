@@ -19,27 +19,29 @@ function memFs(files: Record<string, string>) {
   return { fs, store };
 }
 
-describe("prj-work Phase E — bumpVersion (port of bump-version.sh)", () => {
-  it("writes the version to all three files, preserving package.json formatting", () => {
-    const { fs, store } = memFs({ "package.json": '{\n  "name": "x",\n  "version": "0.7.4",\n  "type": "module"\n}\n' });
+const PKG = "publish/actions/ts/package.json";
+const VERSION = "publish/content/VERSION";
+
+describe("gov-work — bumpVersion (CLI package + content VERSION)", () => {
+  it("writes the version to the CLI package + content/VERSION, preserving package.json formatting", () => {
+    const { fs, store } = memFs({ [PKG]: '{\n  "name": "x",\n  "version": "0.7.4",\n  "type": "module"\n}\n' });
     const r = bumpVersion(fs, "/repo", "0.8.0");
     expect(r.ok).to.equal(true);
-    if (r.ok) expect(r.written).to.have.lengthOf(3);
+    if (r.ok) expect(r.written).to.have.lengthOf(2);
     // only the version value changed; the rest of package.json is intact
-    expect(store["package.json"]).to.equal('{\n  "name": "x",\n  "version": "0.8.0",\n  "type": "module"\n}\n');
-    expect(store["framework/VERSION"]).to.equal("0.8.0\n");
-    expect(store[".framework-version"]).to.equal("0.8.0\n");
+    expect(store[PKG]).to.equal('{\n  "name": "x",\n  "version": "0.8.0",\n  "type": "module"\n}\n');
+    expect(store[VERSION]).to.equal("0.8.0\n");
   });
 
   it("accepts a pre-release and rejects a non-version", () => {
-    const { fs } = memFs({ "package.json": '{"version":"1.0.0"}' });
+    const { fs } = memFs({ [PKG]: '{"version":"1.0.0"}' });
     expect(bumpVersion(fs, "/repo", "1.2.3-rc.1").ok).to.equal(true);
     expect(bumpVersion(fs, "/repo", "1.2")).to.include({ ok: false, code: 2 });
     expect(bumpVersion(fs, "/repo", "latest")).to.include({ ok: false, code: 2 });
   });
 
-  it("errors on a missing package.json or missing version field", () => {
-    expect(bumpVersion(memFs({}).fs, "/repo", "1.0.0")).to.include({ ok: false, error: "package.json not found" });
-    expect(bumpVersion(memFs({ "package.json": "{}" }).fs, "/repo", "1.0.0").ok).to.equal(false);
+  it("errors on a missing CLI package.json or missing version field", () => {
+    expect(bumpVersion(memFs({}).fs, "/repo", "1.0.0").ok).to.equal(false);
+    expect(bumpVersion(memFs({ [PKG]: "{}" }).fs, "/repo", "1.0.0").ok).to.equal(false);
   });
 });
