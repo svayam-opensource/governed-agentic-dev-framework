@@ -8,7 +8,9 @@
 It is NOT a code repository. It contains:
 - Org-wide knowledge (`knowledge/`)
 - All project workspaces (`projects/PRJ-<board#>-<slug>/`)
-- The project registry (`registry.yaml`)
+
+Project state is derived live from GitHub (boards + anchor issues) — there is no
+`registry.yaml` or `project.yaml`.
 
 `<WORKSPACE_REPO>` is an implicit participant in every project — it does not need to be listed in `repos[]`.
 
@@ -38,8 +40,8 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 ## Session Start Checklist (C01 — complete before any work)
 
 1. Read `org-config.yaml` at workspace root — org identity, branches, owners, `agent_work_root`. Every other step references its values.
-2. Read `projects/PRJ-<board#>-<slug>/project.yaml` → verify you are authorized via `assigned_to` (or own the current task sub-branch)
-3. Verify `status: active`
+2. Verify you are authorized via **write access to the project's GitHub Project** (or you own the current task sub-branch)
+3. Verify the project's GitHub board is **open** (active)
 4. Load all four knowledge layers fresh (never use cached layers from a prior session)
 5. Pull latest `BRNCH-<board#>-<slug>` branch in all repos
 
@@ -60,7 +62,8 @@ Org knowledge is read-only during projects — updated only via knowledge close 
 Current role holders are defined in `knowledge/policies/roles.md`.
 All policy roles are currently held by `<POLICY_OWNER_EMAIL>`.
 
-## Scripts
+## Lifecycle operations
 
-All operational scripts are specified in `knowledge/guidance/scripts/`.
-Use scripts for all lifecycle operations — never perform lifecycle actions manually.
+Use the `gov` CLI (`npm i -g @svayam-opensource/gov`) for all lifecycle operations
+(`gov seed`, `gov task`, `gov merge`, `gov close`, …) — never perform lifecycle
+actions manually.

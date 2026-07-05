@@ -5,5 +5,5 @@ This folder contains all project workspaces for <ORG_NAME> agentic development p
 Each subfolder corresponds to one project, named `PRJ-<board#>-<slug>`.
 Project workspaces are created by the `seed` script and live on project branches (`BRNCH-<board#>-<slug>`).
 
-See `registry.yaml` for the complete project registry.
+Projects are tracked on GitHub (Project boards + anchor issues) — there is no `registry.yaml`.
 See `knowledge/policies/agentic-development-policy.md` for governance rules.

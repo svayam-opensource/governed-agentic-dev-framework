@@ -1,8 +1,8 @@
-<!-- GENERATED FROM agent/session-protocol.md — do not edit; run ./scripts/render-harness.sh -->
+<!-- GENERATED from the framework harness source — do not edit by hand -->
 
 # Agent Session-Start Protocol — <ORG_NAME>
 
-This is the **canonical** session-start protocol for any AI coding agent working in this workspace. It is delivered to each tool at its conventional path (`CLAUDE.md`, `.cursor/rules/agent.mdc`, `AGENTS.md`, `CONVENTIONS.md`, …) by `scripts/render-harness.sh`, driven by `agent/harness-manifest.yaml`. **Edit the protocol here, then re-render — never hand-edit the generated copies** (they carry a "do not edit" banner).
+This is the **canonical** session-start protocol for any AI coding agent working in this workspace. It is delivered to each tool at its conventional path (`CLAUDE.md`, `.cursor/rules/agent.mdc`, `AGENTS.md`, `CONVENTIONS.md`, …) by the framework harness renderer, driven by `agent/harness-manifest.yaml`. **Edit the protocol here, then re-render — never hand-edit the generated copies** (they carry a "do not edit" banner).
 
 ## 0. New session — agent speaks first (Pattern 1)
 
@@ -14,7 +14,7 @@ When this protocol is loaded, your **first assistant message** in the session mu
 |---|---|
 | User's first message is a greeting, "start", "go", "ready", or session opener | Run §1–§2, post manifest, **stop and wait** |
 | User's first message already contains a **specific work task** | Still run §1–§2 first; post a **short** manifest, then address the task |
-| No active project (framework/contrib mode; no `active` entry in `registry.yaml`) | Post manifest stating no active project; load org layer + `agent.md` only; wait for direction |
+| No active project (no project branch checked out) | Post manifest stating no active project; load org layer + `agent.md` only; wait for direction |
 
 **Do not** wait for the user to paste the kickoff prompt from `DEVELOPER_GUIDE.md` — that template is for humans; you execute the same steps proactively.
 
@@ -27,8 +27,8 @@ Use this structure in your first reply:
 
 - **Project:** <PROJECT_ID or "none">
 - **Branch:** <current git branch>
-- **Status / assigned_to:** <from project.yaml, or n/a>
-- **Repos:** <primary repos from project.yaml, or n/a>
+- **Status:** <derived from the GitHub board (open = active), or n/a>
+- **Repos:** <the board's linked repos, or n/a>
 - **Open todos:** <bullets from todo.md ## Open, or "none">
 - **Layers loaded:** org ✓/✗ · project ✓/✗ · repo ✓/✗ · prefs ✓/✗
 - **Awaiting:** your direction (no tasks proposed)
@@ -61,16 +61,16 @@ Read `org-config.yaml` at the workspace repo root before anything else. The fram
 | `<LEGAL_OWNER_GITHUB>` etc. | `legal_owner_github`, `infra_owner_github`, `system_arch_owner_github`, `data_arch_owner_github` |
 | `<POLICY_EFFECTIVE_DATE>` | `policy_effective_date` |
 
-Tokens like `<PROJECT_ID>`, `<repo-name>`, `<your-gh-login>` are per-session values you'll discover from the current branch, `registry.yaml`, and `gh api user`.
+Tokens like `<PROJECT_ID>`, `<repo-name>`, `<your-gh-login>` are per-session values you'll discover from the current branch, the GitHub Project board, and `gh api user`.
 
-If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE state. Hard-stop and tell the human to run `./setup.sh`.
+If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE state. Hard-stop and tell the human to run `gov setup`.
 
 ## 2. Load four knowledge layers — fresh every session
 
 Read these in priority order (highest first). Never use cached layers from a prior session:
 
 1. **Org-wide knowledge** — `knowledge/` in this repo, from the `<DEFAULT_BRANCH>` branch.
-2. **Active project** — `projects/<PROJECT_ID>/knowledge/` plus the project's own entrypoint at `projects/<PROJECT_ID>/agent.md`. To determine the active `PROJECT_ID`: check `registry.yaml` for entries with `status: active`, and check the current git branch (project branches are named `BRNCH-<board#>-<slug>`, where `board#` is the GitHub project board number with no leading zero; the matching project id is `PRJ-<board#>-<slug>`. Pre-existing projects keep their legacy `brnch-NNN-<slug>` names).
+2. **Active project** — `projects/<PROJECT_ID>/knowledge/` plus the project's own entrypoint at `projects/<PROJECT_ID>/agent.md`. To determine the active `PROJECT_ID`: read the current git branch — **GitHub is the source of truth; there is no `registry.yaml`**. Project branches are named `BRNCH-<board#>-<slug>`, where `board#` is the GitHub project board number with no leading zero; the matching project id is `PRJ-<board#>-<slug>`. Pre-existing projects keep their legacy `brnch-NNN-<slug>` names.
 3. **Repo-local** — `<repo>/knowledge/` for each linked code repo at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`.
 4. **Your developer preferences** — `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md`. Run `gh api user --jq .login` to determine your handle; load **only** your file. Other files in that directory belong to other developers — do not read them.
 
@@ -80,8 +80,8 @@ Higher layers always win. Developer preferences cannot override repo-local or or
 
 If a project is active:
 
-- Confirm you are authorized: you have **write access to the project's linked GitHub Project** (the authorization source of truth — an owner grants it via `./prj manage assign`). `assigned_to` in `project.yaml` is a display/audit cache, **not** the gate. When on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is you.
-- `project.yaml`'s `status` must be `active`.
+- Confirm you are authorized: you have **write access to the project's linked GitHub Project** (the authorization source of truth — an owner grants it via `gov manage assign`). There is no `project.yaml` — GitHub Project write access is the sole gate. When on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is you.
+- The project's GitHub board must be **open** (an open board = active).
 - Read `projects/<PROJECT_ID>/knowledge/todo.md` and surface its `## Open` items to the developer before planning new work.
 
 If any of these can't be verified, hard-stop and surface to the human. Do not commit anything.
@@ -92,7 +92,7 @@ During an active project:
 
 - ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$AGENT_WORK_ROOT/<PROJECT_ID>/`.
 - ❌ Read-only: `<WORKSPACE_REPO>/knowledge/` — never edit during an active project.
-- ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `./prj task`, land with `./prj merge`.
+- ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
 - ❌ Don't create GitHub Issues unilaterally — those represent business intent that humans add to the GitHub Project board.
 
 ## 5. Where work happens

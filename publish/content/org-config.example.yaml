@@ -1,12 +1,12 @@
 # Agentic Development Framework — Organization Configuration
 #
 # This file is shipped empty by the framework template. An adopting org runs
-# ./setup.sh once after cloning the template; that fills in real values here.
+# gov setup once after cloning the template; that fills in real values here.
 # Framework files (CLAUDE.md, AGENTS.md, knowledge/policies/, etc.) read these
 # values at runtime, so this is the ONLY file that diverges from the upstream
 # template after setup.
 #
-# Re-run ./setup.sh to update. Do not edit by hand unless you know what you're
+# Re-run gov setup to update. Do not edit by hand unless you know what you're
 # doing — setup.sh overwrites the file.
 
 # Full legal name of your organization
