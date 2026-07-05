@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
+import { runPluginCommand as delegateToPlugin, type PluginCliContext } from "../plugin/loader.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -91,6 +92,42 @@ export async function runSetupCommand(argv: readonly string[], now: string = new
   } finally {
     rl.close();
   }
+}
+
+/**
+ * Enterprise plugin commands (`deploy`/`catalog`/`data`/…) — resolve the gov
+ * workspace + config, then delegate to `@svayam/gov-operate` via the seam. Async
+ * (dynamic import), so bin.ts routes it here instead of through sync `main`.
+ */
+export async function runPluginCli(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) {
+    process.stderr.write(`${parsed.error}\n`);
+    return 2;
+  }
+  const fs = createNodeFs();
+  const env = createNodeEnv();
+  const govHomeOverride = flagStr(parsed.flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
+  let home: string;
+  if (govHomeOverride) {
+    home = path.resolve(expandTilde(govHomeOverride));
+  } else {
+    const resolved = prjResolveGov(env);
+    if (!resolved.ok) {
+      process.stderr.write(`${resolveFailureMessage(resolved)}\n`);
+      return resolved.code;
+    }
+    home = resolved.home;
+  }
+  const cfgText = fs.readFile(path.join(home, "org-config.yaml"));
+  if (cfgText === null) {
+    process.stderr.write(`gov: no org-config.yaml at ${home}\n`);
+    return 1;
+  }
+  const ctx: PluginCliContext = { home, config: parseOrgConfig(cfgText), license: process.env.GOV_LICENSE };
+  const result = await delegateToPlugin(argv, ctx);
+  for (const line of result.lines) process.stdout.write(`${line}\n`);
+  return result.code;
 }
 
 /**
