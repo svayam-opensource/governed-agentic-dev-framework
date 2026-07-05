@@ -29,9 +29,9 @@ version: "1.0.0"   # authoritative source: publish/content/VERSION
 # npm (`npm i -g @svayam-opensource/gov`, command `gov`); it operates on any
 # resolved gov workspace (model A — GitHub is the source of truth; no
 # $ADF_WORKSPACE, no state files). Gov repos hold pure data + content; `gov
-# upgrade` carries framework CONTENT only. Governance CI gates are provided by
-# the CLI (`gov validate`), so the framework's own `.github/workflows/` is not
-# scaffolded to adopters.
+# upgrade` carries framework CONTENT only. Governance CI IS scaffolded as a
+# single `gov-validate.yml` workflow (below) that installs the CLI + runs
+# `gov validate` — the CLI source itself is never vendored.
 # ─────────────────────────────────────────────────────────────────────────
 
 files:
@@ -58,6 +58,9 @@ files:
   - { src: .gemini/styleguide.md,              dst: .gemini/styleguide.md,              mode: scaffold-prompt }
   - { src: .continue/rules.md,                 dst: .continue/rules.md,                 mode: scaffold-prompt }
   - { src: .github/pull_request_template.md,   dst: .github/pull_request_template.md,   mode: scaffold-prompt }
+
+  # Governance CI — runs `gov validate` on the adopter workspace (org may tune triggers).
+  - { src: .github/workflows/gov-validate.yml, dst: .github/workflows/gov-validate.yml, mode: scaffold-prompt }
 
   # GitHub issue templates — org may want to customize
   - { src: .github/ISSUE_TEMPLATE/, dst: .github/ISSUE_TEMPLATE/, mode: scaffold-prompt }
