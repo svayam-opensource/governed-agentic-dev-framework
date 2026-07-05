@@ -73,7 +73,7 @@ export interface CommandResult {
   readonly lines: readonly string[];
 }
 
-const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: prj ${spec}`] });
+const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov ${spec}`] });
 
 /**
  * Route `prj org …` — the multi-home registry commands. Handled SEPARATELY from

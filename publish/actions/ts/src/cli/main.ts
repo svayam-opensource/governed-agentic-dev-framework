@@ -13,8 +13,10 @@ import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
-import { runPluginCommand as delegateToPlugin, loadGovOperate, type PluginCliContext } from "../plugin/loader.js";
-import type { MenuContext } from "./menu.js";
+import { runPluginCommand as delegateToPlugin, loadGovOperate, isPluginCommand, type PluginCliContext } from "../plugin/loader.js";
+import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
+import { runWorkFlow } from "./work-flow.js";
+import { runOperateFlow } from "./operate-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -137,6 +139,80 @@ export async function gatherMenuContext(): Promise<MenuContext> {
     /* not installed */
   }
   return { orgName, githubOrg, branch, user, workspaceCount, cliVersion, operateInstalled };
+}
+
+/** Route any command (setup / enterprise plugin / normal) — used by the menu. */
+export function runAny(argv: readonly string[]): Promise<number> | number {
+  if (argv[0] === "setup") return runSetupCommand(argv);
+  if (argv[0] !== undefined && isPluginCommand(argv[0])) return runPluginCli(argv);
+  return main(argv);
+}
+
+/** The command reference shown under the Help menu (grouped) / per-command. */
+function helpLines(command?: string): string[] {
+  if (command) return ["", `  gov ${command} — run \`gov ${command} --help\`, or see the README command reference.`, ""];
+  const groups: Record<string, string[]> = {
+    Lifecycle: ["seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel"],
+    Governance: ["manage", "anchor", "knowledge", "onboard", "org", "validate"],
+    Info: ["list", "list-all", "status"],
+    Maintain: ["setup", "doctor", "deps", "upgrade", "bump-version", "publish"],
+    "Enterprise (plugin)": ["catalog", "deploy", "data", "promote", "rollback", "drift"],
+  };
+  const out = ["", "  gov command reference (run any directly: `gov <command> [args]`):"];
+  for (const [g, cmds] of Object.entries(groups)) out.push(`    ${g.padEnd(20)} ${cmds.join(" · ")}`);
+  out.push("");
+  return out;
+}
+
+/** Build + run the interactive main menu (no-args TTY). Async — routed from bin.ts. */
+export async function runMainMenu(): Promise<number> {
+  const ctx = await gatherMenuContext();
+  const fs = createNodeFs();
+  const env = createNodeEnv();
+  const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+
+  // Operational deps for the guided Work flow (present only when a workspace resolves).
+  const resolved = prjResolveGov(env);
+  let workDeps: Parameters<typeof runWorkFlow>[0] | null = null;
+  if (resolved.ok) {
+    const cfgText = fs.readFile(path.join(resolved.home, "org-config.yaml"));
+    if (cfgText) {
+      const config = parseOrgConfig(cfgText);
+      workDeps = {
+        projects: createGhProjects(runGh),
+        anchor: createGhAnchor(runGh),
+        fs,
+        config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot },
+        me: ctx.user ?? null,
+        canWriteBoard: (n) =>
+          tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${n}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) !== "false",
+        run: runAny,
+        prompt: async () => "",
+        print: () => {},
+      };
+    }
+  }
+
+  const handlers: MenuHandlers = {
+    runCommand: runAny,
+    runWork: async (io) => {
+      if (!workDeps) {
+        io.print("  No governance workspace resolved. Set one up first: `gov setup`, then `gov org add/use`.");
+        return 1;
+      }
+      return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print });
+    },
+    runOperate: async (io) => {
+      if (!ctx.operateInstalled) {
+        io.print("  The enterprise plugin isn't installed:  npm i -g @svayam/gov-operate");
+        return 1;
+      }
+      return runOperateFlow({ run: runAny, prompt: io.prompt, print: io.print });
+    },
+    switchOrg: (org) => runAny(["org", "use", org]),
+    help: (command) => helpLines(command),
+  };
+  return runMenu(ctx, handlers);
 }
 
 /**

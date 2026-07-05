@@ -1,40 +1,39 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { menuCategories, formatMainMenu, resolveTopChoice, type MenuContext } from "../../src/cli/menu.js";
+import { mainActions, formatMainMenu, resolveTopChoice, type MenuContext } from "../../src/cli/menu.js";
 
 const CTX: MenuContext = { orgName: "Acme Inc", githubOrg: "Acme", branch: "main", user: "rk", workspaceCount: 2, cliVersion: "1.0.0" };
 
-describe("gov-work — interactive menu", () => {
-  it("categories: Status/Work/Admin/Maintain; adds Operate only when the plugin is installed", () => {
-    expect(menuCategories(false).map((c) => c.label)).to.deep.equal(["Status", "Work", "Admin", "Maintain"]);
-    expect(menuCategories(true).map((c) => c.label)).to.include("Operate");
+describe("gov-work — interactive menu (task-oriented)", () => {
+  it("Status/Work/Admin/Help; Work+Operate are guided, Status/Admin are submenus, Help is help", () => {
+    const a = mainActions(false);
+    expect(a.map((x) => x.label)).to.deep.equal(["Status", "Work", "Admin", "Help"]);
+    expect(a.find((x) => x.label === "Work")!.kind).to.equal("guided");
+    expect(a.find((x) => x.label === "Status")!.kind).to.equal("submenu");
+    expect(a.find((x) => x.label === "Help")!.kind).to.equal("help");
+    // Operate appears only when the plugin is installed
+    expect(mainActions(true).find((x) => x.label === "Operate")!.kind).to.equal("guided");
   });
 
-  it("renders a prj-style banner (org · branch · user · workspaces) + the action table", () => {
+  it("Work is NOT a command dump — its hint is 'pick a project'", () => {
+    const work = mainActions(false).find((x) => x.label === "Work")!;
+    expect(work.kind === "guided" && work.hint).to.equal("pick a project");
+  });
+
+  it("renders the prj-style banner + action table; hides Operate / shows plugin hint when absent", () => {
     const m = formatMainMenu(CTX).join("\n");
     expect(m).to.match(/▸ Acme Inc — Governed Agentic Development Framework \(v1\.0\.0\)/);
-    expect(m).to.match(/Org: Acme\s+\|\s+Branch: main\s+\|\s+User: rk/);
-    expect(m).to.match(/2 governance workspace\(s\) registered/);
-    expect(m).to.match(/\(1\) Status/);
-    expect(m).to.match(/\(2\) Work/);
-    // no plugin → the enterprise hint, no Operate row
+    expect(m).to.match(/\(2\) Work.*pick a project/);
     expect(m).to.match(/need the enterprise plugin/);
-    expect(m).to.not.match(/\(5\) Operate/);
+    expect(m).to.not.match(/Operate/);
   });
 
-  it("shows an Operate row (no hint) when the plugin is installed", () => {
-    const m = formatMainMenu({ ...CTX, operateInstalled: true }).join("\n");
-    expect(m).to.match(/\(5\) Operate/);
-    expect(m).to.not.match(/need the enterprise plugin/);
-  });
-
-  it("resolves a top-level choice to a category / org / quit", () => {
-    expect(resolveTopChoice("2", CTX)).to.deep.include({ kind: "category" });
-    expect((resolveTopChoice("2", CTX) as { category: { key: string } }).category.key).to.equal("work");
-    expect(resolveTopChoice("admin", CTX)).to.deep.include({ kind: "category" });
+  it("resolves choices to action / org / quit", () => {
+    expect((resolveTopChoice("2", CTX) as { action: { label: string } }).action.label).to.equal("Work");
+    expect((resolveTopChoice("admin", CTX) as { action: { label: string } }).action.label).to.equal("Admin");
     expect(resolveTopChoice("o", CTX)).to.deep.equal({ kind: "org" });
     expect(resolveTopChoice("0", CTX)).to.deep.equal({ kind: "quit" });
-    expect(resolveTopChoice("999", CTX)).to.deep.equal({ kind: "unknown" });
+    expect(resolveTopChoice("99", CTX)).to.deep.equal({ kind: "unknown" });
   });
 });
