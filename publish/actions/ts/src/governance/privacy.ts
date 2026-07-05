@@ -69,7 +69,7 @@ export function makePrivacyValidator(mainConfigText: string): Validator {
       const name = rel.split("/").pop() ?? rel;
       const text = ctx.fs.readFile(path.join(ctx.repoRoot, rel));
       if (text === null || text.includes("\0")) continue;
-      const lines = text.split("\n");
+      const lines = text.split(/\r?\n/);
       for (const { key, value } of values) {
         if (ATTRIBUTION_KEYS.has(key) && ATTRIBUTION_FILES.has(name)) continue; // legit attribution
         for (let i = 0; i < lines.length; i++) {

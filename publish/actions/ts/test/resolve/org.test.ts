@@ -26,7 +26,7 @@ function probe(orgAt: Record<string, string>) {
   return (p: string): GovConfig | null => (orgAt[p] ? { org: orgAt[p], govWorkspace: p } : null);
 }
 
-describe("prj-work — prj org (multi-home registry)", () => {
+describe("prj-work — gov org (multi-home registry)", () => {
   it("add validates the home is that org's gov repo, then records it", () => {
     const store = memStore();
     const deps: OrgDeps = { store, govConfigAt: probe({ "/gov": "Svayamtech" }) };

@@ -38,7 +38,7 @@ function frontMatter(text: string): Record<string, string> | null {
   const m = FM_RE.exec(text);
   if (!m) return null;
   const fm: Record<string, string> = {};
-  for (const line of m[1].split("\n")) {
+  for (const line of m[1].split(/\r?\n/)) {
     if (line.includes(":") && !line.trimStart().startsWith("#")) {
       const idx = line.indexOf(":");
       fm[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
@@ -51,7 +51,7 @@ function frontMatter(text: string): Record<string, string> | null {
 function stripCode(text: string): string {
   const out: string[] = [];
   let fenceLen = 0;
-  for (const line of text.split("\n")) {
+  for (const line of text.split(/\r?\n/)) {
     const m = /^(`{3,})/.exec(line.trimStart());
     if (m) {
       const n = m[1].length;
@@ -61,7 +61,7 @@ function stripCode(text: string): string {
     }
     if (fenceLen === 0) out.push(line);
   }
-  return out.join("\n").replace(/`[^`\n]*`/g, "").split("\n").filter((l) => !l.startsWith("    ")).join("\n");
+  return out.join("\n").replace(/`[^`\n]*`/g, "").split(/\r?\n/).filter((l) => !l.startsWith("    ")).join("\n");
 }
 
 export function checkKnowledge(ctx: ValidateContext): ValidationResult {

@@ -28,7 +28,7 @@ export function parseManifest(text: string): Manifest {
   const files: ManifestEntry[] = [];
   const owned: string[] = [];
   let section: "files" | "owned" | null = null;
-  for (const raw of text.split("\n")) {
+  for (const raw of text.split(/\r?\n/)) {
     const t = raw.trim();
     if (!t || t.startsWith("#")) continue;
     if (t === "files:") { section = "files"; continue; }
@@ -125,11 +125,11 @@ export function mergeOrgConfig(templateText: string, orgText: string): string {
     return m ? m[1] : null;
   };
   const orgValues = new Map<string, string>();
-  for (const line of orgText.split("\n")) { const k = keyOf(line); if (k) orgValues.set(k, line); }
+  for (const line of orgText.split(/\r?\n/)) { const k = keyOf(line); if (k) orgValues.set(k, line); }
   const templateKeys = new Set<string>();
   const out: string[] = [];
   // Walk the TEMPLATE (canonical order + comments); fill org values where present.
-  for (const line of templateText.split("\n")) {
+  for (const line of templateText.split(/\r?\n/)) {
     const k = keyOf(line);
     if (k) { templateKeys.add(k); out.push(orgValues.has(k) ? orgValues.get(k)! : line); }
     else out.push(line);

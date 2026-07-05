@@ -37,7 +37,7 @@ export function checkSecrets(ctx: ValidateContext): ValidationResult {
   for (const rel of ctx.files ?? []) {
     const text = ctx.fs.readFile(path.join(ctx.repoRoot, rel));
     if (text === null || text.includes("\0")) continue; // missing or binary
-    const lines = text.split("\n");
+    const lines = text.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (line.includes(ALLOWLIST_MARKER)) continue;
