@@ -50,6 +50,12 @@ elif [ -s "$HOME/.nvm/nvm.sh" ]; then
   export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; nvm install 24 >/dev/null 2>&1; nvm use 24 >/dev/null
 fi
 node -v 2>/dev/null | grep -qE '^v(2[4-9]|[3-9][0-9])' && ok "node $(node -v)" || die "node ≥24 required (install it, or provide nvm)"
+# A node:24 base image installs globals to root-owned /usr/local; a non-root
+# adopter can't write there. Ensure a user-writable global prefix (nvm / CI
+# runners already have one under $HOME, so this is a no-op there).
+if ! npm config get prefix 2>/dev/null | grep -qF "$HOME"; then
+  export NPM_CONFIG_PREFIX="$HOME/.npm-global"; export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"; mkdir -p "$NPM_CONFIG_PREFIX/bin"
+fi
 npm i -g "$GOV_TARBALL" >/dev/null 2>&1
 command -v gov >/dev/null && ok "gov installed: $(gov --version 2>/dev/null || echo '?')" || die "gov not on PATH"
 # GH_TOKEN in the env authenticates gh directly (no `gh auth login` needed).
