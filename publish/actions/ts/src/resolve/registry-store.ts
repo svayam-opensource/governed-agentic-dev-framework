@@ -11,6 +11,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import type { GovHome } from "./types.js";
 import { formatGovWorkspaces, parseGovWorkspaces } from "./registry.js";
+import { configDir } from "./node-env.js";
 
 /** Read/write access to the multi-home registry. */
 export interface RegistryStore {
@@ -29,10 +30,9 @@ export interface RegistryStoreOptions {
 /** A node:fs-backed {@link RegistryStore}. */
 export function createNodeRegistryStore(opts: RegistryStoreOptions = {}): RegistryStore {
   const home = opts.home ?? os.homedir();
-  const configDir =
-    opts.configDir ?? path.join(process.env.XDG_CONFIG_HOME || path.join(home, ".config"), "prj");
-  const govWorkspaces = path.join(configDir, "gov-workspaces");
-  const activeOrgFile = path.join(configDir, "active-org");
+  const configDirPath = opts.configDir ?? configDir(process.env, process.platform, home);
+  const govWorkspaces = path.join(configDirPath, "gov-workspaces");
+  const activeOrgFile = path.join(configDirPath, "active-org");
 
   const readText = (file: string): string | null => {
     try {
@@ -42,7 +42,7 @@ export function createNodeRegistryStore(opts: RegistryStoreOptions = {}): Regist
     }
   };
   const writeAtomic = (file: string, content: string): void => {
-    fs.mkdirSync(configDir, { recursive: true });
+    fs.mkdirSync(configDirPath, { recursive: true });
     const tmp = `${file}.tmp-${process.pid}`;
     fs.writeFileSync(tmp, content, "utf8");
     fs.renameSync(tmp, file);

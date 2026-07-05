@@ -19,6 +19,22 @@ export function expandTilde(p: string, home: string = os.homedir()): string {
   return p;
 }
 
+/**
+ * The OS-idiomatic per-user config dir holding the CLI-local registry
+ * (`gov-workspaces` + `active-org`). Windows → `%APPDATA%\prj`; elsewhere →
+ * `$XDG_CONFIG_HOME/prj` or `~/.config/prj`. The `prj` leaf is kept for
+ * continuity with existing registries (shared multi-home store). Pure — env /
+ * platform / home are injectable for tests.
+ */
+export function configDir(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home: string = os.homedir()): string {
+  if (platform === "win32") {
+    const appData = env.APPDATA && env.APPDATA.trim() ? env.APPDATA : path.join(home, "AppData", "Roaming");
+    return path.join(appData, "prj");
+  }
+  const xdg = env.XDG_CONFIG_HOME;
+  return path.join(xdg && xdg.trim() ? xdg : path.join(home, ".config"), "prj");
+}
+
 /** True if `p` sits inside a `.bases/` base clone (never a real gov home). */
 export function containsBasesSegment(p: string): boolean {
   return p.split(path.sep).includes(".bases");
@@ -69,12 +85,10 @@ export interface NodeEnvOptions {
 export function createNodeEnv(opts: NodeEnvOptions = {}): ResolveEnv {
   const home = opts.home ?? os.homedir();
   const cwd = opts.cwd ?? process.cwd();
-  const configDir =
-    opts.configDir ??
-    path.join(process.env.XDG_CONFIG_HOME || path.join(home, ".config"), "prj");
+  const configDirPath = opts.configDir ?? configDir(process.env, process.platform, home);
 
-  const govWorkspaces = path.join(configDir, "gov-workspaces");
-  const activeOrgFile = path.join(configDir, "active-org");
+  const govWorkspaces = path.join(configDirPath, "gov-workspaces");
+  const activeOrgFile = path.join(configDirPath, "active-org");
 
   const readText = (file: string): string | null => {
     try {
