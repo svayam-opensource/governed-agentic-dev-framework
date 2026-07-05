@@ -15,7 +15,7 @@ set -euo pipefail
 IMAGE="${E2E_IMAGE:-gyan-e2e-img:latest}"
 HERE="$(cd "$(dirname "$0")" && pwd)"          # publish/actions/ts/e2e
 TS_DIR="$(cd "$HERE/.." && pwd)"               # publish/actions/ts
-CONTENT_DIR="$(cd "$TS_DIR/../content" && pwd)" # publish/content
+CONTENT_DIR="$(cd "$TS_DIR/../../content" && pwd)" # publish/content
 
 echo "▶ build + pack the local gov ($TS_DIR)"
 ( cd "$TS_DIR" && npm run build >/dev/null && npm pack --silent >/dev/null )
@@ -29,7 +29,7 @@ cp -R "$CONTENT_DIR" "$WORK/content"
 
 echo "▶ run the journey in a FRESH $IMAGE container (clean slate)"
 docker run --rm \
-  -e E2E_ORG="$E2E_ORG" -e GH_TOKEN="$GH_TOKEN" -e E2E_KEEP="${E2E_KEEP:-0}" -e E2E_RUN_ID="$(date +%s)" \
+  -e E2E_ORG="$E2E_ORG" -e GH_TOKEN -e E2E_KEEP="${E2E_KEEP:-0}" -e E2E_RUN_ID="$(date +%s)" \
   -e GOV_TARBALL=/e2e/gov.tgz -e CONTENT_DIR=/e2e/content \
   -v "$WORK":/e2e:ro \
   --entrypoint bash "$IMAGE" -lc 'cp -R /e2e /tmp/e2e && chmod +x /tmp/e2e/journey.sh && GOV_TARBALL=/tmp/e2e/gov.tgz CONTENT_DIR=/tmp/e2e/content /tmp/e2e/journey.sh'

@@ -49,6 +49,12 @@ npm i -g "$GOV_TARBALL" >/dev/null 2>&1
 command -v gov >/dev/null && ok "gov installed: $(gov --version 2>/dev/null || echo '?')" || die "gov not on PATH"
 # GH_TOKEN in the env authenticates gh directly (no `gh auth login` needed).
 gh api user --jq .login >/dev/null 2>&1 && ok "gh authenticated as $(gh api user --jq .login)" || die "gh auth failed (is GH_TOKEN set + valid?)"
+# git identity (the fresh container has none) — needed to commit the workspace repo.
+git config --global user.email "gyan@svayam.ai"
+git config --global user.name "Gyan E2E"
+git config --global init.defaultBranch main
+gh auth setup-git 2>/dev/null   # make raw `git push` to github.com use gh's token
+ok "git identity set ($(git config --global user.email)) + git credential helper"
 
 # ── 1. Create the workspace repo from the framework template ─────────────────
 step "Create adopter workspace repo ($E2E_ORG/$WS_REPO) from template content"
@@ -56,45 +62,75 @@ gh repo create "$E2E_ORG/$WS_REPO" --private --clone -- "$ROOT/$WS_REPO" >/dev/n
   { gh repo create "$E2E_ORG/$WS_REPO" --private >/dev/null && gh repo clone "$E2E_ORG/$WS_REPO" "$ROOT/$WS_REPO" >/dev/null 2>&1; }
 cp -R "$CONTENT_DIR"/. "$ROOT/$WS_REPO"/         # seed the workspace from publish/content (the template)
 cd "$ROOT/$WS_REPO"
-git add -A && git commit -qm "seed from framework template" && git push -q origin HEAD 2>/dev/null || true
-[ -f MANIFEST.yaml ] && ok "workspace seeded from template" || die "template content missing"
+[ -f MANIFEST.yaml ] || die "template content missing (CONTENT_DIR wrong?)"
+git add -A && git commit -qm "seed from framework template" || die "template commit failed (git identity?)"
+git push -q origin HEAD 2>/dev/null || git push -q origin "HEAD:$(git symbolic-ref --short HEAD)" || die "template push failed"
+ok "workspace seeded from template + pushed ($(git rev-parse --short HEAD))"
 
 # ── 2. gov setup (non-interactive) → org-config.yaml filled, non-template ────
 # Non-interactive setup derives github_org/workspace_repo from origin but needs
 # org_name/org_slug pre-seeded (it has no prompt to ask them). github_org/
 # workspace_repo come from the repo origin ($E2E_ORG/$WS_REPO).
 step "gov setup"
+# Pre-seed the fields non-interactive setup can't prompt for. gov_workspace is
+# set to THIS clone (the canonical home the resolver checks the registry against);
+# setup's pick() honors existing values (answers ?? existing ?? default).
 cat > org-config.yaml <<YAML
 org_name: "Gov E2E Org"
 org_short_name: "GovE2E"
 org_slug: "gov-e2e"
+gov_workspace: "$PWD"
 YAML
 gov setup --non-interactive >/tmp/setup.log 2>&1 || true
 grep -q "github_org: \"$E2E_ORG\"" org-config.yaml 2>/dev/null && ok "org-config.yaml written for $E2E_ORG" \
   || { echo "  --- setup log ---"; tail -8 /tmp/setup.log; die "org-config not configured for $E2E_ORG"; }
 grep -q 'org_name: ""' org-config.yaml && die "org-config still in template state" || ok "workspace is non-template"
+# Commit org-config so the project branch seed creates carries github_org — the
+# per-project worktree resolves to ITSELF (cwd) only when its committed config
+# names the active org; otherwise resolution falls back to the home clone (main).
+git add -A && git commit -qm "gov setup: configure org-config.yaml" >/dev/null && git push -q origin HEAD 2>/dev/null && ok "committed org-config to the workspace" || die "commit/push org-config failed"
 gov org add "$E2E_ORG" "$PWD" >/dev/null 2>&1 && gov org use "$E2E_ORG" >/dev/null 2>&1 && ok "registered + activated org $E2E_ORG" || die "gov org add/use failed"
 
 # ── 3. Create a code repo + a Project board + an issue ──────────────────────
 step "Create code repo + project board + issue"
-gh repo create "$E2E_ORG/$CODE_REPO" --private >/dev/null && ok "code repo $CODE_REPO created" || die "code repo create failed"
+# a real code repo has an initial commit + the base branch gov branches off of
+gh repo create "$E2E_ORG/$CODE_REPO" --private --add-readme >/dev/null && ok "code repo $CODE_REPO created" || die "code repo create failed"
+CODE_BASE=$(grep -E '^default_code_branch:' org-config.yaml | sed -E 's/^default_code_branch:[[:space:]]*"?([^"#[:space:]]+).*/\1/')
+DEFB=$(gh api "repos/$E2E_ORG/$CODE_REPO" --jq .default_branch 2>/dev/null)
+if [ -n "$CODE_BASE" ] && [ "$CODE_BASE" != "$DEFB" ]; then
+  SHA=$(gh api "repos/$E2E_ORG/$CODE_REPO/git/ref/heads/$DEFB" --jq .object.sha 2>/dev/null)
+  gh api "repos/$E2E_ORG/$CODE_REPO/git/refs" -f ref="refs/heads/$CODE_BASE" -f sha="$SHA" >/dev/null 2>&1 && ok "base branch '$CODE_BASE' created" || die "could not create base branch '$CODE_BASE'"
+fi
 PROJ_URL=$(gh project create --owner "$E2E_ORG" --title "$SLUG" --format json --jq .url 2>/dev/null) && ok "project board: $PROJ_URL" || die "project create failed"
 PROJ_NUM="${PROJ_URL##*/}"
 ISSUE_URL=$(gh issue create --repo "$E2E_ORG/$CODE_REPO" --title "e2e: implement thing" --body "outcome under test" 2>/dev/null) && ok "issue: $ISSUE_URL" || die "issue create failed"
 gh project item-add "$PROJ_NUM" --owner "$E2E_ORG" --url "$ISSUE_URL" >/dev/null 2>&1 && ok "issue linked to board" || true
+for _ in $(seq 1 20); do
+  N=$(gh api graphql -f query="query{organization(login:\"$E2E_ORG\"){projectV2(number:$PROJ_NUM){items(first:50){nodes{content{__typename}}}}}}" --jq '[.data.organization.projectV2.items.nodes[]|select(.content!=null)]|length' 2>/dev/null || echo 0)
+  [ "${N:-0}" -ge 1 ] && break; sleep 2
+done
+ok "board shows $N linked item(s)"
 
 # ── 4. Work: seed → task → merge ────────────────────────────────────────────
 step "gov seed → task → merge"
 SEED_OUT=$(gov seed "$PROJ_URL" "$(gh api user --jq .login)" 2>&1) || { echo "$SEED_OUT" | tail -8; die "gov seed failed"; }
 assert_contains "$SEED_OUT" "BRNCH-${PROJ_NUM}" "seed created the project branch"
-# (task/merge/close/knowledge steps assert against the seeded workspace + board)
+
+# task/merge/close run from the seeded WORKSPACE WORKTREE (on the project branch),
+# not the original clone (which is on main). seed put it under agent_work_root.
+AWR="$(grep -E '^agent_work_root:' org-config.yaml | sed -E 's/^agent_work_root:[[:space:]]*"?([^"#[:space:]]+).*/\1/')"
+AWR="${AWR/#\~/$HOME}"
+PID="PRJ-${PROJ_NUM}-${SLUG}"
+WS_WT="$AWR/$PID/$WS_REPO"
+[ -d "$WS_WT/.git" ] || WS_WT="$(find "$AWR" -maxdepth 3 -type d -name "$WS_REPO" 2>/dev/null | head -1)"
+[ -n "$WS_WT" ] && cd "$WS_WT" || die "seeded workspace worktree not found under $AWR"
+ok "in project workspace on $(git rev-parse --abbrev-ref HEAD)"
+
 TASK_OUT=$(gov task "$ISSUE_URL" 2>&1) || { echo "$TASK_OUT" | tail -8; die "gov task failed"; }
 assert_contains "$TASK_OUT" "ISSUE-" "task opened a sub-branch"
 
 # make a change in the code-repo worktree the task created, then land it
-AWR="$(grep -E '^agent_work_root:' org-config.yaml | sed -E 's/.*"(.*)".*/\1/')"
-PID="PRJ-${PROJ_NUM}-${SLUG#gov-e2e-}"
-REPO_WT=$(find "${AWR/#\~/$HOME}" -maxdepth 3 -type d -name "$CODE_REPO" 2>/dev/null | head -1 || true)
+REPO_WT=$(find "$AWR" -maxdepth 3 -type d -name "$CODE_REPO" 2>/dev/null | head -1 || true)
 if [ -n "$REPO_WT" ]; then
   echo "e2e change $RUN_ID" >> "$REPO_WT/E2E.md"
   ( cd "$REPO_WT" && git add -A && git commit -qm "e2e: implement thing (closes #${ISSUE_URL##*/})" )
@@ -105,12 +141,41 @@ MERGE_OUT=$(gov merge "$ISSUE_URL" 2>&1) || { echo "$MERGE_OUT" | tail -8; die "
 [ "$(gh issue view "$ISSUE_URL" --json state --jq .state 2>/dev/null)" = "CLOSED" ] && ok "merge closed the issue" || die "issue not closed after merge"
 
 # ── 5. Propose org knowledge (branch → PR) ───────────────────────────────────
+# Knowledge is an ORG-level op (branches off main) → run from the HOME clone, not
+# the project worktree (which holds a project branch; main lives on the home clone).
 step "gov knowledge propose → submit"
+cd "$ROOT/$WS_REPO"
 KN_OUT=$(gov knowledge propose "e2e-decision-${RUN_ID}" 2>&1) || { echo "$KN_OUT" | tail -8; die "gov knowledge propose failed"; }
 assert_contains "$KN_OUT" "knowledge" "knowledge propose opened a change"
 
 # ── 6. Close the project (knowledge gate → promote → close board) ────────────
-step "gov close"
+# close is project-level → back in the project worktree. First satisfy the C01
+# pre-close knowledge gate (a real adopter documents learnings before close).
+step "document project knowledge (close gate) → gov close"
+cd "$WS_WT"
+KDIR="projects/$PID/knowledge"
+mkdir -p "$KDIR"
+printf '# Decisions\n\n- Implemented the e2e change.\n' > "$KDIR/decisions.md"
+printf '# Compliance\n\nAll C01/C02 requirements satisfied for this project.\n' > "$KDIR/compliance.md"
+cat > "$KDIR/knowledge-close.md" <<'KC'
+# Knowledge Close
+
+## Graduated to org knowledge
+None for this project.
+
+## Kept project-local
+Implementation notes stay in the project.
+
+## Discarded
+Nothing.
+
+## Journeys created / updated
+None.
+
+## Completeness critic
+Reviewed — nothing outstanding.
+KC
+git add -A && git commit -qm "docs: project knowledge (close gate)" >/dev/null && ok "documented project knowledge" || die "knowledge commit failed"
 CLOSE_OUT=$(gov close 2>&1) || { echo "$CLOSE_OUT" | tail -12; die "gov close failed"; }
 [ "$(gh project view "$PROJ_NUM" --owner "$E2E_ORG" --format json --jq .closed 2>/dev/null)" = "true" ] && ok "close shut the board" \
   || assert_contains "$CLOSE_OUT" "close" "close ran the gate"
