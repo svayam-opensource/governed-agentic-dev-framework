@@ -60,7 +60,7 @@ describe("coverage — plugin seam: isPluginCommand (cartesian over every comman
     });
   }
   it("PLUGIN_COMMANDS is exactly deploy/catalog/data/promote/rollback/drift", () => {
-    expect([...PLUGIN_COMMANDS]).to.deep.equal(["deploy", "catalog", "data", "promote", "rollback", "drift"]);
+    expect([...PLUGIN_COMMANDS]).to.deep.equal(["deploy", "catalog", "data", "promote", "rollback", "drift", "attest", "authorize"]);
   });
 });
 

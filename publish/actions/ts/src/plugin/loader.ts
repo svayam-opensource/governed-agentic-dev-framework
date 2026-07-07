@@ -10,7 +10,7 @@
 import type { OrgConfig } from "../config/org-config.js";
 
 /** The enterprise command namespace owned by the gov-operate plugin. */
-export const PLUGIN_COMMANDS = ["deploy", "catalog", "data", "promote", "rollback", "drift"] as const;
+export const PLUGIN_COMMANDS = ["deploy", "catalog", "data", "promote", "rollback", "drift", "attest", "authorize"] as const;
 export type PluginCommand = (typeof PLUGIN_COMMANDS)[number];
 
 export function isPluginCommand(cmd: string): cmd is PluginCommand {
