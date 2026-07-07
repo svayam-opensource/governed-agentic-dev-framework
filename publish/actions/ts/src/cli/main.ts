@@ -8,6 +8,7 @@
  * (dispatch.ts) is exhaustively unit-tested.
  */
 import * as path from "node:path";
+import { realpathSync } from "node:fs";
 import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
@@ -295,6 +296,16 @@ export async function runMainMenu(): Promise<number> {
  * workspace + config, then delegate to `@svayam/gov-operate` via the seam. Async
  * (dynamic import), so bin.ts routes it here instead of through sync `main`.
  */
+/** cwd is inside a project = under agent_work_root (LOCATION only; realpath'd so a symlinked root
+ *  like /var→/private/var still matches). Mirrors the plugin's project detection for a fast pre-check. */
+function inProjectLocation(agentWorkRoot: string | undefined): boolean {
+  if (!agentWorkRoot) return false;
+  const real = (p: string): string => { try { return realpathSync(p); } catch { return p; } };
+  const root = real(path.resolve(expandTilde(agentWorkRoot)));
+  const rel = path.relative(root, real(process.cwd()));
+  return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
 export async function runPluginCli(argv: readonly string[]): Promise<number> {
   const parsed = parseArgv(argv);
   if ("error" in parsed) {
@@ -332,6 +343,13 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
   // view/update/delete). A [] result means the user backed out of a menu (clean exit).
   let cliArgv: readonly string[] = argv;
   const bare = [parsed.command, ...parsed.positionals];
+  // FAIL-FAST: catalog mutations are governed per-project — refuse BEFORE prompting (not after all
+  // the input). "In a project" = cwd under agent_work_root (pure location; realpath'd for symlinks).
+  if (bare[0] === "catalog" && ["create", "update", "delete"].includes(bare[1] ?? "") &&
+      !("GOV_SKIP_PROJECT_GATE" in process.env) && !inProjectLocation(config.agentWorkRoot)) {
+    process.stderr.write(`catalog ${bare[1]}: run this inside a PROJECT — a folder under your agent work root (${config.agentWorkRoot ?? "~/.svm/projects"}).\n  Catalog changes are governed per-project.\n`);
+    return 1;
+  }
   if (process.stdin.isTTY && needsInteractive(bare)) {
     const probeCtx: PluginCliContext = { home, config, license: process.env.GOV_LICENSE };
     const tax = load.plugin.taxonomy?.();
