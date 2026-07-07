@@ -68,7 +68,7 @@ export function formatMainMenu(ctx: MenuContext): string[] {
     const goesTo = a.kind === "submenu" ? a.commands.map((c) => c.cmd).slice(0, 4).join(" · ") + (a.commands.length > 4 ? " · …" : "") : a.hint;
     out.push(`  (${i + 1}) ${a.label.padEnd(6)}  ${a.desc.padEnd(32)}  ${goesTo}`);
   });
-  if (!ctx.operateInstalled) out.push("", "  Catalog, deploy & data need the enterprise plugin:  npm i -g @svayam/gov-operate");
+  if (!ctx.operateInstalled) out.push("", "  Catalog, deploy & data need the enterprise plugin:  npm i -g @svayam/gov-operate --registry=https://npm.svayamtech.com");
   out.push("", "  Type a number; o to switch org; 0 to exit.", RULE);
   return out;
 }

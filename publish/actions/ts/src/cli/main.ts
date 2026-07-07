@@ -272,7 +272,7 @@ export async function runMainMenu(): Promise<number> {
     },
     runOperate: async (io) => {
       if (!ctx.operateInstalled) {
-        io.print("  The enterprise plugin isn't installed:  npm i -g @svayam/gov-operate");
+        io.print("  The enterprise plugin isn't installed:  npm i -g @svayam/gov-operate --registry=https://npm.svayamtech.com");
         return 1;
       }
       const load = await loadGovOperate();

@@ -61,7 +61,7 @@ export async function loadGovOperate(importer: (name: string) => Promise<unknown
   } catch {
     return {
       ok: false,
-      message: `This is an enterprise command (catalog/deploy). Install the plugin:\n  npm i -g ${PACKAGE}   # registry: npm.svayamtech.com`,
+      message: `This is an enterprise command (catalog/deploy). Install the plugin:\n  npm i -g ${PACKAGE} --registry=https://npm.svayamtech.com`,
     };
   }
   if (typeof mod.runCli !== "function") {
