@@ -277,7 +277,12 @@ export async function runMainMenu(): Promise<number> {
       }
       const load = await loadGovOperate();
       const taxonomy = load.ok ? load.plugin.taxonomy?.() : undefined;
-      return runOperateFlow({ run: runAny, prompt: io.prompt, print: io.print, taxonomy });
+      let units;
+      if (load.ok && resolved.ok) {
+        const cfgText = fs.readFile(path.join(resolved.home, "org-config.yaml"));
+        if (cfgText) units = await load.plugin.units?.({ home: resolved.home, config: parseOrgConfig(cfgText), license: process.env.GOV_LICENSE });
+      }
+      return runOperateFlow({ run: runAny, prompt: io.prompt, print: io.print, taxonomy, units });
     },
     switchOrg: (org) => runAny(["org", "use", org]),
     help: (command) => helpLines(command),
@@ -295,26 +300,6 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
   if ("error" in parsed) {
     process.stderr.write(`${parsed.error}\n`);
     return 2;
-  }
-  const load = await loadGovOperate();
-  if (!load.ok) { process.stderr.write(`${load.message}\n`); return 1; }
-
-  // Interactive fill for an under-specified enterprise command ON A TTY (the flag/positional
-  // form stays for agents / non-interactive use — `gov catalog create --type … --gov-home …`).
-  // Detect against the FLAG-FREE positional shape so pass-through flags (--gov-home) don't
-  // masquerade as the missing id. The plugin's taxonomy drives valid-only choices; a [] result
-  // means the user backed out of a menu (clean exit).
-  let cliArgv: readonly string[] = argv;
-  const bare = [parsed.command, ...parsed.positionals];
-  if (process.stdin.isTTY && needsInteractive(bare)) {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-    const ask = (q: string): Promise<string> => new Promise((res) => rl.question(q, (x) => res(x)));
-    try {
-      const filled = await promptForCommand(bare, ask, (l) => process.stderr.write(`${l}\n`), load.plugin.taxonomy?.());
-      if (filled === null) return 2;
-      if (filled.length === 0) return 0;
-      cliArgv = filled;
-    } finally { rl.close(); }
   }
   const fs = createNodeFs();
   const env = createNodeEnv();
@@ -336,6 +321,30 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
     return 1;
   }
   const config = parseOrgConfig(cfgText);
+
+  const load = await loadGovOperate();
+  if (!load.ok) { process.stderr.write(`${load.message}\n`); return 1; }
+
+  // Interactive fill for an under-specified enterprise command ON A TTY (the flag/positional form
+  // stays for agents — `gov catalog create --type … --gov-home …`). Detect against the FLAG-FREE
+  // positional shape so --gov-home doesn't masquerade as the id. The plugin's taxonomy drives
+  // valid-only create choices, and its unit list drives the pick prompts (deploy/data/promote/
+  // view/update/delete). A [] result means the user backed out of a menu (clean exit).
+  let cliArgv: readonly string[] = argv;
+  const bare = [parsed.command, ...parsed.positionals];
+  if (process.stdin.isTTY && needsInteractive(bare)) {
+    const probeCtx: PluginCliContext = { home, config, license: process.env.GOV_LICENSE };
+    const tax = load.plugin.taxonomy?.();
+    const unitList = (await load.plugin.units?.(probeCtx)) ?? [];
+    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+    const ask = (q: string): Promise<string> => new Promise((res) => rl.question(q, (x) => res(x)));
+    try {
+      const filled = await promptForCommand(bare, ask, (l) => process.stderr.write(`${l}\n`), tax, unitList);
+      if (filled === null) return 2;
+      if (filled.length === 0) return 0;
+      cliArgv = filled;
+    } finally { rl.close(); }
+  }
 
   // Security PREFLIGHT + credential MATERIALIZATION for the plugin command. NEEDs: the LICENSE
   // (every enterprise command) + base git/gh + the command's OWN needs (a publish token for the

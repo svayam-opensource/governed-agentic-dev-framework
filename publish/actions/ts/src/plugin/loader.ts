@@ -38,6 +38,10 @@ export interface PluginSecurityNeed { readonly registry: string; readonly env: s
 /** The org's active value sets per unit type — drives the interactive create's contextual prompts. */
 export interface PluginTaxonomy { readonly type: string; readonly subTypes: readonly string[]; readonly packagings: readonly string[]; }
 
+/** A catalog unit summary — drives interactive PICK lists (deploy/data/promote/view/update/delete).
+ *  `inMain` = merged to the main catalog (may target dev/uat/prod); false ⇒ branch-only, `local` only. */
+export interface PluginUnitInfo { readonly id: string; readonly type: string; readonly subType?: string; readonly inMain?: boolean; }
+
 /** The contract `@svayam/gov-operate` must export. */
 export interface GovOperatePlugin {
   runCli(argv: readonly string[], ctx: PluginCliContext): Promise<PluginCliResult>;
@@ -45,6 +49,8 @@ export interface GovOperatePlugin {
   securityNeeds?(argv: readonly string[], ctx: PluginCliContext): Promise<PluginSecurityNeed[]>;
   /** OPTIONAL: the active taxonomy (type → valid sub-types/packagings) for interactive create. */
   taxonomy?(): readonly PluginTaxonomy[];
+  /** OPTIONAL: the catalog units for interactive pick lists (deploy/data/promote/view/update/delete). */
+  units?(ctx: PluginCliContext): readonly PluginUnitInfo[] | Promise<readonly PluginUnitInfo[]>;
 }
 
 export type PluginLoad =
@@ -55,9 +61,9 @@ const PACKAGE = "@svayam/gov-operate";
 
 /** Dynamic-import the enterprise plugin. `importer` is injected for tests. */
 export async function loadGovOperate(importer: (name: string) => Promise<unknown> = (n) => import(n)): Promise<PluginLoad> {
-  let mod: { runCli?: unknown; securityNeeds?: unknown; taxonomy?: unknown };
+  let mod: { runCli?: unknown; securityNeeds?: unknown; taxonomy?: unknown; units?: unknown };
   try {
-    mod = (await importer(PACKAGE)) as { runCli?: unknown; securityNeeds?: unknown; taxonomy?: unknown };
+    mod = (await importer(PACKAGE)) as { runCli?: unknown; securityNeeds?: unknown; taxonomy?: unknown; units?: unknown };
   } catch {
     return {
       ok: false,
@@ -71,6 +77,7 @@ export async function loadGovOperate(importer: (name: string) => Promise<unknown
     runCli: mod.runCli as GovOperatePlugin["runCli"],
     ...(typeof mod.securityNeeds === "function" ? { securityNeeds: mod.securityNeeds as GovOperatePlugin["securityNeeds"] } : {}),
     ...(typeof mod.taxonomy === "function" ? { taxonomy: mod.taxonomy as GovOperatePlugin["taxonomy"] } : {}),
+    ...(typeof mod.units === "function" ? { units: mod.units as GovOperatePlugin["units"] } : {}),
   } };
 }
 

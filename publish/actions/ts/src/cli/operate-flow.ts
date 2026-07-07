@@ -5,7 +5,7 @@
  * done fast. Pick an action → unit → env, and delegate to the `gov-operate`
  * plugin (`gov catalog/deploy/promote`). Pure over injected run + prompt/print.
  */
-import type { PluginTaxonomy } from "../plugin/loader.js";
+import type { PluginTaxonomy, PluginUnitInfo } from "../plugin/loader.js";
 
 export interface OperateFlowDeps {
   readonly run: (argv: readonly string[]) => Promise<number> | number;
@@ -13,6 +13,8 @@ export interface OperateFlowDeps {
   readonly print: (l: string) => void;
   /** the org's active value sets — drives contextual sub-type/packaging prompts on create. */
   readonly taxonomy?: readonly PluginTaxonomy[];
+  /** the catalog units — drives the pick-a-unit list for deploy/data/promote/view/update/delete. */
+  readonly units?: readonly PluginUnitInfo[];
 }
 
 export const OPERATE_ENVS = ["local", "dev", "uat", "prod"] as const;
@@ -31,7 +33,7 @@ export async function runOperateFlow(deps: OperateFlowDeps): Promise<number> {
   const verb = ({ "1": "catalog", "2": "deploy", "3": "data", "4": "promote" } as Record<string, string>)[c];
   if (!verb) { print("  unknown choice"); return 2; }
   // ONE mechanism: every bare command → its guided prompts/sub-menu, identical to the CLI path.
-  const argv = await promptForCommand([verb], deps.prompt, print, deps.taxonomy);
+  const argv = await promptForCommand([verb], deps.prompt, print, deps.taxonomy, deps.units);
   if (argv === null) return 2;
   if (argv.length === 0) return 0;                                // backed out of a sub-menu
   return await deps.run(argv);
@@ -40,32 +42,50 @@ export async function runOperateFlow(deps: OperateFlowDeps): Promise<number> {
 /** Fill an under-specified enterprise command interactively → the full argv (null on abort).
  *  Already-specified argv passes through. Shared by the Operate menu AND bare `gov <cmd>` on a TTY;
  *  the flag/positional form stays for agents/non-interactive use. */
-export async function promptForCommand(argv: readonly string[], prompt: (q: string) => Promise<string>, print: (l: string) => void, tax?: readonly PluginTaxonomy[]): Promise<string[] | null> {
+export async function promptForCommand(argv: readonly string[], prompt: (q: string) => Promise<string>, print: (l: string) => void, tax?: readonly PluginTaxonomy[], units?: readonly PluginUnitInfo[]): Promise<string[] | null> {
   const a = [...argv];
   const [sub, sub2] = a;
   if (sub === "catalog") {
     if (sub2 === "create") return a[2] ? a : await promptCreateUnit(prompt, print, tax);
+    // catalog view/update/delete <id>: pick the unit from the list when the id is missing
+    if ((sub2 === "view" || sub2 === "update" || sub2 === "delete") && !a[2]) {
+      const unit = await pickUnit(prompt, print, units); if (!unit) return null;
+      return ["catalog", sub2, unit];
+    }
     if (!sub2) {                                                  // bare `gov catalog` → submenu
       print("    1) list     list units in the catalog");
       print("    2) create   create a new unit (interactive)");
+      print("    3) view     view a unit's details");
+      print("    4) update   update a unit (interactive)");
+      print("    5) delete   delete a branch-only unit");
       print("     0) back");
       const c = (await prompt("  Choose: ")).trim();
       if (c === "1") return ["catalog", "list"];
       if (c === "2") return await promptCreateUnit(prompt, print, tax);
+      const verb = ({ "3": "view", "4": "update", "5": "delete" } as Record<string, string>)[c];
+      if (verb) { const unit = await pickUnit(prompt, print, units); return unit ? ["catalog", verb, unit] : (unit === null ? null : []); }
       return [];                                                  // back → clean no-op (exit 0)
     }
-    return a;                                                     // `catalog list` / other → pass through
+    return a;                                                     // `catalog list <id>` etc. → pass through
   }
   if (sub === "deploy" || sub === "data") {
     if (a.length >= 3) return a;
-    const unit = (await prompt("  unit: ")).trim(); if (!unit) { print("  a unit is required"); return null; }
-    const env = await chooseFrom(prompt, print, "env", [...OPERATE_ENVS]);
+    const unit = await pickUnit(prompt, print, units); if (!unit) return null;
+    // A branch-only unit (not yet in main) may ONLY target `local` — assume it, don't ask.
+    const info = units?.find((u) => u.id === unit);
+    let env: string | null;
+    if (info && info.inMain === false) {
+      env = "local";
+      print("  env: local  (branch-only unit — dev/uat/prod unlock after it merges to main)");
+    } else {
+      env = await chooseFrom(prompt, print, "env", [...OPERATE_ENVS]);
+    }
     if (!env) return null;
     return [sub, unit, env];
   }
   if (sub === "promote") {
     if (a.length >= 4) return a;
-    const unit = (await prompt("  unit: ")).trim(); if (!unit) { print("  a unit is required"); return null; }
+    const unit = await pickUnit(prompt, print, units); if (!unit) return null;
     const from = await chooseFrom(prompt, print, "from env", [...OPERATE_ENVS]);
     if (!from) return null;
     const to = await chooseFrom(prompt, print, "to env", [...OPERATE_ENVS]);
@@ -75,10 +95,29 @@ export async function promptForCommand(argv: readonly string[], prompt: (q: stri
   return a;
 }
 
+/** Pick a unit: show the catalog list (numbered) and accept a number OR a typed id. Falls back to
+ *  a free-text prompt when no list is available (empty catalog / plugin without units()). */
+export async function pickUnit(prompt: (q: string) => Promise<string>, print: (l: string) => void, units?: readonly PluginUnitInfo[]): Promise<string | null> {
+  if (!units || units.length === 0) {
+    const u = (await prompt("  unit: ")).trim();
+    if (!u) { print("  a unit is required"); return null; }
+    return u;
+  }
+  print("  units:");
+  units.forEach((u, i) => print(`    ${String(i + 1).padStart(2)}) ${u.id.padEnd(22)} ${u.type}${u.subType ? "/" + u.subType : ""}`));
+  const ans = (await prompt(`  pick a unit [1-${units.length}] or type its id: `)).trim();
+  if (!ans) { print("  a unit is required"); return null; }
+  const n = Number(ans);
+  if (Number.isInteger(n) && n >= 1 && n <= units.length) return units[n - 1].id;
+  if (units.some((u) => u.id === ans)) return ans;
+  print(`  '${ans}' isn't a listed unit`);
+  return null;
+}
+
 /** does this bare invocation want interactive prompting (only honored on a real TTY)? */
 export function needsInteractive(argv: readonly string[]): boolean {
   const [sub, sub2] = argv;
-  if (sub === "catalog") return !sub2 || (sub2 === "create" && !argv[2]);
+  if (sub === "catalog") return !sub2 || (["create", "view", "update", "delete"].includes(sub2 ?? "") && !argv[2]);
   if (sub === "deploy" || sub === "data") return argv.length < 3;
   if (sub === "promote") return argv.length < 4;
   return false;

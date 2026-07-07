@@ -98,6 +98,35 @@ describe("bare `catalog` sub-menu — uniform in the menu AND the CLI", () => {
   });
 });
 
+describe("pick-a-unit from the catalog list", () => {
+  const UNITS = [
+    { id: "svc-a", type: "svc", subType: "api", inMain: true },
+    { id: "gov-work", type: "cli", subType: "node", inMain: false },
+  ];
+  it("branch-only unit (not in main) → `local` auto-assumed, no env prompt", async () => {
+    const d = driver(["2"]);                                       // pick #2 = gov-work (branch-only)
+    expect(await promptForCommand(["deploy"], d.prompt, d.print, TAX, UNITS)).to.deep.equal(["deploy", "gov-work", "local"]);
+    expect(d.out.join("\n")).to.match(/branch-only unit/);
+  });
+  it("in-main unit → env chosen from all options", async () => {
+    const d = driver(["1", "uat"]);                                // pick #1 = svc-a (in main) → uat
+    expect(await promptForCommand(["deploy"], d.prompt, d.print, TAX, UNITS)).to.deep.equal(["deploy", "svc-a", "uat"]);
+  });
+  it("accepts a typed id instead of a number", async () => {
+    expect(await promptForCommand(["deploy"], driver(["svc-a", "dev"]).prompt, () => {}, TAX, UNITS)).to.deep.equal(["deploy", "svc-a", "dev"]);
+  });
+  it("rejects an unlisted unit", async () => {
+    expect(await promptForCommand(["deploy"], driver(["nope"]).prompt, () => {}, TAX, UNITS)).to.equal(null);
+  });
+  it("catalog view/update/delete with no id → pick from the list", async () => {
+    expect(await promptForCommand(["catalog", "view"], driver(["1"]).prompt, () => {}, TAX, UNITS)).to.deep.equal(["catalog", "view", "svc-a"]);
+    expect(await promptForCommand(["catalog", "delete"], driver(["gov-work"]).prompt, () => {}, TAX, UNITS)).to.deep.equal(["catalog", "delete", "gov-work"]);
+  });
+  it("no units available → free-text unit prompt (fallback)", async () => {
+    expect(await promptForCommand(["deploy"], driver(["typed-unit", "local"]).prompt, () => {}, TAX, [])).to.deep.equal(["deploy", "typed-unit", "local"]);
+  });
+});
+
 describe("env validation across deploy / data / promote", () => {
   for (const env of ["local", "dev", "uat", "prod"]) {
     it(`deploy accepts env '${env}'`, async () => {
