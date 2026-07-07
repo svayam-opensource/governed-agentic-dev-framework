@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
 import {
-  type NeedProbes, gitIdentityNeed, ghAuthNeed, licenseNeed, registryTokenNeed,
+  type NeedProbes, gitIdentityNeed, ghAuthNeed, licenseNeed, credNeedForKey, registryTokenNeed,
   assembleNeeds, computeGap,
 } from "../../src/security/needs.js";
 
@@ -26,6 +26,15 @@ describe("security — NEED / GAP", () => {
     expect(licenseNeed.instructions).to.not.match(/GOV_LICENSE|export|npm\.svayamtech/i);
     expect(licenseNeed.satisfied({ gitConfig: () => undefined, ghAuthOk: () => true, hasCred: (k) => k === "SVAYAM_GOV_LICENSE" })).to.equal(true);
     expect(licenseNeed.satisfied({ gitConfig: () => undefined, ghAuthOk: () => true, hasCred: () => false })).to.equal(false);
+  });
+
+  it("credNeedForKey: SVAYAM_GOV_LICENSE → the license need; other keys → a generic paste need", () => {
+    expect(credNeedForKey("SVAYAM_GOV_LICENSE")).to.equal(licenseNeed);
+    const g = credNeedForKey("NPMJS_ACCESS_TOKEN");
+    expect(g.credKey).to.equal("NPMJS_ACCESS_TOKEN");
+    expect(g.id).to.equal("NPMJS_ACCESS_TOKEN");
+    expect(g.instructions).to.match(/Paste it below/);
+    expect(g.satisfied({ gitConfig: () => undefined, ghAuthOk: () => true, hasCred: (k) => k === "NPMJS_ACCESS_TOKEN" })).to.equal(true);
   });
 
   it("gh-auth reflects the auth probe", () => {

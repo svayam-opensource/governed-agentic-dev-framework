@@ -58,6 +58,21 @@ export const licenseNeed: Need = {
   satisfied: (p) => p.hasCred("SVAYAM_GOV_LICENSE"),
 };
 
+/** A NEED for an explicitly-named credential key (`gov creds <KEY>`). Known keys get their
+ *  tailored instructions; anything else gets a generic paste prompt (still shielded). */
+export function credNeedForKey(key: string): Need {
+  if (key === licenseNeed.credKey) return licenseNeed;
+  return {
+    id: key,
+    title: `credential ${key}`,
+    credKey: key,
+    instructions:
+      `Provide the value for ${key} (get it from the relevant tool/provider).\n` +
+      `  Paste it below — gov saves it for you.`,
+    satisfied: (p) => p.hasCred(key),
+  };
+}
+
 export const ghAuthNeed: Need = {
   id: "gh-auth",
   title: "GitHub CLI authentication",

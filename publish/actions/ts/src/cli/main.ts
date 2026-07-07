@@ -21,7 +21,7 @@ import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js"
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { assembleNeeds, registryTokenNeed, licenseNeed } from "../security/needs.js";
+import { assembleNeeds, registryTokenNeed, licenseNeed, credNeedForKey } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { runCreds } from "../security/creds-flow.js";
 import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
@@ -166,13 +166,18 @@ export async function gatherMenuContext(): Promise<MenuContext> {
  * the org work root, computes the base NEED/GAP for the chosen identity, and walks the
  * user through placing anything missing. Async (readline prompts); routed from bin.ts.
  */
-export async function runCredsCommand(_argv: readonly string[]): Promise<number> {
+export async function runCredsCommand(argv: readonly string[]): Promise<number> {
   const fs = createNodeFs();
   const resolve = prjResolveGov(createNodeEnv());
   if (!resolve.ok) { process.stderr.write("gov creds: no gov workspace resolved — run `gov onboard`/`gov setup` first.\n"); return 1; }
   const cfgText = fs.readFile(path.join(resolve.home, "org-config.yaml"));
   if (!cfgText) { process.stderr.write("gov creds: org-config.yaml not found.\n"); return 1; }
   const agentWorkRoot = parseOrgConfig(cfgText).agentWorkRoot;
+
+  // `gov creds <KEY>` targets one credential (e.g. SVAYAM_GOV_LICENSE); bare `gov creds` walks
+  // the base NEEDs (git/gh) + the enterprise license.
+  const requestedKey = argv[1];
+  const needs = requestedKey ? [credNeedForKey(requestedKey)] : [...assembleNeeds(), licenseNeed];
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def?: string): Promise<string> =>
@@ -181,7 +186,7 @@ export async function runCredsCommand(_argv: readonly string[]): Promise<number>
   try {
     const r = await runCreds({
       defaultIdentity: defaultIdentity(),
-      needs: assembleNeeds(),                        // standalone `gov creds` → the base NEEDs
+      needs,
       interactive: Boolean(process.stdin.isTTY),     // secrets only from a real terminal (never piped/agent)
       prompt: ask,
       print: (l) => process.stdout.write(`${l}\n`),
