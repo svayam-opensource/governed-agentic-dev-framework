@@ -96,11 +96,11 @@ describe("coverage — plugin seam: loadGovOperate(importer) states", () => {
     expect(load.ok).to.equal(false);
     if (!load.ok) expect(load.message).to.match(/no `runCli` entry/);
   });
-  it("default importer (no arg) attempts a real import and reports not-installed", async () => {
+  it("default importer (no arg) attempts a real import — installed → ok, else the install hint", async () => {
     const load = await loadGovOperate();
-    // The real package isn't installed in the test env → not-installed.
-    expect(load.ok).to.equal(false);
-    if (!load.ok) expect(load.message).to.match(/npm i -g @svayam\/gov-operate/);
+    // Env-dependent: if @svayam/gov-operate is linked/installed it resolves; otherwise not-installed.
+    if (load.ok) expect(load.plugin.runCli).to.be.a("function");
+    else expect(load.message).to.match(/npm i -g @svayam\/gov-operate/);
   });
 });
 
