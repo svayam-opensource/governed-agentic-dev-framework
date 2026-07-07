@@ -31,8 +31,9 @@ export interface PluginCliResult {
 }
 
 /** A credential a plugin command's ask needs — surfaced so the OSS preflight can detect
- *  it (a per-env registry publish token) BEFORE the command runs. */
-export interface PluginSecurityNeed { readonly registry: string; readonly scheme: "oidc" | "token"; }
+ *  it (a per-env registry publish token) BEFORE the command runs. `credKey` is the store
+ *  key per the gov credential-key standard (the plugin is the source of truth for it). */
+export interface PluginSecurityNeed { readonly registry: string; readonly scheme: "oidc" | "token"; readonly env: string; readonly credKey: string; }
 
 /** The contract `@svayam/gov-operate` must export. */
 export interface GovOperatePlugin {

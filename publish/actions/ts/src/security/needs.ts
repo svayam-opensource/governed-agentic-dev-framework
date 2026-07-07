@@ -54,15 +54,14 @@ export const ghAuthNeed: Need = {
 
 // ── registry publish token — contributed by the deploy path per resolved target ──
 export type RegistryScheme = "oidc" | "token";
-/** The credential-store key a registry's publish token lives under. */
-export const registryCredKey = (registry: string): string => `npm_token:${registry}`;
 
-/** A NEED for a publish token to `registry`; `scheme` shapes the acquisition instructions. */
-export function registryTokenNeed(registry: string, scheme: RegistryScheme): Need {
-  const key = registryCredKey(registry);
+/** A NEED for a publish token to `registry`, stored under `credKey` (the gov credential-key
+ *  standard, supplied by the plugin). `scheme` shapes the acquisition instructions. */
+export function registryTokenNeed(registry: string, scheme: RegistryScheme, credKey: string): Need {
+  const key = credKey;
   return {
     id: key,
-    title: `publish token for ${registry}`,
+    title: `publish token for ${registry}  (store key: ${key})`,
     credKey: key,
     instructions: scheme === "oidc"
       ? `${registry} is OIDC-fronted. In your IdP (Authentik), authenticate and copy an access\n` +

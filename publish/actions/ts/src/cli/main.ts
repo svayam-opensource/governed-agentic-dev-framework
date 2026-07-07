@@ -319,7 +319,8 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
   // can materialize that token at publish time ($GOV_CRED_STORE).
   if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
     const credFile = credentialsPath(ctx.config.agentWorkRoot, defaultIdentity());
-    const extra = (load.plugin.securityNeeds?.(argv, ctx) ?? []).map((n) => registryTokenNeed(n.registry, n.scheme));
+    const pluginNeeds = load.plugin.securityNeeds?.(argv, ctx) ?? [];
+    const extra = pluginNeeds.map((n) => registryTokenNeed(n.registry, n.scheme, n.credKey));
     const pf = preflight(assembleNeeds(extra), {
       gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
       ghAuthOk: () => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } },
@@ -329,6 +330,9 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
       for (const line of renderGap(pf.gap)) process.stderr.write(`${line}\n`);
       return 3;
     }
+    // Materialize the deploy's registry token from the store into GOV_NPM_TOKEN (standard key,
+    // per-env). The tooling handles the secret; it is never logged.
+    for (const n of pluginNeeds) { const v = getCredential(credFile, n.credKey); if (v) process.env.GOV_NPM_TOKEN = v; }
     process.env.GOV_CRED_STORE = credFile;
   }
 
