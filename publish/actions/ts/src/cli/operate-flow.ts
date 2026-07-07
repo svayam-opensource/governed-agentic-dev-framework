@@ -127,14 +127,37 @@ export function needsInteractive(argv: readonly string[]): boolean {
   return false;
 }
 
+// ── field validators — every interactive free-text prompt validates at entry (re-prompts on bad input) ──
+export const vId = (v: string): string | null => /^[a-z0-9][a-z0-9._-]*$/i.test(v) ? null : "id: letters/digits/._- starting alphanumeric (e.g. gov-work)";
+export const vOwner = (v: string): string | null => /^\S+$/.test(v) ? null : "a handle/team has no spaces";
+export const vRepo = (v: string): string | null => /^\S+[/:]\S+$/.test(v) ? null : "expected 'owner/name' (e.g. Svayamtech/svm-lib)";
+export const vPath = (v: string): string | null => /^\S+$/.test(v) ? null : "expected a repo-relative path (no spaces), or '-'";
+export const vSemver = (v: string): string | null => /^\d+\.\d+\.\d+([-+][\w.-]+)?$/.test(v) ? null : "expected semver like 1.2.3";
+export const vUrl = (v: string): string | null => { try { new URL(/^https?:\/\//.test(v) ? v : `https://${v}`); return null; } catch { return "not a valid URL"; } };
+
+/** Prompt until the answer passes `validate` (returns an error string, or null when OK). Blank is
+ *  accepted only when `optional` (→ ""). Returns the valid value, or null after too many bad tries
+ *  (caller aborts). This is what makes every interactive free-text prompt validate-at-entry. */
+export async function askValid(prompt: (q: string) => Promise<string>, print: (l: string) => void, label: string, validate: (v: string) => string | null, optional = false): Promise<string | null> {
+  for (let tries = 0; tries < 6; tries++) {
+    const v = (await prompt(`  ${label}: `)).trim();
+    if (!v) { if (optional) return ""; print(`  ${label} is required`); continue; }
+    const err = validate(v);
+    if (!err) return v;
+    print(`  ${err}`);
+  }
+  return null;
+}
+
 /** Prompt for a new unit's non-secret fields → the `catalog create <id> --flags…` argv.
  *  When the taxonomy is available, `type` drives the valid sub-type/packaging choices (a `cli`
  *  offers `node`, never `api`) and a sole option is the Enter-default. The plugin still validates. */
 export async function promptCreateUnit(prompt: (q: string) => Promise<string>, print: (l: string) => void, tax?: readonly PluginTaxonomy[]): Promise<string[] | null> {
-  const id = (await prompt("  unit id (e.g. gov-work): ")).trim();
-  if (!id) { print("  a unit id is required"); return null; }
+  const id = await askValid(prompt, print, "unit id (e.g. gov-work)", vId);
+  if (id === null) return null;
   const argv = ["catalog", "create", id];
   const add = async (label: string, flag: string): Promise<void> => { const v = (await prompt(`  ${label}: `)).trim(); if (v) argv.push(flag, v); };
+  const addV = async (label: string, flag: string, validate: (v: string) => string | null): Promise<boolean> => { const v = await askValid(prompt, print, label, validate, true); if (v === null) return false; if (v) argv.push(flag, v); return true; };
   if (tax?.length) {
     // taxonomy-driven: `type` gates the VALID sub-type/packaging — only valid combinations proceed.
     const type = await chooseFrom(prompt, print, "type", tax.map((t) => t.type));
@@ -153,12 +176,13 @@ export async function promptCreateUnit(prompt: (q: string) => Promise<string>, p
     await add("sub-type", "--sub-type");
     await add("packaging", "--packaging");
   }
-  await add("unit-owner (github handle or team responsible for this unit)", "--unit-owner");
-  await add("source repo (owner/name)", "--repo");
-  await add("source path (within the repo)", "--path");
+  if (!(await addV("unit-owner (github handle or team responsible for this unit)", "--unit-owner", vOwner))) return null;
+  if (!(await addV("source repo (owner/name)", "--repo", vRepo))) return null;
+  if (!(await addV("source path (within the repo)", "--path", vPath))) return null;
   print("  per-env publish registry (blank to skip an env):");
   for (const env of ["dev", "uat", "prod"] as const) {
-    const raw = (await prompt(`    ${env} registry URL: `)).trim();
+    const raw = await askValid(prompt, print, `${env} registry URL`, vUrl, true);
+    if (raw === null) return null;
     if (raw) argv.push("--registry", `${env}=${/^https?:\/\//.test(raw) ? raw : `https://${raw}`}`);  // normalize to a full URL
   }
   await add("justification (why a new unit)", "--justification");
@@ -167,17 +191,18 @@ export async function promptCreateUnit(prompt: (q: string) => Promise<string>, p
 
 /** Interactive UPDATE: prompt for the editable fields (blank = keep current) → the
  *  `catalog update <id> --flags…` argv with only what you changed. */
-export async function promptUpdateUnit(unitId: string, prompt: (q: string) => Promise<string>, print: (l: string) => void): Promise<string[]> {
+export async function promptUpdateUnit(unitId: string, prompt: (q: string) => Promise<string>, print: (l: string) => void): Promise<string[] | null> {
   print(`  updating '${unitId}' — leave a field blank to keep it as-is`);
   const argv = ["catalog", "update", unitId];
-  const add = async (label: string, flag: string): Promise<void> => { const v = (await prompt(`  ${label}: `)).trim(); if (v) argv.push(flag, v); };
-  await add("unit-owner (github handle or team)", "--unit-owner");
-  await add("source repo (owner/name)", "--repo");
-  await add("source path (within the repo)", "--path");
-  await add("semver", "--semver");
+  const addV = async (label: string, flag: string, validate: (v: string) => string | null): Promise<boolean> => { const v = await askValid(prompt, print, label, validate, true); if (v === null) return false; if (v) argv.push(flag, v); return true; };
+  if (!(await addV("unit-owner (github handle or team)", "--unit-owner", vOwner))) return null;
+  if (!(await addV("source repo (owner/name)", "--repo", vRepo))) return null;
+  if (!(await addV("source path (within the repo)", "--path", vPath))) return null;
+  if (!(await addV("semver", "--semver", vSemver))) return null;
   print("  per-env publish registry (blank = keep):");
   for (const env of ["dev", "uat", "prod"] as const) {
-    const raw = (await prompt(`    ${env} registry URL: `)).trim();
+    const raw = await askValid(prompt, print, `${env} registry URL`, vUrl, true);
+    if (raw === null) return null;
     if (raw) argv.push("--registry", `${env}=${/^https?:\/\//.test(raw) ? raw : `https://${raw}`}`);
   }
   return argv;

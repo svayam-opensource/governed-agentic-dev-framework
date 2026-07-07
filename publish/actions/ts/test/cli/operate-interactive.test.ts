@@ -64,6 +64,14 @@ describe("interactive create — only VALID type × sub-type × packaging", () =
     expect(argv!).to.not.include("--packaging");
   });
 
+  it("VALIDATES each field at entry — re-prompts on an invalid repo until it's valid", async () => {
+    // id, type, sub, pack, owner, repo(BAD — no slash), repo(good), path, dev, uat, prod, justification
+    const d = driver(["u", "cli", "", "", "platform-team", "bad-no-slash", "acme/good", "pkg", "", "", "", "because"]);
+    const argv = await promptCreateUnit(d.prompt, d.print, TAX);
+    expect(argv!).to.include.members(["--repo", "acme/good"]);          // recovered after the re-prompt
+    expect(d.out.join("\n")).to.match(/owner\/name/);                   // the validation message was shown
+  });
+
   it("prompts for owner and normalizes a scheme-less registry URL to https://", async () => {
     const d = driver(["u", "cli", "", "", "platform-team", "owner/repo", "pkg/x", "npm.svayamtech.com", "", "", "because"]);
     const argv = await promptCreateUnit(d.prompt, d.print, TAX);
