@@ -67,7 +67,7 @@ describe("interactive create — only VALID type × sub-type × packaging", () =
   it("prompts for owner and normalizes a scheme-less registry URL to https://", async () => {
     const d = driver(["u", "cli", "", "", "platform-team", "owner/repo", "pkg/x", "npm.svayamtech.com", "", "", "because"]);
     const argv = await promptCreateUnit(d.prompt, d.print, TAX);
-    expect(argv!).to.include.members(["--owner", "platform-team", "--registry", "dev=https://npm.svayamtech.com"]);
+    expect(argv!).to.include.members(["--unit-owner", "platform-team", "--registry", "dev=https://npm.svayamtech.com"]);
   });
 
   it("no taxonomy available → free-text fields, no validation (plugin validates)", async () => {
@@ -131,7 +131,7 @@ describe("pick-a-unit from the catalog list", () => {
   it("catalog update → pick the unit THEN prompt for changed fields (blank = keep; URL normalized)", async () => {
     const d = driver(["1", "new-owner", "", "", "", "npm.svayamtech.com", "", ""]); // pick #1, owner, blanks, scheme-less dev registry
     expect(await promptForCommand(["catalog", "update"], d.prompt, d.print, TAX, UNITS))
-      .to.deep.equal(["catalog", "update", "svc-a", "--owner", "new-owner", "--registry", "dev=https://npm.svayamtech.com"]);
+      .to.deep.equal(["catalog", "update", "svc-a", "--unit-owner", "new-owner", "--registry", "dev=https://npm.svayamtech.com"]);
   });
   it("no units available → free-text unit prompt (fallback)", async () => {
     expect(await promptForCommand(["deploy"], driver(["typed-unit", "local"]).prompt, () => {}, TAX, [])).to.deep.equal(["deploy", "typed-unit", "local"]);

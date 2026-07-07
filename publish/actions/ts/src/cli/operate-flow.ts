@@ -153,7 +153,7 @@ export async function promptCreateUnit(prompt: (q: string) => Promise<string>, p
     await add("sub-type", "--sub-type");
     await add("packaging", "--packaging");
   }
-  await add("owner (github handle or team responsible for this unit)", "--owner");
+  await add("unit-owner (github handle or team responsible for this unit)", "--unit-owner");
   await add("source repo (owner/name)", "--repo");
   await add("source path (within the repo)", "--path");
   print("  per-env publish registry (blank to skip an env):");
@@ -171,7 +171,7 @@ export async function promptUpdateUnit(unitId: string, prompt: (q: string) => Pr
   print(`  updating '${unitId}' — leave a field blank to keep it as-is`);
   const argv = ["catalog", "update", unitId];
   const add = async (label: string, flag: string): Promise<void> => { const v = (await prompt(`  ${label}: `)).trim(); if (v) argv.push(flag, v); };
-  await add("owner (github handle or team)", "--owner");
+  await add("unit-owner (github handle or team)", "--unit-owner");
   await add("source repo (owner/name)", "--repo");
   await add("source path (within the repo)", "--path");
   await add("semver", "--semver");
