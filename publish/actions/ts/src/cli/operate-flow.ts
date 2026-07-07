@@ -50,7 +50,7 @@ export async function promptForCommand(argv: readonly string[], prompt: (q: stri
     // catalog view/update/delete <id>: pick the unit from the list when the id is missing
     if ((sub2 === "view" || sub2 === "update" || sub2 === "delete") && !a[2]) {
       const unit = await pickUnit(prompt, print, units); if (!unit) return null;
-      return ["catalog", sub2, unit];
+      return sub2 === "update" ? await promptUpdateUnit(unit, prompt, print) : ["catalog", sub2, unit];
     }
     if (!sub2) {                                                  // bare `gov catalog` → submenu
       print("    1) list     list units in the catalog");
@@ -63,7 +63,11 @@ export async function promptForCommand(argv: readonly string[], prompt: (q: stri
       if (c === "1") return ["catalog", "list"];
       if (c === "2") return await promptCreateUnit(prompt, print, tax);
       const verb = ({ "3": "view", "4": "update", "5": "delete" } as Record<string, string>)[c];
-      if (verb) { const unit = await pickUnit(prompt, print, units); return unit ? ["catalog", verb, unit] : (unit === null ? null : []); }
+      if (verb) {
+        const unit = await pickUnit(prompt, print, units);
+        if (!unit) return unit === null ? null : [];
+        return verb === "update" ? await promptUpdateUnit(unit, prompt, print) : ["catalog", verb, unit];
+      }
       return [];                                                  // back → clean no-op (exit 0)
     }
     return a;                                                     // `catalog list <id>` etc. → pass through
@@ -158,6 +162,24 @@ export async function promptCreateUnit(prompt: (q: string) => Promise<string>, p
     if (raw) argv.push("--registry", `${env}=${/^https?:\/\//.test(raw) ? raw : `https://${raw}`}`);  // normalize to a full URL
   }
   await add("justification (why a new unit)", "--justification");
+  return argv;
+}
+
+/** Interactive UPDATE: prompt for the editable fields (blank = keep current) → the
+ *  `catalog update <id> --flags…` argv with only what you changed. */
+export async function promptUpdateUnit(unitId: string, prompt: (q: string) => Promise<string>, print: (l: string) => void): Promise<string[]> {
+  print(`  updating '${unitId}' — leave a field blank to keep it as-is`);
+  const argv = ["catalog", "update", unitId];
+  const add = async (label: string, flag: string): Promise<void> => { const v = (await prompt(`  ${label}: `)).trim(); if (v) argv.push(flag, v); };
+  await add("owner (github handle or team)", "--owner");
+  await add("source repo (owner/name)", "--repo");
+  await add("source path (within the repo)", "--path");
+  await add("semver", "--semver");
+  print("  per-env publish registry (blank = keep):");
+  for (const env of ["dev", "uat", "prod"] as const) {
+    const raw = (await prompt(`    ${env} registry URL: `)).trim();
+    if (raw) argv.push("--registry", `${env}=${/^https?:\/\//.test(raw) ? raw : `https://${raw}`}`);
+  }
   return argv;
 }
 

@@ -124,9 +124,14 @@ describe("pick-a-unit from the catalog list", () => {
   it("rejects an unlisted unit", async () => {
     expect(await promptForCommand(["deploy"], driver(["nope"]).prompt, () => {}, TAX, UNITS)).to.equal(null);
   });
-  it("catalog view/update/delete with no id → pick from the list", async () => {
+  it("catalog view/delete with no id → pick from the list", async () => {
     expect(await promptForCommand(["catalog", "view"], driver(["1"]).prompt, () => {}, TAX, UNITS)).to.deep.equal(["catalog", "view", "svc-a"]);
     expect(await promptForCommand(["catalog", "delete"], driver(["gov-work"]).prompt, () => {}, TAX, UNITS)).to.deep.equal(["catalog", "delete", "gov-work"]);
+  });
+  it("catalog update → pick the unit THEN prompt for changed fields (blank = keep; URL normalized)", async () => {
+    const d = driver(["1", "new-owner", "", "", "", "npm.svayamtech.com", "", ""]); // pick #1, owner, blanks, scheme-less dev registry
+    expect(await promptForCommand(["catalog", "update"], d.prompt, d.print, TAX, UNITS))
+      .to.deep.equal(["catalog", "update", "svc-a", "--owner", "new-owner", "--registry", "dev=https://npm.svayamtech.com"]);
   });
   it("no units available → free-text unit prompt (fallback)", async () => {
     expect(await promptForCommand(["deploy"], driver(["typed-unit", "local"]).prompt, () => {}, TAX, [])).to.deep.equal(["deploy", "typed-unit", "local"]);
