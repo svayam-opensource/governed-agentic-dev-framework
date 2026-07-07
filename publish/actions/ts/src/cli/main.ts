@@ -182,6 +182,7 @@ export async function runCredsCommand(_argv: readonly string[]): Promise<number>
     const r = await runCreds({
       defaultIdentity: defaultIdentity(),
       needs: assembleNeeds(),                        // standalone `gov creds` → the base NEEDs
+      interactive: Boolean(process.stdin.isTTY),     // secrets only from a real terminal (never piped/agent)
       prompt: ask,
       print: (l) => process.stdout.write(`${l}\n`),
       listIdentities: () => listIdentities(agentWorkRoot),

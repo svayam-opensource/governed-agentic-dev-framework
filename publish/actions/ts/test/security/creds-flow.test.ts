@@ -13,6 +13,7 @@ function harness(opts: {
   store?: Record<string, Record<string, string>>;
   git?: Record<string, string>;
   ghAuthOk?: boolean;
+  interactive?: boolean;
 }) {
   const store: Record<string, Record<string, string>> = JSON.parse(JSON.stringify(opts.store ?? {}));
   const out: string[] = [];
@@ -20,6 +21,7 @@ function harness(opts: {
   const deps: CredsFlowDeps = {
     defaultIdentity: opts.defaultIdentity ?? "rkant",
     needs: opts.needs,
+    interactive: opts.interactive ?? true,
     prompt: async (_q, def) => { const a = opts.answers[i++] ?? ""; return a.trim() || (def ?? ""); },
     print: (l) => out.push(l),
     listIdentities: () => Object.keys(store),
@@ -50,6 +52,16 @@ describe("security — gov creds flow", () => {
     expect(store.rkant[need.credKey!]).to.equal("brr.oidc.token"); // placed
     expect(r.filled).to.deep.equal([need.id]);
     expect(r.stillMissing).to.deep.equal([]);                 // re-probe: satisfied
+  });
+
+  it("NON-interactive (piped/agent) REFUSES to accept a secret — never places it", async () => {
+    const need = registryTokenNeed("npm.svayamtech.com", "oidc");
+    const { deps, out, store } = harness({ needs: [need], answers: ["", "a-token-an-agent-tried-to-paste"], store: { rkant: {} }, interactive: false });
+    const r = await runCreds(deps);
+    expect(store.rkant[need.credKey!]).to.equal(undefined);          // NOT stored
+    expect(out.join("\n")).to.match(/interactive terminal \(a real TTY\)/);
+    expect(out.join("\n")).to.match(/agent-driven session cannot provide/);
+    expect(r.stillMissing).to.deep.equal([need.id]);
   });
 
   it("blank paste SKIPS a stored-cred need → still missing", async () => {

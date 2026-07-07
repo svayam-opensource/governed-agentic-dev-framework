@@ -22,6 +22,9 @@ export interface CredsFlowDeps {
   readonly makeProbes: (identity: string) => NeedProbes;
   /** place a pasted value under the chosen identity (store is line-preserving). */
   readonly setCred: (identity: string, key: string, value: string) => void;
+  /** is stdin a REAL interactive TTY? Secrets are only accepted when true — a piped /
+   *  agent-driven session cannot provide a credential (it's the human's to enter). */
+  readonly interactive: boolean;
 }
 
 export interface CredsFlowResult {
@@ -73,7 +76,13 @@ export async function runCreds(d: CredsFlowDeps): Promise<CredsFlowResult> {
     d.print(`\n• ${need.title}`);
     for (const line of need.instructions.split("\n")) d.print(`    ${line}`);
     if (need.credKey) {
-      // a stored credential: take the pasted value and place it (blank → skip)
+      // a stored credential — ONLY accepted from a real interactive terminal. A piped or
+      // agent-driven session must not (and cannot) provide a secret; the human enters it.
+      if (!d.interactive) {
+        d.print("  ⚠ credentials must be entered at an interactive terminal (a real TTY).");
+        d.print("     Run `gov creds` yourself — a piped or agent-driven session cannot provide them.");
+        continue;
+      }
       const value = (await d.prompt(`  Paste the value (blank to skip)`, "")).trim();
       if (value) { d.setCred(identity, need.credKey, value); filled.push(need.id); d.print("  ✓ stored (per-user, 0600)."); }
     } else {
