@@ -604,13 +604,19 @@ function operate(answers: string[]): { run: OperateDeps["run"]; prompt: OperateD
 type OperateDeps = Parameters<typeof runOperateFlow>[0];
 
 describe("coverage — Operate flow: runOperateFlow (cartesian over verb × unit × env)", () => {
-  it("exposes envs dev/uat/prod", () => {
-    expect([...OPERATE_ENVS]).to.deep.equal(["dev", "uat", "prod"]);
+  it("exposes envs local/dev/uat/prod", () => {
+    expect([...OPERATE_ENVS]).to.deep.equal(["local", "dev", "uat", "prod"]);
   });
-  it("catalog '1' → runs `catalog list`, exit 0", async () => {
-    const o = operate(["1"]);
+  it("catalog '1' → list '1' → `catalog list`, exit 0", async () => {
+    const o = operate(["1", "1"]);
     expect(await runOperateFlow(o)).to.equal(0);
     expect(o.ran[0]).to.deep.equal(["catalog", "list"]);
+  });
+  it("catalog '1' → create '2' → prompts → `catalog create <id> --flags…`", async () => {
+    const o = operate(["1", "2", "gov-work", "cli", "node", "npm", "r", "p", "", "", "https://registry.npmjs.org", "why"]);
+    expect(await runOperateFlow(o)).to.equal(0);
+    expect(o.ran[0].slice(0, 3)).to.deep.equal(["catalog", "create", "gov-work"]);
+    expect(o.ran[0]).to.include.members(["--type", "cli", "--registry", "prod=https://registry.npmjs.org"]);
   });
   it("back '0' → exit 0, nothing run", async () => {
     const o = operate(["0"]);
@@ -628,13 +634,13 @@ describe("coverage — Operate flow: runOperateFlow (cartesian over verb × unit
     expect(o.out.join("\n")).to.match(/unknown choice/);
   });
 
-  // deploy (2) and promote (3) × each valid env
-  for (const [choice, verb] of [["2", "deploy"], ["3", "promote"]] as const) {
+  // deploy (2) and data (3) × each valid env → `<verb> <unit> <env>` (positional)
+  for (const [choice, verb] of [["2", "deploy"], ["3", "data"]] as const) {
     for (const env of OPERATE_ENVS) {
-      it(`${verb} '${choice}' + unit + env '${env}' → \`${verb} <unit> --env ${env}\``, async () => {
+      it(`${verb} '${choice}' + unit + env '${env}' → \`${verb} <unit> ${env}\``, async () => {
         const o = operate([choice, "svc-a", env]);
         expect(await runOperateFlow(o)).to.equal(0);
-        expect(o.ran[0]).to.deep.equal([verb, "svc-a", "--env", env]);
+        expect(o.ran[0]).to.deep.equal([verb, "svc-a", env]);
       });
     }
     it(`${verb} '${choice}' with missing unit (blank) → 'a unit is required', exit 2`, async () => {
@@ -646,7 +652,7 @@ describe("coverage — Operate flow: runOperateFlow (cartesian over verb × unit
     it(`${verb} '${choice}' with bad env → 'env must be one of', exit 2`, async () => {
       const o = operate([choice, "svc-a", "banana"]);
       expect(await runOperateFlow(o)).to.equal(2);
-      expect(o.out.join("\n")).to.match(/env must be one of: dev, uat, prod/);
+      expect(o.out.join("\n")).to.match(/env must be one of: local, dev, uat, prod/);
       expect(o.ran).to.deep.equal([]);
     });
     it(`${verb} '${choice}' with empty env → exit 2`, async () => {
@@ -655,15 +661,27 @@ describe("coverage — Operate flow: runOperateFlow (cartesian over verb × unit
     });
   }
 
+  // promote (4) → `promote <unit> <from> <to>`
+  it("promote '4' + unit + from + to → `promote <unit> <from> <to>`", async () => {
+    const o = operate(["4", "svc-a", "uat", "prod"]);
+    expect(await runOperateFlow(o)).to.equal(0);
+    expect(o.ran[0]).to.deep.equal(["promote", "svc-a", "uat", "prod"]);
+  });
+  it("promote '4' with missing 'to' → exit 2, nothing run", async () => {
+    const o = operate(["4", "svc-a", "uat", ""]);
+    expect(await runOperateFlow(o)).to.equal(2);
+    expect(o.ran).to.deep.equal([]);
+  });
+
   it("deploy run() async → awaited exit code propagates", async () => {
     let i = 0;
     const answers = ["2", "svc-a", "prod"];
-    const code = await runOperateFlow({ run: async () => 11, prompt: async () => answers[i++], print: () => {} });
+    const code = await runOperateFlow({ run: async () => 11, prompt: async () => answers[i++] ?? "", print: () => {} });
     expect(code).to.equal(11);
   });
   it("unit is trimmed before use", async () => {
     const o = operate(["2", "  svc-b  ", "dev"]);
     expect(await runOperateFlow(o)).to.equal(0);
-    expect(o.ran[0]).to.deep.equal(["deploy", "svc-b", "--env", "dev"]);
+    expect(o.ran[0]).to.deep.equal(["deploy", "svc-b", "dev"]);
   });
 });

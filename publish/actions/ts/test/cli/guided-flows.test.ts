@@ -71,20 +71,36 @@ describe("gov-work — guided Work flow", () => {
 });
 
 describe("gov-work — guided Operate flow", () => {
-  it("catalog → runs `catalog list`", async () => {
-    const ran: string[][] = [];
-    const code = await runOperateFlow({ run: (a) => { ran.push([...a]); return 0; }, prompt: async () => "1", print: () => {} });
-    expect(code).to.equal(0);
+  const drive = (answers: string[]) => { const ran: string[][] = []; let i = 0; return { ran, deps: { run: (a: readonly string[]) => { ran.push([...a]); return 0; }, prompt: async () => answers[i++] ?? "", print: () => {} } }; };
+
+  it("catalog → list → `catalog list`", async () => {
+    const { ran, deps } = drive(["1", "1"]);            // Operate:catalog → catalog:list
+    expect(await runOperateFlow(deps)).to.equal(0);
     expect(ran[0]).to.deep.equal(["catalog", "list"]);
   });
-  it("deploy → prompts unit + env → `deploy <unit> --env <env>`", async () => {
-    const ran: string[][] = []; const answers = ["2", "svc-a", "prod"]; let i = 0;
-    const code = await runOperateFlow({ run: (a) => { ran.push([...a]); return 0; }, prompt: async () => answers[i++], print: () => {} });
-    expect(code).to.equal(0);
-    expect(ran[0]).to.deep.equal(["deploy", "svc-a", "--env", "prod"]);
+  it("catalog → create → prompts fields → `catalog create <id> --flags…`", async () => {
+    const { ran, deps } = drive(["1", "2", "gov-work", "cli", "node", "npm", "r", "p", "", "https://npm.svayamtech.com", "", "new unit"]);
+    await runOperateFlow(deps);
+    expect(ran[0].slice(0, 3)).to.deep.equal(["catalog", "create", "gov-work"]);
+    expect(ran[0]).to.include.members(["--type", "cli", "--registry", "uat=https://npm.svayamtech.com", "--justification"]);
+  });
+  it("deploy → prompts unit + env → `deploy <unit> <env>` (positional)", async () => {
+    const { ran, deps } = drive(["2", "svc-a", "prod"]);
+    expect(await runOperateFlow(deps)).to.equal(0);
+    expect(ran[0]).to.deep.equal(["deploy", "svc-a", "prod"]);
+  });
+  it("data → prompts unit + env → `data <unit> <env>`", async () => {
+    const { ran, deps } = drive(["3", "iam-data", "local"]);
+    expect(await runOperateFlow(deps)).to.equal(0);
+    expect(ran[0]).to.deep.equal(["data", "iam-data", "local"]);
+  });
+  it("promote → prompts unit + from + to → `promote <unit> <from> <to>`", async () => {
+    const { ran, deps } = drive(["4", "svc-a", "uat", "prod"]);
+    expect(await runOperateFlow(deps)).to.equal(0);
+    expect(ran[0]).to.deep.equal(["promote", "svc-a", "uat", "prod"]);
   });
   it("rejects a bad env", async () => {
-    const answers = ["2", "svc-a", "banana"]; let i = 0;
-    expect(await runOperateFlow({ run: () => 0, prompt: async () => answers[i++], print: () => {} })).to.equal(2);
+    const { deps } = drive(["2", "svc-a", "banana"]);
+    expect(await runOperateFlow(deps)).to.equal(2);
   });
 });

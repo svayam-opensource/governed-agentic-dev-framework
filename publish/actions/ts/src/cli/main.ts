@@ -16,7 +16,7 @@ import { readExistingOrgConfig } from "../setup/setup.js";
 import { loadGovOperate, isPluginCommand, type PluginCliContext } from "../plugin/loader.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow } from "./work-flow.js";
-import { runOperateFlow } from "./operate-flow.js";
+import { runOperateFlow, promptForCommand, needsInteractive } from "./operate-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -294,6 +294,21 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
     process.stderr.write(`${parsed.error}\n`);
     return 2;
   }
+  // Interactive fill for an under-specified enterprise command ON A TTY (the flag/positional
+  // form stays for agents / non-interactive use — `gov catalog create --type … --gov-home …`).
+  // Detect against the FLAG-FREE positional shape so pass-through flags (--gov-home) don't
+  // masquerade as the missing id; --gov-home et al. are read from `parsed` regardless.
+  let cliArgv: readonly string[] = argv;
+  const bare = [parsed.command, ...parsed.positionals];
+  if (process.stdin.isTTY && needsInteractive(bare)) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+    const ask = (q: string): Promise<string> => new Promise((res) => rl.question(q, (x) => res(x)));
+    try {
+      const filled = await promptForCommand(bare, ask, (l) => process.stderr.write(`${l}\n`));
+      if (!filled) return 2;
+      cliArgv = filled;
+    } finally { rl.close(); }
+  }
   const fs = createNodeFs();
   const env = createNodeEnv();
   const govHomeOverride = flagStr(parsed.flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
@@ -325,7 +340,7 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
   if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
     const credFile = credentialsPath(config.agentWorkRoot, defaultIdentity());
     const probeCtx: PluginCliContext = { home, config, license: process.env.GOV_LICENSE };
-    const pluginNeeds = (await load.plugin.securityNeeds?.(argv, probeCtx)) ?? [];
+    const pluginNeeds = (await load.plugin.securityNeeds?.(cliArgv, probeCtx)) ?? [];
     const extra = [licenseNeed, ...pluginNeeds.map((n) => registryTokenNeed(n.registry, n.credKey))];
     const pf = preflight(assembleNeeds(extra), {
       gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
@@ -343,7 +358,7 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
   }
 
   const ctx: PluginCliContext = { home, config, license: process.env.GOV_LICENSE };
-  const result = await load.plugin.runCli(argv, ctx);
+  const result = await load.plugin.runCli(cliArgv, ctx);
   for (const line of result.lines) process.stdout.write(`${line}\n`);
   return result.code;
 }
