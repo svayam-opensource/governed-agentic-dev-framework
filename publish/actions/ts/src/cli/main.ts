@@ -21,6 +21,10 @@ import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js"
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
+import { assembleNeeds } from "../security/needs.js";
+import { preflight, renderGap } from "../security/preflight.js";
+import { runCreds } from "../security/creds-flow.js";
+import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
 import { createGitVcs } from "../lifecycle/vcs.js";
 import { createGhBoard, type RunGh } from "../lifecycle/gh-board.js";
@@ -157,9 +161,51 @@ export async function gatherMenuContext(): Promise<MenuContext> {
   return { orgName, githubOrg, branch, user, workspaceCount, cliVersion, operateInstalled };
 }
 
-/** Route any command (setup / enterprise plugin / normal) — used by the menu. */
+/**
+ * `gov creds` — the interactive GAP-filler (SDD credential-seam, client half). Resolves
+ * the org work root, computes the base NEED/GAP for the chosen identity, and walks the
+ * user through placing anything missing. Async (readline prompts); routed from bin.ts.
+ */
+export async function runCredsCommand(_argv: readonly string[]): Promise<number> {
+  const fs = createNodeFs();
+  const resolve = prjResolveGov(createNodeEnv());
+  if (!resolve.ok) { process.stderr.write("gov creds: no gov workspace resolved — run `gov onboard`/`gov setup` first.\n"); return 1; }
+  const cfgText = fs.readFile(path.join(resolve.home, "org-config.yaml"));
+  if (!cfgText) { process.stderr.write("gov creds: org-config.yaml not found.\n"); return 1; }
+  const agentWorkRoot = parseOrgConfig(cfgText).agentWorkRoot;
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const ask = (q: string, def?: string): Promise<string> =>
+    new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || (def ?? ""))));
+  const ghAuthOk = (): boolean => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } };
+  try {
+    const r = await runCreds({
+      defaultIdentity: defaultIdentity(),
+      needs: assembleNeeds(),                        // standalone `gov creds` → the base NEEDs
+      prompt: ask,
+      print: (l) => process.stdout.write(`${l}\n`),
+      listIdentities: () => listIdentities(agentWorkRoot),
+      identityExists: (id) => identityExists(agentWorkRoot, id),
+      makeProbes: (id) => {
+        const file = credentialsPath(agentWorkRoot, id);
+        return {
+          gitConfig: (k) => tryRun("git", ["config", "--get", k]) || undefined,
+          ghAuthOk,
+          hasCred: (k) => getCredential(file, k) !== undefined,
+        };
+      },
+      setCred: (id, key, value) => setCredential(credentialsPath(agentWorkRoot, id), key, value),
+    });
+    return r.stillMissing.length ? 1 : 0;
+  } finally {
+    rl.close();
+  }
+}
+
+/** Route any command (setup / creds / enterprise plugin / normal) — used by the menu. */
 export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
+  if (argv[0] === "creds") return runCredsCommand(argv);
   if (argv[0] !== undefined && isPluginCommand(argv[0])) return runPluginCli(argv);
   return main(argv);
 }
@@ -486,6 +532,24 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     gate: () => runSuite({ fs, repoRoot: home, files: (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean) }),
     log: (m) => process.stderr.write(`${m}\n`),
   };
+
+  // Security PREFLIGHT (NEED/GAP): before a route-dispatched command runs, block if its
+  // identity/authorization isn't in place, pointing at `gov creds`. Base NEEDs (git commit
+  // identity, gh auth) apply here; command/plugin-specific NEEDs join as those paths grow.
+  // Silent no-op on a healthy machine. $GOV_SKIP_PREFLIGHT bypasses it for non-interactive
+  // automation that provisions creds out-of-band.
+  if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
+    const credFile = credentialsPath(config.agentWorkRoot, defaultIdentity());
+    const pf = preflight(assembleNeeds(), {
+      gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
+      ghAuthOk: () => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } },
+      hasCred: (k) => getCredential(credFile, k) !== undefined,
+    });
+    if (!pf.ok) {
+      for (const line of renderGap(pf.gap)) process.stderr.write(`${line}\n`);
+      return 3;
+    }
+  }
 
   const result = route(parsed, ctx);
   for (const line of result.lines) process.stdout.write(`${line}\n`);
