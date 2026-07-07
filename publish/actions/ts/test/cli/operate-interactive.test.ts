@@ -64,6 +64,12 @@ describe("interactive create — only VALID type × sub-type × packaging", () =
     expect(argv!).to.not.include("--packaging");
   });
 
+  it("prompts for owner and normalizes a scheme-less registry URL to https://", async () => {
+    const d = driver(["u", "cli", "", "", "platform-team", "owner/repo", "pkg/x", "npm.svayamtech.com", "", "", "because"]);
+    const argv = await promptCreateUnit(d.prompt, d.print, TAX);
+    expect(argv!).to.include.members(["--owner", "platform-team", "--registry", "dev=https://npm.svayamtech.com"]);
+  });
+
   it("no taxonomy available → free-text fields, no validation (plugin validates)", async () => {
     const d = driver(["u", "cli", "api", "npm", "owner/repo", "pkg/x", "", "", "", "because"]);
     const argv = await promptCreateUnit(d.prompt, d.print, undefined);

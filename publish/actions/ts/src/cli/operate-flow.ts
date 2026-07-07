@@ -149,12 +149,13 @@ export async function promptCreateUnit(prompt: (q: string) => Promise<string>, p
     await add("sub-type", "--sub-type");
     await add("packaging", "--packaging");
   }
+  await add("owner (github handle or team responsible for this unit)", "--owner");
   await add("source repo (owner/name)", "--repo");
   await add("source path (within the repo)", "--path");
   print("  per-env publish registry (blank to skip an env):");
   for (const env of ["dev", "uat", "prod"] as const) {
-    const url = (await prompt(`    ${env} registry URL: `)).trim();
-    if (url) argv.push("--registry", `${env}=${url}`);
+    const raw = (await prompt(`    ${env} registry URL: `)).trim();
+    if (raw) argv.push("--registry", `${env}=${/^https?:\/\//.test(raw) ? raw : `https://${raw}`}`);  // normalize to a full URL
   }
   await add("justification (why a new unit)", "--justification");
   return argv;
