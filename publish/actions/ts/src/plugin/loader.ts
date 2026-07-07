@@ -7,6 +7,8 @@
  * absent → a clear "install the enterprise plugin" message. The importer is
  * injected so the seam is fully unit-testable without the real package.
  */
+import { createRequire } from "node:module";
+import * as path from "node:path";
 import type { OrgConfig } from "../config/org-config.js";
 
 /** The enterprise command namespace owned by the gov-operate plugin. */
@@ -59,16 +61,25 @@ export type PluginLoad =
 
 const PACKAGE = "@svayam/gov-operate";
 
-/** Dynamic-import the enterprise plugin. `importer` is injected for tests. */
+/** Dynamic-import the enterprise plugin. Resolution order: a PROJECT-LOCAL install pointed to by
+ *  $GOV_OPERATE_PATH (set from `gov deploy gov-operate local` — no npm link / symlink needed), then
+ *  normal resolution of the published/installed package. `importer` is injected for tests. */
 export async function loadGovOperate(importer: (name: string) => Promise<unknown> = (n) => import(n)): Promise<PluginLoad> {
-  let mod: { runCli?: unknown; securityNeeds?: unknown; taxonomy?: unknown; units?: unknown };
-  try {
-    mod = (await importer(PACKAGE)) as { runCli?: unknown; securityNeeds?: unknown; taxonomy?: unknown; units?: unknown };
-  } catch {
-    return {
-      ok: false,
-      message: `This is an enterprise command (catalog/deploy). Install the plugin:\n  npm i -g ${PACKAGE} --registry=https://npm.svayamtech.com`,
-    };
+  type Mod = { runCli?: unknown; securityNeeds?: unknown; taxonomy?: unknown; units?: unknown };
+  let mod: Mod | undefined;
+  const local = process.env.GOV_OPERATE_PATH;
+  if (local) {
+    try { mod = createRequire(path.join(local, "package.json"))(local) as Mod; } catch { /* fall through to normal resolution */ }
+  }
+  if (!mod) {
+    try {
+      mod = (await importer(PACKAGE)) as Mod;
+    } catch {
+      return {
+        ok: false,
+        message: `This is an enterprise command (catalog/deploy). Install the plugin:\n  npm i -g ${PACKAGE} --registry=https://npm.svayamtech.com`,
+      };
+    }
   }
   if (typeof mod.runCli !== "function") {
     return { ok: false, message: `${PACKAGE} is installed but exposes no \`runCli\` entry — update the plugin.` };

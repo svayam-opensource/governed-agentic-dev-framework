@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { isPluginCommand, loadGovOperate, runPluginCommand, type PluginCliContext } from "../../src/plugin/loader.js";
 import type { OrgConfig } from "../../src/config/org-config.js";
 
@@ -18,6 +21,22 @@ describe("gov-work — enterprise plugin seam", () => {
     const load = await loadGovOperate(() => Promise.reject(new Error("Cannot find module")));
     expect(load.ok).to.equal(false);
     if (!load.ok) expect(load.message).to.match(/npm i -g @svayam\/gov-operate/);
+  });
+
+  it("prefers a PROJECT-LOCAL install via $GOV_OPERATE_PATH (no npm link / symlink)", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gov-plugin-"));
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "@svayam/gov-operate", version: "1.0.0", main: "index.js" }));
+    fs.writeFileSync(path.join(dir, "index.js"), "module.exports = { runCli: (a) => Promise.resolve({ code: 7, lines: ['local:' + a.join(' ')] }) };");
+    const prev = process.env.GOV_OPERATE_PATH; process.env.GOV_OPERATE_PATH = dir;
+    try {
+      // the injected importer returns a DIFFERENT (published) plugin — the local path must win
+      const load = await loadGovOperate(() => Promise.resolve({ runCli: () => Promise.resolve({ code: 0, lines: ["published"] }) }));
+      expect(load.ok).to.equal(true);
+      if (load.ok) { const r = await load.plugin.runCli(["x"], CTX); expect(r.code).to.equal(7); expect(r.lines[0]).to.equal("local:x"); }
+    } finally {
+      if (prev === undefined) delete process.env.GOV_OPERATE_PATH; else process.env.GOV_OPERATE_PATH = prev;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("rejects an installed package that lacks a runCli entry", async () => {

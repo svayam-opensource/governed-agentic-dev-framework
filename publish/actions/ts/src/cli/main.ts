@@ -8,7 +8,7 @@
  * (dispatch.ts) is exhaustively unit-tested.
  */
 import * as path from "node:path";
-import { realpathSync } from "node:fs";
+import { realpathSync, existsSync, readdirSync } from "node:fs";
 import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
@@ -143,6 +143,7 @@ export async function gatherMenuContext(): Promise<MenuContext> {
       orgName = c.orgName || undefined;
       githubOrg = c.githubOrg || undefined;
       branch = c.defaultBranch || undefined;
+      wireLocalPlugin(c.agentWorkRoot);   // prefer a project-local gov-operate for the menu's plugin checks
     }
     branch = tryRun("git", ["-C", resolve.home, "rev-parse", "--abbrev-ref", "HEAD"]) ?? branch;
   }
@@ -298,12 +299,31 @@ export async function runMainMenu(): Promise<number> {
  */
 /** cwd is inside a project = under agent_work_root (LOCATION only; realpath'd so a symlinked root
  *  like /var→/private/var still matches). Mirrors the plugin's project detection for a fast pre-check. */
-function inProjectLocation(agentWorkRoot: string | undefined): boolean {
-  if (!agentWorkRoot) return false;
+/** The project dir `<agent_work_root>/<project>` the cwd sits inside (realpath'd for symlinks), or
+ *  undefined when the cwd is outside agent_work_root. */
+function projectDirOf(agentWorkRoot: string | undefined): string | undefined {
+  if (!agentWorkRoot) return undefined;
   const real = (p: string): string => { try { return realpathSync(p); } catch { return p; } };
   const root = real(path.resolve(expandTilde(agentWorkRoot)));
   const rel = path.relative(root, real(process.cwd()));
-  return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return undefined;
+  return path.join(root, rel.split(path.sep)[0]);
+}
+function inProjectLocation(agentWorkRoot: string | undefined): boolean { return !!projectDirOf(agentWorkRoot); }
+
+/** Point gov at a PROJECT-LOCAL gov-operate (from `gov deploy gov-operate local`) so the local plugin
+ *  loads with no npm link / symlink. Sets $GOV_OPERATE_PATH (unless already set — an explicit value
+ *  always wins) to <project>/lib/<unit>/node_modules/@svayam/gov-operate when present. */
+function wireLocalPlugin(agentWorkRoot: string | undefined): void {
+  if (process.env.GOV_OPERATE_PATH) return;
+  const project = projectDirOf(agentWorkRoot);
+  if (!project) return;
+  const libDir = path.join(project, "lib");
+  if (!existsSync(libDir)) return;
+  for (const unit of readdirSync(libDir)) {
+    const p = path.join(libDir, unit, "node_modules", "@svayam", "gov-operate");
+    if (existsSync(path.join(p, "package.json"))) { process.env.GOV_OPERATE_PATH = p; return; }
+  }
 }
 
 export async function runPluginCli(argv: readonly string[]): Promise<number> {
@@ -332,6 +352,7 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
     return 1;
   }
   const config = parseOrgConfig(cfgText);
+  wireLocalPlugin(config.agentWorkRoot);   // a project-local gov-operate (deploy … local) loads with no symlink
 
   const load = await loadGovOperate();
   if (!load.ok) { process.stderr.write(`${load.message}\n`); return 1; }
