@@ -35,11 +35,16 @@ export interface PluginCliResult {
  *  method) + `credKey` (the standard store key) are INTERNAL — the developer never sees them. */
 export interface PluginSecurityNeed { readonly registry: string; readonly env: string; readonly method: string; readonly credKey: string; }
 
+/** The org's active value sets per unit type — drives the interactive create's contextual prompts. */
+export interface PluginTaxonomy { readonly type: string; readonly subTypes: readonly string[]; readonly packagings: readonly string[]; }
+
 /** The contract `@svayam/gov-operate` must export. */
 export interface GovOperatePlugin {
   runCli(argv: readonly string[], ctx: PluginCliContext): Promise<PluginCliResult>;
   /** OPTIONAL: the command's security needs (probes the target to discover the credential). */
   securityNeeds?(argv: readonly string[], ctx: PluginCliContext): Promise<PluginSecurityNeed[]>;
+  /** OPTIONAL: the active taxonomy (type → valid sub-types/packagings) for interactive create. */
+  taxonomy?(): readonly PluginTaxonomy[];
 }
 
 export type PluginLoad =
@@ -50,9 +55,9 @@ const PACKAGE = "@svayam/gov-operate";
 
 /** Dynamic-import the enterprise plugin. `importer` is injected for tests. */
 export async function loadGovOperate(importer: (name: string) => Promise<unknown> = (n) => import(n)): Promise<PluginLoad> {
-  let mod: { runCli?: unknown; securityNeeds?: unknown };
+  let mod: { runCli?: unknown; securityNeeds?: unknown; taxonomy?: unknown };
   try {
-    mod = (await importer(PACKAGE)) as { runCli?: unknown; securityNeeds?: unknown };
+    mod = (await importer(PACKAGE)) as { runCli?: unknown; securityNeeds?: unknown; taxonomy?: unknown };
   } catch {
     return {
       ok: false,
@@ -65,6 +70,7 @@ export async function loadGovOperate(importer: (name: string) => Promise<unknown
   return { ok: true, plugin: {
     runCli: mod.runCli as GovOperatePlugin["runCli"],
     ...(typeof mod.securityNeeds === "function" ? { securityNeeds: mod.securityNeeds as GovOperatePlugin["securityNeeds"] } : {}),
+    ...(typeof mod.taxonomy === "function" ? { taxonomy: mod.taxonomy as GovOperatePlugin["taxonomy"] } : {}),
   } };
 }
 

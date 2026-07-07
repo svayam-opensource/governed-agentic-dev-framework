@@ -275,7 +275,9 @@ export async function runMainMenu(): Promise<number> {
         io.print("  The enterprise plugin isn't installed:  npm i -g @svayam/gov-operate");
         return 1;
       }
-      return runOperateFlow({ run: runAny, prompt: io.prompt, print: io.print });
+      const load = await loadGovOperate();
+      const taxonomy = load.ok ? load.plugin.taxonomy?.() : undefined;
+      return runOperateFlow({ run: runAny, prompt: io.prompt, print: io.print, taxonomy });
     },
     switchOrg: (org) => runAny(["org", "use", org]),
     help: (command) => helpLines(command),
@@ -294,18 +296,23 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
     process.stderr.write(`${parsed.error}\n`);
     return 2;
   }
+  const load = await loadGovOperate();
+  if (!load.ok) { process.stderr.write(`${load.message}\n`); return 1; }
+
   // Interactive fill for an under-specified enterprise command ON A TTY (the flag/positional
   // form stays for agents / non-interactive use — `gov catalog create --type … --gov-home …`).
   // Detect against the FLAG-FREE positional shape so pass-through flags (--gov-home) don't
-  // masquerade as the missing id; --gov-home et al. are read from `parsed` regardless.
+  // masquerade as the missing id. The plugin's taxonomy drives valid-only choices; a [] result
+  // means the user backed out of a menu (clean exit).
   let cliArgv: readonly string[] = argv;
   const bare = [parsed.command, ...parsed.positionals];
   if (process.stdin.isTTY && needsInteractive(bare)) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     const ask = (q: string): Promise<string> => new Promise((res) => rl.question(q, (x) => res(x)));
     try {
-      const filled = await promptForCommand(bare, ask, (l) => process.stderr.write(`${l}\n`));
-      if (!filled) return 2;
+      const filled = await promptForCommand(bare, ask, (l) => process.stderr.write(`${l}\n`), load.plugin.taxonomy?.());
+      if (filled === null) return 2;
+      if (filled.length === 0) return 0;
       cliArgv = filled;
     } finally { rl.close(); }
   }
@@ -329,8 +336,6 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
     return 1;
   }
   const config = parseOrgConfig(cfgText);
-  const load = await loadGovOperate();
-  if (!load.ok) { process.stderr.write(`${load.message}\n`); return 1; }
 
   // Security PREFLIGHT + credential MATERIALIZATION for the plugin command. NEEDs: the LICENSE
   // (every enterprise command) + base git/gh + the command's OWN needs (a publish token for the
