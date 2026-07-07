@@ -30,16 +30,16 @@ export interface PluginCliResult {
   readonly lines: readonly string[];
 }
 
-/** A credential a plugin command's ask needs — surfaced so the OSS preflight can detect
- *  it (a per-env registry publish token) BEFORE the command runs. `credKey` is the store
- *  key per the gov credential-key standard (the plugin is the source of truth for it). */
-export interface PluginSecurityNeed { readonly registry: string; readonly scheme: "oidc" | "token"; readonly env: string; readonly credKey: string; }
+/** A credential a plugin command's ask needs — surfaced so the OSS preflight can detect it
+ *  (a per-env registry publish token) BEFORE the command runs. `method` (the discovered auth
+ *  method) + `credKey` (the standard store key) are INTERNAL — the developer never sees them. */
+export interface PluginSecurityNeed { readonly registry: string; readonly env: string; readonly method: string; readonly credKey: string; }
 
 /** The contract `@svayam/gov-operate` must export. */
 export interface GovOperatePlugin {
   runCli(argv: readonly string[], ctx: PluginCliContext): Promise<PluginCliResult>;
-  /** OPTIONAL: the command's security needs (e.g. a publish token for the resolved registry). */
-  securityNeeds?(argv: readonly string[], ctx: PluginCliContext): PluginSecurityNeed[];
+  /** OPTIONAL: the command's security needs (probes the target to discover the credential). */
+  securityNeeds?(argv: readonly string[], ctx: PluginCliContext): Promise<PluginSecurityNeed[]>;
 }
 
 export type PluginLoad =

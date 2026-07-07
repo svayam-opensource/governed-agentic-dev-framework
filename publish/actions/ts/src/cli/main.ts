@@ -319,8 +319,8 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
   // can materialize that token at publish time ($GOV_CRED_STORE).
   if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
     const credFile = credentialsPath(ctx.config.agentWorkRoot, defaultIdentity());
-    const pluginNeeds = load.plugin.securityNeeds?.(argv, ctx) ?? [];
-    const extra = pluginNeeds.map((n) => registryTokenNeed(n.registry, n.scheme, n.credKey));
+    const pluginNeeds = (await load.plugin.securityNeeds?.(argv, ctx)) ?? [];
+    const extra = pluginNeeds.map((n) => registryTokenNeed(n.registry, n.credKey));
     const pf = preflight(assembleNeeds(extra), {
       gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
       ghAuthOk: () => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } },

@@ -25,26 +25,28 @@ describe("security — NEED / GAP", () => {
     expect(ghAuthNeed.satisfied(allOk({ ghAuthOk: false }))).to.equal(false);
   });
 
-  it("registry token: id/credKey = the plugin-supplied standard key, satisfied by a stored cred", () => {
-    const oidc = registryTokenNeed("https://npm.svayamtech.com", "oidc", "AUTHENTIK_UAT_API_TOKEN");
-    const pub = registryTokenNeed("https://registry.npmjs.org", "token", "NPMJS_ACCESS_TOKEN");
-    expect(oidc.credKey).to.equal("AUTHENTIK_UAT_API_TOKEN");
-    expect(oidc.id).to.equal("AUTHENTIK_UAT_API_TOKEN");
-    expect(oidc.instructions).to.match(/OIDC-fronted/);
-    expect(oidc.instructions).to.match(/Do NOT run `npm login`/);
-    expect(pub.instructions).to.match(/Automation/);
-    expect(oidc.satisfied(allOk({ creds: new Set(["AUTHENTIK_UAT_API_TOKEN"]) }))).to.equal(true);
-    expect(oidc.satisfied(allOk({ creds: new Set<string>() }))).to.equal(false);
+  it("registry token: keyed by the plugin's standard key; instructions SHIELD the developer", () => {
+    const priv = registryTokenNeed("https://npm.svayamtech.com", "AUTHENTIK_UAT_API_TOKEN");
+    const pub = registryTokenNeed("https://registry.npmjs.org", "NPMJS_ACCESS_TOKEN");
+    expect(priv.credKey).to.equal("AUTHENTIK_UAT_API_TOKEN");
+    expect(priv.id).to.equal("AUTHENTIK_UAT_API_TOKEN");
+    // shielded: plain where/what/paste — NO auth-method jargon, NO internal key name
+    expect(priv.instructions).to.match(/Paste it below/);
+    expect(priv.instructions).to.not.match(/OIDC|bearer|OAUTH|API_TOKEN|store key/i);
+    expect(priv.instructions).to.not.include("AUTHENTIK_UAT_API_TOKEN");
+    expect(pub.instructions).to.match(/npmjs\.com/);
+    expect(priv.satisfied(allOk({ creds: new Set(["AUTHENTIK_UAT_API_TOKEN"]) }))).to.equal(true);
+    expect(priv.satisfied(allOk({ creds: new Set<string>() }))).to.equal(false);
   });
 
   it("assembleNeeds = base (git, gh) + extras, in order", () => {
-    const extra = registryTokenNeed("https://npm.svayamtech.com", "oidc", "AUTHENTIK_UAT_API_TOKEN");
+    const extra = registryTokenNeed("https://npm.svayamtech.com", "AUTHENTIK_UAT_API_TOKEN");
     expect(assembleNeeds([extra]).map((n) => n.id)).to.deep.equal(["git-identity", "gh-auth", extra.id]);
     expect(assembleNeeds().map((n) => n.id)).to.deep.equal(["git-identity", "gh-auth"]);
   });
 
   it("computeGap returns exactly the unmet needs, in declared order", () => {
-    const token = registryTokenNeed("https://npm.svayamtech.com", "oidc", "AUTHENTIK_UAT_API_TOKEN");
+    const token = registryTokenNeed("https://npm.svayamtech.com", "AUTHENTIK_UAT_API_TOKEN");
     const need = assembleNeeds([token]);
     // missing git email + missing the token; gh ok
     const probes = allOk({ gitConfig: { "user.email": "" }, creds: new Set<string>() });

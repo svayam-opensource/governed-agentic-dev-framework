@@ -53,24 +53,24 @@ export const ghAuthNeed: Need = {
 };
 
 // ── registry publish token — contributed by the deploy path per resolved target ──
-export type RegistryScheme = "oidc" | "token";
-
-/** A NEED for a publish token to `registry`, stored under `credKey` (the gov credential-key
- *  standard, supplied by the plugin). `scheme` shapes the acquisition instructions. */
-export function registryTokenNeed(registry: string, scheme: RegistryScheme, credKey: string): Need {
-  const key = credKey;
+/**
+ * A NEED for a publish credential to `registry`, stored under `credKey` (the standard key,
+ * supplied by the plugin). Instructions SHIELD the developer — where to go, what to do, and
+ * paste; no auth-method jargon, no key names. `gov creds` saves the answer for them.
+ */
+export function registryTokenNeed(registry: string, credKey: string): Need {
+  const where = registry === "https://registry.npmjs.org"
+    ? "npmjs.com → Account → Access Tokens → Generate a new Automation token"
+    : `your registry's token page for ${registry} (ask your admin if you're unsure where)`;
   return {
-    id: key,
-    title: `publish token for ${registry}  (store key: ${key})`,
-    credKey: key,
-    instructions: scheme === "oidc"
-      ? `${registry} is OIDC-fronted. In your IdP (Authentik), authenticate and copy an access\n` +
-        `token for the registry audience, then paste it here. Do NOT run \`npm login\` — the\n` +
-        `front wants a bearer token, not a registry account.`
-      : `Create a publish/automation token for ${registry}\n` +
-        `  (e.g. npmjs.com → Account → Access Tokens → Generate New Token → Automation),\n` +
-        `then paste it here.`,
-    satisfied: (p) => p.hasCred(key),
+    id: credKey,
+    title: `a publish credential for ${registry}`,
+    credKey,
+    instructions:
+      `You need a publish token for ${registry}.\n` +
+      `  1. Get one here:  ${where}\n` +
+      `  2. Paste it below — gov saves it for you; there's nothing else to set up.`,
+    satisfied: (p) => p.hasCred(credKey),
   };
 }
 

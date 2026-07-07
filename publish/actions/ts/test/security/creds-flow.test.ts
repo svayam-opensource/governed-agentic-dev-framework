@@ -45,17 +45,17 @@ describe("security — gov creds flow", () => {
   });
 
   it("stored-cred GAP: prints where/how, takes the paste, PLACES it, re-probe clears the gap", async () => {
-    const need = registryTokenNeed("https://npm.svayamtech.com", "oidc", "AUTHENTIK_UAT_API_TOKEN");
+    const need = registryTokenNeed("https://npm.svayamtech.com", "AUTHENTIK_UAT_API_TOKEN");
     const { deps, out, store } = harness({ needs: [need], answers: ["", "brr.oidc.token"], store: { rkant: {} } });
     const r = await runCreds(deps);
-    expect(out.join("\n")).to.match(/OIDC-fronted/);          // instructions shown
+    expect(out.join("\n")).to.match(/publish token for/); // shielded instructions shown
     expect(store.rkant[need.credKey!]).to.equal("brr.oidc.token"); // placed
     expect(r.filled).to.deep.equal([need.id]);
     expect(r.stillMissing).to.deep.equal([]);                 // re-probe: satisfied
   });
 
   it("NON-interactive (piped/agent) REFUSES to accept a secret — never places it", async () => {
-    const need = registryTokenNeed("https://npm.svayamtech.com", "oidc", "AUTHENTIK_UAT_API_TOKEN");
+    const need = registryTokenNeed("https://npm.svayamtech.com", "AUTHENTIK_UAT_API_TOKEN");
     const { deps, out, store } = harness({ needs: [need], answers: ["", "a-token-an-agent-tried-to-paste"], store: { rkant: {} }, interactive: false });
     const r = await runCreds(deps);
     expect(store.rkant[need.credKey!]).to.equal(undefined);          // NOT stored
@@ -65,7 +65,7 @@ describe("security — gov creds flow", () => {
   });
 
   it("blank paste SKIPS a stored-cred need → still missing", async () => {
-    const need = registryTokenNeed("https://registry.npmjs.org", "token", "NPMJS_ACCESS_TOKEN");
+    const need = registryTokenNeed("https://registry.npmjs.org", "NPMJS_ACCESS_TOKEN");
     const { deps, store } = harness({ needs: [need], answers: ["", ""], store: { rkant: {} } });
     const r = await runCreds(deps);
     expect(store.rkant[need.credKey!]).to.equal(undefined);
