@@ -21,7 +21,7 @@ import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js"
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { assembleNeeds, registryTokenNeed } from "../security/needs.js";
+import { assembleNeeds, registryTokenNeed, licenseNeed } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { runCreds } from "../security/creds-flow.js";
 import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
@@ -308,34 +308,36 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
     process.stderr.write(`gov: no org-config.yaml at ${home}\n`);
     return 1;
   }
-  const ctx: PluginCliContext = { home, config: parseOrgConfig(cfgText), license: process.env.GOV_LICENSE };
-
+  const config = parseOrgConfig(cfgText);
   const load = await loadGovOperate();
   if (!load.ok) { process.stderr.write(`${load.message}\n`); return 1; }
 
-  // Security PREFLIGHT for the plugin command: base NEEDs + the command's OWN needs (e.g.
-  // a publish token for the resolved per-env registry, surfaced by the plugin). On a gap,
-  // block with a `gov creds` pointer. Then expose the active identity's store so the plugin
-  // can materialize that token at publish time ($GOV_CRED_STORE).
+  // Security PREFLIGHT + credential MATERIALIZATION for the plugin command. NEEDs: the LICENSE
+  // (every enterprise command) + base git/gh + the command's OWN needs (a publish token for the
+  // resolved registry, surfaced by the plugin). On a gap, block with a `gov creds` pointer; else
+  // materialize the license + registry token from the store (tooling handles the secrets; never
+  // logged) into GOV_LICENSE / GOV_NPM_TOKEN for the plugin, and expose the store.
   if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
-    const credFile = credentialsPath(ctx.config.agentWorkRoot, defaultIdentity());
-    const pluginNeeds = (await load.plugin.securityNeeds?.(argv, ctx)) ?? [];
-    const extra = pluginNeeds.map((n) => registryTokenNeed(n.registry, n.credKey));
+    const credFile = credentialsPath(config.agentWorkRoot, defaultIdentity());
+    const probeCtx: PluginCliContext = { home, config, license: process.env.GOV_LICENSE };
+    const pluginNeeds = (await load.plugin.securityNeeds?.(argv, probeCtx)) ?? [];
+    const extra = [licenseNeed, ...pluginNeeds.map((n) => registryTokenNeed(n.registry, n.credKey))];
     const pf = preflight(assembleNeeds(extra), {
       gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
       ghAuthOk: () => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } },
-      hasCred: (k) => getCredential(credFile, k) !== undefined,
+      // the license is also satisfied by an explicit $GOV_LICENSE (legacy / non-interactive)
+      hasCred: (k) => getCredential(credFile, k) !== undefined || (k === licenseNeed.credKey && !!process.env.GOV_LICENSE),
     });
     if (!pf.ok) {
       for (const line of renderGap(pf.gap)) process.stderr.write(`${line}\n`);
       return 3;
     }
-    // Materialize the deploy's registry token from the store into GOV_NPM_TOKEN (standard key,
-    // per-env). The tooling handles the secret; it is never logged.
+    const lic = getCredential(credFile, licenseNeed.credKey!); if (lic) process.env.GOV_LICENSE = lic;
     for (const n of pluginNeeds) { const v = getCredential(credFile, n.credKey); if (v) process.env.GOV_NPM_TOKEN = v; }
     process.env.GOV_CRED_STORE = credFile;
   }
 
+  const ctx: PluginCliContext = { home, config, license: process.env.GOV_LICENSE };
   const result = await load.plugin.runCli(argv, ctx);
   for (const line of result.lines) process.stdout.write(`${line}\n`);
   return result.code;

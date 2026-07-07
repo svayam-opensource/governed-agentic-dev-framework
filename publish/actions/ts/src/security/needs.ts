@@ -45,6 +45,19 @@ export const gitIdentityNeed: Need = {
   satisfied: (p) => !!p.gitConfig("user.name") && !!p.gitConfig("user.email"),
 };
 
+/** The gov-operate LICENSE — a credential like any other: stored under SVAYAM_GOV_LICENSE and
+ *  materialized to GOV_LICENSE at runtime. Needed by every enterprise (plugin) command. */
+export const licenseNeed: Need = {
+  id: "SVAYAM_GOV_LICENSE",
+  title: "your gov-operate license",
+  credKey: "SVAYAM_GOV_LICENSE",
+  instructions:
+    "You need a gov-operate license (a one-time key).\n" +
+    "  1. Get it from your Svayam licensing / policy owner.\n" +
+    "  2. Paste it below — gov saves it for you.",
+  satisfied: (p) => p.hasCred("SVAYAM_GOV_LICENSE"),
+};
+
 export const ghAuthNeed: Need = {
   id: "gh-auth",
   title: "GitHub CLI authentication",
