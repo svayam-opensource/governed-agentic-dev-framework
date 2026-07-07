@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
-import { runPluginCommand as delegateToPlugin, loadGovOperate, isPluginCommand, type PluginCliContext } from "../plugin/loader.js";
+import { loadGovOperate, isPluginCommand, type PluginCliContext } from "../plugin/loader.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow } from "./work-flow.js";
 import { runOperateFlow } from "./operate-flow.js";
@@ -21,7 +21,7 @@ import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js"
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { assembleNeeds } from "../security/needs.js";
+import { assembleNeeds, registryTokenNeed } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { runCreds } from "../security/creds-flow.js";
 import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
@@ -308,7 +308,30 @@ export async function runPluginCli(argv: readonly string[]): Promise<number> {
     return 1;
   }
   const ctx: PluginCliContext = { home, config: parseOrgConfig(cfgText), license: process.env.GOV_LICENSE };
-  const result = await delegateToPlugin(argv, ctx);
+
+  const load = await loadGovOperate();
+  if (!load.ok) { process.stderr.write(`${load.message}\n`); return 1; }
+
+  // Security PREFLIGHT for the plugin command: base NEEDs + the command's OWN needs (e.g.
+  // a publish token for the resolved per-env registry, surfaced by the plugin). On a gap,
+  // block with a `gov creds` pointer. Then expose the active identity's store so the plugin
+  // can materialize that token at publish time ($GOV_CRED_STORE).
+  if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
+    const credFile = credentialsPath(ctx.config.agentWorkRoot, defaultIdentity());
+    const extra = (load.plugin.securityNeeds?.(argv, ctx) ?? []).map((n) => registryTokenNeed(n.registry, n.scheme));
+    const pf = preflight(assembleNeeds(extra), {
+      gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
+      ghAuthOk: () => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } },
+      hasCred: (k) => getCredential(credFile, k) !== undefined,
+    });
+    if (!pf.ok) {
+      for (const line of renderGap(pf.gap)) process.stderr.write(`${line}\n`);
+      return 3;
+    }
+    process.env.GOV_CRED_STORE = credFile;
+  }
+
+  const result = await load.plugin.runCli(argv, ctx);
   for (const line of result.lines) process.stdout.write(`${line}\n`);
   return result.code;
 }

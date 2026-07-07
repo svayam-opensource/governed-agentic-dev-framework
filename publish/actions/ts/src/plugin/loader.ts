@@ -30,9 +30,15 @@ export interface PluginCliResult {
   readonly lines: readonly string[];
 }
 
+/** A credential a plugin command's ask needs — surfaced so the OSS preflight can detect
+ *  it (a per-env registry publish token) BEFORE the command runs. */
+export interface PluginSecurityNeed { readonly registry: string; readonly scheme: "oidc" | "token"; }
+
 /** The contract `@svayam/gov-operate` must export. */
 export interface GovOperatePlugin {
   runCli(argv: readonly string[], ctx: PluginCliContext): Promise<PluginCliResult>;
+  /** OPTIONAL: the command's security needs (e.g. a publish token for the resolved registry). */
+  securityNeeds?(argv: readonly string[], ctx: PluginCliContext): PluginSecurityNeed[];
 }
 
 export type PluginLoad =
@@ -43,9 +49,9 @@ const PACKAGE = "@svayam/gov-operate";
 
 /** Dynamic-import the enterprise plugin. `importer` is injected for tests. */
 export async function loadGovOperate(importer: (name: string) => Promise<unknown> = (n) => import(n)): Promise<PluginLoad> {
-  let mod: { runCli?: unknown };
+  let mod: { runCli?: unknown; securityNeeds?: unknown };
   try {
-    mod = (await importer(PACKAGE)) as { runCli?: unknown };
+    mod = (await importer(PACKAGE)) as { runCli?: unknown; securityNeeds?: unknown };
   } catch {
     return {
       ok: false,
@@ -55,7 +61,10 @@ export async function loadGovOperate(importer: (name: string) => Promise<unknown
   if (typeof mod.runCli !== "function") {
     return { ok: false, message: `${PACKAGE} is installed but exposes no \`runCli\` entry — update the plugin.` };
   }
-  return { ok: true, plugin: { runCli: mod.runCli as GovOperatePlugin["runCli"] } };
+  return { ok: true, plugin: {
+    runCli: mod.runCli as GovOperatePlugin["runCli"],
+    ...(typeof mod.securityNeeds === "function" ? { securityNeeds: mod.securityNeeds as GovOperatePlugin["securityNeeds"] } : {}),
+  } };
 }
 
 /** Load the plugin and delegate the command; returns the plugin's exit code + output. */
