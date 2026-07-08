@@ -23,7 +23,7 @@ export interface MenuContext {
   readonly cliVersion?: string;
 }
 
-export interface SubCommand { readonly cmd: string; readonly desc: string; }
+export interface SubCommand { readonly cmd: string; readonly desc: string; readonly argHint?: string; }
 export type MenuAction =
   | { readonly kind: "guided"; readonly key: "work"; readonly label: string; readonly desc: string; readonly hint: string }
   | { readonly kind: "submenu"; readonly key: "status" | "admin"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[] }
@@ -35,15 +35,15 @@ export function mainActions(): MenuAction[] {
     { kind: "submenu", key: "status", label: "Status", desc: "Review current state", commands: [
       { cmd: "list", desc: "ongoing projects" },
       { cmd: "list-all", desc: "all projects (incl. closed)" },
-      { cmd: "status", desc: "detailed status of one project" },
+      { cmd: "status", desc: "detailed status of one project", argHint: "<project> (blank = pick)" },
     ] },
     { kind: "guided", key: "work", label: "Work", desc: "Start / continue a project", hint: "pick a project" },
     { kind: "submenu", key: "admin", label: "Admin", desc: "Administer governance", commands: [
-      { cmd: "manage", desc: "project access — assign / unassign owners" },
-      { cmd: "knowledge", desc: "propose org knowledge changes" },
-      { cmd: "onboard", desc: "onboard a repository into the framework" },
-      { cmd: "add-repo", desc: "add a repository to a project" },
-      { cmd: "org", desc: "manage governance workspaces" },
+      { cmd: "manage", desc: "project access — assign / unassign owners", argHint: "assign|unassign <github-login>" },
+      { cmd: "knowledge", desc: "propose org knowledge changes", argHint: "propose|submit|archive <slug>" },
+      { cmd: "onboard", desc: "onboard a repository into the framework", argHint: "<repo-url> <owner> <description>" },
+      { cmd: "add-repo", desc: "add a repository to a project", argHint: "<repo-url>" },
+      { cmd: "org", desc: "manage governance workspaces", argHint: "use|add|list …" },
       { cmd: "upgrade", desc: "pull the latest framework content" },
       { cmd: "deps", desc: "install / verify dependencies" },
     ] },
@@ -143,10 +143,15 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
       const sub = (await ask("  Choose: ")).trim();
       if (sub === "0" || sub === "") continue;
       const idx = Number(sub) - 1;
-      const chosen = Number.isInteger(idx) && idx >= 0 && idx < a.commands.length ? a.commands[idx].cmd : a.commands.find((c) => c.cmd === sub)?.cmd ?? null;
+      const chosen = Number.isInteger(idx) && idx >= 0 && idx < a.commands.length ? a.commands[idx] : a.commands.find((c) => c.cmd === sub) ?? null;
       if (!chosen) { w("  unknown choice"); continue; }
-      const args = (await ask(`  args for '${chosen}' (space-separated, blank if none): `)).trim();
-      return await h.runCommand([chosen, ...(args ? args.split(/\s+/) : [])]);
+      // only ASK for args when the command takes them (argHint set) — a no-arg command like `list` just runs.
+      let extra: string[] = [];
+      if (chosen.argHint) {
+        const args = (await ask(`  args for '${chosen.cmd}' (${chosen.argHint}): `)).trim();
+        extra = args ? args.split(/\s+/) : [];
+      }
+      return await h.runCommand([chosen.cmd, ...extra]);
     }
   } finally {
     rl.close();
