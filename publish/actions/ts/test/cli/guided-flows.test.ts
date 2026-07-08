@@ -79,7 +79,7 @@ describe("gov-work — guided Operate flow", () => {
     expect(ran[0]).to.deep.equal(["catalog", "list"]);
   });
   it("catalog → create → prompts fields → `catalog create <id> --flags…`", async () => {
-    const { ran, deps } = drive(["1", "2", "gov-work", "cli", "node", "npm", "acme", "svayam/repo", "p", "", "https://npm.svayamtech.com", "", "new unit"]);
+    const { ran, deps } = drive(["1", "2", "gov-work", "cli", "node", "npm", "acme", "svayam/repo", "p", "", "", "https://npm.svayamtech.com", "", "new unit"]);
     await runOperateFlow(deps);
     expect(ran[0].slice(0, 3)).to.deep.equal(["catalog", "create", "gov-work"]);
     expect(ran[0]).to.include.members(["--type", "cli", "--registry", "uat=https://npm.svayamtech.com", "--justification"]);

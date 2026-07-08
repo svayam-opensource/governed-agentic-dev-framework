@@ -613,7 +613,7 @@ describe("coverage — Operate flow: runOperateFlow (cartesian over verb × unit
     expect(o.ran[0]).to.deep.equal(["catalog", "list"]);
   });
   it("catalog '1' → create '2' → prompts → `catalog create <id> --flags…`", async () => {
-    const o = operate(["1", "2", "gov-work", "cli", "node", "npm", "acme", "svayam/repo", "p", "", "", "https://registry.npmjs.org", "why"]);
+    const o = operate(["1", "2", "gov-work", "cli", "node", "npm", "acme", "svayam/repo", "p", "", "", "", "https://registry.npmjs.org", "why"]);
     expect(await runOperateFlow(o)).to.equal(0);
     expect(o.ran[0].slice(0, 3)).to.deep.equal(["catalog", "create", "gov-work"]);
     expect(o.ran[0]).to.include.members(["--type", "cli", "--registry", "prod=https://registry.npmjs.org"]);

@@ -179,6 +179,9 @@ export async function promptCreateUnit(prompt: (q: string) => Promise<string>, p
   if (!(await addV("unit-owner (github handle or team responsible for this unit)", "--unit-owner", vOwner))) return null;
   if (!(await addV("source repo (owner/name)", "--repo", vRepo))) return null;
   if (!(await addV("source path (within the repo)", "--path", vPath))) return null;
+  const deps = await askValid(prompt, print, "internal dependencies (unit@compat, space-separated — blank = none)", () => null, true);
+  if (deps === null) return null;
+  for (const d of deps.split(/\s+/).filter(Boolean)) argv.push("--dep", d);
   print("  per-env publish registry (blank to skip an env):");
   for (const env of ["dev", "uat", "prod"] as const) {
     const raw = await askValid(prompt, print, `${env} registry URL`, vUrl, true);
@@ -199,6 +202,9 @@ export async function promptUpdateUnit(unitId: string, prompt: (q: string) => Pr
   if (!(await addV("source repo (owner/name)", "--repo", vRepo))) return null;
   if (!(await addV("source path (within the repo)", "--path", vPath))) return null;
   if (!(await addV("semver", "--semver", vSemver))) return null;
+  const deps = await askValid(prompt, print, "internal dependencies (unit@compat, space-separated — blank = keep)", () => null, true);
+  if (deps === null) return null;
+  for (const d of deps.split(/\s+/).filter(Boolean)) argv.push("--dep", d);
   print("  per-env publish registry (blank = keep):");
   for (const env of ["dev", "uat", "prod"] as const) {
     const raw = await askValid(prompt, print, `${env} registry URL`, vUrl, true);

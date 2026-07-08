@@ -73,7 +73,7 @@ describe("interactive create — only VALID type × sub-type × packaging", () =
   });
 
   it("prompts for owner and normalizes a scheme-less registry URL to https://", async () => {
-    const d = driver(["u", "cli", "", "", "platform-team", "owner/repo", "pkg/x", "npm.svayamtech.com", "", "", "because"]);
+    const d = driver(["u", "cli", "", "", "platform-team", "owner/repo", "pkg/x", "", "npm.svayamtech.com", "", "", "because"]);
     const argv = await promptCreateUnit(d.prompt, d.print, TAX);
     expect(argv!).to.include.members(["--unit-owner", "platform-team", "--registry", "dev=https://npm.svayamtech.com"]);
   });
@@ -137,7 +137,7 @@ describe("pick-a-unit from the catalog list", () => {
     expect(await promptForCommand(["catalog", "delete"], driver(["gov-work"]).prompt, () => {}, TAX, UNITS)).to.deep.equal(["catalog", "delete", "gov-work"]);
   });
   it("catalog update → pick the unit THEN prompt for changed fields (blank = keep; URL normalized)", async () => {
-    const d = driver(["1", "new-owner", "", "", "", "npm.svayamtech.com", "", ""]); // pick #1, owner, blanks, scheme-less dev registry
+    const d = driver(["1", "new-owner", "", "", "", "", "npm.svayamtech.com", "", ""]); // pick #1, owner, blanks (repo/path/semver/deps), scheme-less dev registry
     expect(await promptForCommand(["catalog", "update"], d.prompt, d.print, TAX, UNITS))
       .to.deep.equal(["catalog", "update", "svc-a", "--unit-owner", "new-owner", "--registry", "dev=https://npm.svayamtech.com"]);
   });
