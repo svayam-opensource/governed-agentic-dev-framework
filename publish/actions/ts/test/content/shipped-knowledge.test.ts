@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
  * Publish gate: the framework's OWN shipped knowledge (publish/content/knowledge)
- * must pass the knowledge validator every adopter runs — so `gov validate` /
- * `gov close` can never fail on content we ship. Runs in `npm test` (⇒ prepublishOnly).
+ * must pass the knowledge validator every adopter runs — so `gov-work validate` /
+ * `gov-work close` can never fail on content we ship. Runs in `npm test` (⇒ prepublishOnly).
  */
 import { expect } from "chai";
 import * as fs from "node:fs";

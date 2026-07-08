@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * `gov setup` runner — gathers answers (interactive prompts, injected so this is
+ * `gov-work setup` runner — gathers answers (interactive prompts, injected so this is
  * testable), derives the full config, writes org-config.yaml, and points origin
  * at the org repo. The pure render/derive live in setup.ts.
  */
@@ -60,7 +60,7 @@ export async function runSetup(io: SetupIo, interactive: boolean): Promise<numbe
   }
   io.print("");
   io.print("Next steps:");
-  io.print(`  gov org add ${v.githubOrg} ${v.govWorkspace}   # register this gov workspace`);
-  io.print(`  gov org use ${v.githubOrg}                      # make it the active org`);
+  io.print(`  gov-work org add ${v.githubOrg} ${v.govWorkspace}   # register this gov workspace`);
+  io.print(`  gov-work org use ${v.githubOrg}                      # make it the active org`);
   return 0;
 }

@@ -19,7 +19,7 @@ import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js"
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { assembleNeeds, licenseNeed, credNeedForKey } from "../security/needs.js";
+import { assembleNeeds, credNeedForKey } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { runCreds } from "../security/creds-flow.js";
 import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
@@ -53,7 +53,7 @@ function tryRun(cmd: string, args: string[]): string | undefined {
 }
 
 /**
- * `gov setup` — the interactive workspace BOOTSTRAP (port of setup.sh). Async
+ * `gov-work setup` — the interactive workspace BOOTSTRAP (port of setup.sh). Async
  * (readline prompts), so bin.ts routes it here instead of through sync `main`.
  * Runs in cwd (the cloned framework repo), before any resolution.
  */
@@ -63,7 +63,7 @@ export async function runSetupCommand(argv: readonly string[], now: string = new
   const fs = createNodeFs();
   const cwd = process.cwd();
   if (tryRun("git", ["-C", cwd, "rev-parse", "--git-dir"]) === undefined) {
-    process.stderr.write("gov setup: not a git repository — clone the framework repo (or `git init`) first.\n");
+    process.stderr.write("gov-work setup: not a git repository — clone the framework repo (or `git init`) first.\n");
     return 1;
   }
   const originUrl = tryRun("git", ["-C", cwd, "remote", "get-url", "origin"]) ?? "";
@@ -154,22 +154,22 @@ export async function gatherMenuContext(): Promise<MenuContext> {
 }
 
 /**
- * `gov creds` — the interactive GAP-filler (SDD credential-seam, client half). Resolves
+ * `gov-work creds` — the interactive GAP-filler (SDD credential-seam, client half). Resolves
  * the org work root, computes the base NEED/GAP for the chosen identity, and walks the
  * user through placing anything missing. Async (readline prompts); routed from bin.ts.
  */
 export async function runCredsCommand(argv: readonly string[]): Promise<number> {
   const fs = createNodeFs();
   const resolve = prjResolveGov(createNodeEnv());
-  if (!resolve.ok) { process.stderr.write("gov creds: no gov workspace resolved — run `gov onboard`/`gov setup` first.\n"); return 1; }
+  if (!resolve.ok) { process.stderr.write("gov-work creds: no gov workspace resolved — run `gov-work onboard`/`gov-work setup` first.\n"); return 1; }
   const cfgText = fs.readFile(path.join(resolve.home, "org-config.yaml"));
-  if (!cfgText) { process.stderr.write("gov creds: org-config.yaml not found.\n"); return 1; }
+  if (!cfgText) { process.stderr.write("gov-work creds: org-config.yaml not found.\n"); return 1; }
   const agentWorkRoot = parseOrgConfig(cfgText).agentWorkRoot;
 
-  // `gov creds <KEY>` targets one credential (e.g. SVAYAM_GOV_LICENSE); bare `gov creds` walks
+  // `gov-work creds <KEY>` targets one credential (e.g. SVAYAM_GOV_LICENSE); bare `gov-work creds` walks
   // the base NEEDs (git/gh) + the enterprise license.
   const requestedKey = argv[1];
-  const needs = requestedKey ? [credNeedForKey(requestedKey)] : [...assembleNeeds(), licenseNeed];
+  const needs = requestedKey ? [credNeedForKey(requestedKey)] : [...assembleNeeds()];
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def?: string): Promise<string> =>
@@ -209,7 +209,7 @@ export function runAny(argv: readonly string[]): Promise<number> | number {
 
 /** The command reference shown under the Help menu (grouped) / per-command. */
 export function helpLines(command?: string): string[] {
-  if (command) return ["", `  gov ${command} — run \`gov ${command} --help\`, or see the README command reference.`, ""];
+  if (command) return ["", `  gov-work ${command} — run \`gov-work ${command} --help\`, or see the README command reference.`, ""];
   const groups: Record<string, string[]> = {
     Lifecycle: ["seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel"],
     Governance: ["manage", "anchor", "knowledge", "onboard", "org", "validate"],
@@ -217,7 +217,7 @@ export function helpLines(command?: string): string[] {
     Maintain: ["setup", "doctor", "deps", "upgrade", "bump-version", "publish"],
     "Enterprise (plugin)": ["catalog", "deploy", "data", "promote", "rollback", "drift"],
   };
-  const out = ["", "  gov command reference (run any directly: `gov <command> [args]`):"];
+  const out = ["", "  gov command reference (run any directly: `gov-work <command> [args]`):"];
   for (const [g, cmds] of Object.entries(groups)) out.push(`    ${g.padEnd(20)} ${cmds.join(" · ")}`);
   out.push("");
   return out;
@@ -256,7 +256,7 @@ export async function runMainMenu(): Promise<number> {
     runCommand: runAny,
     runWork: async (io) => {
       if (!workDeps) {
-        io.print("  No governance workspace resolved. Set one up first: `gov setup`, then `gov org add/use`.");
+        io.print("  No governance workspace resolved. Set one up first: `gov-work setup`, then `gov-work org add/use`.");
         return 1;
       }
       return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print });
@@ -269,7 +269,7 @@ export async function runMainMenu(): Promise<number> {
 
 
 /**
- * The `gov` entry point. Returns a process exit code. `now` is injected (an
+ * The `gov-work` entry point. Returns a process exit code. `now` is injected (an
  * ISO-8601 instant) so the composition stays deterministic + testable.
  */
 export function main(argv: readonly string[], now: string = new Date().toISOString()): number {
@@ -293,7 +293,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     return r.code;
   }
 
-  // `gov deps` — report runtime prerequisites (git/gh); pre-resolve.
+  // `gov-work deps` — report runtime prerequisites (git/gh); pre-resolve.
   if (parsed.command === "deps") {
     const report = checkDeps((n) => tryRun(n, ["--version"]) !== undefined, process.platform);
     for (const line of formatDepsReport(report)) process.stdout.write(`${line}\n`);
@@ -307,7 +307,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     return gate.ok ? 0 : 1;
   }
 
-  // `gov upgrade --from <content-dir> [--apply]` — overlay-sync an adopter
+  // `gov-work upgrade --from <content-dir> [--apply]` — overlay-sync an adopter
   // workspace to the published content (dry-run by default). Without --from it's
   // the CLI self-update guidance.
   if (parsed.command === "upgrade") {
@@ -342,7 +342,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           contentDir = fetched.contentDir;
           cleanup = fetched.cleanup;
         } catch (e) {
-          process.stderr.write(`gov upgrade: ${(e as Error).message}\n`);
+          process.stderr.write(`gov-work upgrade: ${(e as Error).message}\n`);
           return 1;
         }
       }
@@ -428,7 +428,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   }
   const config = parseOrgConfig(cfgText);
 
-  // `gov validate` — run the governance validate suite on the resolved workspace.
+  // `gov-work validate` — run the governance validate suite on the resolved workspace.
   if (parsed.command === "validate") {
     const files = (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean);
     const r = runSuite({ fs, repoRoot: home, files });
@@ -489,7 +489,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   };
 
   // Security PREFLIGHT (NEED/GAP): before a route-dispatched command runs, block if its
-  // identity/authorization isn't in place, pointing at `gov creds`. Base NEEDs (git commit
+  // identity/authorization isn't in place, pointing at `gov-work creds`. Base NEEDs (git commit
   // identity, gh auth) apply here; command/plugin-specific NEEDs join as those paths grow.
   // Silent no-op on a healthy machine. $GOV_SKIP_PREFLIGHT bypasses it for non-interactive
   // automation that provisions creds out-of-band.

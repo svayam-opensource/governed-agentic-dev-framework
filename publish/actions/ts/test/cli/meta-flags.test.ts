@@ -15,6 +15,6 @@ describe("gov-work — meta flags (--version / --help work without a workspace)"
     expect(h).to.match(/seed · join · task/);
   });
   it("helpLines(command) gives per-command guidance", () => {
-    expect(helpLines("seed").join("\n")).to.match(/gov seed --help/);
+    expect(helpLines("seed").join("\n")).to.match(/gov-work seed --help/);
   });
 });

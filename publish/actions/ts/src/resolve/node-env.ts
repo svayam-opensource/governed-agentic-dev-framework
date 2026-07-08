@@ -4,7 +4,7 @@
  * The real filesystem/cwd-backed `ResolveEnv` adapter (SDD-040/041). Keeps all
  * OS/fs concerns out of the pure resolver core. Registry files live under
  * `${XDG_CONFIG_HOME:-~/.config}/prj/`: `gov-workspaces` (`<org>\t<home>`) and
- * `active-org`. Resolution is read-only; writes belong to `gov org add`/setup.
+ * `active-org`. Resolution is read-only; writes belong to `gov-work org add`/setup.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";

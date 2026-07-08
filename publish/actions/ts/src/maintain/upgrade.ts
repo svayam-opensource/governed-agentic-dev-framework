@@ -7,7 +7,7 @@
  * (drift is surfaced by `doctor`). Pure plan; no auto-install.
  */
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
-const PKG = "@svayam-opensource/gov";
+const PKG = "@svayam-opensource/gov-work";
 
 export type UpgradePlan =
   | { readonly kind: "up-to-date"; readonly version: string }

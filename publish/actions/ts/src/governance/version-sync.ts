@@ -4,7 +4,7 @@
  * Version-sync validator (SDD-032) — in the framework repo the CLI package
  * version must agree with the shipped content version, or installs + the
  * downgrade guard misbehave:
- *   1. publish/actions/ts/package.json "version"  (source of truth — the gov CLI)
+ *   1. publish/actions/ts/package.json "version"  (source of truth — the gov-work CLI)
  *   2. publish/content/VERSION                    (the framework content)
  * Outside the framework repo (e.g. an adopter's gov workspace) there is no CLI
  * package.json — the check is N/A and passes. The README's jsDelivr diagram URLs
@@ -17,7 +17,7 @@ const PKG_REL = "publish/actions/ts/package.json";
 const CONTENT_VERSION_REL = "publish/content/VERSION";
 
 /** jsDelivr URLs for this package in the README; captures the version spec. */
-const README_PIN_RE = /cdn\.jsdelivr\.net\/npm\/@svayam-opensource\/gov@([^/]+)\//g;
+const README_PIN_RE = /cdn\.jsdelivr\.net\/npm\/@svayam-opensource\/gov-work@([^/]+)\//g;
 
 export function checkVersionSync(ctx: ValidateContext): ValidationResult {
   const errors: string[] = [];

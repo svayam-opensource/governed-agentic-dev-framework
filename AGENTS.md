@@ -1,6 +1,6 @@
 # AGENTS.md — working in this repository
 
-This repo builds the Governed Agentic Development Framework: the **gov CLI**
+This repo builds the Governed Agentic Development Framework: the **gov-work CLI**
 (`publish/actions/ts`) and the **content** it ships to adopters (`publish/content`).
 (This file is for agents *contributing to this repo*; the adopter-facing agent
 protocol lives in `publish/content/`.)

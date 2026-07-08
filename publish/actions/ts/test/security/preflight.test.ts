@@ -23,11 +23,11 @@ describe("security — preflight gate", () => {
     expect(r.gap.map((n) => n.id)).to.deep.equal([ghAuthNeed.id]);
   });
 
-  it("renderGap lists the unmet needs and points at `gov creds`", () => {
+  it("renderGap lists the unmet needs and points at `gov-work creds`", () => {
     const gap = preflight([gitIdentityNeed, ghAuthNeed], probes({ git: {}, gh: false })).gap;
     const lines = renderGap(gap).join("\n");
     expect(lines).to.match(/2 unmet security NEED/);
     expect(lines).to.match(/git commit identity/);
-    expect(lines).to.match(/gov creds/);
+    expect(lines).to.match(/gov-work creds/);
   });
 });

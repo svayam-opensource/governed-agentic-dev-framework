@@ -10,7 +10,7 @@ owner: <POLICY_OWNER_EMAIL>
 
 **Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)
 **Scope:** This specification applies to `<WORKSPACE_REPO>` ONLY.
-**Note:** Other repos are not covered by this spec. They adopt the agentic development policy via `gov onboard` without CI/CD changes.
+**Note:** Other repos are not covered by this spec. They adopt the agentic development policy via `gov-work onboard` without CI/CD changes.
 
 ---
 
@@ -22,7 +22,7 @@ The `<WORKSPACE_REPO>` CI/CD pipeline runs on every PR and every merge to `<DEFA
 
 ## On Every PR to Master (Validation Gates)
 
-These checks run on every PR targeting `<DEFAULT_BRANCH>` — the same validators `gov validate` runs locally. Failures block the merge. **(C01)**
+These checks run on every PR targeting `<DEFAULT_BRANCH>` — the same validators `gov-work validate` runs locally. Failures block the merge. **(C01)**
 
 Project state is derived live from GitHub (Project boards + anchor issues); there is no `registry.yaml` or `project.yaml` to validate. The gates below check structural and naming invariants against that GitHub-derived state.
 
@@ -65,7 +65,7 @@ These jobs run after every successful merge to `<DEFAULT_BRANCH>`. **(C02)**
 ### 3. Vector Re-embedding
 - Re-embed only the knowledge files changed in this merge (not a full re-index)
 - Update vector store with new embeddings
-- Used by agents for RAG-based context building and by the knowledge-close step of `gov close`
+- Used by agents for RAG-based context building and by the knowledge-close step of `gov-work close`
 
 ### 4. Compliance Summary Update
 - Aggregate per-project `compliance.md` files into `knowledge/compliance/`

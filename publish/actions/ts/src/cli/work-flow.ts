@@ -63,7 +63,7 @@ export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
   const mine = myProjects(deps);
   if (mine.length === 0) {
     print(`  No active projects assigned to you${deps.me ? ` (${deps.me})` : ""}.`);
-    print("  Get assigned first: Admin ▸ manage (or `gov manage assign <you>`), then retry.");
+    print("  Get assigned first: Admin ▸ manage (or `gov-work manage assign <you>`), then retry.");
     return 0;
   }
   print("");
@@ -78,7 +78,7 @@ export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
 
   if (!deps.canWriteBoard(p.boardNumber)) {
     print(`  You don't have write access to '${p.title}' (its GitHub Project board).`);
-    print("  Ask an owner to grant access (`gov manage`), then retry.");
+    print("  Ask an owner to grant access (`gov-work manage`), then retry.");
     return 1;
   }
 
@@ -99,6 +99,6 @@ export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
   print(`      ${dir}`);
   print("  Start your agent there (it runs the session-start protocol automatically):");
   print(`      cd "${dir}" && claude      # or cursor`);
-  print("  Or work in TTY:  gov task <issue-url>   ·   gov status");
+  print("  Or work in TTY:  gov-work task <issue-url>   ·   gov-work status");
   return 0;
 }

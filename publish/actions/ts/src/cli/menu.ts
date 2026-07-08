@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * The interactive menu (`gov` with no args on a TTY) — a TASK-ORIENTED on-ramp
+ * The interactive menu (`gov-work` with no args on a TTY) — a TASK-ORIENTED on-ramp
  * (mirrors the legacy `prj` menu), not a command index. The goal is to get a
  * developer working fast:
  *   Status  → review (list · list-all · status)

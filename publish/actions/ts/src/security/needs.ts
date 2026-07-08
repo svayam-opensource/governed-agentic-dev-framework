@@ -2,7 +2,7 @@
 /**
  * NEED / GAP — the security preflight model (SDD credential-seam). Every command declares
  * the identity + authorizations its ask requires (its NEEDs); the CLI probes what's already
- * satisfied on this machine and the unmet subset is the GAP, which `gov creds` then fills.
+ * satisfied on this machine and the unmet subset is the GAP, which `gov-work creds` then fills.
  *
  * This module is PURE: a `Need` states what it is, how to satisfy it (human instructions),
  * and a `satisfied(probes)` predicate. Probes are INJECTED (git/gh/credential-store lookups),
@@ -26,7 +26,7 @@ export interface Need {
   readonly id: string;
   /** one-line human title shown in the NEED/GAP summary. */
   readonly title: string;
-  /** where/how to obtain it — shown by `gov creds` when this is a GAP. */
+  /** where/how to obtain it — shown by `gov-work creds` when this is a GAP. */
   readonly instructions: string;
   /** set when this NEED is satisfied by a value in the credential store (the key it lives under). */
   readonly credKey?: string;
@@ -45,23 +45,9 @@ export const gitIdentityNeed: Need = {
   satisfied: (p) => !!p.gitConfig("user.name") && !!p.gitConfig("user.email"),
 };
 
-/** The gov-operate LICENSE — a credential like any other: stored under SVAYAM_GOV_LICENSE and
- *  materialized to GOV_LICENSE at runtime. Needed by every enterprise (plugin) command. */
-export const licenseNeed: Need = {
-  id: "SVAYAM_GOV_LICENSE",
-  title: "your gov-operate license",
-  credKey: "SVAYAM_GOV_LICENSE",
-  instructions:
-    "You need a gov-operate license (a one-time key).\n" +
-    "  1. Get it from your Svayam licensing / policy owner.\n" +
-    "  2. Paste it below — gov saves it for you.",
-  satisfied: (p) => p.hasCred("SVAYAM_GOV_LICENSE"),
-};
-
-/** A NEED for an explicitly-named credential key (`gov creds <KEY>`). Known keys get their
- *  tailored instructions; anything else gets a generic paste prompt (still shielded). */
+/** A NEED for an explicitly-named credential key (`gov-work creds <KEY>`) — a generic, shielded
+ *  paste prompt. (gov-work is a credential MANAGER; it doesn't know what any given key is for.) */
 export function credNeedForKey(key: string): Need {
-  if (key === licenseNeed.credKey) return licenseNeed;
   return {
     id: key,
     title: `credential ${key}`,
@@ -84,7 +70,7 @@ export const ghAuthNeed: Need = {
 /**
  * A NEED for a publish credential to `registry`, stored under `credKey` (the standard key,
  * supplied by the plugin). Instructions SHIELD the developer — where to go, what to do, and
- * paste; no auth-method jargon, no key names. `gov creds` saves the answer for them.
+ * paste; no auth-method jargon, no key names. `gov-work creds` saves the answer for them.
  */
 export function registryTokenNeed(registry: string, credKey: string): Need {
   const where = registry === "https://registry.npmjs.org"

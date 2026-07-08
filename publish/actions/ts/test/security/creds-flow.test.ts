@@ -36,7 +36,7 @@ function harness(opts: {
   return { deps, out, store };
 }
 
-describe("security — gov creds flow", () => {
+describe("security — gov-work creds flow", () => {
   it("all satisfied → nothing to do", async () => {
     const { deps, out } = harness({ needs: [gitIdentityNeed], answers: [""], store: { rkant: {} }, git: { "user.name": "R", "user.email": "r@o" } });
     const r = await runCreds(deps);
@@ -77,7 +77,7 @@ describe("security — gov creds flow", () => {
     const { deps, out } = harness({ needs: [gitIdentityNeed], answers: [""], store: { rkant: {} }, git: {} });
     const r = await runCreds(deps);
     expect(out.join("\n")).to.match(/git config --global/);
-    expect(out.join("\n")).to.match(/re-run `gov creds`/);
+    expect(out.join("\n")).to.match(/re-run `gov-work creds`/);
     expect(r.stillMissing).to.deep.equal(["git-identity"]);
   });
 

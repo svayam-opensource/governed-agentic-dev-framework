@@ -10,8 +10,8 @@ npm run test:adopter:smoke
 ```
 
 No token, no org, no network, no Docker. Stubs `gh` and drives the **real gov
-binary** over the local adopter surface — meta flags · `gov setup` · org registry ·
-`gov validate` (on the shipped content) · `gov doctor` · `--gov-home`. Runs in CI
+binary** over the local adopter surface — meta flags · `gov-work setup` · org registry ·
+`gov-work validate` (on the shipped content) · `gov doctor` · `--gov-home`. Runs in CI
 for everyone (the `smoke` job of `.github/workflows/adopter-e2e.yml`). The board/
 issue lifecycle is covered hermetically by the in-process e2e (`npm run test:e2e`).
 
@@ -25,7 +25,7 @@ E2E_ORG=<your-throwaway-github-org> GH_TOKEN=<token> npm run test:adopter
 ```
 
 The full clean-slate journey against **real GitHub**, self-cleaning:
-bootstrap → workspace-from-template → `gov setup` → create repo/project/issue →
+bootstrap → workspace-from-template → `gov-work setup` → create repo/project/issue →
 seed → task → merge (issue closed) → knowledge propose → close (board shut) →
 `--gov-home` → teardown (deletes everything it created).
 

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
 import {
-  type NeedProbes, gitIdentityNeed, ghAuthNeed, licenseNeed, credNeedForKey, registryTokenNeed,
+  type NeedProbes, gitIdentityNeed, ghAuthNeed, credNeedForKey, registryTokenNeed,
   assembleNeeds, computeGap,
 } from "../../src/security/needs.js";
 
@@ -20,16 +20,7 @@ describe("security — NEED / GAP", () => {
     expect(gitIdentityNeed.satisfied({ gitConfig: () => undefined, ghAuthOk: () => true, hasCred: () => true })).to.equal(false);
   });
 
-  it("license is a credential: keyed SVAYAM_GOV_LICENSE, satisfied by a stored cred, shielded", () => {
-    expect(licenseNeed.credKey).to.equal("SVAYAM_GOV_LICENSE");
-    expect(licenseNeed.instructions).to.match(/Paste it below/);
-    expect(licenseNeed.instructions).to.not.match(/GOV_LICENSE|export|npm\.svayamtech/i);
-    expect(licenseNeed.satisfied({ gitConfig: () => undefined, ghAuthOk: () => true, hasCred: (k) => k === "SVAYAM_GOV_LICENSE" })).to.equal(true);
-    expect(licenseNeed.satisfied({ gitConfig: () => undefined, ghAuthOk: () => true, hasCred: () => false })).to.equal(false);
-  });
-
-  it("credNeedForKey: SVAYAM_GOV_LICENSE → the license need; other keys → a generic paste need", () => {
-    expect(credNeedForKey("SVAYAM_GOV_LICENSE")).to.equal(licenseNeed);
+  it("credNeedForKey: any key → a generic, shielded paste need (gov-work doesn't know what a key is for)", () => {
     const g = credNeedForKey("NPMJS_ACCESS_TOKEN");
     expect(g.credKey).to.equal("NPMJS_ACCESS_TOKEN");
     expect(g.id).to.equal("NPMJS_ACCESS_TOKEN");

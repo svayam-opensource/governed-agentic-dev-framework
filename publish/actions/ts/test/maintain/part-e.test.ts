@@ -42,6 +42,6 @@ describe("prj-work Phase E — upgrade plan", () => {
     expect(upgradePlan("0.8.0", "0.8.0")).to.deep.equal({ kind: "up-to-date", version: "0.8.0" });
     expect(upgradePlan("0.7.4", null).kind).to.equal("error");
     expect(upgradePlan("0.7.4", "latest").kind).to.equal("error");
-    expect(formatUpgradePlan(upgradePlan("0.7.4", "0.8.0"))).to.include("  npm install -g @svayam-opensource/gov@0.8.0");
+    expect(formatUpgradePlan(upgradePlan("0.7.4", "0.8.0"))).to.include("  npm install -g @svayam-opensource/gov-work@0.8.0");
   });
 });

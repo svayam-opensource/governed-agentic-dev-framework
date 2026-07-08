@@ -1,6 +1,6 @@
 # Governed Agentic Development Framework
 
-The source repo for the **`gov`** governance CLI and the **framework content** that
+The source repo for the **`gov-work`** governance CLI and the **framework content** that
 adopting organizations consume. One repo, two published artifacts.
 
 ## Layout
@@ -15,7 +15,7 @@ publish/
   content/        The framework CONTENT adopters consume (policies, knowledge
                   starters, the rendered harness, org-config template, VERSION).
   actions/
-    ts/           The Node 24 / TypeScript CLI → npm @svayam-opensource/gov (cmd `gov`).
+    ts/           The Node 24 / TypeScript CLI → npm @svayam-opensource/gov-work (cmd `gov-work`).
     deprecated/   The frozen legacy bash CLI (@svayam-opensource/prj @ 0.10.0) —
                   archived, not published.
 ci/               Jenkins pipeline definitions.
@@ -24,11 +24,11 @@ ci/               Jenkins pipeline definitions.
 
 ## The two artifacts
 
-- **CLI — [`publish/actions/ts`](publish/actions/ts)** → npm **`@svayam-opensource/gov`**
-  (command `gov`), Node 24 / TypeScript. Install: `npm i -g @svayam-opensource/gov`.
+- **CLI — [`publish/actions/ts`](publish/actions/ts)** → npm **`@svayam-opensource/gov-work`**
+  (command `gov-work`), Node 24 / TypeScript. Install: `npm i -g @svayam-opensource/gov-work`.
   The legacy bash `@svayam-opensource/prj` is **frozen** at `0.10.0`.
 - **Content — [`publish/content`](publish/content)** → the policies, knowledge
-  starters, and agent harness adopters pull via `gov upgrade`.
+  starters, and agent harness adopters pull via `gov-work upgrade`.
 
 The enterprise plugin units (`gov-catalog` · `gov-deploy` · `gov-data`, the
 `gov-operate` umbrella) live in a separate repo and publish to `npm.svayamtech.com`.

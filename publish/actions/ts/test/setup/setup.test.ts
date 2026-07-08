@@ -49,7 +49,7 @@ describe("gov-work — setup (bootstrap)", () => {
     expect(code).to.equal(0);
     expect(writes["/repo/org-config.yaml"]).to.match(/org_name: "Acme Inc"/);
     expect(remoteSet).to.equal("git@github.com:Acme/acme-gov.git");
-    expect(printed.some((l) => /gov org add Acme/.test(l))).to.equal(true);
+    expect(printed.some((l) => /gov-work org add Acme/.test(l))).to.equal(true);
   });
 
   it("fails when org_name/org_slug are absent (non-interactive, no existing)", async () => {

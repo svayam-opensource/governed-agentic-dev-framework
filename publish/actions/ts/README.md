@@ -1,12 +1,12 @@
-# @svayam-opensource/gov
+# @svayam-opensource/gov-work
 
-The OSS governance CLI (**command `gov`**) for the Governed Agentic Development
+The OSS governance CLI (**command `gov-work`**) for the Governed Agentic Development
 Framework — the unit **gov-work**. Reimplemented **Bash → Node 24 / TypeScript**
 (AD-6.1 conformance; PRJ-43, issue #91).
 
 It ships as a **new** npm package rather than continuing `@svayam-opensource/prj`:
-the legacy bash CLI is **frozen** at npm `0.10.0`, and `gov` starts fresh at
-`1.0.0`. Installing `@svayam-opensource/gov` provides the `gov` command; the two
+the legacy bash CLI is **frozen** at npm `0.10.0`, and `gov-work` starts fresh at
+`1.0.0`. Installing `@svayam-opensource/gov-work` provides the `gov-work` command; the two
 coexist so adopters migrate at their own pace.
 
 ## Layout
@@ -16,7 +16,7 @@ Node 24.
 
 ```
 ts/gov-work/
-  package.json          # @svayam-opensource/gov  (bin: gov)
+  package.json          # @svayam-opensource/gov-work  (bin: gov)
   tsconfig.json         # ESM build → lib/esm
   tsconfig-cjs.json     # CJS build → lib/cjs
   eslint.config.ts
@@ -57,9 +57,9 @@ two so it can't regress. See `test/README.md` for the full where-does-it-go tabl
 
 ## Command reference
 
-Run `gov` with no arguments for the interactive menu (a categorized launcher).
+Run `gov-work` with no arguments for the interactive menu (a categorized launcher).
 Every command is reachable both directly (`gov <command>`) and via a menu path
-(`gov` ▸ Category ▸ command).
+(`gov-work` ▸ Category ▸ command).
 
 | command | menu path | purpose |
 |---|---|---|

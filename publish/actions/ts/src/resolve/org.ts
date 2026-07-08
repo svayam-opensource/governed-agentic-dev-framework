@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * `gov org add|use|list|remove` (SDD Part D) — manage the CLI-local multi-home
+ * `gov-work org add|use|list|remove` (SDD Part D) — manage the CLI-local multi-home
  * registry that the resolver reads. `add` validates that the home really is that
  * org's gov repo (via govConfigAt) before recording it, so the resolver's rule-b
  * pointer check can trust it. Pure over the RegistryStore + a gov-repo probe.

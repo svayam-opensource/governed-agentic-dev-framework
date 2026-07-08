@@ -1,7 +1,7 @@
 # Contributing
 
 Two artifacts live here (see the [README](README.md)): the **CLI**
-(`publish/actions/ts` → `@svayam-opensource/gov`) and the **content**
+(`publish/actions/ts` → `@svayam-opensource/gov-work`) and the **content**
 (`publish/content` → policies, knowledge, agent harness). Change either; both are
 gated the same way.
 
@@ -13,7 +13,7 @@ CI or branch protection to add a test case:**
 | check | command | grows by dropping in |
 |---|---|---|
 | **`gov-work`** | `npm test` (unit · coverage · in-process e2e) + build + lint | a `publish/actions/ts/test/**/*.test.ts` file |
-| **`adopter-smoke (hermetic)`** | real `gov` binary over a stub `gh` (no token/org/network) | a `publish/actions/ts/e2e/smoke.d/NN-name.sh` fragment |
+| **`adopter-smoke (hermetic)`** | real `gov-work` binary over a stub `gh` (no token/org/network) | a `publish/actions/ts/e2e/smoke.d/NN-name.sh` fragment |
 
 A third tier — the **live adopter journey** (`e2e/adopter-journey.sh`, real GitHub,
 maintainer-gated) — is *not* required; it's where real-GitHub lifecycle steps go.

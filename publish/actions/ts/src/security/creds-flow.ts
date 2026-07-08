@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-Svayam-Proprietary
 /**
- * `gov creds` — the interactive GAP-filler (SDD credential-seam, client half). It NEVER
+ * `gov-work creds` — the interactive GAP-filler (SDD credential-seam, client half). It NEVER
  * acquires anything itself: for each unmet NEED it prints WHERE to go and WHAT to bring
  * back, takes what the user pastes, and PLACES it in the per-user store — the user does
  * the acquisition in the real tool (Authentik, npmjs, …).
@@ -80,14 +80,14 @@ export async function runCreds(d: CredsFlowDeps): Promise<CredsFlowResult> {
       // agent-driven session must not (and cannot) provide a secret; the human enters it.
       if (!d.interactive) {
         d.print("  ⚠ credentials must be entered at an interactive terminal (a real TTY).");
-        d.print("     Run `gov creds` yourself — a piped or agent-driven session cannot provide them.");
+        d.print("     Run `gov-work creds` yourself — a piped or agent-driven session cannot provide them.");
         continue;
       }
       const value = (await d.prompt(`  Paste the value (blank to skip)`, "")).trim();
       if (value) { d.setCred(identity, need.credKey, value); filled.push(need.id); d.print("  ✓ stored (per-user, 0600)."); }
     } else {
       // an environment fix (git config / gh auth): the user runs it themselves, then re-checks
-      d.print("  (run the above in a terminal, then re-run `gov creds`)");
+      d.print("  (run the above in a terminal, then re-run `gov-work creds`)");
     }
   }
 

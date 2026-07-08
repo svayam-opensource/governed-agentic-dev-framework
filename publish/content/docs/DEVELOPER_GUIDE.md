@@ -2,22 +2,22 @@
 
 This document is for the **developer or agent** doing actual work on an active project. It assumes:
 
-- The org has already adopted the framework (`gov setup` ran successfully).
+- The org has already adopted the framework (`gov-work setup` ran successfully).
 - A GitHub Project has been created and at least one Issue is linked to it from a repo you can push to.
 - You have `gh auth status` showing a usable identity.
 
 For the framework's concepts, roles, and CLI reference, see [USER_GUIDE.md](USER_GUIDE.md). For the policy ledger that governs every step below, see [`knowledge/policies/agentic-development-policy.md`](../knowledge/policies/agentic-development-policy.md).
 
 > **Current model at a glance (ADR-0001).** The framework is converging on a small surface:
-> - **Developer verbs:** `gov seed` · `gov join` · `gov task` · `gov sync` · `gov merge` ·
->   `gov close`. These are the lifecycle surface you work with directly.
+> - **Developer verbs:** `gov-work seed` · `gov-work join` · `gov-work task` · `gov-work sync` · `gov-work merge` ·
+>   `gov-work close`. These are the lifecycle surface you work with directly.
 > - **Authorization = GitHub Project access.** You may seed/join/work on a project if you
 >   have **write access to its linked GitHub Project** (`projectV2.viewerCanUpdate`); an
->   owner grants it with `gov manage assign`. There is no per-project state file — GitHub
+>   owner grants it with `gov-work manage assign`. There is no per-project state file — GitHub
 >   Project write access is the sole gate.
 > - **Per-project workspaces are git worktrees** of one shared base clone per repo (under
 >   `$AGENT_WORK_ROOT/.bases/`), not full per-project clones.
-> - **The gov CLI is installed from npm** — `npm i -g @svayam-opensource/gov` (requires
+> - **The gov-work CLI is installed from npm** — `npm i -g @svayam-opensource/gov-work` (requires
 >   Node 24) — so repos carry only data, never a vendored copy of the framework. See
 >   [ADR-0001](../../docs/adr/ADR-0001-simplify-developer-experience.md).
 
@@ -25,28 +25,28 @@ For the framework's concepts, roles, and CLI reference, see [USER_GUIDE.md](USER
 
 ## The path at a glance
 
-As a developer, your normal path runs through a handful of `gov` verbs:
+As a developer, your normal path runs through a handful of `gov-work` verbs:
 
 ```
 [ COPY TEMPLATE ]                        ← one-time per org (gh repo create --template)
        ↓
-[ npm i -g @svayam-opensource/gov  →  gov setup ]
+[ npm i -g @svayam-opensource/gov-work  →  gov-work setup ]
        ↓
-[ owner: gov manage assign ]             ← grants you write access to the GitHub Project
+[ owner: gov-work manage assign ]             ← grants you write access to the GitHub Project
        ↓
-[ gov seed / gov join ]                  ← start a new project / join an existing one
+[ gov-work seed / gov-work join ]                  ← start a new project / join an existing one
        ↓ creates a per-project workspace under $AGENT_WORK_ROOT/<PRJ-<board#>-slug>/
        ↓   ├── <workspace_repo>/   ← git worktree on the project branch
        ↓   └── <each-code-repo>/   ← git worktree on the project branch
        ↓
 [ cd $AGENT_WORK_ROOT/<PRJ-<board#>-slug>/<workspace_repo> ]
        ↓
-[ gov sync ]     ← sync with latest base and continue; repeat each session
+[ gov-work sync ]     ← sync with latest base and continue; repeat each session
        ↓
-[ gov merge / gov close ] ← submit a task (merge) or close the project (governance gate)
+[ gov-work merge / gov-work close ] ← submit a task (merge) or close the project (governance gate)
 ```
 
-`gov seed`/`gov join`, `gov task`, `gov sync`, `gov merge`, and `gov close` are
+`gov-work seed`/`gov-work join`, `gov-work task`, `gov-work sync`, `gov-work merge`, and `gov-work close` are
 the developer surface; the sections below describe each in detail.
 
 **Key invariant (Direction A):** the HOME workspace stays on the default branch
@@ -70,7 +70,7 @@ gh api user --jq .login          # should print your GitHub handle
 ```
 
 The framework reads `agent_work_root` from `org-config.yaml` (set when the
-Policy Owner ran `gov setup`). The default is `~/.<org_slug_lower>/projects`
+Policy Owner ran `gov-work setup`). The default is `~/.<org_slug_lower>/projects`
 (e.g. `~/.acme/projects/`). To inspect:
 
 ```bash
@@ -85,23 +85,23 @@ in the shell — env wins over the org-config value.
 Authorization is **write access to the project's linked GitHub Project**
 (`projectV2.viewerCanUpdate`). The Policy Owner (or any repo collaborator with
 manage rights) creates the GitHub Project and grants you that access via
-`gov manage assign`; org owners/admins already have access to everything.
-If you lack write access, `gov seed`/`gov join` won't let you seed or join the
-project — ask an owner to run `gov manage assign`. There is no per-project state
+`gov-work manage assign`; org owners/admins already have access to everything.
+If you lack write access, `gov-work seed`/`gov-work join` won't let you seed or join the
+project — ask an owner to run `gov-work manage assign`. There is no per-project state
 file; GitHub Project write access is the sole gate.
 
 ---
 
 ## 2. Start the project
 
-To start a **new** project, run `gov seed`. To join an **existing** one, run
-`gov join`. This section walks through the `gov seed` flow.
+To start a **new** project, run `gov-work seed`. To join an **existing** one, run
+`gov-work join`. This section walks through the `gov-work seed` flow.
 
 Run from the **HOME workspace** repo root, **on the default branch**:
 
 ```bash
 git checkout main         # must be on default branch
-gov seed                  # (or gov join for an existing project)
+gov-work seed                  # (or gov-work join for an existing project)
 ```
 
 Walk through the prompts:
@@ -121,7 +121,7 @@ What happens:
 
 At the end you'll see a **"Next steps"** block printing the exact `cd` target plus a ready-to-paste first-session prompt with the project name baked in. **Read it.** That output is the canonical "what to do next" guide for the project you just created.
 
-**Important:** project-branch work (code, knowledge) all happens inside the per-project workspace. The HOME repo's `projects/PRJ-<board#>-slug/` is just a stub on the default branch until `gov close` merges the project branch back.
+**Important:** project-branch work (code, knowledge) all happens inside the per-project workspace. The HOME repo's `projects/PRJ-<board#>-slug/` is just a stub on the default branch until `gov-work close` merges the project branch back.
 
 ---
 
@@ -135,7 +135,7 @@ Sessions happen **inside the per-project workspace**, not in the HOME repo:
 cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<workspace_repo>
 ```
 
-`gov sync` is the "sync with latest and continue" verb — it syncs the project
+`gov-work sync` is the "sync with latest and continue" verb — it syncs the project
 branch with the latest base and drops you into the worktree, so you can run it
 instead of the manual pull steps below. The full protocol the agent (or you, if
 working alone) must satisfy before any code change is:
@@ -213,7 +213,7 @@ Harness registry (all tools): [`agent/harness-manifest.yaml`](../agent/harness-m
 - **Intermediate to-dos** go in `projects/PRJ-001-feature-x/knowledge/todo.md` under `## Open`. Capture them as they arise, not at session end.
 - **NEVER** edit:
   - The workspace repo's `knowledge/` (read-only during the project).
-  - Task state by hand — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
+  - Task state by hand — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov-work task`, land with `gov-work merge`.
   - GitHub Issues unilaterally — those represent business intent humans add to the board.
 
 ### Prompting style during the session
@@ -221,7 +221,7 @@ Harness registry (all tools): [`agent/harness-manifest.yaml`](../agent/harness-m
 - Drive the work by **direction**, not by **delegation**. The agent shouldn't autonomously decide what to implement.
 - When asking the agent to make a change, point at the file path under `$AGENT_WORK_ROOT/projects/...` so it doesn't get confused with the workspace repo's tree.
 - For non-obvious decisions, ask the agent to write the rationale into `projects/.../knowledge/notes.md` before the corresponding code change. That keeps the audit trail honest.
-- When a policy question comes up mid-session and an exception might be needed: stop, file an exception request in `knowledge/policies/exceptions/<domain>/`, and `gov pause` until it's approved. Agents must hard-stop on unresolved C01 (POL-117).
+- When a policy question comes up mid-session and an exception might be needed: stop, file an exception request in `knowledge/policies/exceptions/<domain>/`, and `gov-work pause` until it's approved. Agents must hard-stop on unresolved C01 (POL-117).
 
 ### Session-end protocol
 
@@ -247,16 +247,16 @@ The HOME repo stays on the default branch throughout — there's no `git push` n
 ## 4. Parallel work — when to use tasks
 
 If you (or another developer) want to work on something independently while the
-main project work continues, start a task with `gov task`:
+main project work continues, start a task with `gov-work task`:
 
 ```bash
-gov task <linked-issue-url>
+gov-work task <linked-issue-url>
 ```
 
-This creates a sub-branch `brnch-001-feature-x/<issue-slug>` in the workspace and in every linked code repo, and assigns the GitHub Issue. The sub-branch is where you do the work; when done, submit it with `gov merge`:
+This creates a sub-branch `brnch-001-feature-x/<issue-slug>` in the workspace and in every linked code repo, and assigns the GitHub Issue. The sub-branch is where you do the work; when done, submit it with `gov-work merge`:
 
 ```bash
-gov merge
+gov-work merge
 ```
 
 Merges the sub-branch back into `brnch-001-feature-x` and archives it.
@@ -268,9 +268,9 @@ Merges the sub-branch back into `brnch-001-feature-x` and archives it.
 
 ## 5. Pausing, resuming, syncing
 
-- **`gov pause`** — for "I need to stop and come back later, possibly weeks." Marks the project paused. Must be cleanly committed first.
-- **`gov resume`** — re-runs session-start protocol effectively; pulls latest, merges base into project branch, surfaces conflicts.
-- **`gov sync`** — for "I want to pull upstream changes mid-project without pausing." Same merge mechanics as resume, but keeps the project active and drops you back into the worktree to continue.
+- **`gov-work pause`** — for "I need to stop and come back later, possibly weeks." Marks the project paused. Must be cleanly committed first.
+- **`gov-work resume`** — re-runs session-start protocol effectively; pulls latest, merges base into project branch, surfaces conflicts.
+- **`gov-work sync`** — for "I want to pull upstream changes mid-project without pausing." Same merge mechanics as resume, but keeps the project active and drops you back into the worktree to continue.
 
 After any of these, **re-load all four knowledge layers** before doing anything else.
 
@@ -292,12 +292,12 @@ This is POL-171 in the policy ledger.
 
 ## 7. Closing the project
 
-When all goal-level work is done and project knowledge is curated, run `gov close`
+When all goal-level work is done and project knowledge is curated, run `gov-work close`
 from the **per-project workspace** (not the HOME repo):
 
 ```bash
 cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<workspace_repo>
-gov close
+gov-work close
 ```
 
 The close runs a governance gate: it merges the project branch back into the default branch in
@@ -312,14 +312,14 @@ git pull origin main
 What this enforces:
 
 - `projects/PRJ-001-feature-x/knowledge/` must be non-empty.
-- `compliance.md` should exist (`gov close` will tell you if it doesn't).
+- `compliance.md` should exist (`gov-work close` will tell you if it doesn't).
 
 What this does:
 
 - Merges the project branch into the default code branch in each code repo.
 - Merges the project branch into the workspace's default branch.
 - Creates archive tags `archive/brnch-001-feature-x` everywhere and deletes the project branch.
-- Runs the knowledge-close step of `gov close`, which:
+- Runs the knowledge-close step of `gov-work close`, which:
   - Creates `brnch-001-feature-x-knowledge` branch.
   - Synthesizes a knowledge-close proposal (or pauses for you/an agent to do so).
   - Opens a PR for domain owners (CODEOWNERS auto-assigns reviewers).
@@ -334,11 +334,11 @@ The project's GitHub board is closed (done). The knowledge PR is reviewed and me
 
 **"I forgot to check `todo.md` last time and now there are stale open items."** — That's the system working. Surface them, resolve or de-scope them, move what's resolved to `## Done`, leave the rest.
 
-**"My agent doesn't have `gh` access."** — Most operations don't need it, but seeding a new project and closing one do (`gov seed`/`gov join` and `gov close` — Project queries, authorization check, PR creation). Give the agent a PAT scoped to `repo` + `project` for the run, or hand off those specific commands to a human-driven shell.
+**"My agent doesn't have `gh` access."** — Most operations don't need it, but seeding a new project and closing one do (`gov-work seed`/`gov-work join` and `gov-work close` — Project queries, authorization check, PR creation). Give the agent a PAT scoped to `repo` + `project` for the run, or hand off those specific commands to a human-driven shell.
 
 **"I'm not sure if a change is C01, C02, or C03."** — Default to surfacing it as C02 (write to `compliance.md` and file an exception if needed). Only C01 hard-stops require pausing.
 
-**"I want to know what's left."** — `gov list` shows projects + statuses. For an individual project, `gov status <PROJECT_ID>`. For carry-forward work, `projects/<PID>/knowledge/todo.md`.
+**"I want to know what's left."** — `gov-work list` shows projects + statuses. For an individual project, `gov-work status <PROJECT_ID>`. For carry-forward work, `projects/<PID>/knowledge/todo.md`.
 
 ---
 
@@ -398,23 +398,23 @@ Reads persist in **chat transcript** for the rest of the session; they are not r
 The framework template lives at
 [`svayam-opensource/governed-agentic-dev-framework`](https://github.com/svayam-opensource/governed-agentic-dev-framework).
 Your org's repo was created from it (`gh repo create --template ...` or "Use
-this template" on GitHub). `gov setup` configured a `template` remote
+this template" on GitHub). `gov-work setup` configured a `template` remote
 pointing at the upstream so you can pull future framework updates without
 touching org-specific values.
 
-> **The gov CLI is installed from npm** — `npm i -g @svayam-opensource/gov`
+> **The gov-work CLI is installed from npm** — `npm i -g @svayam-opensource/gov-work`
 > (requires Node 24), never vendored into a repo. Repos carry only data
 > (`org-config.yaml`, `projects/`, `knowledge/`), and you upgrade the CLI itself
-> with `npm i -g @svayam-opensource/gov@latest`, independently of any project's
+> with `npm i -g @svayam-opensource/gov-work@latest`, independently of any project's
 > data. Framework *content* (policies, scaffolded files) upgrades separately via
-> `gov upgrade`, described below.
+> `gov-work upgrade`, described below.
 
 ### How upgrades work (Direction A)
 
 Framework files (`knowledge/policies/`, `CLAUDE.md`, `AGENTS.md`,
 the per-tool rule files, etc.) contain **no org-specific values**. They use
 angle-bracketed tokens like `<ORG_NAME>` and `<DEFAULT_BRANCH>` that the agent
-resolves at runtime from `org-config.yaml`. After `gov setup`, the ONLY file
+resolves at runtime from `org-config.yaml`. After `gov-work setup`, the ONLY file
 that diverges from upstream TEMPLATE is `org-config.yaml` (plus `projects/` as
 you do project work). That makes upgrades conflict-free.
 
@@ -429,7 +429,7 @@ paths populated by the framework.
 From your HOME repo on the default branch:
 
 ```bash
-gov upgrade [version]      # e.g. gov upgrade v0.3.1
+gov-work upgrade [version]      # e.g. gov-work upgrade v0.3.1
 ```
 
 That fetches the `template` remote at the requested version (or `template/main`
@@ -449,7 +449,7 @@ if no version is given) and applies the framework update:
 4. Deletes `framework/` from the working tree.
 5. Stages everything for your review.
 
-After upgrading, run `gov validate` to confirm everything still validates.
+After upgrading, run `gov-work validate` to confirm everything still validates.
 
 ### What the test-merge gate catches
 
