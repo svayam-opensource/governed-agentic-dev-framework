@@ -15,6 +15,18 @@ describe("gov-work — interactive menu (task-oriented)", () => {
     expect(a.find((x) => x.label === "Operate")).to.equal(undefined);   // enterprise ops are the separate gov-operate CLI
   });
 
+  it("subcommand-based Admin commands are GUIDED (manage/knowledge/org carry subs); single-arg ones stay flat", () => {
+    const admin = mainActions().find((a) => a.label === "Admin");
+    const cmds = admin && admin.kind === "submenu" ? admin.commands : [];
+    const org = cmds.find((c) => c.cmd === "org");
+    expect(org?.subs?.map((s) => s.cmd)).to.deep.equal(["use", "add", "list", "remove"]);
+    expect(cmds.find((c) => c.cmd === "manage")?.subs?.find((s) => s.cmd === "assign")?.argHint).to.equal("<github-login>");
+    expect(org?.subs?.find((s) => s.cmd === "list")?.argHint).to.equal(undefined);   // `org list` runs directly
+    const addRepo = cmds.find((c) => c.cmd === "add-repo");                            // single-arg → flat hint, no subs
+    expect(addRepo?.subs).to.equal(undefined);
+    expect(addRepo?.argHint).to.equal("<repo-url>");
+  });
+
   it("Work is NOT a command dump — its hint is 'pick a project'", () => {
     const work = mainActions().find((x) => x.label === "Work")!;
     expect(work.kind === "guided" && work.hint).to.equal("pick a project");

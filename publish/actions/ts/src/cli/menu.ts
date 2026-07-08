@@ -23,7 +23,7 @@ export interface MenuContext {
   readonly cliVersion?: string;
 }
 
-export interface SubCommand { readonly cmd: string; readonly desc: string; readonly argHint?: string; }
+export interface SubCommand { readonly cmd: string; readonly desc: string; readonly argHint?: string; readonly subs?: readonly SubCommand[]; }
 export type MenuAction =
   | { readonly kind: "guided"; readonly key: "work"; readonly label: string; readonly desc: string; readonly hint: string }
   | { readonly kind: "submenu"; readonly key: "status" | "admin"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[] }
@@ -39,11 +39,25 @@ export function mainActions(): MenuAction[] {
     ] },
     { kind: "guided", key: "work", label: "Work", desc: "Start / continue a project", hint: "pick a project" },
     { kind: "submenu", key: "admin", label: "Admin", desc: "Administer governance", commands: [
-      { cmd: "manage", desc: "project access — assign / unassign owners", argHint: "assign|unassign <github-login>" },
-      { cmd: "knowledge", desc: "propose org knowledge changes", argHint: "propose|submit|archive <slug>" },
+      { cmd: "manage", desc: "project access — assign / unassign owners", subs: [
+        { cmd: "assign", desc: "grant a user project access", argHint: "<github-login>" },
+        { cmd: "unassign", desc: "revoke access", argHint: "<github-login>" },
+        { cmd: "list", desc: "who has access (ongoing projects)" },
+        { cmd: "list-all", desc: "who has access (incl. closed)" },
+      ] },
+      { cmd: "knowledge", desc: "propose org knowledge changes", subs: [
+        { cmd: "propose", desc: "start a knowledge change", argHint: "<slug>" },
+        { cmd: "submit", desc: "open a PR for a change", argHint: "<slug> [description]" },
+        { cmd: "archive", desc: "retire a knowledge item", argHint: "<slug>" },
+      ] },
       { cmd: "onboard", desc: "onboard a repository into the framework", argHint: "<repo-url> <owner> <description>" },
       { cmd: "add-repo", desc: "add a repository to a project", argHint: "<repo-url>" },
-      { cmd: "org", desc: "manage governance workspaces", argHint: "use|add|list …" },
+      { cmd: "org", desc: "manage governance workspaces", subs: [
+        { cmd: "use", desc: "switch the active org", argHint: "<github_org>" },
+        { cmd: "add", desc: "register a governance workspace", argHint: "<github_org> <home-path>" },
+        { cmd: "list", desc: "registered workspaces" },
+        { cmd: "remove", desc: "deregister a workspace", argHint: "<github_org>" },
+      ] },
       { cmd: "upgrade", desc: "pull the latest framework content" },
       { cmd: "deps", desc: "install / verify dependencies" },
     ] },
@@ -104,6 +118,12 @@ export interface MenuHandlers {
   readonly help: (command?: string) => readonly string[];
 }
 
+/** Resolve a numbered or typed choice against a list of (sub)commands. */
+function pickCmd(cmds: readonly SubCommand[], input: string): SubCommand | null {
+  const idx = Number(input) - 1;
+  return Number.isInteger(idx) && idx >= 0 && idx < cmds.length ? cmds[idx] : cmds.find((c) => c.cmd === input) ?? null;
+}
+
 export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
@@ -142,16 +162,29 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
       w("     0) back");
       const sub = (await ask("  Choose: ")).trim();
       if (sub === "0" || sub === "") continue;
-      const idx = Number(sub) - 1;
-      const chosen = Number.isInteger(idx) && idx >= 0 && idx < a.commands.length ? a.commands[idx] : a.commands.find((c) => c.cmd === sub) ?? null;
+      const chosen = pickCmd(a.commands, sub);
       if (!chosen) { w("  unknown choice"); continue; }
-      // only ASK for args when the command takes them (argHint set) — a no-arg command like `list` just runs.
+      const cmdPath: string[] = [chosen.cmd];
+      let leaf: SubCommand = chosen;
+      // one level of guided nesting: a command WITH subcommands (manage/knowledge/org) → pick one
+      if (chosen.subs?.length) {
+        w(""); w(`  ${chosen.cmd}:`);
+        chosen.subs.forEach((s, i) => w(`    ${String(i + 1).padStart(2)}) ${s.cmd.padEnd(11)} ${s.desc}`));
+        w("     0) back");
+        const ss = (await ask("  Choose: ")).trim();
+        if (ss === "0" || ss === "") continue;
+        const chosenSub = pickCmd(chosen.subs, ss);
+        if (!chosenSub) { w("  unknown choice"); continue; }
+        cmdPath.push(chosenSub.cmd);
+        leaf = chosenSub;
+      }
+      // ask ONLY for the specific value(s) the leaf needs (argHint); a no-arg leaf just runs.
       let extra: string[] = [];
-      if (chosen.argHint) {
-        const args = (await ask(`  args for '${chosen.cmd}' (${chosen.argHint}): `)).trim();
+      if (leaf.argHint) {
+        const args = (await ask(`  ${leaf.argHint}: `)).trim();
         extra = args ? args.split(/\s+/) : [];
       }
-      return await h.runCommand([chosen.cmd, ...extra]);
+      return await h.runCommand([...cmdPath, ...extra]);
     }
   } finally {
     rl.close();
