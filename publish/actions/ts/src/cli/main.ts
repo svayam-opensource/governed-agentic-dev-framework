@@ -8,21 +8,18 @@
  * (dispatch.ts) is exhaustively unit-tested.
  */
 import * as path from "node:path";
-import { realpathSync, existsSync, readdirSync } from "node:fs";
 import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
-import { loadGovOperate, isPluginCommand, type PluginCliContext } from "../plugin/loader.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow } from "./work-flow.js";
-import { runOperateFlow, promptForCommand, needsInteractive } from "./operate-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { assembleNeeds, registryTokenNeed, licenseNeed, credNeedForKey } from "../security/needs.js";
+import { assembleNeeds, licenseNeed, credNeedForKey } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { runCreds } from "../security/creds-flow.js";
 import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
@@ -115,7 +112,7 @@ export function readCliVersion(): string {
     if (raw) {
       try {
         const pkg = JSON.parse(raw) as { name?: string; version?: string };
-        if (pkg.name === "@svayam-opensource/gov" && pkg.version) return pkg.version;
+        if (pkg.name === "@svayam-opensource/gov-work" && pkg.version) return pkg.version;
       } catch {
         /* keep walking */
       }
@@ -143,7 +140,6 @@ export async function gatherMenuContext(): Promise<MenuContext> {
       orgName = c.orgName || undefined;
       githubOrg = c.githubOrg || undefined;
       branch = c.defaultBranch || undefined;
-      wireLocalPlugin(c.agentWorkRoot);   // prefer a project-local gov-operate for the menu's plugin checks
     }
     branch = tryRun("git", ["-C", resolve.home, "rev-parse", "--abbrev-ref", "HEAD"]) ?? branch;
   }
@@ -154,13 +150,7 @@ export async function gatherMenuContext(): Promise<MenuContext> {
   } catch {
     /* omit */
   }
-  let operateInstalled = false;
-  try {
-    operateInstalled = (await loadGovOperate()).ok;
-  } catch {
-    /* not installed */
-  }
-  return { orgName, githubOrg, branch, user, workspaceCount, cliVersion, operateInstalled };
+  return { orgName, githubOrg, branch, user, workspaceCount, cliVersion };
 }
 
 /**
@@ -210,11 +200,10 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   }
 }
 
-/** Route any command (setup / creds / enterprise plugin / normal) — used by the menu. */
+/** Route any command (setup / creds / normal) — used by the menu. */
 export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
   if (argv[0] === "creds") return runCredsCommand(argv);
-  if (argv[0] !== undefined && isPluginCommand(argv[0])) return runPluginCli(argv);
   return main(argv);
 }
 
@@ -272,149 +261,12 @@ export async function runMainMenu(): Promise<number> {
       }
       return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print });
     },
-    runOperate: async (io) => {
-      if (!ctx.operateInstalled) {
-        io.print("  The enterprise plugin isn't installed:  npm i -g @svayam/gov-operate --registry=https://npm.svayamtech.com");
-        return 1;
-      }
-      const load = await loadGovOperate();
-      const taxonomy = load.ok ? load.plugin.taxonomy?.() : undefined;
-      let units;
-      if (load.ok && resolved.ok) {
-        const cfgText = fs.readFile(path.join(resolved.home, "org-config.yaml"));
-        if (cfgText) units = await load.plugin.units?.({ home: resolved.home, config: parseOrgConfig(cfgText), license: process.env.GOV_LICENSE });
-      }
-      return runOperateFlow({ run: runAny, prompt: io.prompt, print: io.print, taxonomy, units });
-    },
     switchOrg: (org) => runAny(["org", "use", org]),
     help: (command) => helpLines(command),
   };
   return runMenu(ctx, handlers);
 }
 
-/**
- * Enterprise plugin commands (`deploy`/`catalog`/`data`/…) — resolve the gov
- * workspace + config, then delegate to `@svayam/gov-operate` via the seam. Async
- * (dynamic import), so bin.ts routes it here instead of through sync `main`.
- */
-/** cwd is inside a project = under agent_work_root (LOCATION only; realpath'd so a symlinked root
- *  like /var→/private/var still matches). Mirrors the plugin's project detection for a fast pre-check. */
-/** The project dir `<agent_work_root>/<project>` the cwd sits inside (realpath'd for symlinks), or
- *  undefined when the cwd is outside agent_work_root. */
-function projectDirOf(agentWorkRoot: string | undefined): string | undefined {
-  if (!agentWorkRoot) return undefined;
-  const real = (p: string): string => { try { return realpathSync(p); } catch { return p; } };
-  const root = real(path.resolve(expandTilde(agentWorkRoot)));
-  const rel = path.relative(root, real(process.cwd()));
-  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return undefined;
-  return path.join(root, rel.split(path.sep)[0]);
-}
-function inProjectLocation(agentWorkRoot: string | undefined): boolean { return !!projectDirOf(agentWorkRoot); }
-
-/** Point gov at a PROJECT-LOCAL gov-operate (from `gov deploy gov-operate local`) so the local plugin
- *  loads with no npm link / symlink. Sets $GOV_OPERATE_PATH (unless already set — an explicit value
- *  always wins) to <project>/lib/<unit>/node_modules/@svayam/gov-operate when present. */
-function wireLocalPlugin(agentWorkRoot: string | undefined): void {
-  if (process.env.GOV_OPERATE_PATH) return;
-  const project = projectDirOf(agentWorkRoot);
-  if (!project) return;
-  const libDir = path.join(project, "lib");
-  if (!existsSync(libDir)) return;
-  for (const unit of readdirSync(libDir)) {
-    const p = path.join(libDir, unit, "node_modules", "@svayam", "gov-operate");
-    if (existsSync(path.join(p, "package.json"))) { process.env.GOV_OPERATE_PATH = p; return; }
-  }
-}
-
-export async function runPluginCli(argv: readonly string[]): Promise<number> {
-  const parsed = parseArgv(argv);
-  if ("error" in parsed) {
-    process.stderr.write(`${parsed.error}\n`);
-    return 2;
-  }
-  const fs = createNodeFs();
-  const env = createNodeEnv();
-  const govHomeOverride = flagStr(parsed.flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
-  let home: string;
-  if (govHomeOverride) {
-    home = path.resolve(expandTilde(govHomeOverride));
-  } else {
-    const resolved = prjResolveGov(env);
-    if (!resolved.ok) {
-      process.stderr.write(`${resolveFailureMessage(resolved)}\n`);
-      return resolved.code;
-    }
-    home = resolved.home;
-  }
-  const cfgText = fs.readFile(path.join(home, "org-config.yaml"));
-  if (cfgText === null) {
-    process.stderr.write(`gov: no org-config.yaml at ${home}\n`);
-    return 1;
-  }
-  const config = parseOrgConfig(cfgText);
-  wireLocalPlugin(config.agentWorkRoot);   // a project-local gov-operate (deploy … local) loads with no symlink
-
-  const load = await loadGovOperate();
-  if (!load.ok) { process.stderr.write(`${load.message}\n`); return 1; }
-
-  // Interactive fill for an under-specified enterprise command ON A TTY (the flag/positional form
-  // stays for agents — `gov catalog create --type … --gov-home …`). Detect against the FLAG-FREE
-  // positional shape so --gov-home doesn't masquerade as the id. The plugin's taxonomy drives
-  // valid-only create choices, and its unit list drives the pick prompts (deploy/data/promote/
-  // view/update/delete). A [] result means the user backed out of a menu (clean exit).
-  let cliArgv: readonly string[] = argv;
-  const bare = [parsed.command, ...parsed.positionals];
-  // FAIL-FAST: catalog mutations are governed per-project — refuse BEFORE prompting (not after all
-  // the input). "In a project" = cwd under agent_work_root (pure location; realpath'd for symlinks).
-  if (bare[0] === "catalog" && ["create", "update", "delete"].includes(bare[1] ?? "") &&
-      !("GOV_SKIP_PROJECT_GATE" in process.env) && !inProjectLocation(config.agentWorkRoot)) {
-    process.stderr.write(`catalog ${bare[1]}: run this inside a PROJECT — a folder under your agent work root (${config.agentWorkRoot ?? "~/.svm/projects"}).\n  Catalog changes are governed per-project.\n`);
-    return 1;
-  }
-  if (process.stdin.isTTY && needsInteractive(bare)) {
-    const probeCtx: PluginCliContext = { home, config, license: process.env.GOV_LICENSE };
-    const tax = load.plugin.taxonomy?.();
-    const unitList = (await load.plugin.units?.(probeCtx)) ?? [];
-    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-    const ask = (q: string): Promise<string> => new Promise((res) => rl.question(q, (x) => res(x)));
-    try {
-      const filled = await promptForCommand(bare, ask, (l) => process.stderr.write(`${l}\n`), tax, unitList);
-      if (filled === null) return 2;
-      if (filled.length === 0) return 0;
-      cliArgv = filled;
-    } finally { rl.close(); }
-  }
-
-  // Security PREFLIGHT + credential MATERIALIZATION for the plugin command. NEEDs: the LICENSE
-  // (every enterprise command) + base git/gh + the command's OWN needs (a publish token for the
-  // resolved registry, surfaced by the plugin). On a gap, block with a `gov creds` pointer; else
-  // materialize the license + registry token from the store (tooling handles the secrets; never
-  // logged) into GOV_LICENSE / GOV_NPM_TOKEN for the plugin, and expose the store.
-  if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
-    const credFile = credentialsPath(config.agentWorkRoot, defaultIdentity());
-    const probeCtx: PluginCliContext = { home, config, license: process.env.GOV_LICENSE };
-    const pluginNeeds = (await load.plugin.securityNeeds?.(cliArgv, probeCtx)) ?? [];
-    const extra = [licenseNeed, ...pluginNeeds.map((n) => registryTokenNeed(n.registry, n.credKey))];
-    const pf = preflight(assembleNeeds(extra), {
-      gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
-      ghAuthOk: () => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } },
-      // the license is also satisfied by an explicit $GOV_LICENSE (legacy / non-interactive)
-      hasCred: (k) => getCredential(credFile, k) !== undefined || (k === licenseNeed.credKey && !!process.env.GOV_LICENSE),
-    });
-    if (!pf.ok) {
-      for (const line of renderGap(pf.gap)) process.stderr.write(`${line}\n`);
-      return 3;
-    }
-    const lic = getCredential(credFile, licenseNeed.credKey!); if (lic) process.env.GOV_LICENSE = lic;
-    for (const n of pluginNeeds) { const v = getCredential(credFile, n.credKey); if (v) process.env.GOV_NPM_TOKEN = v; }
-    process.env.GOV_CRED_STORE = credFile;
-  }
-
-  const ctx: PluginCliContext = { home, config, license: process.env.GOV_LICENSE };
-  const result = await load.plugin.runCli(cliArgv, ctx);
-  for (const line of result.lines) process.stdout.write(`${line}\n`);
-  return result.code;
-}
 
 /**
  * The `gov` entry point. Returns a process exit code. `now` is injected (an

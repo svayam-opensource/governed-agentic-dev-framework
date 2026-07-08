@@ -8,10 +8,9 @@
  *   Work    → GUIDED flow: pick your project → seed-if-new / continue → session-start
  *   Admin   → curated governance actions (manage · knowledge · onboard · …)
  *   Help    → the full command reference (for agents/devs working in TTY)
- *   Operate → GUIDED flow: pick a built unit → env → deploy  (only when the
- *             enterprise gov-operate plugin is installed)
  * Rendering + choice-resolution are pure/testable; runMenu delegates the guided
- * flows + command runs to injected handlers.
+ * flows + command runs to injected handlers. (Enterprise catalog/deploy is a
+ * SEPARATE CLI, `gov-operate` — this menu has no knowledge of it.)
  */
 import * as readline from "node:readline";
 
@@ -22,17 +21,16 @@ export interface MenuContext {
   readonly user?: string;
   readonly workspaceCount?: number;
   readonly cliVersion?: string;
-  readonly operateInstalled?: boolean;
 }
 
 export interface SubCommand { readonly cmd: string; readonly desc: string; }
 export type MenuAction =
-  | { readonly kind: "guided"; readonly key: "work" | "operate"; readonly label: string; readonly desc: string; readonly hint: string }
+  | { readonly kind: "guided"; readonly key: "work"; readonly label: string; readonly desc: string; readonly hint: string }
   | { readonly kind: "submenu"; readonly key: "status" | "admin"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[] }
   | { readonly kind: "help"; readonly key: "help"; readonly label: string; readonly desc: string; readonly hint: string };
 
-/** The main-menu actions (Operate appears only when the plugin is installed). */
-export function mainActions(operateInstalled = false): MenuAction[] {
+/** The main-menu actions. */
+export function mainActions(): MenuAction[] {
   const actions: MenuAction[] = [
     { kind: "submenu", key: "status", label: "Status", desc: "Review current state", commands: [
       { cmd: "list", desc: "ongoing projects" },
@@ -51,14 +49,13 @@ export function mainActions(operateInstalled = false): MenuAction[] {
     ] },
     { kind: "help", key: "help", label: "Help", desc: "gov command-line use", hint: "pick a command" },
   ];
-  if (operateInstalled) actions.push({ kind: "guided", key: "operate", label: "Operate", desc: "Build & deploy units", hint: "unit → env → deploy" });
   return actions;
 }
 
 const RULE = "─".repeat(72);
 
 export function formatMainMenu(ctx: MenuContext): string[] {
-  const actions = mainActions(ctx.operateInstalled);
+  const actions = mainActions();
   const out: string[] = ["", `  ▸ ${ctx.orgName ?? "Governed Agentic Development Framework"} — Governed Agentic Development Framework (v${ctx.cliVersion ?? "?"})`];
   const bits = [ctx.githubOrg && `Org: ${ctx.githubOrg}`, ctx.branch && `Branch: ${ctx.branch}`, ctx.user && `User: ${ctx.user}`].filter(Boolean) as string[];
   if (bits.length) out.push(`  ${bits.join("  |  ")}`);
@@ -68,7 +65,6 @@ export function formatMainMenu(ctx: MenuContext): string[] {
     const goesTo = a.kind === "submenu" ? a.commands.map((c) => c.cmd).slice(0, 4).join(" · ") + (a.commands.length > 4 ? " · …" : "") : a.hint;
     out.push(`  (${i + 1}) ${a.label.padEnd(6)}  ${a.desc.padEnd(32)}  ${goesTo}`);
   });
-  if (!ctx.operateInstalled) out.push("", "  Catalog, deploy & data need the enterprise plugin:  npm i -g @svayam/gov-operate --registry=https://npm.svayamtech.com");
   out.push("", "  Type a number; o to switch org; 0 to exit.", RULE);
   return out;
 }
@@ -79,11 +75,11 @@ export type TopChoice =
   | { readonly kind: "quit" }
   | { readonly kind: "unknown" };
 
-export function resolveTopChoice(input: string, ctx: MenuContext): TopChoice {
+export function resolveTopChoice(input: string, _ctx?: MenuContext): TopChoice {
   const t = input.trim().toLowerCase();
   if (t === "0" || t === "q" || t === "") return { kind: "quit" };
   if (t === "o") return { kind: "org" };
-  const actions = mainActions(ctx.operateInstalled);
+  const actions = mainActions();
   const n = Number(t);
   if (Number.isInteger(n) && n >= 1 && n <= actions.length) return { kind: "action", action: actions[n - 1] };
   const byName = actions.find((a) => a.label.toLowerCase() === t || ("key" in a && a.key === t));
@@ -102,8 +98,6 @@ export interface MenuHandlers {
   readonly runCommand: (argv: readonly string[]) => Promise<number> | number;
   /** The guided Work flow (pick project → seed/continue → session-start). */
   readonly runWork: (io: MenuIo) => Promise<number>;
-  /** The guided Operate flow (pick unit → env → deploy). */
-  readonly runOperate: (io: MenuIo) => Promise<number>;
   /** Switch the active org. */
   readonly switchOrg: (org: string) => Promise<number> | number;
   /** Help lines — full reference when no command, else per-command help. */
@@ -128,7 +122,7 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
       const a = top.action;
       if (a.kind === "guided") {
         const io: MenuIo = { prompt: ask, print: w };
-        return a.key === "work" ? await h.runWork(io) : await h.runOperate(io);
+        return await h.runWork(io);
       }
       if (a.kind === "help") {
         w("");

@@ -1,13 +1,13 @@
 {
-  "name": "@svayam-opensource/gov",
+  "name": "@svayam-opensource/gov-work",
   "version": "1.0.0",
-  "description": "gov — the OSS governance CLI (unit gov-work) for the Governed Agentic Development Framework. Node 24 / TypeScript. Succeeds the legacy bash @svayam-opensource/prj (which is frozen at 0.10.0).",
+  "description": "gov-work — the OSS project/workflow CLI for the Governed Agentic Development Framework (Node/TypeScript). Manages projects, workspaces, and credentials; enterprise catalog/deploy is the separate gov-operate CLI. Succeeds the legacy bash @svayam-opensource/prj (frozen at 0.10.0).",
   "type": "module",
   "main": "./lib/cjs/index.js",
   "module": "./lib/esm/index.js",
   "types": "./lib/esm/index.d.ts",
   "bin": {
-    "gov": "./lib/esm/cli/bin.js"
+    "gov-work": "./lib/esm/cli/bin.js"
   },
   "exports": {
     ".": {

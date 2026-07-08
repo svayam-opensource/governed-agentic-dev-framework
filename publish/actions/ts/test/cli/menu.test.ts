@@ -6,26 +6,25 @@ import { mainActions, formatMainMenu, resolveTopChoice, type MenuContext } from 
 const CTX: MenuContext = { orgName: "Acme Inc", githubOrg: "Acme", branch: "main", user: "rk", workspaceCount: 2, cliVersion: "1.0.0" };
 
 describe("gov-work — interactive menu (task-oriented)", () => {
-  it("Status/Work/Admin/Help; Work+Operate are guided, Status/Admin are submenus, Help is help", () => {
-    const a = mainActions(false);
+  it("Status/Work/Admin/Help; Work is guided, Status/Admin are submenus, Help is help (no Operate — separate CLI)", () => {
+    const a = mainActions();
     expect(a.map((x) => x.label)).to.deep.equal(["Status", "Work", "Admin", "Help"]);
     expect(a.find((x) => x.label === "Work")!.kind).to.equal("guided");
     expect(a.find((x) => x.label === "Status")!.kind).to.equal("submenu");
     expect(a.find((x) => x.label === "Help")!.kind).to.equal("help");
-    // Operate appears only when the plugin is installed
-    expect(mainActions(true).find((x) => x.label === "Operate")!.kind).to.equal("guided");
+    expect(a.find((x) => x.label === "Operate")).to.equal(undefined);   // enterprise ops are the separate gov-operate CLI
   });
 
   it("Work is NOT a command dump — its hint is 'pick a project'", () => {
-    const work = mainActions(false).find((x) => x.label === "Work")!;
+    const work = mainActions().find((x) => x.label === "Work")!;
     expect(work.kind === "guided" && work.hint).to.equal("pick a project");
   });
 
-  it("renders the prj-style banner + action table; hides Operate / shows plugin hint when absent", () => {
+  it("renders the prj-style banner + action table; no Operate / no enterprise-plugin hint", () => {
     const m = formatMainMenu(CTX).join("\n");
     expect(m).to.match(/▸ Acme Inc — Governed Agentic Development Framework \(v1\.0\.0\)/);
     expect(m).to.match(/\(2\) Work.*pick a project/);
-    expect(m).to.match(/need the enterprise plugin/);
+    expect(m).to.not.match(/enterprise plugin/);
     expect(m).to.not.match(/Operate/);
   });
 
