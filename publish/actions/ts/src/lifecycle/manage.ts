@@ -33,12 +33,19 @@ export interface ManageListDeps {
 }
 
 /** List boards with owners + derived status. `all` includes closed (completed/cancelled). */
-export function manageList(deps: ManageListDeps, config: ManageConfig, all: boolean): OwnerRow[] {
+/** A page of owner rows + the full count (so the caller can render "X–Y of TOTAL" + a next-page hint). */
+export interface ManageListResult { readonly rows: OwnerRow[]; readonly total: number; readonly offset: number; readonly limit: number; }
+
+/** List the org's projects with owners, PAGINATED — the per-project anchor lookup (the expensive part)
+ *  runs only for the requested page, not the whole set. `limit <= 0` → all rows. */
+export function manageList(deps: ManageListDeps, config: ManageConfig, all: boolean, limit = 20, offset = 0): ManageListResult {
   const ownerField = config.ownerField ?? "organization";
-  const boards: BoardSummary[] = deps.projects.listBoards(config.githubOrg);
+  const boards: BoardSummary[] = deps.projects.listBoards(config.githubOrg).filter((b) => all || !b.closed);
+  const total = boards.length;
+  const cap = limit > 0 ? limit : total;
+  const start = Math.min(Math.max(0, offset), total);
   const rows: OwnerRow[] = [];
-  for (const b of boards) {
-    if (!all && b.closed) continue; // ongoing = open boards only
+  for (const b of boards.slice(start, start + cap)) {   // resolve owners ONLY for this page
     const ref: BoardRef = { owner: config.githubOrg, ownerField, number: b.number };
     const anchor = deps.anchor.find(ref, config.workspaceRepo);
     rows.push({
@@ -49,7 +56,7 @@ export function manageList(deps: ManageListDeps, config: ManageConfig, all: bool
       owners: anchor ? [...anchor.assignees] : [],
     });
   }
-  return rows;
+  return { rows, total, offset: start, limit: cap };
 }
 
 export function formatOwnerRows(rows: readonly OwnerRow[]): string[] {

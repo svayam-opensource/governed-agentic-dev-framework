@@ -35,13 +35,25 @@ describe("prj-work — manage", () => {
     const { anchor } = anchorPort({ 7: { labels: ["paused"], assignees: ["rk"] }, 8: { labels: [], assignees: [] } });
     const deps = { projects: projects([{ number: 7, title: "A", closed: false }, { number: 8, title: "B", closed: true }]), anchor };
     const open = manageList(deps, CONFIG, false);
-    expect(open.map((r) => r.boardNumber)).to.deep.equal([7]); // closed excluded
-    expect(open[0]).to.include({ status: "paused" });
-    expect(open[0].owners).to.deep.equal(["rk"]);
+    expect(open.rows.map((r) => r.boardNumber)).to.deep.equal([7]); // closed excluded
+    expect(open.total).to.equal(1);
+    expect(open.rows[0]).to.include({ status: "paused" });
+    expect(open.rows[0].owners).to.deep.equal(["rk"]);
     const all = manageList(deps, CONFIG, true);
-    expect(all.map((r) => r.boardNumber)).to.deep.equal([7, 8]);
-    expect(all[1].status).to.equal("completed"); // closed + no cancelled
-    expect(formatOwnerRows(open)[0]).to.match(/#7 \[paused\] A — owners: rk/);
+    expect(all.rows.map((r) => r.boardNumber)).to.deep.equal([7, 8]);
+    expect(all.rows[1].status).to.equal("completed"); // closed + no cancelled
+    expect(formatOwnerRows(open.rows)[0]).to.match(/#7 \[paused\] A — owners: rk/);
+  });
+
+  it("paginates: a page of `limit` from `offset`, with the full `total` reported (limit<=0 → all)", () => {
+    const boards = Array.from({ length: 5 }, (_, i) => ({ number: i + 1, title: `P${i}`, closed: false }));
+    const { anchor } = anchorPort(Object.fromEntries(boards.map((b) => [b.number, { labels: [], assignees: [] }])));
+    const deps = { projects: projects(boards), anchor };
+    const p1 = manageList(deps, CONFIG, false, 2, 0);
+    expect(p1.rows.map((r) => r.boardNumber)).to.deep.equal([1, 2]);
+    expect(p1.total).to.equal(5);
+    expect(manageList(deps, CONFIG, false, 2, 2).rows.map((r) => r.boardNumber)).to.deep.equal([3, 4]);   // page 2
+    expect(manageList(deps, CONFIG, false, 0, 0).rows).to.have.length(5);                                  // limit<=0 → all
   });
 
   it("assign/unassign add/remove an owner on the current project's anchor", () => {

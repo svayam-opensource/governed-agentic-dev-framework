@@ -110,7 +110,7 @@ describe("coverage: gov-work manage", () => {
     const { anchor } = makeAnchor({ finds });
     const r = run(["manage", "list"], { anchor, projects: projectsOf([b(7, "A"), b(8, "B", true)]) });
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal("Projects (owners = anchor assignees):");
+    expect(r.lines[0]).to.match(/^Projects \(owners = anchor assignees\) \(/);
     expect(r.lines.join("\n")).to.match(/#7 \[paused\] A — owners: rk/);
     expect(r.lines.join("\n")).to.not.match(/#8/);
   });
@@ -118,14 +118,14 @@ describe("coverage: gov-work manage", () => {
   it("manage list (no boards) → exit 0 with (no projects)", () => {
     const r = run(["manage", "list"], { anchor: makeAnchor().anchor, projects: projectsOf([]) });
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal(["Projects (owners = anchor assignees):", "(no projects)"]);
+    expect(r.lines).to.deep.equal(["Projects (owners = anchor assignees) (0–0 of 0):", "(no projects)"]);
   });
 
   it("manage list-all → exit 0, includes closed boards", () => {
     const { anchor } = makeAnchor({ finds });
     const r = run(["manage", "list-all"], { anchor, projects: projectsOf([b(7, "A"), b(8, "B", true)]) });
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal("Projects (owners = anchor assignees):");
+    expect(r.lines[0]).to.match(/^Projects \(owners = anchor assignees\) \(/);
     expect(r.lines.join("\n")).to.match(/#8 \[completed\] B/);
   });
 
@@ -344,7 +344,7 @@ describe("coverage: gov-work list / list-all", () => {
     const { anchor } = makeAnchor({ finds });
     const r = run(["list"], { anchor, projects: projectsOf([b(7, "A"), b(8, "B", true)]) });
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal("Ongoing projects:");
+    expect(r.lines[0]).to.match(/^Ongoing projects \(/);
     expect(r.lines.join("\n")).to.not.match(/#8/);
   });
 
@@ -352,21 +352,21 @@ describe("coverage: gov-work list / list-all", () => {
     const { anchor } = makeAnchor({ finds });
     const r = run(["list-all"], { anchor, projects: projectsOf([b(7, "A"), b(8, "B", true)]) });
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal("All projects:");
+    expect(r.lines[0]).to.match(/^All projects \(/);
     expect(r.lines.join("\n")).to.match(/#8 \[completed\] B/);
   });
 
   it("list (no boards) → exit 0 with (no projects)", () => {
     const r = run(["list"], { anchor: makeAnchor().anchor, projects: projectsOf([]) });
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal(["Ongoing projects:", "(no projects)"]);
+    expect(r.lines).to.deep.equal(["Ongoing projects (0–0 of 0):", "(no projects)"]);
   });
 
   it("list-all --stray → flag ignored, still exit 0", () => {
     const { anchor } = makeAnchor({ finds });
     const r = run(["list-all", "--stray"], { anchor, projects: projectsOf([b(7, "A")]) });
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal("All projects:");
+    expect(r.lines[0]).to.match(/^All projects \(/);
   });
 });
 

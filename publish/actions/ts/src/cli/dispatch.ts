@@ -31,7 +31,7 @@ import { join } from "../lifecycle/join.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
 import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org.js";
 import { expandTilde } from "../resolve/node-env.js";
-import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus } from "../lifecycle/manage.js";
+import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus, type ManageListResult } from "../lifecycle/manage.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 import { onboard } from "../lifecycle/onboard.js";
@@ -74,6 +74,15 @@ export interface CommandResult {
 }
 
 const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov-work ${spec}`] });
+
+/** Render a PAGINATED project list: "<header> (X–Y of TOTAL):" + rows + a next-page hint when there's more. */
+function pagedListLines(header: string, cmd: string, res: ManageListResult, page: number, limit: number): string[] {
+  const to = res.offset + res.rows.length;
+  const from = res.total === 0 ? 0 : res.offset + 1;
+  const lines = [`${header} (${from}–${to} of ${res.total}):`, ...formatOwnerRows(res.rows)];
+  if (to < res.total) lines.push(`  … more — next: gov-work ${cmd} --page ${page + 1}${limit !== 20 ? ` --limit ${limit}` : ""}`);
+  return lines;
+}
 
 /**
  * Route `prj org …` — the multi-home registry commands. Handled SEPARATELY from
@@ -209,8 +218,10 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
 
     case "list":
     case "list-all": {
-      const rows = manageList({ projects: ctx.projects, anchor: ctx.anchor }, { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo }, command === "list-all");
-      return { code: 0, lines: [command === "list-all" ? "All projects:" : "Ongoing projects:", ...formatOwnerRows(rows)] };
+      const limit = Number(flagStr(flags, "limit") ?? 20);
+      const page = Math.max(1, Number(flagStr(flags, "page") ?? 1));
+      const res = manageList({ projects: ctx.projects, anchor: ctx.anchor }, { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo }, command === "list-all", limit, (page - 1) * limit);
+      return { code: 0, lines: pagedListLines(command === "list-all" ? "All projects" : "Ongoing projects", command, res, page, limit) };
     }
 
     case "status": {
@@ -224,8 +235,10 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       const sub = positionals[0];
       const mcfg = { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo };
       if (sub === "list" || sub === "list-all") {
-        const rows = manageList({ projects: ctx.projects, anchor: ctx.anchor }, mcfg, sub === "list-all");
-        return { code: 0, lines: ["Projects (owners = anchor assignees):", ...formatOwnerRows(rows)] };
+        const limit = Number(flagStr(flags, "limit") ?? 20);
+        const page = Math.max(1, Number(flagStr(flags, "page") ?? 1));
+        const res = manageList({ projects: ctx.projects, anchor: ctx.anchor }, mcfg, sub === "list-all", limit, (page - 1) * limit);
+        return { code: 0, lines: pagedListLines("Projects (owners = anchor assignees)", `manage ${sub}`, res, page, limit) };
       }
       if (sub === "assign" || sub === "unassign") {
         if (positionals.length < 2) return usage(`manage ${sub} <github-login>`);

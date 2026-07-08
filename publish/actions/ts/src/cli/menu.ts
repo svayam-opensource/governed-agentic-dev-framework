@@ -42,8 +42,6 @@ export function mainActions(): MenuAction[] {
       { cmd: "manage", desc: "project access — assign / unassign owners", subs: [
         { cmd: "assign", desc: "grant a user project access", argHint: "<github-login>" },
         { cmd: "unassign", desc: "revoke access", argHint: "<github-login>" },
-        { cmd: "list", desc: "who has access (ongoing projects)" },
-        { cmd: "list-all", desc: "who has access (incl. closed)" },
       ] },
       { cmd: "knowledge", desc: "propose org knowledge changes", subs: [
         { cmd: "propose", desc: "start a knowledge change", argHint: "<slug>" },
