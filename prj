@@ -130,9 +130,11 @@ resolve_my_identities() {
 # TSV: <id-or-(not seeded)>\t<github_url>\t<status>\t<assigned_to>. Registry-backed
 # (board open/closed approximated from lifecycle, so no per-project GitHub calls).
 project_context_list() {
-  # GitHub-derived nav engine (registry-elimination). ONE batched GraphQL query
-  # fetches every org board + its items' anchor issue (labels + assignees), so
-  # status/ownership/seeded-ness are all computed from GitHub in a single call.
+  # GitHub-derived nav engine (registry-elimination).
+  # assignment=me: discover boards via issue search + per-board fetches (avoids
+  # the org-wide projectsV2(first:100)×items(first:50) query that 504s on large orgs).
+  # assignment=any|unassigned: paginate projectsV2 in small pages.
+  # On API failure: fall back to locally seeded projects under $AGENT_WORK_ROOT.
   # The frozen registry shim only grandfathers legacy ids/branches (PRJ-001…013
   # + already-seeded boards whose NNN ≠ board number). assignment ∈ me|unassigned
   # |any · lifecycle ∈ not-initiated|initiated|paused|ongoing|done|any.
@@ -141,6 +143,7 @@ project_context_list() {
   # team ownership matters only for the 'me' scope — fetch my team slugs just then
   [[ "$assignment" == "me" ]] && myteams="$(my_team_slugs 2>/dev/null | paste -sd , -)"
   ME="$me" MY_TEAMS="$myteams" ASSIGNMENT="$assignment" LIFECYCLE="$lifecycle" \
+  AGENT_WORK_ROOT="${AGENT_WORK_ROOT:-}" WORKSPACE_REPO="${WORKSPACE_REPO:-svm-prj-work}" \
   python3 - "$REGISTRY" "$GITHUB_ORG" <<'PY'
 import sys, os, re, json, subprocess
 try:
@@ -152,6 +155,8 @@ me = os.environ.get('ME', '')
 my_teams = set(t for t in os.environ.get('MY_TEAMS','').split(',') if t)
 assignment = os.environ.get('ASSIGNMENT', 'any')
 lifecycle  = os.environ.get('LIFECYCLE', 'any')
+work_root = os.environ.get('AGENT_WORK_ROOT', '')
+ws_repo = os.environ.get('WORKSPACE_REPO', 'svm-prj-work')
 SP, OTP = 'state:', 'owner-team:'
 
 # Frozen shim: board number → grandfathered id/branch (identity only, not status).
@@ -170,15 +175,156 @@ except Exception:
 def slug(t):
     return re.sub(r'-+', '-', re.sub(r'[^a-z0-9]', '-', (t or '').lower())).strip('-')
 
-q = '''query($o:String!){ organization(login:$o){ projectsV2(first:100){ nodes{
+def gh_json(args):
+    r = subprocess.run(['gh'] + args, capture_output=True, text=True)
+    if r.returncode != 0 or not (r.stdout or '').strip():
+        return None
+    try:
+        return json.loads(r.stdout)
+    except Exception:
+        return None
+
+BOARD_Q = '''query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){
   number title closed
   items(first:50){ nodes{ content{ __typename
-    ... on Issue { number labels(first:10){nodes{name}} assignees(first:10){nodes{login}} } } } } } } } }'''
-r = subprocess.run(['gh','api','graphql','-f','query='+q,'-F','o='+owner],
-                   capture_output=True, text=True)
-if r.returncode != 0:
-    sys.exit(0)
-nodes = (json.loads(r.stdout).get('data',{}).get('organization',{}) or {}).get('projectsV2',{}).get('nodes',[]) or []
+    ... on Issue { number labels(first:10){nodes{name}} assignees(first:10){nodes{login}} } } } } } } }'''
+
+PAGE_Q_FIRST = '''query($o:String!){ organization(login:$o){ projectsV2(first:20){
+  pageInfo{ hasNextPage endCursor }
+  nodes{ number title closed
+    items(first:50){ nodes{ content{ __typename
+      ... on Issue { number labels(first:10){nodes{name}} assignees(first:10){nodes{login}} } } } } } } } }'''
+
+PAGE_Q_NEXT = '''query($o:String!,$c:String!){ organization(login:$o){ projectsV2(first:20, after:$c){
+  pageInfo{ hasNextPage endCursor }
+  nodes{ number title closed
+    items(first:50){ nodes{ content{ __typename
+      ... on Issue { number labels(first:10){nodes{name}} assignees(first:10){nodes{login}} } } } } } } } }'''
+
+def fetch_board(num):
+    data = gh_json(['api','graphql','-f','query='+BOARD_Q,'-F','o='+owner,'-F','n='+str(num)])
+    if not data: return None
+    return ((data.get('data') or {}).get('organization') or {}).get('projectV2')
+
+def my_board_numbers():
+    """Discover boards I own via anchor-issue search (fast; no org-wide dump)."""
+    nums = set()
+    searches = []
+    if me:
+        searches.append(['search','issues','--owner',owner,'--label','anchor','--assignee',me,
+                         '--json','number,repository','--limit','100'])
+    for team in sorted(my_teams):
+        searches.append(['search','issues','--owner',owner,'--label','anchor',
+                         '--label','owner-team:'+team,
+                         '--json','number,repository','--limit','100'])
+    issue_refs = []
+    for args in searches:
+        rows = gh_json(args) or []
+        for row in rows:
+            repo = (row.get('repository') or {}).get('nameWithOwner') or ''
+            n = row.get('number')
+            if repo and n: issue_refs.append((repo, int(n)))
+    seen = set()
+    for repo, inum in issue_refs:
+        key = (repo, inum)
+        if key in seen: continue
+        seen.add(key)
+        o, rname = repo.split('/', 1)
+        q = ('query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){ issue(number:$n){'
+             ' projectItems(first:20){ nodes{ project{ number } } } } } }')
+        data = gh_json(['api','graphql','-f','query='+q,'-F','o='+o,'-F','r='+rname,'-F','n='+str(inum)])
+        if not data: continue
+        nodes = ((((data.get('data') or {}).get('repository') or {}).get('issue') or {})
+                 .get('projectItems',{}).get('nodes') or [])
+        for n in nodes:
+            p = (n or {}).get('project') or {}
+            if p.get('number') is not None:
+                nums.add(int(p['number']))
+    return sorted(nums)
+
+def fetch_all_boards_paginated():
+    nodes, cursor, pages = [], None, 0
+    while pages < 20:  # hard cap (~400 boards)
+        pages += 1
+        if cursor:
+            args = ['api','graphql','-f','query='+PAGE_Q_NEXT,'-F','o='+owner,'-F','c='+cursor]
+        else:
+            args = ['api','graphql','-f','query='+PAGE_Q_FIRST,'-F','o='+owner]
+        data = gh_json(args)
+        if not data:
+            if pages == 1:
+                print('WARNING [C02]: project_context_list GraphQL page failed; trying local fallback.',
+                      file=sys.stderr)
+            break
+        conn = ((data.get('data') or {}).get('organization') or {}).get('projectsV2') or {}
+        nodes.extend(conn.get('nodes') or [])
+        pi = conn.get('pageInfo') or {}
+        if not pi.get('hasNextPage'):
+            break
+        cursor = pi.get('endCursor')
+        if not cursor:
+            break
+    return nodes
+
+def local_fallback_nodes():
+    """Seeded worktrees on this machine — used when GitHub listing fails."""
+    out = []
+    if not work_root or not os.path.isdir(work_root):
+        return out
+    for name in sorted(os.listdir(work_root)):
+        if not name.startswith('PRJ-'): continue
+        root = os.path.join(work_root, name)
+        if not os.path.isfile(os.path.join(root, '.seed-complete')): continue
+        ypath = os.path.join(root, ws_repo, 'projects', name, 'project.yaml')
+        if not (yaml and os.path.isfile(ypath)): continue
+        try:
+            doc = yaml.safe_load(open(ypath)) or {}
+        except Exception:
+            continue
+        m = re.search(r'/projects/(\d+)', doc.get('github_project') or '')
+        if not m: continue
+        num = m.group(1)
+        status = doc.get('status') or 'active'
+        who = doc.get('assigned_to') or ''
+        # Fabricate a minimal board node so the shared row builder can run.
+        owners = [who] if who else []
+        # Prefer GitHub login when assigned_to is an email and matches `me`.
+        if me and me not in owners and who:
+            owners = [me] if (me in who or who.split('@')[0].replace('.','') in me.replace('.','')) else owners
+        labels = ['anchor', 'state:'+status] if status in ('active','paused','completed','cancelled') else ['anchor']
+        out.append({
+            'number': int(num),
+            'title': doc.get('github_project_name') or name,
+            'closed': status in ('completed','cancelled'),
+            'items': {'nodes': [{'content': {
+                '__typename': 'Issue', 'number': 0,
+                'labels': {'nodes': [{'name': l} for l in labels]},
+                'assignees': {'nodes': [{'login': o} for o in owners if o and '/' not in str(o)]},
+            }}]},
+            '_local_pid': name,
+            '_local_who': who if isinstance(who, str) else ','.join(who) if who else '',
+        })
+    return out
+
+# ── Load boards ──────────────────────────────────────────────────────────────
+nodes = []
+used_local = False
+if assignment == 'me':
+    for n in my_board_numbers():
+        nd = fetch_board(n)
+        if nd: nodes.append(nd)
+    if not nodes:
+        nodes = local_fallback_nodes()
+        used_local = bool(nodes)
+else:
+    nodes = fetch_all_boards_paginated()
+    if not nodes:
+        nodes = local_fallback_nodes()
+        used_local = bool(nodes)
+
+if used_local:
+    print('WARNING [C02]: project_context_list using local seeded projects (GitHub list empty/failed).',
+          file=sys.stderr)
 
 ONGOING, DONE = {'active','paused'}, {'completed','cancelled'}
 rows = []
@@ -216,7 +362,7 @@ for nd in nodes:
             status = 'paused' if 'paused' in labels else 'active'
     owners = anchor['assignees'] if anchor else []
     owner_teams = set(l[len(OTP):] for l in (anchor['labels'] if anchor else []) if l.startswith(OTP))
-    who = ','.join(owners)
+    who = nd.get('_local_who') or ','.join(owners)
 
     # lifecycle filter
     keep = ((lifecycle == 'any') or
@@ -227,11 +373,16 @@ for nd in nodes:
             (lifecycle == 'done'          and status in DONE))
     if not keep: continue
     # assignment filter — 'me' includes team ownership (member of an owner-team)
-    if assignment == 'me'         and me not in owners and not (my_teams & owner_teams): continue
+    # Local fallback: a seeded worktree on this machine counts as mine.
+    if assignment == 'me':
+        if me not in owners and not (my_teams & owner_teams) and not nd.get('_local_pid'):
+            continue
     if assignment == 'unassigned' and owners:           continue
 
     if status == 'not-initiated':
         pid = '(not seeded)'
+    elif nd.get('_local_pid'):
+        pid = nd['_local_pid']
     elif num in shim and shim[num].get('id'):
         pid = shim[num]['id']
     else:
