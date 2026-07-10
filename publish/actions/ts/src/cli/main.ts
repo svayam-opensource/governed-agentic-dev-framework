@@ -20,6 +20,7 @@ import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
 import { assembleNeeds, credNeedForKey } from "../security/needs.js";
+import { readPolicyCredNeeds } from "../security/policy-needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { runCreds } from "../security/creds-flow.js";
 import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
@@ -167,9 +168,12 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   const agentWorkRoot = parseOrgConfig(cfgText).agentWorkRoot;
 
   // `gov-work creds <KEY>` targets one credential (e.g. SVAYAM_GOV_LICENSE); bare `gov-work creds` walks
-  // the base NEEDs (git/gh) + the enterprise license.
+  // the base NEEDs (git/gh) PLUS every credential DECLARED in the org's build/deploy policies
+  // (knowledge/deployment/{build,deploy}-policy.yaml) — the policy is the single source of truth for what
+  // keys are required, so any port/seam (gov-operate included) is covered without gov-work knowing it.
   const requestedKey = argv[1];
-  const needs = requestedKey ? [credNeedForKey(requestedKey)] : [...assembleNeeds()];
+  const policyNeeds = readPolicyCredNeeds((p) => fs.readFile(p), resolve.home);
+  const needs = requestedKey ? [credNeedForKey(requestedKey)] : [...assembleNeeds(policyNeeds)];
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def?: string): Promise<string> =>
