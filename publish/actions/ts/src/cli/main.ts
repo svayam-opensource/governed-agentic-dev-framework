@@ -187,14 +187,14 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   let vault: { addr: string; token: string; path: string; data: Record<string, string> } | null = null;
   if (session && vaultAddr) {
     try {
-      const claims = claimsOf(session.idToken);
+      const claims = claimsOf(session.accessToken ?? session.idToken);
       const account = String(claims.account_ctx ?? "");
       const rolesArr = Array.isArray(claims.roles) ? (claims.roles as string[]) : [];
       const role = process.env.GOV_BAO_JWT_ROLE?.trim()
         || (rolesArr.includes("GOV_ADMIN") ? "gov-admin" : rolesArr[0]?.toLowerCase().replace(/_/g, "-") ?? "");
       if (!account) throw new Error("your token has no account_ctx");
       if (!role) throw new Error("your token carries no gov role (a gov-admin seeds account creds)");
-      const token = await vaultLogin({ addr: vaultAddr, jwtMount: process.env.GOV_BAO_JWT_MOUNT?.trim() || "gov", role }, session.idToken);
+      const token = await vaultLogin({ addr: vaultAddr, jwtMount: process.env.GOV_BAO_JWT_MOUNT?.trim() || "gov", role }, session.accessToken ?? session.idToken);
       const path = `kv/gov/${account}/creds`;
       vault = { addr: vaultAddr, token, path, data: await kvRead(vaultAddr, token, path) };
       process.stdout.write(`Target: Vault ${path}  (account ${account}, as ${role}) — values are shared with everyone authorized to read.\n`);
