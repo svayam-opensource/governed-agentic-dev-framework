@@ -1,6 +1,6 @@
 
 Usage: prj <command> [args]   ·   prj help <command> for examples   ·   prj  (no args) = menu
-Groups (1-7) mirror the interactive menu.
+Grouped by area. The interactive menu (prj, no args) covers Status/Work/Admin/Help; catalog, deploy & data are command-line.
 
 (1) Status   review current state
   list · list-all    ongoing / all projects (GitHub-derived)
@@ -28,6 +28,7 @@ Groups (1-7) mirror the interactive menu.
 (5) Deploy   build & deploy units
   deploy <unit> --local|--dev|--uat|--prod [--provision] [--seed]
   seed                            run the catalog seed hook (local)
+  publish [<ref>] [--dry-run]     ship the prj CLI to npm via the Jenkins job
   schedules                       install / inspect catalog cron schedules
 
 (6) Admin   administer governance

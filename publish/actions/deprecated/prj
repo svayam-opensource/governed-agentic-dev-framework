@@ -25,17 +25,39 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS="$SCRIPT_DIR/scripts"
+# Multi-home gov registry helpers (prj_org_*, prj_reg_*) — prj does NOT source lib.sh,
+# so source the registry directly for `prj org` + the menu's active-org header (PRJ-43).
+# shellcheck source=/dev/null
+. "$SCRIPTS/gov-registry.sh" 2>/dev/null || true
+# shellcheck source=/dev/null
+. "$SCRIPTS/agent-launch.sh" 2>/dev/null || true   # cursor-gui project-root + auto-start rule helpers
 # ADR-0001 Phase 4: the CLI may be installed separately from the workspace
 # data. $ADF_WORKSPACE (exported by the installed `prj` wrapper, or set by
 # hand) points at the governance repo; default to the vendored layout (the
 # CLI lives inside the workspace) when it is unset — i.e. unchanged behavior.
-if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]]; then
-  WORKSPACE_ROOT="$ADF_WORKSPACE"
+# Workspace resolution — MUST match bin/prj + lib.sh (see resolution-parity.bats). Trust an
+# ambient ADF_WORKSPACE ONLY as the deterministic handoff from bin/prj (PRJ_WS_RESOLVED=1);
+# otherwise resolve via prj_resolve_gov (cwd-walk skips unconfigured templates → active-org →
+# single home) — never trust a stale ambient export, and never default to $SCRIPT_DIR (the
+# framework/template repo) while a real workspace resolves.
+if [[ "${PRJ_WS_RESOLVED:-}" == 1 && -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]]; then
+  WORKSPACE_ROOT="$ADF_WORKSPACE"                       # trusted handoff (already resolved)
 else
-  WORKSPACE_ROOT="$SCRIPT_DIR"
+  WORKSPACE_ROOT="$(prj_resolve_gov 2>/dev/null || true)"
+  if [[ -z "$WORKSPACE_ROOT" || ! -f "$WORKSPACE_ROOT/org-config.yaml" ]]; then
+    # nothing registered → bootstrap from a CONFIGURED ambient ADF_WORKSPACE, else vendored layout
+    if [[ -n "${ADF_WORKSPACE:-}" && -f "$ADF_WORKSPACE/org-config.yaml" ]] && _prj_org_configured "$ADF_WORKSPACE" 2>/dev/null; then
+      WORKSPACE_ROOT="$ADF_WORKSPACE"
+    else
+      WORKSPACE_ROOT="$SCRIPT_DIR"
+    fi
+  fi
 fi
 CONFIG="$WORKSPACE_ROOT/org-config.yaml"
 REGISTRY="$WORKSPACE_ROOT/registry.yaml"
+# Testable resolution probe (mirrors bin/prj) — the standalone `prj` must resolve the
+# SAME workspace the wrapper does. Print it and exit before any config/gh work.
+[[ -n "${PRJ_PRINT_WORKSPACE:-}" ]] && { printf '%s\n' "$WORKSPACE_ROOT"; exit 0; }
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 
@@ -82,6 +104,16 @@ fi
 AGENT_WORK_ROOT="${AGENT_WORK_ROOT/#\~/$HOME}"   # expand leading ~ for path use
 WORKSPACE_REPO="${WORKSPACE_REPO:-svm-prj-work}"
 
+# Base code branch for member repos (used when materializing a unit's owner repo
+# on demand — #109). prj does not source lib.sh, so read it here directly.
+if command -v yq &>/dev/null; then
+  DEFAULT_CODE_BRANCH=$(yq '.default_code_branch' "$CONFIG" 2>/dev/null || echo "dev")
+else
+  DEFAULT_CODE_BRANCH=$(python3 -c "import yaml; print(yaml.safe_load(open('$CONFIG')).get('default_code_branch','dev'))" 2>/dev/null || echo "dev")
+fi
+[[ -z "$DEFAULT_CODE_BRANCH" || "$DEFAULT_CODE_BRANCH" == "null" ]] && DEFAULT_CODE_BRANCH="dev"
+export DEFAULT_CODE_BRANCH AGENT_WORK_ROOT GITHUB_ORG
+
 CURRENT_USER=$(git config user.email 2>/dev/null || echo "")
 
 # ── Navigation context + agent launch (#57) — prj-local (prj does not source lib.sh) ──
@@ -104,9 +136,11 @@ project_context_list() {
   # The frozen registry shim only grandfathers legacy ids/branches (PRJ-001…013
   # + already-seeded boards whose NNN ≠ board number). assignment ∈ me|unassigned
   # |any · lifecycle ∈ not-initiated|initiated|paused|ongoing|done|any.
-  local assignment="${1:-any}" lifecycle="${2:-any}" me
+  local assignment="${1:-any}" lifecycle="${2:-any}" me myteams=""
   me="$(gh api user --jq .login 2>/dev/null || echo "")"
-  ME="$me" ASSIGNMENT="$assignment" LIFECYCLE="$lifecycle" \
+  # team ownership matters only for the 'me' scope — fetch my team slugs just then
+  [[ "$assignment" == "me" ]] && myteams="$(my_team_slugs 2>/dev/null | paste -sd , -)"
+  ME="$me" MY_TEAMS="$myteams" ASSIGNMENT="$assignment" LIFECYCLE="$lifecycle" \
   python3 - "$REGISTRY" "$GITHUB_ORG" <<'PY'
 import sys, os, re, json, subprocess
 try:
@@ -115,8 +149,10 @@ except ImportError:
     yaml = None                       # pyyaml-less env (e.g. minimal Slackware) — shim stays empty
 registry, owner = sys.argv[1], sys.argv[2]
 me = os.environ.get('ME', '')
+my_teams = set(t for t in os.environ.get('MY_TEAMS','').split(',') if t)
 assignment = os.environ.get('ASSIGNMENT', 'any')
 lifecycle  = os.environ.get('LIFECYCLE', 'any')
+SP, OTP = 'state:', 'owner-team:'
 
 # Frozen shim: board number → grandfathered id/branch (identity only, not status).
 # Best-effort: a missing registry OR no pyyaml just yields an empty shim (the
@@ -137,7 +173,7 @@ def slug(t):
 q = '''query($o:String!){ organization(login:$o){ projectsV2(first:100){ nodes{
   number title closed
   items(first:50){ nodes{ content{ __typename
-    ... on Issue { labels(first:10){nodes{name}} assignees(first:10){nodes{login}} } } } } } } } }'''
+    ... on Issue { number labels(first:10){nodes{name}} assignees(first:10){nodes{login}} } } } } } } } }'''
 r = subprocess.run(['gh','api','graphql','-f','query='+q,'-F','o='+owner],
                    capture_output=True, text=True)
 if r.returncode != 0:
@@ -151,16 +187,19 @@ for nd in nodes:
     if not num: continue
     title = nd.get('title') or '(untitled)'
     closed = bool(nd.get('closed'))
-    # anchor issue = an item Issue labelled 'anchor'
-    anchor = None
+    # anchor issue = an item Issue labelled 'anchor'. If a board has MORE THAN ONE,
+    # pick the LOWEST issue number — deterministic, matching anchor_issue_ref (never
+    # board order, which is unstable). `prj doctor` flags such ambiguous boards.
+    anchors = []
     for it in (nd.get('items',{}).get('nodes',[]) or []):
         c = it.get('content') or {}
         if c.get('__typename') != 'Issue': continue
         names = [l['name'] for l in (c.get('labels',{}).get('nodes',[]) or [])]
         if 'anchor' in names:
-            anchor = {'labels': names,
-                      'assignees': [a['login'] for a in (c.get('assignees',{}).get('nodes',[]) or [])]}
-            break
+            anchors.append((c.get('number') or 0,
+                            {'labels': names,
+                             'assignees': [a['login'] for a in (c.get('assignees',{}).get('nodes',[]) or [])]}))
+    anchor = min(anchors, key=lambda a: a[0])[1] if anchors else None
     # Seeded = has an anchor issue OR is a grandfathered shim project (older
     # projects were seeded before anchors existed, so they have no anchor).
     seeded = (anchor is not None) or (num in shim)
@@ -168,11 +207,15 @@ for nd in nodes:
         status = 'not-initiated'
     else:
         labels = anchor['labels'] if anchor else []
-        if closed:
+        state = next((l[len(SP):] for l in labels if l.startswith(SP)), None)
+        if state in ('active','paused','completed','cancelled'):
+            status = state                                   # searchable state: label wins (0.10.0)
+        elif closed:
             status = 'cancelled' if 'cancelled' in labels else 'completed'
         else:
             status = 'paused' if 'paused' in labels else 'active'
     owners = anchor['assignees'] if anchor else []
+    owner_teams = set(l[len(OTP):] for l in (anchor['labels'] if anchor else []) if l.startswith(OTP))
     who = ','.join(owners)
 
     # lifecycle filter
@@ -183,8 +226,8 @@ for nd in nodes:
             (lifecycle == 'ongoing'       and status in ONGOING) or
             (lifecycle == 'done'          and status in DONE))
     if not keep: continue
-    # assignment filter
-    if assignment == 'me'         and me not in owners: continue
+    # assignment filter — 'me' includes team ownership (member of an owner-team)
+    if assignment == 'me'         and me not in owners and not (my_teams & owner_teams): continue
     if assignment == 'unassigned' and owners:           continue
 
     if status == 'not-initiated':
@@ -205,7 +248,7 @@ agent_session_start_prompt() {
   printf 'Run the session-start protocol for %s now, before I send anything else: read org-config.yaml, projects/%s/agent.md, knowledge/policies/agentic-development-policy.md, and surface any "## Open" items from projects/%s/knowledge/todo.md; then post the context manifest and wait for my direction.' "$1" "$1" "$1"
 }
 
-SANCTIONED_AGENTS="claude cursor"
+SANCTIONED_AGENTS="claude cursor cursor-gui"
 launch_agent() {
   local agent="$1" dir="$2" pid="$3" inject
   [[ -d "$dir" ]] || { warn "Project worktree not found: $dir"; return 0; }
@@ -218,6 +261,24 @@ launch_agent() {
     claude)
       command -v claude >/dev/null 2>&1 || { warn "claude not on PATH. Start manually: cd \"$dir\" && claude \"<session-start>\""; return 0; }
       ok "Launching Claude in $dir (session-start runs first)..."; cd "$dir" && exec claude "$inject" ;;
+    cursor-gui)
+      # Open the Cursor GUI at the PROJECT ROOT (the folder holding the gov clone + every code
+      # repo) so all repos are visible — not the gov clone alone. The app can't take the prompt
+      # as an argv, so we drop an alwaysApply rule at the root that makes the agent run the
+      # session-start protocol on its first turn (Pattern 1) — no copy-paste.
+      local proj_root gov_name
+      proj_root="$(_project_root_of_clone "$dir")"; gov_name="$(basename "$dir")"
+      _ensure_cursor_autostart_rule "$proj_root" "$gov_name" "$pid" || warn "could not write the Cursor auto-start rule at $proj_root (opening anyway)."
+      if command -v cursor >/dev/null 2>&1; then
+        ok "Opening Cursor (GUI) at the project root $proj_root (all repos; protocol auto-runs)..."
+        ( cd "$proj_root" && cursor "$proj_root" >/dev/null 2>&1 & )
+      elif [[ "$(uname -s 2>/dev/null)" == Darwin ]] && open -Ra "Cursor" >/dev/null 2>&1; then
+        ok "Opening Cursor (GUI) at the project root $proj_root (all repos; protocol auto-runs)..."
+        open -a "Cursor" "$proj_root"
+      else
+        warn "Cursor GUI not found (install Cursor, or pick cursor-agent / start manually: cd \"$dir\" && cursor-agent \"<session-start>\")."; return 0
+      fi
+      label "Open Cursor's Agent panel and say 'go' — it runs the session-start protocol automatically (no paste needed)." ;;
     cursor)
       command -v cursor-agent >/dev/null 2>&1 || { warn "cursor-agent not on PATH (install: curl https://cursor.com/install -fsS | bash). Start manually: cd \"$dir\" && cursor-agent \"<session-start>\""; return 0; }
       ok "Launching cursor-agent in $dir (session-start runs first)..."; cd "$dir" && exec cursor-agent "$inject" ;;
@@ -232,12 +293,13 @@ prompt_and_launch_agent() {
   fi
   echo ""
   label "Start an agent in the project workspace (it runs the session-start protocol automatically):"
-  echo "  1) claude    2) cursor    0) none — I'll start it myself"
+  echo "  1) claude    2) cursor (GUI app)    3) cursor-agent (headless CLI)    0) none — I'll start it myself"
   printf "  Choose [1]: "
   IFS= read -r choice || choice=""
   case "${choice:-1}" in
-    1|claude) launch_agent claude "$dir" "$pid" ;;
-    2|cursor) launch_agent cursor "$dir" "$pid" ;;
+    1|claude)            launch_agent claude "$dir" "$pid" ;;
+    2|cursor|cursor-gui) launch_agent cursor-gui "$dir" "$pid" ;;
+    3|cursor-agent)      launch_agent cursor "$dir" "$pid" ;;
     0|none|"") label "Skipped. Start later: cd \"$dir\" && claude \"<session-start>\"" ;;
     *) warn "Unknown choice — skipped. Start later: cd \"$dir\" && claude \"<session-start>\"" ;;
   esac
@@ -245,8 +307,12 @@ prompt_and_launch_agent() {
 
 # ── GitHub-definitive ownership + repo helpers (manage/work redesign) ─────────
 # No cache: ownership = the project's anchor-issue assignees; repos = the board's
-# issues' repos. All read live from GitHub. See prj-manage-work-redesign-spec.md.
+# issues' repos. All read live from GitHub. See prj-manage-work-redesign-spec.md
+# and docs/design/team-ownership-and-searchable-state.md.
 ANCHOR_LABEL="anchor"
+OWNER_TEAM_PREFIX="owner-team:"          # anchor label marking a TEAM owner (owner-team:<slug>)
+STATE_PREFIX="state:"                     # searchable lifecycle label (state:active|paused|completed|cancelled)
+STATE_LABELS="active paused completed cancelled"
 
 # anchor_issue_ref <project_number> [owner]  → "owner/repo#number" of the board's
 # anchor issue (labelled 'anchor'), or empty. owner defaults to $GITHUB_ORG.
@@ -257,7 +323,34 @@ anchor_issue_ref() {
       [ .data.organization.projectV2.items.nodes[].content
         | select(.__typename=="Issue")
         | select(([.labels.nodes[].name] | index("anchor")) != null)
-        | "\(.repository.nameWithOwner)#\(.number)" ] | (.[0] // "")' 2>/dev/null
+        | {r: .repository.nameWithOwner, n: .number} ]
+      | sort_by(.n)                                    # DETERMINISTIC: lowest issue # wins if >1 anchor
+      | if length>0 then "\(.[0].r)#\(.[0].n)" else "" end' 2>/dev/null
+}
+
+# anchor_count <project_number> [owner]  → how many anchor-labelled issues are on the
+# board (>1 means an ambiguous project — see prj doctor). 0 on error/none.
+anchor_count() {
+  local num="$1" owner="${2:-$GITHUB_ORG}"
+  gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ items(first:100){ nodes{ content{ __typename ... on Issue { labels(first:30){nodes{name}} } } } } } } }' \
+    -F o="$owner" -F n="$num" --jq '
+      [ .data.organization.projectV2.items.nodes[].content
+        | select(.__typename=="Issue")
+        | select(([.labels.nodes[].name] | index("anchor")) != null) ] | length' 2>/dev/null || echo 0
+}
+
+# boards_with_multiple_anchors  → "num<TAB>title<TAB>count" for every org board carrying
+# MORE THAN ONE anchor issue (ambiguous — ownership/status silently read the lowest #).
+# ONE batched query; gh from bash (stub-friendly on all platforms).
+boards_with_multiple_anchors() {
+  gh api graphql -f query='query($o:String!){ organization(login:$o){ projectsV2(first:100){ nodes{ number title items(first:100){ nodes{ content{ __typename ... on Issue { labels(first:30){nodes{name}} } } } } } } } }' \
+    -F o="$GITHUB_ORG" --jq '
+      .data.organization.projectsV2.nodes[]
+      | . as $p
+      | ([ $p.items.nodes[].content | select(.__typename=="Issue")
+           | select(([.labels.nodes[].name] | index("anchor")) != null) ] | length) as $c
+      | select($c > 1)
+      | "\($p.number)\t\($p.title)\t\($c)"' 2>/dev/null
 }
 
 # project_owners <project_number> [owner]  → anchor-issue assignee logins (the
@@ -287,17 +380,25 @@ my_projects() {
 # (or on API error) — callers fall back to the registry assigned_to cache so
 # nav never breaks before anchors are labelled. One number per line, deduped.
 my_github_project_numbers() {
-  local login repo num
+  local login repo num slug
   login="$(gh api user --jq .login 2>/dev/null || echo "")"
   [[ -z "$login" ]] && return 0
-  while IFS=$'\t' read -r repo num; do
+  {
+    # (a) anchors assigned to me — INDIVIDUAL owner
+    gh search issues --owner "$GITHUB_ORG" --label "$ANCHOR_LABEL" --assignee "$login" \
+      --json number,repository --jq '.[] | "\(.repository.nameWithOwner)\t\(.number)"' 2>/dev/null
+    # (b) anchors owned by any team I'm in — TEAM owner (label AND is server-side)
+    while IFS= read -r slug; do
+      [[ -z "$slug" ]] && continue
+      gh search issues --owner "$GITHUB_ORG" --label "$ANCHOR_LABEL" --label "${OWNER_TEAM_PREFIX}${slug}" \
+        --json number,repository --jq '.[] | "\(.repository.nameWithOwner)\t\(.number)"' 2>/dev/null
+    done < <(my_team_slugs)
+  } | sort -u | while IFS=$'\t' read -r repo num; do
     [[ -z "$repo" || -z "$num" ]] && continue
     gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){ issue(number:$n){ projectItems(first:20){ nodes{ ... on ProjectV2Item { project{ number } } } } } } }' \
       -F o="${repo%%/*}" -F r="${repo##*/}" -F n="$num" \
       --jq '.data.repository.issue.projectItems.nodes[].project.number' 2>/dev/null
-  done < <(gh search issues --owner "$GITHUB_ORG" --label "$ANCHOR_LABEL" --assignee "$login" \
-             --json number,repository \
-             --jq '.[] | "\(.repository.nameWithOwner)\t\(.number)"' 2>/dev/null) | sort -un
+  done | sort -un
 }
 
 # project_repos <project_number> [owner]  → distinct repos of the board's items
@@ -329,6 +430,94 @@ set_owner() {
   bash "$SCRIPTS/project-access.sh" "$pa" "$url" "$login" >/dev/null 2>&1 \
     || warn "Assignee updated, but board write $pa failed — reconcile: bash scripts/project-access.sh $pa $url $login"
   ok "${action}: owner $login on project #$num (anchor $repo#$inum + board $pa)"
+}
+
+# ── Team ownership (docs/design/team-ownership-and-searchable-state.md) ────────
+# Issue assignees can't be teams, so a TEAM owner rides two other primitives:
+#   identity/discovery → anchor label 'owner-team:<slug>' (server-side searchable)
+#   authorization      → the team granted board WRITER (project-access.sh @<slug>)
+# Effective owners = assignees ∪ members of every owner-team. Kept atomic like set_owner.
+
+# my_team_slugs → the current user's team slugs in $GITHUB_ORG (one per line).
+my_team_slugs() {
+  gh api user/teams --jq ".[] | select(.organization.login==\"$GITHUB_ORG\") | .slug" 2>/dev/null
+}
+
+# team_members <slug> → member logins of an org team (one per line).
+team_members() {
+  gh api "/orgs/$GITHUB_ORG/teams/$1/members" --jq '.[].login' 2>/dev/null
+}
+
+# project_owner_teams <num> [owner] → team slugs from the anchor's owner-team:* labels.
+project_owner_teams() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" ref
+  ref="$(anchor_issue_ref "$num" "$owner")"; [[ -z "$ref" ]] && return 0
+  gh issue view "${ref##*#}" --repo "${ref%%#*}" --json labels --jq \
+    '.labels[].name | select(startswith("'"$OWNER_TEAM_PREFIX"'")) | sub("^'"$OWNER_TEAM_PREFIX"'";"")' 2>/dev/null
+}
+
+# set_owner_team <add|remove> <num> <slug> [owner]
+# Atomic team-owner change: (1) anchor 'owner-team:<slug>' label + (2) team board WRITER.
+set_owner_team() {
+  local action="$1" num="$2" slug="$3" owner="${4:-$GITHUB_ORG}"
+  local ref repo inum url lact pa
+  ref="$(anchor_issue_ref "$num" "$owner")"
+  [[ -z "$ref" ]] && { warn "No '$ANCHOR_LABEL' issue on project #$num — designate one first (prj manage)."; return 1; }
+  repo="${ref%%#*}"; inum="${ref##*#}"; url="https://github.com/orgs/$owner/projects/$num"
+  case "$action" in
+    add)    lact="--add-label";    pa="grant"  ;;
+    remove) lact="--remove-label"; pa="revoke" ;;
+    *) warn "set_owner_team: action must be add|remove"; return 1 ;;
+  esac
+  # verify the team exists before mutating (fail-closed)
+  gh api "/orgs/$owner/teams/$slug" --jq .slug >/dev/null 2>&1 \
+    || { warn "No team '@$owner/$slug' — check the slug (prj org / GitHub teams)."; return 1; }
+  [[ "$action" == "add" ]] && gh label create "${OWNER_TEAM_PREFIX}${slug}" --repo "$repo" --color 1d76db \
+      --description "Team owner (identity/discovery): $slug" >/dev/null 2>&1 || true
+  gh issue edit "$inum" --repo "$repo" "$lact" "${OWNER_TEAM_PREFIX}${slug}" >/dev/null 2>&1 \
+    || { warn "Failed to $action owner-team label on $repo#$inum"; return 1; }
+  bash "$SCRIPTS/project-access.sh" "$pa" "$url" "@$slug" >/dev/null 2>&1 \
+    || warn "Label updated, but team board $pa failed — reconcile: bash scripts/project-access.sh $pa $url @$slug"
+  ok "${action}: team @$owner/$slug on project #$num (anchor label + board $pa)"
+}
+
+# move_anchor <project_number> <new_ref "owner/repo#num"> [owner]
+# Re-designate the project's anchor to a different board issue, MIGRATING everything the
+# anchor carries — assignees (owners), owner-team:* labels (team owners), and the state:*
+# label — to the new issue, then stripping those markers from the old one. Board write
+# access is board-level (unchanged by the move). Operates on explicit refs (never the
+# num-based resolvers) so it's safe while both issues transiently carry the anchor label.
+move_anchor() {
+  local num="$1" new_ref="$2" owner="${3:-$GITHUB_ORG}"
+  local old_ref old_repo old_num new_repo new_num assignees teams state a t
+  old_ref="$(anchor_issue_ref "$num" "$owner")"
+  [[ -z "$old_ref" ]] && { warn "No current anchor on project #$num — use 'designate' first."; return 1; }
+  [[ "$old_ref" == "$new_ref" ]] && { warn "$new_ref is already the anchor — nothing to move."; return 1; }
+  old_repo="${old_ref%%#*}"; old_num="${old_ref##*#}"
+  new_repo="${new_ref%%#*}"; new_num="${new_ref##*#}"
+  # read what to migrate off the OLD anchor
+  assignees="$(gh issue view "$old_num" --repo "$old_repo" --json assignees --jq '.assignees[].login' 2>/dev/null)"
+  teams="$(gh issue view "$old_num" --repo "$old_repo" --json labels --jq '.labels[].name | select(startswith("'"$OWNER_TEAM_PREFIX"'")) | sub("^'"$OWNER_TEAM_PREFIX"'";"")' 2>/dev/null)"
+  state="$(gh issue view "$old_num" --repo "$old_repo" --json labels --jq '.labels[].name | select(startswith("'"$STATE_PREFIX"'")) | sub("^'"$STATE_PREFIX"'";"")' 2>/dev/null | head -1)"
+  # stamp the NEW anchor
+  ensure_anchor_label "$new_repo"
+  gh issue edit "$new_num" --repo "$new_repo" --add-label "$ANCHOR_LABEL" >/dev/null 2>&1 \
+    || { err "Could not label $new_ref as the anchor (repo access / permissions?)."; return 1; }
+  while IFS= read -r a; do [[ -n "$a" ]] && gh issue edit "$new_num" --repo "$new_repo" --add-assignee "$a" >/dev/null 2>&1 || true; done <<< "$assignees"
+  while IFS= read -r t; do
+    [[ -z "$t" ]] && continue
+    gh label create "${OWNER_TEAM_PREFIX}${t}" --repo "$new_repo" --color 1d76db --description "Team owner (identity/discovery): $t" >/dev/null 2>&1 || true
+    gh issue edit "$new_num" --repo "$new_repo" --add-label "${OWNER_TEAM_PREFIX}${t}" >/dev/null 2>&1 || true
+  done <<< "$teams"
+  if [[ -n "$state" ]]; then
+    gh label create "${STATE_PREFIX}${state}" --repo "$new_repo" --color 0e8a16 --description "Searchable lifecycle state" >/dev/null 2>&1 || true
+    gh issue edit "$new_num" --repo "$new_repo" --add-label "${STATE_PREFIX}${state}" >/dev/null 2>&1 || true
+  fi
+  # strip anchor markers from the OLD issue (its assignees stay — harmless; owners are on NEW now)
+  gh issue edit "$old_num" --repo "$old_repo" --remove-label "$ANCHOR_LABEL" >/dev/null 2>&1 || true
+  while IFS= read -r t; do [[ -n "$t" ]] && gh issue edit "$old_num" --repo "$old_repo" --remove-label "${OWNER_TEAM_PREFIX}${t}" >/dev/null 2>&1 || true; done <<< "$teams"
+  [[ -n "$state" ]] && gh issue edit "$old_num" --repo "$old_repo" --remove-label "${STATE_PREFIX}${state}" >/dev/null 2>&1 || true
+  ok "Moved anchor: $old_ref → $new_ref  (owners, team-owners & state migrated; board access unchanged)."
 }
 
 # pid_for_project_number <num> [owner] → the project id for a board number.
@@ -366,7 +555,16 @@ i_can_work_project() {
   local num="$1" owner="${2:-$GITHUB_ORG}" me o
   me="$(gh api user --jq .login 2>/dev/null || echo "")"
   [[ -z "$me" ]] && return 1
+  # (1) individual owner = anchor assignee
   while IFS= read -r o; do [[ "$o" == "$me" ]] && return 0; done < <(project_owners "$num" "$owner")
+  # (2) team owner = member of any of the anchor's owner-team:* teams
+  local ot mine; mine="$(my_team_slugs)"
+  if [[ -n "$mine" ]]; then
+    while IFS= read -r ot; do
+      [[ -n "$ot" ]] && printf '%s\n' "$mine" | grep -qx "$ot" && return 0
+    done < <(project_owner_teams "$num" "$owner")
+  fi
+  # (3) assigned to any board issue
   gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ items(first:100){ nodes{ content{ ... on Issue { assignees(first:20){nodes{login}} } } } } } } }' \
     -F o="$owner" -F n="$num" \
     --jq '.data.organization.projectV2.items.nodes[].content.assignees.nodes[].login' 2>/dev/null \
@@ -480,8 +678,36 @@ anchor_has_label() {
 # board actually completes the project:
 #   open  board: anchor 'paused'    → paused    else active
 #   closed board: anchor 'cancelled'→ cancelled else completed
+# anchor_state_label <num> [owner] → the searchable state:* value on the anchor,
+# or empty (un-migrated anchor). Prefer this over board-derivation when present.
+anchor_state_label() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" ref
+  ref="$(anchor_issue_ref "$num" "$owner")"; [[ -z "$ref" ]] && return 0
+  gh issue view "${ref##*#}" --repo "${ref%%#*}" --json labels --jq \
+    '.labels[].name | select(startswith("'"$STATE_PREFIX"'")) | sub("^'"$STATE_PREFIX"'";"")' 2>/dev/null | head -1
+}
+
+# stamp_state <num> <active|paused|completed|cancelled> [owner]  — set the one
+# searchable state:* label on the anchor, remove the other three. Mutually exclusive.
+stamp_state() {
+  local num="$1" want="$2" owner="${3:-$GITHUB_ORG}" ref repo inum s
+  case " $STATE_LABELS " in *" $want "*) : ;; *) return 1 ;; esac
+  ref="$(anchor_issue_ref "$num" "$owner")"; [[ -z "$ref" ]] && return 1
+  repo="${ref%%#*}"; inum="${ref##*#}"
+  gh label create "${STATE_PREFIX}${want}" --repo "$repo" --color 0e8a16 --description "Searchable lifecycle state" >/dev/null 2>&1 || true
+  gh issue edit "$inum" --repo "$repo" --add-label "${STATE_PREFIX}${want}" >/dev/null 2>&1 || return 1
+  for s in $STATE_LABELS; do
+    [[ "$s" == "$want" ]] && continue
+    gh issue edit "$inum" --repo "$repo" --remove-label "${STATE_PREFIX}${s}" >/dev/null 2>&1 || true
+  done
+}
+
 derive_project_status() {
-  local num="$1" owner="${2:-$GITHUB_ORG}" closed
+  local num="$1" owner="${2:-$GITHUB_ORG}" closed st
+  # Prefer the searchable state:* label (0.10.0); fall back to board open/closed +
+  # legacy paused/cancelled for anchors not yet migrated/backfilled.
+  st="$(anchor_state_label "$num" "$owner")"
+  case "$st" in active|paused|completed|cancelled) echo "$st"; return ;; esac
   closed="$(gh api graphql -f query='query($o:String!,$n:Int!){ organization(login:$o){ projectV2(number:$n){ closed } } }' \
     -F o="$owner" -F n="$num" --jq '.data.organization.projectV2.closed' 2>/dev/null)"
   if [[ "$closed" == "true" ]]; then
@@ -528,6 +754,9 @@ scope marker for the project; closed at project close."
           --label "$ANCHOR_LABEL" ${me:+--assignee "$me"} --body "$body" 2>/dev/null | tail -1)"
   [[ -z "$url" ]] && return 1
   gh project item-add "$num" --owner "$owner" --url "$url" >/dev/null 2>&1 || true
+  # searchable initial state (a fresh open board with an anchor is 'active')
+  gh label create "${STATE_PREFIX}active" --repo "$repo" --color 0e8a16 --description "Searchable lifecycle state" >/dev/null 2>&1 || true
+  gh issue edit "${url##*/}" --repo "$repo" --add-label "${STATE_PREFIX}active" >/dev/null 2>&1 || true
   echo "${repo}#${url##*/}"
 }
 
@@ -851,17 +1080,18 @@ cmd_init() {
 
   # Parse and display projects (bash 3.2 compatible — no mapfile)
   local TITLES=() URLS=() NUMS=()
-  while IFS= read -r line; do TITLES+=("$line"); done < <(echo "$PROJECTS_JSON" | python3 -c "
+  # strip trailing \r — Python print() emits CRLF on Windows (see _pick_open_project).
+  while IFS= read -r line; do TITLES+=("${line%$'\r'}"); done < <(echo "$PROJECTS_JSON" | python3 -c "
 import sys, json
 ps = json.load(sys.stdin).get('projects', [])
 for p in ps: print(p.get('title', '(untitled)'))
 ")
-  while IFS= read -r line; do URLS+=("$line"); done < <(echo "$PROJECTS_JSON" | python3 -c "
+  while IFS= read -r line; do URLS+=("${line%$'\r'}"); done < <(echo "$PROJECTS_JSON" | python3 -c "
 import sys, json
 ps = json.load(sys.stdin).get('projects', [])
 for p in ps: print(p.get('url', ''))
 ")
-  while IFS= read -r line; do NUMS+=("$line"); done < <(echo "$PROJECTS_JSON" | python3 -c "
+  while IFS= read -r line; do NUMS+=("${line%$'\r'}"); done < <(echo "$PROJECTS_JSON" | python3 -c "
 import sys, json
 ps = json.load(sys.stdin).get('projects', [])
 for p in ps: print(p.get('number', ''))
@@ -1043,7 +1273,15 @@ cmd_work() {
 
     route)  # STEP 1.2 — initiated (seeded + cloned locally) or not?
       PID="$(pid_for_project_number "$PNUM")"
-      if [[ -z "$PID" ]]; then
+      # SEEDED iff the workspace carries the seed-complete sentinel (PRJ-43 D). A derivable
+      # PID or a leftover folder is NOT enough — a partial seed (failed mid-way) must re-seed.
+      _pid_guess="${PID:-$(derive_project_id "$PNUM" "$GITHUB_ORG" 2>/dev/null)}"
+      if [[ -z "$PID" ]] || ! _seed_complete "$_pid_guess"; then
+        # clean a partial leftover first (a failed-seed folder with no sentinel)
+        if [[ -n "$_pid_guess" && -d "$AGENT_WORK_ROOT/$_pid_guess" ]] && ! _seed_complete "$_pid_guess"; then
+          warn "Found an INCOMPLETE seed at $AGENT_WORK_ROOT/$_pid_guess (no .seed-complete)."
+          _clean_partial_seed "$_pid_guess" && info "cleaned the partial; re-seeding fresh."
+        fi
         # 1.2.1 NOT initiated → seed all the way to the agent + session-start.
         require_git_identity
         me="$(gh api user --jq .login 2>/dev/null || echo "$CURRENT_USER")"
@@ -1393,6 +1631,8 @@ cmd_list() {
   if [[ "$mode" != "all" ]]; then
     echo ""; echo -e "  ${DIM}Closed boards (completed/cancelled) hidden — 'prj list-all' to show all.${NC}"
   fi
+  echo ""
+  echo -e "  ${DIM}Note: projects not having an anchor issue are not included in the list.${NC}"
   echo ""
 }
 
@@ -1817,7 +2057,10 @@ _pick_open_project() {
   local __nv="$1" __tv="$2" owner="${3:-$GITHUB_ORG}" __json __titles=() __nums=()
   __json=$(gh project list --owner "$owner" --format json --limit 100 2>/dev/null) \
     || { err "Could not list GitHub Projects for '$owner'."; exit 1; }
-  while IFS=$'\t' read -r t n; do __titles+=("$t"); __nums+=("$n"); done < <(echo "$__json" | python3 -c "
+  # NOTE: Python's print() emits CRLF on Windows, so `n` (the last field) keeps a trailing
+  # \r — strip it, else the number becomes "45\r" (display artifact + non-numeric → gh fails
+  # → silent exit under set -euo pipefail). See also the read prompts elsewhere (% $'\r').
+  while IFS=$'\t' read -r t n; do n="${n%$'\r'}"; __titles+=("$t"); __nums+=("$n"); done < <(echo "$__json" | python3 -c "
 import sys, json
 for p in json.load(sys.stdin).get('projects', []):
     print('%s\t%s' % (p.get('title','(untitled)'), p.get('number','')))
@@ -1851,7 +2094,9 @@ _pick_my_project() {
   rows="$(project_context_list me ongoing)"
   if [[ -z "$rows" ]]; then
     err "No active projects assigned to you${me:+ ($me)}."
-    echo -e "  ${DIM}Get assigned first: Admin → manage (or ./prj manage), then retry.${NC}"
+    echo -e "  ${DIM}List only includes projects you are either owner and/or have access to it. If you"
+    echo -e "  want to work on a project that is not in this list, please contact an admin to get"
+    echo -e "  that project assigned to you.${NC}"
     printf -v "$__nv" '%s' "$BACK"; printf -v "$__tv" '%s' "$BACK"; return
   fi
   local pid url status who num
@@ -1864,6 +2109,10 @@ _pick_my_project() {
   local i
   for i in "${!labels[@]}"; do printf "  ${CYAN}%d)${NC} %b\n" $((i+1)) "${labels[$i]}"; done
   printf "  ${DIM}0) ← back${NC}\n"
+  echo ""
+  echo -e "  ${DIM}List only includes projects you are either owner and/or have access to it. If you"
+  echo -e "  want to work on a project that is not in this list, please contact an admin to get"
+  echo -e "  that project assigned to you.${NC}"
   local c
   while true; do
     printf "Choose [1-%d, 0=back]: " "${#vals[@]}"; _read_or_abort c
@@ -1922,30 +2171,53 @@ cmd_manage_owners() {
       confirm "Designate an anchor issue now?"
       local AREF; _pick_board_issue AREF "$PNUM"
       is_back "$AREF" && return
+      ensure_anchor_label "${AREF%%#*}"   # create the 'anchor' label first (gh --add-label fails if it doesn't exist)
       gh issue edit "${AREF##*#}" --repo "${AREF%%#*}" --add-label "$ANCHOR_LABEL" >/dev/null 2>&1 \
-        && ok "Labelled $AREF as the anchor." || { err "Could not add '$ANCHOR_LABEL' label (does the label exist in ${AREF%%#*}?)."; exit 1; }
+        && { stamp_state "$PNUM" active 2>/dev/null || true; ok "Labelled $AREF as the anchor."; } \
+        || { err "Could not add '$ANCHOR_LABEL' label on ${AREF%%#*} (check repo access / permissions)."; exit 1; }
       ref="$AREF"
     fi
-    local owners; owners="$(project_owners "$PNUM" | paste -sd ',' - | sed 's/,/, /g')"
+    local owners oteams; owners="$(project_owners "$PNUM" | paste -sd ',' - | sed 's/,/, /g')"
+    oteams="$(project_owner_teams "$PNUM" | paste -sd ',' - | sed 's/,/, /g')"
     echo -e "  ${BOLD}Anchor:${NC} $ref"
-    echo -e "  ${BOLD}Current owners:${NC} ${owners:-(none)}"
+    echo -e "  ${BOLD}Current owners:${NC}      ${owners:-(none)}"
+    echo -e "  ${BOLD}Current team owners:${NC} ${oteams:-(none)}"
     echo ""
-    local ACT; ask_choice ACT "Add or remove an owner?" "Add owner" "Remove owner"
+    local ACT; ask_choice ACT "What would you like to do?" \
+      "Add owner" "Remove owner" "Add team owner" "Remove team owner" "Move anchor to another issue"
     is_back "$ACT" && return
     echo ""
-    if [[ "$ACT" == "Add owner" ]]; then
+    if [[ "$ACT" == "Move anchor to another issue" ]]; then
+      local NREF; _pick_board_issue NREF "$PNUM"
+      is_back "$NREF" && return
+      confirm "Move the anchor from $ref to $NREF? (owners, team-owners & state migrate to the new issue; the old issue keeps its assignees but is no longer the anchor)"
+      move_anchor "$PNUM" "$NREF"
+    elif [[ "$ACT" == "Add owner" ]]; then
       local WHO; ask WHO "GitHub login to add as owner (@me for yourself)" ""
       [[ "$WHO" == "@me" ]] && WHO="$(gh api user --jq .login 2>/dev/null)"
       [[ -z "$WHO" ]] && { err "No login given."; exit 1; }
       confirm "Add '$WHO' as owner of '$PTITLE' (anchor assignee + board write)?"
       set_owner add "$PNUM" "$WHO"
-    else
+    elif [[ "$ACT" == "Remove owner" ]]; then
       local cur; cur="$(project_owners "$PNUM")"
       [[ -z "$cur" ]] && { err "No current owners to remove."; exit 1; }
       local WHO; ask_choice WHO "Remove which owner?" $cur
       is_back "$WHO" && return
       confirm "Remove '$WHO' as owner of '$PTITLE' (unassign + revoke board write)?"
       set_owner remove "$PNUM" "$WHO"
+    elif [[ "$ACT" == "Add team owner" ]]; then
+      local TEAM; ask TEAM "Team slug to add as owner (e.g. developers)" ""
+      TEAM="${TEAM#@}"; TEAM="${TEAM##*/}"
+      [[ -z "$TEAM" ]] && { err "No team slug given."; exit 1; }
+      confirm "Add team '@$GITHUB_ORG/$TEAM' as owner of '$PTITLE' (owner-team label + team board write)?"
+      set_owner_team add "$PNUM" "$TEAM"
+    else
+      local curt; curt="$(project_owner_teams "$PNUM")"
+      [[ -z "$curt" ]] && { err "No current team owners to remove."; exit 1; }
+      local TEAM; ask_choice TEAM "Remove which team owner?" $curt
+      is_back "$TEAM" && return
+      confirm "Remove team '@$GITHUB_ORG/$TEAM' as owner of '$PTITLE' (drop label + revoke team board write)?"
+      set_owner_team remove "$PNUM" "$TEAM"
     fi
   else
     local IREF; _pick_board_issue IREF "$PNUM"
@@ -2241,27 +2513,16 @@ cmd_manage_unassign() {
 }
 
 cmd_manage() {
-  # Optional non-interactive subcommand: `prj manage list|list-all|assign|...`.
-  local sub="${1:-}"
-  if [[ -z "$sub" ]]; then
-    header "Manage Assignments"
-    divider
-    echo ""
-    echo -e "  ${CYAN}1)${NC} list       Ongoing assignments (GitHub-derived, excl. completed)"
-    echo -e "  ${CYAN}2)${NC} list-all   Full board universe (from GitHub)"
-    echo -e "  ${CYAN}3)${NC} manage     Add/remove owners (project) or assignees (issue) — GitHub-definitive"
-    echo -e "  ${DIM}0)  Back${NC}"
-    echo ""
-    printf "  Choose: "
-    read -r sub
-    echo ""
-  fi
-  case "$sub" in
-    1|list)                              cmd_manage_list ;;
-    2|list-all)                          cmd_manage_list_all ;;
-    3|manage|assign|reassign|unassign)   cmd_manage_owners ;;  # collapsed (#57 §3); old verbs aliased
-    0|back|"")                           return ;;
-    *)                                   err "Unknown option '$sub'." ;;
+  # `prj manage` (interactive, incl. Admin → manage) goes STRAIGHT to owner/assignee
+  # management — no intermediate submenu. The old list/list-all/manage submenu was a
+  # redundant hop: list/list-all already live under Status (and `prj list`/`prj list-all`).
+  # They remain as explicit non-interactive subcommands for scripting.
+  case "${1:-}" in
+    list)                                cmd_manage_list ;;
+    list-all)                            cmd_manage_list_all ;;
+    ""|manage|assign|reassign|unassign)  cmd_manage_owners ;;
+    0|back)                              return ;;
+    *)                                   err "Unknown option '${1}'   (prj manage [list | list-all])." ;;
   esac
 }
 
@@ -2269,59 +2530,30 @@ cmd_manage() {
 
 _menu_pause() { echo ""; printf "${DIM}  Press Enter to continue…${NC}"; read -r _; }
 
-# Numbered environment picker. Echoes one of local|dev|uat|prod (empty on back).
-# All UI goes to stderr so the chosen value is the only thing on stdout.
-_menu_pick_env() {
-  local prompt="${1:-Select an environment}" with_local="${2:-1}" c
-  {
-    echo ""
-    echo -e "  ${BOLD}${prompt}${NC}"
-    if [[ "$with_local" == 1 ]]; then echo "    (1) local   (2) dev   (3) uat   (4) prod"
-    else echo "    (1) dev   (2) uat   (3) prod"; fi
-    echo "    (0) back"
-    printf "  Choose: "
-  } >&2
-  read -r c; c="${c%$'\r'}"
-  if [[ "$with_local" == 1 ]]; then
-    case "$c" in 1) echo local ;; 2) echo dev ;; 3) echo uat ;; 4) echo prod ;; *) echo "" ;; esac
-  else
-    case "$c" in 1) echo dev ;; 2) echo uat ;; 3) echo prod ;; *) echo "" ;; esac
-  fi
+# Switch the active governance workspace (org) from the menu — picks from the registry.
+_menu_switch_org() {
+  header "Switch active org"
+  local orgs=() line org home i=1 active n
+  active="$(prj_reg_active_org 2>/dev/null || true)"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    org="${line%%	*}"; home="${line#*	}"; orgs+=("$org")
+    local mark="  "; [[ -n "$active" && "$org" == "$active" ]] && mark="* "
+    printf "  %s(%d) %-26s ${DIM}%s${NC}\n" "$mark" "$i" "${org:-<unconfigured>}" "$home"; i=$((i+1))
+  done < <(prj_reg_list 2>/dev/null)
+  [[ ${#orgs[@]} -eq 0 ]] && { echo "  (none registered — run setup.sh in a gov repo)"; return; }
+  echo ""; printf "  Pick org # (0 to cancel): "; read -r n; n="${n%$'\r'}"; echo ""
+  [[ "$n" == 0 || -z "$n" ]] && return
+  if [[ "$n" =~ ^[0-9]+$ ]] && (( n>=1 && n<=${#orgs[@]} )); then
+    if prj_reg_set_active "${orgs[$((n-1))]}"; then
+      ok "active org → ${orgs[$((n-1))]}"
+      warn "applies to your NEXT prj run — re-run prj to operate on it (this session keeps the current org)."
+    fi
+  else err "invalid choice '$n'."; fi
 }
 
-# Numbered unit picker for an env, from graph.lock. $1=env  $2=mode(all|data).
-# Echoes the chosen unit (empty on back/none). UI → stderr.
-_menu_pick_unit() {
-  local env="$1" mode="${2:-all}" c lock names u
-  if ! resolve_workspace "$env" >/dev/null 2>&1; then { err "could not resolve workspace for env '$env'"; } >&2; echo ""; return; fi
-  lock="$WORKSPACE_ROOT/knowledge/deployment/catalog/graph.lock"
-  if [[ ! -f "$lock" ]]; then { err "no catalog (graph.lock) for env '$env'"; } >&2; echo ""; return; fi
-  names=$(python3 - "$lock" "$mode" <<'PY'
-import json,sys
-c=json.load(open(sys.argv[1])); mode=sys.argv[2]; out=[]
-if mode=='data':
-    for k,v in (c.get('hooks') or {}).items():
-        if k.endswith('-data') and v.get('cmd'): out.append(k[:-5])
-else:
-    out += list((c.get('applications') or {}).keys())
-    out += list((c.get('units') or {}).keys())
-for n in sorted(set(out)): print(n)
-PY
-)
-  if [[ -z "$names" ]]; then { err "no units found for env '$env'"; } >&2; echo ""; return; fi
-  local arr=() i=1
-  while IFS= read -r u; do [[ -n "$u" ]] && arr+=("$u"); done <<< "$names"
-  {
-    echo ""
-    echo -e "  ${BOLD}Units${NC} ${DIM}(env=$env)${NC}"
-    for u in "${arr[@]}"; do printf "    (%d) %s\n" "$i" "$u"; i=$((i+1)); done
-    echo "    (0) back"
-    printf "  Choose: "
-  } >&2
-  read -r c; c="${c%$'\r'}"
-  if [[ "$c" =~ ^[0-9]+$ ]] && (( c>=1 && c<=${#arr[@]} )); then echo "${arr[$((c-1))]}"; else echo ""; fi
-}
-
+# Restored (#75 removed catalog/deploy/data submenus but inadvertently dropped these two,
+# leaving the dispatch calling undefined menu_status/menu_admin → "command not found").
 menu_status() {
   local c
   while true; do
@@ -2354,6 +2586,7 @@ menu_admin() {
     echo "  (6) upgrade       pull a new framework version"
     echo "  (7) deps          install / verify dependencies"
     echo "  (8) creds         manage your credentials"
+    echo "  (9) doctor        find / clean partial (failed) seeds"
     echo "  (0) back"; echo ""
     printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
     case "$c" in
@@ -2365,127 +2598,12 @@ menu_admin() {
       6) require_git_identity; ( cmd_upgrade ) ;;
       7) ( cmd_deps ) ;;
       8) ( bash "$SCRIPTS/creds.sh" ) ;;
+      9) ( cmd_doctor ) ;;
       0|q|back|"") return ;;
       *) err "Unknown option '$c'." ;;
     esac
     _menu_pause
   done
-}
-
-menu_catalog() {
-  local c e
-  while true; do
-    header "Catalog — units for build & deploy"
-    echo "  (1) view     units in an env"
-    echo "  (2) dag      dependency DAG"
-    echo "  (3) build    (re)derive graph.lock"
-    echo "  (4) check    drift-check graph.lock"
-    echo "  (5) config   scaffold / check a unit's deploy.yaml"
-    echo "  (0) back"; echo ""
-    printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
-    case "$c" in
-      1) e=$(_menu_pick_env "View units for which env?"); [[ -n "$e" ]] && ( cmd_catalog "$e" ) ;;
-      2) e=$(_menu_pick_env "DAG for which env?"); [[ -z "$e" ]] && { _menu_pause; continue; }
-         u=$(_menu_pick_unit "$e" all); [[ -z "$u" ]] && { _menu_pause; continue; }
-         ( cmd_catalog dag "$u" --env "$e" ) ;;
-      3) ( cmd_catalog build ) ;;
-      4) ( cmd_catalog check ) ;;
-      5) menu_config ;;
-      0|q|back|"") return ;;
-      *) err "Unknown option '$c'." ;;
-    esac
-    _menu_pause
-  done
-}
-
-menu_config() {
-  local c u p
-  header "Config — deploy.yaml"
-  echo "  (1) scaffold a unit's deploy.yaml"
-  echo "  (2) check a deploy.yaml for drift"
-  echo "  (0) back"; echo ""
-  printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
-  case "$c" in
-    1) u=$(_menu_pick_unit local all); [[ -n "$u" ]] && ( cmd_config scaffold "$u" ) ;;
-    2) echo "  A unit's deploy.yaml lives in its repo at <repo>/<unit-path>/deploy.yaml."
-       echo "  (See Catalog -> view for units; 'config -> scaffold' (re)generates one.)"
-       printf "  path to deploy.yaml: "; read -r p; p="${p%$'\r'}"
-       [[ -n "$p" ]] && ( cmd_config check "$p" ) ;;
-    *) return ;;
-  esac
-}
-
-menu_data() {
-  local c e u
-  while true; do
-    header "Data — query a datastore"
-    echo "  (1) list     data-capable units in an env"
-    echo "  (2) query    query a unit's datastore"
-    echo "  (0) back"; echo ""
-    printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
-    case "$c" in
-      1) e=$(_menu_pick_env "List units for which env?"); [[ -n "$e" ]] && ( cmd_data --list "$e" ) ;;
-      2) e=$(_menu_pick_env "Query in which env?"); [[ -z "$e" ]] && { _menu_pause; continue; }
-         u=$(_menu_pick_unit "$e" data); [[ -z "$u" ]] && { _menu_pause; continue; }
-         menu_data_query "$u" "$e" ;;
-      0|q|back|"") return ;;
-      *) err "Unknown option '$c'." ;;
-    esac
-    _menu_pause
-  done
-}
-
-menu_data_query() {
-  local u="$1" e="$2" c t q
-  header "Data — $u ($e)"
-  echo "  (1) tables       list tables"
-  echo "  (2) list         canned list query"
-  echo "  (3) describe     describe a table"
-  echo "  (4) SQL          run custom SQL"
-  echo "  (0) back"; echo ""
-  printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
-  case "$c" in
-    1) ( cmd_data "$u" "$e" --tables ) ;;
-    2) ( cmd_data "$u" "$e" --list ) ;;
-    3) printf "  table name: "; read -r t; [[ -n "$t" ]] && ( cmd_data "$u" "$e" --describe "$t" ) ;;
-    4) printf "  SQL: "; read -r q; [[ -n "$q" ]] && ( cmd_data "$u" "$e" "$q" ) ;;
-    *) return ;;
-  esac
-}
-
-menu_deploy() {
-  local c u
-  while true; do
-    header "Deploy — build & deploy units"
-    echo "  (1) deploy a unit   pick unit → env → provision? → seed?"
-    echo "  (2) seed (local)    wipe + reload a unit's curated data"
-    echo "  (3) schedules       install / inspect cron schedules"
-    echo "  (0) back"; echo ""
-    printf "  Choose: "; read -r c; c="${c%$'\r'}"; echo ""
-    case "$c" in
-      1) menu_deploy_unit ;;
-      2) u=$(_menu_pick_unit local all); [[ -n "$u" ]] && { require_git_identity; ( cmd_deploy "$u" --local --seed ); } ;;
-      3) ( bash "$SCRIPTS/deploy/schedules.sh" ) ;;
-      0|q|back|"") return ;;
-      *) err "Unknown option '$c'." ;;
-    esac
-    _menu_pause
-  done
-}
-
-menu_deploy_unit() {
-  local e u yn; local -a args
-  e=$(_menu_pick_env "Deploy to which env?"); [[ -z "$e" ]] && return
-  u=$(_menu_pick_unit "$e" all); [[ -z "$u" ]] && return
-  args=("$u" "--$e")
-  if [[ "$e" == local ]]; then
-    printf "  Provision (stand up the local substrate)? [Y/n]: "; read -r yn; yn="${yn%$'\r'}"; [[ "$yn" =~ ^[Nn] ]] && args+=(--no-provision)
-    printf "  Seed (WIPE data + reload curated)? [y/N]: "; read -r yn; yn="${yn%$'\r'}"; [[ "$yn" =~ ^[Yy] ]] && args+=(--seed)
-  else
-    printf "  Provision (stand up shared infra)? [y/N]: "; read -r yn; yn="${yn%$'\r'}"; [[ "$yn" =~ ^[Yy] ]] && args+=(--provision)
-  fi
-  require_git_identity
-  ( cmd_deploy "${args[@]}" )
 }
 
 menu_help() {
@@ -2509,6 +2627,147 @@ menu_help() {
   done
 }
 
+# ── Org switching (multi-home registry; PRJ-43) ───────────────────────────────
+# `prj org` (list + active) | `prj org use <github_org>`. Lets a developer in
+# several orgs pick which governance workspace prj operates on when cwd is neutral.
+cmd_org() {
+  case "${1:-}" in -h|--help) cmd_help org 2>/dev/null || echo "prj org [list] | prj org use <github_org> | prj org add <github_org> <gov_home>"; return 0 ;; esac
+  local sub="${1:-list}" active line org home mark any=0
+  active="$(prj_reg_active_org 2>/dev/null || true)"
+  case "$sub" in
+    list|"")
+      header "Governance workspaces"
+      while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        org="${line%%	*}"; home="${line#*	}"
+        any=1; mark="  "; [[ -n "$active" && "$org" == "$active" ]] && mark="${GREEN}* ${NC}"
+        printf "  %b%-28s${DIM}%s${NC}\n" "$mark" "${org:-<unconfigured>}" "$home"
+      done < <(prj_reg_list 2>/dev/null)
+      [[ "$any" == 0 ]] && echo "  (none registered — run setup.sh in a gov repo, or: prj org add <github_org> <gov_home>)"
+      echo ""; echo -e "  ${DIM}* = active.  Switch:${NC} ${BOLD}prj org use <github_org>${NC}${DIM}   Register a home:${NC} ${BOLD}prj org add <github_org> <gov_home>${NC}"
+      ;;
+    use)
+      [[ -n "${2:-}" ]] || { err "usage: prj org use <github_org>"; return 1; }
+      if prj_reg_set_active "$2"; then ok "active org → $2"; else return 1; fi
+      ;;
+    add)
+      # Explicit escape hatch for when auto-learn can't find the canonical home (e.g. the gov
+      # repo isn't cloned yet). Registers org→home and makes it active.
+      org="${2:-}"; home="$(_prj_expand_tilde "${3:-}")"
+      [[ -n "$org" && -n "$home" ]] || { err "usage: prj org add <github_org> <gov_home>"; return 1; }
+      _prj_home_ok "$home" || { err "not a governance workspace (no org-config.yaml): $home"; return 1; }
+      prj_reg_add "$org" "$home" && ok "registered $org → $home  (now active)"
+      ;;
+    *) err "unknown: prj org $sub   (prj org [list] | prj org use <github_org> | prj org add <github_org> <gov_home>)"; return 1 ;;
+  esac
+}
+
+# ── Partial-seed detection + repair (PRJ-43 C/D) ──────────────────────────────
+# A seed writes a `.seed-complete` sentinel LAST. A project work dir WITHOUT it is a
+# partial (a seed that failed mid-way) — not a real project. _clean_partial_seed removes
+# one safely; `prj doctor` finds + offers to clean them all.
+_seed_complete() { [[ -n "$1" && -f "$AGENT_WORK_ROOT/$1/.seed-complete" ]]; }
+
+_clean_partial_seed() {                    # <project-id> — remove a partial workspace + home stub
+  local pid="$1" wdir="$AGENT_WORK_ROOT/$1" gclone
+  [[ -n "$pid" && -d "$wdir" ]] || return 0
+  gclone="$wdir/$WORKSPACE_REPO"
+  # detach any worktree registration from the base clone, then delete the work dir
+  [[ -e "$gclone/.git" ]] && git -C "$gclone" worktree prune 2>/dev/null || true
+  rm -rf "$wdir"
+  # home stub left on the gov repo (uncommitted or committed) — best-effort.
+  # prj's gov home is $WORKSPACE_ROOT (REPO_ROOT is a lib.sh name — unbound here under set -u).
+  local gh="${WORKSPACE_ROOT:-${ADF_WORKSPACE:-}}"
+  [[ -n "$gh" && -d "$gh/projects/$pid" ]] && { git -C "$gh" rm -rq "projects/$pid" 2>/dev/null || rm -rf "$gh/projects/$pid"; }
+  # prune stale worktrees in the base clone(s) for this project
+  local base; for base in "$AGENT_WORK_ROOT"/.bases/*; do
+    [[ -d "$base/.git" || -e "$base/.git" ]] && git -C "$base" worktree prune 2>/dev/null || true
+  done
+  return 0
+}
+
+# `prj anchor move <project_number> <owner/repo#issue>` — re-designate the anchor to another
+# board issue, migrating owners/team-owners/state (same as manage → "Move anchor"). Scriptable
+# + the testable entrypoint for move_anchor.
+cmd_anchor() {
+  case "${1:-}" in
+    move)
+      local num="${2:-}" newref="${3:-}"
+      [[ -n "$num" && -n "$newref" ]] || { err "usage: prj anchor move <project_number> <owner/repo#issue>"; return 1; }
+      [[ "$newref" == *"#"* ]] || { err "new anchor must be 'owner/repo#issue' (e.g. acme/app#42)."; return 1; }
+      move_anchor "$num" "$newref"
+      ;;
+    -h|--help|"") echo "prj anchor move <project_number> <owner/repo#issue>   — re-designate the anchor (migrates owners, team-owners & state)"; return 0 ;;
+    *) err "unknown: prj anchor ${1}   (prj anchor move <project_number> <owner/repo#issue>)"; return 1 ;;
+  esac
+}
+
+cmd_backfill_state() {
+  header "Backfill searchable state labels"
+  divider
+  label "Stamps state:<active|paused|completed|cancelled> on every anchor that lacks it,"
+  label "from its currently-derived status — so 'label:state:*' search covers all projects."
+  echo ""
+  local rows pid url status who num n=0 skipped=0
+  rows="$(project_context_list any any)"
+  while IFS=$'\t' read -r pid url status who; do
+    [[ -z "$url" || "$status" == "not-initiated" ]] && continue
+    num="${url##*/projects/}"; num="${num%%/*}"
+    if [[ -n "$(anchor_state_label "$num")" ]]; then skipped=$((skipped+1)); continue; fi
+    if stamp_state "$num" "$status"; then
+      ok "  $pid → state:$status"; n=$((n+1))
+    else
+      warn "  $pid — could not stamp (no anchor?)"
+    fi
+  done <<< "$rows"
+  echo ""
+  ok "Backfilled $n project(s); $skipped already had a state label."
+}
+
+cmd_doctor() {
+  header "Doctor — orphaned / partial seeds"
+  divider
+  # SAFETY: never scan/clean an empty or root AGENT_WORK_ROOT — a misconfig must not
+  # make doctor offer to delete /bin, /etc, … (seen on a Windows misresolve).
+  case "${AGENT_WORK_ROOT:-}" in
+    ""|"/"|"//") err "AGENT_WORK_ROOT is not a usable directory ('${AGENT_WORK_ROOT:-}') — refusing to scan."; return 1 ;;
+  esac
+  [[ -d "$AGENT_WORK_ROOT" ]] || { ok "no work root yet ($AGENT_WORK_ROOT) — nothing to check."; return 0; }
+  local found=0 d pid
+  for d in "$AGENT_WORK_ROOT"/*/; do
+    [[ -d "$d" ]] || continue
+    pid="$(basename "$d")"
+    case "$pid" in .bases|preferences) continue ;; esac
+    if [[ ! -f "$d/.seed-complete" ]]; then
+      found=1; echo -e "  ${YELLOW}partial${NC}  $pid   ${DIM}($d — no .seed-complete)${NC}"
+    fi
+  done
+  # Ambiguous anchors — a board with >1 'anchor' issue makes ownership/status silently read
+  # the LOWEST issue # (deterministic, but a misconfig). Informational: remediate on GitHub.
+  local amb=""
+  [[ -n "${GITHUB_ORG:-}" ]] && amb="$(boards_with_multiple_anchors 2>/dev/null || true)"
+  if [[ -n "$amb" ]]; then
+    echo ""
+    warn "Boards with MORE THAN ONE anchor issue (ownership/status read the LOWEST #; remove the extras):"
+    local _n _t _c
+    while IFS=$'\t' read -r _n _t _c; do [[ -n "$_n" ]] && echo -e "  ${YELLOW}#$_n${NC}  $_t  ${DIM}($_c anchors)${NC}"; done <<< "$amb"
+  fi
+  if [[ "$found" == 0 ]]; then
+    [[ -z "$amb" ]] && ok "no partial seeds or ambiguous anchors — everything is clean." \
+                    || info "No partial seeds to clean. Fix the ambiguous anchors above on GitHub (remove the extra 'anchor' labels)."
+    return 0
+  fi
+  echo ""
+  local yn; ask_choice yn "Clean the partial seed(s) above?" "Yes — remove them"
+  is_back "$yn" && { info "left as-is."; return 0; }
+  for d in "$AGENT_WORK_ROOT"/*/; do
+    [[ -d "$d" ]] || continue; pid="$(basename "$d")"
+    case "$pid" in .bases|preferences) continue ;; esac
+    [[ -f "$d/.seed-complete" ]] && continue
+    _clean_partial_seed "$pid" && ok "cleaned: $pid"
+  done
+}
+
 # ── Main menu ─────────────────────────────────────────────────────────────────
 
 show_menu() {
@@ -2516,12 +2775,17 @@ show_menu() {
   # Show the ACTUAL checked-out branch of the current repo (not the org default
   # branch) — this is what the developer is on. Fall back to the org default if
   # cwd isn't a git repo.
-  local cur_branch _ver
+  local cur_branch _ver _active _norgs
   cur_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "$DEFAULT_BRANCH")
   _ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SCRIPT_DIR/package.json" 2>/dev/null | head -1)"
+  _active="$(prj_reg_active_org 2>/dev/null || true)"
+  _norgs="$(prj_reg_list 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
   echo ""
   echo -e "${BOLD}${MAGENTA}  ▸ ${ORG_NAME} — Agentic Development Framework${NC}${DIM}${_ver:+ (v${_ver})}${NC}"
-  echo -e "${DIM}  Org: ${ORG_SLUG}  |  Branch: ${cur_branch}  |  User: ${CURRENT_USER}${NC}"
+  echo -e "${DIM}  Org: ${BOLD}${_active:-$ORG_SLUG}${NC}${DIM}  |  Branch: ${cur_branch}  |  User: ${CURRENT_USER}${NC}"
+  if [[ "${_norgs:-0}" -gt 1 ]]; then
+    echo -e "${DIM}  ${_norgs} governance workspaces registered — press ${BOLD}o${NC}${DIM} to switch the active org.${NC}"
+  fi
   echo ""
   divider
   echo ""
@@ -2529,12 +2793,10 @@ show_menu() {
   echo -e "  ${DIM}------------------  ---------------------------------  ------------------------------${NC}"
   echo -e "  ${CYAN}${BOLD}(1) Status${NC}          Review current state               ${DIM}list · status${NC}"
   echo -e "  ${GREEN}${BOLD}(2) Work${NC}            Start / continue a project         ${DIM}pick a project${NC}"
-  echo -e "  ${MAGENTA}${BOLD}(3) Catalog${NC}         Units for build & deploy           ${DIM}view · dag · build · check · config${NC}"
-  echo -e "  ${MAGENTA}${BOLD}(4) Data${NC}            Query a datastore                  ${DIM}list · query${NC}"
-  echo -e "  ${MAGENTA}${BOLD}(5) Deploy${NC}          Build & deploy units               ${DIM}unit → env → provision? → seed?${NC}"
-  echo -e "  ${YELLOW}${BOLD}(6) Admin${NC}           Administer governance              ${DIM}manage · knowledge · onboard · …${NC}"
-  echo -e "  ${BOLD}(7) Help${NC}            prj command-line use               ${DIM}pick a command${NC}"
+  echo -e "  ${YELLOW}${BOLD}(3) Admin${NC}           Administer governance              ${DIM}manage · knowledge · onboard · …${NC}"
+  echo -e "  ${BOLD}(4) Help${NC}            prj command-line use               ${DIM}pick a command${NC}"
   echo ""
+  echo -e "  ${DIM}Catalog, deploy & data are command-line:${NC}  ${BOLD}prj catalog${NC} · ${BOLD}prj deploy${NC} · ${BOLD}prj data${NC}   ${DIM}(run with --help)${NC}"
   echo -e "  ${DIM}Type a number; 0 to exit.${NC}"
   echo ""
   divider
@@ -2544,13 +2806,11 @@ show_menu() {
   case "$choice" in
     1)             menu_status ;;
     2)             require_git_identity; ( cmd_work ); _menu_pause ;;
-    3)             menu_catalog ;;
-    4)             menu_data ;;
-    5)             menu_deploy ;;
-    6)             menu_admin ;;
-    7)             menu_help ;;
+    3)             menu_admin ;;
+    4)             menu_help ;;
+    o|O)           _menu_switch_org; _menu_pause ;;
     0|q|quit|exit) echo "Bye."; exit 0 ;;
-    *) err "Unknown option '$choice' — type a number 1-7, or 0 to exit."; _menu_pause ;;
+    *) err "Unknown option '$choice' — type a number 1-4 (or 'o' to switch org), 0 to exit."; _menu_pause ;;
   esac
   show_menu
 }
@@ -2732,6 +2992,55 @@ PY
   return $rc
 }
 
+# ── Publish — ship the prj CLI to npm via the governed Jenkins job (single interface) ──
+# `prj publish [<ref>] [--dist-tag <tag>] [--dry-run] [-y] [--no-follow]`
+# Triggers <workspace>/publish/prod/prj (auto-provisioned): clones the CLI source
+# repo at <ref>, gates it (syntax + version-sync + npm pack), then `npm publish`
+# with the npm token from the Jenkins credential `npmjs-token` — the token lives in
+# Jenkins, never on a laptop. Default <ref> = v<package.json version>.
+cmd_publish() {
+  case "${1:-}" in -h|--help) cmd_help publish; return 0 ;; esac
+  local DEPLOY="$SCRIPTS/deploy"
+  local ref="" dist="latest" dryrun=0 follow=1 yes=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dist-tag)  dist="${2:-latest}"; shift 2 ;;
+      --dry-run)   dryrun=1; shift ;;
+      --no-follow) follow=0; shift ;;
+      -y|--yes)    yes=1; shift ;;
+      -*)          err "publish: unknown flag '$1'"; return 1 ;;
+      *)           ref="$1"; shift ;;
+    esac
+  done
+  # CLI source repo + default version come from THIS checkout's package.json.
+  local pkgjson="$SCRIPT_DIR/package.json"
+  [[ -f "$pkgjson" ]] || { err "publish: package.json not found at $pkgjson"; return 1; }
+  local pubrepo ver
+  pubrepo=$(python3 -c "import json,re; r=json.load(open('$pkgjson')).get('repository',{}); u=r.get('url','') if isinstance(r,dict) else r; m=re.search(r'github\.com[/:]([^/]+/[^/.]+)', u or ''); print(m.group(1) if m else '')")
+  ver=$(python3 -c "import json; print(json.load(open('$pkgjson')).get('version',''))")
+  [[ -n "$pubrepo" ]] || { err "publish: could not derive the CLI repo from package.json repository.url"; return 1; }
+  [[ -n "$ref" ]] || ref="v$ver"
+  local job="${WORKSPACE_REPO}/publish/prod/prj"
+  local dval; dval=$([[ $dryrun == 1 ]] && echo true || echo false)
+  local params=("PUBLISH_REPO=$pubrepo" "PUBLISH_REF=$ref" "DIST_TAG=$dist" "DRY_RUN=$dval")
+  header "Publish CLI — $pubrepo@$ref → npm (dist-tag=$dist · dry-run=$dval)"
+  if [[ $dryrun == 0 && $yes == 0 ]]; then
+    confirm "Publish $pubrepo@$ref to npm as '$dist'? This is IRREVERSIBLE." || { info "aborted."; return 1; }
+  fi
+  # Auto-provision the publish job (folder chain + Pipeline-from-SCM publish.Jenkinsfile);
+  # the job's SCM is the gov repo on its default branch.
+  JENKINS_SCM_URL="git@github.com:${GITHUB_ORG}/${WORKSPACE_REPO}.git" JENKINS_SCM_BRANCH="${DEFAULT_BRANCH:-main}" \
+    bash "$DEPLOY/jenkins.sh" ensure-job "$job" || { err "publish: could not ensure job $job."; return 1; }
+  info "publish: $job  (${params[*]})"
+  local rc=0
+  if [[ "$follow" == 1 ]]; then
+    bash "$DEPLOY/jenkins.sh" run "$job" "${params[@]}" || rc=$?
+  else
+    bash "$DEPLOY/jenkins.sh" trigger "$job" "${params[@]}" || rc=$?
+  fi
+  return $rc
+}
+
 # ── Workspace context resolution (PRJ-012) ─────────────────────────────────────
 # Two clones, two sources of truth, chosen by the ENV the command targets:
 #   • GOV repo  = $ADF_WORKSPACE — cloned once, fixed, ALWAYS on `main`. The SoT for the
@@ -2746,6 +3055,13 @@ PY
 #   env = dev|uat|prod (or development|staging|production) → GOV
 #   env = local | "" (no-env authoring)                    → PROJECT
 resolve_workspace() {
+  # Record the canonical env so hooks (run_catalog_hook → materialize-repo.sh)
+  # know which env to materialize the owner repo for (#109).
+  case "${1:-local}" in
+    development) RESOLVED_ENV=dev ;; staging) RESOLVED_ENV=uat ;; production) RESOLVED_ENV=prod ;;
+    *) RESOLVED_ENV="${1:-local}" ;;
+  esac
+  export RESOLVED_ENV
   case "${1:-local}" in
     dev|uat|prod|development|staging|production) _resolve_gov_workspace ;;
     local|"")                                   _resolve_project_workspace ;;
@@ -2845,12 +3161,19 @@ import json,sys
 c=json.load(open('$lock'))
 h=(c.get('hooks') or {}).get('$name')
 if not h or not h.get('cmd'): sys.exit(1)
-repo=(h.get('repo') or '').split('/')[-1]
-print(repo+'|'+h['cmd'])
+print((h.get('repo') or '')+'|'+h['cmd'])
 " 2>/dev/null)" || { err "$name: no '$name' hook declared in the catalog (hooks.$name)."; return 1; }
-  local leaf="${spec%%|*}" cmd="${spec#*|}"
-  local repo_dir; repo_dir="$(cd "$WORKSPACE_ROOT/.." && pwd)/$leaf"
-  [[ -d "$repo_dir" ]] || { err "$name: owner repo '$leaf' not found at $repo_dir (clone it into the project)."; return 1; }
+  local repo="${spec%%|*}" cmd="${spec#*|}"
+  [[ -n "$repo" ]] || { err "$name: hook '$name' declares no owner repo."; return 1; }
+  # Materialize the owner repo on demand (#109) — the hook's logic lives in a
+  # member repo that may not be cloned into the project (shared libs never are).
+  # local → worktree of the project branch (reusing a cloned-in sibling);
+  # dev/uat/prod → worktree of the env code branch in the per-env folder. The
+  # repo is fetched/reset to upstream first, so the answer reflects live source.
+  local env="${RESOLVED_ENV:-local}" repo_dir
+  repo_dir="$("$SCRIPTS/deploy/materialize-repo.sh" "$repo" "$env" "$WORKSPACE_ROOT")" \
+    || { err "$name: could not materialize owner repo '$repo' for env=$env."; return 1; }
+  [[ -n "$repo_dir" && -d "$repo_dir" ]] || { err "$name: materialized repo dir invalid ('$repo_dir')."; return 1; }
   export ADF_WORKSPACE="$WORKSPACE_ROOT"
   # Forward all extra args, shell-quoted so values with spaces survive the eval.
   local q="" a
@@ -2920,7 +3243,10 @@ cmd_catalog() {
       # or drift-gate it (check). WIP → the PROJECT workspace. Extra args forwarded.
       local action="$1"; shift
       resolve_workspace local || return 1
-      exec python3 "$SCRIPTS/deploy/catalog.py" "$action" "$@"
+      # Derivation needs the member repos' source — materialize any that aren't
+      # cloned into the project on demand (#109) rather than failing.
+      CATALOG_MATERIALIZE=1 CATALOG_ENV=local \
+        exec python3 "$SCRIPTS/deploy/catalog.py" "$action" "$@"
       ;;
     dag)
       # Derived DAG, live. Topology is env-invariant; --env <env> decorates with
@@ -2987,7 +3313,7 @@ if yaml:
     try: pins=(yaml.safe_load(open(sys.argv[2])) or {}).get('pins',{}) or {}
     except Exception: pins={}
 env=sys.argv[3]
-units=lock.get('units',{}) or {}; apps=lock.get('applications',{}) or {}; ps=lock.get('platform_services',{}) or {}
+units=lock.get('units',{}) or {}; apps=lock.get('applications',{}) or {}; ps=(lock.get('external') or lock.get('platform_services') or {})
 epins=pins.get(env,{}) or {}
 print()
 if apps:
@@ -3001,18 +3327,24 @@ for u in sorted(units):
     d=units[u]; host=(d.get('hosts') or {}).get(env) or '-'
     pin=epins.get(u) or '-'
     if env == 'local':
-        # local isn't a public domain — it's served on localhost. Show the port
-        # when the unit declares one (serve/healthcheck), else just 'localhost'.
-        sv=d.get('serve') if isinstance(d.get('serve'), dict) else {}
-        hc=d.get('healthcheck') if isinstance(d.get('healthcheck'), dict) else {}
-        port=sv.get('port') or hc.get('port')
-        edge='localhost'+((':%s'%port) if port else '')
+        # local isn't a public domain — a SERVED unit runs on localhost at its
+        # stable assigned port (#108.3, lock local_port). Non-served units (libs)
+        # have NO endpoint → '-'.
+        port=d.get('local_port')
+        edge=('localhost:%s'%port) if port else '-'
+        # a served unit runs ON localhost in local — default the host when not declared.
+        if host=='-' and port: host='localhost'
     else:
         edge=(d.get('edge') or '').replace('<env>',env) or '-'
     print("  %-13s %-5s %-10s %-10s %s"%(u, d.get('kind') or '', host, pin, edge))
 print(D+"  deployed = pinned version in '%s'  (- = not deployed there)"%env+N)
 print()
-if ps: print(B+"Platform services"+N+": "+" · ".join(sorted(ps.keys())))
+if ps:
+    print(B+"External"+N+D+"  (env=%s)  — consumed, not deployed by us"%env+N)
+    print(D+"  %-15s %-8s %s"%("dep","sub_type","endpoint")+N)
+    for n in sorted(ps):
+        x=ps[n]; ep=(x.get('endpoints') or {}).get(env) or (x.get('hosts') or {}).get(env) or '-'
+        print("  %-15s %-8s %s"%(n, x.get('sub_type') or x.get('type') or '', ep))
 print()
 PY
 }
@@ -3067,7 +3399,7 @@ cmd_help() {
     --detail|--all|-a)
       echo ""
       echo -e "${BOLD}Usage:${NC} prj <command> [args]   ·   prj help <command> for examples   ·   prj  (no args) = menu"
-      echo -e "${DIM}Groups (1-7) mirror the interactive menu.${NC}"
+      echo -e "${DIM}Grouped by area. The interactive menu (prj, no args) covers Status/Work/Admin/Help; catalog, deploy & data are command-line.${NC}"
       echo ""
       echo -e "${BOLD}(1) Status${NC}   ${DIM}review current state${NC}"
       echo "  list · list-all    ongoing / all projects (GitHub-derived)"
@@ -3095,6 +3427,7 @@ cmd_help() {
       echo -e "${BOLD}(5) Deploy${NC}   ${DIM}build & deploy units${NC}"
       echo "  deploy <unit> --local|--dev|--uat|--prod [--provision] [--seed]"
       echo "  seed                            run the catalog seed hook (local)"
+      echo "  publish [<ref>] [--dry-run]     ship the prj CLI to npm via the Jenkins job"
       echo "  schedules                       install / inspect catalog cron schedules"
       echo ""
       echo -e "${BOLD}(6) Admin${NC}   ${DIM}administer governance${NC}"
@@ -3180,6 +3513,28 @@ Examples:
   prj deploy portal --local --stop --all       full local teardown (SPA + Tier-2)
   prj deploy svm-ident --uat --pin 0.1.0-uat.3 promote a pinned rollback to uat
   prj deploy portal --prod --dry-run           preview the prod deploy, run nothing
+EOF
+      ;;
+    publish)
+      cat <<'EOF'
+prj publish [<ref>] [--dist-tag <tag>] [--dry-run] [-y] [--no-follow]
+
+Ship the prj CLI to npm through the framework's OWN governed Jenkins job (the
+single interface — no laptop `npm publish`). Triggers <workspace>/publish/prod/prj
+(auto-provisioned): clones the CLI source repo at <ref>, gates it (syntax +
+version-sync + npm pack), then `npm publish` with the npm token from the Jenkins
+credential `npmjs-token`. The token lives in Jenkins, never on a developer machine.
+
+  <ref>           tag/branch/SHA to publish (default: v<package.json version>)
+  --dist-tag      npm dist-tag (default: latest)
+  --dry-run       run the gate + `npm publish --dry-run` only — publishes nothing
+  -y, --yes       skip the irreversible-publish confirmation
+  --no-follow     trigger and return (don't tail the Jenkins build)
+
+Examples:
+  prj publish --dry-run            full gate + dry-run for the current version
+  prj publish v0.8.0               publish tag v0.8.0 to npm as 'latest'
+  prj publish v0.8.1 --dist-tag next   publish under the 'next' tag
 EOF
       ;;
     seed)
@@ -3333,11 +3688,207 @@ Copies (never deletes) the old home; repairs worktrees in place. Idempotent — 
 no-op if already canonical.
 EOF
       ;;
-    start|finish|task|merge|pause|resume|sync|init|join|add-repo|cancel|close|knowledge|onboard|list|list-all|status|deps|upgrade|validate)
-      echo ""
-      echo "prj $topic — run \`prj $topic\` (mostly interactive — follow the prompts)."
-      echo "  One-line summary: prj help --detail"
-      echo ""
+    start)
+      cat <<'EOF'
+prj start — guided entry to BEGIN work: join an existing project, create a new
+task on a project you're already on, or start a brand-new project. Interactive.
+
+Most days you want `prj work` (continue where you left off). Reach for `start`
+when beginning something new and you want to be walked through the choices.
+
+Examples:
+  prj start            walk me through join / new-task / new-project
+EOF
+      ;;
+    finish)
+      cat <<'EOF'
+prj finish — finish the current unit of work: merge a completed TASK back into the
+project branch, or — if you're on the project branch — CLOSE the project.
+Interactive (detects your context and confirms before acting).
+
+Examples:
+  prj finish           merge this task, or close the project if on its branch
+EOF
+      ;;
+    task)
+      cat <<'EOF'
+prj task — create a TASK sub-branch for parallel work on the current project.
+Branches off the project branch so multiple agents/devs work without colliding;
+merge it back with `prj merge`. Interactive (prompts for the task name).
+
+Examples:
+  prj task             create a new task sub-branch off the project branch
+EOF
+      ;;
+    merge)
+      cat <<'EOF'
+prj merge — merge a completed TASK sub-branch back into the project branch, then
+clean the task branch up. Interactive: pick the task to merge. The pair of
+`prj task`.
+
+Examples:
+  prj merge            pick a finished task and merge it into the project branch
+EOF
+      ;;
+    pause)
+      cat <<'EOF'
+prj pause — pause an ACTIVE project (status active → paused), preserving its
+branch and worktrees so nothing is lost. Resume later with `prj resume`.
+Interactive: pick from your active projects.
+
+Examples:
+  prj pause            pause an active project (keeps all branches/worktrees)
+EOF
+      ;;
+    resume)
+      cat <<'EOF'
+prj resume — resume a PAUSED project (status paused → active). Interactive: pick
+from your paused projects.
+
+Examples:
+  prj resume           reactivate a paused project
+EOF
+      ;;
+    sync)
+      cat <<'EOF'
+prj sync — sync your project branch(es) with the latest BASE branches, so you
+build on current code (pulls the base in for the workspace + each member repo).
+Interactive.
+
+Examples:
+  prj sync             bring the latest base branches into your project branch
+EOF
+      ;;
+    init)
+      cat <<'EOF'
+prj init — (ADVANCED) initialize a new project directly from an anchor issue,
+without the guided `start` flow. Most users should use `prj start` or `prj work`.
+Interactive.
+
+Examples:
+  prj init             create a project workspace from an anchor issue directly
+EOF
+      ;;
+    join)
+      cat <<'EOF'
+prj join — JOIN an existing project: clone its workspace + member repos and check
+out the project branch into your $AGENT_WORK_ROOT. Interactive: pick the project.
+
+Examples:
+  prj join             clone + check out an existing project to work on it
+EOF
+      ;;
+    add-repo)
+      cat <<'EOF'
+prj add-repo — add a code repository to the ACTIVE project: records it in
+project.yaml repos[] and clones it on the project branch. Interactive (prompts
+for the repo URL + reason). For bringing a repo INTO the framework, see `onboard`.
+
+Examples:
+  prj add-repo         attach another code repo to the current project
+EOF
+      ;;
+    cancel)
+      cat <<'EOF'
+prj cancel — CANCEL a project (status → cancelled) with a recorded reason. Use for
+abandoned work; `prj close` is for COMPLETED work. Interactive.
+
+Examples:
+  prj cancel           cancel a project and record why
+EOF
+      ;;
+    close)
+      cat <<'EOF'
+prj close — close a COMPLETED project (status → completed): finalize it, promote
+any project knowledge via PR, and archive the project branch. Interactive.
+(Standing/common projects don't close — promote their knowledge with `prj knowledge`.)
+
+Examples:
+  prj close            wrap up a finished project (+ knowledge promotion)
+EOF
+      ;;
+    knowledge)
+      cat <<'EOF'
+prj knowledge — propose ORG-knowledge changes via a `knowledge-<slug>` branch off
+main → C02 PR. (During an active project, knowledge/ is read-only — changes go
+through this reviewed flow, not direct commits.) Interactive; three sub-flows:
+
+  create    make a new knowledge-<slug> branch (then edit knowledge/ + commit)
+  submit    open the PR for an existing knowledge branch
+  archive   tag + delete a merged knowledge branch
+
+Examples:
+  prj knowledge        create / submit / archive a knowledge proposal branch
+EOF
+      ;;
+    onboard)
+      cat <<'EOF'
+prj onboard — onboard a code repository INTO the framework: add the knowledge/
+scaffold, agent entry points, and CI hooks so it participates in governed
+development. Interactive. (Distinct from `add-repo`, which attaches an already-
+onboarded repo to a specific project.)
+
+Examples:
+  prj onboard          prepare a repo to participate in governed development
+EOF
+      ;;
+    list)
+      cat <<'EOF'
+prj list — list ONGOING projects (active + paused), derived live from the GitHub
+boards. No args. See also `prj list-all`.
+
+Examples:
+  prj list             show active + paused projects
+EOF
+      ;;
+    list-all)
+      cat <<'EOF'
+prj list-all — list ALL projects (every board: not-started, ongoing, done),
+derived live from GitHub. No args. See also `prj list`.
+
+Examples:
+  prj list-all         show the full project universe
+EOF
+      ;;
+    status)
+      cat <<'EOF'
+prj status [<board-number>] — show one project's status: lifecycle, assignment,
+branch, repos, and open board items. Asks for the board NUMBER if omitted.
+
+Examples:
+  prj status 43        status of PRJ-43 (GitHub board #43)
+  prj status           prompt for the board number
+EOF
+      ;;
+    deps)
+      cat <<'EOF'
+prj deps — install / verify the tools prj needs for THIS OS (gh, git, jq, and a
+YAML reader: PyYAML or the yq binary). Idempotent; safe to re-run. No args.
+
+Examples:
+  prj deps             check + install missing dependencies
+EOF
+      ;;
+    upgrade)
+      cat <<'EOF'
+prj upgrade [<version>] — pull a new framework version from the `template` git
+remote and apply it, preserving your org-config + project data. Requires a remote
+named `template`. Omit <version> for the latest.
+
+Examples:
+  prj upgrade          upgrade to the latest template version
+  prj upgrade 0.7.4    upgrade to a specific version / tag
+EOF
+      ;;
+    validate)
+      cat <<'EOF'
+prj validate — run the workspace VALIDATOR over knowledge/ + the registry (schema,
+front-matter, links, lifecycle, secrets, exec-bits, version-sync) — the same gate
+CI runs. No args; non-zero exit on any violation.
+
+Examples:
+  prj validate         run all workspace checks locally before pushing
+EOF
       ;;
     *)
       err "Unknown command '$topic'. Run 'prj help' for common commands, 'prj help --detail' for all."
@@ -3375,6 +3926,7 @@ case "$CMD" in
   config)       cmd_config "${@:2}" ;;
   deploy)       cmd_deploy "${@:2}" ;;
   seed)         cmd_seed "${@:2}" ;;
+  publish)      cmd_publish "${@:2}" ;;
   catalog)      cmd_catalog "${@:2}" ;;
   data)         cmd_data "${@:2}" ;;
   iam-data)     cmd_data iam "${@:2}" ;;     # alias: prj iam-data <env> … == prj data iam <env> …
@@ -3392,6 +3944,10 @@ case "$CMD" in
   manage)       cmd_manage "${2:-}" ;;
   upgrade)      cmd_upgrade "${2:-}" ;;
   migrate-home) cmd_migrate_home "${@:2}" ;;
+  org)          cmd_org "${@:2}" ;;
+  doctor)       cmd_doctor ;;
+  backfill-state) cmd_backfill_state ;;
+  anchor)       cmd_anchor "${@:2}" ;;
   validate)     cmd_validate ;;
   version|--version|-v)
     # Report the installed CLI version (the bundled package.json is the source of truth).

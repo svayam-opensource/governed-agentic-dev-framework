@@ -187,8 +187,15 @@ create_subbranch_in() {
   info "Sub-branch '$TASK_ID' pushed to $label"
 }
 
-# Workspace repo
-create_subbranch_in "$REPO_ROOT" "workspace repo"
+# Workspace repo — operate on the PER-PROJECT gov clone (on the project branch),
+# NOT $REPO_ROOT. Since the deterministic resolver (#57) makes REPO_ROOT the home
+# clone (on main), and the project branch is checked out in the per-project
+# worktree sharing the same base clone, `git checkout <branch>` in the home clone
+# fails with "already used by worktree". Fall back to REPO_ROOT when no per-project
+# clone exists (e.g. the home clone IS the workspace).
+WS_CLONE="$(org_gov_clone "$PROJECT_ID")"
+[[ -e "$WS_CLONE/.git" ]] || WS_CLONE="$REPO_ROOT"
+create_subbranch_in "$WS_CLONE" "workspace repo"
 
 # Each code repo (re-read after any repo-on-demand add above).
 TODAY=$(today)

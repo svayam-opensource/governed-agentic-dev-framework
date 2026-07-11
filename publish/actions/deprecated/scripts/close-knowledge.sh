@@ -221,22 +221,27 @@ info "PR created: $PR_URL"
 _CK_DONE=true
 rm -f "$KNOWLEDGE_SUMMARY_FILE" 2>/dev/null || true
 
-# ── Update project.yaml ───────────────────────────────────────────────────────
-
-cd "$REPO_ROOT"
-git checkout "$DEFAULT_BRANCH"
-git pull origin "$DEFAULT_BRANCH"
-
-yaml_set "$PROJECT_YAML" "knowledge_status" "pending_review"
-yaml_set "$PROJECT_YAML" "knowledge_pr"     "$PR_URL"
-
-git add "projects/$PROJECT_ID/project.yaml"
-git commit -m "close-knowledge: update knowledge_status for $PROJECT_ID"
-
-# Pre-push validation gate (rolls back commit if validators fail)
-validate_or_revert
-
-git push origin "$DEFAULT_BRANCH"
+# ── Update project.yaml knowledge_status (BEST-EFFORT — PR already raised) ─────
+# The knowledge PR above is the durable outcome (past the point of no return).
+# The knowledge_status field on $DEFAULT_BRANCH is bookkeeping that the PR's merge
+# reconciles anyway, so a hiccup here must NOT fail the close. In particular we do
+# NOT let a `git checkout $DEFAULT_BRANCH` failure abort: REPO_ROOT may be a
+# worktree whose shared base clone / home checkout already holds $DEFAULT_BRANCH
+# (#57 / ADR-0001), which would otherwise hard-stop an already-closed project.
+if ( cd "$REPO_ROOT" \
+      && git fetch origin "$DEFAULT_BRANCH" 2>/dev/null \
+      && git checkout "$DEFAULT_BRANCH" 2>/dev/null \
+      && git pull --ff-only origin "$DEFAULT_BRANCH" 2>/dev/null \
+      && yaml_set "$PROJECT_YAML" "knowledge_status" "pending_review" \
+      && yaml_set "$PROJECT_YAML" "knowledge_pr" "$PR_URL" \
+      && git add "projects/$PROJECT_ID/project.yaml" \
+      && git commit -m "close-knowledge: update knowledge_status for $PROJECT_ID" 2>/dev/null \
+      && validate_or_revert \
+      && git push origin "$DEFAULT_BRANCH" 2>/dev/null ); then
+  info "knowledge_status set to pending_review on $DEFAULT_BRANCH"
+else
+  warn "Could not update knowledge_status on $DEFAULT_BRANCH — reconciled when the PR merges. PR: $PR_URL"
+fi
 
 echo ""
 echo "=== Knowledge close initiated."

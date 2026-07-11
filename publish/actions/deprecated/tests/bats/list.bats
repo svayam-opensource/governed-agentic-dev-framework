@@ -9,4 +9,6 @@ teardown() { sandbox_down; }
   assert_success
   assert_output --partial "Ongoing Projects"
   assert_output --partial "No ongoing projects"
+  # 0.10.0 footer: anchor-less boards are excluded
+  assert_output --partial "projects not having an anchor issue are not included in the list"
 }

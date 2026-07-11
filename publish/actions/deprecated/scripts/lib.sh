@@ -18,26 +18,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   2. BOOTSTRAP only if the pointer is missing/broken: if an ambient
 #      $ADF_WORKSPACE is a valid gov repo, use it AND write the pointer from it.
 #   3. the vendored layout (scripts/ inside the workspace repo) — legacy fallback.
-_adf_gov_ptr="${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace"
 _adf_ok() { [[ -n "$1" && -f "$1/org-config.yaml" && "$1" != */.bases/* ]]; }
-_adf_read_ptr() {
-  [[ -f "$_adf_gov_ptr" ]] || return 1
-  local p; p="$(head -n1 "$_adf_gov_ptr" | tr -d '[:space:]')"
-  case "$p" in "~/"*) p="$HOME/${p#\~/}" ;; "~") p="$HOME" ;; esac
-  _adf_ok "$p" && { printf '%s' "$p"; return 0; }
-  return 1
-}
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/gov-registry.sh" 2>/dev/null || true   # multi-home registry (prj_resolve_gov)
 REPO_ROOT=""
 if [[ "${PRJ_WS_RESOLVED:-}" == "1" ]] && _adf_ok "${ADF_WORKSPACE:-}"; then
   REPO_ROOT="$ADF_WORKSPACE"                       # trust the prj entrypoint's deterministic resolution
-else
-  _adf_inbound="${ADF_WORKSPACE:-}"                # ambient — bootstrap-only, NOT authoritative
-  if _p="$(_adf_read_ptr)"; then
-    REPO_ROOT="$_p"                                # pointer wins; ambient env ignored
-  elif _adf_ok "$_adf_inbound"; then              # pointer missing/broken → bootstrap from env + record it
-    REPO_ROOT="$(cd "$_adf_inbound" && pwd)"
-    mkdir -p "$(dirname "$_adf_gov_ptr")" 2>/dev/null \
-      && printf '%s\n' "$REPO_ROOT" > "$_adf_gov_ptr" 2>/dev/null || true
+elif command -v prj_resolve_gov >/dev/null 2>&1; then
+  _rc=0; REPO_ROOT="$(prj_resolve_gov 2>/dev/null)" || _rc=$?   # cwd → active → single → (rc2 ambiguous)
+  if [[ "${_rc:-0}" -ne 0 ]]; then
+    _adf_inbound="${ADF_WORKSPACE:-}"               # bootstrap-only fallback — register it
+    if _adf_ok "$_adf_inbound"; then
+      REPO_ROOT="$(cd "$_adf_inbound" && pwd)"
+      _o="$(_prj_org_of_home "$REPO_ROOT" 2>/dev/null || true)"
+      prj_reg_add "$_o" "$REPO_ROOT" 2>/dev/null || true
+    fi
   fi
 fi
 if [[ -z "$REPO_ROOT" ]]; then REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"; fi
@@ -565,7 +560,9 @@ anchor_issue_ref() {
       [ .data.organization.projectV2.items.nodes[].content
         | select(.__typename=="Issue")
         | select(([.labels.nodes[].name] | index("'"$ANCHOR_LABEL"'")) != null)
-        | "\(.repository.nameWithOwner)#\(.number)" ] | (.[0] // "")' 2>/dev/null
+        | {r: .repository.nameWithOwner, n: .number} ]
+      | sort_by(.n)                                    # DETERMINISTIC: lowest issue # wins if >1 anchor
+      | if length>0 then "\(.[0].r)#\(.[0].n)" else "" end' 2>/dev/null
 }
 
 # anchor_set_label <add|remove> <project_url> <label>  → add/remove a lifecycle
@@ -596,6 +593,45 @@ anchor_set_label() {
   return 0
 }
 
+# The four mutually-exclusive searchable lifecycle labels. `state:<x>` is the
+# server-side-searchable projection of status (board open/closed + cancelled stays
+# the source of truth); transitions keep exactly one of these on the anchor.
+STATE_PREFIX="state:"
+STATE_LABELS="active paused completed cancelled"
+
+# anchor_set_state <project_url> <active|paused|completed|cancelled>
+# Stamp the ONE searchable state:* label on the board's anchor issue and remove the
+# other three (mutually exclusive by construction). Best-effort, like anchor_set_label.
+anchor_set_state() {
+  local url="$1" want="$2" scope owner num ref repo inum s
+  case " $STATE_LABELS " in *" $want "*) : ;; *) warn "anchor_set_state: bad state '$want'"; return 1 ;; esac
+  if ! read -r scope owner num < <(gh_project_owner_number "$url"); then
+    warn "Could not derive project number from '$url' — state:'$want' not stamped."; return 0
+  fi
+  ref="$(anchor_issue_ref "$num" "$owner")"
+  [[ -z "$ref" ]] && { warn "No '$ANCHOR_LABEL' issue on project #$num — state:'$want' not stamped (status derives from board)."; return 0; }
+  repo="${ref%%#*}"; inum="${ref##*#}"
+  gh label create "${STATE_PREFIX}${want}" --repo "$repo" --color 0e8a16 \
+    --description "Searchable lifecycle state" >/dev/null 2>&1 || true
+  gh issue edit "$inum" --repo "$repo" --add-label "${STATE_PREFIX}${want}" >/dev/null 2>&1 \
+    && info "Anchor $repo#$inum: state → ${want}." \
+    || warn "Could not stamp state:'$want' on anchor $repo#$inum — reconcile manually."
+  for s in $STATE_LABELS; do
+    [[ "$s" == "$want" ]] && continue
+    gh issue edit "$inum" --repo "$repo" --remove-label "${STATE_PREFIX}${s}" >/dev/null 2>&1 || true
+  done
+  return 0
+}
+
+# anchor_state_of <project_number> [owner]  → the state:* value on the anchor
+# (active|paused|completed|cancelled), or empty if none (un-migrated anchor).
+anchor_state_of() {
+  local num="$1" owner="${2:-$GITHUB_ORG}" ref
+  ref="$(anchor_issue_ref "$num" "$owner")"; [[ -z "$ref" ]] && return 0
+  gh issue view "${ref##*#}" --repo "${ref%%#*}" --json labels --jq \
+    '.labels[].name | select(startswith("'"$STATE_PREFIX"'")) | sub("^'"$STATE_PREFIX"'";"")' 2>/dev/null | head -1
+}
+
 # ensure_anchor_label <owner/repo>  — create the 'anchor' label if missing
 # (gh issue create --label fails when the label doesn't exist in the repo).
 ensure_anchor_label() {
@@ -624,6 +660,9 @@ project close."
           --label "$ANCHOR_LABEL" ${me:+--assignee "$me"} --body "$body" 2>/dev/null | tail -1)"
   [[ -z "$url" ]] && return 1
   gh project item-add "$num" --owner "$owner" --url "$url" >/dev/null 2>&1 || true
+  # searchable initial state (a fresh open board with an anchor is 'active')
+  gh label create "${STATE_PREFIX}active" --repo "$repo" --color 0e8a16 --description "Searchable lifecycle state" >/dev/null 2>&1 || true
+  gh issue edit "${url##*/}" --repo "$repo" --add-label "${STATE_PREFIX}active" >/dev/null 2>&1 || true
   echo "${repo}#${url##*/}"
 }
 

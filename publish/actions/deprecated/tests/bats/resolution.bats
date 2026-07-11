@@ -36,13 +36,14 @@ teardown() { sandbox_down; }
   assert_output "$GOV"
 }
 
-@test "bootstraps the pointer from ADF_WORKSPACE only when no pointer exists" {
-  # No pointer yet → an inbound ADF_WORKSPACE seeds it (and is recorded), so
-  # every future run resolves deterministically without the env var.
+@test "bootstraps the registry from ADF_WORKSPACE only when nothing is registered" {
+  # Nothing registered yet → an inbound ADF_WORKSPACE seeds the registry (and is
+  # recorded), so a FUTURE run resolves deterministically without the env var.
   OTHER="$TEST_TMP/other"; make_gov_repo "$OTHER"
   ADF_WORKSPACE="$OTHER" run resolved_workspace
   assert_output "$OTHER"
-  run cat "$XDG_CONFIG_HOME/prj/gov-workspace"
+  # persisted in the registry → next run (no env, neutral cwd) still resolves it
+  cd /tmp; run resolved_workspace
   assert_output "$OTHER"
 }
 
@@ -52,9 +53,35 @@ teardown() { sandbox_down; }
   assert_output "$PROJ"
 }
 
+@test "PWD-walk SKIPS an unconfigured template org-config (empty github_org)" {
+  # The shipped framework/template org-config has github_org: "". Running prj from
+  # inside such a dir (e.g. the framework repo) must NOT resolve it as the workspace
+  # (empty GITHUB_ORG -> no org name, no projects); fall through to the pointer home.
+  write_pointer "$GOV"
+  local TMPL="$AGENT_WORK_ROOT/tmpl"; mkdir -p "$TMPL"
+  cp "$REPO_SRC/org-config.yaml" "$TMPL/org-config.yaml"   # RAW template: github_org: ""
+  cd "$TMPL"
+  run resolved_workspace
+  assert_output "$GOV"          # fell through to the pointer home, not the template dir
+}
+
+@test "the standalone prj (not just bin/prj) resolves via the registry, not SCRIPT_DIR" {
+  # Regression: the main `prj` script's config block used ADF_WORKSPACE-or-SCRIPT_DIR and
+  # bypassed prj_resolve_gov, so running ./prj from the framework/template repo loaded its
+  # EMPTY org-config (no org name, no projects). It must resolve like the wrapper.
+  write_pointer "$GOV"
+  local TMPL="$AGENT_WORK_ROOT/tmpl2"; mkdir -p "$TMPL"
+  cp "$REPO_SRC/org-config.yaml" "$TMPL/org-config.yaml"   # empty-github_org template
+  cd "$TMPL"
+  run env -u ADF_WORKSPACE bash -c "PRJ_PRINT_WORKSPACE=1 bash '$PRJ_BIN'"
+  assert_success
+  assert_output "$GOV"        # resolved the real home, not the template dir or SCRIPT_DIR
+}
+
 @test "hard-errors when nothing resolves (no env, no pointer, non-interactive)" {
+  # a HOME-REQUIRING command (status) — version/help/org are intentionally homeless-OK.
   cd /tmp
-  run bash "$BIN_PRJ" version
+  run bash "$BIN_PRJ" status
   assert_failure
   assert_output --partial "could not locate"
 }

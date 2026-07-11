@@ -1,5 +1,9 @@
 # shellcheck shell=bash
 # Common helpers for the governance test bed (BATS). Load with: load helpers
+#
+# ADDING OR CHANGING TESTS? Read ./TESTING-GUIDE.md first — it codifies the coverage gaps
+# that let real bugs ship (undefined-function dispatch, Windows CRLF reads, untested menu
+# branches) and the lints/patterns that close them. New invariants → a lint in prj-lint.bats.
 _BATS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_SRC="$(cd "$_BATS_DIR/../.." && pwd)"     # framework repo root (ships prj)
 PRJ_BIN="$REPO_SRC/prj"
@@ -59,7 +63,19 @@ esac'
 sandbox_down() { [[ -n "${TEST_TMP:-}" && -d "$TEST_TMP" ]] && rm -rf "$TEST_TMP"; }
 
 # Make a minimal valid gov repo (the org-config.yaml signature) at $1.
-make_gov_repo() { mkdir -p "$1"; cp "$REPO_SRC/org-config.yaml" "$1/org-config.yaml"; }
+make_gov_repo() {
+  mkdir -p "$1"; cp "$REPO_SRC/org-config.yaml" "$1/org-config.yaml"
+  # A REAL gov workspace always names its org — the shipped template has github_org: ""
+  # which prj_resolve_gov now (correctly) SKIPS during cwd-walk. Reflect reality so the
+  # fixture is a resolvable workspace, not an unconfigured template.
+  python3 - "$1/org-config.yaml" <<'PY'
+import sys, re
+p = sys.argv[1]; s = open(p).read()
+s = re.sub(r'(?m)^github_org:.*$', 'github_org: "testorg"', s) if re.search(r'(?m)^github_org:', s) \
+    else s.rstrip() + '\ngithub_org: "testorg"\n'
+open(p, 'w').write(s)
+PY
+}
 
 # Write the gov-home pointer file to <path>.
 write_pointer() { mkdir -p "$XDG_CONFIG_HOME/prj"; printf '%s\n' "$1" > "$XDG_CONFIG_HOME/prj/gov-workspace"; }
@@ -69,3 +85,12 @@ resolved_workspace() { PRJ_PRINT_WORKSPACE=1 bash "$BIN_PRJ" 2>/dev/null; }
 
 # Run the prj CLI (source build, not the installed npm package).
 run_prj() { run bash "$PRJ_BIN" "$@"; }
+
+# Native-form a path for embedding INSIDE a `python3 -c "...open('$(pp "$LOCK")')..."`
+# string. On Windows Git-bash, MSYS auto-translates standalone path args/env (so the
+# build's ADF_WORKSPACE resolves), but it does NOT translate a path buried inside a
+# larger `-c` argument — there a `/c/...` MSYS path reaches Windows-Python literally
+# and fails to open (read as C:\c\Users\...). cygpath -m yields the mixed C:/... form
+# Windows-Python opens correctly. No-op on macOS/Linux (cygpath absent), so paths and
+# the green platforms are untouched.
+pp() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }

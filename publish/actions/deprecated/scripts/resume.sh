@@ -90,6 +90,7 @@ git push origin "$BRANCH"
 # active = board OPEN + anchor issue NO LONGER carries 'paused'. No registry
 # write (registry-elimination Increment 2).
 anchor_set_label remove "$(yaml_get "$PROJECT_YAML" github_project)" paused
+anchor_set_state "$(yaml_get "$PROJECT_YAML" github_project)" active
 project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "active" \
   "$ASSIGNED_TO" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
 

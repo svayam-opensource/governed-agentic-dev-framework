@@ -14,6 +14,7 @@ Pure stdlib + pyyaml (same as scripts/validate/*). Library + CLI.
 """
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -191,8 +192,172 @@ def crontab_lines(catalog_path=None, workspace=None):
     return out
 
 
+# ── v3 unit model (P1.2) — one unified model for BOTH on-disk schemas ────────────
+# The engine (build AND deploy/serve/check) runs on a single normalized unit map.
+# v3 `units:` is read directly; a v2 `services:`+`platform_services:` catalog is
+# upcast into the same shape — and v3 units are back-filled with v2-compat fields —
+# so neither the runtime nor the lock cares which schema is on disk. The TIER split
+# (Tier-1 built / Tier-2 standing infra) is derived structurally: a unit with a
+# `repo` is buildable (Tier-1); one without is declared-only standing infra (Tier-2).
+_KIND_TO_TYPE = {            # v2 kind → (type, sub_type)
+    "api": ("svc", "api"), "spa": ("svc", "spa"), "web": ("svc", "web"),
+    "worker": ("svc", "worker"), "lib": ("lib", "typescript"),
+}
+
+
+def _stable_id(name):
+    """Deterministic u-8hex id from the name (stable across builds — no drift).
+    The P1.2b migration assigns/stores explicit ids; until then this is the lock id."""
+    return "u-" + hashlib.sha256(("unit:" + name).encode()).hexdigest()[:8]
+
+
+def _engine_sha(engine):
+    """content_sha for an ENGINE-unit = sha256 over its engine stack (name@version,
+    sorted). A component version bump re-fingerprints it (so deploy reconcile rolls it).
+    None when no engine is declared. Accepts a list of {name,role,version} or a scalar."""
+    if not engine:
+        return None
+    items = engine if isinstance(engine, list) else [engine]
+    parts = []
+    for e in items:
+        if isinstance(e, dict):
+            parts.append("%s@%s" % (e.get("name"), e.get("version")))
+        else:
+            parts.append(str(e))
+    return hashlib.sha256(("engine:" + "\n".join(sorted(parts))).encode()).hexdigest()
+
+
+def _kind_of(t, st):
+    """v3 (type, sub_type) → legacy `kind` for back-compat readers (resolve/serve)."""
+    if t == "svc":
+        return st                       # api / spa / web / worker / data
+    if t == "external":
+        return None                     # external infra had no `kind` in v2
+    return t                            # lib / cli / mobile / schedule
+
+
+def _platform_type(ps):
+    """Classify a v2 platform_service → (type, sub_type) for the upcast (cosmetic;
+    not taxonomy-validated for v2). Reuses _svc_category (data / stateful / external)."""
+    c = _svc_category(ps)
+    if c == "data":
+        return ("svc", "data")
+    if c == "stateful":
+        return ("svc", "web")           # self-hosted standing service
+    return ("external", "saas")
+
+
+def _backfill_legacy(name, v):
+    """Add v2-compat fields onto a v3 unit so legacy readers (resolve/check/serve)
+    keep working unchanged: id, kind (from type/sub_type), requires (= deploy_deps),
+    and provisioning (external → saas; a repo-less engine-unit → container)."""
+    v.setdefault("id", v.get("id") or _stable_id(name))
+    t, st = v.get("type"), v.get("sub_type")
+    if "kind" not in v:
+        v["kind"] = _kind_of(t, st)
+    if "requires" not in v:
+        v["requires"] = list(v.get("deploy_deps") or [])
+    if "provisioning" not in v:
+        if t == "external":
+            v["provisioning"] = "saas"              # consumed third-party
+        elif not v.get("repo"):
+            v["provisioning"] = "container"         # engine-unit we self-host
+    return v
+
+
+def _units(cat):
+    """Unified, normalized unit map {name: {type, sub_type, id, deploy_deps, kind,
+    requires, …}} — the single model the whole engine runs on. v3 `units:` is read
+    directly and back-filled with v2-compat fields; a v2 `services:`+`platform_services:`
+    catalog is UPCAST into the same shape (kind→type/sub_type, requires→deploy_deps,
+    platform version→engine)."""
+    raw, ext = cat.get("units"), cat.get("external")
+    if raw or ext:                            # native v3 — `units:` (owned) + `external:` (consumed)
+        out = {}                              # two blocks for readability; `type` is authoritative
+        for src in ((raw or {}), (ext or {})):
+            for name, u in src.items():
+                out[name] = _backfill_legacy(name, dict(u or {}))
+        return out
+    out = {}                                  # v2 upcast — services + platform unified
+    for name, s in (cat.get("services") or {}).items():
+        v = dict(s or {})
+        if "type" not in v:
+            v["type"], v["sub_type"] = _KIND_TO_TYPE.get(s.get("kind"), ("svc", s.get("kind") or "api"))
+        v.setdefault("id", _stable_id(name))
+        v.setdefault("deploy_deps", s.get("requires") or [])
+        out[name] = v
+    for name, ps in (cat.get("platform_services") or {}).items():
+        v = dict(ps or {})
+        if "type" not in v:
+            v["type"], v["sub_type"] = _platform_type(ps)
+        v.setdefault("id", _stable_id(name))
+        v.setdefault("deploy_deps", ps.get("requires") or [])
+        if "engine" not in v and ps.get("version"):
+            v["engine"] = ps.get("version")
+        out[name] = v
+    return out
+
+
 def _services(cat):
-    return cat.get("services", {}) or {}
+    """Units WE deploy/own — everything that is NOT `type: external`. Includes both
+    BUILDABLE units (have a `repo`, fingerprinted from source) and ENGINE-units (no
+    repo — a datastore/self-hosted stack, versioned by its `engine`). This is the
+    deploy-facing 'units' view used by resolve/requirements/build_lock."""
+    return {n: u for n, u in _units(cat).items() if u.get("type") != "external"}
+
+
+def _external(cat):
+    """External / consume-only dependencies — exactly `type: external` (third-party
+    SaaS we point at, never deploy). The 'external' bucket in services.yaml / the lock."""
+    return {n: u for n, u in _units(cat).items() if u.get("type") == "external"}
+
+
+def _buildable(cat):
+    """Units derived + fingerprinted from source: a `repo` is present."""
+    return {n: u for n, u in _units(cat).items() if u.get("repo")}
+
+
+# Back-compat alias (old name) — some call sites still say _platform_services.
+_platform_services = _external
+
+
+def _load_taxonomy():
+    """The org type taxonomy ({type: {sub_types:[...]}}), or None when absent.
+    Lives at knowledge/deployment/taxonomy/types.yaml (P0). Absent (e.g. a bare test
+    fixture) → validation is skipped, not failed (graceful — taxonomy is org-layer)."""
+    p = REPO_ROOT / "knowledge/deployment/taxonomy/types.yaml"
+    if not p.exists():
+        return None
+    try:
+        return (load(p) or {}).get("types") or {}
+    except Exception:
+        return None
+
+
+def _validate_units(cat):
+    """Validate each unit's type/sub_type against the taxonomy (T1). Returns a list
+    of human-readable errors ([] = clean / no taxonomy). EXTENSIBLE by design: a new
+    type or sub_type is added in types.yaml, no code change (T0/D7)."""
+    tax = _load_taxonomy()
+    if not tax:
+        return []
+    errs = []
+    # v3: validate every declared unit (incl. data/external). v2: only Tier-1 services
+    # — the platform_services upcast types are inferred/cosmetic, not declared.
+    targets = _units(cat) if cat.get("units") else _services(cat)
+    for name, u in targets.items():
+        t, st = u.get("type"), u.get("sub_type")
+        if not t:
+            errs.append(f"{name}: missing `type`")
+            continue
+        if t not in tax:
+            errs.append(f"{name}: unknown type '{t}' (taxonomy: {', '.join(sorted(tax))})")
+            continue
+        allowed = tax[t].get("sub_types") or []
+        if st is not None and allowed and st not in allowed:
+            errs.append(f"{name}: unknown sub_type '{st}' for type '{t}' "
+                        f"(allowed: {', '.join(allowed)})")
+    return errs
 
 
 def _applications(cat):
@@ -264,7 +429,7 @@ def requirements(cat, target, env):
     The readiness ladder (deploy/serve) consumes this."""
     rows = resolve(cat, target, env)
     units = _services(cat)
-    pservices = cat.get("platform_services", {}) or {}
+    pservices = _platform_services(cat)
     members = {r["service"] for r in rows}
     out, seen = [], set()
     for m in rows:
@@ -323,9 +488,45 @@ def select_artifact(cat, token, changed_paths):
 #    The DRIFT-PRONE facts are DERIVED from each unit's `anchor` package.json closure,
 #    NOT hand-maintained. Cadence: CI (build/check), never deploy. See SoT-and-dependency-dag.md.
 
+# #109 — on-demand member-repo materialization for derivation. Deriving the
+# build facts (paths/depends_on/semver/content-sha) needs the member repo's
+# SOURCE, which may not be cloned into the project (shared libs never are). When
+# CATALOG_MATERIALIZE=1, materialize it via materialize-repo.sh (worktree of the
+# right branch for CATALOG_ENV, pulled) instead of pointing at an absent sibling.
+# Viewing the DAG reads graph.lock and needs none of this (see the #108 spec).
+_MATERIALIZE = os.environ.get("CATALOG_MATERIALIZE") == "1"
+_CAT_ENV = os.environ.get("CATALOG_ENV", "local")
+_MAT_SCRIPT = Path(__file__).resolve().parent / "materialize-repo.sh"
+_repo_path_cache = {}
+
+
 def _repo_path(repo):
-    """'Svayamtech/911-SVM-LIB-SVC' -> <workspace>/911-SVM-LIB-SVC (sibling of svm-prj-work)."""
-    return WORKSPACE_ROOT / repo.split("/")[-1]
+    """'Svayamtech/911-SVM-LIB-SVC' -> the repo dir.
+
+    Normally a sibling of the workspace (WORKSPACE_ROOT/<name>). When
+    CATALOG_MATERIALIZE=1 and that sibling is absent, materialize the repo on
+    demand (#109) via materialize-repo.sh and use the materialized path (cached
+    so each repo is materialized at most once per process)."""
+    name = repo.split("/")[-1]
+    sib = WORKSPACE_ROOT / name
+    if sib.exists() or not _MATERIALIZE:
+        return sib
+    if repo in _repo_path_cache:
+        return _repo_path_cache[repo]
+    p = sib
+    try:
+        import subprocess
+        r = subprocess.run(["bash", str(_MAT_SCRIPT), repo, _CAT_ENV, str(REPO_ROOT)],
+                           capture_output=True, text=True, timeout=600)
+        out = (r.stdout or "").strip().splitlines()
+        if r.returncode == 0 and out and out[-1].strip():
+            p = Path(out[-1].strip())
+        elif r.stderr:
+            sys.stderr.write(r.stderr)
+    except Exception as e:
+        sys.stderr.write("materialize %s failed: %s\n" % (repo, e))
+    _repo_path_cache[repo] = p
+    return p
 
 
 def _read_json(p):
@@ -403,15 +604,160 @@ def _derive_requires(cat, root, paths):
     return found
 
 
+# ── Artifact version (#108.2) + build closure (#108.1) ───────────────────────────
+#    A unit's artifact version is `<semver> + <content-sha>` (mirrors #101's
+#    "semver + derived fingerprint", but for the BUILT bits, not the served
+#    interface). semver is resolved per artifact type; content-sha fingerprints the
+#    transitive build closure so identical inputs ⇒ identical sha and any build-input
+#    change ⇒ a new sha. See unit-versioning-and-build-graph.md.
+
+def _read_text(p):
+    try:
+        return Path(p).read_text(errors="ignore")
+    except Exception:
+        return ""
+
+
+# FROM <img> (skips an optional --platform=… and an `AS <stage>` suffix).
+_FROM_RE = re.compile(r"(?im)^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)")
+# org.opencontainers.image.version label, tolerant of LABEL k=v / k "v" forms.
+_OCI_VER_RE = re.compile(r"""org\.opencontainers\.image\.version["'\s=]+v?([0-9][^\s"']*)""")
+
+
+def _base_image(root, anchor):
+    """The base image a docker artifact builds FROM (display + closure input). The
+    Dockerfile's full text is already folded into the path-set content-sha; this is
+    the human-readable FROM ref (a tag/ref, not a pulled registry digest)."""
+    froms = _FROM_RE.findall(_read_text(root / anchor / "Dockerfile"))
+    # Last stage's base is the runtime base in a multi-stage build; fall back to first.
+    return (froms[-1] if froms else None)
+
+
+def _resolve_semver(kind, root, anchor, anchor_pkg):
+    """semver per artifact type (§1):
+         lib (npm)     → the anchor package.json `version`
+         api/spa (img) → org.opencontainers.image.version label, or a VERSION file,
+                         else the anchor package.json version (most repos version there)."""
+    if not anchor:
+        return None
+    if kind == "lib":
+        return anchor_pkg.get("version")
+    m = _OCI_VER_RE.search(_read_text(root / anchor / "Dockerfile"))
+    if m:
+        return m.group(1)
+    for vf in (root / anchor / "VERSION", root / "VERSION"):
+        if vf.exists():
+            first = _read_text(vf).strip().splitlines()
+            if first and first[0].strip():
+                return first[0].strip().lstrip("v")
+    return anchor_pkg.get("version")
+
+
+def _git_tree_sha(root, path):
+    """git object id of <path> at HEAD — a cheap, faithful fingerprint of that
+    sub-tree's content (§6). '' when the repo/path isn't available (deterministic:
+    build and check then agree on '')."""
+    rel = path[:-3] if path.endswith("/**") else path
+    rel = rel.rstrip("/")
+    ref = f"HEAD:{rel}" if rel and rel != "." else "HEAD^{tree}"
+    try:
+        r = subprocess.run(["git", "-C", str(root), "rev-parse", ref],
+                           capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _sha_maps(cat, derived):
+    """Per unit, compute TWO fingerprints (P1.1, design B1):
+      - `code_sha`    — sha256 over the CODE closure ONLY (path-set tree-shas +
+                        rolled-up dependency `code_sha`s, TRANSITIVE over depends_on).
+                        The promote **integrity anchor**: identical across packagings/
+                        envs for a given code state (no semver/packaging mixed in).
+      - `content_sha` — the packaging-inclusive artifact fingerprint = `code_sha` +
+                        packaging mechanics (base image) + semver. What actually runs;
+                        unique per (unit, packaging). A lib change re-fingerprints both
+                        for everything built on it.
+    Memoized; cycle-safe. Returns {name: {"code_sha":…, "content_sha":…}}."""
+    roots = {n: _repo_path(_services(cat)[n]["repo"]) for n in derived}
+    code_cache, stack = {}, set()
+
+    def code_sha(name):
+        if name in code_cache:
+            return code_cache[name]
+        if name in stack or name not in derived:
+            return ""                                   # cycle / unknown → neutral
+        stack.add(name)
+        d = derived[name]
+        h = hashlib.sha256()
+        for p in sorted(d.get("paths") or []):
+            h.update(("path:%s=%s\n" % (p, _git_tree_sha(roots[name], p))).encode())
+        for dep in sorted(d.get("depends_on") or []):
+            h.update(("dep:%s=%s\n" % (dep, code_sha(dep))).encode())
+        stack.discard(name)
+        code_cache[name] = h.hexdigest()
+        return code_cache[name]
+
+    out = {}
+    for n in derived:
+        cs = code_sha(n)
+        d = derived[n]
+        h = hashlib.sha256()
+        h.update(("code:%s\n" % cs).encode())
+        h.update(("semver:%s\n" % (d.get("semver") or "")).encode())
+        h.update(("base:%s\n" % (d.get("base_image") or "")).encode())
+        out[n] = {"code_sha": cs, "content_sha": h.hexdigest()}
+    return out
+
+
+def _local_port(name, kind, serve, healthcheck):
+    """Stable local port for a SERVED unit (#108.3): its declared serve/healthcheck
+    port if any, else a port DERIVED from the unit name — assigned at build and
+    reused across runs (deterministic, stable per unit; range 39000-39999). The
+    local edge is then `localhost:<this>`.
+
+    Libraries (kind == 'lib') are NOT served — they're npm packages consumed as
+    build inputs, with no host/port/edge — so they get None (no local endpoint),
+    unless they explicitly declare a port."""
+    sv = serve if isinstance(serve, dict) else {}
+    hc = healthcheck if isinstance(healthcheck, dict) else {}
+    p = sv.get("port") or hc.get("port")
+    if p:
+        try:
+            return int(p)
+        except (TypeError, ValueError):
+            pass
+    if kind == "lib":
+        return None
+    return 39000 + int(hashlib.sha256(name.encode()).hexdigest(), 16) % 1000
+
+
+def local_edge(unit_lock):
+    """The local edge for a lock unit: `localhost:<local_port>` for a served unit,
+    or '-' when it has no local endpoint (e.g. a library) (#108.3)."""
+    port = unit_lock.get("local_port")
+    return "localhost:%s" % port if port else "-"
+
+
+def artifact_version(unit_lock):
+    """Render a lock unit's artifact version as `<semver>+<sha7>` (or '' if unknown)."""
+    sv = unit_lock.get("semver")
+    sha = (unit_lock.get("content_sha") or "")[:7]
+    if sv and sha:
+        return f"{sv}+{sha}"
+    return sv or (("+" + sha) if sha else "")
+
+
 def derive_unit(cat, name):
     """Derive the drift-prone facts for a Tier-1 unit from its repo."""
     s = _services(cat)[name]
-    repo, anchor = s["repo"], s.get("anchor")
-    root = _repo_path(repo)
-    if not anchor:
+    repo, anchor = s.get("repo"), s.get("anchor")
+    if not repo or not anchor:                    # engine-unit / declared-only: nothing to derive
         return {"paths": s.get("paths") or [], "depends_on": s.get("depends_on") or [],
                 "kind": s.get("kind"), "artifact": s.get("artifact"),
-                "npm_name": None, "requires_derived": []}
+                "npm_name": None, "requires_derived": [],
+                "semver": None, "base_image": None}
+    root = _repo_path(repo)
     idx = _repo_pkg_index(repo)
     name2unit = _anchor_name_to_unit(cat)
     anchor_pkg = _read_json(root / anchor / "package.json")
@@ -435,7 +781,9 @@ def derive_unit(cat, name):
     artifact = s.get("artifact") or _infer_artifact(kind, name, anchor_pkg)
     return {"paths": sorted(paths), "depends_on": sorted(depends), "kind": kind,
             "artifact": artifact, "npm_name": anchor_pkg.get("name"),
-            "requires_derived": sorted(_derive_requires(cat, root, paths))}
+            "requires_derived": sorted(_derive_requires(cat, root, paths)),
+            "semver": _resolve_semver(kind, root, anchor, anchor_pkg),
+            "base_image": (None if kind == "lib" else _base_image(root, anchor))}
 
 
 # ── Per-unit descriptor (deploy.yaml) — config-as-build step 1 (additive) ────────
@@ -524,25 +872,69 @@ def check_descriptor(cat, path):
 
 
 def build_lock(cat):
-    """Effective catalog = derived ⊕ declared. The thing deploy/serve read."""
-    units = {}
-    for name in _services(cat):
-        d = derive_unit(cat, name)
-        decl = _services(cat)[name]
-        units[name] = {
-            "repo": decl.get("repo"), "anchor": decl.get("anchor"),
-            "kind": d["kind"], "artifact": d["artifact"], "npm_name": d["npm_name"],
-            "paths": d["paths"], "depends_on": d["depends_on"],
-            "requires": decl.get("requires") or [], "requires_derived": d["requires_derived"],
-            "hosts": decl.get("hosts"), "edge": decl.get("edge"),
-            "serve": decl.get("serve"), "healthcheck": decl.get("healthcheck"),
-            "build": decl.get("build"),
+    """Effective catalog = derived ⊕ declared. The thing deploy/serve read.
+
+    Also derives the #108 artifact version (semver + content_sha) and build
+    closure (#108.1) per unit, so the build graph + version are visible from the
+    lock without cloning any repo."""
+    allu = _units(cat)
+    # Bucket by NATURE: units we DEPLOY (type != external) → `units`; EXTERNAL deps we
+    # consume (type == external) → `external`. Within units, BUILDABLE (has a repo) are
+    # derived + fingerprinted from source; ENGINE-units (no repo — a datastore/self-
+    # hosted stack) are versioned by their `engine` stack (content_sha over it).
+    buildable = {n for n, u in allu.items() if u.get("repo")}
+    derived = {name: derive_unit(cat, name) for name in buildable}
+    shas = _sha_maps(cat, derived)               # {name: {code_sha, content_sha}}, transitive
+    units, external = {}, {}
+    for name, decl in allu.items():
+        # identity + declared deploy facts every unit/dep carries
+        ident = {
+            "id": decl.get("id"), "type": decl.get("type"), "sub_type": decl.get("sub_type"),
+            "engine": decl.get("engine"),
+            "deploy_deps": decl.get("deploy_deps") or decl.get("requires") or [],
+            "kind": decl.get("kind"), "requires": decl.get("requires") or [],
+            "hosts": decl.get("hosts"), "host": decl.get("host"), "edge": decl.get("edge"),
+            "healthcheck": decl.get("healthcheck"), "health": decl.get("health"),
+            "owner": decl.get("owner"), "scope": decl.get("scope"),
+            "provisioning": decl.get("provisioning"), "endpoints": decl.get("endpoints"),
+            "lifecycle": decl.get("lifecycle"), "secret_ref": decl.get("secret_ref"),
         }
+        if decl.get("type") == "external":
+            external[name] = {**ident, "repo": None}        # consume-only
+            continue
+        if name in buildable:
+            d = derived[name]
+            content_sha = (shas.get(name) or {}).get("content_sha")
+            # A data unit's deploy identity = its DDL/DML source AND the engine that
+            # applies them — fold the engine stack in so a `mariadb@11.8→11.9` bump rolls it.
+            if decl.get("engine"):
+                content_sha = hashlib.sha256(
+                    ("content:%s\nengine:%s" % (content_sha, _engine_sha(decl["engine"]))).encode()
+                ).hexdigest()
+            units[name] = {**ident,
+                "repo": decl.get("repo"), "anchor": decl.get("anchor"),
+                "kind": d["kind"], "artifact": d["artifact"], "npm_name": d["npm_name"],
+                "paths": d["paths"], "depends_on": d["depends_on"],
+                "requires_derived": d["requires_derived"],
+                "serve": decl.get("serve"), "build": decl.get("build"),
+                # #108.3 — stable local port (assigned at build, reused): localhost:<port>.
+                "local_port": _local_port(name, d["kind"], decl.get("serve"), decl.get("healthcheck")),
+                "semver": d.get("semver"),
+                "content_sha": content_sha,
+                "code_sha": (shas.get(name) or {}).get("code_sha"),     # P1.1 promote anchor
+                "build_closure": {"base_image": d.get("base_image"), "anchor": decl.get("anchor"),
+                                  "build_dep_units": d["depends_on"]},
+            }
+        else:
+            # ENGINE-unit (no source): deploy identity = its engine stack. content_sha
+            # over the stack so a component version bump re-fingerprints + redeploys it.
+            units[name] = {**ident, "repo": None, "anchor": None,
+                "content_sha": _engine_sha(decl.get("engine")), "code_sha": None, "semver": None}
     return {
         "_generated_by": "catalog.py build — DO NOT EDIT; regenerate from services.yaml + repos",
         "version": cat.get("version"),
         "units": units,
-        "platform_services": cat.get("platform_services", {}) or {},
+        "external": external,
         "applications": cat.get("applications", {}) or {},
         "config_service_map": cat.get("config_service_map", {}) or {},
         # Generic verb→app-owned-script hooks (e.g. seed, iam-data) — prj dispatches
@@ -567,25 +959,33 @@ def load_lock(lock_path=None):
 
 
 def effective_cat(cat):
-    """Merge graph.lock (derived) over services.yaml (declared) so read commands are lock-aware."""
+    """Merge graph.lock (derived) over services.yaml (declared) so read commands are
+    lock-aware. Emits a v3 `units:` map (lock `units` + `external`, both overlaid on the
+    declared unit), so downstream reads run the v3 path uniformly."""
     lock = load_lock()
     if not lock:
         return cat
+    declared = _units(cat)
+    units = {}
+    lock_external = lock.get("external", lock.get("platform_services", {})) or {}   # back-compat
+    for src in ((lock.get("units") or {}), lock_external):
+        for name, u in src.items():
+            base = dict(declared.get(name, {}))
+            base.update({k: v for k, v in u.items() if v is not None})
+            units[name] = base
     merged = dict(cat)
-    svc = {}
-    for name, u in (lock.get("units") or {}).items():
-        base = dict((cat.get("services") or {}).get(name, {}))
-        base.update({k: v for k, v in u.items() if v is not None})
-        svc[name] = base
-    merged["services"] = svc
-    merged["platform_services"] = lock.get("platform_services", cat.get("platform_services", {}))
+    merged.pop("services", None)
+    merged.pop("platform_services", None)
+    merged["units"] = units
     return merged
 
 
 def check(cat):
     """Drift gate: re-derive and assert the declared overlay + committed lock agree."""
     issues = []
-    pservices = set(cat.get("platform_services", {}) or {})
+    for e in _validate_units(cat):                 # T1 — type/sub_type vs taxonomy
+        issues.append(("taxonomy", e.split(":", 1)[0], e.split(":", 1)[1].strip()))
+    pservices = set(_platform_services(cat))
     units = set(_services(cat))
     for name, s in _services(cat).items():
         # Referential integrity of declared requires (always).
@@ -713,36 +1113,74 @@ def _dag_include(units, names):
         incl.update(units.get(n, {}).get("depends_on") or [])
     return incl
 
-def _fmt_dag_tree(units, ps, names, env, epins):
+def _fmt_requires(reqs, ps, units, env):
+    if not reqs:
+        return "(none)"
+    parts = []
+    for r in reqs:
+        if r in ps:                           # platform service — surface DATA vs external
+            tag = _platform_tag(ps[r])
+            if env:
+                parts.append(f"{r} → {_platform_endpoint(ps, r, env) or '(unresolved)'} [{tag}]")
+            else:
+                parts.append(f"{r} [{tag}]")
+        else:                                 # unit→unit edge
+            if env:
+                parts.append(f"{r} → {(units.get(r, {}).get('hosts') or {}).get(env) or '(unit)'}")
+            else:
+                parts.append(f"{r} [unit]")
+    return ", ".join(parts)
+
+
+def _fmt_dag_tree(units, ps, names, env, epins, allpins=None):
+    allpins = allpins or {}
     out = []
     for n in names:
         d = units.get(n, {})
-        head = f"{n}  ({d.get('kind') or '?'} · {d.get('artifact') or '—'})"
+        ver = artifact_version(d)
+        head = f"{n}  ({d.get('kind') or '?'} · {d.get('artifact') or '—'}{'@' + ver if ver else ''})"
         if env:
-            host = (d.get("hosts") or {}).get(env) or "-"
-            edge = (d.get("edge") or "").replace("<env>", env) or "-"
-            head += f"   [env={env}: host={host} · pin={epins.get(n) or '-'} · edge={edge}]"
+            if env == "local":
+                # local isn't a public domain — served units run on localhost at
+                # their stable assigned port (#108.3). Non-served units (libs) have
+                # NO endpoint → host/edge are '-'.
+                if d.get("local_port"):
+                    host, edge = "localhost", "localhost:%s" % d["local_port"]
+                else:
+                    host, edge = "-", "-"
+            else:
+                host = (d.get("hosts") or {}).get(env) or "-"
+                edge = (d.get("edge") or "").replace("<env>", env) or "-"
+            head += f"   [env={env}: host={host} · edge={edge}]"
         out.append(head)
+        # #108.1 — build INPUTS → artifact (the build side; was an empty leaf line).
+        bc = d.get("build_closure") or {}
+        bi = []
+        if bc.get("base_image"):
+            bi.append("base " + bc["base_image"])
+        if bc.get("anchor"):
+            # show the repo with the anchor so it's clear WHERE the source lives
+            repo = d.get("repo")
+            bi.append("anchor %s:%s" % (repo, bc["anchor"]) if repo else "anchor " + bc["anchor"])
         deps = d.get("depends_on") or []
-        out.append(f"  ├─ build deps : {', '.join(deps) if deps else '(none)'}")
         reqs = (d.get("requires") or []) or (d.get("requires_derived") or [])
-        if not reqs:
-            out.append(f"  └─ requires   : (none)")
-        else:
-            parts = []
-            for r in reqs:
-                if r in ps:                       # platform service — surface DATA vs external
-                    tag = _platform_tag(ps[r])
-                    if env:
-                        parts.append(f"{r} → {_platform_endpoint(ps, r, env) or '(unresolved)'} [{tag}]")
-                    else:
-                        parts.append(f"{r} [{tag}]")
-                else:                             # unit→unit edge
-                    if env:
-                        parts.append(f"{r} → {(units.get(r, {}).get('hosts') or {}).get(env) or '(unit)'}")
-                    else:
-                        parts.append(f"{r} [unit]")
-            out.append(f"  └─ requires   : {', '.join(parts)}")
+        # #108.2 — built version + per-env pins (deployed bits per env).
+        vline = ("built " + ver) if ver else "(unversioned)"
+        pin_str = " · ".join(f"{e} {allpins.get(e, {}).get(n)}"
+                             for e in ("dev", "uat", "prod") if allpins.get(e, {}).get(n))
+        if env and epins.get(n):
+            vline += f"  ·  pin[{env}]={epins.get(n)}"
+        elif pin_str:
+            vline += "  ·  pins: " + pin_str
+        rows = [
+            ("build inputs", ", ".join(bi) if bi else "(declared-only)"),
+            ("build deps", ", ".join(deps) if deps else "(none)"),
+            ("requires", _fmt_requires(reqs, ps, units, env)),
+            ("version", vline),
+        ]
+        for i, (lbl, val) in enumerate(rows):
+            conn = "└─" if i == len(rows) - 1 else "├─"
+            out.append(f"  {conn} {lbl:12}: {val}")
     return "\n".join(out) or "  (no units)"
 
 def _fmt_dag_mermaid(units, ps, names, env, epins):
@@ -761,13 +1199,18 @@ def _fmt_dag_mermaid(units, ps, names, env, epins):
     return "\n".join(lines)
 
 def dag(cat, target=None, env=None, fmt="tree"):
-    """Render the derived DAG (live; never reads/writes graph.lock). <target> may
-    be a UNIT or an APPLICATION (renders the app's member units), matching the
-    targets `prj deploy` accepts. No target = the whole graph."""
-    lock = build_lock(cat)
-    units, ps = lock["units"], lock["platform_services"]
+    """Render the DAG from the COMMITTED graph.lock — the SoT for derived facts, so
+    the build graph + version are visible WITHOUT cloning any repo (#108). This is
+    why a `dag --env dev|prod` from the bare gov repo still shows real build
+    inputs/deps: it reads the lock, it does NOT re-derive live (a live derive there
+    has no member repos and would show empty closures). Falls back to a live
+    derivation only when no lock exists yet. <target> may be a UNIT or an
+    APPLICATION (renders the app's member units). No target = the whole graph."""
+    lock = load_lock() or build_lock(cat)
+    units, ps = lock.get("units", {}) or {}, (lock.get("external") or lock.get("platform_services") or {})
     apps = lock.get("applications", {}) or {}
-    epins = (load_pins().get(env) or {}) if env else {}
+    allpins = load_pins()                              # all envs, for the version line
+    epins = (allpins.get(env) or {}) if env else {}
     if target:
         if target in ps:
             # platform service target → its detail view (data/stateful facts + users)
@@ -777,6 +1220,13 @@ def dag(cat, target=None, env=None, fmt="tree"):
             names = [target]
         elif target in apps:
             names = [m for m in (apps[target].get("members") or []) if m in units]
+        elif target in ("build", "check", "add", "update", "rm", "dag"):
+            # A sibling catalog SUBCOMMAND was passed where a dag TARGET is expected
+            # (e.g. `prj catalog dag check`). Point at the right grammar.
+            raise ValueError(
+                f"'{target}' is a catalog subcommand, not a dag target. "
+                f"Did you mean `prj catalog {target}`?  "
+                f"Dag grammar: `prj catalog dag [<unit|app|service>] [--env <env>]`.")
         else:
             raise KeyError(
                 f"no such unit, application or platform service '{target}'.  "
@@ -786,7 +1236,7 @@ def dag(cat, target=None, env=None, fmt="tree"):
     else:
         names = sorted(units)
     return _fmt_dag_mermaid(units, ps, names, env, epins) if fmt == "mermaid" \
-        else _fmt_dag_tree(units, ps, names, env, epins)
+        else _fmt_dag_tree(units, ps, names, env, epins, allpins)
 
 
 # ── Authoring: add / update / rm a unit (PROPOSE — print a YAML block) ─────────
@@ -908,6 +1358,7 @@ def _main(argv=None):
     p = sub.add_parser("preflight"); p.add_argument("target"); p.add_argument("--env", required=True)
     p = sub.add_parser("select"); p.add_argument("--token", required=True); p.add_argument("--changed", nargs="*", default=[]); p.add_argument("--format", choices=["json", "text"], default="json")
     p = sub.add_parser("pins"); p.add_argument("env")
+    p = sub.add_parser("version"); p.add_argument("unit")   # artifact version <semver>+<sha> (#108.2)
     p = sub.add_parser("get-pin"); p.add_argument("service"); p.add_argument("env")
     p = sub.add_parser("set-pin"); p.add_argument("service"); p.add_argument("env"); p.add_argument("version")
     p = sub.add_parser("promote"); p.add_argument("from_env"); p.add_argument("to_env"); p.add_argument("services", nargs="*")
@@ -951,10 +1402,17 @@ def _main(argv=None):
     cat = raw if args.cmd in ("build", "check", "descriptor", "dag", "add", "update", "rm") else effective_cat(raw)
     try:
         if args.cmd == "build":
+            tax_errs = _validate_units(raw)        # T1 — type/sub_type vs taxonomy
+            if tax_errs:
+                for e in tax_errs:
+                    print(f"  [taxonomy] {e}", file=sys.stderr)
+                print("FAIL: catalog has invalid unit types — fix services.yaml or "
+                      "extend knowledge/deployment/taxonomy/types.yaml", file=sys.stderr)
+                return 1
             lock = build_lock(raw)
             write_lock(lock)
             print(f"wrote {DEFAULT_LOCK} — {len(lock['units'])} units, "
-                  f"{len(lock['platform_services'])} platform services")
+                  f"{len(lock.get('external') or {})} external")
         elif args.cmd == "check":
             issues = check(raw)
             for kind, name, msg in issues:
@@ -1002,6 +1460,13 @@ def _main(argv=None):
         elif args.cmd == "select":
             d = select_artifact(cat, args.token, args.changed)
             print(_fmt_select_text(d) if args.format == "text" else json.dumps(d, indent=2))
+        elif args.cmd == "version":
+            lock = load_lock() or build_lock(cat)
+            u = (lock.get("units") or {}).get(args.unit)
+            if u is None:
+                print(f"no such unit: {args.unit}", file=sys.stderr)
+                return 2
+            print(artifact_version(u))
         elif args.cmd == "pins":
             print(json.dumps(load_pins().get(args.env, {}) or {}, indent=2))
         elif args.cmd == "get-pin":

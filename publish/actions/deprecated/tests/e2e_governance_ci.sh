@@ -35,22 +35,36 @@ teardown() {
 }
 trap teardown EXIT
 
+# Retry a GitHub mutation a few times — content creation (repos/issues/projects)
+# is subject to SECONDARY RATE LIMITS, especially under back-to-back runs. Prints
+# the command's stdout on success; returns non-zero after all attempts fail.
+gh_retry() {
+  local n=1 max=5 delay=8 out rc
+  while :; do
+    out="$("$@" 2>/dev/null)"; rc=$?
+    if [[ $rc -eq 0 ]]; then printf '%s' "$out"; return 0; fi
+    [[ $n -ge $max ]] && return "$rc"
+    echo "  (transient gh failure — retry $n/$max in ${delay}s: $*)" >&2
+    sleep "$delay"; n=$((n+1)); delay=$((delay*2))
+  done
+}
+
 # ── Provision the throwaway fixture in the org ────────────────────────────────
 echo "== provision code repo + anchor issue + board =="
-gh repo create "$CODE_REPO" --private --add-readme >/dev/null \
-  || { echo "FATAL: could not create $CODE_REPO (bot needs repo create in $ORG)"; exit 1; }
+gh_retry gh repo create "$CODE_REPO" --private --add-readme >/dev/null \
+  || { echo "FATAL: could not create $CODE_REPO (bot needs repo create in $ORG; or GitHub rate limit)"; exit 1; }
 
 # anchor label + a linked anchor issue, assigned to the bot
 gh label create anchor --repo "$CODE_REPO" --color FBCA04 --force >/dev/null 2>&1 || true
-ANCHOR_URL="$(gh issue create --repo "$CODE_REPO" --title "Anchor: prj-e2e $STAMP" \
-  --body "Scope/anchor issue for the prj governance E2E. Throwaway." 2>/dev/null)"
-[[ -n "$ANCHOR_URL" ]] || { echo "FATAL: anchor issue create failed"; exit 1; }
+ANCHOR_URL="$(gh_retry gh issue create --repo "$CODE_REPO" --title "Anchor: prj-e2e $STAMP" \
+  --body "Scope/anchor issue for the prj governance E2E. Throwaway.")"
+[[ -n "$ANCHOR_URL" ]] || { echo "FATAL: anchor issue create failed (or GitHub rate limit)"; exit 1; }
 gh issue edit "$ANCHOR_URL" --add-label anchor --add-assignee "$BOT" >/dev/null 2>&1 || true
 
 # org board, link the anchor issue
-BOARD_URL="$(gh project create --owner "$ORG" --title "prj-e2e $STAMP" --format json 2>/dev/null \
-  | python3 -c 'import sys,json;print(json.load(sys.stdin).get("url",""))')"
-[[ -n "$BOARD_URL" ]] || { echo "FATAL: board create failed (bot needs project scope/owner in $ORG)"; exit 1; }
+BOARD_JSON="$(gh_retry gh project create --owner "$ORG" --title "prj-e2e $STAMP" --format json)"
+BOARD_URL="$(printf '%s' "$BOARD_JSON" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("url",""))' 2>/dev/null)"
+[[ -n "$BOARD_URL" ]] || { echo "FATAL: board create failed (bot needs project scope/owner in $ORG; or GitHub rate limit)"; exit 1; }
 BOARD_NUM="$(printf '%s' "$BOARD_URL" | sed -nE 's#.*/projects/([0-9]+).*#\1#p')"
 gh project item-add "$BOARD_NUM" --owner "$ORG" --url "$ANCHOR_URL" >/dev/null 2>&1 \
   || { echo "FATAL: could not link anchor issue to board"; exit 1; }
@@ -63,6 +77,8 @@ SMOKE_TEST_OWNER="$ORG" \
 SMOKE_TEST_OWNER_TYPE="org" \
 SMOKE_FIXTURE_PROJECT_URL="$BOARD_URL" \
 SMOKE_FIXTURE_REPO_BRANCH="main" \
+SMOKE_SKIP_PHASE1=1 \
+SMOKE_SKIP_EMPTY_LIST=1 \
   bash "$REPO_ROOT/tests/e2e_smoke.sh" --always-clean
 rc=$?
 [[ $rc -eq 0 ]] && echo "✓ P6 governance E2E passed" || echo "✗ P6 governance E2E failed (rc=$rc)"

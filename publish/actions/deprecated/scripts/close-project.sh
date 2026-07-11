@@ -88,17 +88,25 @@ is_authorized_for_project "$GH_PROJECT" "$ASSIGNED_TO" \
 BRANCH=$(project_branch_for_id "$PROJECT_ID")
 TODAY=$(today)
 
+# Workspace-repo git ops run in the PER-PROJECT gov clone (on the project branch),
+# not $REPO_ROOT — which the deterministic resolver (#57) makes the home clone (on
+# main). The project branch is checked out in the per-project worktree (shared
+# base), so 'git checkout <project-branch>' in the home clone fails with "already
+# used by worktree". Fall back to REPO_ROOT when no per-project clone exists.
+WS_CLONE="$(org_gov_clone "$PROJECT_ID")"
+[[ -e "$WS_CLONE/.git" ]] || WS_CLONE="$REPO_ROOT"
+
 # Tasks-on-board: a task is a sub-branch (<branch>.<task-slug>). Refuse to close
 # while any remain unmerged — merge them (prj merge) or cancel first. The "$BRANCH.*"
 # glob matches task sub-branches only (not "$BRANCH" itself, nor "$BRANCH-knowledge").
-OPEN_TASKS=$(git -C "$REPO_ROOT" ls-remote --heads origin "$BRANCH.*" 2>/dev/null | awk '{print $2}' | sed 's|refs/heads/||')
+OPEN_TASKS=$(git -C "$WS_CLONE" ls-remote --heads origin "$BRANCH.*" 2>/dev/null | awk '{print $2}' | sed 's|refs/heads/||')
 [[ -n "$OPEN_TASKS" ]] && hard_stop "Unmerged task sub-branches exist — merge or cancel them first:
 $OPEN_TASKS"
 
 # ── Update state on project branch (so the gate validates it) ────────────────
 
 echo "Updating project state on '$BRANCH'..."
-cd "$REPO_ROOT"
+cd "$WS_CLONE"
 git fetch origin "$DEFAULT_BRANCH"
 git fetch origin "$BRANCH" 2>/dev/null || true
 git checkout "$BRANCH"
@@ -153,6 +161,12 @@ while IFS= read -r repo_url; do
 
   git -C "$REPO_DIR" fetch origin "$REPO_BASE"
   git -C "$REPO_DIR" fetch origin "$BRANCH" 2>/dev/null || true
+  # The per-project repo is a worktree of a shared base clone (ADR-0001). If that
+  # base clone "holds" $REPO_BASE (e.g. it's sitting on main), the worktree can't
+  # check it out → "already used by worktree". Detach the base's HEAD to free the
+  # branch (the base is an object store, not a working checkout).
+  _RBASE_CLONE="$(base_clone_dir "$repo_url")"
+  [[ -e "$_RBASE_CLONE/.git" ]] && git -C "$_RBASE_CLONE" checkout --detach -q 2>/dev/null || true
   git -C "$REPO_DIR" checkout "$REPO_BASE"
 
   MERGED_REPOS+=("$REPO_NAME|$REPO_BASE")
@@ -206,7 +220,7 @@ done
 # atomically. Status itself is GitHub-derived (board closed below) — there is no
 # registry flip to ship (registry-elimination Increment 2).
 
-cd "$REPO_ROOT"
+cd "$WS_CLONE"
 git push origin "$BRANCH"
 
 CLOSE_PR_TITLE="close-project: $PROJECT_ID → $DEFAULT_BRANCH"
@@ -242,6 +256,7 @@ fi
 git fetch origin "$DEFAULT_BRANCH" 2>/dev/null || true
 
 # Mirror governance summary (best-effort, GitHub-side — not the registry).
+anchor_set_state "$(yaml_get "$PROJECT_YAML" github_project)" completed
 project_readme_mirror "$PROJECT_ID" "$(yaml_get "$PROJECT_YAML" github_project)" "completed" \
   "$(yaml_get "$PROJECT_YAML" assigned_to)" "$(yaml_get "$PROJECT_YAML" seeded_by)" "$BRANCH" || true
 
