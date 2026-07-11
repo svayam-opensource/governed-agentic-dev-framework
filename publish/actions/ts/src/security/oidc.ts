@@ -66,8 +66,16 @@ export async function login(cfg: OidcConfig, print: (s: string) => void): Promis
       if (!c || s !== state) return reject(new Error("login: state mismatch or missing code"));
       resolve({ code: c, redirectUri: `http://127.0.0.1:${port}/callback` });
     });
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    // Redirects are EXACT-match at the broker (no loopback port wildcarding), so bind a FIXED port from
+    // the set the `gov` OIDC client registered (iam_oidc_client.redirect_uris). Try each until one is free.
+    const ports = (process.env.GOV_LOOPBACK_PORTS?.split(",").map((n) => Number(n.trim())).filter(Boolean)) ?? [47600, 47601, 47602, 47603];
+    let idx = 0;
+    const tryNext = (): void => {
+      if (idx >= ports.length) { reject(new Error(`login: no free loopback port in [${ports.join(", ")}] — close whatever's using them, or set GOV_LOOPBACK_PORTS`)); return; }
+      server.listen(ports[idx++], "127.0.0.1");
+    };
+    server.on("error", (e: NodeJS.ErrnoException) => { if (e.code === "EADDRINUSE") tryNext(); else reject(e); });
+    server.on("listening", () => {
       const port = (server.address() as { port: number }).port;
       const redirectUri = `http://127.0.0.1:${port}/callback`;
       const a = new URL(meta.authorization_endpoint);
@@ -75,9 +83,10 @@ export async function login(cfg: OidcConfig, print: (s: string) => void): Promis
         response_type: "code", client_id: cfg.clientId, redirect_uri: redirectUri, scope: cfg.scopes,
         audience: cfg.audience, state, nonce, code_challenge: challenge, code_challenge_method: "S256",
       })) a.searchParams.set(k, v);
-      print(`Opening your browser to sign in… if it doesn't open, visit:\n  ${a.toString()}`);
+      print(`Opening your browser to sign in (loopback :${port})… if it doesn't open, visit:\n  ${a.toString()}`);
       openBrowser(a.toString());
     });
+    tryNext();
     setTimeout(() => reject(new Error("login: timed out after 300s")), 300_000).unref();
   });
 
