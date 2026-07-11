@@ -6,6 +6,7 @@
 // catalog/deploy is a SEPARATE CLI (`gov-operate`) — gov-work has no knowledge of it.
 // No args on a TTY → the interactive menu; `setup` → the async bootstrap; else the command.
 import { main, runSetupCommand, runCredsCommand, runMainMenu, readCliVersion, helpLines } from "./main.js";
+import { runAuthCommand } from "./auth.js";
 
 const argv = process.argv.slice(2);
 
@@ -22,6 +23,8 @@ if (argv[0] === "--version" || argv[0] === "-v") {
   runSetupCommand(argv).then((code) => process.exit(code));
 } else if (argv[0] === "creds") {
   runCredsCommand(argv).then((code) => process.exit(code));
+} else if (argv[0] === "auth") {
+  runAuthCommand(argv).then((code) => process.exit(code));
 } else {
   process.exit(main(argv));
 }
