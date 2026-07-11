@@ -1,0 +1,73 @@
+{
+  "name": "@svayam-opensource/gov-work",
+  "version": "1.0.0",
+  "description": "gov-work — the OSS project/workflow CLI for the Governed Agentic Development Framework (Node/TypeScript). Manages projects, workspaces, and credentials; enterprise catalog/deploy is the separate gov-operate CLI. Succeeds the legacy bash @svayam-opensource/prj (frozen at 0.10.0).",
+  "type": "module",
+  "main": "./lib/cjs/index.js",
+  "module": "./lib/esm/index.js",
+  "types": "./lib/esm/index.d.ts",
+  "bin": {
+    "gov-work": "./lib/esm/cli/bin.js"
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./lib/esm/index.d.ts",
+        "default": "./lib/esm/index.js"
+      },
+      "require": {
+        "types": "./lib/cjs/index.d.ts",
+        "default": "./lib/cjs/index.js"
+      }
+    }
+  },
+  "files": [
+    "lib/"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "rm -rf lib",
+    "build": "npm run clean && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json",
+    "test": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/**/*.test.ts'",
+    "test:e2e": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/e2e/**/*.test.ts'",
+    "lint": "eslint .",
+    "prepublishOnly": "npm run build && npm run test",
+    "tsc": "npm run build",
+    "postbuild": "chmod +x lib/esm/cli/bin.js",
+    "test:adopter": "bash e2e/run-adopter-e2e.sh",
+    "test:adopter:smoke": "bash e2e/adopter-smoke.sh"
+  },
+  "keywords": [
+    "gov",
+    "gov-work",
+    "prj",
+    "governance",
+    "agentic",
+    "cli"
+  ],
+  "author": "Svayam Infoware Pvt. Ltd.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/svayam-opensource/governed-agentic-dev-framework.git",
+    "directory": "publish/actions/ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.0.0",
+    "chai": "^4.5.0",
+    "jiti": "^2.4.2",
+    "mocha": "^10.8.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.56.0"
+  }
+}

@@ -3,27 +3,31 @@
 The framework is **two artifacts** produced from **one source repo**:
 
 - **This template repo** (`svayam-opensource/governed-agentic-dev-framework`) — the
-  **source of truth** for *both* the `prj` **CLI** (repo root: `prj`, `scripts/`,
-  `bin/`, `setup.sh`) and the **content** (`framework/`: policies, knowledge
-  starters, the agent harness/protocol, the install `MANIFEST`).
-- **npm `@svayam-opensource/prj`** — the **published CLI**, built from this repo.
+  **source of truth** for *both* the `gov-work` **CLI** (Node/TypeScript, at
+  `ts/gov-work/`) and the **content** (`framework/`: policies, knowledge starters,
+  the agent harness/protocol, the install `MANIFEST`).
+- **npm `@svayam-opensource/gov-work`** — the **published CLI** (command `gov-work`), built
+  from `ts/gov-work/`. It succeeds the legacy bash `@svayam-opensource/prj`, which
+  is **frozen** at `0.10.0` (no new versions).
 - **Adopter governance repos** (e.g. `Svayamtech/svm-prj-work`) — pure governance
-  **data** (org-config, registry, `projects/`, `knowledge/`). They **consume** the
-  CLI from npm and the content from this template; they hold **no** CLI source.
+  **data** (`org-config.yaml`, `projects/`, `knowledge/`). They **consume** the CLI
+  from npm and the content from this template; they hold **no** CLI source. Under
+  the GitHub-source-of-truth model there is **no `registry.yaml`** — project state
+  is derived live from GitHub.
 
 ```mermaid
 flowchart TD
   subgraph TPL["Template repo (SoT)"]
-    CLISRC["prj · scripts/ · bin/ · setup.sh<br/>(CLI source)"]
+    CLISRC["ts/gov-work/<br/>(Node CLI source)"]
     CONTENT["framework/<br/>(content: policy · knowledge · harness)"]
   end
-  CLISRC -->|"(a) bump + Jenkins publish"| NPM["npm @svayam-opensource/prj"]
+  CLISRC -->|"(a) bump + governed publish"| NPM["npm @svayam-opensource/gov-work"]
   subgraph ADOPT["Adopter governance DATA repo"]
-    DATA["org-config · registry · projects/ · knowledge/"]
+    DATA["org-config.yaml · projects/ · knowledge/"]
   end
   NPM -->|"(c) npm i -g"| DEV["developer machine"]
-  DEV -->|"runs prj on"| ADOPT
-  CONTENT -->|"(b) prj upgrade (git: template remote)"| ADOPT
+  DEV -->|"runs gov on"| ADOPT
+  CONTENT -->|"(b) gov-work upgrade (git: template remote)"| ADOPT
   ADOPT -.->|"(b) propose content change (PR to template)"| TPL
   DEV -.->|"(c) propose CLI change (PR to template)"| TPL
 ```
@@ -36,10 +40,10 @@ flowchart TD
 
 | Goal | Path |
 |---|---|
-| **Update content** | Edit under `framework/` (policies, knowledge starters, harness). If you changed the **session protocol** (`agent/session-protocol.md`), re-render the per-tool harness files: `bash scripts/render-harness.sh` (the generated `framework/CLAUDE.md`, `.cursor/…` etc. carry a "do not edit" banner — edit the source + re-render). |
-| **Publish content** | Open a PR → merge to `main`. Merging **is** the content release: adopters pick it up with `prj upgrade` (which pulls `framework/` from this repo's `main`). No separate step. |
-| **Update the CLI** | Edit at the repo root: `prj`, `scripts/`, `bin/`, `setup.sh`. |
-| **Publish the CLI to npmjs** | `scripts/bump-version.sh <x.y.z>` (keeps `package.json` == `framework/VERSION` == `.framework-version` in sync; `check_version_sync` enforces it), commit + merge to `main`, tag `vX.Y.Z`, then **`prj publish vX.Y.Z`** — the framework ships itself through its own governed Jenkins job (`<workspace>/publish/prod/prj`, the param-driven `knowledge/deployment/pipelines/publish.Jenkinsfile`). That job clones the CLI source at the ref, gates it (syntax + version-sync + `npm pack`), then `npm publish`es with the npm token from the Jenkins credential **`npmjs-token`** (the token lives in Jenkins, never on a laptop) → npm dist-tag `latest`. Dry-run first with `prj publish --dry-run`; verify the new version is live afterward. The single interface means no hand-run `npm publish`. |
+| **Update content** | Edit under `framework/` (policies, knowledge starters, harness). If you changed the **session protocol** (`agent/session-protocol.md`), re-render the per-tool harness files (the generated `framework/CLAUDE.md`, `.cursor/…` etc. carry a "do not edit" banner — edit the source + re-render). |
+| **Publish content** | Open a PR → merge to `main`. Merging **is** the content release: adopters pick it up with `gov-work upgrade`. No separate step. |
+| **Update the CLI** | Edit at `ts/gov-work/` (Node 24 / TypeScript). `npm test` (incl. the full-flow e2e gate) must pass — it's a required check on `main`. |
+| **Publish the CLI to npmjs** | `gov bump-version <x.y.z>` (keeps `package.json` == `framework/VERSION` == `.framework-version` in sync; `gov-work validate` enforces it), commit, push `main`, then run the governed publish pipeline (`@svayam-opensource/gov-work`, dist-tag `latest`). The gate runs build + lint + test + version-sync + `npm pack`; verify the new version is live on npmjs afterward. |
 
 > Content and CLI live in the same repo — a release can carry either or both. Keep
 > them coherent: a content change that needs new CLI behaviour ships with a CLI bump.
@@ -52,51 +56,44 @@ flowchart TD
 
 ### Adopt — one-time, for a brand-new org
 
-1. **Install the CLI:** `npm i -g @svayam-opensource/prj` (prereqs: `bash`, `git`,
-   `gh` authenticated, `yq`, `python3`).
+1. **Install the CLI:** `npm i -g @svayam-opensource/gov-work` (prereqs: **Node ≥ 24**,
+   `git`, `gh` authenticated — no bash/yq/python needed).
 2. **Create your org's governance repo** on GitHub (empty) — this becomes your
    governance **data** workspace. It holds *no* CLI source.
-3. **Seed content + configure:** bring the framework content (`framework/`) in from
-   this template and run setup. Setup writes **`org-config.yaml`** (your org
-   identity, default branches, owners), wires the **`template` remote** (so future
-   `prj upgrade` can pull), scaffolds the content to its canonical paths, and
-   creates an empty **`registry.yaml`**.
-4. **Commit + push** to your org repo. You now have a configured governance data
-   workspace — the CLI lives in npm, the content tracks this template.
-5. **Start working:** `prj` (initialize/start your first project).
-
-> ⚠️ The exact bootstrap command sequence is being finalized — it shares the
-> first-`prj upgrade` reconciliation work (aligning a repo's `framework/` with the
-> template and adopting the canonical scaffold paths). Until then, treat steps 3–4
-> as the intended shape, not a frozen recipe.
+3. **Bootstrap:** clone the framework content into it, then run **`gov-work setup`** — it
+   prompts for your org identity and writes **`org-config.yaml`** (org identity,
+   default branches, owners), and points `origin` at your org repo.
+4. **Register the workspace:** `gov-work org add <github_org> <gov-home-path>` then
+   `gov-work org use <github_org>` (records the gov home so `gov-work` resolves it in any shell).
+5. **Commit + push** to your org repo, then **start working:** `gov-work seed <board-url>`.
 
 ### Day-to-day
 
 | Goal | Path |
 |---|---|
-| **Upgrade content** | `prj upgrade` — fetches the latest `framework/` from the `template` remote, applies the `MANIFEST` (3-way merge that **preserves your `org-config.yaml` and customizations**), and leaves the changes staged for you to review (`git diff`) and commit. Pin a version with `prj upgrade <tag>`; default is the template's `main`. |
-| **Propose a content change** | • **Org-local** knowledge/policy (lives only in your repo): `prj knowledge` (opens a proposal branch → PR within your repo, reviewed by the relevant Owner). • **Framework-level** content (should benefit *all* adopters): open a PR against this template repo's `framework/`. Once merged + released, you receive it via `prj upgrade`. |
+| **Upgrade content** | `gov-work upgrade` — pulls the latest `framework/` from the `template` remote (3-way merge preserving your `org-config.yaml` + customizations). *(The Node CLI currently reports the upgrade target/command; the full overlay content-sync is on the roadmap.)* |
+| **Propose a content change** | • **Org-local** knowledge/policy: `gov-work knowledge propose <slug>` (opens a proposal branch → PR within your repo, reviewed by the relevant Owner). • **Framework-level** content (benefits *all* adopters): open a PR against this template repo's `framework/`. Once merged + released, you receive it via `gov-work upgrade`. |
 
 ---
 
 ## (c) Developer using a governance repo
 
-*You use `prj` to do governed work. You never vendor the CLI — it comes from npm.*
+*You use `gov-work` to do governed work. You never vendor the CLI — it comes from npm.*
 
 | Goal | Path |
 |---|---|
-| **Install the CLI** | `npm i -g @svayam-opensource/prj`. Runtime prereqs (not npm deps — `prj` is bash): `bash`, `git`, `gh` (authenticated), `yq`, `python3`. On Windows use **Git Bash**. |
-| **Upgrade the CLI** | `npm i -g @svayam-opensource/prj@latest` (or `npm update -g @svayam-opensource/prj`). |
-| **Use it** | Run `prj` and follow the menus — see the README "Journeys" (start work, take a task, finish, etc.). |
-| **Propose a CLI change** | Open an issue or PR against **this template repo** (the CLI's source of truth). Don't edit an installed copy — your change must land here to ship via npm to everyone. |
+| **Install the CLI** | `npm i -g @svayam-opensource/gov-work`. Runtime prereqs: **Node ≥ 24**, `git`, `gh` (authenticated). Cross-platform (no Git Bash requirement). |
+| **Upgrade the CLI** | `npm i -g @svayam-opensource/gov-work@latest` (or `npm update -g @svayam-opensource/gov-work`). |
+| **Use it** | Run `gov-work` for the interactive menu, or `gov <command>` directly — see the README. |
+| **Propose a CLI change** | Open an issue or PR against **this template repo** (the CLI's source of truth, `ts/gov-work/`). Don't edit an installed copy — your change must land here to ship via npm to everyone. |
 
 ---
 
 ### One-line summary
 
-- **(a) maintainers** edit + publish the product (content → merge `main`; CLI → bump + Jenkins → npm).
-- **(b) admins** adopt once (install CLI + seed content + configure), then `prj upgrade` to pull content; propose via `prj knowledge` (local) or a template PR (framework-wide).
-- **(c) developers** `npm i -g` the CLI; propose CLI changes via a template PR.
+- **(a) maintainers** edit + publish the product (content → merge `main`; CLI → `gov bump-version` + governed publish → npm).
+- **(b) admins** adopt once (`gov-work setup` + `gov-work org add/use`), then `gov-work upgrade` to pull content; propose via `gov-work knowledge` (local) or a template PR (framework-wide).
+- **(c) developers** `npm i -g @svayam-opensource/gov-work`; propose CLI changes via a template PR.
 
 ---
 
