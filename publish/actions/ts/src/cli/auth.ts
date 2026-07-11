@@ -48,7 +48,7 @@ export async function runAuthCommand(argv: readonly string[]): Promise<number> {
       try {
         const tokens = await login(oidcConfig(process.env), out);
         saveAuth(file, tokens);
-        const c = claimsOf(tokens.idToken);
+        const c = claimsOf(tokens.accessToken ?? tokens.idToken);
         out(`✓ Signed in as ${who(c)}`);
         out(`  account: ${String(c.account_ctx ?? "?")}   roles: ${roles(c)}`);
         out(`  session valid until ${new Date(tokens.expiresAt).toISOString()} (re-run \`gov-work auth login\` when it expires).`);
@@ -58,7 +58,7 @@ export async function runAuthCommand(argv: readonly string[]): Promise<number> {
     case "status": {
       const t = loadAuth(file);
       if (!t) { out("Not signed in. Run `gov-work auth login`."); return 1; }
-      const c = claimsOf(t.idToken);
+      const c = claimsOf(t.accessToken ?? t.idToken);
       const expired = t.expiresAt < Date.now();
       out(`identity:    ${who(c)}`);
       out(`account_ctx: ${String(c.account_ctx ?? "?")}`);
