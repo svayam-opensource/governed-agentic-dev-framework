@@ -25,6 +25,9 @@ import { preflight, renderGap } from "../security/preflight.js";
 import { runCreds } from "../security/creds-flow.js";
 import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
+import { loadAuth, authPath } from "../security/auth-store.js";
+import { claimsOf } from "../security/oidc.js";
+import { vaultLogin, kvRead, kvWrite } from "../security/vault.js";
 import { createGitVcs } from "../lifecycle/vcs.js";
 import { createGhBoard, type RunGh } from "../lifecycle/gh-board.js";
 import { createGhIssues } from "../lifecycle/issues.js";
@@ -175,6 +178,33 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   const policyNeeds = readPolicyCredNeeds((p) => fs.readFile(p), resolve.home);
   const needs = requestedKey ? [credNeedForKey(requestedKey)] : [...assembleNeeds(policyNeeds)];
 
+  // ── TARGET = Vault (OIDC creds model). If you've `gov auth login`'d and a Vault addr is configured,
+  //    `creds` WRITES to Vault under your token's account_ctx (kv/gov/<account>/creds) — the SAME menu,
+  //    target = Vault, values shared with everyone authorized to read. Else it falls back to the local
+  //    per-user file (legacy). Vault enforces write (gov-admin's account-templated policy).
+  const vaultAddr = process.env.GOV_BAO_ADDR?.trim();
+  const session = requestedKey ? null : loadAuth(authPath(agentWorkRoot, defaultIdentity()));
+  let vault: { addr: string; token: string; path: string; data: Record<string, string> } | null = null;
+  if (session && vaultAddr) {
+    try {
+      const claims = claimsOf(session.idToken);
+      const account = String(claims.account_ctx ?? "");
+      const rolesArr = Array.isArray(claims.roles) ? (claims.roles as string[]) : [];
+      const role = process.env.GOV_BAO_JWT_ROLE?.trim()
+        || (rolesArr.includes("GOV_ADMIN") ? "gov-admin" : rolesArr[0]?.toLowerCase().replace(/_/g, "-") ?? "");
+      if (!account) throw new Error("your token has no account_ctx");
+      if (!role) throw new Error("your token carries no gov role (a gov-admin seeds account creds)");
+      const token = await vaultLogin({ addr: vaultAddr, jwtMount: process.env.GOV_BAO_JWT_MOUNT?.trim() || "gov", role }, session.idToken);
+      const path = `kv/gov/${account}/creds`;
+      vault = { addr: vaultAddr, token, path, data: await kvRead(vaultAddr, token, path) };
+      process.stdout.write(`Target: Vault ${path}  (account ${account}, as ${role}) — values are shared with everyone authorized to read.\n`);
+    } catch (e) {
+      process.stderr.write(`  (Vault target unavailable — ${(e as Error).message}; using the local credentials file instead)\n`);
+    }
+  } else if (!session && vaultAddr && !requestedKey) {
+    process.stdout.write("Tip: run `gov-work auth login` first to write these into Vault (account context) instead of the local file.\n");
+  }
+
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def?: string): Promise<string> =>
     new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || (def ?? ""))));
@@ -193,10 +223,13 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
         return {
           gitConfig: (k) => tryRun("git", ["config", "--get", k]) || undefined,
           ghAuthOk,
-          hasCred: (k) => getCredential(file, k) !== undefined,
+          hasCred: (k) => vault ? vault.data[k] !== undefined : getCredential(file, k) !== undefined,
         };
       },
-      setCred: (id, key, value) => setCredential(credentialsPath(agentWorkRoot, id), key, value),
+      setCred: async (id, key, value) => {
+        if (vault) { vault.data[key] = value; await kvWrite(vault.addr, vault.token, vault.path, vault.data); }
+        else setCredential(credentialsPath(agentWorkRoot, id), key, value);
+      },
     });
     return r.stillMissing.length ? 1 : 0;
   } finally {
