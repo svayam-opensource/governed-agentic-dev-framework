@@ -21,7 +21,7 @@ export interface CredsFlowDeps {
   /** probes bound to a given identity's store (so the GAP is per-identity). */
   readonly makeProbes: (identity: string) => NeedProbes;
   /** place a pasted value under the chosen identity (store is line-preserving). */
-  readonly setCred: (identity: string, key: string, value: string) => void;
+  readonly setCred: (identity: string, key: string, value: string) => void | Promise<void>;
   /** is stdin a REAL interactive TTY? Secrets are only accepted when true — a piped /
    *  agent-driven session cannot provide a credential (it's the human's to enter). */
   readonly interactive: boolean;
@@ -84,7 +84,7 @@ export async function runCreds(d: CredsFlowDeps): Promise<CredsFlowResult> {
         continue;
       }
       const value = (await d.prompt(`  Paste the value (blank to skip)`, "")).trim();
-      if (value) { d.setCred(identity, need.credKey, value); filled.push(need.id); d.print("  ✓ stored (per-user, 0600)."); }
+      if (value) { await d.setCred(identity, need.credKey, value); filled.push(need.id); d.print("  ✓ stored."); }
     } else {
       // an environment fix (git config / gh auth): the user runs it themselves, then re-checks
       d.print("  (run the above in a terminal, then re-run `gov-work creds`)");
