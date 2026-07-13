@@ -28,6 +28,8 @@ export interface OrgConfigValues {
   readonly systemArchOwnerGithub: string;
   readonly dataArchOwnerGithub: string;
   readonly policyEffectiveDate: string;
+  /** OpenBao/Vault address for gov creds→Vault + attest (optional; empty if not using Vault). */
+  readonly vaultAddr: string;
 }
 
 /** Parse a GitHub remote URL → owner/repo (ssh or https, optional .git). */
@@ -79,6 +81,7 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
     systemArchOwnerGithub: pick("systemArchOwnerGithub", policyOwnerGithub),
     dataArchOwnerGithub: pick("dataArchOwnerGithub", policyOwnerGithub),
     policyEffectiveDate: pick("policyEffectiveDate", ctx.today),
+    vaultAddr: pick("vaultAddr", ""),
   };
 }
 
@@ -137,6 +140,9 @@ data_arch_owner_github: "${v.dataArchOwnerGithub}"
 
 # Effective date of the policy (YYYY-MM-DD)
 policy_effective_date: "${v.policyEffectiveDate}"
+
+# OpenBao/Vault address — the gov creds→Vault + attest target (env GOV_BAO_ADDR overrides).
+vault_addr: "${v.vaultAddr}"
 `;
 }
 
@@ -152,7 +158,7 @@ export function readExistingOrgConfig(text: string): Partial<OrgConfigValues> {
     ["defaultBranch", "default_branch"], ["defaultCodeBranch", "default_code_branch"],
     ["agentWorkRoot", "agent_work_root"], ["govWorkspace", "gov_workspace"],
     ["policyOwnerEmail", "policy_owner_email"], ["policyOwnerGithub", "policy_owner_github"],
-    ["policyEffectiveDate", "policy_effective_date"],
+    ["policyEffectiveDate", "policy_effective_date"], ["vaultAddr", "vault_addr"],
   ];
   const out: Partial<Record<keyof OrgConfigValues, string>> = {};
   for (const [k, y] of map) {
