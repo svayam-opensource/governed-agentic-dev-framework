@@ -15,7 +15,7 @@ import { createNodeEnv } from "../resolve/node-env.js";
 import { parseOrgConfig } from "../config/org-config.js";
 import { defaultIdentity } from "../security/credentials.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
-import { login, loginClientCredentials, claimsOf, type OidcConfig } from "../security/oidc.js";
+import { login, loginServiceTokenExchange, claimsOf, type OidcConfig } from "../security/oidc.js";
 import { authPath, saveAuth, loadAuth, clearAuth } from "../security/auth-store.js";
 import { vaultLogin } from "../security/vault.js";
 
@@ -57,16 +57,18 @@ export async function runAuthCommand(argv: readonly string[]): Promise<number> {
       } catch (e) { err(`gov-work auth login failed — ${(e as Error).message}`); return 1; }
     }
     case "service": {
-      // Headless service login (client_credentials) — for CI/daemons. The service
-      // presents its client_id (GOV_OIDC_CLIENT_ID, e.g. `gov-ci`) + app-password
-      // (GOV_OIDC_CLIENT_SECRET — the single machine secret). With --print-vault-token
-      // it also logs into Vault under the token's role and prints ONLY the scoped
-      // Vault token on stdout (for `GOV_BAO_TOKEN=$(gov-work auth service --print-vault-token)`).
-      const secret = process.env.GOV_OIDC_CLIENT_SECRET?.trim();
-      if (!secret) { err("gov-work auth service: set GOV_OIDC_CLIENT_SECRET (the service app-password)."); return 1; }
+      // Headless service login (token-exchange RELAY) — for CI/daemons. The service hands the broker
+      // its Authentik app-password (GOV_SERVICE_TOKEN — the single machine secret) + aud + account; the
+      // broker does the Authentik call. account comes from org-config `gov_account` (env GOV_ACCOUNT
+      // overrides). With --print-vault-token it also logs into Vault under the token's role and prints
+      // ONLY the scoped Vault token on stdout (for `GOV_BAO_TOKEN=$(gov-work auth service --print-vault-token)`).
+      const secret = process.env.GOV_SERVICE_TOKEN?.trim();
+      if (!secret) { err("gov-work auth service: set GOV_SERVICE_TOKEN (the service app-password)."); return 1; }
+      const account = process.env.GOV_ACCOUNT?.trim() || (cfgText ? parseOrgConfig(cfgText).govAccount : "") || "";
+      if (!account) { err("gov-work auth service: no account — set `gov_account` in org-config or GOV_ACCOUNT."); return 1; }
       const emitVaultToken = argv.includes("--print-vault-token");
       try {
-        const tokens = await loginClientCredentials(oidcConfig(process.env), secret);
+        const tokens = await loginServiceTokenExchange(oidcConfig(process.env), secret, account);
         saveAuth(file, tokens);
         const c = claimsOf(tokens.accessToken ?? tokens.idToken);
         if (emitVaultToken) {

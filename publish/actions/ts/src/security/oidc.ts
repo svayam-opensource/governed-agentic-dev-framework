@@ -101,30 +101,30 @@ export async function login(cfg: OidcConfig, print: (s: string) => void): Promis
 }
 
 /**
- * Headless SERVICE login (RFC 6749 client_credentials) against the IAM broker —
- * the machine analogue of `login()`, no browser/PKCE. The service presents its
- * client_id + app-password; the broker relays the credential to the IdP for
- * validation and mints the svayam_jwt (aud=gov). Discovery-driven: only the
- * issuer is needed up front (endpoints come from /.well-known). The broker's
- * client_credentials returns the svayam_jwt as `access_token` (no id_token).
+ * Headless SERVICE login (token-exchange RELAY) against the IAM broker — the machine analogue of
+ * `login()`, no browser/PKCE. The service NEVER contacts Authentik: it hands the broker its Authentik
+ * app-password (`subject_token`) + the target `audience` (app) + `account`; the broker exchanges the
+ * app-password at Authentik and mints. Returns BOTH the IAM-issued id_token and the access_token
+ * (svayam_jwt). Discovery-driven: only the issuer is needed up front (endpoints from /.well-known).
  */
-export async function loginClientCredentials(cfg: OidcConfig, clientSecret: string): Promise<Tokens> {
+export async function loginServiceTokenExchange(cfg: OidcConfig, subjectToken: string, account: string): Promise<Tokens> {
   const meta = await discover(cfg.issuer);
   const res = await fetch(meta.token_endpoint, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      grant_type: "client_credentials",
-      client_id: cfg.clientId,
-      client_secret: clientSecret,
-      scope: cfg.scopes,
+      grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+      subject_token: subjectToken,
+      subject_token_type: "urn:ietf:params:oauth:token-type:access_token",
+      audience: cfg.audience,
+      account,
     }),
   });
-  if (!res.ok) throw new Error(`client_credentials failed (${res.status}) at ${meta.token_endpoint}`);
-  const t = (await res.json()) as { id_token?: string; access_token?: string; refresh_token?: string; expires_in?: number };
-  const jwt = t.access_token ?? t.id_token;
-  if (!jwt) throw new Error("client_credentials response carried no access_token");
-  return { idToken: jwt, accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + (t.expires_in ?? 300) * 1000 };
+  if (!res.ok) throw new Error(`service token-exchange failed (${res.status}) at ${meta.token_endpoint}`);
+  const t = (await res.json()) as { id_token?: string; access_token?: string; expires_in?: number };
+  const jwt = t.access_token;
+  if (!jwt) throw new Error("token-exchange response carried no access_token");
+  return { idToken: t.id_token ?? jwt, accessToken: jwt, expiresAt: Date.now() + (t.expires_in ?? 300) * 1000 };
 }
 
 /** Decode a JWT's claims (NO signature verification — display only). */
