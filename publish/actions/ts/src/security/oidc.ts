@@ -107,13 +107,14 @@ export async function login(cfg: OidcConfig, print: (s: string) => void): Promis
  * app-password at Authentik and mints. Returns BOTH the IAM-issued id_token and the access_token
  * (svayam_jwt). Discovery-driven: only the issuer is needed up front (endpoints from /.well-known).
  */
-export async function loginServiceTokenExchange(cfg: OidcConfig, subjectToken: string, account: string): Promise<Tokens> {
+export async function loginServiceTokenExchange(cfg: OidcConfig, username: string, subjectToken: string, account: string): Promise<Tokens> {
   const meta = await discover(cfg.issuer);
   const res = await fetch(meta.token_endpoint, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+      client_id: username, // the service identity (its Authentik service-account username/email)
       subject_token: subjectToken,
       subject_token_type: "urn:ietf:params:oauth:token-type:access_token",
       audience: cfg.audience,

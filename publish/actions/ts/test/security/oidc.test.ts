@@ -36,10 +36,11 @@ describe("oidc — loginServiceTokenExchange (headless service login)", () => {
       }) } as Response;
     }) as typeof fetch;
     try {
-      const tokens = await loginServiceTokenExchange({ issuer: "https://iam", clientId: "gov", audience: "gov", scopes: "openid email profile" }, "app-password", "1000");
+      const tokens = await loginServiceTokenExchange({ issuer: "https://iam", clientId: "gov", audience: "gov", scopes: "openid email profile" }, "gov-ci@svayam.ai", "app-password", "1000");
       const tokenCall = calls.find((c) => c.url === "https://iam/token");
       expect(tokenCall, "token endpoint called").to.exist;
       expect(tokenCall!.body).to.contain("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange");
+      expect(tokenCall!.body).to.contain("client_id=gov-ci%40svayam.ai");
       expect(tokenCall!.body).to.contain("subject_token=app-password");
       expect(tokenCall!.body).to.contain("audience=gov");
       expect(tokenCall!.body).to.contain("account=1000");

@@ -58,17 +58,20 @@ export async function runAuthCommand(argv: readonly string[]): Promise<number> {
     }
     case "service": {
       // Headless service login (token-exchange RELAY) — for CI/daemons. The service hands the broker
-      // its Authentik app-password (GOV_SERVICE_TOKEN — the single machine secret) + aud + account; the
-      // broker does the Authentik call. account comes from org-config `gov_account` (env GOV_ACCOUNT
-      // overrides). With --print-vault-token it also logs into Vault under the token's role and prints
-      // ONLY the scoped Vault token on stdout (for `GOV_BAO_TOKEN=$(gov-work auth service --print-vault-token)`).
+      // its identity (GOV_SERVICE_USERNAME — its Authentik service-account email) + app-password
+      // (GOV_SERVICE_TOKEN — the single machine secret) + aud + account; the broker does the Authentik
+      // call. account comes from org-config `gov_account` (env GOV_ACCOUNT overrides). With
+      // --print-vault-token it also logs into Vault under the token's role and prints ONLY the scoped
+      // Vault token on stdout (for `GOV_BAO_TOKEN=$(gov-work auth service --print-vault-token)`).
+      const username = process.env.GOV_SERVICE_USERNAME?.trim();
+      if (!username) { err("gov-work auth service: set GOV_SERVICE_USERNAME (the service's Authentik account email)."); return 1; }
       const secret = process.env.GOV_SERVICE_TOKEN?.trim();
       if (!secret) { err("gov-work auth service: set GOV_SERVICE_TOKEN (the service app-password)."); return 1; }
       const account = process.env.GOV_ACCOUNT?.trim() || (cfgText ? parseOrgConfig(cfgText).govAccount : "") || "";
       if (!account) { err("gov-work auth service: no account — set `gov_account` in org-config or GOV_ACCOUNT."); return 1; }
       const emitVaultToken = argv.includes("--print-vault-token");
       try {
-        const tokens = await loginServiceTokenExchange(oidcConfig(process.env), secret, account);
+        const tokens = await loginServiceTokenExchange(oidcConfig(process.env), username, secret, account);
         saveAuth(file, tokens);
         const c = claimsOf(tokens.accessToken ?? tokens.idToken);
         if (emitVaultToken) {
