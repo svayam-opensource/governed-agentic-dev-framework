@@ -168,7 +168,8 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   if (!resolve.ok) { process.stderr.write("gov-work creds: no gov workspace resolved — run `gov-work onboard`/`gov-work setup` first.\n"); return 1; }
   const cfgText = fs.readFile(path.join(resolve.home, "org-config.yaml"));
   if (!cfgText) { process.stderr.write("gov-work creds: org-config.yaml not found.\n"); return 1; }
-  const agentWorkRoot = parseOrgConfig(cfgText).agentWorkRoot;
+  const orgConfig = parseOrgConfig(cfgText);
+  const agentWorkRoot = orgConfig.agentWorkRoot;
 
   // `gov-work creds <KEY>` targets one credential (e.g. SVAYAM_GOV_LICENSE); bare `gov-work creds` walks
   // the base NEEDs (git/gh) PLUS every credential DECLARED in the org's build/deploy policies
@@ -182,7 +183,9 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   //    `creds` WRITES to Vault under your token's account_ctx (kv/gov/<account>/creds) — the SAME menu,
   //    target = Vault, values shared with everyone authorized to read. Else it falls back to the local
   //    per-user file (legacy). Vault enforces write (gov-admin's account-templated policy).
-  const vaultAddr = process.env.GOV_BAO_ADDR?.trim();
+  // Vault address: env override wins (CI/local overrides), else org-config's `vault_addr` — the single
+  // source of truth so devs + Jenkins inherit it without setting an env var.
+  const vaultAddr = process.env.GOV_BAO_ADDR?.trim() || orgConfig.vaultAddr || undefined;
   const session = requestedKey ? null : loadAuth(authPath(agentWorkRoot, defaultIdentity()));
   let vault: { addr: string; token: string; path: string; data: Record<string, string> } | null = null;
   if (session && vaultAddr) {

@@ -26,6 +26,8 @@ export interface OrgConfig {
   /** `gov_workspace`, expanded to an absolute path. */
   readonly govWorkspace: string;
   readonly policyOwnerEmail: string;
+  /** OpenBao/Vault address (`vault_addr`) — the gov creds→Vault target; env `GOV_BAO_ADDR` overrides. */
+  readonly vaultAddr: string;
   /** Token → value for tool-file substitution (seed phase B.1). */
   readonly orgTokens: Readonly<Record<string, string>>;
 }
@@ -46,6 +48,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
   const agentWorkRoot = expandTilde(get("agent_work_root"), home);
   const govWorkspace = expandTilde(get("gov_workspace"), home);
   const policyOwnerEmail = get("policy_owner_email");
+  const vaultAddr = get("vault_addr");
 
   const orgTokens: Record<string, string> = {
     ORG_NAME: orgName,
@@ -73,6 +76,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
     agentWorkRoot,
     govWorkspace,
     policyOwnerEmail,
+    vaultAddr,
     orgTokens,
   };
 }
