@@ -100,6 +100,33 @@ export async function login(cfg: OidcConfig, print: (s: string) => void): Promis
   return { idToken: t.id_token, accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + (t.expires_in ?? 300) * 1000 };
 }
 
+/**
+ * Headless SERVICE login (RFC 6749 client_credentials) against the IAM broker —
+ * the machine analogue of `login()`, no browser/PKCE. The service presents its
+ * client_id + app-password; the broker relays the credential to the IdP for
+ * validation and mints the svayam_jwt (aud=gov). Discovery-driven: only the
+ * issuer is needed up front (endpoints come from /.well-known). The broker's
+ * client_credentials returns the svayam_jwt as `access_token` (no id_token).
+ */
+export async function loginClientCredentials(cfg: OidcConfig, clientSecret: string): Promise<Tokens> {
+  const meta = await discover(cfg.issuer);
+  const res = await fetch(meta.token_endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: cfg.clientId,
+      client_secret: clientSecret,
+      scope: cfg.scopes,
+    }),
+  });
+  if (!res.ok) throw new Error(`client_credentials failed (${res.status}) at ${meta.token_endpoint}`);
+  const t = (await res.json()) as { id_token?: string; access_token?: string; refresh_token?: string; expires_in?: number };
+  const jwt = t.access_token ?? t.id_token;
+  if (!jwt) throw new Error("client_credentials response carried no access_token");
+  return { idToken: jwt, accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + (t.expires_in ?? 300) * 1000 };
+}
+
 /** Decode a JWT's claims (NO signature verification — display only). */
 export function claimsOf(jwt: string): Record<string, unknown> {
   try {
