@@ -55,3 +55,23 @@ data_arch_owner_github: ""
 
 # Effective date of the policy (YYYY-MM-DD)
 policy_effective_date: ""
+
+# Governed service endpoints — read by gov-operate. Declared centrally here for build+deploy+ops 
+# Each is a shared config value (a URL), never a secret; the per-USER api_token for each lives in Vault.
+#   vault    — the per-user api_token store (jwt/login) + attest target
+#   oidc     — the iam-broker OIDC base for `gov-operate auth login` (loopback + PKCE)
+#   jenkins  — the org Jenkins base (CI trigger); a deploy triggers a job here as the user
+#   npm      — the org npm/Verdaccio registry (publish target for npm units)
+#   docker   — the org container image registry (publish target for container units; = default_registry)
+services:
+  vault: ""
+  oidc: "https://security.your-org.com/ident/oidc"
+  oidc_client_id: "gov"
+  jenkins: "https://jenkins.your-org.com"
+  npm: "https://npm.your-org.com"
+  docker: "https://docker.your-org.com"
+
+# Gov tenant/account. IAM is multi-tenant; `gov-operate auth login` passes this to the broker (app=gov) so
+# the authToken is minted under this account — not left to entitlement/chooser.
+gov_account: "<org-account>"
+
