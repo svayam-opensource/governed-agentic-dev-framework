@@ -142,6 +142,8 @@ export interface MenuHandlers {
   readonly help: (command?: string) => readonly string[];
   /** All command names, in reference order — for the "help for one command" picker. */
   readonly helpCommands: () => readonly string[];
+  /** Registered governance workspaces — for the org switcher (so the user picks, not types the exact name). */
+  readonly listOrgs: () => readonly { readonly org: string; readonly home: string }[];
 }
 
 /** Resolve a numbered or typed choice against a list of (sub)commands. */
@@ -161,9 +163,17 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
       if (top.kind === "quit") return 0;
       if (top.kind === "unknown") { w("  unknown choice"); continue; }
       if (top.kind === "org") {
-        const org = (await ask("  org to use: ")).trim();
-        if (org) return await h.switchOrg(org);
-        continue;
+        const orgs = h.listOrgs();
+        if (orgs.length === 0) { w("  No governance workspaces registered. Add one via Admin → org → add."); continue; }
+        w(""); w("  Switch org — registered workspaces:");
+        orgs.forEach((o, i) => w(`    ${String(i + 1).padStart(2)}) ${o.org.padEnd(20)} ${o.home}`));
+        w("     0) back");
+        const pick = (await ask("  Choose: ")).trim();
+        if (pick === "0" || pick === "") continue;
+        const i = Number(pick) - 1;
+        const chosen = Number.isInteger(i) && i >= 0 && i < orgs.length ? orgs[i] : orgs.find((o) => o.org === pick);
+        if (!chosen) { w("  unknown choice"); continue; }
+        return await h.switchOrg(chosen.org);
       }
       const a = top.action;
       if (a.kind === "guided") {

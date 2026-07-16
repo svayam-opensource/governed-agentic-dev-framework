@@ -353,6 +353,7 @@ export async function runMainMenu(): Promise<number> {
     switchOrg: (org) => runAny(["org", "use", org]),
     help: (command) => helpLines(command),
     helpCommands: helpCommandNames,
+    listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
   };
   return runMenu(ctx, handlers);
 }
