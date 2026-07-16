@@ -46,19 +46,52 @@ across all commands in one change.
 | `gov manage assign <login>` | subject positional (`<login>`) — one noun, fine |
 | `gov creds set <service> …` | subject positional (`<service>`) — one noun, fine |
 
-### Transition (no breakage)
+### First publish — adopt outright (no fallback)
 
-For every command whose args change, **accept the old trailing positionals as a DEPRECATED fallback**: run
-it, but print a one-line `deprecation: pass --env <v> (positional env is going away)` to stderr. Remove the
-fallback after one release line.
+`gov` / `gov-operate` have **not been published yet**, so there is NO installed syntax to preserve — apply
+the flag convention **directly**, with no deprecated positional fallback and no transition warnings. (Should a
+command ever ship with positional args in a *future* release and then change, reintroduce a one-release
+deprecation window at that point — not now.)
+
+### Value discovery — how a developer learns the allowed values
+
+A flag value is either a fixed **ENUM** or a **DYNAMIC set** (derived from the catalog/config/registry). Both
+are discoverable four ways, all reading from **one source of truth** for the set (no drift):
+
+1. **Usage synopsis** — enums shown inline: `--env <dev|uat|prod>`. Dynamic sets point to their source:
+   `<unit> (see \`gov catalog\`)`, `--project <id> (see \`gov list\`)`.
+2. **Validation error lists the valid set** — `--env 'stage' invalid; choose: dev · uat · prod`
+   (dynamic: `--unit 'foo' not in the catalog — run \`gov catalog\``). A wrong value never dead-ends; it teaches.
+3. **Interactive menu presents them as a numbered pick** — never free-text (same rule as the org/help pickers).
+4. **A listing surface** — `gov standards` enumerates the sanctioned enums; dynamic sets have their list
+   commands (`gov catalog`, `gov list`, `gov org list`). Shell completion (later) completes from the same source.
+
+**Rule:** define each value set ONCE in code (the `ENVS` list, the standards taxonomy, the catalog) — the
+synopsis, the validator, the menu pick, and completion all read *that*.
 
 ## 3. Flag syntax
 
 - Long form `--flag`; short `-x` only for the few very common ones (`-h`, `-v`, `-y`, `-q`).
-- Value as `--flag value` **or** `--flag=value` (both accepted).
+- **Value syntax: the parser accepts BOTH `--flag value` and `--flag=value`; docs/help/examples use the
+  space form `--env <env>` as canonical.** Reach for `=` only when the value could start with `-`
+  (`--message=-x`) or the flag has an OPTIONAL value (`--color` vs `--color=always`) — there the space form
+  is ambiguous, so `=` is required.
 - Booleans are bare `--flag`; negate with `--no-flag` where a default-true needs turning off.
 - **Standard flags on every command:** `--help/-h`, `--yes/-y` (confirm non-interactively), `--quiet/-q`
   (suppress the banner), `--dry-run`, `--json` (machine output → stdout only), `--gov-home <dir>`.
+
+### Values & quoting
+
+Values are tokenized by the **shell** before `gov` sees them; the CLI treats each value as a **literal
+string** and never re-parses quotes.
+
+- **Any characters are allowed** in a value — spaces, symbols, quotes. The user quotes/escapes at the shell:
+  `--description "two words"`, `--description 'she said "hi"'`, `--path "$HOME/a b"`.
+- **The CLI does NOT strip quotes** from a value — a value that legitimately contains quotes is preserved
+  verbatim. (Quote-stripping happens only when READING a config FILE, never for a CLI arg.)
+- **`--flag=value` splits on the FIRST `=` only** — the value may itself contain `=` (`--tag env=prod`).
+- **Interactive menu:** each value is prompted on its own line and taken **whole, verbatim** (no whitespace
+  splitting), so multi-word/special values need no quoting there.
 
 ## 4. Help
 
@@ -96,9 +129,27 @@ fallback after one release line.
 - Re-running a converging command is a **no-op**, not an error (e.g. an unchanged content-addressed publish
   → "already published — skip", exit 0).
 
+## 9. Progress & verbosity
+
+Any command that can take more than ~1s **must show it's alive** — nothing should read as hung.
+
+- **TTY:** a spinner + status line on **stderr**; a **step counter when the total is known**
+  (`[3/7] running tests…`). One consistent spinner style across commands.
+- **Non-TTY (CI / piped / `--json`):** **no spinner/ANSI** — plain one-line-per-step to stderr
+  (`▶ test`, `✓ test (2.1s)`), so logs stay clean.
+- **stdout is the result only** — progress/spinners never touch it (keeps pipes + `--json` clean).
+- **Verbosity flags:** `--quiet/-q` (result + errors only; no banner, no progress) · `--verbose` (per-step
+  detail + underlying gh/git/http calls) · `--json` (machine output, implies quiet). Default = banner +
+  high-level progress. `--verbose` is long-only (`-v` stays `--version`).
+- **Every run is logged** to the per-user run log regardless of verbosity
+  (`…/preferences/<user>/logs/gov-<date>.log`) — a quiet/spinner run still has a full record;
+  `--log-file <path>` redirects, `--no-log` disables.
+- **Long waits get a live indicator + elapsed** — e.g. the deploy's Jenkins-build wait shows
+  `⠋ waiting for Jenkins build #N … (2m10s)` and updates as recipe phases report, instead of a silent poll.
+
 ---
 
 **Review checklist:** ratify §2 (positional-subject + flagged-qualifiers, env always a flag) — it's the one
 that drives the wholesale change. The rest codifies what's already built this session. Once approved, the
-sweep updates every command in gov-work + gov-operate to §2/§3, with §2 "Transition" keeping old positionals
-working (deprecated) for one release line.
+sweep updates every command in gov-work + gov-operate to §2/§3 **outright** (first publish → no positional
+fallback), plus the tests and the git-help usage synopses.
