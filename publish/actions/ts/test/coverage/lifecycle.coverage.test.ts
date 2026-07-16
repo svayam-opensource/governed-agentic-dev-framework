@@ -112,7 +112,7 @@ describe("lifecycle coverage — seed", () => {
   it("missing <board-url> → usage (exit 2)", () => {
     const r = run(["seed"]);
     expect(r.code).to.equal(2);
-    expect(r.lines).to.deep.equal(["usage: gov-work seed <board-url> [assignee]"]);
+    expect(r.lines).to.deep.equal(["usage: gov-work seed <board-url> [--assignee <login>]"]);
   });
 
   it("happy path → exit 0 with exact lines", () => {
@@ -468,7 +468,7 @@ describe("lifecycle coverage — add-repo", () => {
   it("missing <repo-url> → usage (exit 2)", () => {
     const r = run(["add-repo"]);
     expect(r.code).to.equal(2);
-    expect(r.lines).to.deep.equal(["usage: gov-work add-repo <repo-url> [base-branch]"]);
+    expect(r.lines).to.deep.equal(["usage: gov-work add-repo <repo-url> [--base-branch <branch>]"]);
   });
 
   it("happy path (default base branch = dev) → exit 0 with exact line", () => {
@@ -479,7 +479,7 @@ describe("lifecycle coverage — add-repo", () => {
 
   it("argument shape: explicit [base-branch] positional is threaded through", () => {
     // vcs accepts ONLY 'release' as a base — success proves the positional was used.
-    const r = run(["add-repo", APP_URL, "release"], { vcs: addVcs("release") });
+    const r = run(["add-repo", APP_URL, "--base-branch", "release"], { vcs: addVcs("release") });
     expect(r.code).to.equal(0);
     expect(r.lines).to.deep.equal([`Added ${APP_DIR} on ${PBRANCH}`]);
   });

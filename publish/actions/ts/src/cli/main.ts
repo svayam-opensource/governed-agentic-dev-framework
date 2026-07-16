@@ -284,9 +284,11 @@ const CMD_DESC: Record<string, string> = {
   promote: "Promote an artifact across envs (gov-operate plugin)", rollback: "Roll back a unit (gov-operate plugin)", drift: "Show deploy drift (gov-operate plugin)",
 };
 const CMD_USAGE: Record<string, string> = {
-  seed: "<board-url> [assignee]", "add-repo": "<repo-url>", manage: "<assign|unassign> <github-login>",
-  knowledge: "<propose|submit|archive> <slug>", onboard: "<repo-url> <owner> <description>", org: "<use|add|list|remove> [args]",
-  upgrade: "[--ref <branch>] [--from <dir>] [--apply]", deploy: "<unit> <env>", "bump-version": "<x.y.z>",
+  seed: "<board-url> [--assignee <login>]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
+  knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
+  org: "add <github_org> --home <path> | use|list|remove <github_org>",
+  upgrade: "[--ref <branch>] [--from <dir>] [--apply]", deploy: "<unit> --env <local|dev|uat|prod>",
+  promote: "<unit> --from <env> --to <env>", rollback: "<unit> --env <env> --to-sha <sha>", "bump-version": "<x.y.z>",
 };
 
 /** All commands in reference order (for the Help → "help for one command" picker). */
@@ -490,7 +492,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   // `prj org …` runs BEFORE resolution — it's the bootstrap that makes resolution
   // work (registering a gov home / selecting the active org).
   if (parsed.command === "org") {
-    const orgResult = routeOrg(parsed.positionals, { store: createNodeRegistryStore(), govConfigAt: (p) => env.govConfigAt(p) });
+    const orgResult = routeOrg(parsed.positionals, parsed.flags, { store: createNodeRegistryStore(), govConfigAt: (p) => env.govConfigAt(p) });
     for (const line of orgResult.lines) process.stdout.write(`${line}\n`);
     return orgResult.code;
   }

@@ -225,7 +225,7 @@ describe("coverage: gov-work knowledge", () => {
   it("knowledge propose (missing slug) → exit 2, propose usage", () => {
     const r = run(["knowledge", "propose"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work knowledge propose <slug>");
+    expect(r.lines[0]).to.equal('usage: gov-work knowledge <propose|submit|archive> <slug> [--description "<text>"]');
   });
 
   it("knowledge propose <slug> when vcs.push throws → exit 1, error message", () => {
@@ -237,7 +237,7 @@ describe("coverage: gov-work knowledge", () => {
   it("knowledge submit <slug> <desc…> → exit 0, opened PR (desc joined)", () => {
     const created: string[] = [];
     const p: Pulls = { create: (_repo, _base, _head, _title, body) => { created.push(body); return "https://pr/1"; }, merge: () => "m" };
-    const r = run(["knowledge", "submit", "my-slug", "a", "longer", "desc"], { pulls: p });
+    const r = run(["knowledge", "submit", "my-slug", "--description", "a longer desc"], { pulls: p });
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("Opened knowledge PR: https://pr/1");
     expect(created[0]).to.equal("a longer desc");
@@ -255,7 +255,7 @@ describe("coverage: gov-work knowledge", () => {
   it("knowledge submit (missing slug) → exit 2, submit usage", () => {
     const r = run(["knowledge", "submit"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work knowledge submit <slug> [description]");
+    expect(r.lines[0]).to.equal('usage: gov-work knowledge <propose|submit|archive> <slug> [--description "<text>"]');
   });
 
   it("knowledge submit <slug> when PR cannot be opened → exit 1", () => {
@@ -273,7 +273,7 @@ describe("coverage: gov-work knowledge", () => {
   it("knowledge archive (missing slug) → exit 2, archive usage", () => {
     const r = run(["knowledge", "archive"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work knowledge archive <slug>");
+    expect(r.lines[0]).to.equal('usage: gov-work knowledge <propose|submit|archive> <slug> [--description "<text>"]');
   });
 
   it("knowledge archive <slug> when vcs.tag throws → exit 1, error message", () => {
@@ -285,13 +285,13 @@ describe("coverage: gov-work knowledge", () => {
   it("knowledge <unknown-sub> → exit 2, generic knowledge usage", () => {
     const r = run(["knowledge", "frobnicate", "x"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work knowledge <propose|submit|archive> <slug> [description]");
+    expect(r.lines[0]).to.equal('usage: gov-work knowledge <propose|submit|archive> <slug> [--description "<text>"]');
   });
 
   it("knowledge (no subcommand) → exit 2, generic knowledge usage", () => {
     const r = run(["knowledge"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work knowledge <propose|submit|archive> <slug> [description]");
+    expect(r.lines[0]).to.equal('usage: gov-work knowledge <propose|submit|archive> <slug> [--description "<text>"]');
   });
 });
 
@@ -417,7 +417,7 @@ describe("coverage: gov-work onboard", () => {
   const freshVcs = () => vcsWith({ remoteBranchExists: () => false });
 
   it("onboard <url> <owner> <desc> → exit 0, onboarded + PR", () => {
-    const r = run(["onboard", URL, "rkant", "the acme repo"], { vcs: freshVcs() });
+    const r = run(["onboard", URL, "--owner", "rkant", "--description", "the acme repo"], { vcs: freshVcs() });
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("Onboarded acme (branch onboard-knowledge pushed).");
     expect(r.lines[1]).to.equal("  PR: pr");
@@ -426,7 +426,7 @@ describe("coverage: gov-work onboard", () => {
   it("onboard multi-word description → joined into one description", () => {
     const bodies: string[] = [];
     const p: Pulls = { create: (_r, _b, _h, _t, body) => { bodies.push(body); return "pr"; }, merge: () => "m" };
-    const r = run(["onboard", URL, "rkant", "one", "two", "three"], { vcs: freshVcs(), pulls: p });
+    const r = run(["onboard", URL, "--owner", "rkant", "--description", "one two three"], { vcs: freshVcs(), pulls: p });
     expect(r.code).to.equal(0); // description slice(2).join(" ") — 'one two three'
     expect(r.lines[0]).to.equal("Onboarded acme (branch onboard-knowledge pushed).");
   });
@@ -434,36 +434,36 @@ describe("coverage: gov-work onboard", () => {
   it("onboard (no args) → exit 2, usage", () => {
     const r = run(["onboard"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work onboard <repo-url> <owner> <description>");
+    expect(r.lines[0]).to.equal('usage: gov-work onboard <repo-url> --owner <owner> --description "<description>"');
   });
 
   it("onboard <url> (1 arg) → exit 2, usage", () => {
     const r = run(["onboard", URL]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work onboard <repo-url> <owner> <description>");
+    expect(r.lines[0]).to.equal('usage: gov-work onboard <repo-url> --owner <owner> --description "<description>"');
   });
 
   it("onboard <url> <owner> (2 args, missing description) → exit 2, usage", () => {
     const r = run(["onboard", URL, "rkant"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work onboard <repo-url> <owner> <description>");
+    expect(r.lines[0]).to.equal('usage: gov-work onboard <repo-url> --owner <owner> --description "<description>"');
   });
 
   it("onboard when knowledge/ already exists → exit 1, knowledge-exists", () => {
     const fs: Fs = { ...baseFs, pathExists: (p) => p.endsWith("knowledge") };
-    const r = run(["onboard", URL, "rkant", "desc"], { vcs: freshVcs(), fs });
+    const r = run(["onboard", URL, "--owner", "rkant", "--description", "desc"], { vcs: freshVcs(), fs });
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.equal("knowledge/ already exists in acme — investigate the existing structure.");
   });
 
   it("onboard when the onboard branch already exists → exit 1, branch-exists", () => {
-    const r = run(["onboard", URL, "rkant", "desc"], { vcs: vcsWith({ remoteBranchExists: () => true }) });
+    const r = run(["onboard", URL, "--owner", "rkant", "--description", "desc"], { vcs: vcsWith({ remoteBranchExists: () => true }) });
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.equal("Branch 'onboard-knowledge' already exists in acme — investigate before proceeding.");
   });
 
   it("onboard when no PR could be opened → exit 0 with manual-PR guidance", () => {
-    const r = run(["onboard", URL, "rkant", "desc"], { vcs: freshVcs(), pulls: { create: () => "", merge: () => "m" } });
+    const r = run(["onboard", URL, "--owner", "rkant", "--description", "desc"], { vcs: freshVcs(), pulls: { create: () => "", merge: () => "m" } });
     expect(r.code).to.equal(0);
     expect(r.lines[1]).to.equal("  branch pushed — open a PR for onboard-knowledge manually.");
   });
@@ -476,7 +476,7 @@ describe("coverage: gov-work org (routeOrg)", () => {
   it("org add <org> <home> (valid gov repo) → exit 0, registered", () => {
     const store = memStore();
     const deps: OrgDeps = { store, govConfigAt: probe({ "/gov": "Svayamtech" }) };
-    const r = routeOrg(["add", "Svayamtech", "/gov"], deps);
+    const r = routeOrg(["add", "Svayamtech"], { home: "/gov" }, deps);
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("Registered Svayamtech → /gov");
     expect(store.readHomes()).to.deep.equal([{ org: "Svayamtech", home: "/gov" }]);
@@ -484,28 +484,28 @@ describe("coverage: gov-work org (routeOrg)", () => {
 
   it("org add (no args) → exit 2, usage", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
-    const r = routeOrg(["add"], deps);
+    const r = routeOrg(["add"], {}, deps);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work org add <github_org> <home-path>");
+    expect(r.lines[0]).to.equal("usage: gov-work org add <github_org> --home <path>");
   });
 
   it("org add <org> (missing home) → exit 2, usage", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
-    const r = routeOrg(["add", "Svayamtech"], deps);
+    const r = routeOrg(["add", "Svayamtech"], {}, deps);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work org add <github_org> <home-path>");
+    expect(r.lines[0]).to.equal("usage: gov-work org add <github_org> --home <path>");
   });
 
   it("org add against a non-gov path → exit 1", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
-    const r = routeOrg(["add", "Svayamtech", "/nope"], deps);
+    const r = routeOrg(["add", "Svayamtech"], { home: "/nope" }, deps);
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.match(/is not a gov repo/);
   });
 
   it("org add with an org mismatch → exit 1", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({ "/gov": "Other" }) };
-    const r = routeOrg(["add", "Svayamtech", "/gov"], deps);
+    const r = routeOrg(["add", "Svayamtech"], { home: "/gov" }, deps);
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.equal("'/gov' belongs to org 'Other', not 'Svayamtech'.");
   });
@@ -513,7 +513,7 @@ describe("coverage: gov-work org (routeOrg)", () => {
   it("org add a duplicate → exit 0, idempotent upsert (one home)", () => {
     const store = memStore([{ org: "Svayamtech", home: "/gov" }]);
     const deps: OrgDeps = { store, govConfigAt: probe({ "/gov": "Svayamtech" }) };
-    const r = routeOrg(["add", "Svayamtech", "/gov"], deps);
+    const r = routeOrg(["add", "Svayamtech"], { home: "/gov" }, deps);
     expect(r.code).to.equal(0);
     expect(store.readHomes()).to.deep.equal([{ org: "Svayamtech", home: "/gov" }]);
   });
@@ -521,7 +521,7 @@ describe("coverage: gov-work org (routeOrg)", () => {
   it("org use <registered> → exit 0, active org set", () => {
     const store = memStore([{ org: "Svayamtech", home: "/gov" }]);
     const deps: OrgDeps = { store, govConfigAt: probe({}) };
-    const r = routeOrg(["use", "Svayamtech"], deps);
+    const r = routeOrg(["use", "Svayamtech"], {}, deps);
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("Active org → Svayamtech");
     expect(store.readActiveOrg()).to.equal("Svayamtech");
@@ -529,28 +529,28 @@ describe("coverage: gov-work org (routeOrg)", () => {
 
   it("org use <unregistered> → exit 1", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
-    const r = routeOrg(["use", "Ghost"], deps);
+    const r = routeOrg(["use", "Ghost"], {}, deps);
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.match(/Org 'Ghost' is not registered/);
   });
 
   it("org use (missing org) → exit 2, usage", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
-    const r = routeOrg(["use"], deps);
+    const r = routeOrg(["use"], {}, deps);
     expect(r.code).to.equal(2);
     expect(r.lines[0]).to.equal("usage: gov-work org use <github_org>");
   });
 
   it("org list (empty) → exit 0, 'No orgs registered'", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
-    const r = routeOrg(["list"], deps);
+    const r = routeOrg(["list"], {}, deps);
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("No orgs registered. Add one: prj org add <org> <home>.");
   });
 
   it("org list (populated) → exit 0, marks the active org", () => {
     const deps: OrgDeps = { store: memStore([{ org: "A", home: "/a" }, { org: "B", home: "/b" }], "B"), govConfigAt: probe({}) };
-    const r = routeOrg(["list"], deps);
+    const r = routeOrg(["list"], {}, deps);
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("Registered gov homes (* = active):");
     expect(r.lines.join("\n")).to.match(/\* B\t\/b/);
@@ -560,7 +560,7 @@ describe("coverage: gov-work org (routeOrg)", () => {
   it("org remove <present> → exit 0, removed", () => {
     const store = memStore([{ org: "A", home: "/a" }], "A");
     const deps: OrgDeps = { store, govConfigAt: probe({}) };
-    const r = routeOrg(["remove", "A"], deps);
+    const r = routeOrg(["remove", "A"], {}, deps);
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("Removed A");
     expect(store.readHomes()).to.deep.equal([]);
@@ -569,28 +569,28 @@ describe("coverage: gov-work org (routeOrg)", () => {
 
   it("org remove <absent> → exit 1", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
-    const r = routeOrg(["remove", "Ghost"], deps);
+    const r = routeOrg(["remove", "Ghost"], {}, deps);
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.equal("Org 'Ghost' is not registered.");
   });
 
   it("org remove (missing org) → exit 2, usage", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
-    const r = routeOrg(["remove"], deps);
+    const r = routeOrg(["remove"], {}, deps);
     expect(r.code).to.equal(2);
     expect(r.lines[0]).to.equal("usage: gov-work org remove <github_org>");
   });
 
   it("org <unknown-sub> → exit 2, generic org usage", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
-    const r = routeOrg(["frobnicate"], deps);
+    const r = routeOrg(["frobnicate"], {}, deps);
     expect(r.code).to.equal(2);
     expect(r.lines[0]).to.equal("usage: gov-work org <add|use|list|remove> …");
   });
 
   it("org (no subcommand) → exit 2, generic org usage", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
-    const r = routeOrg([], deps);
+    const r = routeOrg([], {}, deps);
     expect(r.code).to.equal(2);
     expect(r.lines[0]).to.equal("usage: gov-work org <add|use|list|remove> …");
   });
