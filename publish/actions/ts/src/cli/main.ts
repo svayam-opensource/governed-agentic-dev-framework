@@ -251,19 +251,54 @@ export function runAny(argv: readonly string[]): Promise<number> | number {
   return main(argv);
 }
 
-/** The command reference shown under the Help menu (grouped) / per-command. */
+/** The command reference (git-help style): one-line description per command + optional usage args. */
+const HELP_GROUPS: Record<string, string[]> = {
+  Lifecycle: ["seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel"],
+  Governance: ["manage", "anchor", "knowledge", "onboard", "org", "validate"],
+  Info: ["list", "list-all", "status"],
+  Maintain: ["setup", "doctor", "deps", "upgrade", "bump-version", "publish"],
+  "Enterprise (plugin)": ["catalog", "deploy", "data", "promote", "rollback", "drift"],
+};
+const CMD_DESC: Record<string, string> = {
+  seed: "Seed a new project workspace from a GitHub Project board", join: "Join an existing project (clone its repos on the project branch)",
+  task: "Create a task issue + sub-branch on the current project", merge: "Land a task sub-branch back to the project branch",
+  sync: "Sync the project branch with upstream changes", "add-repo": "Add a code repository to the current project",
+  close: "Close a completed project (closes its board)", pause: "Pause the current project", resume: "Resume a paused project", cancel: "Cancel the current project",
+  manage: "Project access — assign / unassign owners", anchor: "Show the current project's anchor issue",
+  knowledge: "Propose / submit / archive org knowledge changes", onboard: "Onboard a repository into the framework",
+  org: "Manage governance workspaces (the active org)", validate: "Validate the workspace / shipped content",
+  list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
+  setup: "Bootstrap / update org-config.yaml", doctor: "Diagnose the workspace + tooling", deps: "Install / verify required dependencies",
+  upgrade: "Pull the latest framework content into this workspace", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
+  catalog: "Governed catalog operations (gov-operate plugin)", deploy: "Governed deploy (gov-operate plugin)", data: "Governed data operations (gov-operate plugin)",
+  promote: "Promote an artifact across envs (gov-operate plugin)", rollback: "Roll back a unit (gov-operate plugin)", drift: "Show deploy drift (gov-operate plugin)",
+};
+const CMD_USAGE: Record<string, string> = {
+  seed: "<board-url> [assignee]", "add-repo": "<repo-url>", manage: "<assign|unassign> <github-login>",
+  knowledge: "<propose|submit|archive> <slug>", onboard: "<repo-url> <owner> <description>", org: "<use|add|list|remove> [args]",
+  upgrade: "[--ref <branch>] [--from <dir>] [--apply]", deploy: "<unit> <env>", "bump-version": "<x.y.z>",
+};
+
+/** All commands in reference order (for the Help → "help for one command" picker). */
+export const helpCommandNames = (): string[] => Object.values(HELP_GROUPS).flat();
+
+/** The command reference shown under the Help menu (git-help style), or per-command help. */
 export function helpLines(command?: string): string[] {
-  if (command) return ["", `  gov-work ${command} — run \`gov-work ${command} --help\`, or see the README command reference.`, ""];
-  const groups: Record<string, string[]> = {
-    Lifecycle: ["seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel"],
-    Governance: ["manage", "anchor", "knowledge", "onboard", "org", "validate"],
-    Info: ["list", "list-all", "status"],
-    Maintain: ["setup", "doctor", "deps", "upgrade", "bump-version", "publish"],
-    "Enterprise (plugin)": ["catalog", "deploy", "data", "promote", "rollback", "drift"],
-  };
-  const out = ["", "  gov command reference (run any directly: `gov-work <command> [args]`):"];
-  for (const [g, cmds] of Object.entries(groups)) out.push(`    ${g.padEnd(20)} ${cmds.join(" · ")}`);
-  out.push("");
+  if (command) {
+    const desc = CMD_DESC[command];
+    if (!desc) return ["", `  Unknown command '${command}'. Run \`gov help\` for the reference.`, ""];
+    const out = ["", `  gov ${command} — ${desc}.`];
+    if (CMD_USAGE[command]) out.push(`  usage: gov ${command} ${CMD_USAGE[command]}`);
+    out.push("");
+    return out;
+  }
+  const out = ["", "  usage: gov <command> [<args>]", "", "  These are the gov commands used in various situations:", ""];
+  for (const [g, cmds] of Object.entries(HELP_GROUPS)) {
+    out.push(`  ${g}`);
+    for (const c of cmds) out.push(`     ${c.padEnd(14)} ${CMD_DESC[c] ?? ""}`);
+    out.push("");
+  }
+  out.push("  See `gov help <command>` for a specific command (or menu → Help → help for one command).", "");
   return out;
 }
 
@@ -307,6 +342,7 @@ export async function runMainMenu(): Promise<number> {
     },
     switchOrg: (org) => runAny(["org", "use", org]),
     help: (command) => helpLines(command),
+    helpCommands: helpCommandNames,
   };
   return runMenu(ctx, handlers);
 }

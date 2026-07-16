@@ -114,6 +114,8 @@ export interface MenuHandlers {
   readonly switchOrg: (org: string) => Promise<number> | number;
   /** Help lines — full reference when no command, else per-command help. */
   readonly help: (command?: string) => readonly string[];
+  /** All command names, in reference order — for the "help for one command" picker. */
+  readonly helpCommands: () => readonly string[];
 }
 
 /** Resolve a numbered or typed choice against a list of (sub)commands. */
@@ -150,7 +152,20 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
         w("    0) back");
         const c = (await ask("  Choose: ")).trim();
         if (c === "1") for (const l of h.help()) w(l);
-        else if (c === "2") { const cmd = (await ask("  command name: ")).trim(); for (const l of h.help(cmd || undefined)) w(l); }
+        else if (c === "2") {
+          const cmds = h.helpCommands();
+          w("");
+          w("  Pick a command for help:");
+          cmds.forEach((cmd, i) => w(`    ${String(i + 1).padStart(2)}) ${cmd}`));
+          w("     0) back");
+          const pick = (await ask("  Choose: ")).trim();
+          if (pick !== "0" && pick !== "") {
+            const i = Number(pick) - 1;
+            const chosen = Number.isInteger(i) && i >= 0 && i < cmds.length ? cmds[i] : cmds.includes(pick) ? pick : undefined;
+            if (chosen) for (const l of h.help(chosen)) w(l);
+            else w("  unknown choice");
+          }
+        }
         continue;
       }
       // submenu → pick a command → run
