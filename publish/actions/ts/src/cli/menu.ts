@@ -29,8 +29,13 @@ export interface MenuContext {
   readonly project?: string;
 }
 
-/** `needsProject`: this command operates on the CURRENT project, so it's only valid in PROJECT context. */
-export interface SubCommand { readonly cmd: string; readonly desc: string; readonly argHint?: string; readonly subs?: readonly SubCommand[]; readonly needsProject?: boolean; }
+/** `needsProject`: this command operates on the CURRENT project, so it's only valid in PROJECT context.
+ *  `argHint` = the single positional SUBJECT; `flagArgs` = the named-flag qualifiers (prompted per value). */
+export interface SubCommand {
+  readonly cmd: string; readonly desc: string; readonly argHint?: string;
+  readonly flagArgs?: readonly { readonly name: string; readonly hint: string; readonly optional?: boolean }[];
+  readonly subs?: readonly SubCommand[]; readonly needsProject?: boolean;
+}
 export type MenuAction =
   | { readonly kind: "guided"; readonly key: "work"; readonly label: string; readonly desc: string; readonly hint: string }
   | { readonly kind: "submenu"; readonly key: "status" | "admin"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[] }
@@ -52,14 +57,14 @@ export function mainActions(): MenuAction[] {
       ] },
       { cmd: "knowledge", desc: "propose org knowledge changes", subs: [
         { cmd: "propose", desc: "start a knowledge change", argHint: "<slug>" },
-        { cmd: "submit", desc: "open a PR for a change", argHint: "<slug> [description]" },
+        { cmd: "submit", desc: "open a PR for a change", argHint: "<slug>", flagArgs: [{ name: "description", hint: "one-line description", optional: true }] },
         { cmd: "archive", desc: "retire a knowledge item", argHint: "<slug>" },
       ] },
-      { cmd: "onboard", desc: "onboard a repository into the framework", argHint: "<repo-url> <owner> <description>" },
-      { cmd: "add-repo", desc: "add a repository to the current project", argHint: "<repo-url>", needsProject: true },
+      { cmd: "onboard", desc: "onboard a repository into the framework", argHint: "<repo-url>", flagArgs: [{ name: "owner", hint: "owning team/person" }, { name: "description", hint: "one-line description" }] },
+      { cmd: "add-repo", desc: "add a repository to the current project", argHint: "<repo-url>", flagArgs: [{ name: "base-branch", hint: "base branch", optional: true }], needsProject: true },
       { cmd: "org", desc: "manage governance workspaces", subs: [
         { cmd: "use", desc: "switch the active org", argHint: "<github_org>" },
-        { cmd: "add", desc: "register a governance workspace", argHint: "<github_org> <home-path>" },
+        { cmd: "add", desc: "register a governance workspace", argHint: "<github_org>", flagArgs: [{ name: "home", hint: "gov_repo path, e.g. ~/.acme/gov_repo" }] },
         { cmd: "list", desc: "registered workspaces" },
         { cmd: "remove", desc: "deregister a workspace", argHint: "<github_org>" },
       ] },
@@ -234,16 +239,19 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
         cmdPath.push(chosenSub.cmd);
         leaf = chosenSub;
       }
-      // ask ONLY for the specific value(s) the leaf needs (argHint); a no-arg leaf just runs.
-      let extra: string[] = [];
+      // Ask for the SUBJECT (one verbatim value), then each flag qualifier (each its own verbatim line —
+      // no whitespace splitting, so a multi-word --description survives; CLI conventions §3).
+      const extra: string[] = [];
+      if (leaf.argHint || leaf.flagArgs?.length) { w(""); w(`  ${cmdPath.join(" ")} — ${leaf.desc}`); }
       if (leaf.argHint) {
-        w(""); w(`  ${cmdPath.join(" ")} — ${leaf.desc}`);
-        // explain each placeholder so the prompt isn't a bare "<slug>:".
-        for (const t of leaf.argHint.match(/<[^>]+>|\[[^\]]+\]/g) ?? [leaf.argHint]) {
-          const hint = ARG_HELP[t]; if (hint) w(`    ${t.padEnd(16)} ${hint}`);
-        }
-        const args = (await ask(`  enter ${leaf.argHint}: `)).trim();
-        extra = args ? args.split(/\s+/) : [];
+        const hint = ARG_HELP[leaf.argHint];
+        if (hint) w(`    ${leaf.argHint.padEnd(16)} ${hint}`);
+        const v = (await ask(`  ${leaf.argHint}: `)).trim();
+        if (v) extra.push(v);
+      }
+      for (const fa of leaf.flagArgs ?? []) {
+        const v = (await ask(`  --${fa.name} (${fa.hint})${fa.optional ? " [optional, blank to skip]" : ""}: `)).trim();
+        if (v) extra.push(`--${fa.name}`, v);
       }
       return await h.runCommand([...cmdPath, ...extra]);
     }
