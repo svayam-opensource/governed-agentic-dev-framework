@@ -399,7 +399,19 @@ describe("coverage: gov-work status", () => {
   it("status off a non-project branch → exit 1, not-a-project-branch", () => {
     const r = run(["status"], { vcs: vcsWith({ currentBranch: () => "main" }), projects: projectsOf([b(43, "Gov")]) });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("'main' is not a project branch.");
+    expect(r.lines[0]).to.match(/^'main' is not a project branch/);
+  });
+
+  it("status <project-id> resolves the board directly, no branch needed", () => {
+    const r = run(["status", "PRJ-43-governance-common-project"], { vcs: vcsWith({ currentBranch: () => "main" }), projects: projectsOf([b(43, "Gov")]) });
+    expect(r.code).to.equal(0);
+    expect(r.lines[0]).to.equal("Project #43: Gov");
+  });
+
+  it("status with a non-project argument → exit 2, actionable", () => {
+    const r = run(["status", "not-a-project"], { projects: projectsOf([b(43, "Gov")]) });
+    expect(r.code).to.equal(2);
+    expect(r.lines[0]).to.match(/not a project id or number/);
   });
 
   it("status when the board is not on GitHub → exit 1, not-found", () => {

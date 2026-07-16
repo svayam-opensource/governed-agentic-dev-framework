@@ -34,15 +34,19 @@ export type Scope = ContextMode;
 /** `argHint` = the single positional SUBJECT; `flagArgs` = the named-flag qualifiers (prompted per value).
  *  A `kind:"env"` flag is rendered as a context-scoped picker (PROJECT→local; GOVERNED→dev/uat/prod). */
 export interface MenuFlagArg { readonly name: string; readonly hint: string; readonly optional?: boolean; readonly kind?: "env" }
+/** When a command's SUBJECT has a discoverable value set, the menu offers a picker instead of free-typing:
+ *  `project` → the user's assigned projects; `unit` → the catalog's units (§2 value discovery). */
+export type SubjectKind = "project" | "unit";
 export interface SubCommand {
   readonly cmd: string; readonly desc: string; readonly argHint?: string;
   readonly flagArgs?: readonly MenuFlagArg[];
   readonly subs?: readonly SubCommand[]; readonly scopes?: readonly Scope[];
+  readonly subjectKind?: SubjectKind;
 }
 /** A governed verb the gov-operate plugin contributes at runtime (`gov-operate menu --json`). */
 export interface OperateVerb {
   readonly cmd: string; readonly desc: string; readonly scopes: readonly Scope[];
-  readonly argHint?: string; readonly flagArgs?: readonly MenuFlagArg[];
+  readonly argHint?: string; readonly flagArgs?: readonly MenuFlagArg[]; readonly subjectKind?: SubjectKind;
 }
 export type MenuAction =
   | { readonly kind: "guided"; readonly key: "work"; readonly label: string; readonly desc: string; readonly hint: string; readonly scopes?: readonly Scope[] }
@@ -54,13 +58,13 @@ export type MenuAction =
 export function mainActions(operate: readonly OperateVerb[] = []): MenuAction[] {
   const operateSubmenu: MenuAction[] = operate.length ? [{
     kind: "submenu", key: "operate", label: "Operate", desc: "Governed deploy & catalog",
-    commands: operate.map((v) => ({ cmd: v.cmd, desc: v.desc, argHint: v.argHint, flagArgs: v.flagArgs, scopes: v.scopes })),
+    commands: operate.map((v) => ({ cmd: v.cmd, desc: v.desc, argHint: v.argHint, flagArgs: v.flagArgs, scopes: v.scopes, subjectKind: v.subjectKind })),
   }] : [];
   return [
     { kind: "submenu", key: "status", label: "Status", desc: "Review current state", commands: [
       { cmd: "list", desc: "ongoing projects", scopes: ["governed"] },
       { cmd: "list-all", desc: "all projects (incl. closed)", scopes: ["governed"] },
-      { cmd: "status", desc: "detailed status of one project", argHint: "<project> (blank = pick)", scopes: ["project", "governed"] },
+      { cmd: "status", desc: "detailed status of one project", subjectKind: "project", scopes: ["project", "governed"] },
     ] },
     { kind: "guided", key: "work", label: "Work", desc: "Start / continue a project", hint: "pick a project" },
     ...operateSubmenu,
@@ -188,6 +192,9 @@ export interface MenuHandlers {
   readonly listOrgs: () => readonly { readonly org: string; readonly home: string }[];
   /** The gov-operate plugin's governed verbs, discovered at runtime. Absent/[] → no Operate submenu. */
   readonly operateVerbs?: () => readonly OperateVerb[];
+  /** Discoverable subject value sets for the pickers (§2). Each may be slow (gh / plugin) → called on demand. */
+  readonly listUnits?: () => readonly string[];
+  readonly listMyProjects?: () => readonly string[];
 }
 
 /** Resolve a numbered or typed choice against a list of (sub)commands. */
@@ -275,8 +282,25 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
       // Ask for the SUBJECT (one verbatim value), then each flag qualifier (each its own verbatim line —
       // no whitespace splitting, so a multi-word --description survives; CLI conventions §3).
       const extra: string[] = [];
-      if (leaf.argHint || leaf.flagArgs?.length) { w(""); w(`  ${cmdPath.join(" ")} — ${leaf.desc}`); }
-      if (leaf.argHint) {
+      if (leaf.argHint || leaf.flagArgs?.length || leaf.subjectKind) { w(""); w(`  ${cmdPath.join(" ")} — ${leaf.desc}`); }
+      // SUBJECT: a discoverable subject (unit / project) → pick from a list (§2 value discovery); else free-text.
+      if (leaf.subjectKind === "project" && ctx.mode === "project" && ctx.project) {
+        extra.push(ctx.project);   // inside a project → operate on THIS one, no prompt
+        w(`  project: ${ctx.project}  (current)`);
+      } else if (leaf.subjectKind) {
+        w(`  ⏳ loading ${leaf.subjectKind}s…`);
+        const items = leaf.subjectKind === "unit" ? (h.listUnits?.() ?? []) : (h.listMyProjects?.() ?? []);
+        if (!items.length) { w(`  no ${leaf.subjectKind}s available to pick — is the ${leaf.subjectKind === "unit" ? "plugin/catalog" : "workspace"} configured?`); continue; }
+        w(`  Select a ${leaf.subjectKind}:`);
+        items.forEach((it, i) => w(`    ${String(i + 1).padStart(2)}) ${it}`));
+        w("     0) back");
+        const pick = (await ask("  Choose: ")).trim();
+        if (pick === "0" || pick === "") continue;
+        const idx = Number(pick) - 1;
+        const chosen = Number.isInteger(idx) && idx >= 0 && idx < items.length ? items[idx] : items.includes(pick) ? pick : undefined;
+        if (!chosen) { w("  unknown choice"); continue; }
+        extra.push(chosen);
+      } else if (leaf.argHint) {
         const hint = ARG_HELP[leaf.argHint];
         if (hint) w(`    ${leaf.argHint.padEnd(16)} ${hint}`);
         const v = (await ask(`  ${leaf.argHint}: `)).trim();

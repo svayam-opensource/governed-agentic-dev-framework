@@ -104,11 +104,17 @@ export type ProjectStatusResult =
   | { readonly ok: true; readonly boardNumber: number; readonly title: string; readonly url: string; readonly status: ProjectStatus; readonly owners: readonly string[] }
   | { readonly ok: false; readonly code: number; readonly reason: "not-a-project-branch" | "not-found"; readonly message: string };
 
-/** `prj status` — derive the current project's board# from cwd, report live status. */
-export function projectStatus(deps: { vcs: Vcs; projects: Projects; anchor: AnchorCreator }, config: ManageConfig, govClone: string): ProjectStatusResult {
-  const projectBranch = projectBranchOf(deps.vcs.currentBranch(govClone));
-  const boardNumber = boardNumberFromBranch(projectBranch);
-  if (boardNumber === null) return { ok: false, code: 1, reason: "not-a-project-branch", message: `'${projectBranch}' is not a project branch.` };
+/** `prj status [<project>]` — report a project's live status. With an explicit board (from a project id),
+ *  target that project directly; otherwise derive it from the gov clone's current branch. */
+export function projectStatus(deps: { vcs: Vcs; projects: Projects; anchor: AnchorCreator }, config: ManageConfig, govClone: string, explicitBoard?: number): ProjectStatusResult {
+  let boardNumber: number;
+  if (explicitBoard !== undefined) boardNumber = explicitBoard;
+  else {
+    const projectBranch = projectBranchOf(deps.vcs.currentBranch(govClone));
+    const n = boardNumberFromBranch(projectBranch);
+    if (n === null) return { ok: false, code: 1, reason: "not-a-project-branch", message: `'${projectBranch}' is not a project branch — pass a project (e.g. \`gov status PRJ-<n>-…\`) or run from a project branch.` };
+    boardNumber = n;
+  }
   const board = deps.projects.listBoards(config.githubOrg).find((b) => b.number === boardNumber);
   if (!board) return { ok: false, code: 1, reason: "not-found", message: `Project #${boardNumber} not found on GitHub.` };
   const anchor = deps.anchor.find({ owner: config.githubOrg, ownerField: config.ownerField ?? "organization", number: boardNumber }, config.workspaceRepo);

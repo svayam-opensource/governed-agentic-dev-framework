@@ -14,8 +14,8 @@ import { execFileSync } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
-import { discoverOperateMenu } from "./host.js";
-import { runWorkFlow } from "./work-flow.js";
+import { discoverOperateMenu, discoverUnits, isGovernedInvocation, delegateToGovOperate } from "./host.js";
+import { runWorkFlow, myProjects } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -255,10 +255,11 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   }
 }
 
-/** Route any command (setup / creds / normal) — used by the menu. */
+/** Route any command (setup / creds / governed-plugin / normal) — used by the menu. */
 export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
   if (argv[0] === "creds") return runCredsCommand(argv);
+  if (isGovernedInvocation(argv)) return delegateToGovOperate(argv);   // Operate verbs → the gov-operate plugin (as the top-level bin does)
   return main(argv);
 }
 
@@ -358,6 +359,8 @@ export async function runMainMenu(): Promise<number> {
     helpCommands: helpCommandNames,
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
     operateVerbs: () => { try { return discoverOperateMenu(); } catch { return []; } },
+    listUnits: () => { try { return discoverUnits(); } catch { return []; } },
+    listMyProjects: () => { try { return workDeps ? myProjects(workDeps).map((p) => p.projectId) : []; } catch { return []; } },
   };
   return runMenu(ctx, handlers);
 }

@@ -143,3 +143,16 @@ export function discoverOperateMenu(): OperateVerb[] {
     return Array.isArray(m.verbs) ? m.verbs : [];
   } catch { return []; }
 }
+
+/** The catalog's unit ids (`gov-operate catalog --json`) — feeds the menu's unit picker. [] on any failure. */
+export function discoverUnits(): string[] {
+  const { cmd, prefix } = resolveOperateCmd();
+  const r = spawnSync(cmd, [...prefix, "catalog", "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  if (r.status !== 0 || !r.stdout) return [];
+  try {
+    // catalog runs the context banner to stderr (ignored) and the JSON to stdout — take the last JSON line.
+    const line = r.stdout.trim().split("\n").reverse().find((l) => l.trim().startsWith("{"));
+    const m = line ? (JSON.parse(line) as { units?: Array<{ id?: string }> }) : {};
+    return (m.units ?? []).map((u) => u.id ?? "").filter(Boolean);
+  } catch { return []; }
+}

@@ -32,6 +32,7 @@ import { pause, resume, cancel } from "../lifecycle/state.js";
 import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org.js";
 import { expandTilde } from "../resolve/node-env.js";
 import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus, type ManageListResult } from "../lifecycle/manage.js";
+import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 import { onboard } from "../lifecycle/onboard.js";
@@ -227,7 +228,10 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     }
 
     case "status": {
-      const r = projectStatus({ vcs: ctx.vcs, projects: ctx.projects, anchor: ctx.anchor }, { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo }, ctx.home);
+      const arg = positionals[0];   // optional explicit project (id / #n / n); blank → derive from branch
+      const explicitBoard = arg ? (boardNumberFromProjectId(arg) ?? undefined) : undefined;
+      if (arg && explicitBoard === undefined) return { code: 2, lines: [`status: '${arg}' is not a project id or number (e.g. PRJ-43-… or 43)`] };
+      const r = projectStatus({ vcs: ctx.vcs, projects: ctx.projects, anchor: ctx.anchor }, { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo }, ctx.home, explicitBoard);
       return r.ok
         ? { code: 0, lines: [`Project #${r.boardNumber}: ${r.title}`, `  status: ${r.status}`, `  owners: ${r.owners.join(", ") || "(none)"}`, `  board:  ${r.url}`] }
         : { code: r.code, lines: [r.message] };
