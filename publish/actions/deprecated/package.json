@@ -1,0 +1,47 @@
+{
+  "name": "@svayam-opensource/prj",
+  "version": "0.7.4",
+  "description": "Governed Agentic Development Framework CLI (prj). A bash CLI wrapped for npm; operates on a governance workspace resolved via $ADF_WORKSPACE or the nearest org-config.yaml. Runtime prerequisites (not npm deps): bash, git, gh, yq, python3 (use Git Bash on Windows).",
+  "bin": {
+    "prj": "bin/prj"
+  },
+  "files": [
+    "prj",
+    "bin/",
+    "setup.sh",
+    "scripts/*.sh",
+    "scripts/deploy/*.sh",
+    "scripts/deploy/*.py",
+    "scripts/validate/*.py",
+    "assets/readme/*.svg"
+  ],
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "engines": {
+    "node": ">=14"
+  },
+  "preferGlobal": true,
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "keywords": [
+    "cli",
+    "agentic",
+    "governance",
+    "framework",
+    "prj"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/svayam-opensource/governed-agentic-dev-framework.git"
+  },
+  "private": true,
+  "scripts": {
+    "prepublishOnly": "node -e \"console.error('@svayam-opensource/prj is FROZEN (bash CLI). The Node CLI ships as @svayam-opensource/gov. Publishing is blocked.'); process.exit(1)\""
+  }
+}
