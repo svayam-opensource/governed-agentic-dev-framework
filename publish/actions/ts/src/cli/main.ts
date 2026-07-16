@@ -23,6 +23,7 @@ import { assembleNeeds, credNeedForKey } from "../security/needs.js";
 import { readPolicyCredNeeds } from "../security/policy-needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { runCreds } from "../security/creds-flow.js";
+import { runCredsScoped } from "./creds-scoped.js";
 import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
 import { loadAuth, authPath } from "../security/auth-store.js";
@@ -163,6 +164,9 @@ export async function gatherMenuContext(): Promise<MenuContext> {
  * user through placing anything missing. Async (readline prompts); routed from bin.ts.
  */
 export async function runCredsCommand(argv: readonly string[]): Promise<number> {
+  // `creds set|ls` → the unified scope-routed store (personal vs shared). Bare `creds` / `creds <KEY>`
+  // keeps the interactive NEED/GAP walk below.
+  if (argv[1] === "set" || argv[1] === "ls") return runCredsScoped(argv[1], argv.slice(2));
   const fs = createNodeFs();
   const resolve = prjResolveGov(createNodeEnv());
   if (!resolve.ok) { process.stderr.write("gov-work creds: no gov workspace resolved — run `gov-work onboard`/`gov-work setup` first.\n"); return 1; }

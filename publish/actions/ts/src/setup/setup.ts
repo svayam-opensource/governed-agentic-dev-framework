@@ -30,6 +30,14 @@ export interface OrgConfigValues {
   readonly policyEffectiveDate: string;
   /** OpenBao/Vault address for gov creds→Vault + attest (optional; empty if not using Vault). */
   readonly vaultAddr: string;
+  /** IAM broker OIDC base for `gov auth login` (optional). */
+  readonly oidcBase: string;
+  /** gov-operate deploy endpoints — the admin fills these as the org adopts deploy (optional). */
+  readonly jenkinsUrl: string;
+  readonly npmRegistry: string;
+  readonly dockerRegistry: string;
+  /** multi-tenant governance account id (optional; empty = single-tenant). */
+  readonly govAccount: string;
 }
 
 /** Parse a GitHub remote URL → owner/repo (ssh or https, optional .git). */
@@ -82,6 +90,11 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
     dataArchOwnerGithub: pick("dataArchOwnerGithub", policyOwnerGithub),
     policyEffectiveDate: pick("policyEffectiveDate", ctx.today),
     vaultAddr: pick("vaultAddr", ""),
+    oidcBase: pick("oidcBase", ""),
+    jenkinsUrl: pick("jenkinsUrl", ""),
+    npmRegistry: pick("npmRegistry", ""),
+    dockerRegistry: pick("dockerRegistry", ""),
+    govAccount: pick("govAccount", ""),
   };
 }
 
@@ -141,8 +154,19 @@ data_arch_owner_github: "${v.dataArchOwnerGithub}"
 # Effective date of the policy (YYYY-MM-DD)
 policy_effective_date: "${v.policyEffectiveDate}"
 
-# OpenBao/Vault address — the gov creds→Vault + attest target (env GOV_BAO_ADDR overrides).
-vault_addr: "${v.vaultAddr}"
+# Governance account (multi-tenant): the account this org operates under (empty = single-tenant).
+gov_account: "${v.govAccount}"
+
+# ── Service endpoints — ORG-LEVEL, GOVERNED. Set once here; adopters INHERIT (never prompted per-user).
+#    Per-user secrets/tokens go to Vault via \`gov creds\`, NOT here. vault+oidc are used by gov-work core
+#    (auth/creds); jenkins/npm/docker are read by the gov-operate deploy plugin (fill as you adopt deploy).
+services:
+  vault: "${v.vaultAddr}"
+  oidc: "${v.oidcBase}"
+  oidc_client_id: "gov"
+  jenkins: "${v.jenkinsUrl}"
+  npm: "${v.npmRegistry}"
+  docker: "${v.dockerRegistry}"
 `;
 }
 
@@ -152,17 +176,29 @@ export function readExistingOrgConfig(text: string): Partial<OrgConfigValues> {
     const m = text.match(new RegExp(`^${key}:\\s*"?([^"\\n]*)"?\\s*$`, "m"));
     return m ? m[1].trim() : undefined;
   };
+  const svc = (key: string): string | undefined => {          // indented, under the services: block
+    const m = text.match(new RegExp(`^\\s+${key}:\\s*"?([^"\\n#]*)"?`, "m"));
+    return m ? m[1].trim() : undefined;
+  };
   const map: Array<[keyof OrgConfigValues, string]> = [
     ["orgName", "org_name"], ["orgShortName", "org_short_name"], ["orgSlug", "org_slug"],
     ["orgRepoUrl", "org_repo_url"], ["githubOrg", "github_org"], ["workspaceRepo", "workspace_repo"],
     ["defaultBranch", "default_branch"], ["defaultCodeBranch", "default_code_branch"],
     ["agentWorkRoot", "agent_work_root"], ["govWorkspace", "gov_workspace"],
     ["policyOwnerEmail", "policy_owner_email"], ["policyOwnerGithub", "policy_owner_github"],
-    ["policyEffectiveDate", "policy_effective_date"], ["vaultAddr", "vault_addr"],
+    ["policyEffectiveDate", "policy_effective_date"], ["govAccount", "gov_account"],
   ];
   const out: Partial<Record<keyof OrgConfigValues, string>> = {};
   for (const [k, y] of map) {
     const val = scalar(y);
+    if (val !== undefined && val !== "") out[k] = val;
+  }
+  // services: block (preferred) with vault_addr as a legacy fallback for vaultAddr.
+  const svcMap: Array<[keyof OrgConfigValues, string]> = [
+    ["vaultAddr", "vault"], ["oidcBase", "oidc"], ["jenkinsUrl", "jenkins"], ["npmRegistry", "npm"], ["dockerRegistry", "docker"],
+  ];
+  for (const [k, y] of svcMap) {
+    const val = svc(y) ?? (k === "vaultAddr" ? scalar("vault_addr") : undefined);
     if (val !== undefined && val !== "") out[k] = val;
   }
   return out;

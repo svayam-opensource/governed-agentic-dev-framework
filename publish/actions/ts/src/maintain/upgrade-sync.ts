@@ -120,9 +120,11 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders): 
 
 /** org-config overlay-schema merge: template schema, org values (rkant's spec). */
 export function mergeOrgConfig(templateText: string, orgText: string): string {
+  // Indentation-aware key: `<indent-depth>:<key>` so NESTED keys (the `services:` block) are matched +
+  // preserved too — else an upgrade would clobber the org's real endpoints with the template placeholders.
   const keyOf = (line: string): string | null => {
-    const m = line.match(/^([a-z_][a-z0-9_]*):/i);
-    return m ? m[1] : null;
+    const m = line.match(/^(\s*)([a-z_][a-z0-9_-]*):/i);
+    return m ? `${m[1].length}:${m[2]}` : null;
   };
   const orgValues = new Map<string, string>();
   for (const line of orgText.split(/\r?\n/)) { const k = keyOf(line); if (k) orgValues.set(k, line); }

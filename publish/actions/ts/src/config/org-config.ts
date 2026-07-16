@@ -26,8 +26,13 @@ export interface OrgConfig {
   /** `gov_workspace`, expanded to an absolute path. */
   readonly govWorkspace: string;
   readonly policyOwnerEmail: string;
-  /** OpenBao/Vault address (`vault_addr`) — the gov creds→Vault target; env `GOV_BAO_ADDR` overrides. */
+  /** OpenBao/Vault address (`vault_addr` or `services.vault`) — the gov creds→Vault target; env `GOV_BAO_ADDR` overrides. */
   readonly vaultAddr: string;
+  /** IAM broker OIDC base (`services.oidc`) — the `gov auth login` target. */
+  readonly oidcBase: string;
+  /** The org service endpoints (`services:` block) as a generic map — vault/oidc used by core, jenkins/npm/
+   *  docker read by the gov-operate plugin. Org-level, governed; adopters inherit them. */
+  readonly services: Readonly<Record<string, string>>;
   /** Gov tenant/account (`gov_account`) — the account context service auth mints under; env `GOV_ACCOUNT` overrides. */
   readonly govAccount: string;
   /** Token → value for tool-file substitution (seed phase B.1). */
@@ -35,8 +40,26 @@ export interface OrgConfig {
 }
 
 /** Parse `org-config.yaml` text into a typed {@link OrgConfig}. Pure. */
+/** Read a scalar under the `services:` block (one indent level), stripping quotes + inline comments. */
+function readServiceScalar(text: string, key: string): string | undefined {
+  let inServices = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^services:\s*$/.test(line)) { inServices = true; continue; }
+    if (!inServices) continue;
+    if (/^\S/.test(line)) break;                                   // dedent → end of the block
+    const m = new RegExp(`^\\s+${key}:\\s*(.+)$`).exec(line);
+    if (m) return m[1].trim().replace(/\s+#.*$/, "").replace(/^["']|["']$/g, "").trim() || undefined;
+  }
+  return undefined;
+}
+
 export function parseOrgConfig(text: string, home: string = os.homedir()): OrgConfig {
   const get = (key: string): string => readTopLevelScalar(text, key) ?? "";
+  const svc = (key: string): string | undefined => readServiceScalar(text, key);
+  // The org's service endpoints (org-level, governed). gov-work USES vault/oidc/account; jenkins/npm/docker
+  // are read by the gov-operate plugin — kept here as a generic map so the banner/creds see them uniformly.
+  const services: Record<string, string> = {};
+  for (const k of ["vault", "oidc", "oidc_client_id", "jenkins", "npm", "docker"]) { const v = svc(k); if (v) services[k] = v; }
 
   const orgName = get("org_name");
   const orgShortName = get("org_short_name");
@@ -50,8 +73,10 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
   const agentWorkRoot = expandTilde(get("agent_work_root"), home);
   const govWorkspace = expandTilde(get("gov_workspace"), home);
   const policyOwnerEmail = get("policy_owner_email");
-  const vaultAddr = get("vault_addr");
-  const govAccount = get("gov_account");
+  // vault_addr (legacy top-level) OR services.vault; oidc + account likewise. Endpoints are org-level.
+  const vaultAddr = get("vault_addr") || services.vault || "";
+  const oidcBase = get("oidc_base") || services.oidc || "";
+  const govAccount = get("gov_account") || svc("gov_account") || "";
 
   const orgTokens: Record<string, string> = {
     ORG_NAME: orgName,
@@ -80,6 +105,8 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
     govWorkspace,
     policyOwnerEmail,
     vaultAddr,
+    oidcBase,
+    services,
     govAccount,
     orgTokens,
   };

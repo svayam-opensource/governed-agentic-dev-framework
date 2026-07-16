@@ -52,9 +52,7 @@ function buildContextInfo(): ContextInfo {
         const c = parseOrgConfig(text);
         agentWorkRoot = c.agentWorkRoot || undefined;
         if (c.vaultAddr) services.vault = c.vaultAddr;
-        // best-effort service presence — gov-work's config types only vault_addr, so scan the `services:` block
-        // (vault/oidc/jenkins/npm) so the banner matches what gov-operate resolves.
-        for (const [k, re] of [["vault", /\bvault:\s*\S/], ["oidc", /\boidc(_base)?:\s*\S/], ["jenkins", /\bjenkins:\s*\S/], ["npm", /\bnpm:\s*\S/]] as const) if (!services[k] && re.test(text)) services[k] = "set";
+        Object.assign(services, c.services);   // oidc/jenkins/npm/docker from the now-typed `services:` block
       } catch { anomalies.push("org-config.yaml not found/readable"); }
       branch = tryRun("git", ["-C", resolve.home, "rev-parse", "--abbrev-ref", "HEAD"]);
     }
