@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
+import { discoverOperateMenu } from "./host.js";
 import { runWorkFlow } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
@@ -356,6 +357,7 @@ export async function runMainMenu(): Promise<number> {
     help: (command) => helpLines(command),
     helpCommands: helpCommandNames,
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
+    operateVerbs: () => { try { return discoverOperateMenu(); } catch { return []; } },
   };
   return runMenu(ctx, handlers);
 }

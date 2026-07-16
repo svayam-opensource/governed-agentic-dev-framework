@@ -29,51 +29,88 @@ export interface MenuContext {
   readonly project?: string;
 }
 
-/** `needsProject`: this command operates on the CURRENT project, so it's only valid in PROJECT context.
- *  `argHint` = the single positional SUBJECT; `flagArgs` = the named-flag qualifiers (prompted per value). */
+/** A command is visible only in these context modes; absent = every mode. See [[context-scoped-menu]]. */
+export type Scope = ContextMode;
+/** `argHint` = the single positional SUBJECT; `flagArgs` = the named-flag qualifiers (prompted per value).
+ *  A `kind:"env"` flag is rendered as a context-scoped picker (PROJECT→local; GOVERNED→dev/uat/prod). */
+export interface MenuFlagArg { readonly name: string; readonly hint: string; readonly optional?: boolean; readonly kind?: "env" }
 export interface SubCommand {
   readonly cmd: string; readonly desc: string; readonly argHint?: string;
-  readonly flagArgs?: readonly { readonly name: string; readonly hint: string; readonly optional?: boolean }[];
-  readonly subs?: readonly SubCommand[]; readonly needsProject?: boolean;
+  readonly flagArgs?: readonly MenuFlagArg[];
+  readonly subs?: readonly SubCommand[]; readonly scopes?: readonly Scope[];
+}
+/** A governed verb the gov-operate plugin contributes at runtime (`gov-operate menu --json`). */
+export interface OperateVerb {
+  readonly cmd: string; readonly desc: string; readonly scopes: readonly Scope[];
+  readonly argHint?: string; readonly flagArgs?: readonly MenuFlagArg[];
 }
 export type MenuAction =
-  | { readonly kind: "guided"; readonly key: "work"; readonly label: string; readonly desc: string; readonly hint: string }
-  | { readonly kind: "submenu"; readonly key: "status" | "admin"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[] }
-  | { readonly kind: "help"; readonly key: "help"; readonly label: string; readonly desc: string; readonly hint: string };
+  | { readonly kind: "guided"; readonly key: "work"; readonly label: string; readonly desc: string; readonly hint: string; readonly scopes?: readonly Scope[] }
+  | { readonly kind: "submenu"; readonly key: "status" | "admin" | "operate"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[]; readonly scopes?: readonly Scope[] }
+  | { readonly kind: "help"; readonly key: "help"; readonly label: string; readonly desc: string; readonly hint: string; readonly scopes?: readonly Scope[] };
 
-/** The main-menu actions. */
-export function mainActions(): MenuAction[] {
-  const actions: MenuAction[] = [
+/** The FULL main-menu definition (every mode). `operate` = the plugin's discovered verbs, merged as the
+ *  Operate submenu when present. Use `visibleActions(ctx, operate)` to get the context-filtered list. */
+export function mainActions(operate: readonly OperateVerb[] = []): MenuAction[] {
+  const operateSubmenu: MenuAction[] = operate.length ? [{
+    kind: "submenu", key: "operate", label: "Operate", desc: "Governed deploy & catalog",
+    commands: operate.map((v) => ({ cmd: v.cmd, desc: v.desc, argHint: v.argHint, flagArgs: v.flagArgs, scopes: v.scopes })),
+  }] : [];
+  return [
     { kind: "submenu", key: "status", label: "Status", desc: "Review current state", commands: [
-      { cmd: "list", desc: "ongoing projects" },
-      { cmd: "list-all", desc: "all projects (incl. closed)" },
-      { cmd: "status", desc: "detailed status of one project", argHint: "<project> (blank = pick)" },
+      { cmd: "list", desc: "ongoing projects", scopes: ["governed"] },
+      { cmd: "list-all", desc: "all projects (incl. closed)", scopes: ["governed"] },
+      { cmd: "status", desc: "detailed status of one project", argHint: "<project> (blank = pick)", scopes: ["project", "governed"] },
     ] },
     { kind: "guided", key: "work", label: "Work", desc: "Start / continue a project", hint: "pick a project" },
+    ...operateSubmenu,
     { kind: "submenu", key: "admin", label: "Admin", desc: "Administer governance", commands: [
-      { cmd: "manage", desc: "project access — assign / unassign owners", needsProject: true, subs: [
+      { cmd: "manage", desc: "project access — assign / unassign owners", scopes: ["project"], subs: [
         { cmd: "assign", desc: "grant a user project access", argHint: "<github-login>" },
         { cmd: "unassign", desc: "revoke access", argHint: "<github-login>" },
       ] },
-      { cmd: "knowledge", desc: "propose org knowledge changes", subs: [
+      { cmd: "add-repo", desc: "add a repository to the current project", argHint: "<repo-url>", flagArgs: [{ name: "base-branch", hint: "base branch", optional: true }], scopes: ["project"] },
+      { cmd: "knowledge", desc: "propose org knowledge changes", scopes: ["governed"], subs: [
         { cmd: "propose", desc: "start a knowledge change", argHint: "<slug>" },
         { cmd: "submit", desc: "open a PR for a change", argHint: "<slug>", flagArgs: [{ name: "description", hint: "one-line description", optional: true }] },
         { cmd: "archive", desc: "retire a knowledge item", argHint: "<slug>" },
       ] },
-      { cmd: "onboard", desc: "onboard a repository into the framework", argHint: "<repo-url>", flagArgs: [{ name: "owner", hint: "owning team/person" }, { name: "description", hint: "one-line description" }] },
-      { cmd: "add-repo", desc: "add a repository to the current project", argHint: "<repo-url>", flagArgs: [{ name: "base-branch", hint: "base branch", optional: true }], needsProject: true },
-      { cmd: "org", desc: "manage governance workspaces", subs: [
+      { cmd: "onboard", desc: "onboard a repository into the framework", argHint: "<repo-url>", flagArgs: [{ name: "owner", hint: "owning team/person" }, { name: "description", hint: "one-line description" }], scopes: ["governed"] },
+      { cmd: "org", desc: "manage governance workspaces", scopes: ["governed"], subs: [
         { cmd: "use", desc: "switch the active org", argHint: "<github_org>" },
         { cmd: "add", desc: "register a governance workspace", argHint: "<github_org>", flagArgs: [{ name: "home", hint: "gov_repo path, e.g. ~/.acme/gov_repo" }] },
         { cmd: "list", desc: "registered workspaces" },
         { cmd: "remove", desc: "deregister a workspace", argHint: "<github_org>" },
       ] },
-      { cmd: "upgrade", desc: "pull the latest framework content" },
-      { cmd: "deps", desc: "install / verify dependencies" },
+      { cmd: "upgrade", desc: "pull the latest framework content", scopes: ["governed"] },
+      { cmd: "deps", desc: "install / verify dependencies", scopes: ["governed"] },
     ] },
     { kind: "help", key: "help", label: "Help", desc: "gov command-line use", hint: "pick a command" },
   ];
-  return actions;
+}
+
+/** True when `scopes` admits `mode`. Absent scopes = universal; unknown mode = show all (non-menu callers). */
+function inScope(scopes: readonly Scope[] | undefined, mode: ContextMode | undefined): boolean {
+  return !scopes || !mode || scopes.includes(mode);
+}
+
+/** The context-filtered action list (HARD-HIDE): drops out-of-scope commands and any submenu left empty.
+ *  This is the single source of menu numbering — format / resolve / run all go through it. */
+export function visibleActions(ctx: MenuContext, operate: readonly OperateVerb[] = []): MenuAction[] {
+  const mode = ctx.mode;
+  const out: MenuAction[] = [];
+  for (const a of mainActions(operate)) {
+    if (a.kind === "submenu") {
+      const commands = a.commands.filter((c) => inScope(c.scopes, mode));
+      if (commands.length && inScope(a.scopes, mode)) out.push({ ...a, commands });
+    } else if (inScope(a.scopes, mode)) out.push(a);
+  }
+  return out;
+}
+
+/** The env choices offered for a `kind:"env"` flag in this context (PROJECT = local only; else dev/uat/prod). */
+export function contextEnvs(mode: ContextMode | undefined): string[] {
+  return mode === "project" ? ["local"] : ["dev", "uat", "prod"];
 }
 
 const RULE = "─".repeat(72);
@@ -90,8 +127,8 @@ const ARG_HELP: Record<string, string> = {
   "<board-url>": "the GitHub Project board URL",
 };
 
-export function formatMainMenu(ctx: MenuContext): string[] {
-  const actions = mainActions();
+export function formatMainMenu(ctx: MenuContext, operate: readonly OperateVerb[] = []): string[] {
+  const actions = visibleActions(ctx, operate);
   const out: string[] = ["", `  ▸ ${ctx.orgName ?? "Governed Agentic Development Framework"} — Governed Agentic Development Framework (v${ctx.cliVersion ?? "?"})`];
   const bits = [ctx.githubOrg && `Org: ${ctx.githubOrg}`, ctx.branch && `Branch: ${ctx.branch}`, ctx.user && `User: ${ctx.user}`].filter(Boolean) as string[];
   if (bits.length) out.push(`  ${bits.join("  |  ")}`);
@@ -106,7 +143,7 @@ export function formatMainMenu(ctx: MenuContext): string[] {
       desc = ctx.mode === "project" ? "Continue the current project" : ctx.mode === "none" ? "Set up a workspace first" : "Start or continue a project";
       goesTo = ctx.mode === "project" ? `continue ${ctx.project ?? "this project"}` : ctx.mode === "none" ? "gov setup" : "pick / seed a project";
     }
-    out.push(`  (${i + 1}) ${a.label.padEnd(6)}  ${desc.padEnd(32)}  ${goesTo}`);
+    out.push(`  (${i + 1}) ${a.label.padEnd(8)}  ${desc.padEnd(32)}  ${goesTo}`);
   });
   out.push("", "  Type a number; o to switch org; 0 to exit.", RULE);
   return out;
@@ -118,11 +155,11 @@ export type TopChoice =
   | { readonly kind: "quit" }
   | { readonly kind: "unknown" };
 
-export function resolveTopChoice(input: string, _ctx?: MenuContext): TopChoice {
+export function resolveTopChoice(input: string, ctx: MenuContext = {}, operate: readonly OperateVerb[] = []): TopChoice {
   const t = input.trim().toLowerCase();
   if (t === "0" || t === "q" || t === "") return { kind: "quit" };
   if (t === "o") return { kind: "org" };
-  const actions = mainActions();
+  const actions = visibleActions(ctx, operate);
   const n = Number(t);
   if (Number.isInteger(n) && n >= 1 && n <= actions.length) return { kind: "action", action: actions[n - 1] };
   const byName = actions.find((a) => a.label.toLowerCase() === t || ("key" in a && a.key === t));
@@ -149,6 +186,8 @@ export interface MenuHandlers {
   readonly helpCommands: () => readonly string[];
   /** Registered governance workspaces — for the org switcher (so the user picks, not types the exact name). */
   readonly listOrgs: () => readonly { readonly org: string; readonly home: string }[];
+  /** The gov-operate plugin's governed verbs, discovered at runtime. Absent/[] → no Operate submenu. */
+  readonly operateVerbs?: () => readonly OperateVerb[];
 }
 
 /** Resolve a numbered or typed choice against a list of (sub)commands. */
@@ -161,10 +200,11 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
   const w = (l: string): void => void process.stderr.write(`${l}\n`);
+  const operate = h.operateVerbs?.() ?? [];   // runtime-discovered governed verbs (Operate submenu)
   try {
     for (;;) {
-      for (const l of formatMainMenu(ctx)) w(l);
-      const top = resolveTopChoice(await ask("  Choose: "), ctx);
+      for (const l of formatMainMenu(ctx, operate)) w(l);
+      const top = resolveTopChoice(await ask("  Choose: "), ctx, operate);
       if (top.kind === "quit") return 0;
       if (top.kind === "unknown") { w("  unknown choice"); continue; }
       if (top.kind === "org") {
@@ -209,22 +249,15 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
         }
         continue;
       }
-      // submenu → pick a command → run
+      // submenu → pick a command → run. Commands are already context-filtered (hard-hide), so no guard here.
       w("");
       w(`  ${a.label}:`);
-      a.commands.forEach((c, i) => {
-        const na = c.needsProject && ctx.mode !== "project" ? "  — needs an active project" : "";
-        w(`    ${String(i + 1).padStart(2)}) ${c.cmd.padEnd(11)} ${c.desc}${na}`);
-      });
+      a.commands.forEach((c, i) => w(`    ${String(i + 1).padStart(2)}) ${c.cmd.padEnd(11)} ${c.desc}`));
       w("     0) back");
       const sub = (await ask("  Choose: ")).trim();
       if (sub === "0" || sub === "") continue;
       const chosen = pickCmd(a.commands, sub);
       if (!chosen) { w("  unknown choice"); continue; }
-      if (chosen.needsProject && ctx.mode !== "project") {
-        w(`  '${chosen.cmd}' needs an active project — run Work → continue (or cd into a project dir) first.`);
-        continue;
-      }
       const cmdPath: string[] = [chosen.cmd];
       let leaf: SubCommand = chosen;
       // one level of guided nesting: a command WITH subcommands (manage/knowledge/org) → pick one
@@ -249,10 +282,24 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
         const v = (await ask(`  ${leaf.argHint}: `)).trim();
         if (v) extra.push(v);
       }
+      let aborted = false;
       for (const fa of leaf.flagArgs ?? []) {
+        if (fa.kind === "env") {   // context-scoped picker — no free-typing an env (value discovery, §2)
+          const envs = contextEnvs(ctx.mode);
+          if (envs.length === 1) { extra.push(`--${fa.name}`, envs[0]); w(`  --${fa.name}: ${envs[0]}  (only choice in this context)`); continue; }
+          w(`  --${fa.name} (${fa.hint}):`);
+          envs.forEach((e, i) => w(`    ${i + 1}) ${e}`));
+          const pick = (await ask("  Choose: ")).trim();
+          const idx = Number(pick) - 1;
+          const e = Number.isInteger(idx) && idx >= 0 && idx < envs.length ? envs[idx] : envs.includes(pick) ? pick : undefined;
+          if (e) extra.push(`--${fa.name}`, e);
+          else if (!fa.optional) { w(`  unknown env '${pick}' — choose ${envs.join(" · ")}`); aborted = true; break; }
+          continue;
+        }
         const v = (await ask(`  --${fa.name} (${fa.hint})${fa.optional ? " [optional, blank to skip]" : ""}: `)).trim();
         if (v) extra.push(`--${fa.name}`, v);
       }
+      if (aborted) continue;   // bad required value → back to the main menu, don't run a broken command
       return await h.runCommand([...cmdPath, ...extra]);
     }
   } finally {
