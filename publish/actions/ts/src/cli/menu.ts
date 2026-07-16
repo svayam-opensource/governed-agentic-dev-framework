@@ -66,6 +66,18 @@ export function mainActions(): MenuAction[] {
 
 const RULE = "─".repeat(72);
 
+/** Human hints for the arg placeholders a leaf command asks for (so `<slug>:` isn't cryptic). */
+const ARG_HELP: Record<string, string> = {
+  "<slug>": "a short kebab-case name for this item, e.g. deploy-policy (NOT the org slug)",
+  "<github-login>": "a GitHub @handle, e.g. @alice",
+  "<repo-url>": "the repository URL, e.g. https://github.com/org/repo",
+  "<owner>": "the owning team or person",
+  "<description>": "a one-line description (wrap in quotes if it has spaces)",
+  "<github_org>": "the GitHub org or username",
+  "<home-path>": "the gov_repo path, e.g. ~/.acme/gov_repo",
+  "<board-url>": "the GitHub Project board URL",
+};
+
 export function formatMainMenu(ctx: MenuContext): string[] {
   const actions = mainActions();
   const out: string[] = ["", `  ▸ ${ctx.orgName ?? "Governed Agentic Development Framework"} — Governed Agentic Development Framework (v${ctx.cliVersion ?? "?"})`];
@@ -194,7 +206,12 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
       // ask ONLY for the specific value(s) the leaf needs (argHint); a no-arg leaf just runs.
       let extra: string[] = [];
       if (leaf.argHint) {
-        const args = (await ask(`  ${leaf.argHint}: `)).trim();
+        w(""); w(`  ${cmdPath.join(" ")} — ${leaf.desc}`);
+        // explain each placeholder so the prompt isn't a bare "<slug>:".
+        for (const t of leaf.argHint.match(/<[^>]+>|\[[^\]]+\]/g) ?? [leaf.argHint]) {
+          const hint = ARG_HELP[t]; if (hint) w(`    ${t.padEnd(16)} ${hint}`);
+        }
+        const args = (await ask(`  enter ${leaf.argHint}: `)).trim();
         extra = args ? args.split(/\s+/) : [];
       }
       return await h.runCommand([...cmdPath, ...extra]);
