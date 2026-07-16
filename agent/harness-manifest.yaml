@@ -1,15 +1,15 @@
-# Harness manifest — drives scripts/render-harness.sh
+# Harness manifest — drives agent/render-harness.mjs
 # Canonical protocol: agent/session-protocol.md + agent.md
 # Spec: docs/design/agent-context-assembly-spec.md §3.3, Appendix C, Appendix D
 #
 # Do not hand-edit generated install paths listed under harnesses[].path when
-# generated: true. Run ./scripts/render-harness.sh after editing session-protocol.
+# generated: true. Run node agent/render-harness.mjs after editing session-protocol.
 
 version: 1
 
 canonical:
   session_protocol: agent/session-protocol.md
-  org_entrypoint: framework/agent.md
+  org_entrypoint: publish/content/agent.md
   adopter_marker: "<!-- ADOPTER_C03_EXTENSIONS -->"
 
 # Delivery tiers (see spec Appendix D)
@@ -28,7 +28,7 @@ tiers:
   fallback:
     description: No install path; use kickoff prompt + transcript reads
 
-generated_banner: "<!-- GENERATED FROM agent/session-protocol.md — do not edit; run ./scripts/render-harness.sh -->"
+generated_banner: "<!-- GENERATED from the framework harness source — do not edit by hand -->"
 
 harnesses:
   # ── Tier: import ──────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ harnesses:
     tool: Claude Code
     status: active
     tier: import
-    path: framework/CLAUDE.md
+    path: publish/content/CLAUDE.md
     generated: false
     seed_copy: true
     per_project_path: projects/{project_id}/CLAUDE.md
@@ -55,7 +55,7 @@ harnesses:
     tool: Cursor
     status: active
     tier: generate_auto
-    path: framework/.cursor/rules/agent.mdc
+    path: publish/content/.cursor/rules/agent.mdc
     generated: true
     seed_copy: true
     template: cursor-mdc
@@ -72,7 +72,7 @@ harnesses:
     tool: OpenAI Codex
     status: active
     tier: generate_auto
-    path: framework/AGENTS.md
+    path: publish/content/AGENTS.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -83,7 +83,7 @@ harnesses:
     tool: Gemini Code Assist
     status: active
     tier: generate_auto
-    path: framework/.gemini/styleguide.md
+    path: publish/content/.gemini/styleguide.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -96,7 +96,7 @@ harnesses:
     tool: GitHub Copilot
     status: active
     tier: generate_auto
-    path: framework/.github/copilot-instructions.md
+    path: publish/content/.github/copilot-instructions.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -109,7 +109,7 @@ harnesses:
     tool: Windsurf
     status: active
     tier: generate_auto
-    path: framework/.windsurf/rules/agent.md
+    path: publish/content/.windsurf/rules/agent.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -119,7 +119,7 @@ harnesses:
     tool: Cline / Roo Code
     status: active
     tier: generate_auto
-    path: framework/.clinerules/agent.md
+    path: publish/content/.clinerules/agent.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -130,7 +130,7 @@ harnesses:
     tool: Continue.dev
     status: active
     tier: generate_auto
-    path: framework/.continue/rules.md
+    path: publish/content/.continue/rules.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -142,7 +142,7 @@ harnesses:
     tool: Aider
     status: active
     tier: generate_manual
-    path: framework/CONVENTIONS.md
+    path: publish/content/CONVENTIONS.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -188,7 +188,7 @@ harnesses:
     template: markdown-plain
     notes: "Path TBD."
 
-# Templates (consumed by render-harness.sh)
+# Templates (consumed by agent/render-harness.mjs)
 templates:
   cursor-mdc: |
     ---

@@ -1,0 +1,150 @@
+# publish/content/MANIFEST.yaml
+#
+# Classifies every file the framework CONTENT ships. Read by `gov setup` on
+# initial install and by `gov upgrade` on subsequent syncs.
+#
+# Modes:
+#   scaffold-auto    — overwrite the canonical-path copy without prompting.
+#                      Framework owns the file; org should not customize.
+#   scaffold-prompt  — 3-way merge between (previous content version, current
+#                      org copy, new content version). If org has customized,
+#                      prompt before applying. (Agent rule files, policy text,
+#                      guidance — places an org might extend.)
+#   overlay-schema   — framework defines the schema, org owns the VALUES.
+#                      On upgrade: ADD keys newly introduced by the template,
+#                      COMMENT OUT keys removed from the template, and NEVER
+#                      modify a value the organization provided. (org-config.yaml)
+#
+# A directory entry applies the mode to every file under it recursively.
+# Individual file entries override directory defaults.
+#
+# Paths in `src` are relative to publish/content/ (the SoT inside this dir).
+# Paths in `dst` are relative to the adopter repo root (the canonical path).
+# `perm` is optional; defaults to 0644.
+
+version: "1.0.0"   # authoritative source: publish/content/VERSION
+
+# ─────────────────────────────────────────────────────────────────────────
+# The CLI is NOT scaffolded into governance repos. Developers install it from
+# npm (`npm i -g @svayam-opensource/gov`, command `gov`); it operates on any
+# resolved gov workspace (model A — GitHub is the source of truth; no
+# $ADF_WORKSPACE, no state files). Gov repos hold pure data + content; `gov
+# upgrade` carries framework CONTENT only. Governance CI IS scaffolded as a
+# single `gov-validate.yml` workflow (below) that installs the CLI + runs
+# `gov validate` — the CLI source itself is never vendored.
+# ─────────────────────────────────────────────────────────────────────────
+
+files:
+
+  # The installed content-version marker (replaces .framework-version).
+  - { src: VERSION, dst: VERSION, mode: scaffold-auto }
+
+  # projects/README.md is framework-shipped boilerplate explaining the dir
+  - { src: projects/README.md, dst: projects/README.md, mode: scaffold-auto }
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Agent rule files — at canonical paths each tool auto-loads.
+  # Org may extend these; 3-way merge on upgrade.
+  # ─────────────────────────────────────────────────────────────────────
+
+  # The canonical protocol (Claude's CLAUDE.md @imports agent/session-protocol.md).
+  - { src: agent/session-protocol.md,          dst: agent/session-protocol.md,          mode: scaffold-auto }
+
+  - { src: CLAUDE.md,                          dst: CLAUDE.md,                          mode: scaffold-prompt }
+  - { src: AGENTS.md,                          dst: AGENTS.md,                          mode: scaffold-prompt }
+  - { src: agent.md,                           dst: agent.md,                           mode: scaffold-prompt }
+  - { src: CONVENTIONS.md,                     dst: CONVENTIONS.md,                     mode: scaffold-prompt }
+  - { src: .cursor/rules/agent.mdc,            dst: .cursor/rules/agent.mdc,            mode: scaffold-prompt }
+  - { src: .clinerules/agent.md,               dst: .clinerules/agent.md,               mode: scaffold-prompt }
+  - { src: .windsurf/rules/agent.md,           dst: .windsurf/rules/agent.md,           mode: scaffold-prompt }
+  - { src: .github/copilot-instructions.md,    dst: .github/copilot-instructions.md,    mode: scaffold-prompt }
+  - { src: .gemini/styleguide.md,              dst: .gemini/styleguide.md,              mode: scaffold-prompt }
+  - { src: .continue/rules.md,                 dst: .continue/rules.md,                 mode: scaffold-prompt }
+  - { src: .github/pull_request_template.md,   dst: .github/pull_request_template.md,   mode: scaffold-prompt }
+
+  # Governance CI — runs `gov validate` on the adopter workspace (org may tune triggers).
+  - { src: .github/workflows/gov-validate.yml, dst: .github/workflows/gov-validate.yml, mode: scaffold-prompt }
+
+  # GitHub issue templates — org may want to customize
+  - { src: .github/ISSUE_TEMPLATE/, dst: .github/ISSUE_TEMPLATE/, mode: scaffold-prompt }
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Session-start enforcement gate. Hook scripts are framework-owned logic
+  # (scaffold-auto, do-not-edit); the wiring configs (settings.json /
+  # hooks.json) and the rule/command are scaffold-prompt so an org with its
+  # own Claude/Cursor config merges rather than gets clobbered.
+  # ─────────────────────────────────────────────────────────────────────
+  - { src: .claude/hooks/,                     dst: .claude/hooks/,                     mode: scaffold-auto }
+  - { src: .claude/commands/session-start.md,  dst: .claude/commands/session-start.md,  mode: scaffold-auto }
+  - { src: .claude/settings.json,              dst: .claude/settings.json,              mode: scaffold-prompt }
+  - { src: .cursor/hooks/,                     dst: .cursor/hooks/,                     mode: scaffold-auto }
+  - { src: .cursor/hooks.json,                 dst: .cursor/hooks.json,                 mode: scaffold-prompt }
+  - { src: .cursor/rules/session-start-gate.mdc, dst: .cursor/rules/session-start-gate.mdc, mode: scaffold-prompt }
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Knowledge — policy, guidance, architecture readmes. Framework ships
+  # baseline; orgs add their own files alongside. 3-way merge on upgrade only
+  # touches framework-owned paths listed here.
+  # ─────────────────────────────────────────────────────────────────────
+
+  - { src: knowledge/policies/agentic-development-policy.md,      dst: knowledge/policies/agentic-development-policy.md,      mode: scaffold-prompt }
+  - { src: knowledge/policies/agentic-development-procedures.md,  dst: knowledge/policies/agentic-development-procedures.md,  mode: scaffold-prompt }
+  - { src: knowledge/policies/data-classification.md,             dst: knowledge/policies/data-classification.md,             mode: scaffold-prompt }
+  - { src: knowledge/policies/llm-governance.md,                  dst: knowledge/policies/llm-governance.md,                  mode: scaffold-prompt }
+  - { src: knowledge/policies/roles.md,                           dst: knowledge/policies/roles.md,                           mode: scaffold-prompt }
+  - { src: knowledge/policies/knowledge-organization-standard.md,  dst: knowledge/policies/knowledge-organization-standard.md,  mode: scaffold-prompt }
+  - { src: knowledge/development/procedures/knowledge-harvest.md,  dst: knowledge/development/procedures/knowledge-harvest.md,  mode: scaffold-prompt }
+  - { src: knowledge/policies/exceptions/architecture/TEMPLATE.md,    dst: knowledge/policies/exceptions/architecture/TEMPLATE.md,    mode: scaffold-prompt }
+  - { src: knowledge/policies/exceptions/infrastructure/TEMPLATE.md,  dst: knowledge/policies/exceptions/infrastructure/TEMPLATE.md,  mode: scaffold-prompt }
+  - { src: knowledge/policies/exceptions/legal/TEMPLATE.md,           dst: knowledge/policies/exceptions/legal/TEMPLATE.md,           mode: scaffold-prompt }
+  - { src: knowledge/policies/exceptions/policy/TEMPLATE.md,          dst: knowledge/policies/exceptions/policy/TEMPLATE.md,          mode: scaffold-prompt }
+
+  - { src: knowledge/guidance/, dst: knowledge/guidance/, mode: scaffold-prompt }
+
+  - { src: knowledge/infrastructure/cicd-spec.md,                 dst: knowledge/infrastructure/cicd-spec.md,                 mode: scaffold-prompt }
+  - { src: knowledge/infrastructure/knowledge-publication-spec.md, dst: knowledge/infrastructure/knowledge-publication-spec.md, mode: scaffold-prompt }
+
+  # READMEs in knowledge/* subdirs (shipped placeholders org may extend)
+  - { src: knowledge/accumulated/README.md,        dst: knowledge/accumulated/README.md,        mode: scaffold-prompt }
+  - { src: knowledge/architecture/data/README.md,  dst: knowledge/architecture/data/README.md,  mode: scaffold-prompt }
+  - { src: knowledge/architecture/system/README.md, dst: knowledge/architecture/system/README.md, mode: scaffold-prompt }
+  - { src: knowledge/compliance/README.md,         dst: knowledge/compliance/README.md,         mode: scaffold-prompt }
+  - { src: knowledge/legal/README.md,              dst: knowledge/legal/README.md,              mode: scaffold-prompt }
+  - { src: knowledge/patterns/README.md,           dst: knowledge/patterns/README.md,           mode: scaffold-prompt }
+  - { src: knowledge/policies/README.md,           dst: knowledge/policies/README.md,           mode: scaffold-prompt }
+  - { src: knowledge/infrastructure/README.md,     dst: knowledge/infrastructure/README.md,     mode: scaffold-prompt }
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Documentation
+  # ─────────────────────────────────────────────────────────────────────
+
+  - { src: docs/DEVELOPER_GUIDE.md, dst: docs/DEVELOPER_GUIDE.md, mode: scaffold-prompt }
+  - { src: docs/USER_GUIDE.md,      dst: docs/USER_GUIDE.md,      mode: scaffold-prompt }
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Root metadata (org may want to customize README, CODEOWNERS, gitignore)
+  # ─────────────────────────────────────────────────────────────────────
+
+  - { src: README.md,    dst: README.md,    mode: scaffold-prompt }
+  - { src: CODEOWNERS,   dst: CODEOWNERS,   mode: scaffold-prompt }
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Schema source for org-config.yaml. `gov setup` writes org-config.yaml from
+  # this template on first install; `gov upgrade` extends the schema (adds new
+  # keys, comments out removed keys) WITHOUT overwriting org-provided values.
+  # ─────────────────────────────────────────────────────────────────────
+
+  - { src: org-config.example.yaml, dst: org-config.yaml, mode: overlay-schema }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Paths the framework promises NEVER to touch on upgrade. Listed here for
+# documentation and as a validator hint. Upgrade refuses to overwrite anything
+# matching these patterns even if a manifest entry says otherwise.
+# ─────────────────────────────────────────────────────────────────────────
+
+owned:
+  - org-config.yaml                # org-owned VALUES (only schema is extended)
+  - projects/PRJ-*/                # project workspaces
+  - knowledge/policies/exceptions/*/[0-9]*.md  # dated exception filings
+  # Anything an org adds at paths NOT listed in `files:` above is implicitly owned.

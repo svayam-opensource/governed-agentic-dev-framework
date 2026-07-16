@@ -112,7 +112,7 @@ Adopter **C03 extensions** go below a fixed marker in `agent/session-protocol.md
 | Tool | Install path | Delivery mechanism | When `agent.md` content enters context |
 |---|---|---|---|
 | **Claude Code** | `CLAUDE.md` | **`@import`** expands at launch | Session start — every prompt until compaction |
-| **Cursor** | `.cursor/rules/agent.mdc` | **`render-harness.sh`** embeds protocol body + YAML frontmatter | Every chat/agent turn (`alwaysApply: true`) |
+| **Cursor** | `.cursor/rules/agent.mdc` | **`agent/render-harness.mjs`** embeds protocol body + YAML frontmatter | Every chat/agent turn (`alwaysApply: true`) |
 | **Codex** | `AGENTS.md` | Generated from `session-protocol.md` | Session start |
 | **Others** | See DEVELOPER_GUIDE §9 | Generated from same source | Tool-dependent |
 
@@ -131,11 +131,11 @@ Adopter **C03 extensions** go below a fixed marker in `agent/session-protocol.md
 
 **Do not** use a bare text pointer (*"see agent.md"*) as the only Claude bootstrap — it does not load the file.
 
-#### Cursor — `render-harness.sh` (generate, not pointer)
+#### Cursor — `agent/render-harness.mjs` (generate, not pointer)
 
 Cursor does not expand `@agent.md` inside `.mdc` rules. Install path must contain the **full protocol text**.
 
-Script: `scripts/render-harness.sh` (to be implemented). Invoked from `setup.sh` and `seed.sh`.
+Script: `agent/render-harness.mjs` (to be implemented). Invoked from `setup.sh` and `seed.sh`.
 
 ```
 Input:  agent/session-protocol.md
@@ -149,7 +149,7 @@ Generated `.mdc` template:
 description: Agentic Development Framework — session-start protocol (POL-113..117)
 globs: ["**/*"]
 alwaysApply: true
-# GENERATED FROM agent/session-protocol.md — do not edit; run ./scripts/render-harness.sh
+# GENERATED FROM agent/session-protocol.md — do not edit; run node agent/render-harness.mjs
 ---
 
 {{body of agent/session-protocol.md}}
@@ -191,9 +191,9 @@ Today's template **inlines** duplicate protocol in eight harness paths. Migratio
 
 1. Extract shared text → `agent/session-protocol.md`
 2. Replace `CLAUDE.md` body with `@` imports (§3.3)
-3. Add `render-harness.sh`; regenerate `.cursor/rules/agent.mdc` and siblings
-4. Change `seed.sh` to call `render-harness.sh` for per-project copies (replace `sed` copy loop)
-5. CI check: `render-harness.sh --check` fails if install paths drift from canonical source
+3. Add `agent/render-harness.mjs`; regenerate `.cursor/rules/agent.mdc` and siblings
+4. Change `seed.sh` to call `agent/render-harness.mjs` for per-project copies (replace `sed` copy loop)
+5. CI check: `agent/render-harness.mjs --check` fails if install paths drift from canonical source
 
 Until migration completes, duplicated harness files remain valid but **must be updated in lockstep** with `agent/session-protocol.md`.
 
@@ -613,9 +613,9 @@ Project learnings that integrate into org (diagram updates, procedure edits) bec
 Suggested implementation order:
 
 1. **`agent/session-protocol.md`** — extract canonical text from current `CLAUDE.md` / `agent.mdc`
-2. **`scripts/render-harness.sh`** — generate Cursor `.mdc`, `AGENTS.md`, and other non-import harnesses; `--check` mode for CI
+2. **`agent/render-harness.mjs`** — generate Cursor `.mdc`, `AGENTS.md`, and other non-import harnesses; `--check` mode for CI
 3. **Thin `CLAUDE.md`** — `@agent/session-protocol.md` + `@agent.md` only (§3.3)
-4. **Wire `setup.sh` + `seed.sh`** — call `render-harness.sh` after scaffold; replace harness `sed` copy loop
+4. **Wire `setup.sh` + `seed.sh`** — call `agent/render-harness.mjs` after scaffold; replace harness `sed` copy loop
 5. **`context-manifest` schema** — JSON/YAML schema for SLOT-0 output; validator in `scripts/validate/`
 6. **`./prj context assemble [--project PID]`** — manifest + Tier A file list (no LLM required)
 7. **`./prj context refresh`** — git pull + re-assemble
@@ -642,7 +642,7 @@ Suggested implementation order:
 |---|---|
 | H1 | Canonical harness source: `agent/session-protocol.md` + `agent.md` |
 | H2 | Claude: `@import` in `CLAUDE.md` |
-| H3 | Cursor: `render-harness.sh` generates `.mdc` with embedded body |
+| H3 | Cursor: `agent/render-harness.mjs` generates `.mdc` with embedded body |
 | H4 | Text-only pointers (*"see agent.md"*) are not sufficient for system context |
 
 ---
@@ -692,18 +692,18 @@ From knowledge/repo/patterns.md:
 
 ---
 
-## 19. Appendix C — `render-harness.sh` and `agent/harness-manifest.yaml`
+## 19. Appendix C — `agent/render-harness.mjs` and `agent/harness-manifest.yaml`
 
 **Purpose:** Generate tool install paths from `agent/session-protocol.md`. Keep all **Tier B** tools in sync with Claude's `@import` source.
 
-**Manifest:** `agent/harness-manifest.yaml` is the authoritative list of supported harnesses, delivery tiers, install paths, and verification steps. `render-harness.sh` reads the manifest; do not duplicate path lists in shell code.
+**Manifest:** `agent/harness-manifest.yaml` is the authoritative list of supported harnesses, delivery tiers, install paths, and verification steps. `agent/render-harness.mjs` reads the manifest; do not duplicate path lists in shell code.
 
 ### Usage
 
 ```bash
-./scripts/render-harness.sh              # write all install paths at repo root
-./scripts/render-harness.sh --project PID  # also write projects/PID/ copies
-./scripts/render-harness.sh --check      # exit 1 if any install path differs (CI)
+node agent/render-harness.mjs              # write all install paths at repo root
+node agent/render-harness.mjs --project PID  # also write projects/PID/ copies
+node agent/render-harness.mjs --check      # exit 1 if any install path differs (CI)
 ```
 
 ### Manifest-driven behavior
@@ -722,19 +722,19 @@ From knowledge/repo/patterns.md:
 1. Confirm the tool's conventional install path from vendor docs.
 2. Add an entry to `agent/harness-manifest.yaml` under `harnesses:`.
 3. Implement or extend a `templates:` block if the format is new.
-4. Run `./scripts/render-harness.sh` and commit generated files.
+4. Run `node agent/render-harness.mjs` and commit generated files.
 5. Document verify step in DEVELOPER_GUIDE §9 and Appendix D.
 
 ### CI gate
 
-`render-harness.sh --check` runs on PRs that touch `agent/session-protocol.md`, `agent/harness-manifest.yaml`, or `agent.md`.
+`agent/render-harness.mjs --check` runs on PRs that touch `agent/session-protocol.md`, `agent/harness-manifest.yaml`, or `agent.md`.
 
 ### `seed.sh` integration
 
 Replace the current `TOOL_FILES` copy loop with:
 
 ```bash
-./scripts/render-harness.sh --project "$PROJECT_ID"
+node agent/render-harness.mjs --project "$PROJECT_ID"
 ```
 
 ---
@@ -863,7 +863,7 @@ Work ─────────────────────────
 | Date | Change |
 |---|---|
 | 2026-05-27 | Initial draft from knowledge management design interview |
-| 2026-05-27 | §3.3 harness delivery (Claude `@import`, Cursor `render-harness.sh`); §3.4 session persistence |
+| 2026-05-27 | §3.3 harness delivery (Claude `@import`, Cursor `agent/render-harness.mjs`); §3.4 session persistence |
 | 2026-05-27 | `agent/harness-manifest.yaml`; Appendix D tool matrix and Claude/Cursor/Gemini steps |
 | 2026-05-27 | §3.5 Pattern 1 (agent speaks first) in `agent/session-protocol.md` §0 |
 

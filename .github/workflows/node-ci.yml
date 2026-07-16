@@ -1,0 +1,51 @@
+name: node-ci
+
+# Build + lint + test the Node/TypeScript packages under ts/* on Node 24 (AD-6.1).
+# These are the in-flight Bash → Node migration of prj-work (PRJ-43, issue #91):
+# during the transition they live alongside the legacy bash CLI and get their own
+# real push/PR green. The bash lint/bats/e2e workflows stay for the bash CLI at the
+# repo root. Path-filtered so pure-bash changes don't spin this up.
+
+on:
+  # PRs: NO path filter — so `gov-work` always runs + reports, letting it be a
+  # REQUIRED status check (a path-filtered required check blocks PRs that don't
+  # touch the paths, since the check never runs). The build is cached + fast when
+  # nothing changed.
+  pull_request:
+  # Pushes stay path-filtered (don't spin up on unrelated feature-branch pushes).
+  push:
+    branches: ["**"]
+    paths:
+      - "publish/actions/ts/**"
+      - ".github/workflows/node-ci.yml"
+
+concurrency:
+  group: node-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: gov-work
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: publish/actions/ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: publish/actions/ts/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npm test
+      # MANDATORY full-flow e2e gate (PRJ-43): the hermetic seed→task→merge e2e
+      # must pass before a PR merges (and thus before publish). It's already part
+      # of `npm test`; this named step makes it a visible, required check. The
+      # REAL-GitHub e2e (TESTBED-DESIGN §3, Tier B) is a separate MANUAL
+      # pre-publish gate (needs a sandbox org + bot PAT), not run per-PR.
+      - name: e2e (full-flow gate — required before merge/publish)
+        run: npm run test:e2e

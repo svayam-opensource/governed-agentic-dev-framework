@@ -1,0 +1,124 @@
+---
+description: Agentic Development Framework — session-start protocol (POL-113..117)
+globs: ["**/*"]
+alwaysApply: true
+---
+
+<!-- GENERATED from the framework harness source — do not edit by hand -->
+
+# Agent Session-Start Protocol — <ORG_NAME>
+
+This is the **canonical** session-start protocol for any AI coding agent working in this workspace. It is delivered to each tool at its conventional path (`CLAUDE.md`, `.cursor/rules/agent.mdc`, `AGENTS.md`, `CONVENTIONS.md`, …) by the framework harness renderer, driven by `agent/harness-manifest.yaml`. **Edit the protocol here, then re-render — never hand-edit the generated copies** (they carry a "do not edit" banner).
+
+## 0. New session — agent speaks first (Pattern 1)
+
+**Applies to:** every new Cursor Agent/Chat session, every new `claude` invocation, and every new conversation after `/clear`.
+
+When this protocol is loaded, your **first assistant message** in the session must run the C01 checklist (§1–§2 below) and post a **context manifest** — **before** planning work, proposing tasks, or editing files.
+
+| Trigger | What you do |
+|---|---|
+| User's first message is a greeting, "start", "go", "ready", or session opener | Run §1–§2, post manifest, **stop and wait** |
+| User's first message already contains a **specific work task** | Still run §1–§2 first; post a **short** manifest, then address the task |
+| No active project (no project branch checked out) | Post manifest stating no active project; load org layer + `agent.md` only; wait for direction |
+
+**Do not** wait for the user to paste the kickoff prompt from `DEVELOPER_GUIDE.md` — that template is for humans; you execute the same steps proactively.
+
+### Context manifest (required format)
+
+Use this structure in your first reply:
+
+```markdown
+## Context manifest
+
+- **Project:** <PROJECT_ID or "none">
+- **Branch:** <current git branch>
+- **Status:** <derived from the GitHub board (open = active), or n/a>
+- **Repos:** <the board's linked repos, or n/a>
+- **Open todos:** <bullets from todo.md ## Open, or "none">
+- **Layers loaded:** org ✓/✗ · project ✓/✗ · repo ✓/✗ · prefs ✓/✗
+- **Awaiting:** your direction (no tasks proposed)
+```
+
+After the manifest, **stop**. Do not propose implementation work unless the user's first message already asked for something specific — and even then, complete the manifest first.
+
+---
+
+Before you change any code, complete the steps below.
+
+## 1. Read `org-config.yaml` first — every framework file references its values
+
+Read `org-config.yaml` at the workspace repo root before anything else. The framework ships with no org-specific values baked in; instead, files refer to org values via angle-bracketed tokens that map to keys in `org-config.yaml`:
+
+| Token | Key in `org-config.yaml` |
+| --- | --- |
+| `<ORG_NAME>` | `org_name` |
+| `<ORG_SHORT_NAME>` | `org_short_name` |
+| `<ORG_SLUG>` | `org_slug` |
+| `<org_slug>` (lowercase) | `org_slug_lower` |
+| `<ORG_REPO_URL>` | `org_repo_url` |
+| `<GITHUB_ORG>` | `github_org` |
+| `<WORKSPACE_REPO>` | `workspace_repo` |
+| `<DEFAULT_BRANCH>` | `default_branch` |
+| `<DEFAULT_CODE_BRANCH>` | `default_code_branch` |
+| `<AGENT_WORK_ROOT>` | `agent_work_root` |
+| `<POLICY_OWNER_EMAIL>` | `policy_owner_email` |
+| `<POLICY_OWNER_GITHUB>` | `policy_owner_github` |
+| `<LEGAL_OWNER_GITHUB>` etc. | `legal_owner_github`, `infra_owner_github`, `system_arch_owner_github`, `data_arch_owner_github` |
+| `<POLICY_EFFECTIVE_DATE>` | `policy_effective_date` |
+
+Tokens like `<PROJECT_ID>`, `<repo-name>`, `<your-gh-login>` are per-session values you'll discover from the current branch, the GitHub Project board, and `gh api user`.
+
+If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE state. Hard-stop and tell the human to run `gov setup`.
+
+## 2. Load four knowledge layers — fresh every session
+
+Read these in priority order (highest first). Never use cached layers from a prior session:
+
+1. **Org-wide knowledge** — `knowledge/` in this repo, from the `<DEFAULT_BRANCH>` branch.
+2. **Active project** — `projects/<PROJECT_ID>/knowledge/` plus the project's own entrypoint at `projects/<PROJECT_ID>/agent.md`. To determine the active `PROJECT_ID`: read the current git branch — **GitHub is the source of truth; there is no `registry.yaml`**. Project branches are named `BRNCH-<board#>-<slug>`, where `board#` is the GitHub project board number with no leading zero; the matching project id is `PRJ-<board#>-<slug>`. Pre-existing projects keep their legacy `brnch-NNN-<slug>` names.
+3. **Repo-local** — `<repo>/knowledge/` for each linked code repo at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`.
+4. **Your developer preferences** — `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md`. Run `gh api user --jq .login` to determine your handle; load **only** your file. Other files in that directory belong to other developers — do not read them.
+
+Higher layers always win. Developer preferences cannot override repo-local or org-wide knowledge.
+
+## 3. Verify project state (C01 — hard stops)
+
+If a project is active:
+
+- Confirm you are authorized: you have **write access to the project's linked GitHub Project** (the authorization source of truth — an owner grants it via `gov manage assign`). There is no `project.yaml` — GitHub Project write access is the sole gate. When on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is you.
+- The project's GitHub board must be **open** (an open board = active).
+- Read `projects/<PROJECT_ID>/knowledge/todo.md` and surface its `## Open` items to the developer before planning new work.
+
+If any of these can't be verified, hard-stop and surface to the human. Do not commit anything.
+
+## 4. What's writable, what's not
+
+During an active project:
+
+- ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$AGENT_WORK_ROOT/<PROJECT_ID>/`.
+- ❌ Read-only: `<WORKSPACE_REPO>/knowledge/` — never edit during an active project.
+- ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
+- ❌ Don't create GitHub Issues unilaterally — those represent business intent that humans add to the GitHub Project board.
+
+## 5. Where work happens
+
+- Code repos are cloned at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`, each on the project branch.
+- Code changes go in those cloned repos — **NOT** in the workspace repo's tree.
+- Project metadata (knowledge, decisions, to-dos) goes in `projects/<PROJECT_ID>/` in the workspace repo.
+
+## 6. During work
+
+- Capture decisions, exceptions, and policy notes in `projects/<PROJECT_ID>/knowledge/` as you make them — not at session end.
+- **Draw, don't just describe.** When the knowledge you're capturing has a flow, architecture, sequence, state machine, or relationship, author it as a **Mermaid diagram (text, never an image — POL-414)** instead of prose. One artifact serves both readers: it renders as a picture for humans and stays ~tens of diffable, RAG-indexable lines for agents and PR review. Default to a diagram for anything structural; reach for `flowchart`/`sequenceDiagram`/`stateDiagram`/`erDiagram`/`C4Context` as fits.
+- Capture intermediate to-dos in `projects/<PROJECT_ID>/knowledge/todo.md` under `## Open` as they arise.
+- When an item from `todo.md` is resolved, move it to `## Done` with a short note (commit SHA, PR link, or one-line outcome).
+
+---
+
+For the canonical, full version of this protocol and the policy that governs it:
+
+- **`docs/DEVELOPER_GUIDE.md`** — step-by-step session walkthrough with example prompts.
+- **`knowledge/policies/agentic-development-policy.md`** — full policy text. POL-113 through POL-171 govern session protocol.
+
+Per-project specifics (the actual `<PROJECT_ID>`, paths, GitHub Project URL, etc.) are filled in at `projects/<PROJECT_ID>/agent.md` once the project is seeded — that file is your project-specific entrypoint.
