@@ -137,16 +137,26 @@ export async function gatherMenuContext(): Promise<MenuContext> {
   let orgName: string | undefined;
   let githubOrg: string | undefined;
   let branch: string | undefined;
+  let agentWorkRoot: string | undefined;
+  let mode: "project" | "governed" | "none" = "none";
   const resolve = prjResolveGov(env);
   if (resolve.ok) {
+    mode = "governed";
     const cfg = fs.readFile(path.join(resolve.home, "org-config.yaml"));
     if (cfg) {
       const c = parseOrgConfig(cfg);
       orgName = c.orgName || undefined;
       githubOrg = c.githubOrg || undefined;
       branch = c.defaultBranch || undefined;
+      agentWorkRoot = c.agentWorkRoot || undefined;
     }
     branch = tryRun("git", ["-C", resolve.home, "rev-parse", "--abbrev-ref", "HEAD"]) ?? branch;
+  }
+  // PROJECT context = cwd is inside a project dir under agent_work_root.
+  let project: string | undefined;
+  if (agentWorkRoot && process.cwd().startsWith(agentWorkRoot + path.sep)) {
+    const seg = path.relative(agentWorkRoot, process.cwd()).split(path.sep)[0];
+    if (seg) { mode = "project"; project = seg; }
   }
   const user = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? tryRun("git", ["config", "user.email"]) ?? undefined;
   let workspaceCount: number | undefined;
@@ -155,7 +165,7 @@ export async function gatherMenuContext(): Promise<MenuContext> {
   } catch {
     /* omit */
   }
-  return { orgName, githubOrg, branch, user, workspaceCount, cliVersion };
+  return { orgName, githubOrg, branch, user, workspaceCount, cliVersion, mode, project };
 }
 
 /**

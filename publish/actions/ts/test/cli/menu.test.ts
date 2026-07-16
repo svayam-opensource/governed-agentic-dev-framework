@@ -35,9 +35,16 @@ describe("gov-work — interactive menu (task-oriented)", () => {
   it("renders the prj-style banner + action table; no Operate / no enterprise-plugin hint", () => {
     const m = formatMainMenu(CTX).join("\n");
     expect(m).to.match(/▸ Acme Inc — Governed Agentic Development Framework \(v1\.0\.0\)/);
-    expect(m).to.match(/\(2\) Work.*pick a project/);
+    expect(m).to.match(/\(2\) Work.*pick \/ seed a project/);
     expect(m).to.not.match(/enterprise plugin/);
     expect(m).to.not.match(/Operate/);
+  });
+
+  it("adapts to context: PROJECT shows the project + 'Continue the current project'; GOVERNED is labelled", () => {
+    const p = formatMainMenu({ ...CTX, mode: "project", project: "PRJ-43" }).join("\n");
+    expect(p).to.match(/Context: PROJECT \(PRJ-43\)/);
+    expect(p).to.match(/\(2\) Work.*Continue the current project/);
+    expect(formatMainMenu({ ...CTX, mode: "governed" }).join("\n")).to.match(/Context: GOVERNED/);
   });
 
   it("resolves choices to action / org / quit", () => {

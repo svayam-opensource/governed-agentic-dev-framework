@@ -14,6 +14,8 @@
  */
 import * as readline from "node:readline";
 
+export type ContextMode = "project" | "governed" | "none";
+
 export interface MenuContext {
   readonly orgName?: string;
   readonly githubOrg?: string;
@@ -21,9 +23,14 @@ export interface MenuContext {
   readonly user?: string;
   readonly workspaceCount?: number;
   readonly cliVersion?: string;
+  /** PROJECT (cwd inside a project) · GOVERNED (org home) · NONE (no workspace). Drives menu adaptation. */
+  readonly mode?: ContextMode;
+  /** the current project id, when mode === "project". */
+  readonly project?: string;
 }
 
-export interface SubCommand { readonly cmd: string; readonly desc: string; readonly argHint?: string; readonly subs?: readonly SubCommand[]; }
+/** `needsProject`: this command operates on the CURRENT project, so it's only valid in PROJECT context. */
+export interface SubCommand { readonly cmd: string; readonly desc: string; readonly argHint?: string; readonly subs?: readonly SubCommand[]; readonly needsProject?: boolean; }
 export type MenuAction =
   | { readonly kind: "guided"; readonly key: "work"; readonly label: string; readonly desc: string; readonly hint: string }
   | { readonly kind: "submenu"; readonly key: "status" | "admin"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[] }
@@ -39,7 +46,7 @@ export function mainActions(): MenuAction[] {
     ] },
     { kind: "guided", key: "work", label: "Work", desc: "Start / continue a project", hint: "pick a project" },
     { kind: "submenu", key: "admin", label: "Admin", desc: "Administer governance", commands: [
-      { cmd: "manage", desc: "project access — assign / unassign owners", subs: [
+      { cmd: "manage", desc: "project access — assign / unassign owners", needsProject: true, subs: [
         { cmd: "assign", desc: "grant a user project access", argHint: "<github-login>" },
         { cmd: "unassign", desc: "revoke access", argHint: "<github-login>" },
       ] },
@@ -49,7 +56,7 @@ export function mainActions(): MenuAction[] {
         { cmd: "archive", desc: "retire a knowledge item", argHint: "<slug>" },
       ] },
       { cmd: "onboard", desc: "onboard a repository into the framework", argHint: "<repo-url> <owner> <description>" },
-      { cmd: "add-repo", desc: "add a repository to a project", argHint: "<repo-url>" },
+      { cmd: "add-repo", desc: "add a repository to the current project", argHint: "<repo-url>", needsProject: true },
       { cmd: "org", desc: "manage governance workspaces", subs: [
         { cmd: "use", desc: "switch the active org", argHint: "<github_org>" },
         { cmd: "add", desc: "register a governance workspace", argHint: "<github_org> <home-path>" },
@@ -84,10 +91,17 @@ export function formatMainMenu(ctx: MenuContext): string[] {
   const bits = [ctx.githubOrg && `Org: ${ctx.githubOrg}`, ctx.branch && `Branch: ${ctx.branch}`, ctx.user && `User: ${ctx.user}`].filter(Boolean) as string[];
   if (bits.length) out.push(`  ${bits.join("  |  ")}`);
   if (ctx.workspaceCount !== undefined) out.push(`  ${ctx.workspaceCount} governance workspace(s) registered — press o to switch the active org.`);
+  const modeLabel = ctx.mode === "project" ? `PROJECT${ctx.project ? ` (${ctx.project})` : ""}` : ctx.mode === "governed" ? "GOVERNED (org home)" : ctx.mode === "none" ? "no workspace resolved" : undefined;
+  if (modeLabel) out.push(`  Context: ${modeLabel}`);
   out.push("", RULE, "", `  ${"Action".padEnd(10)}  ${"Description".padEnd(32)}  Goes to`, `  ${"-".repeat(10)}  ${"-".repeat(32)}  ${"-".repeat(30)}`);
   actions.forEach((a, i) => {
-    const goesTo = a.kind === "submenu" ? a.commands.map((c) => c.cmd).slice(0, 4).join(" · ") + (a.commands.length > 4 ? " · …" : "") : a.hint;
-    out.push(`  (${i + 1}) ${a.label.padEnd(6)}  ${a.desc.padEnd(32)}  ${goesTo}`);
+    let desc = a.desc;
+    let goesTo = a.kind === "submenu" ? a.commands.map((c) => c.cmd).slice(0, 4).join(" · ") + (a.commands.length > 4 ? " · …" : "") : a.hint;
+    if (a.key === "work") {   // adapt the guided flow to the context
+      desc = ctx.mode === "project" ? "Continue the current project" : ctx.mode === "none" ? "Set up a workspace first" : "Start or continue a project";
+      goesTo = ctx.mode === "project" ? `continue ${ctx.project ?? "this project"}` : ctx.mode === "none" ? "gov setup" : "pick / seed a project";
+    }
+    out.push(`  (${i + 1}) ${a.label.padEnd(6)}  ${desc.padEnd(32)}  ${goesTo}`);
   });
   out.push("", "  Type a number; o to switch org; 0 to exit.", RULE);
   return out;
@@ -183,12 +197,19 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
       // submenu → pick a command → run
       w("");
       w(`  ${a.label}:`);
-      a.commands.forEach((c, i) => w(`    ${String(i + 1).padStart(2)}) ${c.cmd.padEnd(11)} ${c.desc}`));
+      a.commands.forEach((c, i) => {
+        const na = c.needsProject && ctx.mode !== "project" ? "  — needs an active project" : "";
+        w(`    ${String(i + 1).padStart(2)}) ${c.cmd.padEnd(11)} ${c.desc}${na}`);
+      });
       w("     0) back");
       const sub = (await ask("  Choose: ")).trim();
       if (sub === "0" || sub === "") continue;
       const chosen = pickCmd(a.commands, sub);
       if (!chosen) { w("  unknown choice"); continue; }
+      if (chosen.needsProject && ctx.mode !== "project") {
+        w(`  '${chosen.cmd}' needs an active project — run Work → continue (or cd into a project dir) first.`);
+        continue;
+      }
       const cmdPath: string[] = [chosen.cmd];
       let leaf: SubCommand = chosen;
       // one level of guided nesting: a command WITH subcommands (manage/knowledge/org) → pick one
