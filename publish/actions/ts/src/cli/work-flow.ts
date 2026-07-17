@@ -138,6 +138,17 @@ export function ensureRootProtocol(deps: WorkFlowDeps, projectDir: string): void
   // @-import resolution through the workspace's own CLAUDE.md.
   const claudeRoot = path.join(projectDir, "CLAUDE.md");
   if (!deps.fs.pathExists(claudeRoot)) deps.fs.writeFile(claudeRoot, `@${ws}/agent/session-protocol.md\n@${ws}/framework/agent.md\n`);
+  // Claude belt-and-suspenders: a SessionStart hook so the protocol also fires on a BARE `claude` (opened
+  // outside the Work flow, or after /clear) — not only when we inject the kickoff. Write only if absent so a
+  // user's own .claude/settings.json is never clobbered.
+  const settings = path.join(projectDir, ".claude", "settings.json");
+  if (!deps.fs.pathExists(settings)) {
+    deps.fs.mkdirp(path.join(projectDir, ".claude"));
+    deps.fs.writeFile(settings, JSON.stringify({
+      hooks: { SessionStart: [{ hooks: [{ type: "command",
+        command: "printf 'Run the session-start protocol now, before responding to anything else: read CLAUDE.md, post the context manifest, and wait for direction.'" }] }] },
+    }, null, 2) + "\n");
+  }
   for (const rel of ROOT_HARNESS_FILES) {
     const src = deps.fs.readFile(path.join(projectDir, ws, rel));
     if (src == null) continue;   // not rendered for this workspace → nothing to mirror
