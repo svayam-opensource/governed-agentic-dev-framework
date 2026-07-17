@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpec, ensureRootProtocol, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpec, sessionStartPrompt, ensureRootProtocol, type WorkFlowDeps } from "../../src/cli/work-flow.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
@@ -112,18 +112,26 @@ describe("gov-work — guided Work flow", () => {
     }
   });
 
-  it("agentLaunchSpec: correct binary + detached flag per agent (guards the launch mapping)", () => {
-    expect(agentLaunchSpec("claude", "/p")).to.deep.equal({ cmd: "claude", args: [], detached: false });
-    expect(agentLaunchSpec("cursor", "/p")).to.deep.equal({ cmd: "cursor-agent", args: [], detached: false });
-    expect(agentLaunchSpec("cursor-gui", "/p")).to.deep.equal({ cmd: "cursor", args: ["/p"], detached: true });   // GUI opens the dir, detached
-    expect(agentLaunchSpec("shell", "/p", { SHELL: "/bin/fish" } as NodeJS.ProcessEnv)).to.deep.equal({ cmd: "/bin/fish", args: [], detached: false });
+  it("agentLaunchSpec: right binary + detached flag + inject-as-first-message (guards the launch mapping)", () => {
+    expect(agentLaunchSpec("claude", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false });          // speak-first
+    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false });    // speak-first
+    expect(agentLaunchSpec("cursor-gui", "/p", "GO")).to.deep.equal({ cmd: "cursor", args: ["/p"], detached: true });        // GUI opens the dir, detached
+    expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/bin/fish" } as NodeJS.ProcessEnv)).to.deep.equal({ cmd: "/bin/fish", args: [], detached: false });
+  });
+
+  it("sessionStartPrompt: kickoff runs session-start first + references the right workspace-relative files", () => {
+    const p = sessionStartPrompt("PRJ-106-infra", "svm-prj-work");
+    expect(p).to.match(/Run the session-start protocol for PRJ-106-infra now, before I send anything else/);
+    expect(p).to.contain("svm-prj-work/org-config.yaml");
+    expect(p).to.contain("svm-prj-work/projects/PRJ-106-infra/knowledge/todo.md");
+    expect(p).to.match(/post the context manifest/);
   });
 
   it("ensureRootProtocol drops a root CLAUDE.md that @-imports the workspace protocol (session-start runs at <project>)", () => {
     const writes: Array<[string, string]> = [];
     const d = { ...deps().deps, fs: { ...fsWith([]), writeFile: (p: string, c: string) => writes.push([p, c]) } };
     ensureRootProtocol(d, "/work/PRJ-9-infra");
-    expect(writes).to.deep.equal([["/work/PRJ-9-infra/CLAUDE.md", "@acme-gov/CLAUDE.md\n"]]);
+    expect(writes).to.deep.equal([["/work/PRJ-9-infra/CLAUDE.md", "@acme-gov/agent/session-protocol.md\n@acme-gov/framework/agent.md\n"]]);
     const d2 = { ...deps().deps, fs: { ...fsWith(["/work/PRJ-9-infra/CLAUDE.md"]), writeFile: (p: string, c: string) => writes.push([p, c]) } };
     ensureRootProtocol(d2, "/work/PRJ-9-infra");   // idempotent — doesn't overwrite an existing root protocol
     expect(writes).to.have.length(1);

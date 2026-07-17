@@ -31,21 +31,30 @@ export interface WorkFlowDeps {
   readonly run: (argv: readonly string[]) => Promise<number> | number;
   readonly prompt: (q: string) => Promise<string>;
   readonly print: (l: string) => void;
-  /** Launch an interactive agent/editor/shell with `cwd` = the project dir (terminal ones inherit stdio +
-   *  block until exit; the GUI editor opens detached). Returns the exit code (0 for a detached GUI launch). */
-  readonly launch: (agent: AgentKind, cwd: string) => Promise<number>;
+  /** Launch an interactive agent/editor/shell with `cwd` = the project dir. `inject` = the session-start
+   *  kickoff prompt handed to a speak-first CLI agent (Claude / cursor-agent) so it runs the protocol
+   *  immediately. Terminal agents inherit stdio + block; the GUI editor opens detached. */
+  readonly launch: (agent: AgentKind, cwd: string, inject: string) => Promise<number>;
 }
 
 export type AgentKind = "claude" | "cursor" | "cursor-gui" | "shell";
 
+/** The kickoff prompt that makes a speak-first CLI agent run the session-start protocol immediately, before
+ *  the user types anything (ports the bash prj `agent_session_start_prompt`). Paths are workspace-relative
+ *  from the PROJECT ROOT (where the agent launches), so the agent reads the right files across repos. */
+export function sessionStartPrompt(projectId: string, workspaceRepo: string): string {
+  const w = workspaceRepo;
+  return `Run the session-start protocol for ${projectId} now, before I send anything else: read ${w}/org-config.yaml, ${w}/projects/${projectId}/agent.md, ${w}/knowledge/policies/agentic-development-policy.md, and surface any "## Open" items from ${w}/projects/${projectId}/knowledge/todo.md; then post the context manifest and wait for my direction.`;
+}
+
 /** The concrete command to launch an agent kind in a project dir. Pure (env-injected) so the binary mapping
- *  + detached-GUI behaviour are regression-tested without spawning. `detached` = a GUI editor that opens and
- *  returns immediately; otherwise a terminal agent/shell that inherits stdio + blocks. */
-export function agentLaunchSpec(agent: AgentKind, cwd: string, env: NodeJS.ProcessEnv = process.env): { cmd: string; args: readonly string[]; detached: boolean } {
+ *  + detached-GUI behaviour are regression-tested without spawning. Speak-first CLI agents (Claude,
+ *  cursor-agent) get the `inject` prompt as their first message; the GUI editor opens the dir detached. */
+export function agentLaunchSpec(agent: AgentKind, cwd: string, inject: string, env: NodeJS.ProcessEnv = process.env): { cmd: string; args: readonly string[]; detached: boolean } {
   switch (agent) {
-    case "cursor-gui": return { cmd: "cursor", args: [cwd], detached: true };   // open the Cursor editor on the dir
-    case "cursor":     return { cmd: "cursor-agent", args: [], detached: false }; // Cursor CLI agent
-    case "claude":     return { cmd: "claude", args: [], detached: false };
+    case "cursor-gui": return { cmd: "cursor", args: [cwd], detached: true };          // open the Cursor editor on the dir
+    case "cursor":     return { cmd: "cursor-agent", args: [inject], detached: false }; // Cursor CLI agent — speak-first
+    case "claude":     return { cmd: "claude", args: [inject], detached: false };       // Claude — speak-first
     case "shell":      return { cmd: env.SHELL || "/bin/zsh", args: [], detached: false };
   }
 }
@@ -125,8 +134,10 @@ const ROOT_HARNESS_FILES = ["AGENTS.md", "CONVENTIONS.md", ".clinerules", ".curs
  *  stale). Files not rendered for this workspace are skipped. */
 export function ensureRootProtocol(deps: WorkFlowDeps, projectDir: string): void {
   const ws = deps.config.workspaceRepo;
+  // Import the protocol files DIRECTLY (single-level, resolved from <project>) — avoids relying on nested
+  // @-import resolution through the workspace's own CLAUDE.md.
   const claudeRoot = path.join(projectDir, "CLAUDE.md");
-  if (!deps.fs.pathExists(claudeRoot)) deps.fs.writeFile(claudeRoot, `@${ws}/CLAUDE.md\n`);
+  if (!deps.fs.pathExists(claudeRoot)) deps.fs.writeFile(claudeRoot, `@${ws}/agent/session-protocol.md\n@${ws}/framework/agent.md\n`);
   for (const rel of ROOT_HARNESS_FILES) {
     const src = deps.fs.readFile(path.join(projectDir, ws, rel));
     if (src == null) continue;   // not rendered for this workspace → nothing to mirror
@@ -193,7 +204,7 @@ export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
   print("     1) Claude    2) cursor    3) Cursor GUI    4) shell    0) later");
   const choice = (await deps.prompt("  Choose: ")).trim();
   const agent: AgentKind | null = choice === "1" ? "claude" : choice === "2" ? "cursor" : choice === "3" ? "cursor-gui" : choice === "4" ? "shell" : null;
-  if (!agent) { print(`  Later:  cd "${projectDir}" && claude      # or your agent`); return 0; }
+  if (!agent) { print(`  Later:  cd "${projectDir}" && claude "<session-start>"      # or your agent`); return 0; }
   print(`  Launching ${agent === "cursor-gui" ? "Cursor (GUI)" : agent} in ${projectDir}…`);
-  return await deps.launch(agent, projectDir);
+  return await deps.launch(agent, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo));
 }
