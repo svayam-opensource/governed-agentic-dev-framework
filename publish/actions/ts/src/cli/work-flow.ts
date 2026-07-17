@@ -115,11 +115,25 @@ export function startablePage(deps: WorkFlowDeps, limit: number, offset: number)
   return { items, totalBoards: boards.length };
 }
 
-/** Ensure an agent launched at the project ROOT runs the session-start protocol: the harness is rendered
- *  into the workspace repo, so drop a root `CLAUDE.md` that `@`-imports it (single source, never stale). */
+/** Non-Claude harness entrypoints — rendered EXPANDED (self-contained) into the workspace repo, so any agent
+ *  launched at the project root runs session-start. (Claude is handled separately via an @-import stub.) */
+const ROOT_HARNESS_FILES = ["AGENTS.md", "CONVENTIONS.md", ".clinerules", ".cursor/rules/agent.mdc"] as const;
+
+/** Ensure an agent launched at the project ROOT runs the session-start protocol. The harness is rendered into
+ *  the workspace repo; mirror it to `<project>`: Claude via a `CLAUDE.md` that `@`-imports it (single source),
+ *  every other agent's entrypoint by copying the self-contained rendered file (refreshed each launch → never
+ *  stale). Files not rendered for this workspace are skipped. */
 export function ensureRootProtocol(deps: WorkFlowDeps, projectDir: string): void {
-  const root = path.join(projectDir, "CLAUDE.md");
-  if (!deps.fs.pathExists(root)) deps.fs.writeFile(root, `@${deps.config.workspaceRepo}/CLAUDE.md\n`);
+  const ws = deps.config.workspaceRepo;
+  const claudeRoot = path.join(projectDir, "CLAUDE.md");
+  if (!deps.fs.pathExists(claudeRoot)) deps.fs.writeFile(claudeRoot, `@${ws}/CLAUDE.md\n`);
+  for (const rel of ROOT_HARNESS_FILES) {
+    const src = deps.fs.readFile(path.join(projectDir, ws, rel));
+    if (src == null) continue;   // not rendered for this workspace → nothing to mirror
+    const dst = path.join(projectDir, rel);
+    if (rel.includes("/")) deps.fs.mkdirp(path.dirname(dst));
+    deps.fs.writeFile(dst, src);
+  }
 }
 
 export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
