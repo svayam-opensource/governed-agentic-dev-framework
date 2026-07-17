@@ -131,6 +131,9 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     // wrote authored content — agent.md — but NO project.yaml (GitHub is SoT)
     expect(writes.some((w) => w.endsWith("/agent.md"))).to.equal(true);
     expect(writes.some((w) => w.endsWith("/project.yaml"))).to.equal(false);
+    // seed folds in the project-ROOT harness so an agent launched at <project> runs session-start:
+    expect(writes.some((w) => w.endsWith("/CLAUDE.md")), "root CLAUDE.md import").to.equal(true);
+    expect(writes.some((w) => w.endsWith("/.claude/settings.json")), "Claude SessionStart hook").to.equal(true);
     // base clone was missing → cloned
     expect(cloned).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
     // gov worktree created before the code-repo push; home default pushed
