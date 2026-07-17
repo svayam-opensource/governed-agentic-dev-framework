@@ -12,6 +12,7 @@ import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveProjectIdentity } from "../lifecycle/identity.js";
 import { deriveStatus } from "../lifecycle/state.js";
+import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
 
 export interface WorkProject {
   readonly boardNumber: number;
@@ -124,39 +125,9 @@ export function startablePage(deps: WorkFlowDeps, limit: number, offset: number)
   return { items, totalBoards: boards.length };
 }
 
-/** Non-Claude harness entrypoints — rendered EXPANDED (self-contained) into the workspace repo, so any agent
- *  launched at the project root runs session-start. (Claude is handled separately via an @-import stub.) */
-const ROOT_HARNESS_FILES = ["AGENTS.md", "CONVENTIONS.md", ".clinerules", ".cursor/rules/agent.mdc"] as const;
-
-/** Ensure an agent launched at the project ROOT runs the session-start protocol. The harness is rendered into
- *  the workspace repo; mirror it to `<project>`: Claude via a `CLAUDE.md` that `@`-imports it (single source),
- *  every other agent's entrypoint by copying the self-contained rendered file (refreshed each launch → never
- *  stale). Files not rendered for this workspace are skipped. */
-export function ensureRootProtocol(deps: WorkFlowDeps, projectDir: string): void {
-  const ws = deps.config.workspaceRepo;
-  // Import the protocol files DIRECTLY (single-level, resolved from <project>) — avoids relying on nested
-  // @-import resolution through the workspace's own CLAUDE.md.
-  const claudeRoot = path.join(projectDir, "CLAUDE.md");
-  if (!deps.fs.pathExists(claudeRoot)) deps.fs.writeFile(claudeRoot, `@${ws}/agent/session-protocol.md\n@${ws}/framework/agent.md\n`);
-  // Claude belt-and-suspenders: a SessionStart hook so the protocol also fires on a BARE `claude` (opened
-  // outside the Work flow, or after /clear) — not only when we inject the kickoff. Write only if absent so a
-  // user's own .claude/settings.json is never clobbered.
-  const settings = path.join(projectDir, ".claude", "settings.json");
-  if (!deps.fs.pathExists(settings)) {
-    deps.fs.mkdirp(path.join(projectDir, ".claude"));
-    deps.fs.writeFile(settings, JSON.stringify({
-      hooks: { SessionStart: [{ hooks: [{ type: "command",
-        command: "printf 'Run the session-start protocol now, before responding to anything else: read CLAUDE.md, post the context manifest, and wait for direction.'" }] }] },
-    }, null, 2) + "\n");
-  }
-  for (const rel of ROOT_HARNESS_FILES) {
-    const src = deps.fs.readFile(path.join(projectDir, ws, rel));
-    if (src == null) continue;   // not rendered for this workspace → nothing to mirror
-    const dst = path.join(projectDir, rel);
-    if (rel.includes("/")) deps.fs.mkdirp(path.dirname(dst));
-    deps.fs.writeFile(dst, src);
-  }
-}
+// `ensureRootProtocol` (imported above) lives in a leaf lifecycle module so BOTH `seed` and this Work flow use
+// it (no cli→lifecycle cycle). Re-exported so existing importers/tests keep resolving it here.
+export { ensureRootProtocol };
 
 export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
   const { print } = deps;
@@ -208,7 +179,7 @@ export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
     if (code !== 0) return code;
   }
 
-  ensureRootProtocol(deps, projectDir);   // so an agent launched at <project> runs session-start
+  ensureRootProtocol(deps.fs, projectDir, deps.config.workspaceRepo);   // so an agent launched at <project> runs session-start
   print("");
   print(`  ✓ '${p.projectId}' is ready at:  ${projectDir}`);
   print("  Start an agent in it now?");

@@ -130,14 +130,14 @@ describe("gov-work — guided Work flow", () => {
   it("ensureRootProtocol drops a root CLAUDE.md (@-import) + a SessionStart hook — idempotent, never clobbers", () => {
     const writes: Array<[string, string]> = [];
     const d = { ...deps().deps, fs: { ...fsWith([]), writeFile: (p: string, c: string) => writes.push([p, c]) } };
-    ensureRootProtocol(d, "/work/PRJ-9-infra");
+    ensureRootProtocol(d.fs, "/work/PRJ-9-infra", "acme-gov");
     const byPath = Object.fromEntries(writes);
     expect(byPath["/work/PRJ-9-infra/CLAUDE.md"]).to.equal("@acme-gov/agent/session-protocol.md\n@acme-gov/framework/agent.md\n");
     expect(byPath["/work/PRJ-9-infra/.claude/settings.json"]).to.match(/SessionStart/);
     // idempotent: nothing re-written when the root protocol + hook already exist
     const w2: Array<[string, string]> = [];
     const d2 = { ...deps().deps, fs: { ...fsWith(["/work/PRJ-9-infra/CLAUDE.md", "/work/PRJ-9-infra/.claude/settings.json"]), writeFile: (p: string, c: string) => w2.push([p, c]) } };
-    ensureRootProtocol(d2, "/work/PRJ-9-infra");
+    ensureRootProtocol(d2.fs, "/work/PRJ-9-infra", "acme-gov");
     expect(w2).to.have.length(0);
   });
 
@@ -149,7 +149,7 @@ describe("gov-work — guided Work flow", () => {
       writeFile: (p: string, c: string) => writes.push([p, c]),
       mkdirp: (dir: string) => dirs.push(dir),
     };
-    ensureRootProtocol({ ...deps().deps, fs }, "/work/PRJ-9");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     const written = writes.map(([p]) => p);
     expect(written).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude via @-import stub
     expect(written).to.include("/work/PRJ-9/AGENTS.md");                 // Codex/Cursor — copied
@@ -161,7 +161,7 @@ describe("gov-work — guided Work flow", () => {
   it("session-start FIRES for Claude — root CLAUDE.md import + SessionStart hook + injected kickoff", () => {
     const w: Array<[string, string]> = []; const dirs: string[] = [];
     const fs = { ...fsWith([]), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: (d: string) => dirs.push(d) };
-    ensureRootProtocol({ ...deps().deps, fs }, "/work/PRJ-9");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     const byPath = Object.fromEntries(w);
     expect(byPath["/work/PRJ-9/CLAUDE.md"], "protocol loaded at root").to.match(/@acme-gov\/agent\/session-protocol\.md/);
     expect(byPath["/work/PRJ-9/.claude/settings.json"], "fires on a bare/`/clear` launch").to.match(/"SessionStart"/);
@@ -172,7 +172,7 @@ describe("gov-work — guided Work flow", () => {
   it("session-start FIRES for cursor (CLI) — injected kickoff + alwaysApply rule mirrored to root", () => {
     const w: Array<[string, string]> = [];
     const fs = { ...fsWith([]), readFile: (f: string) => f.endsWith("agent.mdc") ? "---\nalwaysApply: true\n---\n<protocol>" : null, writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
-    ensureRootProtocol({ ...deps().deps, fs }, "/work/PRJ-9");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     expect(Object.fromEntries(w)["/work/PRJ-9/.cursor/rules/agent.mdc"], "always-on rule at root").to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor", "/work/PRJ-9", "KICK").args, "speak-first").to.deep.equal(["KICK"]);
   });
@@ -180,7 +180,7 @@ describe("gov-work — guided Work flow", () => {
   it("session-start FIRES for cursor GUI — alwaysApply rule mirrored to <project> (auto-applies; GUI opens the dir)", () => {
     const w: Array<[string, string]> = [];
     const fs = { ...fsWith([]), readFile: (f: string) => f.endsWith("agent.mdc") ? "---\nalwaysApply: true\nglobs: [\"**/*\"]\n---\n<protocol>" : null, writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
-    ensureRootProtocol({ ...deps().deps, fs }, "/work/PRJ-9");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     expect(Object.fromEntries(w)["/work/PRJ-9/.cursor/rules/agent.mdc"]).to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK")).to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true });
   });
