@@ -20,7 +20,7 @@ import {
 
 /** Governed verbs provided by the internal gov-operate plugin (absent from OSS gov-work). */
 export const OPERATE_COMMANDS = new Set([
-  "catalog", "deploy", "data", "promote", "rollback", "drift", "attest", "authorize", "test-spine", "deploy-check", "standards",
+  "catalog", "build", "deploy", "data", "promote", "rollback", "drift", "attest", "authorize", "test-spine", "deploy-check", "standards",
 ]);
 
 /** Is this invocation a governed verb (to delegate)? Finds the command past leading value-flags

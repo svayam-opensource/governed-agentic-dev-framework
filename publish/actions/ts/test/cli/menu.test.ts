@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
 import { mainActions, visibleActions, formatMainMenu, resolveTopChoice, contextEnvs, type MenuContext, type OperateVerb } from "../../src/cli/menu.js";
+import { isGovernedInvocation } from "../../src/cli/host.js";
 
 const CTX: MenuContext = { orgName: "Acme Inc", githubOrg: "Acme", branch: "main", user: "rk", workspaceCount: 2, cliVersion: "1.0.0" };
 
@@ -43,6 +44,16 @@ describe("gov-work — interactive menu (context-scoped)", () => {
     expect(operateCmds(p, OPERATE)).to.deep.equal(["deploy", "drift"]);         // build/promote/rollback are governed-only
     const status = visibleActions(p).find((a) => a.label === "Status");
     expect(status && status.kind === "submenu" ? status.commands.map((c) => c.cmd) : []).to.deep.equal(["status"]);  // list/list-all governed-only
+  });
+
+  it("UX-flow: EVERY Operate verb the menu can dispatch is delegated to the plugin (no 'unknown command')", () => {
+    // Regression guard (2026-07-17): the menu advertised `build` (from the plugin manifest) but the host's
+    // delegation set (OPERATE_COMMANDS) lacked it → picking it printed "unknown command 'build'". Any verb the
+    // menu can show MUST route to gov-operate.
+    for (const v of OPERATE) {
+      expect(isGovernedInvocation([v.cmd]), `menu verb '${v.cmd}' must delegate to gov-operate`).to.equal(true);
+      expect(isGovernedInvocation(["--gov-home", "/x", v.cmd]), `'${v.cmd}' must delegate past value-flags`).to.equal(true);
+    }
   });
 
   it("UX-flow: `build` is GOVERNED-only — shown in GOVERNED Operate, HIDDEN in PROJECT (which is local-only)", () => {

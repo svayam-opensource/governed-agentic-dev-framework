@@ -269,7 +269,7 @@ const HELP_GROUPS: Record<string, string[]> = {
   Governance: ["manage", "anchor", "knowledge", "onboard", "org", "validate"],
   Info: ["list", "list-all", "status"],
   Maintain: ["setup", "doctor", "deps", "upgrade", "bump-version", "publish"],
-  "Enterprise (plugin)": ["catalog", "deploy", "data", "promote", "rollback", "drift"],
+  "Enterprise (plugin)": ["catalog", "build", "deploy", "data", "promote", "rollback", "drift"],
 };
 const CMD_DESC: Record<string, string> = {
   seed: "Seed a new project workspace from a GitHub Project board", join: "Join an existing project (clone its repos on the project branch)",
