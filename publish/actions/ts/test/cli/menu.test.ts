@@ -34,7 +34,7 @@ describe("gov-work — interactive menu (context-scoped)", () => {
   it("GOVERNED context: governance admin + listing + all operate verbs are visible", () => {
     const g = { ...CTX, mode: "governed" as const };
     expect(labels(g, OPERATE)).to.deep.equal(["Status", "Work", "Operate", "Admin", "Help"]);
-    expect(adminCmds(g)).to.deep.equal(["knowledge", "onboard", "org", "upgrade", "deps"]);   // project-only manage/add-repo hidden
+    expect(adminCmds(g)).to.deep.equal(["manage", "knowledge", "onboard", "org", "upgrade", "deps"]);   // manage now org-level too; add-repo stays project-only
     expect(operateCmds(g, OPERATE)).to.deep.equal(["build", "deploy", "drift", "promote", "rollback"]);
   });
 
@@ -54,6 +54,13 @@ describe("gov-work — interactive menu (context-scoped)", () => {
       expect(isGovernedInvocation([v.cmd]), `menu verb '${v.cmd}' must delegate to gov-operate`).to.equal(true);
       expect(isGovernedInvocation(["--gov-home", "/x", v.cmd]), `'${v.cmd}' must delegate past value-flags`).to.equal(true);
     }
+  });
+
+  it("UX-flow: `manage` (project access) is available in BOTH PROJECT and GOVERNED Admin (org-level assign)", () => {
+    // Regression guard (2026-07-17): a new board (#106) couldn't be assigned from the org home because Admin
+    // had no `manage`. Org admins must be able to assign/unassign from GOVERNED too.
+    expect(adminCmds({ ...CTX, mode: "governed" })).to.include("manage");
+    expect(adminCmds({ ...CTX, mode: "project", project: "PRJ-43" })).to.include("manage");
   });
 
   it("UX-flow: `build` is GOVERNED-only — shown in GOVERNED Operate, HIDDEN in PROJECT (which is local-only)", () => {

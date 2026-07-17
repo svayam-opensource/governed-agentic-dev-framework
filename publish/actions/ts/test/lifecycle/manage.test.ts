@@ -31,6 +31,15 @@ const fakeVcs = (branch: string): Vcs =>
   ({ currentBranch: () => branch } as unknown as Vcs);
 
 describe("prj-work — manage", () => {
+  it("assign targets an EXPLICIT board (--board) — works from GOVERNED where there's no project branch", () => {
+    const { anchor, calls } = anchorPort({ 106: { labels: [], assignees: [] } });
+    const deps = { vcs: fakeVcs("main"), anchor };   // org-home (not a project branch)
+    expect(manageAssign(deps, CONFIG, "/gov", "rk", "add").ok).to.equal(false);       // no board derivable → refused
+    const r = manageAssign(deps, CONFIG, "/gov", "rk", "add", 106);                    // explicit board → assigns
+    expect(r.ok).to.equal(true);
+    expect(calls).to.deep.equal(["add rk @ u/106#1"]);
+  });
+
   it("list shows open boards with derived status + owners; list-all includes closed", () => {
     const { anchor } = anchorPort({ 7: { labels: ["paused"], assignees: ["rk"] }, 8: { labels: [], assignees: [] } });
     const deps = { projects: projects([{ number: 7, title: "A", closed: false }, { number: 8, title: "B", closed: true }]), anchor };

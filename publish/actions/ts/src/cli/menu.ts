@@ -69,7 +69,7 @@ export function mainActions(operate: readonly OperateVerb[] = []): MenuAction[] 
     { kind: "guided", key: "work", label: "Work", desc: "Start / continue a project", hint: "pick a project" },
     ...operateSubmenu,
     { kind: "submenu", key: "admin", label: "Admin", desc: "Administer governance", commands: [
-      { cmd: "manage", desc: "project access — assign / unassign owners", scopes: ["project"], subs: [
+      { cmd: "manage", desc: "project access — assign / unassign owners", scopes: ["project", "governed"], subs: [
         { cmd: "assign", desc: "grant a user project access", argHint: "<github-login>" },
         { cmd: "unassign", desc: "revoke access", argHint: "<github-login>" },
       ] },
@@ -283,6 +283,12 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
       // no whitespace splitting, so a multi-word --description survives; CLI conventions §3).
       const extra: string[] = [];
       if (leaf.argHint || leaf.flagArgs?.length || leaf.subjectKind) { w(""); w(`  ${cmdPath.join(" ")} — ${leaf.desc}`); }
+      // GOVERNED (org-home) has no current project, so `manage assign/unassign` must target a board explicitly.
+      if (ctx.mode === "governed" && cmdPath[0] === "manage" && (leaf.cmd === "assign" || leaf.cmd === "unassign")) {
+        const bn = (await ask("  board number to manage (see `manage list`): ")).trim();
+        if (!/^\d+$/.test(bn)) { w("  a numeric board number is required"); continue; }
+        extra.push("--board", bn);
+      }
       // SUBJECT: a discoverable subject (unit / project) → pick from a list (§2 value discovery); else free-text.
       if (leaf.subjectKind === "project" && ctx.mode === "project" && ctx.project) {
         extra.push(ctx.project);   // inside a project → operate on THIS one, no prompt

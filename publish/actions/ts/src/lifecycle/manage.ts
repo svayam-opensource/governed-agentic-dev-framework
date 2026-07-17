@@ -74,10 +74,12 @@ export type ManageAssignResult =
   | { readonly ok: false; readonly code: number; readonly reason: "not-a-project-branch" | "no-anchor"; readonly message: string };
 
 /** Add/remove an owner (anchor-issue assignee) on the CURRENT project. */
-export function manageAssign(deps: ManageAssignDeps, config: ManageConfig, govClone: string, login: string, action: "add" | "remove"): ManageAssignResult {
+export function manageAssign(deps: ManageAssignDeps, config: ManageConfig, govClone: string, login: string, action: "add" | "remove", explicitBoard?: number): ManageAssignResult {
+  // GOVERNED (org-home) context has no project branch, so an explicit board (`--board`, or the menu's picker)
+  // targets any project; otherwise derive it from the current project branch.
   const projectBranch = projectBranchOf(deps.vcs.currentBranch(govClone));
-  const boardNumber = boardNumberFromBranch(projectBranch);
-  if (boardNumber === null) return { ok: false, code: 1, reason: "not-a-project-branch", message: `'${projectBranch}' is not a project branch.` };
+  const boardNumber = explicitBoard ?? boardNumberFromBranch(projectBranch);
+  if (boardNumber === null || boardNumber === undefined) return { ok: false, code: 1, reason: "not-a-project-branch", message: `'${projectBranch}' is not a project branch.` };
   const ref: BoardRef = { owner: config.githubOrg, ownerField: config.ownerField ?? "organization", number: boardNumber };
   const anchor = deps.anchor.find(ref, config.workspaceRepo);
   if (!anchor) return { ok: false, code: 1, reason: "no-anchor", message: `No anchor issue for project #${boardNumber} — designate one first.` };

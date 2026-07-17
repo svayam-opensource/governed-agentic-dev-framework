@@ -51,6 +51,25 @@ export function myProjects(deps: WorkFlowDeps): WorkProject[] {
   return out;
 }
 
+/** Seedable boards = open boards I can WRITE but that have NO anchor yet (never seeded). Offered in Work so a
+ *  freshly-created GitHub board (e.g. #106) can be STARTED, not only picked once already seeded. Picking one
+ *  runs the not-seeded → `seed` path. (Cost: `canWriteBoard` per un-anchored board — batch if it gets slow.) */
+export function seedableBoards(deps: WorkFlowDeps): WorkProject[] {
+  if (!deps.me) return [];
+  const ownerField = deps.config.ownerField ?? "organization";
+  const allAnchors = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo);
+  const out: WorkProject[] = [];
+  for (const b of deps.projects.listBoards(deps.config.githubOrg)) {
+    if (b.closed) continue;
+    const a = allAnchors ? allAnchors.get(b.number) ?? null : deps.anchor.find({ owner: deps.config.githubOrg, ownerField, number: b.number }, deps.config.workspaceRepo);
+    if (a) continue;                             // already seeded (has an anchor) → myProjects handles it
+    if (!deps.canWriteBoard(b.number)) continue; // only boards I can actually seed
+    const id = deriveProjectIdentity({ url: b.url, title: b.title });
+    out.push({ boardNumber: b.number, title: b.title, url: b.url, status: "not started", projectId: id.ok ? id.projectId : `PRJ-${b.number}` });
+  }
+  return out;
+}
+
 export type WorkspaceState = "not-seeded" | "not-cloned" | "ready";
 export function workspaceState(deps: WorkFlowDeps, p: WorkProject): WorkspaceState {
   const projRoot = path.join(deps.config.agentWorkRoot, p.projectId);
@@ -65,21 +84,21 @@ export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
   print("  Work — start / continue a project");
   // The fetch below is synchronous `gh` (blocks the event loop) — print a working indicator FIRST so it
   // never reads as hung. Now one round-trip (batched anchors), so it's seconds, not minutes.
-  print("  ⏳ Finding the projects assigned to you…");
-  const mine = myProjects(deps);
-  if (mine.length === 0) {
-    print(`  No active projects assigned to you${deps.me ? ` (${deps.me})` : ""}.`);
-    print("  Get assigned first: Admin ▸ manage (or `gov-work manage assign <you>`), then retry.");
+  print("  ⏳ Finding your projects — assigned + boards you can start…");
+  const startable = [...myProjects(deps), ...seedableBoards(deps)];
+  if (startable.length === 0) {
+    print(`  No active or startable projects for you${deps.me ? ` (${deps.me})` : ""}.`);
+    print("  Create a GitHub Project board (or get assigned via Admin ▸ manage), then retry.");
     return 0;
   }
   print("");
-  print("  Select a project assigned to you:");
-  mine.forEach((p, i) => print(`    ${String(i + 1).padStart(2)}) ${p.projectId}  (${p.status})`));
+  print("  Select a project (assigned, or 'not started' = seed it now):");
+  startable.forEach((p, i) => print(`    ${String(i + 1).padStart(2)}) ${p.projectId}  (${p.status})`));
   print("     0) back");
   const sel = (await deps.prompt("  Choose: ")).trim();
   if (sel === "0" || sel === "") return 0;
   const idx = Number(sel) - 1;
-  const p = Number.isInteger(idx) && idx >= 0 && idx < mine.length ? mine[idx] : null;
+  const p = Number.isInteger(idx) && idx >= 0 && idx < startable.length ? startable[idx] : null;
   if (!p) { print("  unknown choice"); return 2; }
 
   if (!deps.canWriteBoard(p.boardNumber)) {
