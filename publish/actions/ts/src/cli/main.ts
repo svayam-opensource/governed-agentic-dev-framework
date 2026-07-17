@@ -15,7 +15,7 @@ import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { discoverOperateMenu, discoverUnits, isGovernedInvocation, delegateToGovOperate } from "./host.js";
-import { runWorkFlow, myProjects } from "./work-flow.js";
+import { runWorkFlow, myProjects, agentLaunchSpec } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -341,13 +341,13 @@ export async function runMainMenu(): Promise<number> {
         run: runAny,
         prompt: async () => "",
         print: () => {},
-        // Launch the picked agent with cwd = <project>. Terminal agents inherit stdio + block until exit; the
-        // GUI editor opens detached. (cursor CLI agent = `cursor-agent`; GUI = `cursor <dir>`.)
+        // Launch the picked agent with cwd = <project> via the tested spec: detached (GUI editor) opens + returns;
+        // otherwise a terminal agent/shell inherits stdio + blocks until exit.
         launch: async (agent, cwd) => {
-          if (agent === "cursor-gui") { spawn("cursor", [cwd], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
-          const cmd = agent === "claude" ? "claude" : agent === "cursor" ? "cursor-agent" : (process.env.SHELL || "/bin/zsh");
-          const r = spawnSync(cmd, [], { cwd, stdio: "inherit" });
-          if (r.error) { process.stderr.write(`  could not launch '${cmd}' — is it installed + on PATH?\n`); return 1; }
+          const s = agentLaunchSpec(agent, cwd);
+          if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
+          const r = spawnSync(s.cmd, [...s.args], { cwd, stdio: "inherit" });
+          if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed + on PATH?\n`); return 1; }
           return r.status ?? 0;
         },
       };
