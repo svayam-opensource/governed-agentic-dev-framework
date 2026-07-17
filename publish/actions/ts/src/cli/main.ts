@@ -343,8 +343,8 @@ export async function runMainMenu(): Promise<number> {
         print: () => {},
         // Launch the picked agent with cwd = <project> via the tested spec: detached (GUI editor) opens + returns;
         // otherwise a terminal agent/shell inherits stdio + blocks until exit.
-        launch: async (agent, cwd) => {
-          const s = agentLaunchSpec(agent, cwd);
+        launch: async (agent, cwd, inject) => {
+          const s = agentLaunchSpec(agent, cwd, inject);
           if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
           const r = spawnSync(s.cmd, [...s.args], { cwd, stdio: "inherit" });
           if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed + on PATH?\n`); return 1; }
