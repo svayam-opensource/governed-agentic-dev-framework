@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { myProjects, seedableBoards, workspaceState, runWorkFlow, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpec, ensureRootProtocol, type WorkFlowDeps } from "../../src/cli/work-flow.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
@@ -101,6 +101,32 @@ describe("gov-work — guided Work flow", () => {
     const { deps: d, out } = deps({ anchor: anchorFor({ 8: ["x"] }), canWriteBoard: () => false });   // 8 is someone else's; nothing seedable
     expect(await runWorkFlow(d)).to.equal(0);
     expect(out.join("\n")).to.match(/No active or startable projects/);
+  });
+
+  it("agent picker maps EVERY choice (1-4) to the right agent, launched in <project>", async () => {
+    for (const [choice, kind] of [["1", "claude"], ["2", "cursor"], ["3", "cursor-gui"], ["4", "shell"]] as const) {
+      let calls = 0;
+      const { deps: d, launched } = deps({ prompt: async () => (++calls === 1 ? "1" : choice) });   // project 1, then agent
+      await runWorkFlow(d);
+      expect(launched, `choice ${choice}`).to.deep.equal([[kind, "/work/PRJ-7-alpha"]]);
+    }
+  });
+
+  it("agentLaunchSpec: correct binary + detached flag per agent (guards the launch mapping)", () => {
+    expect(agentLaunchSpec("claude", "/p")).to.deep.equal({ cmd: "claude", args: [], detached: false });
+    expect(agentLaunchSpec("cursor", "/p")).to.deep.equal({ cmd: "cursor-agent", args: [], detached: false });
+    expect(agentLaunchSpec("cursor-gui", "/p")).to.deep.equal({ cmd: "cursor", args: ["/p"], detached: true });   // GUI opens the dir, detached
+    expect(agentLaunchSpec("shell", "/p", { SHELL: "/bin/fish" } as NodeJS.ProcessEnv)).to.deep.equal({ cmd: "/bin/fish", args: [], detached: false });
+  });
+
+  it("ensureRootProtocol drops a root CLAUDE.md that @-imports the workspace protocol (session-start runs at <project>)", () => {
+    const writes: Array<[string, string]> = [];
+    const d = { ...deps().deps, fs: { ...fsWith([]), writeFile: (p: string, c: string) => writes.push([p, c]) } };
+    ensureRootProtocol(d, "/work/PRJ-9-infra");
+    expect(writes).to.deep.equal([["/work/PRJ-9-infra/CLAUDE.md", "@acme-gov/CLAUDE.md\n"]]);
+    const d2 = { ...deps().deps, fs: { ...fsWith(["/work/PRJ-9-infra/CLAUDE.md"]), writeFile: (p: string, c: string) => writes.push([p, c]) } };
+    ensureRootProtocol(d2, "/work/PRJ-9-infra");   // idempotent — doesn't overwrite an existing root protocol
+    expect(writes).to.have.length(1);
   });
 });
 

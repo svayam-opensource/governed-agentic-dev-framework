@@ -38,6 +38,18 @@ export interface WorkFlowDeps {
 
 export type AgentKind = "claude" | "cursor" | "cursor-gui" | "shell";
 
+/** The concrete command to launch an agent kind in a project dir. Pure (env-injected) so the binary mapping
+ *  + detached-GUI behaviour are regression-tested without spawning. `detached` = a GUI editor that opens and
+ *  returns immediately; otherwise a terminal agent/shell that inherits stdio + blocks. */
+export function agentLaunchSpec(agent: AgentKind, cwd: string, env: NodeJS.ProcessEnv = process.env): { cmd: string; args: readonly string[]; detached: boolean } {
+  switch (agent) {
+    case "cursor-gui": return { cmd: "cursor", args: [cwd], detached: true };   // open the Cursor editor on the dir
+    case "cursor":     return { cmd: "cursor-agent", args: [], detached: false }; // Cursor CLI agent
+    case "claude":     return { cmd: "claude", args: [], detached: false };
+    case "shell":      return { cmd: env.SHELL || "/bin/zsh", args: [], detached: false };
+  }
+}
+
 /** My projects = open boards whose anchor issue lists me as an assignee (owner). */
 export function myProjects(deps: WorkFlowDeps): WorkProject[] {
   if (!deps.me) return [];
@@ -103,6 +115,13 @@ export function startablePage(deps: WorkFlowDeps, limit: number, offset: number)
   return { items, totalBoards: boards.length };
 }
 
+/** Ensure an agent launched at the project ROOT runs the session-start protocol: the harness is rendered
+ *  into the workspace repo, so drop a root `CLAUDE.md` that `@`-imports it (single source, never stale). */
+export function ensureRootProtocol(deps: WorkFlowDeps, projectDir: string): void {
+  const root = path.join(projectDir, "CLAUDE.md");
+  if (!deps.fs.pathExists(root)) deps.fs.writeFile(root, `@${deps.config.workspaceRepo}/CLAUDE.md\n`);
+}
+
 export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
   const { print } = deps;
   const PAGE = 15;
@@ -153,6 +172,7 @@ export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
     if (code !== 0) return code;
   }
 
+  ensureRootProtocol(deps, projectDir);   // so an agent launched at <project> runs session-start
   print("");
   print(`  ✓ '${p.projectId}' is ready at:  ${projectDir}`);
   print("  Start an agent in it now?");
