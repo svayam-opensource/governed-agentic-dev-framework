@@ -15,8 +15,8 @@ const anchorFor = (byNum: Record<number, string[]>): AnchorCreator => ({
 });
 const fsWith = (paths: string[]): Fs => ({ pathExists: (p) => paths.some((x) => x === p || x.startsWith(p + "/")), readFile: () => null, writeFile() {}, mkdirp() {}, rm() {}, readdir: () => [] });
 
-function deps(over: Partial<WorkFlowDeps> = {}): { deps: WorkFlowDeps; out: string[]; ran: string[][] } {
-  const out: string[] = []; const ran: string[][] = [];
+function deps(over: Partial<WorkFlowDeps> = {}): { deps: WorkFlowDeps; out: string[]; ran: string[][]; launched: Array<[string, string]> } {
+  const out: string[] = []; const ran: string[][] = []; const launched: Array<[string, string]> = [];
   const base: WorkFlowDeps = {
     projects: projects([{ number: 7, title: "Alpha" }, { number: 8, title: "Beta" }]),
     anchor: anchorFor({ 7: ["rk"], 8: ["someone-else"] }),
@@ -27,9 +27,10 @@ function deps(over: Partial<WorkFlowDeps> = {}): { deps: WorkFlowDeps; out: stri
     run: (argv) => { ran.push([...argv]); return 0; },
     prompt: async () => "1",
     print: (l) => out.push(l),
+    launch: async (agent, cwd) => { launched.push([agent, cwd]); return 0; },
     ...over,
   };
-  return { deps: base, out, ran };
+  return { deps: base, out, ran, launched };
 }
 
 describe("gov-work — guided Work flow", () => {
@@ -59,13 +60,35 @@ describe("gov-work — guided Work flow", () => {
     expect(workspaceState({ ...deps().deps, fs: fsWith(["/work/PRJ-7-alpha/acme-gov/.git"]) }, p)).to.equal("ready");
   });
 
-  it("picks my project, seeds when not present, ends with session-start guidance", async () => {
-    const { deps: d, out, ran } = deps({ prompt: async () => "1" });
+  it("picks my project, seeds when not present, then LAUNCHES the chosen agent in <project>", async () => {
+    const { deps: d, out, ran, launched } = deps({ prompt: async () => "1" });   // project 1, then agent 1 (Claude)
     const code = await runWorkFlow(d);
-    expect(code).to.equal(0);
     expect(ran[0][0]).to.equal("seed");          // not-seeded → seed
     expect(out.join("\n")).to.match(/is ready at/);
-    expect(out.join("\n")).to.match(/session-start/);
+    expect(launched).to.deep.equal([["claude", "/work/PRJ-7-alpha"]]);   // launch-in-<project> (NOT the workspace subdir)
+    expect(code).to.equal(0);
+  });
+
+  it("agent picker '0) later' → no launch, prints the manual command", async () => {
+    let calls = 0;
+    const { deps: d, out, launched } = deps({ prompt: async () => (++calls === 1 ? "1" : "0") });   // project 1, then 'later'
+    await runWorkFlow(d);
+    expect(launched).to.deep.equal([]);
+    expect(out.join("\n")).to.match(/Later:.*cd/);
+  });
+
+  it("lists newest board first + paginates, probing access ONLY for the visible page (no long wait)", async () => {
+    const boards = Array.from({ length: 20 }, (_, i) => ({ number: i + 1, title: `P${i + 1}` }));   // 1..20, all un-anchored
+    const probed: number[] = [];
+    const { deps: d, out } = deps({
+      projects: projects(boards), anchor: anchorFor({}),
+      canWriteBoard: (n) => { probed.push(n); return true; },
+      prompt: async () => "0",   // back after page 1
+    });
+    await runWorkFlow(d);
+    expect(probed.length).to.equal(15);   // only the first page probed, not all 20
+    expect(probed[0]).to.equal(20);       // newest board first (sorted desc)
+    expect(out.join("\n")).to.match(/m\) more/);
   });
 
   it("blocks when the board isn't writable by me", async () => {

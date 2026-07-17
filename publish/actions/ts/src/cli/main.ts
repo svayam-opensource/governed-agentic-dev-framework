@@ -10,7 +10,7 @@
 import * as path from "node:path";
 import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
@@ -341,6 +341,15 @@ export async function runMainMenu(): Promise<number> {
         run: runAny,
         prompt: async () => "",
         print: () => {},
+        // Launch the picked agent with cwd = <project>. Terminal agents inherit stdio + block until exit; the
+        // GUI editor opens detached. (cursor CLI agent = `cursor-agent`; GUI = `cursor <dir>`.)
+        launch: async (agent, cwd) => {
+          if (agent === "cursor-gui") { spawn("cursor", [cwd], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
+          const cmd = agent === "claude" ? "claude" : agent === "cursor" ? "cursor-agent" : (process.env.SHELL || "/bin/zsh");
+          const r = spawnSync(cmd, [], { cwd, stdio: "inherit" });
+          if (r.error) { process.stderr.write(`  could not launch '${cmd}' — is it installed + on PATH?\n`); return 1; }
+          return r.status ?? 0;
+        },
       };
     }
   }

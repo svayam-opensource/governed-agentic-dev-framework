@@ -31,7 +31,12 @@ export interface WorkFlowDeps {
   readonly run: (argv: readonly string[]) => Promise<number> | number;
   readonly prompt: (q: string) => Promise<string>;
   readonly print: (l: string) => void;
+  /** Launch an interactive agent/editor/shell with `cwd` = the project dir (terminal ones inherit stdio +
+   *  block until exit; the GUI editor opens detached). Returns the exit code (0 for a detached GUI launch). */
+  readonly launch: (agent: AgentKind, cwd: string) => Promise<number>;
 }
+
+export type AgentKind = "claude" | "cursor" | "cursor-gui" | "shell";
 
 /** My projects = open boards whose anchor issue lists me as an assignee (owner). */
 export function myProjects(deps: WorkFlowDeps): WorkProject[] {
@@ -78,28 +83,57 @@ export function workspaceState(deps: WorkFlowDeps, p: WorkProject): WorkspaceSta
   return "ready";
 }
 
+/** One page of STARTABLE projects, NEWEST board first: assigned projects (I'm an anchor owner) + seedable
+ *  boards (writable, un-anchored → "not started"). Paginates over BOARDS and resolves the expensive per-board
+ *  `canWriteBoard` ONLY for the page (like manageList) — a large org never means a long wait. `totalBoards`
+ *  is the full non-closed count (for the "more" affordance). */
+export function startablePage(deps: WorkFlowDeps, limit: number, offset: number): { items: WorkProject[]; totalBoards: number } {
+  if (!deps.me) return { items: [], totalBoards: 0 };
+  const ownerField = deps.config.ownerField ?? "organization";
+  const allAnchors = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo);
+  const boards = deps.projects.listBoards(deps.config.githubOrg).filter((b) => !b.closed).sort((a, b) => b.number - a.number);
+  const items: WorkProject[] = [];
+  for (const b of boards.slice(offset, offset + limit)) {
+    const a = allAnchors ? allAnchors.get(b.number) ?? null : deps.anchor.find({ owner: deps.config.githubOrg, ownerField, number: b.number }, deps.config.workspaceRepo);
+    const id = deriveProjectIdentity({ url: b.url, title: b.title });
+    const projectId = id.ok ? id.projectId : `PRJ-${b.number}`;
+    if (a && a.assignees.includes(deps.me)) items.push({ boardNumber: b.number, title: b.title, url: b.url, status: deriveStatus(!b.closed, a.labels), projectId });
+    else if (!a && deps.canWriteBoard(b.number)) items.push({ boardNumber: b.number, title: b.title, url: b.url, status: "not started", projectId });
+  }
+  return { items, totalBoards: boards.length };
+}
+
 export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
   const { print } = deps;
+  const PAGE = 15;
   print("");
   print("  Work — start / continue a project");
-  // The fetch below is synchronous `gh` (blocks the event loop) — print a working indicator FIRST so it
-  // never reads as hung. Now one round-trip (batched anchors), so it's seconds, not minutes.
-  print("  ⏳ Finding your projects — assigned + boards you can start…");
-  const startable = [...myProjects(deps), ...seedableBoards(deps)];
-  if (startable.length === 0) {
-    print(`  No active or startable projects for you${deps.me ? ` (${deps.me})` : ""}.`);
-    print("  Create a GitHub Project board (or get assigned via Admin ▸ manage), then retry.");
-    return 0;
+  // Paginate over BOARDS (newest first), probing per-board access ONLY for the visible page → no long wait on
+  // a large org. Print a working indicator each page (synchronous gh blocks the loop).
+  let p: WorkProject | null = null;
+  let offset = 0;
+  while (!p) {
+    print("  ⏳ Finding your projects — assigned + boards you can start…");
+    const { items, totalBoards } = startablePage(deps, PAGE, offset);
+    const more = offset + PAGE < totalBoards;
+    if (items.length === 0 && offset === 0 && !more) {
+      print(`  No active or startable projects for you${deps.me ? ` (${deps.me})` : ""}.`);
+      print("  Create a GitHub Project board (or get assigned via Admin ▸ manage), then retry.");
+      return 0;
+    }
+    print("");
+    print("  Select a project (assigned, or 'not started' = seed it now) — newest first:");
+    if (items.length === 0) print("     (nothing startable on this page)");
+    items.forEach((it, i) => print(`    ${String(i + 1).padStart(2)}) ${it.projectId}  (${it.status})`));
+    if (more) print("     m) more");
+    print("     0) back");
+    const sel = (await deps.prompt("  Choose: ")).trim().toLowerCase();
+    if (sel === "0" || sel === "") return 0;
+    if (sel === "m" && more) { offset += PAGE; continue; }
+    const idx = Number(sel) - 1;
+    p = Number.isInteger(idx) && idx >= 0 && idx < items.length ? items[idx] : null;
+    if (!p) print("  unknown choice");
   }
-  print("");
-  print("  Select a project (assigned, or 'not started' = seed it now):");
-  startable.forEach((p, i) => print(`    ${String(i + 1).padStart(2)}) ${p.projectId}  (${p.status})`));
-  print("     0) back");
-  const sel = (await deps.prompt("  Choose: ")).trim();
-  if (sel === "0" || sel === "") return 0;
-  const idx = Number(sel) - 1;
-  const p = Number.isInteger(idx) && idx >= 0 && idx < startable.length ? startable[idx] : null;
-  if (!p) { print("  unknown choice"); return 2; }
 
   if (!deps.canWriteBoard(p.boardNumber)) {
     print(`  You don't have write access to '${p.title}' (its GitHub Project board).`);
@@ -107,7 +141,7 @@ export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
     return 1;
   }
 
-  const dir = path.join(deps.config.agentWorkRoot, p.projectId, deps.config.workspaceRepo);
+  const projectDir = path.join(deps.config.agentWorkRoot, p.projectId);   // <project> — all repos live under it
   const state = workspaceState(deps, p);
   if (state === "not-seeded") {
     print(`  Initializing '${p.title}' (seed → branch → clone)…`);
@@ -120,10 +154,12 @@ export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
   }
 
   print("");
-  print(`  ✓ '${p.projectId}' is ready at:`);
-  print(`      ${dir}`);
-  print("  Start your agent there (it runs the session-start protocol automatically):");
-  print(`      cd "${dir}" && claude      # or cursor`);
-  print("  Or work in TTY:  gov-work task <issue-url>   ·   gov-work status");
-  return 0;
+  print(`  ✓ '${p.projectId}' is ready at:  ${projectDir}`);
+  print("  Start an agent in it now?");
+  print("     1) Claude    2) cursor    3) Cursor GUI    4) shell    0) later");
+  const choice = (await deps.prompt("  Choose: ")).trim();
+  const agent: AgentKind | null = choice === "1" ? "claude" : choice === "2" ? "cursor" : choice === "3" ? "cursor-gui" : choice === "4" ? "shell" : null;
+  if (!agent) { print(`  Later:  cd "${projectDir}" && claude      # or your agent`); return 0; }
+  print(`  Launching ${agent === "cursor-gui" ? "Cursor (GUI)" : agent} in ${projectDir}…`);
+  return await deps.launch(agent, projectDir);
 }
