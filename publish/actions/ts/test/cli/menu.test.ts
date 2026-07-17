@@ -7,6 +7,7 @@ const CTX: MenuContext = { orgName: "Acme Inc", githubOrg: "Acme", branch: "main
 
 // A realistic slice of what `gov-operate menu --json` contributes.
 const OPERATE: OperateVerb[] = [
+  { cmd: "build", desc: "build from a line-head", scopes: ["governed"], argHint: "<unit>", flagArgs: [{ name: "ref", hint: "ref", optional: true }] },
   { cmd: "deploy", desc: "converge + gate", scopes: ["project", "governed"], argHint: "<unit>", flagArgs: [{ name: "env", hint: "env", kind: "env" }] },
   { cmd: "drift", desc: "show drift", scopes: ["project", "governed"], argHint: "<unit>", flagArgs: [{ name: "env", hint: "env", kind: "env" }] },
   { cmd: "promote", desc: "promote", scopes: ["governed"], argHint: "<unit>", flagArgs: [{ name: "from", hint: "from", kind: "env" }, { name: "to", hint: "to", kind: "env" }] },
@@ -33,15 +34,22 @@ describe("gov-work — interactive menu (context-scoped)", () => {
     const g = { ...CTX, mode: "governed" as const };
     expect(labels(g, OPERATE)).to.deep.equal(["Status", "Work", "Operate", "Admin", "Help"]);
     expect(adminCmds(g)).to.deep.equal(["knowledge", "onboard", "org", "upgrade", "deps"]);   // project-only manage/add-repo hidden
-    expect(operateCmds(g, OPERATE)).to.deep.equal(["deploy", "drift", "promote", "rollback"]);
+    expect(operateCmds(g, OPERATE)).to.deep.equal(["build", "deploy", "drift", "promote", "rollback"]);
   });
 
-  it("PROJECT context: project admin only; promote/rollback (governed-only) are hidden from Operate", () => {
+  it("PROJECT context: project admin only; build/promote/rollback (governed-only) are hidden from Operate", () => {
     const p = { ...CTX, mode: "project" as const, project: "PRJ-43" };
     expect(adminCmds(p)).to.deep.equal(["manage", "add-repo"]);                 // governance admin hidden
-    expect(operateCmds(p, OPERATE)).to.deep.equal(["deploy", "drift"]);         // promote/rollback are governed-only
+    expect(operateCmds(p, OPERATE)).to.deep.equal(["deploy", "drift"]);         // build/promote/rollback are governed-only
     const status = visibleActions(p).find((a) => a.label === "Status");
     expect(status && status.kind === "submenu" ? status.commands.map((c) => c.cmd) : []).to.deep.equal(["status"]);  // list/list-all governed-only
+  });
+
+  it("UX-flow: `build` is GOVERNED-only — shown in GOVERNED Operate, HIDDEN in PROJECT (which is local-only)", () => {
+    // Regression guard (2026-07-17): build births to the dev channel (a governed op); it once leaked into the
+    // PROJECT menu and prompted for --ref where only local sandbox builds belong. Keep it out of PROJECT.
+    expect(operateCmds({ ...CTX, mode: "governed" }, OPERATE)).to.include("build");
+    expect(operateCmds({ ...CTX, mode: "project", project: "PRJ-43" }, OPERATE)).to.not.include("build");
   });
 
   it("NONE context: empty submenus disappear — only Work (setup) + Help remain", () => {
