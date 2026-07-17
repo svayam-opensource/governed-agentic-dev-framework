@@ -1,43 +1,21 @@
 {
-  "name": "@svayam-opensource/prj",
-  "version": "0.7.4",
-  "description": "Governed Agentic Development Framework CLI (prj). A bash CLI wrapped for npm; operates on a governance workspace resolved via $ADF_WORKSPACE or the nearest org-config.yaml. Runtime prerequisites (not npm deps): bash, git, gh, yq, python3 (use Git Bash on Windows).",
-  "bin": {
-    "prj": "bin/prj"
-  },
-  "files": [
-    "prj",
-    "bin/",
-    "setup.sh",
-    "scripts/*.sh",
-    "scripts/deploy/*.sh",
-    "scripts/deploy/*.py",
-    "scripts/validate/*.py",
-    "assets/readme/*.svg"
-  ],
-  "os": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
-  "engines": {
-    "node": ">=14"
-  },
-  "preferGlobal": true,
-  "publishConfig": {
-    "registry": "https://registry.npmjs.org/",
-    "access": "public"
-  },
-  "keywords": [
-    "cli",
-    "agentic",
-    "governance",
-    "framework",
-    "prj"
-  ],
+  "name": "governed-agentic-dev-framework",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Governed Agentic Development Framework — repository root (private; never published). The OSS CLI is @svayam-opensource/gov at publish/actions/ts; framework content ships from publish/content; the frozen legacy bash CLI is archived under publish/actions/deprecated.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/svayam-opensource/governed-agentic-dev-framework.git"
+  },
+  "scripts": {
+    "build": "npm --prefix publish/actions/ts run build",
+    "test": "npm --prefix publish/actions/ts test",
+    "lint": "npm --prefix publish/actions/ts run lint",
+    "render-harness": "node agent/render-harness.mjs",
+    "render-harness:check": "node agent/render-harness.mjs --check"
+  },
+  "devDependencies": {
+    "js-yaml": "^4.1.0"
   }
 }

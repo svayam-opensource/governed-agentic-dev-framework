@@ -1,0 +1,51 @@
+name: governance-e2e
+
+# Full-lifecycle governance E2E against the ORG sandbox ($TESTBED_SANDBOX_ORG),
+# driven by the bot ($TESTBED_BOT_PAT): self-provision a board + anchor issue,
+# then create-ws -> setup -> seed -> list -> task -> merge -> close, and tear it
+# all down. Manually dispatched (it creates/destroys real org resources); also a
+# weekly heartbeat. Never on PRs (secrets + real mutations).
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '17 4 * * 1'   # Mondays 04:17 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  governance-e2e:
+    # Only on the canonical repo (where the secret/var exist) — forks auto-skip.
+    if: github.repository == 'svayam-opensource/governed-agentic-dev-framework'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Don't leave the workflow GITHUB_TOKEN auth header in git config — it's
+          # scoped to THIS repo and would override the bot's gh credential when the
+          # E2E pushes to the sandbox org. gh auth setup-git supplies the bot token.
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Prepare environment (prj deps + pyyaml)
+        run: |
+          python -m pip install --quiet pyyaml || pip install --quiet pyyaml || true
+          bash scripts/install-deps.sh || true
+      - name: Configure git + gh for the bot
+        env:
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+        run: |
+          git config --global user.email "prj-e2e-bot@svayam.ai"
+          git config --global user.name  "prj-e2e bot"
+          git config --global init.defaultBranch main
+          # Route every https://github.com/ git op through the bot token (robust
+          # vs checkout's extraheader / credential-helper quirks; the E2E pushes
+          # to the sandbox org which the workflow GITHUB_TOKEN can't write).
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          gh auth setup-git
+      - name: Governance lifecycle E2E (org sandbox)
+        env:
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+          TESTBED_SANDBOX_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+        run: bash tests/e2e_governance_ci.sh

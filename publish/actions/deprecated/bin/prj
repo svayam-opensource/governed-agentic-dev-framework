@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# @svayam/prj — npm bin wrapper for the bash CLI.
+# Resolves the workspace (the governance repo) and execs the bundled `prj`.
+# The CLI code ships in this package; org data lives in the workspace.
+set -euo pipefail
+# Resolve this script's real path — npm installs `bin/prj` as a SYMLINK in the
+# global bin dir, so BASH_SOURCE[0] is the symlink, not the package file. Follow
+# the chain (portable: macOS BSD readlink + Linux) so PKG is the actual package
+# dir, not the npm prefix.
+src="${BASH_SOURCE[0]}"
+while [[ -h "$src" ]]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  [[ "$src" != /* ]] && src="$dir/$src"
+done
+HERE="$(cd -P "$(dirname "$src")" && pwd)"
+PKG="$(cd "$HERE/.." && pwd)"          # package root: <...>/node_modules/@svayam-opensource/prj
+# Discover the governance workspace ("gov_repo"). The CLI must NOT depend on an
+# ambient $ADF_WORKSPACE — a stale login-shell export must never misdirect it.
+# Resolution is deterministic; an inbound $ADF_WORKSPACE is only a bootstrap seed
+# used when the pointer isn't working yet. Order:
+#   1. nearest ancestor of $PWD with org-config.yaml (per-project workspaces),
+#      skipping any .bases/* base clone — deterministic from cwd.
+#   2. the deterministic gov-home POINTER (setup.sh writes it at
+#      ${XDG_CONFIG_HOME:-$HOME/.config}/prj/gov-workspace) — AUTHORITATIVE; if it
+#      resolves, an ambient $ADF_WORKSPACE is ignored entirely.
+#   3. BOOTSTRAP only when 1+2 fail (pointer missing/broken): if an ambient
+#      $ADF_WORKSPACE is a valid gov repo, use it AND write the pointer from it so
+#      every future run resolves deterministically without the env var.
+adf_ok() { [[ -n "$1" && -f "$1/org-config.yaml" && "$1" != */.bases/* ]]; }
+inbound_adf="${ADF_WORKSPACE:-}"   # ambient — bootstrap-only, NOT authoritative
+# shellcheck source=/dev/null
+. "$PKG/scripts/gov-registry.sh" 2>/dev/null || true
+# org/help/version must work even with no/ambiguous gov home (you run `prj org use`
+# to FIX ambiguity) — let them through homeless.
+case "${1:-}" in org|help|--help|-h|version|--version|-v) _homeless_ok=1 ;; *) _homeless_ok=0 ;; esac
+# Resolve: cwd-walk → active-org → single registered home → disambiguate (rc=2).
+ADF_WORKSPACE=""; _rc=1; _rerr=""
+if command -v prj_resolve_gov >/dev/null 2>&1; then
+  _rtmp="$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/.prjres.$$")"
+  _rc=0
+  _rerr="$(prj_resolve_gov 2>&1 1>"$_rtmp")" || _rc=$?   # || keeps set -e from bailing on rc≠0
+  ADF_WORKSPACE="$(cat "$_rtmp" 2>/dev/null || true)"; rm -f "$_rtmp" 2>/dev/null || true
+fi
+if [[ "${_rc:-1}" -eq 2 && "$_homeless_ok" != 1 ]]; then
+  printf '%s\n' "$_rerr" >&2; exit 2                 # multiple orgs, none active — don't guess
+fi
+# Bootstrap: nothing registered but an inbound ADF_WORKSPACE is a valid gov repo → register it.
+if ! adf_ok "${ADF_WORKSPACE:-}" && adf_ok "$inbound_adf"; then
+  gov="$(cd "$inbound_adf" && pwd)"
+  if command -v prj_reg_add >/dev/null 2>&1; then
+    org="$(_prj_org_of_home "$gov" 2>/dev/null || true)"
+    prj_reg_add "$org" "$gov" 2>/dev/null \
+      && echo "prj: registered gov home (${org:-<unconfigured>} → $gov)" >&2
+  fi
+  ADF_WORKSPACE="$gov"
+fi
+# Interactive recovery (TTY only): nothing resolved → ask once, register.
+if ! adf_ok "${ADF_WORKSPACE:-}" && [[ "$_homeless_ok" != 1 && -t 0 && -e /dev/tty ]]; then
+  echo "prj: no governance workspace (gov_repo) found." >&2
+  printf "     Path to your gov repo (the dir with org-config.yaml): " >&2
+  IFS= read -r ans < /dev/tty || ans=""
+  ans="${ans%$'\r'}"   # tolerate CRLF-piped input on Windows
+  case "$ans" in "~/"*) ans="$HOME/${ans#\~/}" ;; "~") ans="$HOME" ;; esac
+  if adf_ok "$ans"; then
+    ans="$(cd "$ans" && pwd)"
+    if command -v prj_reg_add >/dev/null 2>&1; then
+      org="$(_prj_org_of_home "$ans" 2>/dev/null)"
+      [[ -n "$org" ]] && prj_reg_add "$org" "$ans" 2>/dev/null && echo "prj: registered gov home ($org → $ans)" >&2
+    fi
+    ADF_WORKSPACE="$ans"
+  elif [[ -n "$ans" ]]; then
+    echo "prj: '$ans' is not a gov repo (no org-config.yaml, or a .bases clone)." >&2
+  fi
+fi
+if ! adf_ok "${ADF_WORKSPACE:-}" && [[ "$_homeless_ok" != 1 ]]; then
+  echo "prj: could not locate your governance workspace (gov_repo)." >&2
+  echo "     Run setup.sh in your gov repo, or — if you have several orgs —" >&2
+  echo "     'prj org use <github_org>' / cd into a workspace." >&2
+  exit 1
+fi
+export ADF_WORKSPACE
+# Trust flag: tells lib.sh this ADF_WORKSPACE was resolved by a prj entrypoint
+# (deterministic), so sub-scripts inherit it instead of re-resolving. When ABSENT
+# (a script run directly, not via prj), lib.sh re-resolves pointer-first and never
+# trusts an ambient ADF_WORKSPACE — the CLI never depends on the env var.
+export PRJ_WS_RESOLVED=1
+# Test hook: print the resolved workspace and exit (used by the test bed to
+# assert deterministic gov-home resolution without side effects).
+[[ -n "${PRJ_PRINT_WORKSPACE:-}" ]] && { printf '%s\n' "$ADF_WORKSPACE"; exit 0; }
+exec "$PKG/prj" "$@"
