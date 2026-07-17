@@ -128,5 +128,22 @@ describe("gov-work — guided Work flow", () => {
     ensureRootProtocol(d2, "/work/PRJ-9-infra");   // idempotent — doesn't overwrite an existing root protocol
     expect(writes).to.have.length(1);
   });
+
+  it("ensureRootProtocol mirrors the FULL harness — every agent's entrypoint at <project>, not just Claude", () => {
+    const writes: Array<[string, string]> = []; const dirs: string[] = [];
+    const fs = {
+      ...fsWith([]),
+      readFile: (f: string) => (f.endsWith("AGENTS.md") || f.endsWith("agent.mdc")) ? `# rendered protocol (${f})` : null,   // these rendered; others absent
+      writeFile: (p: string, c: string) => writes.push([p, c]),
+      mkdirp: (dir: string) => dirs.push(dir),
+    };
+    ensureRootProtocol({ ...deps().deps, fs }, "/work/PRJ-9");
+    const written = writes.map(([p]) => p);
+    expect(written).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude via @-import stub
+    expect(written).to.include("/work/PRJ-9/AGENTS.md");                 // Codex/Cursor — copied
+    expect(written).to.include("/work/PRJ-9/.cursor/rules/agent.mdc");   // Cursor — copied (nested)
+    expect(dirs).to.include("/work/PRJ-9/.cursor/rules");               // mkdirp for the nested path
+    expect(written).to.not.include("/work/PRJ-9/CONVENTIONS.md");        // not rendered here → skipped
+  });
 });
 
