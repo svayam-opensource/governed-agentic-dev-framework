@@ -41,6 +41,12 @@ export function boardNumberFromBranch(branch: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** The board number from a project id / bare number (`PRJ-<n>-…`, `#<n>`, `<n>`), or null. */
+export function boardNumberFromProjectId(idOrNumber: string): number | null {
+  const m = idOrNumber.trim().match(/^#?(?:prj-)?(\d+)/i);
+  return m ? Number(m[1]) : null;
+}
+
 /**
  * Normalize a git remote URL to a comparable `owner/repo` tail (lowercased, no
  * scheme/host/`.git`/trailing slash) so `https://…/o/r` and `git@…:o/r.git`

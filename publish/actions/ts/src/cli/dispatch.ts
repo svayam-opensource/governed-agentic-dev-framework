@@ -32,6 +32,7 @@ import { pause, resume, cancel } from "../lifecycle/state.js";
 import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org.js";
 import { expandTilde } from "../resolve/node-env.js";
 import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus, type ManageListResult } from "../lifecycle/manage.js";
+import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 import { onboard } from "../lifecycle/onboard.js";
@@ -89,14 +90,16 @@ function pagedListLines(header: string, cmd: string, res: ManageListResult, page
  * {@link route} because they run WITHOUT a resolved workspace (`gov-work org add` is
  * the bootstrap that makes resolution work).
  */
-export function routeOrg(positionals: readonly string[], deps: OrgDeps): CommandResult {
+export function routeOrg(positionals: readonly string[], flags: ParsedArgs["flags"], deps: OrgDeps): CommandResult {
   const [sub, ...rest] = positionals;
   const toResult = (r: ReturnType<typeof orgList>): CommandResult =>
     r.ok ? { code: 0, lines: r.lines } : { code: r.code, lines: [r.message] };
   switch (sub) {
-    case "add":
-      if (rest.length < 2) return usage("org add <github_org> <home-path>");
-      return toResult(orgAdd(deps, rest[0], path.resolve(expandTilde(rest[1]))));
+    case "add": {
+      const home = flagStr(flags, "home");
+      if (!rest[0] || !home) return usage("org add <github_org> --home <path>");
+      return toResult(orgAdd(deps, rest[0], path.resolve(expandTilde(home))));
+    }
     case "use":
       if (rest.length < 1) return usage("org use <github_org>");
       return toResult(orgUse(deps, rest[0]));
@@ -119,7 +122,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
 
   switch (command) {
     case "seed": {
-      if (positionals.length < 1) return usage("seed <board-url> [assignee]");
+      if (positionals.length < 1) return usage("seed <board-url> [--assignee <login>]");
       const r = seed(
         { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log },
         {
@@ -134,7 +137,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         },
         {
           boardUrl: positionals[0],
-          assignee: positionals[1] ?? ctx.seededBy,
+          assignee: flagStr(flags, "assignee") ?? ctx.seededBy,
           seededBy: ctx.seededBy,
           today: ctx.today,
           identity: ctx.identity,
@@ -205,11 +208,11 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     }
 
     case "add-repo": {
-      if (positionals.length < 1) return usage("add-repo <repo-url> [base-branch]");
+      if (positionals.length < 1) return usage("add-repo <repo-url> [--base-branch <branch>]");
       const r = addRepo(
         { vcs: ctx.vcs, fs: ctx.fs, cloneRepo: ctx.cloneRepo, authorize: ctx.authorize, log: ctx.log },
         { githubOrg: c.githubOrg, ownerField, agentWorkRoot: c.agentWorkRoot, defaultCodeBranch: c.defaultCodeBranch },
-        { govClone: ctx.home, projectWorkRoot, repoUrl: positionals[0], baseBranch: positionals[1], identity: ctx.identity },
+        { govClone: ctx.home, projectWorkRoot, repoUrl: positionals[0], baseBranch: flagStr(flags, "base-branch"), identity: ctx.identity },
       );
       return r.ok
         ? { code: 0, lines: [`Added ${r.repoDir} on ${r.projectBranch}`] }
@@ -225,7 +228,10 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     }
 
     case "status": {
-      const r = projectStatus({ vcs: ctx.vcs, projects: ctx.projects, anchor: ctx.anchor }, { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo }, ctx.home);
+      const arg = positionals[0];   // optional explicit project (id / #n / n); blank → derive from branch
+      const explicitBoard = arg ? (boardNumberFromProjectId(arg) ?? undefined) : undefined;
+      if (arg && explicitBoard === undefined) return { code: 2, lines: [`status: '${arg}' is not a project id or number (e.g. PRJ-43-… or 43)`] };
+      const r = projectStatus({ vcs: ctx.vcs, projects: ctx.projects, anchor: ctx.anchor }, { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo }, ctx.home, explicitBoard);
       return r.ok
         ? { code: 0, lines: [`Project #${r.boardNumber}: ${r.title}`, `  status: ${r.status}`, `  owners: ${r.owners.join(", ") || "(none)"}`, `  board:  ${r.url}`] }
         : { code: r.code, lines: [r.message] };
@@ -251,24 +257,24 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     }
 
     case "onboard": {
-      if (positionals.length < 3) return usage("onboard <repo-url> <owner> <description>");
+      const repoUrl = positionals[0], owner = flagStr(flags, "owner"), description = flagStr(flags, "description");
+      if (!repoUrl || !owner || !description) return usage('onboard <repo-url> --owner <owner> --description "<description>"');
       const r = onboard(
         { vcs: ctx.vcs, fs: ctx.fs, pulls: ctx.pulls, cloneRepo: ctx.cloneRepo, log: ctx.log },
         { agentWorkRoot: c.agentWorkRoot, workspaceRepo: c.workspaceRepo, orgName: c.orgName },
-        { repoUrl: positionals[0], owner: positionals[1], description: positionals.slice(2).join(" ") },
+        { repoUrl, owner, description },
       );
       return r.ok ? { code: 0, lines: r.lines } : { code: r.code, lines: [r.message] };
     }
 
     case "knowledge": {
-      const sub = positionals[0];
+      const sub = positionals[0], slug = positionals[1];
+      if (!["propose", "submit", "archive"].includes(sub ?? "") || !slug) return usage('knowledge <propose|submit|archive> <slug> [--description "<text>"]');
       const kcfg = { defaultBranch: c.defaultBranch, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo };
       const r =
-        sub === "propose" ? proposeKnowledge(ctx.vcs, kcfg, ctx.home, positionals[1])
-        : sub === "submit" ? submitKnowledge(ctx.pulls, kcfg, positionals[1], positionals.slice(2).join(" "))
-        : sub === "archive" ? archiveKnowledge(ctx.vcs, kcfg, ctx.home, positionals[1])
-        : null;
-      if (r === null) return usage("knowledge <propose|submit|archive> <slug> [description]");
+        sub === "propose" ? proposeKnowledge(ctx.vcs, kcfg, ctx.home, slug)
+        : sub === "submit" ? submitKnowledge(ctx.pulls, kcfg, slug, flagStr(flags, "description") ?? "")
+        : archiveKnowledge(ctx.vcs, kcfg, ctx.home, slug);
       return r.ok ? { code: 0, lines: r.lines } : { code: r.code, lines: [r.message] };
     }
 

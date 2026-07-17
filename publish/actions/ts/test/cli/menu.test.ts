@@ -1,48 +1,78 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { mainActions, formatMainMenu, resolveTopChoice, type MenuContext } from "../../src/cli/menu.js";
+import { mainActions, visibleActions, formatMainMenu, resolveTopChoice, contextEnvs, type MenuContext, type OperateVerb } from "../../src/cli/menu.js";
 
 const CTX: MenuContext = { orgName: "Acme Inc", githubOrg: "Acme", branch: "main", user: "rk", workspaceCount: 2, cliVersion: "1.0.0" };
 
-describe("gov-work — interactive menu (task-oriented)", () => {
-  it("Status/Work/Admin/Help; Work is guided, Status/Admin are submenus, Help is help (no Operate — separate CLI)", () => {
-    const a = mainActions();
-    expect(a.map((x) => x.label)).to.deep.equal(["Status", "Work", "Admin", "Help"]);
-    expect(a.find((x) => x.label === "Work")!.kind).to.equal("guided");
-    expect(a.find((x) => x.label === "Status")!.kind).to.equal("submenu");
-    expect(a.find((x) => x.label === "Help")!.kind).to.equal("help");
-    expect(a.find((x) => x.label === "Operate")).to.equal(undefined);   // enterprise ops are the separate gov-operate CLI
+// A realistic slice of what `gov-operate menu --json` contributes.
+const OPERATE: OperateVerb[] = [
+  { cmd: "deploy", desc: "converge + gate", scopes: ["project", "governed"], argHint: "<unit>", flagArgs: [{ name: "env", hint: "env", kind: "env" }] },
+  { cmd: "drift", desc: "show drift", scopes: ["project", "governed"], argHint: "<unit>", flagArgs: [{ name: "env", hint: "env", kind: "env" }] },
+  { cmd: "promote", desc: "promote", scopes: ["governed"], argHint: "<unit>", flagArgs: [{ name: "from", hint: "from", kind: "env" }, { name: "to", hint: "to", kind: "env" }] },
+  { cmd: "rollback", desc: "roll back", scopes: ["governed"], argHint: "<unit>", flagArgs: [{ name: "env", hint: "env", kind: "env" }, { name: "to-sha", hint: "sha" }] },
+];
+
+const labels = (ctx: MenuContext, op: OperateVerb[] = []): string[] => visibleActions(ctx, op).map((a) => a.label);
+const adminCmds = (ctx: MenuContext): string[] => {
+  const a = visibleActions(ctx).find((x) => x.label === "Admin");
+  return a && a.kind === "submenu" ? a.commands.map((c) => c.cmd) : [];
+};
+const operateCmds = (ctx: MenuContext, op: OperateVerb[]): string[] => {
+  const a = visibleActions(ctx, op).find((x) => x.label === "Operate");
+  return a && a.kind === "submenu" ? a.commands.map((c) => c.cmd) : [];
+};
+
+describe("gov-work — interactive menu (context-scoped)", () => {
+  it("mainActions() is the FULL definition; no Operate submenu unless the plugin contributes verbs", () => {
+    expect(mainActions().find((x) => x.label === "Operate")).to.equal(undefined);
+    expect(mainActions(OPERATE).find((x) => x.label === "Operate")).to.not.equal(undefined);
   });
 
-  it("subcommand-based Admin commands are GUIDED (manage/knowledge/org carry subs); single-arg ones stay flat", () => {
-    const admin = mainActions().find((a) => a.label === "Admin");
-    const cmds = admin && admin.kind === "submenu" ? admin.commands : [];
-    const org = cmds.find((c) => c.cmd === "org");
-    expect(org?.subs?.map((s) => s.cmd)).to.deep.equal(["use", "add", "list", "remove"]);
-    expect(cmds.find((c) => c.cmd === "manage")?.subs?.find((s) => s.cmd === "assign")?.argHint).to.equal("<github-login>");
-    expect(org?.subs?.find((s) => s.cmd === "list")?.argHint).to.equal(undefined);   // `org list` runs directly
-    const addRepo = cmds.find((c) => c.cmd === "add-repo");                            // single-arg → flat hint, no subs
-    expect(addRepo?.subs).to.equal(undefined);
-    expect(addRepo?.argHint).to.equal("<repo-url>");
+  it("GOVERNED context: governance admin + listing + all operate verbs are visible", () => {
+    const g = { ...CTX, mode: "governed" as const };
+    expect(labels(g, OPERATE)).to.deep.equal(["Status", "Work", "Operate", "Admin", "Help"]);
+    expect(adminCmds(g)).to.deep.equal(["knowledge", "onboard", "org", "upgrade", "deps"]);   // project-only manage/add-repo hidden
+    expect(operateCmds(g, OPERATE)).to.deep.equal(["deploy", "drift", "promote", "rollback"]);
   });
 
-  it("Work is NOT a command dump — its hint is 'pick a project'", () => {
-    const work = mainActions().find((x) => x.label === "Work")!;
-    expect(work.kind === "guided" && work.hint).to.equal("pick a project");
+  it("PROJECT context: project admin only; promote/rollback (governed-only) are hidden from Operate", () => {
+    const p = { ...CTX, mode: "project" as const, project: "PRJ-43" };
+    expect(adminCmds(p)).to.deep.equal(["manage", "add-repo"]);                 // governance admin hidden
+    expect(operateCmds(p, OPERATE)).to.deep.equal(["deploy", "drift"]);         // promote/rollback are governed-only
+    const status = visibleActions(p).find((a) => a.label === "Status");
+    expect(status && status.kind === "submenu" ? status.commands.map((c) => c.cmd) : []).to.deep.equal(["status"]);  // list/list-all governed-only
   });
 
-  it("renders the prj-style banner + action table; no Operate / no enterprise-plugin hint", () => {
+  it("NONE context: empty submenus disappear — only Work (setup) + Help remain", () => {
+    expect(labels({ ...CTX, mode: "none" }, OPERATE)).to.deep.equal(["Work", "Help"]);
+  });
+
+  it("contextEnvs: PROJECT = local only; GOVERNED/other = dev/uat/prod", () => {
+    expect(contextEnvs("project")).to.deep.equal(["local"]);
+    expect(contextEnvs("governed")).to.deep.equal(["dev", "uat", "prod"]);
+  });
+
+  it("numbering matches between render and resolveTopChoice under the SAME context", () => {
+    const g = { ...CTX, mode: "governed" as const };
+    const rendered = visibleActions(g, OPERATE).map((a) => a.label);
+    rendered.forEach((label, i) => {
+      const r = resolveTopChoice(String(i + 1), g, OPERATE);
+      expect(r.kind === "action" && r.action.label).to.equal(label);
+    });
+  });
+
+  it("renders the banner + context line; Work adapts per mode", () => {
     const m = formatMainMenu(CTX).join("\n");
     expect(m).to.match(/▸ Acme Inc — Governed Agentic Development Framework \(v1\.0\.0\)/);
-    expect(m).to.match(/\(2\) Work.*pick a project/);
-    expect(m).to.not.match(/enterprise plugin/);
-    expect(m).to.not.match(/Operate/);
+    const p = formatMainMenu({ ...CTX, mode: "project", project: "PRJ-43" }, OPERATE).join("\n");
+    expect(p).to.match(/Context: PROJECT \(PRJ-43\)/);
+    expect(p).to.match(/Work.*Continue the current project/);
+    expect(p).to.match(/Operate/);   // plugin verbs surface in the menu now
+    expect(formatMainMenu({ ...CTX, mode: "governed" }, OPERATE).join("\n")).to.match(/Context: GOVERNED/);
   });
 
-  it("resolves choices to action / org / quit", () => {
-    expect((resolveTopChoice("2", CTX) as { action: { label: string } }).action.label).to.equal("Work");
-    expect((resolveTopChoice("admin", CTX) as { action: { label: string } }).action.label).to.equal("Admin");
+  it("resolves o / quit / unknown", () => {
     expect(resolveTopChoice("o", CTX)).to.deep.equal({ kind: "org" });
     expect(resolveTopChoice("0", CTX)).to.deep.equal({ kind: "quit" });
     expect(resolveTopChoice("99", CTX)).to.deep.equal({ kind: "unknown" });

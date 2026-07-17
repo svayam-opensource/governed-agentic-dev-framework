@@ -23,12 +23,18 @@ export function createGhProjects(runGh: RunGh): Projects {
   return {
     listBoards(owner) {
       try {
-        const out = runGh(["project", "list", "--owner", owner, "--format", "json", "--limit", "100"]);
+        // `gh project list` is board METADATA only (no items) — it does NOT hit the org-wide
+        // projectsV2×items query that 504s on large orgs. `--limit 1000` avoids the old `--limit 100`
+        // truncation that could hide a user's project in an org with many boards.
+        const out = runGh(["project", "list", "--owner", owner, "--format", "json", "--limit", "1000"]);
         const d = JSON.parse(out) as { projects?: Array<{ number?: number; title?: string; url?: string; closed?: boolean }> };
         return (d.projects ?? [])
           .filter((p): p is { number: number; title?: string; url?: string; closed?: boolean } => p.number !== undefined)
           .map((p) => ({ number: p.number, title: p.title ?? "", url: p.url ?? "", closed: p.closed ?? false }));
-      } catch {
+      } catch (e) {
+        // Do NOT silently show "no projects" on a gh failure — surface WHY (a bad token/network looks
+        // identical to "you have no projects" otherwise).
+        process.stderr.write(`  WARNING: couldn't list projects for '${owner}' — ${(e as Error).message}. Check \`gh auth status\` / network.\n`);
         return [];
       }
     },

@@ -100,23 +100,59 @@ export async function confirmContextOrBail(argv: readonly string[]): Promise<boo
   return false;
 }
 
-/** Run a governed verb via the internal gov-operate plugin. Resolves the package's bin, else falls back to
- *  `gov-operate` on PATH; a clean message if neither is present (OSS install without the plugin). */
-export function delegateToGovOperate(argv: readonly string[]): number {
-  let bin: string | undefined;
+/** Resolve the gov-operate plugin's launcher: `[node, bin.js]` if the package resolves, else `[gov-operate]`
+ *  from PATH. Pure runtime discovery — no build dep, so the OSS boundary holds. */
+function resolveOperateCmd(): { cmd: string; prefix: string[] } {
   try {
     const require = createRequire(import.meta.url);
     const pkgJson = require.resolve("@svayam/gov-operate/package.json");
     const pkg = JSON.parse(fsSync.readFileSync(pkgJson, "utf8")) as { bin?: string | Record<string, string> };
     const rel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.["gov-operate"];
-    if (rel) bin = path.join(path.dirname(pkgJson), rel);
+    if (rel) return { cmd: process.execPath, prefix: [path.join(path.dirname(pkgJson), rel)] };
   } catch { /* not a resolvable dep — try PATH */ }
-  const cmd = bin ? process.execPath : "gov-operate";
-  const args = bin ? [bin, ...argv] : [...argv];
-  const r = spawnSync(cmd, args, { stdio: "inherit" });
+  return { cmd: "gov-operate", prefix: [] };
+}
+
+/** Run a governed verb via the internal gov-operate plugin. Resolves the package's bin, else falls back to
+ *  `gov-operate` on PATH; a clean message if neither is present (OSS install without the plugin). */
+export function delegateToGovOperate(argv: readonly string[]): number {
+  const { cmd, prefix } = resolveOperateCmd();
+  const r = spawnSync(cmd, [...prefix, ...argv], { stdio: "inherit" });
   if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
     process.stderr.write(`gov: '${argv[0]}' is a governed command provided by the internal gov-operate plugin, which isn't installed.\n  install it:  npm i -g @svayam/gov-operate\n`);
     return 127;
   }
   return r.status ?? 1;
+}
+
+/** One operate verb the plugin contributes to the host's interactive menu (mirror of gov-operate's MenuVerb). */
+export interface OperateVerb {
+  readonly cmd: string; readonly desc: string; readonly scopes: readonly ("project" | "governed")[];
+  readonly argHint?: string;
+  readonly flagArgs?: readonly { readonly name: string; readonly hint: string; readonly optional?: boolean; readonly kind?: "env" }[];
+}
+
+/** Discover the plugin's menu contribution at runtime (`gov-operate menu --json`). Returns [] when the plugin
+ *  is absent or too old to answer — the host menu then simply shows no governed verbs (clean OSS install). */
+export function discoverOperateMenu(): OperateVerb[] {
+  const { cmd, prefix } = resolveOperateCmd();
+  const r = spawnSync(cmd, [...prefix, "menu", "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  if (r.status !== 0 || !r.stdout) return [];
+  try {
+    const m = JSON.parse(r.stdout.trim()) as { verbs?: OperateVerb[] };
+    return Array.isArray(m.verbs) ? m.verbs : [];
+  } catch { return []; }
+}
+
+/** The catalog's unit ids (`gov-operate catalog --json`) — feeds the menu's unit picker. [] on any failure. */
+export function discoverUnits(): string[] {
+  const { cmd, prefix } = resolveOperateCmd();
+  const r = spawnSync(cmd, [...prefix, "catalog", "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  if (r.status !== 0 || !r.stdout) return [];
+  try {
+    // catalog runs the context banner to stderr (ignored) and the JSON to stdout — take the last JSON line.
+    const line = r.stdout.trim().split("\n").reverse().find((l) => l.trim().startsWith("{"));
+    const m = line ? (JSON.parse(line) as { units?: Array<{ id?: string }> }) : {};
+    return (m.units ?? []).map((u) => u.id ?? "").filter(Boolean);
+  } catch { return []; }
 }

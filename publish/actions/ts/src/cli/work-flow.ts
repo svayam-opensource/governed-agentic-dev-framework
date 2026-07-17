@@ -38,9 +38,12 @@ export function myProjects(deps: WorkFlowDeps): WorkProject[] {
   if (!deps.me) return [];
   const ownerField = deps.config.ownerField ?? "organization";
   const out: WorkProject[] = [];
+  // Fetch every anchor in ONE gh call when the port supports it (63 boards → 1 round-trip, not 63);
+  // fall back to per-board find() for lightweight doubles that don't implement findAll.
+  const allAnchors = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo);
   for (const b of deps.projects.listBoards(deps.config.githubOrg)) {
     if (b.closed) continue;
-    const a = deps.anchor.find({ owner: deps.config.githubOrg, ownerField, number: b.number }, deps.config.workspaceRepo);
+    const a = allAnchors ? allAnchors.get(b.number) ?? null : deps.anchor.find({ owner: deps.config.githubOrg, ownerField, number: b.number }, deps.config.workspaceRepo);
     if (!a || !a.assignees.includes(deps.me)) continue;
     const id = deriveProjectIdentity({ url: b.url, title: b.title });
     out.push({ boardNumber: b.number, title: b.title, url: b.url, status: deriveStatus(!b.closed, a.labels), projectId: id.ok ? id.projectId : `PRJ-${b.number}` });
@@ -60,6 +63,9 @@ export async function runWorkFlow(deps: WorkFlowDeps): Promise<number> {
   const { print } = deps;
   print("");
   print("  Work — start / continue a project");
+  // The fetch below is synchronous `gh` (blocks the event loop) — print a working indicator FIRST so it
+  // never reads as hung. Now one round-trip (batched anchors), so it's seconds, not minutes.
+  print("  ⏳ Finding the projects assigned to you…");
   const mine = myProjects(deps);
   if (mine.length === 0) {
     print(`  No active projects assigned to you${deps.me ? ` (${deps.me})` : ""}.`);

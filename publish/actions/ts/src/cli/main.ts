@@ -14,7 +14,8 @@ import { execFileSync } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
-import { runWorkFlow } from "./work-flow.js";
+import { discoverOperateMenu, discoverUnits, isGovernedInvocation, delegateToGovOperate } from "./host.js";
+import { runWorkFlow, myProjects } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -137,16 +138,26 @@ export async function gatherMenuContext(): Promise<MenuContext> {
   let orgName: string | undefined;
   let githubOrg: string | undefined;
   let branch: string | undefined;
+  let agentWorkRoot: string | undefined;
+  let mode: "project" | "governed" | "none" = "none";
   const resolve = prjResolveGov(env);
   if (resolve.ok) {
+    mode = "governed";
     const cfg = fs.readFile(path.join(resolve.home, "org-config.yaml"));
     if (cfg) {
       const c = parseOrgConfig(cfg);
       orgName = c.orgName || undefined;
       githubOrg = c.githubOrg || undefined;
       branch = c.defaultBranch || undefined;
+      agentWorkRoot = c.agentWorkRoot || undefined;
     }
     branch = tryRun("git", ["-C", resolve.home, "rev-parse", "--abbrev-ref", "HEAD"]) ?? branch;
+  }
+  // PROJECT context = cwd is inside a project dir under agent_work_root.
+  let project: string | undefined;
+  if (agentWorkRoot && process.cwd().startsWith(agentWorkRoot + path.sep)) {
+    const seg = path.relative(agentWorkRoot, process.cwd()).split(path.sep)[0];
+    if (seg) { mode = "project"; project = seg; }
   }
   const user = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? tryRun("git", ["config", "user.email"]) ?? undefined;
   let workspaceCount: number | undefined;
@@ -155,7 +166,7 @@ export async function gatherMenuContext(): Promise<MenuContext> {
   } catch {
     /* omit */
   }
-  return { orgName, githubOrg, branch, user, workspaceCount, cliVersion };
+  return { orgName, githubOrg, branch, user, workspaceCount, cliVersion, mode, project };
 }
 
 /**
@@ -244,26 +255,64 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   }
 }
 
-/** Route any command (setup / creds / normal) — used by the menu. */
+/** Route any command (setup / creds / governed-plugin / normal) — used by the menu. */
 export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
   if (argv[0] === "creds") return runCredsCommand(argv);
+  if (isGovernedInvocation(argv)) return delegateToGovOperate(argv);   // Operate verbs → the gov-operate plugin (as the top-level bin does)
   return main(argv);
 }
 
-/** The command reference shown under the Help menu (grouped) / per-command. */
+/** The command reference (git-help style): one-line description per command + optional usage args. */
+const HELP_GROUPS: Record<string, string[]> = {
+  Lifecycle: ["seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel"],
+  Governance: ["manage", "anchor", "knowledge", "onboard", "org", "validate"],
+  Info: ["list", "list-all", "status"],
+  Maintain: ["setup", "doctor", "deps", "upgrade", "bump-version", "publish"],
+  "Enterprise (plugin)": ["catalog", "deploy", "data", "promote", "rollback", "drift"],
+};
+const CMD_DESC: Record<string, string> = {
+  seed: "Seed a new project workspace from a GitHub Project board", join: "Join an existing project (clone its repos on the project branch)",
+  task: "Create a task issue + sub-branch on the current project", merge: "Land a task sub-branch back to the project branch",
+  sync: "Sync the project branch with upstream changes", "add-repo": "Add a code repository to the current project",
+  close: "Close a completed project (closes its board)", pause: "Pause the current project", resume: "Resume a paused project", cancel: "Cancel the current project",
+  manage: "Project access — assign / unassign owners", anchor: "Show the current project's anchor issue",
+  knowledge: "Propose / submit / archive org knowledge changes", onboard: "Onboard a repository into the framework",
+  org: "Manage governance workspaces (the active org)", validate: "Validate the workspace / shipped content",
+  list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
+  setup: "Bootstrap / update org-config.yaml", doctor: "Diagnose the workspace + tooling", deps: "Install / verify required dependencies",
+  upgrade: "Pull the latest framework content into this workspace", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
+  catalog: "Governed catalog operations (gov-operate plugin)", deploy: "Governed deploy (gov-operate plugin)", data: "Governed data operations (gov-operate plugin)",
+  promote: "Promote an artifact across envs (gov-operate plugin)", rollback: "Roll back a unit (gov-operate plugin)", drift: "Show deploy drift (gov-operate plugin)",
+};
+const CMD_USAGE: Record<string, string> = {
+  seed: "<board-url> [--assignee <login>]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
+  knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
+  org: "add <github_org> --home <path> | use|list|remove <github_org>",
+  upgrade: "[--ref <branch>] [--from <dir>] [--apply]", deploy: "<unit> --env <local|dev|uat|prod>",
+  promote: "<unit> --from <env> --to <env>", rollback: "<unit> --env <env> --to-sha <sha>", "bump-version": "<x.y.z>",
+};
+
+/** All commands in reference order (for the Help → "help for one command" picker). */
+export const helpCommandNames = (): string[] => Object.values(HELP_GROUPS).flat();
+
+/** The command reference shown under the Help menu (git-help style), or per-command help. */
 export function helpLines(command?: string): string[] {
-  if (command) return ["", `  gov-work ${command} — run \`gov-work ${command} --help\`, or see the README command reference.`, ""];
-  const groups: Record<string, string[]> = {
-    Lifecycle: ["seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel"],
-    Governance: ["manage", "anchor", "knowledge", "onboard", "org", "validate"],
-    Info: ["list", "list-all", "status"],
-    Maintain: ["setup", "doctor", "deps", "upgrade", "bump-version", "publish"],
-    "Enterprise (plugin)": ["catalog", "deploy", "data", "promote", "rollback", "drift"],
-  };
-  const out = ["", "  gov command reference (run any directly: `gov-work <command> [args]`):"];
-  for (const [g, cmds] of Object.entries(groups)) out.push(`    ${g.padEnd(20)} ${cmds.join(" · ")}`);
-  out.push("");
+  if (command) {
+    const desc = CMD_DESC[command];
+    if (!desc) return ["", `  Unknown command '${command}'. Run \`gov help\` for the reference.`, ""];
+    const out = ["", `  gov ${command} — ${desc}.`];
+    if (CMD_USAGE[command]) out.push(`  usage: gov ${command} ${CMD_USAGE[command]}`);
+    out.push("");
+    return out;
+  }
+  const out = ["", "  usage: gov <command> [<args>]", "", "  These are the gov commands used in various situations:", ""];
+  for (const [g, cmds] of Object.entries(HELP_GROUPS)) {
+    out.push(`  ${g}`);
+    for (const c of cmds) out.push(`     ${c.padEnd(14)} ${CMD_DESC[c] ?? ""}`);
+    out.push("");
+  }
+  out.push("  See `gov help <command>` for a specific command (or menu → Help → help for one command).", "");
   return out;
 }
 
@@ -307,6 +356,11 @@ export async function runMainMenu(): Promise<number> {
     },
     switchOrg: (org) => runAny(["org", "use", org]),
     help: (command) => helpLines(command),
+    helpCommands: helpCommandNames,
+    listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
+    operateVerbs: () => { try { return discoverOperateMenu(); } catch { return []; } },
+    listUnits: () => { try { return discoverUnits(); } catch { return []; } },
+    listMyProjects: () => { try { return workDeps ? myProjects(workDeps).map((p) => p.projectId) : []; } catch { return []; } },
   };
   return runMenu(ctx, handlers);
 }
@@ -443,7 +497,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   // `prj org …` runs BEFORE resolution — it's the bootstrap that makes resolution
   // work (registering a gov home / selecting the active org).
   if (parsed.command === "org") {
-    const orgResult = routeOrg(parsed.positionals, { store: createNodeRegistryStore(), govConfigAt: (p) => env.govConfigAt(p) });
+    const orgResult = routeOrg(parsed.positionals, parsed.flags, { store: createNodeRegistryStore(), govConfigAt: (p) => env.govConfigAt(p) });
     for (const line of orgResult.lines) process.stdout.write(`${line}\n`);
     return orgResult.code;
   }
