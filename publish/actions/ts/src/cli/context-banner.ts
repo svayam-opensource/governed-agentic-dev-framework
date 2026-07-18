@@ -8,7 +8,7 @@
  * moments (first use here, a different project, an edited org-config, a switched user/env) — so the prompt
  * stays meaningful instead of training a reflexive `y`. Non-TTY never blocks.
  *
- * PURE (no I/O). The `gov` host (gov-work) and the gov-operate plugin share this same engine.
+ * PURE (no I/O). The `gov` host (gov-work) and the gov-cicd plugin share this same engine.
  */
 import { createHash } from "node:crypto";
 

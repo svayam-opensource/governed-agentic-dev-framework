@@ -44,7 +44,7 @@ export async function runSetup(io: SetupIo, interactive: boolean): Promise<numbe
     answers.policyOwnerGithub = await io.prompt("Policy Owner GitHub @-handle", d1.policyOwnerGithub);
     answers.policyEffectiveDate = await io.prompt("Policy effective date (YYYY-MM-DD)", d1.policyEffectiveDate);
     // Org service endpoints (ORG-LEVEL, inherited by adopters). Prompt the CORE ones gov-work uses; the
-    // deploy endpoints (jenkins/npm/docker) are added later as the org adopts gov-operate. Blank is fine.
+    // deploy endpoints (jenkins/npm/docker) are added later as the org adopts gov-cicd. Blank is fine.
     io.print("  Service endpoints — shared org infrastructure (adopters inherit these):");
     answers.vaultAddr = await io.prompt("  Vault/OpenBao base URL (blank if none)", d1.vaultAddr);
     answers.oidcBase = await io.prompt("  IAM OIDC base URL for `gov auth login` (blank if none)", d1.oidcBase);

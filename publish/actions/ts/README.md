@@ -87,7 +87,7 @@ Every command is reachable both directly (`gov <command>`) and via a menu path
 | `upgrade` | Maintain ▸ upgrade | Sync workspace content to the published framework (`--from`/template `--pr`/`--apply`); else CLI self-update guidance |
 | `bump-version` | Maintain ▸ bump-version | Bump the CLI package + content `VERSION` in lockstep |
 | `publish` | Maintain ▸ publish | Pre-publish gate (version-sync); real publish stays governed |
-| `catalog` `deploy` `data` `promote` `rollback` `drift` | Operate ▸ … *(only when `@svayam/gov-operate` is installed)* | Enterprise catalog + deploy plugin commands |
+| `catalog` `deploy` `data` `promote` `rollback` `drift` | Operate ▸ … *(only when `@svayam/gov-cicd` is installed)* | Enterprise catalog + deploy plugin commands |
 
 Global flags: `--gov-home <path>` / `$PRJ_GOV_HOME` target an explicit workspace
 (bypassing resolution). `$GOV_LICENSE` unlocks the enterprise plugin.

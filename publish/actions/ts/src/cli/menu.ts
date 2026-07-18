@@ -10,7 +10,7 @@
  *   Help    → the full command reference (for agents/devs working in TTY)
  * Rendering + choice-resolution are pure/testable; runMenu delegates the guided
  * flows + command runs to injected handlers. (Enterprise catalog/deploy is a
- * SEPARATE CLI, `gov-operate` — this menu has no knowledge of it.)
+ * SEPARATE CLI, `gov-cicd` — this menu has no knowledge of it.)
  */
 import * as readline from "node:readline";
 
@@ -43,7 +43,7 @@ export interface SubCommand {
   readonly subs?: readonly SubCommand[]; readonly scopes?: readonly Scope[];
   readonly subjectKind?: SubjectKind;
 }
-/** A governed verb the gov-operate plugin contributes at runtime (`gov-operate menu --json`). */
+/** A governed verb the gov-cicd plugin contributes at runtime (`gov-cicd menu --json`). */
 export interface OperateVerb {
   readonly cmd: string; readonly desc: string; readonly scopes: readonly Scope[];
   readonly argHint?: string; readonly flagArgs?: readonly MenuFlagArg[]; readonly subjectKind?: SubjectKind;
@@ -190,7 +190,7 @@ export interface MenuHandlers {
   readonly helpCommands: () => readonly string[];
   /** Registered governance workspaces — for the org switcher (so the user picks, not types the exact name). */
   readonly listOrgs: () => readonly { readonly org: string; readonly home: string }[];
-  /** The gov-operate plugin's governed verbs, discovered at runtime. Absent/[] → no Operate submenu. */
+  /** The gov-cicd plugin's governed verbs, discovered at runtime. Absent/[] → no Operate submenu. */
   readonly operateVerbs?: () => readonly OperateVerb[];
   /** Discoverable subject value sets for the pickers (§2). Each may be slow (gh / plugin) → called on demand. */
   readonly listUnits?: () => readonly string[];

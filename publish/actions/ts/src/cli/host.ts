@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
  * The `gov` host seam: (1) the context banner + prompt-on-context-change for CORE commands, and (2) guarded
- * delegation of GOVERNED verbs to the internal `gov-operate` plugin. Discovery is purely runtime (resolve the
- * package, else PATH) — gov-work has NO build dependency on gov-operate, so the OSS boundary holds.
+ * delegation of GOVERNED verbs to the internal `gov-cicd` plugin. Discovery is purely runtime (resolve the
+ * package, else PATH) — gov-work has NO build dependency on gov-cicd, so the OSS boundary holds.
  */
 import * as path from "node:path";
 import * as fsSync from "node:fs";
@@ -18,7 +18,7 @@ import {
   type ContextInfo, type Ack, contextFingerprint, hashText, renderBanner, isAcked, recordAck,
 } from "./context-banner.js";
 
-/** Governed verbs provided by the internal gov-operate plugin (absent from OSS gov-work). */
+/** Governed verbs provided by the internal gov-cicd plugin (absent from OSS gov-work). */
 export const OPERATE_COMMANDS = new Set([
   "catalog", "build", "deploy", "data", "promote", "rollback", "drift", "attest", "authorize", "test-spine", "deploy-check", "standards",
 ]);
@@ -100,39 +100,39 @@ export async function confirmContextOrBail(argv: readonly string[]): Promise<boo
   return false;
 }
 
-/** Resolve the gov-operate plugin's launcher: `[node, bin.js]` if the package resolves, else `[gov-operate]`
+/** Resolve the gov-cicd plugin's launcher: `[node, bin.js]` if the package resolves, else `[gov-cicd]`
  *  from PATH. Pure runtime discovery — no build dep, so the OSS boundary holds. */
 function resolveOperateCmd(): { cmd: string; prefix: string[] } {
   try {
     const require = createRequire(import.meta.url);
-    const pkgJson = require.resolve("@svayam/gov-operate/package.json");
+    const pkgJson = require.resolve("@svayam/gov-cicd/package.json");
     const pkg = JSON.parse(fsSync.readFileSync(pkgJson, "utf8")) as { bin?: string | Record<string, string> };
-    const rel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.["gov-operate"];
+    const rel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.["gov-cicd"];
     if (rel) return { cmd: process.execPath, prefix: [path.join(path.dirname(pkgJson), rel)] };
   } catch { /* not a resolvable dep — try PATH */ }
-  return { cmd: "gov-operate", prefix: [] };
+  return { cmd: "gov-cicd", prefix: [] };
 }
 
-/** Run a governed verb via the internal gov-operate plugin. Resolves the package's bin, else falls back to
- *  `gov-operate` on PATH; a clean message if neither is present (OSS install without the plugin). */
+/** Run a governed verb via the internal gov-cicd plugin. Resolves the package's bin, else falls back to
+ *  `gov-cicd` on PATH; a clean message if neither is present (OSS install without the plugin). */
 export function delegateToGovOperate(argv: readonly string[]): number {
   const { cmd, prefix } = resolveOperateCmd();
   const r = spawnSync(cmd, [...prefix, ...argv], { stdio: "inherit" });
   if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
-    process.stderr.write(`gov: '${argv[0]}' is a governed command provided by the internal gov-operate plugin, which isn't installed.\n  install it:  npm i -g @svayam/gov-operate\n`);
+    process.stderr.write(`gov: '${argv[0]}' is a governed command provided by the internal gov-cicd plugin, which isn't installed.\n  install it:  npm i -g @svayam/gov-cicd\n`);
     return 127;
   }
   return r.status ?? 1;
 }
 
-/** One operate verb the plugin contributes to the host's interactive menu (mirror of gov-operate's MenuVerb). */
+/** One operate verb the plugin contributes to the host's interactive menu (mirror of gov-cicd's MenuVerb). */
 export interface OperateVerb {
   readonly cmd: string; readonly desc: string; readonly scopes: readonly ("project" | "governed")[];
   readonly argHint?: string;
   readonly flagArgs?: readonly { readonly name: string; readonly hint: string; readonly optional?: boolean; readonly kind?: "env" }[];
 }
 
-/** Discover the plugin's menu contribution at runtime (`gov-operate menu --json`). Returns [] when the plugin
+/** Discover the plugin's menu contribution at runtime (`gov-cicd menu --json`). Returns [] when the plugin
  *  is absent or too old to answer — the host menu then simply shows no governed verbs (clean OSS install). */
 export function discoverOperateMenu(): OperateVerb[] {
   const { cmd, prefix } = resolveOperateCmd();
@@ -144,7 +144,7 @@ export function discoverOperateMenu(): OperateVerb[] {
   } catch { return []; }
 }
 
-/** The catalog's unit ids (`gov-operate catalog --json`) — feeds the menu's unit picker. [] on any failure. */
+/** The catalog's unit ids (`gov-cicd catalog --json`) — feeds the menu's unit picker. [] on any failure. */
 export function discoverUnits(): string[] {
   const { cmd, prefix } = resolveOperateCmd();
   const r = spawnSync(cmd, [...prefix, "catalog", "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
