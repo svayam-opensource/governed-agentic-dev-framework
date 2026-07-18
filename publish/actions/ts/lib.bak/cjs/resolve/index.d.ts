@@ -1,7 +1,0 @@
-/** Governance-home resolution (SDD-013 / SDD-040 / SDD-041 / SDD-042). */
-export * from "./types.js";
-export * from "./registry.js";
-export * from "./resolve-gov.js";
-export * from "./node-env.js";
-export * from "./registry-store.js";
-export * from "./org.js";
