@@ -40,7 +40,7 @@ describe("prj-work Phase 2 — join (co-dev checkout)", () => {
   it("materializes gov + code worktrees on the EXISTING project branch", () => {
     const { vcs, log } = fakeVcs();
     const cloned: string[] = [];
-    const r = join({ board: board(), vcs, fs: fsPresent(false), cloneRepo: (_u, d) => cloned.push(d) }, CONFIG, INPUT);
+    const r = join({ authorize: () => true, board: board(), vcs, fs: fsPresent(false), cloneRepo: (_u, d) => cloned.push(d) }, CONFIG, INPUT);
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
     expect(r.projectId).to.equal("PRJ-43-governance-common-project");
@@ -56,14 +56,14 @@ describe("prj-work Phase 2 — join (co-dev checkout)", () => {
   it("is idempotent — an existing worktree is skipped (no clone/worktree)", () => {
     const { vcs, log } = fakeVcs();
     const cloned: string[] = [];
-    join({ board: board([]), vcs, fs: fsPresent(true), cloneRepo: (_u, d) => cloned.push(d) }, CONFIG, INPUT);
+    join({ authorize: () => true, board: board([]), vcs, fs: fsPresent(true), cloneRepo: (_u, d) => cloned.push(d) }, CONFIG, INPUT);
     expect(cloned).to.deep.equal([]);
     expect(log.some((l) => l.startsWith("worktreeAdd"))).to.equal(false);
   });
 
   it("rejects a bad board URL and an authorization deny", () => {
     const { vcs } = fakeVcs();
-    expect(join({ board: board(), vcs, fs: fsPresent(false), cloneRepo: () => {} }, CONFIG, { boardUrl: "nope" })).to.include({ ok: false, reason: "bad-url" });
+    expect(join({ authorize: () => true, board: board(), vcs, fs: fsPresent(false), cloneRepo: () => {} }, CONFIG, { boardUrl: "nope" })).to.include({ ok: false, reason: "bad-url" });
     const r = join({ board: board(), vcs, fs: fsPresent(true), cloneRepo: () => {}, authorize: () => false }, CONFIG, INPUT);
     expect(r).to.include({ ok: false, reason: "unauthorized" });
   });

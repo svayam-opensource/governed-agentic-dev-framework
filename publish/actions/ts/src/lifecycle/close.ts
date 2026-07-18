@@ -45,9 +45,10 @@ export interface CloseDeps {
   readonly fs: Fs;
   readonly issues: Issues;
   readonly pulls: Pulls;
-  readonly authorize?: (ref: BoardRef) => boolean;
-  /** The test-merge validators (Phase 3). If absent, the gate is skipped. */
-  readonly gate?: () => GateResult;
+  /** REQUIRED (C01) — write-access to the GitHub Project. Called unconditionally; no caller can omit it. */
+  readonly authorize: (ref: BoardRef) => boolean;
+  /** REQUIRED — the test-merge validators (Phase 3). Always run before any push. */
+  readonly gate: () => GateResult;
   /** Best-effort workspace teardown (worktree detach + rm); deferred if absent. */
   readonly cleanup?: () => void;
   readonly log?: (msg: string) => void;
@@ -100,7 +101,7 @@ export function close(deps: CloseDeps, config: CloseConfig, input: CloseInput): 
   if (!kGate.ok) {
     return { ok: false, code: 1, reason: "knowledge-gate", message: "Pre-close knowledge gate failed.", failures: kGate.failures };
   }
-  if (deps.authorize && !deps.authorize(ref)) {
+  if (!deps.authorize(ref)) {
     return { ok: false, code: 1, reason: "unauthorized", message: `Not authorized to close GitHub Project #${boardNumber}.` };
   }
 
@@ -139,11 +140,9 @@ export function close(deps: CloseDeps, config: CloseConfig, input: CloseInput): 
     merged.push(dir);
   }
 
-  // ── Test-merge gate (Phase 3 validators) — BEFORE any push ──────────────────
-  if (deps.gate) {
-    const g = deps.gate();
-    if (!g.ok) return { ok: false, code: 1, reason: "test-merge-gate", message: "Test-merge gate failed — nothing pushed.", failures: g.failures };
-  }
+  // ── Test-merge gate (Phase 3 validators) — BEFORE any push, always run ───────
+  const g = deps.gate();
+  if (!g.ok) return { ok: false, code: 1, reason: "test-merge-gate", message: "Test-merge gate failed — nothing pushed.", failures: g.failures };
 
   // ── Gate passed — push code bases, then promote the branch via PR ───────────
   for (const dir of merged) deps.vcs.push(dir, remote, config.defaultCodeBranch);

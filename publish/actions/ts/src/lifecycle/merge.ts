@@ -38,7 +38,8 @@ export interface MergeDeps {
   readonly vcs: Vcs;
   readonly fs: FsProbe;
   readonly issues: Issues;
-  readonly authorize?: (ref: BoardRef) => boolean;
+  /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
+  readonly authorize: (ref: BoardRef) => boolean;
   readonly log?: (msg: string) => void;
 }
 
@@ -112,7 +113,7 @@ export function merge(deps: MergeDeps, config: MergeConfig, input: MergeInput): 
     return { ok: false, code: 1, reason: "not-a-task", message: `'${input.taskArg}' is neither an issue URL nor a '${projectBranch}.ISSUE-…' branch.` };
   }
 
-  if (deps.authorize && !deps.authorize(ref)) {
+  if (!deps.authorize(ref)) {
     return { ok: false, code: 1, reason: "unauthorized", message: `Not authorized on GitHub Project #${boardNumber}.` };
   }
   if (!deps.vcs.remoteBranchExists(input.govClone, remote, taskId)) {

@@ -104,7 +104,7 @@ describe("prj-work Phase 2 — task orchestrator (model A)", () => {
   it("derives the project from cwd, branches workspace + present code repo, reflects on GitHub", () => {
     const { vcs, log } = fakeVcs();
     const { issues, acted } = fakeIssues("OPEN");
-    const r = task({ board: fakeBoard(), vcs, fs: fsPresent(true), issues }, CONFIG, INPUT);
+    const r = task({ board: fakeBoard(), authorize: () => true,vcs, fs: fsPresent(true), issues }, CONFIG, INPUT);
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
     expect(r.boardNumber).to.equal(43);
@@ -120,7 +120,7 @@ describe("prj-work Phase 2 — task orchestrator (model A)", () => {
   });
 
   it("skips a linked repo that has no local worktree (repo-on-demand deferred)", () => {
-    const r = task({ board: fakeBoard(), vcs: fakeVcs().vcs, fs: fsPresent(false), issues: fakeIssues().issues }, CONFIG, INPUT);
+    const r = task({ board: fakeBoard(), authorize: () => true,vcs: fakeVcs().vcs, fs: fsPresent(false), issues: fakeIssues().issues }, CONFIG, INPUT);
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
     expect(r.reposBranched).to.deep.equal(["/awr/PRJ-43/svm-prj-work"]); // only workspace
@@ -128,13 +128,13 @@ describe("prj-work Phase 2 — task orchestrator (model A)", () => {
   });
 
   it("refuses a closed issue", () => {
-    const r = task({ board: fakeBoard(), vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues("CLOSED").issues }, CONFIG, INPUT);
+    const r = task({ board: fakeBoard(), authorize: () => true,vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues("CLOSED").issues }, CONFIG, INPUT);
     expect(r.ok).to.equal(false);
     if (!r.ok) expect(r.reason).to.equal("issue-closed");
   });
 
   it("refuses when not on a project branch", () => {
-    const r = task({ board: fakeBoard(), vcs: fakeVcs("main").vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, INPUT);
+    const r = task({ board: fakeBoard(), authorize: () => true,vcs: fakeVcs("main").vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, INPUT);
     expect(r.ok).to.equal(false);
     if (!r.ok) expect(r.reason).to.equal("not-a-project-branch");
   });

@@ -591,6 +591,12 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     pulls: createGhPulls(runGh),
     projects: createGhProjects(runGh),
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
+    // C01 authorization — write-access to the GitHub Project (viewerCanUpdate), the SoT for authority
+    // (`prj manage assign`). The lifecycle ops now call this unconditionally, so wiring it here is what
+    // makes the CLI enforce it. Only "false" denies; a null/errored probe does NOT silently authorize —
+    // fail closed unless GitHub explicitly says the viewer can update.
+    authorize: (ref) =>
+      tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${ref.number}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) === "true",
     gate: () => runSuite({ fs, repoRoot: home, files: (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean) }),
     log: (m) => process.stderr.write(`${m}\n`),
   };

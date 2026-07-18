@@ -126,7 +126,7 @@ const fakePulls = (mergeOutcome: "merged" | "already-merged" | "failed" = "merge
 
 describe("prj-work Phase 2 — close orchestrator (model A)", () => {
   function deps(over: Partial<CloseDeps> = {}): CloseDeps {
-    return { board: fakeBoard(), vcs: fakeVcs().vcs, fs: fakeFs(), issues: fakeIssues().issues, pulls: fakePulls(), ...over };
+    return { board: fakeBoard(), vcs: fakeVcs().vcs, fs: fakeFs(), issues: fakeIssues().issues, pulls: fakePulls(), authorize: () => true, gate: () => ({ ok: true, failures: [] }), ...over };
   }
 
   it("gates → merges → PR-promotes → closes board → archives (happy path)", () => {

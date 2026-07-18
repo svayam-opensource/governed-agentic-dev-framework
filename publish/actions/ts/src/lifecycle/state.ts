@@ -39,7 +39,8 @@ export interface StateDeps {
   readonly vcs: Vcs;
   readonly anchor: AnchorCreator;
   readonly issues: Issues;
-  readonly authorize?: (ref: BoardRef) => boolean;
+  /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
+  readonly authorize: (ref: BoardRef) => boolean;
   readonly log?: (msg: string) => void;
 }
 
@@ -54,7 +55,7 @@ function refFromCwd(deps: StateDeps, config: StateConfig, input: StateInput): Bo
   if (boardNumber === null) {
     return { error: { ok: false, code: 1, reason: "not-a-project-branch", message: `'${projectBranch}' is not a project branch.` } };
   }
-  if (deps.authorize && !deps.authorize({ owner: config.githubOrg, ownerField: config.ownerField ?? "organization", number: boardNumber })) {
+  if (!deps.authorize({ owner: config.githubOrg, ownerField: config.ownerField ?? "organization", number: boardNumber })) {
     return { error: { ok: false, code: 1, reason: "unauthorized", message: `Not authorized on GitHub Project #${boardNumber}.` } };
   }
   return { owner: config.githubOrg, ownerField: config.ownerField ?? "organization", number: boardNumber };

@@ -63,9 +63,11 @@ export interface CliContext {
   readonly pulls: Pulls;
   readonly projects: Projects;
   readonly cloneRepo: (url: string, dest: string) => void;
-  readonly authorize?: (ref: BoardRef) => boolean;
-  /** close's test-merge gate (wire governance.runSuite here). */
-  readonly gate?: () => GateResult;
+  /** REQUIRED (C01) — write-access to the GitHub Project (viewerCanUpdate). The lifecycle ops call it
+   *  unconditionally; wiring it here is what makes the CLI actually ENFORCE authorization. */
+  readonly authorize: (ref: BoardRef) => boolean;
+  /** REQUIRED — close's test-merge gate (governance.runSuite). Always run before any push. */
+  readonly gate: () => GateResult;
   readonly log?: (msg: string) => void;
 }
 

@@ -34,7 +34,8 @@ export interface JoinDeps {
   readonly vcs: Vcs;
   readonly fs: FsProbe;
   readonly cloneRepo: (url: string, dest: string) => void;
-  readonly authorize?: (ref: BoardRef) => boolean;
+  /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
+  readonly authorize: (ref: BoardRef) => boolean;
   readonly log?: (msg: string) => void;
 }
 
@@ -66,7 +67,7 @@ export function join(deps: JoinDeps, config: JoinConfig, input: JoinInput): Join
   if (!idr.ok) return { ok: false, code: 1, reason: idr.reason, message: `Cannot derive project id (${idr.reason}).` };
   const { projectId, branch } = idr;
 
-  if (deps.authorize && !deps.authorize(boardRef)) {
+  if (!deps.authorize(boardRef)) {
     return { ok: false, code: 1, reason: "unauthorized", message: `Not authorized to join GitHub Project #${boardRef.number}.` };
   }
 

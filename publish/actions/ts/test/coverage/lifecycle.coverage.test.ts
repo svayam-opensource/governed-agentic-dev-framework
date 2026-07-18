@@ -76,7 +76,7 @@ function ctx(over: Partial<CliContext> = {}): CliContext {
   return {
     config: CONFIG, home: GOV_CLONE, today: "2026-07-03",
     seededBy: "svayam-rkant", board: okBoard, vcs: fakeVcs(), fs, issues, anchor, pulls,
-    projects: { listBoards: () => [] }, cloneRepo: () => {}, ...over,
+    projects: { listBoards: () => [] }, cloneRepo: () => {}, authorize: () => true, gate: () => ({ ok: true, failures: [] }), ...over,
   };
 }
 

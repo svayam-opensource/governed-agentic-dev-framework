@@ -34,7 +34,8 @@ export interface AddRepoDeps {
   readonly vcs: Vcs;
   readonly fs: FsProbe;
   readonly cloneRepo: (url: string, dest: string) => void;
-  readonly authorize?: (ref: BoardRef) => boolean;
+  /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
+  readonly authorize: (ref: BoardRef) => boolean;
   readonly log?: (msg: string) => void;
 }
 
@@ -49,7 +50,7 @@ export function addRepo(deps: AddRepoDeps, config: AddRepoConfig, input: AddRepo
     return { ok: false, code: 1, reason: "not-a-project-branch", message: `'${projectBranch}' is not a project branch.` };
   }
   const ref: BoardRef = { owner: config.githubOrg, ownerField: config.ownerField ?? "organization", number: boardNumber };
-  if (deps.authorize && !deps.authorize(ref)) {
+  if (!deps.authorize(ref)) {
     return { ok: false, code: 1, reason: "unauthorized", message: `Not authorized on GitHub Project #${boardNumber}.` };
   }
 
