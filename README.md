@@ -31,7 +31,7 @@ ci/               Jenkins pipeline definitions.
   starters, and agent harness adopters pull via `gov-work upgrade`.
 
 The enterprise plugin units (`gov-catalog` · `gov-deploy` · `gov-data`, the
-`gov-operate` umbrella) live in a separate repo and publish to `npm.svayamtech.com`.
+`gov-cicd` umbrella) live in a separate repo and publish to `npm.svayamtech.com`.
 
 ## Docs
 

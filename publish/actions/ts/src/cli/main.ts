@@ -189,7 +189,7 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   // `gov-work creds <KEY>` targets one credential (e.g. SVAYAM_GOV_LICENSE); bare `gov-work creds` walks
   // the base NEEDs (git/gh) PLUS every credential DECLARED in the org's build/deploy policies
   // (knowledge/deployment/{build,deploy}-policy.yaml) — the policy is the single source of truth for what
-  // keys are required, so any port/seam (gov-operate included) is covered without gov-work knowing it.
+  // keys are required, so any port/seam (gov-cicd included) is covered without gov-work knowing it.
   const requestedKey = argv[1];
   const policyNeeds = readPolicyCredNeeds((p) => fs.readFile(p), resolve.home);
   const needs = requestedKey ? [credNeedForKey(requestedKey)] : [...assembleNeeds(policyNeeds)];
@@ -259,7 +259,7 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
 export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
   if (argv[0] === "creds") return runCredsCommand(argv);
-  if (isGovernedInvocation(argv)) return delegateToGovOperate(argv);   // Operate verbs → the gov-operate plugin (as the top-level bin does)
+  if (isGovernedInvocation(argv)) return delegateToGovOperate(argv);   // Operate verbs → the gov-cicd plugin (as the top-level bin does)
   return main(argv);
 }
 
@@ -282,8 +282,8 @@ const CMD_DESC: Record<string, string> = {
   list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
   setup: "Bootstrap / update org-config.yaml", doctor: "Diagnose the workspace + tooling", deps: "Install / verify required dependencies",
   upgrade: "Pull the latest framework content into this workspace", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
-  catalog: "Governed catalog operations (gov-operate plugin)", deploy: "Governed deploy (gov-operate plugin)", data: "Governed data operations (gov-operate plugin)",
-  promote: "Promote an artifact across envs (gov-operate plugin)", rollback: "Roll back a unit (gov-operate plugin)", drift: "Show deploy drift (gov-operate plugin)",
+  catalog: "Governed catalog operations (gov-cicd plugin)", deploy: "Governed deploy (gov-cicd plugin)", data: "Governed data operations (gov-cicd plugin)",
+  promote: "Promote an artifact across envs (gov-cicd plugin)", rollback: "Roll back a unit (gov-cicd plugin)", drift: "Show deploy drift (gov-cicd plugin)",
 };
 const CMD_USAGE: Record<string, string> = {
   seed: "<board-url> [--assignee <login>]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",

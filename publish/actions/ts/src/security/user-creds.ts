@@ -3,7 +3,7 @@
 /**
  * PERSONAL per-user credential store (2.ii.b): each human's own per-app api_tokens, at
  * `secret/users/<sub>/tokens` (one field per service), unlocked by the user's OWN `jwt/login` (role
- * `gov-user`, policy-templated to `users/<sub>/*`). This is the SAME Vault path the gov-operate deploy
+ * `gov-user`, policy-templated to `users/<sub>/*`). This is the SAME Vault path the gov-cicd deploy
  * reads — so `gov creds set --personal` and `gov deploy` interoperate with no duplication.
  *
  * Contrast the SHARED store (`kv/gov/<account>/creds`, gov-admin-seeded) used for org-wide secrets.

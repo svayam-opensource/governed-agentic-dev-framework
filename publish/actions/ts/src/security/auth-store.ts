@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-Svayam-Proprietary
 /**
  * Per-user store for the `gov auth login` session (the svayam_jwt + refresh). Lives beside the
- * credential store, keyed by identity, 0600 — so gov-operate reads the same token to open its
+ * credential store, keyed by identity, 0600 — so gov-cicd reads the same token to open its
  * Vault session (the `exchange()` seam). Short-lived; re-run `gov auth login` when it expires.
  */
 import * as fs from "node:fs";

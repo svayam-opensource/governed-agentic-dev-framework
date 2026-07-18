@@ -2,20 +2,20 @@
 title: gov CLI Conventions
 status: draft (for review)
 owner: rkant@svayam.ai
-applies_to: gov-work (OSS) + gov-operate (plugin) — the unified `gov` CLI
+applies_to: gov-work (OSS) + gov-cicd (plugin) — the unified `gov` CLI
 updated: 2026-07-16
 ---
 
 # gov CLI Conventions
 
 The single source of truth for how every `gov` command looks and behaves. Both packages implement it:
-**gov-work** (OSS host) and **gov-operate** (internal plugin). Once this is approved, we apply it **wholesale**
+**gov-work** (OSS host) and **gov-cicd** (internal plugin). Once this is approved, we apply it **wholesale**
 across all commands in one change.
 
 ## 1. Command surface
 
-- **One binary: `gov`.** gov-work provides it and hosts core verbs; gov-operate delegates the governed verbs
-  (catalog/deploy/promote/rollback/drift/attest). `gov-work`/`gov-operate` remain as transitional aliases.
+- **One binary: `gov`.** gov-work provides it and hosts core verbs; gov-cicd delegates the governed verbs
+  (catalog/deploy/promote/rollback/drift/attest). `gov-work`/`gov-cicd` remain as transitional aliases.
 - **All user-facing text says `gov`** — help, prompts, errors, docs. Never `gov-work`/`prj`.
 - **Verbs are lower-kebab** (`add-repo`, `list-all`, `deploy-check`), grouped by domain in help.
 
@@ -48,7 +48,7 @@ across all commands in one change.
 
 ### First publish — adopt outright (no fallback)
 
-`gov` / `gov-operate` have **not been published yet**, so there is NO installed syntax to preserve — apply
+`gov` / `gov-cicd` have **not been published yet**, so there is NO installed syntax to preserve — apply
 the flag convention **directly**, with no deprecated positional fallback and no transition warnings. (Should a
 command ever ship with positional args in a *future* release and then change, reintroduce a one-release
 deprecation window at that point — not now.)
@@ -151,5 +151,5 @@ Any command that can take more than ~1s **must show it's alive** — nothing sho
 
 **Review checklist:** ratify §2 (positional-subject + flagged-qualifiers, env always a flag) — it's the one
 that drives the wholesale change. The rest codifies what's already built this session. Once approved, the
-sweep updates every command in gov-work + gov-operate to §2/§3 **outright** (first publish → no positional
+sweep updates every command in gov-work + gov-cicd to §2/§3 **outright** (first publish → no positional
 fallback), plus the tests and the git-help usage synopses.

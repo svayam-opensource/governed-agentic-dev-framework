@@ -1,0 +1,91 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * The session-start client gate (SDD-030, #54 Layer 2) — port of the bash
+ * pre-tool-gate / session-ack / session-start hooks. It denies MUTATING tools
+ * until the session-start protocol posts the manifest and acknowledges (writing
+ * a per-session marker). Read/Grep/Glob stay ungated so the protocol's own reads
+ * work; the ack command + read-only identity probes are whitelisted pre-ack.
+ *
+ * FAIL-OPEN: a client nudge must never brick the workspace — the tool-agnostic
+ * server gate (Layer 3) is the real enforcement. Logic is pure; a thin bin shim
+ * (wired at cutover) reads stdin + the marker and prints the hook JSON.
+ */
+import * as path from "node:path";
+/** Tools blocked until the session is acknowledged. */
+export const MUTATING_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit", "Bash"]);
+const DENY_REASON = "Complete /session-start first: run the session-start protocol and post the context manifest " +
+    "(agent/session-protocol.md §0) before changing code. Mutating tools unlock once /session-start " +
+    "acknowledges this session.";
+const SESSION_START_MSG = "Session-start protocol is in effect (agent/session-protocol.md §0). Run /session-start now: post " +
+    "the context manifest BEFORE changing code. Edit/Write/Bash stay blocked until /session-start " +
+    "acknowledges this session.";
+/** True if a Bash command is the whitelisted ack (never blocked). */
+export function isAckCommand(command) {
+    return command.includes("session-ack");
+}
+/** True if a Bash command is a read-only identity probe the protocol needs pre-ack. */
+export function isIdentityProbe(command) {
+    const c = command.trim();
+    return /^gh api user(\s+--jq\s+\S+)?$/.test(c) || /^gh auth status(\s+--\S+)*$/.test(c);
+}
+/**
+ * Decide whether a tool call is allowed pre-ack. Non-mutating tools always pass;
+ * the ack command + identity probes pass; otherwise a mutating tool needs the
+ * ack marker.
+ */
+export function evaluateGate(input, ackMarkerExists) {
+    if (!MUTATING_TOOLS.has(input.toolName))
+        return { decision: "allow" };
+    const cmd = (input.command ?? "").trim();
+    if (input.toolName === "Bash" && (isAckCommand(cmd) || isIdentityProbe(cmd)))
+        return { decision: "allow" };
+    if (ackMarkerExists)
+        return { decision: "allow" };
+    return { decision: "deny", reason: DENY_REASON };
+}
+/** The PreToolUse hook JSON for a decision (null = allow / no output). */
+export function preToolGateOutput(decision) {
+    if (decision.decision === "allow")
+        return null;
+    return JSON.stringify({
+        hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: decision.reason },
+    });
+}
+/** The SessionStart hook JSON (the reminder additionalContext). */
+export function sessionStartOutput() {
+    return JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: SESSION_START_MSG } });
+}
+/**
+ * Run the PreToolUse gate over the raw hook stdin + whether the marker exists.
+ * Returns the hook JSON to print (null = allow). FAIL-OPEN on a parse error.
+ */
+export function runPreToolGate(stdinJson, ackMarkerExists) {
+    let toolName;
+    let command;
+    try {
+        const d = JSON.parse(stdinJson);
+        toolName = d.tool_name ?? "";
+        command = String(d.tool_input?.command ?? "");
+    }
+    catch {
+        return null; // fail-open
+    }
+    return preToolGateOutput(evaluateGate({ toolName, command }, ackMarkerExists));
+}
+/** The per-session ack marker path under a project root. */
+export function markerPath(root) {
+    return path.join(root, ".claude", ".session-ack");
+}
+/** Write the ack marker (the LAST step of /session-start) — unlocks mutating tools. */
+export function writeAck(fs, root, timestamp) {
+    fs.writeFile(markerPath(root), `${timestamp}\n`);
+}
+/** Clear the ack marker (on SessionStart) so /session-start must run again. */
+export function clearAck(fs, root) {
+    fs.rm(markerPath(root));
+}
+/** Whether the session has been acknowledged. */
+export function ackExists(fs, root) {
+    return fs.pathExists(markerPath(root));
+}

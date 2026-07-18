@@ -63,11 +63,11 @@ gov_account: ""
 # The shared infrastructure this org uses. Set ONCE by the gov-admin here; adopters INHERIT these (they are
 # never prompted per-user). Per-user *secrets/tokens* do NOT go here — those live in Vault via `gov creds`.
 # `vault` + `oidc` are used by gov-work core (auth/creds); `jenkins`/`npm`/`docker` are read by the
-# gov-operate deploy plugin. Leave a line "" if the org doesn't use that service.
+# gov-cicd deploy plugin. Leave a line "" if the org doesn't use that service.
 services:
   vault: ""              # OpenBao/Vault base — per-user token store + attest target (gov creds → Vault)
   oidc: ""               # IAM broker OIDC base — `gov auth login` (loopback + PKCE)
   oidc_client_id: "gov"  # the OIDC public client id for the CLI
-  jenkins: ""            # org Jenkins base — a deploy triggers a job here as the user (gov-operate)
-  npm: ""                # org npm/Verdaccio registry — publish target for npm units (gov-operate)
-  docker: ""             # org container image registry — publish target for container units (gov-operate)
+  jenkins: ""            # org Jenkins base — a deploy triggers a job here as the user (gov-cicd)
+  npm: ""                # org npm/Verdaccio registry — publish target for npm units (gov-cicd)
+  docker: ""             # org container image registry — publish target for container units (gov-cicd)

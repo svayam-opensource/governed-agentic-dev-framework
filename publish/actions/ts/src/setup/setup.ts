@@ -32,7 +32,7 @@ export interface OrgConfigValues {
   readonly vaultAddr: string;
   /** IAM broker OIDC base for `gov auth login` (optional). */
   readonly oidcBase: string;
-  /** gov-operate deploy endpoints — the admin fills these as the org adopts deploy (optional). */
+  /** gov-cicd deploy endpoints — the admin fills these as the org adopts deploy (optional). */
   readonly jenkinsUrl: string;
   readonly npmRegistry: string;
   readonly dockerRegistry: string;
@@ -159,7 +159,7 @@ gov_account: "${v.govAccount}"
 
 # ── Service endpoints — ORG-LEVEL, GOVERNED. Set once here; adopters INHERIT (never prompted per-user).
 #    Per-user secrets/tokens go to Vault via \`gov creds\`, NOT here. vault+oidc are used by gov-work core
-#    (auth/creds); jenkins/npm/docker are read by the gov-operate deploy plugin (fill as you adopt deploy).
+#    (auth/creds); jenkins/npm/docker are read by the gov-cicd deploy plugin (fill as you adopt deploy).
 services:
   vault: "${v.vaultAddr}"
   oidc: "${v.oidcBase}"

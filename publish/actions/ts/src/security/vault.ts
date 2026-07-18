@@ -47,7 +47,7 @@ export async function kvWrite(addr: string, token: string, path: string, data: R
 
 // ── attest: sign/verify via Vault Transit ────────────────────────────────────────────────────────────
 // The attest key lives in Vault's transit engine — the private key never leaves Vault. Only a token with
-// `transit/sign/<key>` (GOV_CI) can sign; verify is open to every gov role. So gov-operate signs
+// `transit/sign/<key>` (GOV_CI) can sign; verify is open to every gov role. So gov-cicd signs
 // attestations by ASKING Vault to sign (never fetching the key), which keeps attestations unforgeable even
 // if the CI box is compromised.
 const b64 = (s: string): string => Buffer.from(s, "utf8").toString("base64");

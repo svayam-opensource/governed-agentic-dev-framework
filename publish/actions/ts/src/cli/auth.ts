@@ -2,7 +2,7 @@
 /**
  * `gov-work auth <login|status|logout>` — the identity front door.
  *
- *   login  → browser OIDC (PKCE) to the IAM broker; store the svayam_jwt (aud=gov) that gov/gov-operate
+ *   login  → browser OIDC (PKCE) to the IAM broker; store the svayam_jwt (aud=gov) that gov/gov-cicd
  *            then operate under. This is what replaces per-user secret pasting: after login, `creds`
  *            (next) uses this JWT to read/WRITE Vault under the token's account_ctx.
  *   status → who you are, your account_ctx, your gov roles, and token validity.
