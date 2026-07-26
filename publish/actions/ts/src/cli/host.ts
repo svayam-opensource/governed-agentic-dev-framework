@@ -20,7 +20,7 @@ import {
 
 /** Governed verbs provided by the internal gov-cicd plugin (absent from OSS gov-work). */
 export const OPERATE_COMMANDS = new Set([
-  "catalog", "build", "deploy", "data", "data-access", "promote", "rollback", "drift", "attest", "authorize", "test-spine", "deploy-check", "standards",
+  "catalog", "build", "deploy", "data", "data-access", "promote", "rollback", "drift", "attest", "authorize", "test-spine", "deploy-check", "standards", "secret",
 ]);
 
 /** Is this invocation a governed verb (to delegate)? Finds the command past leading value-flags
