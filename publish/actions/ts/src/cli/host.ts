@@ -117,7 +117,17 @@ function resolveOperateCmd(): { cmd: string; prefix: string[] } {
  *  `gov-cicd` on PATH; a clean message if neither is present (OSS install without the plugin). */
 export function delegateToGovOperate(argv: readonly string[]): number {
   const { cmd, prefix } = resolveOperateCmd();
-  const r = spawnSync(cmd, [...prefix, ...argv], { stdio: "inherit" });
+  // In a PROJECT context, point the plugin's VCS at the project's repo-clone root (agentWorkRoot/<project> =
+  // buildContextInfo().projectPath) so it can resolve a unit's SOURCE repo — e.g. tree-sha it for the
+  // content_sha of a built container — without the user exporting GOV_GIT_ROOT. An explicit env wins; in
+  // governed/none context there's no single project, so we leave it (run governed unit deploys from the
+  // project tree, or set GOV_GIT_ROOT).
+  let env: NodeJS.ProcessEnv = process.env;
+  if (!process.env.GOV_GIT_ROOT) {
+    const { projectPath } = buildContextInfo();
+    if (projectPath) env = { ...process.env, GOV_GIT_ROOT: projectPath };
+  }
+  const r = spawnSync(cmd, [...prefix, ...argv], { stdio: "inherit", env });
   if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
     process.stderr.write(`gov: '${argv[0]}' is a governed command provided by the internal gov-cicd plugin, which isn't installed.\n  install it:  npm i -g @svayam/gov-cicd\n`);
     return 127;
