@@ -23,13 +23,28 @@ export const OPERATE_COMMANDS = new Set([
   "catalog", "build", "deploy", "data", "promote", "rollback", "drift", "attest", "authorize", "test-spine", "deploy-check", "standards",
 ]);
 
+/** The reserved namespace under which gov-infra (do-admin) verbs delegate: `gov infra <cmd> …`. Unlike
+ *  gov-cicd's fixed OPERATE_COMMANDS, infra verbs are DYNAMIC (discovered from the plugin), so the host
+ *  routes on this single namespace token rather than a hardcoded verb set. */
+export const INFRA_NAMESPACE = "infra";
+
+/** Index of the first non-value-flag token (past `--gov-home <path>` etc.). Shared by the delegators. */
+function firstCommandIndex(argv: readonly string[]): number {
+  let i = 0;
+  while (i < argv.length && argv[i].startsWith("-")) i += argv[i] === "--gov-home" ? 2 : 1;
+  return i;
+}
+
 /** Is this invocation a governed verb (to delegate)? Finds the command past leading value-flags
  *  (`--gov-home <path>`), so `gov --gov-home … catalog` still routes to the plugin. */
 export function isGovernedInvocation(argv: readonly string[]): boolean {
-  let i = 0;
-  while (i < argv.length && argv[i].startsWith("-")) i += argv[i] === "--gov-home" ? 2 : 1;
-  const cmd = argv[i];
+  const cmd = argv[firstCommandIndex(argv)];
   return !!cmd && OPERATE_COMMANDS.has(cmd);
+}
+
+/** Is this a gov-infra invocation (`gov infra <cmd> …`)? Routes to the do-admin plugin. */
+export function isInfraInvocation(argv: readonly string[]): boolean {
+  return argv[firstCommandIndex(argv)] === INFRA_NAMESPACE;
 }
 
 function tryRun(cmd: string, args: string[]): string | undefined {
@@ -142,6 +157,46 @@ export function discoverOperateMenu(): OperateVerb[] {
     const m = JSON.parse(r.stdout.trim()) as { verbs?: OperateVerb[] };
     return Array.isArray(m.verbs) ? m.verbs : [];
   } catch { return []; }
+}
+
+/** Resolve the gov-infra plugin's launcher (`@svayam/do-admin`, else `do-admin` on PATH). Same pure runtime
+ *  discovery as the gov-cicd resolver — the infra plane is a peer plugin, not a build dependency. */
+function resolveInfraCmd(): { cmd: string; prefix: string[] } {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkgJson = require.resolve("@svayam/do-admin/package.json");
+    const pkg = JSON.parse(fsSync.readFileSync(pkgJson, "utf8")) as { bin?: string | Record<string, string> };
+    const rel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.["do-admin"];
+    if (rel) return { cmd: process.execPath, prefix: [path.join(path.dirname(pkgJson), rel)] };
+  } catch { /* not a resolvable dep — try PATH */ }
+  return { cmd: "do-admin", prefix: [] };
+}
+
+/** Discover the gov-infra plugin's menu contribution (`do-admin menu --json` → `{verbs}`). Returns [] when
+ *  the plugin is absent or too old — the host menu then simply shows no Infra submenu (clean OSS install). */
+export function discoverInfraMenu(): OperateVerb[] {
+  const { cmd, prefix } = resolveInfraCmd();
+  const r = spawnSync(cmd, [...prefix, "menu", "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  if (r.status !== 0 || !r.stdout) return [];
+  try {
+    // Take the last JSON line (the plugin prints only the manifest to stdout, but be defensive).
+    const line = r.stdout.trim().split("\n").reverse().find((l) => l.trim().startsWith("{"));
+    const m = line ? (JSON.parse(line) as { verbs?: OperateVerb[] }) : {};
+    return Array.isArray(m.verbs) ? m.verbs : [];
+  } catch { return []; }
+}
+
+/** Run a gov-infra verb via the do-admin plugin: strip leading value-flags + the `infra` namespace token,
+ *  pass the rest through (`gov infra vpn-mint-user alice` → `do-admin vpn-mint-user alice`). */
+export function delegateToInfra(argv: readonly string[]): number {
+  const { cmd, prefix } = resolveInfraCmd();
+  const rest = argv.slice(firstCommandIndex(argv) + 1); // everything after `infra`
+  const r = spawnSync(cmd, [...prefix, ...rest], { stdio: "inherit", env: process.env });
+  if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
+    process.stderr.write(`gov: 'infra ${rest[0] ?? ""}' is a governed infra verb provided by the gov-infra plugin (do-admin), which isn't installed.\n  install it:  npm i -g @svayam/do-admin\n`);
+    return 127;
+  }
+  return r.status ?? 1;
 }
 
 /** The catalog's unit ids (`gov-cicd catalog --json`) — feeds the menu's unit picker. [] on any failure. */

@@ -7,7 +7,7 @@
 // runtime discovery only, so gov-work keeps NO build dependency on it. (Also published as `gov-work`.)
 import { main, runSetupCommand, runCredsCommand, runMainMenu, readCliVersion, helpLines } from "./main.js";
 import { runAuthCommand } from "./auth.js";
-import { isGovernedInvocation, delegateToGovOperate, confirmContextOrBail } from "./host.js";
+import { isGovernedInvocation, delegateToGovOperate, isInfraInvocation, delegateToInfra, confirmContextOrBail } from "./host.js";
 
 const argv = process.argv.slice(2);
 
@@ -19,6 +19,9 @@ async function dispatch(): Promise<number> {
   // GOVERNED verbs → delegate to the internal gov-cicd plugin (it shows its OWN banner). Runtime
   // discovery only; gov-work has no build dependency on gov-cicd (the OSS boundary holds).
   if (isGovernedInvocation(argv)) return delegateToGovOperate(argv);
+
+  // Infra-plane verbs (`gov infra …`) → delegate to the do-admin plugin (its own peer of gov-cicd).
+  if (isInfraInvocation(argv)) return delegateToInfra(argv);
 
   // CORE (gov-work) commands: context banner + prompt-on-context-change (bail = 0), then dispatch.
   if (!(await confirmContextOrBail(argv))) return 0;
