@@ -1,0 +1,14 @@
+export * from "./src/types.js";
+export * from "./src/config.js";
+export { RagEngine, NotFound, BadRequest } from "./src/engine.js";
+export { buildEngine } from "./src/factory.js";
+export { createRestApp } from "./src/api/rest.js";
+export { runStdioServer, handleMessage } from "./src/mcp/server.js";
+export { TOOLS } from "./src/mcp/tools.js";
+export { chunkDocument } from "./src/chunk/chunker.js";
+export { classifyExclusion } from "./src/chunk/exclude.js";
+export { OllamaEmbedder } from "./src/embed/ollama.js";
+export { QdrantStore } from "./src/store/qdrant.js";
+export { MemoryStore } from "./src/store/memory.js";
+export { matchesFilter } from "./src/store/store.js";
+export { runBenchmark } from "./src/eval/benchmark.js";
