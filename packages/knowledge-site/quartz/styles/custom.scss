@@ -1,0 +1,75 @@
+@use "./base.scss";
+
+// --- Svayam authority badge (PRJ-010 #39, nav-schema Part 3) ---
+// Injected by quartz/plugins/svayam/authorityBadge.ts at the top of every page
+// body. Colour keys off the compliance/status data attributes.
+.authority-badge {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0 0 1.2rem 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--lightgray);
+  background: var(--highlight);
+  font-size: 0.8rem;
+
+  .authority-badge__chip {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: var(--lightgray);
+    color: var(--darkgray);
+    white-space: nowrap;
+    font-weight: 600;
+  }
+
+  // compliance tones
+  .authority-badge__chip.compliance-C01 {
+    background: #c0392b;
+    color: #fff;
+  }
+  .authority-badge__chip.compliance-C02 {
+    background: #e67e22;
+    color: #fff;
+  }
+  .authority-badge__chip.compliance-C03 {
+    background: #f1c40f;
+    color: #2b2b2b;
+  }
+  .authority-badge__chip.compliance-instructional {
+    background: #2980b9;
+    color: #fff;
+  }
+  .authority-badge__chip.compliance-descriptive,
+  .authority-badge__chip.compliance-evidence {
+    background: #7f8c8d;
+    color: #fff;
+  }
+
+  // non-current status overlay (draft / superseded / active / unknown)
+  &.is-non-current {
+    opacity: 0.92;
+    border-style: dashed;
+  }
+  .authority-badge__chip[class*="status-"] {
+    background: #d35400;
+    color: #fff;
+  }
+
+  // owner chip stays neutral
+  .authority-badge__chip[class*="owner-"] {
+    background: transparent;
+    color: var(--gray);
+    font-weight: 500;
+  }
+}
+
+// generated-index note styling
+.domain-index__note,
+.browse__empty {
+  font-size: 0.85rem;
+  color: var(--gray);
+  font-style: italic;
+}
