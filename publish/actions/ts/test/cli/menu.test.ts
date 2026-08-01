@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
 import { mainActions, visibleActions, formatMainMenu, resolveTopChoice, contextEnvs, type MenuContext, type OperateVerb } from "../../src/cli/menu.js";
-import { isGovernedInvocation } from "../../src/cli/host.js";
+import { isGovernedInvocation, isInfraInvocation } from "../../src/cli/host.js";
 
 const CTX: MenuContext = { orgName: "Acme Inc", githubOrg: "Acme", branch: "main", user: "rk", workspaceCount: 2, cliVersion: "1.0.0" };
 
@@ -102,5 +102,65 @@ describe("gov-work — interactive menu (context-scoped)", () => {
     expect(resolveTopChoice("o", CTX)).to.deep.equal({ kind: "org" });
     expect(resolveTopChoice("0", CTX)).to.deep.equal({ kind: "quit" });
     expect(resolveTopChoice("99", CTX)).to.deep.equal({ kind: "unknown" });
+  });
+});
+
+// A realistic slice of what `do-admin menu --json` contributes (the gov-infra plugin).
+const INFRA: OperateVerb[] = [
+  { cmd: "vpn-mint-user", desc: "issue a VPN .ovpn for a person", scopes: ["governed", "project"], argHint: "<name>", flagArgs: [{ name: "out", hint: "output file", optional: true }] },
+  { cmd: "vpn-revoke-user", desc: "revoke a person's VPN cert + refresh the CRL", scopes: ["governed", "project"], argHint: "<name>" },
+];
+const infraSub = (ctx: MenuContext, op: OperateVerb[], inf: OperateVerb[]) => visibleActions(ctx, op, inf).find((x) => x.label === "Infra");
+
+describe("gov-work — Infra submenu (gov-infra / do-admin plugin)", () => {
+  it("no Infra submenu unless the plugin contributes verbs; present as a PEER of Operate when it does", () => {
+    expect(mainActions(OPERATE).find((x) => x.label === "Infra")).to.equal(undefined);
+    const withBoth = mainActions(OPERATE, INFRA).map((a) => a.label);
+    expect(withBoth).to.include("Operate");
+    expect(withBoth).to.include("Infra");
+    // Infra sits after Operate (both are plugin planes, before Admin).
+    expect(withBoth.indexOf("Infra")).to.be.greaterThan(withBoth.indexOf("Operate"));
+    expect(withBoth.indexOf("Infra")).to.be.lessThan(withBoth.indexOf("Admin"));
+  });
+
+  it("GOVERNED + PROJECT both show the human-VPN verbs (scoped project|governed)", () => {
+    for (const mode of ["governed", "project"] as const) {
+      const ctx = { ...CTX, mode, ...(mode === "project" ? { project: "PRJ-106" } : {}) };
+      const a = infraSub(ctx, OPERATE, INFRA);
+      expect(a && a.kind === "submenu" ? a.commands.map((c) => c.cmd) : [], `Infra verbs in ${mode}`).to.deep.equal(["vpn-mint-user", "vpn-revoke-user"]);
+    }
+  });
+
+  it("the Infra submenu carries runPrefix ['infra'] so its verbs route to the do-admin plugin", () => {
+    const a = infraSub({ ...CTX, mode: "governed" }, OPERATE, INFRA);
+    expect(a && a.kind === "submenu" ? a.runPrefix : undefined).to.deep.equal(["infra"]);
+  });
+
+  it("UX-flow: EVERY Infra verb the menu dispatches routes to do-admin (argv = ['infra', <verb>, …]), never 'unknown command'", () => {
+    // The mirror of the Operate regression guard: the menu prepends the submenu's runPrefix, so a chosen infra
+    // verb becomes `gov infra <verb> …` — which isInfraInvocation must recognize and delegate to do-admin.
+    for (const v of INFRA) {
+      expect(isInfraInvocation(["infra", v.cmd]), `menu verb '${v.cmd}' must delegate to do-admin`).to.equal(true);
+      expect(isInfraInvocation(["--gov-home", "/x", "infra", v.cmd]), `'${v.cmd}' must delegate past value-flags`).to.equal(true);
+      expect(isGovernedInvocation(["infra", v.cmd]), `'${v.cmd}' must NOT be mistaken for a gov-cicd verb`).to.equal(false);
+    }
+  });
+
+  it("numbering matches between render and resolveTopChoice with BOTH plugins present", () => {
+    const g = { ...CTX, mode: "governed" as const };
+    const rendered = visibleActions(g, OPERATE, INFRA).map((a) => a.label);
+    expect(rendered).to.include("Infra");
+    rendered.forEach((label, i) => {
+      const r = resolveTopChoice(String(i + 1), g, OPERATE, INFRA);
+      expect(r.kind === "action" && r.action.label).to.equal(label);
+    });
+  });
+
+  it("NONE context: no plugin submenus — Infra disappears with Operate", () => {
+    expect(visibleActions({ ...CTX, mode: "none" }, OPERATE, INFRA).map((a) => a.label)).to.deep.equal(["Work", "Help"]);
+  });
+
+  it("renders an Infra section in the formatted menu", () => {
+    expect(formatMainMenu({ ...CTX, mode: "governed" }, OPERATE, INFRA).join("\n")).to.match(/Infra/);
   });
 });

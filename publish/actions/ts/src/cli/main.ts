@@ -14,7 +14,7 @@ import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
-import { discoverOperateMenu, discoverUnits, isGovernedInvocation, delegateToGovOperate } from "./host.js";
+import { discoverOperateMenu, discoverInfraMenu, discoverUnits, isGovernedInvocation, delegateToGovOperate, isInfraInvocation, delegateToInfra } from "./host.js";
 import { runWorkFlow, myProjects, agentLaunchSpec } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
@@ -260,6 +260,7 @@ export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
   if (argv[0] === "creds") return runCredsCommand(argv);
   if (isGovernedInvocation(argv)) return delegateToGovOperate(argv);   // Operate verbs → the gov-cicd plugin (as the top-level bin does)
+  if (isInfraInvocation(argv)) return delegateToInfra(argv);           // Infra verbs (`gov infra …`) → the do-admin plugin
   return main(argv);
 }
 
@@ -368,6 +369,7 @@ export async function runMainMenu(): Promise<number> {
     helpCommands: helpCommandNames,
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
     operateVerbs: () => { try { return discoverOperateMenu(); } catch { return []; } },
+    infraVerbs: () => { try { return discoverInfraMenu(); } catch { return []; } },
     listUnits: () => { try { return discoverUnits(); } catch { return []; } },
     listMyProjects: () => { try { return workDeps ? myProjects(workDeps).map((p) => p.projectId) : []; } catch { return []; } },
   };

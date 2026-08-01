@@ -50,15 +50,25 @@ export interface OperateVerb {
 }
 export type MenuAction =
   | { readonly kind: "guided"; readonly key: "work"; readonly label: string; readonly desc: string; readonly hint: string; readonly scopes?: readonly Scope[] }
-  | { readonly kind: "submenu"; readonly key: "status" | "admin" | "operate"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[]; readonly scopes?: readonly Scope[] }
+  /** A submenu. `runPrefix` (infra only) is prepended to the chosen command's argv so the host routes it to
+   *  the right plugin — e.g. ["infra"] makes `vpn-mint-user` run as `gov infra vpn-mint-user`. */
+  | { readonly kind: "submenu"; readonly key: "status" | "admin" | "operate" | "infra"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[]; readonly scopes?: readonly Scope[]; readonly runPrefix?: readonly string[] }
   | { readonly kind: "help"; readonly key: "help"; readonly label: string; readonly desc: string; readonly hint: string; readonly scopes?: readonly Scope[] };
 
-/** The FULL main-menu definition (every mode). `operate` = the plugin's discovered verbs, merged as the
- *  Operate submenu when present. Use `visibleActions(ctx, operate)` to get the context-filtered list. */
-export function mainActions(operate: readonly OperateVerb[] = []): MenuAction[] {
+/** The reserved namespace the host delegates gov-infra verbs under (mirror of host.ts INFRA_NAMESPACE). */
+const INFRA_PREFIX: readonly string[] = ["infra"];
+
+/** The FULL main-menu definition (every mode). `operate` (gov-cicd) and `infra` (do-admin) are the plugins'
+ *  discovered verbs, each merged as its own submenu when present. Use `visibleActions(ctx, operate, infra)`
+ *  for the context-filtered list. The two plugins are peers — CI/CD and the infrastructure plane. */
+export function mainActions(operate: readonly OperateVerb[] = [], infra: readonly OperateVerb[] = []): MenuAction[] {
   const operateSubmenu: MenuAction[] = operate.length ? [{
     kind: "submenu", key: "operate", label: "Operate", desc: "Governed deploy & catalog",
     commands: operate.map((v) => ({ cmd: v.cmd, desc: v.desc, argHint: v.argHint, flagArgs: v.flagArgs, scopes: v.scopes, subjectKind: v.subjectKind })),
+  }] : [];
+  const infraSubmenu: MenuAction[] = infra.length ? [{
+    kind: "submenu", key: "infra", label: "Infra", desc: "Governed infrastructure plane", runPrefix: INFRA_PREFIX,
+    commands: infra.map((v) => ({ cmd: v.cmd, desc: v.desc, argHint: v.argHint, flagArgs: v.flagArgs, scopes: v.scopes, subjectKind: v.subjectKind })),
   }] : [];
   return [
     { kind: "submenu", key: "status", label: "Status", desc: "Review current state", commands: [
@@ -68,6 +78,7 @@ export function mainActions(operate: readonly OperateVerb[] = []): MenuAction[] 
     ] },
     { kind: "guided", key: "work", label: "Work", desc: "Start / continue a project", hint: "pick a project" },
     ...operateSubmenu,
+    ...infraSubmenu,
     { kind: "submenu", key: "admin", label: "Admin", desc: "Administer governance", commands: [
       { cmd: "manage", desc: "project access — assign / unassign owners", scopes: ["project", "governed"], subs: [
         { cmd: "assign", desc: "grant a user project access", argHint: "<github-login>" },
@@ -100,10 +111,10 @@ function inScope(scopes: readonly Scope[] | undefined, mode: ContextMode | undef
 
 /** The context-filtered action list (HARD-HIDE): drops out-of-scope commands and any submenu left empty.
  *  This is the single source of menu numbering — format / resolve / run all go through it. */
-export function visibleActions(ctx: MenuContext, operate: readonly OperateVerb[] = []): MenuAction[] {
+export function visibleActions(ctx: MenuContext, operate: readonly OperateVerb[] = [], infra: readonly OperateVerb[] = []): MenuAction[] {
   const mode = ctx.mode;
   const out: MenuAction[] = [];
-  for (const a of mainActions(operate)) {
+  for (const a of mainActions(operate, infra)) {
     if (a.kind === "submenu") {
       const commands = a.commands.filter((c) => inScope(c.scopes, mode));
       if (commands.length && inScope(a.scopes, mode)) out.push({ ...a, commands });
@@ -131,8 +142,8 @@ const ARG_HELP: Record<string, string> = {
   "<board-url>": "the GitHub Project board URL",
 };
 
-export function formatMainMenu(ctx: MenuContext, operate: readonly OperateVerb[] = []): string[] {
-  const actions = visibleActions(ctx, operate);
+export function formatMainMenu(ctx: MenuContext, operate: readonly OperateVerb[] = [], infra: readonly OperateVerb[] = []): string[] {
+  const actions = visibleActions(ctx, operate, infra);
   const out: string[] = ["", `  ▸ ${ctx.orgName ?? "Governed Agentic Development Framework"} — Governed Agentic Development Framework (v${ctx.cliVersion ?? "?"})`];
   const bits = [ctx.githubOrg && `Org: ${ctx.githubOrg}`, ctx.branch && `Branch: ${ctx.branch}`, ctx.user && `User: ${ctx.user}`].filter(Boolean) as string[];
   if (bits.length) out.push(`  ${bits.join("  |  ")}`);
@@ -159,11 +170,11 @@ export type TopChoice =
   | { readonly kind: "quit" }
   | { readonly kind: "unknown" };
 
-export function resolveTopChoice(input: string, ctx: MenuContext = {}, operate: readonly OperateVerb[] = []): TopChoice {
+export function resolveTopChoice(input: string, ctx: MenuContext = {}, operate: readonly OperateVerb[] = [], infra: readonly OperateVerb[] = []): TopChoice {
   const t = input.trim().toLowerCase();
   if (t === "0" || t === "q" || t === "") return { kind: "quit" };
   if (t === "o") return { kind: "org" };
-  const actions = visibleActions(ctx, operate);
+  const actions = visibleActions(ctx, operate, infra);
   const n = Number(t);
   if (Number.isInteger(n) && n >= 1 && n <= actions.length) return { kind: "action", action: actions[n - 1] };
   const byName = actions.find((a) => a.label.toLowerCase() === t || ("key" in a && a.key === t));
@@ -192,6 +203,8 @@ export interface MenuHandlers {
   readonly listOrgs: () => readonly { readonly org: string; readonly home: string }[];
   /** The gov-cicd plugin's governed verbs, discovered at runtime. Absent/[] → no Operate submenu. */
   readonly operateVerbs?: () => readonly OperateVerb[];
+  /** The gov-infra plugin's (do-admin) verbs, discovered at runtime. Absent/[] → no Infra submenu. */
+  readonly infraVerbs?: () => readonly OperateVerb[];
   /** Discoverable subject value sets for the pickers (§2). Each may be slow (gh / plugin) → called on demand. */
   readonly listUnits?: () => readonly string[];
   readonly listMyProjects?: () => readonly string[];
@@ -208,10 +221,11 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
   const ask = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
   const w = (l: string): void => void process.stderr.write(`${l}\n`);
   const operate = h.operateVerbs?.() ?? [];   // runtime-discovered governed verbs (Operate submenu)
+  const infra = h.infraVerbs?.() ?? [];       // runtime-discovered infra-plane verbs (Infra submenu)
   try {
     for (;;) {
-      for (const l of formatMainMenu(ctx, operate)) w(l);
-      const top = resolveTopChoice(await ask("  Choose: "), ctx, operate);
+      for (const l of formatMainMenu(ctx, operate, infra)) w(l);
+      const top = resolveTopChoice(await ask("  Choose: "), ctx, operate, infra);
       if (top.kind === "quit") return 0;
       if (top.kind === "unknown") { w("  unknown choice"); continue; }
       if (top.kind === "org") {
@@ -265,7 +279,8 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
       if (sub === "0" || sub === "") continue;
       const chosen = pickCmd(a.commands, sub);
       if (!chosen) { w("  unknown choice"); continue; }
-      const cmdPath: string[] = [chosen.cmd];
+      // runPrefix (infra submenu → ["infra"]) routes the verb to its plugin; empty for core/operate submenus.
+      const cmdPath: string[] = [...(a.runPrefix ?? []), chosen.cmd];
       let leaf: SubCommand = chosen;
       // one level of guided nesting: a command WITH subcommands (manage/knowledge/org) → pick one
       if (chosen.subs?.length) {
