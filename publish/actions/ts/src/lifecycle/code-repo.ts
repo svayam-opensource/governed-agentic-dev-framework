@@ -10,7 +10,7 @@ import * as path from "node:path";
 import type { FsProbe, Vcs } from "./vcs.js";
 import type { Transaction } from "./transaction.js";
 import { retry, type RetryOptions } from "./retry.js";
-import { baseCloneDir, repoNameFromUrl } from "./repo.js";
+import { ensureBaseFresh, repoNameFromUrl } from "./repo.js";
 
 /** Parameters for setting up one code repo's project-branch worktree. */
 export interface CodeRepoParams {
@@ -45,13 +45,13 @@ export function setupCodeRepoWorktree(
 ): { repoDir: string; baseClone: string } {
   const remote = p.remote ?? "origin";
   const repoDir = path.join(p.projectWorkRoot, repoNameFromUrl(p.url));
-  const baseClone = baseCloneDir(p.agentWorkRoot, p.url);
 
-  // One shared base clone per repo (persists — not rolled back).
-  if (!deps.fs.pathExists(path.join(baseClone, ".git"))) {
-    deps.cloneRepo(p.url, baseClone);
-  }
-  deps.vcs.fetch(baseClone, remote, p.baseBranch);
+  // One shared base clone per repo (persists — not rolled back): ensure it exists AND is synced, via the
+  // single base-access seam so a worktree is never cut from a stale base (same guarantee as a governed deploy).
+  const baseClone = ensureBaseFresh(
+    { pathExists: (x) => deps.fs.pathExists(x), cloneRepo: (u, d) => deps.cloneRepo(u, d), fetch: (d, r, ref) => deps.vcs.fetch(d, r, ref) },
+    p.agentWorkRoot, p.url, remote, p.baseBranch,
+  );
 
   if (!deps.vcs.refExists(baseClone, `refs/remotes/${remote}/${p.baseBranch}`)) {
     throw new Error(`Base branch '${p.baseBranch}' not found in ${p.url}`);
