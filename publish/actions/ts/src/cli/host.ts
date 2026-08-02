@@ -124,9 +124,11 @@ function listBaseDirs(root: string): string[] {
   try { return fsSync.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); }
   catch { return []; }
 }
-/** Best-effort `git -C <repoDir> fetch <remote> [ref]` — never throws (offline / no remote → leave as-is). */
+/** Best-effort `git -C <repoDir> fetch <remote> [ref] --tags` — never throws (offline / no remote → leave
+ *  as-is). `--tags` is essential: a shared-env deploy pins each unit at its RELEASE TAG (`<unit>-<semver>`),
+ *  so the base clone must carry the tags, not just branch heads. */
 function gitFetch(repoDir: string, remote: string, ref?: string): void {
-  try { spawnSync("git", ["-C", repoDir, "fetch", remote, ...(ref ? [ref] : []), "--quiet"], { stdio: "ignore" }); }
+  try { spawnSync("git", ["-C", repoDir, "fetch", remote, ...(ref ? [ref] : []), "--tags", "--quiet"], { stdio: "ignore" }); }
   catch { /* best-effort */ }
 }
 
