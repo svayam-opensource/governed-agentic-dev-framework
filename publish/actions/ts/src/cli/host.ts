@@ -17,10 +17,11 @@ import { readCliVersion } from "./main.js";
 import {
   type ContextInfo, type Ack, contextFingerprint, hashText, renderBanner, isAcked, recordAck,
 } from "./context-banner.js";
+import { basesRoot, syncAllBases } from "../lifecycle/repo.js";
 
 /** Governed verbs provided by the internal gov-cicd plugin (absent from OSS gov-work). */
 export const OPERATE_COMMANDS = new Set([
-  "catalog", "build", "deploy", "data", "promote", "rollback", "drift", "attest", "authorize", "test-spine", "deploy-check", "standards",
+  "catalog", "build", "deploy", "data", "data-access", "promote", "rollback", "drift", "attest", "authorize", "test-spine", "deploy-check", "standards", "secret", "policy",
 ]);
 
 /** The reserved namespace under which gov-infra (do-admin) verbs delegate: `gov infra <cmd> …`. Unlike
@@ -82,7 +83,7 @@ function buildContextInfo(): ContextInfo {
   const user = tryRun("git", ["config", "user.email"]) ?? tryRun("gh", ["api", "user", "--jq", ".login"]);
   if (!govRepo) anomalies.push("no gov workspace resolved — run `gov setup` / `gov org use`");
   else if (!services.vault) anomalies.push("vault not configured (vault_addr) — governed creds/deploys need it");
-  return { mode, projectPath, govRepo, orgConfigPath, orgConfigHash, user, branch, services, anomalies };
+  return { mode, projectPath, agentWorkRoot, govRepo, orgConfigPath, orgConfigHash, user, branch, services, anomalies };
 }
 
 const ackFile = (): string => path.join(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".gov-context-ack.json");
@@ -128,11 +129,46 @@ function resolveOperateCmd(): { cmd: string; prefix: string[] } {
   return { cmd: "gov-cicd", prefix: [] };
 }
 
+/** Source-resolving governed verbs: these tree-sha a unit's SOURCE repo for its content_sha, so the shared
+ *  base clones must be current first (a base that lags its remote addresses an OLD tree → wrong/unresolved
+ *  content_sha). Lightweight verbs (menu/catalog listing) don't touch source and are excluded. */
+const SOURCE_VERBS = new Set(["deploy", "build", "promote", "data", "rollback", "drift", "attest"]);
+
+/** Base-clone directory NAMES under `root` (each a repo checkout); `[]` if the root is absent. */
+function listBaseDirs(root: string): string[] {
+  try { return fsSync.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); }
+  catch { return []; }
+}
+/** Best-effort `git -C <repoDir> fetch <remote> [ref] --tags` — never throws (offline / no remote → leave
+ *  as-is). `--tags` is essential: a shared-env deploy pins each unit at its RELEASE TAG (`<unit>-<semver>`),
+ *  so the base clone must carry the tags, not just branch heads. */
+function gitFetch(repoDir: string, remote: string, ref?: string): void {
+  try { spawnSync("git", ["-C", repoDir, "fetch", remote, ...(ref ? [ref] : []), "--tags", "--quiet"], { stdio: "ignore" }); }
+  catch { /* best-effort */ }
+}
+
 /** Run a governed verb via the internal gov-cicd plugin. Resolves the package's bin, else falls back to
  *  `gov-cicd` on PATH; a clean message if neither is present (OSS install without the plugin). */
 export function delegateToGovOperate(argv: readonly string[]): number {
   const { cmd, prefix } = resolveOperateCmd();
-  const r = spawnSync(cmd, [...prefix, ...argv], { stdio: "inherit" });
+  // Point the plugin's VCS at the right repo-clone ROOT so it can tree-sha a unit's SOURCE (its content_sha)
+  // without the user exporting GOV_GIT_ROOT. PROJECT → the project's own worktrees (agentWorkRoot/<project>);
+  // GOVERNED/NONE → the SHARED base clones (agentWorkRoot/.bases, ADR-0001), which the plugin's GitVcs resolves
+  // as <root>/<repo-name>. An explicit env always wins.
+  let env: NodeJS.ProcessEnv = process.env;
+  if (!process.env.GOV_GIT_ROOT) {
+    const { projectPath, agentWorkRoot } = buildContextInfo();
+    const gitRoot = projectPath ?? (agentWorkRoot ? basesRoot(agentWorkRoot) : undefined);
+    if (gitRoot) env = { ...process.env, GOV_GIT_ROOT: gitRoot };
+    // Governed source-resolving verbs read from the shared .bases clones IN THE PLUGIN'S OWN PROCESS — the host
+    // can't route each per-repo read through ensureBaseFresh, so it syncs all shared clones up-front here, for
+    // the same never-stale guarantee. Best-effort (GOV_NO_SYNC bypass); offline must not block the deploy.
+    if (!projectPath && agentWorkRoot && SOURCE_VERBS.has(argv[0] ?? "") && !("GOV_NO_SYNC" in process.env)) {
+      process.stderr.write("gov: syncing shared base clones (.bases) before a governed source operation…\n");
+      syncAllBases({ listBaseDirs, fetch: gitFetch }, agentWorkRoot);
+    }
+  }
+  const r = spawnSync(cmd, [...prefix, ...argv], { stdio: "inherit", env });
   if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
     process.stderr.write(`gov: '${argv[0]}' is a governed command provided by the internal gov-cicd plugin, which isn't installed.\n  install it:  npm i -g @svayam/gov-cicd\n`);
     return 127;

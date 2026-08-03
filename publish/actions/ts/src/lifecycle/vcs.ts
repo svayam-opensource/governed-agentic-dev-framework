@@ -185,7 +185,7 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
       must(["-c", "http.postBuffer=524288000", "clone", url, dest]);
     },
     fetch(repoDir, remote, ref) {
-      runGit(["-C", repoDir, "fetch", remote, ...(ref ? [ref] : [])]); // best-effort
+      runGit(["-C", repoDir, "fetch", remote, ...(ref ? [ref] : []), "--tags"]); // best-effort; --tags: release tags drive content-sha
     },
     setIdentity(repoDir, identity) {
       if (identity.name) must(["-C", repoDir, "config", "user.name", identity.name]);

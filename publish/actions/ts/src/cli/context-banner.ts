@@ -17,6 +17,9 @@ export type ContextMode = "project" | "governed" | "none";
 export interface ContextInfo {
   readonly mode: ContextMode;
   readonly projectPath?: string;
+  /** The org's agent_work_root (org-config) — the parent of both project dirs and `.bases`. NOT in the
+   *  fingerprint (derived from org-config, which already fingerprints via orgConfigHash). */
+  readonly agentWorkRoot?: string;
   readonly govRepo?: string;
   readonly orgConfigPath?: string;
   readonly orgConfigHash?: string;
