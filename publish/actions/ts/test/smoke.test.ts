@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
+import { readFile } from "node:fs/promises";
 import {
   OPERATION_CATEGORIES,
   MIGRATION_PHASES,
@@ -28,7 +29,21 @@ describe("prj-work Phase 0 — scaffold smoke", () => {
     }
   });
 
-  it("carries the transitional package identity", () => {
-    expect(PACKAGE_NAME).to.equal("@svayam-opensource/gov");
+  // The published identity, asserted against package.json ITSELF rather than a second copy of the string.
+  // `PACKAGE_NAME` is what `upgrade` installs and what `--version` matches on, so a drift between it and the
+  // manifest sends users to a package that is not this one. On 2026-08-04 the catalog and the manifest
+  // disagreed about this exact name for weeks, silently, because nothing compared them.
+  it("PACKAGE_NAME IS the published name — not a copy that can drift", async () => {
+    const url = new URL("../package.json", import.meta.url);
+    const pkg = JSON.parse(await readFile(url, "utf8")) as { name: string };
+    expect(PACKAGE_NAME).to.equal(pkg.name);
+    expect(pkg.name).to.equal("@svayam-opensource/gov-work");   // the artifact; `gov` is the COMMAND
+  });
+
+  // `bin` is the user-facing contract and is deliberately NOT the package name.
+  it("ships the `gov` command regardless of what the package is called", async () => {
+    const url = new URL("../package.json", import.meta.url);
+    const pkg = JSON.parse(await readFile(url, "utf8")) as { bin: Record<string, string> };
+    expect(Object.keys(pkg.bin)).to.include("gov");
   });
 });
