@@ -1,5 +1,5 @@
 {
-  "name": "@svayam-opensource/gov-work",
+  "name": "@svayam-opensource/gov",
   "version": "1.0.1",
   "description": "gov-work — the OSS project/workflow CLI for the Governed Agentic Development Framework (Node/TypeScript). Manages projects, workspaces, and credentials; enterprise catalog/deploy is the separate gov-cicd CLI. Succeeds the legacy bash @svayam-opensource/prj (frozen at 0.10.0).",
   "type": "module",

@@ -1,7 +1,7 @@
 # Contributing
 
 Two artifacts live here (see the [README](README.md)): the **CLI**
-(`publish/actions/ts` → `@svayam-opensource/gov-work`) and the **content**
+(`publish/actions/ts` → `@svayam-opensource/gov`) and the **content**
 (`publish/content` → policies, knowledge, agent harness). Change either; both are
 gated the same way.
 

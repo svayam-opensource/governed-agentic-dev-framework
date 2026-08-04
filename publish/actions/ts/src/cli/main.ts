@@ -118,7 +118,7 @@ export function readCliVersion(): string {
     if (raw) {
       try {
         const pkg = JSON.parse(raw) as { name?: string; version?: string };
-        if (pkg.name === "@svayam-opensource/gov-work" && pkg.version) return pkg.version;
+        if (pkg.name === "@svayam-opensource/gov" && pkg.version) return pkg.version;
       } catch {
         /* keep walking */
       }

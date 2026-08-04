@@ -21,7 +21,7 @@ const ctx = (files: Record<string, string>): ValidateContext => ({ fs: fakeFs(fi
 
 const PKG = "publish/actions/ts/package.json";
 const VERSION = "publish/content/VERSION";
-const README_OK = "![diagram](https://cdn.jsdelivr.net/npm/@svayam-opensource/gov-work@latest/assets/x.svg)";
+const README_OK = "![diagram](https://cdn.jsdelivr.net/npm/@svayam-opensource/gov@latest/assets/x.svg)";
 
 describe("gov-work — checkVersionSync (CLI ↔ content version)", () => {
   it("passes when the CLI version agrees with content/VERSION and the README floats @latest", () => {

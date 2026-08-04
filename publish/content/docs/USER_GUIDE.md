@@ -5,7 +5,7 @@ This guide is for daily users of the framework — people in an org that has alr
 If you're setting the framework up for the first time, see [README.md](../README.md) for the quickstart.
 If you're contributing back to the framework itself, see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-The `gov-work` CLI is installed from npm — `npm i -g @svayam-opensource/gov-work` (requires Node 24). It is **not** vendored into repos, so repos carry only data instead of a copy of the framework.
+The `gov-work` CLI is installed from npm — `npm i -g @svayam-opensource/gov` (requires Node 24). It is **not** vendored into repos, so repos carry only data instead of a copy of the framework.
 
 ---
 

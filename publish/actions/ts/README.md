@@ -1,4 +1,4 @@
-# @svayam-opensource/gov-work
+# @svayam-opensource/gov
 
 The OSS governance CLI (**command `gov-work`**) for the Governed Agentic Development
 Framework — the unit **gov-work**. Reimplemented **Bash → Node 24 / TypeScript**
@@ -6,7 +6,7 @@ Framework — the unit **gov-work**. Reimplemented **Bash → Node 24 / TypeScri
 
 It ships as a **new** npm package rather than continuing `@svayam-opensource/prj`:
 the legacy bash CLI is **frozen** at npm `0.10.0`, and `gov-work` starts fresh at
-`1.0.0`. Installing `@svayam-opensource/gov-work` provides the `gov-work` command; the two
+`1.0.0`. Installing `@svayam-opensource/gov` provides the `gov-work` command; the two
 coexist so adopters migrate at their own pace.
 
 ## Layout
@@ -16,7 +16,7 @@ Node 24.
 
 ```
 ts/gov-work/
-  package.json          # @svayam-opensource/gov-work  (bin: gov)
+  package.json          # @svayam-opensource/gov  (bin: gov)
   tsconfig.json         # ESM build → lib/esm
   tsconfig-cjs.json     # CJS build → lib/cjs
   eslint.config.ts
