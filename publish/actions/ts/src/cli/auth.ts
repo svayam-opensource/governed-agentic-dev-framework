@@ -18,6 +18,7 @@ import { login, loginServiceTokenExchange, claimsOf, type OidcConfig } from "../
 import { authPath, saveAuth, saveSession, sessionIdentity, loadAuth, clearAuth } from "../security/auth-store.js";
 import { vaultLogin } from "../security/vault.js";
 
+import { vaultRoleFor } from "../security/vault-role.js";
 const out = (s: string): void => { process.stdout.write(`${s}\n`); };
 const err = (s: string): void => { process.stderr.write(`${s}\n`); };
 
@@ -83,7 +84,9 @@ export async function runAuthCommand(argv: readonly string[]): Promise<number> {
           const vaultAddr = process.env.GOV_BAO_ADDR?.trim() || (cfgText ? parseOrgConfig(cfgText).vaultAddr : "") || "";
           if (!vaultAddr) { err("gov-work auth service --print-vault-token: no vault_addr (org-config) or GOV_BAO_ADDR."); return 1; }
           const rolesArr = Array.isArray(c.roles) ? (c.roles as string[]) : [];
-          const role = process.env.GOV_BAO_JWT_ROLE?.trim() || rolesArr[0]?.toLowerCase().replace(/_/g, "-") || "";
+          // This copy had NO `GOV_ADMIN` guard, so a gov-admin here derived a Vault role from whichever
+          // role sorted first — the positional bug in its most exposed form.
+          const role = vaultRoleFor(rolesArr, process.env.GOV_BAO_JWT_ROLE) ?? "";
           if (!role) { err("gov-work auth service: token carries no gov role (cannot select a Vault role)."); return 1; }
           const vtoken = await vaultLogin(
             { addr: vaultAddr, jwtMount: process.env.GOV_BAO_JWT_MOUNT?.trim() || "gov", role },
