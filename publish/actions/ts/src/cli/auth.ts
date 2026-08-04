@@ -13,10 +13,9 @@
 import { prjResolveGov } from "../resolve/resolve-gov.js";
 import { createNodeEnv } from "../resolve/node-env.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { defaultIdentity } from "../security/credentials.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
 import { login, loginServiceTokenExchange, claimsOf, type OidcConfig } from "../security/oidc.js";
-import { authPath, saveAuth, loadAuth, clearAuth } from "../security/auth-store.js";
+import { authPath, saveAuth, saveSession, sessionIdentity, loadAuth, clearAuth } from "../security/auth-store.js";
 import { vaultLogin } from "../security/vault.js";
 
 const out = (s: string): void => { process.stdout.write(`${s}\n`); };
@@ -40,7 +39,9 @@ export async function runAuthCommand(argv: readonly string[]): Promise<number> {
   if (!resolve.ok) { err("gov-work auth: no gov workspace resolved — run `gov-work onboard`/`gov-work setup` first."); return 1; }
   const cfgText = fs.readFile(`${resolve.home}/org-config.yaml`);
   const agentWorkRoot = (cfgText && parseOrgConfig(cfgText).agentWorkRoot) || "~/.svm/projects";
-  const identity = defaultIdentity(process.env);
+  // The session belongs to the IAM identity, which is only known AFTER the exchange — so `login` resolves it
+  // from the claims and writes the `.current` pointer. Everything else follows that pointer (910 #45).
+  const identity = sessionIdentity(agentWorkRoot, process.env);
   const file = authPath(agentWorkRoot, identity);
 
   const sub = argv[1] ?? "login";
@@ -48,9 +49,13 @@ export async function runAuthCommand(argv: readonly string[]): Promise<number> {
     case "login": {
       try {
         const tokens = await login(oidcConfig(process.env), out);
-        saveAuth(file, tokens);
         const c = claimsOf(tokens.accessToken ?? tokens.idToken);
+        // Key the store by the IAM email the token actually carries — NOT by the OS username, which is a
+        // different person-identifier that happened to be available earlier.
+        const me = process.env.GOV_IDENTITY?.trim() || who(c);
+        const saved = saveSession(agentWorkRoot, me, tokens);
         out(`✓ Signed in as ${who(c)}`);
+        out(`  session: ${saved}   (every \`gov\` verb reads this one)`);
         out(`  account: ${String(c.account_ctx ?? "?")}   roles: ${roles(c)}`);
         out(`  session valid until ${new Date(tokens.expiresAt).toISOString()} (re-run \`gov-work auth login\` when it expires).`);
         return 0;

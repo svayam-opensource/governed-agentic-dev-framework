@@ -27,7 +27,7 @@ import { runCreds } from "../security/creds-flow.js";
 import { runCredsScoped } from "./creds-scoped.js";
 import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
-import { loadAuth, authPath } from "../security/auth-store.js";
+import { loadSession } from "../security/auth-store.js";
 import { claimsOf } from "../security/oidc.js";
 import { vaultLogin, kvRead, kvWrite } from "../security/vault.js";
 import { createGitVcs } from "../lifecycle/vcs.js";
@@ -202,7 +202,7 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   // Vault address: env override wins (CI/local overrides), else org-config's `vault_addr` — the single
   // source of truth so devs + Jenkins inherit it without setting an env var.
   const vaultAddr = process.env.GOV_BAO_ADDR?.trim() || orgConfig.vaultAddr || undefined;
-  const session = requestedKey ? null : loadAuth(authPath(agentWorkRoot, defaultIdentity()));
+  const session = requestedKey ? null : loadSession(agentWorkRoot);   // follows `.current` (910 #45)
   let vault: { addr: string; token: string; path: string; data: Record<string, string> } | null = null;
   if (session && vaultAddr) {
     try {

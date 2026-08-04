@@ -14,10 +14,9 @@ import * as readline from "node:readline";
 import { prjResolveGov } from "../resolve/resolve-gov.js";
 import { createNodeEnv } from "../resolve/node-env.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { loadAuth, authPath } from "../security/auth-store.js";
+import { loadSession } from "../security/auth-store.js";
 import { claimsOf } from "../security/oidc.js";
 import { vaultLogin, kvRead, kvWrite } from "../security/vault.js";
-import { defaultIdentity } from "../security/credentials.js";
 import { userCredsSet, userCredsList } from "../security/user-creds.js";
 
 export type CredScope = "personal" | "shared";
@@ -55,7 +54,7 @@ function resolveCtx(): Ctx | { error: string } {
   const org = parseOrgConfig(cfgText);
   const addr = process.env.GOV_BAO_ADDR?.trim() || org.vaultAddr;   // vaultAddr now sources from services.vault
   if (!addr) return { error: "no Vault configured (vault_addr / services.vault)" };
-  const session = loadAuth(authPath(org.agentWorkRoot, defaultIdentity())) as { accessToken?: string; idToken?: string } | null;
+  const session = loadSession(org.agentWorkRoot) as { accessToken?: string; idToken?: string } | null;
   if (!session) return { error: "not logged in — run `gov auth login`" };
   const jwt = session.accessToken ?? session.idToken;
   if (!jwt) return { error: "session has no token — re-run `gov auth login`" };
