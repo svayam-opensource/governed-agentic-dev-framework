@@ -48,6 +48,7 @@ import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
+import { PACKAGE_NAME } from "../index.js";
 
 /** Run a command, swallowing failures (returns undefined). */
 function tryRun(cmd: string, args: string[]): string | undefined {
@@ -118,7 +119,7 @@ export function readCliVersion(): string {
     if (raw) {
       try {
         const pkg = JSON.parse(raw) as { name?: string; version?: string };
-        if (pkg.name === "@svayam-opensource/gov" && pkg.version) return pkg.version;
+        if (pkg.name === PACKAGE_NAME && pkg.version) return pkg.version;
       } catch {
         /* keep walking */
       }
