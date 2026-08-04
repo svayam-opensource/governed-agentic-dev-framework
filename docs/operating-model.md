@@ -6,7 +6,7 @@ The framework is **two artifacts** produced from **one source repo**:
   **source of truth** for *both* the `gov-work` **CLI** (Node/TypeScript, at
   `ts/gov-work/`) and the **content** (`framework/`: policies, knowledge starters,
   the agent harness/protocol, the install `MANIFEST`).
-- **npm `@svayam-opensource/gov-work`** — the **published CLI** (command `gov-work`), built
+- **npm `@svayam-opensource/gov`** — the **published CLI** (command `gov-work`), built
   from `ts/gov-work/`. It succeeds the legacy bash `@svayam-opensource/prj`, which
   is **frozen** at `0.10.0` (no new versions).
 - **Adopter governance repos** (e.g. `Svayamtech/svm-prj-work`) — pure governance
@@ -21,7 +21,7 @@ flowchart TD
     CLISRC["ts/gov-work/<br/>(Node CLI source)"]
     CONTENT["framework/<br/>(content: policy · knowledge · harness)"]
   end
-  CLISRC -->|"(a) bump + governed publish"| NPM["npm @svayam-opensource/gov-work"]
+  CLISRC -->|"(a) bump + governed publish"| NPM["npm @svayam-opensource/gov"]
   subgraph ADOPT["Adopter governance DATA repo"]
     DATA["org-config.yaml · projects/ · knowledge/"]
   end
@@ -43,7 +43,7 @@ flowchart TD
 | **Update content** | Edit under `framework/` (policies, knowledge starters, harness). If you changed the **session protocol** (`agent/session-protocol.md`), re-render the per-tool harness files (the generated `framework/CLAUDE.md`, `.cursor/…` etc. carry a "do not edit" banner — edit the source + re-render). |
 | **Publish content** | Open a PR → merge to `main`. Merging **is** the content release: adopters pick it up with `gov-work upgrade`. No separate step. |
 | **Update the CLI** | Edit at `ts/gov-work/` (Node 24 / TypeScript). `npm test` (incl. the full-flow e2e gate) must pass — it's a required check on `main`. |
-| **Publish the CLI to npmjs** | `gov bump-version <x.y.z>` (keeps `package.json` == `framework/VERSION` == `.framework-version` in sync; `gov-work validate` enforces it), commit, push `main`, then run the governed publish pipeline (`@svayam-opensource/gov-work`, dist-tag `latest`). The gate runs build + lint + test + version-sync + `npm pack`; verify the new version is live on npmjs afterward. |
+| **Publish the CLI to npmjs** | `gov bump-version <x.y.z>` (keeps `package.json` == `framework/VERSION` == `.framework-version` in sync; `gov-work validate` enforces it), commit, push `main`, then run the governed publish pipeline (`@svayam-opensource/gov`, dist-tag `latest`). The gate runs build + lint + test + version-sync + `npm pack`; verify the new version is live on npmjs afterward. |
 
 > Content and CLI live in the same repo — a release can carry either or both. Keep
 > them coherent: a content change that needs new CLI behaviour ships with a CLI bump.
@@ -56,7 +56,7 @@ flowchart TD
 
 ### Adopt — one-time, for a brand-new org
 
-1. **Install the CLI:** `npm i -g @svayam-opensource/gov-work` (prereqs: **Node ≥ 24**,
+1. **Install the CLI:** `npm i -g @svayam-opensource/gov` (prereqs: **Node ≥ 24**,
    `git`, `gh` authenticated — no bash/yq/python needed).
 2. **Create your org's governance repo** on GitHub (empty) — this becomes your
    governance **data** workspace. It holds *no* CLI source.
@@ -82,8 +82,8 @@ flowchart TD
 
 | Goal | Path |
 |---|---|
-| **Install the CLI** | `npm i -g @svayam-opensource/gov-work`. Runtime prereqs: **Node ≥ 24**, `git`, `gh` (authenticated). Cross-platform (no Git Bash requirement). |
-| **Upgrade the CLI** | `npm i -g @svayam-opensource/gov-work@latest` (or `npm update -g @svayam-opensource/gov-work`). |
+| **Install the CLI** | `npm i -g @svayam-opensource/gov`. Runtime prereqs: **Node ≥ 24**, `git`, `gh` (authenticated). Cross-platform (no Git Bash requirement). |
+| **Upgrade the CLI** | `npm i -g @svayam-opensource/gov@latest` (or `npm update -g @svayam-opensource/gov`). |
 | **Use it** | Run `gov-work` for the interactive menu, or `gov <command>` directly — see the README. |
 | **Propose a CLI change** | Open an issue or PR against **this template repo** (the CLI's source of truth, `ts/gov-work/`). Don't edit an installed copy — your change must land here to ship via npm to everyone. |
 
@@ -93,7 +93,7 @@ flowchart TD
 
 - **(a) maintainers** edit + publish the product (content → merge `main`; CLI → `gov bump-version` + governed publish → npm).
 - **(b) admins** adopt once (`gov-work setup` + `gov-work org add/use`), then `gov-work upgrade` to pull content; propose via `gov-work knowledge` (local) or a template PR (framework-wide).
-- **(c) developers** `npm i -g @svayam-opensource/gov-work`; propose CLI changes via a template PR.
+- **(c) developers** `npm i -g @svayam-opensource/gov`; propose CLI changes via a template PR.
 
 ---
 

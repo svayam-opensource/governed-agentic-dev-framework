@@ -673,7 +673,7 @@ The Legal & Compliance Policy will govern legal compliance requirements applicab
 
 ### Appendix B: Command Inventory
 
-The following `gov-work` subcommands constitute the authorized tooling for project and knowledge lifecycle management. `gov-work` is the org's CLI (npm package `@svayam-opensource/gov-work`, Node 24). Agents and developers must use these commands rather than performing equivalent operations manually. **(POL-164)**
+The following `gov-work` subcommands constitute the authorized tooling for project and knowledge lifecycle management. `gov-work` is the org's CLI (npm package `@svayam-opensource/gov`, Node 24). Agents and developers must use these commands rather than performing equivalent operations manually. **(POL-164)**
 
 | Command | Context | Purpose |
 |---|---|---|

@@ -33,7 +33,7 @@ export function checkVersionCompat(cliVersion: string, contentVersion: string | 
   if (c === 0) return { status: "ok", ok: true, message: `CLI ${cliVersion} == content ${contentVersion}` };
   if (c > 0) return { status: "content-behind", ok: true, message: `content ${contentVersion} is behind the CLI ${cliVersion} — run \`gov-work upgrade\` to sync the workspace` };
   if (cli[0] < content[0]) {
-    return { status: "cli-behind-major", ok: false, message: `gov-work CLI ${cliVersion} is a MAJOR version behind this workspace's content ${contentVersion} — it may not understand the layout. Upgrade the CLI:\n  npm i -g @svayam-opensource/gov-work@${contentVersion}` };
+    return { status: "cli-behind-major", ok: false, message: `gov-work CLI ${cliVersion} is a MAJOR version behind this workspace's content ${contentVersion} — it may not understand the layout. Upgrade the CLI:\n  npm i -g @svayam-opensource/gov@${contentVersion}` };
   }
-  return { status: "cli-behind", ok: true, message: `gov-work CLI ${cliVersion} is behind the content ${contentVersion} — consider \`npm i -g @svayam-opensource/gov-work@${contentVersion}\`` };
+  return { status: "cli-behind", ok: true, message: `gov-work CLI ${cliVersion} is behind the content ${contentVersion} — consider \`npm i -g @svayam-opensource/gov@${contentVersion}\`` };
 }

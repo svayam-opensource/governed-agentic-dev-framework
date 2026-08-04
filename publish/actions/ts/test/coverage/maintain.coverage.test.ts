@@ -208,7 +208,7 @@ describe("coverage — checkVersionCompat: every status + boundaries", () => {
 
   it("messages carry the right guidance per status", () => {
     expect(checkVersionCompat("1.3.0", "1.1.0").message).to.match(/gov-work upgrade/);
-    expect(checkVersionCompat("1.1.0", "1.4.0").message).to.match(/npm i -g @svayam-opensource\/gov-work@1\.4\.0/);
+    expect(checkVersionCompat("1.1.0", "1.4.0").message).to.match(/npm i -g @svayam-opensource\/gov@1\.4\.0/);
     expect(checkVersionCompat("1.9.0", "2.0.0").message).to.match(/MAJOR version behind/);
     expect(checkVersionCompat("1.0.0", null).message).to.match(/no content VERSION marker/);
     expect(checkVersionCompat("2.0.0", "2.0.0").message).to.match(/== content/);

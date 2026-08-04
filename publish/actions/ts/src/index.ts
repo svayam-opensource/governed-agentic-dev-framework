@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd. — part of the OSS governed-agentic-dev-framework.
 /**
- * @svayam-opensource/gov-work — the OSS core of the `prj` governance CLI.
+ * @svayam-opensource/gov — the OSS core of the `prj` governance CLI.
  *
  * Migration in flight: Bash → Node 24 / TypeScript, for AD-6.1 conformance
  * (the legacy Bash CLI is a non-conformant deviation and the root cause of the
@@ -42,7 +42,7 @@ export const MIGRATION_PHASES: readonly MigrationPhase[] = [
 ] as const;
 
 /** Package identity — the transitional Node name; promoted to the package root at cutover. */
-export const PACKAGE_NAME = "@svayam-opensource/gov-work" as const;
+export const PACKAGE_NAME = "@svayam-opensource/gov" as const;
 
 // Phase 1 — governance-home resolution (SDD-013/040/041/042).
 export * from "./resolve/index.js";
