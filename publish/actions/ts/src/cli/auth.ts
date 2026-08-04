@@ -13,10 +13,9 @@
 import { prjResolveGov } from "../resolve/resolve-gov.js";
 import { createNodeEnv } from "../resolve/node-env.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { defaultIdentity } from "../security/credentials.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
 import { login, loginServiceTokenExchange, claimsOf, type OidcConfig } from "../security/oidc.js";
-import { authPath, saveAuth, saveSession, loadSession, sessionIdentity, loadAuth, clearAuth } from "../security/auth-store.js";
+import { authPath, saveAuth, saveSession, sessionIdentity, loadAuth, clearAuth } from "../security/auth-store.js";
 import { vaultLogin } from "../security/vault.js";
 
 const out = (s: string): void => { process.stdout.write(`${s}\n`); };

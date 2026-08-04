@@ -27,7 +27,7 @@ import { runCreds } from "../security/creds-flow.js";
 import { runCredsScoped } from "./creds-scoped.js";
 import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
-import { loadAuth, authPath, loadSession } from "../security/auth-store.js";
+import { loadSession } from "../security/auth-store.js";
 import { claimsOf } from "../security/oidc.js";
 import { vaultLogin, kvRead, kvWrite } from "../security/vault.js";
 import { createGitVcs } from "../lifecycle/vcs.js";
