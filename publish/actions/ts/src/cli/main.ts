@@ -50,6 +50,7 @@ import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 import { PACKAGE_NAME } from "../index.js";
 
+import { vaultRoleFor } from "../security/vault-role.js";
 /** Run a command, swallowing failures (returns undefined). */
 function tryRun(cmd: string, args: string[]): string | undefined {
   try {
@@ -209,8 +210,7 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
       const claims = claimsOf(session.accessToken ?? session.idToken);
       const account = String(claims.account_ctx ?? "");
       const rolesArr = Array.isArray(claims.roles) ? (claims.roles as string[]) : [];
-      const role = process.env.GOV_BAO_JWT_ROLE?.trim()
-        || (rolesArr.includes("GOV_ADMIN") ? "gov-admin" : rolesArr[0]?.toLowerCase().replace(/_/g, "-") ?? "");
+      const role = vaultRoleFor(rolesArr, process.env.GOV_BAO_JWT_ROLE) ?? "";
       if (!account) throw new Error("your token has no account_ctx");
       if (!role) throw new Error("your token carries no gov role (a gov-admin seeds account creds)");
       const token = await vaultLogin({ addr: vaultAddr, jwtMount: process.env.GOV_BAO_JWT_MOUNT?.trim() || "gov", role }, session.accessToken ?? session.idToken);

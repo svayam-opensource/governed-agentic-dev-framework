@@ -20,6 +20,7 @@ import { vaultLogin, kvRead, kvWrite } from "../security/vault.js";
 import { defaultIdentity } from "../security/credentials.js";
 import { userCredsSet, userCredsList } from "../security/user-creds.js";
 
+import { vaultRoleFor } from "../security/vault-role.js";
 export type CredScope = "personal" | "shared";
 export interface CredsSetArgs { key?: string; value?: string; scope: CredScope; fromNpmrc: boolean; }
 
@@ -66,7 +67,7 @@ function accountRole(jwt: string): { account: string; role: string } {
   const c = claimsOf(jwt) as { account_ctx?: unknown; roles?: unknown };
   const account = String(c.account_ctx ?? "");
   const roles = Array.isArray(c.roles) ? (c.roles as string[]) : [];
-  const role = process.env.GOV_BAO_JWT_ROLE?.trim() || (roles.includes("GOV_ADMIN") ? "gov-admin" : roles[0]?.toLowerCase().replace(/_/g, "-") ?? "");
+  const role = vaultRoleFor(roles, process.env.GOV_BAO_JWT_ROLE) ?? "";
   return { account, role };
 }
 
