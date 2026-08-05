@@ -40,6 +40,22 @@ describe("prj-work Phase 0 — scaffold smoke", () => {
     expect(pkg.name).to.equal("@svayam-opensource/gov-work");   // the artifact; `gov` is the COMMAND
   });
 
+  // PUBLISHING SAFETY. `publishConfig.registry` is the target of a bare `npm publish` — a refactor that drops
+  // the recipe's `--registry` flag, or a hand-run in a checkout. It must NOT be the public registry: npm's
+  // unpublish window is 72h and never applies once anything depends on the version, so the default has to
+  // fail in the recoverable direction. Going public is reached by SAYING SO (prod's registries entry).
+  it("defaults publishing to the INTERNAL registry — going public must be explicit", async () => {
+    const url = new URL("../package.json", import.meta.url);
+    const pkg = JSON.parse(await readFile(url, "utf8")) as { publishConfig?: { registry?: string; access?: string } };
+    expect(pkg.publishConfig?.registry ?? "").to.not.match(/registry\.npmjs\.org/);
+    expect(pkg.publishConfig?.access).to.equal("public");   // required for a SCOPED package once it does go public
+  });
+
+  it("ships a LICENSE file, not just a license field", async () => {
+    const url = new URL("../LICENSE", import.meta.url);
+    expect((await readFile(url, "utf8")).slice(0, 11)).to.equal("MIT License");
+  });
+
   // `bin` is the user-facing contract and is deliberately NOT the package name.
   it("ships the `gov` command regardless of what the package is called", async () => {
     const url = new URL("../package.json", import.meta.url);
