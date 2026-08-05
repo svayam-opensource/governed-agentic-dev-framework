@@ -9,6 +9,7 @@ import { main, runSetupCommand, runCredsCommand, runMainMenu, readCliVersion, he
 import { runAuthCommand } from "./auth.js";
 import { isGovernedInvocation, delegateToGovOperate, isInfraInvocation, delegateToInfra, confirmContextOrBail } from "./host.js";
 
+import { helpCommandNames } from "./main.js";
 const argv = process.argv.slice(2);
 
 async function dispatch(): Promise<number> {
@@ -18,7 +19,9 @@ async function dispatch(): Promise<number> {
 
   // GOVERNED verbs → delegate to the internal gov-cicd plugin (it shows its OWN banner). Runtime
   // discovery only; gov-work has no build dependency on gov-cicd (the OSS boundary holds).
-  if (isGovernedInvocation(argv)) return delegateToGovOperate(argv);
+  // Same routing as main.ts: seeded verbs fast, host verbs never delegated, anything else asked of the
+  // plugin once. Both entry points must agree, so both pass the host's own command list.
+  if (isGovernedInvocation(argv, helpCommandNames())) return delegateToGovOperate(argv);
 
   // Infra-plane verbs (`gov infra …`) → delegate to the do-admin plugin (its own peer of gov-cicd).
   if (isInfraInvocation(argv)) return delegateToInfra(argv);
