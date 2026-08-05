@@ -260,7 +260,9 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
 export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
   if (argv[0] === "creds") return runCredsCommand(argv);
-  if (isGovernedInvocation(argv)) return delegateToGovOperate(argv);   // Operate verbs → the gov-cicd plugin (as the top-level bin does)
+  // Pass the host's OWN verbs so routing can tell "mine" from "unknown" without spawning the plugin for
+  // every `setup`/`doctor`; anything in neither list is asked of the plugin, once.
+  if (isGovernedInvocation(argv, helpCommandNames())) return delegateToGovOperate(argv);   // → the gov-cicd plugin
   if (isInfraInvocation(argv)) return delegateToInfra(argv);           // Infra verbs (`gov infra …`) → the do-admin plugin
   return main(argv);
 }

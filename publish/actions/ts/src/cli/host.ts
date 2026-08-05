@@ -20,6 +20,9 @@ import {
 import { basesRoot, syncAllBases } from "../lifecycle/repo.js";
 
 /** Governed verbs provided by the internal gov-cicd plugin (absent from OSS gov-work). */
+/** STATIC SEED for the fast path — NOT the authority. The plugin's `menu --json` is (see
+ *  `isGovernedInvocation`); this only spares a subprocess for verbs that have existed a while. A verb
+ *  missing here still routes, just one spawn slower. */
 export const OPERATE_COMMANDS = new Set([
   "catalog", "build", "deploy", "data", "data-access", "promote", "rollback", "drift", "attest", "authorize", "test-spine", "deploy-check", "standards", "secret", "policy",
 ]);
@@ -38,9 +41,41 @@ function firstCommandIndex(argv: readonly string[]): number {
 
 /** Is this invocation a governed verb (to delegate)? Finds the command past leading value-flags
  *  (`--gov-home <path>`), so `gov --gov-home … catalog` still routes to the plugin. */
-export function isGovernedInvocation(argv: readonly string[]): boolean {
+/**
+ * Verbs discovered from the gov-cicd plugin, resolved AT MOST ONCE per process.
+ *
+ * `OPERATE_COMMANDS` below is a static SEED, not the authority. It was the authority, and that made every
+ * new governed verb a two-place edit — the plugin's own command list, and this set — with nothing checking
+ * they agreed. `gov version bump` shipped registered in one and not the other, so the host answered
+ * "unknown command" for a verb that existed. gov-infra never had this problem because its verbs are
+ * discovered; gov-cicd's MENU was discovered too, only its ROUTING was not.
+ */
+let discovered: Set<string> | undefined;
+function discoveredOperateVerbs(): Set<string> {
+  if (!discovered) discovered = new Set(discoverOperateMenu().map((v) => v.cmd).filter(Boolean));
+  return discovered;
+}
+
+/**
+ * Does this invocation belong to the gov-cicd plugin?
+ *
+ * Ordered so the SPAWN is paid only when it buys something:
+ *   1. a seeded operate verb  → yes, no spawn (the common case)
+ *   2. one of the host's own  → no, no spawn (`setup`, `doctor`, …)
+ *   3. anything else          → ask the plugin, once per process
+ *
+ * So a new plugin verb works the day it is added, with no host release, and an actual typo costs one
+ * subprocess before it is reported.
+ */
+export function isGovernedInvocation(argv: readonly string[], hostCommands: readonly string[] = []): boolean {
   const cmd = argv[firstCommandIndex(argv)];
-  return !!cmd && OPERATE_COMMANDS.has(cmd);
+  if (!cmd) return false;
+  if (OPERATE_COMMANDS.has(cmd)) return true;
+  // `hostCommands` is the host's HELP list, which deliberately advertises verbs it DELEGATES (promote,
+  // rollback, drift, data) so users can discover them. Appearing there is therefore not ownership —
+  // subtract anything the plugin owns, or a delegated verb would be claimed by the host and refused.
+  if (hostCommands.some((c) => c === cmd && !OPERATE_COMMANDS.has(c))) return false;
+  return discoveredOperateVerbs().has(cmd);
 }
 
 /** Is this a gov-infra invocation (`gov infra <cmd> …`)? Routes to the do-admin plugin. */
