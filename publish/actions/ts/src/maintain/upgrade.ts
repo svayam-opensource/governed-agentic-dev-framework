@@ -6,8 +6,12 @@
  * published; today this resolves the target and reports the install command
  * (drift is surfaced by `doctor`). Pure plan; no auto-install.
  */
+import { PACKAGE_NAME } from "../index.js";
+
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
-const PKG = "@svayam-opensource/gov-work";
+// The published name, imported rather than restated. `upgrade` INSTALLS by this string, so a copy that
+// drifts sends users to a package that is not this one — the worst place to keep a second copy of a name.
+const PKG = PACKAGE_NAME;
 
 export type UpgradePlan =
   | { readonly kind: "up-to-date"; readonly version: string }

@@ -32,7 +32,8 @@ export interface SyncDeps {
   readonly board: Board;
   readonly vcs: Vcs;
   readonly fs: FsProbe;
-  readonly authorize?: (ref: BoardRef) => boolean;
+  /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
+  readonly authorize: (ref: BoardRef) => boolean;
   readonly log?: (msg: string) => void;
 }
 
@@ -50,7 +51,7 @@ export function sync(deps: SyncDeps, config: SyncConfig, input: SyncInput): Sync
     return { ok: false, code: 1, reason: "not-a-project-branch", message: `'${projectBranch}' is not a project branch.` };
   }
   const ref: BoardRef = { owner: config.githubOrg, ownerField: config.ownerField ?? "organization", number: boardNumber };
-  if (deps.authorize && !deps.authorize(ref)) {
+  if (!deps.authorize(ref)) {
     return { ok: false, code: 1, reason: "unauthorized", message: `Not authorized on GitHub Project #${boardNumber}.` };
   }
 

@@ -10,12 +10,12 @@
 import * as path from "node:path";
 import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
-import { discoverOperateMenu, discoverUnits, isGovernedInvocation, delegateToGovOperate } from "./host.js";
-import { runWorkFlow, myProjects } from "./work-flow.js";
+import { discoverOperateMenu, discoverInfraMenu, discoverUnits, isGovernedInvocation, delegateToGovOperate, isInfraInvocation, delegateToInfra } from "./host.js";
+import { runWorkFlow, myProjects, agentLaunchSpec } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -27,7 +27,7 @@ import { runCreds } from "../security/creds-flow.js";
 import { runCredsScoped } from "./creds-scoped.js";
 import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
-import { loadAuth, authPath } from "../security/auth-store.js";
+import { loadSession } from "../security/auth-store.js";
 import { claimsOf } from "../security/oidc.js";
 import { vaultLogin, kvRead, kvWrite } from "../security/vault.js";
 import { createGitVcs } from "../lifecycle/vcs.js";
@@ -48,7 +48,9 @@ import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
+import { PACKAGE_NAME } from "../index.js";
 
+import { vaultRoleFor } from "../security/vault-role.js";
 /** Run a command, swallowing failures (returns undefined). */
 function tryRun(cmd: string, args: string[]): string | undefined {
   try {
@@ -118,7 +120,7 @@ export function readCliVersion(): string {
     if (raw) {
       try {
         const pkg = JSON.parse(raw) as { name?: string; version?: string };
-        if (pkg.name === "@svayam-opensource/gov-work" && pkg.version) return pkg.version;
+        if (pkg.name === PACKAGE_NAME && pkg.version) return pkg.version;
       } catch {
         /* keep walking */
       }
@@ -189,7 +191,7 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   // `gov-work creds <KEY>` targets one credential (e.g. SVAYAM_GOV_LICENSE); bare `gov-work creds` walks
   // the base NEEDs (git/gh) PLUS every credential DECLARED in the org's build/deploy policies
   // (knowledge/deployment/{build,deploy}-policy.yaml) — the policy is the single source of truth for what
-  // keys are required, so any port/seam (gov-operate included) is covered without gov-work knowing it.
+  // keys are required, so any port/seam (gov-cicd included) is covered without gov-work knowing it.
   const requestedKey = argv[1];
   const policyNeeds = readPolicyCredNeeds((p) => fs.readFile(p), resolve.home);
   const needs = requestedKey ? [credNeedForKey(requestedKey)] : [...assembleNeeds(policyNeeds)];
@@ -201,15 +203,14 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
   // Vault address: env override wins (CI/local overrides), else org-config's `vault_addr` — the single
   // source of truth so devs + Jenkins inherit it without setting an env var.
   const vaultAddr = process.env.GOV_BAO_ADDR?.trim() || orgConfig.vaultAddr || undefined;
-  const session = requestedKey ? null : loadAuth(authPath(agentWorkRoot, defaultIdentity()));
+  const session = requestedKey ? null : loadSession(agentWorkRoot);   // follows `.current` (910 #45)
   let vault: { addr: string; token: string; path: string; data: Record<string, string> } | null = null;
   if (session && vaultAddr) {
     try {
       const claims = claimsOf(session.accessToken ?? session.idToken);
       const account = String(claims.account_ctx ?? "");
       const rolesArr = Array.isArray(claims.roles) ? (claims.roles as string[]) : [];
-      const role = process.env.GOV_BAO_JWT_ROLE?.trim()
-        || (rolesArr.includes("GOV_ADMIN") ? "gov-admin" : rolesArr[0]?.toLowerCase().replace(/_/g, "-") ?? "");
+      const role = vaultRoleFor(rolesArr, process.env.GOV_BAO_JWT_ROLE) ?? "";
       if (!account) throw new Error("your token has no account_ctx");
       if (!role) throw new Error("your token carries no gov role (a gov-admin seeds account creds)");
       const token = await vaultLogin({ addr: vaultAddr, jwtMount: process.env.GOV_BAO_JWT_MOUNT?.trim() || "gov", role }, session.accessToken ?? session.idToken);
@@ -259,7 +260,10 @@ export async function runCredsCommand(argv: readonly string[]): Promise<number> 
 export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
   if (argv[0] === "creds") return runCredsCommand(argv);
-  if (isGovernedInvocation(argv)) return delegateToGovOperate(argv);   // Operate verbs → the gov-operate plugin (as the top-level bin does)
+  // Pass the host's OWN verbs so routing can tell "mine" from "unknown" without spawning the plugin for
+  // every `setup`/`doctor`; anything in neither list is asked of the plugin, once.
+  if (isGovernedInvocation(argv, helpCommandNames())) return delegateToGovOperate(argv);   // → the gov-cicd plugin
+  if (isInfraInvocation(argv)) return delegateToInfra(argv);           // Infra verbs (`gov infra …`) → the do-admin plugin
   return main(argv);
 }
 
@@ -269,7 +273,7 @@ const HELP_GROUPS: Record<string, string[]> = {
   Governance: ["manage", "anchor", "knowledge", "onboard", "org", "validate"],
   Info: ["list", "list-all", "status"],
   Maintain: ["setup", "doctor", "deps", "upgrade", "bump-version", "publish"],
-  "Enterprise (plugin)": ["catalog", "deploy", "data", "promote", "rollback", "drift"],
+  "Enterprise (plugin)": ["catalog", "build", "deploy", "data", "promote", "rollback", "drift"],
 };
 const CMD_DESC: Record<string, string> = {
   seed: "Seed a new project workspace from a GitHub Project board", join: "Join an existing project (clone its repos on the project branch)",
@@ -282,8 +286,8 @@ const CMD_DESC: Record<string, string> = {
   list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
   setup: "Bootstrap / update org-config.yaml", doctor: "Diagnose the workspace + tooling", deps: "Install / verify required dependencies",
   upgrade: "Pull the latest framework content into this workspace", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
-  catalog: "Governed catalog operations (gov-operate plugin)", deploy: "Governed deploy (gov-operate plugin)", data: "Governed data operations (gov-operate plugin)",
-  promote: "Promote an artifact across envs (gov-operate plugin)", rollback: "Roll back a unit (gov-operate plugin)", drift: "Show deploy drift (gov-operate plugin)",
+  catalog: "Governed catalog operations (gov-cicd plugin)", deploy: "Governed deploy (gov-cicd plugin)", data: "Governed data operations (gov-cicd plugin)",
+  promote: "Promote an artifact across envs (gov-cicd plugin)", rollback: "Roll back a unit (gov-cicd plugin)", drift: "Show deploy drift (gov-cicd plugin)",
 };
 const CMD_USAGE: Record<string, string> = {
   seed: "<board-url> [--assignee <login>]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
@@ -341,6 +345,15 @@ export async function runMainMenu(): Promise<number> {
         run: runAny,
         prompt: async () => "",
         print: () => {},
+        // Launch the picked agent with cwd = <project> via the tested spec: detached (GUI editor) opens + returns;
+        // otherwise a terminal agent/shell inherits stdio + blocks until exit.
+        launch: async (agent, cwd, inject) => {
+          const s = agentLaunchSpec(agent, cwd, inject);
+          if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
+          const r = spawnSync(s.cmd, [...s.args], { cwd, stdio: "inherit" });
+          if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed + on PATH?\n`); return 1; }
+          return r.status ?? 0;
+        },
       };
     }
   }
@@ -359,6 +372,7 @@ export async function runMainMenu(): Promise<number> {
     helpCommands: helpCommandNames,
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
     operateVerbs: () => { try { return discoverOperateMenu(); } catch { return []; } },
+    infraVerbs: () => { try { return discoverInfraMenu(); } catch { return []; } },
     listUnits: () => { try { return discoverUnits(); } catch { return []; } },
     listMyProjects: () => { try { return workDeps ? myProjects(workDeps).map((p) => p.projectId) : []; } catch { return []; } },
   };
@@ -582,6 +596,12 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     pulls: createGhPulls(runGh),
     projects: createGhProjects(runGh),
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
+    // C01 authorization — write-access to the GitHub Project (viewerCanUpdate), the SoT for authority
+    // (`prj manage assign`). The lifecycle ops now call this unconditionally, so wiring it here is what
+    // makes the CLI enforce it. Only "false" denies; a null/errored probe does NOT silently authorize —
+    // fail closed unless GitHub explicitly says the viewer can update.
+    authorize: (ref) =>
+      tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${ref.number}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) === "true",
     gate: () => runSuite({ fs, repoRoot: home, files: (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean) }),
     log: (m) => process.stderr.write(`${m}\n`),
   };

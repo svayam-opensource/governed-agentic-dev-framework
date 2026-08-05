@@ -17,6 +17,7 @@ import { type Board, validateBoard, boardValidationMessage } from "./board.js";
 import type { Vcs } from "./vcs.js";
 import type { Fs } from "./fs-io.js";
 import type { AnchorCreator } from "./anchor.js";
+import { ensureRootProtocol } from "./root-protocol.js";
 import { deriveProjectIdentity, parseBoardUrl } from "./identity.js";
 import { seedPathsFor, detectLeftovers, leftoversMessage, type LeftoverArtifact } from "./leftover.js";
 import { renderAgentMd, renderTodoMd, substituteTokens } from "./content.js";
@@ -223,6 +224,10 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     });
 
     tx.commit();
+    // Make an agent launched at the project ROOT run session-start: mirror the harness + drop the Claude
+    // SessionStart hook. Best-effort finalization — the workspace worktree (with the rendered harness) is
+    // present by now. Same helper the interactive Work flow uses.
+    ensureRootProtocol(deps.fs, paths.projectWorkRoot, config.workspaceRepo);
     return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef };
   } catch (error) {
     const rollbackFailures = tx.rollback();

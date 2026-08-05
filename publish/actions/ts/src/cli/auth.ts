@@ -2,7 +2,7 @@
 /**
  * `gov-work auth <login|status|logout>` — the identity front door.
  *
- *   login  → browser OIDC (PKCE) to the IAM broker; store the svayam_jwt (aud=gov) that gov/gov-operate
+ *   login  → browser OIDC (PKCE) to the IAM broker; store the svayam_jwt (aud=gov) that gov/gov-cicd
  *            then operate under. This is what replaces per-user secret pasting: after login, `creds`
  *            (next) uses this JWT to read/WRITE Vault under the token's account_ctx.
  *   status → who you are, your account_ctx, your gov roles, and token validity.
@@ -13,12 +13,12 @@
 import { prjResolveGov } from "../resolve/resolve-gov.js";
 import { createNodeEnv } from "../resolve/node-env.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { defaultIdentity } from "../security/credentials.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
 import { login, loginServiceTokenExchange, claimsOf, type OidcConfig } from "../security/oidc.js";
-import { authPath, saveAuth, loadAuth, clearAuth } from "../security/auth-store.js";
+import { authPath, saveAuth, saveSession, sessionIdentity, loadAuth, clearAuth } from "../security/auth-store.js";
 import { vaultLogin } from "../security/vault.js";
 
+import { vaultRoleFor } from "../security/vault-role.js";
 const out = (s: string): void => { process.stdout.write(`${s}\n`); };
 const err = (s: string): void => { process.stderr.write(`${s}\n`); };
 
@@ -40,7 +40,9 @@ export async function runAuthCommand(argv: readonly string[]): Promise<number> {
   if (!resolve.ok) { err("gov-work auth: no gov workspace resolved — run `gov-work onboard`/`gov-work setup` first."); return 1; }
   const cfgText = fs.readFile(`${resolve.home}/org-config.yaml`);
   const agentWorkRoot = (cfgText && parseOrgConfig(cfgText).agentWorkRoot) || "~/.svm/projects";
-  const identity = defaultIdentity(process.env);
+  // The session belongs to the IAM identity, which is only known AFTER the exchange — so `login` resolves it
+  // from the claims and writes the `.current` pointer. Everything else follows that pointer (910 #45).
+  const identity = sessionIdentity(agentWorkRoot, process.env);
   const file = authPath(agentWorkRoot, identity);
 
   const sub = argv[1] ?? "login";
@@ -48,9 +50,13 @@ export async function runAuthCommand(argv: readonly string[]): Promise<number> {
     case "login": {
       try {
         const tokens = await login(oidcConfig(process.env), out);
-        saveAuth(file, tokens);
         const c = claimsOf(tokens.accessToken ?? tokens.idToken);
+        // Key the store by the IAM email the token actually carries — NOT by the OS username, which is a
+        // different person-identifier that happened to be available earlier.
+        const me = process.env.GOV_IDENTITY?.trim() || who(c);
+        const saved = saveSession(agentWorkRoot, me, tokens);
         out(`✓ Signed in as ${who(c)}`);
+        out(`  session: ${saved}   (every \`gov\` verb reads this one)`);
         out(`  account: ${String(c.account_ctx ?? "?")}   roles: ${roles(c)}`);
         out(`  session valid until ${new Date(tokens.expiresAt).toISOString()} (re-run \`gov-work auth login\` when it expires).`);
         return 0;
@@ -78,7 +84,9 @@ export async function runAuthCommand(argv: readonly string[]): Promise<number> {
           const vaultAddr = process.env.GOV_BAO_ADDR?.trim() || (cfgText ? parseOrgConfig(cfgText).vaultAddr : "") || "";
           if (!vaultAddr) { err("gov-work auth service --print-vault-token: no vault_addr (org-config) or GOV_BAO_ADDR."); return 1; }
           const rolesArr = Array.isArray(c.roles) ? (c.roles as string[]) : [];
-          const role = process.env.GOV_BAO_JWT_ROLE?.trim() || rolesArr[0]?.toLowerCase().replace(/_/g, "-") || "";
+          // This copy had NO `GOV_ADMIN` guard, so a gov-admin here derived a Vault role from whichever
+          // role sorted first — the positional bug in its most exposed form.
+          const role = vaultRoleFor(rolesArr, process.env.GOV_BAO_JWT_ROLE) ?? "";
           if (!role) { err("gov-work auth service: token carries no gov role (cannot select a Vault role)."); return 1; }
           const vtoken = await vaultLogin(
             { addr: vaultAddr, jwtMount: process.env.GOV_BAO_JWT_MOUNT?.trim() || "gov", role },

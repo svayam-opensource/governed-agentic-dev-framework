@@ -8,7 +8,7 @@
  *
  * gov-work is dependency-free by design (it hand-parses org-config.yaml), so this is a minimal
  * line-oriented reader of the `credentials:` block (single-line values) — NOT a full YAML parser. The
- * consuming side (gov-operate) parses the same block with its real YAML lib.
+ * consuming side (gov-cicd) parses the same block with its real YAML lib.
  */
 import * as path from "node:path";
 import type { Need, NeedProbes } from "./needs.js";
@@ -21,7 +21,7 @@ export interface PolicyCredDecl {
   readonly title?: string;
   /** where/how to obtain it — shown when this is a GAP. */
   readonly where?: string;
-  /** the env var a consumer materializes the value into (gov-operate); default = the key. */
+  /** the env var a consumer materializes the value into (gov-cicd); default = the key. */
   readonly env?: string;
 }
 

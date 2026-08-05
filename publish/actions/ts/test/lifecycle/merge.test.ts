@@ -71,7 +71,7 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
   it("merges the sub-branch across repos, archives it, and closes the issue", () => {
     const { vcs, log } = fakeVcs();
     const { issues, acted } = fakeIssues();
-    const r = merge({ board: fakeBoard(), vcs, fs: fsPresent(true), issues }, CONFIG, input());
+    const r = merge({ board: fakeBoard(), authorize: () => true,vcs, fs: fsPresent(true), issues }, CONFIG, input());
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
     expect(r.taskId).to.equal(TASK_ID);
@@ -87,7 +87,7 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
 
   it("is idempotent: an already-merged sub-branch is skipped, still archived", () => {
     const { vcs, log } = fakeVcs({ alreadyMerged: true });
-    const r = merge({ board: fakeBoard(), vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    const r = merge({ board: fakeBoard(), authorize: () => true,vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
     expect(r.ok).to.equal(true);
     expect(log.some((l) => l.startsWith("merge "))).to.equal(false); // no merge performed
     expect(log).to.include(`tag ${GOV} archive/${TASK_ID}`); // but archived
@@ -95,7 +95,7 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
 
   it("stops on a merge conflict (rc=2) without archiving", () => {
     const { vcs, log } = fakeVcs({ conflict: true });
-    const r = merge({ board: fakeBoard(), vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    const r = merge({ board: fakeBoard(), authorize: () => true,vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
     expect(r.ok).to.equal(false);
     if (r.ok) return;
     expect(r.code).to.equal(2);
@@ -105,13 +105,13 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
   });
 
   it("refuses a dirty working tree", () => {
-    const r = merge({ board: fakeBoard(), vcs: fakeVcs({ dirty: true }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    const r = merge({ board: fakeBoard(), authorize: () => true,vcs: fakeVcs({ dirty: true }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
     expect(r.ok).to.equal(false);
     if (!r.ok) expect(r.reason).to.equal("dirty");
   });
 
   it("refuses when the sub-branch isn't on the remote", () => {
-    const r = merge({ board: fakeBoard(), vcs: fakeVcs({ hasRemoteTask: false }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    const r = merge({ board: fakeBoard(), authorize: () => true,vcs: fakeVcs({ hasRemoteTask: false }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
     expect(r.ok).to.equal(false);
     if (!r.ok) expect(r.reason).to.equal("no-subbranch");
   });
@@ -119,7 +119,7 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
   it("accepts a task-branch arg and resolves its issues via the board", () => {
     const { issues } = fakeIssues();
     const resolved: Issues = { ...issues, resolveIssueUrl: (_ref, n) => `https://x/issues/${n}` };
-    const r = merge({ board: fakeBoard(), vcs: fakeVcs().vcs, fs: fsPresent(true), issues: resolved }, CONFIG, input(`${TASK_ID}`));
+    const r = merge({ board: fakeBoard(), authorize: () => true,vcs: fakeVcs().vcs, fs: fsPresent(true), issues: resolved }, CONFIG, input(`${TASK_ID}`));
     expect(r.ok).to.equal(true);
     if (r.ok) expect(r.issueUrls).to.deep.equal(["https://x/issues/123"]);
   });

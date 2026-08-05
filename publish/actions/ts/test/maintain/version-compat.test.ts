@@ -14,7 +14,7 @@ describe("gov-work — CLI ↔ content version compat", () => {
   it("CLI behind (same major) → warn, upgrade CLI (still ok)", () => {
     const r = checkVersionCompat("1.1.0", "1.4.0");
     expect(r).to.include({ status: "cli-behind", ok: true });
-    expect(r.message).to.match(/npm i -g @svayam-opensource\/gov-work@1\.4\.0/);
+    expect(r.message).to.match(/npm i -g @svayam-opensource\/gov@1\.4\.0/);
   });
   it("CLI a MAJOR behind → HARD STOP", () => {
     const r = checkVersionCompat("1.9.0", "2.0.0");

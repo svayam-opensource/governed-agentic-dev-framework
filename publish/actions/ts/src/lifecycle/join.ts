@@ -13,7 +13,7 @@ import type { Board } from "./board.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { BoardRef } from "./identity.js";
 import { parseBoardUrl, deriveProjectIdentity } from "./identity.js";
-import { repoNameFromUrl, baseCloneDir } from "./repo.js";
+import { repoNameFromUrl, ensureBaseFresh } from "./repo.js";
 
 export interface JoinConfig {
   readonly githubOrg: string;
@@ -34,7 +34,8 @@ export interface JoinDeps {
   readonly vcs: Vcs;
   readonly fs: FsProbe;
   readonly cloneRepo: (url: string, dest: string) => void;
-  readonly authorize?: (ref: BoardRef) => boolean;
+  /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
+  readonly authorize: (ref: BoardRef) => boolean;
   readonly log?: (msg: string) => void;
 }
 
@@ -45,9 +46,11 @@ export type JoinResult =
 /** Materialize a worktree of `url` at `worktreePath` on the existing `branch`. */
 function materialize(deps: JoinDeps, url: string, worktreePath: string, branch: string, agentWorkRoot: string, remote: string): void {
   if (deps.fs.pathExists(path.join(worktreePath, ".git"))) return; // already joined — skip
-  const baseClone = baseCloneDir(agentWorkRoot, url);
-  if (!deps.fs.pathExists(path.join(baseClone, ".git"))) deps.cloneRepo(url, baseClone);
-  deps.vcs.fetch(baseClone, remote, branch);
+  // Ensure the shared base clone exists AND is synced from the remote, via the single base-access seam.
+  const baseClone = ensureBaseFresh(
+    { pathExists: (x) => deps.fs.pathExists(x), cloneRepo: (u, d) => deps.cloneRepo(u, d), fetch: (d, r, ref) => deps.vcs.fetch(d, r, ref) },
+    agentWorkRoot, url, remote, branch,
+  );
   // Create a local branch tracking the existing remote project branch, checked
   // out in the new worktree (startPoint = origin/<branch>).
   deps.vcs.worktreeAdd(baseClone, branch, worktreePath, `${remote}/${branch}`);
@@ -66,7 +69,7 @@ export function join(deps: JoinDeps, config: JoinConfig, input: JoinInput): Join
   if (!idr.ok) return { ok: false, code: 1, reason: idr.reason, message: `Cannot derive project id (${idr.reason}).` };
   const { projectId, branch } = idr;
 
-  if (deps.authorize && !deps.authorize(boardRef)) {
+  if (!deps.authorize(boardRef)) {
     return { ok: false, code: 1, reason: "unauthorized", message: `Not authorized to join GitHub Project #${boardRef.number}.` };
   }
 

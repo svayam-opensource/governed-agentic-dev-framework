@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
+import { PACKAGE_NAME } from "../../src/index.js";
 import { checkDeps, formatDepsReport } from "../../src/maintain/deps.js";
 import { publishGate, formatPublishGate } from "../../src/maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../../src/maintain/upgrade.js";
@@ -42,6 +43,6 @@ describe("prj-work Phase E — upgrade plan", () => {
     expect(upgradePlan("0.8.0", "0.8.0")).to.deep.equal({ kind: "up-to-date", version: "0.8.0" });
     expect(upgradePlan("0.7.4", null).kind).to.equal("error");
     expect(upgradePlan("0.7.4", "latest").kind).to.equal("error");
-    expect(formatUpgradePlan(upgradePlan("0.7.4", "0.8.0"))).to.include("  npm install -g @svayam-opensource/gov-work@0.8.0");
+    expect(formatUpgradePlan(upgradePlan("0.7.4", "0.8.0"))).to.include(`  npm install -g ${PACKAGE_NAME}@0.8.0`);   // the NAME comes from one place
   });
 });

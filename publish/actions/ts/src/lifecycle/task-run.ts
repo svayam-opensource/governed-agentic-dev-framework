@@ -44,7 +44,8 @@ export interface TaskDeps {
   readonly fs: FsProbe;
   readonly issues: Issues;
   /** Optional authorization gate (viewerCanUpdate); deny → abort. */
-  readonly authorize?: (ref: BoardRef) => boolean;
+  /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
+  readonly authorize: (ref: BoardRef) => boolean;
   readonly log?: (msg: string) => void;
 }
 
@@ -90,7 +91,7 @@ export function task(deps: TaskDeps, config: TaskConfig, input: TaskInput): Task
   }
 
   // ── Authorization (best-effort gate) ────────────────────────────────────────
-  if (deps.authorize && !deps.authorize(ref)) {
+  if (!deps.authorize(ref)) {
     return { ok: false, code: 1, reason: "unauthorized", message: `Not authorized on GitHub Project #${boardNumber}.` };
   }
 

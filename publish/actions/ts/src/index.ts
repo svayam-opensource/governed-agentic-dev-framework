@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd. — part of the OSS governed-agentic-dev-framework.
 /**
- * @svayam-opensource/gov-work — the OSS core of the `prj` governance CLI.
+ * @svayam-opensource/gov — the OSS core of the `prj` governance CLI.
  *
  * Migration in flight: Bash → Node 24 / TypeScript, for AD-6.1 conformance
  * (the legacy Bash CLI is a non-conformant deviation and the root cause of the

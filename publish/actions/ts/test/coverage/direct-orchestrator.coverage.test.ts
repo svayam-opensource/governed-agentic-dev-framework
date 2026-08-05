@@ -26,7 +26,7 @@ function vcsOn(branch: string): Vcs {
     pushDelete: noop, clone: noop, fetch: noop, setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,
   };
 }
-const deps: TaskDeps = { board, vcs: vcsOn("BRNCH-43-governance-common-project"), fs, issues };
+const deps: TaskDeps = { board, vcs: vcsOn("BRNCH-43-governance-common-project"), fs, issues, authorize: () => true };
 
 describe("gov-work — direct orchestrator gap-fills (unreachable via route)", () => {
   it("task(): empty issueUrls on a valid project branch → no-issues (exit 1)", () => {

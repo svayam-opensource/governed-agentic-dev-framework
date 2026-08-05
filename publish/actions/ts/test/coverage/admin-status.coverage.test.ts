@@ -169,13 +169,13 @@ describe("coverage: gov-work manage", () => {
   it("manage assign (missing login) → exit 2, usage", () => {
     const r = run(["manage", "assign"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work manage assign <github-login>");
+    expect(r.lines[0]).to.equal("usage: gov-work manage assign <github-login> [--board <n>]");
   });
 
   it("manage unassign (missing login) → exit 2, usage", () => {
     const r = run(["manage", "unassign"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work manage unassign <github-login>");
+    expect(r.lines[0]).to.equal("usage: gov-work manage unassign <github-login> [--board <n>]");
   });
 
   it("manage assign off a non-project branch → exit 1, not-a-project-branch", () => {

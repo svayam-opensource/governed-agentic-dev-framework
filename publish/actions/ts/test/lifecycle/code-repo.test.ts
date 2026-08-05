@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { repoNameFromUrl, baseCloneDir } from "../../src/lifecycle/repo.js";
+import { repoNameFromUrl, baseCloneDir, basesRoot, ensureBaseFresh, syncAllBases } from "../../src/lifecycle/repo.js";
 import { retry } from "../../src/lifecycle/retry.js";
 import { setupCodeRepoWorktree, makeCloneRepo } from "../../src/lifecycle/code-repo.js";
 import { Transaction } from "../../src/lifecycle/transaction.js";
@@ -22,6 +22,55 @@ describe("prj-work Phase 2 — repo url helpers + retry", () => {
     expect(baseCloneDir("/home/.svm/projects", "git@github.com:O/repo.git")).to.equal(
       "/home/.svm/projects/.bases/repo",
     );
+  });
+
+  it("basesRoot is the single spelling of the .bases layout constant", () => {
+    expect(basesRoot("/home/.svm/projects")).to.equal("/home/.svm/projects/.bases");
+  });
+
+  describe("ensureBaseFresh — the single base-access seam (clone-if-missing + ALWAYS sync)", () => {
+    const url = "git@github.com:O/repo.git";
+    const mkIo = (present: boolean) => {
+      const calls = { clone: [] as string[][], fetch: [] as unknown[][] };
+      const io = {
+        pathExists: (p: string) => present && p.endsWith(path.join(".bases", "repo", ".git")),
+        cloneRepo: (u: string, d: string) => calls.clone.push([u, d]),
+        fetch: (d: string, r: string, ref?: string) => calls.fetch.push([d, r, ref]),
+      };
+      return { io, calls };
+    };
+
+    it("clones on first use, then fetches, and returns the base-clone path", () => {
+      const { io, calls } = mkIo(false);
+      const dir = ensureBaseFresh(io, "/w", url, "origin", "dev");
+      expect(dir).to.equal("/w/.bases/repo");
+      expect(calls.clone).to.deep.equal([[url, "/w/.bases/repo"]]);
+      expect(calls.fetch).to.deep.equal([["/w/.bases/repo", "origin", "dev"]]);
+    });
+
+    it("when the base clone already exists → NO clone, but STILL fetches (sync is the contract)", () => {
+      const { io, calls } = mkIo(true);
+      ensureBaseFresh(io, "/w", url, "origin", "dev");
+      expect(calls.clone).to.deep.equal([]);
+      expect(calls.fetch).to.deep.equal([["/w/.bases/repo", "origin", "dev"]]);
+    });
+  });
+
+  describe("syncAllBases — fetch every present base clone (the deploy-path counterpart)", () => {
+    it("fetches origin for each base-clone dir under <basesRoot>", () => {
+      const fetched: string[] = [];
+      syncAllBases(
+        { listBaseDirs: (root) => (root === "/w/.bases" ? ["repo-a", "repo-b"] : []), fetch: (d) => fetched.push(d) },
+        "/w",
+      );
+      expect(fetched).to.deep.equal(["/w/.bases/repo-a", "/w/.bases/repo-b"]);
+    });
+
+    it("no bases present → no fetches (never throws)", () => {
+      let n = 0;
+      syncAllBases({ listBaseDirs: () => [], fetch: () => { n++; } }, "/w");
+      expect(n).to.equal(0);
+    });
   });
 
   it("retry succeeds after transient failures, with injected sleep + onRetry", () => {

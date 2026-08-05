@@ -2,7 +2,7 @@
 /**
  * `gov auth login` — OpenID Connect Authorization-Code + PKCE against the IAM broker
  * (security.svayamtech.com). Opens the browser, catches the redirect on a localhost loopback, and
- * exchanges the code for the **svayam_jwt** (id_token) that gov/gov-operate then operate under.
+ * exchanges the code for the **svayam_jwt** (id_token) that gov/gov-cicd then operate under.
  *
  * Dependency-free (gov-work rule): node built-ins only — `crypto` (PKCE), `http` (loopback),
  * `child_process` (open browser), global `fetch` (discovery + token). The IdP is the trust anchor;

@@ -63,9 +63,11 @@ export interface CliContext {
   readonly pulls: Pulls;
   readonly projects: Projects;
   readonly cloneRepo: (url: string, dest: string) => void;
-  readonly authorize?: (ref: BoardRef) => boolean;
-  /** close's test-merge gate (wire governance.runSuite here). */
-  readonly gate?: () => GateResult;
+  /** REQUIRED (C01) — write-access to the GitHub Project (viewerCanUpdate). The lifecycle ops call it
+   *  unconditionally; wiring it here is what makes the CLI actually ENFORCE authorization. */
+  readonly authorize: (ref: BoardRef) => boolean;
+  /** REQUIRED — close's test-merge gate (governance.runSuite). Always run before any push. */
+  readonly gate: () => GateResult;
   readonly log?: (msg: string) => void;
 }
 
@@ -247,8 +249,9 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         return { code: 0, lines: pagedListLines("Projects (owners = anchor assignees)", `manage ${sub}`, res, page, limit) };
       }
       if (sub === "assign" || sub === "unassign") {
-        if (positionals.length < 2) return usage(`manage ${sub} <github-login>`);
-        const r = manageAssign({ vcs: ctx.vcs, anchor: ctx.anchor }, mcfg, ctx.home, positionals[1], sub === "assign" ? "add" : "remove");
+        if (positionals.length < 2) return usage(`manage ${sub} <github-login> [--board <n>]`);
+        const boardFlag = flagStr(flags, "board");   // GOVERNED (org-home) has no project branch → target a board explicitly
+        const r = manageAssign({ vcs: ctx.vcs, anchor: ctx.anchor }, mcfg, ctx.home, positionals[1], sub === "assign" ? "add" : "remove", boardFlag ? Number(boardFlag) : undefined);
         return r.ok
           ? { code: 0, lines: [`${r.action === "add" ? "Added" : "Removed"} owner ${r.login}${r.applied ? "" : " (not applied — check gh access)"}`] }
           : { code: r.code, lines: [r.message] };

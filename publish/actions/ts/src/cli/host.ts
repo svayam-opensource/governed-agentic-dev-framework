@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
  * The `gov` host seam: (1) the context banner + prompt-on-context-change for CORE commands, and (2) guarded
- * delegation of GOVERNED verbs to the internal `gov-operate` plugin. Discovery is purely runtime (resolve the
- * package, else PATH) — gov-work has NO build dependency on gov-operate, so the OSS boundary holds.
+ * delegation of GOVERNED verbs to the internal `gov-cicd` plugin. Discovery is purely runtime (resolve the
+ * package, else PATH) — gov-work has NO build dependency on gov-cicd, so the OSS boundary holds.
  */
 import * as path from "node:path";
 import * as fsSync from "node:fs";
@@ -17,19 +17,70 @@ import { readCliVersion } from "./main.js";
 import {
   type ContextInfo, type Ack, contextFingerprint, hashText, renderBanner, isAcked, recordAck,
 } from "./context-banner.js";
+import { basesRoot, syncAllBases } from "../lifecycle/repo.js";
 
-/** Governed verbs provided by the internal gov-operate plugin (absent from OSS gov-work). */
+/** Governed verbs provided by the internal gov-cicd plugin (absent from OSS gov-work). */
+/** STATIC SEED for the fast path — NOT the authority. The plugin's `menu --json` is (see
+ *  `isGovernedInvocation`); this only spares a subprocess for verbs that have existed a while. A verb
+ *  missing here still routes, just one spawn slower. */
 export const OPERATE_COMMANDS = new Set([
-  "catalog", "deploy", "data", "promote", "rollback", "drift", "attest", "authorize", "test-spine", "deploy-check", "standards",
+  "catalog", "build", "deploy", "data", "data-access", "promote", "rollback", "drift", "attest", "authorize", "test-spine", "deploy-check", "standards", "secret", "policy",
 ]);
+
+/** The reserved namespace under which gov-infra (do-admin) verbs delegate: `gov infra <cmd> …`. Unlike
+ *  gov-cicd's fixed OPERATE_COMMANDS, infra verbs are DYNAMIC (discovered from the plugin), so the host
+ *  routes on this single namespace token rather than a hardcoded verb set. */
+export const INFRA_NAMESPACE = "infra";
+
+/** Index of the first non-value-flag token (past `--gov-home <path>` etc.). Shared by the delegators. */
+function firstCommandIndex(argv: readonly string[]): number {
+  let i = 0;
+  while (i < argv.length && argv[i].startsWith("-")) i += argv[i] === "--gov-home" ? 2 : 1;
+  return i;
+}
 
 /** Is this invocation a governed verb (to delegate)? Finds the command past leading value-flags
  *  (`--gov-home <path>`), so `gov --gov-home … catalog` still routes to the plugin. */
-export function isGovernedInvocation(argv: readonly string[]): boolean {
-  let i = 0;
-  while (i < argv.length && argv[i].startsWith("-")) i += argv[i] === "--gov-home" ? 2 : 1;
-  const cmd = argv[i];
-  return !!cmd && OPERATE_COMMANDS.has(cmd);
+/**
+ * Verbs discovered from the gov-cicd plugin, resolved AT MOST ONCE per process.
+ *
+ * `OPERATE_COMMANDS` below is a static SEED, not the authority. It was the authority, and that made every
+ * new governed verb a two-place edit — the plugin's own command list, and this set — with nothing checking
+ * they agreed. `gov version bump` shipped registered in one and not the other, so the host answered
+ * "unknown command" for a verb that existed. gov-infra never had this problem because its verbs are
+ * discovered; gov-cicd's MENU was discovered too, only its ROUTING was not.
+ */
+let discovered: Set<string> | undefined;
+function discoveredOperateVerbs(): Set<string> {
+  if (!discovered) discovered = new Set(discoverOperateMenu().map((v) => v.cmd).filter(Boolean));
+  return discovered;
+}
+
+/**
+ * Does this invocation belong to the gov-cicd plugin?
+ *
+ * Ordered so the SPAWN is paid only when it buys something:
+ *   1. a seeded operate verb  → yes, no spawn (the common case)
+ *   2. one of the host's own  → no, no spawn (`setup`, `doctor`, …)
+ *   3. anything else          → ask the plugin, once per process
+ *
+ * So a new plugin verb works the day it is added, with no host release, and an actual typo costs one
+ * subprocess before it is reported.
+ */
+export function isGovernedInvocation(argv: readonly string[], hostCommands: readonly string[] = []): boolean {
+  const cmd = argv[firstCommandIndex(argv)];
+  if (!cmd) return false;
+  if (OPERATE_COMMANDS.has(cmd)) return true;
+  // `hostCommands` is the host's HELP list, which deliberately advertises verbs it DELEGATES (promote,
+  // rollback, drift, data) so users can discover them. Appearing there is therefore not ownership —
+  // subtract anything the plugin owns, or a delegated verb would be claimed by the host and refused.
+  if (hostCommands.some((c) => c === cmd && !OPERATE_COMMANDS.has(c))) return false;
+  return discoveredOperateVerbs().has(cmd);
+}
+
+/** Is this a gov-infra invocation (`gov infra <cmd> …`)? Routes to the do-admin plugin. */
+export function isInfraInvocation(argv: readonly string[]): boolean {
+  return argv[firstCommandIndex(argv)] === INFRA_NAMESPACE;
 }
 
 function tryRun(cmd: string, args: string[]): string | undefined {
@@ -67,7 +118,7 @@ function buildContextInfo(): ContextInfo {
   const user = tryRun("git", ["config", "user.email"]) ?? tryRun("gh", ["api", "user", "--jq", ".login"]);
   if (!govRepo) anomalies.push("no gov workspace resolved — run `gov setup` / `gov org use`");
   else if (!services.vault) anomalies.push("vault not configured (vault_addr) — governed creds/deploys need it");
-  return { mode, projectPath, govRepo, orgConfigPath, orgConfigHash, user, branch, services, anomalies };
+  return { mode, projectPath, agentWorkRoot, govRepo, orgConfigPath, orgConfigHash, user, branch, services, anomalies };
 }
 
 const ackFile = (): string => path.join(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".gov-context-ack.json");
@@ -100,39 +151,74 @@ export async function confirmContextOrBail(argv: readonly string[]): Promise<boo
   return false;
 }
 
-/** Resolve the gov-operate plugin's launcher: `[node, bin.js]` if the package resolves, else `[gov-operate]`
+/** Resolve the gov-cicd plugin's launcher: `[node, bin.js]` if the package resolves, else `[gov-cicd]`
  *  from PATH. Pure runtime discovery — no build dep, so the OSS boundary holds. */
 function resolveOperateCmd(): { cmd: string; prefix: string[] } {
   try {
     const require = createRequire(import.meta.url);
-    const pkgJson = require.resolve("@svayam/gov-operate/package.json");
+    const pkgJson = require.resolve("@svayam/gov-cicd/package.json");
     const pkg = JSON.parse(fsSync.readFileSync(pkgJson, "utf8")) as { bin?: string | Record<string, string> };
-    const rel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.["gov-operate"];
+    const rel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.["gov-cicd"];
     if (rel) return { cmd: process.execPath, prefix: [path.join(path.dirname(pkgJson), rel)] };
   } catch { /* not a resolvable dep — try PATH */ }
-  return { cmd: "gov-operate", prefix: [] };
+  return { cmd: "gov-cicd", prefix: [] };
 }
 
-/** Run a governed verb via the internal gov-operate plugin. Resolves the package's bin, else falls back to
- *  `gov-operate` on PATH; a clean message if neither is present (OSS install without the plugin). */
+/** Source-resolving governed verbs: these tree-sha a unit's SOURCE repo for its content_sha, so the shared
+ *  base clones must be current first (a base that lags its remote addresses an OLD tree → wrong/unresolved
+ *  content_sha). Lightweight verbs (menu/catalog listing) don't touch source and are excluded. */
+const SOURCE_VERBS = new Set(["deploy", "build", "promote", "data", "rollback", "drift", "attest"]);
+
+/** Base-clone directory NAMES under `root` (each a repo checkout); `[]` if the root is absent. */
+function listBaseDirs(root: string): string[] {
+  try { return fsSync.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); }
+  catch { return []; }
+}
+/** Best-effort `git -C <repoDir> fetch <remote> [ref] --tags` — never throws (offline / no remote → leave
+ *  as-is). `--tags` is essential: a shared-env deploy pins each unit at its RELEASE TAG (`<unit>-<semver>`),
+ *  so the base clone must carry the tags, not just branch heads. */
+function gitFetch(repoDir: string, remote: string, ref?: string): void {
+  try { spawnSync("git", ["-C", repoDir, "fetch", remote, ...(ref ? [ref] : []), "--tags", "--quiet"], { stdio: "ignore" }); }
+  catch { /* best-effort */ }
+}
+
+/** Run a governed verb via the internal gov-cicd plugin. Resolves the package's bin, else falls back to
+ *  `gov-cicd` on PATH; a clean message if neither is present (OSS install without the plugin). */
 export function delegateToGovOperate(argv: readonly string[]): number {
   const { cmd, prefix } = resolveOperateCmd();
-  const r = spawnSync(cmd, [...prefix, ...argv], { stdio: "inherit" });
+  // Point the plugin's VCS at the right repo-clone ROOT so it can tree-sha a unit's SOURCE (its content_sha)
+  // without the user exporting GOV_GIT_ROOT. PROJECT → the project's own worktrees (agentWorkRoot/<project>);
+  // GOVERNED/NONE → the SHARED base clones (agentWorkRoot/.bases, ADR-0001), which the plugin's GitVcs resolves
+  // as <root>/<repo-name>. An explicit env always wins.
+  let env: NodeJS.ProcessEnv = process.env;
+  if (!process.env.GOV_GIT_ROOT) {
+    const { projectPath, agentWorkRoot } = buildContextInfo();
+    const gitRoot = projectPath ?? (agentWorkRoot ? basesRoot(agentWorkRoot) : undefined);
+    if (gitRoot) env = { ...process.env, GOV_GIT_ROOT: gitRoot };
+    // Governed source-resolving verbs read from the shared .bases clones IN THE PLUGIN'S OWN PROCESS — the host
+    // can't route each per-repo read through ensureBaseFresh, so it syncs all shared clones up-front here, for
+    // the same never-stale guarantee. Best-effort (GOV_NO_SYNC bypass); offline must not block the deploy.
+    if (!projectPath && agentWorkRoot && SOURCE_VERBS.has(argv[0] ?? "") && !("GOV_NO_SYNC" in process.env)) {
+      process.stderr.write("gov: syncing shared base clones (.bases) before a governed source operation…\n");
+      syncAllBases({ listBaseDirs, fetch: gitFetch }, agentWorkRoot);
+    }
+  }
+  const r = spawnSync(cmd, [...prefix, ...argv], { stdio: "inherit", env });
   if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
-    process.stderr.write(`gov: '${argv[0]}' is a governed command provided by the internal gov-operate plugin, which isn't installed.\n  install it:  npm i -g @svayam/gov-operate\n`);
+    process.stderr.write(`gov: '${argv[0]}' is a governed command provided by the internal gov-cicd plugin, which isn't installed.\n  install it:  npm i -g @svayam/gov-cicd\n`);
     return 127;
   }
   return r.status ?? 1;
 }
 
-/** One operate verb the plugin contributes to the host's interactive menu (mirror of gov-operate's MenuVerb). */
+/** One operate verb the plugin contributes to the host's interactive menu (mirror of gov-cicd's MenuVerb). */
 export interface OperateVerb {
   readonly cmd: string; readonly desc: string; readonly scopes: readonly ("project" | "governed")[];
   readonly argHint?: string;
   readonly flagArgs?: readonly { readonly name: string; readonly hint: string; readonly optional?: boolean; readonly kind?: "env" }[];
 }
 
-/** Discover the plugin's menu contribution at runtime (`gov-operate menu --json`). Returns [] when the plugin
+/** Discover the plugin's menu contribution at runtime (`gov-cicd menu --json`). Returns [] when the plugin
  *  is absent or too old to answer — the host menu then simply shows no governed verbs (clean OSS install). */
 export function discoverOperateMenu(): OperateVerb[] {
   const { cmd, prefix } = resolveOperateCmd();
@@ -144,7 +230,47 @@ export function discoverOperateMenu(): OperateVerb[] {
   } catch { return []; }
 }
 
-/** The catalog's unit ids (`gov-operate catalog --json`) — feeds the menu's unit picker. [] on any failure. */
+/** Resolve the gov-infra plugin's launcher (`@svayam/do-admin`, else `do-admin` on PATH). Same pure runtime
+ *  discovery as the gov-cicd resolver — the infra plane is a peer plugin, not a build dependency. */
+function resolveInfraCmd(): { cmd: string; prefix: string[] } {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkgJson = require.resolve("@svayam/do-admin/package.json");
+    const pkg = JSON.parse(fsSync.readFileSync(pkgJson, "utf8")) as { bin?: string | Record<string, string> };
+    const rel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.["do-admin"];
+    if (rel) return { cmd: process.execPath, prefix: [path.join(path.dirname(pkgJson), rel)] };
+  } catch { /* not a resolvable dep — try PATH */ }
+  return { cmd: "do-admin", prefix: [] };
+}
+
+/** Discover the gov-infra plugin's menu contribution (`do-admin menu --json` → `{verbs}`). Returns [] when
+ *  the plugin is absent or too old — the host menu then simply shows no Infra submenu (clean OSS install). */
+export function discoverInfraMenu(): OperateVerb[] {
+  const { cmd, prefix } = resolveInfraCmd();
+  const r = spawnSync(cmd, [...prefix, "menu", "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  if (r.status !== 0 || !r.stdout) return [];
+  try {
+    // Take the last JSON line (the plugin prints only the manifest to stdout, but be defensive).
+    const line = r.stdout.trim().split("\n").reverse().find((l) => l.trim().startsWith("{"));
+    const m = line ? (JSON.parse(line) as { verbs?: OperateVerb[] }) : {};
+    return Array.isArray(m.verbs) ? m.verbs : [];
+  } catch { return []; }
+}
+
+/** Run a gov-infra verb via the do-admin plugin: strip leading value-flags + the `infra` namespace token,
+ *  pass the rest through (`gov infra vpn-mint-user alice` → `do-admin vpn-mint-user alice`). */
+export function delegateToInfra(argv: readonly string[]): number {
+  const { cmd, prefix } = resolveInfraCmd();
+  const rest = argv.slice(firstCommandIndex(argv) + 1); // everything after `infra`
+  const r = spawnSync(cmd, [...prefix, ...rest], { stdio: "inherit", env: process.env });
+  if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
+    process.stderr.write(`gov: 'infra ${rest[0] ?? ""}' is a governed infra verb provided by the gov-infra plugin (do-admin), which isn't installed.\n  install it:  npm i -g @svayam/do-admin\n`);
+    return 127;
+  }
+  return r.status ?? 1;
+}
+
+/** The catalog's unit ids (`gov-cicd catalog --json`) — feeds the menu's unit picker. [] on any failure. */
 export function discoverUnits(): string[] {
   const { cmd, prefix } = resolveOperateCmd();
   const r = spawnSync(cmd, [...prefix, "catalog", "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });

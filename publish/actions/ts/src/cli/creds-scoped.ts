@@ -14,12 +14,12 @@ import * as readline from "node:readline";
 import { prjResolveGov } from "../resolve/resolve-gov.js";
 import { createNodeEnv } from "../resolve/node-env.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { loadAuth, authPath } from "../security/auth-store.js";
+import { loadSession } from "../security/auth-store.js";
 import { claimsOf } from "../security/oidc.js";
 import { vaultLogin, kvRead, kvWrite } from "../security/vault.js";
-import { defaultIdentity } from "../security/credentials.js";
 import { userCredsSet, userCredsList } from "../security/user-creds.js";
 
+import { vaultRoleFor } from "../security/vault-role.js";
 export type CredScope = "personal" | "shared";
 export interface CredsSetArgs { key?: string; value?: string; scope: CredScope; fromNpmrc: boolean; }
 
@@ -55,7 +55,7 @@ function resolveCtx(): Ctx | { error: string } {
   const org = parseOrgConfig(cfgText);
   const addr = process.env.GOV_BAO_ADDR?.trim() || org.vaultAddr;   // vaultAddr now sources from services.vault
   if (!addr) return { error: "no Vault configured (vault_addr / services.vault)" };
-  const session = loadAuth(authPath(org.agentWorkRoot, defaultIdentity())) as { accessToken?: string; idToken?: string } | null;
+  const session = loadSession(org.agentWorkRoot) as { accessToken?: string; idToken?: string } | null;
   if (!session) return { error: "not logged in — run `gov auth login`" };
   const jwt = session.accessToken ?? session.idToken;
   if (!jwt) return { error: "session has no token — re-run `gov auth login`" };
@@ -66,7 +66,7 @@ function accountRole(jwt: string): { account: string; role: string } {
   const c = claimsOf(jwt) as { account_ctx?: unknown; roles?: unknown };
   const account = String(c.account_ctx ?? "");
   const roles = Array.isArray(c.roles) ? (c.roles as string[]) : [];
-  const role = process.env.GOV_BAO_JWT_ROLE?.trim() || (roles.includes("GOV_ADMIN") ? "gov-admin" : roles[0]?.toLowerCase().replace(/_/g, "-") ?? "");
+  const role = vaultRoleFor(roles, process.env.GOV_BAO_JWT_ROLE) ?? "";
   return { account, role };
 }
 

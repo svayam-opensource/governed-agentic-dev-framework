@@ -17,7 +17,7 @@ const PKG_REL = "publish/actions/ts/package.json";
 const CONTENT_VERSION_REL = "publish/content/VERSION";
 
 /** jsDelivr URLs for this package in the README; captures the version spec. */
-const README_PIN_RE = /cdn\.jsdelivr\.net\/npm\/@svayam-opensource\/gov-work@([^/]+)\//g;
+const README_PIN_RE = /cdn\.jsdelivr\.net\/npm\/@svayam-opensource\/gov@([^/]+)\//g;
 
 export function checkVersionSync(ctx: ValidateContext): ValidationResult {
   const errors: string[] = [];

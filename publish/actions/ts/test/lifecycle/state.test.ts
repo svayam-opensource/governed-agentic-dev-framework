@@ -55,7 +55,7 @@ function fakeIssues() {
 function deps(vcs = fakeVcs()): { deps: StateDeps; anchorCalls: string[]; issueCalls: string[] } {
   const a = fakeAnchor();
   const i = fakeIssues();
-  return { deps: { vcs, anchor: a.anchor, issues: i.issues }, anchorCalls: a.calls, issueCalls: i.calls };
+  return { deps: { vcs, anchor: a.anchor, issues: i.issues, authorize: () => true }, anchorCalls: a.calls, issueCalls: i.calls };
 }
 
 describe("prj-work Phase 2 — pause / resume / cancel", () => {

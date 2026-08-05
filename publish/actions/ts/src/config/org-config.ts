@@ -31,7 +31,7 @@ export interface OrgConfig {
   /** IAM broker OIDC base (`services.oidc`) — the `gov auth login` target. */
   readonly oidcBase: string;
   /** The org service endpoints (`services:` block) as a generic map — vault/oidc used by core, jenkins/npm/
-   *  docker read by the gov-operate plugin. Org-level, governed; adopters inherit them. */
+   *  docker read by the gov-cicd plugin. Org-level, governed; adopters inherit them. */
   readonly services: Readonly<Record<string, string>>;
   /** Gov tenant/account (`gov_account`) — the account context service auth mints under; env `GOV_ACCOUNT` overrides. */
   readonly govAccount: string;
@@ -57,7 +57,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
   const get = (key: string): string => readTopLevelScalar(text, key) ?? "";
   const svc = (key: string): string | undefined => readServiceScalar(text, key);
   // The org's service endpoints (org-level, governed). gov-work USES vault/oidc/account; jenkins/npm/docker
-  // are read by the gov-operate plugin — kept here as a generic map so the banner/creds see them uniformly.
+  // are read by the gov-cicd plugin — kept here as a generic map so the banner/creds see them uniformly.
   const services: Record<string, string> = {};
   for (const k of ["vault", "oidc", "oidc_client_id", "jenkins", "npm", "docker"]) { const v = svc(k); if (v) services[k] = v; }
 

@@ -154,7 +154,7 @@ describe("prj-work — full-flow e2e (seed → task → merge)", () => {
 
     // ── task ────────────────────────────────────────────────────────────────
     const tasked = task(
-      { board: deps.board, vcs: deps.vcs, fs: deps.fs, issues: deps.issues, log: deps.log },
+      { board: deps.board, vcs: deps.vcs, fs: deps.fs, issues: deps.issues, log: deps.log, authorize: () => true },
       { githubOrg: "Svayamtech", workspaceRepo: WORKSPACE_REPO },
       { govClone, projectWorkRoot, issueUrls: [ISSUE], assignee: "svayam-rkant" },
     );
@@ -167,7 +167,7 @@ describe("prj-work — full-flow e2e (seed → task → merge)", () => {
 
     // ── merge ─────────────────────────────────────────────────────────────────
     const merged = merge(
-      { board: deps.board, vcs: deps.vcs, fs: deps.fs, issues: deps.issues, log: deps.log },
+      { board: deps.board, vcs: deps.vcs, fs: deps.fs, issues: deps.issues, log: deps.log, authorize: () => true },
       { githubOrg: "Svayamtech", workspaceRepo: WORKSPACE_REPO },
       { govClone, projectWorkRoot, taskArg: ISSUE },
     );

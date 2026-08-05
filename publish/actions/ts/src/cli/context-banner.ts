@@ -8,7 +8,7 @@
  * moments (first use here, a different project, an edited org-config, a switched user/env) — so the prompt
  * stays meaningful instead of training a reflexive `y`. Non-TTY never blocks.
  *
- * PURE (no I/O). The `gov` host (gov-work) and the gov-operate plugin share this same engine.
+ * PURE (no I/O). The `gov` host (gov-work) and the gov-cicd plugin share this same engine.
  */
 import { createHash } from "node:crypto";
 
@@ -17,6 +17,9 @@ export type ContextMode = "project" | "governed" | "none";
 export interface ContextInfo {
   readonly mode: ContextMode;
   readonly projectPath?: string;
+  /** The org's agent_work_root (org-config) — the parent of both project dirs and `.bases`. NOT in the
+   *  fingerprint (derived from org-config, which already fingerprints via orgConfigHash). */
+  readonly agentWorkRoot?: string;
   readonly govRepo?: string;
   readonly orgConfigPath?: string;
   readonly orgConfigHash?: string;

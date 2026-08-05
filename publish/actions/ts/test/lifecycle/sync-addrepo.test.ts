@@ -37,7 +37,7 @@ const syncInput = { govClone: GOV, projectWorkRoot: "/awr/PRJ-43" };
 describe("prj-work Phase 2 — sync", () => {
   it("merges default→branch in the workspace and base→branch in each code repo", () => {
     const { vcs, log } = fakeVcs();
-    const r = sync({ board: board(), vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput);
+    const r = sync({ board: board(), authorize: () => true,vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput);
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
     expect(r.synced).to.deep.equal([GOV, CODE_DIR]);
@@ -47,13 +47,13 @@ describe("prj-work Phase 2 — sync", () => {
   });
 
   it("stops on a conflict (rc=2) and refuses a dirty tree", () => {
-    expect(sync({ board: board(), vcs: fakeVcs({ conflict: true }).vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput)).to.include({ ok: false, code: 2, reason: "merge-conflict" });
-    expect(sync({ board: board(), vcs: fakeVcs({ dirty: true }).vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput)).to.include({ ok: false, reason: "dirty" });
+    expect(sync({ board: board(), authorize: () => true,vcs: fakeVcs({ conflict: true }).vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput)).to.include({ ok: false, code: 2, reason: "merge-conflict" });
+    expect(sync({ board: board(), authorize: () => true,vcs: fakeVcs({ dirty: true }).vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput)).to.include({ ok: false, reason: "dirty" });
   });
 
   it("refuses off a non-project branch", () => {
     const vcs = { ...fakeVcs().vcs, currentBranch: () => "main" };
-    expect(sync({ board: board(), vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput)).to.include({ ok: false, reason: "not-a-project-branch" });
+    expect(sync({ board: board(), authorize: () => true,vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput)).to.include({ ok: false, reason: "not-a-project-branch" });
   });
 });
 
@@ -66,7 +66,7 @@ describe("prj-work Phase 2 — add-repo (repo-on-demand)", () => {
     // base ref exists, project branch absent → setupCodeRepoWorktree proceeds
     const v = { ...vcs, refExists: (_r: string, ref: string) => ref === "refs/remotes/origin/dev" };
     const r = addRepo(
-      { vcs: v, fs: fsPresent(false), cloneRepo: (_u, d) => cloned.push(d) },
+      { vcs: v, fs: fsPresent(false), cloneRepo: (_u, d) => cloned.push(d), authorize: () => true },
       ADD_CONFIG,
       { govClone: GOV, projectWorkRoot: "/awr/PRJ-43", repoUrl: CODE_REPO },
     );
@@ -78,7 +78,7 @@ describe("prj-work Phase 2 — add-repo (repo-on-demand)", () => {
 
   it("fails (with rollback) when the base branch is missing", () => {
     const v = { ...fakeVcs().vcs, refExists: () => false }; // base ref absent
-    const r = addRepo({ vcs: v, fs: fsPresent(true), cloneRepo: () => {} }, ADD_CONFIG, { govClone: GOV, projectWorkRoot: "/awr/PRJ-43", repoUrl: CODE_REPO });
+    const r = addRepo({ authorize: () => true,vcs: v, fs: fsPresent(true), cloneRepo: () => {} }, ADD_CONFIG, { govClone: GOV, projectWorkRoot: "/awr/PRJ-43", repoUrl: CODE_REPO });
     expect(r.ok).to.equal(false);
     if (!r.ok) expect(r.reason).to.equal("add-failed");
   });
