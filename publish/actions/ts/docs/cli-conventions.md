@@ -44,7 +44,7 @@ across all commands in one change.
 | `gov status <project>` | `gov status [--project <id>]` (blank = pick) |
 | `gov seed <board-url> [assignee]` | keep subject positional; `--assignee <login>` |
 | `gov manage assign <login>` | subject positional (`<login>`) — one noun, fine |
-| `gov creds set <service> …` | subject positional (`<service>`) — one noun, fine |
+| `gov-cicd creds set <service> …` | subject positional (`<service>`) — one noun, fine |
 
 ### First publish — adopt outright (no fallback)
 
@@ -116,7 +116,7 @@ string** and never re-parses quotes.
 
 - **stdout = the result/data** (pipeable, `--json` clean); **stderr = banner, prompts, progress, warnings.**
 - **Never silent-empty on failure** — a `gh`/network/auth failure must say *why*, not look like "no results."
-- **Actionable errors:** state the cause + the fix (`… — run \`gov auth login\``).
+- **Actionable errors:** state the cause + the fix (`… — run \`gh auth login\``).
 - **Exit codes:** `0` success · `1` runtime error · `2` usage error.
 
 ## 7. Secrets
