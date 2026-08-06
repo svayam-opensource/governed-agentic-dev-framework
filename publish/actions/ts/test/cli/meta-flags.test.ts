@@ -21,8 +21,13 @@ describe("gov-work — meta flags (--version / --help work without a workspace)"
     expect(s).to.match(/usage: gov seed <board-url>/);
     expect(s).to.not.match(/--help/);
   });
-  it("helpCommandNames lists every command in the reference", () => {
+  it("helpCommandNames lists every command in the reference — and only gov-work's own", () => {
     const names = helpCommandNames();
-    expect(names).to.include.members(["seed", "manage", "deploy", "upgrade"]);
+    expect(names).to.include.members(["seed", "manage", "upgrade"]);
+    // `deploy` and friends were listed under an "Enterprise (plugin)" group while gov delegated them.
+    // They belong to gov-cicd now (adr-three-clients, PRJ-43); advertising a verb this binary does not
+    // run is how a help reference starts lying.
+    expect(names, "moved verbs must not be advertised as gov commands")
+      .to.not.include.members(["deploy", "promote", "catalog", "rollback", "drift", "auth", "creds"]);
   });
 });
