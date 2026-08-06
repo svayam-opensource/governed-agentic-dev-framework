@@ -14,7 +14,6 @@ import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
-import { discoverOperateMenu, discoverInfraMenu, discoverUnits, isGovernedInvocation, delegateToGovOperate, isInfraInvocation, delegateToInfra } from "./host.js";
 import { runWorkFlow, myProjects, agentLaunchSpec } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
@@ -163,15 +162,11 @@ export async function gatherMenuContext(): Promise<MenuContext> {
   return { orgName, githubOrg, branch, user, workspaceCount, cliVersion, mode, project };
 }
 
-/** Route any command (setup / governed-plugin / normal) — used by the menu.
- *  `creds` and `auth` are NOT here: gov-work keeps no credential store and needs no identity provider;
- *  those verbs belong to the deploy clients (ADR: three clients, 2026-08-06). */
+/** Route any command (setup / normal) — used by the menu. There is no plugin routing: `auth`, `creds`,
+ *  the deploy verbs and the infra verbs belong to the other clients and are invoked directly
+ *  (adr-three-clients, PRJ-43). */
 export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
-  // Pass the host's OWN verbs so routing can tell "mine" from "unknown" without spawning the plugin for
-  // every `setup`/`doctor`; anything in neither list is asked of the plugin, once.
-  if (isGovernedInvocation(argv, helpCommandNames())) return delegateToGovOperate(argv);   // → the gov-cicd plugin
-  if (isInfraInvocation(argv)) return delegateToInfra(argv);           // Infra verbs (`gov infra …`) → the do-admin plugin
   return main(argv);
 }
 
@@ -181,7 +176,6 @@ const HELP_GROUPS: Record<string, string[]> = {
   Governance: ["manage", "anchor", "knowledge", "onboard", "org", "validate"],
   Info: ["list", "list-all", "status"],
   Maintain: ["setup", "doctor", "deps", "upgrade", "bump-version", "publish"],
-  "Enterprise (plugin)": ["catalog", "build", "deploy", "data", "promote", "rollback", "drift"],
 };
 const CMD_DESC: Record<string, string> = {
   seed: "Seed a new project workspace from a GitHub Project board", join: "Join an existing project (clone its repos on the project branch)",
@@ -194,15 +188,12 @@ const CMD_DESC: Record<string, string> = {
   list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
   setup: "Bootstrap / update org-config.yaml", doctor: "Diagnose the workspace + tooling", deps: "Install / verify required dependencies",
   upgrade: "Pull the latest framework content into this workspace", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
-  catalog: "Governed catalog operations (gov-cicd plugin)", deploy: "Governed deploy (gov-cicd plugin)", data: "Governed data operations (gov-cicd plugin)",
-  promote: "Promote an artifact across envs (gov-cicd plugin)", rollback: "Roll back a unit (gov-cicd plugin)", drift: "Show deploy drift (gov-cicd plugin)",
 };
 const CMD_USAGE: Record<string, string> = {
   seed: "<board-url> [--assignee <login>]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
   knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
   org: "add <github_org> --home <path> | use|list|remove <github_org>",
-  upgrade: "[--ref <branch>] [--from <dir>] [--apply]", deploy: "<unit> --env <local|dev|uat|prod>",
-  promote: "<unit> --from <env> --to <env>", rollback: "<unit> --env <env> --to-sha <sha>", "bump-version": "<x.y.z>",
+  upgrade: "[--ref <branch>] [--from <dir>] [--apply]", "bump-version": "<x.y.z>",
 };
 
 /** All commands in reference order (for the Help → "help for one command" picker). */
@@ -279,9 +270,6 @@ export async function runMainMenu(): Promise<number> {
     help: (command) => helpLines(command),
     helpCommands: helpCommandNames,
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
-    operateVerbs: () => { try { return discoverOperateMenu(); } catch { return []; } },
-    infraVerbs: () => { try { return discoverInfraMenu(); } catch { return []; } },
-    listUnits: () => { try { return discoverUnits(); } catch { return []; } },
     listMyProjects: () => { try { return workDeps ? myProjects(workDeps).map((p) => p.projectId) : []; } catch { return []; } },
   };
   return runMenu(ctx, handlers);

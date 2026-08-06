@@ -86,7 +86,13 @@ directly (`gov <command>`) and through a menu path (`gov` ▸ Category ▸ comma
 | `upgrade` | Maintain ▸ upgrade | Sync workspace content to the published framework (`--from`/template `--pr`/`--apply`); else CLI self-update guidance |
 | `bump-version` | Maintain ▸ bump-version | Bump the CLI package + content `VERSION` in lockstep |
 | `publish` | Maintain ▸ publish | Pre-publish gate (version-sync); real publish stays governed |
-| `catalog` `deploy` `data` `promote` `rollback` `drift` | Operate ▸ … *(only when `@svayam/gov-operate` is installed)* | Enterprise catalog + deploy plugin commands |
+
+**Not `gov` commands.** `catalog` `deploy` `data` `promote` `rollback` `drift` `auth` `creds` belong to
+**`gov-cicd`**, and the infrastructure verbs to **`gov-infra`** — separate CLIs, invoked directly
+(`gov-cicd deploy <unit> --env dev`). They are not plugins of `gov`: nothing is discovered, merged or
+delegated. Typing one of them into `gov` tells you which client owns it.
 
 Global flags: `--gov-home <path>` / `$PRJ_GOV_HOME` target an explicit workspace
-(bypassing resolution). `$GOV_LICENSE` unlocks the enterprise plugin.
+(bypassing resolution).
+
+Blueprint: `units/gov-work/SDD.md`.

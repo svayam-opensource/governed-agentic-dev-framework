@@ -76,6 +76,21 @@ export interface CommandResult {
   readonly lines: readonly string[];
 }
 
+/**
+ * Verbs that USED to be `gov <verb>` and are now their own client's (adr-three-clients, PRJ-43).
+ *
+ * Kept as data rather than dropped, because the cost of removing a verb is paid by whoever types it next.
+ * A stale muscle-memory invocation should land on the answer, not on "unknown command". Deliberately not
+ * a delegation table — gov does not run these, it points at them.
+ */
+const MOVED_VERBS: Readonly<Record<string, string>> = {
+  auth: "gov-cicd", creds: "gov-cicd",
+  catalog: "gov-cicd", build: "gov-cicd", deploy: "gov-cicd", data: "gov-cicd", "data-access": "gov-cicd",
+  promote: "gov-cicd", rollback: "gov-cicd", drift: "gov-cicd", standards: "gov-cicd", attest: "gov-cicd",
+  authorize: "gov-cicd", secret: "gov-cicd", policy: "gov-cicd", "deploy-check": "gov-cicd",
+  infra: "gov-infra",
+};
+
 const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov-work ${spec}`] });
 
 /** Render a PAGINATED project list: "<header> (X–Y of TOTAL):" + rows + a next-page hint when there's more. */
@@ -302,11 +317,21 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         : { code: r.code, lines: [r.message] };
     }
 
-    default:
+    default: {
+      // A verb that MOVED must say where it went. `gov` used to delegate these to the gov-cicd and
+      // do-admin plugins; the three clients are invoked directly now (adr-three-clients, PRJ-43), and
+      // "unknown command 'deploy'" would be a worse answer than the one we can give — the reader knows
+      // the verb exists, so the useful information is which binary owns it.
+      const moved = MOVED_VERBS[command];
       return {
         code: 2,
         lines: [
-          `unknown command '${command}'`,
+          ...(moved
+            ? [`'${command}' is a ${moved} verb — gov no longer runs it.`,
+               `  run:  ${moved} ${command} …`,
+               `  (install:  npm i -g @svayam/${moved})`,
+               ""]
+            : [`unknown command '${command}'`]),
           "bootstrap: setup org",
           "lifecycle: seed join task merge sync add-repo close pause resume cancel",
           "info+owners: list list-all status manage anchor validate",
@@ -314,5 +339,6 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           "maintain: bump-version doctor deps publish upgrade",
         ],
       };
+    }
   }
 }

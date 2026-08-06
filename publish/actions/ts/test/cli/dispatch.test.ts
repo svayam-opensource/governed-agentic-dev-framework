@@ -98,3 +98,31 @@ describe("prj-work — route (dispatcher)", () => {
     expect(r.lines[0]).to.match(/not a project branch/);
   });
 });
+
+// The verbs gov used to DELEGATE now belong to other binaries (adr-three-clients, PRJ-43). Removing a verb
+// costs whoever types it next, so the removal has to answer them: the reader knows `deploy` exists, so the
+// useful reply is which client owns it — not "unknown command".
+describe("cli — verbs that MOVED to another client", () => {
+  const lines = (cmd: string): string => route(parseArgv([cmd]) as never, ctx()).lines.join("\n");
+
+  it("names the owning client and the exact command to run", () => {
+    const out = lines("deploy");
+    expect(out).to.match(/'deploy' is a gov-cicd verb/);
+    expect(out, "the fix must be runnable, not described").to.contain("gov-cicd deploy");
+    expect(out).to.contain("npm i -g @svayam/gov-cicd");
+  });
+
+  it("covers the infra plane too", () => {
+    expect(lines("infra")).to.match(/gov-infra/);
+  });
+
+  it("still exits 2 — a moved verb is a usage error, not a success", () => {
+    expect(route(parseArgv(["deploy"]) as never, ctx()).code).to.equal(2);
+  });
+
+  it("a genuinely unknown command is still 'unknown command'", () => {
+    const out = lines("wibble");
+    expect(out).to.match(/unknown command 'wibble'/);
+    expect(out, "no client owns it, so none may be suggested").to.not.match(/gov-cicd|gov-infra/);
+  });
+});
