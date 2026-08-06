@@ -17,6 +17,7 @@ on:
     branches: ["**"]
     paths:
       - "publish/actions/ts/**"
+      - "publish/libs/gov-core/**"
       - ".github/workflows/node-ci.yml"
 
 concurrency:
@@ -49,3 +50,25 @@ jobs:
       # pre-publish gate (needs a sandbox org + bot PAT), not run per-PR.
       - name: e2e (full-flow gate — required before merge/publish)
         run: npm run test:e2e
+
+  gov-core:
+    # The shared identity/creds/context library the three gov clients agree through. It has no runtime
+    # dependencies and no client imports it yet — it is built and tested on its own so that the day a client
+    # DOES depend on it, the dependency is already known-green.
+    name: gov-core
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: publish/libs/gov-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: publish/libs/gov-core/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npm test

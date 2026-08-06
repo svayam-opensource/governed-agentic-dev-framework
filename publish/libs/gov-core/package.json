@@ -1,0 +1,39 @@
+{
+  "name": "@svayam-opensource/gov-core",
+  "version": "1.0.0",
+  "description": "Shared identity, credential-store and context primitives for the gov family of CLIs (gov-work, gov-cicd, gov-infra).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./lib/cjs/index.js",
+  "module": "./lib/esm/index.js",
+  "types": "./lib/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "import": { "types": "./lib/esm/index.d.ts", "default": "./lib/esm/index.js" },
+      "require": { "types": "./lib/cjs/index.d.ts", "default": "./lib/cjs/index.js" }
+    }
+  },
+  "files": ["lib/"],
+  "engines": { "node": ">=24" },
+  "publishConfig": { "registry": "https://npm.svayamtech.com/", "access": "public" },
+  "scripts": {
+    "clean": "rm -rf lib",
+    "build": "npm run clean && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json",
+    "test": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/**/*.test.ts'",
+    "lint": "eslint .",
+    "prepublishOnly": "npm run build && npm run test",
+    "tsc": "npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.0.0",
+    "chai": "^4.5.0",
+    "jiti": "^2.4.2",
+    "mocha": "^10.8.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.56.0"
+  }
+}
