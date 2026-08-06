@@ -96,6 +96,12 @@ const MOVED_VERBS: Readonly<Record<string, string>> = {
  *  message said, and it was wrong in the only way that matters: it would not have worked if typed. */
 const MOVED_NAMESPACES = new Set(["infra"]);
 
+/** Clients that DO NOT EXIST YET. `@svayam/gov-infra` is unpublished (404) and 909 carries no such
+ *  package, so telling anyone to install it is advice that fails when typed — the same defect as
+ *  `gov-infra infra`. Naming the client is still right (the verbs are its, not ours); promising an
+ *  install is not. Delete an entry the day its package publishes. */
+const UNRELEASED_CLIENTS = new Set(["gov-infra"]);
+
 const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov-work ${spec}`] });
 
 /** Render a PAGINATED project list: "<header> (X–Y of TOTAL):" + rows + a next-page hint when there's more. */
@@ -335,8 +341,10 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
             ? [MOVED_NAMESPACES.has(command)
                  ? `'${command}' was a namespace for the ${moved} client — gov no longer forwards it.`
                  : `'${command}' is a ${moved} verb — gov no longer runs it.`,
-               `  run:  ${moved} ${MOVED_NAMESPACES.has(command) ? "<verb>" : command} …`,
-               `  (install:  npm i -g @svayam/${moved})`,
+               ...(UNRELEASED_CLIENTS.has(moved)
+                 ? [`  ${moved} is not released yet — these verbs are unavailable, and there is nothing to install.`]
+                 : [`  run:  ${moved} ${MOVED_NAMESPACES.has(command) ? "<verb>" : command} …`,
+                    `  (install:  npm i -g @svayam/${moved})`]),
                ""]
             : [`unknown command '${command}'`]),
           "bootstrap: setup org",
