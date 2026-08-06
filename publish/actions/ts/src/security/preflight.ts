@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: LicenseRef-Svayam-Proprietary
+// SPDX-License-Identifier: MIT
 /**
- * The security PREFLIGHT — every command computes its NEED/GAP before it runs, and a
- * non-empty GAP blocks with a pointer to `gov-work creds` (SDD credential-seam). On a healthy
- * machine the GAP is empty and this is a silent no-op; it only fires when identity or
- * authorization is genuinely missing — surfacing the fix instead of a downstream error.
+ * The PREFLIGHT — every command computes its NEED/GAP before it runs, and a non-empty GAP blocks with
+ * the command that fixes it. On a healthy machine the GAP is empty and this is a silent no-op.
+ *
+ * It no longer points at `gov creds`: gov-work has no credential store, and its two NEEDs are satisfied
+ * by the user's own tools. So each NEED carries its own instructions and the block prints those.
  */
 import { type Need, type NeedProbes, computeGap } from "./needs.js";
 
@@ -18,10 +19,14 @@ export function preflight(needs: readonly Need[], probes: NeedProbes): Preflight
   return { ok: gap.length === 0, gap };
 }
 
-/** The block message shown when a command's GAP is non-empty — points at `gov-work creds`. */
+/** The block message shown when a command's GAP is non-empty. Each NEED says how to satisfy itself —
+ *  a generic "run some other command" would be a lie now that no gov command fills these in. */
 export function renderGap(gap: readonly Need[]): string[] {
-  const lines = [`✗ ${gap.length} unmet security NEED(s) for this command:`];
-  for (const n of gap) lines.push(`    • ${n.title}`);
-  lines.push("", "  Resolve them with:  gov-work creds", "  then re-run your command.");
+  const lines = [`✗ ${gap.length} unmet requirement(s) for this command:`];
+  for (const n of gap) {
+    lines.push(`    • ${n.title}`);
+    for (const l of n.instructions.split("\n")) lines.push(`        ${l}`);
+  }
+  lines.push("", "  Then re-run your command.");
   return lines;
 }

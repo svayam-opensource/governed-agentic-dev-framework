@@ -20,16 +20,9 @@ import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js"
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { assembleNeeds, credNeedForKey } from "../security/needs.js";
-import { readPolicyCredNeeds } from "../security/policy-needs.js";
+import { assembleNeeds } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
-import { runCreds } from "../security/creds-flow.js";
-import { runCredsScoped } from "./creds-scoped.js";
-import { credentialsPath, getCredential, setCredential, listIdentities, identityExists, defaultIdentity } from "../security/credentials.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
-import { loadSession } from "../security/auth-store.js";
-import { claimsOf } from "../security/oidc.js";
-import { vaultLogin, kvRead, kvWrite } from "../security/vault.js";
 import { createGitVcs } from "../lifecycle/vcs.js";
 import { createGhBoard, type RunGh } from "../lifecycle/gh-board.js";
 import { createGhIssues } from "../lifecycle/issues.js";
@@ -50,7 +43,6 @@ import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 import { PACKAGE_NAME } from "../index.js";
 
-import { vaultRoleFor } from "../security/vault-role.js";
 /** Run a command, swallowing failures (returns undefined). */
 function tryRun(cmd: string, args: string[]): string | undefined {
   try {
@@ -171,95 +163,11 @@ export async function gatherMenuContext(): Promise<MenuContext> {
   return { orgName, githubOrg, branch, user, workspaceCount, cliVersion, mode, project };
 }
 
-/**
- * `gov-work creds` — the interactive GAP-filler (SDD credential-seam, client half). Resolves
- * the org work root, computes the base NEED/GAP for the chosen identity, and walks the
- * user through placing anything missing. Async (readline prompts); routed from bin.ts.
- */
-export async function runCredsCommand(argv: readonly string[]): Promise<number> {
-  // `creds set|ls` → the unified scope-routed store (personal vs shared). Bare `creds` / `creds <KEY>`
-  // keeps the interactive NEED/GAP walk below.
-  if (argv[1] === "set" || argv[1] === "ls") return runCredsScoped(argv[1], argv.slice(2));
-  const fs = createNodeFs();
-  const resolve = prjResolveGov(createNodeEnv());
-  if (!resolve.ok) { process.stderr.write("gov-work creds: no gov workspace resolved — run `gov-work onboard`/`gov-work setup` first.\n"); return 1; }
-  const cfgText = fs.readFile(path.join(resolve.home, "org-config.yaml"));
-  if (!cfgText) { process.stderr.write("gov-work creds: org-config.yaml not found.\n"); return 1; }
-  const orgConfig = parseOrgConfig(cfgText);
-  const agentWorkRoot = orgConfig.agentWorkRoot;
-
-  // `gov-work creds <KEY>` targets one credential (e.g. SVAYAM_GOV_LICENSE); bare `gov-work creds` walks
-  // the base NEEDs (git/gh) PLUS every credential DECLARED in the org's build/deploy policies
-  // (knowledge/deployment/{build,deploy}-policy.yaml) — the policy is the single source of truth for what
-  // keys are required, so any port/seam (gov-cicd included) is covered without gov-work knowing it.
-  const requestedKey = argv[1];
-  const policyNeeds = readPolicyCredNeeds((p) => fs.readFile(p), resolve.home);
-  const needs = requestedKey ? [credNeedForKey(requestedKey)] : [...assembleNeeds(policyNeeds)];
-
-  // ── TARGET = Vault (OIDC creds model). If you've `gov auth login`'d and a Vault addr is configured,
-  //    `creds` WRITES to Vault under your token's account_ctx (kv/gov/<account>/creds) — the SAME menu,
-  //    target = Vault, values shared with everyone authorized to read. Else it falls back to the local
-  //    per-user file (legacy). Vault enforces write (gov-admin's account-templated policy).
-  // Vault address: env override wins (CI/local overrides), else org-config's `vault_addr` — the single
-  // source of truth so devs + Jenkins inherit it without setting an env var.
-  const vaultAddr = process.env.GOV_BAO_ADDR?.trim() || orgConfig.vaultAddr || undefined;
-  const session = requestedKey ? null : loadSession(agentWorkRoot);   // follows `.current` (910 #45)
-  let vault: { addr: string; token: string; path: string; data: Record<string, string> } | null = null;
-  if (session && vaultAddr) {
-    try {
-      const claims = claimsOf(session.accessToken ?? session.idToken);
-      const account = String(claims.account_ctx ?? "");
-      const rolesArr = Array.isArray(claims.roles) ? (claims.roles as string[]) : [];
-      const role = vaultRoleFor(rolesArr, process.env.GOV_BAO_JWT_ROLE) ?? "";
-      if (!account) throw new Error("your token has no account_ctx");
-      if (!role) throw new Error("your token carries no gov role (a gov-admin seeds account creds)");
-      const token = await vaultLogin({ addr: vaultAddr, jwtMount: process.env.GOV_BAO_JWT_MOUNT?.trim() || "gov", role }, session.accessToken ?? session.idToken);
-      const path = `kv/gov/${account}/creds`;
-      vault = { addr: vaultAddr, token, path, data: await kvRead(vaultAddr, token, path) };
-      process.stdout.write(`Target: Vault ${path}  (account ${account}, as ${role}) — values are shared with everyone authorized to read.\n`);
-    } catch (e) {
-      process.stderr.write(`  (Vault target unavailable — ${(e as Error).message}; using the local credentials file instead)\n`);
-    }
-  } else if (!session && vaultAddr && !requestedKey) {
-    process.stdout.write("Tip: run `gov-work auth login` first to write these into Vault (account context) instead of the local file.\n");
-  }
-
-  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-  const ask = (q: string, def?: string): Promise<string> =>
-    new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || (def ?? ""))));
-  const ghAuthOk = (): boolean => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } };
-  try {
-    const r = await runCreds({
-      defaultIdentity: defaultIdentity(),
-      needs,
-      interactive: Boolean(process.stdin.isTTY),     // secrets only from a real terminal (never piped/agent)
-      prompt: ask,
-      print: (l) => process.stdout.write(`${l}\n`),
-      listIdentities: () => listIdentities(agentWorkRoot),
-      identityExists: (id) => identityExists(agentWorkRoot, id),
-      makeProbes: (id) => {
-        const file = credentialsPath(agentWorkRoot, id);
-        return {
-          gitConfig: (k) => tryRun("git", ["config", "--get", k]) || undefined,
-          ghAuthOk,
-          hasCred: (k) => vault ? vault.data[k] !== undefined : getCredential(file, k) !== undefined,
-        };
-      },
-      setCred: async (id, key, value) => {
-        if (vault) { vault.data[key] = value; await kvWrite(vault.addr, vault.token, vault.path, vault.data); }
-        else setCredential(credentialsPath(agentWorkRoot, id), key, value);
-      },
-    });
-    return r.stillMissing.length ? 1 : 0;
-  } finally {
-    rl.close();
-  }
-}
-
-/** Route any command (setup / creds / governed-plugin / normal) — used by the menu. */
+/** Route any command (setup / governed-plugin / normal) — used by the menu.
+ *  `creds` and `auth` are NOT here: gov-work keeps no credential store and needs no identity provider;
+ *  those verbs belong to the deploy clients (ADR: three clients, 2026-08-06). */
 export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
-  if (argv[0] === "creds") return runCredsCommand(argv);
   // Pass the host's OWN verbs so routing can tell "mine" from "unknown" without spawning the plugin for
   // every `setup`/`doctor`; anything in neither list is asked of the plugin, once.
   if (isGovernedInvocation(argv, helpCommandNames())) return delegateToGovOperate(argv);   // → the gov-cicd plugin
@@ -606,17 +514,15 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     log: (m) => process.stderr.write(`${m}\n`),
   };
 
-  // Security PREFLIGHT (NEED/GAP): before a route-dispatched command runs, block if its
-  // identity/authorization isn't in place, pointing at `gov-work creds`. Base NEEDs (git commit
-  // identity, gh auth) apply here; command/plugin-specific NEEDs join as those paths grow.
-  // Silent no-op on a healthy machine. $GOV_SKIP_PREFLIGHT bypasses it for non-interactive
-  // automation that provisions creds out-of-band.
+  // PREFLIGHT (NEED/GAP): before a route-dispatched command runs, check gov-work's OWN two
+  // requirements — a git commit identity and an authenticated `gh`. Both are the USER'S OWN TOOLS, and
+  // each NEED carries the command that fixes it. There is no credential store to probe: gov-work stores
+  // no secrets and needs no identity provider (ADR: three clients). Silent no-op on a healthy machine;
+  // $GOV_SKIP_PREFLIGHT bypasses it for non-interactive automation.
   if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
-    const credFile = credentialsPath(config.agentWorkRoot, defaultIdentity());
     const pf = preflight(assembleNeeds(), {
       gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
       ghAuthOk: () => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } },
-      hasCred: (k) => getCredential(credFile, k) !== undefined,
     });
     if (!pf.ok) {
       for (const line of renderGap(pf.gap)) process.stderr.write(`${line}\n`);

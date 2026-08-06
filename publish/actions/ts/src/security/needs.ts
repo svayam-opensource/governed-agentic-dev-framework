@@ -1,8 +1,13 @@
-// SPDX-License-Identifier: LicenseRef-Svayam-Proprietary
+// SPDX-License-Identifier: MIT
 /**
- * NEED / GAP — the security preflight model (SDD credential-seam). Every command declares
- * the identity + authorizations its ask requires (its NEEDs); the CLI probes what's already
- * satisfied on this machine and the unmet subset is the GAP, which `gov-work creds` then fills.
+ * NEED / GAP — the preflight model for gov-work's OWN two requirements: a git commit identity and an
+ * authenticated `gh`. Both are the USER'S OWN TOOLS, not secrets gov stores.
+ *
+ * gov-work needs no identity provider and keeps no credential store (ADR: three clients, 2026-08-06).
+ * Sessions, OIDC, stored credentials and the Vault client belong to the deploy path — gov-cicd and
+ * gov-infra — so `credNeedForKey`, `registryTokenNeed` and the `hasCred` probe left with them. What
+ * remains is a check that the user's own tooling is configured, which is why nothing here can be
+ * "filled in" by gov: it points at `git config` and `gh auth login`.
  *
  * This module is PURE: a `Need` states what it is, how to satisfy it (human instructions),
  * and a `satisfied(probes)` predicate. Probes are INJECTED (git/gh/credential-store lookups),
@@ -16,8 +21,6 @@ export interface NeedProbes {
   readonly gitConfig: (key: string) => string | undefined;
   /** is the GitHub CLI authenticated (`gh auth status` ok)? */
   readonly ghAuthOk: () => boolean;
-  /** does the active identity's credential store hold this key? */
-  readonly hasCred: (key: string) => boolean;
 }
 
 /** One security requirement of a command's ask. */
@@ -26,10 +29,8 @@ export interface Need {
   readonly id: string;
   /** one-line human title shown in the NEED/GAP summary. */
   readonly title: string;
-  /** where/how to obtain it — shown by `gov-work creds` when this is a GAP. */
+  /** how the USER satisfies it (their own tool) — printed verbatim when this is a GAP. */
   readonly instructions: string;
-  /** set when this NEED is satisfied by a value in the credential store (the key it lives under). */
-  readonly credKey?: string;
   /** is it already satisfied on this machine? */
   readonly satisfied: (p: NeedProbes) => boolean;
 }
@@ -45,20 +46,6 @@ export const gitIdentityNeed: Need = {
   satisfied: (p) => !!p.gitConfig("user.name") && !!p.gitConfig("user.email"),
 };
 
-/** A NEED for an explicitly-named credential key (`gov-work creds <KEY>`) — a generic, shielded
- *  paste prompt. (gov-work is a credential MANAGER; it doesn't know what any given key is for.) */
-export function credNeedForKey(key: string): Need {
-  return {
-    id: key,
-    title: `credential ${key}`,
-    credKey: key,
-    instructions:
-      `Provide the value for ${key} (get it from the relevant tool/provider).\n` +
-      `  Paste it below — gov saves it for you.`,
-    satisfied: (p) => p.hasCred(key),
-  };
-}
-
 export const ghAuthNeed: Need = {
   id: "gh-auth",
   title: "GitHub CLI authentication",
@@ -66,31 +53,10 @@ export const ghAuthNeed: Need = {
   satisfied: (p) => p.ghAuthOk(),
 };
 
-// ── registry publish token — contributed by the deploy path per resolved target ──
-/**
- * A NEED for a publish credential to `registry`, stored under `credKey` (the standard key,
- * supplied by the plugin). Instructions SHIELD the developer — where to go, what to do, and
- * paste; no auth-method jargon, no key names. `gov-work creds` saves the answer for them.
- */
-export function registryTokenNeed(registry: string, credKey: string): Need {
-  const where = registry === "https://registry.npmjs.org"
-    ? "npmjs.com → Account → Access Tokens → Generate a new Automation token"
-    : `your registry's token page for ${registry} (ask your admin if you're unsure where)`;
-  return {
-    id: credKey,
-    title: `a publish credential for ${registry}`,
-    credKey,
-    instructions:
-      `You need a publish token for ${registry}.\n` +
-      `  1. Get one here:  ${where}\n` +
-      `  2. Paste it below — gov saves it for you; there's nothing else to set up.`,
-    satisfied: (p) => p.hasCred(credKey),
-  };
-}
-
-/** Assemble a command's NEEDs: the base set plus any command/plugin-specific extras. */
-export function assembleNeeds(extra: readonly Need[] = []): Need[] {
-  return [gitIdentityNeed, ghAuthNeed, ...extra];
+/** gov-work's NEEDs: git identity + gh auth. There is no "extra" any more — a plugin's credential
+ *  requirements are that plugin's business now, not something gov-work collects on its behalf. */
+export function assembleNeeds(): Need[] {
+  return [gitIdentityNeed, ghAuthNeed];
 }
 
 /** The GAP = the NEEDs not yet satisfied on this machine, in declared order. */

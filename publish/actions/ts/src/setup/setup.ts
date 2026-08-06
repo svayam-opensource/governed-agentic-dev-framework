@@ -158,8 +158,9 @@ policy_effective_date: "${v.policyEffectiveDate}"
 gov_account: "${v.govAccount}"
 
 # ── Service endpoints — ORG-LEVEL, GOVERNED. Set once here; adopters INHERIT (never prompted per-user).
-#    Per-user secrets/tokens go to Vault via \`gov creds\`, NOT here. vault+oidc are used by gov-work core
-#    (auth/creds); jenkins/npm/docker are read by the gov-cicd deploy plugin (fill as you adopt deploy).
+#    Per-user secrets/tokens go to Vault via \`gov-cicd creds\`, NOT here. gov-work itself needs NEITHER:
+#    it authenticates with your own git + gh. vault/oidc/jenkins/npm/docker are read by the deploy
+#    clients (gov-cicd, gov-infra) — fill them as you adopt deploy.
 services:
   vault: "${v.vaultAddr}"
   oidc: "${v.oidcBase}"

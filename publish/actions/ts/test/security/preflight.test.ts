@@ -23,11 +23,16 @@ describe("security — preflight gate", () => {
     expect(r.gap.map((n) => n.id)).to.deep.equal([ghAuthNeed.id]);
   });
 
-  it("renderGap lists the unmet needs and points at `gov-work creds`", () => {
+  // gov-work has no `creds` verb any more — it keeps no credential store and needs no identity provider
+  // (ADR: three clients). So the block must print the command the USER runs, not defer to a gov verb that
+  // no longer exists: a pointer to a removed command is worse than no pointer at all.
+  it("renderGap lists each unmet need WITH the command that fixes it", () => {
     const gap = preflight([gitIdentityNeed, ghAuthNeed], probes({ git: {}, gh: false })).gap;
     const lines = renderGap(gap).join("\n");
-    expect(lines).to.match(/2 unmet security NEED/);
+    expect(lines).to.match(/2 unmet requirement/);
     expect(lines).to.match(/git commit identity/);
-    expect(lines).to.match(/gov-work creds/);
+    expect(lines, "the fix must be in the output, not looked up elsewhere").to.match(/git config --global user\.name/);
+    expect(lines).to.match(/gh auth login/);
+    expect(lines, "there is no gov creds verb to send anyone to").to.not.match(/gov(-work)? creds/);
   });
 });

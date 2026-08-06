@@ -5,8 +5,7 @@
 // gov-work (OSS) is the HOST: it manages projects, workspaces, and credentials, shows the context banner,
 // and DELEGATES governed verbs (catalog/deploy/…) to the internal `gov-cicd` plugin when installed —
 // runtime discovery only, so gov-work keeps NO build dependency on it. (Also published as `gov-work`.)
-import { main, runSetupCommand, runCredsCommand, runMainMenu, readCliVersion, helpLines } from "./main.js";
-import { runAuthCommand } from "./auth.js";
+import { main, runSetupCommand, runMainMenu, readCliVersion, helpLines } from "./main.js";
 import { isGovernedInvocation, delegateToGovOperate, isInfraInvocation, delegateToInfra, confirmContextOrBail } from "./host.js";
 
 import { helpCommandNames } from "./main.js";
@@ -30,8 +29,6 @@ async function dispatch(): Promise<number> {
   if (!(await confirmContextOrBail(argv))) return 0;
   if (argv.length === 0 && process.stdin.isTTY) return runMainMenu();
   if (argv[0] === "setup") return runSetupCommand(argv);
-  if (argv[0] === "creds") return runCredsCommand(argv);
-  if (argv[0] === "auth") return runAuthCommand(argv);
   return main(argv);
 }
 
