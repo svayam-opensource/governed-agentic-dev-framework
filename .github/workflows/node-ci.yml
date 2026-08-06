@@ -12,16 +12,26 @@ on:
   # touch the paths, since the check never runs). The build is cached + fast when
   # nothing changed.
   pull_request:
-  # Pushes stay path-filtered (don't spin up on unrelated feature-branch pushes).
+  # Pushes: the LONG-LIVED branches only. A branch with an open PR is already
+  # covered by the `pull_request` event, and firing on both ran EVERY job twice
+  # per commit — see the concurrency note below.
   push:
-    branches: ["**"]
+    branches: [main, dev]
     paths:
       - "publish/actions/ts/**"
       - "publish/libs/gov-core/**"
       - ".github/workflows/node-ci.yml"
 
+# ONE RUN PER COMMIT. Keyed on the HEAD REF, not `github.ref`: for a push that is
+# `refs/heads/<branch>` and for a pull_request it is `refs/pull/<n>/merge`, so a ref-keyed
+# group put the two events in DIFFERENT groups and neither cancelled the other. Every commit
+# on a PR branch therefore ran this workflow twice, and adopter-e2e twice — four runs, ~7 jobs,
+# half of them exact duplicates. On 2026-08-07 two `gov-work` jobs then sat 16 minutes and died
+# with "The job was not acquired by Runner of type hosted" while `gov-core` passed in 16s on the
+# same workflow. `head_ref` is set for a pull_request and empty for a push, so the fallback to
+# `ref_name` keeps main/dev pushes in their own group.
 concurrency:
-  group: node-ci-${{ github.ref }}
+  group: node-ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
