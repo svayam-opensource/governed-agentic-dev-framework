@@ -91,6 +91,11 @@ const MOVED_VERBS: Readonly<Record<string, string>> = {
   infra: "gov-infra",
 };
 
+/** `infra` was a NAMESPACE, not a verb: `gov infra <cmd>` forwarded `<cmd>` to the infra plugin. So the
+ *  advice for it is `gov-infra <verb>`, never `gov-infra infra` — which is what the first version of this
+ *  message said, and it was wrong in the only way that matters: it would not have worked if typed. */
+const MOVED_NAMESPACES = new Set(["infra"]);
+
 const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov-work ${spec}`] });
 
 /** Render a PAGINATED project list: "<header> (X–Y of TOTAL):" + rows + a next-page hint when there's more. */
@@ -327,8 +332,10 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         code: 2,
         lines: [
           ...(moved
-            ? [`'${command}' is a ${moved} verb — gov no longer runs it.`,
-               `  run:  ${moved} ${command} …`,
+            ? [MOVED_NAMESPACES.has(command)
+                 ? `'${command}' was a namespace for the ${moved} client — gov no longer forwards it.`
+                 : `'${command}' is a ${moved} verb — gov no longer runs it.`,
+               `  run:  ${moved} ${MOVED_NAMESPACES.has(command) ? "<verb>" : command} …`,
                `  (install:  npm i -g @svayam/${moved})`,
                ""]
             : [`unknown command '${command}'`]),

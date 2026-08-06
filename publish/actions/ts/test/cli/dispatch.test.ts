@@ -112,8 +112,15 @@ describe("cli — verbs that MOVED to another client", () => {
     expect(out).to.contain("npm i -g @svayam/gov-cicd");
   });
 
-  it("covers the infra plane too", () => {
-    expect(lines("infra")).to.match(/gov-infra/);
+  // `infra` was a NAMESPACE (`gov infra <verb>` forwarded `<verb>`), so the advice must be
+  // `gov-infra <verb>` — NOT `gov-infra infra`, which is what the first version printed. The bug survived
+  // a test that only matched /gov-infra/: a substring assertion passed while the instruction was useless.
+  // Found by running the binary, which is the argument for running it.
+  it("the infra NAMESPACE advises the verb, not the namespace", () => {
+    const out = lines("infra");
+    expect(out).to.match(/was a namespace/);
+    expect(out).to.contain("gov-infra <verb>");
+    expect(out, "advice that would not work if typed").to.not.contain("gov-infra infra");
   });
 
   it("still exits 2 — a moved verb is a usage error, not a success", () => {
