@@ -6,85 +6,8 @@
  * pins a place where two independent copies of a rule disagreed, or could.
  */
 import { expect } from "chai";
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  authPath, currentIdentityPath, readCurrentIdentity, saveSession, loadSession, sessionIdentity,
-  credentialsPath, setCredential, getCredential, listCredentialKeys, parseCredentials,
-  computeGap, type Need, type NeedProbes,
-  parseOrgConfig, expandTilde, readTopLevelScalar,
-  detectContext, contextFingerprint,
-} from "../src/index.js";
-
-const root = () => mkdtempSync(join(tmpdir(), "gov-core-"));
-const tokens = { accessToken: "AAA", idToken: "III", refreshToken: "RRR", expiresAt: 1893456000 };
-
-describe("gov-core · identity", () => {
-  // #45: the host wrote preferences/<os-user>/gov-auth.json as {accessToken,idToken,expiresAt}; the plugin
-  // read preferences/<email>/gov-auth.json expecting {token,user}. A login could not authenticate a
-  // governed verb BY CONSTRUCTION. One writer + one reader is the only fix that cannot drift back.
-  it("writes a session one reader-convention CANNOT miss — both key and schema", () => {
-    const r = root();
-    const file = saveSession(r, "rkant@svayam.ai", tokens);
-    expect(file).to.equal(authPath(r, "rkant@svayam.ai"));
-
-    const onDisk = JSON.parse(readFileSync(file, "utf8"));
-    expect(onDisk.user, "the gov-cicd convention").to.equal("rkant@svayam.ai");
-    expect(onDisk.token, "the gov-cicd convention").to.equal("AAA");
-    expect(onDisk.accessToken, "the host convention").to.equal("AAA");
-    expect(onDisk.expiresAt, "the host convention").to.equal(1893456000);
-  });
-
-  it("saving a session ALWAYS moves the pointer — it can never name a session that was not written", () => {
-    const r = root();
-    saveSession(r, "rkant@svayam.ai", tokens);
-    expect(readCurrentIdentity(r)).to.equal("rkant@svayam.ai");
-    expect(currentIdentityPath(r)).to.contain("preferences");
-    expect(loadSession(r, {} as NodeJS.ProcessEnv)?.token).to.equal("AAA");
-  });
-
-  it("resolves the identity in one order: GOV_IDENTITY → .current → OS user", () => {
-    const r = root();
-    expect(sessionIdentity(r, { GOV_IDENTITY: "explicit@x", USER: "os" } as NodeJS.ProcessEnv)).to.equal("explicit@x");
-    saveSession(r, "pointed@x", tokens);
-    expect(sessionIdentity(r, { USER: "os" } as NodeJS.ProcessEnv)).to.equal("pointed@x");
-    // the migration fallback: a session written before the pointer existed still resolves
-    expect(sessionIdentity(root(), { USER: "os" } as NodeJS.ProcessEnv)).to.equal("os");
-  });
-
-  it("a missing session is null, never a throw — the caller decides what to do about it", () => {
-    expect(loadSession(root(), {} as NodeJS.ProcessEnv)).to.equal(null);
-  });
-});
-
-describe("gov-core · secrets", () => {
-  it("stores a credential as KEY=VALUE, replaces in place, and never returns values from a listing", () => {
-    const f = credentialsPath(root(), "rkant@svayam.ai");
-    setCredential(f, "npm_token:npm.example.com", "tok-1");
-    setCredential(f, "gh_token", "gh-1");
-    setCredential(f, "npm_token:npm.example.com", "tok-2");     // replace, not append
-    expect(getCredential(f, "npm_token:npm.example.com")).to.equal("tok-2");
-    expect(listCredentialKeys(f).sort()).to.deep.equal(["gh_token", "npm_token:npm.example.com"]);
-    expect(listCredentialKeys(f).join(" "), "a key listing must never leak a value").to.not.contain("tok-2");
-  });
-
-  it("a value containing '=' survives the round trip", () => {
-    const parsed = parseCredentials("k=a=b=c\n# comment\n\nbad line\n");
-    expect(parsed.get("k")).to.equal("a=b=c");
-    expect(parsed.size, "comments and malformed lines are skipped, not guessed at").to.equal(1);
-  });
-
-  it("the GAP is the unmet subset, in declared order", () => {
-    const probes: NeedProbes = { gitConfig: (k) => (k === "user.name" ? "R" : undefined), ghAuthOk: () => false, hasCred: (k) => k === "have" };
-    const needs: Need[] = [
-      { id: "a", title: "a", instructions: "", satisfied: (p) => p.hasCred("have") },
-      { id: "b", title: "b", instructions: "", satisfied: (p) => p.ghAuthOk() },
-      { id: "c", title: "c", instructions: "", satisfied: (p) => !!p.gitConfig("user.email") },
-    ];
-    expect(computeGap(needs, probes).map((n) => n.id)).to.deep.equal(["b", "c"]);
-  });
-});
+import { readFileSync } from "node:fs";
+import { parseOrgConfig, expandTilde, readTopLevelScalar, detectContext, contextFingerprint } from "../src/index.js";
 
 describe("gov-core · location", () => {
   // The mode decides which BRANCH a client reads and writes — project branch vs main. Two clients
@@ -148,8 +71,9 @@ describe("gov-core · the boundary itself", () => {
     const exported = src
       .replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "")                       // strip comments first
       .match(/export\s*\{[\s\S]*?\}\s*from/g)?.join(" ") ?? "";
-    expect(exported, "no exports found — the parse is wrong, not the surface").to.contain("authPath");
-    for (const grammar of ["ROLES_BY_TYPE", "parseSecretRef", "buildSecretRef", "accountRole", "GOV_ADMIN"]) {
+    expect(exported, "no exports found — the parse is wrong, not the surface").to.contain("detectContext");
+    for (const grammar of ["ROLES_BY_TYPE", "parseSecretRef", "buildSecretRef", "accountRole", "GOV_ADMIN",
+                           "vaultLogin", "saveSession", "credentialsPath", "login"]) {
       expect(exported, `'${grammar}' is grammar — it belongs in a client, not in a public MIT package`).to.not.contain(grammar);
     }
   });
@@ -159,19 +83,18 @@ describe("gov-core · the boundary itself", () => {
     // addressing our IdP. This is the open ruling on gov-work's hard-coded `security.svayamtech.com`
     // default, kept from being inherited here.
     const dir = new URL("../src/", import.meta.url);
-    for (const f of ["identity/oidc.ts", "secrets/vault.ts", "secrets/credentials.ts", "location/org-config.ts"]) {
+    for (const f of ["location/org-config.ts", "location/context.ts", "location/yaml.ts"]) {
       const code = readFileSync(new URL(f, dir), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
       expect(code, `${f} carries an org host outside a comment`).to.not.match(/svayamtech\.com|svayam\.ai/);
     }
   });
 
   it("the shipped sources carry no proprietary licence header", () => {
-    // gov-work@1.1.0 shipped 16 compiled files marked LicenseRef-Svayam-Proprietary inside an MIT package.
-    // This package IS the MIT one; a stray header here would republish that contradiction.
+    // gov-work@1.1.0 ships 16 compiled files marked LicenseRef-Svayam-Proprietary inside an MIT package —
+    // the identity/secrets layer. Narrowing this package to `location` means NOTHING is relicensed: every
+    // file here was already MIT. This test keeps it that way when someone reaches for a fourth module.
     const dir = new URL("../src/", import.meta.url);
-    const files = ["index.ts", "identity/session.ts", "identity/oidc.ts", "secrets/credentials.ts",
-      "secrets/vault.ts", "secrets/creds-flow.ts", "secrets/user-creds.ts", "secrets/needs.ts",
-      "location/org-config.ts", "location/context.ts", "location/yaml.ts"];
+    const files = ["index.ts", "location/org-config.ts", "location/context.ts", "location/yaml.ts"];
     for (const f of files) {
       expect(readFileSync(new URL(f, dir), "utf8"), f).to.contain("SPDX-License-Identifier: MIT");
     }
@@ -186,6 +109,3 @@ describe("gov-core · dependencies", () => {
     expect(pkg.license).to.equal("MIT");
   });
 });
-
-// keep the imports honest — these are used above only via the fs helpers
-void writeFileSync; void mkdirSync;
