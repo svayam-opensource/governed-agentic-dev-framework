@@ -20,6 +20,6 @@ jobs:
         with:
           node-version: "24"
       - name: Install the gov CLI
-        run: npm install -g @svayam-opensource/gov
+        run: npm install -g @svayam-opensource/gov-work
       - name: Validate the workspace
         run: gov validate --gov-home .
