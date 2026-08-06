@@ -17,7 +17,7 @@ For the framework's concepts, roles, and CLI reference, see [USER_GUIDE.md](USER
 >   Project write access is the sole gate.
 > - **Per-project workspaces are git worktrees** of one shared base clone per repo (under
 >   `$AGENT_WORK_ROOT/.bases/`), not full per-project clones.
-> - **The gov-work CLI is installed from npm** — `npm i -g @svayam-opensource/gov` (requires
+> - **The gov-work CLI is installed from npm** — `npm i -g @svayam-opensource/gov-work` (requires
 >   Node 24) — so repos carry only data, never a vendored copy of the framework. See
 >   [ADR-0001](../../docs/adr/ADR-0001-simplify-developer-experience.md).
 
@@ -30,7 +30,7 @@ As a developer, your normal path runs through a handful of `gov-work` verbs:
 ```
 [ COPY TEMPLATE ]                        ← one-time per org (gh repo create --template)
        ↓
-[ npm i -g @svayam-opensource/gov  →  gov-work setup ]
+[ npm i -g @svayam-opensource/gov-work  →  gov-work setup ]
        ↓
 [ owner: gov-work manage assign ]             ← grants you write access to the GitHub Project
        ↓
@@ -402,10 +402,10 @@ this template" on GitHub). `gov-work setup` configured a `template` remote
 pointing at the upstream so you can pull future framework updates without
 touching org-specific values.
 
-> **The gov-work CLI is installed from npm** — `npm i -g @svayam-opensource/gov`
+> **The gov-work CLI is installed from npm** — `npm i -g @svayam-opensource/gov-work`
 > (requires Node 24), never vendored into a repo. Repos carry only data
 > (`org-config.yaml`, `projects/`, `knowledge/`), and you upgrade the CLI itself
-> with `npm i -g @svayam-opensource/gov@latest`, independently of any project's
+> with `npm i -g @svayam-opensource/gov-work@latest`, independently of any project's
 > data. Framework *content* (policies, scaffolded files) upgrades separately via
 > `gov-work upgrade`, described below.
 

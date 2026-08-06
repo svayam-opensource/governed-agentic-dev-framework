@@ -26,7 +26,7 @@ version: "1.0.0"   # authoritative source: publish/content/VERSION
 
 # ─────────────────────────────────────────────────────────────────────────
 # The CLI is NOT scaffolded into governance repos. Developers install it from
-# npm (`npm i -g @svayam-opensource/gov`, command `gov`); it operates on any
+# npm (`npm i -g @svayam-opensource/gov-work`, command `gov`); it operates on any
 # resolved gov workspace (model A — GitHub is the source of truth; no
 # $ADF_WORKSPACE, no state files). Gov repos hold pure data + content; `gov
 # upgrade` carries framework CONTENT only. Governance CI IS scaffolded as a

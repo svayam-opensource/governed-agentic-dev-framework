@@ -36,7 +36,7 @@ Click the green **"Use this template"** button → **"Create a new repository"**
 ```bash
 # Install the gov-work CLI from npm (requires Node 24). One install per machine,
 # not vendored into repos.
-npm i -g @svayam-opensource/gov
+npm i -g @svayam-opensource/gov-work
 
 # Clone YOUR new repository (not this template).
 git clone https://github.com/<your-github-org>/<your-new-repo>.git
@@ -95,7 +95,7 @@ Full details in [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
 ## CLI
 
-`gov-work` (npm package `@svayam-opensource/gov`, Node 24) wraps the whole lifecycle. Run `gov-work` with no arguments for an interactive menu, or a subcommand directly:
+`gov-work` (npm package `@svayam-opensource/gov-work`, Node 24) wraps the whole lifecycle. Run `gov-work` with no arguments for an interactive menu, or a subcommand directly:
 
 | Command | Purpose |
 |---|---|
