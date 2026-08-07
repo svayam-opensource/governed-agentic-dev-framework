@@ -34,6 +34,16 @@ const LAYERS = new Set(["mandate", "procedure", "pattern", "use-case", "spec", "
 const COMPLIANCE = new Set(["C01", "C02", "C03", "instructional", "descriptive", "evidence"]);
 const STATUSES = new Set(["current", "draft", "superseded"]);
 
+/**
+ * The ADR lifecycle words, and what POL-408 calls them instead (Policy Owner, 2026-08-07: ADRs use the
+ * POL-408 taxonomy; the taxonomy does not grow to meet them). Four docs in this repo said `accepted` or
+ * `proposed`, so the mapping is named IN THE ERROR rather than left for the author to guess — the same
+ * mistake would otherwise be made once per ADR, forever.
+ */
+const ADR_STATUS_HINT: Readonly<Record<string, string>> = {
+  accepted: "current", proposed: "draft", rejected: "superseded", deprecated: "superseded", ruled: "current",
+};
+
 const FM_RE = /^---\n([\s\S]*?)\n---\n/;
 const PROJECT_DOC_RE = /^projects\/[^/]+\/knowledge\/.*\.md$/;
 
@@ -72,7 +82,10 @@ export function pol408Errors(rel: string, text: string): string[] {
   const errors: string[] = [];
   for (const [key, allowed] of [["domain", DOMAINS], ["layer", LAYERS], ["compliance", COMPLIANCE], ["status", STATUSES]] as const) {
     if (!allowed.has(fm[key] ?? "")) {
-      errors.push(`${rel}: front-matter ${key}='${fm[key] ?? ""}' invalid (POL-408) — one of: ${[...allowed].join(", ")}`);
+      const got = fm[key] ?? "";
+      const adr = key === "status" ? ADR_STATUS_HINT[got.toLowerCase()] : undefined;
+      errors.push(`${rel}: front-matter ${key}='${got}' invalid (POL-408) — one of: ${[...allowed].join(", ")}`
+        + (adr ? `. ADRs use the POL-408 taxonomy: '${got}' → '${adr}'` : ""));
     }
   }
   if (!fm.owner) errors.push(`${rel}: front-matter owner missing (POL-408)`);

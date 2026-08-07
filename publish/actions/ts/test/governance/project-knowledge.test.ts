@@ -64,6 +64,17 @@ describe("POL-408 — project knowledge front matter", () => {
     expect(errs).to.contain("superseded");
   });
 
+  // Policy Owner, 2026-08-07: ADRs conform to POL-408; the taxonomy does not grow to meet ADR vocabulary.
+  // Four docs here said `accepted` or `proposed`, so the message names the mapping — otherwise the same
+  // mistake is made once per ADR, forever, and each author has to be told individually.
+  it("translates ADR lifecycle words instead of just rejecting them", () => {
+    const errs = (st: string): string => pol408Errors(DOC, VALID.replace("status: current", `status: ${st}`)).join(" ");
+    expect(errs("accepted")).to.contain("'accepted' → 'current'");
+    expect(errs("proposed")).to.contain("'proposed' → 'draft'");
+    expect(errs("rejected")).to.contain("'rejected' → 'superseded'");
+    expect(errs("wibble"), "only ADR words get a mapping — no invented advice").to.not.contain("→");
+  });
+
   it("a missing owner is an error — every doc has someone answerable for it", () => {
     expect(pol408Errors(DOC, VALID.replace("owner: deployment-release-owner\n", "")).join(" ")).to.match(/owner missing/);
   });
