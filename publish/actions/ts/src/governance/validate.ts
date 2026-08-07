@@ -22,6 +22,10 @@ export interface ValidateContext {
   readonly repoRoot: string;
   /** Repo-relative tracked files (e.g. from `git ls-files`); used by file scanners. */
   readonly files?: readonly string[];
+  /** Repo-relative files CHANGED by the work under review (e.g. `git diff --name-only <base>`). Validators
+   *  that enforce a rule only on what you touched read this; absent means "no declared scope", never
+   *  "everything" — see governance/project-knowledge.ts for why that distinction matters. */
+  readonly changedFiles?: readonly string[];
 }
 
 /** A single check. Pure over the context. */

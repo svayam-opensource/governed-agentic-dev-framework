@@ -11,6 +11,7 @@ import { checkVersionSync } from "./version-sync.js";
 import { checkSecrets } from "./secrets.js";
 import { checkProtocol } from "./protocol.js";
 import { checkKnowledge } from "./knowledge.js";
+import { checkProjectKnowledge } from "./project-knowledge.js";
 
 /**
  * The core test-merge validators. `privacy` is publish-branch-only (it needs
@@ -22,6 +23,9 @@ export const CORE_VALIDATORS: readonly Validator[] = [
   checkSecrets,
   checkProtocol,
   checkKnowledge,
+  // POL-408 for PROJECT knowledge, scoped to what the current change touches. Silent when the caller
+  // declares no scope — it never guesses one (project-knowledge.ts explains why).
+  checkProjectKnowledge,
 ];
 
 /** Run the suite; returns `{ ok, failures }` (close-gate compatible). */
