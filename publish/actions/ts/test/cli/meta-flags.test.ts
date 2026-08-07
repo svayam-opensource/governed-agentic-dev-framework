@@ -10,7 +10,11 @@ describe("gov-work — meta flags (--version / --help work without a workspace)"
   it("helpLines() is a git-help-style reference: usage + grouped commands WITH descriptions, referencing `gov`", () => {
     const h = helpLines().join("\n");
     expect(h).to.match(/usage: gov <command>/);
-    expect(h).to.match(/Lifecycle/);
+    // Grouped by WHO TYPES IT since 2026-08-07, not by domain: four commands are yours, the rest are what
+    // your agent runs. A reference that presents 27 verbs as equally yours teaches nothing.
+    expect(h).to.match(/Your commands/);
+    expect(h).to.match(/Your agent runs these/);
+    expect(h.indexOf("work"), "the one command an adopter needs comes first").to.be.lessThan(h.indexOf("seed"));
     expect(h).to.match(/seed\s+Seed a new project/);            // command + its description
     expect(h).to.match(/manage\s+Project access/);
     expect(h).to.not.match(/gov-work/);                         // (b) references `gov`, not `gov-work`
