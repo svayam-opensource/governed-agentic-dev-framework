@@ -326,10 +326,7 @@ export function helpLines(command?: string): string[] {
 /** Build + run the interactive main menu (no-args TTY). Async — routed from bin.ts. */
 export async function runMainMenu(): Promise<number> {
   const ctx = await gatherMenuContext();
-  const fs = createNodeFs();
-  const env = createNodeEnv();
-  const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-
+  // fs/env/runGh moved into buildWorkDeps with the deps they served — the menu itself needs none of them.
   const workDeps = buildWorkDeps(ctx.user ?? null);
 
   const handlers: MenuHandlers = {
