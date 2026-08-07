@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpec, sessionStartPrompt, ensureRootProtocol, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpec, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, type WorkFlowDeps } from "../../src/cli/work-flow.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
@@ -186,3 +186,46 @@ describe("gov-work — guided Work flow", () => {
   });
 });
 
+
+/**
+ * `gov work` — starting a session on an existing project WITHOUT a terminal.
+ *
+ * The guided Work flow does this from the menu and launches an agent, but that path is gated on
+ * `process.stdin.isTTY`. The kickoff prompt exists to drive an AGENT, and agents are precisely the non-TTY
+ * case — so the resolution is pure and the verb prints what a script needs.
+ */
+describe("work — non-TTY session start", () => {
+  const ROOT = "/w/projects";
+  const has = (dirs: string[]) => (p: string): boolean => dirs.includes(p);
+
+  it("resolves the project, its directory, and the SAME prompt the menu injects", () => {
+    const s = startSession(ROOT, "gov_repo", "PRJ-43-gov", has([`${ROOT}/PRJ-43-gov`]));
+    expect(s?.dir).to.equal(`${ROOT}/PRJ-43-gov`);
+    expect(s?.prompt).to.equal(sessionStartPrompt("PRJ-43-gov", "gov_repo"));
+    // the prompt must name the four files the session-start protocol requires
+    expect(s?.prompt).to.contain("gov_repo/org-config.yaml");
+    expect(s?.prompt).to.contain("gov_repo/projects/PRJ-43-gov/agent.md");
+    expect(s?.prompt).to.contain("agentic-development-policy.md");
+    expect(s?.prompt).to.contain("todo.md");
+  });
+
+  it("a project that is not cloned resolves to nothing — the caller says how to get it", () => {
+    expect(startSession(ROOT, "gov_repo", "PRJ-99", has([]))).to.equal(undefined);
+  });
+
+  // THE BUG THIS VERB SHIPPED WITH, caught by running it: the work root must be org-config's
+  // `agent_work_root`, not dispatch's `projectWorkRoot` (= dirname(ctx.home), relative to whichever clone
+  // resolved). With the wrong root, `gov work` inside a project resolved the project as "projects" and
+  // produced a prompt pointing at `projects/projects/agent.md` — confidently wrong, and it ran fine.
+  it("infers the project from the cwd, at any depth, and only under the work root", () => {
+    expect(projectFromPath(ROOT, `${ROOT}/PRJ-43-gov`)).to.equal("PRJ-43-gov");
+    expect(projectFromPath(ROOT, `${ROOT}/PRJ-43-gov/910-GOV-CICD/src`)).to.equal("PRJ-43-gov");
+    expect(projectFromPath(`${ROOT}/`, `${ROOT}/PRJ-43-gov/x`), "a trailing separator changes nothing").to.equal("PRJ-43-gov");
+  });
+
+  it("outside the work root there is no project — not a guess", () => {
+    expect(projectFromPath(ROOT, "/somewhere/else")).to.equal(undefined);
+    expect(projectFromPath(ROOT, ROOT), "the work root itself is not a project").to.equal(undefined);
+    expect(projectFromPath(ROOT, `${ROOT}-old/PRJ-1`), "prefix match is not containment").to.equal(undefined);
+  });
+});

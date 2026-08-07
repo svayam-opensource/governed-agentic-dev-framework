@@ -22,6 +22,8 @@ import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
 import type { GateResult } from "../lifecycle/close-gate.js";
 import { seed } from "../lifecycle/seed.js";
+import { startSession, projectFromPath } from "./work-flow.js";
+import { expandTilde } from "../resolve/node-env.js";
 import { task } from "../lifecycle/task-run.js";
 import { merge } from "../lifecycle/merge.js";
 import { close } from "../lifecycle/close.js";
@@ -30,7 +32,6 @@ import { addRepo } from "../lifecycle/add-repo.js";
 import { join } from "../lifecycle/join.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
 import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org.js";
-import { expandTilde } from "../resolve/node-env.js";
 import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus, type ManageListResult } from "../lifecycle/manage.js";
 import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import type { Projects } from "../lifecycle/project-list.js";
@@ -90,6 +91,17 @@ const MOVED_VERBS: Readonly<Record<string, string>> = {
   authorize: "gov-cicd", secret: "gov-cicd", policy: "gov-cicd", "deploy-check": "gov-cicd",
   infra: "gov-infra",
 };
+
+/** `infra` was a NAMESPACE, not a verb: `gov infra <cmd>` forwarded `<cmd>` to the infra plugin. So the
+ *  advice for it is `gov-infra <verb>`, never `gov-infra infra` — which is what the first version of this
+ *  message said, and it was wrong in the only way that matters: it would not have worked if typed. */
+const MOVED_NAMESPACES = new Set(["infra"]);
+
+/** Clients that DO NOT EXIST YET. `@svayam/gov-infra` is unpublished (404) and 909 carries no such
+ *  package, so telling anyone to install it is advice that fails when typed — the same defect as
+ *  `gov-infra infra`. Naming the client is still right (the verbs are its, not ours); promising an
+ *  install is not. Delete an entry the day its package publishes. */
+const UNRELEASED_CLIENTS = new Set(["gov-infra"]);
 
 const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov-work ${spec}`] });
 
@@ -224,6 +236,43 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         : { code: r.code, lines: [r.message] };
     }
 
+    // START A SESSION ON AN EXISTING PROJECT, WITHOUT A TERMINAL. The guided Work flow does this from the
+    // menu and launches an agent; that path needs a TTY, which is backwards — the kickoff prompt exists to
+    // drive an agent, and agents are the non-TTY case. This prints what a script needs instead of doing it:
+    // `--print-prompt` emits ONLY the prompt (pipe it straight into your agent), otherwise the directory to
+    // run in and the prompt to send. Launching is left to the caller, who knows which agent they want.
+    case "work": {
+      // The work root is org-config's `agent_work_root` — NOT dispatch's `projectWorkRoot`, which is
+      // `dirname(ctx.home)` and therefore relative to whichever clone resolved. Getting that wrong resolved
+      // the project as "projects" on the first run, which is how this comment came to exist.
+      const workRoot = c.agentWorkRoot ? expandTilde(c.agentWorkRoot) : undefined;
+      if (!workRoot) return { code: 1, lines: ["org-config declares no agent_work_root — run `gov setup`"] };
+      const projectId = positionals[0] ?? projectFromPath(workRoot, process.cwd(), path.sep);
+      if (!projectId) {
+        return { code: 2, lines: [
+          "usage: gov work [<project-id>] [--print-prompt]",
+          "  no <project-id>, and this directory is not inside a project under the work root:",
+          `    ${workRoot}`,
+        ] };
+      }
+      const s = startSession(workRoot, c.workspaceRepo, projectId, (p) => ctx.fs.pathExists(p));
+      if (!s) {
+        return { code: 1, lines: [
+          `'${projectId}' is not cloned here (${workRoot}/${projectId}).`,
+          "  join it first:  gov join <board-url>",
+        ] };
+      }
+      // stdout stays CLEAN for `gov work --print-prompt | …` — one string, nothing else.
+      if (flags["print-prompt"] === true) return { code: 0, lines: [s.prompt] };
+      return { code: 0, lines: [
+        `${s.projectId} — start a session with:`,
+        `  cd ${s.dir}`,
+        `  <your agent> "$(gov work ${s.projectId} --print-prompt)"`,
+        "",
+        s.prompt,
+      ] };
+    }
+
     case "add-repo": {
       if (positionals.length < 1) return usage("add-repo <repo-url> [--base-branch <branch>]");
       const r = addRepo(
@@ -327,9 +376,13 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         code: 2,
         lines: [
           ...(moved
-            ? [`'${command}' is a ${moved} verb — gov no longer runs it.`,
-               `  run:  ${moved} ${command} …`,
-               `  (install:  npm i -g @svayam/${moved})`,
+            ? [MOVED_NAMESPACES.has(command)
+                 ? `'${command}' was a namespace for the ${moved} client — gov no longer forwards it.`
+                 : `'${command}' is a ${moved} verb — gov no longer runs it.`,
+               ...(UNRELEASED_CLIENTS.has(moved)
+                 ? [`  ${moved} is not released yet — these verbs are unavailable, and there is nothing to install.`]
+                 : [`  run:  ${moved} ${MOVED_NAMESPACES.has(command) ? "<verb>" : command} …`,
+                    `  (install:  npm i -g @svayam/${moved})`]),
                ""]
             : [`unknown command '${command}'`]),
           "bootstrap: setup org",

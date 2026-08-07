@@ -112,8 +112,25 @@ describe("cli — verbs that MOVED to another client", () => {
     expect(out).to.contain("npm i -g @svayam/gov-cicd");
   });
 
-  it("covers the infra plane too", () => {
-    expect(lines("infra")).to.match(/gov-infra/);
+  // `infra` was a NAMESPACE (`gov infra <verb>` forwarded `<verb>`), so the advice must be
+  // `gov-infra <verb>` — NOT `gov-infra infra`, which is what the first version printed. The bug survived
+  // a test that only matched /gov-infra/: a substring assertion passed while the instruction was useless.
+  // Found by running the binary, which is the argument for running it.
+  // gov-infra does not exist yet: @svayam/gov-infra is unpublished and 909 carries no such package.
+  // Naming the client is right; telling anyone to INSTALL it is advice that fails when typed — the same
+  // defect as `gov-infra infra`, found the same way (by running the binary, not by reading the test).
+  it("an UNRELEASED client is named, but no install is promised", () => {
+    const out = lines("infra");
+    expect(out).to.match(/was a namespace/);
+    expect(out).to.match(/gov-infra is not released yet/);
+    expect(out, "nothing to install — the package 404s").to.not.contain("npm i -g @svayam/gov-infra");
+    expect(out, "advice that would not work if typed").to.not.contain("gov-infra infra");
+  });
+
+  it("a RELEASED client still gets the runnable command and the install line", () => {
+    const out = lines("promote");
+    expect(out).to.contain("gov-cicd promote");
+    expect(out).to.contain("npm i -g @svayam/gov-cicd");
   });
 
   it("still exits 2 — a moved verb is a usage error, not a success", () => {
