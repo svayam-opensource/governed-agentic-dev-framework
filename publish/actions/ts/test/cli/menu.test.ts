@@ -16,30 +16,33 @@ describe("gov-work — interactive menu (context-scoped)", () => {
   // render their own menu now (adr-three-clients, PRJ-43), so gov's menu offers gov's verbs and nothing else.
   it("offers only gov-work's own submenus — no discovered plugin verbs", () => {
     const keys = mainActions().map((a) => a.key);
-    expect(keys).to.deep.equal(["status", "work", "admin", "help"]);
+    expect(keys).to.deep.equal(["work", "admin", "help"]);
     expect(mainActions().find((x) => x.label === "Operate"), "Operate was the gov-cicd merge").to.equal(undefined);
     expect(mainActions().find((x) => x.label === "Infra"), "Infra was the do-admin merge").to.equal(undefined);
   });
 
-  it("GOVERNED context: governance admin + listing are visible", () => {
+  // The menu is the HUMAN surface. Status (list/list-all/status) left on 2026-08-07 — those are the
+  // work-management system's answers — and Admin now carries only what an agent cannot do for you.
+  it("GOVERNED context: Work · Admin · Help, and Admin is org + doctor + upgrade", () => {
     const g = { ...CTX, mode: "governed" as const };
-    expect(labels(g)).to.deep.equal(["Status", "Work", "Admin", "Help"]);
-    expect(adminCmds(g)).to.deep.equal(["manage", "knowledge", "onboard", "org", "upgrade", "deps"]);   // manage now org-level too; add-repo stays project-only
+    expect(labels(g)).to.deep.equal(["Work", "Admin", "Help"]);
+    expect(adminCmds(g)).to.deep.equal(["org", "doctor", "upgrade"]);
   });
 
-  it("PROJECT context: project admin only", () => {
+  it("PROJECT context: upgrade is governed-only, the rest travels", () => {
     const p = { ...CTX, mode: "project" as const, project: "PRJ-43" };
-    expect(adminCmds(p)).to.deep.equal(["manage", "add-repo"]);                 // governance admin hidden
-    const status = visibleActions(p).find((a) => a.label === "Status");
-    expect(status && status.kind === "submenu" ? status.commands.map((c) => c.cmd) : []).to.deep.equal(["status"]);  // list/list-all governed-only
+    expect(adminCmds(p)).to.deep.equal(["org", "doctor"]);
+    expect(visibleActions(p).find((a) => a.label === "Status"), "Status is the work-mgmt system's").to.equal(undefined);
   });
 
 
-  it("UX-flow: `manage` (project access) is available in BOTH PROJECT and GOVERNED Admin (org-level assign)", () => {
-    // Regression guard (2026-07-17): a new board (#106) couldn't be assigned from the org home because Admin
-    // had no `manage`. Org admins must be able to assign/unassign from GOVERNED too.
-    expect(adminCmds({ ...CTX, mode: "governed" })).to.include("manage");
-    expect(adminCmds({ ...CTX, mode: "project", project: "PRJ-43" })).to.include("manage");
+  // Was a regression guard (2026-07-17) for `manage` being missing from GOVERNED Admin. `manage` is no
+  // longer a menu item at all — assignment is the work-management system's answer, asked through the
+  // work-mgmt port or its own UI — so the guard now asserts the verb still RUNS, not that it is offered.
+  it("`manage` is no longer a menu item — it is the work-mgmt system's answer", () => {
+    for (const mode of ["governed", "project"] as const) {
+      expect(adminCmds({ ...CTX, mode, ...(mode === "project" ? { project: "PRJ-43" } : {}) }), mode).to.not.include("manage");
+    }
   });
 
 

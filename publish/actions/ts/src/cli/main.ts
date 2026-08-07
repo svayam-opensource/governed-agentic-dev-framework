@@ -171,15 +171,28 @@ export function runAny(argv: readonly string[]): Promise<number> | number {
 }
 
 /** The command reference (git-help style): one-line description per command + optional usage args. */
+/**
+ * The command reference, grouped by WHO TYPES IT (PRJ-43 CLI-surface walkthrough, 2026-08-07).
+ *
+ * It used to be four groups of ~27 verbs, all presented as equally yours. Almost none of them are: a
+ * developer works inside an agent session, and the lifecycle verbs are what the AGENT runs when asked. So
+ * the reference now says which is which, rather than making everyone learn the difference by trying.
+ *
+ * Nothing is removed — every verb still runs. `seed`, `join`, `task`, `merge` and the rest are reachable
+ * for recovery, for scripts, and for the day the agent cannot start. They are simply no longer taught as
+ * the way in.
+ */
 const HELP_GROUPS: Record<string, string[]> = {
-  Lifecycle: ["seed", "join", "work", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel"],
-  Governance: ["manage", "anchor", "knowledge", "onboard", "org", "validate"],
-  Info: ["list", "list-all", "status"],
-  Maintain: ["setup", "doctor", "deps", "upgrade", "bump-version", "publish"],
+  "Your commands": ["work", "org", "doctor", "upgrade"],
+  "Your agent runs these (you can too)": [
+    "seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel",
+    "manage", "anchor", "knowledge", "onboard", "validate", "list", "list-all", "status",
+  ],
+  "Framework maintainers": ["bump-version", "publish"],
 };
 const CMD_DESC: Record<string, string> = {
   seed: "Seed a new project workspace from a GitHub Project board", join: "Join an existing project (clone its repos on the project branch)",
-  work: "Start a session on an existing project (prints the dir + agent kickoff prompt; no TTY needed)",
+  work: "Start a session on a project — picks it up wherever it is, and launches your agent",
   task: "Create a task issue + sub-branch on the current project", merge: "Land a task sub-branch back to the project branch",
   sync: "Sync the project branch with upstream changes", "add-repo": "Add a code repository to the current project",
   close: "Close a completed project (closes its board)", pause: "Pause the current project", resume: "Resume a paused project", cancel: "Cancel the current project",
@@ -187,8 +200,8 @@ const CMD_DESC: Record<string, string> = {
   knowledge: "Propose / submit / archive org knowledge changes", onboard: "Onboard a repository into the framework",
   org: "Manage governance workspaces (the active org)", validate: "Validate the workspace / shipped content",
   list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
-  setup: "Bootstrap / update org-config.yaml", doctor: "Diagnose the workspace + tooling", deps: "Install / verify required dependencies",
-  upgrade: "Pull the latest framework content into this workspace", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
+  doctor: "Diagnose this machine: git · gh · workspace · active org · versions",
+  upgrade: "Pull the latest framework CONTENT into this org (not the CLI — that is `npm i -g`)", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
 };
 const CMD_USAGE: Record<string, string> = {
   seed: "<board-url> [--assignee <login>]", work: "[<project-id>] [--print-prompt]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
@@ -303,10 +316,12 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   }
 
   // `gov-work deps` — report runtime prerequisites (git/gh); pre-resolve.
+  // `deps` folded into `doctor` (PRJ-43, 2026-08-07): doctor already probes git and gh, so two verbs were
+  // answering one question. Kept working, and it says where it went — a removed command that only prints
+  // "unknown" costs whoever typed it next.
   if (parsed.command === "deps") {
-    const report = checkDeps((n) => tryRun(n, ["--version"]) !== undefined, process.platform);
-    for (const line of formatDepsReport(report)) process.stdout.write(`${line}\n`);
-    return report.ok ? 0 : 1;
+    process.stderr.write("gov deps is now part of `gov doctor` — it reports the same prerequisites.\n  run:  gov doctor\n");
+    return 2;
   }
 
   // `prj publish` — the pre-publish GATE (version-sync); never publishes by hand.
@@ -392,6 +407,9 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     }
     const doctorHomeOverride = flagStr(parsed.flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
     const home = doctorHomeOverride ? path.resolve(expandTilde(doctorHomeOverride)) : resolve.ok ? resolve.home : process.cwd();
+    // The prerequisite report `deps` used to print — same probe, same per-OS install hints, now in the one
+    // place a person looks when something is wrong.
+    const depsReport = checkDeps((n) => tryRun(n, ["--version"]) !== undefined, process.platform);
     const report = doctor({
       gitPresent: tryRun("git", ["--version"]) !== undefined,
       ghPresent: tryRun("gh", ["--version"]) !== undefined,
@@ -402,7 +420,13 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       staleArtifacts: RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
     });
     for (const line of formatDoctorReport(report)) process.stdout.write(`${line}\n`);
-    return report.ok ? 0 : 1;
+    // Only when something IS missing: a healthy machine does not need install instructions, and a report
+    // that prints them anyway trains the reader to skim past the part that matters.
+    if (!depsReport.ok) {
+      process.stdout.write("\n");
+      for (const line of formatDepsReport(depsReport)) process.stdout.write(`${line}\n`);
+    }
+    return report.ok && depsReport.ok ? 0 : 1;
   }
 
   // `prj org …` runs BEFORE resolution — it's the bootstrap that makes resolution

@@ -45,40 +45,33 @@ export interface SubCommand {
 }
 export type MenuAction =
   | { readonly kind: "guided"; readonly key: "work"; readonly label: string; readonly desc: string; readonly hint: string; readonly scopes?: readonly Scope[] }
-  | { readonly kind: "submenu"; readonly key: "status" | "admin"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[]; readonly scopes?: readonly Scope[] }
+  | { readonly kind: "submenu"; readonly key: "admin"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[]; readonly scopes?: readonly Scope[] }
   | { readonly kind: "help"; readonly key: "help"; readonly label: string; readonly desc: string; readonly hint: string; readonly scopes?: readonly Scope[] };
 
 /** The FULL main-menu definition (every mode) — gov-work's OWN verbs, and only those. The menu used to
  *  merge submenus discovered from the gov-cicd and do-admin plugins; the three clients each render their
- *  own menu now (adr-three-clients, PRJ-43). Use `visibleActions(ctx)` for the context-filtered list. */
+ *  own menu now (adr-three-clients, PRJ-43). Use `visibleActions(ctx)` for the context-filtered list.
+ *
+ *  The STATUS submenu (list · list-all · status) went on 2026-08-07: who is assigned what, and how a project
+ *  is doing, are the WORK-MANAGEMENT system's answers — GitHub's today, Jira's next. gov asks that system;
+ *  it does not keep its own view of it. The reads survive inside the work-mgmt port (this menu's own project
+ *  picker is one), so nothing is lost except a place to type them. */
 export function mainActions(): MenuAction[] {
   return [
-    { kind: "submenu", key: "status", label: "Status", desc: "Review current state", commands: [
-      { cmd: "list", desc: "ongoing projects", scopes: ["governed"] },
-      { cmd: "list-all", desc: "all projects (incl. closed)", scopes: ["governed"] },
-      { cmd: "status", desc: "detailed status of one project", subjectKind: "project", scopes: ["project", "governed"] },
-    ] },
     { kind: "guided", key: "work", label: "Work", desc: "Start / continue a project", hint: "pick a project" },
-    { kind: "submenu", key: "admin", label: "Admin", desc: "Administer governance", commands: [
-      { cmd: "manage", desc: "project access — assign / unassign owners", scopes: ["project", "governed"], subs: [
-        { cmd: "assign", desc: "grant a user project access", argHint: "<github-login>" },
-        { cmd: "unassign", desc: "revoke access", argHint: "<github-login>" },
-      ] },
-      { cmd: "add-repo", desc: "add a repository to the current project", argHint: "<repo-url>", flagArgs: [{ name: "base-branch", hint: "base branch", optional: true }], scopes: ["project"] },
-      { cmd: "knowledge", desc: "propose org knowledge changes", scopes: ["governed"], subs: [
-        { cmd: "propose", desc: "start a knowledge change", argHint: "<slug>" },
-        { cmd: "submit", desc: "open a PR for a change", argHint: "<slug>", flagArgs: [{ name: "description", hint: "one-line description", optional: true }] },
-        { cmd: "archive", desc: "retire a knowledge item", argHint: "<slug>" },
-      ] },
-      { cmd: "onboard", desc: "onboard a repository into the framework", argHint: "<repo-url>", flagArgs: [{ name: "owner", hint: "owning team/person" }, { name: "description", hint: "one-line description" }], scopes: ["governed"] },
-      { cmd: "org", desc: "manage governance workspaces", scopes: ["governed"], subs: [
+    // ADMIN is the HUMAN's administration, and only that (PRJ-43 walkthrough, 2026-08-07). `manage`,
+    // `knowledge`, `onboard` and `add-repo` left: assignment is the work-management system's answer, and
+    // the other three are things you ask your agent for. `deps` folded into `doctor`. What remains is what
+    // an agent cannot do for you — point this machine at an org, check it, and pull new content.
+    { kind: "submenu", key: "admin", label: "Admin", desc: "This machine and this org", commands: [
+      { cmd: "org", desc: "governance workspaces — switch / add / list / remove", scopes: ["project", "governed"], subs: [
         { cmd: "use", desc: "switch the active org", argHint: "<github_org>" },
         { cmd: "add", desc: "register a governance workspace", argHint: "<github_org>", flagArgs: [{ name: "home", hint: "gov_repo path, e.g. ~/.acme/gov_repo" }] },
         { cmd: "list", desc: "registered workspaces" },
         { cmd: "remove", desc: "deregister a workspace", argHint: "<github_org>" },
       ] },
-      { cmd: "upgrade", desc: "pull the latest framework content", scopes: ["governed"] },
-      { cmd: "deps", desc: "install / verify dependencies", scopes: ["governed"] },
+      { cmd: "doctor", desc: "diagnose this machine — git · gh · workspace · versions", scopes: ["project", "governed"] },
+      { cmd: "upgrade", desc: "pull the latest framework content into this org", scopes: ["governed"] },
     ] },
     { kind: "help", key: "help", label: "Help", desc: "gov command-line use", hint: "pick a command" },
   ];
