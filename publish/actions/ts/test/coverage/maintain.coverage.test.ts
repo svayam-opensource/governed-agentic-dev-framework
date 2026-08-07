@@ -732,12 +732,12 @@ describe("coverage — validate suite over a fake fs (pass + fail per validator)
     "knowledge/policies/foo.md": `${FM}\n# Foo policy\n`,
   });
 
-  it("all-green workspace → runSuite ok, no failures (all 4 core validators pass)", () => {
+  it("all-green workspace → runSuite ok, no failures (all 5 core validators pass)", () => {
     const r = runSuite(workspaceCtx(greenFiles()));
     expect(r).to.deep.equal({ ok: true, failures: [] });
     // and the aggregated run reports 4 passing results
     const run = runValidators(workspaceCtx(greenFiles()), CORE_VALIDATORS);
-    expect(run.results).to.have.lengthOf(4);
+    expect(run.results).to.have.lengthOf(5);
     expect(run.results.every((x) => x.ok)).to.equal(true);
   });
 
@@ -787,6 +787,6 @@ describe("coverage — validate suite over a fake fs (pass + fail per validator)
   it("CORE_VALIDATORS excludes privacy (it is publish-branch only)", () => {
     const run = runValidators(workspaceCtx(greenFiles()), CORE_VALIDATORS);
     expect(run.results.map((r) => r.name)).to.not.include("privacy");
-    expect(run.results.map((r) => r.name)).to.have.members(["version-sync", "secrets", "protocol", "knowledge"]);
+    expect(run.results.map((r) => r.name)).to.have.members(["version-sync", "secrets", "protocol", "knowledge", "project-knowledge"]);
   });
 });

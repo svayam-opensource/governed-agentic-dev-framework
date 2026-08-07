@@ -440,7 +440,18 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   // `gov-work validate` — run the governance validate suite on the resolved workspace.
   if (parsed.command === "validate") {
     const files = (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean);
-    const r = runSuite({ fs, repoRoot: home, files });
+    // THE CHANGED SCOPE — what this branch touches, so POL-408 is enforced on docs you WROTE without
+    // failing on the 205 historical ones (governance/project-knowledge.ts explains why that matters).
+    // Uncommitted work counts: the point is to catch a broken doc BEFORE it is pushed. `--base` overrides
+    // the comparison point; the merge-base with the default branch is the sensible default on a project
+    // branch. If git answers nothing, the scope is empty and the validator stays silent — it never guesses.
+    const base = flagStr(parsed.flags, "base") ?? "main";
+    const mergeBase = tryRun("git", ["-C", home, "merge-base", "HEAD", base]) ?? base;
+    const committed = (tryRun("git", ["-C", home, "diff", "--name-only", mergeBase]) ?? "").split("\n");
+    const working = (tryRun("git", ["-C", home, "status", "--porcelain"]) ?? "")
+      .split("\n").map((l) => l.slice(3).trim()).filter(Boolean);
+    const changedFiles = [...new Set([...committed, ...working])].filter(Boolean);
+    const r = runSuite({ fs, repoRoot: home, files, changedFiles });
     if (r.ok) {
       process.stdout.write("validate: PASS (all validators)\n");
       return 0;
