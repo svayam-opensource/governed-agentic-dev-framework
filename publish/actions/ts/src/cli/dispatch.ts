@@ -22,7 +22,6 @@ import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
 import type { GateResult } from "../lifecycle/close-gate.js";
 import { seed } from "../lifecycle/seed.js";
-import { startSession, projectFromPath } from "./work-flow.js";
 import { expandTilde } from "../resolve/node-env.js";
 import { task } from "../lifecycle/task-run.js";
 import { merge } from "../lifecycle/merge.js";
@@ -236,43 +235,8 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         : { code: r.code, lines: [r.message] };
     }
 
-    // START A SESSION ON AN EXISTING PROJECT, WITHOUT A TERMINAL. The guided Work flow does this from the
-    // menu and launches an agent; that path needs a TTY, which is backwards — the kickoff prompt exists to
-    // drive an agent, and agents are the non-TTY case. This prints what a script needs instead of doing it:
-    // `--print-prompt` emits ONLY the prompt (pipe it straight into your agent), otherwise the directory to
-    // run in and the prompt to send. Launching is left to the caller, who knows which agent they want.
-    case "work": {
-      // The work root is org-config's `agent_work_root` — NOT dispatch's `projectWorkRoot`, which is
-      // `dirname(ctx.home)` and therefore relative to whichever clone resolved. Getting that wrong resolved
-      // the project as "projects" on the first run, which is how this comment came to exist.
-      const workRoot = c.agentWorkRoot ? expandTilde(c.agentWorkRoot) : undefined;
-      if (!workRoot) return { code: 1, lines: ["org-config declares no agent_work_root — run `gov setup`"] };
-      const projectId = positionals[0] ?? projectFromPath(workRoot, process.cwd(), path.sep);
-      if (!projectId) {
-        return { code: 2, lines: [
-          "usage: gov work [<project-id>] [--print-prompt]",
-          "  no <project-id>, and this directory is not inside a project under the work root:",
-          `    ${workRoot}`,
-        ] };
-      }
-      const s = startSession(workRoot, c.workspaceRepo, projectId, (p) => ctx.fs.pathExists(p));
-      if (!s) {
-        return { code: 1, lines: [
-          `'${projectId}' is not cloned here (${workRoot}/${projectId}).`,
-          "  join it first:  gov join <board-url>",
-        ] };
-      }
-      // stdout stays CLEAN for `gov work --print-prompt | …` — one string, nothing else.
-      if (flags["print-prompt"] === true) return { code: 0, lines: [s.prompt] };
-      return { code: 0, lines: [
-        `${s.projectId} — start a session with:`,
-        `  cd ${s.dir}`,
-        `  <your agent> "$(gov work ${s.projectId} --print-prompt)"`,
-        "",
-        s.prompt,
-      ] };
-    }
-
+    // `work` is handled in main.ts — it walks the state ladder and LAUNCHES an agent, and neither
+    // prompting nor spawning belongs in a pure router.
     case "add-repo": {
       if (positionals.length < 1) return usage("add-repo <repo-url> [--base-branch <branch>]");
       const r = addRepo(

@@ -14,7 +14,7 @@ import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
-import { runWorkFlow, myProjects, agentLaunchSpec } from "./work-flow.js";
+import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -162,6 +162,96 @@ export async function gatherMenuContext(): Promise<MenuContext> {
   return { orgName, githubOrg, branch, user, workspaceCount, cliVersion, mode, project };
 }
 
+/**
+ * The guided Work flow's operational deps — ONE construction, used by the menu and by `gov work`.
+ *
+ * Built twice, they drift: the menu would launch an agent one way and the verb another, and the difference
+ * would show up as "it works from the menu but not from the command", which is a bad hour for whoever hits
+ * it. `null` when no workspace resolves — the caller says what to do about that, because the answer differs
+ * (the menu offers setup; the verb prints and exits).
+ */
+function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | null {
+  const fs = createNodeFs();
+  const env = createNodeEnv();
+  const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const resolved = prjResolveGov(env);
+  if (!resolved.ok) return null;
+  const cfgText = fs.readFile(path.join(resolved.home, "org-config.yaml"));
+  if (!cfgText) return null;
+  const config = parseOrgConfig(cfgText);
+  return {
+    projects: createGhProjects(runGh),
+    anchor: createGhAnchor(runGh),
+    fs,
+    config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot },
+    me,
+    canWriteBoard: (n) =>
+      tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${n}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) !== "false",
+    run: runAny,
+    prompt: async () => "",
+    print: () => {},
+    // stdout carries the prompt and NOTHING else, so `--print-prompt` can be captured or piped; every other
+    // line the flow writes goes to stderr through `print`.
+    printPrompt: (prompt) => process.stdout.write(`${prompt}\n`),
+    // Launch with cwd = the project dir via the tested spec: detached (GUI editor) opens and returns;
+    // a terminal agent or shell inherits stdio and blocks until it exits.
+    launch: async (agent, cwd, inject) => {
+      const s = agentLaunchSpec(agent, cwd, inject);
+      if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
+      const r = spawnSync(s.cmd, [...s.args], { cwd, stdio: "inherit" });
+      if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed and on PATH?\n`); return 1; }
+      return r.status ?? 0;
+    },
+  };
+}
+
+/**
+ * `gov work [--project=<regex>] [--agent=<kind>] [--seed] [--print-prompt]` — the one command.
+ *
+ * It walks the state ladder and does the missing rungs: not cloned → join; not started → seed (with
+ * consent); ready → launch the agent with the session-start prompt. Both flags are optional; supply both
+ * and it runs start to finish without a prompt, which is what makes it usable from a script.
+ *
+ * WITH NO TERMINAL, an unresolved choice FAILS NAMING THE FLAG that would have resolved it. It does not
+ * guess a project or an agent: there is nobody to correct a wrong guess, and a session started on the wrong
+ * project is worse than no session.
+ */
+export async function runWork(argv: readonly string[]): Promise<number> {
+  const flagOf = (name: string): string | undefined => {
+    const eq = argv.find((a) => a.startsWith(`--${name}=`));
+    if (eq) return eq.slice(name.length + 3);
+    const i = argv.indexOf(`--${name}`);
+    return i >= 0 && argv[i + 1] && !argv[i + 1]!.startsWith("--") ? argv[i + 1] : undefined;
+  };
+  const me = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? tryRun("git", ["config", "user.email"]) ?? null;
+  const deps = buildWorkDeps(me);
+  if (!deps) {
+    process.stderr.write("no organization is registered on this machine yet — run `gov` in a terminal to set one up.\n");
+    return 1;
+  }
+  // A positional project id still works (`gov work PRJ-43-…`), because it did before and breaking it would
+  // buy nothing; `--project` is the pattern form.
+  const positional = argv.slice(1).find((a) => !a.startsWith("--"));
+  const pattern = flagOf("project") ?? positional;
+  const agent = flagOf("agent");
+  const interactive = process.stdin.isTTY === true;
+  // Prompts and progress go to STDERR; stdout is reserved for `--print-prompt`'s single line.
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const prompt = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
+  try {
+    return await runWorkFlow(
+      { ...deps, prompt, print: (l) => process.stderr.write(`${l}\n`) },
+    {
+      ...(pattern ? { projectPattern: pattern } : {}),
+      ...(agent ? { agent: agent as AgentKind } : {}),
+      seedOk: argv.includes("--seed"),
+      printPromptOnly: argv.includes("--print-prompt"),
+      interactive,
+      },
+    );
+  } finally { rl.close(); }
+}
+
 /** Route any command (setup / normal) — used by the menu. There is no plugin routing: `auth`, `creds`,
  *  the deploy verbs and the infra verbs belong to the other clients and are invoked directly
  *  (adr-three-clients, PRJ-43). */
@@ -240,36 +330,7 @@ export async function runMainMenu(): Promise<number> {
   const env = createNodeEnv();
   const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 
-  // Operational deps for the guided Work flow (present only when a workspace resolves).
-  const resolved = prjResolveGov(env);
-  let workDeps: Parameters<typeof runWorkFlow>[0] | null = null;
-  if (resolved.ok) {
-    const cfgText = fs.readFile(path.join(resolved.home, "org-config.yaml"));
-    if (cfgText) {
-      const config = parseOrgConfig(cfgText);
-      workDeps = {
-        projects: createGhProjects(runGh),
-        anchor: createGhAnchor(runGh),
-        fs,
-        config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot },
-        me: ctx.user ?? null,
-        canWriteBoard: (n) =>
-          tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${n}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) !== "false",
-        run: runAny,
-        prompt: async () => "",
-        print: () => {},
-        // Launch the picked agent with cwd = <project> via the tested spec: detached (GUI editor) opens + returns;
-        // otherwise a terminal agent/shell inherits stdio + blocks until exit.
-        launch: async (agent, cwd, inject) => {
-          const s = agentLaunchSpec(agent, cwd, inject);
-          if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
-          const r = spawnSync(s.cmd, [...s.args], { cwd, stdio: "inherit" });
-          if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed + on PATH?\n`); return 1; }
-          return r.status ?? 0;
-        },
-      };
-    }
-  }
+  const workDeps = buildWorkDeps(ctx.user ?? null);
 
   const handlers: MenuHandlers = {
     runCommand: runAny,
