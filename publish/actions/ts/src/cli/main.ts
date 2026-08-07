@@ -172,13 +172,14 @@ export function runAny(argv: readonly string[]): Promise<number> | number {
 
 /** The command reference (git-help style): one-line description per command + optional usage args. */
 const HELP_GROUPS: Record<string, string[]> = {
-  Lifecycle: ["seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel"],
+  Lifecycle: ["seed", "join", "work", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel"],
   Governance: ["manage", "anchor", "knowledge", "onboard", "org", "validate"],
   Info: ["list", "list-all", "status"],
   Maintain: ["setup", "doctor", "deps", "upgrade", "bump-version", "publish"],
 };
 const CMD_DESC: Record<string, string> = {
   seed: "Seed a new project workspace from a GitHub Project board", join: "Join an existing project (clone its repos on the project branch)",
+  work: "Start a session on an existing project (prints the dir + agent kickoff prompt; no TTY needed)",
   task: "Create a task issue + sub-branch on the current project", merge: "Land a task sub-branch back to the project branch",
   sync: "Sync the project branch with upstream changes", "add-repo": "Add a code repository to the current project",
   close: "Close a completed project (closes its board)", pause: "Pause the current project", resume: "Resume a paused project", cancel: "Cancel the current project",
@@ -190,7 +191,7 @@ const CMD_DESC: Record<string, string> = {
   upgrade: "Pull the latest framework content into this workspace", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
 };
 const CMD_USAGE: Record<string, string> = {
-  seed: "<board-url> [--assignee <login>]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
+  seed: "<board-url> [--assignee <login>]", work: "[<project-id>] [--print-prompt]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
   knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
   org: "add <github_org> --home <path> | use|list|remove <github_org>",
   upgrade: "[--ref <branch>] [--from <dir>] [--apply]", "bump-version": "<x.y.z>",

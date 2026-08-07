@@ -48,6 +48,43 @@ export function sessionStartPrompt(projectId: string, workspaceRepo: string): st
   return `Run the session-start protocol for ${projectId} now, before I send anything else: read ${w}/org-config.yaml, ${w}/projects/${projectId}/agent.md, ${w}/knowledge/policies/agentic-development-policy.md, and surface any "## Open" items from ${w}/projects/${projectId}/knowledge/todo.md; then post the context manifest and wait for my direction.`;
 }
 
+export interface StartSession {
+  readonly projectId: string;
+  /** the project directory the agent must run in — repos are its children. */
+  readonly dir: string;
+  /** the kickoff prompt, identical to the one the interactive menu injects. */
+  readonly prompt: string;
+}
+
+/**
+ * WHAT A SESSION ON AN EXISTING PROJECT NEEDS — resolved without a terminal.
+ *
+ * The guided Work flow (menu) does seed → join → session-start and launches an agent carrying the kickoff
+ * prompt. That path is TTY-only, which is backwards: the prompt exists to drive an AGENT, and agents are
+ * precisely the non-TTY case. This is the same resolution as a pure function, so `gov work` can answer a
+ * script, a CI job, or an agent wrapper.
+ *
+ * `undefined` when the project is not cloned here — the caller says how to get it (`gov join <board-url>`),
+ * because "no such directory" is not a useful thing to tell someone who asked to start work.
+ */
+export function startSession(
+  projectWorkRoot: string, workspaceRepo: string, projectId: string, exists: (p: string) => boolean,
+): StartSession | undefined {
+  const dir = `${projectWorkRoot}/${projectId}`;
+  if (!exists(dir)) return undefined;
+  return { projectId, dir, prompt: sessionStartPrompt(projectId, workspaceRepo) };
+}
+
+/**
+ * The project a path sits inside, if any: the first segment below the work root. Lets `gov work` be typed
+ * with no argument from anywhere in a project — the same rule the context banner uses to decide PROJECT.
+ */
+export function projectFromPath(projectWorkRoot: string, cwd: string, sep = "/"): string | undefined {
+  const root = projectWorkRoot.endsWith(sep) ? projectWorkRoot : projectWorkRoot + sep;
+  if (!cwd.startsWith(root)) return undefined;
+  return cwd.slice(root.length).split(sep).filter(Boolean)[0];
+}
+
 /** The concrete command to launch an agent kind in a project dir. Pure (env-injected) so the binary mapping
  *  + detached-GUI behaviour are regression-tested without spawning. Speak-first CLI agents (Claude,
  *  cursor-agent) get the `inject` prompt as their first message; the GUI editor opens the dir detached. */
