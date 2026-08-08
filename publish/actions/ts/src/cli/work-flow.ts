@@ -70,7 +70,7 @@ export interface StartSession {
 export function startSession(
   projectWorkRoot: string, workspaceRepo: string, projectId: string, exists: (p: string) => boolean,
 ): StartSession | undefined {
-  const dir = `${projectWorkRoot}/${projectId}`;
+  const dir = path.join(projectWorkRoot, projectId);   // path.join, not a literal '/': on Windows the two do not match
   if (!exists(dir)) return undefined;
   return { projectId, dir, prompt: sessionStartPrompt(projectId, workspaceRepo) };
 }
