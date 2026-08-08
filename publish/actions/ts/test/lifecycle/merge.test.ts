@@ -5,6 +5,7 @@ import { merge, type MergeConfig, type MergeInput } from "../../src/lifecycle/me
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
+import { pxDeep } from "../helpers/paths.js";
 
 const CONFIG: MergeConfig = { githubOrg: "Svayamtech", workspaceRepo: "svm-prj-work", remote: "origin" };
 const GOV = "/awr/PRJ-43/svm-prj-work";
@@ -76,7 +77,7 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
     if (!r.ok) return;
     expect(r.taskId).to.equal(TASK_ID);
     expect(r.issueUrls).to.deep.equal([ISSUE]);
-    expect(r.reposMerged).to.deep.equal([GOV, CODE_DIR]);
+    expect(pxDeep(r.reposMerged)).to.deep.equal([GOV, CODE_DIR]);
     // merged into project branch in both repos, then archived (tag + delete)
     expect(log.filter((l) => l.startsWith("merge "))).to.have.lengthOf(2);
     expect(log).to.include(`tag ${GOV} archive/${TASK_ID}`);

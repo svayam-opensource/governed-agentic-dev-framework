@@ -40,7 +40,7 @@ describe("prj-work — onboard", () => {
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
     expect(r.branch).to.equal("onboard-knowledge");
-    expect(w.cloned[0]).to.match(/new-svc->\/awr\/onboard\/new-svc/);
+    expect(px(w.cloned[0])).to.match(/new-svc->\/awr\/onboard\/new-svc/);
     // scaffolded the four knowledge files
     expect(w.writes.some((f) => f.endsWith("knowledge/agent.md"))).to.equal(true);
     expect(w.writes.filter((f) => f.includes("knowledge/repo/"))).to.have.lengthOf(3);

@@ -9,7 +9,7 @@ import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
-import { px } from "../helpers/paths.js";
+import { px, pxDeep } from "../helpers/paths.js";
 
 const GOOD_MANIFEST = KNOWLEDGE_CLOSE_SECTIONS.map((s) => `${s}\n- done\n`).join("\n");
 
@@ -138,7 +138,7 @@ describe("prj-work Phase 2 — close orchestrator (model A)", () => {
     if (!r.ok) return;
     expect(r.projectId).to.equal("PRJ-43-governance-common-project");
     expect(r.prUrl).to.equal("https://github.com/Svayamtech/svm-prj-work/pull/1");
-    expect(r.reposMerged).to.deep.equal([CODE_DIR]);
+    expect(pxDeep(r.reposMerged)).to.deep.equal([CODE_DIR]);
     // pushed code base + project branch, closed board, archived both repos
     expect(v.log).to.include("push /awr/PRJ-43/911-SVM-LIB-SVC dev");
     expect(v.log).to.include(`push ${GOV} BRNCH-43-governance-common-project`);

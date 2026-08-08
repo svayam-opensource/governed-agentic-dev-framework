@@ -22,3 +22,19 @@ export const px = (p: string): string => p.replace(/\\/g, "/");
 
 /** Normalise every path in a list — for assertions that compare produced paths against POSIX literals. */
 export const pxAll = (ps: readonly string[]): string[] => ps.map(px);
+
+/**
+ * Normalise every string inside a value — arrays, objects, nested. For assertions that compare a whole
+ * structure of produced paths against POSIX literals, where wrapping each element would be noise.
+ *
+ * Use it on the ACTUAL, never to build an expectation: an expectation that has been normalised asserts
+ * nothing about separators, and one day that will matter.
+ */
+export function pxDeep<T>(v: T): T {
+  if (typeof v === "string") return px(v) as unknown as T;
+  if (Array.isArray(v)) return v.map(pxDeep) as unknown as T;
+  if (v && typeof v === "object") {
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, pxDeep(x)])) as T;
+  }
+  return v;
+}

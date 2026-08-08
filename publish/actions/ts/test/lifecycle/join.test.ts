@@ -4,6 +4,7 @@ import { expect } from "chai";
 import { join } from "../../src/lifecycle/join.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
+import { px } from "../helpers/paths.js";
 
 const CODE_REPO = "https://github.com/Svayamtech/911-SVM-LIB-SVC";
 const CONFIG = {
@@ -45,7 +46,7 @@ describe("prj-work Phase 2 — join (co-dev checkout)", () => {
     if (!r.ok) return;
     expect(r.projectId).to.equal("PRJ-43-governance-common-project");
     expect(r.branch).to.equal("BRNCH-43-governance-common-project");
-    expect(r.orgGovClone).to.equal(`${WORK_ROOT}/svm-prj-work`);
+    expect(px(r.orgGovClone)).to.equal(`${WORK_ROOT}/svm-prj-work`);
     expect(r.repos).to.deep.equal([`${WORK_ROOT}/911-SVM-LIB-SVC`]);
     // base clones created (missing), worktrees checked out from origin/<branch>
     expect(cloned).to.have.members(["/awr/.bases/svm-prj-work", "/awr/.bases/911-SVM-LIB-SVC"]);

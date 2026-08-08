@@ -42,7 +42,11 @@ export function configDir(env: NodeJS.ProcessEnv = process.env, platform: NodeJS
 
 /** True if `p` sits inside a `.bases/` base clone (never a real gov home). */
 export function containsBasesSegment(p: string): boolean {
-  return p.split(path.sep).includes(".bases");
+  // BOTH separators, deliberately. Splitting on `path.sep` alone means that on Windows a POSIX-shaped path
+  // never matches — and POSIX-shaped paths are normal here: `agent_work_root: "~/.svm/projects"` is written
+  // with forward slashes in every org-config, on every platform. The guard would then miss a `.bases` clone
+  // and treat it as a real gov home, which is the exact confusion it exists to prevent.
+  return p.split(/[\\/]/).includes(".bases");
 }
 
 /**

@@ -123,7 +123,7 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     if (!r.ok) return;
     expect(r.projectId).to.equal("PRJ-43-governance-common-project");
     expect(r.branch).to.equal("BRNCH-43-governance-common-project");
-    expect(r.orgGovClone).to.equal(ORG_GOV_CLONE);
+    expect(px(r.orgGovClone)).to.equal(ORG_GOV_CLONE);
     expect(r.repos).to.deep.equal([
       { name: "911-SVM-LIB-SVC", url: CODE_REPO, repoDir: "/awr/PRJ-43-governance-common-project/911-SVM-LIB-SVC" },
     ]);
