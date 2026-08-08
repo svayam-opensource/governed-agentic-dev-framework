@@ -4,10 +4,11 @@ import { expect } from "chai";
 import { checkVersionSync } from "../../src/governance/version-sync.js";
 import { runValidators, type ValidateContext } from "../../src/governance/validate.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
+import { px } from "../helpers/paths.js";
 
 /** An Fs serving a fixed map of repo-relative path → content. */
 function fakeFs(files: Record<string, string>): Fs {
-  const at = (p: string) => files[p.replace(/^\/repo\//, "")] ?? null;
+  const at = (p: string) => files[px(p).replace(/^\/repo\//, "")] ?? null;
   return {
     pathExists: (p) => at(p) !== null,
     readFile: (p) => at(p),

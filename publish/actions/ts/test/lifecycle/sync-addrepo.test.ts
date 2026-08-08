@@ -5,6 +5,7 @@ import { sync } from "../../src/lifecycle/sync.js";
 import { addRepo } from "../../src/lifecycle/add-repo.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
+import { px, pxAll, pxDeep } from "../helpers/paths.js";
 
 const CODE_REPO = "https://github.com/Svayamtech/911-SVM-LIB-SVC";
 const GOV = "/awr/PRJ-43/svm-prj-work";
@@ -40,9 +41,9 @@ describe("prj-work Phase 2 — sync", () => {
     const r = sync({ board: board(), authorize: () => true,vcs, fs: fsPresent(true) }, SYNC_CONFIG, syncInput);
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
-    expect(r.synced).to.deep.equal([GOV, CODE_DIR]);
-    expect(log).to.include(`fetch ${GOV} main`); // workspace from default
-    expect(log).to.include(`fetch ${CODE_DIR} dev`); // code repo from base
+    expect(pxDeep(r.synced)).to.deep.equal([GOV, CODE_DIR]);
+    expect(pxAll(log)).to.include(`fetch ${GOV} main`); // workspace from default
+    expect(pxAll(log)).to.include(`fetch ${CODE_DIR} dev`); // code repo from base
     expect(log.filter((l) => l.startsWith("push")).length).to.equal(2);
   });
 
@@ -71,9 +72,9 @@ describe("prj-work Phase 2 — add-repo (repo-on-demand)", () => {
       { govClone: GOV, projectWorkRoot: "/awr/PRJ-43", repoUrl: CODE_REPO },
     );
     expect(r.ok).to.equal(true);
-    if (r.ok) expect(r.repoDir).to.equal(CODE_DIR);
-    expect(cloned).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
-    expect(log).to.include(`worktreeAdd ${CODE_DIR} BRNCH-43-governance-common-project`);
+    if (r.ok) expect(px(r.repoDir)).to.equal(CODE_DIR);
+    expect(pxAll(cloned)).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
+    expect(pxAll(log)).to.include(`worktreeAdd ${CODE_DIR} BRNCH-43-governance-common-project`);
   });
 
   it("fails (with rollback) when the base branch is missing", () => {

@@ -6,9 +6,10 @@ import { checkDeps, formatDepsReport } from "../../src/maintain/deps.js";
 import { publishGate, formatPublishGate } from "../../src/maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../../src/maintain/upgrade.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
+import { px } from "../helpers/paths.js";
 
 const memFs = (files: Record<string, string>): Fs => {
-  const at = (p: string) => files[p.replace(/^\/repo\//, "")] ?? null;
+  const at = (p: string) => files[px(p).replace(/^\/repo\//, "")] ?? null;
   return { pathExists: (p) => at(p) !== null, readFile: (p) => at(p), writeFile: () => {}, mkdirp: () => {}, rm: () => {}, readdir: () => [] };
 };
 

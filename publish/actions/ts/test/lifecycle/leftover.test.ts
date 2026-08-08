@@ -12,6 +12,7 @@ import {
   type SeedPaths,
 } from "../../src/lifecycle/leftover.js";
 import { createGitVcs, nodeFsProbe, type Vcs, type FsProbe } from "../../src/lifecycle/vcs.js";
+import { px } from "../helpers/paths.js";
 
 const PATHS: SeedPaths = seedPathsFor({
   govHome: "/home/.svm/gov_repo",
@@ -42,8 +43,8 @@ function makeEnv(a: {
 
 describe("prj-work Phase 2 — seed leftover detection", () => {
   it("seedPathsFor composes the workspace root and home stub", () => {
-    expect(PATHS.projectWorkRoot).to.equal("/home/.svm/projects/PRJ-43-governance-common-project");
-    expect(PATHS.homeStub).to.equal("/home/.svm/gov_repo/projects/PRJ-43-governance-common-project");
+    expect(px(PATHS.projectWorkRoot)).to.equal("/home/.svm/projects/PRJ-43-governance-common-project");
+    expect(px(PATHS.homeStub)).to.equal("/home/.svm/gov_repo/projects/PRJ-43-governance-common-project");
     expect(PATHS.remote).to.equal("origin");
   });
 

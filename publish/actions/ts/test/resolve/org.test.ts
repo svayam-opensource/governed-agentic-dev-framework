@@ -8,6 +8,7 @@ import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../../src/reso
 import { createNodeRegistryStore } from "../../src/resolve/registry-store.js";
 import type { RegistryStore } from "../../src/resolve/registry-store.js";
 import type { GovConfig, GovHome } from "../../src/resolve/types.js";
+import { pxAbs } from "../helpers/paths.js";
 
 /** In-memory registry store. */
 function memStore(homes: GovHome[] = [], active: string | null = null): RegistryStore {
@@ -23,7 +24,7 @@ function memStore(homes: GovHome[] = [], active: string | null = null): Registry
 }
 /** govConfigAt over a map of path → org (govWorkspace omitted). */
 function probe(orgAt: Record<string, string>) {
-  return (p: string): GovConfig | null => (orgAt[p] ? { org: orgAt[p], govWorkspace: p } : null);
+  return (p: string): GovConfig | null => (orgAt[pxAbs(p)] ? { org: orgAt[pxAbs(p)], govWorkspace: p } : null);
 }
 
 describe("prj-work — gov-work org (multi-home registry)", () => {

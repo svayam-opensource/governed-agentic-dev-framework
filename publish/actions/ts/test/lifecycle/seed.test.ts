@@ -10,6 +10,7 @@ import type { Board, BoardProject } from "../../src/lifecycle/board.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
+import { px, pxAll, pxDeep } from "../helpers/paths.js";
 
 const CONFIG: SeedConfig = {
   govHome: "/gov",
@@ -49,6 +50,9 @@ function fakeBoard(over: Partial<BoardProject> = {}): Board {
 /** A recording fake Vcs; push throws for any dir in `throwPushFor`. */
 function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean } = {}) {
   const log: string[] = [];
+  // Record NORMALISED: production composes dirs with `path.join`, so on Windows every line would read
+  // `worktreeAdd \awr\...` and no assertion below — nor `throwPushFor` — would recognise its own target.
+  const rec = (line: string) => log.push(px(line));
   const vcs: Vcs = {
     localBranchExists: () => opts.leftoverLocalBranch ?? false,
     remoteBranchExists: () => false,
@@ -61,25 +65,25 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
     isAncestor: () => false,
     isClean: () => true,
     remoteBranchesMatching: () => [],
-    checkout: (r) => log.push(`checkout ${r}`),
-    checkoutNew: (r) => log.push(`checkoutNew ${r}`),
+    checkout: (r) => rec(`checkout ${r}`),
+    checkoutNew: (r) => rec(`checkoutNew ${r}`),
     mergeNoEdit: () => "merged",
     tag: () => {},
-    addPath: (r) => log.push(`addPath ${r}`),
-    commit: (r, m) => log.push(`commit ${r} :: ${m}`),
-    resetHard: (r, s) => log.push(`resetHard ${r} ${s}`),
-    cleanUntracked: (r, p) => log.push(`clean ${r} ${p}`),
-    worktreeAdd: (_b, br, wt) => log.push(`worktreeAdd ${wt} ${br}`),
-    worktreeRemove: (_b, wt) => log.push(`worktreeRemove ${wt}`),
-    branchDelete: (_r, br) => log.push(`branchDelete ${br}`),
+    addPath: (r) => rec(`addPath ${r}`),
+    commit: (r, m) => rec(`commit ${r} :: ${m}`),
+    resetHard: (r, s) => rec(`resetHard ${r} ${s}`),
+    cleanUntracked: (r, p) => rec(`clean ${r} ${p}`),
+    worktreeAdd: (_b, br, wt) => rec(`worktreeAdd ${wt} ${br}`),
+    worktreeRemove: (_b, wt) => rec(`worktreeRemove ${wt}`),
+    branchDelete: (_r, br) => rec(`branchDelete ${br}`),
     push: (r, _rm, br) => {
-      if (opts.throwPushFor?.includes(r)) throw new Error(`push failed: ${r}`);
-      log.push(`push ${r} ${br}`);
+      if (opts.throwPushFor?.includes(px(r))) throw new Error(`push failed: ${r}`);
+      rec(`push ${r} ${br}`);
     },
-    pushDelete: (r) => log.push(`pushDelete ${r}`),
+    pushDelete: (r) => rec(`pushDelete ${r}`),
     clone: () => {},
     fetch: () => {},
-    setIdentity: (r) => log.push(`setIdentity ${r}`),
+    setIdentity: (r) => rec(`setIdentity ${r}`),
   };
   return { vcs, log };
 }
@@ -88,9 +92,9 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
 function fakeFs(existing: Set<string> = new Set()) {
   const writes: string[] = [];
   const fsPort: Fs = {
-    pathExists: (p) => existing.has(p),
+    pathExists: (p) => existing.has(px(p)),
     mkdirp: () => {},
-    writeFile: (f) => writes.push(f),
+    writeFile: (f) => writes.push(px(f)),
     readFile: () => null, // no todo template / tool files in these tests
     rm: () => {},
     readdir: () => [],
@@ -122,8 +126,8 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     if (!r.ok) return;
     expect(r.projectId).to.equal("PRJ-43-governance-common-project");
     expect(r.branch).to.equal("BRNCH-43-governance-common-project");
-    expect(r.orgGovClone).to.equal(ORG_GOV_CLONE);
-    expect(r.repos).to.deep.equal([
+    expect(px(r.orgGovClone)).to.equal(ORG_GOV_CLONE);
+    expect(pxDeep(r.repos)).to.deep.equal([
       { name: "911-SVM-LIB-SVC", url: CODE_REPO, repoDir: "/awr/PRJ-43-governance-common-project/911-SVM-LIB-SVC" },
     ]);
     expect(r.anchorRef).to.equal("Svayamtech/svm-prj-work#1");
@@ -135,7 +139,7 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     expect(writes.some((w) => w.endsWith("/CLAUDE.md")), "root CLAUDE.md import").to.equal(true);
     expect(writes.some((w) => w.endsWith("/.claude/settings.json")), "Claude SessionStart hook").to.equal(true);
     // base clone was missing → cloned
-    expect(cloned).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
+    expect(pxAll(cloned)).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
     // gov worktree created before the code-repo push; home default pushed
     expect(log).to.include(`worktreeAdd ${ORG_GOV_CLONE} BRNCH-43-governance-common-project`);
     expect(log).to.include("push /gov main");

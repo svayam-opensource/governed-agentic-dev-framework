@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
 import { parseOrgConfig } from "../../src/config/org-config.js";
+import { px } from "../helpers/paths.js";
 
 // A faithful excerpt of the real Svayamtech org-config.yaml.
 const ORG_CONFIG = `# Agentic Development Framework — Organization Configuration
@@ -22,7 +23,7 @@ policy_owner_email: "rkant@svayam.ai"
 describe("prj-work — parseOrgConfig", () => {
   it("parses the real Svayamtech config, expanding ~ paths", () => {
     const c = parseOrgConfig(ORG_CONFIG, "/home/rk");
-    expect(c).to.deep.include({
+    expect({ ...c, agentWorkRoot: px(c.agentWorkRoot), govWorkspace: px(c.govWorkspace) }).to.deep.include({
       orgName: "Svayam Infoware Pvt",
       orgShortName: "Svayam",
       orgSlug: "SVM",
@@ -40,7 +41,7 @@ describe("prj-work — parseOrgConfig", () => {
 
   it("builds the tool-file token map (matching seed's substituteTokens keys)", () => {
     const { orgTokens } = parseOrgConfig(ORG_CONFIG, "/home/rk");
-    expect(orgTokens).to.include({
+    expect({ ...orgTokens, AGENT_WORK_ROOT: px(orgTokens.AGENT_WORK_ROOT ?? "") }).to.include({
       ORG_NAME: "Svayam Infoware Pvt",
       ORG_SLUG: "SVM",
       org_slug: "svm",

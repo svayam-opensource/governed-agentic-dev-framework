@@ -14,6 +14,7 @@ import {
   ackExists,
 } from "../../src/governance/session-gate.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
+import { px } from "../helpers/paths.js";
 
 describe("prj-work Phase 3 — session gate", () => {
   it("whitelists the ack command and identity probes", () => {
@@ -57,14 +58,14 @@ describe("prj-work Phase 3 — session gate", () => {
   it("marker write / clear / exists round-trips over the Fs port", () => {
     const store = new Set<string>();
     const fs: Fs = {
-      pathExists: (p) => store.has(p),
-      writeFile: (p) => store.add(p),
-      rm: (p) => store.delete(p),
+      pathExists: (p) => store.has(px(p)),
+      writeFile: (p) => store.add(px(p)),   // both sides of the store must key alike
+      rm: (p) => store.delete(px(p)),
       readFile: () => null,
       mkdirp: () => {},
       readdir: () => [],
     };
-    expect(markerPath("/root")).to.equal("/root/.claude/.session-ack");
+    expect(px(markerPath("/root"))).to.equal("/root/.claude/.session-ack");
     expect(ackExists(fs, "/root")).to.equal(false);
     writeAck(fs, "/root", "2026-07-03T00:00:00Z");
     expect(ackExists(fs, "/root")).to.equal(true);

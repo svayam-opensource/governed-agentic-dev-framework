@@ -27,6 +27,7 @@ import type { Projects, BoardSummary } from "../../src/lifecycle/project-list.js
 import type { OrgDeps } from "../../src/resolve/org.js";
 import type { RegistryStore } from "../../src/resolve/registry-store.js";
 import type { GovConfig, GovHome } from "../../src/resolve/types.js";
+import { px, pxAbs, pxDeep } from "../helpers/paths.js";
 
 // ── shared config + port fakes ────────────────────────────────────────────────
 
@@ -98,7 +99,7 @@ function memStore(homes: GovHome[] = [], active: string | null = null): Registry
     readActiveOrg: () => a, writeActiveOrg: (o) => { a = o; }, clearActiveOrg: () => { a = null; },
   };
 }
-const probe = (orgAt: Record<string, string>) => (p: string): GovConfig | null => (orgAt[p] ? { org: orgAt[p], govWorkspace: p } : null);
+const probe = (orgAt: Record<string, string>) => (p: string): GovConfig | null => (orgAt[pxAbs(p)] ? { org: orgAt[pxAbs(p)], govWorkspace: p } : null);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // manage — list · list-all · assign · unassign
@@ -462,7 +463,7 @@ describe("coverage: gov-work onboard", () => {
   });
 
   it("onboard when knowledge/ already exists → exit 1, knowledge-exists", () => {
-    const fs: Fs = { ...baseFs, pathExists: (p) => p.endsWith("knowledge") };
+    const fs: Fs = { ...baseFs, pathExists: (p) => px(p).endsWith("knowledge") };
     const r = run(["onboard", URL, "--owner", "rkant", "--description", "desc"], { vcs: freshVcs(), fs });
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.equal("knowledge/ already exists in acme — investigate the existing structure.");
@@ -490,8 +491,8 @@ describe("coverage: gov-work org (routeOrg)", () => {
     const deps: OrgDeps = { store, govConfigAt: probe({ "/gov": "Svayamtech" }) };
     const r = routeOrg(["add", "Svayamtech"], { home: "/gov" }, deps);
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal("Registered Svayamtech → /gov");
-    expect(store.readHomes()).to.deep.equal([{ org: "Svayamtech", home: "/gov" }]);
+    expect(pxAbs(r.lines[0])).to.equal("Registered Svayamtech → /gov");
+    expect(pxDeep(store.readHomes())).to.deep.equal([{ org: "Svayamtech", home: "/gov" }]);
   });
 
   it("org add (no args) → exit 2, usage", () => {
@@ -519,7 +520,7 @@ describe("coverage: gov-work org (routeOrg)", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({ "/gov": "Other" }) };
     const r = routeOrg(["add", "Svayamtech"], { home: "/gov" }, deps);
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("'/gov' belongs to org 'Other', not 'Svayamtech'.");
+    expect(pxAbs(r.lines[0])).to.equal("'/gov' belongs to org 'Other', not 'Svayamtech'.");
   });
 
   it("org add a duplicate → exit 0, idempotent upsert (one home)", () => {
@@ -527,7 +528,7 @@ describe("coverage: gov-work org (routeOrg)", () => {
     const deps: OrgDeps = { store, govConfigAt: probe({ "/gov": "Svayamtech" }) };
     const r = routeOrg(["add", "Svayamtech"], { home: "/gov" }, deps);
     expect(r.code).to.equal(0);
-    expect(store.readHomes()).to.deep.equal([{ org: "Svayamtech", home: "/gov" }]);
+    expect(pxDeep(store.readHomes())).to.deep.equal([{ org: "Svayamtech", home: "/gov" }]);
   });
 
   it("org use <registered> → exit 0, active org set", () => {
@@ -575,7 +576,7 @@ describe("coverage: gov-work org (routeOrg)", () => {
     const r = routeOrg(["remove", "A"], {}, deps);
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("Removed A");
-    expect(store.readHomes()).to.deep.equal([]);
+    expect(pxDeep(store.readHomes())).to.deep.equal([]);
     expect(store.readActiveOrg()).to.equal(null); // active cleared
   });
 

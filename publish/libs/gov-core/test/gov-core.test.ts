@@ -45,7 +45,9 @@ describe("gov-core · location", () => {
     const cfg = parseOrgConfig("org_name: Acme\ngithub_org: acme\ndefault_branch: main\nagent_work_root: '~/.acme/projects'\n");
     expect(cfg.orgName).to.equal("Acme");
     expect(cfg.githubOrg).to.equal("acme");
-    expect(expandTilde("~/x", "/home/u")).to.equal("/home/u/x");
+    // host-native by design: on Windows a work root of ~/.svm/projects SHOULD expand to
+    // C:\Users\rk\.svm\projects. The assertion normalises; the function must not.
+    expect(expandTilde("~/x", "/home/u").replace(/\\/g, "/")).to.equal("/home/u/x");
     expect(expandTilde("/abs", "/home/u"), "an absolute path is left alone").to.equal("/abs");
   });
 

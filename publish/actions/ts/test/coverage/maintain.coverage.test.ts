@@ -33,16 +33,22 @@ import { runValidators, type ValidateContext } from "../../src/governance/valida
 import { makePrivacyValidator } from "../../src/governance/privacy.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { ResolveResult } from "../../src/resolve/types.js";
+import { px } from "../helpers/paths.js";
+
+/** A writes-map keyed by normalised path, so a POSIX literal finds an entry the code wrote
+ *  with the host separator (Windows). */
+const pxKeys = (m: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(m).map(([k, v]) => [px(k), v]));
 
 // ── shared fakes ────────────────────────────────────────────────────────────
 
 /** An in-memory Fs over a repo-relative path → content map (rooted at /repo). */
 function memFs(files: Record<string, string>): { fs: Fs; store: Record<string, string> } {
   const store = { ...files };
-  const rel = (p: string) => p.replace(/^\/repo\//, "");
+  const rel = (p: string) => px(p).replace(/^\/repo\//, "");
   return {
     fs: {
-      pathExists: (p) => rel(p) in store,
+      pathExists: (p) => px(rel(p)) in store,
       readFile: (p) => store[rel(p)] ?? null,
       writeFile: (p, c) => { store[rel(p)] = c; },
       mkdirp: () => {},
@@ -62,8 +68,8 @@ function workspaceCtx(files: Record<string, string>, extraDirs: string[] = []): 
     while (d && d !== "." && d !== "/") { existing.add(d); d = path.dirname(d); }
   }
   const fsx: Fs = {
-    pathExists: (p) => existing.has(path.relative("/repo", p)),
-    readFile: (p) => files[path.relative("/repo", p)] ?? null,
+    pathExists: (p) => existing.has(px(path.relative("/repo", p))),
+    readFile: (p) => files[px(path.relative("/repo", p))] ?? null,   // key alike on both sides
     mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
   };
   return { fs: fsx, repoRoot: "/repo", files: Object.keys(files) };
@@ -672,8 +678,8 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
       setOriginRemote: (u) => { remote = u; },
     }, true);
     expect(code).to.equal(0);
-    expect(writes["/repo/org-config.yaml"]).to.match(/org_name: "Acme Inc"/);
-    expect(writes["/repo/org-config.yaml"]).to.match(/default_code_branch: "trunk"/); // answer honored
+    expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/org_name: "Acme Inc"/);
+    expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/default_code_branch: "trunk"/); // answer honored
     expect(printed.some((l) => /github_org:.*Acme.*from origin/.test(l))).to.equal(true);
     expect(printed.some((l) => /gov-work org use Acme/.test(l))).to.equal(true);
     expect(remote).to.equal("git@github.com:Acme/acme-gov.git");
@@ -690,7 +696,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     }, false);
     expect(code).to.equal(0);
     expect(prompted).to.equal(false);
-    expect(writes["/repo/org-config.yaml"]).to.match(/org_name: "Existing Co"/);
+    expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/org_name: "Existing Co"/);
   });
 
   it("runSetup non-interactive missing required (no existing) → code 1, prints guidance", async () => {
@@ -710,7 +716,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
       prompt: async (_q, d) => d, print: () => {},
     }, false);
     expect(code).to.equal(0);
-    expect(writes["/repo/org-config.yaml"]).to.match(/org_name: "Y"/);
+    expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/org_name: "Y"/);
   });
 });
 

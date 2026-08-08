@@ -4,9 +4,10 @@ import { expect } from "chai";
 import { checkSecrets } from "../../src/governance/secrets.js";
 import type { ValidateContext } from "../../src/governance/validate.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
+import { px } from "../helpers/paths.js";
 
 function ctx(files: Record<string, string>): ValidateContext {
-  const at = (p: string) => files[p.replace(/^\/repo\//, "")] ?? null;
+  const at = (p: string) => files[px(p).replace(/^\/repo\//, "")] ?? null;
   const fs: Fs = {
     pathExists: (p) => at(p) !== null,
     readFile: (p) => at(p),

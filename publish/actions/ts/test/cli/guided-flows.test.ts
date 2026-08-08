@@ -5,6 +5,7 @@ import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpe
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
+import { px, pxAbs, pxAll, pxDeep } from "../helpers/paths.js";
 
 const projects = (boards: Array<{ number: number; title: string; closed?: boolean }>): Projects => ({
   listBoards: () => boards.map((b) => ({ number: b.number, title: b.title, url: `https://github.com/orgs/Acme/projects/${b.number}`, closed: b.closed ?? false })),
@@ -13,7 +14,7 @@ const anchorFor = (byNum: Record<number, string[]>): AnchorCreator => ({
   createAnchorIssue: () => null, setState: () => true, setAssignee: () => true,
   find: (ref) => (byNum[ref.number] ? ({ url: `u#1`, number: 1, labels: [], assignees: byNum[ref.number] } as AnchorInfo) : null),
 });
-const fsWith = (paths: string[]): Fs => ({ pathExists: (p) => paths.some((x) => x === p || x.startsWith(p + "/")), readFile: () => null, writeFile() {}, mkdirp() {}, rm() {}, readdir: () => [] });
+const fsWith = (paths: string[]): Fs => ({ pathExists: (p) => paths.some((x) => x === px(p) || x.startsWith(px(p) + "/")), readFile: () => null, writeFile() {}, mkdirp() {}, rm() {}, readdir: () => [] });
 
 function deps(over: Partial<WorkFlowDeps> = {}): { deps: WorkFlowDeps; out: string[]; ran: string[][]; launched: Array<[string, string]> } {
   const out: string[] = []; const ran: string[][] = []; const launched: Array<[string, string]> = [];
@@ -65,7 +66,7 @@ describe("gov-work — guided Work flow", () => {
     const code = await runWorkFlow(d);
     expect(ran[0][0]).to.equal("seed");          // not-seeded → seed
     expect(out.join("\n")).to.match(/is ready at/);
-    expect(launched).to.deep.equal([["claude", "/work/PRJ-7-alpha"]]);   // launch-in-<project> (NOT the workspace subdir)
+    expect(launched.map(([a, c]) => [a, px(c)])).to.deep.equal([["claude", "/work/PRJ-7-alpha"]]);   // launch-in-<project> (NOT the workspace subdir)
     expect(code).to.equal(0);
   });
 
@@ -108,7 +109,7 @@ describe("gov-work — guided Work flow", () => {
       let calls = 0;
       const { deps: d, launched } = deps({ prompt: async () => (++calls === 1 ? "1" : choice) });   // project 1, then agent
       await runWorkFlow(d);
-      expect(launched, `choice ${choice}`).to.deep.equal([[kind, "/work/PRJ-7-alpha"]]);
+      expect(launched.map(([a, c]) => [a, px(c)]), `choice ${choice}`).to.deep.equal([[kind, "/work/PRJ-7-alpha"]]);
     }
   });
 
@@ -131,7 +132,7 @@ describe("gov-work — guided Work flow", () => {
     const writes: Array<[string, string]> = [];
     const d = { ...deps().deps, fs: { ...fsWith([]), writeFile: (p: string, c: string) => writes.push([p, c]) } };
     ensureRootProtocol(d.fs, "/work/PRJ-9-infra", "acme-gov");
-    const byPath = Object.fromEntries(writes);
+    const byPath = Object.fromEntries(writes.map(([f, c]) => [px(f), c]));
     expect(byPath["/work/PRJ-9-infra/CLAUDE.md"]).to.equal("@acme-gov/agent/session-protocol.md\n@acme-gov/framework/agent.md\n");
     expect(byPath["/work/PRJ-9-infra/.claude/settings.json"]).to.match(/SessionStart/);
     // idempotent: nothing re-written when the root protocol + hook already exist
@@ -151,10 +152,10 @@ describe("gov-work — guided Work flow", () => {
     };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     const written = writes.map(([p]) => p);
-    expect(written).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude via @-import stub
-    expect(written).to.include("/work/PRJ-9/AGENTS.md");                 // Codex/Cursor — copied
-    expect(written).to.include("/work/PRJ-9/.cursor/rules/agent.mdc");   // Cursor — copied (nested)
-    expect(dirs).to.include("/work/PRJ-9/.cursor/rules");               // mkdirp for the nested path
+    expect(pxAll(written)).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude via @-import stub
+    expect(pxAll(written)).to.include("/work/PRJ-9/AGENTS.md");                 // Codex/Cursor — copied
+    expect(pxAll(written)).to.include("/work/PRJ-9/.cursor/rules/agent.mdc");   // Cursor — copied (nested)
+    expect(pxAll(dirs)).to.include("/work/PRJ-9/.cursor/rules");               // mkdirp for the nested path
     expect(written).to.not.include("/work/PRJ-9/CONVENTIONS.md");        // not rendered here → skipped
   });
 
@@ -162,10 +163,10 @@ describe("gov-work — guided Work flow", () => {
     const w: Array<[string, string]> = []; const dirs: string[] = [];
     const fs = { ...fsWith([]), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: (d: string) => dirs.push(d) };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
-    const byPath = Object.fromEntries(w);
+    const byPath = Object.fromEntries(w.map(([f, c]) => [px(f), c]));
     expect(byPath["/work/PRJ-9/CLAUDE.md"], "protocol loaded at root").to.match(/@acme-gov\/agent\/session-protocol\.md/);
     expect(byPath["/work/PRJ-9/.claude/settings.json"], "fires on a bare/`/clear` launch").to.match(/"SessionStart"/);
-    expect(dirs).to.include("/work/PRJ-9/.claude");
+    expect(pxAll(dirs)).to.include("/work/PRJ-9/.claude");
     expect(agentLaunchSpec("claude", "/work/PRJ-9", "KICK").args, "speak-first on Work launch").to.deep.equal(["KICK"]);
   });
 
@@ -173,7 +174,7 @@ describe("gov-work — guided Work flow", () => {
     const w: Array<[string, string]> = [];
     const fs = { ...fsWith([]), readFile: (f: string) => f.endsWith("agent.mdc") ? "---\nalwaysApply: true\n---\n<protocol>" : null, writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
-    expect(Object.fromEntries(w)["/work/PRJ-9/.cursor/rules/agent.mdc"], "always-on rule at root").to.match(/alwaysApply: true/);
+    expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"], "always-on rule at root").to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor", "/work/PRJ-9", "KICK").args, "speak-first").to.deep.equal(["KICK"]);
   });
 
@@ -181,8 +182,8 @@ describe("gov-work — guided Work flow", () => {
     const w: Array<[string, string]> = [];
     const fs = { ...fsWith([]), readFile: (f: string) => f.endsWith("agent.mdc") ? "---\nalwaysApply: true\nglobs: [\"**/*\"]\n---\n<protocol>" : null, writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
-    expect(Object.fromEntries(w)["/work/PRJ-9/.cursor/rules/agent.mdc"]).to.match(/alwaysApply: true/);
-    expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK")).to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true });
+    expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"]).to.match(/alwaysApply: true/);
+    expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK")).to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true });   // cwd passes through verbatim
   });
 });
 
@@ -196,11 +197,11 @@ describe("gov-work — guided Work flow", () => {
  */
 describe("work — non-TTY session start", () => {
   const ROOT = "/w/projects";
-  const has = (dirs: string[]) => (p: string): boolean => dirs.includes(p);
+  const has = (dirs: string[]) => (p: string): boolean => dirs.includes(px(p));
 
   it("resolves the project, its directory, and the SAME prompt the menu injects", () => {
     const s = startSession(ROOT, "gov_repo", "PRJ-43-gov", has([`${ROOT}/PRJ-43-gov`]));
-    expect(s?.dir).to.equal(`${ROOT}/PRJ-43-gov`);
+    expect(px(s!.dir)).to.equal(`${ROOT}/PRJ-43-gov`);
     expect(s?.prompt).to.equal(sessionStartPrompt("PRJ-43-gov", "gov_repo"));
     // the prompt must name the four files the session-start protocol requires
     expect(s?.prompt).to.contain("gov_repo/org-config.yaml");
@@ -331,14 +332,14 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
       expect(code).to.equal(2);
       expect(launched, "nothing was launched").to.deep.equal([]);
       expect(out.join("\n")).to.match(/--agent=/);
-      expect(out.join("\n"), "the work was not wasted — say where it landed").to.contain(seeded);
+      expect(pxAbs(out.join("\n")), "the work was not wasted — say where it landed").to.contain(seeded);
     });
 
     it("with both flags it runs start to finish, no prompt", async () => {
       const { deps: d, launched } = deps({ fs: fsWith(ready), prompt: async () => { throw new Error("must not prompt"); } });
       const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "claude", interactive: false });
       expect(code).to.equal(0);
-      expect(launched).to.deep.equal([["claude", seeded]]);
+      expect(pxDeep(launched)).to.deep.equal([["claude", seeded]]);
     });
   });
 

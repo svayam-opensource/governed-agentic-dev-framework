@@ -27,17 +27,26 @@ export function expandTilde(p: string, home: string = os.homedir()): string {
  * platform / home are injectable for tests.
  */
 export function configDir(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home: string = os.homedir()): string {
+  // Compose with the flavour of the platform we were TOLD about, not the one we happen to run on. The
+  // function takes `platform` as a parameter, so `configDir(env, "linux", …)` promising a POSIX path and
+  // returning `\x\cfg\prj` on a Windows host is simply wrong — latent today only because real callers pass
+  // `process.platform`, and found the first time this suite ran on Windows.
+  const j = platform === "win32" ? path.win32 : path.posix;
   if (platform === "win32") {
-    const appData = env.APPDATA && env.APPDATA.trim() ? env.APPDATA : path.join(home, "AppData", "Roaming");
-    return path.join(appData, "prj");
+    const appData = env.APPDATA && env.APPDATA.trim() ? env.APPDATA : j.join(home, "AppData", "Roaming");
+    return j.join(appData, "prj");
   }
   const xdg = env.XDG_CONFIG_HOME;
-  return path.join(xdg && xdg.trim() ? xdg : path.join(home, ".config"), "prj");
+  return j.join(xdg && xdg.trim() ? xdg : j.join(home, ".config"), "prj");
 }
 
 /** True if `p` sits inside a `.bases/` base clone (never a real gov home). */
 export function containsBasesSegment(p: string): boolean {
-  return p.split(path.sep).includes(".bases");
+  // BOTH separators, deliberately. Splitting on `path.sep` alone means that on Windows a POSIX-shaped path
+  // never matches — and POSIX-shaped paths are normal here: `agent_work_root: "~/.svm/projects"` is written
+  // with forward slashes in every org-config, on every platform. The guard would then miss a `.bases` clone
+  // and treat it as a real gov home, which is the exact confusion it exists to prevent.
+  return p.split(/[\\/]/).includes(".bases");
 }
 
 /**
