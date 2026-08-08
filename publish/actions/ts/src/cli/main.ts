@@ -8,6 +8,8 @@
  * (dispatch.ts) is exhaustively unit-tested.
  */
 import * as path from "node:path";
+import * as os from "node:os";
+import * as fsSync from "node:fs";
 import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
@@ -38,8 +40,10 @@ import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
 import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } from "../maintain/upgrade-run.js";
 import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
+import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
+import { orgAdd, orgUse } from "../resolve/org.js";
 import { PACKAGE_NAME } from "../index.js";
 
 /** Run a command, swallowing failures (returns undefined). */
@@ -56,11 +60,14 @@ function tryRun(cmd: string, args: string[]): string | undefined {
  * (readline prompts), so bin.ts routes it here instead of through sync `main`.
  * Runs in cwd (the cloned framework repo), before any resolution.
  */
-export async function runSetupCommand(argv: readonly string[], now: string = new Date().toISOString()): Promise<number> {
+export async function runSetupCommand(
+  argv: readonly string[],
+  now: string = new Date().toISOString(),
+  cwd: string = process.cwd(),
+): Promise<number> {
   const parsed = parseArgv(argv);
   const nonInteractiveFlag = !("error" in parsed) && "non-interactive" in parsed.flags;
   const fs = createNodeFs();
-  const cwd = process.cwd();
   if (tryRun("git", ["-C", cwd, "rev-parse", "--git-dir"]) === undefined) {
     process.stderr.write("gov-work setup: not a git repository — clone the framework repo (or `git init`) first.\n");
     return 1;
@@ -96,6 +103,65 @@ export async function runSetupCommand(argv: readonly string[], now: string = new
       },
       !nonInteractiveFlag && process.stdin.isTTY,
     );
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * FIRST RUN — the real environment behind {@link runFirstRun}. Returns null when an org is already
+ * registered and active, which is the overwhelmingly common case and costs two file reads.
+ *
+ * Everything interesting lives in bootstrap.ts, which knows nothing about git, disks or terminals. This
+ * function is the part that cannot be unit-tested, so it is kept to plumbing with no decisions in it.
+ */
+export async function runFirstRunIfNeeded(now: string = new Date().toISOString()): Promise<number | null> {
+  const store = createNodeRegistryStore();
+  const homes = store.readHomes();
+  const facts = {
+    orgs: homes.map((h) => h.org),
+    active: store.readActiveOrg(),
+    interactive: process.stdin.isTTY === true,
+  };
+  // The common path: decided from the registry alone, before a readline interface is opened.
+  if (facts.active && facts.orgs.includes(facts.active)) return null;
+  if (facts.orgs.length === 1) return null;
+
+  const env = createNodeEnv();
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const identityAt = (repoDir: string): OrgIdentity | null => {
+    const cfg = env.govConfigAt(repoDir);
+    if (!cfg) return null;
+    const text = fsSync.readFileSync(path.join(repoDir, "org-config.yaml"), "utf8");
+    const slug = parseOrgConfig(text).orgSlug;
+    return slug ? { org: cfg.org, orgSlug: slug } : null;
+  };
+  const io: FirstRunIo = {
+    facts,
+    homeDir: os.homedir(),
+    prompt: (q, def) => new Promise((res) => rl.question(def ? `  ${q}[${def}] ` : `  ${q}`, (a) => res(a.trim() || def))),
+    print: (l) => process.stderr.write(`${l}\n`),
+    tempDir: () => fsSync.mkdtempSync(path.join(os.tmpdir(), "gov-firstrun-")),
+    clone: (url, dest) => { execFileSync("git", ["clone", url, dest], { stdio: ["ignore", "ignore", "inherit"] }); },
+    readIdentity: identityAt,
+    exists: (d) => fsSync.existsSync(d),
+    place: (from, to) => { fsSync.mkdirSync(path.dirname(to), { recursive: true }); fsSync.renameSync(from, to); },
+    discard: (d) => { try { fsSync.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } },
+    found: async (repoDir) => (await runSetupCommand([], now, repoDir)) === 0 ? identityAt(repoDir) : null,
+    register: (org, home) => {
+      const deps = { store, govConfigAt: (p: string) => env.govConfigAt(p) };
+      const added = orgAdd(deps, org, home);
+      if (!added.ok) return { ok: false, message: added.message };
+      const used = orgUse(deps, org);
+      return used.ok ? { ok: true } : { ok: false, message: used.message };
+    },
+    activate: (org) => {
+      const used = orgUse({ store, govConfigAt: (p: string) => env.govConfigAt(p) }, org);
+      return used.ok ? { ok: true } : { ok: false, message: used.message };
+    },
+  };
+  try {
+    return await runFirstRun(io);
   } finally {
     rl.close();
   }
@@ -226,6 +292,8 @@ export async function runWork(argv: readonly string[]): Promise<number> {
   const me = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? tryRun("git", ["config", "user.email"]) ?? null;
   const deps = buildWorkDeps(me);
   if (!deps) {
+    // Reachable only when the first run was skipped or declined (see runFirstRunIfNeeded), or when the
+    // registry resolves but org-config.yaml does not.
     process.stderr.write("no organization is registered on this machine yet — run `gov` in a terminal to set one up.\n");
     return 1;
   }
