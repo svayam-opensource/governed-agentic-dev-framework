@@ -9,6 +9,7 @@ import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
+import { px } from "../helpers/paths.js";
 
 const GOOD_MANIFEST = KNOWLEDGE_CLOSE_SECTIONS.map((s) => `${s}\n- done\n`).join("\n");
 
@@ -16,7 +17,7 @@ const GOOD_MANIFEST = KNOWLEDGE_CLOSE_SECTIONS.map((s) => `${s}\n- done\n`).join
 function fakeFs(over: { files?: string[]; compliance?: boolean; manifest?: string | null } = {}): Fs {
   const files = over.files ?? ["compliance.md", "knowledge-close.md", "notes.md"];
   return {
-    pathExists: (p) => (p.endsWith("/compliance.md") ? (over.compliance ?? true) : true),
+    pathExists: (p) => (px(p).endsWith("/compliance.md") ? (over.compliance ?? true) : true),
     mkdirp: () => {},
     writeFile: () => {},
     readFile: (p) => (p.endsWith("knowledge-close.md") ? (over.manifest === undefined ? GOOD_MANIFEST : over.manifest) : null),

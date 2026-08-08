@@ -5,6 +5,7 @@ import { onboard } from "../../src/lifecycle/onboard.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
+import { px } from "../helpers/paths.js";
 
 const CONFIG = { agentWorkRoot: "/awr", workspaceRepo: "svm-prj-work", orgName: "Svayam" };
 const INPUT = { repoUrl: "https://github.com/Svayamtech/new-svc", description: "a new service", owner: "team-x" };
@@ -24,7 +25,7 @@ function world(opts: { hasKnowledge?: boolean; remoteBranch?: boolean } = {}) {
     push: (_d: string, _r: string, b: string) => log.push(`push ${b}`),
   } as unknown as Vcs;
   const fs = {
-    pathExists: (p: string) => (p.endsWith("knowledge") ? (opts.hasKnowledge ?? false) : false),
+    pathExists: (p: string) => (px(p).endsWith("knowledge") ? (opts.hasKnowledge ?? false) : false),
     writeFile: (f: string) => writes.push(f),
     mkdirp: () => {}, readFile: () => null, rm: () => {}, readdir: () => [],
   } as Fs;

@@ -5,6 +5,7 @@ import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpe
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
+import { px } from "../helpers/paths.js";
 
 const projects = (boards: Array<{ number: number; title: string; closed?: boolean }>): Projects => ({
   listBoards: () => boards.map((b) => ({ number: b.number, title: b.title, url: `https://github.com/orgs/Acme/projects/${b.number}`, closed: b.closed ?? false })),
@@ -13,7 +14,7 @@ const anchorFor = (byNum: Record<number, string[]>): AnchorCreator => ({
   createAnchorIssue: () => null, setState: () => true, setAssignee: () => true,
   find: (ref) => (byNum[ref.number] ? ({ url: `u#1`, number: 1, labels: [], assignees: byNum[ref.number] } as AnchorInfo) : null),
 });
-const fsWith = (paths: string[]): Fs => ({ pathExists: (p) => paths.some((x) => x === p || x.startsWith(p + "/")), readFile: () => null, writeFile() {}, mkdirp() {}, rm() {}, readdir: () => [] });
+const fsWith = (paths: string[]): Fs => ({ pathExists: (p) => paths.some((x) => x === px(p) || x.startsWith(px(p) + "/")), readFile: () => null, writeFile() {}, mkdirp() {}, rm() {}, readdir: () => [] });
 
 function deps(over: Partial<WorkFlowDeps> = {}): { deps: WorkFlowDeps; out: string[]; ran: string[][]; launched: Array<[string, string]> } {
   const out: string[] = []; const ran: string[][] = []; const launched: Array<[string, string]> = [];

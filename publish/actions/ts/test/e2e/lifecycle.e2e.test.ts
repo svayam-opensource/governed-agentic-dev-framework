@@ -18,6 +18,7 @@ import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
+import { px } from "../helpers/paths.js";
 
 const GOV_HOME = "/gov";
 const AWR = "/work";
@@ -91,7 +92,7 @@ class World {
   };
 
   fs: Fs = {
-    pathExists: (p) => this.paths.has(p),
+    pathExists: (p) => this.paths.has(px(p)),
     mkdirp: (d) => this.paths.add(d),
     writeFile: (f, c) => {
       this.files.set(f, c);

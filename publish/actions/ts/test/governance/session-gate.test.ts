@@ -14,6 +14,7 @@ import {
   ackExists,
 } from "../../src/governance/session-gate.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
+import { px } from "../helpers/paths.js";
 
 describe("prj-work Phase 3 — session gate", () => {
   it("whitelists the ack command and identity probes", () => {
@@ -57,7 +58,7 @@ describe("prj-work Phase 3 — session gate", () => {
   it("marker write / clear / exists round-trips over the Fs port", () => {
     const store = new Set<string>();
     const fs: Fs = {
-      pathExists: (p) => store.has(p),
+      pathExists: (p) => store.has(px(p)),
       writeFile: (p) => store.add(p),
       rm: (p) => store.delete(p),
       readFile: () => null,

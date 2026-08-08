@@ -4,6 +4,7 @@ import { expect } from "chai";
 import { makePrivacyValidator, privateValuesFromOrgConfig } from "../../src/governance/privacy.js";
 import type { ValidateContext } from "../../src/governance/validate.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
+import { px } from "../helpers/paths.js";
 
 const MAIN_CONFIG = `org_name: "Svayam Infoware Pvt"
 org_short_name: "Svayam"
@@ -15,7 +16,7 @@ policy_owner_email: "rkant@svayam.ai"
 `;
 
 function ctx(files: Record<string, string>): ValidateContext {
-  const at = (p: string) => files[p.replace(/^\/repo\//, "")] ?? null;
+  const at = (p: string) => files[px(p).replace(/^\/repo\//, "")] ?? null;
   const fs: Fs = {
     pathExists: (p) => at(p) !== null,
     readFile: (p) => at(p),

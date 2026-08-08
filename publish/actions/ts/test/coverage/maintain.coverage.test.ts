@@ -33,16 +33,17 @@ import { runValidators, type ValidateContext } from "../../src/governance/valida
 import { makePrivacyValidator } from "../../src/governance/privacy.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { ResolveResult } from "../../src/resolve/types.js";
+import { px } from "../helpers/paths.js";
 
 // ── shared fakes ────────────────────────────────────────────────────────────
 
 /** An in-memory Fs over a repo-relative path → content map (rooted at /repo). */
 function memFs(files: Record<string, string>): { fs: Fs; store: Record<string, string> } {
   const store = { ...files };
-  const rel = (p: string) => p.replace(/^\/repo\//, "");
+  const rel = (p: string) => px(p).replace(/^\/repo\//, "");
   return {
     fs: {
-      pathExists: (p) => rel(p) in store,
+      pathExists: (p) => px(rel(p)) in store,
       readFile: (p) => store[rel(p)] ?? null,
       writeFile: (p, c) => { store[rel(p)] = c; },
       mkdirp: () => {},
@@ -62,7 +63,7 @@ function workspaceCtx(files: Record<string, string>, extraDirs: string[] = []): 
     while (d && d !== "." && d !== "/") { existing.add(d); d = path.dirname(d); }
   }
   const fsx: Fs = {
-    pathExists: (p) => existing.has(path.relative("/repo", p)),
+    pathExists: (p) => existing.has(px(path.relative("/repo", p))),
     readFile: (p) => files[path.relative("/repo", p)] ?? null,
     mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
   };

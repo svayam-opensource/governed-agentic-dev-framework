@@ -10,6 +10,7 @@ import type { Board, BoardProject } from "../../src/lifecycle/board.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
+import { px } from "../helpers/paths.js";
 
 const CONFIG: SeedConfig = {
   govHome: "/gov",
@@ -88,7 +89,7 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
 function fakeFs(existing: Set<string> = new Set()) {
   const writes: string[] = [];
   const fsPort: Fs = {
-    pathExists: (p) => existing.has(p),
+    pathExists: (p) => existing.has(px(p)),
     mkdirp: () => {},
     writeFile: (f) => writes.push(f),
     readFile: () => null, // no todo template / tool files in these tests

@@ -27,6 +27,7 @@ import type { Projects, BoardSummary } from "../../src/lifecycle/project-list.js
 import type { OrgDeps } from "../../src/resolve/org.js";
 import type { RegistryStore } from "../../src/resolve/registry-store.js";
 import type { GovConfig, GovHome } from "../../src/resolve/types.js";
+import { px } from "../helpers/paths.js";
 
 // ── shared config + port fakes ────────────────────────────────────────────────
 
@@ -462,7 +463,7 @@ describe("coverage: gov-work onboard", () => {
   });
 
   it("onboard when knowledge/ already exists → exit 1, knowledge-exists", () => {
-    const fs: Fs = { ...baseFs, pathExists: (p) => p.endsWith("knowledge") };
+    const fs: Fs = { ...baseFs, pathExists: (p) => px(p).endsWith("knowledge") };
     const r = run(["onboard", URL, "--owner", "rkant", "--description", "desc"], { vcs: freshVcs(), fs });
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.equal("knowledge/ already exists in acme — investigate the existing structure.");
