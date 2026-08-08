@@ -50,6 +50,9 @@ function fakeBoard(over: Partial<BoardProject> = {}): Board {
 /** A recording fake Vcs; push throws for any dir in `throwPushFor`. */
 function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean } = {}) {
   const log: string[] = [];
+  // Record NORMALISED: production composes dirs with `path.join`, so on Windows every line would read
+  // `worktreeAdd \awr\...` and no assertion below — nor `throwPushFor` — would recognise its own target.
+  const rec = (line: string) => log.push(px(line));
   const vcs: Vcs = {
     localBranchExists: () => opts.leftoverLocalBranch ?? false,
     remoteBranchExists: () => false,
@@ -62,25 +65,25 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
     isAncestor: () => false,
     isClean: () => true,
     remoteBranchesMatching: () => [],
-    checkout: (r) => log.push(`checkout ${r}`),
-    checkoutNew: (r) => log.push(`checkoutNew ${r}`),
+    checkout: (r) => rec(`checkout ${r}`),
+    checkoutNew: (r) => rec(`checkoutNew ${r}`),
     mergeNoEdit: () => "merged",
     tag: () => {},
-    addPath: (r) => log.push(`addPath ${r}`),
-    commit: (r, m) => log.push(`commit ${r} :: ${m}`),
-    resetHard: (r, s) => log.push(`resetHard ${r} ${s}`),
-    cleanUntracked: (r, p) => log.push(`clean ${r} ${p}`),
-    worktreeAdd: (_b, br, wt) => log.push(`worktreeAdd ${wt} ${br}`),
-    worktreeRemove: (_b, wt) => log.push(`worktreeRemove ${wt}`),
-    branchDelete: (_r, br) => log.push(`branchDelete ${br}`),
+    addPath: (r) => rec(`addPath ${r}`),
+    commit: (r, m) => rec(`commit ${r} :: ${m}`),
+    resetHard: (r, s) => rec(`resetHard ${r} ${s}`),
+    cleanUntracked: (r, p) => rec(`clean ${r} ${p}`),
+    worktreeAdd: (_b, br, wt) => rec(`worktreeAdd ${wt} ${br}`),
+    worktreeRemove: (_b, wt) => rec(`worktreeRemove ${wt}`),
+    branchDelete: (_r, br) => rec(`branchDelete ${br}`),
     push: (r, _rm, br) => {
-      if (opts.throwPushFor?.includes(r)) throw new Error(`push failed: ${r}`);
-      log.push(`push ${r} ${br}`);
+      if (opts.throwPushFor?.includes(px(r))) throw new Error(`push failed: ${r}`);
+      rec(`push ${r} ${br}`);
     },
-    pushDelete: (r) => log.push(`pushDelete ${r}`),
+    pushDelete: (r) => rec(`pushDelete ${r}`),
     clone: () => {},
     fetch: () => {},
-    setIdentity: (r) => log.push(`setIdentity ${r}`),
+    setIdentity: (r) => rec(`setIdentity ${r}`),
   };
   return { vcs, log };
 }
@@ -91,7 +94,7 @@ function fakeFs(existing: Set<string> = new Set()) {
   const fsPort: Fs = {
     pathExists: (p) => existing.has(px(p)),
     mkdirp: () => {},
-    writeFile: (f) => writes.push(f),
+    writeFile: (f) => writes.push(px(f)),
     readFile: () => null, // no todo template / tool files in these tests
     rm: () => {},
     readdir: () => [],

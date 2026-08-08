@@ -179,7 +179,7 @@ describe("prj-work — full-flow e2e (seed → task → merge)", () => {
     if (!merged.ok) return;
     expect(w.issues.get(ISSUE)!.state, "issue closed").to.equal("CLOSED");
     // archive tag created + task branch un-pushed (deleted) in both repos
-    expect([...(w.tags.get(govClone) ?? [])], "gov archive tag").to.include("archive/BRNCH-7-e2e.ISSUE-5");
+    expect([...(w.tags.get(px(govClone)) ?? [])], "gov archive tag").to.include("archive/BRNCH-7-e2e.ISSUE-5");
     expect(w.pushed.has("BRNCH-7-e2e.ISSUE-5"), "task branch deleted from remote").to.equal(false);
   });
 });

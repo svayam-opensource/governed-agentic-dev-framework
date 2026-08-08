@@ -5,7 +5,7 @@ import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpe
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
-import { px, pxAll } from "../helpers/paths.js";
+import { px, pxAbs, pxAll, pxDeep } from "../helpers/paths.js";
 
 const projects = (boards: Array<{ number: number; title: string; closed?: boolean }>): Projects => ({
   listBoards: () => boards.map((b) => ({ number: b.number, title: b.title, url: `https://github.com/orgs/Acme/projects/${b.number}`, closed: b.closed ?? false })),
@@ -332,14 +332,14 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
       expect(code).to.equal(2);
       expect(launched, "nothing was launched").to.deep.equal([]);
       expect(out.join("\n")).to.match(/--agent=/);
-      expect(out.join("\n"), "the work was not wasted — say where it landed").to.contain(seeded);
+      expect(pxAbs(out.join("\n")), "the work was not wasted — say where it landed").to.contain(seeded);
     });
 
     it("with both flags it runs start to finish, no prompt", async () => {
       const { deps: d, launched } = deps({ fs: fsWith(ready), prompt: async () => { throw new Error("must not prompt"); } });
       const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "claude", interactive: false });
       expect(code).to.equal(0);
-      expect(launched).to.deep.equal([["claude", seeded]]);
+      expect(pxDeep(launched)).to.deep.equal([["claude", seeded]]);
     });
   });
 
