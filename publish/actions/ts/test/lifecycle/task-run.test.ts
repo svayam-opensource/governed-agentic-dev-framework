@@ -7,7 +7,7 @@ import { createGhIssues } from "../../src/lifecycle/issues.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
 import type { Issues, IssueState } from "../../src/lifecycle/issues.js";
-import { px, pxAll } from "../helpers/paths.js";
+import { pxAll } from "../helpers/paths.js";
 
 describe("prj-work Phase 2 — branch → board helpers", () => {
   it("projectBranchOf strips the .ISSUE- suffix", () => {

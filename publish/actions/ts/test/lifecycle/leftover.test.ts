@@ -12,7 +12,7 @@ import {
   type SeedPaths,
 } from "../../src/lifecycle/leftover.js";
 import { createGitVcs, nodeFsProbe, type Vcs, type FsProbe } from "../../src/lifecycle/vcs.js";
-import { px, pxAll } from "../helpers/paths.js";
+import { px } from "../helpers/paths.js";
 
 const PATHS: SeedPaths = seedPathsFor({
   govHome: "/home/.svm/gov_repo",

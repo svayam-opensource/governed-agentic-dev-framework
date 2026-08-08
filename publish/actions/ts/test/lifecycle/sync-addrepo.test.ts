@@ -5,7 +5,7 @@ import { sync } from "../../src/lifecycle/sync.js";
 import { addRepo } from "../../src/lifecycle/add-repo.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
-import { px, pxAll } from "../helpers/paths.js";
+import { pxAll } from "../helpers/paths.js";
 
 const CODE_REPO = "https://github.com/Svayamtech/911-SVM-LIB-SVC";
 const GOV = "/awr/PRJ-43/svm-prj-work";
