@@ -11,7 +11,7 @@ import {
   nextStep, govHomeFor, repoNameFromUrl, looksLikeRepoUrl, runFirstRun,
   type FirstRunIo, type OrgIdentity,
 } from "../../src/cli/bootstrap.js";
-import { px } from "../helpers/paths.js";
+import { px, pxAll } from "../helpers/paths.js";
 
 describe("gov-work — first run: which rung is this machine on", () => {
   it("an active, registered org → nothing to do", () => {
@@ -117,7 +117,7 @@ describe("gov-work — first run: the flow", () => {
     ]);
     expect(out.join("\n"), "never asks a joiner to author the org's identity").to.not.match(/NEW organization/);
     expect(out).to.include("Joining Svayamtech.");
-    expect(out).to.include("Registered Svayamtech → /home/rk/.svm/gov_repo");
+    expect(pxAll(out)).to.include("Registered Svayamtech → /home/rk/.svm/gov_repo");
   });
 
   it("FOUNDING: no org-config.yaml → setup authors it, and the slug it produced picks the home", async () => {
@@ -129,7 +129,7 @@ describe("gov-work — first run: the flow", () => {
     expect(await runFirstRun(w)).to.equal(0);
     expect(founded, "setup runs in the CLONE, before it is placed").to.deep.equal(["/tmp/boot/svm-prj-work"]);
     expect(acts).to.include("place /tmp/boot/svm-prj-work -> /home/rk/.acme/gov_repo");
-    expect(out).to.include("Registered Acme → /home/rk/.acme/gov_repo");
+    expect(pxAll(out)).to.include("Registered Acme → /home/rk/.acme/gov_repo");
   });
 
   it("a bad URL is rejected before anything is cloned", async () => {
@@ -151,7 +151,7 @@ describe("gov-work — first run: the flow", () => {
     expect(await runFirstRun(w)).to.equal(1);
     expect(acts.some((a) => a.startsWith("place")), "nothing was placed").to.equal(false);
     expect(acts).to.include("discard /tmp/boot");
-    expect(out.join("\n")).to.match(/gov org add Svayamtech \/home\/rk\/\.svm\/gov_repo/);
+    expect(pxAll(out).join("\n")).to.match(/gov org add Svayamtech \/home\/rk\/\.svm\/gov_repo/);
   });
 
   it("abandoning setup discards the clone and does NOT register a half-made org", async () => {
