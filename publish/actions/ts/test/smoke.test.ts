@@ -37,7 +37,7 @@ describe("prj-work Phase 0 — scaffold smoke", () => {
     const url = new URL("../package.json", import.meta.url);
     const pkg = JSON.parse(await readFile(url, "utf8")) as { name: string };
     expect(PACKAGE_NAME).to.equal(pkg.name);
-    expect(pkg.name).to.equal("@svayam-opensource/gov-work");   // the artifact; `gov` is the COMMAND
+    expect(pkg.name).to.equal("@svayam-opensource/gov");   // the artifact; `gov` is the COMMAND
   });
 
   // PUBLISHING SAFETY. `publishConfig.registry` is the target of a bare `npm publish` — a refactor that drops

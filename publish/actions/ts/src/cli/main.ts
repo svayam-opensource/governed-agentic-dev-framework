@@ -401,7 +401,7 @@ export async function runMainMenu(): Promise<number> {
     runCommand: runAny,
     runWork: async (io) => {
       if (!workDeps) {
-        io.print("  No governance workspace resolved. Set one up first: `gov-work setup`, then `gov-work org add/use`.");
+        io.print("  No governance workspace resolved. Set one up first: `gov setup`, then `gov org add/use`.");
         return 1;
       }
       return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print });

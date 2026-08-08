@@ -32,12 +32,12 @@ describe("gov-work — doctor", () => {
     expect(r.diagnostics.find((d) => d.name === "gov workspace")!.status).to.equal("fail");
   });
 
-  it("warns on old-world content artifacts (points to gov-work upgrade)", () => {
+  it("warns on old-world content artifacts (points to gov upgrade)", () => {
     const r = doctor(facts({ staleArtifacts: ["framework/", "registry.yaml"] }));
     expect(r.ok).to.equal(true);
     const cl = r.diagnostics.find((d) => d.name === "content layout");
     expect(cl.status).to.equal("warn");
-    expect(cl.detail).to.match(/gov-work upgrade/);
+    expect(cl.detail).to.match(/gov upgrade/);
   });
 
   it("warns (still ok) on no active org", () => {
@@ -45,7 +45,7 @@ describe("gov-work — doctor", () => {
     expect(noOrg.ok).to.equal(true);
     const org = noOrg.diagnostics.find((d) => d.name === "active org")!;
     expect(org.status).to.equal("warn");
-    expect(org.detail).to.match(/gov-work org use/);
+    expect(org.detail).to.match(/gov org use/);
   });
 
   it("formats a printable report ending in the overall verdict", () => {

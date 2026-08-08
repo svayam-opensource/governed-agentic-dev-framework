@@ -5,7 +5,7 @@
  * workspace whose content is at some VERSION (the laid-down marker). Running an
  * OLDER CLI against NEWER content is unsafe — it may not understand the layout —
  * so a MAJOR-version gap hard-stops; smaller gaps warn (semver back-compat within
- * a major). Content behind the CLI just wants a `gov-work upgrade`.
+ * a major). Content behind the CLI just wants a `gov upgrade`.
  */
 export type CompatStatus = "ok" | "no-marker" | "content-behind" | "cli-behind" | "cli-behind-major";
 
@@ -26,14 +26,14 @@ function cmp(a: readonly number[], b: readonly number[]): number {
 }
 
 export function checkVersionCompat(cliVersion: string, contentVersion: string | null): CompatResult {
-  if (!contentVersion) return { status: "no-marker", ok: true, message: "no content VERSION marker — run `gov-work upgrade` to install one" };
+  if (!contentVersion) return { status: "no-marker", ok: true, message: "no content VERSION marker — run `gov upgrade` to install one" };
   const cli = parse(cliVersion);
   const content = parse(contentVersion);
   const c = cmp(cli, content);
   if (c === 0) return { status: "ok", ok: true, message: `CLI ${cliVersion} == content ${contentVersion}` };
-  if (c > 0) return { status: "content-behind", ok: true, message: `content ${contentVersion} is behind the CLI ${cliVersion} — run \`gov-work upgrade\` to sync the workspace` };
+  if (c > 0) return { status: "content-behind", ok: true, message: `content ${contentVersion} is behind the CLI ${cliVersion} — run \`gov upgrade\` to sync the workspace` };
   if (cli[0] < content[0]) {
-    return { status: "cli-behind-major", ok: false, message: `gov-work CLI ${cliVersion} is a MAJOR version behind this workspace's content ${contentVersion} — it may not understand the layout. Upgrade the CLI:\n  npm i -g @svayam-opensource/gov@${contentVersion}` };
+    return { status: "cli-behind-major", ok: false, message: `gov CLI ${cliVersion} is a MAJOR version behind this workspace's content ${contentVersion} — it may not understand the layout. Upgrade the CLI:\n  npm i -g @svayam-opensource/gov@${contentVersion}` };
   }
-  return { status: "cli-behind", ok: true, message: `gov-work CLI ${cliVersion} is behind the content ${contentVersion} — consider \`npm i -g @svayam-opensource/gov@${contentVersion}\`` };
+  return { status: "cli-behind", ok: true, message: `gov CLI ${cliVersion} is behind the content ${contentVersion} — consider \`npm i -g @svayam-opensource/gov@${contentVersion}\`` };
 }

@@ -113,7 +113,7 @@ describe("lifecycle coverage — seed", () => {
   it("missing <board-url> → usage (exit 2)", () => {
     const r = run(["seed"]);
     expect(r.code).to.equal(2);
-    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov-work seed <board-url> [--assignee <login>]"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov seed <board-url> [--assignee <login>]"]);
   });
 
   it("happy path → exit 0 with exact lines", () => {
@@ -213,7 +213,7 @@ describe("lifecycle coverage — join", () => {
   it("missing <board-url> → usage (exit 2)", () => {
     const r = run(["join"]);
     expect(r.code).to.equal(2);
-    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov-work join <board-url>"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov join <board-url>"]);
   });
 
   it("happy path (no code repos) → exit 0 with exact lines", () => {
@@ -258,7 +258,7 @@ describe("lifecycle coverage — task", () => {
   it("missing <issue-url> → usage (exit 2)", () => {
     const r = run(["task"]);
     expect(r.code).to.equal(2);
-    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov-work task <issue-url[,issue-url...]>"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov task <issue-url[,issue-url...]>"]);
   });
 
   it("happy path (single issue URL) → exit 0 with exact lines", () => {
@@ -353,7 +353,7 @@ describe("lifecycle coverage — merge", () => {
   it("missing arg → usage (exit 2)", () => {
     const r = run(["merge"]);
     expect(r.code).to.equal(2);
-    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov-work merge <issue-url | task-branch>"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov merge <issue-url | task-branch>"]);
   });
 
   it("happy path (issue-URL arg) → exit 0 with exact lines", () => {
@@ -469,7 +469,7 @@ describe("lifecycle coverage — add-repo", () => {
   it("missing <repo-url> → usage (exit 2)", () => {
     const r = run(["add-repo"]);
     expect(r.code).to.equal(2);
-    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov-work add-repo <repo-url> [--base-branch <branch>]"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov add-repo <repo-url> [--base-branch <branch>]"]);
   });
 
   it("happy path (default base branch = dev) → exit 0 with exact line", () => {
