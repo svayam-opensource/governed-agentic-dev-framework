@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpec, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpec, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
@@ -228,5 +228,141 @@ describe("work — non-TTY session start", () => {
     expect(projectFromPath(ROOT, "/somewhere/else")).to.equal(undefined);
     expect(projectFromPath(ROOT, ROOT), "the work root itself is not a project").to.equal(undefined);
     expect(projectFromPath(ROOT, `${ROOT}-old/PRJ-1`), "prefix match is not containment").to.equal(undefined);
+  });
+});
+
+/**
+ * `gov work` with flags — the ladder, the consent rule, and refusing to guess without a terminal.
+ *
+ * The flow already did state resolution (seed if new, join if not cloned, else launch). What is new is that
+ * it can be TOLD the project and the agent, so a script reaches the same place a menu user does — and that
+ * it asks before doing anything the rest of the org can see.
+ */
+describe("work — flags, consent, and no-terminal behaviour", () => {
+  const seeded = "/work/PRJ-7-alpha";
+  // READY means the project dir AND its governance-repo clone exist (workspaceState) — a project dir alone
+  // is 'not-cloned', which is a different rung of the ladder.
+  const ready = [seeded, `${seeded}/acme-gov/.git`];
+
+  it("--project matches by regex, so a board number finds its project", () => {
+    const items = [{ projectId: "PRJ-7-alpha" }, { projectId: "PRJ-43-governance" }, { projectId: "PRJ-107-infra" }];
+    expect(matchProjects(items, "43").map((i) => i.projectId)).to.deep.equal(["PRJ-43-governance"]);
+    expect(matchProjects(items, "^PRJ-7").map((i) => i.projectId)).to.deep.equal(["PRJ-7-alpha"]);
+    expect(matchProjects(items, "PRJ-1").map((i) => i.projectId)).to.deep.equal(["PRJ-107-infra"]);
+  });
+
+  // Someone typing `--project=portal(v2` wants a project, not a lecture about escaping.
+  it("an invalid regex is matched literally rather than thrown", () => {
+    expect(matchProjects([{ projectId: "portal(v2)" }], "portal(v2").map((i) => i.projectId)).to.deep.equal(["portal(v2)"]);
+  });
+
+  describe("agent resolution", () => {
+    const onPath = (...found: string[]) => (c: string): boolean => found.includes(c);
+
+    it("--agent wins, then $GOV_AGENT, then the one that is installed", () => {
+      expect(resolveAgent("cursor", { GOV_AGENT: "claude" }, onPath())).to.deep.equal({ ok: true, agent: "cursor" });
+      expect(resolveAgent(undefined, { GOV_AGENT: "claude" }, onPath())).to.deep.equal({ ok: true, agent: "claude" });
+      expect(resolveAgent(undefined, {}, onPath("claude"))).to.deep.equal({ ok: true, agent: "claude" });
+      // the BIN is `cursor-agent`; bare `cursor` is the GUI editor, which is a different choice
+      expect(resolveAgent(undefined, {}, onPath("cursor-agent"))).to.deep.equal({ ok: true, agent: "cursor" });
+    });
+
+    it("two installed and no preference is a real ambiguity — it asks rather than picking", () => {
+      const r = resolveAgent(undefined, {}, onPath("claude", "cursor-agent"));
+      expect(r.ok).to.equal(false);
+      expect(r.ok === false && r.reason).to.match(/more than one agent/);
+      expect(r.ok === false && r.reason, "the fix must be in the message").to.match(/--agent/);
+    });
+
+    it("none installed names the flag AND the escape hatch", () => {
+      const r = resolveAgent(undefined, {}, onPath());
+      expect(r.ok === false && r.reason).to.match(/no agent found/);
+      expect(r.ok === false && r.reason, "`--agent shell` needs no agent at all").to.match(/shell/);
+    });
+
+    it("an unknown name is refused with the list, not silently ignored", () => {
+      expect(resolveAgent("wibble", {}, onPath("claude")).ok).to.equal(false);
+    });
+  });
+
+  describe("consent — org-visible acts ask, local ones do not", () => {
+    // Picking a `(not started)` entry from the menu IS consent. A regex that happened to match one is not:
+    // seeding creates branches in every repo, an anchor issue, and an assignment other people see.
+    it("a pattern-matched UNSEEDED project is not seeded without --seed", async () => {
+      const { deps: d, ran, out } = deps({ fs: fsWith([]), prompt: async () => "n" });
+      const code = await runWorkFlow(d, { projectPattern: "Alpha|PRJ-7", interactive: true });
+      expect(ran.map((a) => a[0]), "nothing was seeded").to.not.include("seed");
+      expect(out.join("\n")).to.match(/has not been started/);
+      expect(code).to.equal(0);
+    });
+
+    it("--seed authorises it", async () => {
+      const { deps: d, ran } = deps({ fs: fsWith([]) });
+      await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "shell", seedOk: true, interactive: false });
+      expect(ran.map((a) => a[0])).to.include("seed");
+    });
+
+    it("with no terminal it refuses and names the flag — there is nobody to ask", async () => {
+      const { deps: d, ran, out } = deps({ fs: fsWith([]) });
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "shell", interactive: false });
+      expect(code).to.equal(1);
+      expect(ran.map((a) => a[0])).to.not.include("seed");
+      expect(out.join("\n")).to.match(/--seed/);
+    });
+
+    // Joining only clones. Nobody else sees it, so it needs no permission.
+    it("joining a project someone else seeded happens silently", async () => {
+      const { deps: d, ran } = deps({ fs: fsWith([]), projects: projects([{ number: 7, title: "Alpha", seeded: true }]) as never });
+      await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "shell", seedOk: true, interactive: false });
+      expect(ran.some((a) => a[0] === "seed" || a[0] === "join"), "one or the other ran, unprompted").to.equal(true);
+    });
+  });
+
+  describe("no terminal", () => {
+    it("without --project it fails, naming what would have resolved it", async () => {
+      const { deps: d, out } = deps();
+      const code = await runWorkFlow(d, { interactive: false });
+      expect(code).to.equal(2);
+      expect(out.join("\n")).to.match(/--project=/);
+    });
+
+    it("without --agent it fails AFTER the project is ready, and says where it is", async () => {
+      const { deps: d, out, launched } = deps({ fs: fsWith(ready) });
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: false });
+      expect(code).to.equal(2);
+      expect(launched, "nothing was launched").to.deep.equal([]);
+      expect(out.join("\n")).to.match(/--agent=/);
+      expect(out.join("\n"), "the work was not wasted — say where it landed").to.contain(seeded);
+    });
+
+    it("with both flags it runs start to finish, no prompt", async () => {
+      const { deps: d, launched } = deps({ fs: fsWith(ready), prompt: async () => { throw new Error("must not prompt"); } });
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "claude", interactive: false });
+      expect(code).to.equal(0);
+      expect(launched).to.deep.equal([["claude", seeded]]);
+    });
+  });
+
+  describe("--print-prompt", () => {
+    it("emits the prompt through the stdout channel and launches nothing", async () => {
+      const printed: string[] = [];
+      const { deps: d, launched, ran } = deps({ fs: fsWith(ready), printPrompt: (p) => printed.push(p) });
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-7", printPromptOnly: true, interactive: false });
+      expect(code).to.equal(0);
+      expect(printed).to.deep.equal([sessionStartPrompt("PRJ-7-alpha", "acme-gov")]);
+      expect(launched, "printing is not starting").to.deep.equal([]);
+      expect(ran, "and it changes nothing").to.deep.equal([]);
+    });
+
+    // A project that is not on this machine has no directory to run an agent in, so a prompt for it would
+    // be a lie — and the caller would paste it into a shell that then fails somewhere less obvious.
+    it("refuses for a project that is not ready here, and says how to get it", async () => {
+      const printed: string[] = [];
+      const { deps: d, out } = deps({ fs: fsWith([]), printPrompt: (p) => printed.push(p) });
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-7", printPromptOnly: true, interactive: false });
+      expect(code).to.equal(1);
+      expect(printed).to.deep.equal([]);
+      expect(out.join("\n")).to.match(/gov work --project=/);
+    });
   });
 });
