@@ -66,7 +66,7 @@ export async function runSetup(io: SetupIo, interactive: boolean): Promise<numbe
   }
   io.print("");
   io.print("Next steps:");
-  io.print(`  gov-work org add ${v.githubOrg} ${v.govWorkspace}   # register this gov workspace`);
-  io.print(`  gov-work org use ${v.githubOrg}                      # make it the active org`);
+  io.print(`  gov org add ${v.githubOrg} ${v.govWorkspace}   # register this gov workspace`);
+  io.print(`  gov org use ${v.githubOrg}                      # make it the active org`);
   return 0;
 }

@@ -145,10 +145,10 @@ describe("coverage — doctor(facts): full cartesian", () => {
     expect(okD.detail).to.equal("resolved → /gov (Svayamtech)");
     const failD = doctor(facts({ resolve: UNRESOLVED })).diagnostics.find((d) => d.name === "gov workspace")!;
     expect(failD.status).to.equal("fail");
-    expect(failD.detail).to.match(/gov-work org use/);
+    expect(failD.detail).to.match(/gov org use/);
   });
 
-  it("staleArtifacts: empty/undefined → content layout ok; non-empty → warn pointing at gov-work upgrade", () => {
+  it("staleArtifacts: empty/undefined → content layout ok; non-empty → warn pointing at gov upgrade", () => {
     for (const stale of [undefined, [] as string[]]) {
       const d = doctor(facts({ staleArtifacts: stale })).diagnostics.find((x) => x.name === "content layout")!;
       expect(d.status).to.equal("ok");
@@ -157,7 +157,7 @@ describe("coverage — doctor(facts): full cartesian", () => {
     const warn = doctor(facts({ staleArtifacts: ["framework/", "registry.yaml"] })).diagnostics.find((x) => x.name === "content layout")!;
     expect(warn.status).to.equal("warn");
     expect(warn.detail).to.match(/framework\/, registry\.yaml/);
-    expect(warn.detail).to.match(/gov-work upgrade/);
+    expect(warn.detail).to.match(/gov upgrade/);
   });
 
   it("CLI version diagnostic echoes the injected version and is always ok", () => {
@@ -213,7 +213,7 @@ describe("coverage — checkVersionCompat: every status + boundaries", () => {
   }
 
   it("messages carry the right guidance per status", () => {
-    expect(checkVersionCompat("1.3.0", "1.1.0").message).to.match(/gov-work upgrade/);
+    expect(checkVersionCompat("1.3.0", "1.1.0").message).to.match(/gov upgrade/);
     expect(checkVersionCompat("1.1.0", "1.4.0").message).to.match(/npm i -g @svayam-opensource\/gov@1\.4\.0/);
     expect(checkVersionCompat("1.9.0", "2.0.0").message).to.match(/MAJOR version behind/);
     expect(checkVersionCompat("1.0.0", null).message).to.match(/no content VERSION marker/);
@@ -681,7 +681,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/org_name: "Acme Inc"/);
     expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/default_code_branch: "trunk"/); // answer honored
     expect(printed.some((l) => /github_org:.*Acme.*from origin/.test(l))).to.equal(true);
-    expect(printed.some((l) => /gov-work org use Acme/.test(l))).to.equal(true);
+    expect(printed.some((l) => /gov org use Acme/.test(l))).to.equal(true);
     expect(remote).to.equal("git@github.com:Acme/acme-gov.git");
   });
 

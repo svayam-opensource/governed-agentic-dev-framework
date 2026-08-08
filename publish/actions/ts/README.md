@@ -1,4 +1,4 @@
-# @svayam-opensource/gov-work
+# @svayam-opensource/gov
 
 A CLI for running software projects under **explicit, versioned governance** — where the rules a
 team works by live in the repository, are reviewed like code, and are enforced by the tools rather
@@ -9,7 +9,7 @@ its repositories onto matching branches, open and land task branches, keep an or
 base under review, and close the project by promoting what it learned back to `main`.
 
 ```bash
-npm i -g @svayam-opensource/gov-work
+npm i -g @svayam-opensource/gov
 gov                 # interactive menu
 gov --version
 ```

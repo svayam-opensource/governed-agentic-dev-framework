@@ -170,13 +170,13 @@ describe("coverage: gov-work manage", () => {
   it("manage assign (missing login) → exit 2, usage", () => {
     const r = run(["manage", "assign"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work manage assign <github-login> [--board <n>]");
+    expect(r.lines[0]).to.equal("usage: gov manage assign <github-login> [--board <n>]");
   });
 
   it("manage unassign (missing login) → exit 2, usage", () => {
     const r = run(["manage", "unassign"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work manage unassign <github-login> [--board <n>]");
+    expect(r.lines[0]).to.equal("usage: gov manage unassign <github-login> [--board <n>]");
   });
 
   it("manage assign off a non-project branch → exit 1, not-a-project-branch", () => {
@@ -203,13 +203,13 @@ describe("coverage: gov-work manage", () => {
   it("manage <unknown-sub> → exit 2, subcommand usage", () => {
     const r = run(["manage", "frobnicate"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work manage <list|list-all|assign|unassign> …");
+    expect(r.lines[0]).to.equal("usage: gov manage <list|list-all|assign|unassign> …");
   });
 
   it("manage (no subcommand) → exit 2, subcommand usage", () => {
     const r = run(["manage"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work manage <list|list-all|assign|unassign> …");
+    expect(r.lines[0]).to.equal("usage: gov manage <list|list-all|assign|unassign> …");
   });
 });
 
@@ -226,7 +226,7 @@ describe("coverage: gov-work knowledge", () => {
   it("knowledge propose (missing slug) → exit 2, propose usage", () => {
     const r = run(["knowledge", "propose"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov-work knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
   });
 
   it("knowledge propose <slug> when vcs.push throws → exit 1, error message", () => {
@@ -256,7 +256,7 @@ describe("coverage: gov-work knowledge", () => {
   it("knowledge submit (missing slug) → exit 2, submit usage", () => {
     const r = run(["knowledge", "submit"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov-work knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
   });
 
   it("knowledge submit <slug> when PR cannot be opened → exit 1", () => {
@@ -274,7 +274,7 @@ describe("coverage: gov-work knowledge", () => {
   it("knowledge archive (missing slug) → exit 2, archive usage", () => {
     const r = run(["knowledge", "archive"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov-work knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
   });
 
   it("knowledge archive <slug> when vcs.tag throws → exit 1, error message", () => {
@@ -286,13 +286,13 @@ describe("coverage: gov-work knowledge", () => {
   it("knowledge <unknown-sub> → exit 2, generic knowledge usage", () => {
     const r = run(["knowledge", "frobnicate", "x"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov-work knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
   });
 
   it("knowledge (no subcommand) → exit 2, generic knowledge usage", () => {
     const r = run(["knowledge"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov-work knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
   });
 });
 
@@ -447,19 +447,19 @@ describe("coverage: gov-work onboard", () => {
   it("onboard (no args) → exit 2, usage", () => {
     const r = run(["onboard"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov-work onboard <repo-url> --owner <owner> --description "<description>"');
+    expect(r.lines[0]).to.equal('usage: gov onboard <repo-url> --owner <owner> --description "<description>"');
   });
 
   it("onboard <url> (1 arg) → exit 2, usage", () => {
     const r = run(["onboard", URL]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov-work onboard <repo-url> --owner <owner> --description "<description>"');
+    expect(r.lines[0]).to.equal('usage: gov onboard <repo-url> --owner <owner> --description "<description>"');
   });
 
   it("onboard <url> <owner> (2 args, missing description) → exit 2, usage", () => {
     const r = run(["onboard", URL, "rkant"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov-work onboard <repo-url> --owner <owner> --description "<description>"');
+    expect(r.lines[0]).to.equal('usage: gov onboard <repo-url> --owner <owner> --description "<description>"');
   });
 
   it("onboard when knowledge/ already exists → exit 1, knowledge-exists", () => {
@@ -499,14 +499,14 @@ describe("coverage: gov-work org (routeOrg)", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
     const r = routeOrg(["add"], {}, deps);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work org add <github_org> --home <path>");
+    expect(r.lines[0]).to.equal("usage: gov org add <github_org> --home <path>");
   });
 
   it("org add <org> (missing home) → exit 2, usage", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
     const r = routeOrg(["add", "Svayamtech"], {}, deps);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work org add <github_org> --home <path>");
+    expect(r.lines[0]).to.equal("usage: gov org add <github_org> --home <path>");
   });
 
   it("org add against a non-gov path → exit 1", () => {
@@ -551,7 +551,7 @@ describe("coverage: gov-work org (routeOrg)", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
     const r = routeOrg(["use"], {}, deps);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work org use <github_org>");
+    expect(r.lines[0]).to.equal("usage: gov org use <github_org>");
   });
 
   it("org list (empty) → exit 0, 'No orgs registered'", () => {
@@ -591,20 +591,20 @@ describe("coverage: gov-work org (routeOrg)", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
     const r = routeOrg(["remove"], {}, deps);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work org remove <github_org>");
+    expect(r.lines[0]).to.equal("usage: gov org remove <github_org>");
   });
 
   it("org <unknown-sub> → exit 2, generic org usage", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
     const r = routeOrg(["frobnicate"], {}, deps);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work org <add|use|list|remove> …");
+    expect(r.lines[0]).to.equal("usage: gov org <add|use|list|remove> …");
   });
 
   it("org (no subcommand) → exit 2, generic org usage", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
     const r = routeOrg([], {}, deps);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal("usage: gov-work org <add|use|list|remove> …");
+    expect(r.lines[0]).to.equal("usage: gov org <add|use|list|remove> …");
   });
 });

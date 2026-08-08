@@ -10,7 +10,7 @@ Node 24.
 
 ```
 publish/actions/ts/
-  package.json          # @svayam-opensource/gov-work  (bin: gov, gov-work)
+  package.json          # @svayam-opensource/gov  (bin: gov, gov-work)
   tsconfig.json         # ESM build → lib/esm
   tsconfig-cjs.json     # CJS build → lib/cjs
   eslint.config.ts

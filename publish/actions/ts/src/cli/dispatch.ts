@@ -102,7 +102,7 @@ const MOVED_NAMESPACES = new Set(["infra"]);
  *  install is not. Delete an entry the day its package publishes. */
 const UNRELEASED_CLIENTS = new Set(["gov-infra"]);
 
-const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov-work ${spec}`] });
+const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov ${spec}`] });
 
 /** Render a PAGINATED project list: "<header> (X–Y of TOTAL):" + rows + a next-page hint when there's more. */
 function pagedListLines(header: string, cmd: string, res: ManageListResult, page: number, limit: number): string[] {
