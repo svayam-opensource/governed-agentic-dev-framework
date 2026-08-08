@@ -19,7 +19,7 @@ function ctx(files: Record<string, string>, extra: string[] = []): ValidateConte
   }
   const fs: Fs = {
     pathExists: (p) => existing.has(px(path.relative("/repo", p))),
-    readFile: (p) => files[path.relative("/repo", p)] ?? null,
+    readFile: (p) => files[px(path.relative("/repo", p))] ?? null,
     mkdirp: () => {},
     writeFile: () => {},
     rm: () => {},

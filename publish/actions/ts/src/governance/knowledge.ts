@@ -106,7 +106,10 @@ export function checkKnowledge(ctx: ValidateContext): ValidationResult {
       if (!ctx.fs.pathExists(targetAbs)) {
         errors.push(`${rel}: broken link '${target}'`);
       } else {
-        const relResolved = path.relative(ctx.repoRoot, targetAbs);
+        // POSIX-normalise before comparing: `ctx.files` comes from `git ls-files`, which always uses
+        // forward slashes, while `path.relative` uses the host separator. On Windows the two never match,
+        // so EVERY linked doc read as an orphan and the validator failed its own shipped knowledge.
+        const relResolved = path.relative(ctx.repoRoot, targetAbs).replace(/\\/g, "/");
         if (!relResolved.startsWith("..")) linked.add(relResolved);
       }
     }

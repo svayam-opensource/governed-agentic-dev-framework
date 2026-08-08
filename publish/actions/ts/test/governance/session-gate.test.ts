@@ -65,7 +65,7 @@ describe("prj-work Phase 3 — session gate", () => {
       mkdirp: () => {},
       readdir: () => [],
     };
-    expect(markerPath("/root")).to.equal("/root/.claude/.session-ack");
+    expect(px(markerPath("/root"))).to.equal("/root/.claude/.session-ack");
     expect(ackExists(fs, "/root")).to.equal(false);
     writeAck(fs, "/root", "2026-07-03T00:00:00Z");
     expect(ackExists(fs, "/root")).to.equal(true);
