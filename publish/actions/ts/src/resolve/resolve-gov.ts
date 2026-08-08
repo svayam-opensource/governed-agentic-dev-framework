@@ -67,16 +67,16 @@ function confirmHome(env: ResolveEnv, home: string, org: string): HomeCheckFailu
 export function resolveFailureMessage(r: Extract<ResolveResult, { ok: false }>): string {
   switch (r.reason) {
     case "no-active-org":
-      return "No active org is set. Run `gov-work org use <github_org>` to choose one.";
+      return "No active org is set. Run `gov org use <github_org>` to choose one.";
     case "org-conflict":
       return (
         `You're in ${r.cwdOrg}'s workspace but the active org is ${r.activeOrg}. ` +
-        `Run \`gov-work org use ${r.cwdOrg}\` (or cd into a ${r.activeOrg} workspace).`
+        `Run \`gov org use ${r.cwdOrg}\` (or cd into a ${r.activeOrg} workspace).`
       );
     case "no-home":
       return (
         `Active org ${r.activeOrg} has no registered gov home. ` +
-        `Run \`gov-work org add ${r.activeOrg} <path-to-gov-repo>\`.`
+        `Run \`gov org add ${r.activeOrg} <path-to-gov-repo>\`.`
       );
     case "pointer-mismatch": {
       const base = `The registry points ${r.activeOrg} → ${r.home}, but `;
@@ -86,7 +86,7 @@ export function resolveFailureMessage(r: Extract<ResolveResult, { ok: false }>):
           : r.detail.why === "org-mismatch"
             ? `its org-config says github_org=${r.detail.found}.`
             : `it is not a canonical gov home (its gov_workspace is ${r.detail.found}).`;
-      return base + tail + " Fix it with `gov-work org add`.";
+      return base + tail + " Fix it with `gov org add`.";
     }
   }
 }

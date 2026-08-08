@@ -1,33 +1,54 @@
 name: node-ci
 
-# Build + lint + test the Node/TypeScript packages under ts/* on Node 24 (AD-6.1).
-# These are the in-flight Bash → Node migration of prj-work (PRJ-43, issue #91):
-# during the transition they live alongside the legacy bash CLI and get their own
-# real push/PR green. The bash lint/bats/e2e workflows stay for the bash CLI at the
-# repo root. Path-filtered so pure-bash changes don't spin this up.
+# Build + lint + test the Node/TypeScript packages on Node 24 (AD-6.1), ON EVERY PLATFORM WE SHIP TO.
+#
+# These are CLIs and a library that adopters install on their own machines — so "it passes on
+# ubuntu-latest" was never the claim we needed. Until 2026-08-07 that was the only claim we had: all
+# four jobs ran on ubuntu and nothing else, while `gov-work` targets Windows users through Git Bash
+# and macOS developers daily. A platform we have never executed on is unproven, not proven-good.
+#
+#   hosted    ubuntu · macOS · Windows   (free for public repositories)
+#   container Debian · Fedora            (on the ubuntu host — glibc/toolchain differences, also free)
 
 on:
-  # PRs: NO path filter — so `gov-work` always runs + reports, letting it be a
-  # REQUIRED status check (a path-filtered required check blocks PRs that don't
-  # touch the paths, since the check never runs). The build is cached + fast when
-  # nothing changed.
+  # PRs: NO path filter — so the required checks always run + report (a path-filtered required check
+  # blocks PRs that don't touch the paths, since the check never runs). Cached + fast when unchanged.
   pull_request:
-  # Pushes stay path-filtered (don't spin up on unrelated feature-branch pushes).
+  # Pushes: the LONG-LIVED branches only. A branch with an open PR is already covered by the
+  # `pull_request` event, and firing on both ran EVERY job twice per commit — see the concurrency note.
   push:
-    branches: ["**"]
+    branches: [main, dev]
     paths:
       - "publish/actions/ts/**"
+      - "publish/libs/gov-core/**"
       - ".github/workflows/node-ci.yml"
 
+# ONE RUN PER COMMIT. Keyed on the HEAD REF, not `github.ref`: for a push that is
+# `refs/heads/<branch>` and for a pull_request it is `refs/pull/<n>/merge`, so a ref-keyed
+# group put the two events in DIFFERENT groups and neither cancelled the other. Every commit
+# on a PR branch therefore ran this workflow twice, and adopter-e2e twice — four runs, half of
+# them exact duplicates. That waste matters more now that each run is a 5-platform matrix.
+# `head_ref` is set for a pull_request and empty for a push, so the fallback to `ref_name`
+# keeps main/dev pushes in their own group.
 concurrency:
-  group: node-ci-${{ github.ref }}
+  group: node-ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  build-test:
-    name: gov-work
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  # ── the CLI, on every hosted OS an adopter runs it on ─────────────────────────────────────────────
+  gov-work:
+    name: gov-work (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      # fail-fast OFF: when Windows breaks we want to know whether macOS did too. A cancelled sibling
+      # tells us nothing, and "unknown" is the state this matrix exists to remove.
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, label: linux, lint: true }
+          - { os: macos-latest, label: macos, lint: false }
+          - { os: windows-latest, label: windows, lint: false }
     defaults:
       run:
         working-directory: publish/actions/ts
@@ -38,14 +59,98 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: publish/actions/ts/package-lock.json
+      # npm runs a script through cmd.exe on Windows, and our scripts use POSIX shape —
+      # `NODE_OPTIONS='…' mocha 'glob'` — which cmd cannot parse. Git Bash ships on the runner, so
+      # point npm at it. NOT a workaround to hide a defect: it is exactly what a Windows adopter does
+      # (the framework already documents Git Bash as the Windows shell), and it makes the failures
+      # this matrix reports be about OUR CODE rather than about argument quoting.
+      - name: use Git Bash for npm scripts (Windows)
+        if: runner.os == 'Windows'
+        run: npm config set script-shell bash
       - run: npm ci
       - run: npm run build
-      - run: npm run lint
+      # lint is platform-independent — one run is the signal, three is noise.
+      - if: matrix.lint
+        run: npm run lint
       - run: npm test
-      # MANDATORY full-flow e2e gate (PRJ-43): the hermetic seed→task→merge e2e
-      # must pass before a PR merges (and thus before publish). It's already part
-      # of `npm test`; this named step makes it a visible, required check. The
-      # REAL-GitHub e2e (TESTBED-DESIGN §3, Tier B) is a separate MANUAL
+      # MANDATORY full-flow e2e gate (PRJ-43): the hermetic seed→task→merge e2e must pass before a PR
+      # merges (and thus before publish). It is already part of `npm test`; this named step makes it a
+      # visible, required check. The REAL-GitHub e2e (TESTBED-DESIGN §3, Tier B) is a separate MANUAL
       # pre-publish gate (needs a sandbox org + bot PAT), not run per-PR.
       - name: e2e (full-flow gate — required before merge/publish)
         run: npm run test:e2e
+
+  # ── the CLI, on the Linux distros adopters actually deploy on ────────────────────────────────────
+  # `ubuntu-latest` is one Debian derivative with one glibc and one preinstalled toolchain. A bare
+  # Debian and a Fedora container catch what that hides: missing tools we silently rely on, and
+  # anything glibc/musl-adjacent. They run on the ubuntu host, so they cost nothing extra.
+  gov-work-distro:
+    name: gov-work (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { distro: debian, image: "debian:stable-slim" }
+          - { distro: fedora, image: "fedora:latest" }
+    defaults:
+      run:
+        working-directory: publish/actions/ts
+    steps:
+      # A bare distro image has none of the runner's preinstalled tooling. Install ONLY what the
+      # actions themselves need (checkout wants git; setup-node unpacks a .tar.xz) — deliberately not
+      # a build-essential kitchen sink, so a test that needs something we do not ship FAILS here
+      # instead of quietly finding it on the host.
+      - name: bootstrap the container
+        working-directory: /
+        run: |
+          set -eu
+          if command -v apt-get >/dev/null; then
+            apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates curl xz-utils
+          else
+            dnf -y install git ca-certificates tar xz findutils
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - name: e2e (full-flow gate)
+        run: npm run test:e2e
+
+  # ── the shared context library, same treatment ───────────────────────────────────────────────────
+  # It parses paths and decides PROJECT vs GOVERNED from a cwd, which is precisely the logic that
+  # differs between platforms — so a Linux-only green tells us the least about this package.
+  gov-core:
+    name: gov-core (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, label: linux, lint: true }
+          - { os: macos-latest, label: macos, lint: false }
+          - { os: windows-latest, label: windows, lint: false }
+    defaults:
+      run:
+        working-directory: publish/libs/gov-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: publish/libs/gov-core/package-lock.json
+      - name: use Git Bash for npm scripts (Windows)
+        if: runner.os == 'Windows'
+        run: npm config set script-shell bash
+      - run: npm ci
+      - run: npm run build
+      - if: matrix.lint
+        run: npm run lint
+      - run: npm test

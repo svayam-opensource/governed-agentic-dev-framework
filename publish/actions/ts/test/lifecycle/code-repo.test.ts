@@ -10,6 +10,7 @@ import { retry } from "../../src/lifecycle/retry.js";
 import { setupCodeRepoWorktree, makeCloneRepo } from "../../src/lifecycle/code-repo.js";
 import { Transaction } from "../../src/lifecycle/transaction.js";
 import { createGitVcs, type Vcs, type FsProbe } from "../../src/lifecycle/vcs.js";
+import { px, pxAll, pxDeep } from "../helpers/paths.js";
 
 describe("prj-work Phase 2 — repo url helpers + retry", () => {
   it("repoNameFromUrl strips path + .git for ssh and https", () => {
@@ -19,13 +20,13 @@ describe("prj-work Phase 2 — repo url helpers + retry", () => {
   });
 
   it("baseCloneDir composes <agentWorkRoot>/.bases/<name>", () => {
-    expect(baseCloneDir("/home/.svm/projects", "git@github.com:O/repo.git")).to.equal(
+    expect(px(baseCloneDir("/home/.svm/projects", "git@github.com:O/repo.git"))).to.equal(
       "/home/.svm/projects/.bases/repo",
     );
   });
 
   it("basesRoot is the single spelling of the .bases layout constant", () => {
-    expect(basesRoot("/home/.svm/projects")).to.equal("/home/.svm/projects/.bases");
+    expect(px(basesRoot("/home/.svm/projects"))).to.equal("/home/.svm/projects/.bases");
   });
 
   describe("ensureBaseFresh — the single base-access seam (clone-if-missing + ALWAYS sync)", () => {
@@ -43,16 +44,16 @@ describe("prj-work Phase 2 — repo url helpers + retry", () => {
     it("clones on first use, then fetches, and returns the base-clone path", () => {
       const { io, calls } = mkIo(false);
       const dir = ensureBaseFresh(io, "/w", url, "origin", "dev");
-      expect(dir).to.equal("/w/.bases/repo");
-      expect(calls.clone).to.deep.equal([[url, "/w/.bases/repo"]]);
-      expect(calls.fetch).to.deep.equal([["/w/.bases/repo", "origin", "dev"]]);
+      expect(px(dir)).to.equal("/w/.bases/repo");
+      expect(pxDeep(calls.clone)).to.deep.equal([[url, "/w/.bases/repo"]]);
+      expect(pxDeep(calls.fetch)).to.deep.equal([["/w/.bases/repo", "origin", "dev"]]);
     });
 
     it("when the base clone already exists → NO clone, but STILL fetches (sync is the contract)", () => {
       const { io, calls } = mkIo(true);
       ensureBaseFresh(io, "/w", url, "origin", "dev");
-      expect(calls.clone).to.deep.equal([]);
-      expect(calls.fetch).to.deep.equal([["/w/.bases/repo", "origin", "dev"]]);
+      expect(pxDeep(calls.clone)).to.deep.equal([]);
+      expect(pxDeep(calls.fetch)).to.deep.equal([["/w/.bases/repo", "origin", "dev"]]);
     });
   });
 
@@ -60,10 +61,10 @@ describe("prj-work Phase 2 — repo url helpers + retry", () => {
     it("fetches origin for each base-clone dir under <basesRoot>", () => {
       const fetched: string[] = [];
       syncAllBases(
-        { listBaseDirs: (root) => (root === "/w/.bases" ? ["repo-a", "repo-b"] : []), fetch: (d) => fetched.push(d) },
+        { listBaseDirs: (root) => (px(root) === "/w/.bases" ? ["repo-a", "repo-b"] : []), fetch: (d) => fetched.push(d) },
         "/w",
       );
-      expect(fetched).to.deep.equal(["/w/.bases/repo-a", "/w/.bases/repo-b"]);
+      expect(pxAll(fetched)).to.deep.equal(["/w/.bases/repo-a", "/w/.bases/repo-b"]);
     });
 
     it("no bases present → no fetches (never throws)", () => {
@@ -151,9 +152,9 @@ describe("prj-work Phase 2 — setupCodeRepoWorktree (Phase C)", () => {
       { vcs, fs: fsProbe, tx, cloneRepo: (_u, dest) => clonedTo.push(dest) },
       PARAMS,
     );
-    expect(out).to.deep.equal({ repoDir: REPO_DIR, baseClone: BASE_CLONE });
-    expect(clonedTo).to.deep.equal([BASE_CLONE]);
-    expect(calls).to.deep.equal([
+    expect(pxDeep(out)).to.deep.equal({ repoDir: REPO_DIR, baseClone: BASE_CLONE });
+    expect(pxDeep(clonedTo)).to.deep.equal([BASE_CLONE]);
+    expect(pxDeep(calls)).to.deep.equal([
       `worktreeAdd ${REPO_DIR} ${PARAMS.projectBranch}`,
       `setIdentity ${REPO_DIR}`,
       `push ${REPO_DIR} ${PARAMS.projectBranch}`,
@@ -168,7 +169,7 @@ describe("prj-work Phase 2 — setupCodeRepoWorktree (Phase C)", () => {
       { vcs, fs: { pathExists: () => true }, tx: new Transaction(), cloneRepo: (_u, d) => clonedTo.push(d) },
       PARAMS,
     );
-    expect(clonedTo).to.deep.equal([]);
+    expect(pxDeep(clonedTo)).to.deep.equal([]);
   });
 
   it("rollback removes the worktree/branch and deletes the pushed branch (LIFO)", () => {
@@ -177,7 +178,7 @@ describe("prj-work Phase 2 — setupCodeRepoWorktree (Phase C)", () => {
     setupCodeRepoWorktree({ vcs, fs: { pathExists: () => true }, tx, cloneRepo: () => {} }, PARAMS);
     calls.length = 0;
     tx.rollback();
-    expect(calls).to.deep.equal([
+    expect(pxDeep(calls)).to.deep.equal([
       `pushDelete ${REPO_DIR} ${PARAMS.projectBranch}`,
       `worktreeRemove ${REPO_DIR}`,
       `branchDelete ${PARAMS.projectBranch}`,
@@ -219,7 +220,7 @@ describe("prj-work Phase 2 — setupCodeRepoWorktree (Phase C)", () => {
     );
     cloneRepo("url", "/dest");
     expect(attempts).to.equal(2);
-    expect(rmDirs).to.deep.equal(["/dest", "/dest"]); // rm before each attempt
+    expect(pxAll(rmDirs)).to.deep.equal(["/dest", "/dest"]); // rm before each attempt
   });
 });
 

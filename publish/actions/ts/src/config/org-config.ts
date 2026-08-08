@@ -26,9 +26,10 @@ export interface OrgConfig {
   /** `gov_workspace`, expanded to an absolute path. */
   readonly govWorkspace: string;
   readonly policyOwnerEmail: string;
-  /** OpenBao/Vault address (`vault_addr` or `services.vault`) — the gov creds→Vault target; env `GOV_BAO_ADDR` overrides. */
+  /** OpenBao/Vault address (`vault_addr` or `services.vault`) — read by the DEPLOY clients (gov-cicd/gov-infra);
+   *  gov-work stores no secrets. env `GOV_BAO_ADDR` overrides. */
   readonly vaultAddr: string;
-  /** IAM broker OIDC base (`services.oidc`) — the `gov auth login` target. */
+  /** IAM broker OIDC base (`services.oidc`) — the deploy clients' `auth login` target. gov-work never uses it. */
   readonly oidcBase: string;
   /** The org service endpoints (`services:` block) as a generic map — vault/oidc used by core, jenkins/npm/
    *  docker read by the gov-cicd plugin. Org-level, governed; adopters inherit them. */

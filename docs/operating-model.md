@@ -21,7 +21,7 @@ flowchart TD
     CLISRC["ts/gov-work/<br/>(Node CLI source)"]
     CONTENT["framework/<br/>(content: policy · knowledge · harness)"]
   end
-  CLISRC -->|"(a) bump + governed publish"| NPM["npm @svayam-opensource/gov-work"]
+  CLISRC -->|"(a) bump + governed publish"| NPM["npm @svayam-opensource/gov"]
   subgraph ADOPT["Adopter governance DATA repo"]
     DATA["org-config.yaml · projects/ · knowledge/"]
   end

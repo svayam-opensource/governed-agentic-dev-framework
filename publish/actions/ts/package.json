@@ -1,14 +1,13 @@
 {
-  "name": "@svayam-opensource/gov-work",
-  "version": "1.1.0",
-  "description": "gov-work — the OSS project/workflow CLI for the Governed Agentic Development Framework (Node/TypeScript). Manages projects, workspaces, and credentials; enterprise catalog/deploy is the separate gov-cicd CLI. Succeeds the legacy bash @svayam-opensource/prj (frozen at 0.10.0).",
+  "name": "@svayam-opensource/gov",
+  "version": "1.0.0",
+  "description": "gov-work \u2014 the OSS project/workflow CLI for the Governed Agentic Development Framework (Node/TypeScript). Manages projects, workspaces and org registration. Governed catalog/deploy is the separate gov-cicd CLI, and infrastructure the separate gov-infra CLI \u2014 independent binaries, not plugins. Succeeds the legacy bash @svayam-opensource/prj (frozen at 0.10.0).",
   "type": "module",
   "main": "./lib/cjs/index.js",
   "module": "./lib/esm/index.js",
   "types": "./lib/esm/index.d.ts",
   "bin": {
-    "gov": "./lib/esm/cli/bin.js",
-    "gov-work": "./lib/esm/cli/bin.js"
+    "gov": "./lib/esm/cli/bin.js"
   },
   "exports": {
     ".": {
@@ -28,7 +27,7 @@
   "engines": {
     "node": ">=24"
   },
-  "_comment_publishConfig": "The DEFAULT publish target is the INTERNAL registry, deliberately. Going public must be an explicit act: the governed recipe passes `--registry <registries[env]>`, so prod (registry.npmjs.org) is reached by saying so, while a bare `npm publish` — a refactor that drops the flag, a hand-run in a checkout — lands somewhere recoverable. npm's unpublish window is 72h and never applies once anything depends on the version, so the safe default is the internal one. `access: public` is required for a scoped package on npmjs and is inert elsewhere.",
+  "_comment_publishConfig": "The DEFAULT publish target is the INTERNAL registry, deliberately. Going public must be an explicit act: the governed recipe passes `--registry <registries[env]>`, so prod (registry.npmjs.org) is reached by saying so, while a bare `npm publish` \u2014 a refactor that drops the flag, a hand-run in a checkout \u2014 lands somewhere recoverable. npm's unpublish window is 72h and never applies once anything depends on the version, so the safe default is the internal one. `access: public` is required for a scoped package on npmjs and is inert elsewhere.",
   "publishConfig": {
     "registry": "https://npm.svayamtech.com/",
     "access": "public"

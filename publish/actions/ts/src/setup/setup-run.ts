@@ -47,7 +47,7 @@ export async function runSetup(io: SetupIo, interactive: boolean): Promise<numbe
     // deploy endpoints (jenkins/npm/docker) are added later as the org adopts gov-cicd. Blank is fine.
     io.print("  Service endpoints — shared org infrastructure (adopters inherit these):");
     answers.vaultAddr = await io.prompt("  Vault/OpenBao base URL (blank if none)", d1.vaultAddr);
-    answers.oidcBase = await io.prompt("  IAM OIDC base URL for `gov auth login` (blank if none)", d1.oidcBase);
+    answers.oidcBase = await io.prompt("  IAM OIDC base URL for the deploy clients' `auth login` (blank if none)", d1.oidcBase);
     answers.govAccount = await io.prompt("  Governance account id (blank = single-tenant)", d1.govAccount);
   }
 
@@ -66,7 +66,7 @@ export async function runSetup(io: SetupIo, interactive: boolean): Promise<numbe
   }
   io.print("");
   io.print("Next steps:");
-  io.print(`  gov-work org add ${v.githubOrg} ${v.govWorkspace}   # register this gov workspace`);
-  io.print(`  gov-work org use ${v.githubOrg}                      # make it the active org`);
+  io.print(`  gov org add ${v.githubOrg} ${v.govWorkspace}   # register this gov workspace`);
+  io.print(`  gov org use ${v.githubOrg}                      # make it the active org`);
   return 0;
 }

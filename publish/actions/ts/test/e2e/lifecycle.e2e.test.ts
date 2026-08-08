@@ -18,6 +18,7 @@ import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
+import { px } from "../helpers/paths.js";
 
 const GOV_HOME = "/gov";
 const AWR = "/work";
@@ -39,14 +40,17 @@ class World {
   boardClosed = false;
   log: string[] = [];
 
+  // Every map in this world is keyed by the NORMALISED path: production composes with `path.join`, so on
+  // Windows it hands us `\work\PRJ-7`, while the literals seeded above say `/work/PRJ-7`. Both sides of a
+  // store must key alike or a write is invisible to the read that follows it.
   private branches(dir: string) {
-    let s = this.local.get(dir);
-    if (!s) this.local.set(dir, (s = new Set()));
+    let s = this.local.get(px(dir));
+    if (!s) this.local.set(px(dir), (s = new Set()));
     return s;
   }
   private markGit(dir: string) {
-    this.paths.add(dir);
-    this.paths.add(path.join(dir, ".git"));
+    this.paths.add(px(dir));
+    this.paths.add(px(path.join(dir, ".git")));
   }
 
   vcs: Vcs = {
@@ -57,7 +61,7 @@ class World {
     lsRemoteHeads: () => [],
     defaultBranch: () => "main",
     revParse: () => null,
-    currentBranch: (dir) => this.current.get(dir) ?? "main",
+    currentBranch: (dir) => this.current.get(px(dir)) ?? "main",
     isAncestor: () => true, // no commits added → sub-branch is an ancestor of its base
     isClean: () => true,
     remoteBranchesMatching: () => [],
@@ -67,40 +71,40 @@ class World {
     cleanUntracked: () => {},
     worktreeAdd: (_base, branch, wt) => {
       this.branches(wt).add(branch);
-      this.current.set(wt, branch);
+      this.current.set(px(wt), branch);
       this.markGit(wt);
     },
-    worktreeRemove: (_b, wt) => this.paths.delete(path.join(wt, ".git")),
+    worktreeRemove: (_b, wt) => this.paths.delete(px(path.join(wt, ".git"))),
     branchDelete: (dir, b) => this.branches(dir).delete(b),
     push: (_dir, _r, b) => this.pushed.add(b),
     pushDelete: (_dir, _r, b) => this.pushed.delete(b),
     clone: (_url, dest) => this.markGit(dest),
     fetch: () => {},
     setIdentity: () => {},
-    checkout: (dir, b) => this.current.set(dir, b),
+    checkout: (dir, b) => this.current.set(px(dir), b),
     checkoutNew: (dir, b) => {
       this.branches(dir).add(b);
-      this.current.set(dir, b);
+      this.current.set(px(dir), b);
     },
     mergeNoEdit: () => "merged",
     tag: (dir, name) => {
-      let s = this.tags.get(dir);
-      if (!s) this.tags.set(dir, (s = new Set()));
+      let s = this.tags.get(px(dir));
+      if (!s) this.tags.set(px(dir), (s = new Set()));
       s.add(name);
     },
   };
 
   fs: Fs = {
-    pathExists: (p) => this.paths.has(p),
-    mkdirp: (d) => this.paths.add(d),
+    pathExists: (p) => this.paths.has(px(p)),
+    mkdirp: (d) => this.paths.add(px(d)),
     writeFile: (f, c) => {
-      this.files.set(f, c);
-      this.paths.add(f);
+      this.files.set(px(f), c);
+      this.paths.add(px(f));
     },
-    readFile: (f) => this.files.get(f) ?? null,
+    readFile: (f) => this.files.get(px(f)) ?? null,
     rm: (t) => {
-      this.paths.delete(t);
-      this.files.delete(t);
+      this.paths.delete(px(t));
+      this.files.delete(px(t));
     },
     readdir: () => [],
   };
@@ -175,7 +179,7 @@ describe("prj-work — full-flow e2e (seed → task → merge)", () => {
     if (!merged.ok) return;
     expect(w.issues.get(ISSUE)!.state, "issue closed").to.equal("CLOSED");
     // archive tag created + task branch un-pushed (deleted) in both repos
-    expect([...(w.tags.get(govClone) ?? [])], "gov archive tag").to.include("archive/BRNCH-7-e2e.ISSUE-5");
+    expect([...(w.tags.get(px(govClone)) ?? [])], "gov archive tag").to.include("archive/BRNCH-7-e2e.ISSUE-5");
     expect(w.pushed.has("BRNCH-7-e2e.ISSUE-5"), "task branch deleted from remote").to.equal(false);
   });
 });

@@ -22,6 +22,7 @@ import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
 import type { GateResult } from "../lifecycle/close-gate.js";
 import { seed } from "../lifecycle/seed.js";
+import { expandTilde } from "../resolve/node-env.js";
 import { task } from "../lifecycle/task-run.js";
 import { merge } from "../lifecycle/merge.js";
 import { close } from "../lifecycle/close.js";
@@ -30,7 +31,6 @@ import { addRepo } from "../lifecycle/add-repo.js";
 import { join } from "../lifecycle/join.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
 import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org.js";
-import { expandTilde } from "../resolve/node-env.js";
 import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus, type ManageListResult } from "../lifecycle/manage.js";
 import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import type { Projects } from "../lifecycle/project-list.js";
@@ -76,7 +76,33 @@ export interface CommandResult {
   readonly lines: readonly string[];
 }
 
-const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov-work ${spec}`] });
+/**
+ * Verbs that USED to be `gov <verb>` and are now their own client's (adr-three-clients, PRJ-43).
+ *
+ * Kept as data rather than dropped, because the cost of removing a verb is paid by whoever types it next.
+ * A stale muscle-memory invocation should land on the answer, not on "unknown command". Deliberately not
+ * a delegation table — gov does not run these, it points at them.
+ */
+const MOVED_VERBS: Readonly<Record<string, string>> = {
+  auth: "gov-cicd", creds: "gov-cicd",
+  catalog: "gov-cicd", build: "gov-cicd", deploy: "gov-cicd", data: "gov-cicd", "data-access": "gov-cicd",
+  promote: "gov-cicd", rollback: "gov-cicd", drift: "gov-cicd", standards: "gov-cicd", attest: "gov-cicd",
+  authorize: "gov-cicd", secret: "gov-cicd", policy: "gov-cicd", "deploy-check": "gov-cicd",
+  infra: "gov-infra",
+};
+
+/** `infra` was a NAMESPACE, not a verb: `gov infra <cmd>` forwarded `<cmd>` to the infra plugin. So the
+ *  advice for it is `gov-infra <verb>`, never `gov-infra infra` — which is what the first version of this
+ *  message said, and it was wrong in the only way that matters: it would not have worked if typed. */
+const MOVED_NAMESPACES = new Set(["infra"]);
+
+/** Clients that DO NOT EXIST YET. `@svayam/gov-infra` is unpublished (404) and 909 carries no such
+ *  package, so telling anyone to install it is advice that fails when typed — the same defect as
+ *  `gov-infra infra`. Naming the client is still right (the verbs are its, not ours); promising an
+ *  install is not. Delete an entry the day its package publishes. */
+const UNRELEASED_CLIENTS = new Set(["gov-infra"]);
+
+const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov ${spec}`] });
 
 /** Render a PAGINATED project list: "<header> (X–Y of TOTAL):" + rows + a next-page hint when there's more. */
 function pagedListLines(header: string, cmd: string, res: ManageListResult, page: number, limit: number): string[] {
@@ -209,6 +235,8 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         : { code: r.code, lines: [r.message] };
     }
 
+    // `work` is handled in main.ts — it walks the state ladder and LAUNCHES an agent, and neither
+    // prompting nor spawning belongs in a pure router.
     case "add-repo": {
       if (positionals.length < 1) return usage("add-repo <repo-url> [--base-branch <branch>]");
       const r = addRepo(
@@ -302,11 +330,25 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         : { code: r.code, lines: [r.message] };
     }
 
-    default:
+    default: {
+      // A verb that MOVED must say where it went. `gov` used to delegate these to the gov-cicd and
+      // do-admin plugins; the three clients are invoked directly now (adr-three-clients, PRJ-43), and
+      // "unknown command 'deploy'" would be a worse answer than the one we can give — the reader knows
+      // the verb exists, so the useful information is which binary owns it.
+      const moved = MOVED_VERBS[command];
       return {
         code: 2,
         lines: [
-          `unknown command '${command}'`,
+          ...(moved
+            ? [MOVED_NAMESPACES.has(command)
+                 ? `'${command}' was a namespace for the ${moved} client — gov no longer forwards it.`
+                 : `'${command}' is a ${moved} verb — gov no longer runs it.`,
+               ...(UNRELEASED_CLIENTS.has(moved)
+                 ? [`  ${moved} is not released yet — these verbs are unavailable, and there is nothing to install.`]
+                 : [`  run:  ${moved} ${MOVED_NAMESPACES.has(command) ? "<verb>" : command} …`,
+                    `  (install:  npm i -g @svayam/${moved})`]),
+               ""]
+            : [`unknown command '${command}'`]),
           "bootstrap: setup org",
           "lifecycle: seed join task merge sync add-repo close pause resume cancel",
           "info+owners: list list-all status manage anchor validate",
@@ -314,5 +356,6 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           "maintain: bump-version doctor deps publish upgrade",
         ],
       };
+    }
   }
 }

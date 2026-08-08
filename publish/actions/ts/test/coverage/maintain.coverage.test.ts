@@ -33,16 +33,22 @@ import { runValidators, type ValidateContext } from "../../src/governance/valida
 import { makePrivacyValidator } from "../../src/governance/privacy.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { ResolveResult } from "../../src/resolve/types.js";
+import { px } from "../helpers/paths.js";
+
+/** A writes-map keyed by normalised path, so a POSIX literal finds an entry the code wrote
+ *  with the host separator (Windows). */
+const pxKeys = (m: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(m).map(([k, v]) => [px(k), v]));
 
 // ── shared fakes ────────────────────────────────────────────────────────────
 
 /** An in-memory Fs over a repo-relative path → content map (rooted at /repo). */
 function memFs(files: Record<string, string>): { fs: Fs; store: Record<string, string> } {
   const store = { ...files };
-  const rel = (p: string) => p.replace(/^\/repo\//, "");
+  const rel = (p: string) => px(p).replace(/^\/repo\//, "");
   return {
     fs: {
-      pathExists: (p) => rel(p) in store,
+      pathExists: (p) => px(rel(p)) in store,
       readFile: (p) => store[rel(p)] ?? null,
       writeFile: (p, c) => { store[rel(p)] = c; },
       mkdirp: () => {},
@@ -62,8 +68,8 @@ function workspaceCtx(files: Record<string, string>, extraDirs: string[] = []): 
     while (d && d !== "." && d !== "/") { existing.add(d); d = path.dirname(d); }
   }
   const fsx: Fs = {
-    pathExists: (p) => existing.has(path.relative("/repo", p)),
-    readFile: (p) => files[path.relative("/repo", p)] ?? null,
+    pathExists: (p) => existing.has(px(path.relative("/repo", p))),
+    readFile: (p) => files[px(path.relative("/repo", p))] ?? null,   // key alike on both sides
     mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
   };
   return { fs: fsx, repoRoot: "/repo", files: Object.keys(files) };
@@ -139,10 +145,10 @@ describe("coverage — doctor(facts): full cartesian", () => {
     expect(okD.detail).to.equal("resolved → /gov (Svayamtech)");
     const failD = doctor(facts({ resolve: UNRESOLVED })).diagnostics.find((d) => d.name === "gov workspace")!;
     expect(failD.status).to.equal("fail");
-    expect(failD.detail).to.match(/gov-work org use/);
+    expect(failD.detail).to.match(/gov org use/);
   });
 
-  it("staleArtifacts: empty/undefined → content layout ok; non-empty → warn pointing at gov-work upgrade", () => {
+  it("staleArtifacts: empty/undefined → content layout ok; non-empty → warn pointing at gov upgrade", () => {
     for (const stale of [undefined, [] as string[]]) {
       const d = doctor(facts({ staleArtifacts: stale })).diagnostics.find((x) => x.name === "content layout")!;
       expect(d.status).to.equal("ok");
@@ -151,7 +157,7 @@ describe("coverage — doctor(facts): full cartesian", () => {
     const warn = doctor(facts({ staleArtifacts: ["framework/", "registry.yaml"] })).diagnostics.find((x) => x.name === "content layout")!;
     expect(warn.status).to.equal("warn");
     expect(warn.detail).to.match(/framework\/, registry\.yaml/);
-    expect(warn.detail).to.match(/gov-work upgrade/);
+    expect(warn.detail).to.match(/gov upgrade/);
   });
 
   it("CLI version diagnostic echoes the injected version and is always ok", () => {
@@ -207,7 +213,7 @@ describe("coverage — checkVersionCompat: every status + boundaries", () => {
   }
 
   it("messages carry the right guidance per status", () => {
-    expect(checkVersionCompat("1.3.0", "1.1.0").message).to.match(/gov-work upgrade/);
+    expect(checkVersionCompat("1.3.0", "1.1.0").message).to.match(/gov upgrade/);
     expect(checkVersionCompat("1.1.0", "1.4.0").message).to.match(/npm i -g @svayam-opensource\/gov@1\.4\.0/);
     expect(checkVersionCompat("1.9.0", "2.0.0").message).to.match(/MAJOR version behind/);
     expect(checkVersionCompat("1.0.0", null).message).to.match(/no content VERSION marker/);
@@ -672,10 +678,10 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
       setOriginRemote: (u) => { remote = u; },
     }, true);
     expect(code).to.equal(0);
-    expect(writes["/repo/org-config.yaml"]).to.match(/org_name: "Acme Inc"/);
-    expect(writes["/repo/org-config.yaml"]).to.match(/default_code_branch: "trunk"/); // answer honored
+    expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/org_name: "Acme Inc"/);
+    expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/default_code_branch: "trunk"/); // answer honored
     expect(printed.some((l) => /github_org:.*Acme.*from origin/.test(l))).to.equal(true);
-    expect(printed.some((l) => /gov-work org use Acme/.test(l))).to.equal(true);
+    expect(printed.some((l) => /gov org use Acme/.test(l))).to.equal(true);
     expect(remote).to.equal("git@github.com:Acme/acme-gov.git");
   });
 
@@ -690,7 +696,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     }, false);
     expect(code).to.equal(0);
     expect(prompted).to.equal(false);
-    expect(writes["/repo/org-config.yaml"]).to.match(/org_name: "Existing Co"/);
+    expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/org_name: "Existing Co"/);
   });
 
   it("runSetup non-interactive missing required (no existing) → code 1, prints guidance", async () => {
@@ -710,7 +716,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
       prompt: async (_q, d) => d, print: () => {},
     }, false);
     expect(code).to.equal(0);
-    expect(writes["/repo/org-config.yaml"]).to.match(/org_name: "Y"/);
+    expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/org_name: "Y"/);
   });
 });
 
@@ -732,12 +738,12 @@ describe("coverage — validate suite over a fake fs (pass + fail per validator)
     "knowledge/policies/foo.md": `${FM}\n# Foo policy\n`,
   });
 
-  it("all-green workspace → runSuite ok, no failures (all 4 core validators pass)", () => {
+  it("all-green workspace → runSuite ok, no failures (all 5 core validators pass)", () => {
     const r = runSuite(workspaceCtx(greenFiles()));
     expect(r).to.deep.equal({ ok: true, failures: [] });
     // and the aggregated run reports 4 passing results
     const run = runValidators(workspaceCtx(greenFiles()), CORE_VALIDATORS);
-    expect(run.results).to.have.lengthOf(4);
+    expect(run.results).to.have.lengthOf(5);
     expect(run.results.every((x) => x.ok)).to.equal(true);
   });
 
@@ -787,6 +793,6 @@ describe("coverage — validate suite over a fake fs (pass + fail per validator)
   it("CORE_VALIDATORS excludes privacy (it is publish-branch only)", () => {
     const run = runValidators(workspaceCtx(greenFiles()), CORE_VALIDATORS);
     expect(run.results.map((r) => r.name)).to.not.include("privacy");
-    expect(run.results.map((r) => r.name)).to.have.members(["version-sync", "secrets", "protocol", "knowledge"]);
+    expect(run.results.map((r) => r.name)).to.have.members(["version-sync", "secrets", "protocol", "knowledge", "project-knowledge"]);
   });
 });

@@ -1,77 +1,53 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { mainActions, visibleActions, formatMainMenu, resolveTopChoice, contextEnvs, type MenuContext, type OperateVerb } from "../../src/cli/menu.js";
-import { isGovernedInvocation, isInfraInvocation } from "../../src/cli/host.js";
+import { mainActions, visibleActions, formatMainMenu, resolveTopChoice, contextEnvs, type MenuContext } from "../../src/cli/menu.js";
 
 const CTX: MenuContext = { orgName: "Acme Inc", githubOrg: "Acme", branch: "main", user: "rk", workspaceCount: 2, cliVersion: "1.0.0" };
 
-// A realistic slice of what `gov-cicd menu --json` contributes.
-const OPERATE: OperateVerb[] = [
-  { cmd: "build", desc: "build from a line-head", scopes: ["governed"], argHint: "<unit>", flagArgs: [{ name: "ref", hint: "ref", optional: true }] },
-  { cmd: "deploy", desc: "converge + gate", scopes: ["project", "governed"], argHint: "<unit>", flagArgs: [{ name: "env", hint: "env", kind: "env" }] },
-  { cmd: "drift", desc: "show drift", scopes: ["project", "governed"], argHint: "<unit>", flagArgs: [{ name: "env", hint: "env", kind: "env" }] },
-  { cmd: "promote", desc: "promote", scopes: ["governed"], argHint: "<unit>", flagArgs: [{ name: "from", hint: "from", kind: "env" }, { name: "to", hint: "to", kind: "env" }] },
-  { cmd: "rollback", desc: "roll back", scopes: ["governed"], argHint: "<unit>", flagArgs: [{ name: "env", hint: "env", kind: "env" }, { name: "to-sha", hint: "sha" }] },
-];
-
-const labels = (ctx: MenuContext, op: OperateVerb[] = []): string[] => visibleActions(ctx, op).map((a) => a.label);
+const labels = (ctx: MenuContext): string[] => visibleActions(ctx).map((a) => a.label);
 const adminCmds = (ctx: MenuContext): string[] => {
   const a = visibleActions(ctx).find((x) => x.label === "Admin");
   return a && a.kind === "submenu" ? a.commands.map((c) => c.cmd) : [];
 };
-const operateCmds = (ctx: MenuContext, op: OperateVerb[]): string[] => {
-  const a = visibleActions(ctx, op).find((x) => x.label === "Operate");
-  return a && a.kind === "submenu" ? a.commands.map((c) => c.cmd) : [];
-};
 
 describe("gov-work — interactive menu (context-scoped)", () => {
-  it("mainActions() is the FULL definition; no Operate submenu unless the plugin contributes verbs", () => {
-    expect(mainActions().find((x) => x.label === "Operate")).to.equal(undefined);
-    expect(mainActions(OPERATE).find((x) => x.label === "Operate")).to.not.equal(undefined);
+  // The menu used to MERGE verbs discovered from the gov-cicd and do-admin plugins. The three clients each
+  // render their own menu now (adr-three-clients, PRJ-43), so gov's menu offers gov's verbs and nothing else.
+  it("offers only gov-work's own submenus — no discovered plugin verbs", () => {
+    const keys = mainActions().map((a) => a.key);
+    expect(keys).to.deep.equal(["work", "admin", "help"]);
+    expect(mainActions().find((x) => x.label === "Operate"), "Operate was the gov-cicd merge").to.equal(undefined);
+    expect(mainActions().find((x) => x.label === "Infra"), "Infra was the do-admin merge").to.equal(undefined);
   });
 
-  it("GOVERNED context: governance admin + listing + all operate verbs are visible", () => {
+  // The menu is the HUMAN surface. Status (list/list-all/status) left on 2026-08-07 — those are the
+  // work-management system's answers — and Admin now carries only what an agent cannot do for you.
+  it("GOVERNED context: Work · Admin · Help, and Admin is org + doctor + upgrade", () => {
     const g = { ...CTX, mode: "governed" as const };
-    expect(labels(g, OPERATE)).to.deep.equal(["Status", "Work", "Operate", "Admin", "Help"]);
-    expect(adminCmds(g)).to.deep.equal(["manage", "knowledge", "onboard", "org", "upgrade", "deps"]);   // manage now org-level too; add-repo stays project-only
-    expect(operateCmds(g, OPERATE)).to.deep.equal(["build", "deploy", "drift", "promote", "rollback"]);
+    expect(labels(g)).to.deep.equal(["Work", "Admin", "Help"]);
+    expect(adminCmds(g)).to.deep.equal(["org", "doctor", "upgrade"]);
   });
 
-  it("PROJECT context: project admin only; build/promote/rollback (governed-only) are hidden from Operate", () => {
+  it("PROJECT context: upgrade is governed-only, the rest travels", () => {
     const p = { ...CTX, mode: "project" as const, project: "PRJ-43" };
-    expect(adminCmds(p)).to.deep.equal(["manage", "add-repo"]);                 // governance admin hidden
-    expect(operateCmds(p, OPERATE)).to.deep.equal(["deploy", "drift"]);         // build/promote/rollback are governed-only
-    const status = visibleActions(p).find((a) => a.label === "Status");
-    expect(status && status.kind === "submenu" ? status.commands.map((c) => c.cmd) : []).to.deep.equal(["status"]);  // list/list-all governed-only
+    expect(adminCmds(p)).to.deep.equal(["org", "doctor"]);
+    expect(visibleActions(p).find((a) => a.label === "Status"), "Status is the work-mgmt system's").to.equal(undefined);
   });
 
-  it("UX-flow: EVERY Operate verb the menu can dispatch is delegated to the plugin (no 'unknown command')", () => {
-    // Regression guard (2026-07-17): the menu advertised `build` (from the plugin manifest) but the host's
-    // delegation set (OPERATE_COMMANDS) lacked it → picking it printed "unknown command 'build'". Any verb the
-    // menu can show MUST route to gov-cicd.
-    for (const v of OPERATE) {
-      expect(isGovernedInvocation([v.cmd]), `menu verb '${v.cmd}' must delegate to gov-cicd`).to.equal(true);
-      expect(isGovernedInvocation(["--gov-home", "/x", v.cmd]), `'${v.cmd}' must delegate past value-flags`).to.equal(true);
+
+  // Was a regression guard (2026-07-17) for `manage` being missing from GOVERNED Admin. `manage` is no
+  // longer a menu item at all — assignment is the work-management system's answer, asked through the
+  // work-mgmt port or its own UI — so the guard now asserts the verb still RUNS, not that it is offered.
+  it("`manage` is no longer a menu item — it is the work-mgmt system's answer", () => {
+    for (const mode of ["governed", "project"] as const) {
+      expect(adminCmds({ ...CTX, mode, ...(mode === "project" ? { project: "PRJ-43" } : {}) }), mode).to.not.include("manage");
     }
   });
 
-  it("UX-flow: `manage` (project access) is available in BOTH PROJECT and GOVERNED Admin (org-level assign)", () => {
-    // Regression guard (2026-07-17): a new board (#106) couldn't be assigned from the org home because Admin
-    // had no `manage`. Org admins must be able to assign/unassign from GOVERNED too.
-    expect(adminCmds({ ...CTX, mode: "governed" })).to.include("manage");
-    expect(adminCmds({ ...CTX, mode: "project", project: "PRJ-43" })).to.include("manage");
-  });
-
-  it("UX-flow: `build` is GOVERNED-only — shown in GOVERNED Operate, HIDDEN in PROJECT (which is local-only)", () => {
-    // Regression guard (2026-07-17): build births to the dev channel (a governed op); it once leaked into the
-    // PROJECT menu and prompted for --ref where only local sandbox builds belong. Keep it out of PROJECT.
-    expect(operateCmds({ ...CTX, mode: "governed" }, OPERATE)).to.include("build");
-    expect(operateCmds({ ...CTX, mode: "project", project: "PRJ-43" }, OPERATE)).to.not.include("build");
-  });
 
   it("NONE context: empty submenus disappear — only Work (setup) + Help remain", () => {
-    expect(labels({ ...CTX, mode: "none" }, OPERATE)).to.deep.equal(["Work", "Help"]);
+    expect(labels({ ...CTX, mode: "none" })).to.deep.equal(["Work", "Help"]);
   });
 
   it("contextEnvs: PROJECT = local only; GOVERNED/other = dev/uat/prod", () => {
@@ -81,9 +57,9 @@ describe("gov-work — interactive menu (context-scoped)", () => {
 
   it("numbering matches between render and resolveTopChoice under the SAME context", () => {
     const g = { ...CTX, mode: "governed" as const };
-    const rendered = visibleActions(g, OPERATE).map((a) => a.label);
+    const rendered = visibleActions(g).map((a) => a.label);
     rendered.forEach((label, i) => {
-      const r = resolveTopChoice(String(i + 1), g, OPERATE);
+      const r = resolveTopChoice(String(i + 1), g);
       expect(r.kind === "action" && r.action.label).to.equal(label);
     });
   });
@@ -91,11 +67,10 @@ describe("gov-work — interactive menu (context-scoped)", () => {
   it("renders the banner + context line; Work adapts per mode", () => {
     const m = formatMainMenu(CTX).join("\n");
     expect(m).to.match(/▸ Acme Inc — Governed Agentic Development Framework \(v1\.0\.0\)/);
-    const p = formatMainMenu({ ...CTX, mode: "project", project: "PRJ-43" }, OPERATE).join("\n");
+    const p = formatMainMenu({ ...CTX, mode: "project", project: "PRJ-43" }).join("\n");
     expect(p).to.match(/Context: PROJECT \(PRJ-43\)/);
     expect(p).to.match(/Work.*Continue the current project/);
-    expect(p).to.match(/Operate/);   // plugin verbs surface in the menu now
-    expect(formatMainMenu({ ...CTX, mode: "governed" }, OPERATE).join("\n")).to.match(/Context: GOVERNED/);
+    expect(formatMainMenu({ ...CTX, mode: "governed" }).join("\n")).to.match(/Context: GOVERNED/);
   });
 
   it("resolves o / quit / unknown", () => {
@@ -105,62 +80,3 @@ describe("gov-work — interactive menu (context-scoped)", () => {
   });
 });
 
-// A realistic slice of what `do-admin menu --json` contributes (the gov-infra plugin).
-const INFRA: OperateVerb[] = [
-  { cmd: "vpn-mint-user", desc: "issue a VPN .ovpn for a person", scopes: ["governed", "project"], argHint: "<name>", flagArgs: [{ name: "out", hint: "output file", optional: true }] },
-  { cmd: "vpn-revoke-user", desc: "revoke a person's VPN cert + refresh the CRL", scopes: ["governed", "project"], argHint: "<name>" },
-];
-const infraSub = (ctx: MenuContext, op: OperateVerb[], inf: OperateVerb[]) => visibleActions(ctx, op, inf).find((x) => x.label === "Infra");
-
-describe("gov-work — Infra submenu (gov-infra / do-admin plugin)", () => {
-  it("no Infra submenu unless the plugin contributes verbs; present as a PEER of Operate when it does", () => {
-    expect(mainActions(OPERATE).find((x) => x.label === "Infra")).to.equal(undefined);
-    const withBoth = mainActions(OPERATE, INFRA).map((a) => a.label);
-    expect(withBoth).to.include("Operate");
-    expect(withBoth).to.include("Infra");
-    // Infra sits after Operate (both are plugin planes, before Admin).
-    expect(withBoth.indexOf("Infra")).to.be.greaterThan(withBoth.indexOf("Operate"));
-    expect(withBoth.indexOf("Infra")).to.be.lessThan(withBoth.indexOf("Admin"));
-  });
-
-  it("GOVERNED + PROJECT both show the human-VPN verbs (scoped project|governed)", () => {
-    for (const mode of ["governed", "project"] as const) {
-      const ctx = { ...CTX, mode, ...(mode === "project" ? { project: "PRJ-106" } : {}) };
-      const a = infraSub(ctx, OPERATE, INFRA);
-      expect(a && a.kind === "submenu" ? a.commands.map((c) => c.cmd) : [], `Infra verbs in ${mode}`).to.deep.equal(["vpn-mint-user", "vpn-revoke-user"]);
-    }
-  });
-
-  it("the Infra submenu carries runPrefix ['infra'] so its verbs route to the do-admin plugin", () => {
-    const a = infraSub({ ...CTX, mode: "governed" }, OPERATE, INFRA);
-    expect(a && a.kind === "submenu" ? a.runPrefix : undefined).to.deep.equal(["infra"]);
-  });
-
-  it("UX-flow: EVERY Infra verb the menu dispatches routes to do-admin (argv = ['infra', <verb>, …]), never 'unknown command'", () => {
-    // The mirror of the Operate regression guard: the menu prepends the submenu's runPrefix, so a chosen infra
-    // verb becomes `gov infra <verb> …` — which isInfraInvocation must recognize and delegate to do-admin.
-    for (const v of INFRA) {
-      expect(isInfraInvocation(["infra", v.cmd]), `menu verb '${v.cmd}' must delegate to do-admin`).to.equal(true);
-      expect(isInfraInvocation(["--gov-home", "/x", "infra", v.cmd]), `'${v.cmd}' must delegate past value-flags`).to.equal(true);
-      expect(isGovernedInvocation(["infra", v.cmd]), `'${v.cmd}' must NOT be mistaken for a gov-cicd verb`).to.equal(false);
-    }
-  });
-
-  it("numbering matches between render and resolveTopChoice with BOTH plugins present", () => {
-    const g = { ...CTX, mode: "governed" as const };
-    const rendered = visibleActions(g, OPERATE, INFRA).map((a) => a.label);
-    expect(rendered).to.include("Infra");
-    rendered.forEach((label, i) => {
-      const r = resolveTopChoice(String(i + 1), g, OPERATE, INFRA);
-      expect(r.kind === "action" && r.action.label).to.equal(label);
-    });
-  });
-
-  it("NONE context: no plugin submenus — Infra disappears with Operate", () => {
-    expect(visibleActions({ ...CTX, mode: "none" }, OPERATE, INFRA).map((a) => a.label)).to.deep.equal(["Work", "Help"]);
-  });
-
-  it("renders an Infra section in the formatted menu", () => {
-    expect(formatMainMenu({ ...CTX, mode: "governed" }, OPERATE, INFRA).join("\n")).to.match(/Infra/);
-  });
-});

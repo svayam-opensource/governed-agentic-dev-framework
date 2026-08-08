@@ -9,6 +9,7 @@ import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
+import { px, pxAll, pxDeep } from "../helpers/paths.js";
 
 const GOOD_MANIFEST = KNOWLEDGE_CLOSE_SECTIONS.map((s) => `${s}\n- done\n`).join("\n");
 
@@ -16,7 +17,7 @@ const GOOD_MANIFEST = KNOWLEDGE_CLOSE_SECTIONS.map((s) => `${s}\n- done\n`).join
 function fakeFs(over: { files?: string[]; compliance?: boolean; manifest?: string | null } = {}): Fs {
   const files = over.files ?? ["compliance.md", "knowledge-close.md", "notes.md"];
   return {
-    pathExists: (p) => (p.endsWith("/compliance.md") ? (over.compliance ?? true) : true),
+    pathExists: (p) => (px(p).endsWith("/compliance.md") ? (over.compliance ?? true) : true),
     mkdirp: () => {},
     writeFile: () => {},
     readFile: (p) => (p.endsWith("knowledge-close.md") ? (over.manifest === undefined ? GOOD_MANIFEST : over.manifest) : null),
@@ -137,13 +138,13 @@ describe("prj-work Phase 2 — close orchestrator (model A)", () => {
     if (!r.ok) return;
     expect(r.projectId).to.equal("PRJ-43-governance-common-project");
     expect(r.prUrl).to.equal("https://github.com/Svayamtech/svm-prj-work/pull/1");
-    expect(r.reposMerged).to.deep.equal([CODE_DIR]);
+    expect(pxDeep(r.reposMerged)).to.deep.equal([CODE_DIR]);
     // pushed code base + project branch, closed board, archived both repos
-    expect(v.log).to.include("push /awr/PRJ-43/911-SVM-LIB-SVC dev");
-    expect(v.log).to.include(`push ${GOV} BRNCH-43-governance-common-project`);
+    expect(pxAll(v.log)).to.include("push /awr/PRJ-43/911-SVM-LIB-SVC dev");
+    expect(pxAll(v.log)).to.include(`push ${GOV} BRNCH-43-governance-common-project`);
     expect(iss.acted).to.include("closeBoard 43");
-    expect(v.log).to.include(`tag ${GOV} archive/BRNCH-43-governance-common-project`);
-    expect(v.log).to.include(`tag ${CODE_DIR} archive/BRNCH-43-governance-common-project`);
+    expect(pxAll(v.log)).to.include(`tag ${GOV} archive/BRNCH-43-governance-common-project`);
+    expect(pxAll(v.log)).to.include(`tag ${CODE_DIR} archive/BRNCH-43-governance-common-project`);
   });
 
   it("fails the knowledge gate before touching anything", () => {

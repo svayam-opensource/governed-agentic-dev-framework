@@ -23,6 +23,7 @@ import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
+import { px, pxDeep } from "../helpers/paths.js";
 
 // ── Shared constants (derived id/branch must match the fake board title) ────────
 const BOARD_URL = "https://github.com/orgs/Svayamtech/projects/43";
@@ -112,13 +113,13 @@ describe("lifecycle coverage — seed", () => {
   it("missing <board-url> → usage (exit 2)", () => {
     const r = run(["seed"]);
     expect(r.code).to.equal(2);
-    expect(r.lines).to.deep.equal(["usage: gov-work seed <board-url> [--assignee <login>]"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov seed <board-url> [--assignee <login>]"]);
   });
 
   it("happy path → exit 0 with exact lines", () => {
     const r = run(["seed", BOARD_URL], { vcs: seedVcs() });
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal([
+    expect(pxDeep(r.lines)).to.deep.equal([
       `Project ${PID} seeded on ${PBRANCH}`,
       `  workspace: ${PWR}`,
       "  anchor: r#1",
@@ -128,7 +129,7 @@ describe("lifecycle coverage — seed", () => {
   it("accepts the optional [assignee] positional (exit 0, same output)", () => {
     const r = run(["seed", BOARD_URL, "someone-else"], { vcs: seedVcs() });
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal(`Project ${PID} seeded on ${PBRANCH}`);
+    expect(px(r.lines[0])).to.equal(`Project ${PID} seeded on ${PBRANCH}`);
   });
 
   it("--login absent → anchor assigneeLogin is null (no ctx.login)", () => {
@@ -169,25 +170,25 @@ describe("lifecycle coverage — seed", () => {
   it("error: bad board URL → exit 1", () => {
     const r = run(["seed", "not-a-url"]);
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Not a GitHub Project URL: not-a-url");
+    expect(px(r.lines[0])).to.equal("Not a GitHub Project URL: not-a-url");
   });
 
   it("error: board has no title → exit 1", () => {
     const r = run(["seed", BOARD_URL], { vcs: seedVcs(), board: boardTitled("") });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("GitHub Project has no name.");
+    expect(px(r.lines[0])).to.equal("GitHub Project has no name.");
   });
 
   it("error: board has no linked items → exit 1", () => {
     const r = run(["seed", BOARD_URL], { vcs: seedVcs(), board: boardTitled("Good Title", 0) });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("GitHub Project has no linked Issues or PRs.");
+    expect(px(r.lines[0])).to.equal("GitHub Project has no linked Issues or PRs.");
   });
 
   it("error: title slugifies to empty → exit 1 (empty-slug)", () => {
     const r = run(["seed", BOARD_URL], { vcs: seedVcs(), board: boardTitled("@@@ !!!") });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Cannot derive project id (empty-slug).");
+    expect(px(r.lines[0])).to.equal("Cannot derive project id (empty-slug).");
   });
 
   it("error: leftover state from a prior failed run → exit 1", () => {
@@ -201,7 +202,7 @@ describe("lifecycle coverage — seed", () => {
     const boom = seedVcs({ commit: () => { throw new Error("boom"); } });
     const r = run(["seed", BOARD_URL], { vcs: boom });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("boom");
+    expect(px(r.lines[0])).to.equal("boom");
   });
 });
 
@@ -212,13 +213,13 @@ describe("lifecycle coverage — join", () => {
   it("missing <board-url> → usage (exit 2)", () => {
     const r = run(["join"]);
     expect(r.code).to.equal(2);
-    expect(r.lines).to.deep.equal(["usage: gov-work join <board-url>"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov join <board-url>"]);
   });
 
   it("happy path (no code repos) → exit 0 with exact lines", () => {
     const r = run(["join", BOARD_URL]);
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal([
+    expect(pxDeep(r.lines)).to.deep.equal([
       `Joined ${PID} on ${PBRANCH}`,
       `  workspace: ${GOV_CLONE}`,
       "  code repos: 0",
@@ -234,19 +235,19 @@ describe("lifecycle coverage — join", () => {
   it("error: bad board URL → exit 1", () => {
     const r = run(["join", "nope"]);
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Not a GitHub Project URL: nope");
+    expect(px(r.lines[0])).to.equal("Not a GitHub Project URL: nope");
   });
 
   it("error: title slugifies to empty → exit 1 (empty-slug)", () => {
     const r = run(["join", BOARD_URL], { board: boardTitled("###") });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Cannot derive project id (empty-slug).");
+    expect(px(r.lines[0])).to.equal("Cannot derive project id (empty-slug).");
   });
 
   it("error: unauthorized → exit 1", () => {
     const r = run(["join", BOARD_URL], { authorize: () => false });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Not authorized to join GitHub Project #43.");
+    expect(px(r.lines[0])).to.equal("Not authorized to join GitHub Project #43.");
   });
 });
 
@@ -257,13 +258,13 @@ describe("lifecycle coverage — task", () => {
   it("missing <issue-url> → usage (exit 2)", () => {
     const r = run(["task"]);
     expect(r.code).to.equal(2);
-    expect(r.lines).to.deep.equal(["usage: gov-work task <issue-url[,issue-url...]>"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov task <issue-url[,issue-url...]>"]);
   });
 
   it("happy path (single issue URL) → exit 0 with exact lines", () => {
     const r = run(["task", ISSUE9]);
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal([
+    expect(pxDeep(r.lines)).to.deep.equal([
       `Task ${PBRANCH}.ISSUE-9`,
       "  branched: 1 repo(s)",
     ]);
@@ -272,14 +273,14 @@ describe("lifecycle coverage — task", () => {
   it("argument shape: comma-separated issue URLs → combined ISSUE-9-10 task id", () => {
     const r = run(["task", `${ISSUE9},${ISSUE10}`]);
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal(`Task ${PBRANCH}.ISSUE-9-10`);
+    expect(px(r.lines[0])).to.equal(`Task ${PBRANCH}.ISSUE-9-10`);
     expect(r.lines[1]).to.equal("  branched: 1 repo(s)");
   });
 
   it("reports repos skipped when a linked code repo has no local worktree", () => {
     const r = run(["task", ISSUE9], { board: boardWithCodeRepo });
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal([
+    expect(pxDeep(r.lines)).to.deep.equal([
       `Task ${PBRANCH}.ISSUE-9`,
       "  branched: 1 repo(s)",
       `  skipped (not cloned): ${APP_DIR}`,
@@ -323,25 +324,25 @@ describe("lifecycle coverage — task", () => {
   it("error: unparseable issue URL → exit 1 (bad-issue-url)", () => {
     const r = run(["task", "https://github.com/Svayamtech/x/pull/9"]);
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Could not extract an issue number from 'https://github.com/Svayamtech/x/pull/9'.");
+    expect(px(r.lines[0])).to.equal("Could not extract an issue number from 'https://github.com/Svayamtech/x/pull/9'.");
   });
 
   it("error: issue already closed → exit 1 (issue-closed)", () => {
     const r = run(["task", ISSUE9], { issues: { ...issues, state: () => "CLOSED" } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal(`Issue ${ISSUE9} is closed — cannot start a task on it.`);
+    expect(px(r.lines[0])).to.equal(`Issue ${ISSUE9} is closed — cannot start a task on it.`);
   });
 
   it("error: unauthorized → exit 1", () => {
     const r = run(["task", ISSUE9], { authorize: () => false });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Not authorized on GitHub Project #43.");
+    expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
   });
 
   it("error: an effect throws while branching → exit 1 (task-failed)", () => {
     const r = run(["task", ISSUE9], { vcs: { ...fakeVcs(), checkoutNew: () => { throw new Error("boom"); } } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("boom");
+    expect(px(r.lines[0])).to.equal("boom");
   });
 });
 
@@ -352,13 +353,13 @@ describe("lifecycle coverage — merge", () => {
   it("missing arg → usage (exit 2)", () => {
     const r = run(["merge"]);
     expect(r.code).to.equal(2);
-    expect(r.lines).to.deep.equal(["usage: gov-work merge <issue-url | task-branch>"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov merge <issue-url | task-branch>"]);
   });
 
   it("happy path (issue-URL arg) → exit 0 with exact lines", () => {
     const r = run(["merge", ISSUE9]);
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal([
+    expect(pxDeep(r.lines)).to.deep.equal([
       `Merged ${PBRANCH}.ISSUE-9 → ${PBRANCH}`,
       "  closed issue(s): 1",
     ]);
@@ -367,7 +368,7 @@ describe("lifecycle coverage — merge", () => {
   it("argument shape: task-branch arg (unresolved issues) → closed issue(s): 0", () => {
     const r = run(["merge", `${PBRANCH}.ISSUE-9`]);
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal(`Merged ${PBRANCH}.ISSUE-9 → ${PBRANCH}`);
+    expect(px(r.lines[0])).to.equal(`Merged ${PBRANCH}.ISSUE-9 → ${PBRANCH}`);
     expect(r.lines[1]).to.equal("  closed issue(s): 0");
   });
 
@@ -386,37 +387,37 @@ describe("lifecycle coverage — merge", () => {
   it("error: not on a project branch → exit 1", () => {
     const r = run(["merge", ISSUE9], { vcs: { ...fakeVcs(), currentBranch: () => "main" } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("'main' is not a project branch.");
+    expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
   it("error: arg is neither an issue URL nor a task branch → exit 1 (not-a-task)", () => {
     const r = run(["merge", "random-branch"]);
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal(`'random-branch' is neither an issue URL nor a '${PBRANCH}.ISSUE-…' branch.`);
+    expect(px(r.lines[0])).to.equal(`'random-branch' is neither an issue URL nor a '${PBRANCH}.ISSUE-…' branch.`);
   });
 
   it("error: unauthorized → exit 1", () => {
     const r = run(["merge", ISSUE9], { authorize: () => false });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Not authorized on GitHub Project #43.");
+    expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
   });
 
   it("error: no sub-branch on the remote → exit 1 (no-subbranch)", () => {
     const r = run(["merge", ISSUE9], { vcs: { ...fakeVcs(), remoteBranchExists: () => false } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal(`No sub-branch '${PBRANCH}.ISSUE-9' on the remote — was the task created?`);
+    expect(px(r.lines[0])).to.equal(`No sub-branch '${PBRANCH}.ISSUE-9' on the remote — was the task created?`);
   });
 
   it("error: a working tree is dirty → exit 1 (dirty)", () => {
     const r = run(["merge", ISSUE9], { vcs: { ...fakeVcs(), isClean: () => false } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal(`Uncommitted changes in ${GOV_CLONE} — commit or stash first.`);
+    expect(px(r.lines[0])).to.equal(`Uncommitted changes in ${GOV_CLONE} — commit or stash first.`);
   });
 
   it("error: merge conflict → exit 2 (merge-conflict)", () => {
     const r = run(["merge", ISSUE9], { vcs: { ...fakeVcs(), mergeNoEdit: () => "conflict" } });
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal(`Merge conflict: ${PBRANCH}.ISSUE-9 → ${PBRANCH} in ${GOV_CLONE}. Resolve, commit, then re-run.`);
+    expect(px(r.lines[0])).to.equal(`Merge conflict: ${PBRANCH}.ISSUE-9 → ${PBRANCH} in ${GOV_CLONE}. Resolve, commit, then re-run.`);
   });
 });
 
@@ -427,7 +428,7 @@ describe("lifecycle coverage — sync", () => {
   it("happy path → exit 0 with exact lines", () => {
     const r = run(["sync"]);
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal([
+    expect(pxDeep(r.lines)).to.deep.equal([
       `Synced ${PBRANCH}`,
       "  1 repo(s) up to date",
     ]);
@@ -436,25 +437,25 @@ describe("lifecycle coverage — sync", () => {
   it("error: not on a project branch → exit 1", () => {
     const r = run(["sync"], { vcs: { ...fakeVcs(), currentBranch: () => "main" } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("'main' is not a project branch.");
+    expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
   it("error: unauthorized → exit 1", () => {
     const r = run(["sync"], { authorize: () => false });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Not authorized on GitHub Project #43.");
+    expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
   });
 
   it("error: a working tree is dirty → exit 1 (dirty)", () => {
     const r = run(["sync"], { vcs: { ...fakeVcs(), isClean: () => false } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal(`Uncommitted changes in ${GOV_CLONE} — commit or stash first.`);
+    expect(px(r.lines[0])).to.equal(`Uncommitted changes in ${GOV_CLONE} — commit or stash first.`);
   });
 
   it("error: merge conflict → exit 2 (merge-conflict)", () => {
     const r = run(["sync"], { vcs: { ...fakeVcs(), mergeNoEdit: () => "conflict" } });
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal(`Merge conflict: main → ${PBRANCH} in ${GOV_CLONE}. Resolve, commit, then re-run.`);
+    expect(px(r.lines[0])).to.equal(`Merge conflict: main → ${PBRANCH} in ${GOV_CLONE}. Resolve, commit, then re-run.`);
   });
 });
 
@@ -468,45 +469,45 @@ describe("lifecycle coverage — add-repo", () => {
   it("missing <repo-url> → usage (exit 2)", () => {
     const r = run(["add-repo"]);
     expect(r.code).to.equal(2);
-    expect(r.lines).to.deep.equal(["usage: gov-work add-repo <repo-url> [--base-branch <branch>]"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov add-repo <repo-url> [--base-branch <branch>]"]);
   });
 
   it("happy path (default base branch = dev) → exit 0 with exact line", () => {
     const r = run(["add-repo", APP_URL], { vcs: addVcs("dev") });
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal([`Added ${APP_DIR} on ${PBRANCH}`]);
+    expect(pxDeep(r.lines)).to.deep.equal([`Added ${APP_DIR} on ${PBRANCH}`]);
   });
 
   it("argument shape: explicit [base-branch] positional is threaded through", () => {
     // vcs accepts ONLY 'release' as a base — success proves the positional was used.
     const r = run(["add-repo", APP_URL, "--base-branch", "release"], { vcs: addVcs("release") });
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal([`Added ${APP_DIR} on ${PBRANCH}`]);
+    expect(pxDeep(r.lines)).to.deep.equal([`Added ${APP_DIR} on ${PBRANCH}`]);
   });
 
   it("error: not on a project branch → exit 1", () => {
     const r = run(["add-repo", APP_URL], { vcs: { ...fakeVcs(), currentBranch: () => "main" } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("'main' is not a project branch.");
+    expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
   it("error: unauthorized → exit 1", () => {
     const r = run(["add-repo", APP_URL], { vcs: addVcs("dev"), authorize: () => false });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Not authorized on GitHub Project #43.");
+    expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
   });
 
   it("error: base branch not found → exit 1 (add-failed)", () => {
     // Default fakeVcs.refExists === false → base ref missing.
     const r = run(["add-repo", APP_URL]);
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal(`Base branch 'dev' not found in ${APP_URL}`);
+    expect(px(r.lines[0])).to.equal(`Base branch 'dev' not found in ${APP_URL}`);
   });
 
   it("error: project branch already exists in the repo → exit 1 (add-failed)", () => {
     const r = run(["add-repo", APP_URL], { vcs: { ...fakeVcs(), refExists: () => true } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal(`Branch '${PBRANCH}' already exists in ${APP_URL} — investigate.`);
+    expect(px(r.lines[0])).to.equal(`Branch '${PBRANCH}' already exists in ${APP_URL} — investigate.`);
   });
 });
 
@@ -517,25 +518,25 @@ describe("lifecycle coverage — pause", () => {
   it("happy path (label applied) → exit 0", () => {
     const r = run(["pause"]);
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal(["Project #43 → paused"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["Project #43 → paused"]);
   });
 
   it("label not applied → success with a warning suffix", () => {
     const r = run(["pause"], { anchor: { ...anchor, setState: () => false } });
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal("Project #43 → paused (anchor label not applied — check gh access)");
+    expect(px(r.lines[0])).to.equal("Project #43 → paused (anchor label not applied — check gh access)");
   });
 
   it("error: not on a project branch → exit 1", () => {
     const r = run(["pause"], { vcs: { ...fakeVcs(), currentBranch: () => "main" } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("'main' is not a project branch.");
+    expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
   it("error: unauthorized → exit 1", () => {
     const r = run(["pause"], { authorize: () => false });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Not authorized on GitHub Project #43.");
+    expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
   });
 });
 
@@ -543,25 +544,25 @@ describe("lifecycle coverage — resume", () => {
   it("happy path → exit 0 (status active)", () => {
     const r = run(["resume"]);
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal(["Project #43 → active"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["Project #43 → active"]);
   });
 
   it("label not applied → success with a warning suffix", () => {
     const r = run(["resume"], { anchor: { ...anchor, setState: () => false } });
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal("Project #43 → active (anchor label not applied — check gh access)");
+    expect(px(r.lines[0])).to.equal("Project #43 → active (anchor label not applied — check gh access)");
   });
 
   it("error: not on a project branch → exit 1", () => {
     const r = run(["resume"], { vcs: { ...fakeVcs(), currentBranch: () => "main" } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("'main' is not a project branch.");
+    expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
   it("error: unauthorized → exit 1", () => {
     const r = run(["resume"], { authorize: () => false });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Not authorized on GitHub Project #43.");
+    expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
   });
 });
 
@@ -570,26 +571,26 @@ describe("lifecycle coverage — cancel", () => {
     let closed = 0;
     const r = run(["cancel"], { issues: { ...issues, closeBoard: () => { closed++; } } });
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal(["Project #43 → cancelled"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["Project #43 → cancelled"]);
     expect(closed).to.equal(1);
   });
 
   it("label not applied → success with a warning suffix", () => {
     const r = run(["cancel"], { anchor: { ...anchor, setState: () => false } });
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal("Project #43 → cancelled (anchor label not applied — check gh access)");
+    expect(px(r.lines[0])).to.equal("Project #43 → cancelled (anchor label not applied — check gh access)");
   });
 
   it("error: not on a project branch → exit 1", () => {
     const r = run(["cancel"], { vcs: { ...fakeVcs(), currentBranch: () => "main" } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("'main' is not a project branch.");
+    expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
   it("error: unauthorized → exit 1", () => {
     const r = run(["cancel"], { authorize: () => false });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Not authorized on GitHub Project #43.");
+    expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
   });
 });
 
@@ -617,7 +618,7 @@ describe("lifecycle coverage — close", () => {
   it("happy path → exit 0 with exact lines (PR url reported)", () => {
     const r = run(["close"], { fs: closeFs() });
     expect(r.code).to.equal(0);
-    expect(r.lines).to.deep.equal([
+    expect(pxDeep(r.lines)).to.deep.equal([
       `Project ${PID} closed`,
       "  PR: pr",
     ]);
@@ -632,26 +633,26 @@ describe("lifecycle coverage — close", () => {
   it("happy path with a passing test-merge gate → exit 0", () => {
     const r = run(["close"], { fs: closeFs(), gate: () => ({ ok: true, failures: [] }) });
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal(`Project ${PID} closed`);
+    expect(px(r.lines[0])).to.equal(`Project ${PID} closed`);
   });
 
   it("error: not on a project branch → exit 1 (checked before the gate)", () => {
     const r = run(["close"], { vcs: { ...fakeVcs(), currentBranch: () => "main" } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("'main' is not a project branch.");
+    expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
   it("error: knowledge gate fails → exit 1 with failure detail lines", () => {
     const r = run(["close"]); // default fs → empty knowledge/
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Pre-close knowledge gate failed.");
+    expect(px(r.lines[0])).to.equal("Pre-close knowledge gate failed.");
     expect(r.lines).to.include("knowledge/ is empty — document project learnings first.");
   });
 
   it("error: unauthorized → exit 1", () => {
     const r = run(["close"], { fs: closeFs(), authorize: () => false });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Not authorized to close GitHub Project #43.");
+    expect(px(r.lines[0])).to.equal("Not authorized to close GitHub Project #43.");
   });
 
   it("error: unmerged task sub-branches exist → exit 1 (open-tasks)", () => {
@@ -664,7 +665,7 @@ describe("lifecycle coverage — close", () => {
   it("error: conflict syncing default → project branch → exit 2 (sync-conflict)", () => {
     const r = run(["close"], { fs: closeFs(), vcs: { ...fakeVcs(), mergeNoEdit: () => "conflict" } });
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal(`Merge conflict syncing main → ${PBRANCH}. Resolve, commit, then re-run.`);
+    expect(px(r.lines[0])).to.equal(`Merge conflict syncing main → ${PBRANCH}. Resolve, commit, then re-run.`);
   });
 
   it("error: code-repo merge conflict → exit 2 (code-merge-conflict)", () => {
@@ -675,19 +676,19 @@ describe("lifecycle coverage — close", () => {
     };
     const r = run(["close"], { fs: closeFs(), board: boardWithCodeRepo, vcs });
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal(`Merge conflict: ${PBRANCH} → dev in ${APP_DIR}. Resolve, commit, then re-run.`);
+    expect(px(r.lines[0])).to.equal(`Merge conflict: ${PBRANCH} → dev in ${APP_DIR}. Resolve, commit, then re-run.`);
   });
 
   it("error: test-merge gate fails → exit 1 with failure detail lines", () => {
     const r = run(["close"], { fs: closeFs(), gate: () => ({ ok: false, failures: ["validator X failed"] }) });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Test-merge gate failed — nothing pushed.");
+    expect(px(r.lines[0])).to.equal("Test-merge gate failed — nothing pushed.");
     expect(r.lines).to.include("validator X failed");
   });
 
   it("error: the close PR cannot be merged → exit 1 (pr-merge-failed)", () => {
     const r = run(["close"], { fs: closeFs(), pulls: { create: () => "pr", merge: () => "failed" } });
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.equal("Could not merge the close PR (pr). Merge it manually, then re-run.");
+    expect(px(r.lines[0])).to.equal("Could not merge the close PR (pr). Merge it manually, then re-run.");
   });
 });

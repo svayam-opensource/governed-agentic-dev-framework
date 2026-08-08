@@ -5,6 +5,11 @@ import { parseOriginOwnerRepo, deriveOrgConfig, renderOrgConfig, readExistingOrg
 import { runSetup } from "../../src/setup/setup-run.js";
 import { parseOrgConfig } from "../../src/config/org-config.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
+import { px } from "../helpers/paths.js";
+
+/** writes keyed by normalised path, so a POSIX literal finds what the code wrote host-natively. */
+const pxKeys = (m: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(m).map(([k, v]) => [px(k), v]));
 
 const CTX = { originUrl: "git@github.com:Acme/acme-gov.git", ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-07-04" };
 
@@ -47,9 +52,9 @@ describe("gov-work — setup (bootstrap)", () => {
       setOriginRemote: (u) => { remoteSet = u; },
     }, true);
     expect(code).to.equal(0);
-    expect(writes["/repo/org-config.yaml"]).to.match(/org_name: "Acme Inc"/);
+    expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/org_name: "Acme Inc"/);
     expect(remoteSet).to.equal("git@github.com:Acme/acme-gov.git");
-    expect(printed.some((l) => /gov-work org add Acme/.test(l))).to.equal(true);
+    expect(printed.some((l) => /gov org add Acme/.test(l))).to.equal(true);
   });
 
   it("fails when org_name/org_slug are absent (non-interactive, no existing)", async () => {

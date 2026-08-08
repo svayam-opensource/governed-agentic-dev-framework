@@ -50,7 +50,7 @@ describe("prj-work Phase 1 — prjResolveGov (SDD-040, active-org anchored)", ()
     });
     const r = fail(prjResolveGov(env));
     expect(r.reason).to.equal("no-active-org");
-    expect(resolveFailureMessage(r)).to.match(/gov-work org use/);
+    expect(resolveFailureMessage(r)).to.match(/gov org use/);
   });
 
   it("O2 == O1: resolves to the cwd workspace (project clone included)", () => {
@@ -79,7 +79,7 @@ describe("prj-work Phase 1 — prjResolveGov (SDD-040, active-org anchored)", ()
     });
     const r = fail(prjResolveGov(env));
     expect(r).to.include({ reason: "org-conflict", cwdOrg: "AcmeOrg", activeOrg: "Svayamtech" });
-    expect(resolveFailureMessage(r)).to.match(/gov-work org use AcmeOrg/);
+    expect(resolveFailureMessage(r)).to.match(/gov org use AcmeOrg/);
   });
 
   it("O2 none: resolves via active-org's registry home when the pointer checks out", () => {
@@ -104,7 +104,7 @@ describe("prj-work Phase 1 — prjResolveGov (SDD-040, active-org anchored)", ()
     const env = makeEnv({ cwd: "/tmp/nowhere", activeOrg: "Svayamtech" });
     const r = fail(prjResolveGov(env));
     expect(r).to.include({ reason: "no-home", activeOrg: "Svayamtech" });
-    expect(resolveFailureMessage(r)).to.match(/gov-work org add Svayamtech/);
+    expect(resolveFailureMessage(r)).to.match(/gov org add Svayamtech/);
   });
 
   describe("[rule b] registry-home double-check against org-config", () => {

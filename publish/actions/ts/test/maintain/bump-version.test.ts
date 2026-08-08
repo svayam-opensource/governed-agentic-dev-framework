@@ -3,13 +3,14 @@
 import { expect } from "chai";
 import { bumpVersion } from "../../src/maintain/bump-version.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
+import { px } from "../helpers/paths.js";
 
 /** An in-memory Fs over a repo-relative path → content map. */
 function memFs(files: Record<string, string>) {
   const store = { ...files };
-  const rel = (p: string) => p.replace(/^\/repo\//, "");
+  const rel = (p: string) => px(p).replace(/^\/repo\//, "");
   const fs: Fs = {
-    pathExists: (p) => rel(p) in store,
+    pathExists: (p) => px(rel(p)) in store,
     readFile: (p) => store[rel(p)] ?? null,
     writeFile: (p, c) => { store[rel(p)] = c; },
     mkdirp: () => {},

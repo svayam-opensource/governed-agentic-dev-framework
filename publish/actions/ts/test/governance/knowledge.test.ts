@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { checkKnowledge } from "../../src/governance/knowledge.js";
 import type { ValidateContext } from "../../src/governance/validate.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
+import { px } from "../helpers/paths.js";
 
 function ctx(files: Record<string, string>, extra: string[] = []): ValidateContext {
   const existing = new Set<string>(extra);
@@ -17,8 +18,8 @@ function ctx(files: Record<string, string>, extra: string[] = []): ValidateConte
     }
   }
   const fs: Fs = {
-    pathExists: (p) => existing.has(path.relative("/repo", p)),
-    readFile: (p) => files[path.relative("/repo", p)] ?? null,
+    pathExists: (p) => existing.has(px(path.relative("/repo", p))),
+    readFile: (p) => files[px(path.relative("/repo", p))] ?? null,
     mkdirp: () => {},
     writeFile: () => {},
     rm: () => {},

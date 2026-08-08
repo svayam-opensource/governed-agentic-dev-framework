@@ -1,65 +1,64 @@
 # @svayam-opensource/gov
 
-The OSS governance CLI (**command `gov-work`**) for the Governed Agentic Development
-Framework — the unit **gov-work**. Reimplemented **Bash → Node 24 / TypeScript**
-(AD-6.1 conformance; PRJ-43, issue #91).
+A CLI for running software projects under **explicit, versioned governance** — where the rules a
+team works by live in the repository, are reviewed like code, and are enforced by the tools rather
+than remembered by people.
 
-It ships as a **new** npm package rather than continuing `@svayam-opensource/prj`:
-the legacy bash CLI is **frozen** at npm `0.10.0`, and `gov-work` starts fresh at
-`1.0.0`. Installing `@svayam-opensource/gov` provides the `gov-work` command; the two
-coexist so adopters migrate at their own pace.
-
-## Layout
-
-ESM + CJS dual `tsc` build, `mocha` + `chai` + `tsx` tests, flat-config `eslint`,
-Node 24.
-
-```
-ts/gov-work/
-  package.json          # @svayam-opensource/gov  (bin: gov)
-  tsconfig.json         # ESM build → lib/esm
-  tsconfig-cjs.json     # CJS build → lib/cjs
-  eslint.config.ts
-  src/                  # source (index.ts = entry + roadmap)
-  test/                 # *.test.ts (mocha) — incl. test/e2e (full-flow gate)
-```
-
-## Develop
+It manages the project lifecycle end to end: create a project from a GitHub Project board, bring
+its repositories onto matching branches, open and land task branches, keep an org-wide knowledge
+base under review, and close the project by promoting what it learned back to `main`.
 
 ```bash
-cd publish/actions/ts
-npm install
-npm run build     # dual tsc → lib/esm + lib/cjs
-npm run lint      # eslint (flat config)
-npm test          # mocha + chai via tsx (unit + coverage + in-process e2e)
-npm run test:e2e  # the mandatory full-flow e2e gate (seed → task → merge)
-
-npm run test:adopter:smoke   # hermetic adopter smoke (real gov binary, stub gh)
-npm run test:adopter         # live adopter journey — needs E2E_ORG + GH_TOKEN
+npm i -g @svayam-opensource/gov
+gov                 # interactive menu
+gov --version
 ```
 
-## Testing — read before adding tests
+**Requires** Node 24+, `git`, and the GitHub CLI (`gh`) authenticated. Run `gov deps` for
+per-OS install hints, or `gov doctor` to check a workspace.
 
-**[`test/README.md`](test/README.md) is the canonical guide.** Two required checks
-gate `main` (`gov-work`, `adopter-smoke (hermetic)`), and **both grow by drop-in —
-you never edit CI or branch protection to add a case:**
+## Getting started
 
-- **Logic / command × flag / content rules** → add a `test/**/*.test.ts` (mocha
-  globs them; picked up by `gov-work`).
-- **Local CLI behavior without real GitHub** (flags, `setup`, resolution,
-  `--gov-home`) → drop an `e2e/smoke.d/NN-name.sh` fragment (`adopter-smoke`
-  sources them in order).
-- **A real-GitHub lifecycle step** → add to `e2e/adopter-journey.sh` (the gated
-  live tier).
+```bash
+gov setup           # bootstrap a workspace: org identity → org-config.yaml → origin
+gov seed            # create a project from a GitHub Project board
+gov task            # open a task sub-branch for an issue, and assign it
+gov merge           # land it back on the project branch and close the issue
+gov close           # knowledge gate → promote to main → close the board
+```
 
-Every bug the live journey surfaces should land a cheap guard in one of the first
-two so it can't regress. See `test/README.md` for the full where-does-it-go table.
+`gov status` and `gov list` show where things stand; `gov validate` runs the governance
+validators (protocol · knowledge · secrets · privacy · version-sync).
+
+## What "governed" means here
+
+Governance is **sourced from `main`**. Your working branch may propose changes to the rules, but a
+proposal does not govern anything until it is merged — so the standard a project is held to is always
+a reviewed one, never whatever happens to be checked out. `gov` reads its knowledge layers fresh
+(org → project → repo → your preferences), highest wins.
+
+That is the whole idea: the rules are text, in git, reviewed by humans, applied by a tool.
+
+## Enterprise deploy (optional)
+
+Catalog and deployment verbs — `catalog`, `deploy`, `promote`, `rollback`, `drift`, `data` — come
+from a separate plugin, `@svayam/gov-cicd`. Install it and they appear in `gov` automatically;
+without it they are simply absent. Nothing in this package requires it.
+
+## Relationship to `@svayam-opensource/prj`
+
+`prj` was the original bash implementation. It is **frozen at `0.10.0`** and still works. This package
+is the TypeScript successor and installs alongside it, so adopters migrate on their own schedule.
+
+## Contributing
+
+Build, test and layout notes are in [CONTRIBUTING.md](https://github.com/svayam-opensource/governed-agentic-dev-framework/blob/main/publish/actions/ts/CONTRIBUTING.md). Tests are additive by
+design: every bug that reaches a user should leave a cheap guard behind so it cannot regress.
 
 ## Command reference
 
-Run `gov-work` with no arguments for the interactive menu (a categorized launcher).
-Every command is reachable both directly (`gov <command>`) and via a menu path
-(`gov-work` ▸ Category ▸ command).
+Run `gov` with no arguments for an interactive menu. Every command is reachable both
+directly (`gov <command>`) and through a menu path (`gov` ▸ Category ▸ command).
 
 | command | menu path | purpose |
 |---|---|---|
@@ -87,9 +86,13 @@ Every command is reachable both directly (`gov <command>`) and via a menu path
 | `upgrade` | Maintain ▸ upgrade | Sync workspace content to the published framework (`--from`/template `--pr`/`--apply`); else CLI self-update guidance |
 | `bump-version` | Maintain ▸ bump-version | Bump the CLI package + content `VERSION` in lockstep |
 | `publish` | Maintain ▸ publish | Pre-publish gate (version-sync); real publish stays governed |
-| `catalog` `deploy` `data` `promote` `rollback` `drift` | Operate ▸ … *(only when `@svayam/gov-cicd` is installed)* | Enterprise catalog + deploy plugin commands |
+
+**Not `gov` commands.** `catalog` `deploy` `data` `promote` `rollback` `drift` `auth` `creds` belong to
+**`gov-cicd`**, and the infrastructure verbs to **`gov-infra`** — separate CLIs, invoked directly
+(`gov-cicd deploy <unit> --env dev`). They are not plugins of `gov`: nothing is discovered, merged or
+delegated. Typing one of them into `gov` tells you which client owns it.
 
 Global flags: `--gov-home <path>` / `$PRJ_GOV_HOME` target an explicit workspace
-(bypassing resolution). `$GOV_LICENSE` unlocks the enterprise plugin.
+(bypassing resolution).
 
 Blueprint: `units/gov-work/SDD.md`.

@@ -2,21 +2,23 @@
 title: gov CLI Conventions
 status: draft (for review)
 owner: rkant@svayam.ai
-applies_to: gov-work (OSS) + gov-cicd (plugin) — the unified `gov` CLI
+applies_to: gov-work, gov-cicd and gov-infra — three independent CLIs
 updated: 2026-07-16
 ---
 
 # gov CLI Conventions
 
-The single source of truth for how every `gov` command looks and behaves. Both packages implement it:
-**gov-work** (OSS host) and **gov-cicd** (internal plugin). Once this is approved, we apply it **wholesale**
-across all commands in one change.
+The single source of truth for how every command in the gov family looks and behaves. All three clients
+implement it: **gov-work** (`gov`), **gov-cicd** and **gov-infra**. They are independent CLIs — none hosts
+the others (adr-three-clients, PRJ-43) — so a shared convention is what makes them feel like one family.
 
 ## 1. Command surface
 
-- **One binary: `gov`.** gov-work provides it and hosts core verbs; gov-cicd delegates the governed verbs
-  (catalog/deploy/promote/rollback/drift/attest). `gov-work`/`gov-cicd` remain as transitional aliases.
-- **All user-facing text says `gov`** — help, prompts, errors, docs. Never `gov-work`/`prj`.
+- **One binary per client.** `gov` (from gov-work) for projects and workspaces; `gov-cicd` for the
+  governed catalog/deploy verbs; `gov-infra` for the infrastructure plane. A verb belongs to exactly one
+  binary, and no binary forwards to another.
+- **Each client's user-facing text names ITS OWN binary** — help, prompts, errors, docs. `gov` says `gov`;
+  `gov-cicd` says `gov-cicd`. Never `prj`.
 - **Verbs are lower-kebab** (`add-repo`, `list-all`, `deploy-check`), grouped by domain in help.
 
 ## 2. Arguments — the core rule
@@ -44,7 +46,7 @@ across all commands in one change.
 | `gov status <project>` | `gov status [--project <id>]` (blank = pick) |
 | `gov seed <board-url> [assignee]` | keep subject positional; `--assignee <login>` |
 | `gov manage assign <login>` | subject positional (`<login>`) — one noun, fine |
-| `gov creds set <service> …` | subject positional (`<service>`) — one noun, fine |
+| `gov-cicd creds set <service> …` | subject positional (`<service>`) — one noun, fine |
 
 ### First publish — adopt outright (no fallback)
 
@@ -116,7 +118,7 @@ string** and never re-parses quotes.
 
 - **stdout = the result/data** (pipeable, `--json` clean); **stderr = banner, prompts, progress, warnings.**
 - **Never silent-empty on failure** — a `gh`/network/auth failure must say *why*, not look like "no results."
-- **Actionable errors:** state the cause + the fix (`… — run \`gov auth login\``).
+- **Actionable errors:** state the cause + the fix (`… — run \`gh auth login\``).
 - **Exit codes:** `0` success · `1` runtime error · `2` usage error.
 
 ## 7. Secrets
