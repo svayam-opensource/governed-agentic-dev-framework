@@ -7,6 +7,7 @@ import { createGhIssues } from "../../src/lifecycle/issues.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
 import type { Issues, IssueState } from "../../src/lifecycle/issues.js";
+import { px, pxAll } from "../helpers/paths.js";
 
 describe("prj-work Phase 2 — branch → board helpers", () => {
   it("projectBranchOf strips the .ISSUE- suffix", () => {
@@ -110,7 +111,7 @@ describe("prj-work Phase 2 — task orchestrator (model A)", () => {
     expect(r.boardNumber).to.equal(43);
     expect(r.projectBranch).to.equal("BRNCH-43-governance-common-project");
     expect(r.taskId).to.equal("BRNCH-43-governance-common-project.ISSUE-123");
-    expect(r.reposBranched).to.deep.equal(["/awr/PRJ-43/svm-prj-work", "/awr/PRJ-43/911-SVM-LIB-SVC"]);
+    expect(pxAll(r.reposBranched)).to.deep.equal(["/awr/PRJ-43/svm-prj-work", "/awr/PRJ-43/911-SVM-LIB-SVC"]);
     expect(r.reposSkipped).to.deep.equal([]);
     // created the sub-branch in both repos
     expect(log.filter((l) => l.startsWith("checkoutNew"))).to.have.lengthOf(2);
@@ -123,8 +124,8 @@ describe("prj-work Phase 2 — task orchestrator (model A)", () => {
     const r = task({ board: fakeBoard(), authorize: () => true,vcs: fakeVcs().vcs, fs: fsPresent(false), issues: fakeIssues().issues }, CONFIG, INPUT);
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
-    expect(r.reposBranched).to.deep.equal(["/awr/PRJ-43/svm-prj-work"]); // only workspace
-    expect(r.reposSkipped).to.deep.equal(["/awr/PRJ-43/911-SVM-LIB-SVC"]);
+    expect(pxAll(r.reposBranched)).to.deep.equal(["/awr/PRJ-43/svm-prj-work"]); // only workspace
+    expect(pxAll(r.reposSkipped)).to.deep.equal(["/awr/PRJ-43/911-SVM-LIB-SVC"]);
   });
 
   it("refuses a closed issue", () => {

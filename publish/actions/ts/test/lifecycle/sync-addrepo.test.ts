@@ -5,6 +5,7 @@ import { sync } from "../../src/lifecycle/sync.js";
 import { addRepo } from "../../src/lifecycle/add-repo.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
+import { px, pxAll } from "../helpers/paths.js";
 
 const CODE_REPO = "https://github.com/Svayamtech/911-SVM-LIB-SVC";
 const GOV = "/awr/PRJ-43/svm-prj-work";
@@ -72,7 +73,7 @@ describe("prj-work Phase 2 — add-repo (repo-on-demand)", () => {
     );
     expect(r.ok).to.equal(true);
     if (r.ok) expect(r.repoDir).to.equal(CODE_DIR);
-    expect(cloned).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
+    expect(pxAll(cloned)).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
     expect(log).to.include(`worktreeAdd ${CODE_DIR} BRNCH-43-governance-common-project`);
   });
 

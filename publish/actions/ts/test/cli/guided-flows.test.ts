@@ -5,7 +5,7 @@ import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpe
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
-import { px } from "../helpers/paths.js";
+import { px, pxAll } from "../helpers/paths.js";
 
 const projects = (boards: Array<{ number: number; title: string; closed?: boolean }>): Projects => ({
   listBoards: () => boards.map((b) => ({ number: b.number, title: b.title, url: `https://github.com/orgs/Acme/projects/${b.number}`, closed: b.closed ?? false })),
@@ -152,10 +152,10 @@ describe("gov-work — guided Work flow", () => {
     };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     const written = writes.map(([p]) => p);
-    expect(written).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude via @-import stub
-    expect(written).to.include("/work/PRJ-9/AGENTS.md");                 // Codex/Cursor — copied
-    expect(written).to.include("/work/PRJ-9/.cursor/rules/agent.mdc");   // Cursor — copied (nested)
-    expect(dirs).to.include("/work/PRJ-9/.cursor/rules");               // mkdirp for the nested path
+    expect(pxAll(written)).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude via @-import stub
+    expect(pxAll(written)).to.include("/work/PRJ-9/AGENTS.md");                 // Codex/Cursor — copied
+    expect(pxAll(written)).to.include("/work/PRJ-9/.cursor/rules/agent.mdc");   // Cursor — copied (nested)
+    expect(pxAll(dirs)).to.include("/work/PRJ-9/.cursor/rules");               // mkdirp for the nested path
     expect(written).to.not.include("/work/PRJ-9/CONVENTIONS.md");        // not rendered here → skipped
   });
 
@@ -166,7 +166,7 @@ describe("gov-work — guided Work flow", () => {
     const byPath = Object.fromEntries(w);
     expect(byPath["/work/PRJ-9/CLAUDE.md"], "protocol loaded at root").to.match(/@acme-gov\/agent\/session-protocol\.md/);
     expect(byPath["/work/PRJ-9/.claude/settings.json"], "fires on a bare/`/clear` launch").to.match(/"SessionStart"/);
-    expect(dirs).to.include("/work/PRJ-9/.claude");
+    expect(pxAll(dirs)).to.include("/work/PRJ-9/.claude");
     expect(agentLaunchSpec("claude", "/work/PRJ-9", "KICK").args, "speak-first on Work launch").to.deep.equal(["KICK"]);
   });
 

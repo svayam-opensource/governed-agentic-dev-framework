@@ -10,7 +10,7 @@ import type { Board, BoardProject } from "../../src/lifecycle/board.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
-import { px } from "../helpers/paths.js";
+import { px, pxAll } from "../helpers/paths.js";
 
 const CONFIG: SeedConfig = {
   govHome: "/gov",
@@ -136,7 +136,7 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     expect(writes.some((w) => w.endsWith("/CLAUDE.md")), "root CLAUDE.md import").to.equal(true);
     expect(writes.some((w) => w.endsWith("/.claude/settings.json")), "Claude SessionStart hook").to.equal(true);
     // base clone was missing → cloned
-    expect(cloned).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
+    expect(pxAll(cloned)).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
     // gov worktree created before the code-repo push; home default pushed
     expect(log).to.include(`worktreeAdd ${ORG_GOV_CLONE} BRNCH-43-governance-common-project`);
     expect(log).to.include("push /gov main");

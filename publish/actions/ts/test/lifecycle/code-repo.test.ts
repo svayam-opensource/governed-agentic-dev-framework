@@ -10,6 +10,7 @@ import { retry } from "../../src/lifecycle/retry.js";
 import { setupCodeRepoWorktree, makeCloneRepo } from "../../src/lifecycle/code-repo.js";
 import { Transaction } from "../../src/lifecycle/transaction.js";
 import { createGitVcs, type Vcs, type FsProbe } from "../../src/lifecycle/vcs.js";
+import { px, pxAll } from "../helpers/paths.js";
 
 describe("prj-work Phase 2 — repo url helpers + retry", () => {
   it("repoNameFromUrl strips path + .git for ssh and https", () => {
@@ -43,7 +44,7 @@ describe("prj-work Phase 2 — repo url helpers + retry", () => {
     it("clones on first use, then fetches, and returns the base-clone path", () => {
       const { io, calls } = mkIo(false);
       const dir = ensureBaseFresh(io, "/w", url, "origin", "dev");
-      expect(dir).to.equal("/w/.bases/repo");
+      expect(px(dir)).to.equal("/w/.bases/repo");
       expect(calls.clone).to.deep.equal([[url, "/w/.bases/repo"]]);
       expect(calls.fetch).to.deep.equal([["/w/.bases/repo", "origin", "dev"]]);
     });
@@ -63,7 +64,7 @@ describe("prj-work Phase 2 — repo url helpers + retry", () => {
         { listBaseDirs: (root) => (root === "/w/.bases" ? ["repo-a", "repo-b"] : []), fetch: (d) => fetched.push(d) },
         "/w",
       );
-      expect(fetched).to.deep.equal(["/w/.bases/repo-a", "/w/.bases/repo-b"]);
+      expect(pxAll(fetched)).to.deep.equal(["/w/.bases/repo-a", "/w/.bases/repo-b"]);
     });
 
     it("no bases present → no fetches (never throws)", () => {
@@ -219,7 +220,7 @@ describe("prj-work Phase 2 — setupCodeRepoWorktree (Phase C)", () => {
     );
     cloneRepo("url", "/dest");
     expect(attempts).to.equal(2);
-    expect(rmDirs).to.deep.equal(["/dest", "/dest"]); // rm before each attempt
+    expect(pxAll(rmDirs)).to.deep.equal(["/dest", "/dest"]); // rm before each attempt
   });
 });
 
