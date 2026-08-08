@@ -42,8 +42,8 @@ describe("prj-work Phase 2 — sync", () => {
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
     expect(pxDeep(r.synced)).to.deep.equal([GOV, CODE_DIR]);
-    expect(log).to.include(`fetch ${GOV} main`); // workspace from default
-    expect(log).to.include(`fetch ${CODE_DIR} dev`); // code repo from base
+    expect(pxAll(log)).to.include(`fetch ${GOV} main`); // workspace from default
+    expect(pxAll(log)).to.include(`fetch ${CODE_DIR} dev`); // code repo from base
     expect(log.filter((l) => l.startsWith("push")).length).to.equal(2);
   });
 
@@ -74,7 +74,7 @@ describe("prj-work Phase 2 — add-repo (repo-on-demand)", () => {
     expect(r.ok).to.equal(true);
     if (r.ok) expect(px(r.repoDir)).to.equal(CODE_DIR);
     expect(pxAll(cloned)).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
-    expect(log).to.include(`worktreeAdd ${CODE_DIR} BRNCH-43-governance-common-project`);
+    expect(pxAll(log)).to.include(`worktreeAdd ${CODE_DIR} BRNCH-43-governance-common-project`);
   });
 
   it("fails (with rollback) when the base branch is missing", () => {

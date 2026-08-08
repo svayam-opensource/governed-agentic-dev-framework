@@ -5,7 +5,7 @@ import { onboard } from "../../src/lifecycle/onboard.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
-import { px } from "../helpers/paths.js";
+import { px, pxAll } from "../helpers/paths.js";
 
 const CONFIG = { agentWorkRoot: "/awr", workspaceRepo: "svm-prj-work", orgName: "Svayam" };
 const INPUT = { repoUrl: "https://github.com/Svayamtech/new-svc", description: "a new service", owner: "team-x" };
@@ -42,7 +42,7 @@ describe("prj-work — onboard", () => {
     expect(r.branch).to.equal("onboard-knowledge");
     expect(px(w.cloned[0])).to.match(/new-svc->\/awr\/onboard\/new-svc/);
     // scaffolded the four knowledge files
-    expect(w.writes.some((f) => f.endsWith("knowledge/agent.md"))).to.equal(true);
+    expect(pxAll(w.writes).some((f) => f.endsWith("knowledge/agent.md"))).to.equal(true);
     expect(w.writes.filter((f) => f.includes("knowledge/repo/"))).to.have.lengthOf(3);
     // branched + committed + pushed
     expect(w.log).to.include("checkoutNew onboard-knowledge");

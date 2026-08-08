@@ -10,7 +10,7 @@ import type { Board, BoardProject } from "../../src/lifecycle/board.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
-import { px, pxAll } from "../helpers/paths.js";
+import { px, pxAll, pxDeep } from "../helpers/paths.js";
 
 const CONFIG: SeedConfig = {
   govHome: "/gov",
@@ -124,7 +124,7 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     expect(r.projectId).to.equal("PRJ-43-governance-common-project");
     expect(r.branch).to.equal("BRNCH-43-governance-common-project");
     expect(px(r.orgGovClone)).to.equal(ORG_GOV_CLONE);
-    expect(r.repos).to.deep.equal([
+    expect(pxDeep(r.repos)).to.deep.equal([
       { name: "911-SVM-LIB-SVC", url: CODE_REPO, repoDir: "/awr/PRJ-43-governance-common-project/911-SVM-LIB-SVC" },
     ]);
     expect(r.anchorRef).to.equal("Svayamtech/svm-prj-work#1");

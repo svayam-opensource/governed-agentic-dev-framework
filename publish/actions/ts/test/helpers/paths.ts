@@ -20,6 +20,16 @@
 /** Normalise separators for comparison: `a\b` → `a/b`. Identity on POSIX. */
 export const px = (p: string): string => p.replace(/\\/g, "/");
 
+/**
+ * Also undo the DRIVE LETTER. `path.resolve("/gov")` is `/gov` on POSIX but `D:\\gov` on Windows — whatever
+ * drive the checkout happens to sit on. A test that writes `/gov` means "a rooted path", not "a path on D:",
+ * so a double keyed on `/gov` should still recognise it. The pattern also matches a path embedded in a
+ * message (`Registered Svayamtech → D:/gov`), which is where these show up most.
+ *
+ * Identity on POSIX: nothing there produces an `X:/` prefix.
+ */
+export const pxAbs = (s: string): string => px(s).replace(/(^|[\s'"(→=])[A-Za-z]:\//g, "$1/");
+
 /** Normalise every path in a list — for assertions that compare produced paths against POSIX literals. */
 export const pxAll = (ps: readonly string[]): string[] => ps.map(px);
 
@@ -27,11 +37,13 @@ export const pxAll = (ps: readonly string[]): string[] => ps.map(px);
  * Normalise every string inside a value — arrays, objects, nested. For assertions that compare a whole
  * structure of produced paths against POSIX literals, where wrapping each element would be noise.
  *
+ * Uses `pxAbs`, so a resolved `D:\\work\\PRJ-7` still matches the `/work/PRJ-7` the test wrote.
+ *
  * Use it on the ACTUAL, never to build an expectation: an expectation that has been normalised asserts
  * nothing about separators, and one day that will matter.
  */
 export function pxDeep<T>(v: T): T {
-  if (typeof v === "string") return px(v) as unknown as T;
+  if (typeof v === "string") return pxAbs(v) as unknown as T;
   if (Array.isArray(v)) return v.map(pxDeep) as unknown as T;
   if (v && typeof v === "object") {
     return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, pxDeep(x)])) as T;

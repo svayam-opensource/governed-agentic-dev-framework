@@ -69,7 +69,7 @@ function workspaceCtx(files: Record<string, string>, extraDirs: string[] = []): 
   }
   const fsx: Fs = {
     pathExists: (p) => existing.has(px(path.relative("/repo", p))),
-    readFile: (p) => files[path.relative("/repo", p)] ?? null,
+    readFile: (p) => files[px(path.relative("/repo", p))] ?? null,   // key alike on both sides
     mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
   };
   return { fs: fsx, repoRoot: "/repo", files: Object.keys(files) };

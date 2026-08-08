@@ -61,7 +61,7 @@ describe("prj-work Phase 2 — repo url helpers + retry", () => {
     it("fetches origin for each base-clone dir under <basesRoot>", () => {
       const fetched: string[] = [];
       syncAllBases(
-        { listBaseDirs: (root) => (root === "/w/.bases" ? ["repo-a", "repo-b"] : []), fetch: (d) => fetched.push(d) },
+        { listBaseDirs: (root) => (px(root) === "/w/.bases" ? ["repo-a", "repo-b"] : []), fetch: (d) => fetched.push(d) },
         "/w",
       );
       expect(pxAll(fetched)).to.deep.equal(["/w/.bases/repo-a", "/w/.bases/repo-b"]);
@@ -153,7 +153,7 @@ describe("prj-work Phase 2 — setupCodeRepoWorktree (Phase C)", () => {
       PARAMS,
     );
     expect(pxDeep(out)).to.deep.equal({ repoDir: REPO_DIR, baseClone: BASE_CLONE });
-    expect(clonedTo).to.deep.equal([BASE_CLONE]);
+    expect(pxDeep(clonedTo)).to.deep.equal([BASE_CLONE]);
     expect(pxDeep(calls)).to.deep.equal([
       `worktreeAdd ${REPO_DIR} ${PARAMS.projectBranch}`,
       `setIdentity ${REPO_DIR}`,
@@ -169,7 +169,7 @@ describe("prj-work Phase 2 — setupCodeRepoWorktree (Phase C)", () => {
       { vcs, fs: { pathExists: () => true }, tx: new Transaction(), cloneRepo: (_u, d) => clonedTo.push(d) },
       PARAMS,
     );
-    expect(clonedTo).to.deep.equal([]);
+    expect(pxDeep(clonedTo)).to.deep.equal([]);
   });
 
   it("rollback removes the worktree/branch and deletes the pushed branch (LIFO)", () => {
