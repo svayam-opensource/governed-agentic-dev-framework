@@ -21,6 +21,21 @@ export interface OrgConfig {
   readonly orgRepoUrl: string;
   readonly defaultBranch: string;
   readonly defaultCodeBranch: string;
+  /**
+   * `env_branches` — the env branches BETWEEN `default_branch` and `default_code_branch`, HIGHEST FIRST
+   * (e.g. `[uat]`, or `[uat, sit]`). Absent → the two-rung ladder, which is what every adopter has before
+   * they configure anything.
+   *
+   * Read by `close`, which must land a project branch in its base and then every branch below it — a HOTFIX
+   * is cut from a higher env branch and has to reach both (adr-hotfix-release-line, PRJ-43).
+   *
+   * DELIBERATELY A SECOND COPY of something the deploy side also knows. `deploy-policy.yaml`'s `promotion:`
+   * graph describes what may ADVANCE INTO what, with fan-out (`dev → [sit, uat]`); this is an ORDER to merge
+   * in. A graph with fan-out has no single order, so deriving one here would mean gov-work picking a path
+   * and calling it the answer. Two clients, two questions, one written down in each place — recorded here so
+   * the duplication is a decision rather than something a later reader has to guess at (rkant, 2026-08-09).
+   */
+  readonly envBranches: readonly string[];
   /** `agent_work_root`, expanded to an absolute path. */
   readonly agentWorkRoot: string;
   /** `gov_workspace`, expanded to an absolute path. */
@@ -41,6 +56,34 @@ export interface OrgConfig {
 }
 
 /** Parse `org-config.yaml` text into a typed {@link OrgConfig}. Pure. */
+/** Read a scalar under the `services:` block (one indent level), stripping quotes + inline comments. */
+/**
+ * Read a top-level YAML list — both the block form and the inline form:
+ *
+ *   env_branches:        env_branches: [uat, sit]
+ *     - uat
+ *     - sit
+ *
+ * Kept as narrow as the scalar reader beside it: this file parses org-config in-process precisely so the
+ * CLI needs no YAML dependency, and a general parser is not what is being asked for.
+ */
+function readTopLevelList(text: string, key: string): string[] {
+  const clean = (v: string): string => v.trim().replace(/\s+#.*$/, "").replace(/^["']|["']$/g, "").trim();
+  const lines = text.split(/\r?\n/);
+  const at = lines.findIndex((l) => new RegExp(`^${key}:`).test(l));
+  if (at === -1) return [];
+  const inline = new RegExp(`^${key}:\\s*\\[(.*)\\]`).exec(lines[at]!);
+  if (inline) return inline[1]!.split(",").map(clean).filter(Boolean);
+  const out: string[] = [];
+  for (const line of lines.slice(at + 1)) {
+    if (/^\S/.test(line)) break;                       // dedent → end of the block
+    const m = /^\s+-\s*(.+)$/.exec(line);
+    if (m) out.push(clean(m[1]!));
+    else if (line.trim()) break;                       // a non-item under the key → not our list
+  }
+  return out.filter(Boolean);
+}
+
 /** Read a scalar under the `services:` block (one indent level), stripping quotes + inline comments. */
 function readServiceScalar(text: string, key: string): string | undefined {
   let inServices = false;
@@ -71,6 +114,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
   const orgRepoUrl = get("org_repo_url");
   const defaultBranch = get("default_branch");
   const defaultCodeBranch = get("default_code_branch");
+  const envBranches = readTopLevelList(text, "env_branches");
   const agentWorkRoot = expandTilde(get("agent_work_root"), home);
   const govWorkspace = expandTilde(get("gov_workspace"), home);
   const policyOwnerEmail = get("policy_owner_email");
@@ -102,6 +146,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
     orgRepoUrl,
     defaultBranch,
     defaultCodeBranch,
+    envBranches,
     agentWorkRoot,
     govWorkspace,
     policyOwnerEmail,
