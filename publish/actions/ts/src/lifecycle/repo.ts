@@ -65,3 +65,14 @@ export function syncAllBases(
   const root = basesRoot(agentWorkRoot);
   for (const name of io.listBaseDirs(root)) io.fetch(path.join(root, name), remote);
 }
+
+/**
+ * `https://github.com/Svayamtech/911-SVM-LIB-SVC` / `git@github.com:O/name.git` → `O/name`.
+ *
+ * The DIRECTORY a repo is cloned into does not carry its owner, and a PR needs one. Returns undefined for
+ * anything that is not an owner/name GitHub repo, so the caller reports it rather than guessing an owner.
+ */
+export function repoSlugFromUrl(url: string): string | undefined {
+  const m = /(?:github\.com[/:])([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim());
+  return m ? `${m[1]}/${m[2]}` : undefined;
+}

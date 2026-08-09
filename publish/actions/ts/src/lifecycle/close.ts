@@ -18,10 +18,11 @@ import type { Fs } from "./fs-io.js";
 import type { Issues } from "./issues.js";
 import type { Pulls } from "./pulls.js";
 import type { BoardRef } from "./identity.js";
-import { repoNameFromUrl } from "./repo.js";
+import { repoNameFromUrl, repoSlugFromUrl } from "./repo.js";
 import { projectBranchOf, boardNumberFromBranch } from "./task.js";
 import { closeGate, type GateResult } from "./close-gate.js";
 import { archiveBranch } from "./merge.js";
+import { envLadder, mergeChain, baseBranchOf } from "./merge-chain.js";
 
 export interface CloseConfig {
   readonly githubOrg: string;
@@ -30,6 +31,9 @@ export interface CloseConfig {
   readonly defaultBranch: string;
   /** The base branch code repos merge back into (model A: no stored base). */
   readonly defaultCodeBranch: string;
+  /** env branches BETWEEN defaultBranch and defaultCodeBranch, highest first (e.g. ["uat"]). Absent → the
+   *  two-rung ladder, which is correct for every estate that has not declared more. */
+  readonly envBranches?: readonly string[];
   readonly remote?: string;
 }
 
@@ -65,6 +69,7 @@ export interface CloseSuccess {
 
 export type CloseFailReason =
   | "not-a-project-branch"
+  | "ambiguous-base"
   | "knowledge-gate"
   | "test-merge-gate"
   | "unauthorized"
@@ -120,21 +125,37 @@ export function close(deps: CloseDeps, config: CloseConfig, input: CloseInput): 
   }
 
   // ── Merge code-repo branches → base, LOCAL ONLY (push deferred past the gate) ─
-  const codeRepoDirs = deps.board
+  const codeRepos = deps.board
     .fetchProject(ref)
     .repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo)
-    .map((u) => path.join(input.projectWorkRoot, repoNameFromUrl(u)))
-    .filter((d) => (deps.fs as FsProbe).pathExists(path.join(d, ".git")));
+    .map((u) => ({ dir: path.join(input.projectWorkRoot, repoNameFromUrl(u)), slug: repoSlugFromUrl(u) }))
+    .filter((r) => (deps.fs as FsProbe).pathExists(path.join(r.dir, ".git")));
+  const codeRepoDirs = codeRepos.map((r) => r.dir);
+
+  // WHERE THIS BRANCH MUST LAND. An ordinary project was cut from `defaultCodeBranch` and the chain is that
+  // one branch — byte-identical to the previous behaviour. A HOTFIX was cut from a higher env branch, and
+  // must reach that one (or production is never fixed) AND every branch below it (or the next ordinary
+  // release silently reverts it). See merge-chain.ts.
+  const baseRead = baseBranchOf(deps.fs.readFile(path.join(projectDir, "project.yaml")), config.defaultCodeBranch);
+  if ("error" in baseRead) {
+    return { ok: false, code: 1, reason: "ambiguous-base", message: `Cannot close ${projectId}: ${baseRead.error}` };
+  }
+  const chain = mergeChain(baseRead.base, envLadder(config, config.envBranches ?? []));
+  // The release branch is GOVERNED — its leg is a PR, never a push (the same rule the deploy side applies
+  // to `base_ref`). Split here so the loop below only ever merges branches we may push.
+  const prLegs = chain.filter((b) => b === config.defaultBranch);
+  const pushLegs = chain.filter((b) => b !== config.defaultBranch);
 
   const merged: string[] = [];
   for (const dir of codeRepoDirs) {
-    const base = config.defaultCodeBranch;
-    deps.vcs.fetch(dir, remote, base);
-    deps.vcs.fetch(dir, remote, projectBranch);
-    deps.vcs.checkout(dir, base);
-    if (!deps.vcs.isAncestor(dir, projectBranch, base)) {
-      if (deps.vcs.mergeNoEdit(dir, projectBranch) === "conflict") {
-        return { ok: false, code: 2, reason: "code-merge-conflict", message: `Merge conflict: ${projectBranch} → ${base} in ${dir}. Resolve, commit, then re-run.`, repoDir: dir };
+    for (const base of pushLegs) {
+      deps.vcs.fetch(dir, remote, base);
+      deps.vcs.fetch(dir, remote, projectBranch);
+      deps.vcs.checkout(dir, base);
+      if (!deps.vcs.isAncestor(dir, projectBranch, base)) {
+        if (deps.vcs.mergeNoEdit(dir, projectBranch) === "conflict") {
+          return { ok: false, code: 2, reason: "code-merge-conflict", message: `Merge conflict: ${projectBranch} → ${base} in ${dir}. Resolve, commit, then re-run.`, repoDir: dir };
+        }
       }
     }
     merged.push(dir);
@@ -144,8 +165,23 @@ export function close(deps: CloseDeps, config: CloseConfig, input: CloseInput): 
   const g = deps.gate();
   if (!g.ok) return { ok: false, code: 1, reason: "test-merge-gate", message: "Test-merge gate failed — nothing pushed.", failures: g.failures };
 
-  // ── Gate passed — push code bases, then promote the branch via PR ───────────
-  for (const dir of merged) deps.vcs.push(dir, remote, config.defaultCodeBranch);
+  // ── Gate passed — SHIP FIRST, THEN PROTECT ─────────────────────────────────
+  // The release-branch leg goes first: if a lower leg conflicts, the fix has already reached the branch
+  // that needed it and this branch survives for someone to resolve the rest. The reverse order would leave
+  // production unfixed while a merge nobody is waiting for blocks the close.
+  for (const { dir, slug } of codeRepos.filter((r) => merged.includes(r.dir))) {
+    for (const base of prLegs) {
+      if (!slug) {
+        return { ok: false, code: 1, reason: "pr-merge-failed", message: `Cannot open the ${base} PR for ${dir}: its board URL is not an owner/name GitHub repo.` };
+      }
+      const url = deps.pulls.create(slug, base, projectBranch, `close-project: ${projectId} → ${base}`,
+        `Automated project close for **${projectId}** (${input.today}). Lands the hotfix branch on the governed release branch \`${base}\`.`);
+      if (deps.pulls.merge(slug, projectBranch) === "failed") {
+        return { ok: false, code: 1, reason: "pr-merge-failed", message: `Could not merge ${projectBranch} → ${base} in ${slug}${url ? ` (${url})` : ""}. Merge it manually, then re-run.` };
+      }
+    }
+  }
+  for (const dir of merged) for (const base of pushLegs) deps.vcs.push(dir, remote, base);
 
   deps.vcs.push(input.govClone, remote, projectBranch);
   const prUrl = deps.pulls.create(
