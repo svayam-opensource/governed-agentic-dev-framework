@@ -38,6 +38,18 @@ default_branch: "main"
 # Default base branch for code repositories (used by seed script)
 default_code_branch: "dev"
 
+# The env branches BETWEEN default_branch and default_code_branch, HIGHEST FIRST.
+# Leave it out and the ladder is just [default_branch, default_code_branch], which
+# is right until you have a uat branch.
+#
+# `close` uses it to land a project branch in its base AND every branch below:
+# an ordinary project is cut from `dev` and lands in `dev`; a HOTFIX is cut from a
+# higher env branch and must reach that one (or production is never fixed) and every
+# branch below it (or the next ordinary release silently reverts the fix).
+#
+#   env_branches:
+#     - uat
+
 # Per-project workspaces are created under this path. Each gets its own
 # folder containing a clone of this workspace repo on the project branch
 # plus clones of each impacted code repo on the project branch.

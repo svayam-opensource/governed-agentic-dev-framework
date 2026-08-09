@@ -52,6 +52,30 @@ describe("prj-work — parseOrgConfig", () => {
     });
   });
 
+  it("env_branches: block form, order preserved — the ladder is an ORDER, not a set", () => {
+    const c = parseOrgConfig(`${ORG_CONFIG}env_branches:\n  - uat\n  - sit\n`, "/home/rk");
+    expect(c.envBranches).to.deep.equal(["uat", "sit"]);
+  });
+
+  it("env_branches: inline form parses the same", () => {
+    expect(parseOrgConfig(`${ORG_CONFIG}env_branches: [uat, sit]\n`, "/home/rk").envBranches).to.deep.equal(["uat", "sit"]);
+  });
+
+  it("env_branches: quotes and trailing comments are stripped", () => {
+    const c = parseOrgConfig(`${ORG_CONFIG}env_branches:\n  - "uat"   # the cut env\n`, "/home/rk");
+    expect(c.envBranches).to.deep.equal(["uat"]);
+  });
+
+  it("env_branches: absent → empty, which is the two-rung ladder every adopter starts with", () => {
+    expect(parseOrgConfig(ORG_CONFIG, "/home/rk").envBranches).to.deep.equal([]);
+  });
+
+  it("env_branches: the list ENDS at a dedent — it never swallows the next key", () => {
+    // A greedy reader would have taken `policy_owner_email` as a rung and close would merge into it.
+    const c = parseOrgConfig(`${ORG_CONFIG}env_branches:\n  - uat\ngov_account: "1000"\n`, "/home/rk");
+    expect(c.envBranches).to.deep.equal(["uat"]);
+  });
+
   it("tolerates missing keys (empty strings, no throw)", () => {
     const c = parseOrgConfig("github_org: X\n", "/home/rk");
     expect(c.githubOrg).to.equal("X");
