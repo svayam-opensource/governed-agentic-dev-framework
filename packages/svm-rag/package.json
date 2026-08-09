@@ -1,0 +1,51 @@
+{
+  "name": "@svayam/svm-rag",
+  "version": "0.1.0",
+  "description": "Svayam self-hosted RAG retrieval engine (Form 3) — local Ollama embeddings + Qdrant, REST + MCP over the org-knowledge corpus. PRJ-010 Track B (#40). No corpus egress.",
+  "type": "module",
+  "main": "./lib/esm/index.js",
+  "module": "./lib/esm/index.js",
+  "types": "./lib/esm/index.d.ts",
+  "exports": {
+    ".": "./lib/esm/index.js"
+  },
+  "bin": {
+    "svm-rag": "./bin/svm-rag.mjs"
+  },
+  "files": [
+    "lib/",
+    "bin/"
+  ],
+  "scripts": {
+    "clean": "rm -rf lib",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/**/*.test.ts'",
+    "serve": "tsx src/api/server-main.ts",
+    "ingest": "tsx bin/svm-rag.mjs ingest",
+    "eval": "tsx bin/svm-rag.mjs eval",
+    "verify": "npm run lint && npm run test",
+    "ci:gate": "npm run verify"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/express": "^5.0.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.3.1",
+    "chai": "^4.5.0",
+    "eslint": "^10.1.0",
+    "mocha": "^10.8.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.1.6",
+    "typescript-eslint": "^8.56.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.svayamtech.com"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
