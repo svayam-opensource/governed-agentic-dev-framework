@@ -89,7 +89,7 @@ If any of these can't be verified, hard-stop and surface to the human. Do not co
 During an active project:
 
 - ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$AGENT_WORK_ROOT/<PROJECT_ID>/`.
-- ❌ Read-only: `<WORKSPACE_REPO>/knowledge/` — never edit during an active project.
+- ⚠️ Org `knowledge/` **may** be edited on the project branch, but such edits are **proposals with no governing force** until merged to `<DEFAULT_BRANCH>` (POL-086b). Never treat your own unratified edits as authority.
 - ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
 - ❌ Don't create GitHub Issues unilaterally — those represent business intent that humans add to the GitHub Project board.
 

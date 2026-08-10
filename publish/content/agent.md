@@ -45,11 +45,19 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 4. Load all four knowledge layers fresh (never use cached layers from a prior session)
 5. Pull latest `BRNCH-<board#>-<slug>` branch in all repos
 
-## Write Restrictions During Active Projects
+## Governance Authority & Project-Branch Proposals (C01)
 
-During an active project, NO changes are allowed to `knowledge/` (C01).
-All writes must be constrained to `projects/PRJ-<board#>-<slug>/` only.
-Org knowledge is read-only during projects — updated only via knowledge close PRs.
+Governance is sourced from **`<DEFAULT_BRANCH>`**: your session-start context and all governing
+knowledge/policy (`knowledge/`, `agent/session-protocol.md`, `policies/`) are built from
+`<DEFAULT_BRANCH>`, never from the project branch (POL-086a). Project work — **including edits to org
+`knowledge/`** — is committed to the **project branch**, where such edits are **proposals with no
+governing force**. Never self-govern by your own unratified edits. Project-specific context
+(`projects/PRJ-<board#>-<slug>/…`) is read from the project branch (POL-086b).
+
+A `knowledge/` change becomes organizational standard only when merged to `<DEFAULT_BRANCH>` via a PR
+approved by the Policy Owner **and** the CODEOWNERS domain owner(s) whose folders it touches — all
+owners for `policies/`/`mandates/` (POL-086c). See
+`knowledge/policies/agentic-development-policy.md` §6.4.
 
 ## Data Classification — Hard Rules
 

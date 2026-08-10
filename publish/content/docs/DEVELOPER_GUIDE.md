@@ -212,7 +212,7 @@ Harness registry (all tools): [`agent/harness-manifest.yaml`](../agent/harness-m
   - any other domain-specific files as needed (`security.md`, `migrations.md`, etc.).
 - **Intermediate to-dos** go in `projects/PRJ-001-feature-x/knowledge/todo.md` under `## Open`. Capture them as they arise, not at session end.
 - **NEVER** edit:
-  - The workspace repo's `knowledge/` (read-only during the project).
+  - The workspace repo's `knowledge/` (editable on the project branch, but only as a proposal — POL-086b).
   - Task state by hand — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
   - GitHub Issues unilaterally — those represent business intent humans add to the board.
 
