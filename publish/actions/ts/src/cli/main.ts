@@ -56,7 +56,7 @@ function tryRun(cmd: string, args: string[]): string | undefined {
 }
 
 /**
- * `gov-work setup` — the interactive workspace BOOTSTRAP (port of setup.sh). Async
+ * `gov setup` — the interactive workspace BOOTSTRAP (port of setup.sh). Async
  * (readline prompts), so bin.ts routes it here instead of through sync `main`.
  * Runs in cwd (the cloned framework repo), before any resolution.
  */
@@ -69,7 +69,7 @@ export async function runSetupCommand(
   const nonInteractiveFlag = !("error" in parsed) && "non-interactive" in parsed.flags;
   const fs = createNodeFs();
   if (tryRun("git", ["-C", cwd, "rev-parse", "--git-dir"]) === undefined) {
-    process.stderr.write("gov-work setup: not a git repository — clone the framework repo (or `git init`) first.\n");
+    process.stderr.write("gov setup: not a git repository — clone the framework repo (or `git init`) first.\n");
     return 1;
   }
   const originUrl = tryRun("git", ["-C", cwd, "remote", "get-url", "origin"]) ?? "";
@@ -441,7 +441,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     return r.code;
   }
 
-  // `gov-work deps` — report runtime prerequisites (git/gh); pre-resolve.
+  // `gov deps` — report runtime prerequisites (git/gh); pre-resolve.
   // `deps` folded into `doctor` (PRJ-43, 2026-08-07): doctor already probes git and gh, so two verbs were
   // answering one question. Kept working, and it says where it went — a removed command that only prints
   // "unknown" costs whoever typed it next.
@@ -457,7 +457,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     return gate.ok ? 0 : 1;
   }
 
-  // `gov-work upgrade --from <content-dir> [--apply]` — overlay-sync an adopter
+  // `gov upgrade --from <content-dir> [--apply]` — overlay-sync an adopter
   // workspace to the published content (dry-run by default). Without --from it's
   // the CLI self-update guidance.
   if (parsed.command === "upgrade") {
@@ -492,7 +492,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           contentDir = fetched.contentDir;
           cleanup = fetched.cleanup;
         } catch (e) {
-          process.stderr.write(`gov-work upgrade: ${(e as Error).message}\n`);
+          process.stderr.write(`gov upgrade: ${(e as Error).message}\n`);
           return 1;
         }
       }
@@ -587,7 +587,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   }
   const config = parseOrgConfig(cfgText);
 
-  // `gov-work validate` — run the governance validate suite on the resolved workspace.
+  // `gov validate` — run the governance validate suite on the resolved workspace.
   if (parsed.command === "validate") {
     const files = (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean);
     // THE CHANGED SCOPE — what this branch touches, so POL-408 is enforced on docs you WROTE without

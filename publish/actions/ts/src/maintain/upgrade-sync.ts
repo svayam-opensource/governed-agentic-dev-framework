@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * `gov-work upgrade` overlay-sync engine — bring an adopter's gov workspace from its
+ * `gov upgrade` overlay-sync engine — bring an adopter's gov workspace from its
  * current state to the published framework CONTENT, so the installed `gov-work`
  * actions work against a correct layout. Pure over injected readers (dry-run
  * planner) + a small applier; no network. The MANIFEST (publish/content/

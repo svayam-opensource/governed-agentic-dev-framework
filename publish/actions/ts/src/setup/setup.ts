@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * `gov-work setup` (port of setup.sh) — the one-time workspace BOOTSTRAP: gather org
+ * `gov setup` (port of setup.sh) — the one-time workspace BOOTSTRAP: gather org
  * identity, generate `org-config.yaml` (the single source of truth), and point
  * `origin` at the org repo. Runs in the cloned framework repo, BEFORE resolution
  * (it's what makes a gov workspace exist). This module is the pure core (render +
@@ -105,7 +105,7 @@ export function renderOrgConfig(v: OrgConfigValues): string {
 # Single source of truth for this organization's identity, defaults, and roles.
 # The gov-work CLI and agents read these values at runtime — no placeholder
 # substitution — so this file is the only thing that diverges from the upstream
-# framework template. Re-run \`gov-work setup\` to update; avoid editing by hand.
+# framework template. Re-run \`gov setup\` to update; avoid editing by hand.
 
 # Full legal name of your organization
 org_name: "${v.orgName}"

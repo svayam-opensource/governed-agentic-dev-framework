@@ -15,7 +15,7 @@
  *   O1 set but no home       → hardstop (register a home)
  *
  * The resolver is PURE and SIDE-EFFECT-FREE — it only reads. The registry is
- * populated by `gov-work org add` / setup, never by resolution (no self-heal), so a
+ * populated by `gov org add` / setup, never by resolution (no self-heal), so a
  * transient project-clone path can never pollute it.
  */
 

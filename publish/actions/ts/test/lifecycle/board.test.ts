@@ -31,6 +31,8 @@ function ghResponse(over: {
   title?: string | null;
   desc?: string | null;
   nodes?: Array<{ content: unknown | null }>;
+  hasNextPage?: boolean;
+  endCursor?: string | null;
 } = {}): string {
   return JSON.stringify({
     data: {
@@ -39,7 +41,10 @@ function ghResponse(over: {
           id: "PVT_x",
           title: over.title === undefined ? "@Governance Common Project" : over.title,
           shortDescription: over.desc === undefined ? "the prj CLI" : over.desc,
-          items: { nodes: over.nodes ?? [{ content: { url: "u" } }, { content: null }] },
+          items: {
+            pageInfo: { hasNextPage: over.hasNextPage ?? false, endCursor: over.endCursor ?? null },
+            nodes: over.nodes ?? [{ content: { url: "u" } }, { content: null }],
+          },
         },
       },
     },
@@ -136,5 +141,52 @@ describe("prj-work Phase 2 — gh board adapter", () => {
       throw new Error("gh: not found");
     });
     expect(() => board.fetchProject(ORG_REF)).to.throw(BoardFetchError, /gh failed/);
+  });
+
+  // Regression for #148. The query used to be items(first: 50) with no pageInfo
+  // and no loop, so a board larger than one page silently lost everything past
+  // the cap — including whole repositories, which made task/merge/sync skip them
+  // while still reporting success. A bigger page size is not a fix: 100 is
+  // GraphQL's maximum, so the cliff would only move.
+  it("paginates: a board spanning two pages yields BOTH repos, not just page one", () => {
+    const repoNode = (url: string) => ({ content: { repository: { url } } });
+    const pages = [
+      // Page one is entirely repo A — exactly the shape that hid the bug.
+      ghResponse({
+        nodes: Array.from({ length: 100 }, () => repoNode("https://github.com/O/a")),
+        hasNextPage: true,
+        endCursor: "CURSOR_1",
+      }),
+      ghResponse({ nodes: [repoNode("https://github.com/O/b")], hasNextPage: false }),
+    ];
+    const calls: string[][] = [];
+    const board = createGhBoard((args) => {
+      calls.push(args);
+      return pages[calls.length - 1];
+    });
+
+    const p = board.fetchProject(ORG_REF);
+
+    expect(calls).to.have.lengthOf(2);
+    expect(calls[0][3]).to.not.include("after:");
+    expect(calls[1][3]).to.include('after: "CURSOR_1"');
+    expect(p.repoUrls).to.deep.equal(["https://github.com/O/a", "https://github.com/O/b"]);
+    expect(p.linkedItemCount).to.equal(101);
+  });
+
+  it("requests the GraphQL maximum page size and asks for pageInfo", () => {
+    const q = buildProjectQuery(ORG_REF);
+    expect(q).to.include("items(first: 100");
+    expect(q).to.include("pageInfo { hasNextPage endCursor }");
+    expect(buildProjectQuery(ORG_REF, "ABC")).to.include('after: "ABC"');
+  });
+
+  it("refuses to return a partial board if paging never terminates", () => {
+    // A server that always says hasNextPage must not spin forever, and must not
+    // quietly hand back whatever it managed to read.
+    const board = createGhBoard(() =>
+      ghResponse({ nodes: [], hasNextPage: true, endCursor: "SAME" }),
+    );
+    expect(() => board.fetchProject(ORG_REF)).to.throw(BoardFetchError, /did not terminate/);
   });
 });
