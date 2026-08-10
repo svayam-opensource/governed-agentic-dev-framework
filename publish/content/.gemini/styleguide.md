@@ -63,7 +63,7 @@ Read `org-config.yaml` at the workspace repo root before anything else. The fram
 
 Tokens like `<PROJECT_ID>`, `<repo-name>`, `<your-gh-login>` are per-session values you'll discover from the current branch, the GitHub Project board, and `gh api user`.
 
-If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE state. Hard-stop and tell the human to run `gov-work setup`.
+If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE state. Hard-stop and tell the human to run `gov setup`.
 
 ## 2. Load four knowledge layers — fresh every session
 
@@ -80,7 +80,7 @@ Higher layers always win. Developer preferences cannot override repo-local or or
 
 If a project is active:
 
-- Confirm you are authorized: you have **write access to the project's linked GitHub Project** (the authorization source of truth — an owner grants it via `gov-work manage assign`). There is no `project.yaml` — GitHub Project write access is the sole gate. When on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is you.
+- Confirm you are authorized: you have **write access to the project's linked GitHub Project** (the authorization source of truth — an owner grants it via `gov manage assign`). There is no `project.yaml` — GitHub Project write access is the sole gate. When on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is you.
 - The project's GitHub board must be **open** (an open board = active).
 - Read `projects/<PROJECT_ID>/knowledge/todo.md` and surface its `## Open` items to the developer before planning new work.
 
@@ -92,7 +92,7 @@ During an active project:
 
 - ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$AGENT_WORK_ROOT/<PROJECT_ID>/`.
 - ❌ Read-only: `<WORKSPACE_REPO>/knowledge/` — never edit during an active project.
-- ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov-work task`, land with `gov-work merge`.
+- ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
 - ❌ Don't create GitHub Issues unilaterally — those represent business intent that humans add to the GitHub Project board.
 
 ## 5. Where work happens

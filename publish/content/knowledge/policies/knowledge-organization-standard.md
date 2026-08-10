@@ -131,7 +131,7 @@ becomes trivial (Section 7).
   checks only presence + structure** (manifest exists, every section filled, no
   `TBD`). A `graduate` disposition is satisfied only when its proposal PR is
   **merged**, not merely open. **(POL-413, C01)**
-- **`gov-work close`'s gate enforces the manifest** alongside `compliance.md`:
+- **`gov close`'s gate enforces the manifest** alongside `compliance.md`:
   the manifest must be present, structurally complete (all sections), and free
   of `TBD`/`TODO` placeholders before the project can be marked closed.
   **(POL-414, C01)**
@@ -179,6 +179,6 @@ is the adaptation point. **(POL-417, C03)**
 
 Executed in phases (P2 scaffold + CODEOWNERS, P3 content moves with redirect
 stubs and link fixes, P4 enforcement CI + renderer selection), each via
-a `gov-work knowledge` PR. Old paths keep one-line redirect stubs for one
+a `gov knowledge` PR. Old paths keep one-line redirect stubs for one
 quarter. The decision record and phase plan live in the PRJ-005 project
 knowledge.
