@@ -20,7 +20,6 @@ on:
     branches: [main, dev]
     paths:
       - "publish/actions/ts/**"
-      - "publish/libs/gov-core/**"
       - ".github/workflows/node-ci.yml"
 
 # ONE RUN PER COMMIT. Keyed on the HEAD REF, not `github.ref`: for a push that is
@@ -122,35 +121,3 @@ jobs:
       - name: e2e (full-flow gate)
         run: npm run test:e2e
 
-  # ── the shared context library, same treatment ───────────────────────────────────────────────────
-  # It parses paths and decides PROJECT vs GOVERNED from a cwd, which is precisely the logic that
-  # differs between platforms — so a Linux-only green tells us the least about this package.
-  gov-core:
-    name: gov-core (${{ matrix.label }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, label: linux, lint: true }
-          - { os: macos-latest, label: macos, lint: false }
-          - { os: windows-latest, label: windows, lint: false }
-    defaults:
-      run:
-        working-directory: publish/libs/gov-core
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: publish/libs/gov-core/package-lock.json
-      - name: use Git Bash for npm scripts (Windows)
-        if: runner.os == 'Windows'
-        run: npm config set script-shell bash
-      - run: npm ci
-      - run: npm run build
-      - if: matrix.lint
-        run: npm run lint
-      - run: npm test

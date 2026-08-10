@@ -8,7 +8,14 @@
  * moments (first use here, a different project, an edited org-config, a switched user/env) — so the prompt
  * stays meaningful instead of training a reflexive `y`. Non-TTY never blocks.
  *
- * PURE (no I/O). The `gov` host (gov-work) and the gov-cicd plugin share this same engine.
+ * PURE (no I/O).
+ *
+ * NOT shared code. gov-cicd renders a byte-identical banner from its OWN copy of this module, by
+ * CONVENTION rather than by import — there is no shared package and there is not going to be one
+ * (ADR: no shared client core, 2026-08-10). This header used to claim a shared engine; that claim was
+ * false even when gov-core existed, and acting on it is how a reader concludes there is something to
+ * import. The three render lines are held identical by the golden test below/alongside; everything
+ * else in the two files may differ freely and does.
  */
 import { createHash } from "node:crypto";
 
