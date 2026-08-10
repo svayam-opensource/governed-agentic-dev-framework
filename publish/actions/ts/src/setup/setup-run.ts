@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * `gov-work setup` runner — gathers answers (interactive prompts, injected so this is
+ * `gov setup` runner — gathers answers (interactive prompts, injected so this is
  * testable), derives the full config, writes org-config.yaml, and points origin
  * at the org repo. The pure render/derive live in setup.ts.
  */
