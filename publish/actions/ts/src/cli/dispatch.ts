@@ -115,7 +115,7 @@ function pagedListLines(header: string, cmd: string, res: ManageListResult, page
 
 /**
  * Route `prj org …` — the multi-home registry commands. Handled SEPARATELY from
- * {@link route} because they run WITHOUT a resolved workspace (`gov-work org add` is
+ * {@link route} because they run WITHOUT a resolved workspace (`gov org add` is
  * the bootstrap that makes resolution work).
  */
 export function routeOrg(positionals: readonly string[], flags: ParsedArgs["flags"], deps: OrgDeps): CommandResult {

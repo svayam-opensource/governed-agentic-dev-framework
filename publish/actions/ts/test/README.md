@@ -27,10 +27,10 @@ Fragments share the runner's shell: use the helpers **`step` / `pass` / `fail` /
 No token, org, network, or Docker. Use it for **local CLI behavior** — flags,
 resolution, `setup`, `org`, `validate`, `doctor`, `--gov-home`. Ordered by `NN`
 prefix because later fragments build on earlier state (`20-setup` before
-`40-validate`). Example — add a check for `gov-work deps`:
+`40-validate`). Example — add a check for `gov deps`:
 
 ```bash
-echo 'has "$(gov-work deps 2>&1)" "git" "gov-work deps lists prerequisites"' \
+echo 'has "$(gov deps 2>&1)" "git" "gov deps lists prerequisites"' \
   > e2e/smoke.d/60-deps.sh
 ```
 

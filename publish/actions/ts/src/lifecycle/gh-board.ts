@@ -13,15 +13,28 @@ import { type Board, type BoardProject, BoardFetchError } from "./board.js";
 /** Runs `gh <args>` and returns stdout; throws on non-zero exit. */
 export type RunGh = (args: string[]) => string;
 
-/** Build the projectV2 GraphQL query for a board ref (mirrors seed.sh). */
-export function buildProjectQuery(ref: BoardRef): string {
+/** GraphQL's hard maximum page size for a connection. Not a tuning knob. */
+const PAGE_SIZE = 100;
+
+/**
+ * Build the projectV2 GraphQL query for a board ref, optionally from a cursor.
+ *
+ * NOTE (#148): this used to request `items(first: 50)` with no `pageInfo` and no
+ * loop, so everything past the 50th board item was invisible — including entire
+ * repositories, which made `task`/`merge`/`sync` silently skip them. Raising the
+ * number is not a fix: 100 is GraphQL's per-page maximum, so the cliff would just
+ * move. The caller must paginate; see {@link createGhBoard}.
+ */
+export function buildProjectQuery(ref: BoardRef, after?: string | null): string {
+  const cursor = after ? `, after: "${after}"` : "";
   return `query {
   ${ref.ownerField}(login: "${ref.owner}") {
     projectV2(number: ${ref.number}) {
       id
       title
       shortDescription
-      items(first: 50) {
+      items(first: ${PAGE_SIZE}${cursor}) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           content {
             ... on Issue       { url repository { url } }
@@ -37,11 +50,22 @@ export function buildProjectQuery(ref: BoardRef): string {
 interface GraphQLNode {
   content?: { repository?: { url?: string } } | null;
 }
+interface PageInfo {
+  hasNextPage?: boolean;
+  endCursor?: string | null;
+}
 interface ProjectV2 {
   id: string;
   title?: string | null;
   shortDescription?: string | null;
-  items?: { nodes?: GraphQLNode[] };
+  items?: { pageInfo?: PageInfo; nodes?: GraphQLNode[] };
+}
+
+/** One page of a board: the project facts it carries, plus how to get the next. */
+export interface BoardPage {
+  project: BoardProject;
+  hasNextPage: boolean;
+  endCursor: string | null;
 }
 
 /**
@@ -49,7 +73,7 @@ interface ProjectV2 {
  * (organization|user) is whichever the query used, so we read the single value
  * under `data`. Throws {@link BoardFetchError} on missing project / bad payload.
  */
-export function parseProjectResponse(stdout: string): BoardProject {
+export function parseProjectPage(stdout: string): BoardPage {
   let root: unknown;
   try {
     root = JSON.parse(stdout);
@@ -68,11 +92,29 @@ export function parseProjectResponse(stdout: string): BoardProject {
     ...new Set(linked.map((n) => n.content?.repository?.url).filter((u): u is string => !!u)),
   ];
   return {
-    id: pv.id,
-    title: pv.title ?? "",
-    shortDescription: pv.shortDescription ?? null,
-    linkedItemCount: linked.length,
-    repoUrls,
+    project: {
+      id: pv.id,
+      title: pv.title ?? "",
+      shortDescription: pv.shortDescription ?? null,
+      linkedItemCount: linked.length,
+      repoUrls,
+    },
+    hasNextPage: pv.items?.pageInfo?.hasNextPage === true,
+    endCursor: pv.items?.pageInfo?.endCursor ?? null,
+  };
+}
+
+/** The first page's project facts. Prefer {@link createGhBoard}, which paginates. */
+export function parseProjectResponse(stdout: string): BoardProject {
+  return parseProjectPage(stdout).project;
+}
+
+/** Fold a later page into the accumulated board: counts sum, repo URLs union. */
+export function mergeBoardPages(acc: BoardProject, next: BoardProject): BoardProject {
+  return {
+    ...acc,
+    linkedItemCount: acc.linkedItemCount + next.linkedItemCount,
+    repoUrls: [...new Set([...acc.repoUrls, ...next.repoUrls])],
   };
 }
 
@@ -82,15 +124,29 @@ const defaultRunGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8
 export function createGhBoard(runGh: RunGh = defaultRunGh): Board {
   return {
     fetchProject(ref: BoardRef): BoardProject {
-      let stdout: string;
-      try {
-        stdout = runGh(["api", "graphql", "-f", `query=${buildProjectQuery(ref)}`]);
-      } catch (e) {
-        throw new BoardFetchError(
-          `GitHub Project not found or not accessible (gh failed): ${(e as Error).message}`,
-        );
+      // Walk every page. A board is not required to fit in one, and a partial
+      // read is worse than a failure here: it makes whole repositories vanish
+      // from `repoUrls` while every command still reports success (#148).
+      let acc: BoardProject | null = null;
+      let cursor: string | null = null;
+      // Bounded so a server that never clears hasNextPage cannot spin forever.
+      for (let page = 0; page < 100; page++) {
+        let stdout: string;
+        try {
+          stdout = runGh(["api", "graphql", "-f", `query=${buildProjectQuery(ref, cursor)}`]);
+        } catch (e) {
+          throw new BoardFetchError(
+            `GitHub Project not found or not accessible (gh failed): ${(e as Error).message}`,
+          );
+        }
+        const { project, hasNextPage, endCursor } = parseProjectPage(stdout);
+        acc = acc === null ? project : mergeBoardPages(acc, project);
+        if (!hasNextPage || !endCursor) return acc;
+        cursor = endCursor;
       }
-      return parseProjectResponse(stdout);
+      throw new BoardFetchError(
+        "GitHub Project paging did not terminate — refusing to return a partial board.",
+      );
     },
   };
 }
