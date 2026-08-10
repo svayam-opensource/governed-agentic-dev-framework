@@ -208,6 +208,8 @@ The Project ID is issued exclusively by `gov seed` from the linked GitHub projec
 
 GitHub is the single authoritative source of truth for all project IDs and their current status. The active project is derived from the current git branch (`BRNCH-<board#>-<slug>`) and its linked GitHub Project board; project status is derived from whether that board is open (active) or closed (done). No project exists officially until its GitHub Project board and anchor issue exist. There is no `registry.yaml` or any other per-project state file. **(POL-044)**
 
+**Rationale — why derived, not cached.** A cache of GitHub facts can disagree with GitHub, and when it does, the C01 gates written against the cache fire against correctly-formed projects. That is not hypothetical: while `registry.yaml` / `project.yaml` and the GitHub-derived model were both live, lifecycle commands hard-stopped with `project.yaml not found` on projects that were valid under the model the tooling had already adopted. Deriving state removes the class of failure instead of re-synchronising the cache. Do not reintroduce a per-project state file, however convenient it looks. **(POL-044a)**
+
 ### 4.4 Project Assignment
 
 A project's ownership is reflected by the assignees of its anchor issue — an individual or a team. **(POL-045)**
@@ -560,10 +562,17 @@ Compliance is enforced through three complementary layers. All three are require
 
 **Layer 3 — CI/CD Checks**: The `<WORKSPACE_REPO>` CI/CD pipeline validates every PR to `<DEFAULT_BRANCH>` on the following criteria: **(POL-148)**
 
+- **POL-408 front-matter** on every org and project knowledge document (`domain`, `layer`, `owner`, `compliance`, `status`)
+- **Link integrity** across `knowledge/` — no broken relative links
+- **Secrets and privacy** scanning — no restricted data (POL-143)
+- **Protocol integrity** — the generated harness files match the canonical `agent/session-protocol.md`
+- **Version sync** between the CLI and the framework content
 - Project workspace structure of all active projects (required folders and `agent.md`)
 - `CODEOWNERS` coverage of all `knowledge/` subfolders
 - Project ID and branch naming consistency with GitHub (Project boards + anchor issues)
 - (There is no `registry.yaml` or `project.yaml` to validate — project state is derived from GitHub)
+
+These run as `gov validate` — on every PR to `<DEFAULT_BRANCH>` and as a pre-push hook.
 
 CI/CD failures on structural validation are C01 events. A PR that fails CI/CD structural validation must not be merged. **(POL-149)**
 
@@ -747,6 +756,7 @@ POL-041: All organizational work must be performed through an active, uniquely i
 POL-042: Every project is identified by the format PRJ-<board#>-<slug> (GitHub project board number, no leading zero; lowercase slug from GitHub Project name).
 POL-043: Project IDs are issued exclusively by gov seed from the linked GitHub board; the branch mirrors the id as BRNCH-<board#>-<slug> (task sub-branches append .ISSUE-<n>); never assigned manually. Legacy PRJ-NNN / brnch-NNN projects keep their names.
 POL-044: GitHub (the current branch + the linked Project board + anchor issue) is the single authoritative source of truth for all project IDs and statuses; there is no registry.yaml.
+POL-044a: Rationale — a cache of GitHub facts can disagree with GitHub, and the C01 gates built on it then fire against valid projects. Do not reintroduce a per-project state file.
 POL-045: A project's ownership is reflected by its anchor issue's assignees (an individual or a team).
 POL-046: Running gov seed is recorded as an audit record — not an authorization gate.
 POL-047: Authorization derives from write access to the linked GitHub Project; no project-level lock — ownership is per task.
