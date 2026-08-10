@@ -28,7 +28,7 @@ export function knowledgeBranch(slug: string): string {
 
 /** Create + push a `knowledge-<slug>` proposal branch off the default branch. */
 export function proposeKnowledge(vcs: Vcs, config: KnowledgeConfig, home: string, slug: string): KnowledgeResult {
-  if (!slug) return { ok: false, code: 2, message: "usage: gov-work knowledge propose <slug>" };
+  if (!slug) return { ok: false, code: 2, message: "usage: gov knowledge propose <slug>" };
   const branch = knowledgeBranch(slug);
   const remote = config.remote ?? "origin";
   try {
@@ -44,7 +44,7 @@ export function proposeKnowledge(vcs: Vcs, config: KnowledgeConfig, home: string
 
 /** Open a PR for a `knowledge-<slug>` branch → the default branch. */
 export function submitKnowledge(pulls: Pulls, config: KnowledgeConfig, slug: string, description: string): KnowledgeResult {
-  if (!slug) return { ok: false, code: 2, message: "usage: gov-work knowledge submit <slug> [description]" };
+  if (!slug) return { ok: false, code: 2, message: "usage: gov knowledge submit <slug> [description]" };
   const branch = knowledgeBranch(slug);
   const repo = `${config.githubOrg}/${config.workspaceRepo}`;
   const url = pulls.create(repo, config.defaultBranch, branch, `knowledge: ${slug}`, description || `Org knowledge proposal: ${slug}`);
@@ -53,7 +53,7 @@ export function submitKnowledge(pulls: Pulls, config: KnowledgeConfig, slug: str
 
 /** Archive a merged `knowledge-<slug>` branch (tag archive/<branch> + delete). */
 export function archiveKnowledge(vcs: Vcs, config: KnowledgeConfig, home: string, slug: string): KnowledgeResult {
-  if (!slug) return { ok: false, code: 2, message: "usage: gov-work knowledge archive <slug>" };
+  if (!slug) return { ok: false, code: 2, message: "usage: gov knowledge archive <slug>" };
   const branch = knowledgeBranch(slug);
   try {
     archiveBranch(vcs, home, branch, config.remote ?? "origin");

@@ -3,7 +3,7 @@
 /**
  * The validation-suite harness (SDD-032, Part C) — Python `validate/*.py` → Node.
  * Each validator is a pure function of a small context; `runValidators` runs them
- * and aggregates. This is the machinery behind `gov-work validate` and the close /
+ * and aggregates. This is the machinery behind `gov validate` and the close /
  * publish gates (a non-empty result = hard fail).
  */
 import type { Fs } from "../lifecycle/fs-io.js";
