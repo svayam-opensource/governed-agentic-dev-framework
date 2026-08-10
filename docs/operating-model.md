@@ -27,7 +27,7 @@ flowchart TD
   end
   NPM -->|"(c) npm i -g"| DEV["developer machine"]
   DEV -->|"runs gov on"| ADOPT
-  CONTENT -->|"(b) gov-work upgrade (git: template remote)"| ADOPT
+  CONTENT -->|"(b) gov upgrade (git: template remote)"| ADOPT
   ADOPT -.->|"(b) propose content change (PR to template)"| TPL
   DEV -.->|"(c) propose CLI change (PR to template)"| TPL
 ```
@@ -41,9 +41,9 @@ flowchart TD
 | Goal | Path |
 |---|---|
 | **Update content** | Edit under `framework/` (policies, knowledge starters, harness). If you changed the **session protocol** (`agent/session-protocol.md`), re-render the per-tool harness files (the generated `framework/CLAUDE.md`, `.cursor/…` etc. carry a "do not edit" banner — edit the source + re-render). |
-| **Publish content** | Open a PR → merge to `main`. Merging **is** the content release: adopters pick it up with `gov-work upgrade`. No separate step. |
+| **Publish content** | Open a PR → merge to `main`. Merging **is** the content release: adopters pick it up with `gov upgrade`. No separate step. |
 | **Update the CLI** | Edit at `ts/gov-work/` (Node 24 / TypeScript). `npm test` (incl. the full-flow e2e gate) must pass — it's a required check on `main`. |
-| **Publish the CLI to npmjs** | `gov bump-version <x.y.z>` (keeps `package.json` == `framework/VERSION` == `.framework-version` in sync; `gov-work validate` enforces it), commit, push `main`, then run the governed publish pipeline (`@svayam-opensource/gov`, dist-tag `latest`). The gate runs build + lint + test + version-sync + `npm pack`; verify the new version is live on npmjs afterward. |
+| **Publish the CLI to npmjs** | `gov bump-version <x.y.z>` (keeps `package.json` == `framework/VERSION` == `.framework-version` in sync; `gov validate` enforces it), commit, push `main`, then run the governed publish pipeline (`@svayam-opensource/gov`, dist-tag `latest`). The gate runs build + lint + test + version-sync + `npm pack`; verify the new version is live on npmjs afterward. |
 
 > Content and CLI live in the same repo — a release can carry either or both. Keep
 > them coherent: a content change that needs new CLI behaviour ships with a CLI bump.
@@ -60,19 +60,19 @@ flowchart TD
    `git`, `gh` authenticated — no bash/yq/python needed).
 2. **Create your org's governance repo** on GitHub (empty) — this becomes your
    governance **data** workspace. It holds *no* CLI source.
-3. **Bootstrap:** clone the framework content into it, then run **`gov-work setup`** — it
+3. **Bootstrap:** clone the framework content into it, then run **`gov setup`** — it
    prompts for your org identity and writes **`org-config.yaml`** (org identity,
    default branches, owners), and points `origin` at your org repo.
-4. **Register the workspace:** `gov-work org add <github_org> <gov-home-path>` then
-   `gov-work org use <github_org>` (records the gov home so `gov-work` resolves it in any shell).
-5. **Commit + push** to your org repo, then **start working:** `gov-work seed <board-url>`.
+4. **Register the workspace:** `gov org add <github_org> <gov-home-path>` then
+   `gov org use <github_org>` (records the gov home so `gov-work` resolves it in any shell).
+5. **Commit + push** to your org repo, then **start working:** `gov seed <board-url>`.
 
 ### Day-to-day
 
 | Goal | Path |
 |---|---|
-| **Upgrade content** | `gov-work upgrade` — pulls the latest `framework/` from the `template` remote (3-way merge preserving your `org-config.yaml` + customizations). *(The Node CLI currently reports the upgrade target/command; the full overlay content-sync is on the roadmap.)* |
-| **Propose a content change** | • **Org-local** knowledge/policy: `gov-work knowledge propose <slug>` (opens a proposal branch → PR within your repo, reviewed by the relevant Owner). • **Framework-level** content (benefits *all* adopters): open a PR against this template repo's `framework/`. Once merged + released, you receive it via `gov-work upgrade`. |
+| **Upgrade content** | `gov upgrade` — pulls the latest `framework/` from the `template` remote (3-way merge preserving your `org-config.yaml` + customizations). *(The Node CLI currently reports the upgrade target/command; the full overlay content-sync is on the roadmap.)* |
+| **Propose a content change** | • **Org-local** knowledge/policy: `gov knowledge propose <slug>` (opens a proposal branch → PR within your repo, reviewed by the relevant Owner). • **Framework-level** content (benefits *all* adopters): open a PR against this template repo's `framework/`. Once merged + released, you receive it via `gov upgrade`. |
 
 ---
 
@@ -92,7 +92,7 @@ flowchart TD
 ### One-line summary
 
 - **(a) maintainers** edit + publish the product (content → merge `main`; CLI → `gov bump-version` + governed publish → npm).
-- **(b) admins** adopt once (`gov-work setup` + `gov-work org add/use`), then `gov-work upgrade` to pull content; propose via `gov-work knowledge` (local) or a template PR (framework-wide).
+- **(b) admins** adopt once (`gov setup` + `gov org add/use`), then `gov upgrade` to pull content; propose via `gov knowledge` (local) or a template PR (framework-wide).
 - **(c) developers** `npm i -g @svayam-opensource/gov`; propose CLI changes via a template PR.
 
 ---

@@ -71,14 +71,14 @@ Formal documents suitable for regulators, external auditors, and legal review.
 ## Form 3: Vector Embeddings (RAG)
 
 ### Purpose
-Enables agents to semantically search org knowledge for context building without reading all files. Also used by the knowledge-close step of `gov-work close` for LLM synthesis.
+Enables agents to semantically search org knowledge for context building without reading all files. Also used by the knowledge-close step of `gov close` for LLM synthesis.
 
 ### Requirements
 - **Scope:** All files in `knowledge/` are embedded
 - **Update strategy:** Re-embed only changed files on each <DEFAULT_BRANCH> merge (not full re-index)
 - **Chunking:** Each document section (defined by `##` headings) is a separate chunk with sufficient surrounding context to be self-contained
 - **Metadata per chunk:** file path, section heading, last modified commit SHA, domain owner
-- **Access:** Internal API accessible to agents during work sessions and to the knowledge-close step of `gov-work close`
+- **Access:** Internal API accessible to agents during work sessions and to the knowledge-close step of `gov close`
 - **Infrastructure Owner** is responsible for vector store choice, maintenance, and uptime
 
 ### Agent Usage
@@ -88,7 +88,7 @@ Agents query the vector store at session start to build relevant context:
 3. Assemble context from retrieved chunks + full priority layer stack
 
 ### Knowledge-close Usage
-The knowledge-close step of `gov-work close` queries the vector store to find existing org knowledge relevant to project learnings before proposing updates — ensuring proposals are additive and non-redundant.
+The knowledge-close step of `gov close` queries the vector store to find existing org knowledge relevant to project learnings before proposing updates — ensuring proposals are additive and non-redundant.
 
 ---
 

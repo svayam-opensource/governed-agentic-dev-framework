@@ -14,11 +14,11 @@ that a manifest is *present and structured* — it has no project context. Only
 the agent that did the work (reading the evidence) can judge *what* to capture.
 So quality is carried by **(1) this protocol's rigor**, **(2) the Owner's C01
 review of the resulting proposal PRs**, and **(3) the completeness-critic pass** —
-never by `gov-work close`'s gate, which checks presence/structure only.
+never by `gov close`'s gate, which checks presence/structure only.
 
 **Output:** `projects/<PRJ>/knowledge/knowledge-close.md` (the manifest, template
-below) + the actual proposed org-knowledge changes (via `gov-work knowledge`).
-`gov-work close`'s gate refuses to close until the manifest exists and every
+below) + the actual proposed org-knowledge changes (via `gov knowledge`).
+`gov close`'s gate refuses to close until the manifest exists and every
 section is filled (no `TBD`).
 
 ## Prime directive — reconstruct from EVIDENCE, not memory
@@ -53,7 +53,7 @@ from recall.** Read the durable record first and treat it as the source of truth
 6. **COMPLETENESS CRITIC** — an adversarial pass against the evidence: which
    claim is unverified? which decision has *no recorded why*? which changed code
    area produced *no* knowledge? what is still `TBD`? Fix or record each.
-7. **PRODUCE** — raise the org-knowledge changes via `gov-work knowledge` (one or
+7. **PRODUCE** — raise the org-knowledge changes via `gov knowledge` (one or
    more PRs), and write the manifest mapping every artifact → disposition → PR#.
 
 ## `knowledge-close.md` manifest template

@@ -21,9 +21,9 @@ and why.
 
 ## Local checks
 
-- [ ] `gov-work validate` — validators pass
+- [ ] `gov validate` — validators pass
 - [ ] If policy change: confirmed compliance level is correct (C01/C02/C03)
-- [ ] If new org value added: added to `org-config.yaml` and the `gov-work setup` prompt
+- [ ] If new org value added: added to `org-config.yaml` and the `gov setup` prompt
 
 ## Privacy / scope
 

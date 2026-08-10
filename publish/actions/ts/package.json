@@ -22,7 +22,8 @@
     }
   },
   "files": [
-    "lib/"
+    "lib/",
+    "assets/readme/"
   ],
   "engines": {
     "node": ">=24"

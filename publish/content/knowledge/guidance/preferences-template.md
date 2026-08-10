@@ -5,7 +5,7 @@
 # This file is NEVER committed to any repository.
 # It is the lowest-priority knowledge layer — it cannot override org or repo knowledge.
 #
-# Created automatically by `gov-work setup` from this template. Edit freely.
+# Created automatically by `gov setup` from this template. Edit freely.
 #
 # See: <WORKSPACE_REPO>/knowledge/policies/agentic-development-policy.md (POL-131 to POL-136)
 
@@ -79,4 +79,4 @@ The following must NEVER be placed in developer preferences (C01 violations):
 - Knowledge layer priority order changes
 - Anything that contradicts <WORKSPACE_REPO>/knowledge/policies/
 
-If you need to change org policy, use `gov-work knowledge`.
+If you need to change org policy, use `gov knowledge`.

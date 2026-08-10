@@ -6,7 +6,7 @@
 **Project Lead:** [anchor issue assignee]
 
 This document records the impact of project PRJ-<board#>-<slug> on this repository.
-It is created by `gov-work close` and lives at:
+It is created by `gov close` and lives at:
 `<repo>/knowledge/projects/PRJ-<board#>-<slug>/`
 
 ---
