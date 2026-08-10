@@ -104,7 +104,7 @@ const probe = (orgAt: Record<string, string>) => (p: string): GovConfig | null =
 // ══════════════════════════════════════════════════════════════════════════════
 // manage — list · list-all · assign · unassign
 // ══════════════════════════════════════════════════════════════════════════════
-describe("coverage: gov-work manage", () => {
+describe("coverage: gov manage", () => {
   const finds = { 7: info({ url: "u/7#1", labels: ["paused"], assignees: ["rk"] }) };
 
   it("manage list → exit 0, header + open rows (closed excluded)", () => {
@@ -216,7 +216,7 @@ describe("coverage: gov-work manage", () => {
 // ══════════════════════════════════════════════════════════════════════════════
 // knowledge — propose · submit · archive
 // ══════════════════════════════════════════════════════════════════════════════
-describe("coverage: gov-work knowledge", () => {
+describe("coverage: gov knowledge", () => {
   it("knowledge propose <slug> → exit 0, created branch lines", () => {
     const r = run(["knowledge", "propose", "my-slug"]);
     expect(r.code).to.equal(0);
@@ -299,7 +299,7 @@ describe("coverage: gov-work knowledge", () => {
 // ══════════════════════════════════════════════════════════════════════════════
 // anchor — show the current project's anchor issue
 // ══════════════════════════════════════════════════════════════════════════════
-describe("coverage: gov-work anchor", () => {
+describe("coverage: gov anchor", () => {
   it("anchor → exit 0, number/url/labels/owners", () => {
     const { anchor } = makeAnchor({ finds: { 43: info({ url: "u/43#9", number: 9, labels: ["paused"], assignees: ["rk", "mo"] }) } });
     const r = run(["anchor"], { anchor });
@@ -338,7 +338,7 @@ describe("coverage: gov-work anchor", () => {
 // ══════════════════════════════════════════════════════════════════════════════
 // list · list-all — org-wide board listing
 // ══════════════════════════════════════════════════════════════════════════════
-describe("coverage: gov-work list / list-all", () => {
+describe("coverage: gov list / list-all", () => {
   const finds = { 7: info({ url: "u/7#1", labels: ["paused"], assignees: ["rk"] }) };
 
   it("list → exit 0, 'Ongoing projects:' excludes closed", () => {
@@ -374,7 +374,7 @@ describe("coverage: gov-work list / list-all", () => {
 // ══════════════════════════════════════════════════════════════════════════════
 // status — the current project's derived status
 // ══════════════════════════════════════════════════════════════════════════════
-describe("coverage: gov-work status", () => {
+describe("coverage: gov status", () => {
   it("status → exit 0, board title + status + owners + url", () => {
     const { anchor } = makeAnchor({ finds: { 43: info({ labels: ["paused"], assignees: ["rk"] }) } });
     const r = run(["status"], { anchor, projects: projectsOf([b(43, "Gov")]) });
@@ -425,7 +425,7 @@ describe("coverage: gov-work status", () => {
 // ══════════════════════════════════════════════════════════════════════════════
 // onboard — bring a repo under the framework
 // ══════════════════════════════════════════════════════════════════════════════
-describe("coverage: gov-work onboard", () => {
+describe("coverage: gov onboard", () => {
   const URL = "git@github.com:Svayamtech/acme.git";
   const freshVcs = () => vcsWith({ remoteBranchExists: () => false });
 
@@ -485,7 +485,7 @@ describe("coverage: gov-work onboard", () => {
 // ══════════════════════════════════════════════════════════════════════════════
 // org (routeOrg) — add · use · list · remove
 // ══════════════════════════════════════════════════════════════════════════════
-describe("coverage: gov-work org (routeOrg)", () => {
+describe("coverage: gov org (routeOrg)", () => {
   it("org add <org> <home> (valid gov repo) → exit 0, registered", () => {
     const store = memStore();
     const deps: OrgDeps = { store, govConfigAt: probe({ "/gov": "Svayamtech" }) };

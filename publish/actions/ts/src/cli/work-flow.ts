@@ -303,7 +303,7 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
 
   if (!deps.canWriteBoard(p.boardNumber)) {
     print(`  You don't have write access to '${p.title}' (its GitHub Project board).`);
-    print("  Ask an owner to grant access (`gov-work manage`), then retry.");
+    print("  Ask an owner to grant access (`gov manage`), then retry.");
     return 1;
   }
 
