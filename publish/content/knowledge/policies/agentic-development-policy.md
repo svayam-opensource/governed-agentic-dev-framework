@@ -381,11 +381,19 @@ knowledge/
 
 This structure is initialized by `gov-work onboard`. Repositories that have not been onboarded must be onboarded before they can be added to any project. **(POL-085)**
 
-### 6.4 Knowledge Write Restrictions
+### 6.4 Governance Authority & Project-Branch Proposals
 
-During an active project, no changes are permitted to `<WORKSPACE_REPO>/knowledge/` for any reason **(C01, POL-086)**. This restriction exists to protect the integrity of org-wide knowledge during concurrent project work.
+**(a) Governance is sourced from `<DEFAULT_BRANCH>`.** Every agent's and developer's actions must be governed by org-approved knowledge and policy as recorded on the **`<DEFAULT_BRANCH>` branch** of `<WORKSPACE_REPO>`. The session-start protocol and all governing context — org-wide `knowledge/`, `agent/session-protocol.md`, and `policies/` — must be built, and rebuilt each session, from **`<DEFAULT_BRANCH>`**, never from a project branch. Project-specific working context (`projects/PRJ-<board#>-<slug>/…`) is read from the active **project branch**. **(C01, POL-086a)**
 
-All knowledge writes during an active project are strictly constrained to the project's own knowledge folder: `projects/PRJ-<board#>-<slug>/knowledge/`. **(POL-087)**
+**(b) Project work is recorded on the project branch — including `knowledge/`.** All project work is committed to the governance repo's **project branch** and may touch any path, **including org `knowledge/`**. Edits to org `knowledge/` on a project branch are **proposals with no governing force**; per (a), only `<DEFAULT_BRANCH>`'s `knowledge/` governs. An agent must not treat a project branch's own unratified `knowledge/` edits as authority (no self-governing). **(C01, POL-086b)**
+
+**(c) Promotion to organizational standard.** An org-`knowledge/` proposal becomes organizational standard only when merged to **`<DEFAULT_BRANCH>`** via a pull request reviewed and approved by the **Policy Owner** and the **domain owner(s) whose CODEOWNERS-mapped folders the PR touches** (POL-083). A PR that changes `policies/`, `mandates/`, or otherwise cross-domain content requires approval from **all** policy and domain owners. No org-`knowledge/` change reaches `<DEFAULT_BRANCH>` without the required approvals. **(C01, POL-086c)**
+
+**(d) Relationship to the C02 exception process.** POL-086 governs *proposing changes to* `<DEFAULT_BRANCH>`'s knowledge. It is distinct from, and coexists with, the C02 exception process (§2.2, `policies/exceptions/`), which authorizes a *deviation from* an existing rule when compliance is not possible. **(POL-086d)**
+
+**Rationale.** Integrity of org-wide knowledge during concurrent project work is preserved by (a): because governing authority is always `<DEFAULT_BRANCH>`, concurrent project branches cannot affect one another or live governance until their proposals are ratified and merged. This supersedes the prior write-prohibition model with **protection by branch isolation plus a review gate** — a rule the tooling can enforce (the merge gate) rather than one that depends on an agent declining to write.
+
+The prior constraint limiting knowledge writes to `projects/PRJ-<board#>-<slug>/knowledge/` is **superseded** and subsumed by POL-086(b): a project branch may edit any path, but only `<DEFAULT_BRANCH>` governs. **(POL-087 — superseded by POL-086b)**
 
 Project knowledge is intentionally free-form. There is no required structural coupling between project knowledge and org-wide knowledge structure during the project. **(POL-088)**
 
@@ -788,8 +796,11 @@ POL-082: The <WORKSPACE_REPO>/knowledge/ folder must follow the defined subdirec
 POL-083: CODEOWNERS in <WORKSPACE_REPO> maps each knowledge/ subfolder to its domain owner for PR review.
 POL-084: Every participating code repository must contain a knowledge/ folder with the defined structure.
 POL-085: Repositories must be onboarded via gov-work onboard before being added to any project.
-POL-086: During an active project, no changes are permitted to <WORKSPACE_REPO>/knowledge/ (C01).
-POL-087: All knowledge writes during an active project are constrained to projects/PRJ-<board#>-<slug>/knowledge/ only.
+POL-086a: Governance is sourced from <DEFAULT_BRANCH>; all governing context is rebuilt from it each session, never from a project branch (C01).
+POL-086b: Project work — including edits to org knowledge/ — is committed to the project branch, where such edits are proposals with no governing force (C01).
+POL-086c: A proposal becomes organizational standard only when merged to <DEFAULT_BRANCH> via a PR approved by the Policy Owner and the CODEOWNERS domain owner(s) (C01).
+POL-086d: POL-086 governs proposing changes to <DEFAULT_BRANCH>'s knowledge; it coexists with the C02 exception process, which authorizes deviation from an existing rule.
+POL-087: SUPERSEDED by POL-086b — a project branch may edit any path, but only <DEFAULT_BRANCH> governs.
 POL-088: Project knowledge is intentionally free-form; no structural coupling to org knowledge is required during the project.
 POL-089: Pre-close consolidation: developer/agent consolidates all project learnings into projects/PRJ-<board#>-<slug>/knowledge/.
 POL-090: The knowledge-close step of gov-work close uses LLM+RAG synthesis to map project knowledge to org knowledge proposals.
