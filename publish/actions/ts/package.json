@@ -1,6 +1,6 @@
 {
   "name": "@svayam-opensource/gov",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "gov-work \u2014 the OSS project/workflow CLI for the Governed Agentic Development Framework (Node/TypeScript). Manages projects, workspaces and org registration. Governed catalog/deploy is the separate gov-cicd CLI, and infrastructure the separate gov-infra CLI \u2014 independent binaries, not plugins. Succeeds the legacy bash @svayam-opensource/prj (frozen at 0.10.0).",
   "type": "module",
   "main": "./lib/cjs/index.js",
