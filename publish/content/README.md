@@ -29,39 +29,59 @@ This framework gives you:
 
 > https://github.com/svayam-opensource/governed-agentic-dev-framework
 
-Click the green **"Use this template"** button → **"Create a new repository"**. Pick a name (e.g. `000-acme-prj`) and visibility (typically Private). GitHub will create a new repository under your account or org.
+Click the green **"Use this template"** button → **"Create a new repository"**. Pick a name (e.g. `acme-gov-work`) and visibility (typically Private). GitHub creates the repo under your account or org.
 
-**2. Clone *your* new repo and run the setup.**
+**2. Install the CLI, clone your repo, run setup.**
 
 ```bash
-# Install the gov-work CLI from npm (requires Node 24). One install per machine,
-# not vendored into repos.
+# One install per machine — not vendored into repos. Requires Node 24, git,
+# and an authenticated `gh`.
 npm i -g @svayam-opensource/gov
 
-# Clone YOUR new repository (not this template).
+# Clone YOUR new repository (not this template). Anywhere you like — the
+# directory you clone into IS your governance workspace.
 git clone https://github.com/<your-github-org>/<your-new-repo>.git
 cd <your-new-repo>
 
-# Configure the framework for your org and verify GitHub access.
-# Interactive: prompts for org name, slug, role identities, etc., with
-# sensible defaults detected from gh and git config. Substitutes
-# throughout, then checks gh user / org membership / scopes.
-# (gov doctor verifies the toolchain — git, gh, Node 24 — first.)
+# Configure the framework for your org and verify GitHub access. Interactive:
+# org name, slug, role identities, service endpoints — defaults detected from
+# gh and git config. `gov doctor` checks the toolchain (git, gh, Node 24) first.
 gov setup
 
-# (Optional) Customize the policy text for your org.
+# Optional: make the policy yours before anyone works under it.
 $EDITOR knowledge/policies/agentic-development-policy.md
 
-# Commit and push to YOUR repository.
-git add -A
-git commit -m "configure framework for <your-org>"
-git push origin main
+git add -A && git commit -m "configure the framework for <your-org>" && git push
 
-# Start using it.
+# You are ready.
 gov
 ```
 
-The `gov-work` CLI is interactive: it lists current projects, walks you through seeding new ones, creating tasks, and closing them.
+That is the whole runbook for **one org**. There is no registration step: `gov`
+finds your workspace by walking up from the current directory, so any command
+run inside the clone resolves it.
+
+**3. Only if you manage a SECOND org from the same machine.**
+
+One clone per org, then register each so `gov` can be run from anywhere:
+
+```bash
+# Register the workspace — the path is the CLONE you ran `gov setup` in.
+gov org add <github-org> --home /path/to/that/clone
+gov org use <github-org>          # make it the active org
+gov org list                      # what is registered, and which is active
+```
+
+`--home` is required, and it must point at a directory containing
+`org-config.yaml` — that is, the clone itself. The registry lives at
+`${XDG_CONFIG_HOME:-~/.config}/prj/`, outside every repo, so switching orgs
+never edits a workspace.
+
+> **Note for anyone upgrading from an older workspace.** Earlier versions wrote a
+> `gov_workspace:` key into `org-config.yaml` and told you to register
+> `~/.<org-slug>/gov_repo`. That convention is retired — nothing creates that
+> path, and `gov org add` will refuse it. The key is still *read* if present, so
+> existing workspaces keep working; new ones do not get it. Register the clone.
 
 **Re-running `gov setup` later** is safe — it remembers your existing values as defaults. Use `gov setup --non-interactive` in CI or scripts to skip prompts entirely.
 
