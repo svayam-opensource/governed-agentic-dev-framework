@@ -696,7 +696,9 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     // The invariant, not a literal path: --home must be the directory the config was written to.
     const cfg = Object.keys(writes).find((f) => f.endsWith("org-config.yaml"));
     expect(cfg, "setup should write an org-config.yaml").to.be.a("string");
-    const home = (cfg as string).replace(/\/org-config\.yaml$/, "");
+    // Separator-agnostic: setup composes this with path.join, so on Windows it is
+    // `\repo\org-config.yaml`. A POSIX-only regex here is the same fixture defect #90 closed.
+    const home = (cfg as string).replace(/[\\/]org-config\.yaml$/, "");
     expect(addLine).to.include(`--home ${home}`);
     expect(remote).to.equal("git@github.com:Acme/acme-gov.git");
   });
