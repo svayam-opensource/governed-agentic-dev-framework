@@ -2,7 +2,7 @@
 
 A governance-first framework for organizing agentic software development inside an organization. It provides a directory structure, a policy template, and a CLI (`gov-work`) that enforces the policy through every step of a project's lifecycle — so AI agents and human developers can work in parallel on multiple projects without losing track of who owns what, what's been decided, and what changed.
 
-This repository is a **template**. Clone it, configure `org-config.yaml` with your organization's values, run `gov-work setup`, and you have a workspace repo for your org's agentic development.
+This repository is a **template**. Clone it, configure `org-config.yaml` with your organization's values, run `gov setup`, and you have a workspace repo for your org's agentic development.
 
 ---
 
@@ -29,41 +29,61 @@ This framework gives you:
 
 > https://github.com/svayam-opensource/governed-agentic-dev-framework
 
-Click the green **"Use this template"** button → **"Create a new repository"**. Pick a name (e.g. `000-acme-prj`) and visibility (typically Private). GitHub will create a new repository under your account or org.
+Click the green **"Use this template"** button → **"Create a new repository"**. Pick a name (e.g. `acme-gov-work`) and visibility (typically Private). GitHub creates the repo under your account or org.
 
-**2. Clone *your* new repo and run the setup.**
+**2. Install the CLI, clone your repo, run setup.**
 
 ```bash
-# Install the gov-work CLI from npm (requires Node 24). One install per machine,
-# not vendored into repos.
+# One install per machine — not vendored into repos. Requires Node 24, git,
+# and an authenticated `gh`.
 npm i -g @svayam-opensource/gov
 
-# Clone YOUR new repository (not this template).
+# Clone YOUR new repository (not this template). Anywhere you like — the
+# directory you clone into IS your governance workspace.
 git clone https://github.com/<your-github-org>/<your-new-repo>.git
 cd <your-new-repo>
 
-# Configure the framework for your org and verify GitHub access.
-# Interactive: prompts for org name, slug, role identities, etc., with
-# sensible defaults detected from gh and git config. Substitutes
-# throughout, then checks gh user / org membership / scopes.
-# (gov doctor verifies the toolchain — git, gh, Node 24 — first.)
-gov-work setup
+# Configure the framework for your org and verify GitHub access. Interactive:
+# org name, slug, role identities, service endpoints — defaults detected from
+# gh and git config. `gov doctor` checks the toolchain (git, gh, Node 24) first.
+gov setup
 
-# (Optional) Customize the policy text for your org.
+# Optional: make the policy yours before anyone works under it.
 $EDITOR knowledge/policies/agentic-development-policy.md
 
-# Commit and push to YOUR repository.
-git add -A
-git commit -m "configure framework for <your-org>"
-git push origin main
+git add -A && git commit -m "configure the framework for <your-org>" && git push
 
-# Start using it.
+# You are ready.
 gov
 ```
 
-The `gov-work` CLI is interactive: it lists current projects, walks you through seeding new ones, creating tasks, and closing them.
+That is the whole runbook for **one org**. There is no registration step: `gov`
+finds your workspace by walking up from the current directory, so any command
+run inside the clone resolves it.
 
-**Re-running `gov-work setup` later** is safe — it remembers your existing values as defaults. Use `gov-work setup --non-interactive` in CI or scripts to skip prompts entirely.
+**3. Only if you manage a SECOND org from the same machine.**
+
+One clone per org, then register each so `gov` can be run from anywhere:
+
+```bash
+# Register the workspace — the path is the CLONE you ran `gov setup` in.
+gov org add <github-org> --home /path/to/that/clone
+gov org use <github-org>          # make it the active org
+gov org list                      # what is registered, and which is active
+```
+
+`--home` is required, and it must point at a directory containing
+`org-config.yaml` — that is, the clone itself. The registry lives at
+`${XDG_CONFIG_HOME:-~/.config}/prj/`, outside every repo, so switching orgs
+never edits a workspace.
+
+> **Note for anyone upgrading from an older workspace.** Earlier versions wrote a
+> `gov_workspace:` key into `org-config.yaml` and told you to register
+> `~/.<org-slug>/gov_repo`. That convention is retired — nothing creates that
+> path, and `gov org add` will refuse it. The key is still *read* if present, so
+> existing workspaces keep working; new ones do not get it. Register the clone.
+
+**Re-running `gov setup` later** is safe — it remembers your existing values as defaults. Use `gov setup --non-interactive` in CI or scripts to skip prompts entirely.
 
 ---
 
@@ -100,19 +120,19 @@ Full details in [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 | Command | Purpose |
 |---|---|
 | `gov-work` | Interactive menu — wraps everything below |
-| `gov-work seed` | Seed a new project (issues ID, scaffolds folder, creates branches) |
-| `gov-work join` | Join an existing project you have GitHub Project access to |
-| `gov-work task` / `gov-work merge` | Sub-branches for parallel agent work, and merging them back |
-| `gov-work pause` / `gov-work resume` / `gov-work sync` | Lifecycle transitions |
-| `gov-work close` | Close out and synthesize learnings (knowledge close runs as a step) |
-| `gov-work cancel` | Cancel without merge |
-| `gov-work add-repo` | Add another code repo to an active project |
-| `gov-work knowledge` | Standalone org knowledge proposals |
-| `gov-work onboard` | Bring an existing code repo under the framework |
-| `gov-work manage` | Grant / change GitHub Project access |
-| `gov-work list` / `gov-work status` | List projects / show one project's state |
-| `gov-work validate` | Schema / lifecycle / cross-ref validators (also run in CI and pre-merge) |
-| `gov-work upgrade` | Pull universal framework updates from the template upstream |
+| `gov seed` | Seed a new project (issues ID, scaffolds folder, creates branches) |
+| `gov join` | Join an existing project you have GitHub Project access to |
+| `gov task` / `gov merge` | Sub-branches for parallel agent work, and merging them back |
+| `gov pause` / `gov resume` / `gov sync` | Lifecycle transitions |
+| `gov close` | Close out and synthesize learnings (knowledge close runs as a step) |
+| `gov cancel` | Cancel without merge |
+| `gov add-repo` | Add another code repo to an active project |
+| `gov knowledge` | Standalone org knowledge proposals |
+| `gov onboard` | Bring an existing code repo under the framework |
+| `gov manage` | Grant / change GitHub Project access |
+| `gov list` / `gov status` | List projects / show one project's state |
+| `gov validate` | Schema / lifecycle / cross-ref validators (also run in CI and pre-merge) |
+| `gov upgrade` | Pull universal framework updates from the template upstream |
 | `gov doctor` | Verify the toolchain (git, gh, Node 24) |
 
 ---
