@@ -36,7 +36,14 @@ describe("gov-work — setup (bootstrap)", () => {
     const yaml = renderOrgConfig(v);
     const parsed = parseOrgConfig(yaml);
     expect(parsed).to.include({ orgName: "Acme Inc", githubOrg: "Acme", workspaceRepo: "acme-gov", defaultBranch: "main", defaultCodeBranch: "dev" });
-    expect(readExistingOrgConfig(yaml)).to.include({ orgSlug: "ACME", govWorkspace: "~/.acme/gov_repo" });
+    expect(readExistingOrgConfig(yaml)).to.include({ orgSlug: "ACME" });
+    // gov_workspace is NOT rendered any more: the shipped template dropped the key, and the home is
+    // resolved from the org registry / cwd walk-up. Emitting it sent adopters to `gov org add` with a
+    // path nothing creates (911/#189-era residue; see setup-run's next steps).
+    expect(yaml).to.not.match(/^gov_workspace:/m);
+    // Reading one is still supported — configs written before the key was dropped must keep working.
+    expect(readExistingOrgConfig(`${yaml}\ngov_workspace: "~/.legacy/gov_repo"\n`))
+      .to.include({ govWorkspace: "~/.legacy/gov_repo" });
   });
 
   it("runSetup writes org-config.yaml + sets origin (scripted prompts)", async () => {

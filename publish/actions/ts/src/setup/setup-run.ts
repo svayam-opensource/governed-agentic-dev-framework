@@ -66,7 +66,14 @@ export async function runSetup(io: SetupIo, interactive: boolean): Promise<numbe
   }
   io.print("");
   io.print("Next steps:");
-  io.print(`  gov org add ${v.githubOrg} ${v.govWorkspace}   # register this gov workspace`);
-  io.print(`  gov org use ${v.githubOrg}                      # make it the active org`);
+  io.print("  git add -A && git commit -m \"configure the framework for this org\" && git push");
+  io.print("  gov                                            # you are ready — the interactive front door");
+  io.print("");
+  // Registering is only needed for a SECOND org on this machine. With one org the resolver finds
+  // this workspace by walking up from the cwd, so telling every adopter to register it invites
+  // them to register a path that does not exist (the retired `gov_workspace` convention).
+  io.print("Managing more than one org from this machine?");
+  io.print(`  gov org add ${v.githubOrg} --home ${io.cwd}`);
+  io.print(`  gov org use ${v.githubOrg}`);
   return 0;
 }

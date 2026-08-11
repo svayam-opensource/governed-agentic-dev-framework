@@ -137,9 +137,6 @@ default_code_branch: "${v.defaultCodeBranch}"
 # Per-project workspaces are created under this path.
 agent_work_root: "${v.agentWorkRoot}"
 
-# The home governance-repo clone ("gov_repo") — the deterministic on-main
-# workspace seed/init operate from. Keep it PORTABLE (leading ~ expanded at runtime).
-gov_workspace: "${v.govWorkspace}"
 
 # Policy Owner details (initial holder of all policy roles at launch)
 policy_owner_email: "${v.policyOwnerEmail}"
