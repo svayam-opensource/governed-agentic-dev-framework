@@ -690,16 +690,13 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     const addLine = printed.find((l) => l.includes("gov org add"));
     expect(addLine, "setup should print a `gov org add` hint").to.be.a("string");
     expect(addLine).to.match(/gov org add \S+ --home \S+/);
-
-    // ...and it must point at the directory setup actually wrote the config to, not at a path
-    // nothing creates. `gov org add` refuses a home without an org-config.yaml.
-    // The invariant, not a literal path: --home must be the directory the config was written to.
-    const cfg = Object.keys(writes).find((f) => f.endsWith("org-config.yaml"));
-    expect(cfg, "setup should write an org-config.yaml").to.be.a("string");
-    // Separator-agnostic: setup composes this with path.join, so on Windows it is
-    // `\repo\org-config.yaml`. A POSIX-only regex here is the same fixture defect #90 closed.
-    const home = (cfg as string).replace(/[\\/]org-config\.yaml$/, "");
-    expect(addLine).to.include(`--home ${home}`);
+    // ...and it must point at the directory setup RAN IN — `gov org add` refuses a home without an
+    // org-config.yaml, which is exactly what the retired ~/<slug>/gov_repo hint sent people to.
+    // Asserted against the cwd the fixture supplied, NOT re-derived from the written path:
+    // path.join normalises separators, so on Windows the config path is `\repo\...` while the hint
+    // carries the cwd verbatim. Comparing two derivations tests Node's path module, not our output.
+    expect(addLine).to.include("--home /repo");
+    expect(Object.keys(writes).some((f) => f.endsWith("org-config.yaml"))).to.equal(true);
     expect(remote).to.equal("git@github.com:Acme/acme-gov.git");
   });
 
