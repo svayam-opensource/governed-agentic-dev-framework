@@ -1,19 +1,12 @@
 {
   "name": "@svayam-opensource/prj",
-  "version": "0.7.4",
-  "description": "Governed Agentic Development Framework CLI (prj). A bash CLI wrapped for npm; operates on a governance workspace resolved via $ADF_WORKSPACE or the nearest org-config.yaml. Runtime prerequisites (not npm deps): bash, git, gh, yq, python3 (use Git Bash on Windows).",
+  "version": "0.11.0",
+  "description": "DEPRECATED. prj is retired — the governance lifecycle ships as @svayam-opensource/gov-work (binary: gov), and build/deploy/data as gov-cicd. This version is a pure redirect shim: it runs no lifecycle logic, resolves no workspace, and touches no repository. It exists so an ALREADY-INSTALLED prj stops acting on the retired registry.yaml/project.yaml authority model. See https://github.com/Svayamtech/svm-prj-work/issues/290",
   "bin": {
     "prj": "bin/prj"
   },
   "files": [
-    "prj",
-    "bin/",
-    "setup.sh",
-    "scripts/*.sh",
-    "scripts/deploy/*.sh",
-    "scripts/deploy/*.py",
-    "scripts/validate/*.py",
-    "assets/readme/*.svg"
+    "bin/"
   ],
   "os": [
     "darwin",
@@ -29,6 +22,7 @@
     "access": "public"
   },
   "keywords": [
+    "deprecated",
     "cli",
     "agentic",
     "governance",
@@ -40,8 +34,7 @@
     "type": "git",
     "url": "git+https://github.com/svayam-opensource/governed-agentic-dev-framework.git"
   },
-  "private": true,
   "scripts": {
-    "prepublishOnly": "node -e \"console.error('@svayam-opensource/prj is FROZEN (bash CLI). The Node CLI ships as @svayam-opensource/gov. Publishing is blocked.'); process.exit(1)\""
+    "prepublishOnly": "node -e \"const f=require('./package.json').files||[];if(f.length!==1||f[0]!=='bin/'){console.error('BLOCKED: @svayam-opensource/prj may only ever ship the redirect shim (files must be exactly [\\\"bin/\\\"]). The bash CLI is FROZEN and must never be published again — see svm-prj-work:#290.');process.exit(1)}\""
   }
 }

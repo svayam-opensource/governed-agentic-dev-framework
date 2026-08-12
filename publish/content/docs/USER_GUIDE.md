@@ -28,7 +28,7 @@ Code lives in separate repos that projects reference; the workspace repo coordin
 A unit of work with a unique ID — e.g., `PRJ-26-invoice-api`. The ID is composed of:
 
 - The fixed `PRJ-` prefix
-- The GitHub project **board number** (`26`) — the integer in the linked GitHub Project's URL, no leading zero — issued by `gov-work seed`
+- The GitHub project **board number** (`26`) — the integer in the linked GitHub Project's URL, no leading zero — issued by `gov seed`
 - A slug derived from the project's GitHub Project name
 
 Each project has:
@@ -36,7 +36,7 @@ Each project has:
 - A folder: `projects/PRJ-26-invoice-api/`
 - A workspace branch: `BRNCH-26-invoice-api` (same board number + slug, `BRNCH-` prefix) in this repo and in every code repo it touches; task sub-branches append `.ISSUE-<n>`
 - A lifecycle: `proposed` → `active` → (`paused` ↔ `active`) → `completed` or `cancelled`, tracked by the state of the GitHub board (open = active) rather than a state file
-- Ownership — the anchor issue's assignees. Authorization to operate on the project is **write access to its linked GitHub Project** (`projectV2.viewerCanUpdate`), granted by an owner via `gov-work manage assign`. (Org owners/admins have access to everything.)
+- Ownership — the anchor issue's assignees. Authorization to operate on the project is **write access to its linked GitHub Project** (`projectV2.viewerCanUpdate`), granted by an owner via `gov manage assign`. (Org owners/admins have access to everything.)
 
 ### Knowledge layers
 
@@ -51,7 +51,7 @@ When an agent or developer reads context, four layers apply, with explicit prece
 
 Higher layer always wins. If org-wide policy says X and a developer preference says Y, X applies.
 
-The developer preferences file is **per-user**, keyed on your GitHub login. `gov-work setup` creates one from `knowledge/guidance/preferences-template.md` the first time you run it (or `gov-work` creates one lazily on your first write op if `gov-work setup` ran without gh authenticated). To keep multiple profiles, save backups alongside (`<login>.md_work`, `<login>.md_oss`) and rotate by `mv`. The framework loads only the file at `<login>.md`.
+The developer preferences file is **per-user**, keyed on your GitHub login. `gov setup` creates one from `knowledge/guidance/preferences-template.md` the first time you run it (or `gov-work` creates one lazily on your first write op if `gov setup` ran without gh authenticated). To keep multiple profiles, save backups alongside (`<login>.md_work`, `<login>.md_oss`) and rotate by `mv`. The framework loads only the file at `<login>.md`.
 
 ### Compliance levels
 
@@ -61,7 +61,7 @@ Every rule in the policy is tagged with a level:
 - **C02 — Always Apply**: Block work pending an approved exception PR (in `knowledge/policies/exceptions/`).
 - **C03 — Apply Intelligently**: Proceed if you have good reason; document the deviation in the project's `compliance.md`.
 
-The validators (`gov-work validate`) enforce structural invariants. The compliance levels apply to *interpretation* of policy by humans and agents.
+The validators (`gov validate`) enforce structural invariants. The compliance levels apply to *interpretation* of policy by humans and agents.
 
 ---
 
@@ -90,31 +90,31 @@ Current role holders are listed in `knowledge/policies/roles.md`. By default at 
 **The everyday flow.** A developer's normal path runs through these verbs:
 
 ```bash
-gov-work seed           # seed a new project (prompts for GitHub Project)
-gov-work join           # join an existing project
-gov-work task           # start a sub-branch task on an active project
-gov-work sync           # sync with latest base and continue (the "get current" verb)
-gov-work merge          # submit a completed task back to the project branch
-gov-work close          # close the project (runs the governance gate)
+gov seed           # seed a new project (prompts for GitHub Project)
+gov join           # join an existing project
+gov task           # start a sub-branch task on an active project
+gov sync           # sync with latest base and continue (the "get current" verb)
+gov merge          # submit a completed task back to the project branch
+gov close          # close the project (runs the governance gate)
 ```
 
 **The rest of the lifecycle and admin verbs:**
 
 ```bash
 gov                # interactive menu
-gov-work list           # list all projects
-gov-work status PRJ-26-invoice-api
-gov-work pause / resume / cancel
-gov-work add-repo       # add another code repo to an active project
-gov-work knowledge      # propose org knowledge changes
-gov-work onboard        # onboard a new code repo into the framework
-gov-work anchor         # manage a project's anchor issue
-gov-work manage         # grant / change GitHub Project access (subcommands: list, assign, reassign, unassign)
-gov-work org            # org-level configuration
-gov-work validate       # run the structural validators
-gov-work setup          # bootstrap the workspace (first-time or re-run)
+gov list           # list all projects
+gov status PRJ-26-invoice-api
+gov pause / resume / cancel
+gov add-repo       # add another code repo to an active project
+gov knowledge      # propose org knowledge changes
+gov onboard        # onboard a new code repo into the framework
+gov anchor         # manage a project's anchor issue
+gov manage         # grant / change GitHub Project access (subcommands: list, assign, reassign, unassign)
+gov org            # org-level configuration
+gov validate       # run the structural validators
+gov setup          # bootstrap the workspace (first-time or re-run)
 gov doctor         # check the environment and dependencies
-gov-work upgrade        # pull a framework upgrade
+gov upgrade        # pull a framework upgrade
 ```
 
 The full subcommand set is: `seed`, `join`, `task`, `merge`, `sync`, `add-repo`, `close`, `pause`, `resume`, `cancel`, `manage`, `anchor`, `knowledge`, `onboard`, `validate`, `list`, `status`, `org`, `setup`, `doctor`, `upgrade`.
@@ -125,10 +125,10 @@ The full subcommand set is: `seed`, `join`, `task`, `merge`, `sync`, `add-repo`,
 
 ### Seeding a project
 
-Seed a new project with `gov-work seed`:
+Seed a new project with `gov seed`:
 
 ```bash
-gov-work seed
+gov seed
 ```
 
 Prompts:
@@ -145,22 +145,22 @@ What it does (Direction A — HOME stays on default branch throughout):
    - Adds a worktree of this repo at `<workspace_repo>/` on `BRNCH-<board#>-<slug>` (created from default). Full `projects/PRJ-<board#>-<slug>/*` scaffolding (agent.md, knowledge/, etc.) lives here, on the project branch. Pushed.
    - For each repo linked to the GitHub Project: adds a worktree at `<repo>/` on `BRNCH-<board#>-<slug>` (created from base). Pushed.
 
-After seeding, the command prints a `cd` line and a ready-to-paste first-session prompt. Day-to-day project work happens entirely inside the per-project workspace; the HOME repo is only for `gov-work manage` operations.
+After seeding, the command prints a `cd` line and a ready-to-paste first-session prompt. Day-to-day project work happens entirely inside the per-project workspace; the HOME repo is only for `gov manage` operations.
 
 ### Creating a task (sub-branch)
 
-For multi-agent or parallel work within a project, create sub-branches per task with `gov-work task`:
+For multi-agent or parallel work within a project, create sub-branches per task with `gov task`:
 
 ```bash
-gov-work task
+gov task
 ```
 
 Each task corresponds to one GitHub Issue inside the project. The task gets its own sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`) in every repo, with a single assignee. Multiple tasks can run in parallel.
 
-When done, submit it with `gov-work merge`:
+When done, submit it with `gov merge`:
 
 ```bash
-gov-work merge
+gov merge
 ```
 
 This merges the sub-branch into the project branch (NOT into the code repo's base branch — that happens at project close), archives the sub-branch, and closes the GitHub issue.
@@ -168,8 +168,8 @@ This merges the sub-branch into the project branch (NOT into the code repo's bas
 ### Pausing / resuming
 
 ```bash
-gov-work pause PRJ-26-invoice-api      # → status: paused
-gov-work resume PRJ-26-invoice-api     # → status: active, pulls latest from default and base branches
+gov pause PRJ-26-invoice-api      # → status: paused
+gov resume PRJ-26-invoice-api     # → status: active, pulls latest from default and base branches
 ```
 
 Resume includes a mandatory sync of the workspace default branch and each code repo's base branch into the project branch. This pulls in any policy or knowledge updates that landed while the project was paused.
@@ -177,17 +177,17 @@ Resume includes a mandatory sync of the workspace default branch and each code r
 ### Sync (without pausing)
 
 ```bash
-gov-work sync PRJ-26-invoice-api
+gov sync PRJ-26-invoice-api
 ```
 
 Same merge-in-from-default behavior as resume, but without changing status. Use mid-project to pick up a freshly-merged policy update. This is the "get current and continue" verb you run day-to-day.
 
 ### Closing
 
-Close the project with `gov-work close`, which runs the governance gate:
+Close the project with `gov close`, which runs the governance gate:
 
 ```bash
-gov-work close PRJ-26-invoice-api
+gov close PRJ-26-invoice-api
 ```
 
 Pre-close gate (C01, hard fail if not met):
@@ -201,13 +201,13 @@ Then:
 3. The **test-merge gate** runs locally: validators check the proposed post-merge state of the workspace default branch
 4. If validators pass, the project branch is fast-forwarded into the local default and pushed
 5. Project branches are archived (tag) and deleted in all repos
-6. The knowledge-close step of `gov-work close` runs automatically — see below
+6. The knowledge-close step of `gov close` runs automatically — see below
 
-If the test-merge gate fails, your local default branch is unchanged and you get specific error messages. Fix the cause, re-run `gov-work close`.
+If the test-merge gate fails, your local default branch is unchanged and you get specific error messages. Fix the cause, re-run `gov close`.
 
 ### Knowledge close
 
-After `gov-work close`, the framework offers to synthesize project knowledge into proposals for the org-wide knowledge base:
+After `gov close`, the framework offers to synthesize project knowledge into proposals for the org-wide knowledge base:
 
 1. A new branch is created: `BRNCH-<board#>-<slug>-knowledge`
 2. (LLM/agent step — currently manual) Project knowledge is reviewed and proposed updates to `knowledge/` are committed to that branch
@@ -220,7 +220,7 @@ Knowledge close PRs are reviewed normally. Outcome (merged / rejected / abandone
 ### Cancelling
 
 ```bash
-gov-work cancel PRJ-26-invoice-api "reason text"
+gov cancel PRJ-26-invoice-api "reason text"
 ```
 
 Branches are tagged-then-deleted. **No merge to base branches**. No knowledge close. `cancellation_reason` is required (C01).
@@ -234,7 +234,7 @@ Code changes are preserved in archive tags (`archive/<branch>`) — recoverable 
 For policy updates, ad-hoc learnings, or initial bootstrap knowledge — anything that isn't tied to a specific project:
 
 ```bash
-gov-work knowledge
+gov knowledge
 ```
 
 Walks you through:
@@ -282,7 +282,7 @@ Code repos under the framework have their own `knowledge/` folder:
 To onboard an existing code repo:
 
 ```bash
-gov-work onboard
+gov onboard
 ```
 
 This scaffolds the `knowledge/` structure and raises a PR in that repo. Repo owners populate the placeholder files post-merge.
@@ -291,7 +291,7 @@ This scaffolds the `knowledge/` structure and raises a PR in that repo. Repo own
 
 ## Common pitfalls
 
-**Validators failing on local `gov-work close`.** Usually means required project knowledge is missing, the anchor issue is misconfigured, or there's a leftover placeholder somewhere. Read the specific error — the validators name files and lines.
+**Validators failing on local `gov close`.** Usually means required project knowledge is missing, the anchor issue is misconfigured, or there's a leftover placeholder somewhere. Read the specific error — the validators name files and lines.
 
 **"Branch already exists" errors during seed.** Someone may have manually created a branch matching the pattern. Resolve manually and re-run.
 
@@ -299,7 +299,7 @@ This scaffolds the `knowledge/` structure and raises a PR in that repo. Repo own
 
 **Knowledge close PR has nothing to review.** That happens if no LLM/agent synthesis ran and there were no manual edits. The branch still gets created so the project state can transition; the PR may be closed without merge if nothing's worth proposing.
 
-**Lost track of which branch you're on.** `gov-work status <id>` shows the project state and branch. `gov-work list` shows all projects.
+**Lost track of which branch you're on.** `gov status <id>` shows the project state and branch. `gov list` shows all projects.
 
 **Want to undo a close.** Don't. Undoing a close requires reverting merges in multiple repos and re-creating archived branches. Better to seed a follow-up project.
 
@@ -310,8 +310,8 @@ This scaffolds the `knowledge/` structure and raises a PR in that repo. Repo own
 - [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) — step-by-step day-in-the-life of working on a project, including how to prompt the agent
 - `knowledge/policies/agentic-development-policy.md` — the full policy text with all clause IDs
 - `knowledge/policies/roles.md` — current role holders
-- `gov-work validate` — exactly which invariants are checked
+- `gov validate` — exactly which invariants are checked
 - The local pre-merge gate — the validators `gov-work` runs before a merge or close
-- `gov-work upgrade` — pulling upstream framework updates
+- `gov upgrade` — pulling upstream framework updates
 
 The framework is intentionally small — the policy under 1000 lines and the validators compact. Read the source when in doubt.

@@ -74,8 +74,8 @@ describe("prj-work Phase 1 — createNodeEnv (fs-backed, temp dir)", () => {
 
   it("readActiveOrg and homeForOrg read the registry files", () => {
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(path.join(configDir, "active-org"), "Svayamtech\n");
-    fs.writeFileSync(path.join(configDir, "gov-workspaces"), `Svayamtech\t${govDir}\n`);
+    fs.writeFileSync(path.join(configDir, "active"), "Svayamtech\n");
+    fs.writeFileSync(path.join(configDir, "workspaces"), `Svayamtech\t${govDir}\n`);
     const env = createNodeEnv({ cwd: tmp, configDir });
     expect(env.readActiveOrg()).to.equal("Svayamtech");
     expect(env.homeForOrg("Svayamtech")).to.equal(govDir);
@@ -92,7 +92,7 @@ describe("prj-work Phase 1 — createNodeEnv (fs-backed, temp dir)", () => {
 
   it("end-to-end: cwd inside a real gov repo + matching active-org resolves via cwd", () => {
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(path.join(configDir, "active-org"), "Svayamtech\n");
+    fs.writeFileSync(path.join(configDir, "active"), "Svayamtech\n");
     const nested = path.join(govDir, "projects", "PRJ-1");
     fs.mkdirSync(nested, { recursive: true });
     const env = createNodeEnv({ cwd: nested, configDir });
@@ -101,8 +101,8 @@ describe("prj-work Phase 1 — createNodeEnv (fs-backed, temp dir)", () => {
 
   it("end-to-end: outside any workspace resolves via active-org's canonical registry home", () => {
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(path.join(configDir, "active-org"), "Svayamtech\n");
-    fs.writeFileSync(path.join(configDir, "gov-workspaces"), `Svayamtech\t${govDir}\n`);
+    fs.writeFileSync(path.join(configDir, "active"), "Svayamtech\n");
+    fs.writeFileSync(path.join(configDir, "workspaces"), `Svayamtech\t${govDir}\n`);
     const outside = path.join(tmp, "elsewhere");
     fs.mkdirSync(outside, { recursive: true });
     const env = createNodeEnv({ cwd: outside, configDir });
@@ -118,8 +118,8 @@ describe("prj-work Phase 1 — createNodeEnv (fs-backed, temp dir)", () => {
       `github_org: "Svayamtech"\ngov_workspace: "${govDir}"\n`,
     );
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(path.join(configDir, "active-org"), "Svayamtech\n");
-    fs.writeFileSync(path.join(configDir, "gov-workspaces"), `Svayamtech\t${clone}\n`);
+    fs.writeFileSync(path.join(configDir, "active"), "Svayamtech\n");
+    fs.writeFileSync(path.join(configDir, "workspaces"), `Svayamtech\t${clone}\n`);
     const outside = path.join(tmp, "elsewhere");
     fs.mkdirSync(outside, { recursive: true });
     const r = prjResolveGov(createNodeEnv({ cwd: outside, configDir }));

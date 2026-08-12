@@ -23,14 +23,14 @@ See `agent.md` for layer loading order.
 ## PROC-01: Onboarding a Code Repository
 
 **Governs:** POL-001, POL-076, POL-079
-**Command:** `gov-work onboard`
+**Command:** `gov onboard`
 
 ### When to Use
 When an existing code repository needs to be brought under the <ORG_NAME> Agentic Development Policy for the first time.
 
 ### Steps
 1. Verify the repo does not already have a `knowledge/` folder
-2. Run: `gov-work onboard <repo_url> "<repo_description>" "<repo_owner>"`
+2. Run: `gov onboard <repo_url> "<repo_description>" "<repo_owner>"`
 3. The command creates `knowledge/agent.md` and `knowledge/repo/` placeholder files
 4. The command raises PR to repo's default branch
 5. Repo owner reviews and merges
@@ -61,7 +61,7 @@ Any authorized GitHub user with access to `<WORKSPACE_REPO>`.
 6. Project is now in `PROPOSED` state — no workspace exists yet
 
 ### Notes
-- The project ID (`PRJ-<board#>`) is NOT assigned at this stage — it is assigned by `gov-work seed`
+- The project ID (`PRJ-<board#>`) is NOT assigned at this stage — it is assigned by `gov seed`
 - `<WORKSPACE_REPO>` is always an implicit participant — do not create an Issue in it to include it
 
 ---
@@ -69,7 +69,7 @@ Any authorized GitHub user with access to `<WORKSPACE_REPO>`.
 ## PROC-03: Seeding a Project Workspace (PROPOSED → ACTIVE)
 
 **Governs:** POL-041 to POL-075
-**Command:** `gov-work seed`
+**Command:** `gov seed`
 
 ### Who Performs This
 The developer or agent assigned to the project.
@@ -82,7 +82,7 @@ The developer or agent assigned to the project.
 ### Steps
 1. Clone `<WORKSPACE_REPO>` if not already cloned: `git clone <<WORKSPACE_REPO>-url>`
 2. Ensure you are on `<DEFAULT_BRANCH>` with latest changes: `git checkout <DEFAULT_BRANCH> && git pull`
-3. Run: `gov-work seed <github_project_url>`
+3. Run: `gov seed <github_project_url>`
 4. The command prompts for `base_branch` override per repo (default: `dev`) — specify if working on emergency fixes
 5. The command scaffolds workspace, clones repos, creates branches
 6. Verify: `projects/PRJ-<board#>-<slug>/` exists on branch `BRNCH-<board#>-<slug>`
@@ -147,18 +147,18 @@ When the developer switches the workspace to a different project branch (e.g. `g
 ## PROC-05: Creating a Task (Multi-Agent Parallel Work)
 
 **Governs:** POL-073 to POL-075
-**Command:** `gov-work task`
+**Command:** `gov task`
 
 ### When to Use
 When a team needs to split project work among multiple agents/developers working in parallel.
 
 ### Steps
 1. Identify the GitHub Issue that defines this unit of work
-2. Run: `gov-work task <github_issue_url> <assignee_email>`
+2. Run: `gov task <github_issue_url> <assignee_email>`
 3. The command creates sub-branch `BRNCH-<board#>-<slug>.ISSUE-<n>` in all repos
 4. Assigned developer/agent works exclusively on this sub-branch
 5. Sub-branch session start: same as PROC-04 but on sub-branch
-6. Sub-branch session end: commit to sub-branch; use `gov-work merge` when done
+6. Sub-branch session end: commit to sub-branch; use `gov merge` when done
 
 ### Rules
 - Sub-branches merge back to `BRNCH-<board#>-<slug>` ONLY — never to <DEFAULT_BRANCH> **(POL-073)**
@@ -170,11 +170,11 @@ When a team needs to split project work among multiple agents/developers working
 ## PROC-06: Merging a Task
 
 **Governs:** POL-073 to POL-075
-**Command:** `gov-work merge`
+**Command:** `gov merge`
 
 ### Steps
 1. Ensure all work on sub-branch is committed and pushed
-2. Run: `gov-work merge <project_id> <task_id>`
+2. Run: `gov merge <project_id> <task_id>`
 3. The command merges sub-branch into `BRNCH-<board#>-<slug>`
 4. Resolve any merge conflicts if prompted
 5. Sub-branch is archived and deleted
@@ -185,13 +185,13 @@ When a team needs to split project work among multiple agents/developers working
 ## PROC-07: Adding a Repository Mid-Project
 
 **Governs:** POL-062 to POL-066
-**Command:** `gov-work add-repo`
+**Command:** `gov add-repo`
 
 ### When to Use
 When project scope expands to require a repo that was not identified at seeding.
 
 ### Steps
-1. Run: `gov-work add-repo <project_id> <repo_url> <role> "<added_reason>"`
+1. Run: `gov add-repo <project_id> <repo_url> <role> "<added_reason>"`
 2. Optionally specify `--base-branch <branch>` to override the default (`dev`)
 3. The command clones the repo and creates its project branch
 4. Verify the new repo is cloned under `<agent_work_root>/PRJ-<board#>-<slug>/` and its branch exists
@@ -201,7 +201,7 @@ When project scope expands to require a repo that was not identified at seeding.
 ## PROC-08: Syncing Org Knowledge Mid-Project
 
 **Governs:** POL-122
-**Command:** `gov-work sync`
+**Command:** `gov sync`
 
 ### When to Use
 When you want to pull in the latest org knowledge updates without pausing/resuming.
@@ -209,7 +209,7 @@ Especially useful after a knowledge ingest PR is merged to <DEFAULT_BRANCH>.
 
 ### Steps
 1. Commit all current work first
-2. Run: `gov-work sync <project_id>`
+2. Run: `gov sync <project_id>`
 3. Resolve any merge conflicts if prompted
 4. Reload knowledge layers after sync completes
 
@@ -218,11 +218,11 @@ Especially useful after a knowledge ingest PR is merged to <DEFAULT_BRANCH>.
 ## PROC-09: Pausing a Project
 
 **Governs:** POL-049, POL-051
-**Command:** `gov-work pause`
+**Command:** `gov pause`
 
 ### Steps
 1. Commit all current work — no uncommitted changes allowed
-2. Run: `gov-work pause <project_id>`
+2. Run: `gov pause <project_id>`
 3. Verify the project's GitHub board reflects the paused state
 4. Project can be resumed at any time via PROC-10
 
@@ -231,13 +231,13 @@ Especially useful after a knowledge ingest PR is merged to <DEFAULT_BRANCH>.
 ## PROC-10: Resuming a Project
 
 **Governs:** POL-049, POL-051, POL-122
-**Command:** `gov-work resume`
+**Command:** `gov resume`
 
 ### Important
 Resuming triggers a **mandatory <DEFAULT_BRANCH> sync** **(POL-122 — C01)**. Org knowledge may have changed while the project was paused. The agent must work with current org knowledge.
 
 ### Steps
-1. Run: `gov-work resume <project_id>`
+1. Run: `gov resume <project_id>`
 2. The command fetches and merges latest `<DEFAULT_BRANCH>`/`base_branch` into all project branches
 3. Resolve merge conflicts if prompted — the command pauses until resolved
 4. Knowledge layers are automatically reloaded
@@ -248,14 +248,14 @@ Resuming triggers a **mandatory <DEFAULT_BRANCH> sync** **(POL-122 — C01)**. O
 ## PROC-11: Cancelling a Project
 
 **Governs:** POL-052, POL-070
-**Command:** `gov-work cancel`
+**Command:** `gov cancel`
 
 ### Important
 Cancellation does NOT trigger a knowledge close. Code changes are archived but not merged.
 
 ### Steps
 1. Prepare a clear `cancellation_reason`
-2. Run: `gov-work cancel <project_id> "<cancellation_reason>"`
+2. Run: `gov cancel <project_id> "<cancellation_reason>"`
 3. The command archives and deletes all project branches
 4. Verify the project's GitHub board is closed, reflecting the cancelled state
 
@@ -264,9 +264,9 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 ## PROC-12: Closing a Project
 
 **Governs:** POL-087 to POL-106
-**Command:** `gov-work close` (the knowledge-close step is auto-triggered)
+**Command:** `gov close` (the knowledge-close step is auto-triggered)
 
-### Pre-close Checklist (C01 — must be complete before running `gov-work close`)
+### Pre-close Checklist (C01 — must be complete before running `gov close`)
 
 - [ ] `projects/PRJ-<board#>-<slug>/knowledge/` contains meaningful content
 - [ ] `projects/PRJ-<board#>-<slug>/knowledge/compliance.md` exists and is current
@@ -276,7 +276,7 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 
 ### Steps — Project Close
 1. Complete all items in pre-close checklist
-2. Run: `gov-work close <project_id>`
+2. Run: `gov close <project_id>`
 3. The command merges all project branches to their base branches
 4. Resolve merge conflicts if prompted — the command pauses until resolved
 5. Branches are archived and deleted
@@ -330,7 +330,7 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 ## PROC-14: Proposing Org Knowledge (Standalone)
 
 **Governs:** POL-107 to POL-109
-**Command:** `gov-work knowledge`
+**Command:** `gov knowledge`
 
 ### When to Use
 - Initial bootstrap of `knowledge/` before first project
@@ -338,11 +338,11 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 - Ad-hoc knowledge that arises outside any project
 
 ### Steps
-1. Run: `gov-work knowledge <branch_slug> "<description>"`
+1. Run: `gov knowledge <branch_slug> "<description>"`
 2. The command creates branch `knowledge-<slug>` from <DEFAULT_BRANCH>
 3. Author knowledge changes manually on this branch
 4. Commit and push
-5. Run: `gov-work knowledge raise-pr <branch_slug>` (or raise PR manually)
+5. Run: `gov knowledge raise-pr <branch_slug>` (or raise PR manually)
 6. CODEOWNERS routes PR to appropriate domain owners
 7. Domain owner reviews and merges
 
@@ -363,7 +363,7 @@ When the developer with write access (the anchor-issue assignee) becomes unavail
 3. Policy Owner reviews and merges (or delegates to Policy Representative)
 4. After PR is merged:
    - Record the reassignment via GitHub: grant the new assignee write access to the project's linked GitHub Project and update the anchor issue's assignees. The reassignment rationale lives in the approved C02 exception PR — there is no `project.yaml` to edit.
-5. New assignee runs `gov-work resume` before starting any work **(POL-122)**
+5. New assignee runs `gov resume` before starting any work **(POL-122)**
 
 ---
 
@@ -379,7 +379,7 @@ When the developer with write access (the anchor-issue assignee) becomes unavail
 3. Identify patterns: recurring C01 violations, frequent C02 exceptions, C03 deviation clusters
 4. Assess whether recurring issues indicate a policy gap or enforcement gap
 5. Draft compliance summary for the quarter
-6. If policy changes are warranted: use `gov-work knowledge` to raise a policy update PR
+6. If policy changes are warranted: use `gov knowledge` to raise a policy update PR
 7. Commit quarterly summary to `knowledge/compliance/YYYY-QN-summary.md`
 
 ---
@@ -387,13 +387,13 @@ When the developer with write access (the anchor-issue assignee) becomes unavail
 ## PROC-17: Updating the Policy
 
 **Governs:** POL-010 to POL-025, POL-107 to POL-109
-**Command:** `gov-work knowledge`
+**Command:** `gov knowledge`
 
 ### Steps
 1. Policy Owner identifies need for policy update (from compliance review, domain owner input, etc.)
-2. Run `gov-work knowledge` to create a `knowledge-<slug>` branch
+2. Run `gov knowledge` to create a `knowledge-<slug>` branch
 3. Edit `knowledge/policies/agentic-development-policy.md` and/or `knowledge/policies/roles.md`
 4. Raise PR — CODEOWNERS routes to Policy Owner
 5. Policy Owner reviews and merges
 6. On merge: new policy version is the commit SHA; CI/CD regenerates PDFs, site, vectors
-7. All active projects receive the update on next `gov-work sync` or `gov-work resume`
+7. All active projects receive the update on next `gov sync` or `gov resume`

@@ -202,26 +202,28 @@ Every project is identified by a globally unique Project ID in the format `PRJ-<
 
 **(POL-042)**
 
-The Project ID is issued exclusively by `gov-work seed` from the linked GitHub project board; it must never be assigned manually. The project **branch** mirrors the ID with the `BRNCH-` prefix and the same board number and slug — `BRNCH-<board#>-<slug>` — and task sub-branches append `.ISSUE-<n>` (POL-074). GitHub is the source of truth for both the issued `id` and its `branch` — there is no `registry.yaml`. Projects seeded under the earlier zero-padded sequence scheme (`PRJ-NNN-<slug>` / `brnch-NNN-<slug>`) keep their original names. **(POL-043)**
+The Project ID is issued exclusively by `gov seed` from the linked GitHub project board; it must never be assigned manually. The project **branch** mirrors the ID with the `BRNCH-` prefix and the same board number and slug — `BRNCH-<board#>-<slug>` — and task sub-branches append `.ISSUE-<n>` (POL-074). GitHub is the source of truth for both the issued `id` and its `branch` — there is no `registry.yaml`. Projects seeded under the earlier zero-padded sequence scheme (`PRJ-NNN-<slug>` / `brnch-NNN-<slug>`) keep their original names. **(POL-043)**
 
 ### 4.3 Source of Truth (GitHub)
 
 GitHub is the single authoritative source of truth for all project IDs and their current status. The active project is derived from the current git branch (`BRNCH-<board#>-<slug>`) and its linked GitHub Project board; project status is derived from whether that board is open (active) or closed (done). No project exists officially until its GitHub Project board and anchor issue exist. There is no `registry.yaml` or any other per-project state file. **(POL-044)**
 
+**Rationale — why derived, not cached.** A cache of GitHub facts can disagree with GitHub, and when it does, the C01 gates written against the cache fire against correctly-formed projects. That is not hypothetical: while `registry.yaml` / `project.yaml` and the GitHub-derived model were both live, lifecycle commands hard-stopped with `project.yaml not found` on projects that were valid under the model the tooling had already adopted. Deriving state removes the class of failure instead of re-synchronising the cache. Do not reintroduce a per-project state file, however convenient it looks. **(POL-044a)**
+
 ### 4.4 Project Assignment
 
 A project's ownership is reflected by the assignees of its anchor issue — an individual or a team. **(POL-045)**
 
-The individual who ran `gov-work seed` for the project is recorded as an audit record (the seed commit / anchor issue); it is **not** an authorization gate. **(POL-046)**
+The individual who ran `gov seed` for the project is recorded as an audit record (the seed commit / anchor issue); it is **not** an authorization gate. **(POL-046)**
 
-Authorization to work a project derives from **write access to its linked GitHub Project** (`projectV2.viewerCanUpdate`), granted by an owner via `gov-work manage assign` (org owners/admins have access to everything). There is no single project-level lock; ownership of in-progress work is **per task** — each task sub-branch has exactly one assignee (POL-074) — and the session-start check verifies the worker owns the sub-branch they are on (POL-114). **(POL-047)**
+Authorization to work a project derives from **write access to its linked GitHub Project** (`projectV2.viewerCanUpdate`), granted by an owner via `gov manage assign` (org owners/admins have access to everything). There is no single project-level lock; ownership of in-progress work is **per task** — each task sub-branch has exactly one assignee (POL-074) — and the session-start check verifies the worker owns the sub-branch they are on (POL-114). **(POL-047)**
 
 ### 4.5 Project Lifecycle States
 
 Projects move through the following states:
 
-- **`proposed`**: The GitHub Project has been created by a stakeholder but `gov-work seed` has not yet been run. No project workspace exists yet. **(POL-048)**
-- **`active`**: `gov-work seed` has been run, the workspace has been scaffolded, the GitHub board is open, and work is in progress. **(POL-049)**
+- **`proposed`**: The GitHub Project has been created by a stakeholder but `gov seed` has not yet been run. No project workspace exists yet. **(POL-048)**
+- **`active`**: `gov seed` has been run, the workspace has been scaffolded, the GitHub board is open, and work is in progress. **(POL-049)**
 - **`paused`**: Work is temporarily halted. Ownership is unchanged. A project in `paused` state may be resumed by any worker authorized via write access to its linked GitHub Project (POL-047). **(POL-050)**
 - **`completed`**: All work is done, knowledge has been documented, and all project branches have been merged. **(POL-051)**
 - **`cancelled`**: The project has been abandoned. All project branches are archived. No knowledge close is performed on cancelled projects. **(POL-052)**
@@ -232,7 +234,7 @@ A project in `active` or `paused` status may not be reassigned to a different in
 
 Any approved reassignment must document the reassignment reason, date, and approving authority in the approved C02 exception PR (`knowledge/policies/exceptions/policy/`); the change is then reflected by GitHub Project access and the anchor issue's assignees. There is no per-project state file to edit. **(POL-054)**
 
-After a reassignment, the new assignee must run `gov-work resume` before beginning any work. Starting work without running `gov-work resume` after a reassignment is a C02 violation. **(POL-055)**
+After a reassignment, the new assignee must run `gov resume` before beginning any work. Starting work without running `gov resume` after a reassignment is a C02 violation. **(POL-055)**
 
 ---
 
@@ -283,7 +285,7 @@ Any project whose GitHub-derived state is inconsistent with this policy — a mi
 
 ### 5.4 GitHub Project Pre-Seeding Requirements
 
-Before `gov-work seed` may be run, the GitHub Project must meet the following minimum conditions.
+Before `gov seed` may be run, the GitHub Project must meet the following minimum conditions.
 
 The following are **C01** (non-negotiable) requirements:
 
@@ -300,9 +302,9 @@ The following are **C02** requirements:
 
 **`<WORKSPACE_REPO>` branching**: All project work in `<WORKSPACE_REPO>` must branch from `<DEFAULT_BRANCH>` and merge back to `<DEFAULT_BRANCH>`. **(POL-067)**
 
-**Code repository branching**: The default base branch for code repositories is `dev`. This may be overridden at seed time (for example, to target a production hotfix branch) by specifying a different base branch when running `gov-work seed`. **(POL-068)**
+**Code repository branching**: The default base branch for code repositories is `dev`. This may be overridden at seed time (for example, to target a production hotfix branch) by specifying a different base branch when running `gov seed`. **(POL-068)**
 
-**Branch naming**: All project branches, in every repository, must be named `BRNCH-<board#>-<slug>`. This naming convention is mandatory and must be enforced by `gov-work seed`. **(POL-069)**
+**Branch naming**: All project branches, in every repository, must be named `BRNCH-<board#>-<slug>`. This naming convention is mandatory and must be enforced by `gov seed`. **(POL-069)**
 
 **Sub-branches for multi-agent work**: When a project involves parallel work across multiple agents or developers, sub-branches are created in the format `BRNCH-<board#>-<slug>.ISSUE-<n>`. **(POL-070)**
 
@@ -379,7 +381,7 @@ knowledge/
 
 **(POL-084)**
 
-This structure is initialized by `gov-work onboard`. Repositories that have not been onboarded must be onboarded before they can be added to any project. **(POL-085)**
+This structure is initialized by `gov onboard`. Repositories that have not been onboarded must be onboarded before they can be added to any project. **(POL-085)**
 
 ### 6.4 Governance Authority & Project-Branch Proposals
 
@@ -402,7 +404,7 @@ Project knowledge is intentionally free-form. There is no required structural co
 When a project is completed, accumulated project knowledge is synthesized and proposed for inclusion in org-wide knowledge through the knowledge close process. The steps are:
 
 1. **Pre-close consolidation**: The developer or agent consolidates all project learnings, decisions, and artifacts into `projects/PRJ-<board#>-<slug>/knowledge/`. **(POL-089)**
-2. **Knowledge-close step**: The knowledge-close step of `gov-work close` runs. It uses LLM+RAG synthesis to map project knowledge to proposed changes in org-wide knowledge. **(POL-090)**
+2. **Knowledge-close step**: The knowledge-close step of `gov close` runs. It uses LLM+RAG synthesis to map project knowledge to proposed changes in org-wide knowledge. **(POL-090)**
 3. **Branch creation**: It creates a `BRNCH-<board#>-<slug>-knowledge` branch from `<DEFAULT_BRANCH>`. **(POL-091)**
 4. **PR creation**: It proposes changes to `knowledge/` on that branch and raises a PR. CODEOWNERS automatically assigns the appropriate domain owners as reviewers. **(POL-092)**
 5. **Review**: The Policy Owner and relevant domain owners review the proposed changes and either merge, reject, request revision, or allow abandonment. **(POL-093)**
@@ -436,8 +438,8 @@ All three publication forms are generated from the same markdown source. **(POL-
 
 Two `gov-work` subcommands support knowledge updates outside any active project context:
 
-- **`gov-work knowledge`**: Allows any authorized contributor to propose ad-hoc changes to org-wide knowledge. It raises a PR via CODEOWNERS for domain owner review. **(POL-105)**
-- **`gov-work onboard`**: Initializes the `knowledge/` folder structure in an existing code repository. It raises a PR via CODEOWNERS. **(POL-106)**
+- **`gov knowledge`**: Allows any authorized contributor to propose ad-hoc changes to org-wide knowledge. It raises a PR via CODEOWNERS for domain owner review. **(POL-105)**
+- **`gov onboard`**: Initializes the `knowledge/` folder structure in an existing code repository. It raises a PR via CODEOWNERS. **(POL-106)**
 
 ### 6.10 Quarterly Compliance Review
 
@@ -452,7 +454,7 @@ Critical C01 violations escalate to the Policy Owner immediately, regardless of 
 Project knowledge proposals to org-wide knowledge flow through the following process:
 
 1. The Project Knowledge Owner (`<POLICY_OWNER_EMAIL>`) reviews accumulated project knowledge at project close. **(POL-110)**
-2. The knowledge-close step of `gov-work close` synthesizes proposals using LLM+RAG. **(POL-111)**
+2. The knowledge-close step of `gov close` synthesizes proposals using LLM+RAG. **(POL-111)**
 3. The `BRNCH-<board#>-<slug>-knowledge` PR is the formal, auditable proposal mechanism. Proposals that are merged become the new org knowledge version, versioned by the commit SHA on `<DEFAULT_BRANCH>`. **(POL-112)**
 
 ---
@@ -467,7 +469,7 @@ Every agent work session is governed by a mandatory start protocol and a recomme
 
 Before performing any work whatsoever, an agent must complete all of the following steps in order **(POL-113)**:
 
-1. **Verify authorization & task ownership**: Confirm the current user is authorized — they have **write access to the project's linked GitHub Project** (`projectV2.viewerCanUpdate`). When working on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is the current user (per-task lock). If authorization fails, the agent must refuse to proceed and surface this to the human immediately. (Running `gov-work seed` is an audit record, not a gate.) **(POL-114)**
+1. **Verify authorization & task ownership**: Confirm the current user is authorized — they have **write access to the project's linked GitHub Project** (`projectV2.viewerCanUpdate`). When working on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is the current user (per-task lock). If authorization fails, the agent must refuse to proceed and surface this to the human immediately. (Running `gov seed` is an audit record, not a gate.) **(POL-114)**
 2. **Verify project status**: Confirm the project's GitHub board is **open** (active). Any other state — the board closed (done), or the project paused or cancelled — requires the agent to refuse and surface to the human. **(POL-115)**
 3. **Load knowledge layers fresh**: Load all four knowledge layers in priority order from their current state in the repository. Knowledge layers must never be used from a previous session's cache across session boundaries. The load order is: **(POL-116)**
    - `<WORKSPACE_REPO>/knowledge/` (org-wide, from `<DEFAULT_BRANCH>`)
@@ -564,14 +566,21 @@ Compliance is enforced through three complementary layers. All three are require
 
 **Layer 1 — Agent Self-Check (C01)**: At every session start, the agent performs the self-check defined in Section 7.1. This is the first and most immediate line of enforcement. Agent failure to perform the self-check is itself a C01 violation. **(POL-146)**
 
-**Layer 2 — Command Gates**: The lifecycle commands (`gov-work seed`, `gov-work close`, `gov-work resume`, `gov-work cancel`, `gov-work pause`, `gov-work add-repo`) validate required conditions before executing. Hard blocks are applied on C01 condition failures. Warnings are issued on C02 condition gaps. These gates must never be bypassed. **(POL-147)**
+**Layer 2 — Command Gates**: The lifecycle commands (`gov seed`, `gov close`, `gov resume`, `gov cancel`, `gov pause`, `gov add-repo`) validate required conditions before executing. Hard blocks are applied on C01 condition failures. Warnings are issued on C02 condition gaps. These gates must never be bypassed. **(POL-147)**
 
 **Layer 3 — CI/CD Checks**: The `<WORKSPACE_REPO>` CI/CD pipeline validates every PR to `<DEFAULT_BRANCH>` on the following criteria: **(POL-148)**
 
+- **POL-408 front-matter** on every org and project knowledge document (`domain`, `layer`, `owner`, `compliance`, `status`)
+- **Link integrity** across `knowledge/` — no broken relative links
+- **Secrets and privacy** scanning — no restricted data (POL-143)
+- **Protocol integrity** — the generated harness files match the canonical `agent/session-protocol.md`
+- **Version sync** between the CLI and the framework content
 - Project workspace structure of all active projects (required folders and `agent.md`)
 - `CODEOWNERS` coverage of all `knowledge/` subfolders
 - Project ID and branch naming consistency with GitHub (Project boards + anchor issues)
 - (There is no `registry.yaml` or `project.yaml` to validate — project state is derived from GitHub)
+
+These run as `gov validate` — on every PR to `<DEFAULT_BRANCH>` and as a pre-push hook.
 
 CI/CD failures on structural validation are C01 events. A PR that fails CI/CD structural validation must not be merged. **(POL-149)**
 
@@ -626,28 +635,28 @@ The following individuals are authorized to approve exceptions in their respecti
 
 ### 10.1 Infrastructure Policy
 
-**Status:** Pending — Infrastructure Owner to populate via `gov-work knowledge`.
+**Status:** Pending — Infrastructure Owner to populate via `gov knowledge`.
 **Owner:** TBD (Infrastructure Owner). Until filled, Policy Owner holds authority.
 
 The Infrastructure Policy will govern CI/CD pipeline standards, hosting platform requirements, vector store configuration, authentication and authorization requirements, and LLM provider governance. Once published, it will be the authoritative reference for all infrastructure decisions. **(POL-159)**
 
 ### 10.2 System Architecture Policy
 
-**Status:** Pending — System Architecture Owner to populate via `gov-work knowledge`.
+**Status:** Pending — System Architecture Owner to populate via `gov knowledge`.
 **Owner:** TBD (System Architecture Owner). Until filled, Policy Owner holds authority.
 
 The System Architecture Policy will govern system design standards, API contract requirements, inter-service communication patterns, and architectural decision-making processes. **(POL-160)**
 
 ### 10.3 Data Architecture Policy
 
-**Status:** Pending — Data Architecture Owner to populate via `gov-work knowledge`.
+**Status:** Pending — Data Architecture Owner to populate via `gov knowledge`.
 **Owner:** TBD (Data Architecture Owner). Until filled, Policy Owner holds authority.
 
 The Data Architecture Policy will govern data modeling standards, data pipeline architecture, data residency and sovereignty requirements, and data governance processes. **(POL-161)**
 
 ### 10.4 Legal & Compliance Policy
 
-**Status:** Pending — Legal Owner to populate via `gov-work knowledge`.
+**Status:** Pending — Legal Owner to populate via `gov knowledge`.
 **Owner:** TBD (Legal Owner). Until filled, Policy Owner holds authority.
 
 The Legal & Compliance Policy will govern legal compliance requirements applicable to software development, contractual obligations with third-party tool providers, intellectual property policies, and jurisdictional compliance requirements. **(POL-162)**
@@ -666,12 +675,12 @@ The Legal & Compliance Policy will govern legal compliance requirements applicab
 | **Project knowledge** | Content in `projects/PRJ-<board#>-<slug>/knowledge/`. Second-priority knowledge layer. |
 | **Repo-local knowledge** | Content in `<repo>/knowledge/`. Third-priority knowledge layer. |
 | **Developer preferences** | Content in `$AGENT_WORK_ROOT/preferences/<gh-login>.md` — one file per developer. Lowest-priority knowledge layer; C03 only. |
-| **Seed** | The act of transitioning a project from `proposed` to `active` by running `gov-work seed`. Creates the project workspace and branches. |
+| **Seed** | The act of transitioning a project from `proposed` to `active` by running `gov seed`. Creates the project workspace and branches. |
 | **Knowledge close** | The process of synthesizing accumulated project knowledge into org-wide knowledge proposals after project completion. |
 | **C01** | Compliance level: Non-Negotiable. No exceptions. Agent hard stops on violation. |
 | **C02** | Compliance level: Always Apply. Exceptions require formal approval via PR by authorized domain representative. |
 | **C03** | Compliance level: Apply Intelligently. Strong default. Deviations allowed only when intent is honored and reasoning is documented. |
-| **seeded_by** | The individual who ran `gov-work seed` for a project — an audit record, set once. Not an authorization gate: authorization is via write access to the linked GitHub Project, and ownership of in-progress work is per task. |
+| **seeded_by** | The individual who ran `gov seed` for a project — an audit record, set once. Not an authorization gate: authorization is via write access to the linked GitHub Project, and ownership of in-progress work is per task. |
 | **base_branch** | The branch from which `BRNCH-<board#>-<slug>` was created in a code repository. The branch to which project changes are merged upon completion. |
 | **agent_work_root** | The local directory on a developer or agent's machine where project repositories are cloned. Never committed. |
 | **CODEOWNERS** | The GitHub file mapping repository folders to their responsible owners for PR review purposes. |
@@ -685,18 +694,18 @@ The following `gov` subcommands constitute the authorized tooling for project an
 
 | Command | Context | Purpose |
 |---|---|---|
-| `gov-work seed` | Project lifecycle | Transitions a project from `proposed` to `active`. Scaffolds workspace, creates branches, issues PRJ-<board#>-<slug>. |
-| `gov-work join` | Project lifecycle | Joins an existing project the current user has GitHub Project access to. |
-| `gov-work add-repo` | Project lifecycle | Adds a new code repository to an active project mid-work. |
-| `gov-work pause` | Project lifecycle | Transitions a project from `active` to `paused`. |
-| `gov-work resume` | Project lifecycle | Transitions a project from `paused` to `active`. Pulls latest `<DEFAULT_BRANCH>` into project branch. |
-| `gov-work cancel` | Project lifecycle | Transitions a project to `cancelled`. Archives all project branches. |
-| `gov-work close` | Project lifecycle | Transitions a project from `active` to `completed`. Merges all project branches to their base branches, then runs the knowledge-close step (LLM+RAG synthesis, knowledge branch, knowledge PR). |
-| `gov-work sync` | Project lifecycle | Pulls latest `<DEFAULT_BRANCH>` changes into the project branch on demand. |
-| `gov-work task` | Multi-agent | Creates a sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`) linked to a GitHub Issue. |
-| `gov-work merge` | Multi-agent | Merges a sub-branch back to the parent `BRNCH-<board#>-<slug>` branch. Archives sub-branch and closes linked Issue. |
-| `gov-work knowledge` | Standalone | Proposes ad-hoc changes to org-wide knowledge outside any active project context. Raises a PR via CODEOWNERS. |
-| `gov-work onboard` | Standalone | Initializes the `knowledge/` folder structure in an existing code repository. Raises a PR via CODEOWNERS. |
+| `gov seed` | Project lifecycle | Transitions a project from `proposed` to `active`. Scaffolds workspace, creates branches, issues PRJ-<board#>-<slug>. |
+| `gov join` | Project lifecycle | Joins an existing project the current user has GitHub Project access to. |
+| `gov add-repo` | Project lifecycle | Adds a new code repository to an active project mid-work. |
+| `gov pause` | Project lifecycle | Transitions a project from `active` to `paused`. |
+| `gov resume` | Project lifecycle | Transitions a project from `paused` to `active`. Pulls latest `<DEFAULT_BRANCH>` into project branch. |
+| `gov cancel` | Project lifecycle | Transitions a project to `cancelled`. Archives all project branches. |
+| `gov close` | Project lifecycle | Transitions a project from `active` to `completed`. Merges all project branches to their base branches, then runs the knowledge-close step (LLM+RAG synthesis, knowledge branch, knowledge PR). |
+| `gov sync` | Project lifecycle | Pulls latest `<DEFAULT_BRANCH>` changes into the project branch on demand. |
+| `gov task` | Multi-agent | Creates a sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`) linked to a GitHub Issue. |
+| `gov merge` | Multi-agent | Merges a sub-branch back to the parent `BRNCH-<board#>-<slug>` branch. Archives sub-branch and closes linked Issue. |
+| `gov knowledge` | Standalone | Proposes ad-hoc changes to org-wide knowledge outside any active project context. Raises a PR via CODEOWNERS. |
+| `gov onboard` | Standalone | Initializes the `knowledge/` folder structure in an existing code repository. Raises a PR via CODEOWNERS. |
 
 **(POL-165)**
 
@@ -753,19 +762,20 @@ POL-039: Domain owners have final approval authority within their own domain; no
 POL-040: Cross-domain PRs require approval from each affected domain owner; Policy Owner resolves disputes.
 POL-041: All organizational work must be performed through an active, uniquely identifiable project.
 POL-042: Every project is identified by the format PRJ-<board#>-<slug> (GitHub project board number, no leading zero; lowercase slug from GitHub Project name).
-POL-043: Project IDs are issued exclusively by gov-work seed from the linked GitHub board; the branch mirrors the id as BRNCH-<board#>-<slug> (task sub-branches append .ISSUE-<n>); never assigned manually. Legacy PRJ-NNN / brnch-NNN projects keep their names.
+POL-043: Project IDs are issued exclusively by gov seed from the linked GitHub board; the branch mirrors the id as BRNCH-<board#>-<slug> (task sub-branches append .ISSUE-<n>); never assigned manually. Legacy PRJ-NNN / brnch-NNN projects keep their names.
 POL-044: GitHub (the current branch + the linked Project board + anchor issue) is the single authoritative source of truth for all project IDs and statuses; there is no registry.yaml.
+POL-044a: Rationale — a cache of GitHub facts can disagree with GitHub, and the C01 gates built on it then fire against valid projects. Do not reintroduce a per-project state file.
 POL-045: A project's ownership is reflected by its anchor issue's assignees (an individual or a team).
-POL-046: Running gov-work seed is recorded as an audit record — not an authorization gate.
+POL-046: Running gov seed is recorded as an audit record — not an authorization gate.
 POL-047: Authorization derives from write access to the linked GitHub Project; no project-level lock — ownership is per task.
-POL-048: proposed status means the GitHub Project exists but gov-work seed has not been run.
-POL-049: active status means gov-work seed has been run, the board is open, and work is in progress.
+POL-048: proposed status means the GitHub Project exists but gov seed has not been run.
+POL-049: active status means gov seed has been run, the board is open, and work is in progress.
 POL-050: paused status means work is temporarily halted; assignee is unchanged.
 POL-051: completed status means all work is done, knowledge documented, and branches merged.
 POL-052: cancelled status means the project is abandoned; branches are archived; no knowledge close is performed.
 POL-053: A project in active or paused status may not be reassigned except via a C02 exception approved by Policy Owner.
 POL-054: Approved reassignment must document the reassignment reason, date, and approver in the approved C02 exception PR; the change is reflected by GitHub Project access and anchor-issue assignees — there is no project.yaml.
-POL-055: After reassignment, the new assignee must run gov-work resume before beginning work.
+POL-055: After reassignment, the new assignee must run gov resume before beginning work.
 POL-056: <WORKSPACE_REPO> is the org-wide central workspace repository; it is not a code repository.
 POL-057: <WORKSPACE_REPO> is an implicit participant in every project and must not be listed among a project's linked code repos.
 POL-058: The <WORKSPACE_REPO> repository structure must be maintained exactly; agents must not create files outside this structure.
@@ -778,7 +788,7 @@ POL-064: Each linked Issue/PR must belong to an identifiable repo before seeding
 POL-065: The GitHub Project must have a description before seeding (C02).
 POL-066: At least one linked Issue must mark the project's scope or goals before seeding (C02).
 POL-067: All <WORKSPACE_REPO> project work branches from <DEFAULT_BRANCH> and merges back to <DEFAULT_BRANCH>.
-POL-068: Default base branch for code repositories is dev; overridable at seed time via a base-branch argument to gov-work seed.
+POL-068: Default base branch for code repositories is dev; overridable at seed time via a base-branch argument to gov seed.
 POL-069: All project branches in every repository must be named BRNCH-<board#>-<slug>.
 POL-070: Sub-branches for parallel multi-agent work are named BRNCH-<board#>-<slug>.ISSUE-<n>.
 POL-071: The knowledge close process uses a dedicated branch named BRNCH-<board#>-<slug>-knowledge.
@@ -795,7 +805,7 @@ POL-081: Developer preferences cannot override repo knowledge; repo knowledge ca
 POL-082: The <WORKSPACE_REPO>/knowledge/ folder must follow the defined subdirectory structure exactly.
 POL-083: CODEOWNERS in <WORKSPACE_REPO> maps each knowledge/ subfolder to its domain owner for PR review.
 POL-084: Every participating code repository must contain a knowledge/ folder with the defined structure.
-POL-085: Repositories must be onboarded via gov-work onboard before being added to any project.
+POL-085: Repositories must be onboarded via gov onboard before being added to any project.
 POL-086a: Governance is sourced from <DEFAULT_BRANCH>; all governing context is rebuilt from it each session, never from a project branch (C01).
 POL-086b: Project work — including edits to org knowledge/ — is committed to the project branch, where such edits are proposals with no governing force (C01).
 POL-086c: A proposal becomes organizational standard only when merged to <DEFAULT_BRANCH> via a PR approved by the Policy Owner and the CODEOWNERS domain owner(s) (C01).
@@ -803,9 +813,9 @@ POL-086d: POL-086 governs proposing changes to <DEFAULT_BRANCH>'s knowledge; it 
 POL-087: SUPERSEDED by POL-086b — a project branch may edit any path, but only <DEFAULT_BRANCH> governs.
 POL-088: Project knowledge is intentionally free-form; no structural coupling to org knowledge is required during the project.
 POL-089: Pre-close consolidation: developer/agent consolidates all project learnings into projects/PRJ-<board#>-<slug>/knowledge/.
-POL-090: The knowledge-close step of gov-work close uses LLM+RAG synthesis to map project knowledge to org knowledge proposals.
-POL-091: The knowledge-close step of gov-work close creates the BRNCH-<board#>-<slug>-knowledge branch from <DEFAULT_BRANCH>.
-POL-092: The knowledge-close step of gov-work close raises a PR against <DEFAULT_BRANCH>; CODEOWNERS auto-assigns domain owners as reviewers.
+POL-090: The knowledge-close step of gov close uses LLM+RAG synthesis to map project knowledge to org knowledge proposals.
+POL-091: The knowledge-close step of gov close creates the BRNCH-<board#>-<slug>-knowledge branch from <DEFAULT_BRANCH>.
+POL-092: The knowledge-close step of gov close raises a PR against <DEFAULT_BRANCH>; CODEOWNERS auto-assigns domain owners as reviewers.
 POL-093: Policy Owner and domain owners review the knowledge PR and determine its outcome.
 POL-094: A merged knowledge PR results in archive tag, branch deletion, and a knowledge-close status of merged.
 POL-095: A rejected knowledge PR results in branch deletion or retention at owner discretion and a knowledge-close status of rejected.
@@ -818,13 +828,13 @@ POL-101: Static site publication: internal only, behind authentication, for deve
 POL-102: PDF export publication: downloadable from the static site, for regulators and external auditors.
 POL-103: Vector embedding publication: changed files re-embedded into the org vector store for agent RAG context.
 POL-104: All three publication forms are generated from the same markdown source.
-POL-105: gov-work knowledge allows authorized contributors to propose ad-hoc org knowledge changes via PR.
-POL-106: gov-work onboard initializes knowledge/ structure in an existing code repository via PR.
+POL-105: gov knowledge allows authorized contributors to propose ad-hoc org knowledge changes via PR.
+POL-106: gov onboard initializes knowledge/ structure in an existing code repository via PR.
 POL-107: The Policy Owner must review the org-level compliance summary quarterly (C02).
 POL-108: Per-project compliance.md files feed into the org-wide compliance summary.
 POL-109: Critical C01 violations escalate to the Policy Owner immediately, regardless of quarterly review cadence.
 POL-110: Project Knowledge Owner reviews accumulated project knowledge at project close.
-POL-111: The knowledge-close step of gov-work close synthesizes org knowledge proposals using LLM+RAG.
+POL-111: The knowledge-close step of gov close synthesizes org knowledge proposals using LLM+RAG.
 POL-112: The BRNCH-<board#>-<slug>-knowledge PR is the formal proposal mechanism; merged proposals are versioned by commit SHA.
 POL-113: Before any work, an agent must complete all four session start steps in order (C01).
 POL-114: Session start step 1 — verify authorization (write access to the linked GitHub Project) and, on a task sub-branch, that you own it; refuse and surface otherwise (C01).
@@ -881,7 +891,7 @@ POL-164: Agents and developers must use the authorized gov commands rather than 
 POL-165: The Command Inventory lists all authorized gov lifecycle and standalone subcommands with their purposes.
 POL-166: Current role assignments and manager designations are maintained authoritatively in knowledge/policies/roles.md.
 POL-167: Changes to role assignments require a PR to knowledge/policies/roles.md approved by the Policy Owner.
-POL-168: Each project maintains a carry-forward to-do list at projects/PRJ-<board#>-<slug>/knowledge/todo.md, scaffolded by gov-work seed from knowledge/guidance/todo-template.md.
+POL-168: Each project maintains a carry-forward to-do list at projects/PRJ-<board#>-<slug>/knowledge/todo.md, scaffolded by gov seed from knowledge/guidance/todo-template.md.
 POL-169: At session start, an agent must read the project's todo.md and surface its Open items to the developer before planning new work (C01).
 POL-170: During work, an agent (or developer) must capture intermediate to-dos in the project's todo.md as they arise — not at session end.
 POL-171: Projects are stateful and session-spanning; sessions are not project-bound. When an agent switches to a different project's branch within the same session, it must re-run the full session-start protocol for the new project (POL-113 through POL-116, POL-169) and must not carry forward in-memory context from the previous project.
