@@ -2,7 +2,7 @@
 
 A governance-first framework for organizing agentic software development inside an organization. It provides a directory structure, a policy template, and a CLI (`gov-work`) that enforces the policy through every step of a project's lifecycle — so AI agents and human developers can work in parallel on multiple projects without losing track of who owns what, what's been decided, and what changed.
 
-This repository is a **template**. Clone it, configure `org-config.yaml` with your organization's values, run `gov setup`, and you have a workspace repo for your org's agentic development.
+This repository is a **template**. Run `gov setup <your-org>/<repo-name>` and you have a configured, registered workspace repo for your org's agentic development — the CLI creates it from this template, clones it and configures it in one command.
 
 ---
 
@@ -25,63 +25,83 @@ This framework gives you:
 
 > This is a **template repository.** You don't fork it — you use it to scaffold *your own* private workspace repo, which you then own and commit to. The framework's `publish` upstream stays clean; your private overlay (real projects, accumulated knowledge, your `org-config.yaml` values) lives only in your repo.
 
-**1. Create your repo from the template.** Open the framework's repo on GitHub:
-
-> https://github.com/svayam-opensource/governed-agentic-dev-framework
-
-Click the green **"Use this template"** button → **"Create a new repository"**. Pick a name (e.g. `acme-gov-work`) and visibility (typically Private). GitHub creates the repo under your account or org.
-
-**2. Install the CLI, clone your repo, run setup.**
+**1. Install the CLI.**
 
 ```bash
 # One install per machine — not vendored into repos. Requires Node 24, git,
-# and an authenticated `gh`.
+# and an authenticated `gh` (`gh auth login`).
 npm i -g @svayam-opensource/gov
-
-# Clone YOUR new repository (not this template). Anywhere you like — the
-# directory you clone into IS your governance workspace.
-git clone https://github.com/<your-github-org>/<your-new-repo>.git
-cd <your-new-repo>
-
-# Configure the framework for your org and verify GitHub access. Interactive:
-# org name, slug, role identities, service endpoints — defaults detected from
-# gh and git config. `gov doctor` checks the toolchain (git, gh, Node 24) first.
-gov setup
-
-# Optional: make the policy yours before anyone works under it.
-$EDITOR knowledge/policies/agentic-development-policy.md
-
-git add -A && git commit -m "configure the framework for <your-org>" && git push
-
-# You are ready.
-gov
 ```
 
-That is the whole runbook for **one org**. There is no registration step: `gov`
-finds your workspace by walking up from the current directory, so any command
-run inside the clone resolves it.
-
-**3. Only if you manage a SECOND org from the same machine.**
-
-One clone per org, then register each so `gov` can be run from anywhere:
+**2. Create your workspace — one command.**
 
 ```bash
-# Register the workspace — the path is the CLONE you ran `gov setup` in.
-gov org add <github-org> --home /path/to/that/clone
-gov org use <github-org>          # make it the active org
+gov setup <your-github-org>/<repo-name>      # e.g. gov setup acme/acme-gov
+```
+
+That creates the repo from this template (private), clones it, asks the org
+questions, writes `org-config.yaml`, and registers the workspace. You do not
+create the repo in the GitHub UI, and you do not choose where to clone it — the
+answers decide that.
+
+Nothing is created on GitHub until every precondition passes: `gh` cannot delete
+a repository back without the `delete_repo` scope, so `gov setup` checks
+everything it can *first* rather than leaving a half-made repo in your org.
+
+It also refuses if your org **already has** a governance repo, and tells you how
+to join it instead. A second governance repo would fork your org's policy
+silently, which is the one failure the framework cannot detect afterwards.
+
+**3. Make the policy yours, then commit.**
+
+```bash
+$EDITOR knowledge/policies/agentic-development-policy.md
+git add -A && git commit -m "configure the framework for <your-org>" && git push
+
+gov          # you are ready — the interactive front door
+```
+
+### Where things live
+
+Locations are derived from your org slug, not chosen per machine:
+
+| what | where |
+|---|---|
+| governance repo | `~/.gov/<org-slug>/gov_repo` |
+| project workspaces | `~/.gov/<org-slug>/projects` |
+| org registry | `~/.gov/workspaces` · `~/.gov/active` |
+
+`gov` resolves your workspace from the registry, so it works from any directory —
+you never need to `cd` into the governance repo. Pass `--path <dir>` to
+`gov setup` if your environment dictates where repos may live.
+
+### Already have a repo? Configure it in place.
+
+```bash
+cd <your-existing-clone>
+gov setup                 # no argument = configure THIS workspace
+```
+
+The argument is what decides: `gov setup <org>/<repo>` creates, bare `gov setup`
+configures the workspace you are in. `gov setup --non-interactive` is the CI
+path and never creates anything.
+
+### Managing more than one org from the same machine
+
+```bash
+gov org use <github-org>          # switch the active org
 gov org list                      # what is registered, and which is active
 ```
 
-`--home` is required, and it must point at a directory containing
-`org-config.yaml` — that is, the clone itself. The registry lives at
-`${XDG_CONFIG_HOME:-~/.config}/prj/`, outside every repo, so switching orgs
-never edits a workspace.
+Each org gets its own `~/.gov/<slug>/`, so switching never edits a workspace.
 
-> **Note for anyone upgrading from an older workspace.** Earlier versions wrote a
-> `gov_workspace:` key into `org-config.yaml` and told you to register
-> `~/.<org-slug>/gov_repo`. That convention is retired — nothing creates that
-> path, and `gov org add` will refuse it. The key is still *read* if present, so
-> existing workspaces keep working; new ones do not get it. Register the clone.
+> **Upgrading from an older install.** The registry used to live at
+> `${XDG_CONFIG_HOME:-~/.config}/prj/` — named after the retired `prj` CLI. It
+> moves to `~/.gov/` automatically the first time you run any `gov` command; the
+> old files are copied, not moved, so nothing is lost. Earlier versions also
+> wrote a `gov_workspace:` key into `org-config.yaml`; that key is retired and
+> nothing writes it, though it is still read if present so existing workspaces
+> keep working.
 
 **Re-running `gov setup` later** is safe — it remembers your existing values as defaults. Use `gov setup --non-interactive` in CI or scripts to skip prompts entirely.
 
