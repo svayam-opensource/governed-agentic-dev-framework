@@ -1,0 +1,208 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * `gov setup <org>/<repo>` — the create path (#159).
+ *
+ * The behaviour worth protecting here is mostly about what does NOT happen: no repository is created
+ * until every precondition holds, because `gh` cannot delete one back without the `delete_repo` scope
+ * that a normal `gh auth login` does not grant. A half-made repo in an adopter's GitHub org is not
+ * recoverable by this tool, so the tests below are largely about refusing early and saying why.
+ */
+import { expect } from "chai";
+import { parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, type CreateIo } from "../../src/setup/create.js";
+
+/** A machine where everything is fine: signed in, org reachable, no governance repo, nothing at the path. */
+const okIo = (over: Partial<CreateIo> = {}): CreateIo => ({
+  gh: (a) => {
+    if (a[0] === "auth") return "Token scopes: 'project', 'read:org', 'repo', 'workflow'";
+    // BEFORE the plain `api` branch — otherwise the graphql probe gets "acme", the JSON parse throws,
+    // and "no governance repo found" is reached by accident rather than by the code under test.
+    if (a[0] === "api" && a[1] === "graphql") return '{"repos":[],"more":false}';
+    if (a[0] === "api") return "acme";
+    return null;
+  },
+  home: "/home/u",
+  exists: () => false,
+  print: () => {},
+  ...over,
+});
+
+describe("gov setup <org>/<repo> — target parsing", () => {
+  it("accepts <org>/<repo>", () => {
+    expect(parseTarget("acme/acme-gov")).to.deep.equal({ org: "acme", repo: "acme-gov" });
+    expect(parseTarget("  acme/acme-gov  ")).to.deep.equal({ org: "acme", repo: "acme-gov" });
+    expect(parseTarget("Acme-Corp/gov.work_1")).to.deep.equal({ org: "Acme-Corp", repo: "gov.work_1" });
+  });
+
+  // Each of these is something a hurried adopter types, and each would otherwise create a repository
+  // somewhere they did not intend.
+  it("rejects everything that is not exactly <org>/<repo>", () => {
+    for (const bad of ["acme", "acme/", "/repo", "acme/repo/extra", "https://github.com/acme/repo",
+                       "git@github.com:acme/repo.git", "", "   ", "-acme/repo", "acme/.hidden"]) {
+      expect(parseTarget(bad), `should reject ${JSON.stringify(bad)}`).to.equal(null);
+    }
+  });
+});
+
+describe("derived locations (contract R9)", () => {
+  it("puts the mirror, work root and registry where the contract says", () => {
+    expect(derivedPaths("/home/u", "ACME")).to.deep.equal({
+      govRepo: "/home/u/.gov/acme/gov_repo",
+      workRoot: "/home/u/.gov/acme/projects",
+      registry: "/home/u/.gov/workspaces",
+      active: "/home/u/.gov/active",
+    });
+  });
+
+  it("lowercases the slug — one hidden root, plain names inside, never ~/.gov/.acme", () => {
+    const p = derivedPaths("/home/u", "AcMe");
+    expect(p.govRepo).to.equal("/home/u/.gov/acme/gov_repo");
+    expect(p.govRepo).to.not.contain("/.acme");
+  });
+
+  it("suggests a repo name so the adopter need not invent one", () => {
+    expect(suggestRepoName("ACME")).to.equal("acme-gov");
+  });
+});
+
+describe("preflight — nothing is created until all of this holds", () => {
+  it("passes on a healthy machine and reports where the mirror will go", () => {
+    const r = preflight(okIo(), "acme/acme-gov", "ACME");
+    expect(r.ok).to.equal(true);
+    if (r.ok) {
+      expect(r.govRepo).to.equal("/home/u/.gov/acme/gov_repo");
+      expect(r.warnings).to.deep.equal([]);
+    }
+  });
+
+  it("honours --path, and still checks it is free", () => {
+    const r = preflight(okIo(), "acme/acme-gov", "ACME", "/opt/work/acme-gov");
+    expect(r.ok && r.govRepo).to.equal("/opt/work/acme-gov");
+    const occupied = preflight(okIo({ exists: (p) => p === "/opt/work/acme-gov" }), "acme/acme-gov", "ACME", "/opt/work/acme-gov");
+    expect(occupied.ok).to.equal(false);
+  });
+
+  it("refuses a malformed target before touching GitHub at all", () => {
+    let calls = 0;
+    const r = preflight(okIo({ gh: (a) => { calls++; return a[0] === "auth" ? "ok" : null; } }), "not-a-target", "ACME");
+    expect(r.ok).to.equal(false);
+    expect(calls, "a bad argument must not reach the network").to.equal(0);
+  });
+
+  it("refuses when gh is not signed in", () => {
+    const r = preflight(okIo({ gh: () => null }), "acme/acme-gov", "ACME");
+    expect(r.ok === false && r.failure.why).to.equal("not-authenticated");
+  });
+
+  // An org can forbid member repo creation with every scope present, so the scope list is not the
+  // authority — ask GitHub about the org itself.
+  it("refuses when the org is unreachable, naming the org", () => {
+    const r = preflight(okIo({ gh: (a) => (a[0] === "auth" ? "scopes: repo" : null) }), "acme/acme-gov", "ACME");
+    expect(r.ok === false && r.failure.why).to.equal("cannot-create");
+    if (!r.ok && r.failure.why === "cannot-create") expect(r.failure.org).to.equal("acme");
+  });
+
+  it("warns — but does NOT fail — when the project scope is missing", () => {
+    const r = preflight(okIo({ gh: (a) => {
+      if (a[0] === "auth") return "Token scopes: 'read:org', 'repo'";
+      if (a[0] === "api" && a[1] === "graphql") return '{"repos":[],"more":false}';
+      if (a[0] === "api") return "acme";
+      return "";
+    } }), "acme/acme-gov", "ACME");
+    expect(r.ok, "a missing project scope must not block adoption — it matters at `gov seed`, not now").to.equal(true);
+    if (r.ok) {
+      expect(r.warnings.map((w) => w.what)).to.deep.equal(["no-project-scope"]);
+      expect(r.warnings[0].detail).to.contain("gh auth refresh -s project");
+    }
+  });
+});
+
+/**
+ * The framework's worst silent failure. A second developer at an adopting org runs create — and they are
+ * new, which is why they are running it — and makes a SECOND governance repo. The org's policy forks, and
+ * nothing downstream notices: both repos validate and both resolve.
+ */
+describe("second-adopter safety", () => {
+  const governed = okIo({ gh: (a) => {
+    if (a[0] === "auth") return "Token scopes: 'project', 'repo'";
+    if (a[0] === "api" && a[1] === "graphql") return '{"repos":["acme/acme-gov"],"more":false}';
+    if (a[0] === "api") return "acme";
+    return null;
+  } });
+
+  it("finds an existing governance repo by CONTENT, not by name", () => {
+    // Searched by org-config.yaml because the NAME is exactly what a second adopter picks differently.
+    expect(findExistingGovernanceRepo(governed, "acme").repos).to.deep.equal(["acme/acme-gov"]);
+    expect(findExistingGovernanceRepo(okIo(), "acme").repos).to.deep.equal([]);
+  });
+
+  // REGRESSION. The first implementation used `gh search code`, which does NOT index private
+  // repositories — and every governance repo is private. Verified against a real org: search/code
+  // reported total_count 0 while the contents API served org-config.yaml immediately. It would have
+  // reported "clear" and created a second governance repo on the org it was meant to protect.
+  it("does not use code search, which is blind to the private repos this must find", () => {
+    const seen: string[][] = [];
+    findExistingGovernanceRepo(okIo({ gh: (a) => { seen.push([...a]); return '{"repos":[],"more":false}'; } }), "acme");
+    expect(seen.some((a) => a[0] === "search"), "code search cannot see private repos").to.equal(false);
+    expect(seen.some((a) => a[0] === "api" && a[1] === "graphql"), "must ask each repo for the file").to.equal(true);
+  });
+
+  it("reports more than one, because an org can already have forked", () => {
+    const many = okIo({ gh: (a) => {
+      if (a[0] === "auth") return "scopes: project repo";
+      if (a[0] === "api" && a[1] === "graphql") return '{"repos":["acme/a-gov","acme/b-gov"],"more":false}';
+      if (a[0] === "api") return "acme";
+      return null;
+    } });
+    const r = preflight(many, "acme/c-gov", "ACME");
+    expect(r.ok).to.equal(false);
+    if (!r.ok) expect(explainFailure(r.failure).join("\n")).to.contain("already has 2 governance repos");
+  });
+
+  // No silent caps: an org past GraphQL's 100-repo page must not read as "none found".
+  it("warns rather than silently limiting the scan on a large org", () => {
+    const big = okIo({ gh: (a) => {
+      if (a[0] === "auth") return "scopes: project repo";
+      if (a[0] === "api" && a[1] === "graphql") return '{"repos":[],"more":true}';
+      if (a[0] === "api") return "acme";
+      return null;
+    } });
+    const r = preflight(big, "acme/acme-gov", "ACME");
+    expect(r.ok).to.equal(true);
+    if (r.ok) expect(r.warnings.map((w) => w.what)).to.contain("governance-scan-truncated");
+  });
+
+  it("refuses to create a second one", () => {
+    const r = preflight(governed, "acme/acme-gov-2", "ACME");
+    expect(r.ok).to.equal(false);
+    if (!r.ok && r.failure.why === "already-governed") expect(r.failure.repo).to.equal("acme/acme-gov");
+  });
+
+  it("refuses INTO the join path — a bare refusal sends them off to create one under another name", () => {
+    const r = preflight(governed, "acme/acme-gov-2", "ACME");
+    const lines = r.ok ? [] : explainFailure(r.failure);
+    expect(lines.join("\n")).to.contain("fork its policy");
+    expect(lines.join("\n"), "must show HOW to join").to.contain("git clone git@github.com:acme/acme-gov.git");
+    expect(lines.join("\n")).to.contain("gov setup");
+  });
+});
+
+describe("failure messages name the next action, not just the problem", () => {
+  it("a bad target explains BOTH modes of the one verb", () => {
+    const lines = explainFailure({ why: "bad-target", got: "acme" }).join("\n");
+    expect(lines, "the create form").to.contain("gov setup <github-org>/<repo-name>");
+    expect(lines, "the configure form — bare setup must remain obviously available").to.contain("inside an existing workspace");
+  });
+
+  it("every failure prints a fix", () => {
+    const all = [
+      { why: "bad-target", got: "x" }, { why: "not-authenticated" }, { why: "cannot-create", org: "acme" },
+      { why: "already-governed", repo: "acme/acme-gov", all: ["acme/acme-gov"] }, { why: "path-occupied", path: "/p" },
+    ] as const;
+    for (const f of all) {
+      const lines = explainFailure(f);
+      expect(lines.length, `${f.why} must say more than the problem`).to.be.greaterThan(1);
+      expect(lines.join("\n"), `${f.why} must name an action`).to.match(/fix:|gov setup|git clone|--path/);
+    }
+  });
+});

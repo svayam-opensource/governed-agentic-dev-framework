@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
+import { parseTarget, preflight as createPreflight, explainFailure, type CreateIo } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
@@ -55,9 +56,70 @@ function tryRun(cmd: string, args: string[]): string | undefined {
   }
 }
 
+/** The template every governance repo is created from. */
+const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
+
+/**
+ * `gov setup <org>/<repo>` — create the repo, clone it, and hand back the clone for the normal setup
+ * flow to configure (#159).
+ *
+ * Returns the cloned path, or an exit code when it refused.
+ *
+ * NOTHING REMOTE HAPPENS UNTIL PREFLIGHT PASSES. `gh` cannot delete a repository without `delete_repo`,
+ * which a normal `gh auth login` does not grant, so a half-made repo in someone's org is not recoverable
+ * by this tool. The org slug is asked first because it is what decides where the clone goes (contract R9)
+ * — there is no point creating anything before we know that.
+ */
+async function runCreateWorkspace(rawTarget: string, flags: Record<string, string | boolean>): Promise<string | number> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const ask = (q: string, def: string): Promise<string> =>
+    new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || def)));
+  const io: CreateIo = {
+    gh: (args) => tryRun("gh", [...args]) ?? null,
+    home: os.homedir(),
+    exists: (p) => fsSync.existsSync(p),
+    print: (l) => process.stdout.write(`${l}\n`),
+  };
+  try {
+    const parsedTarget = parseTarget(rawTarget);
+    // Asked before anything is created, because the slug decides the location (R9). Defaulted from the
+    // GitHub org so the common case is one keypress.
+    const defaultSlug = (parsedTarget?.org ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase();
+    const slug = parsedTarget ? await ask("Org slug (uppercase, 2-6 chars; e.g. ACME)", defaultSlug) : defaultSlug;
+
+    const pathFlag = typeof flags["path"] === "string" ? (flags["path"] as string) : undefined;
+    const pre = createPreflight(io, rawTarget, slug, pathFlag);
+    if (!pre.ok) {
+      for (const line of explainFailure(pre.failure)) process.stderr.write(`${line}\n`);
+      return 1;
+    }
+    for (const w of pre.warnings) process.stdout.write(`  ⚠ ${w.detail}\n`);
+
+    const { target, govRepo } = pre;
+    const full = `${target.org}/${target.repo}`;
+    process.stdout.write(`  creating ${full} from ${TEMPLATE_REPO} (private)…\n`);
+    if (tryRun("gh", ["repo", "create", full, "--template", TEMPLATE_REPO, "--private"]) === undefined) {
+      process.stderr.write(`gov setup: creating ${full} failed. Nothing was cloned.\n`);
+      return 1;
+    }
+    fsSync.mkdirSync(path.dirname(govRepo), { recursive: true });
+    process.stdout.write(`  cloning to ${govRepo}…\n`);
+    if (tryRun("gh", ["repo", "clone", full, govRepo]) === undefined) {
+      // The repo EXISTS now and cannot be deleted back. Say so plainly and name the resume path, rather
+      // than leaving the adopter to work out that re-running is safe.
+      process.stderr.write(`gov setup: ${full} was created but could not be cloned.\n`);
+      process.stderr.write(`  it still exists — re-run 'gov setup ${full}' to resume, or clone it yourself.\n`);
+      return 1;
+    }
+    return govRepo;
+  } finally {
+    rl.close();
+  }
+}
+
 /**
  * `gov setup` — the interactive workspace BOOTSTRAP (port of setup.sh). Async
- * (readline prompts), so bin.ts routes it here instead of through sync `main`.
+ * (readline prompts), so bin.ts routes it here instead of through resolution.
  * Runs in cwd (the cloned framework repo), before any resolution.
  */
 export async function runSetupCommand(
@@ -68,8 +130,19 @@ export async function runSetupCommand(
   const parsed = parseArgv(argv);
   const nonInteractiveFlag = !("error" in parsed) && "non-interactive" in parsed.flags;
   const fs = createNodeFs();
+
+  // ONE VERB, THE ARGUMENT DECIDES (#159). A positional `<org>/<repo>` means CREATE; its absence means
+  // configure the workspace we are in, exactly as before. `--non-interactive` never creates, whatever
+  // the cwd — creation must never be inferred from location, so a CI re-run cannot make a repository.
+  const positional = "error" in parsed ? [] : parsed.positionals;
+  if (positional.length > 0 && !nonInteractiveFlag) {
+    const created = await runCreateWorkspace(positional[0], "error" in parsed ? {} : parsed.flags);
+    if (typeof created === "number") return created;
+    cwd = created;                                  // continue into the normal flow, inside the new clone
+  }
+
   if (tryRun("git", ["-C", cwd, "rev-parse", "--git-dir"]) === undefined) {
-    process.stderr.write("gov setup: not a git repository — clone the framework repo (or `git init`) first.\n");
+    process.stderr.write("gov setup: not a git repository — clone your governance repo first, or create one with `gov setup <org>/<repo>`.\n");
     return 1;
   }
   const originUrl = tryRun("git", ["-C", cwd, "remote", "get-url", "origin"]) ?? "";
