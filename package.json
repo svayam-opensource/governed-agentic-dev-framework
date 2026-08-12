@@ -2,7 +2,7 @@
   "name": "governed-agentic-dev-framework",
   "version": "1.0.0",
   "private": true,
-  "description": "Governed Agentic Development Framework — repository root (private; never published). The OSS CLI is @svayam-opensource/gov at publish/actions/ts; framework content ships from publish/content; the frozen legacy bash CLI is archived under publish/actions/deprecated.",
+  "description": "Governed Agentic Development Framework \u2014 repository root (private; never published). The OSS CLI is @svayam-opensource/gov at publish/actions/ts; framework content ships from publish/content; the frozen legacy bash CLI is archived under publish/actions/deprecated.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -17,5 +17,8 @@
   },
   "devDependencies": {
     "js-yaml": "^4.1.0"
-  }
+  },
+  "workspaces": [
+    "packages/*"
+  ]
 }
