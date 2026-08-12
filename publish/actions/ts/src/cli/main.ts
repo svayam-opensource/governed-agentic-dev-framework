@@ -130,6 +130,7 @@ export async function runSetupCommand(
   const parsed = parseArgv(argv);
   const nonInteractiveFlag = !("error" in parsed) && "non-interactive" in parsed.flags;
   const fs = createNodeFs();
+  let createdHome: string | null = null;
 
   // ONE VERB, THE ARGUMENT DECIDES (#159). A positional `<org>/<repo>` means CREATE; its absence means
   // configure the workspace we are in, exactly as before. `--non-interactive` never creates, whatever
@@ -139,6 +140,7 @@ export async function runSetupCommand(
     const created = await runCreateWorkspace(positional[0], "error" in parsed ? {} : parsed.flags);
     if (typeof created === "number") return created;
     cwd = created;                                  // continue into the normal flow, inside the new clone
+    createdHome = created;
   }
 
   if (tryRun("git", ["-C", cwd, "rev-parse", "--git-dir"]) === undefined) {
@@ -151,7 +153,7 @@ export async function runSetupCommand(
   const ask = (q: string, def: string): Promise<string> =>
     new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || def)));
   try {
-    return await runSetup(
+    const rc = await runSetup(
       {
         fs,
         cwd,
@@ -176,6 +178,26 @@ export async function runSetupCommand(
       },
       !nonInteractiveFlag && process.stdin.isTTY,
     );
+
+    // REGISTER WHAT WE JUST CREATED. Registration used to happen only in the first-run flow, which is
+    // skipped when an active org already exists — so `gov setup <org>/<repo>` produced a configured
+    // workspace the registry had never heard of. Every governance read resolves through the registry
+    // (workspace-resolution contract R2), so an unregistered workspace only works from inside its own
+    // directory: exactly the location-dependence this command exists to remove, and the README promises
+    // is gone.
+    if (createdHome !== null && rc === 0) {
+      const env = createNodeEnv();
+      const deps = { store: createNodeRegistryStore(), govConfigAt: (p: string) => env.govConfigAt(p) };
+      const cfg = env.govConfigAt(createdHome);
+      if (cfg) {
+        const added = orgAdd(deps, cfg.org, createdHome);
+        const used = added.ok ? orgUse(deps, cfg.org) : added;
+        process.stdout.write(used.ok
+          ? `  registered ${cfg.org} → ${createdHome} (active)\n`
+          : `  ⚠ could not register the workspace: ${used.message}\n     fix with: gov org add ${cfg.org} --home ${createdHome}\n`);
+      }
+    }
+    return rc;
   } finally {
     rl.close();
   }
