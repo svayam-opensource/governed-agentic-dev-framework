@@ -78,9 +78,73 @@ describe("prj-work — createNodeRegistryStore (real temp dir)", () => {
       const reopened = createNodeRegistryStore({ configDir: tmp });
       expect(reopened.readHomes()).to.deep.equal([{ org: "Svayamtech", home: "/gov" }]);
       expect(reopened.readActiveOrg()).to.equal("Svayamtech");
-      expect(fs.readFileSync(path.join(tmp, "gov-workspaces"), "utf8")).to.equal("Svayamtech\t/gov\n");
+      // R10 — the canonical names are `workspaces` and `active` under ~/.gov. The old
+      // `gov-workspaces`/`active-org` pair lives in a directory named after the retired `prj` CLI and is
+      // migrated from, never written.
+      expect(fs.readFileSync(path.join(tmp, "workspaces"), "utf8")).to.equal("Svayamtech\t/gov\n");
+      expect(fs.existsSync(path.join(tmp, "gov-workspaces")), "must not write the legacy name").to.equal(false);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  /**
+   * R10 moved the registry to `~/.gov/`. Without a migration, upgrading silently forgets which orgs
+   * exist and which is active — and `gov` then hard-fails `no-active-org` on a machine that worked a
+   * minute earlier. That is the worst possible upgrade experience, and it is invisible until it happens.
+   */
+  describe("R10 migration from the prj-named legacy registry", () => {
+    const withHome = (fn: (home: string) => void): void => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), "prjwork-home-"));
+      const prev = process.env.XDG_CONFIG_HOME;
+      process.env.XDG_CONFIG_HOME = path.join(home, ".config");
+      try { fn(home); } finally {
+        if (prev === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = prev;
+        fs.rmSync(home, { recursive: true, force: true });
+      }
+    };
+
+    const seedLegacy = (home: string, workspaces: string, active: string): string => {
+      const dir = path.join(home, ".config", "prj");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "gov-workspaces"), workspaces, "utf8");
+      fs.writeFileSync(path.join(dir, "active-org"), active, "utf8");
+      return dir;
+    };
+
+    it("carries an existing registry forward on first read", () => {
+      withHome((home) => {
+        seedLegacy(home, "Acme\t/home/u/.gov/acme/gov_repo\n", "Acme\n");
+        const store = createNodeRegistryStore({ home });
+        expect(store.readHomes()).to.deep.equal([{ org: "Acme", home: "/home/u/.gov/acme/gov_repo" }]);
+        expect(store.readActiveOrg()).to.equal("Acme");
+        expect(fs.existsSync(path.join(home, ".gov", "workspaces")), "written to the new location").to.equal(true);
+      });
+    });
+
+    it("COPIES rather than moves, so a downgrade still works", () => {
+      withHome((home) => {
+        const legacyDir = seedLegacy(home, "Acme\t/gov\n", "Acme\n");
+        createNodeRegistryStore({ home }).readHomes();
+        expect(fs.existsSync(path.join(legacyDir, "gov-workspaces")), "legacy must survive").to.equal(true);
+      });
+    });
+
+    it("never overwrites a current registry with a stale legacy one", () => {
+      withHome((home) => {
+        seedLegacy(home, "Old\t/old\n", "Old\n");
+        fs.mkdirSync(path.join(home, ".gov"), { recursive: true });
+        fs.writeFileSync(path.join(home, ".gov", "workspaces"), "New\t/new\n", "utf8");
+        expect(createNodeRegistryStore({ home }).readHomes()).to.deep.equal([{ org: "New", home: "/new" }]);
+      });
+    });
+
+    it("does nothing on a fresh machine", () => {
+      withHome((home) => {
+        const store = createNodeRegistryStore({ home });
+        expect(store.readHomes()).to.deep.equal([]);
+        expect(store.readActiveOrg()).to.equal(null);
+      });
+    });
   });
 });

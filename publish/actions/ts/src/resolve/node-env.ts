@@ -3,8 +3,9 @@
 /**
  * The real filesystem/cwd-backed `ResolveEnv` adapter (SDD-040/041). Keeps all
  * OS/fs concerns out of the pure resolver core. Registry files live under
- * `${XDG_CONFIG_HOME:-~/.config}/prj/`: `gov-workspaces` (`<org>\t<home>`) and
- * `active-org`. Resolution is read-only; writes belong to `gov org add`/setup.
+ * `~/.gov/`: `workspaces` (`<org>\t<home>`) and `active` (contract R10 — one location every
+ * client reads). Resolution is read-only; writes belong to `gov org add`/setup. The legacy
+ * `${XDG_CONFIG_HOME:-~/.config}/prj/` pair is migrated forward on first read (ensureRegistryMigrated).
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -38,6 +39,76 @@ export function configDir(env: NodeJS.ProcessEnv = process.env, platform: NodeJS
   }
   const xdg = env.XDG_CONFIG_HOME;
   return j.join(xdg && xdg.trim() ? xdg : j.join(home, ".config"), "prj");
+}
+
+/**
+ * The registry directory — `~/.gov` on every platform (workspace-resolution contract R10).
+ *
+ * DELIBERATELY NOT OS-IDIOMATIC, unlike {@link configDir}. R10 requires ONE location that every client
+ * reads: if `gov` looks in `~/.gov` while another looks in `%APPDATA%\prj`, the two report different
+ * ACTIVE ORGS — the same divergence `svm-prj-work#310` exists to end, one level down and harder to see.
+ * A per-platform answer cannot satisfy "one location", so the contract picks home-relative and every
+ * client complies.
+ *
+ * `${XDG_CONFIG_HOME:-~/.config}/prj/` is the legacy location — named after the RETIRED `prj` CLI. It is
+ * read for migration and never written; see {@link legacyRegistryFiles}.
+ */
+export function govRegistryDir(home: string = os.homedir(), platform: NodeJS.Platform = process.platform): string {
+  const j = platform === "win32" ? path.win32 : path.posix;
+  return j.join(home, ".gov");
+}
+
+/** The canonical registry files (R10). */
+export function registryFiles(home: string = os.homedir(), platform: NodeJS.Platform = process.platform): { readonly workspaces: string; readonly active: string } {
+  const j = platform === "win32" ? path.win32 : path.posix;
+  const dir = govRegistryDir(home, platform);
+  return { workspaces: j.join(dir, "workspaces"), active: j.join(dir, "active") };
+}
+
+/** Where a pre-R10 install kept the same two facts. Read-only: migrated from, never written to. */
+export function legacyRegistryFiles(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home: string = os.homedir()): { readonly workspaces: string; readonly active: string } {
+  const j = platform === "win32" ? path.win32 : path.posix;
+  const dir = configDir(env, platform, home);
+  return { workspaces: j.join(dir, "gov-workspaces"), active: j.join(dir, "active-org") };
+}
+
+/** Has the legacy→canonical migration already been attempted in this process? */
+let registryMigrationAttempted = false;
+
+/**
+ * Carry a pre-R10 registry forward to `~/.gov/`, once per process.
+ *
+ * MUST run wherever the registry is READ, not only where it is written. The registry has two readers —
+ * the resolver ({@link createNodeEnv}) and the store — and migrating in only one means a command that
+ * merely resolves (`gov doctor`, and every governance read) sees an empty registry and hard-fails
+ * `no-active-org` on a machine that worked before the upgrade. Found exactly that way.
+ *
+ * Copies, never moves: the legacy files stay so a downgrade still works. Only ever writes when the
+ * canonical location is absent, so it cannot overwrite anything current. Failure is swallowed — a
+ * migration that cannot write must not break the command, and the legacy files remain to retry from.
+ */
+export function ensureRegistryMigrated(home: string = os.homedir(), platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): void {
+  if (registryMigrationAttempted) return;
+  registryMigrationAttempted = true;
+  try {
+    const canonical = registryFiles(home, platform);
+    if (fs.existsSync(canonical.workspaces) || fs.existsSync(canonical.active)) return;
+    const legacy = legacyRegistryFiles(env, platform, home);
+    const read = (f: string): string | null => { try { return fs.readFileSync(f, "utf8"); } catch { return null; } };
+    const w = read(legacy.workspaces);
+    const a = read(legacy.active);
+    if (w === null && a === null) return;                       // fresh machine — nothing to carry
+    fs.mkdirSync(govRegistryDir(home, platform), { recursive: true });
+    if (w !== null) fs.writeFileSync(canonical.workspaces, w, "utf8");
+    if (a !== null) fs.writeFileSync(canonical.active, a, "utf8");
+  } catch {
+    /* never break a command over a migration */
+  }
+}
+
+/** Test seam: forget that migration ran, so a fresh fixture is not skipped. */
+export function resetRegistryMigrationForTests(): void {
+  registryMigrationAttempted = false;
 }
 
 /** True if `p` sits inside a `.bases/` base clone (never a real gov home). */
@@ -94,10 +165,14 @@ export interface NodeEnvOptions {
 export function createNodeEnv(opts: NodeEnvOptions = {}): ResolveEnv {
   const home = opts.home ?? os.homedir();
   const cwd = opts.cwd ?? process.cwd();
-  const configDirPath = opts.configDir ?? configDir(process.env, process.platform, home);
+  // R10 — the resolver reads the SAME canonical location the store writes. These were two separate
+  // readers of two separate paths; leaving this one on the legacy dir would mean `gov org use` wrote
+  // somewhere resolution never looked, which is this bug's own failure mode reproduced inside one client.
+  const configDirPath = opts.configDir ?? govRegistryDir(home, process.platform);
+  if (!opts.configDir) ensureRegistryMigrated(home);            // upgrade path — see the function's note
 
-  const govWorkspaces = path.join(configDirPath, "gov-workspaces");
-  const activeOrgFile = path.join(configDirPath, "active-org");
+  const govWorkspaces = path.join(configDirPath, "workspaces");
+  const activeOrgFile = path.join(configDirPath, "active");
 
   const readText = (file: string): string | null => {
     try {

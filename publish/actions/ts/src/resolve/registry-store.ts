@@ -3,15 +3,17 @@
 /**
  * The writable CLI-local multi-home registry (SDD-041/042) — the READ side lives
  * in the resolver's `node-env`; this is the WRITE side used by `prj org …` (the
- * ONLY writer of the registry, per the model-A resolver decision). Files under
- * `${XDG_CONFIG_HOME:-~/.config}/prj/`: `gov-workspaces` + `active-org`.
+ * ONLY writer of the registry, per the model-A resolver decision). Files under `~/.gov/`:
+ * `workspaces` + `active` (workspace-resolution contract R10 — one location every client reads).
+ * `${XDG_CONFIG_HOME:-~/.config}/prj/{gov-workspaces,active-org}` is the legacy location, named after
+ * the retired `prj` CLI: migrated from on first read, never written.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import type { GovHome } from "./types.js";
 import { formatGovWorkspaces, parseGovWorkspaces } from "./registry.js";
-import { configDir } from "./node-env.js";
+import { govRegistryDir, ensureRegistryMigrated } from "./node-env.js";
 
 /** Read/write access to the multi-home registry. */
 export interface RegistryStore {
@@ -30,9 +32,11 @@ export interface RegistryStoreOptions {
 /** A node:fs-backed {@link RegistryStore}. */
 export function createNodeRegistryStore(opts: RegistryStoreOptions = {}): RegistryStore {
   const home = opts.home ?? os.homedir();
-  const configDirPath = opts.configDir ?? configDir(process.env, process.platform, home);
-  const govWorkspaces = path.join(configDirPath, "gov-workspaces");
-  const activeOrgFile = path.join(configDirPath, "active-org");
+  // R10 — one registry location for every client. `opts.configDir` still wins so tests and callers can
+  // point somewhere else, but the DEFAULT is now ~/.gov, not the prj-named legacy dir.
+  const configDirPath = opts.configDir ?? govRegistryDir(home, process.platform);
+  const govWorkspaces = path.join(configDirPath, "workspaces");
+  const activeOrgFile = path.join(configDirPath, "active");
 
   const readText = (file: string): string | null => {
     try {
@@ -41,6 +45,8 @@ export function createNodeRegistryStore(opts: RegistryStoreOptions = {}): Regist
       return null;
     }
   };
+
+  if (!opts.configDir) ensureRegistryMigrated(home);   // one implementation, in node-env.ts
   const writeAtomic = (file: string, content: string): void => {
     fs.mkdirSync(configDirPath, { recursive: true });
     const tmp = `${file}.tmp-${process.pid}`;
