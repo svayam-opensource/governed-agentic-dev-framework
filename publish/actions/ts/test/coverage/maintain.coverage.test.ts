@@ -663,7 +663,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     expect(yaml).to.not.match(/^gov_workspace:/m);   // dropped from the rendered config
   });
 
-  it("runSetup interactive: scripted answers → writes config, prints derived origin fields + next steps, sets remote", async () => {
+  it("runSetup interactive: scripted answers → writes config, prints derived origin fields, sets remote", async () => {
     const writes: Record<string, string> = {};
     const printed: string[] = [];
     let remote = "";
@@ -682,20 +682,13 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/org_name: "Acme Inc"/);
     expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/default_code_branch: "trunk"/); // answer honored
     expect(printed.some((l) => /github_org:.*Acme.*from origin/.test(l))).to.equal(true);
-    expect(printed.some((l) => /gov org use Acme/.test(l))).to.equal(true);
+    // `gov org use` went with the same block — registration and activation are setup's job now.
 
-    // REGRESSION: setup once printed `gov org add <org> <path>` — a form its OWN parser rejects
-    // (usage is `add <github_org> --home <path>`), so the first command a new adopter was told to
-    // run could not work. Any `gov org add` we print must carry --home.
-    const addLine = printed.find((l) => l.includes("gov org add"));
-    expect(addLine, "setup should print a `gov org add` hint").to.be.a("string");
-    expect(addLine).to.match(/gov org add \S+ --home \S+/);
-    // ...and it must point at the directory setup RAN IN — `gov org add` refuses a home without an
-    // org-config.yaml, which is exactly what the retired ~/<slug>/gov_repo hint sent people to.
-    // Asserted against the cwd the fixture supplied, NOT re-derived from the written path:
-    // path.join normalises separators, so on Windows the config path is `\repo\...` while the hint
-    // carries the cwd verbatim. Comparing two derivations tests Node's path module, not our output.
-    expect(addLine).to.include("--home /repo");
+    // REGRESSION, INVERTED (#159 finding 6a). Setup once printed a `gov org add …` hint — first in a
+    // form its own parser rejected, then in a correct one. Both are now wrong: `gov setup <org>/<repo>`
+    // REGISTERS the workspace itself, so the hint instructed the adopter to redo what had just been
+    // done. The invariant is now that no such instruction is printed at all.
+    expect(printed.find((l) => l.includes("gov org add")), "setup must not tell you to do what it already did").to.equal(undefined);
     expect(Object.keys(writes).some((f) => f.endsWith("org-config.yaml"))).to.equal(true);
     expect(remote).to.equal("git@github.com:Acme/acme-gov.git");
   });

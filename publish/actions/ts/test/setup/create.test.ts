@@ -9,7 +9,7 @@
  * recoverable by this tool, so the tests below are largely about refusing early and saying why.
  */
 import { expect } from "chai";
-import { parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, type CreateIo } from "../../src/setup/create.js";
+import { parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, substituteTokens, leftoverTokens, type CreateIo } from "../../src/setup/create.js";
 
 /** A machine where everything is fine: signed in, org reachable, no governance repo, nothing at the path. */
 const okIo = (over: Partial<CreateIo> = {}): CreateIo => ({
@@ -78,8 +78,9 @@ describe("preflight — nothing is created until all of this holds", () => {
   it("honours --path, and still checks it is free", () => {
     const r = preflight(okIo(), "acme/acme-gov", "ACME", "/opt/work/acme-gov");
     expect(r.ok && r.govRepo).to.equal("/opt/work/acme-gov");
+    // An occupied path is the RETRY case, not a failure — the caller archives and adopts (#159 finding 2).
     const occupied = preflight(okIo({ exists: (p) => p === "/opt/work/acme-gov" }), "acme/acme-gov", "ACME", "/opt/work/acme-gov");
-    expect(occupied.ok).to.equal(false);
+    expect(occupied.ok, "occupied path must not refuse — it is the retry path").to.equal(true);
   });
 
   it("refuses a malformed target before touching GitHub at all", () => {
@@ -204,5 +205,105 @@ describe("failure messages name the next action, not just the problem", () => {
       expect(lines.length, `${f.why} must say more than the problem`).to.be.greaterThan(1);
       expect(lines.join("\n"), `${f.why} must name an action`).to.match(/fix:|gov setup|git clone|--path/);
     }
+  });
+});
+
+/**
+ * Findings 1b and 1c, both from the FIRST real adoption run. Together they made a run that looked like
+ * it worked produce a duplicate governance repo containing nothing.
+ */
+describe("#159 manual-test findings", () => {
+  it("1b · a probe that could not run refuses, rather than reporting 'clear'", () => {
+    // The org's governance repo was invisible to the token (404). The probe saw nothing and a duplicate
+    // was created in an org that already had one. Blind is blind, whatever the cause.
+    const blind = okIo({ gh: (a) => {
+      if (a[0] === "auth") return "scopes: repo";
+      if (a[0] === "api" && a[1] === "graphql") return null;      // cannot read the org
+      if (a[0] === "api") return "acme";
+      return null;
+    } });
+    expect(findExistingGovernanceRepo(blind, "acme").verified).to.equal(false);
+    const r = preflight(blind, "acme/acme-gov", "ACME");
+    expect(r.ok, "must not proceed on an unverified check").to.equal(false);
+    if (!r.ok) {
+      expect(r.failure.why).to.equal("cannot-verify");
+      expect(explainFailure(r.failure).join("\n")).to.contain("fork your org's policy");
+    }
+  });
+
+  it("1b · unparseable output is also unverified, not empty", () => {
+    const junk = okIo({ gh: (a) => (a[0] === "api" && a[1] === "graphql" ? "not json" : a[0] === "auth" ? "scopes" : "acme") });
+    expect(findExistingGovernanceRepo(junk, "acme").verified).to.equal(false);
+  });
+
+  it("1c · waits for the template copy instead of cloning an empty repo", () => {
+    // `gh repo create --template` returns BEFORE the copy completes; the adopter's clone came back empty
+    // while the remote ended up with 16 files.
+    let calls = 0;
+    const waits: number[] = [];
+    const io = okIo({ gh: () => (++calls < 3 ? "0" : "16") });
+    expect(waitForTemplateContent(io, { org: "acme", repo: "acme-gov" }, 10, (ms) => waits.push(ms))).to.equal(true);
+    expect(calls, "must keep asking until content appears").to.equal(3);
+    expect(waits, "backoff widens").to.deep.equal([1000, 2000]);
+  });
+
+  it("1c · gives up rather than cloning nothing, and says the repo still exists", () => {
+    const io = okIo({ gh: () => "0" });
+    expect(waitForTemplateContent(io, { org: "acme", repo: "acme-gov" }, 3, () => {})).to.equal(false);
+  });
+
+  it("1c · an unreadable contents API counts as not-ready, never as ready", () => {
+    const io = okIo({ gh: () => null });
+    expect(waitForTemplateContent(io, { org: "acme", repo: "acme-gov" }, 2, () => {})).to.equal(false);
+  });
+});
+
+describe("#159 finding 2 — retry: archive, then adopt only what is provably ours", () => {
+  const gh = (admin: string | null, commits: string | null) => okIo({ gh: (a) => {
+    if (a[1]?.startsWith("repos/") && a.includes(".permissions.admin")) return admin;
+    if (a[1]?.endsWith("/commits")) return commits;
+    return admin;
+  } });
+
+  it("adopts a repo with no commits — a failed run left it", () => {
+    expect(canAdoptExisting(gh("true", "0"), { org: "a", repo: "b" })).to.deep.equal({ adopt: true, why: "empty" });
+  });
+
+  it("adopts a single template-import commit", () => {
+    expect(canAdoptExisting(gh("true", "1"), { org: "a", repo: "b" }).adopt).to.equal(true);
+  });
+
+  it("REFUSES a repo with real history — overwriting it would be unrecoverable", () => {
+    const v = canAdoptExisting(gh("true", "7"), { org: "a", repo: "b" });
+    expect(v.adopt).to.equal(false);
+    if (!v.adopt) { expect(v.why).to.equal("not-ours"); expect(v.detail).to.contain("7 commits"); }
+  });
+
+  it("REFUSES when we are not an admin", () => {
+    const v = canAdoptExisting(gh("false", "0"), { org: "a", repo: "b" });
+    expect(v.adopt === false && v.why).to.equal("not-ours");
+  });
+
+  it("REFUSES when it cannot tell, rather than assuming the safe-looking answer", () => {
+    const v = canAdoptExisting(gh(null, null), { org: "a", repo: "b" });
+    expect(v.adopt === false && v.why).to.equal("cannot-tell");
+  });
+
+  it("archives beside the workspace, never inside it", () => {
+    const a = archivePathFor("/home/u", "ACME", "2026-08-13T00-00-00Z");
+    expect(a).to.equal("/home/u/.gov/acme/archive/2026-08-13T00-00-00Z/gov_repo");
+    expect(a.startsWith("/home/u/.gov/acme/gov_repo"), "must not nest inside the live clone").to.equal(false);
+  });
+});
+
+describe("#159 finding 6e — token sweep", () => {
+  it("resolves org tokens and leaves unknown ones visible", () => {
+    const out = substituteTokens("<ORG_NAME> runs <WORKSPACE_REPO>; <MYSTERY> stays", { ORG_NAME: "Acme", WORKSPACE_REPO: "acme-gov" });
+    expect(out).to.equal("Acme runs acme-gov; <MYSTERY> stays");
+  });
+
+  it("reports leftovers, because a policy that still says <ORG_NAME> is the bug", () => {
+    expect(leftoverTokens("hi <ORG_NAME> and <POLICY_OWNER_EMAIL>")).to.deep.equal(["<ORG_NAME>", "<POLICY_OWNER_EMAIL>"]);
+    expect(leftoverTokens("no tokens here"), "lowercase <b> is markup, not a token").to.deep.equal([]);
   });
 });

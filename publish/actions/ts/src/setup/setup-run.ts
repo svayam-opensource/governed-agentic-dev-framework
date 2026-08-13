@@ -24,6 +24,12 @@ export interface SetupIo {
   readonly setOriginRemote?: (url: string) => void;
 }
 
+/**
+ * NOTE (#159 finding 4, client-configuration-contract R1): setup no longer asks for Vault, OIDC or the
+ * governance account id. `gov` reads none of them — they belong to `gov-cicd`/`gov-infra`, and asking
+ * the free work-tier adopter about modules they have not adopted is the defect. The keys are still
+ * READ when present, so existing workspaces are unaffected; they are simply no longer prompted for.
+ */
 export async function runSetup(io: SetupIo, interactive: boolean): Promise<number> {
   const ctx: SetupContext = { originUrl: io.originUrl, ghUser: io.ghUser, gitEmail: io.gitEmail, today: io.today, existing: io.existing };
   const answers: Partial<Record<keyof OrgConfigValues, string>> = {};
@@ -46,9 +52,6 @@ export async function runSetup(io: SetupIo, interactive: boolean): Promise<numbe
     // Org service endpoints (ORG-LEVEL, inherited by adopters). Prompt the CORE ones gov-work uses; the
     // deploy endpoints (jenkins/npm/docker) are added later as the org adopts gov-cicd. Blank is fine.
     io.print("  Service endpoints — shared org infrastructure (adopters inherit these):");
-    answers.vaultAddr = await io.prompt("  Vault/OpenBao base URL (blank if none)", d1.vaultAddr);
-    answers.oidcBase = await io.prompt("  IAM OIDC base URL for the deploy clients' `auth login` (blank if none)", d1.oidcBase);
-    answers.govAccount = await io.prompt("  Governance account id (blank = single-tenant)", d1.govAccount);
   }
 
   const v = deriveOrgConfig(answers, ctx);
@@ -65,15 +68,10 @@ export async function runSetup(io: SetupIo, interactive: boolean): Promise<numbe
     io.print(`Set origin → ${v.orgRepoUrl}`);
   }
   io.print("");
-  io.print("Next steps:");
-  io.print("  git add -A && git commit -m \"configure the framework for this org\" && git push");
-  io.print("  gov                                            # you are ready — the interactive front door");
-  io.print("");
-  // Registering is only needed for a SECOND org on this machine. With one org the resolver finds
-  // this workspace by walking up from the cwd, so telling every adopter to register it invites
-  // them to register a path that does not exist (the retired `gov_workspace` convention).
-  io.print("Managing more than one org from this machine?");
-  io.print(`  gov org add ${v.githubOrg} --home ${io.cwd}`);
-  io.print(`  gov org use ${v.githubOrg}`);
+  // NO NEXT-STEPS BLOCK HERE. `gov setup <org>/<repo>` now registers, commits and pushes on the
+  // adopter's behalf and prints one manifest of what it did (#159 findings 6a/6b/6d) — this block used to
+  // instruct the adopter to run `gov org add`, immediately AFTER the CLI had already done it. Two
+  // instructions for one already-completed action. Bare `gov setup` (configure-in-place) needs no
+  // next-steps block either: nothing was created to explain.
   return 0;
 }
