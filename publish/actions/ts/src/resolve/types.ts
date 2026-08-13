@@ -75,6 +75,8 @@ export interface HomeCheckFailure {
 export type ResolveResult =
   | { readonly ok: true; readonly home: string; readonly org: string; readonly via: ResolveVia }
   | { readonly ok: false; readonly code: 2; readonly reason: "no-active-org" }
+  /** contract R4 — a PROJECT operation run outside any project workspace. Never falls back to the mirror. */
+  | { readonly ok: false; readonly code: 2; readonly reason: "not-in-a-project"; readonly activeOrg: string }
   | {
       readonly ok: false;
       readonly code: 2;
