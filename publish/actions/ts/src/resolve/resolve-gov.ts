@@ -13,9 +13,23 @@ import type { HomeCheckFailure, ResolveEnv, ResolveResult } from "./types.js";
  * Which of the two things `gov_repo` used to mean does this command need?
  * (workspace-resolution-contract.md D3 — `svm-prj-work#310`.)
  */
-export type OperationClass = "GOVERNANCE" | "PROJECT" | "MACHINE";
+export type OperationClass =
+  | "GOVERNANCE"
+  | "PROJECT"
+  | "MACHINE"
+  /**
+   * Legacy, and the DEFAULT: cwd if we are standing in a workspace, else the registry.
+   *
+   * Not a contract class — the contract governs which repository an OPERATION ACTS ON. Reporting is a
+   * different question: `gov doctor` and the context banner must describe wherever you actually are,
+   * including from outside any project, and answer rather than refuse. Making PROJECT the default broke
+   * exactly that, and the hermetic adopter smoke caught it.
+   *
+   * Every verb should name its class; until each does, this preserves today's behaviour.
+   */
+  | "REPORT";
 
-export function prjResolveGov(env: ResolveEnv, opClass: OperationClass = "PROJECT"): ResolveResult {
+export function prjResolveGov(env: ResolveEnv, opClass: OperationClass = "REPORT"): ResolveResult {
   // [rule a / contract R1] active-org is mandatory — no silent fallback.
   const activeOrg = env.readActiveOrg();
   if (!activeOrg) return { ok: false, code: 2, reason: "no-active-org" };
@@ -32,7 +46,7 @@ export function prjResolveGov(env: ResolveEnv, opClass: OperationClass = "PROJEC
   // workspace previously changed which repository a governance read used — so `deploy` could print
   // "catalog: main — ratified knowledge (POL-086a)" while reading an in-flight project branch whose
   // edits are, by POL-086b, proposals with no governing force. Falls through to the registry below.
-  if (cwdHit && opClass === "PROJECT") {
+  if (cwdHit && (opClass === "PROJECT" || opClass === "REPORT")) {
     // Same org: operate on the cwd workspace (project clone or the home itself).
     // Identity is already confirmed — org was read straight from its org-config.
     return { ok: true, home: cwdHit.home, org: activeOrg, via: "cwd" };
