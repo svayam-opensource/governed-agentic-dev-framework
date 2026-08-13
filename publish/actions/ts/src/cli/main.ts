@@ -74,8 +74,12 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def: string): Promise<string> =>
     new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || def)));
+  const quietGh = (args: readonly string[]): string | null => {
+    try { return execFileSync("gh", [...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+    catch { return null; }                        // a 404 while the template copies is EXPECTED, not news
+  };
   const io: CreateIo = {
-    gh: (args) => tryRun("gh", [...args]) ?? null,
+    gh: quietGh,
     home: os.homedir(),
     exists: (p) => fsSync.existsSync(p),
     print: (l) => process.stdout.write(`${l}\n`),
@@ -85,7 +89,12 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
     // Asked before anything is created, because the slug decides the location (R9). Defaulted from the
     // GitHub org so the common case is one keypress.
     const defaultSlug = (parsedTarget?.org ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase();
-    const slug = parsedTarget ? await ask("Org slug (uppercase, 2-6 chars; e.g. ACME)", defaultSlug) : defaultSlug;
+    // Named for what it DECIDES. Asking "Org slug" here and again in the setup flow read as the same
+    // question twice; this one chooses the governance home's location, the later one is the org-config
+    // value (pre-filled from this answer). #159 finding 1a.
+    const slug = parsedTarget
+      ? await ask("Governance home ~/.gov/<slug> (uppercase, 2-6 chars)", defaultSlug)
+      : defaultSlug;
 
     const pathFlag = typeof flags["path"] === "string" ? (flags["path"] as string) : undefined;
     const pre = createPreflight(io, rawTarget, slug, pathFlag);
