@@ -92,7 +92,7 @@ describe("prj-work Phase 1 — prjResolveGov (SDD-040, active-org anchored)", ()
         "/home/.svm/gov_repo": { org: "Svayamtech", govWorkspace: "/home/.svm/gov_repo" },
       },
     });
-    expect(prjResolveGov(env)).to.deep.equal({
+    expect(prjResolveGov(env, "GOVERNANCE")).to.deep.equal({
       ok: true,
       home: "/home/.svm/gov_repo",
       org: "Svayamtech",
@@ -102,7 +102,7 @@ describe("prj-work Phase 1 — prjResolveGov (SDD-040, active-org anchored)", ()
 
   it("O2 none + no registered home: hardstop asking to add one", () => {
     const env = makeEnv({ cwd: "/tmp/nowhere", activeOrg: "Svayamtech" });
-    const r = fail(prjResolveGov(env));
+    const r = fail(prjResolveGov(env, "GOVERNANCE"));
     expect(r).to.include({ reason: "no-home", activeOrg: "Svayamtech" });
     expect(resolveFailureMessage(r)).to.match(/gov org add Svayamtech/);
   });
@@ -115,7 +115,7 @@ describe("prj-work Phase 1 — prjResolveGov (SDD-040, active-org anchored)", ()
         homes: { Svayamtech: "/gone" },
         govAt: {}, // govConfigAt('/gone') → null
       });
-      const r = fail(prjResolveGov(env));
+      const r = fail(prjResolveGov(env, "GOVERNANCE"));
       expect(r).to.include({ reason: "pointer-mismatch", home: "/gone" });
       if (r.reason === "pointer-mismatch") expect(r.detail.why).to.equal("not-a-gov-repo");
     });
@@ -127,7 +127,7 @@ describe("prj-work Phase 1 — prjResolveGov (SDD-040, active-org anchored)", ()
         homes: { Svayamtech: "/home/other" },
         govAt: { "/home/other": { org: "AcmeOrg", govWorkspace: "/home/other" } },
       });
-      const r = fail(prjResolveGov(env));
+      const r = fail(prjResolveGov(env, "GOVERNANCE"));
       if (r.reason === "pointer-mismatch") {
         expect(r.detail).to.deep.equal({ why: "org-mismatch", found: "AcmeOrg" });
       } else expect.fail("expected pointer-mismatch");
@@ -143,7 +143,7 @@ describe("prj-work Phase 1 — prjResolveGov (SDD-040, active-org anchored)", ()
           "/w/PRJ-43/svm-prj-work": { org: "Svayamtech", govWorkspace: "/home/.svm/gov_repo" },
         },
       });
-      const r = fail(prjResolveGov(env));
+      const r = fail(prjResolveGov(env, "GOVERNANCE"));
       if (r.reason === "pointer-mismatch") {
         expect(r.detail).to.deep.equal({ why: "not-canonical", found: "/home/.svm/gov_repo" });
         expect(resolveFailureMessage(r)).to.match(/not a canonical gov home/);
@@ -157,7 +157,7 @@ describe("prj-work Phase 1 — prjResolveGov (SDD-040, active-org anchored)", ()
         homes: { Svayamtech: "/home/.svm/gov_repo" },
         govAt: { "/home/.svm/gov_repo": { org: "Svayamtech", govWorkspace: null } },
       });
-      expect(prjResolveGov(env)).to.include({ ok: true, via: "active-org" });
+      expect(prjResolveGov(env, "GOVERNANCE")).to.include({ ok: true, via: "active-org" });
     });
   });
 

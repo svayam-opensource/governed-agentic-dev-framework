@@ -106,7 +106,7 @@ describe("prj-work Phase 1 — createNodeEnv (fs-backed, temp dir)", () => {
     const outside = path.join(tmp, "elsewhere");
     fs.mkdirSync(outside, { recursive: true });
     const env = createNodeEnv({ cwd: outside, configDir });
-    expect(prjResolveGov(env)).to.deep.include({ ok: true, home: govDir, org: "Svayamtech", via: "active-org" });
+    expect(prjResolveGov(env, "GOVERNANCE")).to.deep.include({ ok: true, home: govDir, org: "Svayamtech", via: "active-org" });
   });
 
   it("end-to-end: a project-clone pointer in the registry is rejected (not canonical)", () => {
@@ -122,7 +122,7 @@ describe("prj-work Phase 1 — createNodeEnv (fs-backed, temp dir)", () => {
     fs.writeFileSync(path.join(configDir, "workspaces"), `Svayamtech\t${clone}\n`);
     const outside = path.join(tmp, "elsewhere");
     fs.mkdirSync(outside, { recursive: true });
-    const r = prjResolveGov(createNodeEnv({ cwd: outside, configDir }));
+    const r = prjResolveGov(createNodeEnv({ cwd: outside, configDir }), "GOVERNANCE");
     expect(r.ok).to.equal(false);
     if (!r.ok && r.reason === "pointer-mismatch") {
       expect(r.detail.why).to.equal("not-canonical");
