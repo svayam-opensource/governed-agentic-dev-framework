@@ -65,15 +65,10 @@ export async function runSetup(io: SetupIo, interactive: boolean): Promise<numbe
     io.print(`Set origin → ${v.orgRepoUrl}`);
   }
   io.print("");
-  io.print("Next steps:");
-  io.print("  git add -A && git commit -m \"configure the framework for this org\" && git push");
-  io.print("  gov                                            # you are ready — the interactive front door");
-  io.print("");
-  // Registering is only needed for a SECOND org on this machine. With one org the resolver finds
-  // this workspace by walking up from the cwd, so telling every adopter to register it invites
-  // them to register a path that does not exist (the retired `gov_workspace` convention).
-  io.print("Managing more than one org from this machine?");
-  io.print(`  gov org add ${v.githubOrg} --home ${io.cwd}`);
-  io.print(`  gov org use ${v.githubOrg}`);
+  // NO NEXT-STEPS BLOCK HERE. `gov setup <org>/<repo>` now registers, commits and pushes on the
+  // adopter's behalf and prints one manifest of what it did (#159 findings 6a/6b/6d) — this block used to
+  // instruct the adopter to run `gov org add`, immediately AFTER the CLI had already done it. Two
+  // instructions for one already-completed action. Bare `gov setup` (configure-in-place) needs no
+  // next-steps block either: nothing was created to explain.
   return 0;
 }

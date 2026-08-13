@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
-import { parseTarget, preflight as createPreflight, explainFailure, waitForTemplateContent, type CreateIo } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, waitForTemplateContent, PUBLISHER_ONLY_DIRS, ADOPTER_DIRS, renderManifest, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
@@ -196,6 +196,8 @@ export async function runSetupCommand(
       const env = createNodeEnv();
       const deps = { store: createNodeRegistryStore(), govConfigAt: (p: string) => env.govConfigAt(p) };
       const cfg = env.govConfigAt(createdHome);
+      const manifest: ManifestLine[] = [{ what: "Created", detail: `${createdHome} (from the framework template)` }];
+      let activeNote = "";
       if (cfg) {
         const priorActive = deps.store.readActiveOrg();
         const added = orgAdd(deps, cfg.org, createdHome);
@@ -208,10 +210,35 @@ export async function runSetupCommand(
         } else {
           // DO NOT HIJACK. Creating a workspace for one org silently switched the active org and broke
           // resolution in the workspace the user was standing in (#159 manual test, finding 5).
-          process.stdout.write(`  registered ${cfg.org} → ${createdHome}\n`);
-          process.stdout.write(`  active org left as '${priorActive}' — switch when you want it:  gov org use ${cfg.org}\n`);
+          activeNote = `active org left as '${priorActive}' — switch when you want it:  gov org use ${cfg.org}`;
         }
+        manifest.push({ what: "Registered", detail: `${cfg.org} → ${createdHome}${activeNote ? "" : " (active)"}` });
       }
+
+      // PRUNE publisher scaffolding (6c), then COMMIT AND PUSH (6b) — neither is an optional decision the
+      // adopter should be asked to make, and leaving them undone is what made the runbook five steps.
+      const removed: string[] = [];
+      for (const d of PUBLISHER_ONLY_DIRS) {
+        const dir = path.join(createdHome, d);
+        if (fsSync.existsSync(dir)) { fsSync.rmSync(dir, { recursive: true, force: true }); removed.push(d); }
+      }
+      if (removed.length) manifest.push({ what: "Removed", detail: `${removed.join(" ")}  (publisher-only; not adopter content)` });
+      const left = fsSync.readdirSync(createdHome).filter((e) => e !== ".git" && fsSync.statSync(path.join(createdHome, e)).isDirectory());
+      const unexpected = left.filter((d) => !ADOPTER_DIRS.includes(d));
+      if (unexpected.length) manifest.push({ what: "Note", detail: `unexpected directories kept: ${unexpected.join(" ")} — tell gov-work if these are publisher-only` });
+
+      const git = (...a: string[]): boolean => { try { execFileSync("git", ["-C", createdHome, ...a], { stdio: "ignore" }); return true; } catch { return false; } };
+      git("add", "-A");
+      const committed = git("commit", "-m", "configure the framework for this org");
+      const pushed = committed && git("push", "-u", "origin", "HEAD");
+      manifest.push({ what: "Committed", detail: committed ? (pushed ? "and pushed to the default branch" : "locally — push failed, run: git push") : "nothing to commit" });
+
+      for (const line of renderManifest(manifest, [
+        "knowledge/policies/agentic-development-policy.md   — make the policy yours",
+        "agent/session-protocol.md                          — what your agents read at session start",
+        "gov                                                — the interactive front door",
+        ...(activeNote ? [activeNote] : []),
+      ])) process.stdout.write(`${line}\n`);
     }
     return rc;
   } finally {

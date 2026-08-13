@@ -39,7 +39,6 @@ describe("gov-work — setup (bootstrap)", () => {
     expect(readExistingOrgConfig(yaml)).to.include({ orgSlug: "ACME" });
     // gov_workspace is NOT rendered any more: the shipped template dropped the key, and the home is
     // resolved from the org registry / cwd walk-up. Emitting it sent adopters to `gov org add` with a
-    // path nothing creates (911/#189-era residue; see setup-run's next steps).
     expect(yaml).to.not.match(/^gov_workspace:/m);
     // Reading one is still supported — configs written before the key was dropped must keep working.
     expect(readExistingOrgConfig(`${yaml}\ngov_workspace: "~/.legacy/gov_repo"\n`))
@@ -61,7 +60,9 @@ describe("gov-work — setup (bootstrap)", () => {
     expect(code).to.equal(0);
     expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/org_name: "Acme Inc"/);
     expect(remoteSet).to.equal("git@github.com:Acme/acme-gov.git");
-    expect(printed.some((l) => /gov org add Acme/.test(l))).to.equal(true);
+    // #159 finding 6a — setup no longer prints a `gov org add` hint. `gov setup <org>/<repo>` registers
+    // the workspace itself, so the hint told the adopter to redo work already done.
+    expect(printed.some((l) => /gov org add/.test(l)), "must not instruct what setup already did").to.equal(false);
   });
 
   it("fails when org_name/org_slug are absent (non-interactive, no existing)", async () => {

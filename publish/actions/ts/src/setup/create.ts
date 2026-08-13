@@ -229,3 +229,34 @@ export function explainFailure(f: PreflightFailure): readonly string[] {
               "  move it aside, or choose another location with --path <dir>"];
   }
 }
+
+/**
+ * Publisher scaffolding that must not reach an adopter (#159 finding 6c).
+ *
+ * The framework repo is also the template, so `gh repo create --template` copies EVERYTHING the
+ * publisher needs to build and test itself. An adopter has no TypeScript to build and no framework to
+ * document, so these are noise at best — and `.github` is worse than noise: the workflows build the
+ * CLI's own source, so a brand-new adopter's first push turns their repo red.
+ *
+ * Pruned in the adopter's clone, never in the framework repo, which keeps whatever shape it needs.
+ * `publish/` is deliberately NOT here: it is the copy source the framework replaces on upgrade.
+ */
+export const PUBLISHER_ONLY_DIRS: readonly string[] = ["ci", "docs", "packages", ".github"];
+
+/** What an adopter should be left with — asserted after pruning so a new publisher dir cannot creep in. */
+export const ADOPTER_DIRS: readonly string[] = ["agent", "knowledge", "publish"];
+
+/** One line per thing setup actually did, printed at the end instead of leaving it silent (6b/6d). */
+export interface ManifestLine { readonly what: string; readonly detail: string }
+
+export function renderManifest(lines: readonly ManifestLine[], nextSteps: readonly string[]): readonly string[] {
+  const w = Math.max(...lines.map((l) => l.what.length), 9);
+  return [
+    "",
+    ...lines.map((l) => `  ${l.what.padEnd(w)}  ${l.detail}`),
+    "",
+    "  Next:",
+    ...nextSteps.map((s) => `    ${s}`),
+    "",
+  ];
+}
