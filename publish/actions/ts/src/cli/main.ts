@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
-import { parseTarget, preflight as createPreflight, explainFailure, waitForTemplateContent, PUBLISHER_ONLY_DIRS, ADOPTER_DIRS, renderManifest, type CreateIo, type ManifestLine } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, ADOPTER_DIRS, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
@@ -70,7 +70,7 @@ const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
  * by this tool. The org slug is asked first because it is what decides where the clone goes (contract R9)
  * — there is no point creating anything before we know that.
  */
-async function runCreateWorkspace(rawTarget: string, flags: Record<string, string | boolean>): Promise<string | number> {
+async function runCreateWorkspace(rawTarget: string, flags: Record<string, string | boolean>): Promise<{ home: string; slug: string } | number> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def: string): Promise<string> =>
     new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || def)));
@@ -97,10 +97,31 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
 
     const { target, govRepo } = pre;
     const full = `${target.org}/${target.repo}`;
-    process.stdout.write(`  creating ${full} from ${TEMPLATE_REPO} (private)…\n`);
-    if (tryRun("gh", ["repo", "create", full, "--template", TEMPLATE_REPO, "--private"]) === undefined) {
-      process.stderr.write(`gov setup: creating ${full} failed. Nothing was cloned.\n`);
-      return 1;
+
+    // RETRY PATH (#159 finding 2). A failed run leaves a repo behind that `gh` cannot delete, and a
+    // stale clone at the derived path. Archive the clone — never destroy it — and adopt the remote only
+    // when it could only have come from a failed run of this command.
+    if (fsSync.existsSync(govRepo)) {
+      const verdict = canAdoptExisting(io, target);
+      if (!verdict.adopt) {
+        process.stderr.write(`gov setup: ${govRepo} already exists, and ${full} is not safe to reuse — ${verdict.detail}.\n`);
+        process.stderr.write(verdict.why === "not-ours"
+          ? "  refusing rather than overwriting someone's repository. Choose another name, or --path <dir>.\n"
+          : "  refusing rather than guessing. Check your access, then re-run.\n");
+        return 1;
+      }
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const archive = archivePathFor(io.home, slug, stamp);
+      fsSync.mkdirSync(path.dirname(archive), { recursive: true });
+      fsSync.renameSync(govRepo, archive);
+      process.stdout.write(`  archived the previous attempt → ${archive}\n`);
+      process.stdout.write(`  adopting the existing ${full} (${verdict.why})\n`);
+    } else {
+      process.stdout.write(`  creating ${full} from ${TEMPLATE_REPO} (private)…\n`);
+      if (tryRun("gh", ["repo", "create", full, "--template", TEMPLATE_REPO, "--private"]) === undefined) {
+        process.stderr.write(`gov setup: creating ${full} failed. Nothing was cloned.\n`);
+        return 1;
+      }
     }
     // The template copy is asynchronous — cloning too early yields an EMPTY repo and a setup that
     // configures nothing while appearing to succeed (#159 manual test, finding 1c).
@@ -118,7 +139,7 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
       process.stderr.write(`  it still exists — re-run 'gov setup ${full}' to resume, or clone it yourself.\n`);
       return 1;
     }
-    return govRepo;
+    return { home: govRepo, slug };
   } finally {
     rl.close();
   }
@@ -138,6 +159,7 @@ export async function runSetupCommand(
   const nonInteractiveFlag = !("error" in parsed) && "non-interactive" in parsed.flags;
   const fs = createNodeFs();
   let createdHome: string | null = null;
+  let createdSlug: string | null = null;
 
   // ONE VERB, THE ARGUMENT DECIDES (#159). A positional `<org>/<repo>` means CREATE; its absence means
   // configure the workspace we are in, exactly as before. `--non-interactive` never creates, whatever
@@ -146,8 +168,25 @@ export async function runSetupCommand(
   if (positional.length > 0 && !nonInteractiveFlag) {
     const created = await runCreateWorkspace(positional[0], "error" in parsed ? {} : parsed.flags);
     if (typeof created === "number") return created;
-    cwd = created;                                  // continue into the normal flow, inside the new clone
-    createdHome = created;
+    cwd = created.home;                             // continue into the normal flow, inside the new clone
+    createdHome = created.home;
+    // The template copy brings the framework's OWN agent/ and knowledge/. Adopter content is GENERATED
+    // from publish/, so drop the inherited copies and seed from the manifest before setup configures
+    // anything (#159 finding 6c, publish-folder model). Seeding here also means a brand-new workspace is
+    // never "behind the CLI" — the CLI that created it did the seeding.
+    for (const d of [...PUBLISHER_ONLY_DIRS, ...INHERITED_DIRS]) {
+      const dir = path.join(created.home, d);
+      if (fsSync.existsSync(dir)) fsSync.rmSync(dir, { recursive: true, force: true });
+    }
+    const seed = runUpgradeSync(path.join(created.home, "publish", "content"), created.home, { apply: true });
+    if (seed.code !== 0) {
+      for (const l of seed.lines) process.stderr.write(`${l}\n`);
+      process.stderr.write(`gov setup: could not seed content from publish/. The repo exists — re-run to resume.\n`);
+      return 1;
+    }
+    // #159 finding 1a — the slug was asked BEFORE creating (it decides the location), then asked again
+    // by the setup flow, with a blank default. One fact, one question: carry the answer forward.
+    createdSlug = created.slug;
   }
 
   if (tryRun("git", ["-C", cwd, "rev-parse", "--git-dir"]) === undefined) {
@@ -168,7 +207,7 @@ export async function runSetupCommand(
         ghUser: tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null,
         gitEmail: tryRun("git", ["-C", cwd, "config", "user.email"]) ?? null,
         today: now.slice(0, 10),
-        existing: existingText ? readExistingOrgConfig(existingText) : undefined,
+        existing: { ...(existingText ? readExistingOrgConfig(existingText) : {}), ...(createdSlug ? { orgSlug: createdSlug } : {}) },
         prompt: ask,
         print: (l) => process.stdout.write(`${l}\n`),
         setOriginRemote: (url) => {
@@ -217,12 +256,31 @@ export async function runSetupCommand(
 
       // PRUNE publisher scaffolding (6c), then COMMIT AND PUSH (6b) — neither is an optional decision the
       // adopter should be asked to make, and leaving them undone is what made the runbook five steps.
-      const removed: string[] = [];
-      for (const d of PUBLISHER_ONLY_DIRS) {
-        const dir = path.join(createdHome, d);
-        if (fsSync.existsSync(dir)) { fsSync.rmSync(dir, { recursive: true, force: true }); removed.push(d); }
-      }
-      if (removed.length) manifest.push({ what: "Removed", detail: `${removed.join(" ")}  (publisher-only; not adopter content)` });
+      manifest.push({ what: "Seeded", detail: `agent/ knowledge/ from publish/content (framework working copies removed)` });
+
+      // SWEEP the seeded tree. publish/ is never touched — it is the copy source, and the framework
+      // replaces it on upgrade. Leftovers are reported, not tolerated: a policy the adopter opens and
+      // finds <ORG_NAME> in is the first impression this whole change exists to fix.
+      const cfgText = fsSync.readFileSync(path.join(createdHome, "org-config.yaml"), "utf8");
+      const oc = parseOrgConfig(cfgText) as unknown as Record<string, string>;
+      const values: Record<string, string> = {};
+      for (const [k, v] of Object.entries(oc)) if (typeof v === "string" && v) values[k.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase()] = v;
+      const leftovers = new Set<string>();
+      let swept = 0;
+      const sweepDir = (dir: string): void => {
+        for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
+          const f = path.join(dir, e.name);
+          if (e.isDirectory()) { sweepDir(f); continue; }
+          if (!/\.(md|ya?ml|json|txt)$/i.test(e.name)) continue;
+          const before = fsSync.readFileSync(f, "utf8");
+          const after = substituteTokens(before, values);
+          if (after !== before) { fsSync.writeFileSync(f, after, "utf8"); swept++; }
+          for (const l of leftoverTokens(after)) leftovers.add(l);
+        }
+      };
+      for (const d of INHERITED_DIRS) { const dir = path.join(createdHome, d); if (fsSync.existsSync(dir)) sweepDir(dir); }
+      manifest.push({ what: "Swept", detail: `${swept} file(s) — org tokens resolved in ${INHERITED_DIRS.join("/ ")}/ (publish/ untouched)` });
+      if (leftovers.size) manifest.push({ what: "⚠ Tokens", detail: `unresolved: ${[...leftovers].join(" ")} — tell gov-work; these should not reach an adopter` });
       const left = fsSync.readdirSync(createdHome).filter((e) => e !== ".git" && fsSync.statSync(path.join(createdHome, e)).isDirectory());
       const unexpected = left.filter((d) => !ADOPTER_DIRS.includes(d));
       if (unexpected.length) manifest.push({ what: "Note", detail: `unexpected directories kept: ${unexpected.join(" ")} — tell gov-work if these are publisher-only` });

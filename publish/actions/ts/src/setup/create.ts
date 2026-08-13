@@ -181,8 +181,10 @@ export function preflight(
   if (!existing.verified) return { ok: false, failure: { why: "cannot-verify", org: target.org } };
   if (existing.repos.length > 0) return { ok: false, failure: { why: "already-governed", repo: existing.repos[0], all: existing.repos } };
 
+  // NOT a failure any more: an occupied path is the RETRY case. The caller archives the previous
+  // attempt and adopts the remote only if it is provably ours (#159 finding 2). Refusing here made every
+  // failed run need manual cleanup — the friction this command exists to remove.
   const govRepo = pathOverride ?? derivedPaths(io.home, slug).govRepo;
-  if (io.exists(govRepo)) return { ok: false, failure: { why: "path-occupied", path: govRepo } };
 
   const warnings: PreflightWarning[] = [];
   if (existing.truncated) {
@@ -243,6 +245,16 @@ export function explainFailure(f: PreflightFailure): readonly string[] {
  */
 export const PUBLISHER_ONLY_DIRS: readonly string[] = ["ci", "docs", "packages", ".github"];
 
+/**
+ * The framework's OWN working copies, which the template copy also brings.
+ *
+ * These are not the adopter's content. `publish/content/{agent,knowledge}` is the seed — 26 knowledge
+ * files against the framework's own 4 — and per the publish-folder model the CLI GENERATES adopter
+ * content from `publish/`, never inherits the framework's working directories. Pruned before seeding,
+ * so the seed lands on a clean tree.
+ */
+export const INHERITED_DIRS: readonly string[] = ["agent", "knowledge"];
+
 /** What an adopter should be left with — asserted after pruning so a new publisher dir cannot creep in. */
 export const ADOPTER_DIRS: readonly string[] = ["agent", "knowledge", "publish"];
 
@@ -259,4 +271,46 @@ export function renderManifest(lines: readonly ManifestLine[], nextSteps: readon
     ...nextSteps.map((s) => `    ${s}`),
     "",
   ];
+}
+
+/** Tokens resolved into adopter content at seed time, from org-config values. */
+export function substituteTokens(text: string, values: Readonly<Record<string, string>>): string {
+  return text.replace(/<([A-Za-z_]+)>/g, (whole, key: string) => values[key] ?? whole);
+}
+
+/** `<TOKEN>` occurrences left after substitution — a doc the adopter should never have to decode. */
+export function leftoverTokens(text: string): readonly string[] {
+  return [...new Set([...text.matchAll(/<([A-Z][A-Z_]{2,})>/g)].map((m) => m[0]))];
+}
+
+/**
+ * Is an already-existing remote safe to adopt after a failed run (#159 finding 2)?
+ *
+ * `gh` cannot delete a repo without `delete_repo`, so a failed run leaves one behind and the retry hits
+ * `Name already exists on this account`. Adopting blindly would prune and force-push over whatever is
+ * there — unrecoverable if it is someone's real work. So: adopt ONLY what could only have come from a
+ * failed run of this command, refuse anything else, and never guess between the two.
+ */
+export type AdoptVerdict =
+  | { readonly adopt: true; readonly why: "empty" | "template-shaped" }
+  | { readonly adopt: false; readonly why: "not-ours" | "cannot-tell"; readonly detail: string };
+
+export function canAdoptExisting(io: CreateIo, target: CreateTarget): AdoptVerdict {
+  const full = `${target.org}/${target.repo}`;
+  const perm = io.gh(["api", `repos/${full}`, "--jq", ".permissions.admin"]);
+  if (perm === null) return { adopt: false, why: "cannot-tell", detail: `cannot read ${full}` };
+  if (perm.trim() !== "true") return { adopt: false, why: "not-ours", detail: `you are not an admin of ${full}` };
+
+  const commits = io.gh(["api", `repos/${full}/commits`, "--jq", "length"]);
+  if (commits === null) return { adopt: true, why: "empty" };          // no commits at all → nothing to lose
+  const n = Number(commits.trim());
+  if (!Number.isFinite(n)) return { adopt: false, why: "cannot-tell", detail: "could not count commits" };
+  if (n === 0) return { adopt: true, why: "empty" };
+  if (n === 1) return { adopt: true, why: "template-shaped" };         // the template import commit only
+  return { adopt: false, why: "not-ours", detail: `${full} has ${n} commits — it is not a failed run of this command` };
+}
+
+/** Where a previous attempt's clone is moved so a retry can proceed without destroying evidence. */
+export function archivePathFor(home: string, slug: string, stamp: string): string {
+  return `${derivedPaths(home, slug).govRepo.replace(/\/gov_repo$/, "")}/archive/${stamp}/gov_repo`;
 }

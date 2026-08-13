@@ -24,6 +24,12 @@ export interface SetupIo {
   readonly setOriginRemote?: (url: string) => void;
 }
 
+/**
+ * NOTE (#159 finding 4, client-configuration-contract R1): setup no longer asks for Vault, OIDC or the
+ * governance account id. `gov` reads none of them — they belong to `gov-cicd`/`gov-infra`, and asking
+ * the free work-tier adopter about modules they have not adopted is the defect. The keys are still
+ * READ when present, so existing workspaces are unaffected; they are simply no longer prompted for.
+ */
 export async function runSetup(io: SetupIo, interactive: boolean): Promise<number> {
   const ctx: SetupContext = { originUrl: io.originUrl, ghUser: io.ghUser, gitEmail: io.gitEmail, today: io.today, existing: io.existing };
   const answers: Partial<Record<keyof OrgConfigValues, string>> = {};
@@ -46,9 +52,6 @@ export async function runSetup(io: SetupIo, interactive: boolean): Promise<numbe
     // Org service endpoints (ORG-LEVEL, inherited by adopters). Prompt the CORE ones gov-work uses; the
     // deploy endpoints (jenkins/npm/docker) are added later as the org adopts gov-cicd. Blank is fine.
     io.print("  Service endpoints — shared org infrastructure (adopters inherit these):");
-    answers.vaultAddr = await io.prompt("  Vault/OpenBao base URL (blank if none)", d1.vaultAddr);
-    answers.oidcBase = await io.prompt("  IAM OIDC base URL for the deploy clients' `auth login` (blank if none)", d1.oidcBase);
-    answers.govAccount = await io.prompt("  Governance account id (blank = single-tenant)", d1.govAccount);
   }
 
   const v = deriveOrgConfig(answers, ctx);
