@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../../src/resolve/org.js";
 import { createNodeRegistryStore } from "../../src/resolve/registry-store.js";
+import { legacyRegistryFiles, resetRegistryMigrationForTests } from "../../src/resolve/node-env.js";
 import type { RegistryStore } from "../../src/resolve/registry-store.js";
 import type { GovConfig, GovHome } from "../../src/resolve/types.js";
 import { pxAbs } from "../helpers/paths.js";
@@ -97,19 +98,28 @@ describe("prj-work — createNodeRegistryStore (real temp dir)", () => {
     const withHome = (fn: (home: string) => void): void => {
       const home = fs.mkdtempSync(path.join(os.tmpdir(), "prjwork-home-"));
       const prev = process.env.XDG_CONFIG_HOME;
+      const prevAppData = process.env.APPDATA;
       process.env.XDG_CONFIG_HOME = path.join(home, ".config");
+      process.env.APPDATA = path.join(home, "AppData", "Roaming");   // Windows: keep configDir inside the fixture
+      // Migration is once per process. Without this, only the FIRST case below actually migrates and the
+      // rest pass without exercising anything.
+      resetRegistryMigrationForTests();
       try { fn(home); } finally {
         if (prev === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = prev;
+        if (prevAppData === undefined) delete process.env.APPDATA; else process.env.APPDATA = prevAppData;
         fs.rmSync(home, { recursive: true, force: true });
       }
     };
 
+    // Seed via the SAME function the code reads with. Hard-coding `~/.config/prj` seeds a POSIX path
+    // while the code looks in %APPDATA%\prj on Windows, so the fixture and the code disagree and the
+    // migration legitimately finds nothing — green on macOS/Linux, red on Windows. Same class as #90.
     const seedLegacy = (home: string, workspaces: string, active: string): string => {
-      const dir = path.join(home, ".config", "prj");
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(path.join(dir, "gov-workspaces"), workspaces, "utf8");
-      fs.writeFileSync(path.join(dir, "active-org"), active, "utf8");
-      return dir;
+      const legacy = legacyRegistryFiles(process.env, process.platform, home);
+      fs.mkdirSync(path.dirname(legacy.workspaces), { recursive: true });
+      fs.writeFileSync(legacy.workspaces, workspaces, "utf8");
+      fs.writeFileSync(legacy.active, active, "utf8");
+      return path.dirname(legacy.workspaces);
     };
 
     it("carries an existing registry forward on first read", () => {
@@ -126,7 +136,7 @@ describe("prj-work — createNodeRegistryStore (real temp dir)", () => {
       withHome((home) => {
         const legacyDir = seedLegacy(home, "Acme\t/gov\n", "Acme\n");
         createNodeRegistryStore({ home }).readHomes();
-        expect(fs.existsSync(path.join(legacyDir, "gov-workspaces")), "legacy must survive").to.equal(true);
+        expect(fs.readdirSync(legacyDir).length, "legacy must survive").to.be.greaterThan(0);
       });
     });
 
