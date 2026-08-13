@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
-import { parseTarget, preflight as createPreflight, explainFailure, type CreateIo } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, waitForTemplateContent, type CreateIo } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
@@ -100,6 +100,13 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
     process.stdout.write(`  creating ${full} from ${TEMPLATE_REPO} (private)…\n`);
     if (tryRun("gh", ["repo", "create", full, "--template", TEMPLATE_REPO, "--private"]) === undefined) {
       process.stderr.write(`gov setup: creating ${full} failed. Nothing was cloned.\n`);
+      return 1;
+    }
+    // The template copy is asynchronous — cloning too early yields an EMPTY repo and a setup that
+    // configures nothing while appearing to succeed (#159 manual test, finding 1c).
+    if (!waitForTemplateContent(io, target, 10, (ms) => { const end = Date.now() + ms; while (Date.now() < end) { /* block */ } })) {
+      process.stderr.write(`gov setup: ${full} was created, but GitHub has not finished copying the template.\n`);
+      process.stderr.write(`  it still exists — re-run 'gov setup ${full}' in a moment to resume.\n`);
       return 1;
     }
     fsSync.mkdirSync(path.dirname(govRepo), { recursive: true });
@@ -190,11 +197,20 @@ export async function runSetupCommand(
       const deps = { store: createNodeRegistryStore(), govConfigAt: (p: string) => env.govConfigAt(p) };
       const cfg = env.govConfigAt(createdHome);
       if (cfg) {
+        const priorActive = deps.store.readActiveOrg();
         const added = orgAdd(deps, cfg.org, createdHome);
-        const used = added.ok ? orgUse(deps, cfg.org) : added;
-        process.stdout.write(used.ok
-          ? `  registered ${cfg.org} → ${createdHome} (active)\n`
-          : `  ⚠ could not register the workspace: ${used.message}\n     fix with: gov org add ${cfg.org} --home ${createdHome}\n`);
+        if (!added.ok) {
+          process.stdout.write(`  ⚠ could not register the workspace: ${added.message}\n     fix with: gov org add ${cfg.org} --home ${createdHome}\n`);
+        } else if (priorActive === null || priorActive === cfg.org) {
+          // Nothing to displace — activating is unambiguous.
+          const used = orgUse(deps, cfg.org);
+          process.stdout.write(used.ok ? `  registered ${cfg.org} → ${createdHome} (active)\n` : `  ⚠ ${used.message}\n`);
+        } else {
+          // DO NOT HIJACK. Creating a workspace for one org silently switched the active org and broke
+          // resolution in the workspace the user was standing in (#159 manual test, finding 5).
+          process.stdout.write(`  registered ${cfg.org} → ${createdHome}\n`);
+          process.stdout.write(`  active org left as '${priorActive}' — switch when you want it:  gov org use ${cfg.org}\n`);
+        }
       }
     }
     return rc;

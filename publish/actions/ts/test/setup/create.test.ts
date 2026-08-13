@@ -9,7 +9,7 @@
  * recoverable by this tool, so the tests below are largely about refusing early and saying why.
  */
 import { expect } from "chai";
-import { parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, type CreateIo } from "../../src/setup/create.js";
+import { parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, type CreateIo } from "../../src/setup/create.js";
 
 /** A machine where everything is fine: signed in, org reachable, no governance repo, nothing at the path. */
 const okIo = (over: Partial<CreateIo> = {}): CreateIo => ({
@@ -204,5 +204,55 @@ describe("failure messages name the next action, not just the problem", () => {
       expect(lines.length, `${f.why} must say more than the problem`).to.be.greaterThan(1);
       expect(lines.join("\n"), `${f.why} must name an action`).to.match(/fix:|gov setup|git clone|--path/);
     }
+  });
+});
+
+/**
+ * Findings 1b and 1c, both from the FIRST real adoption run. Together they made a run that looked like
+ * it worked produce a duplicate governance repo containing nothing.
+ */
+describe("#159 manual-test findings", () => {
+  it("1b · a probe that could not run refuses, rather than reporting 'clear'", () => {
+    // The org's governance repo was invisible to the token (404). The probe saw nothing and a duplicate
+    // was created in an org that already had one. Blind is blind, whatever the cause.
+    const blind = okIo({ gh: (a) => {
+      if (a[0] === "auth") return "scopes: repo";
+      if (a[0] === "api" && a[1] === "graphql") return null;      // cannot read the org
+      if (a[0] === "api") return "acme";
+      return null;
+    } });
+    expect(findExistingGovernanceRepo(blind, "acme").verified).to.equal(false);
+    const r = preflight(blind, "acme/acme-gov", "ACME");
+    expect(r.ok, "must not proceed on an unverified check").to.equal(false);
+    if (!r.ok) {
+      expect(r.failure.why).to.equal("cannot-verify");
+      expect(explainFailure(r.failure).join("\n")).to.contain("fork your org's policy");
+    }
+  });
+
+  it("1b · unparseable output is also unverified, not empty", () => {
+    const junk = okIo({ gh: (a) => (a[0] === "api" && a[1] === "graphql" ? "not json" : a[0] === "auth" ? "scopes" : "acme") });
+    expect(findExistingGovernanceRepo(junk, "acme").verified).to.equal(false);
+  });
+
+  it("1c · waits for the template copy instead of cloning an empty repo", () => {
+    // `gh repo create --template` returns BEFORE the copy completes; the adopter's clone came back empty
+    // while the remote ended up with 16 files.
+    let calls = 0;
+    const waits: number[] = [];
+    const io = okIo({ gh: () => (++calls < 3 ? "0" : "16") });
+    expect(waitForTemplateContent(io, { org: "acme", repo: "acme-gov" }, 10, (ms) => waits.push(ms))).to.equal(true);
+    expect(calls, "must keep asking until content appears").to.equal(3);
+    expect(waits, "backoff widens").to.deep.equal([1000, 2000]);
+  });
+
+  it("1c · gives up rather than cloning nothing, and says the repo still exists", () => {
+    const io = okIo({ gh: () => "0" });
+    expect(waitForTemplateContent(io, { org: "acme", repo: "acme-gov" }, 3, () => {})).to.equal(false);
+  });
+
+  it("1c · an unreadable contents API counts as not-ready, never as ready", () => {
+    const io = okIo({ gh: () => null });
+    expect(waitForTemplateContent(io, { org: "acme", repo: "acme-gov" }, 2, () => {})).to.equal(false);
   });
 });

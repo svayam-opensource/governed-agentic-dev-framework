@@ -52,7 +52,9 @@ export type PreflightFailure =
   /** the org ALREADY has a governance repo — creating a second forks the org's policy. */
   | { readonly why: "already-governed"; readonly repo: string; readonly all: readonly string[] }
   /** something is already at the derived (or --path) location. */
-  | { readonly why: "path-occupied"; readonly path: string };
+  | { readonly why: "path-occupied"; readonly path: string }
+  /** the governance probe could not run — refusing rather than risking a duplicate. */
+  | { readonly why: "cannot-verify"; readonly org: string };
 
 /** Non-fatal findings. The command proceeds; the adopter is told. */
 export interface PreflightWarning {
@@ -99,7 +101,7 @@ export const suggestRepoName = (slug: string): string => `${slug.toLowerCase()}-
  * Searched by content rather than by name, because the name is exactly what a second adopter would pick
  * differently.
  */
-export function findExistingGovernanceRepo(io: CreateIo, org: string): { readonly repos: readonly string[]; readonly truncated: boolean } {
+export function findExistingGovernanceRepo(io: CreateIo, org: string): { readonly repos: readonly string[]; readonly truncated: boolean; readonly verified: boolean } {
   // NOT `gh search code`. GitHub's code-search index does not cover private repositories, so it returns
   // ZERO for an org whose governance repo is private — which every governance repo is. Verified against
   // Svayamtech: `search/code` reported total_count 0 while the contents API served the file immediately.
@@ -109,13 +111,41 @@ export function findExistingGovernanceRepo(io: CreateIo, org: string): { readonl
   // GraphQL asks every repo for the file directly, in one call.
   const raw = io.gh(["api", "graphql", "-f", `org=${org}`, "-f", `query=${GOVERNANCE_PROBE}`,
     "--jq", "{repos: [.data.organization.repositories.nodes[] | select(.object != null) | .nameWithOwner], more: .data.organization.repositories.pageInfo.hasNextPage}"]);
-  if (raw === null) return { repos: [], truncated: false };
+  // FAILING OPEN HERE CREATES A SECOND GOVERNANCE REPO. A probe that could not run must NOT report
+  // "clear" — that is what happened on the first real adoption run: the org's existing governance repo
+  // was invisible to the token (404), the probe returned nothing, and a duplicate was created in an org
+  // that already had one. Blind is blind, whatever the cause.
+  if (raw === null) return { repos: [], truncated: false, verified: false };
   try {
     const parsed = JSON.parse(raw) as { repos?: string[]; more?: boolean };
-    return { repos: parsed.repos ?? [], truncated: parsed.more === true };
+    return { repos: parsed.repos ?? [], truncated: parsed.more === true, verified: true };
   } catch {
-    return { repos: [], truncated: false };
+    return { repos: [], truncated: false, verified: false };
   }
+}
+
+/**
+ * Wait for GitHub to finish copying the template before cloning it.
+ *
+ * `gh repo create --template` RETURNS BEFORE THE COPY COMPLETES. Cloning immediately yields
+ * `warning: You appear to have cloned an empty repository` — and setup then configures nothing, while
+ * appearing to succeed. Observed on the first real adoption run: the remote ended up with 16 files, the
+ * adopter's clone with none.
+ *
+ * Same read-after-write shape as the npm publish verification (`910-GOV-CICD#132`): the write succeeded,
+ * the immediate read did not see it, and the code believed the read.
+ */
+export function waitForTemplateContent(io: CreateIo, target: CreateTarget, attempts = 10, sleep: (ms: number) => void = () => {}): boolean {
+  const full = `${target.org}/${target.repo}`;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const out = io.gh(["api", `repos/${full}/contents`, "--jq", "length"]);
+    const n = out === null ? 0 : Number(out.trim());
+    if (Number.isFinite(n) && n > 0) return true;
+    if (attempt === attempts) break;
+    io.print(`  waiting for GitHub to finish copying the template (attempt ${attempt})…`);
+    sleep(1000 * attempt);
+  }
+  return false;
 }
 
 /** One call, every repo, "does HEAD:org-config.yaml exist". 100 is GraphQL's per-page maximum. */
@@ -148,6 +178,7 @@ export function preflight(
   if (perm === null) return { ok: false, failure: { why: "cannot-create", org: target.org } };
 
   const existing = findExistingGovernanceRepo(io, target.org);
+  if (!existing.verified) return { ok: false, failure: { why: "cannot-verify", org: target.org } };
   if (existing.repos.length > 0) return { ok: false, failure: { why: "already-governed", repo: existing.repos[0], all: existing.repos } };
 
   const govRepo = pathOverride ?? derivedPaths(io.home, slug).govRepo;
@@ -186,6 +217,13 @@ export function explainFailure(f: PreflightFailure): readonly string[] {
                 : `gov setup: '${f.repo}' already governs this org — creating a second workspace would fork its policy.`,
               "  you want to JOIN it, not create one:",
               `    git clone git@github.com:${f.repo}.git && cd ${f.repo.split("/")[1]} && gov setup`];
+    case "cannot-verify":
+      // Refuse, do not guess. A duplicate governance repo forks the org's policy silently and cannot be
+      // detected afterwards; a refusal costs one command.
+      return [`gov setup: could not check whether '${f.org}' already has a governance repo, so it will not create one.`,
+              "  a second governance repo would fork your org's policy, silently and unrecoverably.",
+              "  check your access:  gh auth refresh -s read:org",
+              "  then confirm by hand:  gh repo list " + f.org + " --limit 200"];
     case "path-occupied":
       return [`gov setup: ${f.path} already exists.`,
               "  move it aside, or choose another location with --path <dir>"];
