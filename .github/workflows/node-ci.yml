@@ -107,7 +107,8 @@ jobs:
       # ── POSIX ────────────────────────────────────────────────────────────────
       - name: hide the runner's preinstalled Node
         if: runner.os != 'Windows'
-        run: echo "PATH=$(echo "$PATH" | tr ':' '\n' | grep -vE 'node|nvm|hostedtoolcache' | paste -sd: -)" >> "$GITHUB_ENV"
+        run: |
+          echo "PATH=$(echo "$PATH" | tr ':' '\n' | grep -vE 'node|nvm|hostedtoolcache' | paste -sd: -)" >> "$GITHUB_ENV"
 
       - name: it runs on a machine with no Node
         if: runner.os != 'Windows'
