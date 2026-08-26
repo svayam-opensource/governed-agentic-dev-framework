@@ -120,7 +120,17 @@ Say "  gov doctor --fix    install Git and the GitHub CLI, and sign you in"
 Say "  gov                 the menu - start here if you are new"
 Say ""
 
+# Hand over: show the report now, so the user sees a result rather than a prompt.
+#
+# Its exit code is deliberately DISCARDED. `gov doctor` exits 1 on a machine with
+# no workspace configured yet — which is the correct report for someone who has
+# just installed the tool and not run `gov setup`. Letting that become the
+# installer's own exit code says "the install failed" about an install that
+# succeeded, and in CI it fails the job. What this script reports on is the
+# install; what doctor reports on is the machine.
 if (Get-Command gov -ErrorAction SilentlyContinue) {
   Step "gov doctor"
   & gov doctor
+  $global:LASTEXITCODE = 0
 }
+exit 0
