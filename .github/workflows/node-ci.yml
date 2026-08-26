@@ -82,11 +82,14 @@ jobs:
   # ── the BOOTSTRAP installer, on a machine that has nothing ───────────────────────────────────────
   # The job above tests the CLI once Node exists. This one tests the step before that: the installer
   # an adopter runs on a machine with no Node at all (#186). It is the only way we test install.ps1 —
-  # Docker on a Mac or Linux host cannot run Windows containers, so a hosted Windows runner is the
-  # test bed, not a nicety.
+  # Docker on a Mac or Linux host cannot run Windows containers, and pwsh on Linux has none of the
+  # three things the Windows path is made of (LOCALAPPDATA, PROCESSOR_ARCHITECTURE, a user-scoped
+  # PATH). A hosted Windows runner is the test bed, not a nicety.
   #
-  # `node-version: none` is the whole point: setup-node is deliberately NOT run, so the installer has
-  # to find, download and unpack its own Node exactly as it will on an adopter's laptop.
+  # setup-node is deliberately absent, and the runner's own Node is stripped from PATH: the installer
+  # must find, download and unpack its own, exactly as it will on a laptop.
+  #
+  # Written as per-OS steps rather than one step with an expression, so a reader can see both paths.
   bootstrap:
     name: bootstrap installer (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
@@ -95,20 +98,43 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, label: linux, shell: bash }
-          - { os: macos-latest, label: macos, shell: bash }
-          - { os: windows-latest, label: windows, shell: pwsh }
+          - { os: ubuntu-latest, label: linux }
+          - { os: macos-latest, label: macos }
+          - { os: windows-latest, label: windows }
     steps:
       - uses: actions/checkout@v4
 
-      # The hosted runners ship a Node the installer would rightly skip. Hiding it is what makes this
-      # a test of the cold path rather than of the skip path — the skip path is covered by the second
-      # run below.
-      - name: hide the runner's preinstalled Node (POSIX)
+      # ── POSIX ────────────────────────────────────────────────────────────────
+      - name: hide the runner's preinstalled Node
+        if: runner.os != 'Windows'
+        run: echo "PATH=$(echo "$PATH" | tr ':' '\n' | grep -vE 'node|nvm|hostedtoolcache' | paste -sd: -)" >> "$GITHUB_ENV"
+
+      - name: it runs on a machine with no Node
+        if: runner.os != 'Windows'
+        run: bash ./install.sh
+
+      - name: and it left a working gov behind
         if: runner.os != 'Windows'
         run: |
-          echo "PATH=$(echo "$PATH" | tr ':' '\n' | grep -v -E 'node|nvm|hostedtoolcache' | paste -sd: -)" >> "$GITHUB_ENV"
-      - name: hide the runner's preinstalled Node (Windows)
+          export PATH="$HOME/.local/share/gov/node/bin:$PATH"
+          gov --version
+
+      # Re-running must be safe and boring. A bootstrap people are afraid to run twice is a bootstrap
+      # they will not run at all.
+      - name: running it again changes nothing
+        if: runner.os != 'Windows'
+        run: bash ./install.sh
+
+      # CI has no terminal, so a --yes that still reached `gh auth login` would hang until the job
+      # timed out. Asserting it COMPLETES is the point; what it managed to fix is not.
+      - name: doctor --fix --yes completes without waiting for anyone
+        if: runner.os != 'Windows'
+        run: |
+          export PATH="$HOME/.local/share/gov/node/bin:$PATH"
+          gov doctor --fix --yes || true
+
+      # ── Windows ──────────────────────────────────────────────────────────────
+      - name: hide the runner's preinstalled Node
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -116,24 +142,29 @@ jobs:
           "PATH=$clean" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: it runs on a machine with no Node
-        shell: ${{ matrix.shell }}
-        run: ${{ runner.os == 'Windows' && './install.ps1' || 'bash ./install.sh' }}
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./install.ps1
 
       - name: and it left a working gov behind
-        shell: ${{ matrix.shell }}
-        run: ${{ runner.os == 'Windows' && '$env:PATH = "$env:LOCALAPPDATA\gov\node;$env:PATH"; gov --version' || 'export PATH="$HOME/.local/share/gov/node/bin:$PATH"; gov --version' }}
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:LOCALAPPDATA\gov\node;$env:PATH"
+          gov --version
 
-      # Re-running must be safe and boring. A bootstrap people are afraid to run twice is a bootstrap
-      # they will not run at all.
       - name: running it again changes nothing
-        shell: ${{ matrix.shell }}
-        run: ${{ runner.os == 'Windows' && './install.ps1' || 'bash ./install.sh' }}
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./install.ps1
 
-      # `--fix` needs a terminal for the sign-in step, which CI does not have; `--yes` is exactly the
-      # unattended path, and it must NOT hang waiting at a browser prompt.
       - name: doctor --fix --yes completes without waiting for anyone
-        shell: ${{ matrix.shell }}
-        run: ${{ runner.os == 'Windows' && '$env:PATH = "$env:LOCALAPPDATA\gov\node;$env:PATH"; gov doctor --fix --yes; exit 0' || 'export PATH="$HOME/.local/share/gov/node/bin:$PATH"; gov doctor --fix --yes || true' }}
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:LOCALAPPDATA\gov\node;$env:PATH"
+          gov doctor --fix --yes
+          exit 0
 
   # ── the CLI, on the Linux distros adopters actually deploy on ────────────────────────────────────
   # `ubuntu-latest` is one Debian derivative with one glibc and one preinstalled toolchain. A bare
