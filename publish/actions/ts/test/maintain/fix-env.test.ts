@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * `gov doctor --fix` planning (#186). Every case here is a shape a real adopter
+ * arrived in: no package manager, an old distro without `gh` in its archive, a
+ * tool installed but never signed in.
+ */
+import { expect } from "chai";
+import { detectPackageManager, planFixes, renderCommand, formatPlan } from "../../src/maintain/fix-env.js";
+
+const has = (...present: string[]) => (name: string): boolean => present.includes(name);
+
+describe("gov-work — doctor --fix planning", () => {
+  it("prefers brew when it is present, even alongside others", () => {
+    expect(detectPackageManager(has("brew", "apt-get"))).to.equal("brew");
+  });
+
+  it("drives apt through apt-get, not apt", () => {
+    expect(detectPackageManager(has("apt-get"))).to.equal("apt");
+  });
+
+  it("returns null when the machine has no package manager we know", () => {
+    expect(detectPackageManager(has("git"))).to.equal(null);
+  });
+
+  it("plans nothing when everything is already in place", () => {
+    const plan = planFixes({ gitPresent: true, ghPresent: true, ghAuthenticated: true, platform: "linux" }, "dnf");
+    expect(plan.steps).to.have.length(0);
+    expect(plan.manual).to.have.length(0);
+    expect(formatPlan(plan)).to.deep.equal(["doctor --fix: nothing to fix"]);
+  });
+
+  it("installs gh BEFORE trying to sign in with it", () => {
+    const plan = planFixes({ gitPresent: true, ghPresent: false, ghAuthenticated: false, platform: "darwin" }, "brew");
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh", "gh auth"]);
+    expect(plan.steps[1]!.dependsOn).to.equal("gh");
+  });
+
+  it("adds GitHub's repository first on RHEL-family systems, which do not ship gh", () => {
+    const plan = planFixes({ gitPresent: true, ghPresent: false, ghAuthenticated: false, platform: "linux" }, "dnf");
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["dnf plugins", "gh repo", "gh", "gh auth"]);
+    expect(plan.steps[0]!.command.join(" ")).to.contain("dnf-plugins-core");
+    expect(plan.steps[1]!.command.join(" ")).to.contain("cli.github.com/packages/rpm");
+    expect(plan.steps[1]!.dependsOn).to.equal("dnf plugins");
+    expect(plan.steps[2]!.dependsOn).to.equal("gh repo");
+  });
+
+  it("does not chain the login when gh is already installed — only the sign-in is missing", () => {
+    const plan = planFixes({ gitPresent: true, ghPresent: true, ghAuthenticated: false, platform: "linux" }, "dnf");
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh auth"]);
+    expect(plan.steps[0]!.dependsOn).to.equal(undefined);
+  });
+
+  it("treats 'installed but not signed in' as its own fixable failure", () => {
+    const plan = planFixes({ gitPresent: true, ghPresent: true, ghAuthenticated: false, platform: "darwin" }, "brew");
+    expect(plan.steps).to.have.length(1);
+    expect(renderCommand(plan.steps[0]!)).to.equal("gh auth login");
+    expect(plan.steps[0]!.interactive).to.equal(true);
+  });
+
+  it("marks system package managers as needing sudo, and brew/winget as not", () => {
+    const linux = planFixes({ gitPresent: false, ghPresent: true, ghAuthenticated: true, platform: "linux" }, "apt");
+    expect(linux.steps[0]!.sudo).to.equal(true);
+    expect(renderCommand(linux.steps[0]!)).to.equal("sudo apt-get install -y git");
+
+    const mac = planFixes({ gitPresent: false, ghPresent: true, ghAuthenticated: true, platform: "darwin" }, "brew");
+    expect(mac.steps[0]!.sudo).to.equal(false);
+
+    const win = planFixes({ gitPresent: false, ghPresent: true, ghAuthenticated: true, platform: "win32" }, "winget");
+    expect(win.steps[0]!.sudo).to.equal(false);
+  });
+
+  it("never plans a command it cannot run — it says what to do instead", () => {
+    const plan = planFixes({ gitPresent: false, ghPresent: false, ghAuthenticated: false, platform: "linux" }, null);
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh auth"]);   // login still possible once gh exists
+    expect(plan.manual).to.have.length(2);
+    expect(plan.manual.join(" ")).to.contain("git-scm.com");
+    expect(plan.manual.join(" ")).to.contain("cli.github.com");
+  });
+
+  it("warns apt users that older archives have no gh candidate", () => {
+    const plan = planFixes({ gitPresent: true, ghPresent: false, ghAuthenticated: false, platform: "linux" }, "apt");
+    expect(plan.manual.join(" ")).to.contain("install_linux.md");
+  });
+
+  it("renders a plan a non-specialist can consent to — intent above command", () => {
+    const plan = planFixes({ gitPresent: false, ghPresent: true, ghAuthenticated: true, platform: "linux" }, "dnf");
+    const lines = formatPlan(plan);
+    expect(lines[0]).to.equal("These commands will fix what is missing:");
+    expect(lines[1]).to.contain("Install Git using dnf");
+    expect(lines[2]).to.contain("sudo dnf install -y git");
+  });
+});
