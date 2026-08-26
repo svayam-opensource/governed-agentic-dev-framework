@@ -40,6 +40,9 @@ if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
 else
   B=""; DIM=""; GRN=""; YEL=""; RED=""; RST=""
 fi
+# Display a path with $HOME shortened to ~. Written as a function because
+# "${p/#$HOME/\~}" keeps the backslash in bash and prints a literal \~.
+tilde() { case "$1" in "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;; *) printf '%s' "$1" ;; esac; }
 say()  { printf '%s\n' "$*"; }
 step() { printf '%s==>%s %s\n' "$B" "$RST" "$*"; }
 ok()   { printf '  %s✓%s %s\n' "$GRN" "$RST" "$*"; }
@@ -86,10 +89,10 @@ add_to_path() {
   local dir="$1" prof; prof="$(profile_file)"
   touch "$prof"
   if grep -Fq "$dir" "$prof" 2>/dev/null; then
-    skip "PATH entry in ${prof/#$HOME/\~}"
+    skip "PATH entry in $(tilde "$prof")"
   else
     { printf '\n%s\n' "$MARKER"; printf 'export PATH="%s:$PATH"\n' "$dir"; } >> "$prof"
-    ok "added to PATH in ${prof/#$HOME/\~}"
+    ok "added to PATH in $(tilde "$prof")"
   fi
   PROFILE_TOUCHED="$prof"
 }
@@ -131,7 +134,7 @@ install_node() {
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
   curl -fSL --progress-bar "$url" -o "$tmp/node.tar.gz" || die "download failed: $url"
 
-  step "Unpacking into ${NODE_DIR/#$HOME/\~}"
+  step "Unpacking into $(tilde "$NODE_DIR")"
   rm -rf "$NODE_DIR"; mkdir -p "$NODE_DIR"
   tar -xzf "$tmp/node.tar.gz" -C "$NODE_DIR" --strip-components=1 \
     || die "could not unpack the Node archive — see the tar error above"
@@ -143,7 +146,7 @@ install_node() {
 
 install_gov() {
   step "Installing $GOV_PKG"
-  need npm || die "npm did not come with Node — the install is incomplete. Remove ${NODE_DIR/#$HOME/\~} and re-run."
+  need npm || die "npm did not come with Node — the install is incomplete. Remove $(tilde "$NODE_DIR") and re-run."
 
   # If we are using a Node we did NOT install, its global prefix may be a system
   # directory — the EACCES failure. Redirect the prefix to a user-owned folder
@@ -161,7 +164,7 @@ install_gov() {
   fi
 
   npm install -g --silent "$GOV_PKG" || die "npm could not install $GOV_PKG — the output above says why"
-  ok "gov $(gov --version 2>/dev/null | head -1 || echo installed)"
+  ok "$(gov --version 2>/dev/null | head -1 || echo "gov installed")"
 }
 
 # ── run ───────────────────────────────────────────────────────────────────────
@@ -181,7 +184,7 @@ say ""
 say "${GRN}${B}Done.${RST}"
 if [ -n "$PROFILE_TOUCHED" ]; then
   say ""
-  say "${YEL}Open a new terminal${RST} (or run: ${B}source ${PROFILE_TOUCHED/#$HOME/\~}${RST})"
+  say "${YEL}Open a new terminal${RST} (or run: ${B}source $(tilde "$PROFILE_TOUCHED")${RST})"
   say "so that ${B}gov${RST} is on your PATH."
 fi
 say ""

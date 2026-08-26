@@ -54,7 +54,17 @@ export interface EnvFacts {
   readonly ghPresent: boolean;
   readonly ghAuthenticated: boolean;
   readonly platform: string;
+  /**
+   * The distribution id from /etc/os-release (`fedora`, `rocky`, `rhel`, `ubuntu`,
+   * …), lowercased, or null off Linux. The package manager alone is not enough to
+   * decide anything: Fedora and Rocky both use `dnf`, but Fedora ships the GitHub
+   * CLI in its own repositories and Rocky does not.
+   */
+  readonly osId?: string | null;
 }
+
+/** Distributions that carry `gh` in their own repositories — no extra source needed. */
+const SHIPS_GH: ReadonlySet<string> = new Set(["fedora", "arch", "alpine", "opensuse", "opensuse-tumbleweed", "opensuse-leap", "debian", "ubuntu"]);
 
 /** Order matters: the first package manager found wins, and `brew` wins on macOS. */
 const PROBE_ORDER: readonly PackageManager[] = ["brew", "apt", "dnf", "yum", "zypper", "pacman", "apk", "winget"];
@@ -106,27 +116,20 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
     }
     // RHEL, Rocky and Alma do not carry `gh` in their own repositories — `dnf
     // install gh` answers "No match for argument: gh", which reads as a broken
-    // machine rather than a missing source. Add GitHub's repository first. This is
-    // a real change to the system's package sources, so it is its own consented
-    // step, never folded silently into the install.
-    if (tool === "gh" && (pm === "dnf" || pm === "yum")) {
-      // …and a minimal RHEL image cannot even add a repository: `config-manager`
-      // is a plugin, absent from the container and cloud base images adopters
-      // most often start from. Without this the next step dies on
-      // "No such command: config-manager", three levels away from anything the
-      // reader asked for.
-      steps.push({
-        fixes: "dnf plugins",
-        what: `Add the ${pm} plugin that can register a package repository`,
-        command: [pm, "install", "-y", "dnf-plugins-core"],
-        sudo: true,
-        interactive: false,
-      });
+    // machine rather than a missing source. Fedora DOES carry it, and adding the
+    // extra source there is both pointless and a real change to someone's system.
+    //
+    // The repository is installed by DROPPING THE FILE, not via `config-manager`:
+    // that command is a plugin (absent from minimal images) and dnf5 renamed its
+    // syntax, so the plugin route needs two extra steps and still breaks on
+    // Fedora 41+. `curl -o` needs neither a plugin nor a shell redirect and behaves
+    // identically on dnf4, dnf5 and yum.
+    const needsGhRepo = tool === "gh" && (pm === "dnf" || pm === "yum") && !SHIPS_GH.has(facts.osId ?? "");
+    if (needsGhRepo) {
       steps.push({
         fixes: "gh repo",
-        dependsOn: "dnf plugins",
-        what: "Add GitHub's package repository (RHEL-family systems do not ship the GitHub CLI)",
-        command: [pm, "config-manager", "--add-repo", GH_RPM_REPO],
+        what: "Add GitHub's package repository (this system does not ship the GitHub CLI)",
+        command: ["curl", "-fsSL", GH_RPM_REPO, "-o", "/etc/yum.repos.d/gh-cli.repo"],
         sudo: true,
         interactive: false,
       });
@@ -137,7 +140,7 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
       command: INSTALL[pm][tool],
       sudo: NEEDS_SUDO.has(pm),
       interactive: false,
-      ...(tool === "gh" && (pm === "dnf" || pm === "yum") ? { dependsOn: "gh repo" } : {}),
+      ...(needsGhRepo ? { dependsOn: "gh repo" } : {}),
     });
   };
 

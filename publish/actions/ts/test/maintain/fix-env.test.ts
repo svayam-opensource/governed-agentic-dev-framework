@@ -36,17 +36,29 @@ describe("gov-work — doctor --fix planning", () => {
     expect(plan.steps[1]!.dependsOn).to.equal("gh");
   });
 
-  it("adds GitHub's repository first on RHEL-family systems, which do not ship gh", () => {
-    const plan = planFixes({ gitPresent: true, ghPresent: false, ghAuthenticated: false, platform: "linux" }, "dnf");
-    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["dnf plugins", "gh repo", "gh", "gh auth"]);
-    expect(plan.steps[0]!.command.join(" ")).to.contain("dnf-plugins-core");
-    expect(plan.steps[1]!.command.join(" ")).to.contain("cli.github.com/packages/rpm");
-    expect(plan.steps[1]!.dependsOn).to.equal("dnf plugins");
-    expect(plan.steps[2]!.dependsOn).to.equal("gh repo");
+  it("adds GitHub's repository on RHEL-family systems, which do not ship gh", () => {
+    const plan = planFixes({ gitPresent: true, ghPresent: false, ghAuthenticated: false, platform: "linux", osId: "rocky" }, "dnf");
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh repo", "gh", "gh auth"]);
+    // Dropped as a file, not added via `config-manager`: that is a plugin absent
+    // from minimal images, and dnf5 renamed its syntax.
+    expect(plan.steps[0]!.command[0]).to.equal("curl");
+    expect(plan.steps[0]!.command.join(" ")).to.contain("/etc/yum.repos.d/gh-cli.repo");
+    expect(plan.steps[1]!.dependsOn).to.equal("gh repo");
+  });
+
+  it("does NOT add a repository on Fedora, which ships gh itself", () => {
+    const plan = planFixes({ gitPresent: true, ghPresent: false, ghAuthenticated: false, platform: "linux", osId: "fedora" }, "dnf");
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh", "gh auth"]);
+    expect(plan.steps[0]!.dependsOn).to.equal(undefined);
+  });
+
+  it("adds the repository when the distribution is unknown — the safe assumption on dnf", () => {
+    const plan = planFixes({ gitPresent: true, ghPresent: false, ghAuthenticated: false, platform: "linux", osId: null }, "dnf");
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh repo", "gh", "gh auth"]);
   });
 
   it("does not chain the login when gh is already installed — only the sign-in is missing", () => {
-    const plan = planFixes({ gitPresent: true, ghPresent: true, ghAuthenticated: false, platform: "linux" }, "dnf");
+    const plan = planFixes({ gitPresent: true, ghPresent: true, ghAuthenticated: false, platform: "linux", osId: "rocky" }, "dnf");
     expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh auth"]);
     expect(plan.steps[0]!.dependsOn).to.equal(undefined);
   });

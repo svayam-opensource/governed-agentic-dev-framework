@@ -757,7 +757,14 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       activeOrg: env.readActiveOrg(),
       cliVersion,
       contentVersion: fs.readFile(path.join(home, "VERSION"))?.trim() ?? null,
-      staleArtifacts: RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
+      // `install.sh` is BOTH a retired adopter artifact (the vendored bash CLI's
+      // installer) and the framework repo's own bootstrap installer (#186). In an
+      // adopter workspace the retire rule is right; in the framework checkout it is
+      // a false alarm aimed at maintainers. publish/content/MANIFEST.yaml exists
+      // only in the source repo, so it tells the two apart.
+      staleArtifacts: fs.pathExists(path.join(home, "publish", "content", "MANIFEST.yaml"))
+        ? []
+        : RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
     });
     for (const line of formatDoctorReport(report)) process.stdout.write(`${line}\n`);
 
@@ -766,8 +773,16 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // default — each command is shown and consented to before it runs; `--yes` is
     // for unattended use (CI, a provisioning script).
     if (parsed.flags["fix"]) {
+      // /etc/os-release is the only reliable way to tell Fedora from Rocky, and they
+      // need different plans despite sharing `dnf`.
+      const osId = ((): string | null => {
+        try {
+          const m = /^ID=("?)([^"\n]+)\1/m.exec(fsSync.readFileSync("/etc/os-release", "utf8"));
+          return m?.[2]?.toLowerCase() ?? null;
+        } catch { return null; }
+      })();
       const plan = planFixes(
-        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform },
+        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId },
         detectPackageManager((n) => tryRun(n, ["--version"]) !== undefined),
       );
       process.stdout.write("\n");
