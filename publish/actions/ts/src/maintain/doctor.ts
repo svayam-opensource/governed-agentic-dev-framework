@@ -8,6 +8,7 @@
 import type { ResolveResult } from "../resolve/types.js";
 import { resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { checkVersionCompat } from "./version-compat.js";
+import { missingScopes, RECOMMENDED_SCOPES } from "./fix-env.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
 
@@ -35,6 +36,12 @@ export interface DoctorFacts {
    * not arise.
    */
   readonly ghAuthenticated?: boolean;
+  /**
+   * Scopes on the gh token, or null/undefined when unknown. Signed in is not the
+   * same as sufficiently permitted (#186): `gh auth login` grants gh's own minimum,
+   * which does not include `project` — and a Project board IS a project here.
+   */
+  readonly ghScopes?: readonly string[] | null;
   readonly resolve: ResolveResult;
   readonly activeOrg: string | null;
   readonly cliVersion: string;
@@ -57,6 +64,22 @@ export function doctor(facts: DoctorFacts): DoctorReport {
           status: (facts.ghAuthenticated ? "ok" : "fail") as DiagnosticStatus,
           detail: facts.ghAuthenticated ? "signed in" : "not signed in — run `gh auth login` (or `gov doctor --fix`)",
         }]
+      : []),
+    ...(facts.ghAuthenticated && facts.ghScopes
+      ? [((): Diagnostic => {
+          const missing = missingScopes(facts.ghScopes);
+          const lacking = RECOMMENDED_SCOPES.filter((r) => !facts.ghScopes!.includes(r.scope));
+          if (missing.length) {
+            return {
+              name: "gh scopes",
+              status: "fail" as DiagnosticStatus,
+              detail: `missing ${missing.map((m) => m.scope).join(", ")} — ${missing[0]!.why}. Add with \`gov doctor --fix\``,
+            };
+          }
+          return lacking.length
+            ? { name: "gh scopes", status: "warn" as DiagnosticStatus, detail: `no ${lacking.map((l) => l.scope).join(", ")} — ${lacking[0]!.why}` }
+            : { name: "gh scopes", status: "ok" as DiagnosticStatus, detail: facts.ghScopes.join(", ") };
+        })()]
       : []),
     facts.resolve.ok
       ? { name: "gov workspace", status: "ok", detail: `resolved → ${facts.resolve.home} (${facts.resolve.org})` }

@@ -20,6 +20,44 @@
  * plan and does the asking. Everything here is therefore testable without a shell.
  */
 
+/**
+ * The token scopes gov actually needs, and why each one is on the list.
+ *
+ * `gh auth login` advertises "repo, read:org, admin:public_key" — gh's own minimum,
+ * which knows nothing about what gov does with the token. The gap is not academic:
+ * a GitHub Project board IS the project under this model (POL-044), and Projects
+ * are behind their own `project` scope. A token that satisfies gh sails through the
+ * sign-in and then fails at `gov seed`, several steps and some minutes later, on a
+ * permission nobody mentioned.
+ */
+export const REQUIRED_SCOPES: readonly { readonly scope: string; readonly why: string }[] = [
+  { scope: "repo", why: "read and write the governance repo, its issues and its pull requests" },
+  { scope: "read:org", why: "see which organizations you belong to" },
+  { scope: "project", why: "read and write Project boards — a board IS a project here, so gov seed needs this" },
+];
+
+/** Wanted, but gov works without it — so it is reported, never demanded. */
+export const RECOMMENDED_SCOPES: readonly { readonly scope: string; readonly why: string }[] = [
+  { scope: "workflow", why: "push changes that touch .github/workflows — GitHub rejects those without it" },
+];
+
+/**
+ * Pull the granted scopes out of `gh auth status` output. Returns null when the
+ * line is absent, which means "could not tell" — reported as unknown rather than
+ * as missing, because a false alarm about permissions sends people to their
+ * administrator for nothing.
+ */
+export function parseGrantedScopes(ghAuthStatus: string): readonly string[] | null {
+  const m = /Token scopes:\s*(.+)/.exec(ghAuthStatus);
+  if (!m?.[1]) return null;
+  return m[1].split(",").map((x) => x.trim().replace(/^'|'$/g, "")).filter(Boolean);
+}
+
+/** Which required scopes are absent. `repo` implies its children, e.g. `public_repo`. */
+export function missingScopes(granted: readonly string[]): readonly { readonly scope: string; readonly why: string }[] {
+  return REQUIRED_SCOPES.filter((r) => !granted.includes(r.scope));
+}
+
 /** The system package managers we know how to drive. */
 export type PackageManager = "brew" | "apt" | "dnf" | "yum" | "apk" | "pacman" | "zypper" | "winget";
 
@@ -61,6 +99,11 @@ export interface EnvFacts {
    * CLI in its own repositories and Rocky does not.
    */
   readonly osId?: string | null;
+  /**
+   * Scopes on the current gh token, or null when `gh` is absent or the status
+   * could not be read. Null is "unknown", not "none".
+   */
+  readonly ghScopes?: readonly string[] | null;
 }
 
 /** Distributions that carry `gh` in their own repositories — no extra source needed. */
@@ -159,6 +202,23 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
       interactive: true,
       ...(facts.ghPresent ? {} : { dependsOn: "gh" }),
     });
+  }
+
+  // A signed-in token with too few scopes is its own state: `gh auth status` says
+  // "Logged in", every gov command that touches a board fails, and nothing connects
+  // the two. `gh auth refresh` adds scopes to the existing login — it does not sign
+  // you out — but it opens a browser, so it is an interactive step like the login.
+  if (facts.ghAuthenticated && facts.ghScopes) {
+    const missing = missingScopes(facts.ghScopes);
+    if (missing.length) {
+      steps.push({
+        fixes: "gh scopes",
+        what: `Grant gov the GitHub permissions it needs (${missing.map((m) => m.scope).join(", ")})`,
+        command: ["gh", "auth", "refresh", "-s", missing.map((m) => m.scope).join(",")],
+        sudo: false,
+        interactive: true,
+      });
+    }
   }
 
   // Debian and Ubuntu older than 24.04 do not carry `gh` in their own archives.

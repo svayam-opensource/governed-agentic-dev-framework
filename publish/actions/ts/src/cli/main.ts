@@ -35,7 +35,7 @@ import { createGhProjects } from "../lifecycle/project-list.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
-import { planFixes, detectPackageManager, formatPlan, renderCommand } from "../maintain/fix-env.js";
+import { planFixes, detectPackageManager, formatPlan, renderCommand, parseGrantedScopes } from "../maintain/fix-env.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
@@ -750,13 +750,21 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     const ghPresent = tryRun("gh", ["--version"]) !== undefined;
     // Installed and signed-in are different facts; only the second predicts whether
     // the next GitHub call works (#186).
+    // One call answers both questions — signed in, and with which permissions. gh
+    // writes the status to stderr, so it has to be captured, not just tested.
+    const ghStatus = ghPresent ? ((): string | null => {
+      try { return execFileSync("gh", ["auth", "status"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
+      catch (e) { const r = (e as { stdout?: string; stderr?: string }); return (r.stdout ?? "") + (r.stderr ?? "") || null; }
+    })() : null;
     const ghAuthed = ghPresent && ((): boolean => {
       try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; }
     })();
+    const ghScopes = ghAuthed && ghStatus ? parseGrantedScopes(ghStatus) : null;
     const report = doctor({
       gitPresent,
       ghPresent,
       ghAuthenticated: ghAuthed,
+      ghScopes,
       resolve,
       activeOrg: env.readActiveOrg(),
       cliVersion,
@@ -786,7 +794,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         } catch { return null; }
       })();
       const plan = planFixes(
-        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId },
+        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId, ghScopes },
         detectPackageManager((n) => tryRun(n, ["--version"]) !== undefined),
       );
       process.stdout.write("\n");
