@@ -52,7 +52,7 @@ spend twenty minutes debugging a fix you already made.
 
 ```bash
 docker run --rm -it \
-  -v ~/scratch/svayam-opensource-gov-1.2.1.tgz:/tmp/gov.tgz:ro \
+  -v ~/scratch/svayam-opensource-gov-1.2.2.tgz:/tmp/gov.tgz:ro \
   rockylinux:9 bash
 ```
 
@@ -136,7 +136,7 @@ that adds one.
 ```bash
 T=$(mktemp -d)
 env -i HOME=$T SHELL=/bin/zsh PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-  GOV_PKG=~/scratch/svayam-opensource-gov-1.2.1.tgz \
+  GOV_PKG=~/scratch/svayam-opensource-gov-1.2.2.tgz \
   bash ./install.sh
 rm -rf $T
 ```
