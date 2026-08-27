@@ -191,14 +191,46 @@ if [ -n "$PROFILE_TOUCHED" ]; then
   say "so that ${B}gov${RST} is on your PATH."
 fi
 say ""
-say "Then check your setup:"
-say "  ${B}gov doctor${RST}      what else this machine needs (git, GitHub sign-in)"
-say "  ${B}gov${RST}             the menu — start here if you are new"
+say "When you are set up, ${B}gov${RST} on its own opens the menu — start there if you are new."
 say ""
 
-# Hand over: show the report now if we can, so the user sees a result rather
-# than a prompt. It runs in the PATH this script has already extended.
-if need gov; then
+# Is there a terminal we can ASK on? Testing `-e /dev/tty` is not enough: inside a
+# container without a controlling terminal the path exists and opening it still
+# fails with "No such device or address". Open it and see.
+have_tty() { (exec 3</dev/tty) 2>/dev/null; }
+
+# HAND OVER, and do not stop at a report.
+#
+# The installer's job is "get this machine ready", and Node plus gov is only part
+# of that: git, the GitHub CLI and a signed-in token are the rest. Ending at a
+# report that says what is still wrong, and a command the reader must copy, puts
+# the last mile back on the person who ran a one-line installer precisely to avoid
+# it (#186).
+#
+# So it runs `gov doctor --fix`, which shows each command and waits for consent —
+# nothing is installed behind anyone's back.
+#
+# THE TERMINAL IS THE CATCH. Under `curl … | bash` this script's stdin IS the
+# pipe, so a prompt would read the rest of the script instead of the user. When a
+# real terminal exists we hand it to doctor explicitly with `< /dev/tty`; when it
+# does not — CI, a provisioning script — we report and name the command, because
+# consent cannot be given by something that is not there.
+if ! need gov; then
+  exit 0
+fi
+
+if [ "${GOV_NO_FIX:-}" = "1" ]; then
   step "gov doctor"
   gov doctor || true
+elif have_tty; then
+  say "${B}One more step: the tools gov needs on this machine.${RST}"
+  say "${DIM}You will be shown each command and asked before anything runs.${RST}"
+  say ""
+  gov doctor --fix < /dev/tty || true
+else
+  step "gov doctor"
+  gov doctor || true
+  say ""
+  say "No terminal here, so nothing was changed. To finish setting this machine up:"
+  say "  ${B}gov doctor --fix${RST}"
 fi

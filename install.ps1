@@ -122,17 +122,32 @@ Say "  gov doctor --fix    install Git and the GitHub CLI, and sign you in"
 Say "  gov                 the menu - start here if you are new"
 Say ""
 
-# Hand over: show the report now, so the user sees a result rather than a prompt.
+# HAND OVER, and do not stop at a report. See install.sh for the reasoning: the
+# installer's job is "get this machine ready", and Node plus gov is only part of
+# that. `gov doctor --fix` shows each command and waits for consent.
 #
-# Its exit code is deliberately DISCARDED. `gov doctor` exits 1 on a machine with
-# no workspace configured yet — which is the correct report for someone who has
-# just installed the tool and not run `gov setup`. Letting that become the
-# installer's own exit code says "the install failed" about an install that
-# succeeded, and in CI it fails the job. What this script reports on is the
-# install; what doctor reports on is the machine.
-if (Get-Command gov -ErrorAction SilentlyContinue) {
+# PowerShell has no /dev/tty equivalent, and none is needed: `irm … | iex` runs the
+# script as a command, not on stdin, so the console stays the user's. When there is
+# no console at all — CI, a provisioning run — report and name the command instead.
+#
+# doctor's exit code is discarded either way. It exits 1 on a machine with no
+# workspace yet, which is a correct report about the machine and not a verdict on
+# the install.
+if (-not (Get-Command gov -ErrorAction SilentlyContinue)) { exit 0 }
+
+if ($env:GOV_NO_FIX -eq '1' -or [Console]::IsInputRedirected) {
   Step "gov doctor"
   & gov doctor
-  $global:LASTEXITCODE = 0
+  if ([Console]::IsInputRedirected) {
+    Say ""
+    Say "No console here, so nothing was changed. To finish setting this machine up:"
+    Say "  gov doctor --fix"
+  }
+} else {
+  Say "One more step: the tools gov needs on this machine."
+  Say "You will be shown each command and asked before anything runs."
+  Say ""
+  & gov doctor --fix
 }
+$global:LASTEXITCODE = 0
 exit 0
