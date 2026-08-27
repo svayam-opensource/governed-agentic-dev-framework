@@ -111,16 +111,22 @@ Install-Node $arch
 Install-Gov
 
 Say ""
-Say "Done."
-if ($script:PathChanged) {
+Say "gov is installed."
+Say ""
+
+# THE LAST WORD, printed where the reader actually is. See install.sh: said before
+# the sign-in, it scrolls several screens above the prompt the person is left at,
+# and the first thing they type fails.
+function Finish {
   Say ""
-  Warn "Open a NEW PowerShell window so that gov is on your PATH."
+  if ($script:PathChanged) {
+    Warn "One last thing: this window was open before gov was installed, so it does"
+    Warn "not know about it yet. Open a NEW PowerShell window, then gov will work."
+  } else {
+    Say "Run gov on its own to open the menu - start there if you are new."
+  }
+  Say ""
 }
-Say ""
-Say "Then check your setup:"
-Say "  gov doctor --fix    install Git and the GitHub CLI, and sign you in"
-Say "  gov                 the menu - start here if you are new"
-Say ""
 
 # HAND OVER, and do not stop at a report. See install.sh for the reasoning: the
 # installer's job is "get this machine ready", and Node plus gov is only part of
@@ -143,11 +149,13 @@ if ($env:GOV_NO_FIX -eq '1' -or [Console]::IsInputRedirected) {
     Say "No console here, so nothing was changed. To finish setting this machine up:"
     Say "  gov doctor --fix"
   }
+  Finish
 } else {
   Say "One more step: the tools gov needs on this machine."
   Say "You will be shown each command and asked before anything runs."
   Say ""
   & gov doctor --fix
+  Finish
 }
 $global:LASTEXITCODE = 0
 exit 0

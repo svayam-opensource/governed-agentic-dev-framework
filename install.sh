@@ -184,15 +184,30 @@ install_node "$PLATFORM"
 install_gov
 
 say ""
-say "${GRN}${B}Done.${RST}"
-if [ -n "$PROFILE_TOUCHED" ]; then
+say "${GRN}${B}gov is installed.${RST}"
+say ""
+
+# THE LAST WORD, printed where the reader actually is.
+#
+# This used to be said just after the install and before `gov doctor --fix`. On a
+# machine that needed git, gh and a browser sign-in, that put it several screens
+# and a few minutes above the prompt the person was left staring at — and the
+# first thing they typed was `gov doctor`, which their shell had never heard of.
+# A reminder that has scrolled away is not a reminder.
+finish() {
   say ""
-  say "${YEL}Open a new terminal${RST} (or run: ${B}source $(tilde "$PROFILE_TOUCHED")${RST})"
-  say "so that ${B}gov${RST} is on your PATH."
-fi
-say ""
-say "When you are set up, ${B}gov${RST} on its own opens the menu — start there if you are new."
-say ""
+  if [ -n "$PROFILE_TOUCHED" ]; then
+    say "${YEL}${B}One last thing.${RST} This shell was started before gov was installed,"
+    say "so it does not know about it yet. Run:"
+    say ""
+    say "    ${B}source $(tilde "$PROFILE_TOUCHED")${RST}"
+    say ""
+    say "…or just open a new terminal. Then ${B}gov${RST} will work."
+  else
+    say "Run ${B}gov${RST} on its own to open the menu — start there if you are new."
+  fi
+  say ""
+}
 
 # Is there a terminal we can ASK on? Testing `-e /dev/tty` is not enough: inside a
 # container without a controlling terminal the path exists and opening it still
@@ -222,15 +237,19 @@ fi
 if [ "${GOV_NO_FIX:-}" = "1" ]; then
   step "gov doctor"
   gov doctor || true
+  finish
 elif have_tty; then
   say "${B}One more step: the tools gov needs on this machine.${RST}"
   say "${DIM}You will be shown each command and asked before anything runs.${RST}"
   say ""
   gov doctor --fix < /dev/tty || true
+  finish
+  exit 0
 else
   step "gov doctor"
   gov doctor || true
   say ""
   say "No terminal here, so nothing was changed. To finish setting this machine up:"
   say "  ${B}gov doctor --fix${RST}"
+  finish
 fi
