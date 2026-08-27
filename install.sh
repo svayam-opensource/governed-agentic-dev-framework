@@ -139,16 +139,7 @@ on_path() { case ":$PATH:" in *":$1:"*) return 0 ;; *) return 1 ;; esac; }
 # ~/.local/bin is on PATH by default on Fedora, RHEL, Rocky and most Debian
 # derivatives. When it is, a symlink there means `gov` works in the shell you are
 # standing in, with nothing to source and nothing to reopen.
-link_into_path() {
-  local target="$1" dir="$HOME/.local/bin"
-  on_path "$dir" || return 1
-  mkdir -p "$dir" || return 1
-  ln -sf "$target" "$dir/gov" || return 1
-  IMMEDIATELY_USABLE=1
-  ok "linked into $(tilde "$dir"), which is already on your PATH"
-  return 0
-}
-
+# Append the PATH line to the user's shell profile, once.
 add_to_path() {
   local dir="$1" prof; prof="$(profile_file)"
   touch "$prof"
@@ -159,6 +150,40 @@ add_to_path() {
     ok "added to PATH in $(tilde "$prof")"
   fi
   PROFILE_TOUCHED="$prof"
+}
+
+link_into_path() {
+  local target="$1" dir="$HOME/.local/bin"
+  on_path "$dir" || return 1
+  mkdir -p "$dir" || return 1
+
+  # A SYMLINK IS NOT ENOUGH, and claiming otherwise is worse than saying nothing.
+  # The `gov` npm ships is a script whose shebang is `#!/usr/bin/env node`. Link it
+  # somewhere on PATH and the shell finds `gov` — then fails with
+  # `env: 'node': No such file or directory`, because Node lives in the directory we
+  # just added to a profile the running shell has not read. Found but unrunnable is
+  # a worse answer than not found.
+  #
+  # So: a two-line wrapper that puts Node on PATH for its own invocation and hands
+  # over. Self-contained, no sourcing, and it keeps working after the profile is
+  # read because prepending an already-present directory changes nothing.
+  {
+    printf '#!/bin/sh\n'
+    printf '%s\n' "$MARKER"
+    printf 'PATH="%s:$PATH"; export PATH\n' "$NODE_DIR/bin"
+    printf 'exec "%s" "$@"\n' "$target"
+  } > "$dir/gov" || return 1
+  chmod +x "$dir/gov" || return 1
+
+  # Prove it, rather than announce it. If the wrapper cannot run, the old
+  # open-a-new-terminal message is the honest ending.
+  if ! "$dir/gov" --version >/dev/null 2>&1; then
+    rm -f "$dir/gov"
+    return 1
+  fi
+  IMMEDIATELY_USABLE=1
+  ok "linked into $(tilde "$dir"), which is already on your PATH"
+  return 0
 }
 
 # ── steps ─────────────────────────────────────────────────────────────────────

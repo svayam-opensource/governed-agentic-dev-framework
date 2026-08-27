@@ -644,7 +644,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     const v = deriveOrgConfig({ orgName: "Acme Inc", orgSlug: "ACME" }, CTX);
     expect(v).to.include({
       orgSlugLower: "acme", githubOrg: "Acme", workspaceRepo: "acme-gov",
-      agentWorkRoot: "~/.acme/projects", govWorkspace: "~/.acme/gov_repo",
+      agentWorkRoot: "~/.gov/acme/projects", govWorkspace: "~/.gov/acme/gov_repo",
       policyOwnerGithub: "@rk", legalOwnerGithub: "@rk", infraOwnerGithub: "@rk",
       systemArchOwnerGithub: "@rk", dataArchOwnerGithub: "@rk",
     });

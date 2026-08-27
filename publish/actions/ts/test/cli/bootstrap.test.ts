@@ -57,7 +57,7 @@ describe("gov-work — first run: which rung is this machine on", () => {
 
 describe("gov-work — first run: helpers", () => {
   it("gov_home is ~/.<slug>/gov_repo, lower-cased from the authored slug", () => {
-    expect(px(govHomeFor("/home/rk", "SVM"))).to.equal("/home/rk/.svm/gov_repo");
+    expect(px(govHomeFor("/home/rk", "SVM"))).to.equal("/home/rk/.gov/svm/gov_repo");
   });
 
   it("repoNameFromUrl strips the path and .git for ssh and https", () => {
@@ -116,12 +116,12 @@ describe("gov-work — first run: the flow", () => {
     expect(await runFirstRun(w)).to.equal(0);
     expect(acts).to.deep.equal([
       `clone ${URL} -> /tmp/boot/svm-prj-work`,
-      "place /tmp/boot/svm-prj-work -> /home/rk/.svm/gov_repo",
+      "place /tmp/boot/svm-prj-work -> /home/rk/.gov/svm/gov_repo",
       "discard /tmp/boot",
     ]);
     expect(out.join("\n"), "never asks a joiner to author the org's identity").to.not.match(/NEW organization/);
     expect(out).to.include("Joining Svayamtech.");
-    expect(pxAll(out)).to.include("Registered Svayamtech → /home/rk/.svm/gov_repo");
+    expect(pxAll(out)).to.include("Registered Svayamtech → /home/rk/.gov/svm/gov_repo");
   });
 
   it("FOUNDING: no org-config.yaml → setup authors it, and the slug it produced picks the home", async () => {
@@ -132,8 +132,8 @@ describe("gov-work — first run: the flow", () => {
     });
     expect(await runFirstRun(w)).to.equal(0);
     expect(founded, "setup runs in the CLONE, before it is placed").to.deep.equal(["/tmp/boot/svm-prj-work"]);
-    expect(acts).to.include("place /tmp/boot/svm-prj-work -> /home/rk/.acme/gov_repo");
-    expect(pxAll(out)).to.include("Registered Acme → /home/rk/.acme/gov_repo");
+    expect(acts).to.include("place /tmp/boot/svm-prj-work -> /home/rk/.gov/acme/gov_repo");
+    expect(pxAll(out)).to.include("Registered Acme → /home/rk/.gov/acme/gov_repo");
   });
 
   it("a bad URL is rejected before anything is cloned", async () => {
@@ -206,7 +206,7 @@ describe("gov-work — first run: the flow", () => {
     expect(await runFirstRun(w)).to.equal(1);
     expect(acts.some((a) => a.startsWith("place")), "nothing was placed").to.equal(false);
     expect(acts).to.include("discard /tmp/boot");
-    expect(pxAll(out).join("\n")).to.match(/gov org add Svayamtech \/home\/rk\/\.svm\/gov_repo/);
+    expect(pxAll(out).join("\n")).to.match(/gov org add Svayamtech \/home\/rk\/\.gov\/svm\/gov_repo/);
   });
 
   it("abandoning setup discards the clone and does NOT register a half-made org", async () => {

@@ -357,7 +357,13 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // The adopter path is exactly `gov setup <org>/<repo>` — the same code, reached
     // from the first-run question instead of from a command the newcomer had to
     // already know the name of.
-    createWorkspace: (target) => runSetupCommand(["setup", target], now),
+    createWorkspace: (target) => {
+      // CLOSE THIS READLINE FIRST. `runSetupCommand` opens its own interface on the
+      // same stdin, and two readline interfaces both echo what you type — which is
+      // why "Rakesh" arrived as "RRaakkeesshh". Only one may hold the terminal.
+      rl.close();
+      return runSetupCommand(["setup", target], now);
+    },
     register: (org, home) => {
       const deps = { store, govConfigAt: (p: string) => env.govConfigAt(p) };
       const added = orgAdd(deps, org, home);

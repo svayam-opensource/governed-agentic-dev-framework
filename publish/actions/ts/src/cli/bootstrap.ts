@@ -9,7 +9,7 @@
  *
  * ## The order, and why it is that order
  *
- * `gov_home` lives at `~/.<org_slug>/gov_repo`, and **`org_slug` is inside the repo being cloned**. So the
+ * `gov_home` lives at `~/.gov/<org_slug>/gov_repo`, and **`org_slug` is inside the repo being cloned**. So the
  * destination cannot be computed before the clone exists. Cloning to a temp location and then placing it is
  * not a workaround: the alternative is deriving a slug from the URL and letting `org-config.yaml` disagree
  * with the path it lives at — a second copy of a value, with nothing comparing them, which is the shape
@@ -73,7 +73,17 @@ export function nextStep(f: RegistryFacts): BootstrapStep {
 }
 
 /**
- * Where a freshly cloned governance repo belongs: `~/.<org_slug>/gov_repo`.
+ * Where a freshly cloned governance repo belongs: `~/.gov/<org_slug>/gov_repo`.
+ *
+ * Under `~/.gov/`, not `~/.<slug>/` (#186). Three parts of this tool had three
+ * answers: `create.ts` placed a NEW workspace at `~/.gov/<slug>/gov_repo`, the
+ * registry that maps orgs to homes lives at `~/.gov/workspaces`, and this — the
+ * JOINING path — put the clone at `~/.<slug>/gov_repo`. So founding and joining
+ * the same organization on the same machine produced two different layouts.
+ *
+ * `~/.gov/` as the root is also what makes more than one governed organization
+ * workable: every org is a sibling directory next to the registry that enumerates
+ * them, instead of being scattered across the home directory with nothing to list.
  *
  * The slug is read from the clone's own `org-config.yaml`, so a JOINER lands exactly where the org says,
  * not where a URL suggested. A FOUNDER has no config yet, so the caller passes the slug the setup questions
@@ -83,7 +93,7 @@ export function nextStep(f: RegistryFacts): BootstrapStep {
  * same pairing `org_slug` / `org_slug_lower` already makes inside org-config.yaml.
  */
 export function govHomeFor(homeDir: string, orgSlug: string, join: (...p: string[]) => string = path.join): string {
-  return join(homeDir, `.${orgSlug.toLowerCase()}`, "gov_repo");
+  return join(homeDir, ".gov", orgSlug.toLowerCase(), "gov_repo");
 }
 
 /** `git@github.com:Svayamtech/svm-prj-work.git` / `https://github.com/Svayamtech/svm-prj-work` → `svm-prj-work`. */
