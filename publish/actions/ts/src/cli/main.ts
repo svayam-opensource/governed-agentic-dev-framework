@@ -354,6 +354,10 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     place: (from, to) => { fsSync.mkdirSync(path.dirname(to), { recursive: true }); fsSync.renameSync(from, to); },
     discard: (d) => { try { fsSync.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } },
     found: async (repoDir) => (await runSetupCommand([], now, repoDir)) === 0 ? identityAt(repoDir) : null,
+    // The adopter path is exactly `gov setup <org>/<repo>` — the same code, reached
+    // from the first-run question instead of from a command the newcomer had to
+    // already know the name of.
+    createWorkspace: (target) => runSetupCommand(["setup", target], now),
     register: (org, home) => {
       const deps = { store, govConfigAt: (p: string) => env.govConfigAt(p) };
       const added = orgAdd(deps, org, home);
