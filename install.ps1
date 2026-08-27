@@ -14,7 +14,9 @@
 $ErrorActionPreference = 'Stop'
 
 $NodeMajor = 24
-$GovPkg    = '@svayam-opensource/gov'
+# Overridable so a pre-release build can be tested through the SAME path an adopter
+# takes: $env:GOV_PKG = 'C:\path\to\pkg.tgz'
+$GovPkg    = if ($env:GOV_PKG) { $env:GOV_PKG } else { '@svayam-opensource/gov' }
 $GovHome   = Join-Path $env:LOCALAPPDATA 'gov'
 $NodeDir   = Join-Path $GovHome 'node'
 

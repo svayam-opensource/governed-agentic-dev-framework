@@ -30,7 +30,10 @@
 set -euo pipefail
 
 NODE_MAJOR=24
-GOV_PKG="@svayam-opensource/gov"
+# Overridable so a pre-release build can be tested through the SAME path an adopter
+# takes, rather than through a different one that proves less: GOV_PKG=/path/to.tgz
+# or GOV_PKG='@svayam-opensource/gov@next'.
+GOV_PKG="${GOV_PKG:-@svayam-opensource/gov}"
 GOV_HOME="${GOV_INSTALL_DIR:-$HOME/.local/share/gov}"
 NODE_DIR="$GOV_HOME/node"
 
