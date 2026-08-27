@@ -210,6 +210,27 @@ install_node() {
   need curl || die "curl is required to download Node. Install curl, then re-run this script."
   need tar  || die "tar is required to unpack Node. Install tar, then re-run this script."
 
+  # ASK, even though nothing outside this user's home is touched.
+  #
+  # It is a 50 MB download and a new directory in someone's home folder. That it is
+  # reversible with one `rm -rf` is a reason the answer is usually yes, not a reason
+  # to skip the question — and a person who has just piped a script from the
+  # internet into their shell is owed the chance to see what it intends before it
+  # does it.
+  say ""
+  if [ "$have" -gt 0 ]; then
+    say "  ${B}Node $NODE_MAJOR or newer is required${RST}, and this machine has v$have."
+    say "  gov will install Node $NODE_MAJOR into $(tilde "$NODE_DIR") and leave your"
+    say "  existing Node exactly where it is. About 50 MB. No sudo, nothing system-wide."
+  else
+    say "  ${B}Node $NODE_MAJOR is required and is not installed.${RST}"
+    say "  gov will install it into $(tilde "$NODE_DIR") — about 50 MB."
+    say "  Nothing outside your home folder is touched, and sudo is never used."
+  fi
+  say ""
+  confirm "Install Node $NODE_MAJOR?" || die "Stopped at your request. Nothing was installed.
+  If you would rather install Node $NODE_MAJOR yourself, do that and re-run this script — it will skip this step."
+
   step "Installing Node $NODE_MAJOR for $plat"
   local listing file url tmp
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
@@ -310,6 +331,24 @@ finish() {
     say "Run ${B}gov${RST} on its own to open the menu — start there if you are new."
   fi
   say ""
+}
+
+# Ask a yes/no question on the controlling terminal, defaulting to yes.
+#
+# Reads /dev/tty, not stdin: under `curl … | bash` this script IS stdin, so a
+# `read` there would swallow the rest of the script rather than the answer.
+# With no terminal (CI, a provisioning run) it proceeds — someone who invoked an
+# installer non-interactively has already answered — but it says so.
+confirm() {
+  local q="$1" ans
+  if [ "${GOV_YES:-}" = "1" ]; then return 0; fi
+  if ! have_tty; then
+    say "  ${DIM}(no terminal to ask on — continuing)${RST}"
+    return 0
+  fi
+  printf '  %s [Y/n] ' "$q" > /dev/tty
+  read -r ans < /dev/tty || ans=""
+  case "$ans" in [nN]|[nN][oO]) return 1 ;; *) return 0 ;; esac
 }
 
 # Is there a terminal we can ASK on? Testing `-e /dev/tty` is not enough: inside a
