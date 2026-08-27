@@ -63,23 +63,34 @@ die()  { printf '\n%serror:%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 spin() {
   local msg="$1"; shift
   local log; log="$(mktemp)"
+  local rc=0
   if [ ! -t 1 ]; then                       # no terminal: no animation, just say it
     printf '  %s… ' "$msg"
-    if "$@" >"$log" 2>&1; then printf 'done\n'; rm -f "$log"; return 0; fi
-    printf 'failed\n'; cat "$log" >&2; rm -f "$log"; return 1
+    # `|| rc=$?` matters under `set -e`: a bare failing command would end the whole
+    # script HERE, silently, with the log still unread — the reader sees the prompt
+    # come back and nothing else.
+    "$@" >"$log" 2>&1 || rc=$?
+    if [ $rc -eq 0 ]; then printf 'done\n'; rm -f "$log"; return 0; fi
+    printf 'failed\n'; cat "$log" >&2; rm -f "$log"; return $rc
   fi
   "$@" >"$log" 2>&1 &
-  local pid=$! i=0
+  local pid=$! i=0 t0 secs
+  t0=$(date +%s)
   local frames='|/-\'
   while kill -0 "$pid" 2>/dev/null; do
-    printf '\r  %s %s ' "${frames:i++%4:1}" "$msg"
+    secs=$(( $(date +%s) - t0 ))
+    # The elapsed seconds are the point, not the spinner. A spinner says "a program
+    # is running"; a rising count says "it has been running for 12 seconds, and this
+    # is normal" — which is what a person weighing Ctrl-C actually needs to know.
+    printf '\r  %s %s (%ss) ' "${frames:i++%4:1}" "$msg" "$secs"
     sleep 0.2
   done
-  wait "$pid"; local rc=$?
+  wait "$pid" || rc=$?
+  secs=$(( $(date +%s) - t0 ))
   if [ $rc -eq 0 ]; then
-    printf '\r  %s✓%s %s\n' "$GRN" "$RST" "$msg"; rm -f "$log"; return 0
+    printf '\r  %s✓%s %s (%ss)%s\n' "$GRN" "$RST" "$msg" "$secs" "                    "; rm -f "$log"; return 0
   fi
-  printf '\r  %s✗%s %s\n' "$RED" "$RST" "$msg"; cat "$log" >&2; rm -f "$log"; return $rc
+  printf '\r  %s✗%s %s%s\n' "$RED" "$RST" "$msg" "                    "; cat "$log" >&2; rm -f "$log"; return $rc
 }
 
 # ── platform ──────────────────────────────────────────────────────────────────
@@ -116,6 +127,27 @@ profile_file() {
 }
 
 MARKER="# added by the gov installer"
+
+# Is this directory ALREADY on the running shell's PATH?
+on_path() { case ":$PATH:" in *":$1:"*) return 0 ;; *) return 1 ;; esac; }
+
+# A child process cannot change its parent shell's PATH — that is an operating
+# system rule, not an oversight, and it is why every installer ends by telling you
+# to open a new terminal.
+#
+# But it can put the command somewhere the parent shell is ALREADY looking.
+# ~/.local/bin is on PATH by default on Fedora, RHEL, Rocky and most Debian
+# derivatives. When it is, a symlink there means `gov` works in the shell you are
+# standing in, with nothing to source and nothing to reopen.
+link_into_path() {
+  local target="$1" dir="$HOME/.local/bin"
+  on_path "$dir" || return 1
+  mkdir -p "$dir" || return 1
+  ln -sf "$target" "$dir/gov" || return 1
+  IMMEDIATELY_USABLE=1
+  ok "linked into $(tilde "$dir"), which is already on your PATH"
+  return 0
+}
 
 add_to_path() {
   local dir="$1" prof; prof="$(profile_file)"
@@ -203,14 +235,20 @@ install_gov() {
     npm install -g --silent "$GOV_PKG" \
     || die "npm could not install $GOV_PKG — the output above says why"
   ok "$(gov --version 2>/dev/null | head -1 || echo "gov installed")"
+
+  # Prefer the shell the person is actually in over a shell they have to go and open.
+  local gov_bin; gov_bin="$(command -v gov 2>/dev/null || true)"
+  [ -n "$gov_bin" ] && link_into_path "$gov_bin" || true
 }
 
 # ── run ───────────────────────────────────────────────────────────────────────
 PROFILE_TOUCHED=""
+IMMEDIATELY_USABLE=0
 PLATFORM="$(detect_platform)"
 
 say ""
 say "${B}gov installer${RST} — $PLATFORM"
+say "${DIM}This takes a minute or two on a fresh machine. Each step reports as it finishes.${RST}"
 say "${DIM}Nothing is installed system-wide, and sudo is never used.${RST}"
 say ""
 
@@ -231,6 +269,11 @@ say ""
 # A reminder that has scrolled away is not a reminder.
 finish() {
   say ""
+  if [ "$IMMEDIATELY_USABLE" = "1" ]; then
+    say "${GRN}${B}gov is ready in this shell.${RST} Try: ${B}gov${RST}"
+    say ""
+    return
+  fi
   if [ -n "$PROFILE_TOUCHED" ]; then
     say "${YEL}${B}One last thing.${RST} This shell was started before gov was installed,"
     say "so it does not know about it yet. Run:"
@@ -278,6 +321,31 @@ elif have_tty; then
   say "${DIM}You will be shown each command and asked before anything runs.${RST}"
   say ""
   gov doctor --fix < /dev/tty || true
+
+  # AND KEEP GOING. The environment being ready is not what anyone came for — it is
+  # the toll on the way to setting their organization up. Stopping here, with a
+  # green report and a different command to discover, is the same "last mile handed
+  # back" the report-only ending already was, one step further along.
+  #
+  # Any gov command triggers the first-run flow; `list` is the least surprising one
+  # to be holding when it does.
+  say ""
+  say "${B}Next: your organization.${RST}"
+  say "${DIM}gov will ask whether you are adopting the framework or joining an existing setup.${RST}"
+  say "${DIM}There is an option for 'I am not sure' — it only explains, and changes nothing.${RST}"
+  say ""
+  printf '  Continue now? [Y/n] '
+  read -r go < /dev/tty || go=""
+  case "$go" in
+    [nN]|[nN][oO])
+      say ""
+      say "Stopped here. When you are ready, run: ${B}gov${RST}"
+      ;;
+    *)
+      say ""
+      gov list < /dev/tty || true
+      ;;
+  esac
   finish
   exit 0
 else
