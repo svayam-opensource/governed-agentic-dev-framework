@@ -178,10 +178,30 @@ export async function runFirstRun(io: FirstRunIo): Promise<number | null> {
  * home is worse than none, because the next run would find something at `gov_home` and believe it.
  */
 async function cloneAndRegister(io: FirstRunIo): Promise<number> {
+  // Two different people reach this prompt, and only one of them can answer it.
+  // Someone JOINING an organization has a clone URL from their administrator.
+  // Someone FOUNDING one has nothing to paste — their governance repo does not
+  // exist yet, and `gov setup <org>/<repo>` is what creates it (#159). Asking for
+  // a URL without saying that sent first-time adopters looking for a repository
+  // that was never going to be found (#186).
   io.print("No organization is registered on this machine yet.");
-  const url = (await io.prompt("Governance repo (clone URL): ", "")).trim();
+  io.print("");
+  io.print("  Joining an organization that already uses gov?");
+  io.print("    Paste the governance repo's clone URL below — your administrator has it.");
+  io.print("");
+  io.print("  Setting one up for the first time?");
+  io.print("    Press Enter to stop here, then run:  gov setup <your-github-org>/<repo-name>");
+  io.print("    That creates the governance repo. There is nothing to paste yet.");
+  io.print("");
+  const url = (await io.prompt("Governance repo (clone URL), or Enter to stop: ", "")).trim();
+  if (url === "") {
+    io.print("");
+    io.print("Nothing registered. When you are ready:  gov setup <your-github-org>/<repo-name>");
+    return 0;
+  }
   if (!looksLikeRepoUrl(url)) {
     io.print(`'${url}' does not look like a clone URL — expected something like git@github.com:Org/org-gov.git`);
+    io.print("If you do not have one yet, you are founding rather than joining: run `gov setup <org>/<repo>`.");
     return 1;
   }
 
