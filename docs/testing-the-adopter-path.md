@@ -80,6 +80,24 @@ curl -fsSL https://raw.githubusercontent.com/svayam-opensource/governed-agentic-
 
 Testing an unmerged branch? Swap `main` for the branch name in that URL.
 
+It will show you what is missing, ask once, and — if you say yes — install git,
+install `gh`, and walk you through signing in to GitHub.
+
+### Then, two more steps
+
+```bash
+source ~/.bashrc     # this shell predates the install; it has never heard of gov
+gov list
+```
+
+`source` is not optional and not superstition: `install.sh` appended the PATH entry
+to a file your **already-running** shell read minutes ago. Skip it and the next
+thing you type is `gov: command not found`, which looks like a failed install and
+is not one.
+
+`gov list` is the shortest way to reach the **first-run role question** (A/B/C).
+Answer **C** first — it only prints.
+
 ---
 
 ## Scenarios worth running

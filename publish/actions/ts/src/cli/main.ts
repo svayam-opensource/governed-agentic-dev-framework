@@ -35,7 +35,7 @@ import { createGhProjects } from "../lifecycle/project-list.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
-import { planFixes, detectPackageManager, formatPlan, renderCommand, parseGrantedScopes } from "../maintain/fix-env.js";
+import { planFixes, detectPackageManager, formatPlan, formatPlanNarrative, renderCommand, parseGrantedScopes } from "../maintain/fix-env.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
@@ -798,8 +798,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         detectPackageManager((n) => tryRun(n, ["--version"]) !== undefined),
       );
       process.stdout.write("\n");
-      for (const line of formatPlan(plan)) process.stdout.write(`${line}\n`);
-      if (!plan.steps.length) return report.ok ? 0 : 1;
+      for (const line of formatPlanNarrative(plan)) process.stdout.write(`${line}\n`);
+      if (!plan.steps.length) {
+        if (!plan.manual.length) process.stdout.write("doctor --fix: nothing to fix\n");
+        return report.ok ? 0 : 1;
+      }
 
       const assumeYes = Boolean(parsed.flags["yes"]);
       // A SYNCHRONOUS prompt, not readline: main() is sync by design (it returns an
@@ -850,6 +853,20 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       // Unattended AND unable to elevate: emitting sudo's own failure for every step
       // teaches nothing. Say it once, above, and do the steps that need no rights.
       const skipElevated = needElevation && assumeYes && !sudoNoPassword;
+      // ONE gate, before anything runs, defaulting to NO.
+      //
+      // Asking per command made the reader agree four times to a plan they had
+      // already been shown, and each prompt arrived after the previous command's
+      // output had scrolled the plan away. One informed yes is better consent than
+      // four uninformed ones — and defaulting to N means a stray Enter changes
+      // nothing on their machine.
+      if (!assumeYes) {
+        const go = askSync("\nDo you want to continue (y/N)? ");
+        if (go !== "y" && go !== "yes") {
+          process.stdout.write("\nNothing was changed. The commands above are safe to run yourself.\n");
+          return report.ok ? 0 : 1;
+        }
+      }
       let ran = 0, failed = 0;
       const broken = new Set<string>();
       {
@@ -874,13 +891,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             broken.add(step.fixes);
             continue;
           }
-          const cmdline = renderCommand(step);
-          if (!assumeYes) {
-            const a = askSync(`\n  run:  ${cmdline}\n  ok? [Y/n] `);
-            if (a === "n" || a === "no") { process.stdout.write("  skipped\n"); broken.add(step.fixes); continue; }
-          } else {
-            process.stdout.write(`\n  run:  ${cmdline}\n`);
-          }
+          process.stdout.write(`\n  run:  ${renderCommand(step)}\n`);
           // sudo is prepended only here, where the user has just seen and accepted the
           // exact line — never silently inside the plan. Two environments make the
           // naive prefix wrong: a container running as root has no `sudo` and does

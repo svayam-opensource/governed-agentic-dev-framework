@@ -53,6 +53,35 @@ skip() { printf '  %s·%s %s %s(already present)%s\n' "$DIM" "$RST" "$*" "$DIM" 
 warn() { printf '  %s!%s %s\n' "$YEL" "$RST" "$*"; }
 die()  { printf '\n%serror:%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 
+# Run something slow with a spinner, so silence never looks like a hang.
+#
+# A tester watched `npm install -g` for half a minute with nothing on screen and
+# wondered whether to press Ctrl-C. Silence is indistinguishable from a stall, and
+# a person who cannot tell the difference will eventually guess wrong — the one
+# outcome an installer must not invite. Output is captured and shown only on
+# failure, so the spinner is not fighting a wall of npm text.
+spin() {
+  local msg="$1"; shift
+  local log; log="$(mktemp)"
+  if [ ! -t 1 ]; then                       # no terminal: no animation, just say it
+    printf '  %s… ' "$msg"
+    if "$@" >"$log" 2>&1; then printf 'done\n'; rm -f "$log"; return 0; fi
+    printf 'failed\n'; cat "$log" >&2; rm -f "$log"; return 1
+  fi
+  "$@" >"$log" 2>&1 &
+  local pid=$! i=0
+  local frames='|/-\'
+  while kill -0 "$pid" 2>/dev/null; do
+    printf '\r  %s %s ' "${frames:i++%4:1}" "$msg"
+    sleep 0.2
+  done
+  wait "$pid"; local rc=$?
+  if [ $rc -eq 0 ]; then
+    printf '\r  %s✓%s %s\n' "$GRN" "$RST" "$msg"; rm -f "$log"; return 0
+  fi
+  printf '\r  %s✗%s %s\n' "$RED" "$RST" "$msg"; cat "$log" >&2; rm -f "$log"; return $rc
+}
+
 # ── platform ──────────────────────────────────────────────────────────────────
 detect_platform() {
   local os arch
@@ -124,9 +153,13 @@ install_node() {
   need curl || die "curl is required to download Node. Install curl, then re-run this script."
   need tar  || die "tar is required to unpack Node. Install tar, then re-run this script."
 
-  step "Downloading Node $NODE_MAJOR for $plat"
+  step "Installing Node $NODE_MAJOR for $plat"
   local listing file url tmp
-  listing="$(curl -fsSL "https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/" || die "could not reach nodejs.org — check your network or proxy")"
+  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
+  spin "asking nodejs.org which version is current" \
+    bash -c "curl -fsSL 'https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/' -o '$tmp/listing.html'" \
+    || die "could not reach nodejs.org — check your network or proxy"
+  listing="$(cat "$tmp/listing.html")"
   # .tar.gz, not .tar.xz: minimal RHEL and Debian images ship tar without the xz
   # helper binary, and the failure is an opaque "xz: Cannot exec". gzip is built
   # into every tar that can run here. The extra few megabytes are worth it.
@@ -134,13 +167,13 @@ install_node() {
   [ -n "$file" ] || die "no Node $NODE_MAJOR build published for $plat"
   url="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/$file"
 
-  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
+  say "  downloading ${file} (about 50 MB)"
   curl -fSL --progress-bar "$url" -o "$tmp/node.tar.gz" || die "download failed: $url"
 
-  step "Unpacking into $(tilde "$NODE_DIR")"
   rm -rf "$NODE_DIR"; mkdir -p "$NODE_DIR"
-  tar -xzf "$tmp/node.tar.gz" -C "$NODE_DIR" --strip-components=1 \
-    || die "could not unpack the Node archive — see the tar error above"
+  spin "unpacking into $(tilde "$NODE_DIR")" \
+    tar -xzf "$tmp/node.tar.gz" -C "$NODE_DIR" --strip-components=1 \
+    || die "could not unpack the Node archive — see the error above"
 
   export PATH="$NODE_DIR/bin:$PATH"
   add_to_path "$NODE_DIR/bin"
@@ -166,7 +199,9 @@ install_gov() {
     fi
   fi
 
-  npm install -g --silent "$GOV_PKG" || die "npm could not install $GOV_PKG — the output above says why"
+  spin "downloading and installing gov (this takes a moment)" \
+    npm install -g --silent "$GOV_PKG" \
+    || die "npm could not install $GOV_PKG — the output above says why"
   ok "$(gov --version 2>/dev/null | head -1 || echo "gov installed")"
 }
 
