@@ -27,6 +27,14 @@ export interface DoctorReport {
 export interface DoctorFacts {
   readonly gitPresent: boolean;
   readonly ghPresent: boolean;
+  /**
+   * Whether `gh` is SIGNED IN, which is a separate fact from being installed and
+   * the commoner failure (#186): the tool installs cleanly and the person never
+   * runs `gh auth login`, so every GitHub call fails later for a reason the
+   * report did not mention. Undefined when `gh` is absent and the question does
+   * not arise.
+   */
+  readonly ghAuthenticated?: boolean;
   readonly resolve: ResolveResult;
   readonly activeOrg: string | null;
   readonly cliVersion: string;
@@ -40,6 +48,16 @@ export function doctor(facts: DoctorFacts): DoctorReport {
   const d: Diagnostic[] = [
     { name: "git", status: facts.gitPresent ? "ok" : "fail", detail: facts.gitPresent ? "found" : "not found — install git" },
     { name: "gh", status: facts.ghPresent ? "ok" : "fail", detail: facts.ghPresent ? "found" : "not found — install the GitHub CLI (gh)" },
+    // Only when the caller actually probed it. `undefined` means "not checked",
+    // which must not read as "not signed in" — a row that fails on a fact nobody
+    // gathered is worse than no row.
+    ...(facts.ghPresent && facts.ghAuthenticated !== undefined
+      ? [{
+          name: "gh auth",
+          status: (facts.ghAuthenticated ? "ok" : "fail") as DiagnosticStatus,
+          detail: facts.ghAuthenticated ? "signed in" : "not signed in — run `gh auth login` (or `gov doctor --fix`)",
+        }]
+      : []),
     facts.resolve.ok
       ? { name: "gov workspace", status: "ok", detail: `resolved → ${facts.resolve.home} (${facts.resolve.org})` }
       : { name: "gov workspace", status: "fail", detail: resolveFailureMessage(facts.resolve) },

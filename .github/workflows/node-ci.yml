@@ -79,6 +79,94 @@ jobs:
       - name: e2e (full-flow gate — required before merge/publish)
         run: npm run test:e2e
 
+  # ── the BOOTSTRAP installer, on a machine that has nothing ───────────────────────────────────────
+  # The job above tests the CLI once Node exists. This one tests the step before that: the installer
+  # an adopter runs on a machine with no Node at all (#186). It is the only way we test install.ps1 —
+  # Docker on a Mac or Linux host cannot run Windows containers, and pwsh on Linux has none of the
+  # three things the Windows path is made of (LOCALAPPDATA, PROCESSOR_ARCHITECTURE, a user-scoped
+  # PATH). A hosted Windows runner is the test bed, not a nicety.
+  #
+  # setup-node is deliberately absent, and the runner's own Node is stripped from PATH: the installer
+  # must find, download and unpack its own, exactly as it will on a laptop.
+  #
+  # Written as per-OS steps rather than one step with an expression, so a reader can see both paths.
+  bootstrap:
+    name: bootstrap installer (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, label: linux }
+          - { os: macos-latest, label: macos }
+          - { os: windows-latest, label: windows }
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── POSIX ────────────────────────────────────────────────────────────────
+      - name: hide the runner's preinstalled Node
+        if: runner.os != 'Windows'
+        run: |
+          echo "PATH=$(echo "$PATH" | tr ':' '\n' | grep -vE 'node|nvm|hostedtoolcache' | paste -sd: -)" >> "$GITHUB_ENV"
+
+      - name: it runs on a machine with no Node
+        if: runner.os != 'Windows'
+        run: bash ./install.sh
+
+      - name: and it left a working gov behind
+        if: runner.os != 'Windows'
+        run: |
+          export PATH="$HOME/.local/share/gov/node/bin:$PATH"
+          gov --version
+
+      # Re-running must be safe and boring. A bootstrap people are afraid to run twice is a bootstrap
+      # they will not run at all.
+      - name: running it again changes nothing
+        if: runner.os != 'Windows'
+        run: bash ./install.sh
+
+      # CI has no terminal, so a --yes that still reached `gh auth login` would hang until the job
+      # timed out. Asserting it COMPLETES is the point; what it managed to fix is not.
+      - name: doctor --fix --yes completes without waiting for anyone
+        if: runner.os != 'Windows'
+        run: |
+          export PATH="$HOME/.local/share/gov/node/bin:$PATH"
+          gov doctor --fix --yes || true
+
+      # ── Windows ──────────────────────────────────────────────────────────────
+      - name: hide the runner's preinstalled Node
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $clean = ($env:PATH -split ';' | Where-Object { $_ -notmatch 'node|nvm|hostedtoolcache' }) -join ';'
+          "PATH=$clean" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: it runs on a machine with no Node
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./install.ps1
+
+      - name: and it left a working gov behind
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:LOCALAPPDATA\gov\node;$env:PATH"
+          gov --version
+
+      - name: running it again changes nothing
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./install.ps1
+
+      - name: doctor --fix --yes completes without waiting for anyone
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:LOCALAPPDATA\gov\node;$env:PATH"
+          gov doctor --fix --yes
+          exit 0
+
   # ── the CLI, on the Linux distros adopters actually deploy on ────────────────────────────────────
   # `ubuntu-latest` is one Debian derivative with one glibc and one preinstalled toolchain. A bare
   # Debian and a Fedora container catch what that hides: missing tools we silently rely on, and

@@ -35,6 +35,7 @@ import { createGhProjects } from "../lifecycle/project-list.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
+import { planFixes, detectPackageManager, formatPlan, renderCommand } from "../maintain/fix-env.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
@@ -741,21 +742,130 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // The prerequisite report `deps` used to print — same probe, same per-OS install hints, now in the one
     // place a person looks when something is wrong.
     const depsReport = checkDeps((n) => tryRun(n, ["--version"]) !== undefined, process.platform);
+    const gitPresent = tryRun("git", ["--version"]) !== undefined;
+    const ghPresent = tryRun("gh", ["--version"]) !== undefined;
+    // Installed and signed-in are different facts; only the second predicts whether
+    // the next GitHub call works (#186).
+    const ghAuthed = ghPresent && ((): boolean => {
+      try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; }
+    })();
     const report = doctor({
-      gitPresent: tryRun("git", ["--version"]) !== undefined,
-      ghPresent: tryRun("gh", ["--version"]) !== undefined,
+      gitPresent,
+      ghPresent,
+      ghAuthenticated: ghAuthed,
       resolve,
       activeOrg: env.readActiveOrg(),
       cliVersion,
       contentVersion: fs.readFile(path.join(home, "VERSION"))?.trim() ?? null,
-      staleArtifacts: RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
+      // `install.sh` is BOTH a retired adopter artifact (the vendored bash CLI's
+      // installer) and the framework repo's own bootstrap installer (#186). In an
+      // adopter workspace the retire rule is right; in the framework checkout it is
+      // a false alarm aimed at maintainers. publish/content/MANIFEST.yaml exists
+      // only in the source repo, so it tells the two apart.
+      staleArtifacts: fs.pathExists(path.join(home, "publish", "content", "MANIFEST.yaml"))
+        ? []
+        : RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
     });
     for (const line of formatDoctorReport(report)) process.stdout.write(`${line}\n`);
+
+    // `--fix` (#186): act on the report instead of leaving the reader to translate
+    // hints into commands for a package manager they may not have. Interactive by
+    // default — each command is shown and consented to before it runs; `--yes` is
+    // for unattended use (CI, a provisioning script).
+    if (parsed.flags["fix"]) {
+      // /etc/os-release is the only reliable way to tell Fedora from Rocky, and they
+      // need different plans despite sharing `dnf`.
+      const osId = ((): string | null => {
+        try {
+          const m = /^ID=("?)([^"\n]+)\1/m.exec(fsSync.readFileSync("/etc/os-release", "utf8"));
+          return m?.[2]?.toLowerCase() ?? null;
+        } catch { return null; }
+      })();
+      const plan = planFixes(
+        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId },
+        detectPackageManager((n) => tryRun(n, ["--version"]) !== undefined),
+      );
+      process.stdout.write("\n");
+      for (const line of formatPlan(plan)) process.stdout.write(`${line}\n`);
+      if (!plan.steps.length) return report.ok ? 0 : 1;
+
+      const assumeYes = Boolean(parsed.flags["yes"]);
+      // A SYNCHRONOUS prompt, not readline: main() is sync by design (it returns an
+      // exit code, and every other command is pure over injected IO). Reading stdin
+      // directly keeps that contract rather than making the whole entry point async
+      // for one interactive branch.
+      const askSync = (q: string): string => {
+        process.stdout.write(q);
+        const buf = Buffer.alloc(256);
+        try {
+          const n = fsSync.readSync(0, buf, 0, buf.length, null);
+          return buf.toString("utf8", 0, n).trim().toLowerCase();
+        } catch {
+          return "";                                   // not a terminal — treat as "yes, go on"
+        }
+      };
+      // Elevation facts, gathered once: `process.getuid` is undefined on Windows,
+      // where the whole question does not arise.
+      const amRoot = typeof process.getuid === "function" && process.getuid() === 0;
+      const haveSudo = tryRun("sudo", ["--version"]) !== undefined;
+      let ran = 0, failed = 0;
+      const broken = new Set<string>();
+      {
+        for (const step of plan.steps) {
+          if (step.dependsOn && broken.has(step.dependsOn)) {
+            process.stdout.write(`\n  skipped: ${step.what}\n    (it needs "${step.dependsOn}", which did not succeed)\n`);
+            broken.add(step.fixes);
+            continue;
+          }
+          // `--yes` means "do not ask me", which cannot include a step whose whole
+          // purpose is to ask: `gh auth login` opens a browser and waits. In
+          // unattended use it would hang forever with no one at the terminal. Name
+          // it as the human's remaining job instead.
+          if (assumeYes && step.interactive) {
+            process.stdout.write(`\n  ${step.what}\n    needs you — run it yourself:  ${renderCommand(step)}\n`);
+            broken.add(step.fixes);
+            continue;
+          }
+          const cmdline = renderCommand(step);
+          if (!assumeYes) {
+            const a = askSync(`\n  run:  ${cmdline}\n  ok? [Y/n] `);
+            if (a === "n" || a === "no") { process.stdout.write("  skipped\n"); broken.add(step.fixes); continue; }
+          } else {
+            process.stdout.write(`\n  run:  ${cmdline}\n`);
+          }
+          // sudo is prepended only here, where the user has just seen and accepted the
+          // exact line — never silently inside the plan. Two environments make the
+          // naive prefix wrong: a container running as root has no `sudo` and does
+          // not need one, and a locked-down machine has neither. Say which, rather
+          // than failing with an exit code the reader cannot interpret.
+          const needsElevation = step.sudo && !amRoot;
+          if (needsElevation && !haveSudo) {
+            failed++;
+            process.stdout.write("  ✗ needs administrator rights, and `sudo` is not installed here.\n" +
+                                 "    Run the command above as an administrator, then re-run `gov doctor`.\n");
+            continue;
+          }
+          const [bin, ...rest] = needsElevation ? ["sudo", ...step.command] : [...step.command];
+          const r = spawnSync(bin!, rest, { stdio: "inherit" });
+          if (r.status === 0) { ran++; process.stdout.write("  ✓ done\n"); }
+          else {
+            failed++;
+            broken.add(step.fixes);
+            const why = r.error ? r.error.message : `exit ${r.status ?? "unknown"}`;
+            process.stdout.write(`  ✗ failed — ${why}\n`);
+          }
+        }
+      }
+      process.stdout.write(`\n${ran} fixed, ${failed} failed. Run \`gov doctor\` again to confirm.\n`);
+      return failed ? 1 : 0;
+    }
+
     // Only when something IS missing: a healthy machine does not need install instructions, and a report
     // that prints them anyway trains the reader to skim past the part that matters.
     if (!depsReport.ok) {
       process.stdout.write("\n");
       for (const line of formatDepsReport(depsReport)) process.stdout.write(`${line}\n`);
+      process.stdout.write("\n  or let gov do it:  gov doctor --fix\n");
     }
     return report.ok && depsReport.ok ? 0 : 1;
   }
