@@ -808,12 +808,48 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       // where the whole question does not arise.
       const amRoot = typeof process.getuid === "function" && process.getuid() === 0;
       const haveSudo = tryRun("sudo", ["--version"]) !== undefined;
+      // Can we actually elevate, or only invoke the command? `sudo -n true` answers
+      // without prompting: it succeeds for a passwordless sudoer and fails both for
+      // someone who must type a password and for someone with no rights at all.
+      const sudoNoPassword = haveSudo && ((): boolean => {
+        // Silent on purpose: `sudo: a password is required` on stderr IS the answer,
+        // not an error to show the reader in the middle of a plan.
+        try { execFileSync("sudo", ["-n", "true"], { stdio: "ignore" }); return true; } catch { return false; }
+      })();
+      const needElevation = plan.steps.some((s) => s.sudo) && !amRoot;
+      // Say what the plan will ASK OF THEM before the first command, not after a
+      // wall of sudo's own error text. Installing git and gh is a change to the
+      // machine, and on Linux that is an administrator's act — the adopter who does
+      // not have those rights should learn it here, in a sentence, not from
+      // "sudo: a password is required".
+      if (needElevation && !sudoNoPassword) {
+        process.stdout.write(
+          !haveSudo
+            ? "\n  Note: installing git or gh changes the system, and `sudo` is not available here.\n" +
+              "  Ask whoever administers this machine to install them, or install them yourself.\n"
+            : assumeYes
+              ? "\n  Note: installing git or gh needs administrator rights, and --yes cannot type a\n" +
+                "  password. Re-run `gov doctor --fix` without --yes, or ask your administrator.\n"
+              : "\n  Note: installing git or gh needs administrator rights — you will be asked for\n" +
+                "  your password. If you do not have those rights, ask whoever administers this\n" +
+                "  machine; nothing else in gov needs them.\n",
+        );
+      }
+      // Unattended AND unable to elevate: emitting sudo's own failure for every step
+      // teaches nothing. Say it once, above, and do the steps that need no rights.
+      const skipElevated = needElevation && assumeYes && !sudoNoPassword;
       let ran = 0, failed = 0;
       const broken = new Set<string>();
       {
         for (const step of plan.steps) {
           if (step.dependsOn && broken.has(step.dependsOn)) {
             process.stdout.write(`\n  skipped: ${step.what}\n    (it needs "${step.dependsOn}", which did not succeed)\n`);
+            broken.add(step.fixes);
+            continue;
+          }
+          const elevationBlocked = step.sudo && !amRoot && skipElevated;
+          if (elevationBlocked) {
+            process.stdout.write(`\n  skipped: ${step.what}\n    (needs administrator rights — see the note above)\n`);
             broken.add(step.fixes);
             continue;
           }
