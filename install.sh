@@ -93,6 +93,33 @@ spin() {
   printf '\r  %s✗%s %s%s\n' "$RED" "$RST" "$msg" "                    "; cat "$log" >&2; rm -f "$log"; return $rc
 }
 
+# Is there a terminal we can ASK on? Testing `-e /dev/tty` is not enough: inside a
+# container without a controlling terminal the path exists and opening it still
+# fails with "No such device or address". Open it and see.
+have_tty() { (exec 3</dev/tty) 2>/dev/null; }
+
+# Ask a yes/no question on the controlling terminal, defaulting to yes.
+#
+# Reads /dev/tty, not stdin: under `curl … | bash` this script IS stdin, so a
+# `read` there would swallow the rest of the script rather than the answer.
+# With no terminal (CI, a provisioning run) it proceeds — someone who invoked an
+# installer non-interactively has already answered — but it says so.
+confirm() {
+  local q="$1" ans
+  if [ "${GOV_YES:-}" = "1" ]; then return 0; fi
+  if ! have_tty; then
+    say "  ${DIM}(no terminal to ask on — continuing)${RST}"
+    return 0
+  fi
+  printf '  %s [Y/n] ' "$q" > /dev/tty
+  read -r ans < /dev/tty || ans=""
+  case "$ans" in [nN]|[nN][oO]) return 1 ;; *) return 0 ;; esac
+}
+
+# Is there a terminal we can ASK on? Testing `-e /dev/tty` is not enough: inside a
+# container without a controlling terminal the path exists and opening it still
+# fails with "No such device or address". Open it and see.
+
 # ── platform ──────────────────────────────────────────────────────────────────
 detect_platform() {
   local os arch
@@ -333,28 +360,33 @@ finish() {
   say ""
 }
 
-# Ask a yes/no question on the controlling terminal, defaulting to yes.
+# THE LAST WORD, printed where the reader actually is.
 #
-# Reads /dev/tty, not stdin: under `curl … | bash` this script IS stdin, so a
-# `read` there would swallow the rest of the script rather than the answer.
-# With no terminal (CI, a provisioning run) it proceeds — someone who invoked an
-# installer non-interactively has already answered — but it says so.
-confirm() {
-  local q="$1" ans
-  if [ "${GOV_YES:-}" = "1" ]; then return 0; fi
-  if ! have_tty; then
-    say "  ${DIM}(no terminal to ask on — continuing)${RST}"
-    return 0
+# This used to be said just after the install and before `gov doctor --fix`. On a
+# machine that needed git, gh and a browser sign-in, that put it several screens
+# and a few minutes above the prompt the person was left staring at — and the
+# first thing they typed was `gov doctor`, which their shell had never heard of.
+# A reminder that has scrolled away is not a reminder.
+finish() {
+  say ""
+  if [ "$IMMEDIATELY_USABLE" = "1" ]; then
+    say "${GRN}${B}gov is ready in this shell.${RST} Try: ${B}gov${RST}"
+    say ""
+    return
   fi
-  printf '  %s [Y/n] ' "$q" > /dev/tty
-  read -r ans < /dev/tty || ans=""
-  case "$ans" in [nN]|[nN][oO]) return 1 ;; *) return 0 ;; esac
+  if [ -n "$PROFILE_TOUCHED" ]; then
+    say "${YEL}${B}One last thing.${RST} This shell was started before gov was installed,"
+    say "so it does not know about it yet. Run:"
+    say ""
+    say "    ${B}source $(tilde "$PROFILE_TOUCHED")${RST}"
+    say ""
+    say "…or just open a new terminal. Then ${B}gov${RST} will work."
+  else
+    say "Run ${B}gov${RST} on its own to open the menu — start there if you are new."
+  fi
+  say ""
 }
 
-# Is there a terminal we can ASK on? Testing `-e /dev/tty` is not enough: inside a
-# container without a controlling terminal the path exists and opening it still
-# fails with "No such device or address". Open it and see.
-have_tty() { (exec 3</dev/tty) 2>/dev/null; }
 
 # HAND OVER, and do not stop at a report.
 #

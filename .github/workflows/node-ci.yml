@@ -104,6 +104,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Cheap, and catches the mistake install.sh has made three times: a function
+      # called above its own definition. `bash -n` cannot see it — bash resolves the
+      # name when the call runs — so the failure only shows up on someone's laptop.
+      - name: every shell function is defined before it is called
+        if: runner.os == 'Linux'
+        run: ./ci/check-install-sh.sh
+
       # ── POSIX ────────────────────────────────────────────────────────────────
       - name: hide the runner's preinstalled Node
         if: runner.os != 'Windows'
