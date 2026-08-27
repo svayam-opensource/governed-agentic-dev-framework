@@ -809,16 +809,37 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       // exit code, and every other command is pure over injected IO). Reading stdin
       // directly keeps that contract rather than making the whole entry point async
       // for one interactive branch.
-      const askSync = (q: string): string => {
+      //
+      // EAGAIN IS NOT AN ANSWER. Node leaves a terminal fd non-blocking, so the very
+      // first `readSync` usually throws EAGAIN — there is nothing typed yet, because
+      // the human has not had time to type it. Treating that as an empty reply meant
+      // the consent gate answered itself "no" the instant it was printed, and the
+      // installer reported "Nothing was changed" to someone who never got to press a
+      // key. It retries until there is something to read.
+      //
+      // Only a genuinely unreadable stdin returns null, and the caller must then say
+      // so rather than assume either answer.
+      const askSync = (q: string): string | null => {
         process.stdout.write(q);
         const buf = Buffer.alloc(256);
-        try {
-          const n = fsSync.readSync(0, buf, 0, buf.length, null);
-          return buf.toString("utf8", 0, n).trim().toLowerCase();
-        } catch {
-          return "";                                   // not a terminal — treat as "yes, go on"
+        const deadline = Date.now() + 10 * 60_000;      // a person, not a timeout
+        for (;;) {
+          try {
+            const n = fsSync.readSync(0, buf, 0, buf.length, null);
+            if (n === 0) return null;                   // EOF: stdin closed, no answer coming
+            return buf.toString("utf8", 0, n).trim().toLowerCase();
+          } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            if (code !== "EAGAIN" && code !== "EWOULDBLOCK") return null;
+            if (Date.now() > deadline) return null;
+            // Nothing typed yet. Sleep synchronously — a busy loop on a terminal is
+            // a hot CPU for no reason, and Atomics.wait is the only way to pause a
+            // synchronous function without spawning something.
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+          }
         }
       };
+
       // Elevation facts, gathered once: `process.getuid` is undefined on Windows,
       // where the whole question does not arise.
       const amRoot = typeof process.getuid === "function" && process.getuid() === 0;
@@ -862,6 +883,14 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       // nothing on their machine.
       if (!assumeYes) {
         const go = askSync("\nDo you want to continue (y/N)? ");
+        if (go === null) {
+          // Never invent an answer. Silence here is our failure to ask, not their
+          // refusal, and reporting it as "you said no" is how a working install
+          // ends looking like an abandoned one.
+          process.stdout.write("\n\nCould not read your answer — this terminal is not accepting input.\n" +
+                               "Nothing was changed. Run `gov doctor --fix` directly, or run the commands above yourself.\n");
+          return 1;
+        }
         if (go !== "y" && go !== "yes") {
           process.stdout.write("\nNothing was changed. The commands above are safe to run yourself.\n");
           return report.ok ? 0 : 1;
