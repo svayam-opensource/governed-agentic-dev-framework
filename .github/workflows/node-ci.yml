@@ -112,10 +112,30 @@ jobs:
         run: ./ci/check-install-sh.sh
 
       # ── POSIX ────────────────────────────────────────────────────────────────
+      # Stripping PATH by directory NAME is not enough: the hosted runners also expose
+      # node through /usr/local/bin, whose name says nothing about node. A job that
+      # quietly keeps its Node tests the SKIP path and reports it as the cold path —
+      # 8 seconds, all green, nothing downloaded. So: strip, then ASSERT.
       - name: hide the runner's preinstalled Node
         if: runner.os != 'Windows'
         run: |
-          echo "PATH=$(echo "$PATH" | tr ':' '\n' | grep -vE 'node|nvm|hostedtoolcache' | paste -sd: -)" >> "$GITHUB_ENV"
+          clean=$(echo "$PATH" | tr ':' '\n' | grep -vE 'node|nvm|hostedtoolcache' | paste -sd: -)
+          # Anything still answering to `node` gets its directory dropped too.
+          while n=$(PATH="$clean" command -v node 2>/dev/null); do
+            d=$(dirname "$n")
+            echo "also dropping $d (it still provides node)"
+            clean=$(echo "$clean" | tr ':' '\n' | grep -vxF "$d" | paste -sd: -)
+          done
+          echo "PATH=$clean" >> "$GITHUB_ENV"
+
+      - name: prove this machine has no Node
+        if: runner.os != 'Windows'
+        run: |
+          if command -v node >/dev/null 2>&1; then
+            echo "node is still on PATH at $(command -v node) — this job would test the skip path, not the cold one" >&2
+            exit 1
+          fi
+          echo "no node on PATH: the installer has to fetch its own"
 
       - name: it runs on a machine with no Node
         if: runner.os != 'Windows'
@@ -148,6 +168,16 @@ jobs:
         run: |
           $clean = ($env:PATH -split ';' | Where-Object { $_ -notmatch 'node|nvm|hostedtoolcache' }) -join ';'
           "PATH=$clean" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: prove this machine has no Node
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Get-Command node -ErrorAction SilentlyContinue) {
+            Write-Error "node is still on PATH — this job would test the skip path, not the cold one"
+            exit 1
+          }
+          Write-Host "no node on PATH: the installer has to fetch its own"
 
       - name: it runs on a machine with no Node
         if: runner.os == 'Windows'
