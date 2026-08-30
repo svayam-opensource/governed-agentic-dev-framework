@@ -135,10 +135,12 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
   //
   // Same discipline as `create.ts`: nothing is created until everything is known.
   const checks: RepoPrecondition[] = codeRepoUrls.map((url) => {
-    let refs: readonly RemoteRef[] = [];
+    let refs: readonly RemoteRef[];
     try {
       refs = deps.vcs.lsRemoteRefs(url);
     } catch (e) {
+      // Unreadable is its own answer, and a common one: a private repo the adopter
+      // has not been granted, or a URL with a typo. Say which repo, and what git said.
       return { url, verdict: { kind: "no-base" as const, detail: `Cannot read ${url}: ${(e as Error).message}` } };
     }
     return { url, verdict: classifyProjectBranch(refs, config.defaultCodeBranch ?? "dev", branch, url) };
