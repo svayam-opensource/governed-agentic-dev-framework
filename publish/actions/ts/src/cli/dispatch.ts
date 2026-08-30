@@ -21,6 +21,7 @@ import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
 import type { GateResult } from "../lifecycle/close-gate.js";
+import { planIssue, issueSummary } from "../lifecycle/issue-create.js";
 import { seed } from "../lifecycle/seed.js";
 import { expandTilde } from "../resolve/node-env.js";
 import { task } from "../lifecycle/task-run.js";
@@ -151,6 +152,36 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
   const ownerField = "organization" as const;
 
   switch (command) {
+    // `gov issue` — the first step of governed work, which had no verb (#182, #194).
+    case "issue": {
+      const from = flagStr(flags, "from");
+      const bodyFile = flagStr(flags, "body-file");
+      const boardFlag = flagStr(flags, "board");
+      const planned = planIssue(
+        {
+          repo: positionals[0] ?? flagStr(flags, "repo"),
+          title: flagStr(flags, "title"),
+          body: bodyFile ? (ctx.fs.readFile(bodyFile) ?? "") : flagStr(flags, "body"),
+          from,
+          board: boardFlag ? Number(boardFlag) : null,
+          // POL-413: the actor, not an option with a blank default.
+          assignee: flagStr(flags, "assignee") ?? ctx.login ?? "",
+          githubOrg: c.githubOrg,
+          defaultRepo: `${c.githubOrg}/${c.workspaceRepo}`,
+        },
+        (repo, number) => ctx.issues.read(repo, number),
+      );
+      if (!planned.ok) return { code: 1, lines: [planned.message] };
+      const plan = planned.plan;
+
+      const url = ctx.issues.create(plan.repo, plan.title, plan.body, plan.assignee);
+      if (!url) return { code: 1, lines: [`Could not create the issue in ${plan.repo}. Check that you can write there.`] };
+      const added = plan.board === null ? false : ctx.issues.addToBoard(c.githubOrg, plan.board, url);
+      // A board issue that never reached the board is invisible to gov, so it is a
+      // non-zero exit even though the issue itself exists — the summary says which.
+      return { code: plan.board !== null && !added ? 1 : 0, lines: issueSummary(plan, url, added) };
+    }
+
     case "seed": {
       if (positionals.length < 1) return usage("seed <board-url> [--assignee <login>]");
       const r = seed(

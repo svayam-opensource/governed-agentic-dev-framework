@@ -615,9 +615,11 @@ const CMD_DESC: Record<string, string> = {
   org: "Manage governance workspaces (the active org)", validate: "Validate the workspace / shipped content",
   list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
   doctor: "Diagnose this machine: git · gh · workspace · active org · versions",
+  issue: "Create an issue — assigned to you, on the board. `--from <url>` mirrors an upstream one",
   upgrade: "Pull the latest framework CONTENT into this org (not the CLI — that is `npm i -g`)", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
 };
 const CMD_USAGE: Record<string, string> = {
+  issue: "[<org>/<repo>] --title <t> [--body <b>|--body-file <f>] [--board <n>]  |  --from <upstream-issue-url> [--board <n>]",
   seed: "<board-url> [--assignee <login>]", work: "[<project-id>] [--print-prompt]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
   knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
   org: "add <github_org> --home <path> | use|list|remove <github_org>",
