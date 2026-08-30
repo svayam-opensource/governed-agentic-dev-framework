@@ -25,7 +25,7 @@ describe("gov-work — setup (bootstrap)", () => {
     expect(v).to.include({
       orgSlugLower: "acme", githubOrg: "Acme", workspaceRepo: "acme-gov",
       defaultBranch: "main", defaultCodeBranch: "dev",
-      agentWorkRoot: "~/.acme/projects", govWorkspace: "~/.acme/gov_repo",
+      agentWorkRoot: "~/.gov/acme/projects", govWorkspace: "~/.gov/acme/gov_repo",
       policyOwnerEmail: "rk@acme.io", policyOwnerGithub: "@rk",
       legalOwnerGithub: "@rk", dataArchOwnerGithub: "@rk", policyEffectiveDate: "2026-07-04",
     });

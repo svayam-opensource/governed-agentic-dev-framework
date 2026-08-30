@@ -35,7 +35,7 @@ import { createGhProjects } from "../lifecycle/project-list.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
-import { planFixes, detectPackageManager, formatPlan, renderCommand } from "../maintain/fix-env.js";
+import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes } from "../maintain/fix-env.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
@@ -354,6 +354,16 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     place: (from, to) => { fsSync.mkdirSync(path.dirname(to), { recursive: true }); fsSync.renameSync(from, to); },
     discard: (d) => { try { fsSync.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } },
     found: async (repoDir) => (await runSetupCommand([], now, repoDir)) === 0 ? identityAt(repoDir) : null,
+    // The adopter path is exactly `gov setup <org>/<repo>` — the same code, reached
+    // from the first-run question instead of from a command the newcomer had to
+    // already know the name of.
+    createWorkspace: (target) => {
+      // CLOSE THIS READLINE FIRST. `runSetupCommand` opens its own interface on the
+      // same stdin, and two readline interfaces both echo what you type — which is
+      // why "Rakesh" arrived as "RRaakkeesshh". Only one may hold the terminal.
+      rl.close();
+      return runSetupCommand(["setup", target], now);
+    },
     register: (org, home) => {
       const deps = { store, govConfigAt: (p: string) => env.govConfigAt(p) };
       const added = orgAdd(deps, org, home);
@@ -746,13 +756,21 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     const ghPresent = tryRun("gh", ["--version"]) !== undefined;
     // Installed and signed-in are different facts; only the second predicts whether
     // the next GitHub call works (#186).
+    // One call answers both questions — signed in, and with which permissions. gh
+    // writes the status to stderr, so it has to be captured, not just tested.
+    const ghStatus = ghPresent ? ((): string | null => {
+      try { return execFileSync("gh", ["auth", "status"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
+      catch (e) { const r = (e as { stdout?: string; stderr?: string }); return (r.stdout ?? "") + (r.stderr ?? "") || null; }
+    })() : null;
     const ghAuthed = ghPresent && ((): boolean => {
       try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; }
     })();
+    const ghScopes = ghAuthed && ghStatus ? parseGrantedScopes(ghStatus) : null;
     const report = doctor({
       gitPresent,
       ghPresent,
       ghAuthenticated: ghAuthed,
+      ghScopes,
       resolve,
       activeOrg: env.readActiveOrg(),
       cliVersion,
@@ -782,38 +800,120 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         } catch { return null; }
       })();
       const plan = planFixes(
-        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId },
+        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId, ghScopes },
         detectPackageManager((n) => tryRun(n, ["--version"]) !== undefined),
       );
       process.stdout.write("\n");
-      for (const line of formatPlan(plan)) process.stdout.write(`${line}\n`);
-      if (!plan.steps.length) return report.ok ? 0 : 1;
+      for (const line of formatPlanNarrative(plan)) process.stdout.write(`${line}\n`);
+      if (!plan.steps.length) {
+        if (!plan.manual.length) process.stdout.write("doctor --fix: nothing to fix\n");
+        return report.ok ? 0 : 1;
+      }
 
       const assumeYes = Boolean(parsed.flags["yes"]);
       // A SYNCHRONOUS prompt, not readline: main() is sync by design (it returns an
       // exit code, and every other command is pure over injected IO). Reading stdin
       // directly keeps that contract rather than making the whole entry point async
       // for one interactive branch.
-      const askSync = (q: string): string => {
+      //
+      // EAGAIN IS NOT AN ANSWER. Node leaves a terminal fd non-blocking, so the very
+      // first `readSync` usually throws EAGAIN — there is nothing typed yet, because
+      // the human has not had time to type it. Treating that as an empty reply meant
+      // the consent gate answered itself "no" the instant it was printed, and the
+      // installer reported "Nothing was changed" to someone who never got to press a
+      // key. It retries until there is something to read.
+      //
+      // Only a genuinely unreadable stdin returns null, and the caller must then say
+      // so rather than assume either answer.
+      const askSync = (q: string): string | null => {
         process.stdout.write(q);
         const buf = Buffer.alloc(256);
-        try {
-          const n = fsSync.readSync(0, buf, 0, buf.length, null);
-          return buf.toString("utf8", 0, n).trim().toLowerCase();
-        } catch {
-          return "";                                   // not a terminal — treat as "yes, go on"
+        const deadline = Date.now() + 10 * 60_000;      // a person, not a timeout
+        for (;;) {
+          try {
+            const n = fsSync.readSync(0, buf, 0, buf.length, null);
+            if (n === 0) return null;                   // EOF: stdin closed, no answer coming
+            return buf.toString("utf8", 0, n).trim().toLowerCase();
+          } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            if (code !== "EAGAIN" && code !== "EWOULDBLOCK") return null;
+            if (Date.now() > deadline) return null;
+            // Nothing typed yet. Sleep synchronously — a busy loop on a terminal is
+            // a hot CPU for no reason, and Atomics.wait is the only way to pause a
+            // synchronous function without spawning something.
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+          }
         }
       };
+
       // Elevation facts, gathered once: `process.getuid` is undefined on Windows,
       // where the whole question does not arise.
       const amRoot = typeof process.getuid === "function" && process.getuid() === 0;
       const haveSudo = tryRun("sudo", ["--version"]) !== undefined;
+      // Can we actually elevate, or only invoke the command? `sudo -n true` answers
+      // without prompting: it succeeds for a passwordless sudoer and fails both for
+      // someone who must type a password and for someone with no rights at all.
+      const sudoNoPassword = haveSudo && ((): boolean => {
+        // Silent on purpose: `sudo: a password is required` on stderr IS the answer,
+        // not an error to show the reader in the middle of a plan.
+        try { execFileSync("sudo", ["-n", "true"], { stdio: "ignore" }); return true; } catch { return false; }
+      })();
+      const needElevation = plan.steps.some((s) => s.sudo) && !amRoot;
+      // Say what the plan will ASK OF THEM before the first command, not after a
+      // wall of sudo's own error text. Installing git and gh is a change to the
+      // machine, and on Linux that is an administrator's act — the adopter who does
+      // not have those rights should learn it here, in a sentence, not from
+      // "sudo: a password is required".
+      if (needElevation && !sudoNoPassword) {
+        process.stdout.write(
+          !haveSudo
+            ? "\n  Note: installing git or gh changes the system, and `sudo` is not available here.\n" +
+              "  Ask whoever administers this machine to install them, or install them yourself.\n"
+            : assumeYes
+              ? "\n  Note: installing git or gh needs administrator rights, and --yes cannot type a\n" +
+                "  password. Re-run `gov doctor --fix` without --yes, or ask your administrator.\n"
+              : "\n  Note: installing git or gh needs administrator rights — you will be asked for\n" +
+                "  your password. If you do not have those rights, ask whoever administers this\n" +
+                "  machine; nothing else in gov needs them.\n",
+        );
+      }
+      // Unattended AND unable to elevate: emitting sudo's own failure for every step
+      // teaches nothing. Say it once, above, and do the steps that need no rights.
+      const skipElevated = needElevation && assumeYes && !sudoNoPassword;
+      // ONE gate, before anything runs, defaulting to NO.
+      //
+      // Asking per command made the reader agree four times to a plan they had
+      // already been shown, and each prompt arrived after the previous command's
+      // output had scrolled the plan away. One informed yes is better consent than
+      // four uninformed ones — and defaulting to N means a stray Enter changes
+      // nothing on their machine.
+      if (!assumeYes) {
+        const go = askSync("\nDo you want to continue (y/N)? ");
+        if (go === null) {
+          // Never invent an answer. Silence here is our failure to ask, not their
+          // refusal, and reporting it as "you said no" is how a working install
+          // ends looking like an abandoned one.
+          process.stdout.write("\n\nCould not read your answer — this terminal is not accepting input.\n" +
+                               "Nothing was changed. Run `gov doctor --fix` directly, or run the commands above yourself.\n");
+          return 1;
+        }
+        if (go !== "y" && go !== "yes") {
+          process.stdout.write("\nNothing was changed. The commands above are safe to run yourself.\n");
+          return report.ok ? 0 : 1;
+        }
+      }
       let ran = 0, failed = 0;
       const broken = new Set<string>();
       {
         for (const step of plan.steps) {
           if (step.dependsOn && broken.has(step.dependsOn)) {
             process.stdout.write(`\n  skipped: ${step.what}\n    (it needs "${step.dependsOn}", which did not succeed)\n`);
+            broken.add(step.fixes);
+            continue;
+          }
+          const elevationBlocked = step.sudo && !amRoot && skipElevated;
+          if (elevationBlocked) {
+            process.stdout.write(`\n  skipped: ${step.what}\n    (needs administrator rights — see the note above)\n`);
             broken.add(step.fixes);
             continue;
           }
@@ -826,13 +926,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             broken.add(step.fixes);
             continue;
           }
-          const cmdline = renderCommand(step);
-          if (!assumeYes) {
-            const a = askSync(`\n  run:  ${cmdline}\n  ok? [Y/n] `);
-            if (a === "n" || a === "no") { process.stdout.write("  skipped\n"); broken.add(step.fixes); continue; }
-          } else {
-            process.stdout.write(`\n  run:  ${cmdline}\n`);
-          }
+          process.stdout.write(`\n  run:  ${renderCommand(step)}\n`);
           // sudo is prepended only here, where the user has just seen and accepted the
           // exact line — never silently inside the plan. Two environments make the
           // naive prefix wrong: a container running as root has no `sudo` and does

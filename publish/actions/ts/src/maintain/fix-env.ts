@@ -20,6 +20,44 @@
  * plan and does the asking. Everything here is therefore testable without a shell.
  */
 
+/**
+ * The token scopes gov actually needs, and why each one is on the list.
+ *
+ * `gh auth login` advertises "repo, read:org, admin:public_key" — gh's own minimum,
+ * which knows nothing about what gov does with the token. The gap is not academic:
+ * a GitHub Project board IS the project under this model (POL-044), and Projects
+ * are behind their own `project` scope. A token that satisfies gh sails through the
+ * sign-in and then fails at `gov seed`, several steps and some minutes later, on a
+ * permission nobody mentioned.
+ */
+export const REQUIRED_SCOPES: readonly { readonly scope: string; readonly why: string }[] = [
+  { scope: "repo", why: "read and write the governance repo, its issues and its pull requests" },
+  { scope: "read:org", why: "see which organizations you belong to" },
+  { scope: "project", why: "read and write Project boards — a board IS a project here, so gov seed needs this" },
+];
+
+/** Wanted, but gov works without it — so it is reported, never demanded. */
+export const RECOMMENDED_SCOPES: readonly { readonly scope: string; readonly why: string }[] = [
+  { scope: "workflow", why: "push changes that touch .github/workflows — GitHub rejects those without it" },
+];
+
+/**
+ * Pull the granted scopes out of `gh auth status` output. Returns null when the
+ * line is absent, which means "could not tell" — reported as unknown rather than
+ * as missing, because a false alarm about permissions sends people to their
+ * administrator for nothing.
+ */
+export function parseGrantedScopes(ghAuthStatus: string): readonly string[] | null {
+  const m = /Token scopes:\s*(.+)/.exec(ghAuthStatus);
+  if (!m?.[1]) return null;
+  return m[1].split(",").map((x) => x.trim().replace(/^'|'$/g, "")).filter(Boolean);
+}
+
+/** Which required scopes are absent. `repo` implies its children, e.g. `public_repo`. */
+export function missingScopes(granted: readonly string[]): readonly { readonly scope: string; readonly why: string }[] {
+  return REQUIRED_SCOPES.filter((r) => !granted.includes(r.scope));
+}
+
 /** The system package managers we know how to drive. */
 export type PackageManager = "brew" | "apt" | "dnf" | "yum" | "apk" | "pacman" | "zypper" | "winget";
 
@@ -29,6 +67,12 @@ export interface FixStep {
   readonly fixes: string;
   /** One line a non-specialist can read before consenting. */
   readonly what: string;
+  /**
+   * What is missing and what it is FOR, in the reader's terms — not the command's.
+   * Consent to "sudo dnf install -y gh" is not informed consent; consent to "you do
+   * not have gh, and gov needs it to sign you in to GitHub" is.
+   */
+  readonly why: string;
   readonly command: readonly string[];
   /** True when the command needs elevation. We never add `sudo` ourselves — see planFixes. */
   readonly sudo: boolean;
@@ -61,6 +105,11 @@ export interface EnvFacts {
    * CLI in its own repositories and Rocky does not.
    */
   readonly osId?: string | null;
+  /**
+   * Scopes on the current gh token, or null when `gh` is absent or the status
+   * could not be read. Null is "unknown", not "none".
+   */
+  readonly ghScopes?: readonly string[] | null;
 }
 
 /** Distributions that carry `gh` in their own repositories — no extra source needed. */
@@ -129,6 +178,7 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
       steps.push({
         fixes: "gh repo",
         what: "Add GitHub's package repository (this system does not ship the GitHub CLI)",
+        why: "This system's own software sources do not carry `gh`, so GitHub's has to be added before it can be installed.",
         command: ["curl", "-fsSL", GH_RPM_REPO, "-o", "/etc/yum.repos.d/gh-cli.repo"],
         sudo: true,
         interactive: false,
@@ -137,6 +187,9 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
     steps.push({
       fixes: tool,
       what: `Install ${label} using ${pm}`,
+      why: tool === "git"
+        ? "You do not have `git` installed. It is required — it is how repositories are cloned, pulled and pushed."
+        : "You do not have `gh` (the GitHub CLI) installed. It is required — it is how gov signs you in to GitHub and acts on your behalf.",
       command: INSTALL[pm][tool],
       sudo: NEEDS_SUDO.has(pm),
       interactive: false,
@@ -154,11 +207,30 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
     steps.push({
       fixes: "gh auth",
       what: "Sign in to GitHub (opens your browser)",
+      why: "You are not signed in to GitHub. Governance work happens on GitHub, so gov needs your authorization to act as you.",
       command: ["gh", "auth", "login"],
       sudo: false,
       interactive: true,
       ...(facts.ghPresent ? {} : { dependsOn: "gh" }),
     });
+  }
+
+  // A signed-in token with too few scopes is its own state: `gh auth status` says
+  // "Logged in", every gov command that touches a board fails, and nothing connects
+  // the two. `gh auth refresh` adds scopes to the existing login — it does not sign
+  // you out — but it opens a browser, so it is an interactive step like the login.
+  if (facts.ghAuthenticated && facts.ghScopes) {
+    const missing = missingScopes(facts.ghScopes);
+    if (missing.length) {
+      steps.push({
+        fixes: "gh scopes",
+        what: `Grant gov the GitHub permissions it needs (${missing.map((m) => m.scope).join(", ")})`,
+        why: `You are signed in, but the sign-in did not grant everything gov needs: ${missing.map((m) => `\`${m.scope}\` (${m.why})`).join("; ")}.`,
+        command: ["gh", "auth", "refresh", "-s", missing.map((m) => m.scope).join(",")],
+        sudo: false,
+        interactive: true,
+      });
+    }
   }
 
   // Debian and Ubuntu older than 24.04 do not carry `gh` in their own archives.
@@ -177,6 +249,39 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
 /** Render a step the way it must be typed, so consent is informed. */
 export function renderCommand(step: FixStep): string {
   return `${step.sudo ? "sudo " : ""}${step.command.join(" ")}`;
+}
+
+/**
+ * The consent screen: what is missing, in the reader's terms, before a single
+ * command is named.
+ *
+ * The first version led with the commands — "These commands will fix what is
+ * missing:" followed by four `sudo` lines. A reader who does not already know what
+ * `gh` is cannot consent to installing it; they can only agree or give up. State
+ * the gap and its purpose first; the commands are the appendix, not the argument.
+ */
+export function formatPlanNarrative(plan: FixPlan): string[] {
+  if (!plan.steps.length && !plan.manual.length) return [];
+  const lines: string[] = [];
+  if (plan.steps.length) {
+    lines.push("gov has checked this machine and found the following missing:");
+    lines.push("");
+    plan.steps.forEach((s, i) => {
+      lines.push(`  ${i + 1}. ${s.why}`);
+    });
+    lines.push("");
+    lines.push("To put that right, gov will run:");
+    lines.push("");
+    plan.steps.forEach((s, i) => {
+      lines.push(`  ${i + 1}. ${renderCommand(s)}`);
+    });
+  }
+  if (plan.manual.length) {
+    lines.push("");
+    lines.push("Needs your attention (no command can do these for you):");
+    for (const m of plan.manual) lines.push(`  · ${m}`);
+  }
+  return lines;
 }
 
 export function formatPlan(plan: FixPlan): string[] {

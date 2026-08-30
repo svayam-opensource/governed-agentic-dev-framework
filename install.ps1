@@ -14,7 +14,9 @@
 $ErrorActionPreference = 'Stop'
 
 $NodeMajor = 24
-$GovPkg    = '@svayam-opensource/gov'
+# Overridable so a pre-release build can be tested through the SAME path an adopter
+# takes: $env:GOV_PKG = 'C:\path\to\pkg.tgz'
+$GovPkg    = if ($env:GOV_PKG) { $env:GOV_PKG } else { '@svayam-opensource/gov' }
 $GovHome   = Join-Path $env:LOCALAPPDATA 'gov'
 $NodeDir   = Join-Path $GovHome 'node'
 
@@ -109,28 +111,51 @@ Install-Node $arch
 Install-Gov
 
 Say ""
-Say "Done."
-if ($script:PathChanged) {
-  Say ""
-  Warn "Open a NEW PowerShell window so that gov is on your PATH."
-}
-Say ""
-Say "Then check your setup:"
-Say "  gov doctor --fix    install Git and the GitHub CLI, and sign you in"
-Say "  gov                 the menu - start here if you are new"
+Say "gov is installed."
 Say ""
 
-# Hand over: show the report now, so the user sees a result rather than a prompt.
+# THE LAST WORD, printed where the reader actually is. See install.sh: said before
+# the sign-in, it scrolls several screens above the prompt the person is left at,
+# and the first thing they type fails.
+function Finish {
+  Say ""
+  if ($script:PathChanged) {
+    Warn "One last thing: this window was open before gov was installed, so it does"
+    Warn "not know about it yet. Open a NEW PowerShell window, then gov will work."
+  } else {
+    Say "Run gov on its own to open the menu - start there if you are new."
+  }
+  Say ""
+}
+
+# HAND OVER, and do not stop at a report. See install.sh for the reasoning: the
+# installer's job is "get this machine ready", and Node plus gov is only part of
+# that. `gov doctor --fix` shows each command and waits for consent.
 #
-# Its exit code is deliberately DISCARDED. `gov doctor` exits 1 on a machine with
-# no workspace configured yet — which is the correct report for someone who has
-# just installed the tool and not run `gov setup`. Letting that become the
-# installer's own exit code says "the install failed" about an install that
-# succeeded, and in CI it fails the job. What this script reports on is the
-# install; what doctor reports on is the machine.
-if (Get-Command gov -ErrorAction SilentlyContinue) {
+# PowerShell has no /dev/tty equivalent, and none is needed: `irm … | iex` runs the
+# script as a command, not on stdin, so the console stays the user's. When there is
+# no console at all — CI, a provisioning run — report and name the command instead.
+#
+# doctor's exit code is discarded either way. It exits 1 on a machine with no
+# workspace yet, which is a correct report about the machine and not a verdict on
+# the install.
+if (-not (Get-Command gov -ErrorAction SilentlyContinue)) { exit 0 }
+
+if ($env:GOV_NO_FIX -eq '1' -or [Console]::IsInputRedirected) {
   Step "gov doctor"
   & gov doctor
-  $global:LASTEXITCODE = 0
+  if ([Console]::IsInputRedirected) {
+    Say ""
+    Say "No console here, so nothing was changed. To finish setting this machine up:"
+    Say "  gov doctor --fix"
+  }
+  Finish
+} else {
+  Say "One more step: the tools gov needs on this machine."
+  Say "You will be shown each command and asked before anything runs."
+  Say ""
+  & gov doctor --fix
+  Finish
 }
+$global:LASTEXITCODE = 0
 exit 0

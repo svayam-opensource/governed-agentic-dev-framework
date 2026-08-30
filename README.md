@@ -36,6 +36,9 @@ The enterprise plugin units (`gov-catalog` · `gov-deploy` · `gov-data`, the
 ## Docs
 
 - **[docs/operating-model.md](docs/operating-model.md)** — who does what (maintainer · admin · developer).
+- **[docs/testing-the-adopter-path.md](docs/testing-the-adopter-path.md)** — how to test what an adopter
+  hits before `gov` exists. Throwaway containers, one per scenario, because none of it is visible from a
+  machine that already works.
 - **[docs/](docs)** — framework design docs, ADRs, session-start protocol.
 
 ## Develop the CLI

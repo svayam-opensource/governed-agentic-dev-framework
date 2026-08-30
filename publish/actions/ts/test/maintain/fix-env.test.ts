@@ -6,7 +6,7 @@
  * tool installed but never signed in.
  */
 import { expect } from "chai";
-import { detectPackageManager, planFixes, renderCommand, formatPlan } from "../../src/maintain/fix-env.js";
+import { detectPackageManager, planFixes, renderCommand, formatPlan, parseGrantedScopes, missingScopes } from "../../src/maintain/fix-env.js";
 
 const has = (...present: string[]) => (name: string): boolean => present.includes(name);
 
@@ -101,5 +101,43 @@ describe("gov-work — doctor --fix planning", () => {
     expect(lines[0]).to.equal("These commands will fix what is missing:");
     expect(lines[1]).to.contain("Install Git using dnf");
     expect(lines[2]).to.contain("sudo dnf install -y git");
+  });
+});
+
+describe("gov-work — gh token scopes", () => {
+  it("reads the granted scopes out of gh's own status output", () => {
+    const out = "github.com\n  ✓ Logged in to github.com account rkant\n  - Token scopes: 'project', 'read:org', 'repo'\n";
+    expect(parseGrantedScopes(out)).to.deep.equal(["project", "read:org", "repo"]);
+  });
+
+  it("returns null when the line is absent — unknown is not the same as missing", () => {
+    expect(parseGrantedScopes("You are not logged into any GitHub hosts.")).to.equal(null);
+  });
+
+  it("wants `project`, which gh's own login minimum does not grant", () => {
+    // gh advertises "repo, read:org, admin:public_key". A board IS a project here.
+    expect(missingScopes(["repo", "read:org", "admin:public_key"]).map((m) => m.scope)).to.deep.equal(["project"]);
+  });
+
+  it("is satisfied by a token that has all three", () => {
+    expect(missingScopes(["repo", "read:org", "project", "workflow"])).to.have.length(0);
+  });
+
+  it("plans a scope refresh, and never a re-login — refresh adds, login replaces", () => {
+    const plan = planFixes(
+      { gitPresent: true, ghPresent: true, ghAuthenticated: true, platform: "linux", osId: "fedora", ghScopes: ["repo", "read:org"] },
+      "dnf",
+    );
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh scopes"]);
+    expect(renderCommand(plan.steps[0]!)).to.equal("gh auth refresh -s project");
+    expect(plan.steps[0]!.interactive, "it opens a browser").to.equal(true);
+  });
+
+  it("says nothing about scopes when they could not be read", () => {
+    const plan = planFixes(
+      { gitPresent: true, ghPresent: true, ghAuthenticated: true, platform: "linux", osId: "fedora", ghScopes: null },
+      "dnf",
+    );
+    expect(plan.steps).to.have.length(0);
   });
 });

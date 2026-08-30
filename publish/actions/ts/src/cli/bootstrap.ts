@@ -9,7 +9,7 @@
  *
  * ## The order, and why it is that order
  *
- * `gov_home` lives at `~/.<org_slug>/gov_repo`, and **`org_slug` is inside the repo being cloned**. So the
+ * `gov_home` lives at `~/.gov/<org_slug>/gov_repo`, and **`org_slug` is inside the repo being cloned**. So the
  * destination cannot be computed before the clone exists. Cloning to a temp location and then placing it is
  * not a workaround: the alternative is deriving a slug from the URL and letting `org-config.yaml` disagree
  * with the path it lives at — a second copy of a value, with nothing comparing them, which is the shape
@@ -73,7 +73,17 @@ export function nextStep(f: RegistryFacts): BootstrapStep {
 }
 
 /**
- * Where a freshly cloned governance repo belongs: `~/.<org_slug>/gov_repo`.
+ * Where a freshly cloned governance repo belongs: `~/.gov/<org_slug>/gov_repo`.
+ *
+ * Under `~/.gov/`, not `~/.<slug>/` (#186). Three parts of this tool had three
+ * answers: `create.ts` placed a NEW workspace at `~/.gov/<slug>/gov_repo`, the
+ * registry that maps orgs to homes lives at `~/.gov/workspaces`, and this — the
+ * JOINING path — put the clone at `~/.<slug>/gov_repo`. So founding and joining
+ * the same organization on the same machine produced two different layouts.
+ *
+ * `~/.gov/` as the root is also what makes more than one governed organization
+ * workable: every org is a sibling directory next to the registry that enumerates
+ * them, instead of being scattered across the home directory with nothing to list.
  *
  * The slug is read from the clone's own `org-config.yaml`, so a JOINER lands exactly where the org says,
  * not where a URL suggested. A FOUNDER has no config yet, so the caller passes the slug the setup questions
@@ -83,7 +93,7 @@ export function nextStep(f: RegistryFacts): BootstrapStep {
  * same pairing `org_slug` / `org_slug_lower` already makes inside org-config.yaml.
  */
 export function govHomeFor(homeDir: string, orgSlug: string, join: (...p: string[]) => string = path.join): string {
-  return join(homeDir, `.${orgSlug.toLowerCase()}`, "gov_repo");
+  return join(homeDir, ".gov", orgSlug.toLowerCase(), "gov_repo");
 }
 
 /** `git@github.com:Svayamtech/svm-prj-work.git` / `https://github.com/Svayamtech/svm-prj-work` → `svm-prj-work`. */
@@ -98,6 +108,85 @@ export function looksLikeRepoUrl(s: string): boolean {
   if (!t) return false;
   return /^(https?:\/\/|git@|ssh:\/\/)/.test(t) && /[/:][^/:]+\/[^/:]+/.test(t);
 }
+
+/**
+ * What the first run asks before anything else (#186).
+ *
+ * The prompt used to ask for a governance repo clone URL. Only a JOINER can answer
+ * that: an adopter's governance repo does not exist yet — `gov setup <org>/<repo>`
+ * is what creates it. So the first question was answerable by roughly half the
+ * people who reached it, and the other half went looking for a repository that was
+ * never going to be found.
+ *
+ * Asking the ROLE first is not an extra step; it is the step that decides which
+ * question is worth asking. And because "which am I?" is a fair thing not to know,
+ * C is a real answer rather than a way of saying no.
+ */
+export type FirstRunRole = "adopter" | "joiner" | "explain";
+
+export function parseRole(answer: string): FirstRunRole | null {
+  switch (answer.trim().toUpperCase()) {
+    case "A": case "ADOPTER": return "adopter";
+    case "B": case "JOINER":  return "joiner";
+    case "C": case "?":       return "explain";
+    default: return null;
+  }
+}
+
+export const ROLE_QUESTION: readonly string[] = [
+  "Please choose one of the following to continue:",
+  "",
+  "  A. I am an ADOPTER — I want to start using the governance framework for my organization.",
+  "  B. I am a JOINER — my organization already uses it, and I want to start working under it.",
+  "  C. I am not sure. Explain this to me before I decide.",
+  "",
+];
+
+/**
+ * Shown for C, and again after any unrecognised answer. Deliberately explains
+ * GitHub organizations too: the framework is adopted per ORGANIZATION, and a
+ * newcomer who thinks their personal account is their organization will adopt into
+ * the wrong place — a mistake nothing downstream can detect.
+ */
+export const ROLE_EXPLANATION: readonly string[] = [
+  "",
+  "Definitions",
+  "",
+  "  The FRAMEWORK",
+  "    The open-source governed agentic development framework, by Svayam Infoware Pvt. Ltd.",
+  "    https://github.com/svayam-opensource/governed-agentic-dev-framework",
+  "    You never clone it yourself. The tool copies what it needs.",
+  "",
+  "  An ORGANIZATION",
+  "    A shared GitHub workspace where a business or team collaborates across many",
+  "    projects and owns repositories together. It is NOT your user account.",
+  "    You cannot log in to an organization; you sign in as yourself, and from there",
+  "    you reach the organizations you created or were invited to:",
+  "",
+  "        You ──────── Org 1        (you created it)",
+  "            ├─────── Org 2",
+  "            └─────── Org 3",
+  "",
+  "        Someone else ─── Org A",
+  "                     └── Org 1    (invited by you)",
+  "",
+  "  ONE organization, ONE adoption",
+  "    The framework is adopted once per organization. An organization cannot be run",
+  "    by two sets of governing rules at the same time — its projects answer to one",
+  "    set of policies, or the policies mean nothing.",
+  "",
+  "You are a JOINER (choose B) if",
+  "  · someone has already adopted the framework for your organization;",
+  "  · you will need your organization's governance repo details to join — ask your",
+  "    governance administrator for them before you continue.",
+  "",
+  "You are an ADOPTER (choose A) if",
+  "  · nobody has adopted the framework for your organization yet;",
+  "  · you want to adopt it for your organization;",
+  "  · you are willing to act as its governance administrator. You will be walked",
+  "    through what that means during setup and review.",
+  "",
+];
 
 /** The org identity a governance repo declares about itself. */
 export interface OrgIdentity {
@@ -130,6 +219,11 @@ export interface FirstRunIo {
   discard(dir: string): void;
   /** author `org-config.yaml` in a repo that has none — the FOUNDING path (`gov setup`). */
   found(repoDir: string): Promise<OrgIdentity | null>;
+  /**
+   * The ADOPTER path: create the organization's governance repo from the template
+   * and configure it — i.e. `gov setup <org>/<repo>`. Returns its exit code.
+   */
+  createWorkspace(target: string): Promise<number>;
   /** register the home and make it active. */
   register(org: string, home: string): { readonly ok: boolean; readonly message?: string };
   /** select an already-registered org. */
@@ -177,11 +271,67 @@ export async function runFirstRun(io: FirstRunIo): Promise<number | null> {
  * The temp clone is discarded on EVERY failure after it exists, including a failed `place`: a half-placed
  * home is worse than none, because the next run would find something at `gov_home` and believe it.
  */
+/**
+ * Ask which role the person is here in, explaining as often as they need. Loops
+ * rather than failing: an unrecognised answer means the question was not clear
+ * enough, which is our problem to fix on the spot, not theirs to be punished for.
+ */
+async function askRole(io: FirstRunIo): Promise<FirstRunRole | null> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    for (const line of ROLE_QUESTION) io.print(line);
+    const role = parseRole(await io.prompt("Select (A/B/C): ", ""));
+    if (role === "adopter" || role === "joiner") return role;
+    for (const line of ROLE_EXPLANATION) io.print(line);
+  }
+  return null;
+}
+
+/** The ADOPTER path: name the repo to create, and hand it to `gov setup`. */
+async function foundNewOrg(io: FirstRunIo): Promise<number> {
+  io.print("");
+  io.print("Adopting the framework creates a NEW repository in your GitHub organization.");
+  io.print("It will hold your policies, your knowledge, and a record of every project.");
+  io.print("");
+  io.print("  Give it as <your-github-org>/<repo-name>, for example:  acme-corp/acme-governance");
+  io.print("");
+  const target = (await io.prompt("Organization/repository to create (or Enter to stop): ", "")).trim();
+  if (target === "") {
+    io.print("");
+    io.print("Nothing created. When you are ready:  gov setup <your-github-org>/<repo-name>");
+    return 0;
+  }
+  if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(target)) {
+    io.print(`'${target}' is not an organization/repository name — expected something like acme-corp/acme-governance.`);
+    io.print("If you meant to JOIN an organization that already uses gov, re-run and choose B.");
+    return 1;
+  }
+  return io.createWorkspace(target);
+}
+
 async function cloneAndRegister(io: FirstRunIo): Promise<number> {
-  io.print("No organization is registered on this machine yet.");
-  const url = (await io.prompt("Governance repo (clone URL): ", "")).trim();
+  const role = await askRole(io);
+  if (role === null) {
+    io.print("");
+    io.print("Stopping here rather than guessing. Re-run `gov` when you know which applies.");
+    return 1;
+  }
+  if (role === "adopter") return foundNewOrg(io);
+
+  // JOINER. Now the clone URL is a fair question: their organization's governance
+  // repo exists, and someone can tell them where it is.
+  io.print("");
+  io.print("Joining an organization that already uses gov.");
+  io.print("Your governance administrator has the repo's clone URL — ask them if you do not have it.");
+  io.print("");
+  const url = (await io.prompt("Governance repo (clone URL), or Enter to stop: ", "")).trim();
+  if (url === "") {
+    io.print("");
+    io.print("Nothing registered. Re-run `gov` once you have the clone URL.");
+    return 0;
+  }
   if (!looksLikeRepoUrl(url)) {
     io.print(`'${url}' does not look like a clone URL — expected something like git@github.com:Org/org-gov.git`);
+    io.print("If nobody has adopted the framework for your organization yet, re-run and choose A.");
     return 1;
   }
 

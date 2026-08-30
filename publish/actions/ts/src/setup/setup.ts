@@ -80,8 +80,21 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
     workspaceRepo: pick("workspaceRepo", origin?.repo ?? ""),
     defaultBranch: pick("defaultBranch", "main"),
     defaultCodeBranch: pick("defaultCodeBranch", "dev"),
-    agentWorkRoot: pick("agentWorkRoot", `~/.${orgSlugLower}/projects`),
-    govWorkspace: pick("govWorkspace", `~/.${orgSlugLower}/gov_repo`),
+    // `~/.gov/<slug>/…`, NOT `~/.<slug>/…`.
+    //
+    // `create.ts` has always PUT them at `~/.gov/<slug>/gov_repo` and
+    // `~/.gov/<slug>/projects` (the workspace-resolution contract, R9/R10), while
+    // these defaults DESCRIBED them as `~/.<slug>/…`. Two halves of the same
+    // command disagreeing about where they work — the exact "second copy of a
+    // value, with nothing comparing them" that create.ts's own header names as the
+    // shape behind most of this project's defects.
+    //
+    // `~/.gov/` as the root is also what makes more than one governed organization
+    // possible on one machine: every org's home is a sibling under it, next to the
+    // `workspaces` registry that maps between them. `~/.<slug>/` scattered them
+    // across the home directory with nothing to enumerate.
+    agentWorkRoot: pick("agentWorkRoot", `~/.gov/${orgSlugLower}/projects`),
+    govWorkspace: pick("govWorkspace", `~/.gov/${orgSlugLower}/gov_repo`),
     policyOwnerEmail: pick("policyOwnerEmail", ctx.gitEmail ?? ""),
     policyOwnerGithub,
     legalOwnerGithub: pick("legalOwnerGithub", policyOwnerGithub),
