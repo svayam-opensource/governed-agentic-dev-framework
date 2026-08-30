@@ -204,11 +204,22 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
   // tool installs fine and the person forgets to sign in. Plan the login whenever
   // it is not confirmed — including right after an install, when it cannot be.
   if (!facts.ghAuthenticated) {
+    // ASK FOR THE SCOPES AT LOGIN, not on a later run.
+    //
+    // A bare `gh auth login` grants gh's OWN minimum, which does not include
+    // `project`. The scope check below cannot help: at this point nobody is signed
+    // in, so there are no scopes to inspect, and by the time there are, this run is
+    // over. The result was an adopter who completed the whole install, ran `gov`,
+    // and hit "your authentication token is missing required scopes
+    // [read:project]" on the first thing they tried (#186) — a second browser trip
+    // for a permission we knew about before the first one.
+    //
+    // `project` is the read/write scope and covers `read:project`.
     steps.push({
       fixes: "gh auth",
       what: "Sign in to GitHub (opens your browser)",
       why: "You are not signed in to GitHub. Governance work happens on GitHub, so gov needs your authorization to act as you.",
-      command: ["gh", "auth", "login"],
+      command: ["gh", "auth", "login", "-s", REQUIRED_SCOPES.map((r) => r.scope).join(",")],
       sudo: false,
       interactive: true,
       ...(facts.ghPresent ? {} : { dependsOn: "gh" }),

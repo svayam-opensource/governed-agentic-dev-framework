@@ -66,7 +66,9 @@ describe("gov-work — doctor --fix planning", () => {
   it("treats 'installed but not signed in' as its own fixable failure", () => {
     const plan = planFixes({ gitPresent: true, ghPresent: true, ghAuthenticated: false, platform: "darwin" }, "brew");
     expect(plan.steps).to.have.length(1);
-    expect(renderCommand(plan.steps[0]!)).to.equal("gh auth login");
+    // The scopes are requested AT login: a bare `gh auth login` grants gh's own
+    // minimum, and the gap would only be visible on a later run.
+    expect(renderCommand(plan.steps[0]!)).to.equal("gh auth login -s repo,read:org,project");
     expect(plan.steps[0]!.interactive).to.equal(true);
   });
 
@@ -131,6 +133,13 @@ describe("gov-work — gh token scopes", () => {
     expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh scopes"]);
     expect(renderCommand(plan.steps[0]!)).to.equal("gh auth refresh -s project");
     expect(plan.steps[0]!.interactive, "it opens a browser").to.equal(true);
+  });
+
+  it("asks for gov's scopes during the sign-in, not on a later run", () => {
+    const plan = planFixes({ gitPresent: true, ghPresent: true, ghAuthenticated: false, platform: "linux", osId: "fedora" }, "dnf");
+    const login = plan.steps.find((s) => s.fixes === "gh auth")!;
+    expect(login.command).to.include("-s");
+    expect(login.command.join(" ")).to.contain("project");
   });
 
   it("says nothing about scopes when they could not be read", () => {
