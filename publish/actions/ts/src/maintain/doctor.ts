@@ -42,6 +42,13 @@ export interface DoctorFacts {
    * which does not include `project` — and a Project board IS a project here.
    */
   readonly ghScopes?: readonly string[] | null;
+  /**
+   * Whether git knows who you are — `user.name` and `user.email`. Installed is not
+   * the same as usable (#186): git refuses to commit without an identity, and gov
+   * commits on every seed, task and merge. The failure surfaces several steps
+   * later, inside a lifecycle command, as git's own "Please tell me who you are".
+   */
+  readonly gitIdentity?: { readonly name: string | null; readonly email: string | null };
   readonly resolve: ResolveResult;
   readonly activeOrg: string | null;
   readonly cliVersion: string;
@@ -58,6 +65,19 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // Only when the caller actually probed it. `undefined` means "not checked",
     // which must not read as "not signed in" — a row that fails on a fact nobody
     // gathered is worse than no row.
+    ...(facts.gitPresent && facts.gitIdentity
+      ? [((): Diagnostic => {
+          const missing = [
+            ...(facts.gitIdentity.name ? [] : ["user.name"]),
+            ...(facts.gitIdentity.email ? [] : ["user.email"]),
+          ];
+          return missing.length
+            ? { name: "git identity", status: "fail" as DiagnosticStatus,
+                detail: `${missing.join(" and ")} not set — git cannot commit, and gov commits on every task. Run \`gov doctor --fix\`` }
+            : { name: "git identity", status: "ok" as DiagnosticStatus,
+                detail: `${facts.gitIdentity.name} <${facts.gitIdentity.email}>` };
+        })()]
+      : []),
     ...(facts.ghPresent && facts.ghAuthenticated !== undefined
       ? [{
           name: "gh auth",

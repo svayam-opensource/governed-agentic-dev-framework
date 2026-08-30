@@ -753,6 +753,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // place a person looks when something is wrong.
     const depsReport = checkDeps((n) => tryRun(n, ["--version"]) !== undefined, process.platform);
     const gitPresent = tryRun("git", ["--version"]) !== undefined;
+    const gitCfg = (k: string): string | null => {
+      const v = gitPresent ? tryRun("git", ["config", "--global", "--get", k]) : undefined;
+      return v && v.trim() ? v.trim() : null;
+    };
+    const gitIdentity = gitPresent ? { name: gitCfg("user.name"), email: gitCfg("user.email") } : undefined;
     const ghPresent = tryRun("gh", ["--version"]) !== undefined;
     // Installed and signed-in are different facts; only the second predicts whether
     // the next GitHub call works (#186).
@@ -771,6 +776,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       ghPresent,
       ghAuthenticated: ghAuthed,
       ghScopes,
+      gitIdentity,
       resolve,
       activeOrg: env.readActiveOrg(),
       cliVersion,
@@ -800,7 +806,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         } catch { return null; }
       })();
       const plan = planFixes(
-        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId, ghScopes },
+        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId, ghScopes, gitIdentity },
         detectPackageManager((n) => tryRun(n, ["--version"]) !== undefined),
       );
       process.stdout.write("\n");
@@ -921,9 +927,37 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           // purpose is to ask: `gh auth login` opens a browser and waits. In
           // unattended use it would hang forever with no one at the terminal. Name
           // it as the human's remaining job instead.
-          if (assumeYes && step.interactive) {
+          if (assumeYes && step.interactive && step.fixes !== "git identity") {
             process.stdout.write(`\n  ${step.what}\n    needs you — run it yourself:  ${renderCommand(step)}\n`);
             broken.add(step.fixes);
+            continue;
+          }
+          // The identity step has no canned command: its VALUES are the point, and the
+          // best source is the GitHub account the sign-in just proved. Ask, defaulting
+          // to that — after the login, so the defaults exist.
+          if (step.fixes === "git identity") {
+            process.stdout.write(`\n  ${step.what}\n`);
+            const ghName = tryRun("gh", ["api", "user", "--jq", ".name // empty"]) ?? "";
+            const ghLogin = tryRun("gh", ["api", "user", "--jq", ".login // empty"]) ?? "";
+            const ghId = tryRun("gh", ["api", "user", "--jq", ".id // empty"]) ?? "";
+            const ghEmail = tryRun("gh", ["api", "user", "--jq", ".email // empty"]) ?? "";
+            // GitHub hides most people's address. The noreply form is what GitHub
+            // itself recommends and what its web edits use, so commits still attribute.
+            const defEmail = ghEmail || (ghId && ghLogin ? `${ghId}+${ghLogin}@users.noreply.github.com` : "");
+            const defName = ghName || ghLogin;
+            const name = askSync(`    Your name for git commits${defName ? ` [${defName}]` : ""}: `) ?? "";
+            const email = askSync(`    Your email for git commits${defEmail ? ` [${defEmail}]` : ""}: `) ?? "";
+            const finalName = (name || defName).trim();
+            const finalEmail = (email || defEmail).trim();
+            if (!finalName || !finalEmail) {
+              failed++; broken.add(step.fixes);
+              process.stdout.write("  ✗ skipped — git needs both a name and an email\n");
+              continue;
+            }
+            const okName = spawnSync("git", ["config", "--global", "user.name", finalName], { stdio: "inherit" }).status === 0;
+            const okMail = spawnSync("git", ["config", "--global", "user.email", finalEmail], { stdio: "inherit" }).status === 0;
+            if (okName && okMail) { ran++; process.stdout.write(`  ✓ git will sign your commits as ${finalName} <${finalEmail}>\n`); }
+            else { failed++; broken.add(step.fixes); process.stdout.write("  ✗ could not write your git config\n"); }
             continue;
           }
           process.stdout.write(`\n  run:  ${renderCommand(step)}\n`);

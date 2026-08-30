@@ -110,6 +110,8 @@ export interface EnvFacts {
    * could not be read. Null is "unknown", not "none".
    */
   readonly ghScopes?: readonly string[] | null;
+  /** git's configured identity. Missing values are as blocking as a missing git. */
+  readonly gitIdentity?: { readonly name: string | null; readonly email: string | null };
 }
 
 /** Distributions that carry `gh` in their own repositories — no extra source needed. */
@@ -220,6 +222,26 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
       what: "Sign in to GitHub (opens your browser)",
       why: "You are not signed in to GitHub. Governance work happens on GitHub, so gov needs your authorization to act as you.",
       command: ["gh", "auth", "login", "-s", REQUIRED_SCOPES.map((r) => r.scope).join(",")],
+      sudo: false,
+      interactive: true,
+      ...(facts.ghPresent ? {} : { dependsOn: "gh" }),
+    });
+  }
+
+  // GIT'S IDENTITY, last: it is the only step whose VALUES we do not know, and the
+  // best source for them is the GitHub account the sign-in above just proved. Its
+  // command is a placeholder the caller fills in — see main(), which asks, with the
+  // GitHub name and email as defaults.
+  if (facts.gitIdentity && (!facts.gitIdentity.name || !facts.gitIdentity.email)) {
+    const missing = [
+      ...(facts.gitIdentity.name ? [] : ["user.name"]),
+      ...(facts.gitIdentity.email ? [] : ["user.email"]),
+    ];
+    steps.push({
+      fixes: "git identity",
+      what: `Tell git who you are (${missing.join(" and ")})`,
+      why: `git has no ${missing.join(" or ")}, so it refuses to commit — and gov commits on every task it lands. It will be set from your GitHub account, and you can change it.`,
+      command: ["git", "config", "--global", "user.name/user.email"],
       sudo: false,
       interactive: true,
       ...(facts.ghPresent ? {} : { dependsOn: "gh" }),

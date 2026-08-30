@@ -150,3 +150,43 @@ describe("gov-work — gh token scopes", () => {
     expect(plan.steps).to.have.length(0);
   });
 });
+
+describe("gov-work — git identity", () => {
+  it("treats a git with no identity as broken, not as installed", () => {
+    const plan = planFixes(
+      { gitPresent: true, ghPresent: true, ghAuthenticated: true, platform: "linux", osId: "fedora",
+        ghScopes: ["repo", "read:org", "project"], gitIdentity: { name: null, email: null } },
+      "dnf",
+    );
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["git identity"]);
+    expect(plan.steps[0]!.why).to.contain("refuses to commit");
+  });
+
+  it("names only what is actually missing", () => {
+    const plan = planFixes(
+      { gitPresent: true, ghPresent: true, ghAuthenticated: true, platform: "linux", osId: "fedora",
+        ghScopes: ["repo", "read:org", "project"], gitIdentity: { name: "Rakesh", email: null } },
+      "dnf",
+    );
+    expect(plan.steps[0]!.what).to.contain("user.email");
+    expect(plan.steps[0]!.what).to.not.contain("user.name");
+  });
+
+  it("waits for gh when gh is being installed — the defaults come from the account", () => {
+    const plan = planFixes(
+      { gitPresent: true, ghPresent: false, ghAuthenticated: false, platform: "darwin",
+        gitIdentity: { name: null, email: null } },
+      "brew",
+    );
+    expect(plan.steps.find((s) => s.fixes === "git identity")!.dependsOn).to.equal("gh");
+  });
+
+  it("says nothing when git already knows who you are", () => {
+    const plan = planFixes(
+      { gitPresent: true, ghPresent: true, ghAuthenticated: true, platform: "linux", osId: "fedora",
+        ghScopes: ["repo", "read:org", "project"], gitIdentity: { name: "R", email: "r@x.io" } },
+      "dnf",
+    );
+    expect(plan.steps).to.have.length(0);
+  });
+});
