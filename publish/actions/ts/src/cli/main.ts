@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
-import { parseTarget, preflight as createPreflight, explainFailure, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, ADOPTER_DIRS, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
@@ -272,10 +272,11 @@ export async function runSetupCommand(
       // replaces it on upgrade. Leftovers are reported, not tolerated: a policy the adopter opens and
       // finds <ORG_NAME> in is the first impression this whole change exists to fix.
       const cfgText = fsSync.readFileSync(path.join(createdHome, "org-config.yaml"), "utf8");
-      const oc = parseOrgConfig(cfgText) as unknown as Record<string, string>;
-      const values: Record<string, string> = {};
-      for (const [k, v] of Object.entries(oc)) if (typeof v === "string" && v) values[k.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase()] = v;
-      const leftovers = new Set<string>();
+      // From the FILE, not from parseOrgConfig: that interface carries only the keys
+      // gov-work reads, so the owner handles and the effective date had no values and
+      // survived into the adopter's policy documents (#193).
+      const values = tokenValuesFromOrgConfig(cfgText);
+      const leftovers = new Map<string, string>();     // token → first file it survived in
       let swept = 0;
       const sweepDir = (dir: string): void => {
         for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
@@ -285,14 +286,28 @@ export async function runSetupCommand(
           const before = fsSync.readFileSync(f, "utf8");
           const after = substituteTokens(before, values);
           if (after !== before) { fsSync.writeFileSync(f, after, "utf8"); swept++; }
-          for (const l of leftoverTokens(after)) leftovers.add(l);
+          for (const l of leftoverTokens(after)) {
+            if (PER_PROJECT_TOKENS.has(l)) continue;   // resolved by `gov seed`; expected here
+            if (!leftovers.has(l)) leftovers.set(l, path.relative(createdHome, f));
+          }
         }
       };
       for (const d of INHERITED_DIRS) { const dir = path.join(createdHome, d); if (fsSync.existsSync(dir)) sweepDir(dir); }
       manifest.push({ what: "Swept", detail: `${swept} file(s) — org tokens resolved in ${INHERITED_DIRS.join("/ ")}/ (publish/ untouched)` });
-      if (leftovers.size) manifest.push({ what: "⚠ Tokens", detail: `unresolved: ${[...leftovers].join(" ")} — tell gov-work; these should not reach an adopter` });
+      // Name the file. "Unresolved: <FOO>" tells you a token survived; it does not
+      // tell you where to look, which is the only part that lets anyone act.
+      if (leftovers.size) {
+        manifest.push({
+          what: "⚠ Tokens",
+          detail: `unresolved: ${[...leftovers].map(([t2, f]) => `${t2} (${f})`).join(", ")} — tell gov-work; these should not reach an adopter`,
+        });
+      }
       const left = fsSync.readdirSync(createdHome).filter((e) => e !== ".git" && fsSync.statSync(path.join(createdHome, e)).isDirectory());
-      const unexpected = left.filter((d) => !ADOPTER_DIRS.includes(d));
+      const manifestText = fsSync.existsSync(path.join(createdHome, "publish", "content", "MANIFEST.yaml"))
+        ? fsSync.readFileSync(path.join(createdHome, "publish", "content", "MANIFEST.yaml"), "utf8")
+        : null;
+      const expected = expectedDirs(manifestText);
+      const unexpected = left.filter((d) => !expected.includes(d));
       if (unexpected.length) manifest.push({ what: "Note", detail: `unexpected directories kept: ${unexpected.join(" ")} — tell gov-work if these are publisher-only` });
 
       const git = (...a: string[]): boolean => { try { execFileSync("git", ["-C", createdHome, ...a], { stdio: "ignore" }); return true; } catch { return false; } };
@@ -946,13 +961,30 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             // itself recommends and what its web edits use, so commits still attribute.
             const defEmail = ghEmail || (ghId && ghLogin ? `${ghId}+${ghLogin}@users.noreply.github.com` : "");
             const defName = ghName || ghLogin;
-            const name = askSync(`    Your name for git commits${defName ? ` [${defName}]` : ""}: `) ?? "";
-            const email = askSync(`    Your email for git commits${defEmail ? ` [${defEmail}]` : ""}: `) ?? "";
-            const finalName = (name || defName).trim();
-            const finalEmail = (email || defEmail).trim();
+            // ASK AGAIN rather than give up (#192). An empty name or a mistyped
+            // address is a slip, not a decision to abandon the setup — and the only
+            // way out that belongs to the user is Ctrl-C, which they already know.
+            // Bounded, because against a closed stdin "ask again" is a hang.
+            const askUntil = (label: string, def: string, ok: (v: string) => string | null): string | null => {
+              for (let i = 0; i < 5; i++) {
+                const raw = askSync(`    ${label}${def ? ` [${def}]` : ""}: `);
+                if (raw === null) return null;                 // no stdin: not a refusal, an absence
+                const v = (raw || def).trim();
+                const problem = ok(v);
+                if (!problem) return v;
+                process.stdout.write(`    ✗ ${problem}\n`);
+              }
+              return null;
+            };
+            const finalName = askUntil("Your name for git commits", defName,
+              (v) => (v ? null : "git will not commit without a name."));
+            const finalEmail = finalName === null ? null : askUntil("Your email for git commits", defEmail,
+              (v) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : `'${v}' does not look like an email address (name@example.com).`));
             if (!finalName || !finalEmail) {
               failed++; broken.add(step.fixes);
-              process.stdout.write("  ✗ skipped — git needs both a name and an email\n");
+              process.stdout.write("  ✗ skipped — git needs both a name and an email. Set them yourself with:\n" +
+                                   "      git config --global user.name  \"Your Name\"\n" +
+                                   "      git config --global user.email \"you@your-org\"\n");
               continue;
             }
             const okName = spawnSync("git", ["config", "--global", "user.name", finalName], { stdio: "inherit" }).status === 0;

@@ -34,6 +34,7 @@
  */
 
 import * as path from "node:path";
+import { orgRepoTarget } from "../setup/answers.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
 export type BootstrapStep =
@@ -294,15 +295,26 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   io.print("");
   io.print("  Give it as <your-github-org>/<repo-name>, for example:  acme-corp/acme-governance");
   io.print("");
-  const target = (await io.prompt("Organization/repository to create (or Enter to stop): ", "")).trim();
-  if (target === "") {
-    io.print("");
-    io.print("Nothing created. When you are ready:  gov setup <your-github-org>/<repo-name>");
-    return 0;
+  // ASK AGAIN on a value that cannot be right (#192). A clone URL pasted here, or
+  // a bare repo name, is a misunderstanding of the question — and answering it
+  // wrongly should cost a line of explanation, not the whole command. Bounded,
+  // because "ask again" assumes someone is there to answer.
+  let target = "";
+  for (let attempt = 0; attempt < 5; attempt++) {
+    target = (await io.prompt("Organization/repository to create (or Enter to stop): ", "")).trim();
+    if (target === "") {
+      io.print("");
+      io.print("Nothing created. When you are ready:  gov setup <your-github-org>/<repo-name>");
+      return 0;
+    }
+    const problem = orgRepoTarget(target);
+    if (!problem) break;
+    io.print(`  ✗ ${problem}`);
+    target = "";
   }
-  if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(target)) {
-    io.print(`'${target}' is not an organization/repository name — expected something like acme-corp/acme-governance.`);
-    io.print("If you meant to JOIN an organization that already uses gov, re-run and choose B.");
+  if (!target) {
+    io.print("");
+    io.print("Nothing created. Re-run `gov` and answer as <organization>/<name>, e.g. acme-corp/acme-governance.");
     return 1;
   }
   return io.createWorkspace(target);

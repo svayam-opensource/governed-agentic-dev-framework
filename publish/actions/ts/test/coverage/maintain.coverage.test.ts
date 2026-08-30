@@ -670,7 +670,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     const answers: Record<string, string> = {
       "Full legal name of your organization": "Acme Inc",
       "Org slug (uppercase, 2-6 chars; e.g. ACME)": "ACME",
-      "Default base branch for code repositories": "trunk",
+      "Default branch in code repositories to be used for development": "trunk",
     };
     const code = await runSetup({
       fs: fakeFs(writes), cwd: "/repo", ...CTX, ghUser: "rk", gitEmail: "rk@acme.io",

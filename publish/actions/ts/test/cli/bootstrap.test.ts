@@ -163,10 +163,28 @@ describe("gov-work — first run: the flow", () => {
     expect(acts, "nothing is cloned on the adopter path").to.deep.equal([]);
   });
 
-  it("ADOPTER: a clone URL where a name belongs is sent back to the other option", async () => {
+  it("ADOPTER: a clone URL where a name belongs is explained, then asked again (#192)", async () => {
+    // It used to end the command. A misread question costs a line of explanation now,
+    // and the second attempt succeeds — the only way out is the user's own Ctrl-C.
+    let asked = 0;
+    const created: string[] = [];
+    const { w, out } = io({
+      prompt: async (q: string) => {
+        if (/Select \(A\/B\/C\)/.test(q)) return "A";
+        return ++asked === 1 ? URL : "acme-corp/acme-governance";
+      },
+      createWorkspace: async (t) => { created.push(t); return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(asked, "asked a second time").to.equal(2);
+    expect(out.join("\n"), "and said what was wrong with it").to.match(/is a clone URL/);
+    expect(created).to.deep.equal(["acme-corp/acme-governance"]);
+  });
+
+  it("ADOPTER: a stream that never gives a usable name stops, it does not spin", async () => {
     const { w, out } = io({ prompt: async (q: string) => (/Select \(A\/B\/C\)/.test(q) ? "A" : URL) });
     expect(await runFirstRun(w)).to.equal(1);
-    expect(out.join("\n")).to.match(/re-run and choose B/);
+    expect(out.join("\n")).to.match(/acme-corp\/acme-governance/);
   });
 
   it("C explains, then asks again — and 'I am not sure' is an answer, not a refusal", async () => {
