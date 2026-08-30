@@ -23,7 +23,7 @@ import { seedPathsFor, detectLeftovers, leftoversMessage, type LeftoverArtifact 
 import { renderAgentMd, renderTodoMd, substituteTokens } from "./content.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
 import { repoNameFromUrl } from "./repo.js";
-import { classifyProjectBranch, preconditionFailures, adoptions, type RepoPrecondition, type RemoteRef, type RepoStanding } from "./branch-adoption.js";
+import { classifyProjectBranch, preconditionFailures, adoptions, suggestedOverrides, type RepoPrecondition, type RemoteRef, type RepoStanding } from "./branch-adoption.js";
 import { resolveWorkRepo, appliedOverrides, type RepoOverrides } from "../config/repo-overrides.js";
 
 /** Org-config-derived settings for a seed run. */
@@ -87,7 +87,17 @@ export interface SeedSuccess {
 
 export type SeedResult =
   | SeedSuccess
-  | { readonly ok: false; readonly code: number; readonly reason: string; readonly message: string; readonly leftovers?: readonly LeftoverArtifact[]; readonly rollbackFailures?: readonly RollbackFailure[] };
+  | {
+      readonly ok: false; readonly code: number; readonly reason: string; readonly message: string;
+      readonly leftovers?: readonly LeftoverArtifact[];
+      readonly rollbackFailures?: readonly RollbackFailure[];
+      /**
+       * Fixes the preflight worked out for itself (#194): upstream → the adopter's
+       * own fork. Carried out rather than merely described, so the caller can offer
+       * to write them and run again.
+       */
+      readonly suggestOverrides?: readonly { readonly from: string; readonly to: string }[];
+    };
 
 function gitkeepStub(i: {
   projectId: string;
@@ -172,6 +182,10 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
       code: 1,
       reason: "preflight-failed",
       message: `Cannot seed ${projectId} — nothing has been created:\n${blockers.join("\n")}`,
+      // Carried out, not just described: the caller can offer to write these and
+      // run again. gov found the fork; making someone retype what it found is
+      // busywork, and "declared" means consented and recorded, not hand-copied.
+      suggestOverrides: suggestedOverrides(checks),
     };
   }
   const reused = adoptions(checks);

@@ -22,6 +22,7 @@ import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js"
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
+import { withRepoOverrides } from "../config/repo-overrides.js";
 import { assembleNeeds } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
@@ -1158,6 +1159,33 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     projects: createGhProjects(runGh),
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
     repoStanding,
+    // Consent, then record. The prompt is what makes the mapping a decision; writing
+    // it is what makes it reviewable. Neither needs a human to retype what the
+    // preflight already worked out (#194).
+    offerRepoOverrides: (proposed) => {
+      if (!process.stdin.isTTY) return false;          // no one to ask: leave the message standing
+      const cfgPath = path.join(home, "org-config.yaml");
+      const before = fs.readFile(cfgPath);
+      if (before === null) return false;
+      process.stdout.write("\n  gov found a fork of that repository under your organization:\n");
+      for (const o of proposed) process.stdout.write(`    ${o.from}  →  ${o.to}\n`);
+      process.stdout.write("\n  Recording this in org-config.yaml means the branch, the pushes and the merges\n" +
+                           "  happen in your repo, while the board goes on linking theirs.\n");
+      const buf = Buffer.alloc(64);
+      process.stdout.write("\n  Record it? [Y/n] ");
+      let answer = "";
+      try {
+        const n = fsSync.readSync(0, buf, 0, buf.length, null);
+        answer = buf.toString("utf8", 0, n).trim().toLowerCase();
+      } catch {
+        return false;                                   // could not ask: do not decide
+      }
+      if (answer === "n" || answer === "no") return false;
+      const after = withRepoOverrides(before, proposed);
+      if (after === null) return false;
+      fs.writeFile(cfgPath, after);
+      return true;
+    },
     // C01 authorization — write-access to the GitHub Project (viewerCanUpdate), the SoT for authority
     // (`prj manage assign`). The lifecycle ops now call this unconditionally, so wiring it here is what
     // makes the CLI enforce it. Only "false" denies; a null/errored probe does NOT silently authorize —

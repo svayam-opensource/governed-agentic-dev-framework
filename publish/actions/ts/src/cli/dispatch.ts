@@ -66,6 +66,12 @@ export interface CliContext {
   readonly cloneRepo: (url: string, dest: string) => void;
   /** Write access + a fork under this org, per repo (#194). Absent → branch checks only. */
   readonly repoStanding?: (url: string, githubOrg: string) => { readonly canPush: boolean; readonly forkUnderOrg: string | null } | undefined;
+  /**
+   * Ask whether to record a fork mapping, and write it to org-config.yaml on yes
+   * (#194). Returns whether anything was written. Absent → the message stands on
+   * its own and the adopter edits the file themselves.
+   */
+  readonly offerRepoOverrides?: (proposed: readonly { readonly from: string; readonly to: string }[]) => boolean;
   /** REQUIRED (C01) — write-access to the GitHub Project (viewerCanUpdate). The lifecycle ops call it
    *  unconditionally; wiring it here is what makes the CLI actually ENFORCE authorization. */
   readonly authorize: (ref: BoardRef) => boolean;
@@ -206,9 +212,29 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           seederLogin: flagStr(flags, "login") ?? ctx.login ?? null,
         },
       );
-      return r.ok
-        ? { code: 0, lines: [`Project ${r.projectId} seeded on ${r.branch}`, `  workspace: ${r.projectWorkRoot}`, `  anchor: ${r.anchorRef ?? "(none — designate with prj manage)"}`] }
-        : { code: r.code, lines: [r.message] };
+      if (r.ok) {
+        return { code: 0, lines: [`Project ${r.projectId} seeded on ${r.branch}`, `  workspace: ${r.projectWorkRoot}`, `  anchor: ${r.anchorRef ?? "(none — designate with prj manage)"}`] };
+      }
+      // The preflight found the fork. OFFER to record it, rather than print a line
+      // for someone to retype: what makes a mapping right is that it is consented
+      // and recorded, not that a human transcribed it (#194).
+      if (r.suggestOverrides?.length && ctx.offerRepoOverrides) {
+        const wrote = ctx.offerRepoOverrides(r.suggestOverrides);
+        if (wrote) {
+          return {
+            code: 1,
+            lines: [
+              r.message,
+              "",
+              "Recorded in org-config.yaml:",
+              ...r.suggestOverrides.map((o) => `  ${o.from}: ${o.to}`),
+              "",
+              "Commit that change, then run this again — the work will happen in your own repo.",
+            ],
+          };
+        }
+      }
+      return { code: r.code, lines: [r.message] };
     }
 
     case "task": {

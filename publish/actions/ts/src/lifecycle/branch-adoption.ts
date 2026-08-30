@@ -55,7 +55,7 @@ export type BranchVerdict =
   /** It exists and carries nothing of its own — our own leftover. Reuse it. */
   | { readonly kind: "adopt"; readonly sha: string }
   /** It exists and has moved. Someone's work; refuse, and say what to do. */
-  | { readonly kind: "refuse"; readonly detail: string }
+  | { readonly kind: "refuse"; readonly detail: string; readonly suggestOverride?: { readonly from: string; readonly to: string } }
   /** The base branch is not there at all — nothing can be cut from it. */
   | { readonly kind: "no-base"; readonly detail: string };
 
@@ -80,6 +80,10 @@ export function classifyProjectBranch(
     return {
       kind: "refuse",
       detail: `You do not have write access to ${repoUrl}, so gov cannot create a project branch there.${suggestion}`,
+      // A fix we can OFFER rather than describe. See seed: the adopter is asked, and
+      // the answer is written to org-config.yaml — declared, but not hand-copied
+      // from a message the tool had already worked out.
+      ...(standing.forkUnderOrg ? { suggestOverride: { from: repoSlugFromUrlSafe(repoUrl), to: standing.forkUnderOrg } } : {}),
     };
   }
 
@@ -120,6 +124,13 @@ export function preconditionFailures(checks: readonly RepoPrecondition[]): reado
   return checks
     .filter((c) => c.verdict.kind === "refuse" || c.verdict.kind === "no-base")
     .map((c) => `  • ${(c.verdict as { detail: string }).detail}`);
+}
+
+/** Overrides the preflight can propose, because it found the fork itself. */
+export function suggestedOverrides(checks: readonly RepoPrecondition[]): readonly { readonly from: string; readonly to: string }[] {
+  return checks
+    .map((c) => (c.verdict.kind === "refuse" ? c.verdict.suggestOverride : undefined))
+    .filter((x): x is { from: string; to: string } => x !== undefined);
 }
 
 /** The repos whose existing branch we are about to reuse — worth saying out loud. */

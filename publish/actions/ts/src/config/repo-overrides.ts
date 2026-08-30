@@ -78,3 +78,42 @@ export function appliedOverrides(urls: readonly string[], overrides: RepoOverrid
   }
   return used;
 }
+
+/**
+ * Add mappings to an `org-config.yaml`, creating the block if it is absent (#194).
+ *
+ * WRITTEN, NOT PRINTED FOR COPYING. The preflight already found the fork; asking
+ * someone to retype what the tool worked out is busywork, and it is not what made
+ * option B the right answer. What made it right is that the mapping is CONSENTED
+ * and RECORDED — reviewable in the org's own config, the same as any other
+ * governance value. Consent is the prompt; the recording is this function. Neither
+ * requires a human to act as a transcription service.
+ *
+ * Returns the new text, or null when there was nothing to add.
+ */
+export function withRepoOverrides(text: string, additions: readonly { readonly from: string; readonly to: string }[]): string | null {
+  const existing = parseRepoOverrides(text);
+  const fresh = additions.filter((a) => existing[a.from] !== a.to);
+  if (!fresh.length) return null;
+
+  const lines = fresh.map((a) => `  ${a.from}: ${a.to}`);
+  const at = text.split(/\r?\n/).findIndex((l) => /^repo_overrides:\s*(#.*)?$/.test(l));
+
+  if (at < 0) {
+    const header = [
+      "",
+      "# Where the WORK happens, when that is not where the issue lives.",
+      "# The board may link an issue in a repository this org can read but not write —",
+      "# the usual shape when you work from a fork. gov branches, pushes and merges in",
+      "# the repo on the right; the board goes on linking the one on the left.",
+      "repo_overrides:",
+      ...lines,
+      "",
+    ].join("\n");
+    return text.endsWith("\n") ? text + header : `${text}\n${header}`;
+  }
+
+  const out = text.split(/\r?\n/);
+  out.splice(at + 1, 0, ...lines);
+  return out.join("\n");
+}
