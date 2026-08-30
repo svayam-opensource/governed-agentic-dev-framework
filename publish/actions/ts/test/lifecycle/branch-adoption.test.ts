@@ -59,3 +59,35 @@ describe("gov-work — is this branch our leftover, or someone's work? (#180)", 
     expect(preconditionFailures(checks)).to.have.length(0);
   });
 });
+
+describe("gov-work — write access is its own answer (#194)", () => {
+  const REFS = [{ name: "dev", sha: "aaa111" }];
+
+  it("says you cannot push, instead of reporting a branch you were never going to reach", () => {
+    const v = classifyProjectBranch(REFS, "dev", "BRNCH-1-x", URL, { canPush: false, forkUnderOrg: null });
+    expect(v.kind).to.equal("refuse");
+    expect((v as { detail: string }).detail).to.contain("do not have write access");
+  });
+
+  it("names your fork, and the exact line that maps it", () => {
+    const v = classifyProjectBranch(REFS, "dev", "BRNCH-1-x", URL, { canPush: false, forkUnderOrg: "svm-geneva/Workbench" });
+    const detail = (v as { detail: string }).detail;
+    expect(detail).to.contain("You do have a fork of it: svm-geneva/Workbench");
+    expect(detail, "the exact line to add").to.contain("genevaers/Workbench: svm-geneva/Workbench");
+    expect(detail, "and that the board need not change").to.contain("board can go on linking the upstream issue");
+  });
+
+  it("without a fork, asks for access or suggests making one", () => {
+    const v = classifyProjectBranch(REFS, "dev", "BRNCH-1-x", URL, { canPush: false, forkUnderOrg: null });
+    expect((v as { detail: string }).detail).to.contain("Ask for write access");
+  });
+
+  it("with write access, carries on to the branch questions as before", () => {
+    expect(classifyProjectBranch(REFS, "dev", "BRNCH-1-x", URL, { canPush: true, forkUnderOrg: null }))
+      .to.deep.equal({ kind: "create" });
+  });
+
+  it("unknown standing is not 'no' — the branch checks still run", () => {
+    expect(classifyProjectBranch(REFS, "dev", "BRNCH-1-x", URL, undefined)).to.deep.equal({ kind: "create" });
+  });
+});

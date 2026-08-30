@@ -63,6 +63,8 @@ export interface CliContext {
   readonly pulls: Pulls;
   readonly projects: Projects;
   readonly cloneRepo: (url: string, dest: string) => void;
+  /** Write access + a fork under this org, per repo (#194). Absent → branch checks only. */
+  readonly repoStanding?: (url: string, githubOrg: string) => { readonly canPush: boolean; readonly forkUnderOrg: string | null } | undefined;
   /** REQUIRED (C01) — write-access to the GitHub Project (viewerCanUpdate). The lifecycle ops call it
    *  unconditionally; wiring it here is what makes the CLI actually ENFORCE authorization. */
   readonly authorize: (ref: BoardRef) => boolean;
@@ -152,7 +154,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     case "seed": {
       if (positionals.length < 1) return usage("seed <board-url> [--assignee <login>]");
       const r = seed(
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log },
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding },
         {
           govHome: ctx.home,
           workspaceRepo: c.workspaceRepo,
@@ -160,6 +162,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           defaultBranch: c.defaultBranch,
           defaultCodeBranch: c.defaultCodeBranch,
           githubOrg: c.githubOrg,
+          repoOverrides: c.repoOverrides,
           orgTokens: c.orgTokens,
           toolFiles: [...TOOL_FILES],
         },

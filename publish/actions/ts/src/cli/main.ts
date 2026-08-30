@@ -57,6 +57,31 @@ function tryRun(cmd: string, args: string[]): string | undefined {
   }
 }
 
+/**
+ * What GitHub says about this adopter's standing in a repo (#194): may they push,
+ * and do they have a fork of it under their own org? Both are one API call each,
+ * and both are unknowable from `git ls-remote` — which is why "base branch 'dev'
+ * does not exist" used to be the only thing a fork-based adopter was told.
+ */
+const repoStanding = (url: string, githubOrg: string): { canPush: boolean; forkUnderOrg: string | null } | undefined => {
+  const m = /github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim());
+  if (!m) return undefined;
+  const [owner, name] = [m[1]!, m[2]!];
+  const canPush = ((): boolean | undefined => {
+    const out = tryRun("gh", ["api", `repos/${owner}/${name}`, "--jq", ".permissions.push"]);
+    return out === undefined ? undefined : out.trim() === "true";
+  })();
+  if (canPush === undefined) return undefined;              // unknown is not "no"
+  // A fork under the adopter's org, named the same, whose parent is this repo.
+  const forkUnderOrg = owner.toLowerCase() === githubOrg.toLowerCase()
+    ? null
+    : ((): string | null => {
+        const parent = tryRun("gh", ["api", `repos/${githubOrg}/${name}`, "--jq", ".parent.full_name // empty"]);
+        return parent && parent.trim().toLowerCase() === `${owner}/${name}`.toLowerCase() ? `${githubOrg}/${name}` : null;
+      })();
+  return { canPush, forkUnderOrg };
+}
+
 /** The template every governance repo is created from. */
 const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
 
@@ -1130,6 +1155,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     pulls: createGhPulls(runGh),
     projects: createGhProjects(runGh),
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
+    repoStanding,
     // C01 authorization — write-access to the GitHub Project (viewerCanUpdate), the SoT for authority
     // (`prj manage assign`). The lifecycle ops now call this unconditionally, so wiring it here is what
     // makes the CLI enforce it. Only "false" denies; a null/errored probe does NOT silently authorize —

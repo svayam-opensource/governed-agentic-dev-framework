@@ -23,7 +23,8 @@ import { seedPathsFor, detectLeftovers, leftoversMessage, type LeftoverArtifact 
 import { renderAgentMd, renderTodoMd, substituteTokens } from "./content.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
 import { repoNameFromUrl } from "./repo.js";
-import { classifyProjectBranch, preconditionFailures, adoptions, type RepoPrecondition, type RemoteRef } from "./branch-adoption.js";
+import { classifyProjectBranch, preconditionFailures, adoptions, type RepoPrecondition, type RemoteRef, type RepoStanding } from "./branch-adoption.js";
+import { resolveWorkRepo, appliedOverrides, type RepoOverrides } from "../config/repo-overrides.js";
 
 /** Org-config-derived settings for a seed run. */
 export interface SeedConfig {
@@ -33,6 +34,8 @@ export interface SeedConfig {
   readonly defaultBranch: string;
   readonly defaultCodeBranch: string;
   readonly githubOrg: string;
+  /** `owner/repo` → `owner/repo`, from org-config (#194). */
+  readonly repoOverrides?: Readonly<Record<string, string>>;
   /** Token → value for tool-file substitution (e.g. ORG_NAME). */
   readonly orgTokens: Readonly<Record<string, string>>;
   /** Tool files (paths under `framework/`) to token-substitute into the project. */
@@ -64,6 +67,12 @@ export interface SeedDeps {
   readonly anchor: AnchorCreator;
   readonly cloneRepo: (url: string, dest: string) => void;
   readonly log?: (msg: string) => void;
+  /**
+   * Whether this adopter can push to a repo, and whether they have a fork of it
+   * (#194). Optional: `ls-remote` alone cannot answer either, and a caller with no
+   * GitHub client still gets the branch checks.
+   */
+  readonly repoStanding?: (url: string, githubOrg: string) => RepoStanding | undefined;
 }
 
 export interface SeedSuccess {
@@ -123,7 +132,15 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     return { ok: false, code: 1, reason: "leftover-state", message: leftoversMessage(leftovers), leftovers };
   }
 
-  const codeRepoUrls = board.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo);
+  const linkedRepoUrls = board.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo);
+
+  // WHERE THE ISSUE LIVES IS NOT ALWAYS WHERE THE WORK HAPPENS (#194). The board
+  // links what it links; a declared override sends the branch to the repo this org
+  // can actually write. Never inferred — see config/repo-overrides.ts.
+  const overrides: RepoOverrides = config.repoOverrides ?? {};
+  const redirected = appliedOverrides(linkedRepoUrls, overrides);
+  for (const r of redirected) log(`Work repo: ${r.from} → ${r.to} (repo_overrides)`);
+  const codeRepoUrls = linkedRepoUrls.map((u) => resolveWorkRepo(u, overrides));
 
   // ── REMOTE PREFLIGHT, before the first write (#180) ─────────────────────────
   //
@@ -143,7 +160,10 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
       // has not been granted, or a URL with a typo. Say which repo, and what git said.
       return { url, verdict: { kind: "no-base" as const, detail: `Cannot read ${url}: ${(e as Error).message}` } };
     }
-    return { url, verdict: classifyProjectBranch(refs, config.defaultCodeBranch ?? "dev", branch, url) };
+    const standing: RepoStanding | undefined = deps.repoStanding
+      ? deps.repoStanding(url, config.githubOrg)
+      : undefined;
+    return { url, verdict: classifyProjectBranch(refs, config.defaultCodeBranch ?? "dev", branch, url, standing) };
   });
   const blockers = preconditionFailures(checks);
   if (blockers.length) {

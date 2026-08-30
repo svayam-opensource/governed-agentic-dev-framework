@@ -24,10 +24,29 @@
  * Pure over the refs, so every branch of this decision is decidable in a test.
  */
 
+/** `owner/repo` from a URL, or the URL itself when it is not a GitHub one. */
+function repoSlugFromUrlSafe(url: string): string {
+  const m = /github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim());
+  return m ? `${m[1]}/${m[2]}` : url;
+}
+
 /** One remote ref, as `git ls-remote --heads` reports it. */
 export interface RemoteRef {
   readonly name: string;
   readonly sha: string;
+}
+
+/**
+ * What the remote says about the adopter's standing in a repo (#194).
+ *
+ * Write access is its OWN fact. Reporting "base branch 'dev' does not exist" to
+ * someone who could not have pushed to that repo anyway answers a question they
+ * were not going to reach, and hides the one that matters.
+ */
+export interface RepoStanding {
+  readonly canPush: boolean;
+  /** A fork of this repo under the adopter's own org, if there is one. */
+  readonly forkUnderOrg: string | null;
 }
 
 export type BranchVerdict =
@@ -45,7 +64,25 @@ export function classifyProjectBranch(
   baseBranch: string,
   projectBranch: string,
   repoUrl: string,
+  standing?: RepoStanding,
 ): BranchVerdict {
+  // ACCESS FIRST. Everything below assumes the adopter could write here, and
+  // saying "no such branch" to someone who cannot push is answering the second
+  // question while skipping the first.
+  if (standing && !standing.canPush) {
+    const suggestion = standing.forkUnderOrg
+      ? `\n    You do have a fork of it: ${standing.forkUnderOrg}.\n` +
+        `    Work happens where you can write. Map it in org-config.yaml:\n` +
+        `      repo_overrides:\n` +
+        `        ${repoSlugFromUrlSafe(repoUrl)}: ${standing.forkUnderOrg}\n` +
+        `    The board can go on linking the upstream issue — only the branch moves.`
+      : `\n    Ask for write access, or fork it and map the fork in org-config.yaml under repo_overrides.`;
+    return {
+      kind: "refuse",
+      detail: `You do not have write access to ${repoUrl}, so gov cannot create a project branch there.${suggestion}`,
+    };
+  }
+
   const base = refs.find((r) => r.name === baseBranch);
   if (!base) {
     return {
