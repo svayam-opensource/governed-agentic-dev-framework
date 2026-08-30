@@ -49,7 +49,7 @@ function fakeVcs(opts: { hasTask?: boolean; taskSha?: string | null; baseSha?: s
     remoteBranchesMatching: () => [],
     addPath: () => {},
     commit: () => {},
-    resetHard: () => {},
+    resetHard: () => {}, resetKeepingFiles: () => {},
     cleanUntracked: () => {},
     worktreeAdd: () => {},
     worktreeRemove: () => {},

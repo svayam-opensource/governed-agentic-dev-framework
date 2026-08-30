@@ -42,6 +42,12 @@ export interface Vcs {
   commit(repoDir: string, message: string): void;
   /** Hard-reset `repoDir` to `sha`. */
   resetHard(repoDir: string, sha: string): void;
+  /**
+   * Move HEAD and the index back to `sha`, leaving every file on disk untouched
+   * (`git reset --mixed`). The undo of choice inside a resolved workspace: it
+   * un-commits without being able to destroy anything the caller did not create.
+   */
+  resetKeepingFiles(repoDir: string, sha: string): void;
   /** Remove untracked files under `pathspec`. */
   cleanUntracked(repoDir: string, pathspec: string): void;
   /** `git worktree add -b <newBranch> <worktreePath> <startPoint>` from `baseRepo`. */
@@ -152,6 +158,9 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     },
     resetHard(repoDir, sha) {
       must(["-C", repoDir, "reset", "--hard", sha]);
+    },
+    resetKeepingFiles(repoDir, sha) {
+      must(["-C", repoDir, "reset", "--mixed", sha]);
     },
     cleanUntracked(repoDir, pathspec) {
       must(["-C", repoDir, "clean", "-fd", pathspec]);

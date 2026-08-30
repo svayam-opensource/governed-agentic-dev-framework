@@ -117,7 +117,7 @@ function fakeVcs(existingRefs: Set<string> = new Set()) {
     tag: () => {},
     addPath: () => {},
     commit: () => {},
-    resetHard: () => {},
+    resetHard: () => {}, resetKeepingFiles: () => {},
     cleanUntracked: () => {},
     worktreeAdd: (_b, br, wt) => calls.push(`worktreeAdd ${wt} ${br}`),
     worktreeRemove: (_b, wt) => calls.push(`worktreeRemove ${wt}`),

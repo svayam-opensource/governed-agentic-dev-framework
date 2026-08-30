@@ -49,7 +49,7 @@ function baseVcs(): Vcs {
     localBranchExists: () => false, remoteBranchExists: () => true, headSha: () => "h",
     refExists: () => false, lsRemoteHeads: () => [], defaultBranch: () => null, revParse: () => null,
     currentBranch: () => PROJECT_BRANCH, isAncestor: () => false, isClean: () => true,
-    remoteBranchesMatching: () => [], addPath: noop, commit: noop, resetHard: noop, cleanUntracked: noop,
+    remoteBranchesMatching: () => [], addPath: noop, commit: noop, resetHard: noop, resetKeepingFiles: noop, cleanUntracked: noop,
     worktreeAdd: noop, worktreeRemove: noop, branchDelete: noop, push: noop, pushDelete: noop, clone: noop,
     fetch: noop, setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,
   };

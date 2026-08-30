@@ -22,7 +22,7 @@ function fakeVcs(opts: { conflict?: boolean; dirty?: boolean } = {}) {
     localBranchExists: () => false, remoteBranchExists: () => true, headSha: () => "h", refExists: () => false,
     lsRemoteHeads: () => [], defaultBranch: () => null, revParse: () => null,
     currentBranch: () => "BRNCH-43-governance-common-project", isAncestor: () => false, isClean: () => !opts.dirty,
-    remoteBranchesMatching: () => [], addPath: () => {}, commit: () => {}, resetHard: () => {}, cleanUntracked: () => {},
+    remoteBranchesMatching: () => [], addPath: () => {}, commit: () => {}, resetHard: () => {}, resetKeepingFiles: () => {}, cleanUntracked: () => {},
     worktreeAdd: (_b, br, wt) => log.push(`worktreeAdd ${wt} ${br}`), worktreeRemove: () => {}, branchDelete: () => {},
     push: (r, _rm, b) => log.push(`push ${r} ${b}`), pushDelete: () => {}, clone: () => {},
     fetch: (r, _rm, ref) => log.push(`fetch ${r} ${ref}`), setIdentity: () => {},

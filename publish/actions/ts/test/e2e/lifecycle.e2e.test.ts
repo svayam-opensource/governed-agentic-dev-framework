@@ -67,7 +67,7 @@ class World {
     remoteBranchesMatching: () => [],
     addPath: () => {},
     commit: (dir, m) => this.log.push(`commit ${dir} :: ${m}`),
-    resetHard: () => {},
+    resetHard: () => {}, resetKeepingFiles: () => {},
     cleanUntracked: () => {},
     worktreeAdd: (_base, branch, wt) => {
       this.branches(wt).add(branch);

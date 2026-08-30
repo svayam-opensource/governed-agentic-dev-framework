@@ -82,7 +82,7 @@ function fakeVcs(branch = "BRNCH-43-governance-common-project") {
     remoteBranchesMatching: () => [],
     addPath: () => {},
     commit: () => {},
-    resetHard: () => {},
+    resetHard: () => {}, resetKeepingFiles: () => {},
     cleanUntracked: () => {},
     worktreeAdd: () => {},
     worktreeRemove: () => {},

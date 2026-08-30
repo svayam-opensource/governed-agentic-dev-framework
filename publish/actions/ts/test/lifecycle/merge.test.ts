@@ -45,7 +45,7 @@ function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: bo
     remoteBranchesMatching: () => [],
     addPath: () => {},
     commit: () => {},
-    resetHard: () => {},
+    resetHard: () => {}, resetKeepingFiles: () => {},
     cleanUntracked: () => {},
     worktreeAdd: () => {},
     worktreeRemove: () => {},

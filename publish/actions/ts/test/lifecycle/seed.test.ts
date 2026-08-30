@@ -72,6 +72,7 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
     addPath: (r) => rec(`addPath ${r}`),
     commit: (r, m) => rec(`commit ${r} :: ${m}`),
     resetHard: (r, s) => rec(`resetHard ${r} ${s}`),
+    resetKeepingFiles: (r, s) => rec(`resetKeepingFiles ${r} ${s}`),
     cleanUntracked: (r, p) => rec(`clean ${r} ${p}`),
     worktreeAdd: (_b, br, wt) => rec(`worktreeAdd ${wt} ${br}`),
     worktreeRemove: (_b, wt) => rec(`worktreeRemove ${wt}`),
@@ -91,15 +92,18 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
 /** A recording in-memory Fs. `existing` paths report as present. */
 function fakeFs(existing: Set<string> = new Set()) {
   const writes: string[] = [];
+  const removed: string[] = [];
   const fsPort: Fs = {
     pathExists: (p) => existing.has(px(p)),
     mkdirp: () => {},
     writeFile: (f) => writes.push(px(f)),
     readFile: () => null, // no todo template / tool files in these tests
-    rm: () => {},
+    // Deletion is MODELLED, not ignored: an undo that removes the wrong path is
+    // exactly the defect #191 records, and a no-op rm cannot express it.
+    rm: (f) => { removed.push(px(f)); existing.delete(px(f)); },
     readdir: () => [],
   };
-  return { fsPort, writes };
+  return { fsPort, writes, removed, existing };
 }
 
 const fakeAnchor = (ref: string | null = "Svayamtech/svm-prj-work#1"): AnchorCreator => ({
@@ -158,10 +162,44 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     expect(r.ok).to.equal(false);
     if (r.ok) return;
     expect(r.reason).to.equal("seed-failed");
-    // compensations ran: home reset + gov worktree removed + code-repo branch cleanup
-    expect(log).to.include("resetHard /gov presha");
+    // compensations ran: home un-committed + gov worktree removed + code-repo branch cleanup.
+    // `resetKeepingFiles`, NOT `resetHard`: the undo runs inside the RESOLVED workspace,
+    // where `reset --hard` and `clean` can destroy files this seed never created — which
+    // is how a failed seed once removed org-config.yaml and left gov unable to resolve
+    // the workspace at all (#191).
+    expect(log).to.include("resetKeepingFiles /gov presha");
+    expect(log, "never --hard inside the workspace").to.not.include("resetHard /gov presha");
     expect(log).to.include(`worktreeRemove ${ORG_GOV_CLONE}`);
     expect(log.some((l) => l.startsWith("pushDelete"))).to.equal(true);
+  });
+
+  it("a failed seed leaves org-config.yaml alone — the workspace still resolves (#191)", () => {
+    // The real failure: a seed died in a later phase, its rollback ran `reset --hard`
+    // and `clean` inside the RESOLVED workspace, and the adopter's next command said
+    // "no gov workspace resolved" about a workspace that was still registered.
+    const { vcs } = fakeVcs({ throwPushFor: [ORG_GOV_CLONE] });
+    const { fsPort, removed, existing } = fakeFs(new Set(["/gov/org-config.yaml"]));
+
+    const r = seed({ board: fakeBoard(), vcs, fs: fsPort, anchor: fakeAnchor(), cloneRepo: () => {} }, CONFIG, INPUT);
+
+    expect(r.ok).to.equal(false);
+    expect(existing.has("/gov/org-config.yaml"), "the workspace is still a workspace").to.equal(true);
+    expect(removed, "the undo removes only what Phase A created").to.not.include("/gov/org-config.yaml");
+  });
+
+  it("says so loudly if a rollback DID cost the workspace its config (#191)", () => {
+    const { vcs } = fakeVcs({ throwPushFor: [ORG_GOV_CLONE] });
+    const { fsPort, existing } = fakeFs(new Set(["/gov/org-config.yaml"]));
+    // Simulate an undo that overreaches, the way `reset --hard` + `clean` could.
+    const sabotaged: Fs = { ...fsPort, rm: (f) => { existing.delete(px(f)); existing.delete("/gov/org-config.yaml"); } };
+
+    const r = seed({ board: fakeBoard(), vcs, fs: sabotaged, anchor: fakeAnchor(), cloneRepo: () => {} }, CONFIG, INPUT);
+
+    expect(r.ok).to.equal(false);
+    if (r.ok) return;
+    expect(r.reason).to.equal("rollback-damaged-workspace");
+    expect(r.message).to.contain("org-config.yaml is gone");
+    expect(r.message, "and how to get it back").to.contain("checkout -- org-config.yaml");
   });
 
   it("aborts on leftover state without mutating", () => {

@@ -91,7 +91,7 @@ function fakeVcs(opts: { openTasks?: string[]; syncConflict?: boolean } = {}) {
     remoteBranchesMatching: () => opts.openTasks ?? [],
     addPath: () => {},
     commit: () => {},
-    resetHard: () => {},
+    resetHard: () => {}, resetKeepingFiles: () => {},
     cleanUntracked: () => {},
     worktreeAdd: () => {},
     worktreeRemove: () => {},

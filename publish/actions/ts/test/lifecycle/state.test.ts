@@ -25,7 +25,7 @@ function fakeVcs(branch = "BRNCH-43-governance-common-project"): Vcs {
     localBranchExists: () => false, remoteBranchExists: () => true, headSha: () => "h",
     refExists: () => false, lsRemoteHeads: () => [], defaultBranch: () => null, revParse: () => null,
     currentBranch: () => branch, isAncestor: () => false, isClean: () => true, remoteBranchesMatching: () => [],
-    addPath: () => {}, commit: () => {}, resetHard: () => {}, cleanUntracked: () => {},
+    addPath: () => {}, commit: () => {}, resetHard: () => {}, resetKeepingFiles: () => {}, cleanUntracked: () => {},
     worktreeAdd: () => {}, worktreeRemove: () => {}, branchDelete: () => {}, push: () => {}, pushDelete: () => {},
     clone: () => {}, fetch: () => {}, setIdentity: () => {}, checkout: () => {}, checkoutNew: () => {},
     mergeNoEdit: () => "merged", tag: () => {},

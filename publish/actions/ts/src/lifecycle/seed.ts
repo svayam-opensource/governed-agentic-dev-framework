@@ -125,13 +125,33 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
   const codeRepoUrls = board.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo);
   const tx = new Transaction();
 
+  // The one file that makes this directory a governance workspace. Recorded before
+  // anything runs so its disappearance can be REPORTED rather than discovered by
+  // the next command, several minutes later, as "no gov workspace resolved" (#191).
+  const orgConfigPath = path.join(config.govHome, "org-config.yaml");
+  const orgConfigWasThere = deps.fs.pathExists(orgConfigPath);
+
   try {
     // ── Phase A: home stub commit (local; pushed in D) ────────────────────────
     log(`Phase A: home stub projects/${projectId}/`);
     const preSha = deps.vcs.headSha(config.govHome);
+    // UNDO WITHOUT `reset --hard`, and without `clean` (#191).
+    //
+    // Both were pointed at `config.govHome` — the resolved workspace itself, not a
+    // scratch copy — and they are the two git commands that destroy work rather
+    // than move pointers. A seed that failed in Phase C therefore left an adopter
+    // with a workspace that no longer resolved: `org-config.yaml` is written by
+    // `gov setup` and committed by the human, so between those two moments it is an
+    // untracked file sitting in the blast radius.
+    //
+    // The invariant: undoing a PROJECT may touch `projects/<id>/` and that project's
+    // worktrees. It may not touch anything that makes the workspace resolvable.
+    //
+    // `reset --mixed` un-commits and unstages while leaving every file on disk; the
+    // one path this phase created is then removed by name. Nothing else is reachable.
     tx.onRollback("reset home", () => {
-      deps.vcs.resetHard(config.govHome, preSha);
-      deps.vcs.cleanUntracked(config.govHome, "projects");
+      deps.vcs.resetKeepingFiles(config.govHome, preSha);
+      deps.fs.rm(paths.homeStub);
     });
     deps.fs.writeFile(
       path.join(paths.homeStub, ".gitkeep"),
@@ -231,11 +251,25 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef };
   } catch (error) {
     const rollbackFailures = tx.rollback();
+    // A rollback that leaves the workspace unresolvable is a bigger event than the
+    // failure that triggered it, and it used to be silent: the reader was told the
+    // seed failed, and found out about the workspace on their next command, phrased
+    // as though they had never had one.
+    const lostOrgConfig = orgConfigWasThere && !deps.fs.pathExists(orgConfigPath);
+    const message = lostOrgConfig
+      ? `${(error as Error).message}\n\n` +
+        `AND THE ROLLBACK DAMAGED THE WORKSPACE: ${orgConfigPath} is gone.\n` +
+        "  That file is what makes this directory a governance workspace, so gov will\n" +
+        "  now report 'no gov workspace resolved' even though the workspace is registered.\n" +
+        "  Restore it with:  git -C " + config.govHome + " checkout -- org-config.yaml\n" +
+        "  or, if it was never committed:  cd " + config.govHome + " && gov setup\n" +
+        "  Please report this — a project's rollback must never un-configure the org."
+      : (error as Error).message;
     return {
       ok: false,
       code: 1,
-      reason: "seed-failed",
-      message: (error as Error).message,
+      reason: lostOrgConfig ? "rollback-damaged-workspace" : "seed-failed",
+      message,
       rollbackFailures,
     };
   }
