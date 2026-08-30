@@ -289,34 +289,54 @@ async function askRole(io: FirstRunIo): Promise<FirstRunRole | null> {
 
 /** The ADOPTER path: name the repo to create, and hand it to `gov setup`. */
 async function foundNewOrg(io: FirstRunIo): Promise<number> {
+  // TWO QUESTIONS, NOT ONE (#192). "Organization/repository to create" asks a
+  // newcomer to compose a form they have not been taught, out of two things they
+  // know separately — and the second of them they should not have to invent at all.
   io.print("");
   io.print("Adopting the framework creates a NEW repository in your GitHub organization.");
   io.print("It will hold your policies, your knowledge, and a record of every project.");
   io.print("");
-  io.print("  Give it as <your-github-org>/<repo-name>, for example:  acme-corp/acme-governance");
-  io.print("");
-  // ASK AGAIN on a value that cannot be right (#192). A clone URL pasted here, or
-  // a bare repo name, is a misunderstanding of the question — and answering it
-  // wrongly should cost a line of explanation, not the whole command. Bounded,
-  // because "ask again" assumes someone is there to answer.
-  let target = "";
+
+  let org = "";
   for (let attempt = 0; attempt < 5; attempt++) {
-    target = (await io.prompt("Organization/repository to create (or Enter to stop): ", "")).trim();
-    if (target === "") {
+    org = (await io.prompt("Which organization are you adopting the governance framework for? (GitHub organization name, or Enter to stop): ", "")).trim();
+    if (org === "") {
       io.print("");
       io.print("Nothing created. When you are ready:  gov setup <your-github-org>/<repo-name>");
       return 0;
     }
-    const problem = orgRepoTarget(target);
-    if (!problem) break;
-    io.print(`  ✗ ${problem}`);
-    target = "";
+    if (/^[A-Za-z0-9._-]+$/.test(org)) break;
+    io.print(org.includes("/")
+      ? `  ✗ '${org}' looks like <organization>/<repository>. Just the organization here — the repository is the next question.`
+      : `  ✗ '${org}' is not a GitHub organization name (letters, digits, dots, dashes).`);
+    org = "";
   }
-  if (!target) {
+  if (!org) {
     io.print("");
-    io.print("Nothing created. Re-run `gov` and answer as <organization>/<name>, e.g. acme-corp/acme-governance.");
+    io.print("Nothing created. Re-run `gov` when you know which organization to adopt for.");
     return 1;
   }
+
+  // Defaulted, because nobody should have to invent a name for a repository whose
+  // purpose is fixed. Enter is the right answer here for almost everyone.
+  const defaultRepo = `${org}-gov`;
+  let repo = "";
+  for (let attempt = 0; attempt < 5; attempt++) {
+    repo = (await io.prompt(
+      `Name for the governance repository that will be created to house your policies [${defaultRepo}]: `,
+      defaultRepo,
+    )).trim();
+    if (/^[A-Za-z0-9._-]+$/.test(repo)) break;
+    io.print(`  ✗ '${repo}' is not a repository name (letters, digits, dots, dashes).`);
+    repo = "";
+  }
+  if (!repo) {
+    io.print("");
+    io.print("Nothing created. Re-run `gov` and accept the suggested name, or give a simple one.");
+    return 1;
+  }
+
+  const target = `${org}/${repo}`;
   return io.createWorkspace(target);
 }
 

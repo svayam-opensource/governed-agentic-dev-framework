@@ -71,7 +71,7 @@ export interface CliContext {
    * (#194). Returns whether anything was written. Absent → the message stands on
    * its own and the adopter edits the file themselves.
    */
-  readonly offerRepoOverrides?: (proposed: readonly { readonly from: string; readonly to: string }[]) => boolean;
+  readonly offerRepoOverrides?: (proposed: readonly { readonly from: string; readonly to: string }[], reason: string) => boolean;
   /** REQUIRED (C01) — write-access to the GitHub Project (viewerCanUpdate). The lifecycle ops call it
    *  unconditionally; wiring it here is what makes the CLI actually ENFORCE authorization. */
   readonly authorize: (ref: BoardRef) => boolean;
@@ -219,12 +219,11 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       // for someone to retype: what makes a mapping right is that it is consented
       // and recorded, not that a human transcribed it (#194).
       if (r.suggestOverrides?.length && ctx.offerRepoOverrides) {
-        const wrote = ctx.offerRepoOverrides(r.suggestOverrides);
+        const wrote = ctx.offerRepoOverrides(r.suggestOverrides, r.message);
         if (wrote) {
           return {
             code: 1,
             lines: [
-              r.message,
               "",
               "Recorded in org-config.yaml:",
               ...r.suggestOverrides.map((o) => `  ${o.from}: ${o.to}`),

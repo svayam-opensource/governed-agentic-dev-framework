@@ -120,7 +120,11 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
     // question twice; this one chooses the governance home's location, the later one is the org-config
     // value (pre-filled from this answer). #159 finding 1a.
     const slug = parsedTarget
-      ? await ask("Governance home ~/.gov/<slug> (uppercase, 2-6 chars)", defaultSlug)
+      ? await ask(
+          "A 2-6 character uppercase token for your organization. Choose it carefully — it is used\n" +
+          `  throughout, including the workspace folder where all governance files live (~/.gov/<slug>)`,
+          defaultSlug,
+        )
       : defaultSlug;
 
     const pathFlag = typeof flags["path"] === "string" ? (flags["path"] as string) : undefined;
@@ -1162,23 +1166,45 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // Consent, then record. The prompt is what makes the mapping a decision; writing
     // it is what makes it reviewable. Neither needs a human to retype what the
     // preflight already worked out (#194).
-    offerRepoOverrides: (proposed) => {
-      if (!process.stdin.isTTY) return false;          // no one to ask: leave the message standing
+    offerRepoOverrides: (proposed, reason) => {
       const cfgPath = path.join(home, "org-config.yaml");
       const before = fs.readFile(cfgPath);
       if (before === null) return false;
+
+      // THE REASON FIRST. dispatch returns its lines at the end, so a prompt written
+      // here appeared ABOVE the failure it was asking about — the adopter was asked
+      // to record a mapping before being told why. Print it here instead.
+      process.stdout.write(`\n${reason}\n`);
       process.stdout.write("\n  gov found a fork of that repository under your organization:\n");
       for (const o of proposed) process.stdout.write(`    ${o.from}  →  ${o.to}\n`);
       process.stdout.write("\n  Recording this in org-config.yaml means the branch, the pushes and the merges\n" +
                            "  happen in your repo, while the board goes on linking theirs.\n");
-      const buf = Buffer.alloc(64);
-      process.stdout.write("\n  Record it? [Y/n] ");
-      let answer = "";
-      try {
-        const n = fsSync.readSync(0, buf, 0, buf.length, null);
-        answer = buf.toString("utf8", 0, n).trim().toLowerCase();
-      } catch {
-        return false;                                   // could not ask: do not decide
+
+      // READ THE TERMINAL, NOT fd 0. Inside the interactive menu a readline interface
+      // already owns stdin, so a raw readSync there returned EOF instantly and the
+      // empty answer was taken for "yes" — recording without ever asking. /dev/tty is
+      // the terminal itself, whoever else is holding stdin.
+      const answer = ((): string | null => {
+        let fd: number | null = null;
+        try {
+          fd = fsSync.openSync("/dev/tty", "r");
+        } catch {
+          return null;                                  // no controlling terminal: do not decide
+        }
+        try {
+          process.stdout.write("\n  Record it? [Y/n] ");
+          const buf = Buffer.alloc(64);
+          const n = fsSync.readSync(fd, buf, 0, buf.length, null);
+          return buf.toString("utf8", 0, n).trim().toLowerCase();
+        } catch {
+          return null;
+        } finally {
+          try { fsSync.closeSync(fd); } catch { /* best effort */ }
+        }
+      })();
+      if (answer === null) {
+        process.stdout.write("\n  (no terminal to ask on — nothing was recorded)\n");
+        return false;
       }
       if (answer === "n" || answer === "no") return false;
       const after = withRepoOverrides(before, proposed);

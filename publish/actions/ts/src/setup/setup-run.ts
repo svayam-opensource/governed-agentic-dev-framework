@@ -88,7 +88,16 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
     // that answers itself wrongly.
     const dName = deriveOrgConfig(answers, ctx);
     answers.orgShortName = await askValid(io, "Short display name (used in headings)", dName.orgShortName || dName.orgName, nonEmpty("A short display name"));
-    answers.orgSlug = await askValid(io, "Org slug (uppercase, 2-6 chars; e.g. ACME)", d0.orgSlug, orgSlugRule);
+    // ASKED ONCE (#192). `gov setup <org>/<repo>` already asks for the slug — it has
+    // to, because the slug decides where the workspace is created, before anything
+    // exists. Asking again here invited a second, different answer to a question
+    // already settled, with nothing reconciling the two.
+    if (io.existing?.orgSlug) {
+      answers.orgSlug = io.existing.orgSlug;
+      io.print(`  Org slug                         ${answers.orgSlug}`);
+    } else {
+      answers.orgSlug = await askValid(io, "Org slug (uppercase, 2-6 chars; e.g. ACME)", d0.orgSlug, orgSlugRule);
+    }
     // Re-derive so path/owner defaults reflect the just-entered slug + email.
     const d1 = deriveOrgConfig(answers, ctx);
     io.print(`  github_org:     ${d1.githubOrg}  (from origin)`);
@@ -116,9 +125,10 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
     const derivedHandle = deriveOrgConfig(answers, ctx).policyOwnerGithub;
     if (derivedHandle) io.print(`  Policy Owner GitHub handle       ${derivedHandle}`);
     answers.policyEffectiveDate = await askValid(io, "Policy effective date (YYYY-MM-DD)", d1.policyEffectiveDate, isoDate);
-    // Org service endpoints (ORG-LEVEL, inherited by adopters). Prompt the CORE ones gov-work uses; the
-    // deploy endpoints (jenkins/npm/docker) are added later as the org adopts gov-cicd. Blank is fine.
-    io.print("  Service endpoints — shared org infrastructure (adopters inherit these):");
+    // NOT MENTIONED HERE (#192). Service endpoints are org-level values the deploy
+    // clients read (gov-cicd, gov-infra); gov-work needs none of them. Announcing a
+    // heading for a section that then asks nothing left an adopter waiting for a
+    // question that never came, about products they have not adopted.
   }
 
   const v = deriveOrgConfig(answers, ctx);

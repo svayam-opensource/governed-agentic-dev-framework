@@ -693,6 +693,43 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     expect(remote).to.equal("git@github.com:Acme/acme-gov.git");
   });
 
+  // ── asked once, and only about what it will use (#192) ─────────────────────
+
+  it("does not ask for the org slug when creation already settled it", async () => {
+    const asked: string[] = [];
+    const writes: Record<string, string> = {};
+    const printed: string[] = [];
+    const code = await runSetup({
+      fs: fakeFs(writes), cwd: "/repo", ...CTX, ghUser: "rk", gitEmail: "rk@acme.io",
+      // `gov setup <org>/<repo>` must ask for the slug before anything exists, since
+      // the slug decides WHERE the workspace is created. Asking again here invited a
+      // second, different answer to a question already settled, with nothing
+      // reconciling the two.
+      // orgName too: this stub answers every prompt with its default, and an empty
+      // default for a required field is now correctly refused rather than accepted.
+      existing: { orgSlug: "ACME", orgName: "Acme Inc" },
+      prompt: async (q, def) => { asked.push(q); return def; },
+      print: (l) => printed.push(l),
+    }, true);
+    expect(code).to.equal(0);
+    expect(asked.some((q) => /Org slug/.test(q)), "asked twice").to.equal(false);
+    expect(printed.some((l) => /Org slug\s+ACME/.test(l)), "told, not asked").to.equal(true);
+    expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/org_slug: "ACME"/);
+  });
+
+  it("says nothing about service endpoints — it asks nothing about them", async () => {
+    const printed: string[] = [];
+    await runSetup({
+      fs: fakeFs({}), cwd: "/repo", ...CTX, ghUser: "rk", gitEmail: "rk@acme.io",
+      existing: { orgSlug: "ACME", orgName: "Acme Inc" },
+      prompt: async (_q, def) => def,
+      print: (l) => printed.push(l),
+    }, true);
+    // A heading for a section that then asks nothing leaves the reader waiting for a
+    // question that never comes, about products they have not adopted.
+    expect(printed.some((l) => /Service endpoints/.test(l))).to.equal(false);
+  });
+
   it("runSetup non-interactive with existing config → succeeds without prompting", async () => {
     const writes: Record<string, string> = {};
     let prompted = false;

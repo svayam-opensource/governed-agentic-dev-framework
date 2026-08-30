@@ -155,36 +155,43 @@ describe("gov-work — first run: the flow", () => {
   it("ADOPTER: does not ask for a clone URL — it creates the repo instead", async () => {
     const created: string[] = [];
     const { w, acts } = io({
-      prompt: async (q: string) => (/Select \(A\/B\/C\)/.test(q) ? "A" : "acme-corp/acme-governance"),
+      // Two questions now (#192): the organization, then the repository name, which
+      // is defaulted so Enter is the right answer for almost everyone.
+      prompt: async (q: string, def: string) => {
+        if (/Select \(A\/B\/C\)/.test(q)) return "A";
+        if (/Which organization/.test(q)) return "acme-corp";
+        return def;
+      },
       createWorkspace: async (t) => { created.push(t); return 0; },
     });
     expect(await runFirstRun(w)).to.equal(0);
-    expect(created).to.deep.equal(["acme-corp/acme-governance"]);
+    expect(created, "the repo name defaults to <org>-gov").to.deep.equal(["acme-corp/acme-corp-gov"]);
     expect(acts, "nothing is cloned on the adopter path").to.deep.equal([]);
   });
 
-  it("ADOPTER: a clone URL where a name belongs is explained, then asked again (#192)", async () => {
+  it("ADOPTER: a URL where an organization belongs is explained, then asked again (#192)", async () => {
     // It used to end the command. A misread question costs a line of explanation now,
     // and the second attempt succeeds — the only way out is the user's own Ctrl-C.
     let asked = 0;
     const created: string[] = [];
     const { w, out } = io({
-      prompt: async (q: string) => {
+      prompt: async (q: string, def: string) => {
         if (/Select \(A\/B\/C\)/.test(q)) return "A";
-        return ++asked === 1 ? URL : "acme-corp/acme-governance";
+        if (/Which organization/.test(q)) return ++asked === 1 ? "acme-corp/acme-governance" : "acme-corp";
+        return def;
       },
       createWorkspace: async (t) => { created.push(t); return 0; },
     });
     expect(await runFirstRun(w)).to.equal(0);
     expect(asked, "asked a second time").to.equal(2);
-    expect(out.join("\n"), "and said what was wrong with it").to.match(/is a clone URL/);
-    expect(created).to.deep.equal(["acme-corp/acme-governance"]);
+    expect(out.join("\n"), "and said which half belongs here").to.match(/Just the organization here/);
+    expect(created).to.deep.equal(["acme-corp/acme-corp-gov"]);
   });
 
-  it("ADOPTER: a stream that never gives a usable name stops, it does not spin", async () => {
+  it("ADOPTER: a stream that never gives a usable answer stops, it does not spin", async () => {
     const { w, out } = io({ prompt: async (q: string) => (/Select \(A\/B\/C\)/.test(q) ? "A" : URL) });
     expect(await runFirstRun(w)).to.equal(1);
-    expect(out.join("\n")).to.match(/acme-corp\/acme-governance/);
+    expect(out.join("\n")).to.match(/which organization to adopt for/);
   });
 
   it("C explains, then asks again — and 'I am not sure' is an answer, not a refusal", async () => {
