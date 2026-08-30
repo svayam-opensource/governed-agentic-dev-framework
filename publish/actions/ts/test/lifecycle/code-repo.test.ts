@@ -105,6 +105,8 @@ function fakeVcs(existingRefs: Set<string> = new Set()) {
     headSha: () => "sha",
     refExists: (_repo, ref) => existingRefs.has(ref),
     lsRemoteHeads: () => [],
+    // The base exists; no project branch yet — the ordinary case the preflight sees.
+    lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }],
     defaultBranch: () => null,
     revParse: () => null,
     currentBranch: () => "BRNCH-43-x",

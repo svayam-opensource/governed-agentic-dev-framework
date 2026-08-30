@@ -41,6 +41,8 @@ function fakeVcs(opts: { hasTask?: boolean; taskSha?: string | null; baseSha?: s
     headSha: () => "h",
     refExists: () => false,
     lsRemoteHeads: () => [],
+    // The base exists; no project branch yet — the ordinary case the preflight sees.
+    lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }],
     defaultBranch: () => null,
     revParse: (_r, rev) => (rev.includes("origin/") || rev.endsWith("BRNCH-43-x") ? (opts.baseSha ?? null) : (opts.taskSha ?? null)),
     currentBranch: () => "BRNCH-43-x",

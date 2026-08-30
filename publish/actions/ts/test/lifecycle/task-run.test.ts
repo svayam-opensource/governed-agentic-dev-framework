@@ -74,6 +74,8 @@ function fakeVcs(branch = "BRNCH-43-governance-common-project") {
     headSha: () => "h",
     refExists: () => false,
     lsRemoteHeads: () => [],
+    // The base exists; no project branch yet — the ordinary case the preflight sees.
+    lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }],
     defaultBranch: () => null,
     revParse: () => null,
     currentBranch: () => branch,

@@ -21,6 +21,11 @@ export interface CodeRepoParams {
   readonly projectWorkRoot: string;
   readonly remote?: string;
   readonly identity?: { name?: string; email?: string };
+  /**
+   * Reuse a project branch that is already there, because seed's preflight decided
+   * it could only have come from a failed run of this command (#180).
+   */
+  readonly adoptExisting?: boolean;
 }
 
 /** Dependencies for {@link setupCodeRepoWorktree}. */
@@ -56,19 +61,30 @@ export function setupCodeRepoWorktree(
   if (!deps.vcs.refExists(baseClone, `refs/remotes/${remote}/${p.baseBranch}`)) {
     throw new Error(`Base branch '${p.baseBranch}' not found in ${p.url}`);
   }
-  if (
-    deps.vcs.refExists(baseClone, `refs/heads/${p.projectBranch}`) ||
-    deps.vcs.refExists(baseClone, `refs/remotes/${remote}/${p.projectBranch}`)
-  ) {
+  // An existing branch is no longer fatal here (#180). seed's preflight has already
+  // classified it against the remote: a branch sitting exactly on the base tip could
+  // only have come from a failed run of this command, and is adopted; anything with
+  // commits of its own was refused before the first write. `adoptExisting` carries
+  // that verdict in, so this function never has to guess.
+  const existsLocally = deps.vcs.refExists(baseClone, `refs/heads/${p.projectBranch}`);
+  const existsRemotely = deps.vcs.refExists(baseClone, `refs/remotes/${remote}/${p.projectBranch}`);
+  if ((existsLocally || existsRemotely) && !p.adoptExisting) {
     throw new Error(`Branch '${p.projectBranch}' already exists in ${p.url} — investigate.`);
   }
+  const reusing = (existsLocally || existsRemotely) && p.adoptExisting === true;
 
   deps.tx.step(
     `worktree ${repoDir}`,
-    () => deps.vcs.worktreeAdd(baseClone, p.projectBranch, repoDir, `${remote}/${p.baseBranch}`),
+    () => reusing
+      // Check it out rather than create it. `-b` on an existing branch fails, and
+      // deleting-then-recreating would destroy the very thing we decided to keep.
+      ? deps.vcs.worktreeAddExisting(baseClone, p.projectBranch, repoDir)
+      : deps.vcs.worktreeAdd(baseClone, p.projectBranch, repoDir, `${remote}/${p.baseBranch}`),
     () => {
       deps.vcs.worktreeRemove(baseClone, repoDir);
-      deps.vcs.branchDelete(baseClone, p.projectBranch);
+      // Only delete a branch this run created. Deleting an adopted one would undo
+      // more than we did.
+      if (!reusing) deps.vcs.branchDelete(baseClone, p.projectBranch);
     },
   );
 
@@ -77,7 +93,8 @@ export function setupCodeRepoWorktree(
   deps.tx.step(
     `push ${repoDir}`,
     () => deps.vcs.push(repoDir, remote, p.projectBranch, { setUpstream: true }),
-    () => deps.vcs.pushDelete(repoDir, remote, p.projectBranch),
+    // Same rule: an adopted branch was already on the remote before this run.
+    () => { if (!reusing) deps.vcs.pushDelete(repoDir, remote, p.projectBranch); },
   );
 
   return { repoDir, baseClone };

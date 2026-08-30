@@ -37,6 +37,8 @@ function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: bo
     headSha: () => "h",
     refExists: () => false,
     lsRemoteHeads: () => [],
+    // The base exists; no project branch yet — the ordinary case the preflight sees.
+    lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }],
     defaultBranch: () => null,
     revParse: () => null,
     currentBranch: () => "BRNCH-43-governance-common-project",

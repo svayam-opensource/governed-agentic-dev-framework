@@ -59,6 +59,8 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
     headSha: () => "presha",
     refExists: (_r, ref) => ref === "refs/remotes/origin/dev",
     lsRemoteHeads: () => [],
+    // The base exists; no project branch yet — the ordinary case the preflight sees.
+    lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }],
     defaultBranch: () => null,
     revParse: () => null,
     currentBranch: () => "main",
@@ -200,6 +202,34 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     expect(r.reason).to.equal("rollback-damaged-workspace");
     expect(r.message).to.contain("org-config.yaml is gone");
     expect(r.message, "and how to get it back").to.contain("checkout -- org-config.yaml");
+  });
+
+  it("refuses BEFORE the first write when a code repo's branch has real work (#180)", () => {
+    // It used to discover this in Phase C, after three phases of writes — and the
+    // failed run left a pushed branch that made every retry fail at the same place.
+    const { vcs, log } = fakeVcs();
+    (vcs as unknown as { lsRemoteRefs: () => unknown }).lsRemoteRefs =
+      () => [{ name: "dev", sha: "base-sha" }, { name: "BRNCH-43-governance-common-project", sha: "someone-elses-work" }];
+    const { fsPort } = fakeFs();
+
+    const r = seed({ board: fakeBoard(), vcs, fs: fsPort, anchor: fakeAnchor(), cloneRepo: () => {} }, CONFIG, INPUT);
+
+    expect(r.ok).to.equal(false);
+    if (r.ok) return;
+    expect(r.reason).to.equal("preflight-failed");
+    expect(r.message).to.contain("nothing has been created");
+    expect(log, "and nothing WAS created").to.deep.equal([]);
+  });
+
+  it("reuses a branch left by its own failed run, instead of refusing forever (#180)", () => {
+    const { vcs } = fakeVcs();
+    (vcs as unknown as { lsRemoteRefs: () => unknown }).lsRemoteRefs =
+      () => [{ name: "dev", sha: "base-sha" }, { name: "BRNCH-43-governance-common-project", sha: "base-sha" }];
+    const { fsPort } = fakeFs();
+
+    const r = seed({ board: fakeBoard(), vcs, fs: fsPort, anchor: fakeAnchor(), cloneRepo: () => {} }, CONFIG, INPUT);
+
+    expect(r.ok, "a branch on the base tip carries nothing — it is ours").to.equal(true);
   });
 
   it("aborts on leftover state without mutating", () => {

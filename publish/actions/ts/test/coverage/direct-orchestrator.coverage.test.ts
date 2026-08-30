@@ -20,7 +20,9 @@ function vcsOn(branch: string): Vcs {
   const noop = () => {};
   return {
     localBranchExists: () => false, remoteBranchExists: () => false, headSha: () => "h", refExists: () => false,
-    lsRemoteHeads: () => [], defaultBranch: () => null, revParse: () => null, currentBranch: () => branch,
+    lsRemoteHeads: () => [],
+    // The base exists; no project branch yet — the ordinary case the preflight sees.
+    lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }], defaultBranch: () => null, revParse: () => null, currentBranch: () => branch,
     isAncestor: () => false, isClean: () => true, remoteBranchesMatching: () => [], addPath: noop, commit: noop,
     resetHard: noop, resetKeepingFiles: noop, cleanUntracked: noop, worktreeAdd: noop, worktreeRemove: noop, branchDelete: noop, push: noop,
     pushDelete: noop, clone: noop, fetch: noop, setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,

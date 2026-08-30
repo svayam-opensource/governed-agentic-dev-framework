@@ -20,7 +20,9 @@ function fakeVcs(opts: { conflict?: boolean; dirty?: boolean } = {}) {
   const log: string[] = [];
   const vcs: Vcs = {
     localBranchExists: () => false, remoteBranchExists: () => true, headSha: () => "h", refExists: () => false,
-    lsRemoteHeads: () => [], defaultBranch: () => null, revParse: () => null,
+    lsRemoteHeads: () => [],
+    // The base exists; no project branch yet — the ordinary case the preflight sees.
+    lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }], defaultBranch: () => null, revParse: () => null,
     currentBranch: () => "BRNCH-43-governance-common-project", isAncestor: () => false, isClean: () => !opts.dirty,
     remoteBranchesMatching: () => [], addPath: () => {}, commit: () => {}, resetHard: () => {}, resetKeepingFiles: () => {}, cleanUntracked: () => {},
     worktreeAdd: (_b, br, wt) => log.push(`worktreeAdd ${wt} ${br}`), worktreeRemove: () => {}, branchDelete: () => {},

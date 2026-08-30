@@ -23,6 +23,7 @@ import { seedPathsFor, detectLeftovers, leftoversMessage, type LeftoverArtifact 
 import { renderAgentMd, renderTodoMd, substituteTokens } from "./content.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
 import { repoNameFromUrl } from "./repo.js";
+import { classifyProjectBranch, preconditionFailures, adoptions, type RepoPrecondition, type RemoteRef } from "./branch-adoption.js";
 
 /** Org-config-derived settings for a seed run. */
 export interface SeedConfig {
@@ -123,6 +124,42 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
   }
 
   const codeRepoUrls = board.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo);
+
+  // ── REMOTE PREFLIGHT, before the first write (#180) ─────────────────────────
+  //
+  // These conditions used to be evaluated in Phase C, after three phases of writes.
+  // Nothing about them needs those phases: a branch either exists on a remote or it
+  // does not, and that is knowable from `ls-remote` before anything is created. The
+  // adopter met the answer as a failure four phases in, and the failed run left a
+  // pushed branch behind that made every retry fail at the same place.
+  //
+  // Same discipline as `create.ts`: nothing is created until everything is known.
+  const checks: RepoPrecondition[] = codeRepoUrls.map((url) => {
+    let refs: readonly RemoteRef[] = [];
+    try {
+      refs = deps.vcs.lsRemoteRefs(url);
+    } catch (e) {
+      return { url, verdict: { kind: "no-base" as const, detail: `Cannot read ${url}: ${(e as Error).message}` } };
+    }
+    return { url, verdict: classifyProjectBranch(refs, config.defaultCodeBranch ?? "dev", branch, url) };
+  });
+  const blockers = preconditionFailures(checks);
+  if (blockers.length) {
+    return {
+      ok: false,
+      code: 1,
+      reason: "preflight-failed",
+      message: `Cannot seed ${projectId} — nothing has been created:\n${blockers.join("\n")}`,
+    };
+  }
+  const reused = adoptions(checks);
+  if (reused.length) {
+    // Say it. Reusing a branch is a decision made on the adopter's behalf, and the
+    // reason it is safe — no commits of its own — is exactly what they would check.
+    log(`Reusing the project branch left by an earlier attempt in: ${reused.join(", ")}`);
+  }
+  const adoptIn = new Set(reused);
+
   const tx = new Transaction();
 
   // The one file that makes this directory a governance workspace. Recorded before
@@ -212,6 +249,7 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
         { vcs: deps.vcs, fs: deps.fs, tx, cloneRepo: deps.cloneRepo },
         {
           url,
+          adoptExisting: adoptIn.has(url),
           baseBranch: input.repoBases?.[url] ?? config.defaultCodeBranch,
           projectBranch: branch,
           agentWorkRoot: config.agentWorkRoot,
