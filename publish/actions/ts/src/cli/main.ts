@@ -912,8 +912,9 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       const broken = new Set<string>();
       {
         for (const step of plan.steps) {
-          if (step.dependsOn && broken.has(step.dependsOn)) {
-            process.stdout.write(`\n  skipped: ${step.what}\n    (it needs "${step.dependsOn}", which did not succeed)\n`);
+          const unmet = step.dependsOn?.filter((d) => broken.has(d)) ?? [];
+          if (unmet.length) {
+            process.stdout.write(`\n  skipped: ${step.what}\n    (it needs ${unmet.map((u) => `"${u}"`).join(" and ")}, which did not succeed)\n`);
             broken.add(step.fixes);
             continue;
           }

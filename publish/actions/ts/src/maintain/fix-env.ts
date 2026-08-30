@@ -79,11 +79,11 @@ export interface FixStep {
   /** True when the command talks to the user (a browser login) and must inherit the terminal. */
   readonly interactive: boolean;
   /**
-   * The `fixes` key of a step that must succeed first. A dependent step is skipped
-   * when its prerequisite fails — otherwise `gh auth login` runs after the `gh`
-   * install failed and reports `ENOENT`, which reads as a second, unrelated fault.
+   * The `fixes` keys that must all succeed first. A dependent step is skipped when
+   * any prerequisite failed — otherwise `gh auth login` runs after the `gh` install
+   * failed and reports `ENOENT`, which reads as a second, unrelated fault.
    */
-  readonly dependsOn?: string;
+  readonly dependsOn?: readonly string[];
 }
 
 export interface FixPlan {
@@ -195,7 +195,7 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
       command: INSTALL[pm][tool],
       sudo: NEEDS_SUDO.has(pm),
       interactive: false,
-      ...(needsGhRepo ? { dependsOn: "gh repo" } : {}),
+      ...(needsGhRepo ? { dependsOn: ["gh repo"] } : {}),
     });
   };
 
@@ -224,27 +224,44 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
       command: ["gh", "auth", "login", "-s", REQUIRED_SCOPES.map((r) => r.scope).join(",")],
       sudo: false,
       interactive: true,
-      ...(facts.ghPresent ? {} : { dependsOn: "gh" }),
+      ...(facts.ghPresent ? {} : { dependsOn: ["gh"] }),
     });
   }
 
-  // GIT'S IDENTITY, last: it is the only step whose VALUES we do not know, and the
-  // best source for them is the GitHub account the sign-in above just proved. Its
-  // command is a placeholder the caller fills in — see main(), which asks, with the
-  // GitHub name and email as defaults.
-  if (facts.gitIdentity && (!facts.gitIdentity.name || !facts.gitIdentity.email)) {
-    const missing = [
-      ...(facts.gitIdentity.name ? [] : ["user.name"]),
-      ...(facts.gitIdentity.email ? [] : ["user.email"]),
+  // GIT'S IDENTITY, last — and planned from what WILL be true, not what is.
+  //
+  // The first version asked `facts.gitIdentity` for the answer. On a machine with no
+  // git, there is no identity to inspect, so nothing was planned — and the run then
+  // installed git and left it without one. The adopter met it later, as a refused
+  // `gov work`: "1 unmet requirement(s): git commit identity". Exactly the mistake
+  // the scope fix had just corrected, one step down: a check that reads the state
+  // BEFORE the step that creates the thing it is checking.
+  //
+  // So: a git we are about to install has no identity, by definition.
+  const identityUnknown = !facts.gitPresent;
+  const identityMissing = facts.gitIdentity ? (!facts.gitIdentity.name || !facts.gitIdentity.email) : false;
+  if (identityUnknown || identityMissing) {
+    const missing = identityUnknown
+      ? ["user.name", "user.email"]
+      : [
+          ...(facts.gitIdentity?.name ? [] : ["user.name"]),
+          ...(facts.gitIdentity?.email ? [] : ["user.email"]),
+        ];
+    // It needs git to exist, and it wants gh signed in for its defaults.
+    const needs = [
+      ...(facts.gitPresent ? [] : ["git"]),
+      ...(facts.ghPresent && facts.ghAuthenticated ? [] : ["gh auth"]),
     ];
     steps.push({
       fixes: "git identity",
       what: `Tell git who you are (${missing.join(" and ")})`,
-      why: `git has no ${missing.join(" or ")}, so it refuses to commit — and gov commits on every task it lands. It will be set from your GitHub account, and you can change it.`,
+      why: identityUnknown
+        ? "git is being installed, and a fresh git does not know who you are. It refuses to commit without that, and gov commits on every task it lands. It will be set from your GitHub account, and you can change it."
+        : `git has no ${missing.join(" or ")}, so it refuses to commit — and gov commits on every task it lands. It will be set from your GitHub account, and you can change it.`,
       command: ["git", "config", "--global", "user.name/user.email"],
       sudo: false,
       interactive: true,
-      ...(facts.ghPresent ? {} : { dependsOn: "gh" }),
+      ...(needs.length ? { dependsOn: needs } : {}),
     });
   }
 

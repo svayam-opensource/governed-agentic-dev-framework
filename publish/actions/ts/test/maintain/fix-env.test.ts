@@ -33,7 +33,7 @@ describe("gov-work — doctor --fix planning", () => {
   it("installs gh BEFORE trying to sign in with it", () => {
     const plan = planFixes({ gitPresent: true, ghPresent: false, ghAuthenticated: false, platform: "darwin" }, "brew");
     expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh", "gh auth"]);
-    expect(plan.steps[1]!.dependsOn).to.equal("gh");
+    expect(plan.steps[1]!.dependsOn).to.deep.equal(["gh"]);
   });
 
   it("adds GitHub's repository on RHEL-family systems, which do not ship gh", () => {
@@ -43,7 +43,7 @@ describe("gov-work — doctor --fix planning", () => {
     // from minimal images, and dnf5 renamed its syntax.
     expect(plan.steps[0]!.command[0]).to.equal("curl");
     expect(plan.steps[0]!.command.join(" ")).to.contain("/etc/yum.repos.d/gh-cli.repo");
-    expect(plan.steps[1]!.dependsOn).to.equal("gh repo");
+    expect(plan.steps[1]!.dependsOn).to.deep.equal(["gh repo"]);
   });
 
   it("does NOT add a repository on Fedora, which ships gh itself", () => {
@@ -86,7 +86,9 @@ describe("gov-work — doctor --fix planning", () => {
 
   it("never plans a command it cannot run — it says what to do instead", () => {
     const plan = planFixes({ gitPresent: false, ghPresent: false, ghAuthenticated: false, platform: "linux" }, null);
-    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh auth"]);   // login still possible once gh exists
+    // The login and the identity are still planned — neither needs a package
+    // manager, and both become possible the moment the tools are installed by hand.
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh auth", "git identity"]);
     expect(plan.manual).to.have.length(2);
     expect(plan.manual.join(" ")).to.contain("git-scm.com");
     expect(plan.manual.join(" ")).to.contain("cli.github.com");
@@ -178,7 +180,31 @@ describe("gov-work — git identity", () => {
         gitIdentity: { name: null, email: null } },
       "brew",
     );
-    expect(plan.steps.find((s) => s.fixes === "git identity")!.dependsOn).to.equal("gh");
+    expect(plan.steps.find((s) => s.fixes === "git identity")!.dependsOn).to.deep.equal(["gh auth"]);
+  });
+
+  it("plans the identity even when git does not exist yet — a fresh git has none", () => {
+    // The defect: the identity was planned from `facts.gitIdentity`, which is
+    // unknowable on a machine with no git. Nothing was planned, git was installed
+    // without one, and `gov work` refused several minutes later.
+    const plan = planFixes(
+      { gitPresent: false, ghPresent: false, ghAuthenticated: false, platform: "linux", osId: "rocky" },
+      "dnf",
+    );
+    const identity = plan.steps.find((s) => s.fixes === "git identity");
+    expect(identity, "a git about to be installed has no identity, by definition").to.not.equal(undefined);
+    expect(identity!.dependsOn).to.deep.equal(["git", "gh auth"]);
+    expect(identity!.why).to.contain("fresh git does not know who you are");
+  });
+
+  it("the whole cold-start plan, in the order it must run", () => {
+    const plan = planFixes(
+      { gitPresent: false, ghPresent: false, ghAuthenticated: false, platform: "linux", osId: "rocky" },
+      "dnf",
+    );
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(
+      ["git", "gh repo", "gh", "gh auth", "git identity"],
+    );
   });
 
   it("says nothing when git already knows who you are", () => {
