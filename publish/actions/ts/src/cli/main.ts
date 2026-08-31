@@ -83,6 +83,16 @@ const repoStanding = (url: string, githubOrg: string): { canPush: boolean; forkU
   return { canPush, forkUnderOrg };
 }
 
+/**
+ * Fork mappings the last `seed` proposed (#194).
+ *
+ * Deliberately a handover, not a prompt: `route()` is synchronous and owns no
+ * terminal, and the flow that called it — `runWorkFlow` — already holds a readline
+ * on the one terminal there is. Two readers of the same terminal is how the first
+ * two attempts at this question answered themselves.
+ */
+let pendingRepoOverrides: readonly { readonly from: string; readonly to: string }[] = [];
+
 /** The template every governance repo is created from. */
 const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
 
@@ -503,13 +513,28 @@ function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | n
   const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   const resolved = prjResolveGov(env);
   if (!resolved.ok) return null;
-  const cfgText = fs.readFile(path.join(resolved.home, "org-config.yaml"));
+  const cfgPath = path.join(resolved.home, "org-config.yaml");
+  const cfgText = fs.readFile(cfgPath);
   if (!cfgText) return null;
   const config = parseOrgConfig(cfgText);
+  // The fork question's two halves: what seed proposed, and how to record it. The
+  // ASKING belongs to runWorkFlow, which owns the terminal (#194).
+  const pendingRepoOverridesFn = (): readonly { readonly from: string; readonly to: string }[] => pendingRepoOverrides;
+  const applyRepoOverrides = (o: readonly { readonly from: string; readonly to: string }[]): boolean => {
+    const before = fs.readFile(cfgPath);
+    if (before === null) return false;
+    const after = withRepoOverrides(before, o);
+    if (after === null) return false;
+    fs.writeFile(cfgPath, after);
+    pendingRepoOverrides = [];
+    return true;
+  };
   return {
     projects: createGhProjects(runGh),
     anchor: createGhAnchor(runGh),
     fs,
+    pendingRepoOverrides: pendingRepoOverridesFn,
+    applyRepoOverrides,
     config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot },
     me,
     canWriteBoard: (n) =>
@@ -1166,52 +1191,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // Consent, then record. The prompt is what makes the mapping a decision; writing
     // it is what makes it reviewable. Neither needs a human to retype what the
     // preflight already worked out (#194).
-    offerRepoOverrides: (proposed, reason) => {
-      const cfgPath = path.join(home, "org-config.yaml");
-      const before = fs.readFile(cfgPath);
-      if (before === null) return false;
-
-      // THE REASON FIRST. dispatch returns its lines at the end, so a prompt written
-      // here appeared ABOVE the failure it was asking about — the adopter was asked
-      // to record a mapping before being told why. Print it here instead.
-      process.stdout.write(`\n${reason}\n`);
-      process.stdout.write("\n  gov found a fork of that repository under your organization:\n");
-      for (const o of proposed) process.stdout.write(`    ${o.from}  →  ${o.to}\n`);
-      process.stdout.write("\n  Recording this in org-config.yaml means the branch, the pushes and the merges\n" +
-                           "  happen in your repo, while the board goes on linking theirs.\n");
-
-      // READ THE TERMINAL, NOT fd 0. Inside the interactive menu a readline interface
-      // already owns stdin, so a raw readSync there returned EOF instantly and the
-      // empty answer was taken for "yes" — recording without ever asking. /dev/tty is
-      // the terminal itself, whoever else is holding stdin.
-      const answer = ((): string | null => {
-        let fd: number | null = null;
-        try {
-          fd = fsSync.openSync("/dev/tty", "r");
-        } catch {
-          return null;                                  // no controlling terminal: do not decide
-        }
-        try {
-          process.stdout.write("\n  Record it? [Y/n] ");
-          const buf = Buffer.alloc(64);
-          const n = fsSync.readSync(fd, buf, 0, buf.length, null);
-          return buf.toString("utf8", 0, n).trim().toLowerCase();
-        } catch {
-          return null;
-        } finally {
-          try { fsSync.closeSync(fd); } catch { /* best effort */ }
-        }
-      })();
-      if (answer === null) {
-        process.stdout.write("\n  (no terminal to ask on — nothing was recorded)\n");
-        return false;
-      }
-      if (answer === "n" || answer === "no") return false;
-      const after = withRepoOverrides(before, proposed);
-      if (after === null) return false;
-      fs.writeFile(cfgPath, after);
-      return true;
-    },
+    noteRepoOverrides: (proposed) => { pendingRepoOverrides = proposed; },
     // C01 authorization — write-access to the GitHub Project (viewerCanUpdate), the SoT for authority
     // (`prj manage assign`). The lifecycle ops now call this unconditionally, so wiring it here is what
     // makes the CLI enforce it. Only "false" denies; a null/errored probe does NOT silently authorize —

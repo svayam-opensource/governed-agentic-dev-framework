@@ -31,6 +31,10 @@ export interface WorkFlowDeps {
   readonly canWriteBoard: (boardNumber: number) => boolean;
   readonly run: (argv: readonly string[]) => Promise<number> | number;
   readonly prompt: (q: string) => Promise<string>;
+  /** Fork mappings the last `seed` proposed, if any (#194). */
+  readonly pendingRepoOverrides?: () => readonly { readonly from: string; readonly to: string }[];
+  /** Record them in org-config.yaml. Returns whether anything was written. */
+  readonly applyRepoOverrides?: (o: readonly { readonly from: string; readonly to: string }[]) => boolean;
   readonly print: (l: string) => void;
   /** Launch an interactive agent/editor/shell with `cwd` = the project dir. `inject` = the session-start
    *  kickoff prompt handed to a speak-first CLI agent (Claude / cursor-agent) so it runs the protocol
@@ -338,7 +342,37 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
       if (!/^y(es)?$/.test(yes)) { print("  Left alone."); return 0; }
     }
     print(`  Initializing '${p.title}' (seed → branch → clone)…`);
-    const code = await deps.run(["seed", p.url, ...(deps.me ? [deps.me] : [])]);
+    let code = await deps.run(["seed", p.url, ...(deps.me ? [deps.me] : [])]);
+
+    // THE FORK QUESTION BELONGS HERE (#194), not inside seed's failure path.
+    //
+    // It was asked there, on /dev/tty, and the answer arrived before anyone could
+    // type: this flow's readline already owns the terminal, so a second reader gets
+    // an immediate empty read — which was taken for "yes" and recorded a mapping
+    // nobody had agreed to. Twice. The terminal has one owner, and in this flow it
+    // is `deps.prompt`; so the question is asked with it.
+    const pending = deps.pendingRepoOverrides?.() ?? [];
+    if (code !== 0 && pending.length && deps.applyRepoOverrides) {
+      print("");
+      print("  gov found a fork of that repository under your organization:");
+      for (const o of pending) print(`    ${o.from}  →  ${o.to}`);
+      print("");
+      print("  Recording this in org-config.yaml means the branch, the pushes and the merges");
+      print("  happen in your repo, while the board goes on linking theirs.");
+      // Explicit yes. Anything else — including an answer we could not read — leaves
+      // the file alone, because recording it silently is the failure this replaces.
+      const yes = (await deps.prompt("  Record it and try again? (y/N) ")).trim().toLowerCase();
+      if (/^y(es)?$/.test(yes)) {
+        if (deps.applyRepoOverrides(pending)) {
+          print("  Recorded. Trying again…");
+          code = await deps.run(["seed", p.url, ...(deps.me ? [deps.me] : [])]);
+        } else {
+          print("  Could not write org-config.yaml — add the mapping by hand and run this again.");
+        }
+      } else {
+        print("  Left alone. Add it to org-config.yaml yourself when you are ready.");
+      }
+    }
     if (code !== 0) return code;
   } else if (state === "not-cloned") {
     print(`  Cloning your workspace for '${p.projectId}'…`);

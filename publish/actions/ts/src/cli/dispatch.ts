@@ -71,7 +71,8 @@ export interface CliContext {
    * (#194). Returns whether anything was written. Absent → the message stands on
    * its own and the adopter edits the file themselves.
    */
-  readonly offerRepoOverrides?: (proposed: readonly { readonly from: string; readonly to: string }[], reason: string) => boolean;
+  /** Record what the preflight proposed, for the caller that owns the terminal to ask about (#194). */
+  readonly noteRepoOverrides?: (proposed: readonly { readonly from: string; readonly to: string }[]) => void;
   /** REQUIRED (C01) — write-access to the GitHub Project (viewerCanUpdate). The lifecycle ops call it
    *  unconditionally; wiring it here is what makes the CLI actually ENFORCE authorization. */
   readonly authorize: (ref: BoardRef) => boolean;
@@ -215,24 +216,10 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       if (r.ok) {
         return { code: 0, lines: [`Project ${r.projectId} seeded on ${r.branch}`, `  workspace: ${r.projectWorkRoot}`, `  anchor: ${r.anchorRef ?? "(none — designate with prj manage)"}`] };
       }
-      // The preflight found the fork. OFFER to record it, rather than print a line
-      // for someone to retype: what makes a mapping right is that it is consented
-      // and recorded, not that a human transcribed it (#194).
-      if (r.suggestOverrides?.length && ctx.offerRepoOverrides) {
-        const wrote = ctx.offerRepoOverrides(r.suggestOverrides, r.message);
-        if (wrote) {
-          return {
-            code: 1,
-            lines: [
-              "",
-              "Recorded in org-config.yaml:",
-              ...r.suggestOverrides.map((o) => `  ${o.from}: ${o.to}`),
-              "",
-              "Commit that change, then run this again — the work will happen in your own repo.",
-            ],
-          };
-        }
-      }
+      // The preflight found the fork. It is NOT asked about here: this function has
+      // no terminal of its own, and the flow that called it does. Hand the finding
+      // up; `runWorkFlow` asks with the readline that owns the terminal (#194).
+      if (r.suggestOverrides?.length) ctx.noteRepoOverrides?.(r.suggestOverrides);
       return { code: r.code, lines: [r.message] };
     }
 

@@ -366,3 +366,52 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
     });
   });
 });
+
+describe("gov-work — the fork question is asked where the terminal is (#194)", () => {
+  /** seed refuses once with a fork suggestion, then succeeds. */
+  function forkDeps(answer: string) {
+    const proposed = [{ from: "genevaers/Workbench", to: "svm-geneva/Workbench" }];
+    let recorded: readonly { from: string; to: string }[] = [];
+    let seedCalls = 0;
+    let promptCalls = 0;
+    const { deps: base, out, ran } = deps({
+      prompt: async (q: string) => {
+        promptCalls++;
+        if (/Record it and try again/.test(q)) return answer;
+        return "1";                                   // project 1, then agent 1
+      },
+    });
+    const d: WorkFlowDeps = {
+      ...base,
+      run: async (argv: readonly string[]) => {
+        ran.push([...argv]);
+        // The first seed hits the fork; a seed after the mapping is recorded works.
+        if (argv[0] === "seed") return ++seedCalls === 1 && !recorded.length ? 1 : 0;
+        return 0;
+      },
+      pendingRepoOverrides: () => (recorded.length ? [] : proposed),
+      applyRepoOverrides: (o) => { recorded = o; return true; },
+    };
+    return { d, out, ran, recorded: () => recorded, promptCalls: () => promptCalls };
+  }
+
+  it("asks with the flow's own prompt, records on yes, and tries again", async () => {
+    const w = forkDeps("y");
+    await runWorkFlow(w.d);
+    expect(w.out.join("\n"), "explains before asking").to.match(/found a fork of that repository/);
+    expect(w.recorded()).to.deep.equal([{ from: "genevaers/Workbench", to: "svm-geneva/Workbench" }]);
+    expect(w.ran.filter((a) => a[0] === "seed"), "seeded again after recording").to.have.length(2);
+  });
+
+  it("records nothing on anything but yes — an unreadable answer is not agreement", async () => {
+    // Two earlier attempts asked on a terminal a readline already owned, got an
+    // instant empty read, and took it for agreement. Twice.
+    for (const answer of ["", "n", "no"]) {
+      const w = forkDeps(answer);
+      await runWorkFlow(w.d);
+      expect(w.recorded(), `answer '${answer}'`).to.have.length(0);
+      expect(w.ran.filter((a) => a[0] === "seed"), "and did not retry").to.have.length(1);
+      expect(w.out.join("\n")).to.match(/Left alone/);
+    }
+  });
+});
