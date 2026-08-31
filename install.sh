@@ -246,11 +246,11 @@ install_node() {
   # does it.
   say ""
   if [ "$have" -gt 0 ]; then
-    say "  ${B}Node $NODE_MAJOR or newer is required${RST}, and this machine has v$have."
+    say "  ${B}Step 1 — Node $NODE_MAJOR or newer is required${RST}, and this machine has v$have."
     say "  gov will install Node $NODE_MAJOR into $(tilde "$NODE_DIR") and leave your"
     say "  existing Node exactly where it is. About 50 MB. No sudo, nothing system-wide."
   else
-    say "  ${B}Node $NODE_MAJOR is required and is not installed.${RST}"
+    say "  ${B}Step 1 — Node $NODE_MAJOR is required and is not installed.${RST}"
     say "  gov will install it into $(tilde "$NODE_DIR") — about 50 MB."
     say "  Nothing outside your home folder is touched, and sudo is never used."
   fi
@@ -286,7 +286,7 @@ install_node() {
 }
 
 install_gov() {
-  step "Installing $GOV_PKG"
+  step "Step 2 — installing the governance client ($GOV_PKG)"
   need npm || die "npm did not come with Node — the install is incomplete. Remove $(tilde "$NODE_DIR") and re-run."
 
   # If we are using a Node we did NOT install, its global prefix may be a system
@@ -320,9 +320,33 @@ IMMEDIATELY_USABLE=0
 PLATFORM="$(detect_platform)"
 
 say ""
-say "${B}gov installer${RST} — $PLATFORM"
-say "${DIM}This takes a minute or two on a fresh machine. Each step reports as it finishes.${RST}"
-say "${DIM}Nothing is installed system-wide, and sudo is never used.${RST}"
+say "${B}Thank you for installing the governance framework.${RST}"
+say ""
+say "${DIM}gov installer — $PLATFORM. A minute or two on a fresh machine.${RST}"
+say ""
+# THE PLAN, BEFORE THE FIRST QUESTION.
+#
+# gov renders this list too, ticked off from what it can actually see — but gov
+# needs Node, and Node is step 1. So the plan is printed here, where nothing exists
+# yet, and gov takes over the ticking the moment it can run. This copy is the
+# ITINERARY; gov's is the PROGRESS, and gov's is the one that is derived and
+# therefore cannot be wrong.
+say "These are the steps to a working setup. You will be asked when a decision is"
+say "yours — an administrator password, a browser sign-in, a name for something."
+say "Nothing changes this machine without being shown to you first."
+say ""
+say "   1. [ ] Install Node version 24"
+say "   2. [ ] Install the governance client — gov"
+say "   3. [ ] Install dependency — git"
+say "   4. [ ] Install dependency — gh, the GitHub CLI"
+say "   5. [ ] Sign in to GitHub"
+say "   6. [ ] Grant gov the permissions it needs (repo, read:org, project)"
+say "   7. [ ] Tell git who you are"
+say "   8. [ ] Create your governance workspace"
+say "   9. [ ] Activate it for your organization"
+say "  10. [ ] Set your organization up  ${DIM}(adopters only)${RST}"
+say ""
+say "${DIM}Steps 3 onward are gov's own; it will show this list again, ticked off.${RST}"
 say ""
 
 step "Checking what you already have"
