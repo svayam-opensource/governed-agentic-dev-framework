@@ -36,7 +36,8 @@ import { createGhProjects } from "../lifecycle/project-list.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
-import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes } from "../maintain/fix-env.js";
+import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes } from "../maintain/fix-env.js";
+import { checklist, renderChecklist, checklistPreamble, checklistProgress, type ChecklistFacts } from "./checklist.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
@@ -44,6 +45,8 @@ import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } 
 import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
+import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
+import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 import { orgAdd, orgUse } from "../resolve/org.js";
@@ -412,6 +415,49 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // The adopter path is exactly `gov setup <org>/<repo>` — the same code, reached
     // from the first-run question instead of from a command the newcomer had to
     // already know the name of.
+    adopterNextSteps: () => {
+      const r = prjResolveGov(createNodeEnv());
+      if (!r.ok) return [];
+      const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+        ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+      if (!text) return [];
+      const c = parseOrgConfig(text);
+      return adopterNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home });
+    },
+    joinerNextSteps: () => {
+      const r = prjResolveGov(createNodeEnv());
+      if (!r.ok) return [];
+      const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+        ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+      if (!text) return [];
+      const c = parseOrgConfig(text);
+      return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home });
+    },
+    createStarterProject: () => {
+      // Real calls, reported honestly: a board this token cannot create is a missing
+      // `project` scope, not a broken adoption, and saying so beats a stack trace.
+      const cfg = ((): { org: string; repo: string; home: string } | null => {
+        const r = prjResolveGov(createNodeEnv());
+        if (!r.ok) return null;
+        const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+          ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+        if (!text) return null;
+        const c = parseOrgConfig(text);
+        return { org: c.githubOrg, repo: c.workspaceRepo, home: r.home };
+      })();
+      if (!cfg) return ["  (no workspace resolved yet — skipping the starter project)"];
+
+      const spec = starterProject(cfg.org, cfg.repo);
+      const boardUrl = tryRun("gh", ["project", "create", "--owner", cfg.org, "--title", spec.boardTitle, "--format", "json"])
+        ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null;
+      const issues = createGhIssues((args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+      const issueUrl = boardUrl ? issues.create(spec.issueRepo, spec.issueTitle, spec.issueBody, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")) : null;
+      if (boardUrl && issueUrl) {
+        const n = Number(boardUrl.match(/\/projects\/(\d+)/)?.[1] ?? 0);
+        if (n) issues.addToBoard(cfg.org, n, issueUrl);
+      }
+      return ["", "Starter project:", ...starterSummary({ boardUrl, issueUrl, seeded: false })];
+    },
     createWorkspace: (target) => {
       // CLOSE THIS READLINE FIRST. `runSetupCommand` opens its own interface on the
       // same stdin, and two readline interfaces both echo what you type — which is
@@ -881,6 +927,30 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId, ghScopes, gitIdentity },
         detectPackageManager((n) => tryRun(n, ["--version"]) !== undefined),
       );
+      // THE WHOLE THING, BEFORE ANY OF IT (#186). An adopter met these one surprise
+      // at a time and could not tell how far along they were. Derived from what gov
+      // can see, never from a progress file: two processes writing one would
+      // disagree, and a stale tick is worse than none.
+      const facts = (): ChecklistFacts => ({
+        gitPresent, ghPresent, ghAuthenticated: ghAuthed,
+        ghScopesOk: Boolean(ghScopes && missingScopes(ghScopes).length === 0),
+        gitIdentityOk: Boolean(gitIdentity?.name && gitIdentity.email),
+        workspaceResolves: resolve.ok,
+        orgActive: env.readActiveOrg(),
+        workspacePath: resolve.ok ? resolve.home : null,
+        orgSlug: null,
+        role: null,
+        installCmd: plan.steps.length
+          ? {
+              git: plan.steps.find((s) => s.fixes === "git") ? renderCommand(plan.steps.find((s) => s.fixes === "git")!) : "already installed",
+              ghRepo: plan.steps.find((s) => s.fixes === "gh repo") ? renderCommand(plan.steps.find((s) => s.fixes === "gh repo")!) : undefined,
+              gh: plan.steps.find((s) => s.fixes === "gh") ? renderCommand(plan.steps.find((s) => s.fixes === "gh")!) : "already installed",
+            }
+          : undefined,
+      });
+      for (const line of checklistPreamble()) process.stdout.write(`${line}\n`);
+      for (const line of renderChecklist(checklist(facts()))) process.stdout.write(`${line}\n`);
+
       process.stdout.write("\n");
       for (const line of formatPlanNarrative(plan)) process.stdout.write(`${line}\n`);
       if (!plan.steps.length) {
@@ -1074,7 +1144,24 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           }
         }
       }
-      process.stdout.write(`\n${ran} fixed, ${failed} failed. Run \`gov doctor\` again to confirm.\n`);
+      process.stdout.write(`\n${ran} fixed, ${failed} failed.\n`);
+      // Recomputed, not decremented: the list describes the machine as it is now,
+      // which is the only version of it worth showing.
+      const after: ChecklistFacts = {
+        ...facts(),
+        gitPresent: tryRun("git", ["--version"]) !== undefined,
+        ghPresent: tryRun("gh", ["--version"]) !== undefined,
+        ghAuthenticated: (() => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } })(),
+        ghScopesOk: (() => {
+          try {
+            const s = execFileSync("gh", ["auth", "status"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+            const g = parseGrantedScopes(s);
+            return Boolean(g && missingScopes(g).length === 0);
+          } catch { return false; }
+        })(),
+        gitIdentityOk: Boolean(gitCfg("user.name") && gitCfg("user.email")),
+      };
+      for (const line of checklistProgress(checklist(after))) process.stdout.write(`${line}\n`);
       return failed ? 1 : 0;
     }
 

@@ -35,6 +35,7 @@
 
 import * as path from "node:path";
 import { orgRepoTarget } from "../setup/answers.js";
+import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
 export type BootstrapStep =
@@ -225,6 +226,12 @@ export interface FirstRunIo {
    * and configure it — i.e. `gov setup <org>/<repo>`. Returns its exit code.
    */
   createWorkspace(target: string): Promise<number>;
+  /** Build the starter review project; returns the lines to print (#186). */
+  createStarterProject?: () => readonly string[];
+  /** What to do now, for an adopter. */
+  adopterNextSteps?: () => readonly string[];
+  /** What to do now, for a joiner. */
+  joinerNextSteps?: () => readonly string[];
   /** register the home and make it active. */
   register(org: string, home: string): { readonly ok: boolean; readonly message?: string };
   /** select an already-registered org. */
@@ -337,7 +344,33 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   }
 
   const target = `${org}/${repo}`;
-  return io.createWorkspace(target);
+  const code = await io.createWorkspace(target);
+  if (code !== 0) return code;
+
+  // THE FIRST GOVERNED THING, MADE FOR THEM (#186). Adoption ended by asking for a
+  // review with no governed way to do it — the one route that demonstrates what was
+  // just installed had to be assembled by hand, on day one, out of concepts the
+  // adopter had not met. Offered, never assumed: it creates a board and an issue in
+  // their organization, which is theirs to decline.
+  if (io.createStarterProject) {
+    io.print("");
+    io.print("One more thing, and it is the useful one.");
+    io.print("");
+    io.print("The policies that arrived are the framework's starting position, not yours.");
+    io.print("gov can create a small project for reviewing them — a board and one issue —");
+    io.print("so the first governed change in your organization is the one that decides how");
+    io.print("everything after it will be governed.");
+    io.print("");
+    const yes = (await io.prompt("Create it? (Y/n): ", "y")).trim().toLowerCase();
+    if (!/^n(o)?$/.test(yes)) {
+      for (const line of io.createStarterProject()) io.print(line);
+    } else {
+      io.print("  Skipped. You can review the policies on GitHub or in your editor.");
+    }
+  }
+
+  for (const line of io.adopterNextSteps?.() ?? []) io.print(line);
+  return 0;
 }
 
 async function cloneAndRegister(io: FirstRunIo): Promise<number> {
@@ -400,6 +433,9 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
     const r = io.register(identity.org, home);
     if (!r.ok) { io.print(r.message ?? `could not register ${identity.org}.`); return 1; }
     io.print(`Registered ${identity.org} → ${home}`);
+    // A joiner needs the opposite of an adopter's instructions: not "settle this",
+    // but "this is already settled, and here is where to read it".
+    for (const line of io.joinerNextSteps?.() ?? []) io.print(line);
     io.print(`Active org → ${identity.org}`);
     return 0;
   } catch (e) {
