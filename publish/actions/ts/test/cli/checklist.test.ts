@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /** The adoption checklist (#186) — derived from the machine, never from a file. */
 import { expect } from "chai";
-import { checklist, renderChecklist, checklistProgress } from "../../src/cli/checklist.js";
+import { checklist, renderChecklist, finalStatus, stepBanner, stepDone } from "../../src/cli/checklist.js";
 import { adopterNextSteps, joinerNextSteps } from "../../src/cli/next-steps.js";
 
 const BARE = {
@@ -35,12 +35,19 @@ describe("gov-work — the adoption checklist (#186)", () => {
     expect(lines).to.not.contain("package repository");
   });
 
-  it("lists the founding steps for an adopter, and not for a joiner", () => {
-    const adopter = renderChecklist(checklist({ ...BARE, role: "adopter" })).join("\n");
-    const joiner = renderChecklist(checklist({ ...BARE, role: "joiner" })).join("\n");
-    expect(adopter).to.contain("adopters only");
-    // Listing them against a joiner's name would be a list of things they must not do.
-    expect(joiner).to.not.contain("adopters only");
+  it("step 8 differs by role, and only step 8", () => {
+    const adopter = checklist({ ...BARE, role: "adopter" });
+    const joiner = checklist({ ...BARE, role: "joiner" });
+
+    // An adopter founds an organization; a joiner clones one that exists. Listing the
+    // founding steps against a joiner's name would be a list of things they must not do.
+    expect(renderChecklist(adopter).join("\n")).to.contain("from the framework template");
+    expect(renderChecklist(joiner).join("\n")).to.not.contain("from the framework template");
+    expect(renderChecklist(joiner).join("\n")).to.contain("Clone it to");
+
+    // Everything either side of 8 is the same run, under the same numbers.
+    const tops = (l: typeof adopter) => l.filter((i) => !i.sub).map((i) => i.n);
+    expect(tops(adopter)).to.deep.equal(tops(joiner));
   });
 
   it("fills in the real paths once they exist, instead of the placeholder", () => {
@@ -53,9 +60,20 @@ describe("gov-work — the adoption checklist (#186)", () => {
     expect(done).to.contain("svm-geneva →");
   });
 
-  it("counts only top-level steps, so progress does not jump on a sub-item", () => {
-    const lines = checklistProgress(checklist({ ...BARE, gitPresent: true })).join("\n");
-    expect(lines).to.match(/Progress — 3 of \d+ done/);
+  it("the final status repeats every path, because it is meant to be screenshotted", () => {
+    const lines = finalStatus(checklist({
+      ...BARE, role: "adopter", workspaceResolves: true, orgActive: "svm-geneva",
+      workspacePath: "/home/t/.gov/geneva/gov_repo", orgSlug: "GENEVA",
+    })).join("\n");
+    expect(lines).to.contain("worth a screenshot");
+    expect(lines).to.contain("/home/t/.gov/geneva/gov_repo");
+    expect(lines, "and where projects will land").to.contain("~/.gov/geneva/projects");
+  });
+
+  it("a step opens with a banner carrying its own number, and closes ticked", () => {
+    const item = checklist({ ...BARE, gitPresent: false })[2]!;   // step 3, git
+    expect(stepBanner(item).join("\n")).to.contain("===> 3. Install dependency — git");
+    expect(stepDone(item)).to.contain("===> 3. [✓]");
   });
 });
 

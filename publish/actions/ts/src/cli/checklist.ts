@@ -55,6 +55,10 @@ const or = (v: string | null | undefined, placeholder: string): string => (v && 
  */
 export function checklist(f: ChecklistFacts): readonly ChecklistItem[] {
   const slug = or(f.orgSlug, "<org-slug>");
+  const home = or(f.workspacePath, `~/.gov/${slug}/gov_repo`);
+  // From the slug, lowercased, because that is how the directory is actually named —
+  // a status line that shows a path nobody has is worse than showing none.
+  const projects = `~/.gov/${slug.toLowerCase()}/projects`;
   const items: ChecklistItem[] = [
     // If this list is being rendered, gov is running, which needs Node 24. Both are
     // therefore done by construction rather than by memory.
@@ -68,27 +72,33 @@ export function checklist(f: ChecklistFacts): readonly ChecklistItem[] {
     items.push({ n: "4b", sub: true, done: f.ghPresent, text: `Install gh  (${f.installCmd.gh})` });
   }
   items.push(
-    { n: "5", done: f.ghAuthenticated, text: "Sign in to GitHub  (gh auth login)" },
-    { n: "6", done: f.ghAuthenticated && f.ghScopesOk, text: "Grant gov the permissions it needs  (repo, read:org, project)" },
-    { n: "7", done: f.gitIdentityOk, text: "Tell git who you are  (user.name, user.email)" },
-    { n: "8", done: f.workspaceResolves, text: `Create the governance workspace at ${or(f.workspacePath, `~/.gov/${slug}/gov_repo`)}` },
-    { n: "9", done: Boolean(f.orgActive), text: `Activate it — ${or(f.orgActive, "<your GitHub org>")} → ${or(f.workspacePath, `~/.gov/${slug}/gov_repo`)}` },
+    { n: "5", done: f.ghAuthenticated && f.ghScopesOk, text: "Authorize gov for GitHub  (gh auth login -s repo,read:org,project)" },
+    { n: "6", done: f.gitIdentityOk, text: "Configure git  (git config --global user.name / user.email)" },
+    { n: "7", done: f.workspaceResolves, text: `Create the governance workspace folder at ${home}` },
   );
 
-  if (f.role === "adopter") {
-    // Only an adopter founds an organization. A joiner's workspace already has all
-    // of this in it, and listing it against their name would be a list of things
-    // they must not do.
-    const done = f.workspaceResolves;
-    items.push(
-      { n: "10", done, text: "Set your organization up (adopters only)" },
-      { n: "10a", sub: true, done, text: "Create the governance repository from the framework template" },
-      { n: "10b", sub: true, done, text: "Seed the starter policies and agent harness into it" },
-      { n: "10c", sub: true, done, text: "Replace the framework's placeholders with your organization's values" },
-      { n: "10d", sub: true, done, text: "Commit and push it to your organization" },
-      { n: "10e", sub: true, done: false, text: "Review the seeded policies and make them yours" },
-    );
+  // STEP 8 IS THE ONE THAT DIFFERS BY ROLE, and only this one. An adopter founds an
+  // organization; a joiner clones one that exists. Listing the founding steps against
+  // a joiner's name would be a list of things they must not do, and listing neither
+  // leaves the biggest step of the run unaccounted for.
+  const built = f.workspaceResolves;
+  if (f.role === "joiner") {
+    items.push({ n: "8", done: built, text: "Bring in your organization's governance repository (joiners)" });
+    items.push({ n: "8a", sub: true, done: built, text: `Clone it to ${home}` });
+  } else {
+    items.push({ n: "8", done: built, text: "Set your organization up (adopters)" });
+    items.push({ n: "8a", sub: true, done: built, text: `Create the governance repository at ${home}, from the framework template` });
+    items.push({ n: "8b", sub: true, done: built, text: "Seed the starter policies and agent harness into it" });
+    items.push({ n: "8c", sub: true, done: built, text: "Replace the framework's placeholders with your organization's values" });
+    items.push({ n: "8d", sub: true, done: built, text: "Commit and push it to your organization" });
+    items.push({ n: "8e", sub: true, done: false, text: "Review the seeded policies and make them yours" });
   }
+
+  items.push(
+    { n: "9", done: Boolean(f.orgActive), text: "Finish setting up this machine" },
+    { n: "9a", sub: true, done: Boolean(f.orgActive), text: `Activate the org — ${or(f.orgActive, "<your GitHub org>")} → ${home}` },
+    { n: "9b", sub: true, done: f.workspaceResolves, text: `Prepare the project work root at ${projects}` },
+  );
   return items;
 }
 
@@ -100,15 +110,44 @@ export function renderChecklist(items: readonly ChecklistItem[]): readonly strin
   });
 }
 
+const RULE = "=".repeat(88);
+
 /** Shown once, before anything runs, so nobody meets these one surprise at a time. */
 export function checklistPreamble(): readonly string[] {
   return [
     "",
-    "Thank you for installing the governance framework.",
+    RULE,
+    "  What to expect",
+    RULE,
+    "  · Nothing is installed or changed without being shown to you first.",
+    "  · Each step reports as it completes, so you always know how far along you are.",
+    "  · Some steps only you can do — a browser sign-in, an administrator password,",
+    "    a name for your organization. gov will stop and ask.",
     "",
-    "These are the steps to a working setup. gov will do what it can and ask you when",
-    "it cannot — a browser sign-in, an administrator password, a decision that is yours.",
-    "Nothing changes your machine without being shown to you first.",
+  ];
+}
+
+/** The banner that opens one step, so the run reads as the plan did. */
+export function stepBanner(item: ChecklistItem): readonly string[] {
+  return ["", "", RULE, `===> ${item.n}. ${item.text}`, ""];
+}
+
+/** The line that closes it. */
+export function stepDone(item: ChecklistItem, ok = true): string {
+  return `===> ${item.n}. [${ok ? "✓" : " "}] ${item.text}`;
+}
+
+/**
+ * The whole list again at the end — worth a screenshot, which is why every path is
+ * spelled out rather than referred to.
+ */
+export function finalStatus(items: readonly ChecklistItem[]): readonly string[] {
+  return [
+    "",
+    RULE,
+    "  Final status — worth a screenshot. These paths are also in your org-config.yaml.",
+    RULE,
+    ...renderChecklist(items),
     "",
   ];
 }

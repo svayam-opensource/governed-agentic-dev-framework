@@ -283,9 +283,11 @@ install_node() {
   export PATH="$NODE_DIR/bin:$PATH"
   add_to_path "$NODE_DIR/bin"
   ok "Node $("$NODE_DIR/bin/node" -v)"
+  say "===> 1. [✓] Install Node version 24"
 }
 
 install_gov() {
+  say ""; say ""; say "$RULE"
   step "Step 2 — installing the governance client ($GOV_PKG)"
   need npm || die "npm did not come with Node — the install is incomplete. Remove $(tilde "$NODE_DIR") and re-run."
 
@@ -308,6 +310,7 @@ install_gov() {
     npm install -g --silent "$GOV_PKG" \
     || die "npm could not install $GOV_PKG — the output above says why"
   ok "$(gov --version 2>/dev/null | head -1 || echo "gov installed")"
+  say "===> 2. [✓] Install the governance client — gov"
 
   # Prefer the shell the person is actually in over a shell they have to go and open.
   local gov_bin; gov_bin="$(command -v gov 2>/dev/null || true)"
@@ -319,10 +322,18 @@ PROFILE_TOUCHED=""
 IMMEDIATELY_USABLE=0
 PLATFORM="$(detect_platform)"
 
+RULE="========================================================================================"
 say ""
-say "${B}Thank you for installing the governance framework.${RST}"
+say "$RULE"
+say "${B}  Thank you for your interest in Svayam's governance framework.${RST}"
+say "$RULE"
+say "${DIM}  Installing for $PLATFORM. A minute or two on a fresh machine.${RST}"
 say ""
-say "${DIM}gov installer — $PLATFORM. A minute or two on a fresh machine.${RST}"
+say "  What to expect:"
+say "  · Nothing is installed or changed without being shown to you first."
+say "  · Each step reports as it completes, so you always know how far along you are."
+say "  · Some steps only you can do — a browser sign-in, an administrator password,"
+say "    a name for your organization. gov will stop and ask."
 say ""
 # THE PLAN, BEFORE THE FIRST QUESTION.
 #
@@ -331,23 +342,23 @@ say ""
 # yet, and gov takes over the ticking the moment it can run. This copy is the
 # ITINERARY; gov's is the PROGRESS, and gov's is the one that is derived and
 # therefore cannot be wrong.
-say "These are the steps to a working setup. You will be asked when a decision is"
-say "yours — an administrator password, a browser sign-in, a name for something."
-say "Nothing changes this machine without being shown to you first."
+say "  These steps will set governance up for your organization, on GitHub and here:"
 say ""
 say "   1. [ ] Install Node version 24"
 say "   2. [ ] Install the governance client — gov"
 say "   3. [ ] Install dependency — git"
 say "   4. [ ] Install dependency — gh, the GitHub CLI"
-say "   5. [ ] Sign in to GitHub"
-say "   6. [ ] Grant gov the permissions it needs (repo, read:org, project)"
-say "   7. [ ] Tell git who you are"
-say "   8. [ ] Create the governance workspace"
-say "   9. [ ] Activate it for your organization"
-say "  10. [ ] Set your organization up  ${DIM}(adopters only)${RST}"
+say "   5. [ ] Authorize gov for GitHub"
+say "   6. [ ] Configure git"
+say "   7. [ ] Create the governance workspace folder"
+say "   8. [ ] Set your organization up ${DIM}(adopters)${RST} — or bring in your org's ${DIM}(joiners)${RST}"
+say "   9. [ ] Finish setting up this machine"
 say ""
-say "${DIM}Steps 3 onward are gov's own; it will show this list again, ticked off.${RST}"
+say "${DIM}  Steps 3 onward are gov's own; it shows this list again, ticked off, at the end.${RST}"
 say ""
+say "$RULE"
+say "${B}                          Starting install${RST}"
+say "$RULE"
 
 step "Checking what you already have"
 install_node "$PLATFORM"

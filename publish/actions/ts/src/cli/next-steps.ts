@@ -29,9 +29,15 @@ const p = (f: NextStepsFacts): { home: string; slug: string } => ({
   slug: f.orgSlug.toLowerCase(),
 });
 
+const RULE = "=".repeat(88);
+
 export function adopterNextSteps(f: NextStepsFacts): readonly string[] {
   const { home, slug } = p(f);
   return [
+    "",
+    RULE,
+    "  Install complete — for ADOPTERS",
+    RULE,
     "",
     "Governance is installed and ready.",
     "",
@@ -65,10 +71,22 @@ export function adopterNextSteps(f: NextStepsFacts): readonly string[] {
     `Your workspace: ${home}`,
     `Projects will be cloned under: ~/.gov/${slug}/projects/`,
     "",
-    "Then read, in this order:",
-    "  knowledge/policies/roles.md                      who is accountable for what",
-    "  knowledge/policies/agentic-development-policy.md the rules of work",
-    "  knowledge/policies/data-classification.md        what may never leave",
+    "Read these, in this order — the full paths, so nothing has to be guessed:",
+    `  ${home}/knowledge/policies/roles.md`,
+    "      who is accountable for what. Every role currently points at you.",
+    `  ${home}/knowledge/policies/agentic-development-policy.md`,
+    "      the rules of work — read §2 and §7 before changing anything",
+    `  ${home}/knowledge/policies/data-classification.md`,
+    "      what may never leave your organization",
+    `  ${home}/agent/session-protocol.md`,
+    "      what every agent reads before it touches anything",
+    "",
+    `  ${home}/org-config.yaml`,
+    "      your organization's values. Do NOT hand-edit it — gov writes this file,",
+    "      and a value changed here that gov does not know about is a value that",
+    "      disagrees with the tool reading it.",
+    "",
+    RULE,
     "",
   ];
 }
@@ -76,6 +94,10 @@ export function adopterNextSteps(f: NextStepsFacts): readonly string[] {
 export function joinerNextSteps(f: NextStepsFacts): readonly string[] {
   const { home, slug } = p(f);
   return [
+    "",
+    RULE,
+    "  Install complete — for JOINERS",
+    RULE,
     "",
     "You are set up, and there is nothing for you to configure.",
     "",
@@ -91,6 +113,8 @@ export function joinerNextSteps(f: NextStepsFacts): readonly string[] {
     "      what your agent reads at the start of every session",
     `    ${home}/knowledge/policies/roles.md`,
     "      who to ask when something here does not fit",
+    `    ${home}/docs/USER_GUIDE.md`,
+    "      the day-to-day: starting work, finishing it, and what gov does for you",
     "",
     "  Then start working:",
     "    1. Run:  gov",
@@ -105,6 +129,8 @@ export function joinerNextSteps(f: NextStepsFacts): readonly string[] {
     "If a rule gets in your way, propose a change rather than working around it:",
     "  gov knowledge propose <short-name>",
     "It goes to whoever owns that area, as a pull request. That is the whole point.",
+    "",
+    RULE,
     "",
   ];
 }

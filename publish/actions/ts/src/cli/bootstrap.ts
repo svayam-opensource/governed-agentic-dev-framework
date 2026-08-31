@@ -347,27 +347,15 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   const code = await io.createWorkspace(target);
   if (code !== 0) return code;
 
-  // THE FIRST GOVERNED THING, MADE FOR THEM (#186). Adoption ended by asking for a
-  // review with no governed way to do it — the one route that demonstrates what was
-  // just installed had to be assembled by hand, on day one, out of concepts the
-  // adopter had not met. Offered, never assumed: it creates a board and an issue in
-  // their organization, which is theirs to decline.
-  if (io.createStarterProject) {
-    io.print("");
-    io.print("One more thing, and it is the useful one.");
-    io.print("");
-    io.print("The policies that arrived are the framework's starting position, not yours.");
-    io.print("gov can create a small project for reviewing them — a board and one issue —");
-    io.print("so the first governed change in your organization is the one that decides how");
-    io.print("everything after it will be governed.");
-    io.print("");
-    const yes = (await io.prompt("Create it? (Y/n): ", "y")).trim().toLowerCase();
-    if (!/^n(o)?$/.test(yes)) {
-      for (const line of io.createStarterProject()) io.print(line);
-    } else {
-      io.print("  Skipped. You can review the policies on GitHub or in your editor.");
-    }
-  }
+  // THE FIRST GOVERNED THING, MADE FOR THEM (#186).
+  //
+  // The asking happens INSIDE createStarterProject, not here. `createWorkspace`
+  // hands the terminal to `gov setup`, which opens and closes its own readline —
+  // so a prompt from this function afterwards died with ERR_USE_AFTER_CLOSE, on
+  // the last question of an otherwise complete adoption. Whoever holds the
+  // terminal at the moment does the asking; by now, that is no longer this
+  // function.
+  for (const line of io.createStarterProject?.() ?? []) io.print(line);
 
   for (const line of io.adopterNextSteps?.() ?? []) io.print(line);
   return 0;

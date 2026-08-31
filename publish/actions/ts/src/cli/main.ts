@@ -37,7 +37,7 @@ import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
 import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes } from "../maintain/fix-env.js";
-import { checklist, renderChecklist, checklistPreamble, checklistProgress, type ChecklistFacts } from "./checklist.js";
+import { checklist, renderChecklist, checklistPreamble, finalStatus, stepBanner, stepDone, type ChecklistFacts } from "./checklist.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
@@ -434,6 +434,36 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home });
     },
     createStarterProject: () => {
+      // ITS OWN TERMINAL. Every readline opened earlier in this flow has been closed
+      // by now (`gov setup` owns and releases one), so this opens a fresh one rather
+      // than reaching for a handle that is gone — which is how the last question of a
+      // completed adoption became ERR_USE_AFTER_CLOSE.
+      const askHere = (q: string): string => {
+        try {
+          const fd = fsSync.openSync("/dev/tty", "r");
+          try {
+            process.stdout.write(q);
+            const buf = Buffer.alloc(64);
+            const n = fsSync.readSync(fd, buf, 0, buf.length, null);
+            return buf.toString("utf8", 0, n).trim().toLowerCase();
+          } finally { fsSync.closeSync(fd); }
+        } catch {
+          return "";                                   // no terminal: treated as "no"
+        }
+      };
+      process.stdout.write("\n" + [
+        "One more thing, and it is the useful one.",
+        "",
+        "The policies that arrived are the framework's starting position, not yours.",
+        "gov can create a small project for reviewing them — a board and one issue —",
+        "so the first governed change in your organization is the one that decides how",
+        "everything after it will be governed.",
+        "",
+      ].join("\n") + "\n");
+      const answer = askHere("Create it? [y/N] ");
+      if (!/^y(es)?$/.test(answer)) {
+        return ["  Skipped. You can review the policies on GitHub or in your editor."];
+      }
       // Real calls, reported honestly: a board this token cannot create is a missing
       // `project` scope, not a broken adoption, and saying so beats a stack trace.
       const cfg = ((): { org: string; repo: string; home: string } | null => {
@@ -1120,7 +1150,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             else { failed++; broken.add(step.fixes); process.stdout.write("  ✗ could not write your git config\n"); }
             continue;
           }
-          process.stdout.write(`\n  run:  ${renderCommand(step)}\n`);
+          // The run reads as the plan did: a banner opens the step, the command is
+          // shown, and a ticked line closes it. Same numbers, same words.
+          const item = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
+          if (item) for (const line of stepBanner(item)) process.stdout.write(`${line}\n`);
+          process.stdout.write(`  run:  ${renderCommand(step)}\n`);
           // sudo is prepended only here, where the user has just seen and accepted the
           // exact line — never silently inside the plan. Two environments make the
           // naive prefix wrong: a container running as root has no `sudo` and does
@@ -1135,7 +1169,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           }
           const [bin, ...rest] = needsElevation ? ["sudo", ...step.command] : [...step.command];
           const r = spawnSync(bin!, rest, { stdio: "inherit" });
-          if (r.status === 0) { ran++; process.stdout.write("  ✓ done\n"); }
+          if (r.status === 0) {
+            ran++;
+            const it = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
+            process.stdout.write(it ? `\n${stepDone(it)}\n` : "  ✓ done\n");
+          }
           else {
             failed++;
             broken.add(step.fixes);
@@ -1161,7 +1199,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         })(),
         gitIdentityOk: Boolean(gitCfg("user.name") && gitCfg("user.email")),
       };
-      for (const line of checklistProgress(checklist(after))) process.stdout.write(`${line}\n`);
+      for (const line of finalStatus(checklist(after))) process.stdout.write(`${line}\n`);
       return failed ? 1 : 0;
     }
 
