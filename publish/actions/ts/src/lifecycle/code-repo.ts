@@ -68,10 +68,36 @@ export function setupCodeRepoWorktree(
   // that verdict in, so this function never has to guess.
   const existsLocally = deps.vcs.refExists(baseClone, `refs/heads/${p.projectBranch}`);
   const existsRemotely = deps.vcs.refExists(baseClone, `refs/remotes/${remote}/${p.projectBranch}`);
-  if ((existsLocally || existsRemotely) && !p.adoptExisting) {
-    throw new Error(`Branch '${p.projectBranch}' already exists in ${p.url} — investigate.`);
+  const exists = existsLocally || existsRemotely;
+
+  // THE SAME RULE, WHEREVER THE BRANCH TURNS UP (#180).
+  //
+  // seed's preflight asks the REMOTE, and adopts a project branch sitting exactly on
+  // the base tip because only a failed run of this command could have put it there.
+  // A branch can also be left behind LOCALLY: the base clone persists between runs
+  // by design (it is not rolled back), so a run that created the branch and died
+  // before pushing leaves it here, invisible to `ls-remote`. The preflight then says
+  // "create", and this threw "already exists — investigate" about the tool's own
+  // leftover, which is the message #180 exists to remove.
+  //
+  // So the same question is asked again with what is knowable here: is it at the
+  // base tip? Then it is ours and empty. Otherwise it holds work, and refusing is
+  // right — with the reason, not with "investigate".
+  let reusing = exists && p.adoptExisting === true;
+  if (exists && !reusing) {
+    const baseSha = deps.vcs.revParse(baseClone, `${remote}/${p.baseBranch}`);
+    const branchSha = deps.vcs.revParse(baseClone, p.projectBranch)
+      ?? deps.vcs.revParse(baseClone, `${remote}/${p.projectBranch}`);
+    if (baseSha && branchSha && baseSha === branchSha) {
+      reusing = true;
+    } else {
+      throw new Error(
+        `Branch '${p.projectBranch}' already exists in ${p.url} and has commits of its own.\n` +
+        `    That is somebody's work, not a leftover from a failed setup, so gov will not reuse it.\n` +
+        `    Either finish or delete that branch, or seed this project under a different board.`,
+      );
+    }
   }
-  const reusing = (existsLocally || existsRemotely) && p.adoptExisting === true;
 
   deps.tx.step(
     `worktree ${repoDir}`,

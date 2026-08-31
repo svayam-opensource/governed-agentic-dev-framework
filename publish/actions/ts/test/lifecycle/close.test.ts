@@ -95,7 +95,7 @@ function fakeVcs(opts: { openTasks?: string[]; syncConflict?: boolean } = {}) {
     commit: () => {},
     resetHard: () => {}, resetKeepingFiles: () => {},
     cleanUntracked: () => {},
-    worktreeAdd: () => {},
+    worktreeAdd: () => {}, worktreeAddExisting: () => {},
     worktreeRemove: () => {},
     branchDelete: () => {},
     push: (r, _rm, b) => log.push(`push ${r} ${b}`),

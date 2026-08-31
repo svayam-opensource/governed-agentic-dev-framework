@@ -53,7 +53,7 @@ function fakeVcs(opts: { hasTask?: boolean; taskSha?: string | null; baseSha?: s
     commit: () => {},
     resetHard: () => {}, resetKeepingFiles: () => {},
     cleanUntracked: () => {},
-    worktreeAdd: () => {},
+    worktreeAdd: () => {}, worktreeAddExisting: () => {},
     worktreeRemove: () => {},
     branchDelete: (_r, b) => log.push(`branchDelete ${b}`),
     push: (r, _rm, b) => log.push(`push ${r} ${b}`),

@@ -77,6 +77,7 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
     resetKeepingFiles: (r, s) => rec(`resetKeepingFiles ${r} ${s}`),
     cleanUntracked: (r, p) => rec(`clean ${r} ${p}`),
     worktreeAdd: (_b, br, wt) => rec(`worktreeAdd ${wt} ${br}`),
+    worktreeAddExisting: (_b, br, wt) => rec(`worktreeAddExisting ${wt} ${br}`),
     worktreeRemove: (_b, wt) => rec(`worktreeRemove ${wt}`),
     branchDelete: (_r, br) => rec(`branchDelete ${br}`),
     push: (r, _rm, br) => {
@@ -230,6 +231,29 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     const r = seed({ board: fakeBoard(), vcs, fs: fsPort, anchor: fakeAnchor(), cloneRepo: () => {} }, CONFIG, INPUT);
 
     expect(r.ok, "a branch on the base tip carries nothing — it is ours").to.equal(true);
+  });
+
+  it("an override that collapses two linked repos onto one processes it ONCE (#194)", () => {
+    // The board linked an issue in the fork AND one upstream. The override sends the
+    // upstream one to the fork, so the same work repo appeared twice — Phase C
+    // created the project branch for the first, met it again for the second, and
+    // reported "Branch … already exists" about a branch it had made seconds earlier.
+    // On a fresh machine, with the branch on no remote and in no clone, which is
+    // exactly as confusing as it sounds.
+    const { vcs, log } = fakeVcs();
+    (vcs as unknown as { lsRemoteRefs: () => unknown }).lsRemoteRefs = () => [{ name: "dev", sha: "base-sha" }];
+    const { fsPort } = fakeFs();
+
+    const r = seed(
+      { board: fakeBoard({ repoUrls: [CODE_REPO, "https://github.com/upstream/911-SVM-LIB-SVC"] }), vcs, fs: fsPort, anchor: fakeAnchor(), cloneRepo: () => {} },
+      { ...CONFIG, repoOverrides: { "upstream/911-SVM-LIB-SVC": "Svayamtech/911-SVM-LIB-SVC" } },
+      INPUT,
+    );
+
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(r.repos, "one repo, not the same one twice").to.have.length(1);
+    expect(log.filter((l) => l.startsWith("worktreeAdd ")).length, "one worktree").to.equal(2); // gov clone + the one code repo
   });
 
   it("aborts on leftover state without mutating", () => {

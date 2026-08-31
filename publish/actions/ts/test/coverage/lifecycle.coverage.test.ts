@@ -54,7 +54,7 @@ function fakeVcs(): Vcs {
     lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }], defaultBranch: () => null, revParse: () => null,
     currentBranch: () => PBRANCH, isAncestor: () => false, isClean: () => true,
     remoteBranchesMatching: () => [], addPath: noop, commit: noop, resetHard: noop, resetKeepingFiles: noop, cleanUntracked: noop,
-    worktreeAdd: noop, worktreeRemove: noop, branchDelete: noop, push: noop, pushDelete: noop, clone: noop,
+    worktreeAdd: noop, worktreeAddExisting: noop, worktreeRemove: noop, branchDelete: noop, push: noop, pushDelete: noop, clone: noop,
     fetch: noop, setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,
   };
 }
@@ -506,10 +506,26 @@ describe("lifecycle coverage — add-repo", () => {
     expect(px(r.lines[0])).to.equal(`Base branch 'dev' not found in ${APP_URL}`);
   });
 
-  it("error: project branch already exists in the repo → exit 1 (add-failed)", () => {
-    const r = run(["add-repo", APP_URL], { vcs: { ...fakeVcs(), refExists: () => true } });
+  it("error: a project branch WITH WORK ON IT → exit 1, and says so (#180)", () => {
+    // Not at the base tip, so it is somebody's work rather than our own leftover.
+    // "investigate" told the reader nothing, and was most often about a branch gov
+    // itself had left behind after a failed run.
+    const r = run(["add-repo", APP_URL], {
+      vcs: { ...fakeVcs(), refExists: () => true, revParse: (_d: string, rev: string) => (rev.includes(PBRANCH) ? "theirs" : "base") },
+    });
     expect(r.code).to.equal(1);
-    expect(px(r.lines[0])).to.equal(`Branch '${PBRANCH}' already exists in ${APP_URL} — investigate.`);
+    expect(px(r.lines[0])).to.contain("has commits of its own");
+    expect(px(r.lines[0])).to.contain("will not reuse it");
+  });
+
+  it("a project branch sitting on the base tip is REUSED, not refused (#180)", () => {
+    // The shape a failed run leaves behind: created from the base, nothing committed.
+    // The base clone persists between runs, so this one is invisible to `ls-remote`
+    // and the remote preflight cannot catch it.
+    const r = run(["add-repo", APP_URL], {
+      vcs: { ...fakeVcs(), refExists: () => true, revParse: () => "same-sha" },
+    });
+    expect(r.code, "reused rather than refused").to.not.equal(1);
   });
 });
 

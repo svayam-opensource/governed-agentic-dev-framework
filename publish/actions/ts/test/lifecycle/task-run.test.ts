@@ -86,7 +86,7 @@ function fakeVcs(branch = "BRNCH-43-governance-common-project") {
     commit: () => {},
     resetHard: () => {}, resetKeepingFiles: () => {},
     cleanUntracked: () => {},
-    worktreeAdd: () => {},
+    worktreeAdd: () => {}, worktreeAddExisting: () => {},
     worktreeRemove: () => {},
     branchDelete: (_r, b) => log.push(`branchDelete ${b}`),
     push: (r, _rm, b) => log.push(`push ${r} ${b}`),

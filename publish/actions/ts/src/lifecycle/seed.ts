@@ -150,7 +150,13 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
   const overrides: RepoOverrides = config.repoOverrides ?? {};
   const redirected = appliedOverrides(linkedRepoUrls, overrides);
   for (const r of redirected) log(`Work repo: ${r.from} → ${r.to} (repo_overrides)`);
-  const codeRepoUrls = linkedRepoUrls.map((u) => resolveWorkRepo(u, overrides));
+  // DEDUPE AFTER MAPPING, not before. `board.repoUrls` is already distinct, but an
+  // override can collapse two of them onto one: a board that links an issue in the
+  // fork AND an issue upstream ends up with the same work repo twice. Phase C then
+  // creates the project branch for the first, meets it again for the second, and
+  // reports "Branch … already exists" about a branch it had made moments earlier —
+  // in a container with no leftovers at all, which is what made it so confusing.
+  const codeRepoUrls = [...new Set(linkedRepoUrls.map((u) => resolveWorkRepo(u, overrides)))];
 
   // ── REMOTE PREFLIGHT, before the first write (#180) ─────────────────────────
   //
