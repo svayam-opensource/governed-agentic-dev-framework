@@ -46,6 +46,7 @@ import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
+import { approvedAgentIdsFrom } from "./agent-catalog.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
@@ -610,6 +611,11 @@ function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | n
     anchor: createGhAnchor(runGh),
     fs,
     pendingRepoOverrides: pendingRepoOverridesFn,
+    // The three facts the agent menu needs (#195): what is on PATH, what keys are
+    // set (presence only — never the value), and what this org has approved.
+    hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
+    env: process.env,
+    approvedAgentIds: () => approvedAgentIdsFrom(fs.readFile(path.join(resolved.home, "knowledge", "policies", "llm-governance.md"))),
     applyRepoOverrides,
     config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot },
     me,

@@ -13,6 +13,7 @@ import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveProjectIdentity } from "../lifecycle/identity.js";
 import { deriveStatus } from "../lifecycle/state.js";
 import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
+import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines } from "./agent-catalog.js";
 
 export interface WorkProject {
   readonly boardNumber: number;
@@ -31,6 +32,12 @@ export interface WorkFlowDeps {
   readonly canWriteBoard: (boardNumber: number) => boolean;
   readonly run: (argv: readonly string[]) => Promise<number> | number;
   readonly prompt: (q: string) => Promise<string>;
+  /** Is this command on PATH? Injected, so the menu is decidable in a test (#195). */
+  readonly hasTool?: (cmd: string) => boolean;
+  /** The environment, for reporting a missing key without ever reading its value. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** The org's approved agent ids, or null when it has not decided yet. */
+  readonly approvedAgentIds?: () => readonly string[] | null;
   /** Fork mappings the last `seed` proposed, if any (#194). */
   readonly pendingRepoOverrides?: () => readonly { readonly from: string; readonly to: string }[];
   /** Record them in org-config.yaml. Returns whether anything was written. */
@@ -390,10 +397,45 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
     return 2;
   }
   if (!agent) {
+    // OFFER WHAT EXISTS, AND ONLY WHAT IS APPROVED (#195). The old menu was four
+    // fixed lines — offered whole to a machine with none of them installed, and led
+    // by a tool the policy this same install had just seeded lists as prohibited.
+    const statuses = agentStatuses(AGENT_CATALOG, deps.hasTool ?? (() => false), deps.env ?? {});
+    const approved = approvedAgents(deps.approvedAgentIds?.() ?? null);
+    const offer = [...offerable(statuses, approved.ids)];
+    // The Cursor EDITOR is a launch target rather than a harness of its own — the
+    // rules reach it through .cursor/rules/agent.mdc, the same file the CLI agent's
+    // harness renders. Offered when the editor is here and Cursor is approved,
+    // labelled as what it is: opening an editor, not running an agent (#195).
+    if (approved.ids.includes("cursor") && (deps.hasTool?.("cursor") ?? false)) {
+      offer.push({ candidate: CURSOR_GUI, installed: true, credentialPresent: null });
+    }
+
+    if (!offer.length) {
+      // Nothing to launch. Say what could be installed and what it would cost —
+      // then get out of the way, because `shell` was always the answer here.
+      for (const line of nothingInstalledLines(installable(statuses, approved.ids), approved.usingDefaults)) print(line);
+      print("");
+      print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
+      return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo));
+    }
+
     print("  Start an agent in it now?");
-    print("     1) Claude    2) cursor    3) Cursor GUI    4) shell    0) later");
+    for (const line of menuLines(offer)) print(line);
     const choice = (await deps.prompt("  Choose: ")).trim();
-    agent = choice === "1" ? "claude" : choice === "2" ? "cursor" : choice === "3" ? "cursor-gui" : choice === "4" ? "shell" : null;
+    const n = Number(choice);
+    if (n >= 1 && n <= offer.length) {
+      const picked = offer[n - 1]!.candidate;
+      // The two launch shapes are different offers, and the menu now says so: a CLI
+      // agent is handed the protocol, an editor reads the rules file from the repo.
+      agent = picked.launch === "cli"
+        ? (picked.id === "claude-code" ? "claude" : picked.id === "cursor" ? "cursor" : "shell")
+        : "cursor-gui";
+    } else if (n === offer.length + 1) {
+      agent = "shell";
+    } else {
+      agent = null;
+    }
   }
   if (!agent) { print(`  Later:  cd "${projectDir}" && claude "<session-start>"      # or your agent`); return 0; }
   print(`  Launching ${agent === "cursor-gui" ? "Cursor (GUI)" : agent} in ${projectDir}…`);

@@ -29,6 +29,11 @@ function deps(over: Partial<WorkFlowDeps> = {}): { deps: WorkFlowDeps; out: stri
     prompt: async () => "1",
     print: (l) => out.push(l),
     launch: async (agent, cwd) => { launched.push([agent, cwd]); return 0; },
+    // A machine with the two agents this suite's tests assume. The menu now offers
+    // only what is installed (#195), so "nothing installed" is its own case below
+    // rather than the silent default every test inherits.
+    hasTool: (cmd: string) => cmd === "claude" || cmd === "cursor-agent",
+    env: {},
     ...over,
   };
   return { deps: base, out, ran, launched };
@@ -104,10 +109,14 @@ describe("gov-work — guided Work flow", () => {
     expect(out.join("\n")).to.match(/No active or startable projects/);
   });
 
-  it("agent picker maps EVERY choice (1-4) to the right agent, launched in <project>", async () => {
+  it("agent picker maps every choice to the right agent, launched in <project>", async () => {
+    // The numbering is derived from what is installed now (#195), so the machine has
+    // to be stated: claude, cursor-agent and the cursor editor all present gives
+    // 1) Claude  2) Cursor  3) Cursor editor  4) shell.
+    const machine = (c: string) => ["claude", "cursor-agent", "cursor"].includes(c);
     for (const [choice, kind] of [["1", "claude"], ["2", "cursor"], ["3", "cursor-gui"], ["4", "shell"]] as const) {
       let calls = 0;
-      const { deps: d, launched } = deps({ prompt: async () => (++calls === 1 ? "1" : choice) });   // project 1, then agent
+      const { deps: d, launched } = deps({ hasTool: machine, prompt: async () => (++calls === 1 ? "1" : choice) });
       await runWorkFlow(d);
       expect(launched.map(([a, c]) => [a, px(c)]), `choice ${choice}`).to.deep.equal([[kind, "/work/PRJ-7-alpha"]]);
     }
@@ -364,6 +373,42 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
       expect(printed).to.deep.equal([]);
       expect(out.join("\n")).to.match(/gov work --project=/);
     });
+  });
+});
+
+describe("gov-work — the agent menu offers what exists (#195)", () => {
+  it("with nothing installed it does not offer, it explains and opens a shell", async () => {
+    // The old menu offered Claude, cursor and Cursor GUI to a machine with none of
+    // them, and led with a tool the seeded policy lists as prohibited.
+    const { deps: d, out, launched } = deps({ hasTool: () => false });
+    await runWorkFlow(d);
+    const text = out.join("\n");
+    expect(text).to.contain("No AI agent is installed");
+    expect(text, "and what could be, with the command").to.contain("npm i -g @anthropic-ai/claude-code");
+    expect(text, "and that gov will not sign you up").to.contain("signing in stays yours");
+    expect(launched.map(([a]) => a), "shell was always the answer here").to.deep.equal(["shell"]);
+  });
+
+  it("offers only the installed ones, and says what each one does", async () => {
+    const { deps: d, out } = deps({ hasTool: (c: string) => c === "claude" });
+    await runWorkFlow(d);
+    const text = out.join("\n");
+    expect(text).to.contain("Claude Code");
+    expect(text, "cursor-agent is not on this machine").to.not.contain("2) Cursor ");
+    expect(text).to.contain("runs the agent here, with the rules loaded");
+    expect(text, "the option that always works, explained").to.contain("No AI involved");
+  });
+
+  it("honours the org's approved list over what happens to be installed", async () => {
+    const { deps: d, out, launched } = deps({
+      hasTool: (c: string) => c === "claude" || c === "cursor-agent",
+      approvedAgentIds: () => ["cursor"],
+    });
+    await runWorkFlow(d);
+    // Claude is installed and NOT approved here — offering it would put gov's own
+    // menu in breach of the policy it seeded.
+    expect(out.join("\n")).to.not.contain("Claude Code");
+    expect(launched[0]?.[0]).to.equal("cursor");
   });
 });
 
