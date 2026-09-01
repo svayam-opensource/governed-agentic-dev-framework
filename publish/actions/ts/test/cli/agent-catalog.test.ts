@@ -102,5 +102,7 @@ describe("gov-work — what the menu offers", () => {
     expect(lines).to.contain("has not approved any agents yet");
     expect(lines).to.contain("npm i -g @anthropic-ai/claude-code");
     expect(lines, "gov never creates an account or holds a key").to.contain("signing in stays yours");
+    // And it does not claim to install anything, because nothing here does (#196).
+    expect(lines).to.contain("it does not run it for you yet");
   });
 });

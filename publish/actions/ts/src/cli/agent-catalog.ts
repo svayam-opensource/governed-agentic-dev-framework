@@ -152,8 +152,9 @@ export function nothingInstalledLines(missing: readonly AgentStatus[], usingDefa
       return `    · ${s.candidate.tool.padEnd(28)} ${how}`;
     }),
     "",
-    "  gov can install one for you, or you can carry on with `shell` and do the work",
-    "  yourself. gov never creates an account or holds a key — signing in stays yours.",
+    "  Install one in another terminal and re-run `gov`, or carry on with `shell` and",
+    "  do the work yourself. gov shows the command; it does not run it for you yet,",
+    "  and it never creates an account or holds a key — signing in stays yours.",
   ];
 }
 
