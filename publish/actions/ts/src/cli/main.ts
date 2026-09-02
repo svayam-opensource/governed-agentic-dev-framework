@@ -47,7 +47,7 @@ import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
 import { approvedAgentIdsFrom } from "./agent-catalog.js";
-import { parseApprovedAgents } from "../config/approved-agents.js";
+import { parseApprovedAgents, withApprovedAgents } from "../config/approved-agents.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
@@ -434,6 +434,17 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       if (!text) return [];
       const c = parseOrgConfig(text);
       return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home });
+    },
+    approveAgents: (agents) => {
+      const r = prjResolveGov(createNodeEnv());
+      if (!r.ok) return false;
+      const policy = path.join(r.home, "knowledge", "policies", "llm-governance.md");
+      if (!fsSync.existsSync(policy)) return false;
+      const before = fsSync.readFileSync(policy, "utf8");
+      const after = withApprovedAgents(before, agents);
+      if (after === null) return false;
+      fsSync.writeFileSync(policy, after, "utf8");
+      return true;
     },
     createStarterProject: () => {
       // ITS OWN TERMINAL. Every readline opened earlier in this flow has been closed

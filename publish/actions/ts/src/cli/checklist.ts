@@ -34,6 +34,13 @@ export interface ChecklistFacts {
   readonly orgSlug: string | null;
   /** Adopter (founding) or joiner. Null before the question is answered. */
   readonly role: "adopter" | "joiner" | null;
+  /** The ids in the org's approved_agents block, if it has one yet (#196). */
+  readonly approvedAgents?: readonly string[];
+  /**
+   * Whether the starter project's review issue is closed — which is what "the
+   * policies were reviewed" MEANS here, so even the soft step derives (#196, Q12).
+   */
+  readonly policiesReviewed?: boolean;
   /** The package manager, so the commands shown are the ones that will run. */
   readonly installCmd?: { readonly git: string; readonly ghRepo?: string; readonly gh: string };
 }
@@ -88,10 +95,13 @@ export function checklist(f: ChecklistFacts): readonly ChecklistItem[] {
   } else {
     items.push({ n: "8", done: built, text: "Set your organization up (adopters)" });
     items.push({ n: "8a", sub: true, done: built, text: `Create the governance repository at ${home}, from the framework template` });
-    items.push({ n: "8b", sub: true, done: built, text: "Seed the starter policies and agent harness into it" });
-    items.push({ n: "8c", sub: true, done: built, text: "Replace the framework's placeholders with your organization's values" });
-    items.push({ n: "8d", sub: true, done: built, text: "Commit and push it to your organization" });
-    items.push({ n: "8e", sub: true, done: false, text: "Review the seeded policies and make them yours" });
+    // The one decision adoption cannot defer: an org with no approved agent cannot
+    // run any, and everyone who joins is offered exactly what is chosen here (#196).
+    items.push({ n: "8b", sub: true, done: Boolean(f.approvedAgents?.length), text: "Choose which AI agents this organization allows" });
+    items.push({ n: "8c", sub: true, done: built, text: "Seed the starter policies and agent harness into it" });
+    items.push({ n: "8d", sub: true, done: built, text: "Replace the framework's placeholders with your organization's values" });
+    items.push({ n: "8e", sub: true, done: built, text: "Commit and push it to your organization" });
+    items.push({ n: "8f", sub: true, done: f.policiesReviewed ?? false, text: "Review the seeded policies and make them yours" });
   }
 
   items.push(

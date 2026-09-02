@@ -96,3 +96,35 @@ describe("gov-work — what to do now (#186)", () => {
     expect(t, "no founding instructions").to.not.contain("UNGOVERNED");
   });
 });
+
+describe("gov-work — the two steps that used to be unobservable (#196, Q12)", () => {
+  const A = {
+    gitPresent: true, ghPresent: true, ghAuthenticated: true, ghScopesOk: true,
+    gitIdentityOk: true, workspaceResolves: true, orgActive: "svm-geneva",
+    workspacePath: "/home/t/.gov/geneva/gov_repo", orgSlug: "GENEVA", role: "adopter" as const,
+  };
+
+  it("choosing the approved agents is a step, and it ticks when the block exists", () => {
+    const before = checklist({ ...A });
+    const after = checklist({ ...A, approvedAgents: ["claude-code"] });
+    const find = (l: typeof before) => l.find((i) => i.text.includes("which AI agents"))!;
+    expect(find(before).done, "no block yet").to.equal(false);
+    expect(find(after).done, "the block is the evidence").to.equal(true);
+  });
+
+  it("'policies reviewed' derives from the starter issue being closed", () => {
+    // No progress file: a recorded tick is a copy of a fact the world already holds,
+    // and a stale one skips a step that never happened.
+    const open = checklist({ ...A, policiesReviewed: false });
+    const closed = checklist({ ...A, policiesReviewed: true });
+    const find = (l: typeof open) => l.find((i) => i.text.includes("Review the seeded policies"))!;
+    expect(find(open).done).to.equal(false);
+    expect(find(closed).done).to.equal(true);
+  });
+
+  it("a joiner is asked neither — both belong to founding an organization", () => {
+    const joiner = renderChecklist(checklist({ ...A, role: "joiner" })).join("\n");
+    expect(joiner).to.not.contain("which AI agents");
+    expect(joiner).to.not.contain("Review the seeded policies");
+  });
+});

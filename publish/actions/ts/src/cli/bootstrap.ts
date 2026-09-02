@@ -36,6 +36,7 @@
 import * as path from "node:path";
 import { orgRepoTarget } from "../setup/answers.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
+import { approvalPrompt, parseApprovalChoice, approvalSummary } from "./approve-agents-step.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
 export type BootstrapStep =
@@ -226,6 +227,8 @@ export interface FirstRunIo {
    * and configure it — i.e. `gov setup <org>/<repo>`. Returns its exit code.
    */
   createWorkspace(target: string): Promise<number>;
+  /** Record the org's approved agents in llm-governance.md. Returns whether it wrote (#196). */
+  approveAgents?: (agents: readonly { readonly id: string; readonly default?: boolean }[]) => boolean;
   /** Build the starter review project; returns the lines to print (#186). */
   createStarterProject?: () => readonly string[];
   /** What to do now, for an adopter. */
@@ -346,6 +349,30 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   const target = `${org}/${repo}`;
   const code = await io.createWorkspace(target);
   if (code !== 0) return code;
+
+  // WHICH AGENTS THIS ORGANIZATION ALLOWS (#196, Q3).
+  //
+  // Asked here, during adoption, because the alternative is a fallback — treat the
+  // framework's list as approved when no policy exists — and that leaves an
+  // organization permanently governed by a decision nobody made. The state is
+  // removed rather than guarded: adoption produces an approved list, so "nobody has
+  // decided" never persists past setup.
+  if (io.approveAgents) {
+    for (const line of approvalPrompt()) io.print(line);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const answer = await io.prompt("  Allowed agents: ", "");
+      const choice = parseApprovalChoice(answer);
+      if (choice.ok) {
+        if (io.approveAgents(choice.agents)) {
+          for (const line of approvalSummary(choice.agents)) io.print(line);
+        } else {
+          io.print("  ✗ Could not write llm-governance.md — approve them later with `gov agent approve <id>`.");
+        }
+        break;
+      }
+      io.print(`  ✗ ${choice.message}`);
+    }
+  }
 
   // THE FIRST GOVERNED THING, MADE FOR THEM (#186).
   //
