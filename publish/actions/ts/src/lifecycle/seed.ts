@@ -23,6 +23,8 @@ import { seedPathsFor, detectLeftovers, leftoversMessage, type LeftoverArtifact 
 import { renderAgentMd, renderTodoMd, substituteTokens } from "./content.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
 import { repoNameFromUrl } from "./repo.js";
+import { classifyProjectBranch, preconditionFailures, adoptions, suggestedOverrides, type RepoPrecondition, type RemoteRef, type RepoStanding } from "./branch-adoption.js";
+import { resolveWorkRepo, appliedOverrides, type RepoOverrides } from "../config/repo-overrides.js";
 
 /** Org-config-derived settings for a seed run. */
 export interface SeedConfig {
@@ -32,6 +34,8 @@ export interface SeedConfig {
   readonly defaultBranch: string;
   readonly defaultCodeBranch: string;
   readonly githubOrg: string;
+  /** `owner/repo` → `owner/repo`, from org-config (#194). */
+  readonly repoOverrides?: Readonly<Record<string, string>>;
   /** Token → value for tool-file substitution (e.g. ORG_NAME). */
   readonly orgTokens: Readonly<Record<string, string>>;
   /** Tool files (paths under `framework/`) to token-substitute into the project. */
@@ -63,6 +67,12 @@ export interface SeedDeps {
   readonly anchor: AnchorCreator;
   readonly cloneRepo: (url: string, dest: string) => void;
   readonly log?: (msg: string) => void;
+  /**
+   * Whether this adopter can push to a repo, and whether they have a fork of it
+   * (#194). Optional: `ls-remote` alone cannot answer either, and a caller with no
+   * GitHub client still gets the branch checks.
+   */
+  readonly repoStanding?: (url: string, githubOrg: string) => RepoStanding | undefined;
 }
 
 export interface SeedSuccess {
@@ -77,7 +87,17 @@ export interface SeedSuccess {
 
 export type SeedResult =
   | SeedSuccess
-  | { readonly ok: false; readonly code: number; readonly reason: string; readonly message: string; readonly leftovers?: readonly LeftoverArtifact[]; readonly rollbackFailures?: readonly RollbackFailure[] };
+  | {
+      readonly ok: false; readonly code: number; readonly reason: string; readonly message: string;
+      readonly leftovers?: readonly LeftoverArtifact[];
+      readonly rollbackFailures?: readonly RollbackFailure[];
+      /**
+       * Fixes the preflight worked out for itself (#194): upstream → the adopter's
+       * own fork. Carried out rather than merely described, so the caller can offer
+       * to write them and run again.
+       */
+      readonly suggestOverrides?: readonly { readonly from: string; readonly to: string }[];
+    };
 
 function gitkeepStub(i: {
   projectId: string;
@@ -122,16 +142,95 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     return { ok: false, code: 1, reason: "leftover-state", message: leftoversMessage(leftovers), leftovers };
   }
 
-  const codeRepoUrls = board.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo);
+  const linkedRepoUrls = board.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo);
+
+  // WHERE THE ISSUE LIVES IS NOT ALWAYS WHERE THE WORK HAPPENS (#194). The board
+  // links what it links; a declared override sends the branch to the repo this org
+  // can actually write. Never inferred — see config/repo-overrides.ts.
+  const overrides: RepoOverrides = config.repoOverrides ?? {};
+  const redirected = appliedOverrides(linkedRepoUrls, overrides);
+  for (const r of redirected) log(`Work repo: ${r.from} → ${r.to} (repo_overrides)`);
+  // DEDUPE AFTER MAPPING, not before. `board.repoUrls` is already distinct, but an
+  // override can collapse two of them onto one: a board that links an issue in the
+  // fork AND an issue upstream ends up with the same work repo twice. Phase C then
+  // creates the project branch for the first, meets it again for the second, and
+  // reports "Branch … already exists" about a branch it had made moments earlier —
+  // in a container with no leftovers at all, which is what made it so confusing.
+  const codeRepoUrls = [...new Set(linkedRepoUrls.map((u) => resolveWorkRepo(u, overrides)))];
+
+  // ── REMOTE PREFLIGHT, before the first write (#180) ─────────────────────────
+  //
+  // These conditions used to be evaluated in Phase C, after three phases of writes.
+  // Nothing about them needs those phases: a branch either exists on a remote or it
+  // does not, and that is knowable from `ls-remote` before anything is created. The
+  // adopter met the answer as a failure four phases in, and the failed run left a
+  // pushed branch behind that made every retry fail at the same place.
+  //
+  // Same discipline as `create.ts`: nothing is created until everything is known.
+  const checks: RepoPrecondition[] = codeRepoUrls.map((url) => {
+    let refs: readonly RemoteRef[];
+    try {
+      refs = deps.vcs.lsRemoteRefs(url);
+    } catch (e) {
+      // Unreadable is its own answer, and a common one: a private repo the adopter
+      // has not been granted, or a URL with a typo. Say which repo, and what git said.
+      return { url, verdict: { kind: "no-base" as const, detail: `Cannot read ${url}: ${(e as Error).message}` } };
+    }
+    const standing: RepoStanding | undefined = deps.repoStanding
+      ? deps.repoStanding(url, config.githubOrg)
+      : undefined;
+    return { url, verdict: classifyProjectBranch(refs, config.defaultCodeBranch ?? "dev", branch, url, standing) };
+  });
+  const blockers = preconditionFailures(checks);
+  if (blockers.length) {
+    return {
+      ok: false,
+      code: 1,
+      reason: "preflight-failed",
+      message: `Cannot seed ${projectId} — nothing has been created:\n${blockers.join("\n")}`,
+      // Carried out, not just described: the caller can offer to write these and
+      // run again. gov found the fork; making someone retype what it found is
+      // busywork, and "declared" means consented and recorded, not hand-copied.
+      suggestOverrides: suggestedOverrides(checks),
+    };
+  }
+  const reused = adoptions(checks);
+  if (reused.length) {
+    // Say it. Reusing a branch is a decision made on the adopter's behalf, and the
+    // reason it is safe — no commits of its own — is exactly what they would check.
+    log(`Reusing the project branch left by an earlier attempt in: ${reused.join(", ")}`);
+  }
+  const adoptIn = new Set(reused);
+
   const tx = new Transaction();
+
+  // The one file that makes this directory a governance workspace. Recorded before
+  // anything runs so its disappearance can be REPORTED rather than discovered by
+  // the next command, several minutes later, as "no gov workspace resolved" (#191).
+  const orgConfigPath = path.join(config.govHome, "org-config.yaml");
+  const orgConfigWasThere = deps.fs.pathExists(orgConfigPath);
 
   try {
     // ── Phase A: home stub commit (local; pushed in D) ────────────────────────
     log(`Phase A: home stub projects/${projectId}/`);
     const preSha = deps.vcs.headSha(config.govHome);
+    // UNDO WITHOUT `reset --hard`, and without `clean` (#191).
+    //
+    // Both were pointed at `config.govHome` — the resolved workspace itself, not a
+    // scratch copy — and they are the two git commands that destroy work rather
+    // than move pointers. A seed that failed in Phase C therefore left an adopter
+    // with a workspace that no longer resolved: `org-config.yaml` is written by
+    // `gov setup` and committed by the human, so between those two moments it is an
+    // untracked file sitting in the blast radius.
+    //
+    // The invariant: undoing a PROJECT may touch `projects/<id>/` and that project's
+    // worktrees. It may not touch anything that makes the workspace resolvable.
+    //
+    // `reset --mixed` un-commits and unstages while leaving every file on disk; the
+    // one path this phase created is then removed by name. Nothing else is reachable.
     tx.onRollback("reset home", () => {
-      deps.vcs.resetHard(config.govHome, preSha);
-      deps.vcs.cleanUntracked(config.govHome, "projects");
+      deps.vcs.resetKeepingFiles(config.govHome, preSha);
+      deps.fs.rm(paths.homeStub);
     });
     deps.fs.writeFile(
       path.join(paths.homeStub, ".gitkeep"),
@@ -192,6 +291,7 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
         { vcs: deps.vcs, fs: deps.fs, tx, cloneRepo: deps.cloneRepo },
         {
           url,
+          adoptExisting: adoptIn.has(url),
           baseBranch: input.repoBases?.[url] ?? config.defaultCodeBranch,
           projectBranch: branch,
           agentWorkRoot: config.agentWorkRoot,
@@ -231,11 +331,25 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef };
   } catch (error) {
     const rollbackFailures = tx.rollback();
+    // A rollback that leaves the workspace unresolvable is a bigger event than the
+    // failure that triggered it, and it used to be silent: the reader was told the
+    // seed failed, and found out about the workspace on their next command, phrased
+    // as though they had never had one.
+    const lostOrgConfig = orgConfigWasThere && !deps.fs.pathExists(orgConfigPath);
+    const message = lostOrgConfig
+      ? `${(error as Error).message}\n\n` +
+        `AND THE ROLLBACK DAMAGED THE WORKSPACE: ${orgConfigPath} is gone.\n` +
+        "  That file is what makes this directory a governance workspace, so gov will\n" +
+        "  now report 'no gov workspace resolved' even though the workspace is registered.\n" +
+        "  Restore it with:  git -C " + config.govHome + " checkout -- org-config.yaml\n" +
+        "  or, if it was never committed:  cd " + config.govHome + " && gov setup\n" +
+        "  Please report this — a project's rollback must never un-configure the org."
+      : (error as Error).message;
     return {
       ok: false,
       code: 1,
-      reason: "seed-failed",
-      message: (error as Error).message,
+      reason: lostOrgConfig ? "rollback-damaged-workspace" : "seed-failed",
+      message,
       rollbackFailures,
     };
   }

@@ -33,7 +33,7 @@ describe("gov-work — doctor --fix planning", () => {
   it("installs gh BEFORE trying to sign in with it", () => {
     const plan = planFixes({ gitPresent: true, ghPresent: false, ghAuthenticated: false, platform: "darwin" }, "brew");
     expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh", "gh auth"]);
-    expect(plan.steps[1]!.dependsOn).to.equal("gh");
+    expect(plan.steps[1]!.dependsOn).to.deep.equal(["gh"]);
   });
 
   it("adds GitHub's repository on RHEL-family systems, which do not ship gh", () => {
@@ -43,7 +43,7 @@ describe("gov-work — doctor --fix planning", () => {
     // from minimal images, and dnf5 renamed its syntax.
     expect(plan.steps[0]!.command[0]).to.equal("curl");
     expect(plan.steps[0]!.command.join(" ")).to.contain("/etc/yum.repos.d/gh-cli.repo");
-    expect(plan.steps[1]!.dependsOn).to.equal("gh repo");
+    expect(plan.steps[1]!.dependsOn).to.deep.equal(["gh repo"]);
   });
 
   it("does NOT add a repository on Fedora, which ships gh itself", () => {
@@ -66,7 +66,9 @@ describe("gov-work — doctor --fix planning", () => {
   it("treats 'installed but not signed in' as its own fixable failure", () => {
     const plan = planFixes({ gitPresent: true, ghPresent: true, ghAuthenticated: false, platform: "darwin" }, "brew");
     expect(plan.steps).to.have.length(1);
-    expect(renderCommand(plan.steps[0]!)).to.equal("gh auth login");
+    // The scopes are requested AT login: a bare `gh auth login` grants gh's own
+    // minimum, and the gap would only be visible on a later run.
+    expect(renderCommand(plan.steps[0]!)).to.equal("gh auth login -s repo,read:org,project");
     expect(plan.steps[0]!.interactive).to.equal(true);
   });
 
@@ -84,7 +86,9 @@ describe("gov-work — doctor --fix planning", () => {
 
   it("never plans a command it cannot run — it says what to do instead", () => {
     const plan = planFixes({ gitPresent: false, ghPresent: false, ghAuthenticated: false, platform: "linux" }, null);
-    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh auth"]);   // login still possible once gh exists
+    // The login and the identity are still planned — neither needs a package
+    // manager, and both become possible the moment the tools are installed by hand.
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["gh auth", "git identity"]);
     expect(plan.manual).to.have.length(2);
     expect(plan.manual.join(" ")).to.contain("git-scm.com");
     expect(plan.manual.join(" ")).to.contain("cli.github.com");
@@ -133,9 +137,80 @@ describe("gov-work — gh token scopes", () => {
     expect(plan.steps[0]!.interactive, "it opens a browser").to.equal(true);
   });
 
+  it("asks for gov's scopes during the sign-in, not on a later run", () => {
+    const plan = planFixes({ gitPresent: true, ghPresent: true, ghAuthenticated: false, platform: "linux", osId: "fedora" }, "dnf");
+    const login = plan.steps.find((s) => s.fixes === "gh auth")!;
+    expect(login.command).to.include("-s");
+    expect(login.command.join(" ")).to.contain("project");
+  });
+
   it("says nothing about scopes when they could not be read", () => {
     const plan = planFixes(
       { gitPresent: true, ghPresent: true, ghAuthenticated: true, platform: "linux", osId: "fedora", ghScopes: null },
+      "dnf",
+    );
+    expect(plan.steps).to.have.length(0);
+  });
+});
+
+describe("gov-work — git identity", () => {
+  it("treats a git with no identity as broken, not as installed", () => {
+    const plan = planFixes(
+      { gitPresent: true, ghPresent: true, ghAuthenticated: true, platform: "linux", osId: "fedora",
+        ghScopes: ["repo", "read:org", "project"], gitIdentity: { name: null, email: null } },
+      "dnf",
+    );
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(["git identity"]);
+    expect(plan.steps[0]!.why).to.contain("refuses to commit");
+  });
+
+  it("names only what is actually missing", () => {
+    const plan = planFixes(
+      { gitPresent: true, ghPresent: true, ghAuthenticated: true, platform: "linux", osId: "fedora",
+        ghScopes: ["repo", "read:org", "project"], gitIdentity: { name: "Rakesh", email: null } },
+      "dnf",
+    );
+    expect(plan.steps[0]!.what).to.contain("user.email");
+    expect(plan.steps[0]!.what).to.not.contain("user.name");
+  });
+
+  it("waits for gh when gh is being installed — the defaults come from the account", () => {
+    const plan = planFixes(
+      { gitPresent: true, ghPresent: false, ghAuthenticated: false, platform: "darwin",
+        gitIdentity: { name: null, email: null } },
+      "brew",
+    );
+    expect(plan.steps.find((s) => s.fixes === "git identity")!.dependsOn).to.deep.equal(["gh auth"]);
+  });
+
+  it("plans the identity even when git does not exist yet — a fresh git has none", () => {
+    // The defect: the identity was planned from `facts.gitIdentity`, which is
+    // unknowable on a machine with no git. Nothing was planned, git was installed
+    // without one, and `gov work` refused several minutes later.
+    const plan = planFixes(
+      { gitPresent: false, ghPresent: false, ghAuthenticated: false, platform: "linux", osId: "rocky" },
+      "dnf",
+    );
+    const identity = plan.steps.find((s) => s.fixes === "git identity");
+    expect(identity, "a git about to be installed has no identity, by definition").to.not.equal(undefined);
+    expect(identity!.dependsOn).to.deep.equal(["git", "gh auth"]);
+    expect(identity!.why).to.contain("fresh git does not know who you are");
+  });
+
+  it("the whole cold-start plan, in the order it must run", () => {
+    const plan = planFixes(
+      { gitPresent: false, ghPresent: false, ghAuthenticated: false, platform: "linux", osId: "rocky" },
+      "dnf",
+    );
+    expect(plan.steps.map((s) => s.fixes)).to.deep.equal(
+      ["git", "gh repo", "gh", "gh auth", "git identity"],
+    );
+  });
+
+  it("says nothing when git already knows who you are", () => {
+    const plan = planFixes(
+      { gitPresent: true, ghPresent: true, ghAuthenticated: true, platform: "linux", osId: "fedora",
+        ghScopes: ["repo", "read:org", "project"], gitIdentity: { name: "R", email: "r@x.io" } },
       "dnf",
     );
     expect(plan.steps).to.have.length(0);

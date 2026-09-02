@@ -22,6 +22,12 @@ export interface Vcs {
   refExists(repoDir: string, ref: string): boolean;
   /** The branch names on `url`'s remote (`ls-remote --heads`). */
   lsRemoteHeads(url: string): string[];
+  /**
+   * The same query, keeping the SHAs (#180). Names alone can say a branch exists;
+   * only the sha can say whether it carries anything — which is the difference
+   * between our own failed run and somebody's work.
+   */
+  lsRemoteRefs(url: string): readonly { readonly name: string; readonly sha: string }[];
   /** The default branch `url`'s HEAD points at, or null. */
   defaultBranch(url: string): string | null;
   /** Resolve `rev` to a sha, or null if it doesn't resolve. */
@@ -42,10 +48,18 @@ export interface Vcs {
   commit(repoDir: string, message: string): void;
   /** Hard-reset `repoDir` to `sha`. */
   resetHard(repoDir: string, sha: string): void;
+  /**
+   * Move HEAD and the index back to `sha`, leaving every file on disk untouched
+   * (`git reset --mixed`). The undo of choice inside a resolved workspace: it
+   * un-commits without being able to destroy anything the caller did not create.
+   */
+  resetKeepingFiles(repoDir: string, sha: string): void;
   /** Remove untracked files under `pathspec`. */
   cleanUntracked(repoDir: string, pathspec: string): void;
   /** `git worktree add -b <newBranch> <worktreePath> <startPoint>` from `baseRepo`. */
   worktreeAdd(baseRepo: string, newBranch: string, worktreePath: string, startPoint: string): void;
+  /** `git worktree add <path> <existingBranch>` — check out a branch that is already there. */
+  worktreeAddExisting(baseRepo: string, branch: string, worktreePath: string): void;
   /** Remove the worktree at `worktreePath` (force; falls back to rm + prune). */
   worktreeRemove(baseRepo: string, worktreePath: string): void;
   /** Delete local `branch` in `repoDir`. */
@@ -110,6 +124,15 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     refExists(repoDir, ref) {
       return runGit(["-C", repoDir, "show-ref", "--verify", "--quiet", ref]).status === 0;
     },
+    lsRemoteRefs(url) {
+      return must(["ls-remote", "--heads", url])
+        .split("\n")
+        .map((l) => {
+          const m = /^([0-9a-f]{7,40})\s+refs\/heads\/(.+)$/.exec(l.trim());
+          return m ? { sha: m[1]!, name: m[2]! } : null;
+        })
+        .filter((x): x is { sha: string; name: string } => x !== null);
+    },
     lsRemoteHeads(url) {
       return must(["ls-remote", "--heads", url])
         .split("\n")
@@ -153,11 +176,20 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     resetHard(repoDir, sha) {
       must(["-C", repoDir, "reset", "--hard", sha]);
     },
+    resetKeepingFiles(repoDir, sha) {
+      must(["-C", repoDir, "reset", "--mixed", sha]);
+    },
     cleanUntracked(repoDir, pathspec) {
       must(["-C", repoDir, "clean", "-fd", pathspec]);
     },
     worktreeAdd(baseRepo, newBranch, worktreePath, startPoint) {
       must(["-C", baseRepo, "worktree", "add", "-b", newBranch, worktreePath, startPoint]);
+    },
+    worktreeAddExisting(baseRepo, branch, worktreePath) {
+      // Fetch first: the branch may exist only on the remote, left by the failed run
+      // this is recovering from.
+      runGit(["-C", baseRepo, "fetch", "origin", `${branch}:${branch}`]);
+      must(["-C", baseRepo, "worktree", "add", worktreePath, branch]);
     },
     worktreeRemove(baseRepo, worktreePath) {
       const r = runGit(["-C", baseRepo, "worktree", "remove", "--force", worktreePath]);

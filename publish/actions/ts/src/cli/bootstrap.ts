@@ -34,6 +34,8 @@
  */
 
 import * as path from "node:path";
+import { orgRepoTarget } from "../setup/answers.js";
+import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
 export type BootstrapStep =
@@ -224,6 +226,12 @@ export interface FirstRunIo {
    * and configure it — i.e. `gov setup <org>/<repo>`. Returns its exit code.
    */
   createWorkspace(target: string): Promise<number>;
+  /** Build the starter review project; returns the lines to print (#186). */
+  createStarterProject?: () => readonly string[];
+  /** What to do now, for an adopter. */
+  adopterNextSteps?: () => readonly string[];
+  /** What to do now, for a joiner. */
+  joinerNextSteps?: () => readonly string[];
   /** register the home and make it active. */
   register(org: string, home: string): { readonly ok: boolean; readonly message?: string };
   /** select an already-registered org. */
@@ -288,24 +296,69 @@ async function askRole(io: FirstRunIo): Promise<FirstRunRole | null> {
 
 /** The ADOPTER path: name the repo to create, and hand it to `gov setup`. */
 async function foundNewOrg(io: FirstRunIo): Promise<number> {
+  // TWO QUESTIONS, NOT ONE (#192). "Organization/repository to create" asks a
+  // newcomer to compose a form they have not been taught, out of two things they
+  // know separately — and the second of them they should not have to invent at all.
   io.print("");
   io.print("Adopting the framework creates a NEW repository in your GitHub organization.");
   io.print("It will hold your policies, your knowledge, and a record of every project.");
   io.print("");
-  io.print("  Give it as <your-github-org>/<repo-name>, for example:  acme-corp/acme-governance");
-  io.print("");
-  const target = (await io.prompt("Organization/repository to create (or Enter to stop): ", "")).trim();
-  if (target === "") {
-    io.print("");
-    io.print("Nothing created. When you are ready:  gov setup <your-github-org>/<repo-name>");
-    return 0;
+
+  let org = "";
+  for (let attempt = 0; attempt < 5; attempt++) {
+    org = (await io.prompt("Which organization are you adopting the governance framework for? (GitHub organization name, or Enter to stop): ", "")).trim();
+    if (org === "") {
+      io.print("");
+      io.print("Nothing created. When you are ready:  gov setup <your-github-org>/<repo-name>");
+      return 0;
+    }
+    if (/^[A-Za-z0-9._-]+$/.test(org)) break;
+    io.print(org.includes("/")
+      ? `  ✗ '${org}' looks like <organization>/<repository>. Just the organization here — the repository is the next question.`
+      : `  ✗ '${org}' is not a GitHub organization name (letters, digits, dots, dashes).`);
+    org = "";
   }
-  if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(target)) {
-    io.print(`'${target}' is not an organization/repository name — expected something like acme-corp/acme-governance.`);
-    io.print("If you meant to JOIN an organization that already uses gov, re-run and choose B.");
+  if (!org) {
+    io.print("");
+    io.print("Nothing created. Re-run `gov` when you know which organization to adopt for.");
     return 1;
   }
-  return io.createWorkspace(target);
+
+  // Defaulted, because nobody should have to invent a name for a repository whose
+  // purpose is fixed. Enter is the right answer here for almost everyone.
+  const defaultRepo = `${org}-gov`;
+  let repo = "";
+  for (let attempt = 0; attempt < 5; attempt++) {
+    repo = (await io.prompt(
+      `Name for the governance repository that will be created to house your policies [${defaultRepo}]: `,
+      defaultRepo,
+    )).trim();
+    if (/^[A-Za-z0-9._-]+$/.test(repo)) break;
+    io.print(`  ✗ '${repo}' is not a repository name (letters, digits, dots, dashes).`);
+    repo = "";
+  }
+  if (!repo) {
+    io.print("");
+    io.print("Nothing created. Re-run `gov` and accept the suggested name, or give a simple one.");
+    return 1;
+  }
+
+  const target = `${org}/${repo}`;
+  const code = await io.createWorkspace(target);
+  if (code !== 0) return code;
+
+  // THE FIRST GOVERNED THING, MADE FOR THEM (#186).
+  //
+  // The asking happens INSIDE createStarterProject, not here. `createWorkspace`
+  // hands the terminal to `gov setup`, which opens and closes its own readline —
+  // so a prompt from this function afterwards died with ERR_USE_AFTER_CLOSE, on
+  // the last question of an otherwise complete adoption. Whoever holds the
+  // terminal at the moment does the asking; by now, that is no longer this
+  // function.
+  for (const line of io.createStarterProject?.() ?? []) io.print(line);
+
+  for (const line of io.adopterNextSteps?.() ?? []) io.print(line);
+  return 0;
 }
 
 async function cloneAndRegister(io: FirstRunIo): Promise<number> {
@@ -368,6 +421,9 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
     const r = io.register(identity.org, home);
     if (!r.ok) { io.print(r.message ?? `could not register ${identity.org}.`); return 1; }
     io.print(`Registered ${identity.org} → ${home}`);
+    // A joiner needs the opposite of an adopter's instructions: not "settle this",
+    // but "this is already settled, and here is where to read it".
+    for (const line of io.joinerNextSteps?.() ?? []) io.print(line);
     io.print(`Active org → ${identity.org}`);
     return 0;
   } catch (e) {

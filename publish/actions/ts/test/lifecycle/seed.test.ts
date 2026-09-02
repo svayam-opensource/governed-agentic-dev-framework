@@ -59,6 +59,8 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
     headSha: () => "presha",
     refExists: (_r, ref) => ref === "refs/remotes/origin/dev",
     lsRemoteHeads: () => [],
+    // The base exists; no project branch yet — the ordinary case the preflight sees.
+    lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }],
     defaultBranch: () => null,
     revParse: () => null,
     currentBranch: () => "main",
@@ -72,8 +74,10 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
     addPath: (r) => rec(`addPath ${r}`),
     commit: (r, m) => rec(`commit ${r} :: ${m}`),
     resetHard: (r, s) => rec(`resetHard ${r} ${s}`),
+    resetKeepingFiles: (r, s) => rec(`resetKeepingFiles ${r} ${s}`),
     cleanUntracked: (r, p) => rec(`clean ${r} ${p}`),
     worktreeAdd: (_b, br, wt) => rec(`worktreeAdd ${wt} ${br}`),
+    worktreeAddExisting: (_b, br, wt) => rec(`worktreeAddExisting ${wt} ${br}`),
     worktreeRemove: (_b, wt) => rec(`worktreeRemove ${wt}`),
     branchDelete: (_r, br) => rec(`branchDelete ${br}`),
     push: (r, _rm, br) => {
@@ -91,15 +95,18 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
 /** A recording in-memory Fs. `existing` paths report as present. */
 function fakeFs(existing: Set<string> = new Set()) {
   const writes: string[] = [];
+  const removed: string[] = [];
   const fsPort: Fs = {
     pathExists: (p) => existing.has(px(p)),
     mkdirp: () => {},
     writeFile: (f) => writes.push(px(f)),
     readFile: () => null, // no todo template / tool files in these tests
-    rm: () => {},
+    // Deletion is MODELLED, not ignored: an undo that removes the wrong path is
+    // exactly the defect #191 records, and a no-op rm cannot express it.
+    rm: (f) => { removed.push(px(f)); existing.delete(px(f)); },
     readdir: () => [],
   };
-  return { fsPort, writes };
+  return { fsPort, writes, removed, existing };
 }
 
 const fakeAnchor = (ref: string | null = "Svayamtech/svm-prj-work#1"): AnchorCreator => ({
@@ -158,10 +165,95 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     expect(r.ok).to.equal(false);
     if (r.ok) return;
     expect(r.reason).to.equal("seed-failed");
-    // compensations ran: home reset + gov worktree removed + code-repo branch cleanup
-    expect(log).to.include("resetHard /gov presha");
+    // compensations ran: home un-committed + gov worktree removed + code-repo branch cleanup.
+    // `resetKeepingFiles`, NOT `resetHard`: the undo runs inside the RESOLVED workspace,
+    // where `reset --hard` and `clean` can destroy files this seed never created — which
+    // is how a failed seed once removed org-config.yaml and left gov unable to resolve
+    // the workspace at all (#191).
+    expect(log).to.include("resetKeepingFiles /gov presha");
+    expect(log, "never --hard inside the workspace").to.not.include("resetHard /gov presha");
     expect(log).to.include(`worktreeRemove ${ORG_GOV_CLONE}`);
     expect(log.some((l) => l.startsWith("pushDelete"))).to.equal(true);
+  });
+
+  it("a failed seed leaves org-config.yaml alone — the workspace still resolves (#191)", () => {
+    // The real failure: a seed died in a later phase, its rollback ran `reset --hard`
+    // and `clean` inside the RESOLVED workspace, and the adopter's next command said
+    // "no gov workspace resolved" about a workspace that was still registered.
+    const { vcs } = fakeVcs({ throwPushFor: [ORG_GOV_CLONE] });
+    const { fsPort, removed, existing } = fakeFs(new Set(["/gov/org-config.yaml"]));
+
+    const r = seed({ board: fakeBoard(), vcs, fs: fsPort, anchor: fakeAnchor(), cloneRepo: () => {} }, CONFIG, INPUT);
+
+    expect(r.ok).to.equal(false);
+    expect(existing.has("/gov/org-config.yaml"), "the workspace is still a workspace").to.equal(true);
+    expect(removed, "the undo removes only what Phase A created").to.not.include("/gov/org-config.yaml");
+  });
+
+  it("says so loudly if a rollback DID cost the workspace its config (#191)", () => {
+    const { vcs } = fakeVcs({ throwPushFor: [ORG_GOV_CLONE] });
+    const { fsPort, existing } = fakeFs(new Set(["/gov/org-config.yaml"]));
+    // Simulate an undo that overreaches, the way `reset --hard` + `clean` could.
+    const sabotaged: Fs = { ...fsPort, rm: (f) => { existing.delete(px(f)); existing.delete("/gov/org-config.yaml"); } };
+
+    const r = seed({ board: fakeBoard(), vcs, fs: sabotaged, anchor: fakeAnchor(), cloneRepo: () => {} }, CONFIG, INPUT);
+
+    expect(r.ok).to.equal(false);
+    if (r.ok) return;
+    expect(r.reason).to.equal("rollback-damaged-workspace");
+    expect(r.message).to.contain("org-config.yaml is gone");
+    expect(r.message, "and how to get it back").to.contain("checkout -- org-config.yaml");
+  });
+
+  it("refuses BEFORE the first write when a code repo's branch has real work (#180)", () => {
+    // It used to discover this in Phase C, after three phases of writes — and the
+    // failed run left a pushed branch that made every retry fail at the same place.
+    const { vcs, log } = fakeVcs();
+    (vcs as unknown as { lsRemoteRefs: () => unknown }).lsRemoteRefs =
+      () => [{ name: "dev", sha: "base-sha" }, { name: "BRNCH-43-governance-common-project", sha: "someone-elses-work" }];
+    const { fsPort } = fakeFs();
+
+    const r = seed({ board: fakeBoard(), vcs, fs: fsPort, anchor: fakeAnchor(), cloneRepo: () => {} }, CONFIG, INPUT);
+
+    expect(r.ok).to.equal(false);
+    if (r.ok) return;
+    expect(r.reason).to.equal("preflight-failed");
+    expect(r.message).to.contain("nothing has been created");
+    expect(log, "and nothing WAS created").to.deep.equal([]);
+  });
+
+  it("reuses a branch left by its own failed run, instead of refusing forever (#180)", () => {
+    const { vcs } = fakeVcs();
+    (vcs as unknown as { lsRemoteRefs: () => unknown }).lsRemoteRefs =
+      () => [{ name: "dev", sha: "base-sha" }, { name: "BRNCH-43-governance-common-project", sha: "base-sha" }];
+    const { fsPort } = fakeFs();
+
+    const r = seed({ board: fakeBoard(), vcs, fs: fsPort, anchor: fakeAnchor(), cloneRepo: () => {} }, CONFIG, INPUT);
+
+    expect(r.ok, "a branch on the base tip carries nothing — it is ours").to.equal(true);
+  });
+
+  it("an override that collapses two linked repos onto one processes it ONCE (#194)", () => {
+    // The board linked an issue in the fork AND one upstream. The override sends the
+    // upstream one to the fork, so the same work repo appeared twice — Phase C
+    // created the project branch for the first, met it again for the second, and
+    // reported "Branch … already exists" about a branch it had made seconds earlier.
+    // On a fresh machine, with the branch on no remote and in no clone, which is
+    // exactly as confusing as it sounds.
+    const { vcs, log } = fakeVcs();
+    (vcs as unknown as { lsRemoteRefs: () => unknown }).lsRemoteRefs = () => [{ name: "dev", sha: "base-sha" }];
+    const { fsPort } = fakeFs();
+
+    const r = seed(
+      { board: fakeBoard({ repoUrls: [CODE_REPO, "https://github.com/upstream/911-SVM-LIB-SVC"] }), vcs, fs: fsPort, anchor: fakeAnchor(), cloneRepo: () => {} },
+      { ...CONFIG, repoOverrides: { "upstream/911-SVM-LIB-SVC": "Svayamtech/911-SVM-LIB-SVC" } },
+      INPUT,
+    );
+
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(r.repos, "one repo, not the same one twice").to.have.length(1);
+    expect(log.filter((l) => l.startsWith("worktreeAdd ")).length, "one worktree").to.equal(2); // gov clone + the one code repo
   });
 
   it("aborts on leftover state without mutating", () => {

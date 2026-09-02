@@ -79,11 +79,11 @@ export interface FixStep {
   /** True when the command talks to the user (a browser login) and must inherit the terminal. */
   readonly interactive: boolean;
   /**
-   * The `fixes` key of a step that must succeed first. A dependent step is skipped
-   * when its prerequisite fails — otherwise `gh auth login` runs after the `gh`
-   * install failed and reports `ENOENT`, which reads as a second, unrelated fault.
+   * The `fixes` keys that must all succeed first. A dependent step is skipped when
+   * any prerequisite failed — otherwise `gh auth login` runs after the `gh` install
+   * failed and reports `ENOENT`, which reads as a second, unrelated fault.
    */
-  readonly dependsOn?: string;
+  readonly dependsOn?: readonly string[];
 }
 
 export interface FixPlan {
@@ -110,6 +110,8 @@ export interface EnvFacts {
    * could not be read. Null is "unknown", not "none".
    */
   readonly ghScopes?: readonly string[] | null;
+  /** git's configured identity. Missing values are as blocking as a missing git. */
+  readonly gitIdentity?: { readonly name: string | null; readonly email: string | null };
 }
 
 /** Distributions that carry `gh` in their own repositories — no extra source needed. */
@@ -193,7 +195,7 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
       command: INSTALL[pm][tool],
       sudo: NEEDS_SUDO.has(pm),
       interactive: false,
-      ...(needsGhRepo ? { dependsOn: "gh repo" } : {}),
+      ...(needsGhRepo ? { dependsOn: ["gh repo"] } : {}),
     });
   };
 
@@ -204,14 +206,62 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
   // tool installs fine and the person forgets to sign in. Plan the login whenever
   // it is not confirmed — including right after an install, when it cannot be.
   if (!facts.ghAuthenticated) {
+    // ASK FOR THE SCOPES AT LOGIN, not on a later run.
+    //
+    // A bare `gh auth login` grants gh's OWN minimum, which does not include
+    // `project`. The scope check below cannot help: at this point nobody is signed
+    // in, so there are no scopes to inspect, and by the time there are, this run is
+    // over. The result was an adopter who completed the whole install, ran `gov`,
+    // and hit "your authentication token is missing required scopes
+    // [read:project]" on the first thing they tried (#186) — a second browser trip
+    // for a permission we knew about before the first one.
+    //
+    // `project` is the read/write scope and covers `read:project`.
     steps.push({
       fixes: "gh auth",
       what: "Sign in to GitHub (opens your browser)",
       why: "You are not signed in to GitHub. Governance work happens on GitHub, so gov needs your authorization to act as you.",
-      command: ["gh", "auth", "login"],
+      command: ["gh", "auth", "login", "-s", REQUIRED_SCOPES.map((r) => r.scope).join(",")],
       sudo: false,
       interactive: true,
-      ...(facts.ghPresent ? {} : { dependsOn: "gh" }),
+      ...(facts.ghPresent ? {} : { dependsOn: ["gh"] }),
+    });
+  }
+
+  // GIT'S IDENTITY, last — and planned from what WILL be true, not what is.
+  //
+  // The first version asked `facts.gitIdentity` for the answer. On a machine with no
+  // git, there is no identity to inspect, so nothing was planned — and the run then
+  // installed git and left it without one. The adopter met it later, as a refused
+  // `gov work`: "1 unmet requirement(s): git commit identity". Exactly the mistake
+  // the scope fix had just corrected, one step down: a check that reads the state
+  // BEFORE the step that creates the thing it is checking.
+  //
+  // So: a git we are about to install has no identity, by definition.
+  const identityUnknown = !facts.gitPresent;
+  const identityMissing = facts.gitIdentity ? (!facts.gitIdentity.name || !facts.gitIdentity.email) : false;
+  if (identityUnknown || identityMissing) {
+    const missing = identityUnknown
+      ? ["user.name", "user.email"]
+      : [
+          ...(facts.gitIdentity?.name ? [] : ["user.name"]),
+          ...(facts.gitIdentity?.email ? [] : ["user.email"]),
+        ];
+    // It needs git to exist, and it wants gh signed in for its defaults.
+    const needs = [
+      ...(facts.gitPresent ? [] : ["git"]),
+      ...(facts.ghPresent && facts.ghAuthenticated ? [] : ["gh auth"]),
+    ];
+    steps.push({
+      fixes: "git identity",
+      what: `Tell git who you are (${missing.join(" and ")})`,
+      why: identityUnknown
+        ? "git is being installed, and a fresh git does not know who you are. It refuses to commit without that, and gov commits on every task it lands. It will be set from your GitHub account, and you can change it."
+        : `git has no ${missing.join(" or ")}, so it refuses to commit — and gov commits on every task it lands. It will be set from your GitHub account, and you can change it.`,
+      command: ["git", "config", "--global", "user.name/user.email"],
+      sudo: false,
+      interactive: true,
+      ...(needs.length ? { dependsOn: needs } : {}),
     });
   }
 

@@ -59,6 +59,10 @@ class World {
     headSha: () => "sha",
     refExists: (_dir, ref) => ref === "refs/remotes/origin/main",
     lsRemoteHeads: () => [],
+    // The base exists; no project branch yet — the ordinary case the preflight sees.
+    // This world's code repos are based on `main`, not `dev` — the preflight reads
+    // the config's default_code_branch, so the fake must agree with it.
+    lsRemoteRefs: () => [{ name: "main", sha: "base-sha" }],
     defaultBranch: () => "main",
     revParse: () => null,
     currentBranch: (dir) => this.current.get(px(dir)) ?? "main",
@@ -67,7 +71,7 @@ class World {
     remoteBranchesMatching: () => [],
     addPath: () => {},
     commit: (dir, m) => this.log.push(`commit ${dir} :: ${m}`),
-    resetHard: () => {},
+    resetHard: () => {}, resetKeepingFiles: () => {},
     cleanUntracked: () => {},
     worktreeAdd: (_base, branch, wt) => {
       this.branches(wt).add(branch);

@@ -21,6 +21,7 @@ import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
 import type { GateResult } from "../lifecycle/close-gate.js";
+import { planIssue, issueSummary } from "../lifecycle/issue-create.js";
 import { seed } from "../lifecycle/seed.js";
 import { expandTilde } from "../resolve/node-env.js";
 import { task } from "../lifecycle/task-run.js";
@@ -63,6 +64,15 @@ export interface CliContext {
   readonly pulls: Pulls;
   readonly projects: Projects;
   readonly cloneRepo: (url: string, dest: string) => void;
+  /** Write access + a fork under this org, per repo (#194). Absent → branch checks only. */
+  readonly repoStanding?: (url: string, githubOrg: string) => { readonly canPush: boolean; readonly forkUnderOrg: string | null } | undefined;
+  /**
+   * Ask whether to record a fork mapping, and write it to org-config.yaml on yes
+   * (#194). Returns whether anything was written. Absent → the message stands on
+   * its own and the adopter edits the file themselves.
+   */
+  /** Record what the preflight proposed, for the caller that owns the terminal to ask about (#194). */
+  readonly noteRepoOverrides?: (proposed: readonly { readonly from: string; readonly to: string }[]) => void;
   /** REQUIRED (C01) — write-access to the GitHub Project (viewerCanUpdate). The lifecycle ops call it
    *  unconditionally; wiring it here is what makes the CLI actually ENFORCE authorization. */
   readonly authorize: (ref: BoardRef) => boolean;
@@ -149,10 +159,40 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
   const ownerField = "organization" as const;
 
   switch (command) {
+    // `gov issue` — the first step of governed work, which had no verb (#182, #194).
+    case "issue": {
+      const from = flagStr(flags, "from");
+      const bodyFile = flagStr(flags, "body-file");
+      const boardFlag = flagStr(flags, "board");
+      const planned = planIssue(
+        {
+          repo: positionals[0] ?? flagStr(flags, "repo"),
+          title: flagStr(flags, "title"),
+          body: bodyFile ? (ctx.fs.readFile(bodyFile) ?? "") : flagStr(flags, "body"),
+          from,
+          board: boardFlag ? Number(boardFlag) : null,
+          // POL-413: the actor, not an option with a blank default.
+          assignee: flagStr(flags, "assignee") ?? ctx.login ?? "",
+          githubOrg: c.githubOrg,
+          defaultRepo: `${c.githubOrg}/${c.workspaceRepo}`,
+        },
+        (repo, number) => ctx.issues.read(repo, number),
+      );
+      if (!planned.ok) return { code: 1, lines: [planned.message] };
+      const plan = planned.plan;
+
+      const url = ctx.issues.create(plan.repo, plan.title, plan.body, plan.assignee);
+      if (!url) return { code: 1, lines: [`Could not create the issue in ${plan.repo}. Check that you can write there.`] };
+      const added = plan.board === null ? false : ctx.issues.addToBoard(c.githubOrg, plan.board, url);
+      // A board issue that never reached the board is invisible to gov, so it is a
+      // non-zero exit even though the issue itself exists — the summary says which.
+      return { code: plan.board !== null && !added ? 1 : 0, lines: issueSummary(plan, url, added) };
+    }
+
     case "seed": {
       if (positionals.length < 1) return usage("seed <board-url> [--assignee <login>]");
       const r = seed(
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log },
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding },
         {
           govHome: ctx.home,
           workspaceRepo: c.workspaceRepo,
@@ -160,6 +200,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           defaultBranch: c.defaultBranch,
           defaultCodeBranch: c.defaultCodeBranch,
           githubOrg: c.githubOrg,
+          repoOverrides: c.repoOverrides,
           orgTokens: c.orgTokens,
           toolFiles: [...TOOL_FILES],
         },
@@ -172,9 +213,14 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           seederLogin: flagStr(flags, "login") ?? ctx.login ?? null,
         },
       );
-      return r.ok
-        ? { code: 0, lines: [`Project ${r.projectId} seeded on ${r.branch}`, `  workspace: ${r.projectWorkRoot}`, `  anchor: ${r.anchorRef ?? "(none — designate with prj manage)"}`] }
-        : { code: r.code, lines: [r.message] };
+      if (r.ok) {
+        return { code: 0, lines: [`Project ${r.projectId} seeded on ${r.branch}`, `  workspace: ${r.projectWorkRoot}`, `  anchor: ${r.anchorRef ?? "(none — designate with prj manage)"}`] };
+      }
+      // The preflight found the fork. It is NOT asked about here: this function has
+      // no terminal of its own, and the flow that called it does. Hand the finding
+      // up; `runWorkFlow` asks with the readline that owns the terminal (#194).
+      if (r.suggestOverrides?.length) ctx.noteRepoOverrides?.(r.suggestOverrides);
+      return { code: r.code, lines: [r.message] };
     }
 
     case "task": {

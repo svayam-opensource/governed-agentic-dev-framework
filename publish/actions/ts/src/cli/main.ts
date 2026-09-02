@@ -15,13 +15,14 @@ import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
-import { parseTarget, preflight as createPreflight, explainFailure, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, ADOPTER_DIRS, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
+import { withRepoOverrides } from "../config/repo-overrides.js";
 import { assembleNeeds } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
@@ -35,7 +36,8 @@ import { createGhProjects } from "../lifecycle/project-list.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
-import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes } from "../maintain/fix-env.js";
+import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes } from "../maintain/fix-env.js";
+import { checklist, renderChecklist, checklistPreamble, finalStatus, stepBanner, stepDone, type ChecklistFacts } from "./checklist.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
@@ -43,6 +45,9 @@ import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } 
 import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
+import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
+import { approvedAgentIdsFrom } from "./agent-catalog.js";
+import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 import { orgAdd, orgUse } from "../resolve/org.js";
@@ -56,6 +61,41 @@ function tryRun(cmd: string, args: string[]): string | undefined {
     return undefined;
   }
 }
+
+/**
+ * What GitHub says about this adopter's standing in a repo (#194): may they push,
+ * and do they have a fork of it under their own org? Both are one API call each,
+ * and both are unknowable from `git ls-remote` — which is why "base branch 'dev'
+ * does not exist" used to be the only thing a fork-based adopter was told.
+ */
+const repoStanding = (url: string, githubOrg: string): { canPush: boolean; forkUnderOrg: string | null } | undefined => {
+  const m = /github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim());
+  if (!m) return undefined;
+  const [owner, name] = [m[1]!, m[2]!];
+  const canPush = ((): boolean | undefined => {
+    const out = tryRun("gh", ["api", `repos/${owner}/${name}`, "--jq", ".permissions.push"]);
+    return out === undefined ? undefined : out.trim() === "true";
+  })();
+  if (canPush === undefined) return undefined;              // unknown is not "no"
+  // A fork under the adopter's org, named the same, whose parent is this repo.
+  const forkUnderOrg = owner.toLowerCase() === githubOrg.toLowerCase()
+    ? null
+    : ((): string | null => {
+        const parent = tryRun("gh", ["api", `repos/${githubOrg}/${name}`, "--jq", ".parent.full_name // empty"]);
+        return parent && parent.trim().toLowerCase() === `${owner}/${name}`.toLowerCase() ? `${githubOrg}/${name}` : null;
+      })();
+  return { canPush, forkUnderOrg };
+}
+
+/**
+ * Fork mappings the last `seed` proposed (#194).
+ *
+ * Deliberately a handover, not a prompt: `route()` is synchronous and owns no
+ * terminal, and the flow that called it — `runWorkFlow` — already holds a readline
+ * on the one terminal there is. Two readers of the same terminal is how the first
+ * two attempts at this question answered themselves.
+ */
+let pendingRepoOverrides: readonly { readonly from: string; readonly to: string }[] = [];
 
 /** The template every governance repo is created from. */
 const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
@@ -94,7 +134,11 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
     // question twice; this one chooses the governance home's location, the later one is the org-config
     // value (pre-filled from this answer). #159 finding 1a.
     const slug = parsedTarget
-      ? await ask("Governance home ~/.gov/<slug> (uppercase, 2-6 chars)", defaultSlug)
+      ? await ask(
+          "A 2-6 character uppercase token for your organization. Choose it carefully — it is used\n" +
+          `  throughout, including the workspace folder where all governance files live (~/.gov/<slug>)`,
+          defaultSlug,
+        )
       : defaultSlug;
 
     const pathFlag = typeof flags["path"] === "string" ? (flags["path"] as string) : undefined;
@@ -272,10 +316,11 @@ export async function runSetupCommand(
       // replaces it on upgrade. Leftovers are reported, not tolerated: a policy the adopter opens and
       // finds <ORG_NAME> in is the first impression this whole change exists to fix.
       const cfgText = fsSync.readFileSync(path.join(createdHome, "org-config.yaml"), "utf8");
-      const oc = parseOrgConfig(cfgText) as unknown as Record<string, string>;
-      const values: Record<string, string> = {};
-      for (const [k, v] of Object.entries(oc)) if (typeof v === "string" && v) values[k.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase()] = v;
-      const leftovers = new Set<string>();
+      // From the FILE, not from parseOrgConfig: that interface carries only the keys
+      // gov-work reads, so the owner handles and the effective date had no values and
+      // survived into the adopter's policy documents (#193).
+      const values = tokenValuesFromOrgConfig(cfgText);
+      const leftovers = new Map<string, string>();     // token → first file it survived in
       let swept = 0;
       const sweepDir = (dir: string): void => {
         for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
@@ -285,14 +330,28 @@ export async function runSetupCommand(
           const before = fsSync.readFileSync(f, "utf8");
           const after = substituteTokens(before, values);
           if (after !== before) { fsSync.writeFileSync(f, after, "utf8"); swept++; }
-          for (const l of leftoverTokens(after)) leftovers.add(l);
+          for (const l of leftoverTokens(after)) {
+            if (PER_PROJECT_TOKENS.has(l)) continue;   // resolved by `gov seed`; expected here
+            if (!leftovers.has(l)) leftovers.set(l, path.relative(createdHome, f));
+          }
         }
       };
       for (const d of INHERITED_DIRS) { const dir = path.join(createdHome, d); if (fsSync.existsSync(dir)) sweepDir(dir); }
       manifest.push({ what: "Swept", detail: `${swept} file(s) — org tokens resolved in ${INHERITED_DIRS.join("/ ")}/ (publish/ untouched)` });
-      if (leftovers.size) manifest.push({ what: "⚠ Tokens", detail: `unresolved: ${[...leftovers].join(" ")} — tell gov-work; these should not reach an adopter` });
+      // Name the file. "Unresolved: <FOO>" tells you a token survived; it does not
+      // tell you where to look, which is the only part that lets anyone act.
+      if (leftovers.size) {
+        manifest.push({
+          what: "⚠ Tokens",
+          detail: `unresolved: ${[...leftovers].map(([t2, f]) => `${t2} (${f})`).join(", ")} — tell gov-work; these should not reach an adopter`,
+        });
+      }
       const left = fsSync.readdirSync(createdHome).filter((e) => e !== ".git" && fsSync.statSync(path.join(createdHome, e)).isDirectory());
-      const unexpected = left.filter((d) => !ADOPTER_DIRS.includes(d));
+      const manifestText = fsSync.existsSync(path.join(createdHome, "publish", "content", "MANIFEST.yaml"))
+        ? fsSync.readFileSync(path.join(createdHome, "publish", "content", "MANIFEST.yaml"), "utf8")
+        : null;
+      const expected = expectedDirs(manifestText);
+      const unexpected = left.filter((d) => !expected.includes(d));
       if (unexpected.length) manifest.push({ what: "Note", detail: `unexpected directories kept: ${unexpected.join(" ")} — tell gov-work if these are publisher-only` });
 
       const git = (...a: string[]): boolean => { try { execFileSync("git", ["-C", createdHome, ...a], { stdio: "ignore" }); return true; } catch { return false; } };
@@ -357,6 +416,79 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // The adopter path is exactly `gov setup <org>/<repo>` — the same code, reached
     // from the first-run question instead of from a command the newcomer had to
     // already know the name of.
+    adopterNextSteps: () => {
+      const r = prjResolveGov(createNodeEnv());
+      if (!r.ok) return [];
+      const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+        ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+      if (!text) return [];
+      const c = parseOrgConfig(text);
+      return adopterNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home });
+    },
+    joinerNextSteps: () => {
+      const r = prjResolveGov(createNodeEnv());
+      if (!r.ok) return [];
+      const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+        ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+      if (!text) return [];
+      const c = parseOrgConfig(text);
+      return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home });
+    },
+    createStarterProject: () => {
+      // ITS OWN TERMINAL. Every readline opened earlier in this flow has been closed
+      // by now (`gov setup` owns and releases one), so this opens a fresh one rather
+      // than reaching for a handle that is gone — which is how the last question of a
+      // completed adoption became ERR_USE_AFTER_CLOSE.
+      const askHere = (q: string): string => {
+        try {
+          const fd = fsSync.openSync("/dev/tty", "r");
+          try {
+            process.stdout.write(q);
+            const buf = Buffer.alloc(64);
+            const n = fsSync.readSync(fd, buf, 0, buf.length, null);
+            return buf.toString("utf8", 0, n).trim().toLowerCase();
+          } finally { fsSync.closeSync(fd); }
+        } catch {
+          return "";                                   // no terminal: treated as "no"
+        }
+      };
+      process.stdout.write("\n" + [
+        "One more thing, and it is the useful one.",
+        "",
+        "The policies that arrived are the framework's starting position, not yours.",
+        "gov can create a small project for reviewing them — a board and one issue —",
+        "so the first governed change in your organization is the one that decides how",
+        "everything after it will be governed.",
+        "",
+      ].join("\n") + "\n");
+      const answer = askHere("Create it? [y/N] ");
+      if (!/^y(es)?$/.test(answer)) {
+        return ["  Skipped. You can review the policies on GitHub or in your editor."];
+      }
+      // Real calls, reported honestly: a board this token cannot create is a missing
+      // `project` scope, not a broken adoption, and saying so beats a stack trace.
+      const cfg = ((): { org: string; repo: string; home: string } | null => {
+        const r = prjResolveGov(createNodeEnv());
+        if (!r.ok) return null;
+        const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+          ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+        if (!text) return null;
+        const c = parseOrgConfig(text);
+        return { org: c.githubOrg, repo: c.workspaceRepo, home: r.home };
+      })();
+      if (!cfg) return ["  (no workspace resolved yet — skipping the starter project)"];
+
+      const spec = starterProject(cfg.org, cfg.repo);
+      const boardUrl = tryRun("gh", ["project", "create", "--owner", cfg.org, "--title", spec.boardTitle, "--format", "json"])
+        ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null;
+      const issues = createGhIssues((args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+      const issueUrl = boardUrl ? issues.create(spec.issueRepo, spec.issueTitle, spec.issueBody, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")) : null;
+      if (boardUrl && issueUrl) {
+        const n = Number(boardUrl.match(/\/projects\/(\d+)/)?.[1] ?? 0);
+        if (n) issues.addToBoard(cfg.org, n, issueUrl);
+      }
+      return ["", "Starter project:", ...starterSummary({ boardUrl, issueUrl, seeded: false })];
+    },
     createWorkspace: (target) => {
       // CLOSE THIS READLINE FIRST. `runSetupCommand` opens its own interface on the
       // same stdin, and two readline interfaces both echo what you type — which is
@@ -458,13 +590,33 @@ function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | n
   const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   const resolved = prjResolveGov(env);
   if (!resolved.ok) return null;
-  const cfgText = fs.readFile(path.join(resolved.home, "org-config.yaml"));
+  const cfgPath = path.join(resolved.home, "org-config.yaml");
+  const cfgText = fs.readFile(cfgPath);
   if (!cfgText) return null;
   const config = parseOrgConfig(cfgText);
+  // The fork question's two halves: what seed proposed, and how to record it. The
+  // ASKING belongs to runWorkFlow, which owns the terminal (#194).
+  const pendingRepoOverridesFn = (): readonly { readonly from: string; readonly to: string }[] => pendingRepoOverrides;
+  const applyRepoOverrides = (o: readonly { readonly from: string; readonly to: string }[]): boolean => {
+    const before = fs.readFile(cfgPath);
+    if (before === null) return false;
+    const after = withRepoOverrides(before, o);
+    if (after === null) return false;
+    fs.writeFile(cfgPath, after);
+    pendingRepoOverrides = [];
+    return true;
+  };
   return {
     projects: createGhProjects(runGh),
     anchor: createGhAnchor(runGh),
     fs,
+    pendingRepoOverrides: pendingRepoOverridesFn,
+    // The three facts the agent menu needs (#195): what is on PATH, what keys are
+    // set (presence only — never the value), and what this org has approved.
+    hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
+    env: process.env,
+    approvedAgentIds: () => approvedAgentIdsFrom(fs.readFile(path.join(resolved.home, "knowledge", "policies", "llm-governance.md"))),
+    applyRepoOverrides,
     config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot },
     me,
     canWriteBoard: (n) =>
@@ -575,9 +727,11 @@ const CMD_DESC: Record<string, string> = {
   org: "Manage governance workspaces (the active org)", validate: "Validate the workspace / shipped content",
   list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
   doctor: "Diagnose this machine: git · gh · workspace · active org · versions",
+  issue: "Create an issue — assigned to you, on the board. `--from <url>` mirrors an upstream one",
   upgrade: "Pull the latest framework CONTENT into this org (not the CLI — that is `npm i -g`)", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
 };
 const CMD_USAGE: Record<string, string> = {
+  issue: "[<org>/<repo>] --title <t> [--body <b>|--body-file <f>] [--board <n>]  |  --from <upstream-issue-url> [--board <n>]",
   seed: "<board-url> [--assignee <login>]", work: "[<project-id>] [--print-prompt]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
   knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
   org: "add <github_org> --home <path> | use|list|remove <github_org>",
@@ -753,6 +907,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // place a person looks when something is wrong.
     const depsReport = checkDeps((n) => tryRun(n, ["--version"]) !== undefined, process.platform);
     const gitPresent = tryRun("git", ["--version"]) !== undefined;
+    const gitCfg = (k: string): string | null => {
+      const v = gitPresent ? tryRun("git", ["config", "--global", "--get", k]) : undefined;
+      return v && v.trim() ? v.trim() : null;
+    };
+    const gitIdentity = gitPresent ? { name: gitCfg("user.name"), email: gitCfg("user.email") } : undefined;
     const ghPresent = tryRun("gh", ["--version"]) !== undefined;
     // Installed and signed-in are different facts; only the second predicts whether
     // the next GitHub call works (#186).
@@ -771,6 +930,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       ghPresent,
       ghAuthenticated: ghAuthed,
       ghScopes,
+      gitIdentity,
       resolve,
       activeOrg: env.readActiveOrg(),
       cliVersion,
@@ -800,9 +960,33 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         } catch { return null; }
       })();
       const plan = planFixes(
-        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId, ghScopes },
+        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId, ghScopes, gitIdentity },
         detectPackageManager((n) => tryRun(n, ["--version"]) !== undefined),
       );
+      // THE WHOLE THING, BEFORE ANY OF IT (#186). An adopter met these one surprise
+      // at a time and could not tell how far along they were. Derived from what gov
+      // can see, never from a progress file: two processes writing one would
+      // disagree, and a stale tick is worse than none.
+      const facts = (): ChecklistFacts => ({
+        gitPresent, ghPresent, ghAuthenticated: ghAuthed,
+        ghScopesOk: Boolean(ghScopes && missingScopes(ghScopes).length === 0),
+        gitIdentityOk: Boolean(gitIdentity?.name && gitIdentity.email),
+        workspaceResolves: resolve.ok,
+        orgActive: env.readActiveOrg(),
+        workspacePath: resolve.ok ? resolve.home : null,
+        orgSlug: null,
+        role: null,
+        installCmd: plan.steps.length
+          ? {
+              git: plan.steps.find((s) => s.fixes === "git") ? renderCommand(plan.steps.find((s) => s.fixes === "git")!) : "already installed",
+              ghRepo: plan.steps.find((s) => s.fixes === "gh repo") ? renderCommand(plan.steps.find((s) => s.fixes === "gh repo")!) : undefined,
+              gh: plan.steps.find((s) => s.fixes === "gh") ? renderCommand(plan.steps.find((s) => s.fixes === "gh")!) : "already installed",
+            }
+          : undefined,
+      });
+      for (const line of checklistPreamble()) process.stdout.write(`${line}\n`);
+      for (const line of renderChecklist(checklist(facts()))) process.stdout.write(`${line}\n`);
+
       process.stdout.write("\n");
       for (const line of formatPlanNarrative(plan)) process.stdout.write(`${line}\n`);
       if (!plan.steps.length) {
@@ -906,8 +1090,9 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       const broken = new Set<string>();
       {
         for (const step of plan.steps) {
-          if (step.dependsOn && broken.has(step.dependsOn)) {
-            process.stdout.write(`\n  skipped: ${step.what}\n    (it needs "${step.dependsOn}", which did not succeed)\n`);
+          const unmet = step.dependsOn?.filter((d) => broken.has(d)) ?? [];
+          if (unmet.length) {
+            process.stdout.write(`\n  skipped: ${step.what}\n    (it needs ${unmet.map((u) => `"${u}"`).join(" and ")}, which did not succeed)\n`);
             broken.add(step.fixes);
             continue;
           }
@@ -921,12 +1106,61 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           // purpose is to ask: `gh auth login` opens a browser and waits. In
           // unattended use it would hang forever with no one at the terminal. Name
           // it as the human's remaining job instead.
-          if (assumeYes && step.interactive) {
+          if (assumeYes && step.interactive && step.fixes !== "git identity") {
             process.stdout.write(`\n  ${step.what}\n    needs you — run it yourself:  ${renderCommand(step)}\n`);
             broken.add(step.fixes);
             continue;
           }
-          process.stdout.write(`\n  run:  ${renderCommand(step)}\n`);
+          // The identity step has no canned command: its VALUES are the point, and the
+          // best source is the GitHub account the sign-in just proved. Ask, defaulting
+          // to that — after the login, so the defaults exist.
+          if (step.fixes === "git identity") {
+            process.stdout.write(`\n  ${step.what}\n`);
+            const ghName = tryRun("gh", ["api", "user", "--jq", ".name // empty"]) ?? "";
+            const ghLogin = tryRun("gh", ["api", "user", "--jq", ".login // empty"]) ?? "";
+            const ghId = tryRun("gh", ["api", "user", "--jq", ".id // empty"]) ?? "";
+            const ghEmail = tryRun("gh", ["api", "user", "--jq", ".email // empty"]) ?? "";
+            // GitHub hides most people's address. The noreply form is what GitHub
+            // itself recommends and what its web edits use, so commits still attribute.
+            const defEmail = ghEmail || (ghId && ghLogin ? `${ghId}+${ghLogin}@users.noreply.github.com` : "");
+            const defName = ghName || ghLogin;
+            // ASK AGAIN rather than give up (#192). An empty name or a mistyped
+            // address is a slip, not a decision to abandon the setup — and the only
+            // way out that belongs to the user is Ctrl-C, which they already know.
+            // Bounded, because against a closed stdin "ask again" is a hang.
+            const askUntil = (label: string, def: string, ok: (v: string) => string | null): string | null => {
+              for (let i = 0; i < 5; i++) {
+                const raw = askSync(`    ${label}${def ? ` [${def}]` : ""}: `);
+                if (raw === null) return null;                 // no stdin: not a refusal, an absence
+                const v = (raw || def).trim();
+                const problem = ok(v);
+                if (!problem) return v;
+                process.stdout.write(`    ✗ ${problem}\n`);
+              }
+              return null;
+            };
+            const finalName = askUntil("Your name for git commits", defName,
+              (v) => (v ? null : "git will not commit without a name."));
+            const finalEmail = finalName === null ? null : askUntil("Your email for git commits", defEmail,
+              (v) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : `'${v}' does not look like an email address (name@example.com).`));
+            if (!finalName || !finalEmail) {
+              failed++; broken.add(step.fixes);
+              process.stdout.write("  ✗ skipped — git needs both a name and an email. Set them yourself with:\n" +
+                                   "      git config --global user.name  \"Your Name\"\n" +
+                                   "      git config --global user.email \"you@your-org\"\n");
+              continue;
+            }
+            const okName = spawnSync("git", ["config", "--global", "user.name", finalName], { stdio: "inherit" }).status === 0;
+            const okMail = spawnSync("git", ["config", "--global", "user.email", finalEmail], { stdio: "inherit" }).status === 0;
+            if (okName && okMail) { ran++; process.stdout.write(`  ✓ git will sign your commits as ${finalName} <${finalEmail}>\n`); }
+            else { failed++; broken.add(step.fixes); process.stdout.write("  ✗ could not write your git config\n"); }
+            continue;
+          }
+          // The run reads as the plan did: a banner opens the step, the command is
+          // shown, and a ticked line closes it. Same numbers, same words.
+          const item = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
+          if (item) for (const line of stepBanner(item)) process.stdout.write(`${line}\n`);
+          process.stdout.write(`  run:  ${renderCommand(step)}\n`);
           // sudo is prepended only here, where the user has just seen and accepted the
           // exact line — never silently inside the plan. Two environments make the
           // naive prefix wrong: a container running as root has no `sudo` and does
@@ -941,7 +1175,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           }
           const [bin, ...rest] = needsElevation ? ["sudo", ...step.command] : [...step.command];
           const r = spawnSync(bin!, rest, { stdio: "inherit" });
-          if (r.status === 0) { ran++; process.stdout.write("  ✓ done\n"); }
+          if (r.status === 0) {
+            ran++;
+            const it = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
+            process.stdout.write(it ? `\n${stepDone(it)}\n` : "  ✓ done\n");
+          }
           else {
             failed++;
             broken.add(step.fixes);
@@ -950,7 +1188,24 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           }
         }
       }
-      process.stdout.write(`\n${ran} fixed, ${failed} failed. Run \`gov doctor\` again to confirm.\n`);
+      process.stdout.write(`\n${ran} fixed, ${failed} failed.\n`);
+      // Recomputed, not decremented: the list describes the machine as it is now,
+      // which is the only version of it worth showing.
+      const after: ChecklistFacts = {
+        ...facts(),
+        gitPresent: tryRun("git", ["--version"]) !== undefined,
+        ghPresent: tryRun("gh", ["--version"]) !== undefined,
+        ghAuthenticated: (() => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } })(),
+        ghScopesOk: (() => {
+          try {
+            const s = execFileSync("gh", ["auth", "status"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+            const g = parseGrantedScopes(s);
+            return Boolean(g && missingScopes(g).length === 0);
+          } catch { return false; }
+        })(),
+        gitIdentityOk: Boolean(gitCfg("user.name") && gitCfg("user.email")),
+      };
+      for (const line of finalStatus(checklist(after))) process.stdout.write(`${line}\n`);
       return failed ? 1 : 0;
     }
 
@@ -1063,6 +1318,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     pulls: createGhPulls(runGh),
     projects: createGhProjects(runGh),
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
+    repoStanding,
+    // Consent, then record. The prompt is what makes the mapping a decision; writing
+    // it is what makes it reviewable. Neither needs a human to retype what the
+    // preflight already worked out (#194).
+    noteRepoOverrides: (proposed) => { pendingRepoOverrides = proposed; },
     // C01 authorization — write-access to the GitHub Project (viewerCanUpdate), the SoT for authority
     // (`prj manage assign`). The lifecycle ops now call this unconditionally, so wiring it here is what
     // makes the CLI enforce it. Only "false" denies; a null/errored probe does NOT silently authorize —

@@ -246,11 +246,11 @@ install_node() {
   # does it.
   say ""
   if [ "$have" -gt 0 ]; then
-    say "  ${B}Node $NODE_MAJOR or newer is required${RST}, and this machine has v$have."
+    say "  ${B}Step 1 — Node $NODE_MAJOR or newer is required${RST}, and this machine has v$have."
     say "  gov will install Node $NODE_MAJOR into $(tilde "$NODE_DIR") and leave your"
     say "  existing Node exactly where it is. About 50 MB. No sudo, nothing system-wide."
   else
-    say "  ${B}Node $NODE_MAJOR is required and is not installed.${RST}"
+    say "  ${B}Step 1 — Node $NODE_MAJOR is required and is not installed.${RST}"
     say "  gov will install it into $(tilde "$NODE_DIR") — about 50 MB."
     say "  Nothing outside your home folder is touched, and sudo is never used."
   fi
@@ -283,10 +283,12 @@ install_node() {
   export PATH="$NODE_DIR/bin:$PATH"
   add_to_path "$NODE_DIR/bin"
   ok "Node $("$NODE_DIR/bin/node" -v)"
+  say "===> 1. [✓] Install Node version 24"
 }
 
 install_gov() {
-  step "Installing $GOV_PKG"
+  say ""; say ""; say "$RULE"
+  step "Step 2 — installing the governance client ($GOV_PKG)"
   need npm || die "npm did not come with Node — the install is incomplete. Remove $(tilde "$NODE_DIR") and re-run."
 
   # If we are using a Node we did NOT install, its global prefix may be a system
@@ -308,6 +310,7 @@ install_gov() {
     npm install -g --silent "$GOV_PKG" \
     || die "npm could not install $GOV_PKG — the output above says why"
   ok "$(gov --version 2>/dev/null | head -1 || echo "gov installed")"
+  say "===> 2. [✓] Install the governance client — gov"
 
   # Prefer the shell the person is actually in over a shell they have to go and open.
   local gov_bin; gov_bin="$(command -v gov 2>/dev/null || true)"
@@ -319,11 +322,43 @@ PROFILE_TOUCHED=""
 IMMEDIATELY_USABLE=0
 PLATFORM="$(detect_platform)"
 
+RULE="========================================================================================"
 say ""
-say "${B}gov installer${RST} — $PLATFORM"
-say "${DIM}This takes a minute or two on a fresh machine. Each step reports as it finishes.${RST}"
-say "${DIM}Nothing is installed system-wide, and sudo is never used.${RST}"
+say "$RULE"
+say "${B}  Thank you for your interest in Svayam's governance framework.${RST}"
+say "$RULE"
+say "${DIM}  Installing for $PLATFORM. A minute or two on a fresh machine.${RST}"
 say ""
+say "  What to expect:"
+say "  · Nothing is installed or changed without being shown to you first."
+say "  · Each step reports as it completes, so you always know how far along you are."
+say "  · Some steps only you can do — a browser sign-in, an administrator password,"
+say "    a name for your organization. gov will stop and ask."
+say ""
+# THE PLAN, BEFORE THE FIRST QUESTION.
+#
+# gov renders this list too, ticked off from what it can actually see — but gov
+# needs Node, and Node is step 1. So the plan is printed here, where nothing exists
+# yet, and gov takes over the ticking the moment it can run. This copy is the
+# ITINERARY; gov's is the PROGRESS, and gov's is the one that is derived and
+# therefore cannot be wrong.
+say "  These steps will set governance up for your organization, on GitHub and here:"
+say ""
+say "   1. [ ] Install Node version 24"
+say "   2. [ ] Install the governance client — gov"
+say "   3. [ ] Install dependency — git"
+say "   4. [ ] Install dependency — gh, the GitHub CLI"
+say "   5. [ ] Authorize gov for GitHub"
+say "   6. [ ] Configure git"
+say "   7. [ ] Create the governance workspace folder"
+say "   8. [ ] Set your organization up ${DIM}(adopters)${RST} — or bring in your org's ${DIM}(joiners)${RST}"
+say "   9. [ ] Finish setting up this machine"
+say ""
+say "${DIM}  Steps 3 onward are gov's own; it shows this list again, ticked off, at the end.${RST}"
+say ""
+say "$RULE"
+say "${B}                          Starting install${RST}"
+say "$RULE"
 
 step "Checking what you already have"
 install_node "$PLATFORM"

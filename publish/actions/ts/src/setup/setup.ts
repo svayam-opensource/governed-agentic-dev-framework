@@ -150,6 +150,16 @@ default_code_branch: "${v.defaultCodeBranch}"
 # Per-project workspaces are created under this path.
 agent_work_root: "${v.agentWorkRoot}"
 
+# Where the WORK happens, when that is not where the issue lives (#194).
+# A board may link an issue in a repository this org can read but not write — the
+# usual shape when you work from a fork. Map upstream to your own copy and gov
+# branches, pushes and merges in yours, while the board keeps linking theirs:
+#
+# repo_overrides:
+#   genevaers/Workbench: svm-geneva/Workbench
+#
+# Declared, never guessed: gov will not choose where your code is pushed.
+
 
 # Policy Owner details (initial holder of all policy roles at launch)
 policy_owner_email: "${v.policyOwnerEmail}"

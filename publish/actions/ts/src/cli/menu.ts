@@ -63,6 +63,9 @@ export function mainActions(): MenuAction[] {
     // `knowledge`, `onboard` and `add-repo` left: assignment is the work-management system's answer, and
     // the other three are things you ask your agent for. `deps` folded into `doctor`. What remains is what
     // an agent cannot do for you — point this machine at an org, check it, and pull new content.
+    //
+    // `issue` (#182) is deliberately NOT here, by that same rule: writing down a unit of work is exactly
+    // the kind of thing you ask your agent for, and this menu is what you cannot. It is a direct verb.
     { kind: "submenu", key: "admin", label: "Admin", desc: "This machine and this org", commands: [
       { cmd: "org", desc: "governance workspaces — switch / add / list / remove", scopes: ["project", "governed"], subs: [
         { cmd: "use", desc: "switch the active org", argHint: "<github_org>" },

@@ -21,6 +21,11 @@ export interface CodeRepoParams {
   readonly projectWorkRoot: string;
   readonly remote?: string;
   readonly identity?: { name?: string; email?: string };
+  /**
+   * Reuse a project branch that is already there, because seed's preflight decided
+   * it could only have come from a failed run of this command (#180).
+   */
+  readonly adoptExisting?: boolean;
 }
 
 /** Dependencies for {@link setupCodeRepoWorktree}. */
@@ -56,19 +61,56 @@ export function setupCodeRepoWorktree(
   if (!deps.vcs.refExists(baseClone, `refs/remotes/${remote}/${p.baseBranch}`)) {
     throw new Error(`Base branch '${p.baseBranch}' not found in ${p.url}`);
   }
-  if (
-    deps.vcs.refExists(baseClone, `refs/heads/${p.projectBranch}`) ||
-    deps.vcs.refExists(baseClone, `refs/remotes/${remote}/${p.projectBranch}`)
-  ) {
-    throw new Error(`Branch '${p.projectBranch}' already exists in ${p.url} — investigate.`);
+  // An existing branch is no longer fatal here (#180). seed's preflight has already
+  // classified it against the remote: a branch sitting exactly on the base tip could
+  // only have come from a failed run of this command, and is adopted; anything with
+  // commits of its own was refused before the first write. `adoptExisting` carries
+  // that verdict in, so this function never has to guess.
+  const existsLocally = deps.vcs.refExists(baseClone, `refs/heads/${p.projectBranch}`);
+  const existsRemotely = deps.vcs.refExists(baseClone, `refs/remotes/${remote}/${p.projectBranch}`);
+  const exists = existsLocally || existsRemotely;
+
+  // THE SAME RULE, WHEREVER THE BRANCH TURNS UP (#180).
+  //
+  // seed's preflight asks the REMOTE, and adopts a project branch sitting exactly on
+  // the base tip because only a failed run of this command could have put it there.
+  // A branch can also be left behind LOCALLY: the base clone persists between runs
+  // by design (it is not rolled back), so a run that created the branch and died
+  // before pushing leaves it here, invisible to `ls-remote`. The preflight then says
+  // "create", and this threw "already exists — investigate" about the tool's own
+  // leftover, which is the message #180 exists to remove.
+  //
+  // So the same question is asked again with what is knowable here: is it at the
+  // base tip? Then it is ours and empty. Otherwise it holds work, and refusing is
+  // right — with the reason, not with "investigate".
+  let reusing = exists && p.adoptExisting === true;
+  if (exists && !reusing) {
+    const baseSha = deps.vcs.revParse(baseClone, `${remote}/${p.baseBranch}`);
+    const branchSha = deps.vcs.revParse(baseClone, p.projectBranch)
+      ?? deps.vcs.revParse(baseClone, `${remote}/${p.projectBranch}`);
+    if (baseSha && branchSha && baseSha === branchSha) {
+      reusing = true;
+    } else {
+      throw new Error(
+        `Branch '${p.projectBranch}' already exists in ${p.url} and has commits of its own.\n` +
+        `    That is somebody's work, not a leftover from a failed setup, so gov will not reuse it.\n` +
+        `    Either finish or delete that branch, or seed this project under a different board.`,
+      );
+    }
   }
 
   deps.tx.step(
     `worktree ${repoDir}`,
-    () => deps.vcs.worktreeAdd(baseClone, p.projectBranch, repoDir, `${remote}/${p.baseBranch}`),
+    () => reusing
+      // Check it out rather than create it. `-b` on an existing branch fails, and
+      // deleting-then-recreating would destroy the very thing we decided to keep.
+      ? deps.vcs.worktreeAddExisting(baseClone, p.projectBranch, repoDir)
+      : deps.vcs.worktreeAdd(baseClone, p.projectBranch, repoDir, `${remote}/${p.baseBranch}`),
     () => {
       deps.vcs.worktreeRemove(baseClone, repoDir);
-      deps.vcs.branchDelete(baseClone, p.projectBranch);
+      // Only delete a branch this run created. Deleting an adopted one would undo
+      // more than we did.
+      if (!reusing) deps.vcs.branchDelete(baseClone, p.projectBranch);
     },
   );
 
@@ -77,7 +119,8 @@ export function setupCodeRepoWorktree(
   deps.tx.step(
     `push ${repoDir}`,
     () => deps.vcs.push(repoDir, remote, p.projectBranch, { setUpstream: true }),
-    () => deps.vcs.pushDelete(repoDir, remote, p.projectBranch),
+    // Same rule: an adopted branch was already on the remote before this run.
+    () => { if (!reusing) deps.vcs.pushDelete(repoDir, remote, p.projectBranch); },
   );
 
   return { repoDir, baseClone };

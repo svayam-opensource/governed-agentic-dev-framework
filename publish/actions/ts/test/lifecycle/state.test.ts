@@ -23,10 +23,12 @@ const INPUT: StateInput = { govClone: "/awr/PRJ-43/svm-prj-work" };
 function fakeVcs(branch = "BRNCH-43-governance-common-project"): Vcs {
   return {
     localBranchExists: () => false, remoteBranchExists: () => true, headSha: () => "h",
-    refExists: () => false, lsRemoteHeads: () => [], defaultBranch: () => null, revParse: () => null,
+    refExists: () => false, lsRemoteHeads: () => [],
+    // The base exists; no project branch yet — the ordinary case the preflight sees.
+    lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }], defaultBranch: () => null, revParse: () => null,
     currentBranch: () => branch, isAncestor: () => false, isClean: () => true, remoteBranchesMatching: () => [],
-    addPath: () => {}, commit: () => {}, resetHard: () => {}, cleanUntracked: () => {},
-    worktreeAdd: () => {}, worktreeRemove: () => {}, branchDelete: () => {}, push: () => {}, pushDelete: () => {},
+    addPath: () => {}, commit: () => {}, resetHard: () => {}, resetKeepingFiles: () => {}, cleanUntracked: () => {},
+    worktreeAdd: () => {}, worktreeAddExisting: () => {}, worktreeRemove: () => {}, branchDelete: () => {}, push: () => {}, pushDelete: () => {},
     clone: () => {}, fetch: () => {}, setIdentity: () => {}, checkout: () => {}, checkoutNew: () => {},
     mergeNoEdit: () => "merged", tag: () => {},
   };

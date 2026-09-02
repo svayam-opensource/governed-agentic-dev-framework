@@ -255,8 +255,70 @@ export const PUBLISHER_ONLY_DIRS: readonly string[] = ["ci", "docs", "packages",
  */
 export const INHERITED_DIRS: readonly string[] = ["agent", "knowledge"];
 
-/** What an adopter should be left with — asserted after pruning so a new publisher dir cannot creep in. */
+/**
+ * What an adopter should be left with — asserted after pruning so a new publisher
+ * dir cannot creep in. The FLOOR, not the whole answer: everything MANIFEST.yaml
+ * scaffolds is expected too, and {@link expectedDirs} unions the two.
+ */
 export const ADOPTER_DIRS: readonly string[] = ["agent", "knowledge", "publish"];
+
+/**
+ * Every top-level directory the manifest scaffolds into an adopter's repo (#193).
+ *
+ * A clean adoption used to end by calling `.claude .clinerules .continue .cursor
+ * .gemini .github .windsurf docs projects` "unexpected directories" and asking to
+ * be told if they were publisher-only. They are not: MANIFEST.yaml scaffolds every
+ * one of them on purpose — the agent harness is what the session-start protocol
+ * runs on. `.github` was in the publisher-only list AND in the manifest, which is
+ * the clearest sign the two had drifted.
+ *
+ * The hand-kept list was a second description of something the manifest already
+ * states file by file, and the manifest is the one the installer follows. Deriving
+ * removes the copy rather than correcting it — the same move as retiring
+ * `registry.yaml` in favour of GitHub, and `ADOPTER_DIRS` vs `~/.gov/<slug>` before it.
+ */
+export function expectedDirs(manifestText: string | null): readonly string[] {
+  const dirs = new Set<string>(ADOPTER_DIRS);
+  for (const m of (manifestText ?? "").matchAll(/\bdst:\s*([^\s,}]+)/g)) {
+    const dst = m[1]?.trim();
+    if (!dst || !dst.includes("/")) continue;      // a root-level FILE, not a directory
+    const top = dst.split("/")[0];
+    if (top) dirs.add(top);
+  }
+  return [...dirs];
+}
+
+/**
+ * Tokens that are SUPPOSED to survive setup: they belong to a project, and at setup
+ * time there is no project. `gov seed` resolves them.
+ *
+ * Reporting these alongside real leaks is what made the warning easy to dismiss —
+ * six of the eight it named were genuine, and these two were not.
+ */
+export const PER_PROJECT_TOKENS: ReadonlySet<string> = new Set(["<PROJECT_ID>", "<PRJ>"]);
+
+/**
+ * Token values from org-config.yaml's TEXT, not from its typed parse (#193).
+ *
+ * The sweep built its map from `parseOrgConfig`, whose interface carries the keys
+ * gov-work itself reads — org name, slug, branches. It has no
+ * `policy_owner_github`, no `legal_owner_github`, no `policy_effective_date`, so
+ * those tokens had no values and survived into the adopter's policy documents:
+ * exactly the first impression this whole flow exists to fix.
+ *
+ * The file is the authority on what it contains. Read it as such.
+ */
+export function tokenValuesFromOrgConfig(text: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const m = /^([a-z][a-z0-9_]*):\s*(.+?)\s*$/.exec(raw);
+    if (!m) continue;                                  // comment, blank, or nested
+    const value = (m[2] ?? "").replace(/^["']|["']$/g, "").trim();
+    if (!value || value === "|" || value === ">") continue;
+    values[m[1]!.toUpperCase()] = value;
+  }
+  return values;
+}
 
 /** One line per thing setup actually did, printed at the end instead of leaving it silent (6b/6d). */
 export interface ManifestLine { readonly what: string; readonly detail: string }
