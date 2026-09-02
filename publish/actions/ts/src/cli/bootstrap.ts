@@ -231,6 +231,8 @@ export interface FirstRunIo {
   approveAgents?: (agents: readonly { readonly id: string; readonly default?: boolean }[]) => boolean;
   /** Build the starter review project; returns the lines to print (#186). */
   createStarterProject?: () => readonly string[];
+  /** The whole checklist, ticked, at the true end of the run (#186). */
+  finalStatus?: () => readonly string[];
   /** What to do now, for an adopter. */
   adopterNextSteps?: () => readonly string[];
   /** What to do now, for a joiner. */
@@ -384,6 +386,8 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   // function.
   for (const line of io.createStarterProject?.() ?? []) io.print(line);
 
+  // THE REAL END, and the only place the word "final" is true.
+  for (const line of io.finalStatus?.() ?? []) io.print(line);
   for (const line of io.adopterNextSteps?.() ?? []) io.print(line);
   return 0;
 }
@@ -450,6 +454,7 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
     io.print(`Registered ${identity.org} → ${home}`);
     // A joiner needs the opposite of an adopter's instructions: not "settle this",
     // but "this is already settled, and here is where to read it".
+    for (const line of io.finalStatus?.() ?? []) io.print(line);
     for (const line of io.joinerNextSteps?.() ?? []) io.print(line);
     io.print(`Active org → ${identity.org}`);
     return 0;

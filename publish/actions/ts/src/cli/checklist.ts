@@ -86,10 +86,16 @@ export function checklist(f: ChecklistFacts): readonly ChecklistItem[] {
 
   // STEP 8 IS THE ONE THAT DIFFERS BY ROLE, and only this one. An adopter founds an
   // organization; a joiner clones one that exists. Listing the founding steps against
-  // a joiner's name would be a list of things they must not do, and listing neither
-  // leaves the biggest step of the run unaccounted for.
+  // a joiner's name would be a list of things they must not do.
+  //
+  // BEFORE THE ROLE IS KNOWN, neither branch is shown. It used to fall through to the
+  // adopter's — so someone who had not yet been asked whether they were adopting or
+  // joining was shown five steps about founding an organization, as though the answer
+  // were already given.
   const built = f.workspaceResolves;
-  if (f.role === "joiner") {
+  if (f.role === null) {
+    items.push({ n: "8", done: built, text: "Set your organization up (adopters) — or bring in your org's (joiners)" });
+  } else if (f.role === "joiner") {
     items.push({ n: "8", done: built, text: "Bring in your organization's governance repository (joiners)" });
     items.push({ n: "8a", sub: true, done: built, text: `Clone it to ${home}` });
   } else {
@@ -148,8 +154,30 @@ export function stepDone(item: ChecklistItem, ok = true): string {
 }
 
 /**
- * The whole list again at the end — worth a screenshot, which is why every path is
- * spelled out rather than referred to.
+ * The whole list again, with a heading that tells the truth about where you are.
+ *
+ * It said "Final status" at the end of `doctor --fix` — with the organization still
+ * to set up, five unticked steps on screen, and the next question already queued.
+ * A heading that announces an ending which has not come teaches the reader to
+ * distrust the rest of the screen.
+ */
+export function statusSoFar(items: readonly ChecklistItem[]): readonly string[] {
+  const remaining = items.filter((i) => !i.done && !i.sub).length;
+  return [
+    "",
+    RULE,
+    remaining
+      ? `  Where things stand — ${remaining} step(s) still to go`
+      : "  Where things stand — everything on this machine is done",
+    RULE,
+    ...renderChecklist(items),
+    "",
+  ];
+}
+
+/**
+ * The end, and meant to be kept — which is why every path is spelled out rather
+ * than referred to.
  */
 export function finalStatus(items: readonly ChecklistItem[]): readonly string[] {
   return [

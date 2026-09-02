@@ -37,7 +37,7 @@ import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
 import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes } from "../maintain/fix-env.js";
-import { checklist, renderChecklist, checklistPreamble, finalStatus, stepBanner, stepDone, type ChecklistFacts } from "./checklist.js";
+import { checklist, renderChecklist, checklistPreamble, statusSoFar, finalStatus, stepBanner, stepDone, type ChecklistFacts } from "./checklist.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
@@ -458,6 +458,28 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // The adopter path is exactly `gov setup <org>/<repo>` — the same code, reached
     // from the first-run question instead of from a command the newcomer had to
     // already know the name of.
+    finalStatus: () => {
+      const r = prjResolveGov(createNodeEnv());
+      const policyPath = r.ok ? path.join(r.home, "knowledge", "policies", "llm-governance.md") : null;
+      const policy = policyPath && fsSync.existsSync(policyPath) ? fsSync.readFileSync(policyPath, "utf8") : null;
+      const cfgText = r.ok && fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+        ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+      const c = cfgText ? parseOrgConfig(cfgText) : null;
+      const gitCfg2 = (k: string): string | null => tryRun("git", ["config", "--global", "--get", k]) ?? null;
+      return finalStatus(checklist({
+        gitPresent: tryRun("git", ["--version"]) !== undefined,
+        ghPresent: tryRun("gh", ["--version"]) !== undefined,
+        ghAuthenticated: (() => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } })(),
+        ghScopesOk: true,
+        gitIdentityOk: Boolean(gitCfg2("user.name") && gitCfg2("user.email")),
+        workspaceResolves: r.ok,
+        orgActive: createNodeEnv().readActiveOrg(),
+        workspacePath: r.ok ? r.home : null,
+        orgSlug: c?.orgSlug ?? null,
+        role: "adopter",
+        approvedAgents: (parseApprovedAgents(policy) ?? []).map((a) => a.id),
+      }));
+    },
     adopterNextSteps: () => {
       const r = prjResolveGov(createNodeEnv());
       if (!r.ok) return [];
@@ -1274,7 +1296,8 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         })(),
         gitIdentityOk: Boolean(gitCfg("user.name") && gitCfg("user.email")),
       };
-      for (const line of finalStatus(checklist(after))) process.stdout.write(`${line}\n`);
+      // `doctor --fix` is a waypoint, not the end: the organization comes next.
+      for (const line of statusSoFar(checklist(after))) process.stdout.write(`${line}\n`);
       return failed ? 1 : 0;
     }
 

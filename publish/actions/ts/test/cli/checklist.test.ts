@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /** The adoption checklist (#186) — derived from the machine, never from a file. */
 import { expect } from "chai";
-import { checklist, renderChecklist, finalStatus, stepBanner, stepDone } from "../../src/cli/checklist.js";
+import { checklist, renderChecklist, statusSoFar, finalStatus, stepBanner, stepDone } from "../../src/cli/checklist.js";
 import { adopterNextSteps, joinerNextSteps } from "../../src/cli/next-steps.js";
 
 const BARE = {
@@ -126,5 +126,37 @@ describe("gov-work — the two steps that used to be unobservable (#196, Q12)", 
     const joiner = renderChecklist(checklist({ ...A, role: "joiner" })).join("\n");
     expect(joiner).to.not.contain("which AI agents");
     expect(joiner).to.not.contain("Review the seeded policies");
+  });
+});
+
+describe("gov-work — the checklist tells the truth about where you are (#186)", () => {
+  const BARE2 = {
+    gitPresent: true, ghPresent: true, ghAuthenticated: true, ghScopesOk: true,
+    gitIdentityOk: true, workspaceResolves: false, orgActive: null,
+    workspacePath: null, orgSlug: null,
+  };
+
+  it("before the role is known, it shows neither branch", () => {
+    // It used to fall through to the adopter's, so someone who had not yet been asked
+    // whether they were adopting or joining was shown five steps about founding an
+    // organization, as though the answer were already given.
+    const text = renderChecklist(checklist({ ...BARE2, role: null })).join("\n");
+    expect(text).to.contain("(adopters) — or bring in your org's (joiners)");
+    expect(text, "no founding sub-steps yet").to.not.contain("from the framework template");
+    expect(text).to.not.contain("Choose which AI agents");
+  });
+
+  it("'where things stand' counts what is left; 'final status' is only for the end", () => {
+    // "Final status" appeared at the end of doctor --fix, with the organization still
+    // to set up and the next question already queued. A heading that announces an
+    // ending which has not come teaches the reader to distrust the screen.
+    const mid = statusSoFar(checklist({ ...BARE2, role: null })).join("\n");
+    expect(mid).to.contain("still to go");
+    expect(mid).to.not.contain("Final status");
+
+    const done = statusSoFar(checklist({
+      ...BARE2, role: "joiner", workspaceResolves: true, orgActive: "svm-geneva", workspacePath: "/h/gov",
+    })).join("\n");
+    expect(done).to.contain("everything on this machine is done");
   });
 });
