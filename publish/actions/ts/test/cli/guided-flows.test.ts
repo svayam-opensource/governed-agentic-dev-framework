@@ -377,7 +377,37 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
 });
 
 describe("gov-work — the agent menu offers what exists (#195)", () => {
-  it("with nothing installed it does not offer, it explains and opens a shell", async () => {
+  it("nothing installed and an org default → offers to install THAT, then starts it", async () => {
+    // The joiner's ordinary case, not an edge one: a new machine, a new person, a
+    // container. The adopter chose a default for exactly this moment (#196, Q3), so
+    // printing a list and stepping aside leaves the person who most needs help
+    // holding a command to retype.
+    const installed: string[] = [];
+    const { deps: d, out, launched } = deps({
+      hasTool: () => false,
+      approvedAgents: () => [{ id: "claude-code", default: true }],
+      installAgent: (id: string) => { installed.push(id); return true; },
+      prompt: async (q: string) => (/Install/.test(q) ? "y" : "1"),
+    });
+    await runWorkFlow(d);
+    expect(out.join("\n")).to.contain("Your organization's default is Claude Code");
+    expect(installed).to.deep.equal(["claude-code"]);
+    expect(launched[0]?.[0], "and it starts, rather than telling you to re-run").to.equal("claude");
+  });
+
+  it("declining the install still gets you a working shell", async () => {
+    const { deps: d, out, launched } = deps({
+      hasTool: () => false,
+      approvedAgents: () => [{ id: "claude-code", default: true }],
+      installAgent: () => { throw new Error("must not be called"); },
+      prompt: async (q: string) => (/Install/.test(q) ? "n" : "1"),
+    });
+    await runWorkFlow(d);
+    expect(out.join("\n")).to.contain("No AI agent is installed");
+    expect(launched[0]?.[0]).to.equal("shell");
+  });
+
+  it("with nothing installed and no default it explains and opens a shell", async () => {
     // The old menu offered Claude, cursor and Cursor GUI to a machine with none of
     // them, and led with a tool the seeded policy lists as prohibited.
     const { deps: d, out, launched } = deps({ hasTool: () => false });

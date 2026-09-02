@@ -15,6 +15,7 @@ import { deriveStatus } from "../lifecycle/state.js";
 import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
 import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines } from "./agent-catalog.js";
 import { chooseAgent, choiceExplanation } from "./agent-choice.js";
+import { defaultAgent } from "../config/approved-agents.js";
 
 export interface WorkProject {
   readonly boardNumber: number;
@@ -41,6 +42,8 @@ export interface WorkFlowDeps {
   readonly approvedAgents?: () => readonly { readonly id: string; readonly default?: boolean }[] | null;
   /** This person's preferred agent id, from their preferences file. C03. */
   readonly agentPreference?: () => string | null;
+  /** Install an approved agent and offer its sign-in. Returns whether it is usable now. */
+  readonly installAgent?: (id: string) => boolean;
   /** Fork mappings the last `seed` proposed, if any (#194). */
   readonly pendingRepoOverrides?: () => readonly { readonly from: string; readonly to: string }[];
   /** Record them in org-config.yaml. Returns whether anything was written. */
@@ -412,6 +415,29 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
     }
 
     if (!offer.length) {
+      // NOTHING INSTALLED IS THE JOINER'S ORDINARY CASE, not an edge one — a new
+      // machine, a new person, a container. The adopter already chose a default for
+      // exactly this moment (#196, Q3), so the useful thing is to OFFER it rather
+      // than print a list and step aside. Printing a list was the old behaviour and
+      // it left the person who most needs help holding a command to retype.
+      const def = defaultAgent(approvedList);
+      const defName = def ? AGENT_CATALOG.find((a) => a.id === def)?.tool ?? def : null;
+
+      if (def && defName && deps.installAgent) {
+        print("");
+        print(`  No AI agent is installed here yet. Your organization's default is ${defName}.`);
+        print("");
+        const yes = (await deps.prompt(`  Install ${defName} now? (Y/n) `)).trim().toLowerCase();
+        if (!/^n(o)?$/.test(yes)) {
+          if (deps.installAgent(def)) {
+            print(`  ✓ ${defName} is ready. Starting it in ${projectDir}…`);
+            const kind: AgentKind = def === "claude-code" ? "claude" : def === "cursor" ? "cursor" : "shell";
+            return await deps.launch(kind, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo));
+          }
+          print("  Could not finish installing it — the output above says why.");
+        }
+      }
+
       for (const line of nothingInstalledLines(installable(statuses, approved.ids), approved.usingDefaults)) print(line);
       print("");
       print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);

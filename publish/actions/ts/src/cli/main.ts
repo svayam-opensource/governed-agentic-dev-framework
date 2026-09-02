@@ -48,6 +48,7 @@ import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
 import { approvedAgentIdsFrom } from "./agent-catalog.js";
 import { parseApprovedAgents, withApprovedAgents } from "../config/approved-agents.js";
+import { planAgentInstall } from "./agent-verb.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
@@ -97,6 +98,46 @@ const repoStanding = (url: string, githubOrg: string): { canPush: boolean; forkU
  * two attempts at this question answered themselves.
  */
 let pendingRepoOverrides: readonly { readonly from: string; readonly to: string }[] = [];
+
+function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boolean {
+    if (!plan.ok) return false;
+    // HEADLESS INSTALLS, AND NEVER SIGNS ANYONE IN (#196, Q11). The consent for
+    // installing already happened, in policy, by the Infrastructure Owner — that is
+    // what an approved list IS. Authentication cannot be delegated to anybody, so
+    // it is left, and the machine ends in a state `gov agent` can describe:
+    // installed, not signed in.
+    const headless = !process.stdin.isTTY;
+    process.stdout.write(`\n  Installing ${plan.agent.tool}:\n`);
+    for (const s of plan.steps) process.stdout.write(`    ${s.command.join(" ")}\n`);
+    let ok = true;
+    for (const s of plan.steps) {
+      process.stdout.write(`\n  ${s.what}…\n`);
+      const [bin, ...rest] = s.command;
+      const r = spawnSync(bin!, rest, { stdio: "inherit" });
+      if (r.status !== 0) { ok = false; process.stdout.write(`  ✗ ${s.what} failed — see above\n`); }
+    }
+    if (!ok) return false;
+    process.stdout.write(`\n  ✓ ${plan.agent.tool} installed\n`);
+
+    // SIGNING IN IS THE PART NOBODY CAN AUTOMATE. Even the account is theirs to
+    // create — no vendor exposes signup as an API, and gov holds no credential.
+    if (headless) {
+      process.stdout.write("\n  No terminal here, so gov stopped before signing you in — nobody else can do\n" +
+                           `  that step. On a machine with a terminal: ${plan.signIn ? plan.signIn.join(" ") : "sign in to " + plan.agent.tool}\n`);
+      return true;
+    }
+    if (plan.signupUrl) {
+      process.stdout.write(`\n  If you do not have an account yet: ${plan.signupUrl}\n`);
+    }
+    if (plan.signIn) {
+      process.stdout.write(`  Signing you in — ${plan.signIn.join(" ")} takes over from here.\n\n`);
+      const [bin, ...rest] = plan.signIn;
+      spawnSync(bin!, rest, { stdio: "inherit" });
+    } else {
+      process.stdout.write("  This one has no sign-in command; set its API key when you have one.\n");
+    }
+    return true;
+  }
 
 /** The template every governance repo is created from. */
 const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
@@ -630,6 +671,14 @@ function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | n
     approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(resolved.home, "knowledge", "policies", "llm-governance.md"))),
     // The person's own choice, from the lowest knowledge layer (C03). Read every
     // time, and validated against the org's list at launch — not at write time.
+    // The joiner's ordinary case: nothing installed, and the org already chose what
+    // should be. Same plan and same performer as `gov agent install` — one path.
+    installAgent: (id: string) => {
+      const policy = fs.readFile(path.join(resolved.home, "knowledge", "policies", "llm-governance.md"));
+      const plan = planAgentInstall(id, parseApprovedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
+      if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return false; }
+      return performAgentInstallReal(plan);
+    },
     agentPreference: () => {
       const prefs = fs.readFile(path.join(config.agentWorkRoot, "preferences", `${me ?? ""}.md`));
       return /^\s*preferred_agent:\s*(\S+)/m.exec(prefs ?? "")?.[1] ?? null;
@@ -1347,45 +1396,8 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
      * Every command is shown before it runs, because approval means the org agreed
      * to the tool, not that the person at the keyboard agreed to this moment.
      */
-    performAgentInstall: (plan) => {
-      if (!plan.ok) return false;
-      // HEADLESS INSTALLS, AND NEVER SIGNS ANYONE IN (#196, Q11). The consent for
-      // installing already happened, in policy, by the Infrastructure Owner — that is
-      // what an approved list IS. Authentication cannot be delegated to anybody, so
-      // it is left, and the machine ends in a state `gov agent` can describe:
-      // installed, not signed in.
-      const headless = !process.stdin.isTTY;
-      process.stdout.write(`\n  Installing ${plan.agent.tool}:\n`);
-      for (const s of plan.steps) process.stdout.write(`    ${s.command.join(" ")}\n`);
-      let ok = true;
-      for (const s of plan.steps) {
-        process.stdout.write(`\n  ${s.what}…\n`);
-        const [bin, ...rest] = s.command;
-        const r = spawnSync(bin!, rest, { stdio: "inherit" });
-        if (r.status !== 0) { ok = false; process.stdout.write(`  ✗ ${s.what} failed — see above\n`); }
-      }
-      if (!ok) return false;
-      process.stdout.write(`\n  ✓ ${plan.agent.tool} installed\n`);
+    performAgentInstall: performAgentInstallReal,
 
-      // SIGNING IN IS THE PART NOBODY CAN AUTOMATE. Even the account is theirs to
-      // create — no vendor exposes signup as an API, and gov holds no credential.
-      if (headless) {
-        process.stdout.write("\n  No terminal here, so gov stopped before signing you in — nobody else can do\n" +
-                             `  that step. On a machine with a terminal: ${plan.signIn ? plan.signIn.join(" ") : "sign in to " + plan.agent.tool}\n`);
-        return true;
-      }
-      if (plan.signupUrl) {
-        process.stdout.write(`\n  If you do not have an account yet: ${plan.signupUrl}\n`);
-      }
-      if (plan.signIn) {
-        process.stdout.write(`  Signing you in — ${plan.signIn.join(" ")} takes over from here.\n\n`);
-        const [bin, ...rest] = plan.signIn;
-        spawnSync(bin!, rest, { stdio: "inherit" });
-      } else {
-        process.stdout.write("  This one has no sign-in command; set its API key when you have one.\n");
-      }
-      return true;
-    },
     /**
      * `approve` raises a pull request. It does not edit the policy: the approved
      * list is C01 (POL-136) and belongs to the Infrastructure Owner, not to whoever
