@@ -160,3 +160,29 @@ describe("gov-work — the checklist tells the truth about where you are (#186)"
     expect(done).to.contain("everything on this machine is done");
   });
 });
+
+describe("gov-work — a probe must not be disabled by a stale capture (#186)", () => {
+  it("git's identity is readable on a machine where git was installed mid-run", () => {
+    // The bug: `gitCfg` was guarded by a `gitPresent` captured BEFORE the run. On a
+    // fresh machine that is false, `--fix` then installs git, the identity step
+    // succeeds — and the probe stays disabled, so the checklist reports step 6
+    // undone. Third time in this issue that a value was read before the step that
+    // changes it (gh scopes before the login, git identity before git existed).
+    //
+    // Modelled here as the checklist's own contract: the fact is supplied, and the
+    // tick follows the fact rather than anything captured earlier.
+    const before = checklist({
+      gitPresent: false, ghPresent: false, ghAuthenticated: false, ghScopesOk: false,
+      gitIdentityOk: false, workspaceResolves: false, orgActive: null,
+      workspacePath: null, orgSlug: null, role: null,
+    });
+    const after = checklist({
+      gitPresent: true, ghPresent: true, ghAuthenticated: true, ghScopesOk: true,
+      gitIdentityOk: true, workspaceResolves: false, orgActive: null,
+      workspacePath: null, orgSlug: null, role: null,
+    });
+    const step6 = (l: typeof before) => l.find((i) => i.text.startsWith("Configure git"))!;
+    expect(step6(before).done).to.equal(false);
+    expect(step6(after).done, "installed and configured in the same run").to.equal(true);
+  });
+});

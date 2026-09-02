@@ -998,8 +998,14 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // place a person looks when something is wrong.
     const depsReport = checkDeps((n) => tryRun(n, ["--version"]) !== undefined, process.platform);
     const gitPresent = tryRun("git", ["--version"]) !== undefined;
+    // NOT GUARDED BY `gitPresent`, which is captured before the run and stays false
+    // on a machine where `--fix` installs git a moment later. That stale capture
+    // disabled this probe for the rest of the command, so the identity step could
+    // succeed and the checklist would still report it undone — the third time in
+    // this issue that a value was read before the step that changes it.
+    // `git config --get` simply fails when git is absent, which is the same answer.
     const gitCfg = (k: string): string | null => {
-      const v = gitPresent ? tryRun("git", ["config", "--global", "--get", k]) : undefined;
+      const v = tryRun("git", ["config", "--global", "--get", k]);
       return v && v.trim() ? v.trim() : null;
     };
     const gitIdentity = gitPresent ? { name: gitCfg("user.name"), email: gitCfg("user.email") } : undefined;
