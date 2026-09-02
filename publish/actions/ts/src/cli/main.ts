@@ -435,7 +435,30 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
   if (facts.orgs.length === 1) return null;
 
   const env = createNodeEnv();
-  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+
+  /**
+   * ONE QUESTION, ONE INTERFACE (#186).
+   *
+   * A single readline held for the whole flow kept being closed under its own
+   * users: `gov setup` opens and closes one of its own, and every question asked
+   * after that died with ERR_USE_AFTER_CLOSE — the starter project's, then the
+   * approved-agents one, on the last steps of an otherwise complete adoption. Twice
+   * the same crash, in the same place, from the same shared handle.
+   *
+   * Two readlines on one stdin also double the echo, which is what turned "Rakesh"
+   * into "RRaakkeesshh". Both faults are the same fact: a terminal has one owner at
+   * a time, and holding a handle across code that hands the terminal away is a bet
+   * on nobody else needing it.
+   *
+   * So the handle lasts exactly as long as the question. Slightly more work per
+   * prompt; no shared lifetime to get wrong.
+   */
+  const ask = (q: string, def: string): Promise<string> =>
+    new Promise((res) => {
+      const one = readline.createInterface({ input: process.stdin, output: process.stderr });
+      one.question(def ? `  ${q}[${def}] ` : `  ${q}`, (a) => { one.close(); res(a.trim() || def); });
+    });
+
   const identityAt = (repoDir: string): OrgIdentity | null => {
     const cfg = env.govConfigAt(repoDir);
     if (!cfg) return null;
@@ -446,7 +469,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
   const io: FirstRunIo = {
     facts,
     homeDir: os.homedir(),
-    prompt: (q, def) => new Promise((res) => rl.question(def ? `  ${q}[${def}] ` : `  ${q}`, (a) => res(a.trim() || def))),
+    prompt: ask,
     print: (l) => process.stderr.write(`${l}\n`),
     tempDir: () => fsSync.mkdtempSync(path.join(os.tmpdir(), "gov-firstrun-")),
     clone: (url, dest) => { execFileSync("git", ["clone", url, dest], { stdio: ["ignore", "ignore", "inherit"] }); },
@@ -510,10 +533,9 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       return true;
     },
     createStarterProject: () => {
-      // ITS OWN TERMINAL. Every readline opened earlier in this flow has been closed
-      // by now (`gov setup` owns and releases one), so this opens a fresh one rather
-      // than reaching for a handle that is gone — which is how the last question of a
-      // completed adoption became ERR_USE_AFTER_CLOSE.
+      // Reads the terminal directly rather than through `ask`, because this hook is
+      // synchronous. Same rule either way: the handle lives only as long as the
+      // question.
       const askHere = (q: string): string => {
         try {
           const fd = fsSync.openSync("/dev/tty", "r");
@@ -564,13 +586,9 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       }
       return ["", "Starter project:", ...starterSummary({ boardUrl, issueUrl, seeded: false })];
     },
-    createWorkspace: (target) => {
-      // CLOSE THIS READLINE FIRST. `runSetupCommand` opens its own interface on the
-      // same stdin, and two readline interfaces both echo what you type — which is
-      // why "Rakesh" arrived as "RRaakkeesshh". Only one may hold the terminal.
-      rl.close();
-      return runSetupCommand(["setup", target], now);
-    },
+    // No handle to close before delegating: `ask` holds one only for the length of a
+    // question, so `gov setup` finds the terminal free and leaves it free.
+    createWorkspace: (target) => runSetupCommand(["setup", target], now),
     register: (org, home) => {
       const deps = { store, govConfigAt: (p: string) => env.govConfigAt(p) };
       const added = orgAdd(deps, org, home);
@@ -583,11 +601,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       return used.ok ? { ok: true } : { ok: false, message: used.message };
     },
   };
-  try {
-    return await runFirstRun(io);
-  } finally {
-    rl.close();
-  }
+  return await runFirstRun(io);
 }
 
 /** Read the CLI's own version from its package.json. Walks up from this module
