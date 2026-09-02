@@ -22,6 +22,7 @@ import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
 import type { GateResult } from "../lifecycle/close-gate.js";
 import { planIssue, issueSummary } from "../lifecycle/issue-create.js";
+import { agentReport, formatAgentReport, planAgentInstall } from "./agent-verb.js";
 import { seed } from "../lifecycle/seed.js";
 import { expandTilde } from "../resolve/node-env.js";
 import { task } from "../lifecycle/task-run.js";
@@ -73,6 +74,16 @@ export interface CliContext {
    */
   /** Record what the preflight proposed, for the caller that owns the terminal to ask about (#194). */
   readonly noteRepoOverrides?: (proposed: readonly { readonly from: string; readonly to: string }[]) => void;
+  /** Is this command on PATH? The same probe the work flow uses (#195/#196). */
+  readonly hasTool?: (cmd: string) => boolean;
+  /** The org's approved-agent block, or null when the policy carries none (#196). */
+  readonly approvedAgents?: () => readonly { readonly id: string; readonly default?: boolean }[] | null;
+  /** Does the backup copy of this agent's key differ from the one it uses? Never the values. */
+  readonly credentialDrift?: (agentId: string) => boolean;
+  /** Run an install plan, and offer the sign-in. Owns the terminal; returns success. */
+  readonly performAgentInstall?: (plan: ReturnType<typeof planAgentInstall>) => boolean;
+  /** Raise a pull request adding an agent to llm-governance.md. */
+  readonly proposeAgentApproval?: (id: string) => readonly string[];
   /** REQUIRED (C01) — write-access to the GitHub Project (viewerCanUpdate). The lifecycle ops call it
    *  unconditionally; wiring it here is what makes the CLI actually ENFORCE authorization. */
   readonly authorize: (ref: BoardRef) => boolean;
@@ -159,6 +170,44 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
   const ownerField = "organization" as const;
 
   switch (command) {
+    // `gov agent` — the door that stays open (#196). Reporting is here; installing
+    // and signing in are performed by the caller, which owns the terminal.
+    case "agent": {
+      const sub = positionals[0] ?? "";
+      const approved = ctx.approvedAgents?.() ?? null;
+
+      if (!sub || sub === "list") {
+        return { code: 0, lines: formatAgentReport(agentReport({
+          approved,
+          hasTool: ctx.hasTool ?? (() => false),
+          env: process.env,
+          credentialDrift: ctx.credentialDrift,
+        })) };
+      }
+
+      if (sub === "install") {
+        const id = positionals[1];
+        if (!id) return usage("agent install <id>");
+        const plan = planAgentInstall(id, approved, ctx.hasTool ?? (() => false));
+        if (!plan.ok) return { code: 1, lines: [plan.message] };
+        return ctx.performAgentInstall
+          ? { code: ctx.performAgentInstall(plan) ? 0 : 1, lines: [] }
+          : { code: 1, lines: ["No terminal to install in. Run `gov agent install` from a shell."] };
+      }
+
+      if (sub === "approve") {
+        const id = positionals[1];
+        if (!id) return usage("agent approve <id>");
+        // A pull request, never an edit: the approved list is C01 (POL-136) and
+        // belongs to the Infrastructure Owner, not to whoever typed the command.
+        return ctx.proposeAgentApproval
+          ? { code: 0, lines: ctx.proposeAgentApproval(id) }
+          : { code: 1, lines: ["Cannot propose a change here — run this inside your governance workspace."] };
+      }
+
+      return usage("agent [list | install <id> | approve <id>]");
+    }
+
     // `gov issue` — the first step of governed work, which had no verb (#182, #194).
     case "issue": {
       const from = flagStr(flags, "from");

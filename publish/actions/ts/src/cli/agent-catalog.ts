@@ -27,6 +27,27 @@
 
 export type LaunchKind = "cli" | "ide" | "none";
 
+/**
+ * One way to run an approved agent (#196, Q8). The policy approves the AGENT — its
+ * real question is which provider may see your code, and that does not change
+ * between a CLI and an extension of the same tool — so a single approval brings all
+ * of its variants.
+ */
+export interface AgentVariant {
+  readonly kind: "cli" | "editor" | "extension";
+  readonly label: string;
+  /** The command to probe and to launch. Extensions have none of their own. */
+  readonly cmd?: string;
+  /** npm package, or a shell line for a vendor installer. */
+  readonly install?: { readonly npm?: string; readonly script?: string; readonly url: string };
+  /** For extensions: the marketplace id, installed through the host's own CLI. */
+  readonly extensionId?: string;
+  /** The hosts that can carry this extension, in preference order. */
+  readonly hosts?: readonly string[];
+  /** The agent's own login command, when it has one — tier 1 of the sign-in design. */
+  readonly login?: readonly string[];
+}
+
 export interface AgentCandidate {
   /** Matches the harness manifest's `id`, which is what makes this list checkable. */
   readonly id: string;
@@ -34,10 +55,20 @@ export interface AgentCandidate {
   readonly launch: LaunchKind;
   /** The executable to probe and to run. Absent when gov cannot launch it. */
   readonly cmd?: string;
-  /** How to install it, per platform family. Shown, never run without consent. */
-  readonly install?: { readonly npm?: string; readonly brew?: string; readonly url: string };
+  /**
+   * How to install it. `npm` is a named package from a named publisher; `script` is
+   * a vendor's own installer, piped into a shell. gov runs either — but only for an
+   * agent the org has approved, because approval IS the trust decision (#196, Q2).
+   */
+  readonly install?: { readonly npm?: string; readonly brew?: string; readonly script?: string; readonly url: string };
   /** The environment variable that would hold a key, so gov can report its absence. */
   readonly credentialEnv?: string;
+  /** Where a tier-2 key belongs — the agent's own config, never gov's. */
+  readonly credentialFile?: string;
+  /** Where to go to create an account, when there is no automating it. */
+  readonly signupUrl?: string;
+  /** Every way to run it. The policy approves the agent; this is what that buys. */
+  readonly variants?: readonly AgentVariant[];
 }
 
 /**
@@ -47,9 +78,25 @@ export interface AgentCandidate {
 export const AGENT_CATALOG: readonly AgentCandidate[] = [
   { id: "claude-code", tool: "Claude Code", launch: "cli", cmd: "claude",
     install: { npm: "@anthropic-ai/claude-code", url: "https://claude.com/claude-code" },
-    credentialEnv: "ANTHROPIC_API_KEY" },
+    credentialEnv: "ANTHROPIC_API_KEY", signupUrl: "https://claude.com/claude-code",
+    variants: [
+      { kind: "cli", label: "in the terminal", cmd: "claude",
+        install: { npm: "@anthropic-ai/claude-code", url: "https://claude.com/claude-code" },
+        login: ["claude", "/login"] },
+      { kind: "extension", label: "in VS Code", extensionId: "anthropic.claude-code", hosts: ["code", "cursor", "windsurf"] },
+    ] },
   { id: "cursor", tool: "Cursor", launch: "cli", cmd: "cursor-agent",
-    install: { url: "https://cursor.com/cli" } },
+    install: { script: "curl https://cursor.com/install -fsS | bash", url: "https://cursor.com/cli" },
+    signupUrl: "https://cursor.com",
+    variants: [
+      { kind: "cli", label: "in the terminal", cmd: "cursor-agent",
+        install: { script: "curl https://cursor.com/install -fsS | bash", url: "https://cursor.com/cli" },
+        login: ["cursor-agent", "login"] },
+      // The editor IS the agent here — there is no Cursor extension for someone
+      // else's host — so choosing it means installing an editor. That is the one
+      // case where gov may (#196, Q7).
+      { kind: "editor", label: "the Cursor editor", cmd: "cursor", install: { url: "https://cursor.com/downloads" } },
+    ] },
   { id: "openai-codex", tool: "OpenAI Codex", launch: "cli", cmd: "codex",
     install: { npm: "@openai/codex", url: "https://developers.openai.com/codex/cli" },
     credentialEnv: "OPENAI_API_KEY" },
@@ -174,4 +221,49 @@ export function approvedAgentIdsFrom(policyText: string | null): readonly string
     return new RegExp(`\\b${tool.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(approvedSection);
   }).map((a) => a.id);
   return found.length ? found : null;
+}
+
+/** Which variants of an agent can run on this machine right now (#196, Q7). */
+export interface VariantStatus {
+  readonly agent: AgentCandidate;
+  readonly variant: AgentVariant;
+  readonly installed: boolean;
+  /** For an extension: the host it would attach to, or null when none is present. */
+  readonly host: string | null;
+}
+
+/**
+ * Enumerate an approved agent's variants against this machine.
+ *
+ * An extension with no host is NOT offered, and gov does not install the host to
+ * create one: putting a desktop IDE on someone's machine is a provisioning decision,
+ * not an agent one — irreversible by `npm rm -g`, meaningless headless, and usually
+ * IT's call. Nobody is stranded by that, because an approved agent almost always has
+ * a CLI variant too (#196, Q7).
+ */
+export function variantStatuses(
+  agent: AgentCandidate,
+  hasTool: (cmd: string) => boolean,
+): readonly VariantStatus[] {
+  // A catalog entry without an explicit variant list has exactly one: itself. The
+  // label says HOW it runs, not what it is called — the name is already on the row.
+  const variants = agent.variants ?? (agent.cmd
+    ? [{
+        kind: agent.launch === "ide" ? "editor" as const : "cli" as const,
+        label: agent.launch === "ide" ? "the editor" : "in the terminal",
+        cmd: agent.cmd, install: agent.install,
+      }]
+    : []);
+  return variants.map((v) => {
+    if (v.kind === "extension") {
+      const host = (v.hosts ?? []).find((h) => hasTool(h)) ?? null;
+      return { agent, variant: v, installed: false, host };
+    }
+    return { agent, variant: v, installed: Boolean(v.cmd && hasTool(v.cmd)), host: null };
+  });
+}
+
+/** Runnable now: a CLI or editor that is installed, or an extension with a host. */
+export function runnableVariants(all: readonly VariantStatus[]): readonly VariantStatus[] {
+  return all.filter((v) => (v.variant.kind === "extension" ? v.host !== null : v.installed));
 }

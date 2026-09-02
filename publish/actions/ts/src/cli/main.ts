@@ -47,6 +47,7 @@ import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
 import { approvedAgentIdsFrom } from "./agent-catalog.js";
+import { parseApprovedAgents } from "../config/approved-agents.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
@@ -728,9 +729,11 @@ const CMD_DESC: Record<string, string> = {
   list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
   doctor: "Diagnose this machine: git · gh · workspace · active org · versions",
   issue: "Create an issue — assigned to you, on the board. `--from <url>` mirrors an upstream one",
+  agent: "Which AI agents your org approves, what is installed, and how to add one",
   upgrade: "Pull the latest framework CONTENT into this org (not the CLI — that is `npm i -g`)", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
 };
 const CMD_USAGE: Record<string, string> = {
+  agent: "[list | install <id> | approve <id>]",
   issue: "[<org>/<repo>] --title <t> [--body <b>|--body-file <f>] [--board <n>]  |  --from <upstream-issue-url> [--board <n>]",
   seed: "<board-url> [--assignee <login>]", work: "[<project-id>] [--print-prompt]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
   knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
@@ -1319,6 +1322,57 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     projects: createGhProjects(runGh),
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
     repoStanding,
+    hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
+    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(home, "knowledge", "policies", "llm-governance.md"))),
+    /**
+     * Install, then offer the sign-in (#196, Q5). gov orchestrates; the vendor
+     * authenticates — the `gh auth login` shape, including its browser fallback.
+     * Every command is shown before it runs, because approval means the org agreed
+     * to the tool, not that the person at the keyboard agreed to this moment.
+     */
+    performAgentInstall: (plan) => {
+      if (!plan.ok) return false;
+      process.stdout.write(`\n  Installing ${plan.agent.tool}:\n`);
+      for (const s of plan.steps) process.stdout.write(`    ${s.command.join(" ")}\n`);
+      let ok = true;
+      for (const s of plan.steps) {
+        process.stdout.write(`\n  ${s.what}…\n`);
+        const [bin, ...rest] = s.command;
+        const r = spawnSync(bin!, rest, { stdio: "inherit" });
+        if (r.status !== 0) { ok = false; process.stdout.write(`  ✗ ${s.what} failed — see above\n`); }
+      }
+      if (!ok) return false;
+      process.stdout.write(`\n  ✓ ${plan.agent.tool} installed\n`);
+
+      // SIGNING IN IS THE PART NOBODY CAN AUTOMATE. Even the account is theirs to
+      // create — no vendor exposes signup as an API, and gov holds no credential.
+      if (plan.signupUrl) {
+        process.stdout.write(`\n  If you do not have an account yet: ${plan.signupUrl}\n`);
+      }
+      if (plan.signIn) {
+        process.stdout.write(`  Signing you in — ${plan.signIn.join(" ")} takes over from here.\n\n`);
+        const [bin, ...rest] = plan.signIn;
+        spawnSync(bin!, rest, { stdio: "inherit" });
+      } else {
+        process.stdout.write("  This one has no sign-in command; set its API key when you have one.\n");
+      }
+      return true;
+    },
+    /**
+     * `approve` raises a pull request. It does not edit the policy: the approved
+     * list is C01 (POL-136) and belongs to the Infrastructure Owner, not to whoever
+     * typed the command — the same reason `gov knowledge` exists.
+     */
+    proposeAgentApproval: (id) => [
+      `Proposing ${id} for your organization's approved list.`,
+      "",
+      "  This is a policy change, so it goes to whoever owns",
+      "  knowledge/policies/llm-governance.md — not straight into the file.",
+      "",
+      `  gov knowledge propose approve-agent-${id}`,
+      `  …edit the approved_agents block, then:`,
+      `  gov knowledge submit approve-agent-${id}`,
+    ],
     // Consent, then record. The prompt is what makes the mapping a decision; writing
     // it is what makes it reviewable. Neither needs a human to retype what the
     // preflight already worked out (#194).
