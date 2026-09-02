@@ -389,12 +389,23 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
     expect(launched.map(([a]) => a), "shell was always the answer here").to.deep.equal(["shell"]);
   });
 
-  it("offers only the installed ones, and says what each one does", async () => {
-    const { deps: d, out } = deps({ hasTool: (c: string) => c === "claude" });
+  it("one installed approved agent needs no question — it says which and why", async () => {
+    // The menu is for the case where neither the org nor the person has an answer
+    // (#196, Q9). One installed agent is not that case.
+    const { deps: d, out, launched } = deps({ hasTool: (c: string) => c === "claude" });
+    await runWorkFlow(d);
+    expect(out.join("\n")).to.contain("the only approved agent installed here");
+    expect(out.join("\n"), "no menu for a choice of one").to.not.contain("0) later");
+    expect(launched[0]?.[0]).to.equal("claude");
+  });
+
+  it("offers a menu when neither layer decides, and says what each choice does", async () => {
+    const { deps: d, out } = deps({
+      hasTool: (c: string) => c === "claude" || c === "cursor-agent",
+      approvedAgents: () => [{ id: "claude-code" }, { id: "cursor" }],   // two, no default
+    });
     await runWorkFlow(d);
     const text = out.join("\n");
-    expect(text).to.contain("Claude Code");
-    expect(text, "cursor-agent is not on this machine").to.not.contain("2) Cursor ");
     expect(text).to.contain("runs the agent here, with the rules loaded");
     expect(text, "the option that always works, explained").to.contain("No AI involved");
   });
@@ -402,12 +413,13 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
   it("honours the org's approved list over what happens to be installed", async () => {
     const { deps: d, out, launched } = deps({
       hasTool: (c: string) => c === "claude" || c === "cursor-agent",
-      approvedAgentIds: () => ["cursor"],
+      approvedAgents: () => [{ id: "cursor", default: true }],
     });
     await runWorkFlow(d);
     // Claude is installed and NOT approved here — offering it would put gov's own
     // menu in breach of the policy it seeded.
     expect(out.join("\n")).to.not.contain("Claude Code");
+    expect(out.join("\n")).to.contain("the only approved agent installed here");
     expect(launched[0]?.[0]).to.equal("cursor");
   });
 });

@@ -627,7 +627,13 @@ function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | n
     // set (presence only — never the value), and what this org has approved.
     hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
     env: process.env,
-    approvedAgentIds: () => approvedAgentIdsFrom(fs.readFile(path.join(resolved.home, "knowledge", "policies", "llm-governance.md"))),
+    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(resolved.home, "knowledge", "policies", "llm-governance.md"))),
+    // The person's own choice, from the lowest knowledge layer (C03). Read every
+    // time, and validated against the org's list at launch — not at write time.
+    agentPreference: () => {
+      const prefs = fs.readFile(path.join(config.agentWorkRoot, "preferences", `${me ?? ""}.md`));
+      return /^\s*preferred_agent:\s*(\S+)/m.exec(prefs ?? "")?.[1] ?? null;
+    },
     applyRepoOverrides,
     config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot },
     me,
@@ -1343,6 +1349,12 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
      */
     performAgentInstall: (plan) => {
       if (!plan.ok) return false;
+      // HEADLESS INSTALLS, AND NEVER SIGNS ANYONE IN (#196, Q11). The consent for
+      // installing already happened, in policy, by the Infrastructure Owner — that is
+      // what an approved list IS. Authentication cannot be delegated to anybody, so
+      // it is left, and the machine ends in a state `gov agent` can describe:
+      // installed, not signed in.
+      const headless = !process.stdin.isTTY;
       process.stdout.write(`\n  Installing ${plan.agent.tool}:\n`);
       for (const s of plan.steps) process.stdout.write(`    ${s.command.join(" ")}\n`);
       let ok = true;
@@ -1357,6 +1369,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
 
       // SIGNING IN IS THE PART NOBODY CAN AUTOMATE. Even the account is theirs to
       // create — no vendor exposes signup as an API, and gov holds no credential.
+      if (headless) {
+        process.stdout.write("\n  No terminal here, so gov stopped before signing you in — nobody else can do\n" +
+                             `  that step. On a machine with a terminal: ${plan.signIn ? plan.signIn.join(" ") : "sign in to " + plan.agent.tool}\n`);
+        return true;
+      }
       if (plan.signupUrl) {
         process.stdout.write(`\n  If you do not have an account yet: ${plan.signupUrl}\n`);
       }
