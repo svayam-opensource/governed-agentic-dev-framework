@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { myProjects, seedableBoards, workspaceState, runWorkFlow, agentLaunchSpec, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
@@ -39,6 +39,18 @@ function deps(over: Partial<WorkFlowDeps> = {}): { deps: WorkFlowDeps; out: stri
   return { deps: base, out, ran, launched };
 }
 
+/**
+ * A board NOBODY has seeded: no anchor issue, writable by me. The only shape `seed` is right for
+ * (#198). Before the fix these tests used an ANCHORED project with no local directory, which is a
+ * seeded project on a new machine — so they asserted the seed path against the case that must join.
+ */
+const unseededDeps = (over: Partial<WorkFlowDeps> = {}) => deps({
+  projects: projects([{ number: 9, title: "Infra" }]),
+  anchor: anchorFor({}),
+  fs: fsWith([]),
+  ...over,
+});
+
 describe("gov-work — guided Work flow", () => {
   it("myProjects = open boards where I'm an anchor assignee", () => {
     const { deps: d } = deps();
@@ -56,23 +68,45 @@ describe("gov-work — guided Work flow", () => {
       canWriteBoard: (n) => n !== 10,     // I can't seed 10
     });
     expect(seedableBoards(d).map((p) => p.boardNumber)).to.deep.equal([9]);   // 7 anchored (myProjects), 10 not writable
-    expect(seedableBoards(d)[0].status).to.equal("not started");
+    expect(seedableBoards(d)[0].status).to.equal(NOT_STARTED);
   });
 
   it("workspaceState: not-seeded → not-cloned → ready", () => {
-    const p = { boardNumber: 7, title: "Alpha", url: "u", status: "active", projectId: "PRJ-7-alpha" };
+    const p = { boardNumber: 7, title: "Alpha", url: "u", status: NOT_STARTED, projectId: "PRJ-7-alpha" };
     expect(workspaceState({ ...deps().deps, fs: fsWith([]) }, p)).to.equal("not-seeded");
     expect(workspaceState({ ...deps().deps, fs: fsWith(["/work/PRJ-7-alpha"]) }, p)).to.equal("not-cloned");
     expect(workspaceState({ ...deps().deps, fs: fsWith(["/work/PRJ-7-alpha/acme-gov/.git"]) }, p)).to.equal("ready");
   });
 
-  it("picks my project, seeds when not present, then LAUNCHES the chosen agent in <project>", async () => {
+  it("a seeded project this machine has never opened is NOT-CLONED, not un-seeded (#198)", () => {
+    // The whole defect in one assertion. A missing local directory used to mean "nobody has ever
+    // started this", so a fresh machine sent every one of an org's projects to `seed` — which then
+    // found the pushed branch and the home stub, the evidence the seed SUCCEEDED, and called them
+    // "leftover state from a previous failed run".
+    const seeded = { boardNumber: 7, title: "Alpha", url: "u", status: "active", projectId: "PRJ-7-alpha" };
+    expect(workspaceState({ ...deps().deps, fs: fsWith([]) }, seeded)).to.equal("not-cloned");
+
+    // Every anchored status, not just "active": paused and completed projects exist on GitHub too.
+    for (const status of ["paused", "completed", "cancelled"]) {
+      expect(workspaceState({ ...deps().deps, fs: fsWith([]) }, { ...seeded, status }), status).to.equal("not-cloned");
+    }
+  });
+
+  it("picks my project, JOINS it when this machine has not cloned it, then LAUNCHES the chosen agent in <project>", async () => {
+    // PRJ-7 has an anchor, so it is seeded — the missing directory means it is not cloned HERE (#198).
     const { deps: d, out, ran, launched } = deps({ prompt: async () => "1" });   // project 1, then agent 1 (Claude)
     const code = await runWorkFlow(d);
-    expect(ran[0][0]).to.equal("seed");          // not-seeded → seed
+    expect(ran[0][0]).to.equal("join");           // not-cloned → join
     expect(out.join("\n")).to.match(/is ready at/);
     expect(launched.map(([a, c]) => [a, px(c)])).to.deep.equal([["claude", "/work/PRJ-7-alpha"]]);   // launch-in-<project> (NOT the workspace subdir)
     expect(code).to.equal(0);
+  });
+
+  it("a board with no anchor is SEEDED — that is the case seed exists for", async () => {
+    const { deps: d, ran, launched } = unseededDeps({ prompt: async () => "1" });
+    expect(await runWorkFlow(d)).to.equal(0);
+    expect(ran[0][0]).to.equal("seed");
+    expect(launched.map(([a, c]) => [a, px(c)])).to.deep.equal([["claude", "/work/PRJ-9-infra"]]);
   });
 
   it("agent picker '0) later' → no launch, prints the manual command", async () => {
@@ -298,22 +332,22 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
     // Picking a `(not started)` entry from the menu IS consent. A regex that happened to match one is not:
     // seeding creates branches in every repo, an anchor issue, and an assignment other people see.
     it("a pattern-matched UNSEEDED project is not seeded without --seed", async () => {
-      const { deps: d, ran, out } = deps({ fs: fsWith([]), prompt: async () => "n" });
-      const code = await runWorkFlow(d, { projectPattern: "Alpha|PRJ-7", interactive: true });
+      const { deps: d, ran, out } = unseededDeps({ prompt: async () => "n" });
+      const code = await runWorkFlow(d, { projectPattern: "Infra|PRJ-9", interactive: true });
       expect(ran.map((a) => a[0]), "nothing was seeded").to.not.include("seed");
       expect(out.join("\n")).to.match(/has not been started/);
       expect(code).to.equal(0);
     });
 
     it("--seed authorises it", async () => {
-      const { deps: d, ran } = deps({ fs: fsWith([]) });
-      await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "shell", seedOk: true, interactive: false });
+      const { deps: d, ran } = unseededDeps();
+      await runWorkFlow(d, { projectPattern: "PRJ-9", agent: "shell", seedOk: true, interactive: false });
       expect(ran.map((a) => a[0])).to.include("seed");
     });
 
     it("with no terminal it refuses and names the flag — there is nobody to ask", async () => {
-      const { deps: d, ran, out } = deps({ fs: fsWith([]) });
-      const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "shell", interactive: false });
+      const { deps: d, ran, out } = unseededDeps();
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-9", agent: "shell", interactive: false });
       expect(code).to.equal(1);
       expect(ran.map((a) => a[0])).to.not.include("seed");
       expect(out.join("\n")).to.match(/--seed/);
@@ -461,7 +495,7 @@ describe("gov-work — the fork question is asked where the terminal is (#194)",
     let recorded: readonly { from: string; to: string }[] = [];
     let seedCalls = 0;
     let promptCalls = 0;
-    const { deps: base, out, ran } = deps({
+    const { deps: base, out, ran } = unseededDeps({
       prompt: async (q: string) => {
         promptCalls++;
         if (/Record it and try again/.test(q)) return answer;

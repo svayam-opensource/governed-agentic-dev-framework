@@ -17,10 +17,20 @@ import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, in
 import { chooseAgent, choiceExplanation } from "./agent-choice.js";
 import { defaultAgent } from "../config/approved-agents.js";
 
+/**
+ * The status of a board that has NO anchor issue: nobody has seeded it, anywhere, ever.
+ *
+ * Named rather than spelled out at each site (#198), because it is the ONE value that separates
+ * "does not exist yet" from "exists, and this machine has not opened it". `deriveStatus` never
+ * produces it — a project with an anchor always has a real lifecycle status.
+ */
+export const NOT_STARTED = "not started";
+
 export interface WorkProject {
   readonly boardNumber: number;
   readonly title: string;
   readonly url: string;
+  /** A `ProjectStatus` when an anchor issue exists, {@link NOT_STARTED} when none does. */
   readonly status: string;
   readonly projectId: string;
 }
@@ -210,15 +220,30 @@ export function seedableBoards(deps: WorkFlowDeps): WorkProject[] {
     if (a) continue;                             // already seeded (has an anchor) → myProjects handles it
     if (!deps.canWriteBoard(b.number)) continue; // only boards I can actually seed
     const id = deriveProjectIdentity({ url: b.url, title: b.title });
-    out.push({ boardNumber: b.number, title: b.title, url: b.url, status: "not started", projectId: id.ok ? id.projectId : `PRJ-${b.number}` });
+    out.push({ boardNumber: b.number, title: b.title, url: b.url, status: NOT_STARTED, projectId: id.ok ? id.projectId : `PRJ-${b.number}` });
   }
   return out;
 }
 
 export type WorkspaceState = "not-seeded" | "not-cloned" | "ready";
+/**
+ * Where this project stands ON THIS MACHINE — and, separately, whether it exists at all (#198).
+ *
+ * The local directory answers only the first question. It was being used for both, so on a machine
+ * that had never opened the project — every fresh install, every new developer — an organization's
+ * long-seeded projects were all classified `not-seeded` and routed to `seed`. Seed then found the
+ * remote branch and the home stub, which are the evidence the seed SUCCEEDED, and reported them as
+ * "leftover state from a previous failed run". The run stopped there, offering nothing.
+ *
+ * Whether a project has been seeded is a GitHub fact, and the list one line above already resolved
+ * it: an anchor issue exists (`myProjects` → a real status) or it does not (`seedableBoards` →
+ * "not started"). So it is read here rather than guessed from the filesystem. A missing directory
+ * for an anchored project means it is not cloned HERE, which is `join`'s job — and `join`
+ * materializes the work root it does not find.
+ */
 export function workspaceState(deps: WorkFlowDeps, p: WorkProject): WorkspaceState {
   const projRoot = path.join(deps.config.agentWorkRoot, p.projectId);
-  if (!deps.fs.pathExists(projRoot)) return "not-seeded";
+  if (!deps.fs.pathExists(projRoot)) return p.status === NOT_STARTED ? "not-seeded" : "not-cloned";
   if (!deps.fs.pathExists(path.join(projRoot, deps.config.workspaceRepo, ".git"))) return "not-cloned";
   return "ready";
 }
@@ -238,7 +263,7 @@ export function startablePage(deps: WorkFlowDeps, limit: number, offset: number)
     const id = deriveProjectIdentity({ url: b.url, title: b.title });
     const projectId = id.ok ? id.projectId : `PRJ-${b.number}`;
     if (a && a.assignees.includes(deps.me)) items.push({ boardNumber: b.number, title: b.title, url: b.url, status: deriveStatus(!b.closed, a.labels), projectId });
-    else if (!a && deps.canWriteBoard(b.number)) items.push({ boardNumber: b.number, title: b.title, url: b.url, status: "not started", projectId });
+    else if (!a && deps.canWriteBoard(b.number)) items.push({ boardNumber: b.number, title: b.title, url: b.url, status: NOT_STARTED, projectId });
   }
   return { items, totalBoards: boards.length };
 }
