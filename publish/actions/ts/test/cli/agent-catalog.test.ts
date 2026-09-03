@@ -139,3 +139,37 @@ describe("gov-work — every agent's real variants (#196)", () => {
     expect(runnableVariants(variantStatuses(cline, (c) => c === "code"))).to.have.length(1);
   });
 });
+
+describe("gov-work — IBM Bob (#196)", () => {
+  it("is in the catalog, because it reads a harness the framework already renders", () => {
+    // Bob reads AGENTS.md — the same file Codex uses — so it needed no new template
+    // and no new path. One manifest entry, and it is governed like the rest.
+    const bob = AGENT_CATALOG.find((a) => a.id === "ibm-bob");
+    expect(bob, "IBM was the only major vendor missing").to.not.equal(undefined);
+    expect(bob!.cmd).to.equal("bob");
+    expect(bob!.credentialEnv).to.equal("BOB_API_KEY");
+  });
+
+  it("has a CLI and a STANDALONE IDE — not a VS Code extension", () => {
+    // IBM's own quickstart: "Bob is a standalone IDE application and not an
+    // extension." The distinction matters: gov installs a standalone editor, and
+    // installs an extension only into a host that already exists.
+    const bob = AGENT_CATALOG.find((a) => a.id === "ibm-bob")!;
+    expect(bob.variants!.map((v) => v.kind)).to.deep.equal(["cli", "editor"]);
+    expect(bob.variants!.some((v) => v.kind === "extension")).to.equal(false);
+  });
+
+  it("has no login command, because Bob opens the browser itself", () => {
+    // Tier 1 working as intended: the vendor authenticates, gov never goes near the
+    // credential, and there is nothing for it to run.
+    const cli = AGENT_CATALOG.find((a) => a.id === "ibm-bob")!.variants!.find((v) => v.kind === "cli")!;
+    expect(cli.login).to.equal(undefined);
+    expect(cli.install!.npm).to.equal("@bobsworkshop/cli");
+  });
+
+  it("watsonx Code Assistant is deliberately absent — it reads no rules file", () => {
+    // A different IBM product, verified against three sources. Listing it would mean
+    // launching someone into a governed project with the governance missing.
+    expect(AGENT_CATALOG.map((a) => a.id)).to.not.include("watsonx-code-assistant");
+  });
+});

@@ -135,6 +135,21 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   { id: "continue", tool: "Continue.dev", launch: "ide",
     install: { url: "https://continue.dev" },
     variants: [{ kind: "extension", label: "in VS Code", extensionId: "Continue.continue", hosts: ["code", "cursor", "windsurf"] }] },
+  // IBM Bob — a CLI and a STANDALONE IDE, not a VS Code extension (verified against
+  // IBM's own quickstart: "Bob is a standalone IDE application and not an
+  // extension"). Reads AGENTS.md, which the framework already renders, so it needed
+  // no new harness.
+  { id: "ibm-bob", tool: "IBM Bob", launch: "cli", cmd: "bob",
+    install: { npm: "@bobsworkshop/cli", script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" },
+    credentialEnv: "BOB_API_KEY", signupUrl: "https://bob.ibm.com",
+    variants: [
+      // No login subcommand: Bob Shell opens the browser itself when it needs to
+      // authenticate, so there is nothing for gov to run — which is tier 1 working
+      // exactly as intended, with gov never near the credential.
+      { kind: "cli", label: "in the terminal", cmd: "bob",
+        install: { npm: "@bobsworkshop/cli", script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" } },
+      { kind: "editor", label: "the Bob IDE", cmd: "bob-ide", install: { url: "https://bob.ibm.com/download" } },
+    ] },
   { id: "aider", tool: "Aider", launch: "cli", cmd: "aider",
     install: { url: "https://aider.chat" }, credentialEnv: "OPENAI_API_KEY" },
   // No command, by nature. Kept so the catalog and the manifest agree, and so

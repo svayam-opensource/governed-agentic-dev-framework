@@ -79,6 +79,25 @@ harnesses:
     verify: "First message — ask agent to summarize session protocol"
     notes: "Plain markdown; Codex CLI, Codex Web, ChatGPT coding mode."
 
+  # IBM Bob reads AGENTS.md — "the root AGENTS.md file tells Bob the project's
+  # overall structure, conventions, and goals", referenced in every conversation and
+  # mode — so it is carried by a file the framework ALREADY renders. No new template,
+  # no new path: one entry, and Bob is governed like the rest.
+  #
+  # NOT to be confused with watsonx Code Assistant, IBM's other coding product, which
+  # reads no repository instructions file at all (verified against the marketplace
+  # listing, the GitHub repo and IBM Cloud docs) and is therefore not harnessable.
+  - id: ibm-bob
+    tool: IBM Bob
+    status: active
+    tier: generate_auto
+    path: publish/content/AGENTS.md
+    generated: true
+    seed_copy: true
+    template: markdown-plain
+    verify: "First message — ask agent to summarize session protocol"
+    notes: "Shares AGENTS.md with Codex. Bob Shell (CLI, `bob`) and the standalone Bob IDE; not a VS Code extension."
+
   - id: gemini-code-assist
     tool: Gemini Code Assist
     status: active
