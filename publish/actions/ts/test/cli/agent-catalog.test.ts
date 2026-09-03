@@ -15,6 +15,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   AGENT_CATALOG, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines,
+  variantStatuses, runnableVariants,
 } from "../../src/cli/agent-catalog.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
@@ -104,5 +105,37 @@ describe("gov-work — what the menu offers", () => {
     expect(lines, "gov never creates an account or holds a key").to.contain("signing in stays yours");
     // And it does not claim to install anything, because nothing here does (#196).
     expect(lines).to.contain("it does not run it for you yet");
+  });
+});
+
+describe("gov-work — every agent's real variants (#196)", () => {
+  it("names the VS Code extension for the agents that have one", () => {
+    // Only Claude carried an extension at first, so the adoption menu implied that
+    // Copilot, Gemini, Codex, Cline and Continue were terminal-only or editor-only.
+    // All of them run inside VS Code, and most people meet them that way.
+    for (const id of ["claude-code", "openai-codex", "gemini-code-assist", "github-copilot", "cline", "continue"]) {
+      const a = AGENT_CATALOG.find((x) => x.id === id)!;
+      const ext = a.variants?.find((v) => v.kind === "extension");
+      expect(ext, `${id} has no extension variant`).to.not.equal(undefined);
+      expect(ext!.extensionId, `${id} extension id`).to.be.a("string");
+      expect(ext!.hosts, `${id} hosts`).to.include("code");
+    }
+  });
+
+  it("a standalone editor has no extension — the editor IS the agent", () => {
+    for (const id of ["cursor", "windsurf"]) {
+      const a = AGENT_CATALOG.find((x) => x.id === id)!;
+      expect(a.variants!.some((v) => v.kind === "editor"), id).to.equal(true);
+      expect(a.variants!.some((v) => v.kind === "extension"), `${id} needs no host`).to.equal(false);
+    }
+  });
+
+  it("an extension-only agent is unrunnable without a host, and says so", () => {
+    // Cline has no CLI. On a machine with no editor there is nothing to launch, and
+    // gov will not install an editor to create one.
+    const cline = AGENT_CATALOG.find((x) => x.id === "cline")!;
+    expect(cline.variants!.every((v) => v.kind === "extension")).to.equal(true);
+    expect(runnableVariants(variantStatuses(cline, () => false))).to.have.length(0);
+    expect(runnableVariants(variantStatuses(cline, (c) => c === "code"))).to.have.length(1);
   });
 });

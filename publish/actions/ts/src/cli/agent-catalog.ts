@@ -99,18 +99,42 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     ] },
   { id: "openai-codex", tool: "OpenAI Codex", launch: "cli", cmd: "codex",
     install: { npm: "@openai/codex", url: "https://developers.openai.com/codex/cli" },
-    credentialEnv: "OPENAI_API_KEY" },
+    credentialEnv: "OPENAI_API_KEY", signupUrl: "https://platform.openai.com/signup",
+    variants: [
+      { kind: "cli", label: "in the terminal", cmd: "codex",
+        install: { npm: "@openai/codex", url: "https://developers.openai.com/codex/cli" },
+        login: ["codex", "login"] },
+      { kind: "extension", label: "in VS Code", extensionId: "openai.chatgpt", hosts: ["code", "cursor", "windsurf"] },
+    ] },
   { id: "gemini-code-assist", tool: "Gemini Code Assist", launch: "cli", cmd: "gemini",
     install: { npm: "@google/gemini-cli", url: "https://github.com/google-gemini/gemini-cli" },
-    credentialEnv: "GEMINI_API_KEY" },
+    credentialEnv: "GEMINI_API_KEY", signupUrl: "https://aistudio.google.com/apikey",
+    variants: [
+      { kind: "cli", label: "in the terminal", cmd: "gemini",
+        install: { npm: "@google/gemini-cli", url: "https://github.com/google-gemini/gemini-cli" } },
+      { kind: "extension", label: "in VS Code", extensionId: "Google.geminicodeassist", hosts: ["code", "cursor", "windsurf"] },
+    ] },
   { id: "github-copilot", tool: "GitHub Copilot", launch: "cli", cmd: "copilot",
-    install: { npm: "@github/copilot", url: "https://github.com/features/copilot/cli" } },
+    install: { npm: "@github/copilot", url: "https://github.com/features/copilot/cli" },
+    signupUrl: "https://github.com/features/copilot",
+    variants: [
+      { kind: "cli", label: "in the terminal", cmd: "copilot",
+        install: { npm: "@github/copilot", url: "https://github.com/features/copilot/cli" } },
+      { kind: "extension", label: "in VS Code", extensionId: "GitHub.copilot", hosts: ["code", "cursor", "windsurf"] },
+    ] },
+  // A standalone editor, like Cursor: the editor IS the agent, so there is no
+  // extension for someone else's host.
   { id: "windsurf", tool: "Windsurf", launch: "ide", cmd: "windsurf",
-    install: { url: "https://windsurf.com/editor" } },
+    install: { url: "https://windsurf.com/editor" },
+    variants: [{ kind: "editor", label: "the Windsurf editor", cmd: "windsurf", install: { url: "https://windsurf.com/editor" } }] },
+  // Extension-only: there is no Cline CLI, so an adopter with no editor cannot run
+  // it — which the menu says rather than silently offering nothing.
   { id: "cline", tool: "Cline / Roo Code", launch: "ide",
-    install: { url: "https://cline.bot" } },
+    install: { url: "https://cline.bot" },
+    variants: [{ kind: "extension", label: "in VS Code", extensionId: "saoudrizwan.claude-dev", hosts: ["code", "cursor", "windsurf"] }] },
   { id: "continue", tool: "Continue.dev", launch: "ide",
-    install: { url: "https://continue.dev" } },
+    install: { url: "https://continue.dev" },
+    variants: [{ kind: "extension", label: "in VS Code", extensionId: "Continue.continue", hosts: ["code", "cursor", "windsurf"] }] },
   { id: "aider", tool: "Aider", launch: "cli", cmd: "aider",
     install: { url: "https://aider.chat" }, credentialEnv: "OPENAI_API_KEY" },
   // No command, by nature. Kept so the catalog and the manifest agree, and so
