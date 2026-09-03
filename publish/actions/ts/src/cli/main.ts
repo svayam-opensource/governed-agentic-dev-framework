@@ -18,6 +18,9 @@ import { readExistingOrgConfig } from "../setup/setup.js";
 import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
+import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
+import { readSecret, type SecretIo } from "./secret-prompt.js";
+import type { AgentCandidate } from "./agent-catalog.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -132,11 +135,104 @@ function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boo
       process.stdout.write(`  Signing you in — ${plan.signIn.join(" ")} takes over from here.\n\n`);
       const [bin, ...rest] = plan.signIn;
       spawnSync(bin!, rest, { stdio: "inherit" });
-    } else {
-      process.stdout.write("  This one has no sign-in command; set its API key when you have one.\n");
+      return true;
     }
+    // TIER 2: NO LOGIN COMMAND, SO GOV HANDLES THE KEY (#196 Q6, wired in #200).
+    //
+    // This branch used to print "set its API key when you have one" and move on, one line before
+    // announcing the agent was ready. The module that does the real thing — the notice, the two
+    // writes, the digest comparison — was written, tested, and called by nothing.
+    return captureAgentKey(plan.agent);
+  }
+
+/**
+ * Ask for an API key, write it where it belongs, and say honestly whether the agent can run.
+ *
+ * Returns whether the agent is USABLE NOW. That is the answer the caller needs: it was being told
+ * "installed" and printing "ready", which are not the same claim about an agent with no credential.
+ *
+ * ENTER IS A REAL ANSWER. Someone who has not created an account yet is told exactly how to finish,
+ * naming the variable and the verb — the alternative is the dead end this replaces.
+ */
+function captureAgentKey(agent: AgentCandidate): boolean {
+  const envVar = agent.credentialEnv;
+  if (!envVar) return true;                       // nothing to sign in with, and nothing to claim
+  if (process.env[envVar]) {
+    process.stdout.write(`\n  ${envVar} is already set — ${agent.tool} has what it needs.\n`);
     return true;
   }
+
+  const me = tryRun("gh", ["api", "user", "--jq", ".login // empty"])?.trim() || "";
+  const r = prjResolveGov(createNodeEnv());
+  const cfgText = r.ok && fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+    ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+  const workRoot = cfgText ? parseOrgConfig(cfgText).agentWorkRoot : "";
+  // No work root and no login means nowhere to keep the backup — say so rather than inventing a path.
+  const prefsDir = workRoot && me ? path.join(expandHome(workRoot), "preferences", me) : null;
+  // Verified per vendor or absent. A guessed config path fails at the worst moment, silently, and
+  // the same caution is already recorded for the extension ids.
+  const configPath = agent.credentialFile ? expandHome(agent.credentialFile) : null;
+
+  if (configPath && prefsDir) {
+    for (const line of credentialNotice(agent.id, configPath, prefsDir)) process.stdout.write(`${line}\n`);
+  } else {
+    process.stdout.write(`\n  ${agent.tool} signs in with an API key rather than a browser.\n`);
+    process.stdout.write(`  gov does not know where ${agent.tool} keeps its config, so it will not guess:\n`);
+    process.stdout.write(`  the key goes in your environment as ${envVar}.\n\n`);
+  }
+
+  const key = readSecret(`  Paste the ${envVar} (hidden), or press Enter to do this later: `, nodeSecretIo());
+  if (!key) {
+    process.stdout.write(`\n  Nothing saved. ${agent.tool} is installed but cannot run yet.\n`);
+    if (agent.signupUrl) process.stdout.write(`  Get a key:      ${agent.signupUrl}\n`);
+    process.stdout.write(`  Then either:    export ${envVar}=<your key>\n`);
+    process.stdout.write("  or re-run:      gov agent install " + agent.id + "   (it asks again)\n");
+    return false;
+  }
+
+  const writes = planCredentialWrites(agent.id, key, configPath ?? "", prefsDir ?? "");
+  let wrote = 0;
+  for (const w of writes) {
+    if (!w.path || w.path === "/credentials") continue;         // no destination for this half
+    try {
+      fsSync.mkdirSync(path.dirname(w.path), { recursive: true, mode: 0o700 });
+      fsSync.writeFileSync(w.path, w.contents, { mode: w.mode });
+      fsSync.chmodSync(w.path, w.mode);                          // an existing file keeps its old mode otherwise
+      process.stdout.write(`  ✓ written: ${w.path}\n`);
+      wrote++;
+    } catch (e) {
+      process.stdout.write(`  ✗ could not write ${w.path}: ${(e as Error)?.message ?? String(e)}\n`);
+    }
+  }
+  if (!wrote) {
+    process.stdout.write(`  Nothing could be written. Set it yourself:  export ${envVar}=<your key>\n`);
+    return false;
+  }
+  // The agent reads its config; this process does not, and a shell started from here would not have
+  // the variable. Saying so is cheaper than a first run that fails for a reason nobody can see.
+  if (!configPath) process.stdout.write(`  For this shell too:  export ${envVar}=<your key>\n`);
+  return true;
+}
+
+/** `~/x` → `<home>/x`. Paths in org-config and the catalog are written for humans. */
+function expandHome(p: string): string {
+  return p.startsWith("~/") ? path.join(os.homedir(), p.slice(2)) : p;
+}
+
+/** The real terminal, for {@link readSecret}. `stty` because the echo must go off for one line only. */
+function nodeSecretIo(): SecretIo {
+  return {
+    write: (x) => process.stdout.write(x),
+    setEcho: (on) => { spawnSync("stty", [on ? "echo" : "-echo"], { stdio: ["inherit", "ignore", "ignore"] }); },
+    readLine: () => {
+      const buf = Buffer.alloc(4096);
+      try {
+        const n = fsSync.readSync(0, buf, 0, buf.length, null);
+        return buf.toString("utf8", 0, n).split("\n")[0] ?? "";
+      } catch { return ""; }
+    },
+  };
+}
 
 /** The template every governance repo is created from. */
 const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
@@ -752,6 +848,14 @@ function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | n
     // a terminal agent or shell inherits stdio and blocks until it exits.
     launch: async (agent, cwd, inject) => {
       const s = agentLaunchSpec(agent, cwd, inject);
+      // NO SILENT SHELL (#199). An agent gov cannot start is said out loud, with the directory, so
+      // the person can start it themselves. Substituting a shell here is what let five approved
+      // agents report a successful start and open a bare prompt instead.
+      if (!s) {
+        process.stderr.write(`  gov cannot start '${agent}' — it has no command gov knows how to run.\n`);
+        process.stderr.write(`  The project is ready at ${cwd}. Start it there yourself, or: gov work --agent shell\n`);
+        return 1;
+      }
       if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
       const r = spawnSync(s.cmd, [...s.args], { cwd, stdio: "inherit" });
       if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed and on PATH?\n`); return 1; }

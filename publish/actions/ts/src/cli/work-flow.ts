@@ -13,7 +13,7 @@ import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveProjectIdentity } from "../lifecycle/identity.js";
 import { deriveStatus } from "../lifecycle/state.js";
 import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
-import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines } from "./agent-catalog.js";
+import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines, type AgentCandidate } from "./agent-catalog.js";
 import { chooseAgent, choiceExplanation } from "./agent-choice.js";
 import { defaultAgent } from "../config/approved-agents.js";
 
@@ -68,7 +68,15 @@ export interface WorkFlowDeps {
   readonly printPrompt?: (prompt: string) => void;
 }
 
-export type AgentKind = "claude" | "cursor" | "cursor-gui" | "shell";
+/**
+ * What to launch: an `AGENT_CATALOG` id (`"claude-code"`, `"ibm-bob"`, …) whose own `cmd` is run,
+ * or one of the two things that are not catalog agents — the Cursor editor opened on the project
+ * directory, and a plain shell.
+ *
+ * It was a closed four-value union, which is why the catalog could grow to twelve agents while only
+ * two of them could be started (#199). The id IS the launch instruction now; nothing translates it.
+ */
+export type AgentKind = "cursor-gui" | "shell" | (string & {});
 
 /**
  * What `gov work` already knows, so the flow can skip asking. The MENU passes none of these and behaves
@@ -147,16 +155,63 @@ export function projectFromPath(projectWorkRoot: string, cwd: string, sep = "/")
   return cwd.slice(root.length).split(sep).filter(Boolean)[0];
 }
 
-/** The concrete command to launch an agent kind in a project dir. Pure (env-injected) so the binary mapping
- *  + detached-GUI behaviour are regression-tested without spawning. Speak-first CLI agents (Claude,
- *  cursor-agent) get the `inject` prompt as their first message; the GUI editor opens the dir detached. */
-export function agentLaunchSpec(agent: AgentKind, cwd: string, inject: string, env: NodeJS.ProcessEnv = process.env): { cmd: string; args: readonly string[]; detached: boolean } {
-  switch (agent) {
-    case "cursor-gui": return { cmd: "cursor", args: [cwd], detached: true };          // open the Cursor editor on the dir
-    case "cursor":     return { cmd: "cursor-agent", args: [inject], detached: false }; // Cursor CLI agent — speak-first
-    case "claude":     return { cmd: "claude", args: [inject], detached: false };       // Claude — speak-first
-    case "shell":      return { cmd: env.SHELL || "/bin/zsh", args: [], detached: false };
-  }
+export interface LaunchSpec {
+  readonly cmd: string;
+  readonly args: readonly string[];
+  readonly detached: boolean;
+}
+
+/**
+ * The concrete command to launch an agent in a project dir — READ FROM THE CATALOG (#199).
+ *
+ * It used to be a four-arm switch, and every catalog agent was squeezed into those four values by a
+ * ternary that mapped anything but Claude Code and Cursor to `"shell"`. So five of the seven `cli`
+ * agents — codex, gemini, copilot, bob, aider — installed, were announced as started, and opened a
+ * bare shell. Each of them carries its own `cmd` in `AGENT_CATALOG`, which the mapping discarded.
+ *
+ * NULL WHEN GOV CANNOT LAUNCH IT. The defect was not the missing binary, it was the fallback:
+ * substituting a shell produced a result indistinguishable from success, and the caller went on to
+ * say the agent had started. A caller that must handle null cannot make that mistake silently.
+ *
+ * Speak-first CLI agents get the `inject` prompt as their first message; an `ide` entry opens the
+ * directory and detaches. Pure (env + catalog injected), so the mapping is tested without spawning.
+ */
+export function agentLaunchSpec(
+  agent: AgentKind,
+  cwd: string,
+  inject: string,
+  env: NodeJS.ProcessEnv = process.env,
+  catalog: readonly AgentCandidate[] = AGENT_CATALOG,
+): LaunchSpec | null {
+  if (agent === "shell") return { cmd: env.SHELL || "/bin/zsh", args: [], detached: false };
+  // The Cursor EDITOR opened on the project dir. Not a catalog entry of its own: the policy approves
+  // `cursor` the agent, and this is one of the ways to run it (#196, Q8).
+  if (agent === "cursor-gui") return { cmd: "cursor", args: [cwd], detached: true };
+
+  const c = catalog.find((a) => a.id === agent);
+  if (!c?.cmd || c.launch === "none") return null;
+  return c.launch === "ide"
+    ? { cmd: c.cmd, args: [cwd], detached: true }
+    : { cmd: c.cmd, args: [inject], detached: false };
+}
+
+/**
+ * The `--agent=` vocabulary. The flag is a short alias a person types; the value gov carries is the
+ * CATALOG ID, so the launch can read the entry. Catalog ids are accepted directly too, which is what
+ * makes `--agent=ibm-bob` work without a second name for it.
+ */
+export const AGENT_FLAG_ALIASES: Readonly<Record<string, AgentKind>> = {
+  claude: "claude-code",
+  cursor: "cursor",
+  "cursor-gui": "cursor-gui",
+  shell: "shell",
+};
+
+/** A flag or `$GOV_AGENT` value → the catalog id (or special) to launch, or null if it names nothing. */
+export function agentKindFromFlag(named: string, catalog: readonly AgentCandidate[] = AGENT_CATALOG): AgentKind | null {
+  const alias = AGENT_FLAG_ALIASES[named];
+  if (alias) return alias;
+  return catalog.some((a) => a.id === named && a.cmd) ? named : null;
 }
 
 /**
@@ -172,20 +227,25 @@ export type AgentChoice = { readonly ok: true; readonly agent: AgentKind } | { r
 
 export function resolveAgent(
   flag: string | undefined, env: NodeJS.ProcessEnv, onPath: (cmd: string) => boolean,
+  catalog: readonly AgentCandidate[] = AGENT_CATALOG,
 ): AgentChoice {
-  const KINDS: Record<string, AgentKind> = { claude: "claude", cursor: "cursor", "cursor-gui": "cursor-gui", shell: "shell" };
   const named = (flag ?? env.GOV_AGENT)?.trim();
   if (named) {
-    const k = KINDS[named];
-    return k ? { ok: true, agent: k } : { ok: false, reason: `unknown agent '${named}' — use one of: ${Object.keys(KINDS).join(", ")}` };
+    const k = agentKindFromFlag(named, catalog);
+    if (k) return { ok: true, agent: k };
+    const ids = catalog.filter((a) => a.cmd && a.launch !== "none").map((a) => a.id);
+    return { ok: false, reason: `unknown agent '${named}' — use one of: ${Object.keys(AGENT_FLAG_ALIASES).join(", ")}, or a catalog id (${ids.join(", ")})` };
   }
-  // BIN, not kind: `cursor` the agent is `cursor-agent` on disk, and `cursor` alone is the GUI editor.
-  const found = ([["claude", "claude"], ["cursor-agent", "cursor"]] as const).filter(([bin]) => onPath(bin));
-  if (found.length === 1) return { ok: true, agent: found[0]![1] };
+  // WHATEVER IS ON PATH, not a hard-coded pair (#199). The old list looked for `claude` and
+  // `cursor-agent` only, so the one installed agent on a machine that had chosen any of the other
+  // five was invisible — and `gov work --agent` was the only way through.
+  const found = catalog.filter((a) => a.cmd && a.launch !== "none" && onPath(a.cmd));
+  if (found.length === 1) return { ok: true, agent: found[0]!.id };
   if (found.length === 0) {
-    return { ok: false, reason: "no agent found on PATH (looked for: claude, cursor-agent).\n  pass --agent <claude|cursor|cursor-gui|shell>, or set $GOV_AGENT.\n  `--agent shell` just opens a shell in the project." };
+    const looked = catalog.filter((a) => a.cmd && a.launch !== "none").map((a) => a.cmd).join(", ");
+    return { ok: false, reason: `no agent found on PATH (looked for: ${looked}).\n  pass --agent <id>, or set $GOV_AGENT.\n  \`--agent shell\` just opens a shell in the project.` };
   }
-  return { ok: false, reason: `more than one agent is installed (${found.map(([b]) => b).join(", ")}) — say which: --agent <${found.map(([, k]) => k).join("|")}>, or set $GOV_AGENT.` };
+  return { ok: false, reason: `more than one agent is installed (${found.map((a) => a.cmd).join(", ")}) — say which: --agent <${found.map((a) => a.id).join("|")}>, or set $GOV_AGENT.` };
 }
 
 /** My projects = open boards whose anchor issue lists me as an assignee (owner). */
@@ -455,11 +515,20 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
         const yes = (await deps.prompt(`  Install ${defName} now? (Y/n) `)).trim().toLowerCase();
         if (!/^n(o)?$/.test(yes)) {
           if (deps.installAgent(def)) {
+            // THE ID IS THE LAUNCH INSTRUCTION (#199). This used to map anything but Claude Code
+            // and Cursor to "shell", so an org whose default was Bob, codex, gemini, copilot or
+            // aider was told its agent had started and handed a shell prompt.
             print(`  ✓ ${defName} is ready. Starting it in ${projectDir}…`);
-            const kind: AgentKind = def === "claude-code" ? "claude" : def === "cursor" ? "cursor" : "shell";
-            return await deps.launch(kind, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo));
+            return await deps.launch(def, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo));
           }
-          print("  Could not finish installing it — the output above says why.");
+          // INSTALLED IS NOT READY (#200). `installAgent` now answers "can it run", so an agent
+          // waiting on a key stops here instead of being announced as started. The project is made
+          // and the shell is a real place to work from; the claim is what had to go.
+          print(`  ${defName} is not ready yet — the lines above say what it still needs.`);
+          print(`  The project is ready at ${projectDir}.`);
+          print("");
+          print(`  Opening a shell there. Type 'exit' to come back.`);
+          return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo));
         }
       }
 
@@ -477,11 +546,9 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
 
     if (decided.id) {
       const picked = offer.find((o) => o.candidate.id === decided.id)?.candidate;
-      if (picked) {
-        agent = picked.launch === "cli"
-          ? (picked.id === "claude-code" ? "claude" : picked.id === "cursor" ? "cursor" : "shell")
-          : "cursor-gui";
-      }
+      // Object identity, not id: CURSOR_GUI shares the id "cursor" with the CLI entry — one approval,
+      // two ways to run it (#196, Q8) — so only the instance says which was offered.
+      if (picked) agent = picked === CURSOR_GUI ? "cursor-gui" : picked.id;
     }
 
     if (!agent) {
@@ -491,9 +558,7 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
       const n = Number(choice);
       if (n >= 1 && n <= offer.length) {
         const picked = offer[n - 1]!.candidate;
-        agent = picked.launch === "cli"
-          ? (picked.id === "claude-code" ? "claude" : picked.id === "cursor" ? "cursor" : "shell")
-          : "cursor-gui";
+        agent = picked === CURSOR_GUI ? "cursor-gui" : picked.id;
       } else if (n === offer.length + 1) {
         agent = "shell";
       } else {

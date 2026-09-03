@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { AGENT_CATALOG } from "../../src/cli/agent-catalog.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
@@ -98,7 +99,7 @@ describe("gov-work — guided Work flow", () => {
     const code = await runWorkFlow(d);
     expect(ran[0][0]).to.equal("join");           // not-cloned → join
     expect(out.join("\n")).to.match(/is ready at/);
-    expect(launched.map(([a, c]) => [a, px(c)])).to.deep.equal([["claude", "/work/PRJ-7-alpha"]]);   // launch-in-<project> (NOT the workspace subdir)
+    expect(launched.map(([a, c]) => [a, px(c)])).to.deep.equal([["claude-code", "/work/PRJ-7-alpha"]]);   // launch-in-<project> (NOT the workspace subdir)
     expect(code).to.equal(0);
   });
 
@@ -106,7 +107,7 @@ describe("gov-work — guided Work flow", () => {
     const { deps: d, ran, launched } = unseededDeps({ prompt: async () => "1" });
     expect(await runWorkFlow(d)).to.equal(0);
     expect(ran[0][0]).to.equal("seed");
-    expect(launched.map(([a, c]) => [a, px(c)])).to.deep.equal([["claude", "/work/PRJ-9-infra"]]);
+    expect(launched.map(([a, c]) => [a, px(c)])).to.deep.equal([["claude-code", "/work/PRJ-9-infra"]]);
   });
 
   it("agent picker '0) later' → no launch, prints the manual command", async () => {
@@ -148,7 +149,7 @@ describe("gov-work — guided Work flow", () => {
     // to be stated: claude, cursor-agent and the cursor editor all present gives
     // 1) Claude  2) Cursor  3) Cursor editor  4) shell.
     const machine = (c: string) => ["claude", "cursor-agent", "cursor"].includes(c);
-    for (const [choice, kind] of [["1", "claude"], ["2", "cursor"], ["3", "cursor-gui"], ["4", "shell"]] as const) {
+    for (const [choice, kind] of [["1", "claude-code"], ["2", "cursor"], ["3", "cursor-gui"], ["4", "shell"]] as const) {
       let calls = 0;
       const { deps: d, launched } = deps({ hasTool: machine, prompt: async () => (++calls === 1 ? "1" : choice) });
       await runWorkFlow(d);
@@ -157,10 +158,37 @@ describe("gov-work — guided Work flow", () => {
   });
 
   it("agentLaunchSpec: right binary + detached flag + inject-as-first-message (guards the launch mapping)", () => {
-    expect(agentLaunchSpec("claude", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false });          // speak-first
+    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false });     // speak-first
     expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false });    // speak-first
     expect(agentLaunchSpec("cursor-gui", "/p", "GO")).to.deep.equal({ cmd: "cursor", args: ["/p"], detached: true });        // GUI opens the dir, detached
     expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/bin/fish" } as NodeJS.ProcessEnv)).to.deep.equal({ cmd: "/bin/fish", args: [], detached: false });
+  });
+
+  it("EVERY cli agent in the catalog launches its own binary — not a shell (#199)", () => {
+    // Five of the seven used to collapse to "shell": codex, gemini, copilot, bob, aider. gov then
+    // announced the agent had started, and opened a bare prompt.
+    for (const a of AGENT_CATALOG.filter((c) => c.launch === "cli" && c.cmd)) {
+      expect(agentLaunchSpec(a.id, "/p", "GO"), a.id).to.deep.equal({ cmd: a.cmd, args: ["GO"], detached: false });
+    }
+    // An `ide` entry opens the directory and detaches, rather than being handed a prompt it cannot read.
+    for (const a of AGENT_CATALOG.filter((c) => c.launch === "ide" && c.cmd)) {
+      expect(agentLaunchSpec(a.id, "/p", "GO"), a.id).to.deep.equal({ cmd: a.cmd, args: ["/p"], detached: true });
+    }
+  });
+
+  it("NULL when gov cannot launch it — never a shell wearing the agent's name (#199)", () => {
+    // The fallback was the defect. A result indistinguishable from success let the caller go on to
+    // say the agent had started, so the substitution is gone and the caller must handle the null.
+    expect(agentLaunchSpec("chatgpt-web", "/p", "GO"), "launch: none").to.equal(null);
+    expect(agentLaunchSpec("no-such-agent", "/p", "GO")).to.equal(null);
+  });
+
+  it("--agent takes a catalog id as well as the short aliases (#199)", () => {
+    expect(agentKindFromFlag("claude"), "the alias people type").to.equal("claude-code");
+    expect(agentKindFromFlag("ibm-bob"), "and the id itself").to.equal("ibm-bob");
+    expect(agentKindFromFlag("shell")).to.equal("shell");
+    expect(agentKindFromFlag("wibble")).to.equal(null);
+    expect(agentKindFromFlag("chatgpt-web"), "governed, but nothing to run").to.equal(null);
   });
 
   it("sessionStartPrompt: kickoff runs session-start first + references the right workspace-relative files", () => {
@@ -210,7 +238,7 @@ describe("gov-work — guided Work flow", () => {
     expect(byPath["/work/PRJ-9/CLAUDE.md"], "protocol loaded at root").to.match(/@acme-gov\/agent\/session-protocol\.md/);
     expect(byPath["/work/PRJ-9/.claude/settings.json"], "fires on a bare/`/clear` launch").to.match(/"SessionStart"/);
     expect(pxAll(dirs)).to.include("/work/PRJ-9/.claude");
-    expect(agentLaunchSpec("claude", "/work/PRJ-9", "KICK").args, "speak-first on Work launch").to.deep.equal(["KICK"]);
+    expect(agentLaunchSpec("claude-code", "/work/PRJ-9", "KICK")!.args, "speak-first on Work launch").to.deep.equal(["KICK"]);
   });
 
   it("session-start FIRES for cursor (CLI) — injected kickoff + alwaysApply rule mirrored to root", () => {
@@ -218,7 +246,7 @@ describe("gov-work — guided Work flow", () => {
     const fs = { ...fsWith([]), readFile: (f: string) => f.endsWith("agent.mdc") ? "---\nalwaysApply: true\n---\n<protocol>" : null, writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"], "always-on rule at root").to.match(/alwaysApply: true/);
-    expect(agentLaunchSpec("cursor", "/work/PRJ-9", "KICK").args, "speak-first").to.deep.equal(["KICK"]);
+    expect(agentLaunchSpec("cursor", "/work/PRJ-9", "KICK")!.args, "speak-first").to.deep.equal(["KICK"]);
   });
 
   it("session-start FIRES for cursor GUI — alwaysApply rule mirrored to <project> (auto-applies; GUI opens the dir)", () => {
@@ -304,8 +332,9 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
 
     it("--agent wins, then $GOV_AGENT, then the one that is installed", () => {
       expect(resolveAgent("cursor", { GOV_AGENT: "claude" }, onPath())).to.deep.equal({ ok: true, agent: "cursor" });
-      expect(resolveAgent(undefined, { GOV_AGENT: "claude" }, onPath())).to.deep.equal({ ok: true, agent: "claude" });
-      expect(resolveAgent(undefined, {}, onPath("claude"))).to.deep.equal({ ok: true, agent: "claude" });
+      // The flag names an alias; the value carried is the CATALOG ID, which is what the launch reads (#199).
+      expect(resolveAgent(undefined, { GOV_AGENT: "claude" }, onPath())).to.deep.equal({ ok: true, agent: "claude-code" });
+      expect(resolveAgent(undefined, {}, onPath("claude"))).to.deep.equal({ ok: true, agent: "claude-code" });
       // the BIN is `cursor-agent`; bare `cursor` is the GUI editor, which is a different choice
       expect(resolveAgent(undefined, {}, onPath("cursor-agent"))).to.deep.equal({ ok: true, agent: "cursor" });
     });
@@ -325,6 +354,13 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
 
     it("an unknown name is refused with the list, not silently ignored", () => {
       expect(resolveAgent("wibble", {}, onPath("claude")).ok).to.equal(false);
+    });
+
+    it("the one installed agent is found whatever it is — not only claude or cursor (#199)", () => {
+      // It looked for exactly two binaries, so a machine whose only agent was Bob, codex, gemini,
+      // copilot or aider reported "no agent found" while the agent sat on PATH.
+      expect(resolveAgent(undefined, {}, onPath("bob"))).to.deep.equal({ ok: true, agent: "ibm-bob" });
+      expect(resolveAgent(undefined, {}, onPath("aider"))).to.deep.equal({ ok: true, agent: "aider" });
     });
   });
 
@@ -426,7 +462,24 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
     await runWorkFlow(d);
     expect(out.join("\n")).to.contain("Your organization's default is Claude Code");
     expect(installed).to.deep.equal(["claude-code"]);
-    expect(launched[0]?.[0], "and it starts, rather than telling you to re-run").to.equal("claude");
+    expect(launched[0]?.[0], "and it starts, rather than telling you to re-run").to.equal("claude-code");
+  });
+
+  it("an agent that installs but cannot run is NOT announced as started (#200)", async () => {
+    // `installAgent` answers "can it run", not "did npm succeed". An agent waiting on an API key
+    // used to be reported ready and then launched — which, before #199, meant a bare shell wearing
+    // its name. The project is still made; only the claim is withdrawn.
+    const { deps: d, out, launched } = deps({
+      hasTool: () => false,
+      approvedAgents: () => [{ id: "ibm-bob", default: true }],
+      installAgent: () => false,                       // installed, no key: not usable
+      prompt: async (q: string) => (/Install/.test(q) ? "y" : "1"),
+    });
+    await runWorkFlow(d);
+    expect(out.join("\n"), "no false claim").to.not.match(/IBM Bob is ready/);
+    expect(out.join("\n")).to.match(/IBM Bob is not ready yet/);
+    expect(out.join("\n"), "and the project still exists").to.match(/The project is ready at/);
+    expect(launched.map(([a]) => a), "a shell, called a shell").to.deep.equal(["shell"]);
   });
 
   it("declining the install still gets you a working shell", async () => {
@@ -460,7 +513,7 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
     await runWorkFlow(d);
     expect(out.join("\n")).to.contain("the only approved agent installed here");
     expect(out.join("\n"), "no menu for a choice of one").to.not.contain("0) later");
-    expect(launched[0]?.[0]).to.equal("claude");
+    expect(launched[0]?.[0]).to.equal("claude-code");
   });
 
   it("offers a menu when neither layer decides, and says what each choice does", async () => {
