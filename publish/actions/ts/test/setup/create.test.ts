@@ -183,8 +183,20 @@ describe("second-adopter safety", () => {
     const r = preflight(governed, "acme/acme-gov-2", "ACME");
     const lines = r.ok ? [] : explainFailure(r.failure);
     expect(lines.join("\n")).to.contain("fork its policy");
-    expect(lines.join("\n"), "must show HOW to join").to.contain("git clone git@github.com:acme/acme-gov.git");
+    expect(lines.join("\n"), "must show HOW to join").to.contain("choose  B. I am a JOINER");
+    expect(lines.join("\n"), "and what to do with a clone they already have").to.contain("gov org add acme");
     expect(lines.join("\n")).to.contain("gov setup");
+  });
+
+  it("never tells anyone to clone by hand — there is no directory that answer could name (#197)", () => {
+    // It said `git clone … && cd … && gov setup`. That leaves the repo in whatever directory the
+    // reader was standing in, while step 7 of the adoption checklist requires it at
+    // ~/.gov/<slug>/gov_repo. The advice could not produce a working machine, and could not be
+    // corrected by naming a directory — only `gov` knows the slug, because it is inside the clone.
+    const r = preflight(governed, "acme/acme-gov-2", "ACME");
+    const lines = (r.ok ? [] : explainFailure(r.failure)).join("\n");
+    expect(lines, "no hand clone").to.not.match(/git clone/);
+    expect(lines, "no cd into a directory nobody named").to.not.match(/\bcd\b/);
   });
 });
 

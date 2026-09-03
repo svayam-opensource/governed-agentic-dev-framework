@@ -214,11 +214,21 @@ export function explainFailure(f: PreflightFailure): readonly string[] {
     case "already-governed":
       // Refuses INTO something. A bare refusal here sends a new developer off to create one under a
       // different name, which is the outcome this check exists to prevent.
+      //
+      // NAME A COMMAND THAT WORKS (#197). This used to say `git clone … && cd … && gov setup`, which
+      // leaves the clone in whatever directory the reader happened to be standing in — while the
+      // adoption checklist requires it at `~/.gov/<org-slug>/gov_repo`. So the advice could not
+      // produce a working machine, and did not say which directory to be in, because no answer
+      // existed. `gov` walks the joining path and places the clone where everything else looks.
+      //
+      // The first-run wizard pivots into that path by itself; this message is for whoever reached
+      // `gov setup <org>/<repo>` directly, with no wizard around them.
       return [f.all.length > 1
                 ? `gov setup: this org already has ${f.all.length} governance repos (${f.all.join(", ")}) — creating another would fork its policy further.`
                 : `gov setup: '${f.repo}' already governs this org — creating a second workspace would fork its policy.`,
-              "  you want to JOIN it, not create one:",
-              `    git clone git@github.com:${f.repo}.git && cd ${f.repo.split("/")[1]} && gov setup`];
+              "  you want to JOIN it, not create one. gov clones and places it for you:",
+              "    gov          then choose  B. I am a JOINER",
+              `  already have a clone?  gov org add ${f.repo.split("/")[0]} --home <path-to-your-clone>`];
     case "cannot-verify":
       // Refuse, do not guess. A duplicate governance repo forks the org's policy silently and cannot be
       // detected afterwards; a refusal costs one command.

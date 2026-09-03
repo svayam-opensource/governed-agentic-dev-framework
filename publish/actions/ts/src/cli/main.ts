@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import { readExistingOrgConfig } from "../setup/setup.js";
-import { parseTarget, preflight as createPreflight, explainFailure, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
@@ -46,7 +46,6 @@ import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
-import { approvedAgentIdsFrom } from "./agent-catalog.js";
 import { parseApprovedAgents, withApprovedAgents } from "../config/approved-agents.js";
 import { planAgentInstall } from "./agent-verb.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
@@ -473,6 +472,22 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     print: (l) => process.stderr.write(`${l}\n`),
     tempDir: () => fsSync.mkdtempSync(path.join(os.tmpdir(), "gov-firstrun-")),
     clone: (url, dest) => { execFileSync("git", ["clone", url, dest], { stdio: ["ignore", "ignore", "inherit"] }); },
+    // For a repo GOV found (#197). `gh` resolves the protocol and carries the token, so a private
+    // governance repo clones on a machine whose only credential is `gh auth login` — the same call
+    // `gov setup` makes for the repo it creates.
+    cloneRepo: (nameWithOwner, dest) => { execFileSync("gh", ["repo", "clone", nameWithOwner, dest], { stdio: ["ignore", "ignore", "inherit"] }); },
+    // Asked before the adopter's remaining questions, so a joiner is never made to answer them
+    // (#197). Unverified is NOT "clear": it reports exactly that, and the flow says nothing.
+    probeGovernance: (org) => {
+      const probeIo: CreateIo = {
+        gh: (args) => { try { return execFileSync("gh", [...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return null; } },
+        home: os.homedir(),
+        exists: (p) => fsSync.existsSync(p),
+        print: () => { /* the caller does the talking */ },
+      };
+      const found = findExistingGovernanceRepo(probeIo, org);
+      return { repos: found.repos, verified: found.verified };
+    },
     readIdentity: identityAt,
     exists: (d) => fsSync.existsSync(d),
     place: (from, to) => { fsSync.mkdirSync(path.dirname(to), { recursive: true }); fsSync.renameSync(from, to); },
@@ -481,7 +496,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // The adopter path is exactly `gov setup <org>/<repo>` — the same code, reached
     // from the first-run question instead of from a command the newcomer had to
     // already know the name of.
-    finalStatus: () => {
+    finalStatus: (role) => {
       const r = prjResolveGov(createNodeEnv());
       const policyPath = r.ok ? path.join(r.home, "knowledge", "policies", "llm-governance.md") : null;
       const policy = policyPath && fsSync.existsSync(policyPath) ? fsSync.readFileSync(policyPath, "utf8") : null;
@@ -499,7 +514,10 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
         orgActive: createNodeEnv().readActiveOrg(),
         workspacePath: r.ok ? r.home : null,
         orgSlug: c?.orgSlug ?? null,
-        role: "adopter",
+        // PASSED, not assumed (#197). Hardcoding "adopter" showed a joiner the founding steps —
+        // "create the governance repository", "choose which agents this org allows" — against their
+        // own name, as things they had failed to do rather than things not theirs to do.
+        role,
         approvedAgents: (parseApprovedAgents(policy) ?? []).map((a) => a.id),
       }));
     },

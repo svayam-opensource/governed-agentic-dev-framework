@@ -34,8 +34,6 @@
  */
 
 import * as path from "node:path";
-import { orgRepoTarget } from "../setup/answers.js";
-import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { approvalPrompt, parseApprovalChoice, approvalSummary } from "./approve-agents-step.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
@@ -113,6 +111,33 @@ export function looksLikeRepoUrl(s: string): boolean {
 }
 
 /**
+ * A clone URL for a repo gov found itself, shown as the default the user can override (#197).
+ *
+ * https rather than ssh because it is the one that works on a machine that has only done what the
+ * checklist asked — `gh auth login`, no key generated, no key uploaded. It is a DEFAULT, not a
+ * decision: someone whose org requires ssh edits the line. The clone itself prefers `cloneRepo`
+ * (`gh repo clone`), which resolves protocol and credentials the way `gov setup` already does.
+ */
+export function cloneUrlFor(nameWithOwner: string): string {
+  return `https://github.com/${nameWithOwner}.git`;
+}
+
+/** What gov knows about an organization's existing governance repos (#197). */
+export interface GovernanceProbe {
+  /** `owner/repo` for every repo in the org that declares an `org-config.yaml`. */
+  readonly repos: readonly string[];
+  /** false = the probe could not run. Say NOTHING then — a guess here is a forked policy. */
+  readonly verified: boolean;
+}
+
+/** Where the repo to join came from: a URL the user typed, or one gov derived from `owner/repo`. */
+interface CloneSource {
+  readonly url: string;
+  /** `owner/repo` when gov found it, null when the user typed a URL gov cannot attribute. */
+  readonly nameWithOwner: string | null;
+}
+
+/**
  * What the first run asks before anything else (#186).
  *
  * The prompt used to ask for a governance repo clone URL. Only a JOINER can answer
@@ -126,6 +151,9 @@ export function looksLikeRepoUrl(s: string): boolean {
  * C is a real answer rather than a way of saying no.
  */
 export type FirstRunRole = "adopter" | "joiner" | "explain";
+
+/** The two roles adoption can END in. "explain" is a request for help, not a destination. */
+export type AdoptionRole = "adopter" | "joiner";
 
 export function parseRole(answer: string): FirstRunRole | null {
   switch (answer.trim().toUpperCase()) {
@@ -191,6 +219,44 @@ export const ROLE_EXPLANATION: readonly string[] = [
   "",
 ];
 
+/**
+ * What someone is told when they answered ADOPTER for an organization that is already governed (#197).
+ *
+ * This is not a refusal, and must not read like one. They answered the role question truthfully with
+ * what they knew; gov then went and looked, and found out otherwise. The only thing that has changed
+ * is which of the two paths they are on — so the screen says that, names the repository, and offers
+ * the path they are actually on. Being told "no" and handed a shell command was the old behaviour, and
+ * the command it handed them could not produce a working machine.
+ */
+export function alreadyGovernedNotice(org: string, repos: readonly string[]): readonly string[] {
+  const rule = "=".repeat(88);
+  const lines: string[] = [
+    "",
+    rule,
+    `  ${org} is already governed`,
+    rule,
+    "",
+  ];
+  if (repos.length === 1) {
+    lines.push(`  Governance repository:  ${repos[0]}`);
+  } else {
+    lines.push(`  ${org} has ${repos.length} governance repositories:`);
+    repos.forEach((r, i) => lines.push(`    ${i + 1}) ${r}`));
+  }
+  lines.push(
+    "",
+    "  An organization is adopted once. A second governance repository would fork its",
+    "  policy — two sets of rules over the same projects, and nothing to say which one",
+    "  governs. So nothing will be created here.",
+    "",
+    "  Which means you are a JOINER, not an adopter. That is a smaller job, and gov can",
+    "  do all of it: clone what your organization already decided, put it where every",
+    "  other tool expects to find it, and register it on this machine.",
+    "",
+  );
+  return lines;
+}
+
 /** The org identity a governance repo declares about itself. */
 export interface OrgIdentity {
   readonly org: string;
@@ -212,6 +278,20 @@ export interface FirstRunIo {
   tempDir(): string;
   /** clone `url` into `dest`; throw with git's own message when it fails. */
   clone(url: string, dest: string): void;
+  /**
+   * Clone `owner/repo` with `gh`, which resolves the protocol and the credentials — the same
+   * mechanism `gov setup` uses for the repo it creates. Used only for a repo GOV found, never for a
+   * URL the user typed. Optional: without it the derived https URL goes through `clone`.
+   */
+  cloneRepo?(nameWithOwner: string, dest: string): void;
+  /**
+   * Does this GitHub organization already have a governance repo (#197)?
+   *
+   * Asked BEFORE the questions only an adopter can answer, because the answer decides whether those
+   * questions are worth asking. Optional: absent means "do not probe", and the flow is as it was —
+   * `preflight` still refuses to create a second one either way.
+   */
+  probeGovernance?(org: string): GovernanceProbe;
   /** the repo's declared identity, or null when it has none yet (→ FOUNDING). */
   readIdentity(repoDir: string): OrgIdentity | null;
   /** does anything already live here? Placing must never overwrite an existing home. */
@@ -231,8 +311,15 @@ export interface FirstRunIo {
   approveAgents?: (agents: readonly { readonly id: string; readonly default?: boolean }[]) => boolean;
   /** Build the starter review project; returns the lines to print (#186). */
   createStarterProject?: () => readonly string[];
-  /** The whole checklist, ticked, at the true end of the run (#186). */
-  finalStatus?: () => readonly string[];
+  /**
+   * The whole checklist, ticked, at the true end of the run (#186).
+   *
+   * The role is PASSED, not assumed. It used to be hardcoded to "adopter", so a joiner who finished
+   * cleanly was shown the founding steps against their own name — a list of things they must not do
+   * (#197). Step 8 is the one item that differs, and the caller is the only one who knows which
+   * branch was actually walked.
+   */
+  finalStatus?: (role: AdoptionRole) => readonly string[];
   /** What to do now, for an adopter. */
   adopterNextSteps?: () => readonly string[];
   /** What to do now, for a joiner. */
@@ -329,6 +416,19 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
     return 1;
   }
 
+  // LOOK BEFORE ASKING ANYTHING ELSE (#197).
+  //
+  // Every remaining question on this path — the repository name, the org slug asked
+  // inside `gov setup` — exists to create something. If the organization already has
+  // a governance repository, none of them has an answer worth collecting, and the
+  // refusal was arriving three questions later anyway, as an error, with the run
+  // over. The probe is one GraphQL call and it is the same one `preflight` makes.
+  //
+  // An UNVERIFIED probe says nothing and changes nothing: `preflight` still refuses
+  // to create when it cannot see, which is the guard that matters.
+  const probe = io.probeGovernance?.(org);
+  if (probe?.verified && probe.repos.length > 0) return joinInsteadOfAdopting(io, org, probe.repos);
+
   // Defaulted, because nobody should have to invent a name for a repository whose
   // purpose is fixed. Enter is the right answer here for almost everyone.
   const defaultRepo = `${org}-gov`;
@@ -387,9 +487,47 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   for (const line of io.createStarterProject?.() ?? []) io.print(line);
 
   // THE REAL END, and the only place the word "final" is true.
-  for (const line of io.finalStatus?.() ?? []) io.print(line);
+  for (const line of io.finalStatus?.("adopter") ?? []) io.print(line);
   for (const line of io.adopterNextSteps?.() ?? []) io.print(line);
   return 0;
+}
+
+/**
+ * The pivot: an ADOPTER answer for an organization that already has a governance repo (#197).
+ *
+ * Everything needed to join is already known — gov found the repository itself — so this asks for
+ * consent, not for information. Declining stops cleanly; it does not fall through to a create that
+ * `preflight` would refuse anyway.
+ */
+async function joinInsteadOfAdopting(io: FirstRunIo, org: string, repos: readonly string[]): Promise<number> {
+  for (const line of alreadyGovernedNotice(org, repos)) io.print(line);
+
+  // MORE THAN ONE is a real state — an org that forked its policy before gov could stop it — and the
+  // person in front of us cannot be assumed to know which is theirs. Ask; do not pick the first.
+  let chosen = repos[0]!;
+  if (repos.length > 1) {
+    const answer = (await io.prompt("  Which one governs your work? (number, or Enter to stop): ", "")).trim();
+    const pick = /^\d+$/.test(answer) ? repos[Number(answer) - 1] : undefined;
+    if (!pick) {
+      io.print("");
+      io.print("  Nothing changed. Ask your governance administrator which repository governs your");
+      io.print("  work, then re-run `gov` and choose B.");
+      return answer === "" ? 0 : 1;
+    }
+    chosen = pick;
+  }
+
+  const consent = (await io.prompt(`  Join ${chosen} now? [Y/n]: `, "Y")).trim().toLowerCase();
+  if (consent.startsWith("n")) {
+    io.print("");
+    io.print("  Nothing created, and nothing changed on this machine.");
+    io.print("  When you want to join:  gov      → choose B");
+    io.print(`  If ${chosen} is not the right repository, ask your governance administrator.`);
+    return 0;
+  }
+
+  io.print("");
+  return joinExisting(io, { url: cloneUrlFor(chosen), nameWithOwner: chosen });
 }
 
 async function cloneAndRegister(io: FirstRunIo): Promise<number> {
@@ -418,13 +556,32 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
     io.print("If nobody has adopted the framework for your organization yet, re-run and choose A.");
     return 1;
   }
+  return joinExisting(io, { url, nameWithOwner: null });
+}
 
+/**
+ * Clone a governance repo, place it at `~/.gov/<slug>/gov_repo`, register it, activate it.
+ *
+ * Split out of `cloneAndRegister` (#197) because it is the destination of TWO routes now: the JOINER
+ * who typed a URL, and the ADOPTER who turned out to be a joiner. Extracting it is what let the pivot
+ * be a pivot — the alternative was printing a shell command that put the repo somewhere gov does not
+ * look, which is exactly the instruction the old refusal gave.
+ *
+ * The staging dir is discarded on EVERY failure after it exists, including a failed `place`: a
+ * half-placed home is worse than none, because the next run would find something at `gov_home` and
+ * believe it.
+ */
+async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
   const tmp = io.tempDir();
-  const repoName = repoNameFromUrl(url) ?? "gov_repo";
+  const repoName = repoNameFromUrl(src.url) ?? "gov_repo";
   const staged = path.join(tmp, repoName);
   try {
-    io.print(`Cloning ${url} …`);
-    io.clone(url, staged);
+    io.print(`Cloning ${src.url} …`);
+    // `gh repo clone` for a repo gov FOUND: it knows the protocol and carries the token, so a private
+    // governance repo — which every governance repo is — clones on a machine that has only run
+    // `gh auth login`. A URL the user typed is theirs, and goes through git untouched.
+    if (src.nameWithOwner && io.cloneRepo) io.cloneRepo(src.nameWithOwner, staged);
+    else io.clone(src.url, staged);
   } catch (e) {
     io.discard(tmp);
     io.print(`clone failed: ${(e as Error)?.message ?? String(e)}`);
@@ -432,8 +589,11 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
   }
 
   try {
-    // JOINING vs FOUNDING — the single question that decides the rest.
+    // JOINING vs FOUNDING — the single question that decides the rest, and the only thing that
+    // decides which role this run ends in. Derived, never assumed: a repo with no org-config.yaml is
+    // being founded by whoever is standing here, whatever they answered upstream.
     let identity = io.readIdentity(staged);
+    const founding = identity === null;
     if (identity === null) {
       io.print("This repo has no org-config.yaml yet — setting up a NEW organization.");
       identity = await io.found(staged);
@@ -453,9 +613,13 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
     if (!r.ok) { io.print(r.message ?? `could not register ${identity.org}.`); return 1; }
     io.print(`Registered ${identity.org} → ${home}`);
     // A joiner needs the opposite of an adopter's instructions: not "settle this",
-    // but "this is already settled, and here is where to read it".
-    for (const line of io.finalStatus?.() ?? []) io.print(line);
-    for (const line of io.joinerNextSteps?.() ?? []) io.print(line);
+    // but "this is already settled, and here is where to read it". Which of the two
+    // gets printed follows what actually happened above, not what was answered at
+    // the role question — someone who cloned an unconfigured repo just founded an
+    // organization, and was being sent to read policies nobody had written (#197).
+    for (const line of io.finalStatus?.(founding ? "adopter" : "joiner") ?? []) io.print(line);
+    const after = founding ? io.adopterNextSteps : io.joinerNextSteps;
+    for (const line of after?.() ?? []) io.print(line);
     io.print(`Active org → ${identity.org}`);
     return 0;
   } catch (e) {
