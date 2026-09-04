@@ -62,4 +62,6 @@ when it is a branch a real person can land on and a unit test cannot reach.
 |---|---|---|
 | 90 | bare: no node, no git, no gh | `install.sh` does it all; `gov --version` in a NEW login shell |
 | 92 | interrupted install, re-run | resumes; re-running is boring |
-| 94 | an installed agent, after gov exits | `bob --version` works (#209 — only reproducible where gov's Node is private) |
+| 94 | the two shells (#209's premise) | **done** — a new login shell finds gov's Node dir, the current one does not |
+| 96 | a REAL `gov agent install` inside the image | the half 94 cannot reach: that gov LINKS what it installs. Needs a workspace and an approved list in the container — the stub layer `journey.sh` has and this tier does not. **The next thing this tier should grow.** |
+| 98 | #211 | flip `90-bare`'s describe-the-defect branch into an assertion once the PATH fix lands |

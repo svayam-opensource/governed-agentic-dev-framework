@@ -31,6 +31,11 @@ FILTER="${1:-}"
 BOLD=$'\033[1m'; GRN=$'\033[32m'; RED=$'\033[31m'; DIM=$'\033[2m'; RST=$'\033[0m'
 [ -t 1 ] && [ -z "${NO_COLOR:-}" ] || { BOLD=""; GRN=""; RED=""; DIM=""; RST=""; }
 
+# The images an adopter actually arrives on, with ONLY what the harness itself needs —
+# `expect` to answer, and the archive tools to unpack Node. Deliberately NOT git: a machine
+# that already has it is not the machine scenario 90 is named after, and installing it made
+# `doctor --fix` plan four steps where an adopter sees five.
+#
 # The images an adopter actually arrives on. Two package managers, two `gh` situations:
 # Fedora carries the GitHub CLI in its own repositories and Rocky does not — the difference
 # that produced three of the nine defects in #186.
@@ -38,10 +43,10 @@ IMAGES=(
   # curl is deliberately absent from these two: Rocky and Fedora ship `curl-minimal`,
   # which PROVIDES /usr/bin/curl and CONFLICTS with `curl`. Asking for it fails the whole
   # transaction — on the very image an adopter is most likely to be on.
-  "rocky|rockylinux:9|dnf install -y -q sudo expect git tar xz which findutils procps-ng"
-  "fedora|fedora:latest|dnf install -y -q sudo expect git tar xz which findutils procps-ng"
-  "debian|debian:stable-slim|apt-get update -qq && apt-get install -y -qq sudo expect git curl ca-certificates xz-utils procps"
-  "ubuntu|ubuntu:24.04|apt-get update -qq && apt-get install -y -qq sudo expect git curl ca-certificates xz-utils procps"
+  "rocky|rockylinux:9|dnf install -y -q sudo expect tar xz which findutils procps-ng"
+  "fedora|fedora:latest|dnf install -y -q sudo expect tar xz which findutils procps-ng"
+  "debian|debian:stable-slim|apt-get update -qq && apt-get install -y -qq sudo expect curl ca-certificates xz-utils procps"
+  "ubuntu|ubuntu:24.04|apt-get update -qq && apt-get install -y -qq sudo expect curl ca-certificates xz-utils procps"
 )
 
 command -v docker >/dev/null || { echo "os-tier.sh needs docker"; exit 2; }

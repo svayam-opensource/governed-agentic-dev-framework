@@ -15,7 +15,7 @@
 # in the SAME shell that had just run the installer — the one shell that has not re-read the
 # profile, and the only shell an adopter is in at that moment. A PATH edit that works tomorrow
 # is not an answer to a command suggested today.
-scenario "94 · an installed agent is usable in the shell you are in (#209) (${OS_TIER_LABEL})"
+scenario "94 · the two shells that decide whether an agent is reachable (#209) (${OS_TIER_LABEL})"
 
 drive "$(conv <<'C'
 ~ 180
@@ -39,13 +39,15 @@ bash -lc "bob --version" >/dev/null 2>&1 \
 # THE SHELL THAT MATTERS. `env -i` is the honest stand-in for "the terminal you are already
 # in": the profile has not been read, so only what is on PATH right now counts.
 env -i HOME="$HOME" PATH="/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin" bash -c "bob --version" >/dev/null 2>&1 \
-  && pass "#209 — and so does the shell you are ALREADY in, via ~/.local/bin" \
-  || fail "#209 — unreachable in the current shell, which is where 'bob --resume' was typed"
+  && fail "the premise is gone: it is reachable unaided, so #209's wrapper would be redundant" \
+  || pass "#209's premise — the CURRENT shell cannot find it, and that is the shell you are in"
 
-info "gov links what it installs, the way install.sh linked gov"
-if [ -x "$HOME/.local/bin/bob" ]; then
-  pass "a wrapper exists in ~/.local/bin — already on PATH, so it works without a new terminal"
-else
-  info "not linked here: this fragment placed the binary by hand rather than through an install"
-  info "the linking itself is covered when a vendor double can install inside this image (BACKLOG)"
-fi
+# WHAT THIS FRAGMENT DOES NOT PROVE, said out loud rather than implied by a green line.
+#
+# It places the binary by hand, so gov never linked anything: this characterises the two
+# shells that make #209 possible, and stops there. Naming it "an installed agent is usable"
+# and passing would be the exact shape this whole suite exists to catch — a check whose green
+# means nobody looked. Covering gov's linking needs a real `gov agent install` in here, which
+# needs a workspace and an approved list inside the image. BACKLOG.md, and it is the next
+# thing this tier should grow.
+info "not proved here: that GOV links what it installs — that needs a real install (BACKLOG)"

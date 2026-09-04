@@ -82,6 +82,43 @@ jobs:
         working-directory: publish/actions/ts
         run: npm run test:journey
 
+  # THE TIER THAT NEEDS A REAL MACHINE. `journey` doubles everything outside gov and proves
+  # what gov DECIDES; this proves what a machine is LEFT HOLDING — a private Node that must
+  # not leak, a PATH edit that has to survive into tomorrow's shell, and a retry that has to
+  # be boring. None of the three can reproduce on a developer's laptop, which is why all of
+  # them reached a walk.
+  #
+  # Its own job, not a step of another: it downloads Node once per scenario and takes minutes
+  # rather than seconds. Slow and honest beats fast and irrelevant — but it does not belong in
+  # front of a one-line change either, so it runs on the long-lived branches and on demand.
+  os-tier:
+    name: bare machine (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'os-tier')
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: rocky,  image: "rockylinux:9" }
+          - { label: fedora, image: "fedora:latest" }
+          - { label: debian, image: "debian:stable-slim" }
+          - { label: ubuntu, image: "ubuntu:24.04" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: publish/actions/ts/package-lock.json
+      # THE EXACT ARTEFACT AN ADOPTER RECEIVES. install.sh installs a package; testing the
+      # working tree would test a different thing that happens to share a source tree.
+      - name: Pack gov
+        working-directory: publish/actions/ts
+        run: npm ci && npm run build && npm pack
+      - name: Bare-machine journey (${{ matrix.image }})
+        run: bash publish/actions/ts/e2e/os-tier.sh ${{ matrix.label }}
+
   live:
     name: adopter-journey (live GitHub)
     runs-on: ubuntu-latest
