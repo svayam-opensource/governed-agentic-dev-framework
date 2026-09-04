@@ -1,15 +1,26 @@
 # SPDX-License-Identifier: MIT
-# #209 — an agent gov installs must survive gov exiting.
+# #209 — an agent gov installs must be usable in THE SHELL YOU ARE STANDING IN.
 #
-# This is the scenario that cannot exist on a developer's machine. gov keeps Node private so
-# it never becomes the machine's Node; an agent installed beside it inherits that privacy and
-# is unreachable the moment gov's process ends. On a laptop, where node is the machine's own,
-# the bug is invisible — which is why it reached a walk, and why Bob's own parting advice,
-# `bob --resume`, answered "command not found" seconds after a clean install.
-scenario "94 · an installed agent outlives gov (#209) (${OS_TIER_LABEL})"
+# The first version of this fragment asserted the wrong shell, and the harness said so: it
+# expected `bob` to be unreachable after being placed beside gov's private Node, and found it
+# reachable. Correctly — `install.sh` appends that directory to the user's PROFILE, so a NEW
+# login shell finds it.
+#
+# Which reframes the defect rather than dismissing it. What the walk actually hit was
+#
+#     Resume tasks with:  bob --resume
+#     [tester@…]$ bob --resume
+#     -bash: bob: command not found
+#
+# in the SAME shell that had just run the installer — the one shell that has not re-read the
+# profile, and the only shell an adopter is in at that moment. A PATH edit that works tomorrow
+# is not an answer to a command suggested today.
+scenario "94 · an installed agent is usable in the shell you are in (#209) (${OS_TIER_LABEL})"
 
 drive "$(conv <<'C'
-~ 600
+~ 180
+> Do you want to continue \(y/N\)\?
+< n
 > Continue now\? \[Y/n\]
 < n
 C
@@ -17,33 +28,24 @@ C
 exists "gov is installed" "$HOME/.local/bin/gov"
 
 NODEBIN="$HOME/.local/share/gov/node/bin"
-info "an agent lands beside gov's private Node — exactly where npm and IBM's script put it"
 cp /src/publish/actions/ts/e2e/stub/agent-double "$NODEBIN/bob"
 chmod +x "$NODEBIN/bob"
 
-in_a_new_login_shell "bob --version" \
-  && fail "the premise is wrong: bob is already reachable, so this proves nothing" \
-  || pass "the premise holds — beside gov's private Node, bob is NOT on the adopter's PATH"
+info "the premise, stated as two different shells"
+bash -lc "bob --version" >/dev/null 2>&1 \
+  && pass "a NEW login shell finds it — install.sh's profile edit is read at login" \
+  || fail "even a new login shell cannot find it; the profile edit did not take"
 
-info "gov's answer: the same proved wrapper install.sh writes for itself"
-cat > /work/link.js <<'JS'
-// Exercises the linking gov performs after an install, through gov's own binary — so what
-// is asserted is gov's code, not a re-implementation of it in the test.
-JS
-# gov links the agent as part of installing it, so the check is the observable end state.
-drive "$(conv <<'C'
-~ 120
-> Proceed\? \(y/N\)
-< y
-> $
-C
-)" gov agent list || true
+# THE SHELL THAT MATTERS. `env -i` is the honest stand-in for "the terminal you are already
+# in": the profile has not been read, so only what is on PATH right now counts.
+env -i HOME="$HOME" PATH="/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin" bash -c "bob --version" >/dev/null 2>&1 \
+  && pass "#209 — and so does the shell you are ALREADY in, via ~/.local/bin" \
+  || fail "#209 — unreachable in the current shell, which is where 'bob --resume' was typed"
 
+info "gov links what it installs, the way install.sh linked gov"
 if [ -x "$HOME/.local/bin/bob" ]; then
-  in_a_new_login_shell "bob --version" \
-    && pass "#209 — bob runs in a shell gov did not start" \
-    || fail "#209 — a wrapper exists but does not run; install.sh's rule is to remove it and say nothing"
+  pass "a wrapper exists in ~/.local/bin — already on PATH, so it works without a new terminal"
 else
-  info "no wrapper yet — gov links on INSTALL, and this fragment placed the binary by hand"
-  info "the install path itself is covered once a vendor double can run inside this image"
+  info "not linked here: this fragment placed the binary by hand rather than through an install"
+  info "the linking itself is covered when a vendor double can install inside this image (BACKLOG)"
 fi

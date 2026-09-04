@@ -8,7 +8,18 @@ scenario "92 · install.sh twice — a retry must be boring (${OS_TIER_LABEL})"
 
 run_installer() {
   drive "$(conv <<'C'
-~ 600
+~ 180
+# `install.sh` hands over to `gov doctor --fix`, which asks its OWN consent before running
+# five commands as root. Not answering it deadlocked the first run for ten minutes: expect
+# waited for a later prompt while gov waited for this one.
+#
+# The answer is NO, deliberately. install.sh's job — Node, the PATH edit, gov itself — is
+# done by this point and is what these assertions are about. What comes after is
+# `sudo dnf install git`, `sudo dnf install gh`, and then `gh auth login`, which is the one
+# step #196 records as impossible to delegate to anybody. A scenario that cannot finish is
+# not a scenario; the fix ITINERARY is asserted instead, which is the screen that matters.
+> Do you want to continue \(y/N\)\?
+< n
 > Continue now\? \[Y/n\]
 < n
 C

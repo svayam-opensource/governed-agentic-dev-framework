@@ -34,7 +34,10 @@ set conv       [lindex $argv 1]
 set sep        [lsearch $argv "--"]
 set cmd        [lrange $argv [expr {$sep + 1}] end]
 
-set timeout 60
+# 90s is generous for anything gov does between two prompts, and short enough that a missing
+# answer reads as a failure rather than a hang. A scenario that legitimately waits longer says
+# so with `~`, which makes the exception visible in the conversation.
+set timeout 90
 log_user 0
 log_file -a -noappend $transcript
 
