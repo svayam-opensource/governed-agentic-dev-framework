@@ -164,12 +164,74 @@ describe("gov-work — IBM Bob (#196)", () => {
     // credential, and there is nothing for it to run.
     const cli = AGENT_CATALOG.find((a) => a.id === "ibm-bob")!.variants!.find((v) => v.kind === "cli")!;
     expect(cli.login).to.equal(undefined);
-    expect(cli.install!.npm).to.equal("@bobsworkshop/cli");
+    // It said `@bobsworkshop/cli` here. That package is not IBM's (#201) — see the
+    // vendor-scope tests below for the rule that now holds this.
+    expect(cli.install!.script).to.match(/https:\/\/bob\.ibm\.com\//);
   });
 
   it("watsonx Code Assistant is deliberately absent — it reads no rules file", () => {
     // A different IBM product, verified against three sources. Listing it would mean
     // launching someone into a governed project with the governance missing.
     expect(AGENT_CATALOG.map((a) => a.id)).to.not.include("watsonx-code-assistant");
+  });
+});
+
+/**
+ * WHERE AN INSTALL COMES FROM (#201).
+ *
+ * `ibm-bob` shipped with `npm: "@bobsworkshop/cli"` — a package by one unaffiliated
+ * maintainer, not IBM. `planAgentInstall` prefers npm over a vendor script, so the wrong
+ * one was not merely reachable, it was always chosen; and per #196 Q2 approval IS the trust
+ * decision, so an Infrastructure Owner who approved IBM's agent consented to a stranger's.
+ *
+ * A hand-check does not survive the next agent added at midnight, so the rule is a test:
+ * every npm coordinate sits in a scope the named vendor owns.
+ */
+describe("gov-work — an install must come from the vendor it names (#201)", () => {
+  /** npm scopes each vendor publishes under. Adding an agent means adding its scope here. */
+  const VENDOR_SCOPES: Readonly<Record<string, readonly string[]>> = {
+    "claude-code": ["@anthropic-ai"],
+    "openai-codex": ["@openai"],
+    "gemini-code-assist": ["@google"],
+    "github-copilot": ["@github"],
+    aider: ["@aider"],
+  };
+
+  const npmInstalls = (): Array<{ id: string; pkg: string }> => {
+    const out: Array<{ id: string; pkg: string }> = [];
+    for (const a of AGENT_CATALOG) {
+      if (a.install?.npm) out.push({ id: a.id, pkg: a.install.npm });
+      for (const v of a.variants ?? []) if (v.install?.npm) out.push({ id: a.id, pkg: v.install.npm });
+    }
+    return out;
+  };
+
+  it("every npm package is in a scope the vendor owns", () => {
+    for (const { id, pkg } of npmInstalls()) {
+      const scopes = VENDOR_SCOPES[id];
+      expect(scopes, `${id} installs '${pkg}' from npm and no vendor scope is declared for it — ` +
+        "add one only after checking the package's maintainers, or install from the vendor's own URL").to.not.equal(undefined);
+      expect(scopes!.some((s) => pkg.startsWith(`${s}/`)), `${id}: '${pkg}' is outside ${scopes!.join(", ")}`).to.equal(true);
+    }
+  });
+
+  it("ibm-bob installs from IBM's own channel, never npm", () => {
+    const bob = AGENT_CATALOG.find((a) => a.id === "ibm-bob")!;
+    const everyInstall = [bob.install, ...(bob.variants ?? []).map((v) => v.install)].filter(Boolean);
+    for (const i of everyInstall) {
+      expect(i!.npm, "no npm coordinate — the one that was here was not IBM's").to.equal(undefined);
+      expect(i!.url).to.match(/^https:\/\/bob\.ibm\.com/);
+    }
+    expect(bob.install?.script, "IBM's script is the channel").to.match(/^curl -fsSL https:\/\/bob\.ibm\.com\//);
+  });
+
+  it("every install names where it comes from, runnable or not", () => {
+    // `url` is required even where gov cannot install the thing — windsurf, cline and
+    // continue are downloads or extensions, and the URL is what the menu shows instead of
+    // silently offering nothing.
+    for (const a of AGENT_CATALOG) {
+      if (!a.install) continue;
+      expect(a.install.url, `${a.id} must name where it comes from`).to.match(/^https:\/\//);
+    }
   });
 });

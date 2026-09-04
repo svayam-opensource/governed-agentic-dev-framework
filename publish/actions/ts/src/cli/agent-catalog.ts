@@ -139,15 +139,24 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // IBM's own quickstart: "Bob is a standalone IDE application and not an
   // extension"). Reads AGENTS.md, which the framework already renders, so it needed
   // no new harness.
+  //
+  // NO npm COORDINATE, DELIBERATELY (#201). This entry carried `npm: "@bobsworkshop/cli"`,
+  // which is not IBM's: one maintainer, `topseedr2infinity`, repo `Topseeder1/bob-cli`,
+  // first published 2026-06-06. `planAgentInstall` prefers npm over script, so an
+  // Infrastructure Owner who approved "IBM Bob" — and per #196 Q2 that approval IS the
+  // trust decision — got `npm install -g` of a stranger's package every time. IBM ships
+  // through bob.ibm.com, whose certificate is issued to International Business Machines
+  // Corporation; that is the only channel here. Restore an npm package only when it sits
+  // in an IBM-owned scope, and let `every-npm-package-is-the-vendor's` say so.
   { id: "ibm-bob", tool: "IBM Bob", launch: "cli", cmd: "bob",
-    install: { npm: "@bobsworkshop/cli", script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" },
+    install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" },
     credentialEnv: "BOB_API_KEY", signupUrl: "https://bob.ibm.com",
     variants: [
       // No login subcommand: Bob Shell opens the browser itself when it needs to
       // authenticate, so there is nothing for gov to run — which is tier 1 working
       // exactly as intended, with gov never near the credential.
       { kind: "cli", label: "in the terminal", cmd: "bob",
-        install: { npm: "@bobsworkshop/cli", script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" } },
+        install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" } },
       { kind: "editor", label: "the Bob IDE", cmd: "bob-ide", install: { url: "https://bob.ibm.com/download" } },
     ] },
   { id: "aider", tool: "Aider", launch: "cli", cmd: "aider",

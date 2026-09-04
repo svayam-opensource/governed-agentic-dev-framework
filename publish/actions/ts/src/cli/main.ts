@@ -121,6 +121,18 @@ function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boo
     if (!ok) return false;
     process.stdout.write(`\n  ✓ ${plan.agent.tool} installed\n`);
 
+    // INSTALLED IS NOT RUNNABLE (#202). npm exiting 0 says a package was written to disk;
+    // it says nothing about whether the command it claims to provide runs. An `ibm-bob`
+    // install produced a `bob` with no shebang — thirty lines of shell errors, after three
+    // ticks and a "Starting it in…". So the plan's own probe is re-run against the thing
+    // the plan just created, and installed-but-not-runnable is reported as what it is.
+    if (plan.agent.cmd && tryRun(plan.agent.cmd, ["--version"]) === undefined) {
+      process.stdout.write(`\n  ✗ ${plan.agent.tool} installed, but '${plan.agent.cmd}' does not run.\n`);
+      process.stdout.write("    The install reported success, so this is the vendor's package, not your machine.\n");
+      if (plan.agent.install?.url) process.stdout.write(`    Check ${plan.agent.install.url}, and tell gov-work what you find.\n`);
+      return false;
+    }
+
     // SIGNING IN IS THE PART NOBODY CAN AUTOMATE. Even the account is theirs to
     // create — no vendor exposes signup as an API, and gov holds no credential.
     if (headless) {
