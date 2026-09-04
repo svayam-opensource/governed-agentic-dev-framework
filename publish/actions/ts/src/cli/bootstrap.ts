@@ -323,13 +323,17 @@ export interface FirstRunIo {
   /** What to do now, for an adopter. */
   adopterNextSteps?: () => readonly string[];
   /**
-   * Start the policy review the next-steps block just described (#203).
+   * Start the work the next-steps block just described (#203).
+   *
+   * BOTH ROLES END WITH THREE STEPS TO RETYPE, so both get the offer. An adopter is sent to
+   * the starter review project by name; a joiner has no such project — theirs is whichever
+   * they are assigned — so they get the picker, which is step 3 of their own instructions.
    *
    * Returns the exit code of that session, or null when there was nothing to open — no
-   * starter project, or no workspace resolved. Optional: without it adoption ends exactly
-   * as it did, with the three steps printed.
+   * starter project, or no workspace resolved. Optional: without it the run ends exactly
+   * as it did.
    */
-  reviewNow?: () => Promise<number | null>;
+  reviewNow?: (role: AdoptionRole) => Promise<number | null>;
   /** What to do now, for a joiner. */
   joinerNextSteps?: () => readonly string[];
   /** register the home and make it active. */
@@ -497,7 +501,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   // THE REAL END, and the only place the word "final" is true.
   for (const line of io.finalStatus?.("adopter") ?? []) io.print(line);
   for (const line of io.adopterNextSteps?.() ?? []) io.print(line);
-  return await offerTheReview(io);
+  return await offerTheReview(io, "adopter");
 }
 
 /**
@@ -517,23 +521,29 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
  * install a tool may want to read roles.md first. A keypress makes the governed route the
  * default without making it compulsory.
  */
-async function offerTheReview(io: FirstRunIo): Promise<number> {
+async function offerTheReview(io: FirstRunIo, role: AdoptionRole): Promise<number> {
   if (!io.reviewNow) return 0;
+  // The adopter has one thing to do and gov knows which; the joiner has a list only they can
+  // choose from. Same offer, different last word.
+  const question = role === "adopter"
+    ? "  Would you like to review your governance policies now, with gov and your agent? [Y/n]: "
+    : "  Would you like to start work now? gov will list the projects you are assigned to. [Y/n]: ";
   io.print("");
-  const yes = (await io.prompt("  Would you like to review your governance policies now, with gov and your agent? [Y/n]: ", "Y"))
-    .trim().toLowerCase();
+  const yes = (await io.prompt(question, "Y")).trim().toLowerCase();
   if (yes.startsWith("n")) {
     io.print("");
-    io.print("  Nothing else to do here. When you are ready:  gov   → 1. Work → the review project.");
+    io.print(role === "adopter"
+      ? "  Nothing else to do here. When you are ready:  gov   → 1. Work → the review project."
+      : "  Nothing else to do here. When you are ready:  gov   → 1. Work → your project.");
     return 0;
   }
-  const code = await io.reviewNow();
+  const code = await io.reviewNow(role);
   // NULL IS NOT FAILURE. No starter project means the adopter declined it a moment ago, or
   // the token could not create a board — both already reported, neither worth a second
   // complaint at the very end of a successful adoption.
   if (code === null) {
     io.print("");
-    io.print("  There is no review project to open. Create one later with:  gov   → 1. Work");
+    io.print("  There is nothing to open yet. When there is:  gov   → 1. Work");
     return 0;
   }
   return code;
@@ -668,7 +678,10 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
     const after = founding ? io.adopterNextSteps : io.joinerNextSteps;
     for (const line of after?.() ?? []) io.print(line);
     io.print(`Active org → ${identity.org}`);
-    return 0;
+    // The joiner's next steps are the same three lines to retype — run gov, choose Work, pick
+    // your project — and this path is where an ADOPTER lands too once #197 finds their org is
+    // already governed. Ending it with a recipe was the gap the offer exists to close.
+    return await offerTheReview(io, founding ? "adopter" : "joiner");
   } catch (e) {
     io.print(`${(e as Error)?.message ?? String(e)}`);
     return 1;

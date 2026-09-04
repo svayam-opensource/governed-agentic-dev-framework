@@ -21,6 +21,8 @@ import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work
 import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
 import { readSecret, type SecretIo } from "./secret-prompt.js";
 import { reporter, useColor } from "./format.js";
+/** One answer for the whole process: whether STDOUT can carry ANSI (#204). */
+const stdoutColor = (): boolean => useColor({ isTty: process.stdout.isTTY === true, env: process.env });
 import type { AgentCandidate } from "./agent-catalog.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
@@ -113,7 +115,7 @@ function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boo
     // NAMED PHASES AND TWO MARKS (#204). The arrow is under way, the tick is true now. It was
     // one mark doing both jobs, in a wall of text dense enough that a five-minute browser
     // sign-in arrived with no break before it.
-    const r0 = reporter(useColor({ isTty: process.stdout.isTTY === true, env: process.env }));
+    const r0 = reporter(stdoutColor());
     const say = (l: string): void => { process.stdout.write(`${l}\n`); };
     const sayAll = (ls: readonly string[]): void => { for (const l of ls) say(l); };
 
@@ -645,7 +647,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
         // own name, as things they had failed to do rather than things not theirs to do.
         role,
         approvedAgents: (parseApprovedAgents(policy) ?? []).map((a) => a.id),
-      }));
+      }), stdoutColor());
     },
     adopterNextSteps: () => {
       const r = prjResolveGov(createNodeEnv());
@@ -735,10 +737,13 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // replaces those three lines. Matched by slug rather than by a board number
     // captured earlier: the starter project may also have been created on a previous
     // run, and the slug is what `deriveProjectIdentity` produces from its title either way.
-    reviewNow: async () => {
+    reviewNow: async (role) => {
       const who = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null;
       const workDeps = buildWorkDeps(who);
       if (!workDeps) return null;
+      // An ADOPTER has exactly one thing to review and gov made it, so it is named. A JOINER's
+      // project is whichever they are assigned — nobody but them can pick it — so they get the
+      // picker, which is step 3 of the instructions this question replaces.
       const spec = starterProject("", "");                       // the title is org-independent
       const slug = spec.boardTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-");
       // Its own readline: `ask` above holds one only for the length of a question, and the
@@ -747,7 +752,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       try {
         return await runWorkFlow(
           { ...workDeps, prompt: (q) => new Promise((res) => rl2.question(q, res)), print: (l) => process.stderr.write(`${l}\n`) },
-          { projectPattern: slug, interactive: true },
+          { ...(role === "adopter" ? { projectPattern: slug } : {}), interactive: true },
         );
       } finally { rl2.close(); }
     },
@@ -1228,7 +1233,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         ? []
         : RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
     });
-    for (const line of formatDoctorReport(report)) process.stdout.write(`${line}\n`);
+    for (const line of formatDoctorReport(report, stdoutColor())) process.stdout.write(`${line}\n`);
 
     // `--fix` (#186): act on the report instead of leaving the reader to translate
     // hints into commands for a package manager they may not have. Interactive by
@@ -1269,7 +1274,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           : undefined,
       });
       for (const line of checklistPreamble()) process.stdout.write(`${line}\n`);
-      for (const line of renderChecklist(checklist(facts()))) process.stdout.write(`${line}\n`);
+      for (const line of renderChecklist(checklist(facts()), stdoutColor())) process.stdout.write(`${line}\n`);
 
       process.stdout.write("\n");
       for (const line of formatPlanNarrative(plan)) process.stdout.write(`${line}\n`);
@@ -1443,7 +1448,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           // The run reads as the plan did: a banner opens the step, the command is
           // shown, and a ticked line closes it. Same numbers, same words.
           const item = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
-          if (item) for (const line of stepBanner(item)) process.stdout.write(`${line}\n`);
+          if (item) for (const line of stepBanner(item, stdoutColor())) process.stdout.write(`${line}\n`);
           process.stdout.write(`  run:  ${renderCommand(step)}\n`);
           // sudo is prepended only here, where the user has just seen and accepted the
           // exact line — never silently inside the plan. Two environments make the
@@ -1462,7 +1467,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           if (r.status === 0) {
             ran++;
             const it = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
-            process.stdout.write(it ? `\n${stepDone(it)}\n` : "  ✓ done\n");
+            process.stdout.write(it ? `\n${stepDone(it, true, stdoutColor())}\n` : `  ${reporter(stdoutColor()).ok("done")}\n`);
           }
           else {
             failed++;
@@ -1490,7 +1495,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         gitIdentityOk: Boolean(gitCfg("user.name") && gitCfg("user.email")),
       };
       // `doctor --fix` is a waypoint, not the end: the organization comes next.
-      for (const line of statusSoFar(checklist(after))) process.stdout.write(`${line}\n`);
+      for (const line of statusSoFar(checklist(after), stdoutColor())) process.stdout.write(`${line}\n`);
       return failed ? 1 : 0;
     }
 

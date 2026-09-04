@@ -21,6 +21,8 @@
  * they are done.
  */
 
+import { paint } from "./format.js";
+
 /** What gov can see about how far adoption has got. */
 export interface ChecklistFacts {
   readonly gitPresent: boolean;
@@ -118,11 +120,17 @@ export function checklist(f: ChecklistFacts): readonly ChecklistItem[] {
   return items;
 }
 
-export function renderChecklist(items: readonly ChecklistItem[]): readonly string[] {
+/**
+ * `color` off by default (#204): the tick is the meaning, and the colour only makes it easier
+ * to find. A done item's text is dimmed rather than its tick recoloured twice — the eye is
+ * looking for what is LEFT, and dimming what is finished is what puts it there.
+ */
+export function renderChecklist(items: readonly ChecklistItem[], color = false): readonly string[] {
   const width = Math.max(...items.map((i) => i.n.length));
   return items.map((i) => {
     const num = `${i.n}.`.padEnd(width + 1);
-    return `  ${i.sub ? "   " : ""}${num} [${i.done ? "✓" : " "}] ${i.text}`;
+    const box = i.done ? `[${paint("\u2713", "green", color)}]` : "[ ]";
+    return `  ${i.sub ? "   " : ""}${num} ${box} ${i.done ? paint(i.text, "dim", color) : i.text}`;
   });
 }
 
@@ -144,13 +152,13 @@ export function checklistPreamble(): readonly string[] {
 }
 
 /** The banner that opens one step, so the run reads as the plan did. */
-export function stepBanner(item: ChecklistItem): readonly string[] {
-  return ["", "", RULE, `===> ${item.n}. ${item.text}`, ""];
+export function stepBanner(item: ChecklistItem, color = false): readonly string[] {
+  return ["", "", RULE, paint(`===> ${item.n}. ${item.text}`, "bold", color), ""];
 }
 
 /** The line that closes it. */
-export function stepDone(item: ChecklistItem, ok = true): string {
-  return `===> ${item.n}. [${ok ? "✓" : " "}] ${item.text}`;
+export function stepDone(item: ChecklistItem, ok = true, color = false): string {
+  return `===> ${item.n}. [${ok ? paint("\u2713", "green", color) : " "}] ${item.text}`;
 }
 
 /**
@@ -161,7 +169,7 @@ export function stepDone(item: ChecklistItem, ok = true): string {
  * A heading that announces an ending which has not come teaches the reader to
  * distrust the rest of the screen.
  */
-export function statusSoFar(items: readonly ChecklistItem[]): readonly string[] {
+export function statusSoFar(items: readonly ChecklistItem[], color = false): readonly string[] {
   const remaining = items.filter((i) => !i.done && !i.sub).length;
   return [
     "",
@@ -170,7 +178,7 @@ export function statusSoFar(items: readonly ChecklistItem[]): readonly string[] 
       ? `  Where things stand — ${remaining} step(s) still to go`
       : "  Where things stand — everything on this machine is done",
     RULE,
-    ...renderChecklist(items),
+    ...renderChecklist(items, color),
     "",
   ];
 }
@@ -179,20 +187,20 @@ export function statusSoFar(items: readonly ChecklistItem[]): readonly string[] 
  * The end, and meant to be kept — which is why every path is spelled out rather
  * than referred to.
  */
-export function finalStatus(items: readonly ChecklistItem[]): readonly string[] {
+export function finalStatus(items: readonly ChecklistItem[], color = false): readonly string[] {
   return [
     "",
     RULE,
     "  Final status — worth a screenshot. These paths are also in your org-config.yaml.",
     RULE,
-    ...renderChecklist(items),
+    ...renderChecklist(items, color),
     "",
   ];
 }
 
 /** Shown again as work completes, so "how far along am I" never needs asking. */
-export function checklistProgress(items: readonly ChecklistItem[]): readonly string[] {
+export function checklistProgress(items: readonly ChecklistItem[], color = false): readonly string[] {
   const done = items.filter((i) => i.done && !i.sub).length;
   const total = items.filter((i) => !i.sub).length;
-  return ["", `Progress — ${done} of ${total} done:`, "", ...renderChecklist(items), ""];
+  return ["", `Progress \u2014 ${done} of ${total} done:`, "", ...renderChecklist(items, color), ""];
 }

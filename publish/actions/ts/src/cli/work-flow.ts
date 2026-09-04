@@ -473,8 +473,12 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
     }
     if (code !== 0) return code;
   } else if (state === "not-cloned") {
+    // THE BOARD URL, NOT THE ID (#206). `join` opens with `parseBoardUrl`, so an id got as far
+    // as "Not a GitHub Project URL: PRJ-5-…" and no further. The seed call above always passed
+    // `p.url`; this one did not, and the arm was near-unreachable until #198 sent every fresh
+    // machine through it.
     print(`  Cloning your workspace for '${p.projectId}'…`);
-    const code = await deps.run(["join", p.projectId]);
+    const code = await deps.run(["join", p.url]);
     if (code !== 0) return code;
   }
 

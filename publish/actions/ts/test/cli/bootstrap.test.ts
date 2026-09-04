@@ -408,7 +408,21 @@ describe("gov-work — adoption offers to start the policy review", () => {
       reviewNow: async () => null,
     });
     expect(await runFirstRun(w)).to.equal(0);
-    expect(out.join("\n")).to.match(/no review project to open/);
+    expect(out.join("\n")).to.match(/nothing to open yet/);
+  });
+
+  it("a JOINER is offered it too — their next steps are the same three lines to retype", async () => {
+    // And this is where an ADOPTER lands once #197 finds their organization already governed,
+    // so skipping it here left the pivot ending in a recipe.
+    const roles: string[] = [];
+    const asked: string[] = [];
+    const { w } = io({
+      prompt: async (q, def) => { asked.push(q); return /Select \(A\/B\/C\)/.test(q) ? "B" : (/start work now/.test(q) ? def : URL); },
+      reviewNow: async (role) => { roles.push(role); return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(roles, "the picker, not the starter project — only they know which is theirs").to.deep.equal(["joiner"]);
+    expect(asked.at(-1)).to.match(/start work now.*projects you are assigned to/);
   });
 
   it("without the hook, adoption ends exactly as it did", async () => {

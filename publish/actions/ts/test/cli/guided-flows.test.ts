@@ -97,7 +97,10 @@ describe("gov-work — guided Work flow", () => {
     // PRJ-7 has an anchor, so it is seeded — the missing directory means it is not cloned HERE (#198).
     const { deps: d, out, ran, launched } = deps({ prompt: async () => "1" });   // project 1, then agent 1 (Claude)
     const code = await runWorkFlow(d);
-    expect(ran[0][0]).to.equal("join");           // not-cloned → join
+    // THE WHOLE ARGV (#206). It asserted only position 0, so `join` being handed a project id
+    // where a board URL is required passed here and failed on a container: "Not a GitHub
+    // Project URL: PRJ-5-…". An argument list checked at position 0 is half a test.
+    expect(ran[0]).to.deep.equal(["join", "https://github.com/orgs/Acme/projects/7"]);
     expect(out.join("\n")).to.match(/is ready at/);
     expect(launched.map(([a, c]) => [a, px(c)])).to.deep.equal([["claude-code", "/work/PRJ-7-alpha"]]);   // launch-in-<project> (NOT the workspace subdir)
     expect(code).to.equal(0);
@@ -106,7 +109,7 @@ describe("gov-work — guided Work flow", () => {
   it("a board with no anchor is SEEDED — that is the case seed exists for", async () => {
     const { deps: d, ran, launched } = unseededDeps({ prompt: async () => "1" });
     expect(await runWorkFlow(d)).to.equal(0);
-    expect(ran[0][0]).to.equal("seed");
+    expect(ran[0], "the board URL, and me as the assignee").to.deep.equal(["seed", "https://github.com/orgs/Acme/projects/9", "rk"]);
     expect(launched.map(([a, c]) => [a, px(c)])).to.deep.equal([["claude-code", "/work/PRJ-9-infra"]]);
   });
 

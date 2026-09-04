@@ -186,3 +186,33 @@ describe("gov-work — a probe must not be disabled by a stale capture (#186)", 
     expect(step6(after).done, "installed and configured in the same run").to.equal(true);
   });
 });
+
+/**
+ * COLOUR IS A SECOND CHANNEL (#204). The checklist and the doctor report are the two screens an
+ * adopter reads most, and both stayed plain while the installer around them did not. What these
+ * pin is that turning the colour on changes nothing except the colour.
+ */
+describe("gov-work — the checklist in colour (#204)", () => {
+  // eslint-disable-next-line no-control-regex
+  const strip = (s: string): string => s.replace(/\u001b\[\d+m/g, "");
+  const items = checklist({ ...BARE, gitPresent: true });
+
+  it("stripping the codes gives back exactly the plain render", () => {
+    expect(renderChecklist(items, true).map(strip)).to.deep.equal([...renderChecklist(items, false)]);
+    expect(statusSoFar(items, true).map(strip)).to.deep.equal([...statusSoFar(items, false)]);
+    expect(finalStatus(items, true).map(strip)).to.deep.equal([...finalStatus(items, false)]);
+    expect(strip(stepDone(items[0]!, true, true))).to.equal(stepDone(items[0]!, true, false));
+    expect(stepBanner(items[0]!, true).map(strip)).to.deep.equal([...stepBanner(items[0]!, false)]);
+  });
+
+  it("plain is the default — a caller that has not been told where it writes stays plain", () => {
+    expect(renderChecklist(items).join("")).to.not.contain("\u001b");
+    expect(finalStatus(items).join("")).to.not.contain("\u001b");
+  });
+
+  it("the box still says done or not with no colour at all", () => {
+    const plain = renderChecklist(items, false);
+    expect(plain[0], "step 1 is done by construction").to.contain("[\u2713]");
+    expect(plain.find((l) => /gh, the GitHub CLI/.test(l))).to.contain("[ ]");
+  });
+});

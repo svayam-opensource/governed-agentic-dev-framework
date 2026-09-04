@@ -5,6 +5,7 @@
  * gov workspace resolves, an active org is selected, and the CLI version. Pure
  * over injected facts, so it's fully testable; the real facts are gathered in main().
  */
+import { paint, type Ink } from "../cli/format.js";
 import type { ResolveResult } from "../resolve/types.js";
 import { resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { checkVersionCompat } from "./version-compat.js";
@@ -119,12 +120,22 @@ export function doctor(facts: DoctorFacts): DoctorReport {
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
 }
 
-const MARK: Record<DiagnosticStatus, string> = { ok: "✓", warn: "!", fail: "✗" };
+const MARK: Record<DiagnosticStatus, string> = { ok: "\u2713", warn: "!", fail: "\u2717" };
+const INK: Record<DiagnosticStatus, Ink> = { ok: "green", warn: "yellow", fail: "red" };
 
-/** Render a report as printable lines. */
-export function formatDoctorReport(report: DoctorReport): string[] {
+/**
+ * Render a report as printable lines.
+ *
+ * `color` is off by default so every caller that has not been told where it is writing keeps
+ * plain text — and so the marks stay the meaning (#204). The mark is never dropped when the
+ * colour is: a reader with NO_COLOR set must be able to tell a fail from an ok, and here that
+ * distinction is the whole output.
+ */
+export function formatDoctorReport(report: DoctorReport, color = false): string[] {
   return [
-    ...report.diagnostics.map((x) => `  ${MARK[x.status]} ${x.name}: ${x.detail}`),
-    report.ok ? "doctor: ok" : "doctor: FAILED — fix the ✗ items above",
+    ...report.diagnostics.map((x) => `  ${paint(MARK[x.status], INK[x.status], color)} ${x.name}: ${x.detail}`),
+    report.ok
+      ? paint("doctor: ok", "green", color)
+      : paint("doctor: FAILED \u2014 fix the \u2717 items above", "red", color),
   ];
 }

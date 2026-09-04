@@ -45,7 +45,7 @@ export function useColor(f: ColorFacts): boolean {
 }
 
 const ESC = "\u001b[";
-const CODES = { reset: `${ESC}0m`, bold: `${ESC}1m`, dim: `${ESC}2m`, green: `${ESC}32m`, red: `${ESC}31m`, cyan: `${ESC}36m` } as const;
+const CODES = { reset: `${ESC}0m`, bold: `${ESC}1m`, dim: `${ESC}2m`, green: `${ESC}32m`, yellow: `${ESC}33m`, red: `${ESC}31m`, cyan: `${ESC}36m` } as const;
 export type Ink = keyof Omit<typeof CODES, "reset">;
 
 /** Wrap in an ANSI code, or return the text untouched. The only place a code is written. */
