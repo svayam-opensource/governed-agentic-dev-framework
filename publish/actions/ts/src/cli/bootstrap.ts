@@ -322,6 +322,14 @@ export interface FirstRunIo {
   finalStatus?: (role: AdoptionRole) => readonly string[];
   /** What to do now, for an adopter. */
   adopterNextSteps?: () => readonly string[];
+  /**
+   * Start the policy review the next-steps block just described (#203).
+   *
+   * Returns the exit code of that session, or null when there was nothing to open — no
+   * starter project, or no workspace resolved. Optional: without it adoption ends exactly
+   * as it did, with the three steps printed.
+   */
+  reviewNow?: () => Promise<number | null>;
   /** What to do now, for a joiner. */
   joinerNextSteps?: () => readonly string[];
   /** register the home and make it active. */
@@ -489,7 +497,46 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   // THE REAL END, and the only place the word "final" is true.
   for (const line of io.finalStatus?.("adopter") ?? []) io.print(line);
   for (const line of io.adopterNextSteps?.() ?? []) io.print(line);
-  return 0;
+  return await offerTheReview(io);
+}
+
+/**
+ * The last question, and the one the whole run was for (#203).
+ *
+ * Adoption ended by printing three steps — run gov, choose Work, pick the review project —
+ * at the close of a run that had just spent ten minutes proving it could do exactly that.
+ * Every precondition is satisfied by this point: the starter project exists (#186), the
+ * workspace resolves, the approved agent is installed. Handing back a recipe was the only
+ * part still done by hand.
+ *
+ * It matters which route is cheapest. The three ways to review are listed in the
+ * next-steps block, and only one of them is GOVERNED — changes on a project branch,
+ * arriving as a pull request. That was the one costing the most keystrokes.
+ *
+ * ASKED, NOT ASSUMED. Launching an agent takes over the terminal, and someone who came to
+ * install a tool may want to read roles.md first. A keypress makes the governed route the
+ * default without making it compulsory.
+ */
+async function offerTheReview(io: FirstRunIo): Promise<number> {
+  if (!io.reviewNow) return 0;
+  io.print("");
+  const yes = (await io.prompt("  Would you like to review your governance policies now, with gov and your agent? [Y/n]: ", "Y"))
+    .trim().toLowerCase();
+  if (yes.startsWith("n")) {
+    io.print("");
+    io.print("  Nothing else to do here. When you are ready:  gov   → 1. Work → the review project.");
+    return 0;
+  }
+  const code = await io.reviewNow();
+  // NULL IS NOT FAILURE. No starter project means the adopter declined it a moment ago, or
+  // the token could not create a board — both already reported, neither worth a second
+  // complaint at the very end of a successful adoption.
+  if (code === null) {
+    io.print("");
+    io.print("  There is no review project to open. Create one later with:  gov   → 1. Work");
+    return 0;
+  }
+  return code;
 }
 
 /**

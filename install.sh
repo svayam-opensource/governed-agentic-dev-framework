@@ -38,16 +38,25 @@ GOV_HOME="${GOV_INSTALL_DIR:-$HOME/.local/share/gov}"
 NODE_DIR="$GOV_HOME/node"
 
 # ── output ────────────────────────────────────────────────────────────────────
-if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-  B=$'\033[1m'; DIM=$'\033[2m'; GRN=$'\033[32m'; YEL=$'\033[33m'; RED=$'\033[31m'; RST=$'\033[0m'
+# TERM=dumb is the terminal saying what NO_COLOR says on the person's behalf (#204). Both are
+# obeyed; neither is a preference to override.
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != "dumb" ]; then
+  B=$'\033[1m'; DIM=$'\033[2m'; GRN=$'\033[32m'; YEL=$'\033[33m'; RED=$'\033[31m'; CYA=$'\033[36m'; RST=$'\033[0m'
 else
-  B=""; DIM=""; GRN=""; YEL=""; RED=""; RST=""
+  B=""; DIM=""; GRN=""; YEL=""; RED=""; CYA=""; RST=""
 fi
 # Display a path with $HOME shortened to ~. Written as a function because
 # "${p/#$HOME/\~}" keeps the backslash in bash and prints a literal \~.
 tilde() { case "$1" in "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;; *) printf '%s' "$1" ;; esac; }
 say()  { printf '%s\n' "$*"; }
-step() { printf '%s==>%s %s\n' "$B" "$RST" "$*"; }
+# A NAMED PHASE, SET OFF BY BLANK LINES (#204). It was `==> title` inline, in output dense
+# enough that the five-minute browser sign-in arrived with nothing before it — which is how
+# the PATH reminder went unread in #186. The blank lines belong to the phase, so no caller
+# has to remember them.
+step() { printf '\n%s%s%s\n\n' "$B" "$*" "$RST"; }
+# TWO MARKS, TWO MEANINGS. The arrow is under way or informational; the tick is a fact that is
+# now true. One mark doing both jobs gave the eye nothing to sort by.
+info() { printf '  %s→%s %s\n' "$CYA" "$RST" "$*"; }
 ok()   { printf '  %s✓%s %s\n' "$GRN" "$RST" "$*"; }
 skip() { printf '  %s·%s %s %s(already present)%s\n' "$DIM" "$RST" "$*" "$DIM" "$RST"; }
 warn() { printf '  %s!%s %s\n' "$YEL" "$RST" "$*"; }
@@ -65,7 +74,7 @@ spin() {
   local log; log="$(mktemp)"
   local rc=0
   if [ ! -t 1 ]; then                       # no terminal: no animation, just say it
-    printf '  %s… ' "$msg"
+    printf '  %s→%s %s… ' "$CYA" "$RST" "$msg"
     # `|| rc=$?` matters under `set -e`: a bare failing command would end the whole
     # script HERE, silently, with the log still unread — the reader sees the prompt
     # come back and nothing else.
@@ -272,7 +281,7 @@ install_node() {
   [ -n "$file" ] || die "no Node $NODE_MAJOR build published for $plat"
   url="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/$file"
 
-  say "  downloading ${file} (about 50 MB)"
+  info "downloading ${file} (about 50 MB)"
   curl -fSL --progress-bar "$url" -o "$tmp/node.tar.gz" || die "download failed: $url"
 
   rm -rf "$NODE_DIR"; mkdir -p "$NODE_DIR"
@@ -287,8 +296,8 @@ install_node() {
 }
 
 install_gov() {
-  say ""; say ""; say "$RULE"
-  step "Step 2 — installing the governance client ($GOV_PKG)"
+  say ""; say "$RULE"
+  step "Installing the governance client — $GOV_PKG"
   need npm || die "npm did not come with Node — the install is incomplete. Remove $(tilde "$NODE_DIR") and re-run."
 
   # If we are using a Node we did NOT install, its global prefix may be a system

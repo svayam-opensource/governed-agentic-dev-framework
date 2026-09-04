@@ -361,6 +361,64 @@ describe("gov-work — first run: an adopter whose org is already governed", () 
 });
 
 /**
+ * THE LAST QUESTION (#203). Adoption used to end by printing three steps — run gov, choose
+ * Work, pick the review project — at the close of a run that had just proved it could do
+ * all three. The governed route was the one costing the most keystrokes.
+ */
+describe("gov-work — adoption offers to start the policy review", () => {
+  const adopter = (extra: (q: string) => string | undefined) =>
+    async (q: string, def: string): Promise<string> => {
+      if (/Select \(A\/B\/C\)/.test(q)) return "A";
+      if (/Which organization/.test(q)) return "acme-corp";
+      return extra(q) ?? def;
+    };
+
+  it("asks after the next steps, and Enter is yes", async () => {
+    let opened = 0;
+    const asked: string[] = [];
+    const { w } = io({
+      // Takes the default at every question, which is what pressing Enter throughout does.
+      prompt: async (q, def) => { asked.push(q); return adopter(() => undefined)(q, def); },
+      createWorkspace: async () => 0,
+      reviewNow: async () => { opened++; return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(opened, "the default opens it — the governed route is the cheap one now").to.equal(1);
+    expect(asked.at(-1), "and it is the LAST thing asked").to.match(/review your governance policies now.*\[Y\/n\]/);
+  });
+
+  it("declining changes nothing, and still names the way back", async () => {
+    let opened = 0;
+    const { w, out } = io({
+      prompt: adopter((q) => (/review your governance policies/.test(q) ? "n" : undefined)),
+      createWorkspace: async () => 0,
+      reviewNow: async () => { opened++; return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(opened, "nobody's terminal is taken over without a yes").to.equal(0);
+    expect(out.join("\n")).to.match(/gov {3}→ 1\. Work/);
+  });
+
+  it("no starter project is not a failure at the end of a successful adoption", async () => {
+    // They declined it a moment ago, or the token could not create a board. Both were
+    // already reported; a second complaint on the last line helps nobody.
+    const { w, out } = io({
+      prompt: adopter(() => undefined),
+      createWorkspace: async () => 0,
+      reviewNow: async () => null,
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(out.join("\n")).to.match(/no review project to open/);
+  });
+
+  it("without the hook, adoption ends exactly as it did", async () => {
+    const { w, out } = io({ prompt: adopter(() => undefined), createWorkspace: async () => 0 });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(out.join("\n")).to.not.match(/review your governance policies now/);
+  });
+});
+
+/**
  * WHICH ROLE THE RUN ENDED IN decides the last screen, and it is derived from what happened —
  * not from what was answered at the role question (#197).
  */

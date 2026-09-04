@@ -20,6 +20,7 @@ import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
 import { readSecret, type SecretIo } from "./secret-prompt.js";
+import { reporter, useColor } from "./format.js";
 import type { AgentCandidate } from "./agent-catalog.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
@@ -109,29 +110,46 @@ function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boo
     // it is left, and the machine ends in a state `gov agent` can describe:
     // installed, not signed in.
     const headless = !process.stdin.isTTY;
-    process.stdout.write(`\n  Installing ${plan.agent.tool}:\n`);
-    for (const s of plan.steps) process.stdout.write(`    ${s.command.join(" ")}\n`);
+    // NAMED PHASES AND TWO MARKS (#204). The arrow is under way, the tick is true now. It was
+    // one mark doing both jobs, in a wall of text dense enough that a five-minute browser
+    // sign-in arrived with no break before it.
+    const r0 = reporter(useColor({ isTty: process.stdout.isTTY === true, env: process.env }));
+    const say = (l: string): void => { process.stdout.write(`${l}\n`); };
+    const sayAll = (ls: readonly string[]): void => { for (const l of ls) say(l); };
+
+    sayAll(r0.phase(`Installing ${plan.agent.tool}`));
+    // SHOWN BEFORE ANYTHING RUNS, with WHERE IT COMES FROM (#201). An adopter who approved a
+    // vendor can only refuse a package that is not theirs if they are told which one it is.
+    for (const s of plan.steps) say(r0.step(s.command.join(" ")));
+    if (plan.agent.install?.url) say(r0.step(`Vendor: ${plan.agent.install.url}`));
+    say("");
+
     let ok = true;
     for (const s of plan.steps) {
-      process.stdout.write(`\n  ${s.what}…\n`);
+      say(r0.step(`${s.what}…`));
       const [bin, ...rest] = s.command;
       const r = spawnSync(bin!, rest, { stdio: "inherit" });
-      if (r.status !== 0) { ok = false; process.stdout.write(`  ✗ ${s.what} failed — see above\n`); }
+      if (r.status !== 0) { ok = false; say(r0.fail(`${s.what} failed — see above`)); }
     }
     if (!ok) return false;
-    process.stdout.write(`\n  ✓ ${plan.agent.tool} installed\n`);
 
     // INSTALLED IS NOT RUNNABLE (#202). npm exiting 0 says a package was written to disk;
     // it says nothing about whether the command it claims to provide runs. An `ibm-bob`
     // install produced a `bob` with no shebang — thirty lines of shell errors, after three
     // ticks and a "Starting it in…". So the plan's own probe is re-run against the thing
     // the plan just created, and installed-but-not-runnable is reported as what it is.
-    if (plan.agent.cmd && tryRun(plan.agent.cmd, ["--version"]) === undefined) {
-      process.stdout.write(`\n  ✗ ${plan.agent.tool} installed, but '${plan.agent.cmd}' does not run.\n`);
-      process.stdout.write("    The install reported success, so this is the vendor's package, not your machine.\n");
-      if (plan.agent.install?.url) process.stdout.write(`    Check ${plan.agent.install.url}, and tell gov-work what you find.\n`);
+    const version = plan.agent.cmd ? tryRun(plan.agent.cmd, ["--version"]) : undefined;
+    if (plan.agent.cmd && version === undefined) {
+      say("");
+      say(r0.fail(`${plan.agent.tool} installed, but '${plan.agent.cmd}' does not run.`));
+      say("    The install reported success, so this is the vendor's package, not your machine.");
+      if (plan.agent.install?.url) say(`    Check ${plan.agent.install.url}, and tell gov-work what you find.`);
       return false;
     }
+    // SAY WHAT IS TRUE, not that something happened: the version is the proof the probe just
+    // gathered, and "Bob Shell 2.0.2 installed" is a claim a reader can check.
+    say("");
+    say(r0.ok(`${plan.agent.tool}${version ? ` ${version.trim().split("\n")[0]}` : ""} installed and runnable`));
 
     // SIGNING IN IS THE PART NOBODY CAN AUTOMATE. Even the account is theirs to
     // create — no vendor exposes signup as an API, and gov holds no credential.
@@ -711,6 +729,27 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
         if (n) issues.addToBoard(cfg.org, n, issueUrl);
       }
       return ["", "Starter project:", ...starterSummary({ boardUrl, issueUrl, seeded: false })];
+    },
+    // THE LAST STEP, DONE RATHER THAN DESCRIBED (#203). The same code path as
+    // `gov` -> 1. Work -> pick the review project, reached from the question that
+    // replaces those three lines. Matched by slug rather than by a board number
+    // captured earlier: the starter project may also have been created on a previous
+    // run, and the slug is what `deriveProjectIdentity` produces from its title either way.
+    reviewNow: async () => {
+      const who = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null;
+      const workDeps = buildWorkDeps(who);
+      if (!workDeps) return null;
+      const spec = starterProject("", "");                       // the title is org-independent
+      const slug = spec.boardTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      // Its own readline: `ask` above holds one only for the length of a question, and the
+      // work flow needs the terminal for the whole session.
+      const rl2 = readline.createInterface({ input: process.stdin, output: process.stderr });
+      try {
+        return await runWorkFlow(
+          { ...workDeps, prompt: (q) => new Promise((res) => rl2.question(q, res)), print: (l) => process.stderr.write(`${l}\n`) },
+          { projectPattern: slug, interactive: true },
+        );
+      } finally { rl2.close(); }
     },
     // No handle to close before delegating: `ask` holds one only for the length of a
     // question, so `gov setup` finds the terminal free and leaves it free.
