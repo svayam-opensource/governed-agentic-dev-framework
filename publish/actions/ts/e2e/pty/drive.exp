@@ -1,0 +1,108 @@
+#!/usr/bin/env expect
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+#
+# THE HUMAN, AUTOMATED.
+#
+# Every defect found between #197 and #209 lived behind a prompt — the role question, the
+# organization's name, the approved-agent list, "Install IBM Bob now?", the closing offer.
+# 893 unit tests and a hermetic smoke suite passed through all of them, because none of
+# them ever typed anything. A test that cannot answer a question cannot reach the code
+# behind it.
+#
+# A PIPE IS NOT ENOUGH. gov opens /dev/tty directly for the starter-project question, turns
+# the echo off with `stty` to read an API key, and decides whether to emit colour from
+# `isTTY`. Feed it a pipe and it takes a different path from the one an adopter walks —
+# which is the same mistake as testing on a machine that already has everything (#186).
+# So: a real pty, and the transcript is what an adopter would have seen.
+#
+# Usage:
+#   drive.exp <transcript-out> <conversation-file> -- <cmd> [args...]
+#
+# Conversation file, one directive per line:
+#   > <regex>     wait for this to appear    (fails the run if it never does)
+#   < <text>      type this, then Return
+#   <! <text>     type this with NO Return   (for a raw single-key read)
+#   ! <regex>     assert this NEVER appeared, from here to the end
+#   ~ <seconds>   change the timeout for what follows
+#   # …           comment
+#
+# Exit: 0 when every `>` matched and no `!` fired; 1 otherwise, with the transcript kept.
+
+set transcript [lindex $argv 0]
+set conv       [lindex $argv 1]
+set sep        [lsearch $argv "--"]
+set cmd        [lrange $argv [expr {$sep + 1}] end]
+
+set timeout 60
+log_user 0
+log_file -a -noappend $transcript
+
+set forbidden {}
+set failures 0
+set finished 0
+
+proc note {msg} { puts stderr $msg }
+
+set fh [open $conv r]
+set lines [split [read $fh] "\n"]
+close $fh
+
+eval spawn -noecho $cmd
+
+foreach line $lines {
+  set line [string trimright $line]
+  if {$line eq "" || [string index $line 0] eq "#"} { continue }
+  set op   [lindex [split $line] 0]
+  set rest [string trim [string range $line [string length $op] end]]
+
+  switch -exact -- $op {
+    ">" {
+      expect {
+        -re $rest { }
+        timeout {
+          note "TIMEOUT waiting for: $rest"
+          incr failures
+          break
+        }
+        eof {
+          note "EOF while waiting for: $rest"
+          incr failures
+          set finished 1
+          break
+        }
+      }
+    }
+    "<"  { send -- "$rest\r" }
+    "<!" { send -- "$rest" }
+    "!"  { lappend forbidden $rest }
+    "~"  { set timeout $rest }
+    default { note "unknown directive: $line"; incr failures }
+  }
+}
+
+# Drain whatever is left so the transcript is complete before it is searched. Skipped when
+# the process has already gone: expecting on a closed spawn is an error, not a wait.
+if {!$finished} {
+  set timeout 30
+  expect {
+    eof { }
+    timeout { note "process did not exit within 30s of the last answer" }
+  }
+}
+catch { close }
+catch { wait }
+
+log_file
+set fh [open $transcript r]
+set out [read $fh]
+close $fh
+
+foreach pat $forbidden {
+  if {[regexp -- $pat $out]} {
+    note "FORBIDDEN appeared: $pat"
+    incr failures
+  }
+}
+
+exit [expr {$failures > 0 ? 1 : 0}]

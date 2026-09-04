@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+#
+# A `gh` that answers from fixtures, so the interactive journey runs with no token, no
+# network and no side effects. gov reaches GitHub through `gh` and nothing else, so this
+# is the whole seam.
+#
+# Steered by the environment, one variable per fact the scenario needs to state:
+#   GH_STUB_LOGIN            who I am                              (default: adopter-bot)
+#   GH_STUB_GOVERNED         "owner/repo,owner/other" already governing the org  (#197)
+#   GH_STUB_BOARDS           "number:Title:closed" per board, ';'-separated
+#   GH_STUB_ANCHORS          board numbers that HAVE an anchor issue (= seeded)   (#198)
+#   GH_STUB_LOG              a file every invocation is appended to, for assertions
+set -uo pipefail
+: "${GH_STUB_LOGIN:=adopter-bot}"
+: "${GH_STUB_GOVERNED:=}"
+: "${GH_STUB_BOARDS:=}"
+: "${GH_STUB_ANCHORS:=}"
+[ -n "${GH_STUB_LOG:-}" ] && printf 'gh %s\n' "$*" >> "$GH_STUB_LOG"
+
+json_repos() {           # the governance probe's shape
+  local out="" r
+  IFS=',' read -ra list <<< "$GH_STUB_GOVERNED"
+  for r in "${list[@]}"; do [ -n "$r" ] && out="$out\"$r\","; done
+  printf '{"repos": [%s], "more": false}' "${out%,}"
+}
+
+case "$1" in
+  --version) echo "gh version 2.99.0 (gov e2e stub)"; exit 0 ;;
+esac
+
+case "$*" in
+  "auth status"*)                echo "stub: logged in to github.com as $GH_STUB_LOGIN (repo, read:org, project)" ;;
+  "api user --jq .login")        echo "$GH_STUB_LOGIN" ;;
+  "api user --jq .login // empty") echo "$GH_STUB_LOGIN" ;;
+  "api user"*)                   echo "{\"login\":\"$GH_STUB_LOGIN\"}" ;;
+
+  # "may I create in this org?" — the org exists as far as the stub is concerned.
+  "api orgs/"*"--jq .login")     echo "${2#orgs/}" ;;
+
+  # THE GOVERNANCE PROBE (#197/#201). One GraphQL call, answered from GH_STUB_GOVERNED.
+  "api graphql"*"org-config.yaml"*) json_repos ;;
+  "api graphql"*viewerCanUpdate*) echo "true" ;;
+  "api graphql"*)                echo "{}" ;;
+
+  "api repos/"*"/contents --jq length") echo "42" ;;   # the template copy has finished
+
+  # THE PIVOT CLONES WITH `gh`, not git (#197): gh knows the protocol and carries the token,
+  # so a private governance repo works on a machine whose only credential is `gh auth login`.
+  # Serving it here is what proves gov took that route rather than guessing a URL.
+  "repo clone "*)
+      src="$3"; dest="${4:-${3##*/}}"
+      if [ -d "${GIT_STUB_REMOTES:-}/${src##*/}" ]; then
+        /usr/bin/git clone -q "${GIT_STUB_REMOTES}/${src##*/}" "$dest" || exit 1
+      else
+        echo "stub gh: no fixture for $src" >&2; exit 1
+      fi
+      ;;
+
+  *) : ;;                                              # silence beats a wrong answer
+esac
+exit 0

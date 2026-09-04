@@ -51,6 +51,37 @@ jobs:
       - name: Hermetic adopter smoke (no token / org / network)
         run: npm run test:adopter:smoke
 
+  # THE TIER THAT ANSWERS QUESTIONS. `smoke` drives the same binary and never types, so it
+  # reaches only what gov exposes non-interactively — and every defect between #197 and #209
+  # lived behind a prompt. Runs on the OS images an adopter actually arrives on, because a
+  # container where nothing is already true is where all twelve were found.
+  journey:
+    name: interactive journey (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { distro: rocky,  image: "rockylinux:9",      install: "dnf install -y -q expect git perl nodejs npm" }
+          - { distro: debian, image: "debian:stable-slim", install: "apt-get update -qq && apt-get install -y -qq expect git perl curl ca-certificates" }
+          - { distro: fedora, image: "fedora:latest",      install: "dnf install -y -q expect git perl nodejs npm" }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools this image does not ship
+        run: ${{ matrix.install }}
+      # Node 24 on the images whose own repositories do not carry it. Deliberately AFTER the
+      # image's own attempt, so a distro that ships it is exercised with the one it ships.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - working-directory: publish/actions/ts
+        run: npm ci && npm run build
+      - name: Interactive journey (pty, hermetic)
+        working-directory: publish/actions/ts
+        run: npm run test:journey
+
   live:
     name: adopter-journey (live GitHub)
     runs-on: ubuntu-latest

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+#
+# Real git, with ONE rewrite: a `https://github.test/<owner>/<repo>` URL resolves to a
+# local fixture under $GIT_STUB_REMOTES.
+#
+# The alternative was handing gov a `file://` path, which `looksLikeRepoUrl` refuses — and
+# rightly: it is the check that catches a typo before git's own output does. Weakening the
+# code to suit the test would remove the guard and prove nothing. A fake HOST keeps gov's
+# real validation, its real `git clone`, and its real error paths.
+set -uo pipefail
+: "${GIT_STUB_REMOTES:=}"
+args=()
+for a in "$@"; do
+  case "$a" in
+    https://github.test/*|https://github.com/*)
+      repo="${a%.git}"; repo="${repo##*/}"
+      if [ -d "$GIT_STUB_REMOTES/$repo" ]; then args+=("$GIT_STUB_REMOTES/$repo"); else args+=("$a"); fi ;;
+    *) args+=("$a") ;;
+  esac
+done
+exec /usr/bin/git "${args[@]}"

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+#
+# An agent that does nothing but say precisely how it was called.
+#
+# #199 (five agents launched a shell), #207 (a prompt passed as an argument the agent
+# rejects) and #209 (the agent gone once gov exits) are all facts about the EXEC — which
+# binary, which argv, which directory, and whether it is reachable at all. A vendor CLI
+# cannot assert those and would need a network and an account to try. This can, and the
+# record it leaves is the assertion.
+set -uo pipefail
+me="$(basename "$0")"
+[ "${1:-}" = "--version" ] && { echo "$me 9.9.9 (gov e2e double)"; exit 0; }
+: "${AGENT_DOUBLE_LOG:=/dev/null}"
+{
+  printf 'cmd=%s\n' "$me"
+  printf 'cwd=%s\n' "$PWD"
+  printf 'argc=%s\n' "$#"
+  i=1; for a in "$@"; do printf 'arg%s=%s\n' "$i" "$a"; i=$((i+1)); done
+  printf '--\n'
+} >> "$AGENT_DOUBLE_LOG"
+exit 0
