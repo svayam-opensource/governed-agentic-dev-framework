@@ -71,7 +71,12 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
   const policyOwnerGithub = pick("policyOwnerGithub", ctx.ghUser ? `@${ctx.ghUser}` : "");
 
   return {
-    orgName: pick("orgName", ""),
+    // A DEFAULT WORTH ACCEPTING (#210). This was `""` against a `nonEmpty` rule, so the first
+    // question of the founding path offered nothing and then refused the nothing it invited —
+    // the exact shape the comment on the NEXT question already names. The GitHub organization
+    // is not the legal name, and a default is a suggestion rather than an assertion; it is
+    // what the adopter typed two questions earlier, and it beats a blank that gets rejected.
+    orgName: pick("orgName", origin?.owner ?? ""),
     orgShortName: pick("orgShortName", ""),
     orgSlug,
     orgSlugLower,

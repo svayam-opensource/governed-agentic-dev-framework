@@ -46,6 +46,33 @@ case "$*" in
 
   "api repos/"*"/contents --jq length") echo "42" ;;   # the template copy has finished
 
+  # `gh repo create <owner/repo> --template <framework> --private` (#159).
+  #
+  # The template IS this repository, so the fixture is a copy of it — pruned of the two
+  # things a clone never needs (.git, node_modules) and nothing else. Trimming it to what
+  # setup "obviously" reads would be a second, hand-kept idea of the template, drifting from
+  # the one gh actually copies; `expectedDirs` and the token sweep would then pass against a
+  # shape no adopter receives.
+  "repo create "*)
+      dest="${GIT_STUB_REMOTES:-}/${3##*/}"
+      [ -d "$dest" ] && { echo "stub gh: $3 already exists" >&2; exit 1; }
+      mkdir -p "$dest"
+      tar -C "${GH_STUB_TEMPLATE:?GH_STUB_TEMPLATE unset}" \
+          --exclude=.git --exclude=node_modules --exclude=lib -cf - . | tar -C "$dest" -xf -
+      ( cd "$dest" && /usr/bin/git init -q . \
+          && /usr/bin/git add -A \
+          && /usr/bin/git -c user.email=t@x -c user.name=t commit -qm "template import" )
+      echo "https://github.com/$3"
+      ;;
+
+  # The starter project (#186): a board, and one issue on it.
+  "project create "*)
+      : "${GH_STUB_BOARD_N:=7}"
+      echo "{\"url\":\"https://github.com/orgs/${GH_STUB_LOGIN}/projects/${GH_STUB_BOARD_N}\",\"number\":${GH_STUB_BOARD_N}}" ;;
+  "issue create "*)  echo "https://github.com/acme/acme-gov/issues/1" ;;
+  "project item-add "*) echo '{"id":"PVTI_stub"}' ;;
+  "project list"*|"project item-list"*) echo '{"items":[],"projects":[]}' ;;
+
   # THE PIVOT CLONES WITH `gh`, not git (#197): gh knows the protocol and carries the token,
   # so a private governance repo works on a machine whose only credential is `gh auth login`.
   # Serving it here is what proves gov took that route rather than guessing a URL.
@@ -53,6 +80,12 @@ case "$*" in
       src="$3"; dest="${4:-${3##*/}}"
       if [ -d "${GIT_STUB_REMOTES:-}/${src##*/}" ]; then
         /usr/bin/git clone -q "${GIT_STUB_REMOTES}/${src##*/}" "$dest" || exit 1
+        # AND SET origin, because the real `gh repo clone` does. Without it `deriveOrgConfig`
+        # has no origin URL to derive from, every default in `gov setup` comes out empty, and
+        # the first question rejects the empty answer it just offered. That is a plausible
+        # gov defect the harness would have reported — and it was the double, not gov.
+        /usr/bin/git -C "$dest" remote set-url origin "https://github.com/$src.git" 2>/dev/null \
+          || /usr/bin/git -C "$dest" remote add origin "https://github.com/$src.git"
       else
         echo "stub gh: no fixture for $src" >&2; exit 1
       fi

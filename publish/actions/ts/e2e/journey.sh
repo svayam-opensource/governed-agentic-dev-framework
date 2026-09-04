@@ -51,6 +51,8 @@ new_world() {
   cp "$HERE/stub/gh" "$WORLD/bin/gh"
   cp "$HERE/stub/git" "$WORLD/bin/git"
   export GIT_STUB_REMOTES="$WORLD/remote"; mkdir -p "$GIT_STUB_REMOTES"
+  # What `--template` copies: this repository. See the note in stub/gh.
+  export GH_STUB_TEMPLATE="$(cd "$TS_DIR/../../.." && pwd)"
   # `gov` as a wrapper on the built binary — the same shape install.sh writes, so PATH
   # behaves the way it does on a real machine.
   printf '#!/usr/bin/env bash\nexec node "%s/lib/esm/cli/bin.js" "$@"\n' "$TS_DIR" > "$WORLD/bin/gov"
@@ -167,9 +169,18 @@ for f in "$HERE"/journey.d/*.sh; do
   name="$(basename "$f" .sh)"
   [ -n "$FILTER" ] && [[ "$name" != *"$FILTER"* ]] && continue
   new_world
+  before=$FAIL
   # shellcheck disable=SC1090
   source "$f"
-  rm -rf "$WORLD"
+  # A FAILURE SHOWS ITS WORK. Without this, every red line costs a re-run to find out what
+  # the screen actually said — which is the friction this whole tier exists to remove.
+  if [ "$FAIL" -gt "$before" ]; then
+    printf '\n  %slast 25 lines of what the adopter saw:%s\n' "$DIM" "$RST"
+    tail -25 "$PLAIN" 2>/dev/null | sed 's/^/      /'
+    [ -s "$WORLD/drive.err" ] && { printf '  %sdriver:%s\n' "$DIM" "$RST"; sed 's/^/      /' "$WORLD/drive.err"; }
+  fi
+  # E2E_KEEP=1 leaves the world behind, named, for a failure worth opening.
+  if [ "${E2E_KEEP:-}" = "1" ]; then printf '  %skept: %s%s\n' "$DIM" "$WORLD" "$RST"; else rm -rf "$WORLD"; fi
 done
 shopt -u nullglob
 
