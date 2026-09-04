@@ -159,6 +159,11 @@ export interface LaunchSpec {
   readonly cmd: string;
   readonly args: readonly string[];
   readonly detached: boolean;
+  /**
+   * The kickoff prompt gov could NOT hand to this agent, because its catalog entry does not
+   * say how (#207). The caller prints it to paste. Absent when the prompt was passed.
+   */
+  readonly promptToPaste?: string;
 }
 
 /**
@@ -190,9 +195,14 @@ export function agentLaunchSpec(
 
   const c = catalog.find((a) => a.id === agent);
   if (!c?.cmd || c.launch === "none") return null;
-  return c.launch === "ide"
-    ? { cmd: c.cmd, args: [cwd], detached: true }
-    : { cmd: c.cmd, args: [inject], detached: false };
+  if (c.launch === "ide") return { cmd: c.cmd, args: [cwd], detached: true };
+  // HOW TO HAND IT THE PROMPT IS PER-AGENT (#207). It was a bare positional for everyone,
+  // which `bob` rejects outright — zero positionals, and the launch died with a usage error
+  // after a clean install. An entry that has not been checked launches BARE: the agent still
+  // starts in the project, and its harness file is what governs the session anyway.
+  return c.promptArgv
+    ? { cmd: c.cmd, args: c.promptArgv.map((a) => a.replaceAll("{prompt}", inject)), detached: false }
+    : { cmd: c.cmd, args: [], detached: false, promptToPaste: inject };
 }
 
 /**

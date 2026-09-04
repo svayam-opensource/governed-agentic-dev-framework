@@ -65,6 +65,20 @@ export interface AgentCandidate {
   readonly credentialEnv?: string;
   /** Where a tier-2 key belongs — the agent's own config, never gov's. */
   readonly credentialFile?: string;
+  /**
+   * How this agent takes the session-start prompt, with `{prompt}` substituted (#207).
+   *
+   * ABSENT MEANS GOV DOES NOT KNOW, and it does not guess. Every `cli` agent used to be
+   * handed the prompt as a bare positional, which is right for the two that were checked
+   * and wrong for `bob`, which takes none: "too many arguments. Expected 0 arguments but
+   * got 1." — after a clean install and a "Starting it in…".
+   *
+   * Where it is absent the agent is launched bare and the prompt is printed to paste. The
+   * harness file this catalog exists to guarantee — AGENTS.md, CLAUDE.md, the cursor rule —
+   * is what actually governs the session; the prompt only makes the agent speak first.
+   * Filling these in means running each vendor's CLI and recording what it accepts.
+   */
+  readonly promptArgv?: readonly string[];
   /** Where to go to create an account, when there is no automating it. */
   readonly signupUrl?: string;
   /** Every way to run it. The policy approves the agent; this is what that buys. */
@@ -76,7 +90,8 @@ export interface AgentCandidate {
  * not startable from here — a browser tool has no command to run.
  */
 export const AGENT_CATALOG: readonly AgentCandidate[] = [
-  { id: "claude-code", tool: "Claude Code", launch: "cli", cmd: "claude",
+  // promptArgv verified in use: both take the first message as a bare positional.
+  { id: "claude-code", tool: "Claude Code", launch: "cli", cmd: "claude", promptArgv: ["{prompt}"],
     install: { npm: "@anthropic-ai/claude-code", url: "https://claude.com/claude-code" },
     credentialEnv: "ANTHROPIC_API_KEY", signupUrl: "https://claude.com/claude-code",
     variants: [
@@ -85,7 +100,7 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
         login: ["claude", "/login"] },
       { kind: "extension", label: "in VS Code", extensionId: "anthropic.claude-code", hosts: ["code", "cursor", "windsurf"] },
     ] },
-  { id: "cursor", tool: "Cursor", launch: "cli", cmd: "cursor-agent",
+  { id: "cursor", tool: "Cursor", launch: "cli", cmd: "cursor-agent", promptArgv: ["{prompt}"],
     install: { script: "curl https://cursor.com/install -fsS | bash", url: "https://cursor.com/cli" },
     signupUrl: "https://cursor.com",
     variants: [

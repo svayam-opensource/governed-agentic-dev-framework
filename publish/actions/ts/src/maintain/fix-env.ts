@@ -19,6 +19,7 @@
  * PURE. Detection and planning are pure over injected facts; main() executes the
  * plan and does the asking. Everything here is therefore testable without a shell.
  */
+import { paint } from "../cli/format.js";
 
 /**
  * The token scopes gov actually needs, and why each one is on the list.
@@ -310,17 +311,21 @@ export function renderCommand(step: FixStep): string {
  * `gh` is cannot consent to installing it; they can only agree or give up. State
  * the gap and its purpose first; the commands are the appendix, not the argument.
  */
-export function formatPlanNarrative(plan: FixPlan): string[] {
+export function formatPlanNarrative(plan: FixPlan, color = false): string[] {
   if (!plan.steps.length && !plan.manual.length) return [];
   const lines: string[] = [];
   if (plan.steps.length) {
-    lines.push("gov has checked this machine and found the following missing:");
+    // The two headings are what a reader scans for on this screen — what is wrong, and what
+    // will be run about it. Bold marks them as headings, and the words say it without the
+    // bold (#204). The COMMANDS stay plain: a command is quoted text, and colouring it would
+    // suggest gov is asserting something about it rather than showing it.
+    lines.push(paint("gov has checked this machine and found the following missing:", "bold", color));
     lines.push("");
     plan.steps.forEach((s, i) => {
       lines.push(`  ${i + 1}. ${s.why}`);
     });
     lines.push("");
-    lines.push("To put that right, gov will run:");
+    lines.push(paint("To put that right, gov will run:", "bold", color));
     lines.push("");
     plan.steps.forEach((s, i) => {
       lines.push(`  ${i + 1}. ${renderCommand(s)}`);
@@ -328,8 +333,8 @@ export function formatPlanNarrative(plan: FixPlan): string[] {
   }
   if (plan.manual.length) {
     lines.push("");
-    lines.push("Needs your attention (no command can do these for you):");
-    for (const m of plan.manual) lines.push(`  · ${m}`);
+    lines.push(paint("Needs your attention (no command can do these for you):", "bold", color));
+    for (const m of plan.manual) lines.push(`  \u00b7 ${m}`);
   }
   return lines;
 }

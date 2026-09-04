@@ -137,11 +137,11 @@ export function renderChecklist(items: readonly ChecklistItem[], color = false):
 const RULE = "=".repeat(88);
 
 /** Shown once, before anything runs, so nobody meets these one surprise at a time. */
-export function checklistPreamble(): readonly string[] {
+export function checklistPreamble(color = false): readonly string[] {
   return [
     "",
     RULE,
-    "  What to expect",
+    `  ${paint("What to expect", "bold", color)}`,
     RULE,
     "  · Nothing is installed or changed without being shown to you first.",
     "  · Each step reports as it completes, so you always know how far along you are.",
@@ -174,9 +174,9 @@ export function statusSoFar(items: readonly ChecklistItem[], color = false): rea
   return [
     "",
     RULE,
-    remaining
-      ? `  Where things stand — ${remaining} step(s) still to go`
-      : "  Where things stand — everything on this machine is done",
+    `  ${paint(remaining
+      ? `Where things stand \u2014 ${remaining} step(s) still to go`
+      : "Where things stand \u2014 everything on this machine is done", "bold", color)}`,
     RULE,
     ...renderChecklist(items, color),
     "",
@@ -191,7 +191,7 @@ export function finalStatus(items: readonly ChecklistItem[], color = false): rea
   return [
     "",
     RULE,
-    "  Final status — worth a screenshot. These paths are also in your org-config.yaml.",
+    `  ${paint("Final status \u2014 worth a screenshot. These paths are also in your org-config.yaml.", "bold", color)}`,
     RULE,
     ...renderChecklist(items, color),
     "",

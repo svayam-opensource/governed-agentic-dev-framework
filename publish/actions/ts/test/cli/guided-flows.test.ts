@@ -171,7 +171,8 @@ describe("gov-work — guided Work flow", () => {
     // Five of the seven used to collapse to "shell": codex, gemini, copilot, bob, aider. gov then
     // announced the agent had started, and opened a bare prompt.
     for (const a of AGENT_CATALOG.filter((c) => c.launch === "cli" && c.cmd)) {
-      expect(agentLaunchSpec(a.id, "/p", "GO"), a.id).to.deep.equal({ cmd: a.cmd, args: ["GO"], detached: false });
+      expect(agentLaunchSpec(a.id, "/p", "GO")?.cmd, a.id).to.equal(a.cmd);
+      expect(agentLaunchSpec(a.id, "/p", "GO")?.detached, a.id).to.equal(false);
     }
     // An `ide` entry opens the directory and detaches, rather than being handed a prompt it cannot read.
     for (const a of AGENT_CATALOG.filter((c) => c.launch === "ide" && c.cmd)) {
@@ -184,6 +185,26 @@ describe("gov-work — guided Work flow", () => {
     // say the agent had started, so the substitution is gone and the caller must handle the null.
     expect(agentLaunchSpec("chatgpt-web", "/p", "GO"), "launch: none").to.equal(null);
     expect(agentLaunchSpec("no-such-agent", "/p", "GO")).to.equal(null);
+  });
+
+  it("the prompt goes where the agent takes it, or nowhere at all (#207)", () => {
+    // A bare positional for everyone is what killed the bob launch: "too many arguments.
+    // Expected 0 arguments but got 1", after a clean install and a "Starting it in…".
+    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false });
+    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false });
+
+    // Unverified: launch bare, and hand the prompt back to be pasted. The agent still starts in
+    // the project, and its harness file is what governs the session.
+    const bob = agentLaunchSpec("ibm-bob", "/p", "GO");
+    expect(bob, "no guessed argv").to.deep.equal({ cmd: "bob", args: [], detached: false, promptToPaste: "GO" });
+  });
+
+  it("no agent is handed an argument nobody checked it accepts (#207)", () => {
+    for (const a of AGENT_CATALOG.filter((c) => c.launch === "cli" && c.cmd)) {
+      const spec = agentLaunchSpec(a.id, "/p", "GO")!;
+      if (a.promptArgv) expect(spec.args, a.id).to.deep.equal([...a.promptArgv].map((x) => x.replaceAll("{prompt}", "GO")));
+      else expect(spec.args, `${a.id}: unverified, so it launches bare`).to.deep.equal([]);
+    }
   });
 
   it("--agent takes a catalog id as well as the short aliases (#199)", () => {

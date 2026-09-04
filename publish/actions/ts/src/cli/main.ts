@@ -912,6 +912,15 @@ function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | n
         process.stderr.write(`  The project is ready at ${cwd}. Start it there yourself, or: gov work --agent shell\n`);
         return 1;
       }
+      // SAY IT BEFORE THE AGENT TAKES THE TERMINAL (#207). Once it is running, anything gov
+      // prints is competing with a full-screen UI — so the prompt to paste goes out first.
+      if (s.promptToPaste) {
+        const r1 = reporter(stdoutColor());
+        process.stderr.write("\n");
+        process.stderr.write(`${r1.step(`gov does not know how ${agent} takes a first message, so it is starting bare.`)}\n`);
+        process.stderr.write(`${r1.step("Paste this as your first message — it runs the session-start protocol:")}\n\n`);
+        process.stderr.write(`${s.promptToPaste}\n\n`);
+      }
       if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
       const r = spawnSync(s.cmd, [...s.args], { cwd, stdio: "inherit" });
       if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed and on PATH?\n`); return 1; }
@@ -1273,11 +1282,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             }
           : undefined,
       });
-      for (const line of checklistPreamble()) process.stdout.write(`${line}\n`);
+      for (const line of checklistPreamble(stdoutColor())) process.stdout.write(`${line}\n`);
       for (const line of renderChecklist(checklist(facts()), stdoutColor())) process.stdout.write(`${line}\n`);
 
       process.stdout.write("\n");
-      for (const line of formatPlanNarrative(plan)) process.stdout.write(`${line}\n`);
+      for (const line of formatPlanNarrative(plan, stdoutColor())) process.stdout.write(`${line}\n`);
       if (!plan.steps.length) {
         if (!plan.manual.length) process.stdout.write("doctor --fix: nothing to fix\n");
         return report.ok ? 0 : 1;

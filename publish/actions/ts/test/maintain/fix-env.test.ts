@@ -6,7 +6,7 @@
  * tool installed but never signed in.
  */
 import { expect } from "chai";
-import { detectPackageManager, planFixes, renderCommand, formatPlan, parseGrantedScopes, missingScopes } from "../../src/maintain/fix-env.js";
+import { detectPackageManager, planFixes, renderCommand, formatPlan, formatPlanNarrative, parseGrantedScopes, missingScopes } from "../../src/maintain/fix-env.js";
 
 const has = (...present: string[]) => (name: string): boolean => present.includes(name);
 
@@ -214,5 +214,28 @@ describe("gov-work — git identity", () => {
       "dnf",
     );
     expect(plan.steps).to.have.length(0);
+  });
+});
+
+describe("gov-work — the consent screen in colour (#204)", () => {
+  // eslint-disable-next-line no-control-regex
+  const strip = (s: string): string => s.replace(/\u001b\[\d+m/g, "");
+  const plan = planFixes(
+    { gitPresent: false, ghPresent: false, ghAuthenticated: false, platform: "linux", osId: "rocky" },
+    "dnf",
+  );
+
+  it("stripping the codes gives back exactly the plain narrative", () => {
+    expect(formatPlanNarrative(plan, true).map(strip)).to.deep.equal(formatPlanNarrative(plan, false));
+  });
+
+  it("the commands stay plain — showing one is not asserting anything about it", () => {
+    for (const line of formatPlanNarrative(plan, true)) {
+      if (/^ {2}\d+\. /.test(strip(line))) expect(line, line).to.not.contain("\u001b");
+    }
+  });
+
+  it("plain is the default", () => {
+    expect(formatPlanNarrative(plan).join("")).to.not.contain("\u001b");
   });
 });
