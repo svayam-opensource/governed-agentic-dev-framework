@@ -9,6 +9,7 @@
 import { expect } from "chai";
 import {
   nextStep, govHomeFor, repoNameFromUrl, looksLikeRepoUrl, cloneUrlFor, runFirstRun,
+  roleQuestion, ROLE_QUESTION, alreadyGovernedNotice,
   type FirstRunIo, type OrgIdentity,
 } from "../../src/cli/bootstrap.js";
 import { px, pxAll } from "../helpers/paths.js";
@@ -463,5 +464,37 @@ describe("gov-work — first run: the closing screen follows the path actually w
     expect(await runFirstRun(w)).to.equal(0);
     expect(roles, "they just authored the org's identity — they are not joining it").to.deep.equal(["adopter"]);
     expect(shown).to.deep.equal(["adopter"]);
+  });
+});
+
+/**
+ * PROMPTS ARE THE SCREEN AN ADOPTER READS MOST (#204). They go to STDERR, which is why the
+ * colour decision is passed in rather than read from stdout: the two streams are redirected
+ * independently, and gating a prompt on the wrong one is how it stays plain in a terminal.
+ */
+describe("gov-work — the questions in colour (#204)", () => {
+  // eslint-disable-next-line no-control-regex
+  const strip = (s: string): string => s.replace(/\u001b\[\d+m/g, "");
+
+  it("the role question: stripping the codes gives back exactly the plain form", () => {
+    expect(roleQuestion(true).map(strip)).to.deep.equal([...roleQuestion(false)]);
+    expect(roleQuestion(false)).to.deep.equal([...ROLE_QUESTION]);
+  });
+
+  it("the LETTER is what is coloured — it is what you have to find and type", () => {
+    const coloured = roleQuestion(true);
+    expect(coloured[2], "A. is marked").to.contain("\u001b[36mA.\u001b[0m");
+    expect(coloured[2], "the sentence after it is not").to.contain("I am an ADOPTER");
+    expect(strip(coloured[2]!)).to.contain("  A. I am an ADOPTER");
+  });
+
+  it("plain is the default, so a caller that has not been told stays plain", () => {
+    expect(roleQuestion().join("")).to.not.contain("\u001b");
+    expect(alreadyGovernedNotice("acme", ["acme/acme-gov"]).join("")).to.not.contain("\u001b");
+  });
+
+  it("the already-governed notice keeps its words when the colour goes", () => {
+    const a = alreadyGovernedNotice("acme", ["acme/acme-gov"], true).map(strip);
+    expect(a).to.deep.equal([...alreadyGovernedNotice("acme", ["acme/acme-gov"], false)]);
   });
 });

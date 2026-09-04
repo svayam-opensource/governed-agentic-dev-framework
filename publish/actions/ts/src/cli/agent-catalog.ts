@@ -63,6 +63,17 @@ export interface AgentCandidate {
   readonly install?: { readonly npm?: string; readonly brew?: string; readonly script?: string; readonly url: string };
   /** The environment variable that would hold a key, so gov can report its absence. */
   readonly credentialEnv?: string;
+  /**
+   * It opens its own browser the first time it needs to authenticate (#208).
+   *
+   * The THIRD sign-in shape, and the one the code did not have. gov had two — a `login`
+   * subcommand to run, or an API key to ask for — so "no login command" was read as "needs a
+   * key", and an adopter was asked for a BOB_API_KEY by a tool that then opened a browser on
+   * its own. `credentialEnv` may still be set alongside this: a key is how the agent runs
+   * HEADLESS, where no browser can be opened. It means a key CAN be used, never that gov
+   * should ask for one.
+   */
+  readonly signsInItself?: true;
   /** Where a tier-2 key belongs — the agent's own config, never gov's. */
   readonly credentialFile?: string;
   /**
@@ -165,7 +176,8 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // in an IBM-owned scope, and let `every-npm-package-is-the-vendor's` say so.
   { id: "ibm-bob", tool: "IBM Bob", launch: "cli", cmd: "bob",
     install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" },
-    credentialEnv: "BOB_API_KEY", signupUrl: "https://bob.ibm.com",
+    // Verified on a container: Bob prints its own sign-in URL and waits (#208).
+    credentialEnv: "BOB_API_KEY", signsInItself: true, signupUrl: "https://bob.ibm.com",
     variants: [
       // No login subcommand: Bob Shell opens the browser itself when it needs to
       // authenticate, so there is nothing for gov to run — which is tier 1 working

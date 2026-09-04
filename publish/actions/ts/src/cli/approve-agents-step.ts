@@ -16,6 +16,7 @@
  *
  * Pure: the question and the answer's meaning live here, the asking is the caller's.
  */
+import { paint } from "./format.js";
 import { AGENT_CATALOG } from "./agent-catalog.js";
 import type { ApprovedAgent } from "../config/approved-agents.js";
 
@@ -28,11 +29,11 @@ export function selectableAgents(): readonly { readonly id: string; readonly too
   }));
 }
 
-export function approvalPrompt(): readonly string[] {
+export function approvalPrompt(color = false): readonly string[] {
   const rows = selectableAgents().map((a, i) => `    ${String(i + 1).padStart(2)}) ${a.tool.padEnd(28)} ${a.how}`);
   return [
     "",
-    "  Which AI agents may be used in this organization?",
+    `  ${paint("Which AI agents may be used in this organization?", "bold", color)}`,
     "",
     "  This is a policy decision, and it is yours to make now rather than later: an",
     "  agent that is not on this list is prohibited by default, and everyone who joins",

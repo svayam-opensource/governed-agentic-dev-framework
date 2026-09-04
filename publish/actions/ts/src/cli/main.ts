@@ -23,6 +23,9 @@ import { readSecret, type SecretIo } from "./secret-prompt.js";
 import { reporter, useColor } from "./format.js";
 /** One answer for the whole process: whether STDOUT can carry ANSI (#204). */
 const stdoutColor = (): boolean => useColor({ isTty: process.stdout.isTTY === true, env: process.env });
+/** The same question for STDERR, where every prompt and progress line goes (#204). The two
+ *  streams are redirected independently, so they are asked separately. */
+const stderrColor = (): boolean => useColor({ isTty: process.stderr.isTTY === true, env: process.env });
 import type { AgentCandidate } from "./agent-catalog.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
@@ -152,6 +155,15 @@ function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boo
     // gathered, and "Bob Shell 2.0.2 installed" is a claim a reader can check.
     say("");
     say(r0.ok(`${plan.agent.tool}${version ? ` ${version.trim().split("\n")[0]}` : ""} installed and runnable`));
+    // AND RUNNABLE AFTER GOV EXITS (#209). It ran a moment ago only because gov's own process
+    // has its private Node directory on PATH. A plain login shell does not, and must not — that
+    // directory is private so gov's Node never becomes the machine's Node. `install.sh` solved
+    // this for `gov` with a two-line wrapper; the agent gets the same one, or the adopter gets
+    // `bob: command not found` while reading the vendor's own advice to run `bob --resume`.
+    if (plan.agent.cmd) {
+      const linked = linkAgentIntoPath(plan.agent.cmd);
+      if (linked) say(r0.ok(`linked into ${linked}, so \`${plan.agent.cmd}\` works after gov exits`));
+    }
 
     // SIGNING IN IS THE PART NOBODY CAN AUTOMATE. Even the account is theirs to
     // create — no vendor exposes signup as an API, and gov holds no credential.
@@ -187,6 +199,17 @@ function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boo
  * naming the variable and the verb — the alternative is the dead end this replaces.
  */
 function captureAgentKey(agent: AgentCandidate): boolean {
+  // IT SIGNS ITSELF IN (#208). The third shape, and the one this function was written without:
+  // absence of a `login` subcommand was read as "needs an API key", so an adopter was asked for
+  // a BOB_API_KEY by a tool that opens its own browser a moment later. gov has no part here,
+  // and the agent is ready — being unauthenticated is between the person and the vendor.
+  if (agent.signsInItself) {
+    process.stdout.write(`\n  ${agent.tool} signs you in itself — it will ask when it starts.\n`);
+    if (agent.credentialEnv) {
+      process.stdout.write(`  For an unattended machine, set ${agent.credentialEnv} instead; gov never needs it.\n`);
+    }
+    return true;
+  }
   const envVar = agent.credentialEnv;
   if (!envVar) return true;                       // nothing to sign in with, and nothing to claim
   if (process.env[envVar]) {
@@ -244,6 +267,41 @@ function captureAgentKey(agent: AgentCandidate): boolean {
   // the variable. Saying so is cheaper than a first run that fails for a reason nobody can see.
   if (!configPath) process.stdout.write(`  For this shell too:  export ${envVar}=<your key>\n`);
   return true;
+}
+
+/**
+ * Give an agent installed beside gov's private Node a way to be found afterwards (#209).
+ *
+ * The same wrapper `install.sh` writes for `gov`, for the same reason: a symlink would be
+ * found and then fail with `env: 'node': No such file or directory`, because Node lives in the
+ * directory the wrapper exists to add. Found but unrunnable is worse than not found.
+ *
+ * Returns the directory it wrote to, or null when there was nothing to do or nowhere safe to
+ * do it — the binary is not in gov's Node directory (a vendor put it somewhere already on
+ * PATH), or `~/.local/bin` is not on PATH, in which case writing there is writing a file
+ * nobody will find.
+ *
+ * PROVED, NOT ANNOUNCED. If the wrapper cannot run, it is removed and nothing is claimed —
+ * `install.sh` does exactly this, and it is the reason gov's own link is trustworthy.
+ */
+function linkAgentIntoPath(cmd: string): string | null {
+  const nodeBin = path.dirname(process.execPath);
+  const target = path.join(nodeBin, cmd);
+  if (!fsSync.existsSync(target)) return null;                       // installed elsewhere; not ours to link
+  const pathDirs = (process.env.PATH ?? "").split(path.delimiter);
+  if (pathDirs.includes(nodeBin)) return null;                       // already reachable without help
+  const dir = path.join(os.homedir(), ".local", "bin");
+  if (!pathDirs.includes(dir)) return null;                          // a file nobody would find
+  const shim = path.join(dir, cmd);
+  try {
+    fsSync.mkdirSync(dir, { recursive: true });
+    fsSync.writeFileSync(shim,
+      `#!/bin/sh\n# written by gov — see #209\nPATH="${nodeBin}:$PATH"; export PATH\nexec "${target}" "$@"\n`,
+      { mode: 0o755 });
+    fsSync.chmodSync(shim, 0o755);
+    if (tryRun(shim, ["--version"]) === undefined) { fsSync.rmSync(shim, { force: true }); return null; }
+    return dir;
+  } catch { return null; }
 }
 
 /** `~/x` → `<home>/x`. Paths in org-config and the catalog are written for humans. */
@@ -595,6 +653,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
   };
   const io: FirstRunIo = {
     facts,
+    color: stderrColor(),
     homeDir: os.homedir(),
     prompt: ask,
     print: (l) => process.stderr.write(`${l}\n`),
@@ -656,7 +715,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
       if (!text) return [];
       const c = parseOrgConfig(text);
-      return adopterNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home });
+      return adopterNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
     },
     joinerNextSteps: () => {
       const r = prjResolveGov(createNodeEnv());
@@ -665,7 +724,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
       if (!text) return [];
       const c = parseOrgConfig(text);
-      return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home });
+      return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
     },
     approveAgents: (agents) => {
       const r = prjResolveGov(createNodeEnv());
@@ -751,7 +810,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       const rl2 = readline.createInterface({ input: process.stdin, output: process.stderr });
       try {
         return await runWorkFlow(
-          { ...workDeps, prompt: (q) => new Promise((res) => rl2.question(q, res)), print: (l) => process.stderr.write(`${l}\n`) },
+          { ...workDeps, prompt: (q) => new Promise((res) => rl2.question(q, res)), print: (l) => process.stderr.write(`${l}\n`), color: stderrColor() },
           { ...(role === "adopter" ? { projectPattern: slug } : {}), interactive: true },
         );
       } finally { rl2.close(); }
@@ -966,7 +1025,7 @@ export async function runWork(argv: readonly string[]): Promise<number> {
   const prompt = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
   try {
     return await runWorkFlow(
-      { ...deps, prompt, print: (l) => process.stderr.write(`${l}\n`) },
+      { ...deps, prompt, print: (l) => process.stderr.write(`${l}\n`), color: stderrColor() },
     {
       ...(pattern ? { projectPattern: pattern } : {}),
       ...(agent ? { agent: agent as AgentKind } : {}),

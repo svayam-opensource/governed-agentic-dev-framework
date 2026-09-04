@@ -34,6 +34,7 @@
  */
 
 import * as path from "node:path";
+import { paint } from "./format.js";
 import { approvalPrompt, parseApprovalChoice, approvalSummary } from "./approve-agents-step.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
@@ -164,14 +165,24 @@ export function parseRole(answer: string): FirstRunRole | null {
   }
 }
 
-export const ROLE_QUESTION: readonly string[] = [
-  "Please choose one of the following to continue:",
-  "",
-  "  A. I am an ADOPTER — I want to start using the governance framework for my organization.",
-  "  B. I am a JOINER — my organization already uses it, and I want to start working under it.",
-  "  C. I am not sure. Explain this to me before I decide.",
-  "",
-];
+/**
+ * The question, coloured or not (#204). A LETTER IS THE ANSWER, so the letters are what the
+ * eye has to find — bold makes them findable and the layout still works without it. The
+ * explanation of each option stays plain: it is what you read, not what you pick.
+ */
+export function roleQuestion(color = false): readonly string[] {
+  return [
+    paint("Please choose one of the following to continue:", "bold", color),
+    "",
+    `  ${paint("A.", "cyan", color)} I am an ADOPTER \u2014 I want to start using the governance framework for my organization.`,
+    `  ${paint("B.", "cyan", color)} I am a JOINER \u2014 my organization already uses it, and I want to start working under it.`,
+    `  ${paint("C.", "cyan", color)} I am not sure. Explain this to me before I decide.`,
+    "",
+  ];
+}
+
+/** The plain form, kept because tests and any non-terminal caller want exactly this. */
+export const ROLE_QUESTION: readonly string[] = roleQuestion(false);
 
 /**
  * Shown for C, and again after any unrecognised answer. Deliberately explains
@@ -228,12 +239,12 @@ export const ROLE_EXPLANATION: readonly string[] = [
  * the path they are actually on. Being told "no" and handed a shell command was the old behaviour, and
  * the command it handed them could not produce a working machine.
  */
-export function alreadyGovernedNotice(org: string, repos: readonly string[]): readonly string[] {
+export function alreadyGovernedNotice(org: string, repos: readonly string[], color = false): readonly string[] {
   const rule = "=".repeat(88);
   const lines: string[] = [
     "",
     rule,
-    `  ${org} is already governed`,
+    `  ${paint(`${org} is already governed`, "bold", color)}`,
     rule,
     "",
   ];
@@ -269,6 +280,12 @@ export interface OrgIdentity {
  */
 export interface FirstRunIo {
   readonly facts: RegistryFacts;
+  /**
+   * May this run's output carry ANSI (#204)? Decided by the CALLER, because these lines go to
+   * STDERR — which is a different stream from the one every other screen is gated on, and can
+   * be redirected on its own.
+   */
+  readonly color?: boolean;
   /** the user's home directory — `gov_home` is derived from it, never from cwd. */
   readonly homeDir: string;
   prompt(question: string, def: string): Promise<string>;
@@ -390,7 +407,7 @@ export async function runFirstRun(io: FirstRunIo): Promise<number | null> {
  */
 async function askRole(io: FirstRunIo): Promise<FirstRunRole | null> {
   for (let attempt = 0; attempt < 5; attempt++) {
-    for (const line of ROLE_QUESTION) io.print(line);
+    for (const line of roleQuestion(io.color ?? false)) io.print(line);
     const role = parseRole(await io.prompt("Select (A/B/C): ", ""));
     if (role === "adopter" || role === "joiner") return role;
     for (const line of ROLE_EXPLANATION) io.print(line);
@@ -404,13 +421,13 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   // newcomer to compose a form they have not been taught, out of two things they
   // know separately — and the second of them they should not have to invent at all.
   io.print("");
-  io.print("Adopting the framework creates a NEW repository in your GitHub organization.");
+  io.print(paint("Adopting the framework creates a NEW repository in your GitHub organization.", "bold", io.color ?? false));
   io.print("It will hold your policies, your knowledge, and a record of every project.");
   io.print("");
 
   let org = "";
   for (let attempt = 0; attempt < 5; attempt++) {
-    org = (await io.prompt("Which organization are you adopting the governance framework for? (GitHub organization name, or Enter to stop): ", "")).trim();
+    org = (await io.prompt(paint("Which organization are you adopting the governance framework for?", "bold", io.color ?? false) + " (GitHub organization name, or Enter to stop): ", "")).trim();
     if (org === "") {
       io.print("");
       io.print("Nothing created. When you are ready:  gov setup <your-github-org>/<repo-name>");
@@ -447,7 +464,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   let repo = "";
   for (let attempt = 0; attempt < 5; attempt++) {
     repo = (await io.prompt(
-      `Name for the governance repository that will be created to house your policies [${defaultRepo}]: `,
+      `${paint("Name for the governance repository that will be created to house your policies", "bold", io.color ?? false)} [${defaultRepo}]: `,
       defaultRepo,
     )).trim();
     if (/^[A-Za-z0-9._-]+$/.test(repo)) break;
@@ -472,9 +489,9 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   // removed rather than guarded: adoption produces an approved list, so "nobody has
   // decided" never persists past setup.
   if (io.approveAgents) {
-    for (const line of approvalPrompt()) io.print(line);
+    for (const line of approvalPrompt(io.color ?? false)) io.print(line);
     for (let attempt = 0; attempt < 5; attempt++) {
-      const answer = await io.prompt("  Allowed agents: ", "");
+      const answer = await io.prompt("  " + paint("Allowed agents:", "bold", io.color ?? false) + " ", "");
       const choice = parseApprovalChoice(answer);
       if (choice.ok) {
         if (io.approveAgents(choice.agents)) {
@@ -526,8 +543,8 @@ async function offerTheReview(io: FirstRunIo, role: AdoptionRole): Promise<numbe
   // The adopter has one thing to do and gov knows which; the joiner has a list only they can
   // choose from. Same offer, different last word.
   const question = role === "adopter"
-    ? "  Would you like to review your governance policies now, with gov and your agent? [Y/n]: "
-    : "  Would you like to start work now? gov will list the projects you are assigned to. [Y/n]: ";
+    ? "  " + paint("Would you like to review your governance policies now, with gov and your agent?", "bold", io.color ?? false) + " [Y/n]: "
+    : "  " + paint("Would you like to start work now? gov will list the projects you are assigned to.", "bold", io.color ?? false) + " [Y/n]: ";
   io.print("");
   const yes = (await io.prompt(question, "Y")).trim().toLowerCase();
   if (yes.startsWith("n")) {
@@ -557,7 +574,7 @@ async function offerTheReview(io: FirstRunIo, role: AdoptionRole): Promise<numbe
  * `preflight` would refuse anyway.
  */
 async function joinInsteadOfAdopting(io: FirstRunIo, org: string, repos: readonly string[]): Promise<number> {
-  for (const line of alreadyGovernedNotice(org, repos)) io.print(line);
+  for (const line of alreadyGovernedNotice(org, repos, io.color ?? false)) io.print(line);
 
   // MORE THAN ONE is a real state — an org that forked its policy before gov could stop it — and the
   // person in front of us cannot be assumed to know which is theirs. Ask; do not pick the first.
@@ -574,7 +591,7 @@ async function joinInsteadOfAdopting(io: FirstRunIo, org: string, repos: readonl
     chosen = pick;
   }
 
-  const consent = (await io.prompt(`  Join ${chosen} now? [Y/n]: `, "Y")).trim().toLowerCase();
+  const consent = (await io.prompt(`  ${paint(`Join ${chosen} now?`, "bold", io.color ?? false)} [Y/n]: `, "Y")).trim().toLowerCase();
   if (consent.startsWith("n")) {
     io.print("");
     io.print("  Nothing created, and nothing changed on this machine.");
@@ -599,10 +616,10 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
   // JOINER. Now the clone URL is a fair question: their organization's governance
   // repo exists, and someone can tell them where it is.
   io.print("");
-  io.print("Joining an organization that already uses gov.");
+  io.print(paint("Joining an organization that already uses gov.", "bold", io.color ?? false));
   io.print("Your governance administrator has the repo's clone URL — ask them if you do not have it.");
   io.print("");
-  const url = (await io.prompt("Governance repo (clone URL), or Enter to stop: ", "")).trim();
+  const url = (await io.prompt(paint("Governance repo (clone URL)", "bold", io.color ?? false) + ", or Enter to stop: ", "")).trim();
   if (url === "") {
     io.print("");
     io.print("Nothing registered. Re-run `gov` once you have the clone URL.");

@@ -16,6 +16,7 @@ import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
 import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines, type AgentCandidate } from "./agent-catalog.js";
 import { chooseAgent, choiceExplanation } from "./agent-choice.js";
 import { defaultAgent } from "../config/approved-agents.js";
+import { paint } from "./format.js";
 
 /**
  * The status of a board that has NO anchor issue: nobody has seeded it, anywhere, ever.
@@ -59,6 +60,8 @@ export interface WorkFlowDeps {
   /** Record them in org-config.yaml. Returns whether anything was written. */
   readonly applyRepoOverrides?: (o: readonly { readonly from: string; readonly to: string }[]) => boolean;
   readonly print: (l: string) => void;
+  /** May this flow's output carry ANSI (#204)? Decided by the caller — these lines go to stderr. */
+  readonly color?: boolean;
   /** Launch an interactive agent/editor/shell with `cwd` = the project dir. `inject` = the session-start
    *  kickoff prompt handed to a speak-first CLI agent (Claude / cursor-agent) so it runs the protocol
    *  immediately. Terminal agents inherit stdio + block; the GUI editor opens detached. */
@@ -526,7 +529,7 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
         print("");
         print(`  No AI agent is installed here yet. Your organization's default is ${defName}.`);
         print("");
-        const yes = (await deps.prompt(`  Install ${defName} now? (Y/n) `)).trim().toLowerCase();
+        const yes = (await deps.prompt(`  ${paint(`Install ${defName} now?`, "bold", deps.color ?? false)} (Y/n) `)).trim().toLowerCase();
         if (!/^n(o)?$/.test(yes)) {
           if (deps.installAgent(def)) {
             // THE ID IS THE LAUNCH INSTRUCTION (#199). This used to map anything but Claude Code

@@ -17,6 +17,8 @@
  * than a workaround.
  */
 
+import { paint } from "./format.js";
+
 export interface NextStepsFacts {
   readonly orgSlug: string;
   readonly githubOrg: string;
@@ -31,12 +33,12 @@ const p = (f: NextStepsFacts): { home: string; slug: string } => ({
 
 const RULE = "=".repeat(88);
 
-export function adopterNextSteps(f: NextStepsFacts): readonly string[] {
+export function adopterNextSteps(f: NextStepsFacts, color = false): readonly string[] {
   const { home, slug } = p(f);
   return [
     "",
     RULE,
-    "  Install complete — for ADOPTERS",
+    `  ${paint("Install complete \u2014 for ADOPTERS", "bold", color)}`,
     RULE,
     "",
     "Governance is installed and ready.",
@@ -91,12 +93,12 @@ export function adopterNextSteps(f: NextStepsFacts): readonly string[] {
   ];
 }
 
-export function joinerNextSteps(f: NextStepsFacts): readonly string[] {
+export function joinerNextSteps(f: NextStepsFacts, color = false): readonly string[] {
   const { home, slug } = p(f);
   return [
     "",
     RULE,
-    "  Install complete — for JOINERS",
+    `  ${paint("Install complete \u2014 for JOINERS", "bold", color)}`,
     RULE,
     "",
     "You are set up, and there is nothing for you to configure.",
