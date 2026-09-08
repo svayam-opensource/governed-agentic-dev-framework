@@ -42,10 +42,10 @@ drive "$(conv <<'C'
 ~ 120
 > Proceed\? \(y/N\)
 < y
-# #213 — the key is now OFFERED even to an agent that signs itself in. Enter skips it, and
-# skipping is a real answer rather than a dead end.
-> Paste the BOB_API_KEY \(hidden\), or press Enter to skip
-<
+# #213 — a NAMED CHOICE, the way `gh` asks it. 2 is "paste an API key"; this walk takes 3,
+# skip, because what is under test is that the choice exists and that skipping is honest.
+> Choose \[1-3\]
+< 3
 > $
 C
 )" gov agent install ibm-bob
@@ -60,12 +60,13 @@ saw "#201 — IBM's own channel is what runs" "bob.ibm.com/download/bobshell.sh"
 # itself in. That was right about the agent and wrong about the machine — a real walk hit a
 # container where Bob's loopback callback could never reach the host's browser, and the run
 # had nowhere to go. The offer is unconditional now; only the wording depends on the agent.
-says "it says the browser is the vendor's route" "signs in through a browser"
-says "and does NOT pretend to know whether this machine has one" "cannot tell whether this machine"
-saw "the key is offered anyway" "Paste the BOB_API_KEY"
-says "with both ways out named, neither dressed up as the fallback" "or press Enter, and sign in when IBM Bob starts"
+says "it ASKS rather than deciding" "How would you like to sign IBM Bob in?"
+says "and does NOT pretend to know whether this machine has a browser" "cannot tell whether this machine has one"
+saw "the browser route is named" "1. Let IBM Bob sign you in when it starts"
+saw "and so is the key — not an escape hatch behind an Enter" "2. Paste an API key now"
+saw "and skipping is a choice with a number, like the others" "3. Skip for now"
 
-info "#213 — and Enter is a real answer, not a dead end"
-says "skipping says what happens next" "will ask you to sign in when it starts"
-says "and what to do if that needs a browser this machine has not got" "export BOB_API_KEY"
-never "an agent that signs itself in is NOT reported as unusable for skipping" "cannot run yet"
+info "#213 — and skipping is honest about what it left undone"
+says "it says what happens next" "will ask you to sign in when it starts"
+says "and how to finish later" "export BOB_API_KEY"
+never "an agent that can still authenticate itself is NOT called unusable" "cannot run until it has a key"

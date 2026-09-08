@@ -20,6 +20,7 @@ import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
 import { readSecret, type SecretIo } from "./secret-prompt.js";
+import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
 import { reporter, useColor } from "./format.js";
 /** One answer for the whole process: whether STDOUT can carry ANSI (#204). */
 const stdoutColor = (): boolean => useColor({ isTty: process.stdout.isTTY === true, env: process.env });
@@ -175,18 +176,62 @@ function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boo
     if (plan.signupUrl) {
       process.stdout.write(`\n  If you do not have an account yet: ${plan.signupUrl}\n`);
     }
-    if (plan.signIn) {
-      process.stdout.write(`  Signing you in — ${plan.signIn.join(" ")} takes over from here.\n\n`);
+    // A CHOICE, NAMED, THE WAY `gh` ASKS IT (#213).
+    //
+    //     How would you like to authenticate GitHub CLI?
+    //     > Login with a web browser
+    //       Paste an authentication token
+    //
+    // gov used to decide FOR the adopter: a login command was run without asking, and only an
+    // agent with neither a login command nor `signsInItself` was offered a key. On a container
+    // that meant handing the terminal to a tool that opened a browser nobody could reach, with
+    // the one route that works never mentioned. Both routes are named now, for every agent
+    // that has them, and nothing is inferred from the machine.
+    const facts: SignInFacts = {
+      tool: plan.agent.tool,
+      loginCommand: plan.signIn,
+      signsInItself: plan.agent.signsInItself ?? false,
+      credentialEnv: plan.agent.credentialEnv ?? null,
+    };
+    const options = signInOptions(facts);
+    // One real option means no question worth asking — offering a menu of one is theatre.
+    let chosen: SignInMethod = options.length > 1 ? "skip" : options[0]!.method;
+    if (options.length > 1) {
+      for (const line of signInPrompt(facts, options)) process.stdout.write(`${line}\n`);
+      // Bounded, and it re-asks rather than ending: the same rule as #192. A stream that
+      // cannot answer falls through to skip, which is safe and reversible.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const answer = readLineVisible(`  Choose [1-${options.length}]: `);
+        const m = parseSignInChoice(answer, options);
+        if (m) { chosen = m; break; }
+        process.stdout.write(`  ✗ '${answer}' is not one of the choices.\n`);
+      }
+    }
+
+    if (chosen === "login-command" && plan.signIn) {
+      process.stdout.write(`\n  Signing you in — ${plan.signIn.join(" ")} takes over from here.\n\n`);
       const [bin, ...rest] = plan.signIn;
       spawnSync(bin!, rest, { stdio: "inherit" });
       return true;
     }
-    // TIER 2: NO LOGIN COMMAND, SO GOV HANDLES THE KEY (#196 Q6, wired in #200).
-    //
-    // This branch used to print "set its API key when you have one" and move on, one line before
-    // announcing the agent was ready. The module that does the real thing — the notice, the two
-    // writes, the digest comparison — was written, tested, and called by nothing.
-    return captureAgentKey(plan.agent);
+    // TIER 2: GOV HANDLES THE KEY (#196 Q6, wired in #200, made unconditional in #213).
+    if (chosen === "api-key") return captureAgentKey(plan.agent);
+
+    // WHAT WAS SKIPPED IS THE AGENT'S ROUTE, NOT THE CHOICE JUST MADE. Reading `chosen` here
+    // asked "did you pick the browser?" when the answer is always "no, I picked skip" — so an
+    // agent that signs itself in was told it "cannot run until it has a key", which is exactly
+    // the #208 conflation running the other way. The journey suite caught it on the first run.
+    const primary = plan.signIn ? "login-command" : plan.agent.signsInItself ? "browser-at-start" : "none";
+    for (const line of afterSkip(facts, primary)) process.stdout.write(`${line}\n`);
+    if (plan.agent.credentialEnv) {
+      if (plan.agent.signupUrl) process.stdout.write(`    get a key at   ${plan.agent.signupUrl}\n`);
+      process.stdout.write(`    then:          export ${plan.agent.credentialEnv}=<your key>\n`);
+      process.stdout.write(`    or re-run:     gov agent install ${plan.agent.id}   (it asks again)\n`);
+    }
+    // Skipping leaves an agent that can still authenticate itself USABLE, and one that cannot
+    // NOT — the distinction #208 collapsed, in the other direction. Read from the agent's own
+    // route for the same reason as above: `chosen` is "skip" by construction here.
+    return primary !== "none";
   }
 
 /**
@@ -345,6 +390,22 @@ function linkAgentIntoPath(cmd: string): string | null {
 /** `~/x` → `<home>/x`. Paths in org-config and the catalog are written for humans. */
 function expandHome(p: string): string {
   return p.startsWith("~/") ? path.join(os.homedir(), p.slice(2)) : p;
+}
+
+/**
+ * Read one visible line from the terminal, synchronously.
+ *
+ * The sign-in choice is a NUMBER, not a secret, so it echoes — a person needs to see what they
+ * typed. It shares {@link readSecret}'s constraint rather than its behaviour: this runs between
+ * two `spawnSync` calls, so it cannot use the async readline the rest of the CLI shares.
+ */
+function readLineVisible(prompt: string): string {
+  process.stdout.write(prompt);
+  const buf = Buffer.alloc(256);
+  try {
+    const n = fsSync.readSync(0, buf, 0, buf.length, null);
+    return buf.toString("utf8", 0, n).split("\n")[0]?.trim() ?? "";
+  } catch { return ""; }
 }
 
 /** The real terminal, for {@link readSecret}. `stty` because the echo must go off for one line only. */
