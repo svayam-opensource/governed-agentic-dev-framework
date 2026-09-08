@@ -38,6 +38,14 @@ export interface OrgConfigValues {
   readonly dockerRegistry: string;
   /** multi-tenant governance account id (optional; empty = single-tenant). */
   readonly govAccount: string;
+  /**
+   * Access-token life in seconds — the org standard (`token-lifetime-standard.md` §3.4).
+   *
+   * NOT prompted for. An adopter has no basis to answer it on day one, and a question invites a number
+   * chosen to get past the question. It is written with the standard's own default and changed later
+   * by amending the standard, which is where the reasoning lives.
+   */
+  readonly accessTtlSec: string;
 }
 
 /** Parse a GitHub remote URL → owner/repo (ssh or https, optional .git). */
@@ -113,6 +121,8 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
     npmRegistry: pick("npmRegistry", ""),
     dockerRegistry: pick("dockerRegistry", ""),
     govAccount: pick("govAccount", ""),
+    // The standard's own default, so a fresh org starts compliant rather than starting silent.
+    accessTtlSec: pick("accessTtlSec", "300"),
   };
 }
 
@@ -193,6 +203,22 @@ services:
   jenkins: "${v.jenkinsUrl}"
   npm: "${v.npmRegistry}"
   docker: "${v.dockerRegistry}"
+
+# ── Session policy. NOT a service endpoint: the block above lists URLs of things we talk to, this is a
+#    number the identity provider is told to honour.
+#
+#    access_ttl_sec — how long an access token lives, in seconds. The org standard, declared here and
+#    MINTED by the issuer from this value; the deploy compares the two and FAILS when they disagree,
+#    because a lifetime that is true in a file and false in production is the shape of a failure nobody
+#    finds until a token dies somewhere unrelated.
+#
+#    It is short on purpose. The same bearer is handed to other tools, so its life is the window in
+#    which a leak is useful — everywhere. A client that needs longer is granted it NARROWLY: per client,
+#    or per job. Raising this number to buy one client room is explicitly not an exception to it.
+#
+#    See knowledge/architecture/system/specs/token-lifetime-standard.md §3.4.
+session:
+  access_ttl_sec: ${v.accessTtlSec || "300"}
 `;
 }
 
@@ -220,6 +246,11 @@ export function readExistingOrgConfig(text: string): Partial<OrgConfigValues> {
     if (val !== undefined && val !== "") out[k] = val;
   }
   // services: block (preferred) with vault_addr as a legacy fallback for vaultAddr.
+  // `session:` is read with the same indented matcher as `services:` — it is a nested block, and the
+  // matcher cares about indentation, not about which block it belongs to. Carried on a re-run so a
+  // value the org has amended is preserved rather than silently reset to the default.
+  const sessionTtl = svc("access_ttl_sec");
+  if (sessionTtl) out.accessTtlSec = sessionTtl;
   const svcMap: Array<[keyof OrgConfigValues, string]> = [
     ["vaultAddr", "vault"], ["oidcBase", "oidc"], ["jenkinsUrl", "jenkins"], ["npmRegistry", "npm"], ["dockerRegistry", "docker"],
   ];
