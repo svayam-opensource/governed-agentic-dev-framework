@@ -18,6 +18,6 @@ me="$(basename "$0")"
   printf 'cwd=%s\n' "$PWD"
   printf 'argc=%s\n' "$#"
   i=1; for a in "$@"; do printf 'arg%s=%s\n' "$i" "$a"; i=$((i+1)); done
-  printf '--\n'
+  printf '%s\n' '--'
 } >> "$AGENT_DOUBLE_LOG"
 exit 0

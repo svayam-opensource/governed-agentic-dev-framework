@@ -399,26 +399,70 @@ function expandHome(p: string): string {
  * typed. It shares {@link readSecret}'s constraint rather than its behaviour: this runs between
  * two `spawnSync` calls, so it cannot use the async readline the rest of the CLI shares.
  */
+/**
+ * Read one line from THE TERMINAL, not from fd 0.
+ *
+ * Both of these prompts read `fsSync.readSync(0, …)` and answered themselves instantly: the
+ * agent install runs inside `runWorkFlow`, which is holding a readline on stdin for its own
+ * questions. Two readers of one stream, and the second gets nothing — which is #194's finding
+ * word for word ("two readers of the same terminal is how the first two attempts at this
+ * question answered themselves"), walked into again one function over.
+ *
+ * `/dev/tty` is the terminal itself rather than this process's stdin, so it is unaffected by
+ * whoever holds fd 0. It is the same escape `createStarterProject` already uses, for the same
+ * reason. The handle lives only as long as the question.
+ *
+ * NO TERMINAL AT ALL is a real state — a pipe, CI — and it returns "", which every caller
+ * already treats as "skipped".
+ */
+function withTty<T>(use: (fd: number) => T, fallback: T): T {
+  let fd: number | undefined;
+  try {
+    fd = fsSync.openSync("/dev/tty", "r+");
+    return use(fd);
+  } catch {
+    return fallback;
+  } finally {
+    if (fd !== undefined) { try { fsSync.closeSync(fd); } catch { /* closing a gone tty is not news */ } }
+  }
+}
+
+function readLineFrom(fd: number, size: number): string {
+  const buf = Buffer.alloc(size);
+  const n = fsSync.readSync(fd, buf, 0, buf.length, null);
+  return buf.toString("utf8", 0, n).split("\n")[0] ?? "";
+}
+
 function readLineVisible(prompt: string): string {
   process.stdout.write(prompt);
-  const buf = Buffer.alloc(256);
-  try {
-    const n = fsSync.readSync(0, buf, 0, buf.length, null);
-    return buf.toString("utf8", 0, n).split("\n")[0]?.trim() ?? "";
-  } catch { return ""; }
+  return withTty((fd) => readLineFrom(fd, 256).trim(), "");
 }
 
 /** The real terminal, for {@link readSecret}. `stty` because the echo must go off for one line only. */
 function nodeSecretIo(): SecretIo {
+  // ONE HANDLE ON THE TERMINAL, held for the length of the question and no longer. `stty` is
+  // given the same fd as its stdin, so it turns the echo off on the TERMINAL rather than on
+  // whatever this process's stdin happens to be — which, inside the work flow, is a stream a
+  // readline already owns.
+  let fd: number | null = null;
+  const tty = (): number | null => {
+    if (fd === null) { try { fd = fsSync.openSync("/dev/tty", "r+"); } catch { fd = null; } }
+    return fd;
+  };
   return {
     write: (x) => process.stdout.write(x),
-    setEcho: (on) => { spawnSync("stty", [on ? "echo" : "-echo"], { stdio: ["inherit", "ignore", "ignore"] }); },
+    setEcho: (on) => {
+      const t = tty();
+      if (t === null) return;                       // no terminal: nothing to turn off, and no harm
+      spawnSync("stty", [on ? "echo" : "-echo"], { stdio: [t, "ignore", "ignore"] });
+      // The echo is restored on the LAST call (readSecret does it in a `finally`), which is
+      // also when the handle stops being needed. Leaving it open would outlive the question.
+      if (on) { try { fsSync.closeSync(t); } catch { /* best effort */ } fd = null; }
+    },
     readLine: () => {
-      const buf = Buffer.alloc(4096);
-      try {
-        const n = fsSync.readSync(0, buf, 0, buf.length, null);
-        return buf.toString("utf8", 0, n).split("\n")[0] ?? "";
-      } catch { return ""; }
+      const t = tty();
+      if (t === null) return "";
+      try { return readLineFrom(t, 4096); } catch { return ""; }
     },
   };
 }

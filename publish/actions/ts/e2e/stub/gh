@@ -71,7 +71,16 @@ case "$*" in
       echo "{\"url\":\"https://github.com/orgs/${GH_STUB_LOGIN}/projects/${GH_STUB_BOARD_N}\",\"number\":${GH_STUB_BOARD_N}}" ;;
   "issue create "*)  echo "https://github.com/acme/acme-gov/issues/1" ;;
   "project item-add "*) echo '{"id":"PVTI_stub"}' ;;
-  "project list"*|"project item-list"*) echo '{"items":[],"projects":[]}' ;;
+  # `gov work` lists boards to offer projects. GH_STUB_BOARDS is "num:Title" entries, ';'-separated.
+  "project list"*)
+      out=""; IFS=';' read -ra bs <<< "${GH_STUB_BOARDS:-}"
+      for b in "${bs[@]}"; do
+        [ -n "$b" ] || continue
+        n="${b%%:*}"; t="${b#*:}"
+        out="$out{\"number\":$n,\"title\":\"$t\",\"url\":\"https://github.com/orgs/$GH_STUB_LOGIN/projects/$n\",\"closed\":false},"
+      done
+      printf '{"projects":[%s]}' "${out%,}" ;;
+  "project item-list"*) echo '{"items":[]}' ;;
 
   # THE PIVOT CLONES WITH `gh`, not git (#197): gh knows the protocol and carries the token,
   # so a private governance repo works on a machine whose only credential is `gh auth login`.
