@@ -66,3 +66,9 @@ runs grep -q "sk-review-offer-key" "$HOME/.gov/acme/projects/preferences/$GH_STU
   && pass "and it holds the key that was typed at the closing offer" \
   || fail "the credentials file does not hold the key typed on the review-offer path"
 never_re "the secret never reached the screen" "sk-review-offer-key"
+
+info "#213 — and the agent gov launched actually RECEIVED it"
+# The assertion that was missing. Storing a key and then launching the agent without it is
+# indistinguishable, from gov's own output, from storing it and launching correctly — and the
+# adopter finds out when the agent asks for a browser a second later.
+ran "IBM Bob was launched with BOB_API_KEY set in its environment" "env=BOB_API_KEY:set"

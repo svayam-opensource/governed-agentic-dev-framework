@@ -336,8 +336,19 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
     process.stdout.write(`  Nothing could be written. Set it yourself:  export ${envVar}=<your key>\n`);
     return false;
   }
-  // The agent reads its config; this process does not, and a shell started from here would not have
-  // the variable. Saying so is cheaper than a first run that fails for a reason nobody can see.
+  // AND GIVE IT TO THE AGENT GOV IS ABOUT TO LAUNCH.
+  //
+  // Without this the key was collected, stored, and then withheld from the only process that
+  // needed it: gov spawns the agent with the environment it inherited, which never had the
+  // variable. An adopter pasted a key, watched gov write it, and was handed Bob's browser
+  // sign-in a second later — because as far as Bob could tell, no key existed.
+  //
+  // Set on THIS process only. Nothing is written to a shell profile: gov does not get to
+  // change what a person's terminal carries after it exits (#211 is that lesson), and every
+  // agent gov launches is a child of this process.
+  process.env[envVar] = key;
+  // The line below is about the adopter's OWN shell afterwards, which is a different thing
+  // from the child gov starts — and only worth saying where the agent reads no config file.
   if (!configPath) process.stdout.write(`  For this shell too:  export ${envVar}=<your key>\n`);
   return true;
 }

@@ -17,6 +17,13 @@ me="$(basename "$0")"
   printf 'cmd=%s\n' "$me"
   printf 'cwd=%s\n' "$PWD"
   printf 'argc=%s\n' "$#"
+  # WHAT THE AGENT WAS ACTUALLY GIVEN. #199 and #207 are about the argv; this is about the
+  # environment, and it is the half nothing checked: gov collected a key, wrote it to disk,
+  # and then launched the agent without it, so the agent asked for a browser it could not
+  # open. Presence only — a test that logs a secret is a test that leaks one.
+  for v in BOB_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY; do
+    [ -n "${!v:-}" ] && printf 'env=%s:set\n' "$v"
+  done
   i=1; for a in "$@"; do printf 'arg%s=%s\n' "$i" "$a"; i=$((i+1)); done
   printf '%s\n' '--'
 } >> "$AGENT_DOUBLE_LOG"
