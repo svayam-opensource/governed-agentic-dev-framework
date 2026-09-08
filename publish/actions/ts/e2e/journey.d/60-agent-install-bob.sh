@@ -42,6 +42,10 @@ drive "$(conv <<'C'
 ~ 120
 > Proceed\? \(y/N\)
 < y
+# #213 — the key is now OFFERED even to an agent that signs itself in. Enter skips it, and
+# skipping is a real answer rather than a dead end.
+> Paste the BOB_API_KEY \(hidden\), or press Enter to skip
+<
 > $
 C
 )" gov agent install ibm-bob
@@ -49,5 +53,19 @@ C
 says "#201 — the vendor is named BEFORE anything runs" "Vendor: https://bob.ibm.com"
 never "#201 — and never the package that was not IBM's" "@bobsworkshop/cli"
 saw "#201 — IBM's own channel is what runs" "bob.ibm.com/download/bobshell.sh"
-says "#208 — it does NOT ask for a key from an agent that opens its own browser" "signs you in itself"
-never "#208 — so no key prompt" "Paste the BOB_API_KEY"
+
+# #213 — NO ASSUMPTION ABOUT A BROWSER, for any agent.
+#
+# This block previously asserted the opposite: that gov does NOT ask an agent that signs
+# itself in. That was right about the agent and wrong about the machine — a real walk hit a
+# container where Bob's loopback callback could never reach the host's browser, and the run
+# had nowhere to go. The offer is unconditional now; only the wording depends on the agent.
+says "it says the browser is the vendor's route" "signs in through a browser"
+says "and does NOT pretend to know whether this machine has one" "cannot tell whether this machine"
+saw "the key is offered anyway" "Paste the BOB_API_KEY"
+says "with both ways out named, neither dressed up as the fallback" "or press Enter, and sign in when IBM Bob starts"
+
+info "#213 — and Enter is a real answer, not a dead end"
+says "skipping says what happens next" "will ask you to sign in when it starts"
+says "and what to do if that needs a browser this machine has not got" "export BOB_API_KEY"
+never "an agent that signs itself in is NOT reported as unusable for skipping" "cannot run yet"

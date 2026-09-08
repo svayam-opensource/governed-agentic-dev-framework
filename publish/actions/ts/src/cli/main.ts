@@ -199,19 +199,29 @@ function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boo
  * naming the variable and the verb — the alternative is the dead end this replaces.
  */
 function captureAgentKey(agent: AgentCandidate): boolean {
-  // IT SIGNS ITSELF IN (#208). The third shape, and the one this function was written without:
-  // absence of a `login` subcommand was read as "needs an API key", so an adopter was asked for
-  // a BOB_API_KEY by a tool that opens its own browser a moment later. gov has no part here,
-  // and the agent is ready — being unauthenticated is between the person and the vendor.
-  if (agent.signsInItself) {
-    process.stdout.write(`\n  ${agent.tool} signs you in itself — it will ask when it starts.\n`);
-    if (agent.credentialEnv) {
-      process.stdout.write(`  For an unattended machine, set ${agent.credentialEnv} instead; gov never needs it.\n`);
-    }
+  const envVar = agent.credentialEnv;
+
+  // NEVER ASSUME A BROWSER (#213, Policy Owner). This used to return here for an agent that
+  // `signsInItself`, on the reasoning that the vendor handles authentication — true, and true
+  // ONLY WHERE A BROWSER EXISTS. The flag describes the AGENT; whether its flow can complete
+  // is a property of the agent × the MACHINE, and gov was checking one half.
+  //
+  // A real walk found the other half: on a container, Bob printed
+  // `callback_uri=http://127.0.0.1:38701/bob-callback` and waited forever. That listener is on
+  // the CONTAINER's loopback; the browser was on the host. Same address, different machines.
+  // Containers, servers over SSH and CI boxes are most of the Linux gov will ever run on.
+  //
+  // AND GOV DOES NOT TRY TO DETECT IT. Every heuristic — $DISPLAY, xdg-open, $SSH_CONNECTION —
+  // is wrong on some real machine, and being wrong here means silently withholding the only
+  // way through. So the key is ALWAYS offered where the agent can take one; `signsInItself`
+  // now changes the WORDING and the meaning of skipping, never whether the offer is made.
+  if (!envVar) {
+    // Nothing to offer, and saying so beats silence: the adopter is about to be handed to a
+    // tool that may ask for a browser this machine does not have.
+    process.stdout.write(`\n  ${agent.tool} signs in through its own client — gov has no key to store for it.\n`);
+    process.stdout.write("  If it asks for a browser and this machine has none, sign in on one that does.\n");
     return true;
   }
-  const envVar = agent.credentialEnv;
-  if (!envVar) return true;                       // nothing to sign in with, and nothing to claim
   if (process.env[envVar]) {
     process.stdout.write(`\n  ${envVar} is already set — ${agent.tool} has what it needs.\n`);
     return true;
@@ -230,14 +240,32 @@ function captureAgentKey(agent: AgentCandidate): boolean {
 
   if (configPath && prefsDir) {
     for (const line of credentialNotice(agent.id, configPath, prefsDir)) process.stdout.write(`${line}\n`);
+  } else if (agent.signsInItself) {
+    // The browser is the vendor's preferred route and gov does not pretend to know whether it
+    // is available. Both ways out are named, and neither is presented as the fallback.
+    process.stdout.write(`\n  ${agent.tool} signs in through a browser. gov cannot tell whether this machine\n`);
+    process.stdout.write("  has one, and does not need to guess:\n\n");
+    process.stdout.write(`    · paste an API key now and gov will store it${agent.signupUrl ? ` — get one at ${agent.signupUrl}` : ""}\n`);
+    process.stdout.write(`    · or press Enter, and sign in when ${agent.tool} starts\n\n`);
   } else {
     process.stdout.write(`\n  ${agent.tool} signs in with an API key rather than a browser.\n`);
     process.stdout.write(`  gov does not know where ${agent.tool} keeps its config, so it will not guess:\n`);
     process.stdout.write(`  the key goes in your environment as ${envVar}.\n\n`);
   }
 
-  const key = readSecret(`  Paste the ${envVar} (hidden), or press Enter to do this later: `, nodeSecretIo());
+  const key = readSecret(`  Paste the ${envVar} (hidden), or press Enter to skip: `, nodeSecretIo());
   if (!key) {
+    // SKIPPING MEANS DIFFERENT THINGS, and reporting them the same way is how #208 happened in
+    // reverse. An agent that signs itself in is READY — it will ask when it starts, and on a
+    // machine with a browser that is the better route. An agent that has only a key is not.
+    if (agent.signsInItself) {
+      process.stdout.write(`\n  Nothing saved. ${agent.tool} will ask you to sign in when it starts.\n`);
+      process.stdout.write("  If that turns out to need a browser this machine does not have:\n");
+      if (agent.signupUrl) process.stdout.write(`    get a key at   ${agent.signupUrl}\n`);
+      process.stdout.write(`    then:          export ${envVar}=<your key>\n`);
+      process.stdout.write(`    or re-run:     gov agent install ${agent.id}   (it asks again)\n`);
+      return true;
+    }
     process.stdout.write(`\n  Nothing saved. ${agent.tool} is installed but cannot run yet.\n`);
     if (agent.signupUrl) process.stdout.write(`  Get a key:      ${agent.signupUrl}\n`);
     process.stdout.write(`  Then either:    export ${envVar}=<your key>\n`);
@@ -289,7 +317,17 @@ function linkAgentIntoPath(cmd: string): string | null {
   const target = path.join(nodeBin, cmd);
   if (!fsSync.existsSync(target)) return null;                       // installed elsewhere; not ours to link
   const pathDirs = (process.env.PATH ?? "").split(path.delimiter);
-  if (pathDirs.includes(nodeBin)) return null;                       // already reachable without help
+  // THE WRONG PATH WAS BEING ASKED. This used to skip the wrapper when `nodeBin` was already
+  // on PATH — "already reachable without help" — reading gov's OWN process environment. But
+  // `install.sh` does `export PATH="$NODE_DIR/bin:$PATH"` before running gov, so that is
+  // ALWAYS true during an install, and the wrapper was never written. The adopter's shell,
+  // started before any of this, has no such entry, and answered `bob: command not found`
+  // seconds after Bob printed `bob --resume`. The whole point of #209, no-opped by its guard.
+  //
+  // gov's PATH is the login shell's PATH plus whatever the installer added to it. So a
+  // directory's presence is evidence about the adopter's shell only for entries gov did not
+  // add — which `~/.local/bin` is, and `nodeBin` is exactly not. A redundant wrapper costs
+  // nothing; a missing one costs the thing this function exists for.
   const dir = path.join(os.homedir(), ".local", "bin");
   if (!pathDirs.includes(dir)) return null;                          // a file nobody would find
   const shim = path.join(dir, cmd);
