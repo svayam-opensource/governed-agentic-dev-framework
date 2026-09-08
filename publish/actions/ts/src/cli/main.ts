@@ -395,6 +395,18 @@ function expandHome(p: string): string {
 
 
 
+/**
+ * An asker for code paths that read rather than ask — `myProjects` and friends.
+ *
+ * It THROWS. Returning "" would be the fallback this whole change removes: a question that
+ * looks answered. If this is ever reached, something is asking from a place that has no
+ * terminal, and a stack trace is the useful answer.
+ */
+const neverAsks: AskFns = {
+  line: () => { throw new Error("asked a question from a read-only path"); },
+  secret: () => { throw new Error("asked for a secret from a read-only path"); },
+};
+
 /** The template every governance repo is created from. */
 const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
 
@@ -879,9 +891,10 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       // Its own readline: `ask` above holds one only for the length of a question, and the
       // work flow needs the terminal for the whole session.
       const rl2 = readline.createInterface({ input: process.stdin, output: process.stderr });
+      const ask2 = (q: string): Promise<string> => new Promise((res) => rl2.question(q, res));
       try {
         return await runWorkFlow(
-          { ...workDeps, prompt: (q) => new Promise((res) => rl2.question(q, res)), print: (l) => process.stderr.write(`${l}\n`), color: stderrColor() },
+          { ...workDeps, prompt: ask2, print: (l) => process.stderr.write(`${l}\n`), color: stderrColor(), ask: askFns(rl2, ask2) },
           { ...(role === "adopter" ? { projectPattern: slug } : {}), interactive: true },
         );
       } finally { rl2.close(); }
@@ -973,7 +986,15 @@ export async function gatherMenuContext(): Promise<MenuContext> {
  * it. `null` when no workspace resolves — the caller says what to do about that, because the answer differs
  * (the menu offers setup; the verb prints and exits).
  */
-function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | null {
+/**
+ * Everything a work flow needs EXCEPT how to ask.
+ *
+ * `ask` is deliberately not here: it belongs to whoever owns the terminal, and each of the
+ * three callers owns a different one. Omitting it makes that obligation a compile error
+ * rather than a runtime shrug — which is how the review offer (#203) came to build a flow
+ * with no asker and silently skip a key prompt.
+ */
+function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0], "ask"> | null {
   const fs = createNodeFs();
   const env = createNodeEnv();
   const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -1231,7 +1252,14 @@ export async function runMainMenu(): Promise<number> {
     help: (command) => helpLines(command),
     helpCommands: helpCommandNames,
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
-    listMyProjects: () => { try { return workDeps ? myProjects(workDeps).map((p) => p.projectId) : []; } catch { return []; } },
+    // `myProjects` reads boards and asks nothing, so the asker it will never reach is a stub —
+    // one that THROWS rather than returning "", because reaching it would mean a question was
+    // asked somewhere that cannot ask, and that must be loud.
+    listMyProjects: () => {
+      try {
+        return workDeps ? myProjects({ ...workDeps, ask: neverAsks }).map((p) => p.projectId) : [];
+      } catch { return []; }
+    },
   };
   return runMenu(ctx, handlers);
 }

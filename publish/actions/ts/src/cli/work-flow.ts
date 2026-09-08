@@ -72,11 +72,18 @@ export interface WorkFlowDeps {
   /** May this flow's output carry ANSI (#204)? Decided by the caller — these lines go to stderr. */
   readonly color?: boolean;
   /**
-   * How to ask, when the caller can offer more than a plain line — a hidden read for a key.
-   * Absent in tests and in any caller with nothing special to offer; {@link plainAsk} then
-   * falls back to `prompt`, which every caller already has.
+   * How to ask — including the hidden read a key needs. REQUIRED, and that is the fix.
+   *
+   * It was optional, with a fallback that printed "(cannot hide input here — skipped)" and
+   * returned "". Three call sites build a work flow; two were given an asker and the THIRD —
+   * the review offer that closes adoption (#203) — was not. So an adopter chose "paste an API
+   * key", and the fallback answered for them, in a parenthetical, and the run carried on.
+   *
+   * That is #199's lesson rebuilt by hand: a degraded path that cannot be told from success at
+   * the call site. Making this required turns "I forgot one" into a compile error, which is
+   * the only version of this that stays fixed.
    */
-  readonly ask?: AskFns;
+  readonly ask: AskFns;
   /** Launch an interactive agent/editor/shell with `cwd` = the project dir. `inject` = the session-start
    *  kickoff prompt handed to a speak-first CLI agent (Claude / cursor-agent) so it runs the protocol
    *  immediately. Terminal agents inherit stdio + block; the GUI editor opens detached. */
@@ -285,20 +292,6 @@ export function resolveAgent(
     return { ok: false, reason: `no agent found on PATH (looked for: ${looked}).\n  pass --agent <id>, or set $GOV_AGENT.\n  \`--agent shell\` just opens a shell in the project.` };
   }
   return { ok: false, reason: `more than one agent is installed (${found.map((a) => a.cmd).join(", ")}) — say which: --agent <${found.map((a) => a.id).join("|")}>, or set $GOV_AGENT.` };
-}
-
-/**
- * The fallback asker: a flow with no hidden-read support still has `prompt`.
- *
- * A key read back through a visible prompt would ECHO, so this refuses rather than leaking
- * one — the caller that cannot hide a secret should not be collecting secrets. Every real
- * caller supplies `ask`; this exists so a test double needs one function, not three.
- */
-function plainAsk(deps: WorkFlowDeps): AskFns {
-  return {
-    line: (q) => deps.prompt(q),
-    secret: async (q) => { deps.print(`${q}(cannot hide input here — skipped)`); return ""; },
-  };
 }
 
 /** My projects = open boards whose anchor issue lists me as an assignee (owner). */
@@ -571,7 +564,7 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
         print("");
         const yes = (await deps.prompt(`  ${paint(`Install ${defName} now?`, "bold", deps.color ?? false)} (Y/n) `)).trim().toLowerCase();
         if (!/^n(o)?$/.test(yes)) {
-          if (await deps.installAgent(def, deps.ask ?? plainAsk(deps))) {
+          if (await deps.installAgent(def, deps.ask)) {
             // THE ID IS THE LAUNCH INSTRUCTION (#199). This used to map anything but Claude Code
             // and Cursor to "shell", so an org whose default was Bob, codex, gemini, copilot or
             // aider was told its agent had started and handed a shell prompt.
