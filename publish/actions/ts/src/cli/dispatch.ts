@@ -81,6 +81,10 @@ export interface CliContext {
   /** Does the backup copy of this agent's key differ from the one it uses? Never the values. */
   readonly credentialDrift?: (agentId: string) => boolean;
   /** Run an install plan, and offer the sign-in. Owns the terminal; returns success. */
+  /**
+   * Absent by design since #213: installing ASKS and SPAWNS, so `bin.ts` handles
+   * `agent install` before routing — next to `work`, for the reason stated below.
+   */
   readonly performAgentInstall?: (plan: ReturnType<typeof planAgentInstall>) => boolean;
   /** Raise a pull request adding an agent to llm-governance.md. */
   readonly proposeAgentApproval?: (id: string) => readonly string[];

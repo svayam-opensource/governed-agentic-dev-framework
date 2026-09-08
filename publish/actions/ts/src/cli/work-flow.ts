@@ -54,7 +54,16 @@ export interface WorkFlowDeps {
   /** This person's preferred agent id, from their preferences file. C03. */
   readonly agentPreference?: () => string | null;
   /** Install an approved agent and offer its sign-in. Returns whether it is usable now. */
-  readonly installAgent?: (id: string) => boolean;
+  /**
+   * Install an approved agent and settle its sign-in. Returns whether it is usable now.
+   *
+   * ASYNC, AND IT BORROWS THIS FLOW'S PROMPT (#213). It used to be synchronous and read the
+   * terminal itself — first `readSync(0, …)`, which the flow's own readline had already taken,
+   * then a second handle on /dev/tty, which raced the same readline for the same keystrokes.
+   * Both are the shape #194 named: two readers of one terminal. There is one reader here, and
+   * everything that needs to ask borrows it.
+   */
+  readonly installAgent?: (id: string, ask: AskFns) => Promise<boolean> | boolean;
   /** Fork mappings the last `seed` proposed, if any (#194). */
   readonly pendingRepoOverrides?: () => readonly { readonly from: string; readonly to: string }[];
   /** Record them in org-config.yaml. Returns whether anything was written. */
@@ -62,6 +71,12 @@ export interface WorkFlowDeps {
   readonly print: (l: string) => void;
   /** May this flow's output carry ANSI (#204)? Decided by the caller — these lines go to stderr. */
   readonly color?: boolean;
+  /**
+   * How to ask, when the caller can offer more than a plain line — a hidden read for a key.
+   * Absent in tests and in any caller with nothing special to offer; {@link plainAsk} then
+   * falls back to `prompt`, which every caller already has.
+   */
+  readonly ask?: AskFns;
   /** Launch an interactive agent/editor/shell with `cwd` = the project dir. `inject` = the session-start
    *  kickoff prompt handed to a speak-first CLI agent (Claude / cursor-agent) so it runs the protocol
    *  immediately. Terminal agents inherit stdio + block; the GUI editor opens detached. */
@@ -80,6 +95,17 @@ export interface WorkFlowDeps {
  * two of them could be started (#199). The id IS the launch instruction now; nothing translates it.
  */
 export type AgentKind = "cursor-gui" | "shell" | (string & {});
+
+/**
+ * The two ways to ask, both driven by the ONE reader the flow owns.
+ *
+ * `secret` is the same question with the echo off — a key must not appear on screen, in a
+ * scrollback, or over someone's shoulder.
+ */
+export interface AskFns {
+  readonly line: (question: string) => Promise<string>;
+  readonly secret: (question: string) => Promise<string>;
+}
 
 /**
  * What `gov work` already knows, so the flow can skip asking. The MENU passes none of these and behaves
@@ -259,6 +285,20 @@ export function resolveAgent(
     return { ok: false, reason: `no agent found on PATH (looked for: ${looked}).\n  pass --agent <id>, or set $GOV_AGENT.\n  \`--agent shell\` just opens a shell in the project.` };
   }
   return { ok: false, reason: `more than one agent is installed (${found.map((a) => a.cmd).join(", ")}) — say which: --agent <${found.map((a) => a.id).join("|")}>, or set $GOV_AGENT.` };
+}
+
+/**
+ * The fallback asker: a flow with no hidden-read support still has `prompt`.
+ *
+ * A key read back through a visible prompt would ECHO, so this refuses rather than leaking
+ * one — the caller that cannot hide a secret should not be collecting secrets. Every real
+ * caller supplies `ask`; this exists so a test double needs one function, not three.
+ */
+function plainAsk(deps: WorkFlowDeps): AskFns {
+  return {
+    line: (q) => deps.prompt(q),
+    secret: async (q) => { deps.print(`${q}(cannot hide input here — skipped)`); return ""; },
+  };
 }
 
 /** My projects = open boards whose anchor issue lists me as an assignee (owner). */
@@ -531,7 +571,7 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
         print("");
         const yes = (await deps.prompt(`  ${paint(`Install ${defName} now?`, "bold", deps.color ?? false)} (Y/n) `)).trim().toLowerCase();
         if (!/^n(o)?$/.test(yes)) {
-          if (deps.installAgent(def)) {
+          if (await deps.installAgent(def, deps.ask ?? plainAsk(deps))) {
             // THE ID IS THE LAUNCH INSTRUCTION (#199). This used to map anything but Claude Code
             // and Cursor to "shell", so an org whose default was Bob, codex, gemini, copilot or
             // aider was told its agent had started and handed a shell prompt.

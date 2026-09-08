@@ -12,6 +12,7 @@
  * flows + command runs to injected handlers. (Enterprise catalog/deploy is a
  * SEPARATE CLI, `gov-cicd` — this menu has no knowledge of it.)
  */
+import { askFns, type AskFns } from "./ask.js";
 import * as readline from "node:readline";
 
 export type ContextMode = "project" | "governed" | "none";
@@ -161,6 +162,15 @@ export function resolveTopChoice(input: string, ctx: MenuContext = {}): TopChoic
 export interface MenuIo {
   readonly prompt: (q: string) => Promise<string>;
   readonly print: (l: string) => void;
+  /**
+   * The same reader, with a hidden variant for a key (#213).
+   *
+   * The menu's readline stays open for the whole loop, so anything it hands off to must ask
+   * THROUGH it. A handler that opened its own reader raced this one for the same keystrokes
+   * and lost — the sign-in choice answered itself and an adopter fell through to a browser
+   * screen they could not use.
+   */
+  readonly ask: AskFns;
 }
 
 /** Handlers the readline loop delegates to (all injected → testable). */
@@ -212,7 +222,7 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
       }
       const a = top.action;
       if (a.kind === "guided") {
-        const io: MenuIo = { prompt: ask, print: w };
+        const io: MenuIo = { prompt: ask, print: w, ask: askFns(rl, ask) };
         return await h.runWork(io);
       }
       if (a.kind === "help") {

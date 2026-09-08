@@ -19,8 +19,8 @@ import { parseTarget, preflight as createPreflight, explainFailure, findExisting
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
-import { readSecret, type SecretIo } from "./secret-prompt.js";
 import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
+import { askFns, type AskFns } from "./ask.js";
 import { reporter, useColor } from "./format.js";
 /** One answer for the whole process: whether STDOUT can carry ANSI (#204). */
 const stdoutColor = (): boolean => useColor({ isTty: process.stdout.isTTY === true, env: process.env });
@@ -108,7 +108,7 @@ const repoStanding = (url: string, githubOrg: string): { canPush: boolean; forkU
  */
 let pendingRepoOverrides: readonly { readonly from: string; readonly to: string }[] = [];
 
-function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boolean {
+async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>, ask: AskFns): Promise<boolean> {
     if (!plan.ok) return false;
     // HEADLESS INSTALLS, AND NEVER SIGNS ANYONE IN (#196, Q11). The consent for
     // installing already happened, in policy, by the Infrastructure Owner — that is
@@ -201,7 +201,7 @@ function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boo
       // Bounded, and it re-asks rather than ending: the same rule as #192. A stream that
       // cannot answer falls through to skip, which is safe and reversible.
       for (let attempt = 0; attempt < 5; attempt++) {
-        const answer = readLineVisible(`  Choose [1-${options.length}]: `);
+        const answer = await ask.line(`  Choose [1-${options.length}]: `);
         const m = parseSignInChoice(answer, options);
         if (m) { chosen = m; break; }
         process.stdout.write(`  ✗ '${answer}' is not one of the choices.\n`);
@@ -215,7 +215,7 @@ function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boo
       return true;
     }
     // TIER 2: GOV HANDLES THE KEY (#196 Q6, wired in #200, made unconditional in #213).
-    if (chosen === "api-key") return captureAgentKey(plan.agent);
+    if (chosen === "api-key") return await captureAgentKey(plan.agent, ask);
 
     // WHAT WAS SKIPPED IS THE AGENT'S ROUTE, NOT THE CHOICE JUST MADE. Reading `chosen` here
     // asked "did you pick the browser?" when the answer is always "no, I picked skip" — so an
@@ -243,7 +243,7 @@ function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>): boo
  * ENTER IS A REAL ANSWER. Someone who has not created an account yet is told exactly how to finish,
  * naming the variable and the verb — the alternative is the dead end this replaces.
  */
-function captureAgentKey(agent: AgentCandidate): boolean {
+async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<boolean> {
   const envVar = agent.credentialEnv;
 
   // NEVER ASSUME A BROWSER (#213, Policy Owner). This used to return here for an agent that
@@ -298,7 +298,7 @@ function captureAgentKey(agent: AgentCandidate): boolean {
     process.stdout.write(`  the key goes in your environment as ${envVar}.\n\n`);
   }
 
-  const key = readSecret(`  Paste the ${envVar} (hidden), or press Enter to skip: `, nodeSecretIo());
+  const key = await ask.secret(`  Paste the ${envVar} (hidden), or press Enter to skip: `);
   if (!key) {
     // SKIPPING MEANS DIFFERENT THINGS, and reporting them the same way is how #208 happened in
     // reverse. An agent that signs itself in is READY — it will ask when it starts, and on a
@@ -392,80 +392,8 @@ function expandHome(p: string): string {
   return p.startsWith("~/") ? path.join(os.homedir(), p.slice(2)) : p;
 }
 
-/**
- * Read one visible line from the terminal, synchronously.
- *
- * The sign-in choice is a NUMBER, not a secret, so it echoes — a person needs to see what they
- * typed. It shares {@link readSecret}'s constraint rather than its behaviour: this runs between
- * two `spawnSync` calls, so it cannot use the async readline the rest of the CLI shares.
- */
-/**
- * Read one line from THE TERMINAL, not from fd 0.
- *
- * Both of these prompts read `fsSync.readSync(0, …)` and answered themselves instantly: the
- * agent install runs inside `runWorkFlow`, which is holding a readline on stdin for its own
- * questions. Two readers of one stream, and the second gets nothing — which is #194's finding
- * word for word ("two readers of the same terminal is how the first two attempts at this
- * question answered themselves"), walked into again one function over.
- *
- * `/dev/tty` is the terminal itself rather than this process's stdin, so it is unaffected by
- * whoever holds fd 0. It is the same escape `createStarterProject` already uses, for the same
- * reason. The handle lives only as long as the question.
- *
- * NO TERMINAL AT ALL is a real state — a pipe, CI — and it returns "", which every caller
- * already treats as "skipped".
- */
-function withTty<T>(use: (fd: number) => T, fallback: T): T {
-  let fd: number | undefined;
-  try {
-    fd = fsSync.openSync("/dev/tty", "r+");
-    return use(fd);
-  } catch {
-    return fallback;
-  } finally {
-    if (fd !== undefined) { try { fsSync.closeSync(fd); } catch { /* closing a gone tty is not news */ } }
-  }
-}
 
-function readLineFrom(fd: number, size: number): string {
-  const buf = Buffer.alloc(size);
-  const n = fsSync.readSync(fd, buf, 0, buf.length, null);
-  return buf.toString("utf8", 0, n).split("\n")[0] ?? "";
-}
 
-function readLineVisible(prompt: string): string {
-  process.stdout.write(prompt);
-  return withTty((fd) => readLineFrom(fd, 256).trim(), "");
-}
-
-/** The real terminal, for {@link readSecret}. `stty` because the echo must go off for one line only. */
-function nodeSecretIo(): SecretIo {
-  // ONE HANDLE ON THE TERMINAL, held for the length of the question and no longer. `stty` is
-  // given the same fd as its stdin, so it turns the echo off on the TERMINAL rather than on
-  // whatever this process's stdin happens to be — which, inside the work flow, is a stream a
-  // readline already owns.
-  let fd: number | null = null;
-  const tty = (): number | null => {
-    if (fd === null) { try { fd = fsSync.openSync("/dev/tty", "r+"); } catch { fd = null; } }
-    return fd;
-  };
-  return {
-    write: (x) => process.stdout.write(x),
-    setEcho: (on) => {
-      const t = tty();
-      if (t === null) return;                       // no terminal: nothing to turn off, and no harm
-      spawnSync("stty", [on ? "echo" : "-echo"], { stdio: [t, "ignore", "ignore"] });
-      // The echo is restored on the LAST call (readSecret does it in a `finally`), which is
-      // also when the handle stops being needed. Leaving it open would outlive the question.
-      if (on) { try { fsSync.closeSync(t); } catch { /* best effort */ } fd = null; }
-    },
-    readLine: () => {
-      const t = tty();
-      if (t === null) return "";
-      try { return readLineFrom(t, 4096); } catch { return ""; }
-    },
-  };
-}
 
 /** The template every governance repo is created from. */
 const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
@@ -1081,11 +1009,11 @@ function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | n
     // time, and validated against the org's list at launch — not at write time.
     // The joiner's ordinary case: nothing installed, and the org already chose what
     // should be. Same plan and same performer as `gov agent install` — one path.
-    installAgent: (id: string) => {
+    installAgent: async (id: string, ask: AskFns) => {
       const policy = fs.readFile(path.join(resolved.home, "knowledge", "policies", "llm-governance.md"));
       const plan = planAgentInstall(id, parseApprovedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
       if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return false; }
-      return performAgentInstallReal(plan);
+      return await performAgentInstallReal(plan, ask);
     },
     agentPreference: () => {
       const prefs = fs.readFile(path.join(config.agentWorkRoot, "preferences", `${me ?? ""}.md`));
@@ -1142,6 +1070,32 @@ function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | n
  * guess a project or an agent: there is nobody to correct a wrong guess, and a session started on the wrong
  * project is worse than no session.
  */
+/**
+ * `gov agent install <id>` — lifted out of the router for the reason the router itself gives
+ * for `work`: it asks questions and it spawns things, and neither belongs in a pure route.
+ *
+ * It also gets to OWN the terminal here. That is the whole of #213: one reader per run, and
+ * everything that needs to ask borrows it. When this ran through `route` it had no reader of
+ * its own and reached for the terminal directly — which was harmless standing alone and lost
+ * a race the moment the same code was reached from the menu.
+ */
+export async function runAgentInstall(argv: readonly string[]): Promise<number> {
+  const id = argv[2];
+  if (!id) { process.stderr.write("usage: gov agent install <id>\n"); return 1; }
+  const r = prjResolveGov(createNodeEnv());
+  if (!r.ok) { process.stderr.write("  No governance workspace resolved. Run `gov setup`, then `gov org add/use`.\n"); return 1; }
+  const fs = createNodeFs();
+  const policy = fs.readFile(path.join(r.home, "knowledge", "policies", "llm-governance.md"));
+  const plan = planAgentInstall(id, parseApprovedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
+  if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return 1; }
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const prompt = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
+  try {
+    return await performAgentInstallReal(plan, askFns(rl, prompt)) ? 0 : 1;
+  } finally { rl.close(); }
+}
+
 export async function runWork(argv: readonly string[]): Promise<number> {
   const flagOf = (name: string): string | undefined => {
     const eq = argv.find((a) => a.startsWith(`--${name}=`));
@@ -1168,7 +1122,7 @@ export async function runWork(argv: readonly string[]): Promise<number> {
   const prompt = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
   try {
     return await runWorkFlow(
-      { ...deps, prompt, print: (l) => process.stderr.write(`${l}\n`), color: stderrColor() },
+      { ...deps, prompt, print: (l) => process.stderr.write(`${l}\n`), color: stderrColor(), ask: askFns(rl, prompt) },
     {
       ...(pattern ? { projectPattern: pattern } : {}),
       ...(agent ? { agent: agent as AgentKind } : {}),
@@ -1268,7 +1222,10 @@ export async function runMainMenu(): Promise<number> {
         io.print("  No governance workspace resolved. Set one up first: `gov setup`, then `gov org add/use`.");
         return 1;
       }
-      return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print });
+      // The MENU owns the reader here, and it stays open for the whole loop — which is why a
+      // second one inside the agent install lost the race on a real walk while the direct
+      // `gov work` path happened to survive it. Whoever owns the terminal does the asking.
+      return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print, ask: io.ask });
     },
     switchOrg: (org) => runAny(["org", "use", org]),
     help: (command) => helpLines(command),
@@ -1828,7 +1785,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
      * Every command is shown before it runs, because approval means the org agreed
      * to the tool, not that the person at the keyboard agreed to this moment.
      */
-    performAgentInstall: performAgentInstallReal,
+    // `agent install` is handled in bin.ts, next to `work`, because it prompts and spawns.
 
     /**
      * `approve` raises a pull request. It does not edit the policy: the approved

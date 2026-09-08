@@ -5,7 +5,7 @@
 // Development Framework. It manages projects, workspaces and org registration, and shows the context
 // banner. It hosts NOTHING: `gov-cicd` (deploy) and `gov-infra` (infrastructure) are independent clients
 // invoked directly, not verbs of this one (adr-three-clients, PRJ-43).
-import { main, runSetupCommand, runWork, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines } from "./main.js";
+import { main, runSetupCommand, runWork, runAgentInstall, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines } from "./main.js";
 import { confirmContextOrBail } from "./context-gate.js";
 
 const argv = process.argv.slice(2);
@@ -44,6 +44,10 @@ async function dispatch(): Promise<number> {
   if (argv.length === 0 && process.stdin.isTTY) return runMainMenu();
   if (argv[0] === "setup") return runSetupCommand(argv);
   if (argv[0] === "work") return runWork(argv);   // prompts + launches — see runWork
+  // `agent install` ASKS and SPAWNS, so it belongs here for the same reason `work` does —
+  // dispatch.ts says it plainly: "neither prompting nor spawning belongs in a pure router".
+  // It also needs a reader of its own, and having exactly one owner is the whole of #213.
+  if (argv[0] === "agent" && argv[1] === "install") return runAgentInstall(argv);
   return main(argv);
 }
 
