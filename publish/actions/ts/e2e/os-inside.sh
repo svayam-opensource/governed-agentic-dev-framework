@@ -27,4 +27,14 @@ chmod 0440 /etc/sudoers.d/tester
 install -d -o tester -g tester /work
 cp /tmp/gov.tgz /work/gov.tgz && chown tester:tester /work/gov.tgz
 
-exec su - tester -c "OS_TIER_LABEL='${OS_TIER_LABEL}' OS_TIER_FRAGMENT='${OS_TIER_FRAGMENT:-}' bash /src/publish/actions/ts/e2e/os-run.sh"
+# `sudo -u`, NOT `su`. fedora:latest ships no `su` at all — `exec: su: not found` — and every
+# image here already has sudo, because a real adopter needs it for `doctor --fix`. Using the
+# tool that is present everywhere removes a per-distro difference instead of papering over one
+# with another package.
+#
+# `-i` for a LOGIN shell, which is what `su -` gave: the profile is read, so what these
+# fragments see is what an adopter sees after opening a terminal.
+exec sudo -u tester -i env \
+  OS_TIER_LABEL="${OS_TIER_LABEL}" \
+  OS_TIER_FRAGMENT="${OS_TIER_FRAGMENT:-}" \
+  bash /src/publish/actions/ts/e2e/os-run.sh

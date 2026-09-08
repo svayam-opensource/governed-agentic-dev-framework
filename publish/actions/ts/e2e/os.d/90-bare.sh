@@ -34,7 +34,24 @@ C
 info "what the installer did"
 exists "#186 — Node is installed PRIVATELY, not over the machine's own" "$HOME/.local/share/gov/node/bin/node"
 saw "and it says so rather than leaving it to be discovered" "Installing Node"
-exists "gov is linked where the profile already looks" "$HOME/.local/bin/gov"
+
+# HOW gov BECAME REACHABLE IS THE INSTALLER'S CHOICE, and it differs by distro — which is
+# the whole reason this tier runs on four of them.
+#
+#   Rocky, Fedora   ~/.local/bin is on PATH out of the box, so `link_into_path` writes the
+#                   wrapper there and gov works in the shell you are standing in.
+#   Debian slim     it is not, so that returns 1 and install.sh falls back to the profile
+#                   edit — correctly, and it says so: "This shell was started before gov was
+#                   installed… source ~/.profile".
+#
+# Asserting the wrapper's PATH was asserting Rocky's answer on every machine. The OUTCOME is
+# what an adopter cares about, and it is asserted below in a new login shell.
+if [ -x "$HOME/.local/bin/gov" ]; then
+  pass "gov is linked into ~/.local/bin — already on PATH here, so it works without a new terminal"
+else
+  info "no wrapper: ~/.local/bin is not on PATH on this image, so install.sh edited the profile"
+  says "and it SAYS the current shell does not know about it yet" "This shell was started before gov was installed"
+fi
 
 info "#186 — the claim is proved, not announced"
 in_a_new_login_shell "gov --version" \
@@ -57,8 +74,23 @@ fi
 info "#204 / #186 — the consent screen, on a machine that really is missing both"
 says "it says what is missing, in the reader's terms" "gov has checked this machine and found the following missing"
 says "and then what it would run about it" "To put that right, gov will run"
-saw "the commands are the appendix, not the argument" "sudo dnf install -y git"
-saw "including the repository Rocky does not carry gh in" "cli.github.com/packages/rpm/gh-cli.repo"
+# THE SHAPE, NOT THE SPELLING. These asserted `sudo dnf install -y git` on every image, which
+# is Rocky's answer written down as if it were everyone's — the same distro-blindness the tier
+# exists to catch in gov. What must be true everywhere is that the plan names a command for
+# each missing thing; WHICH command is the package manager's business.
+saw_re "the plan names a command that installs git" "install (-y )?git"
+saw_re "and one that installs gh" "install (-y )?gh"
+saw "and the sign-in only a person can do" "gh auth login"
+saw "and the identity a fresh git does not have" "git config --global"
+
+# ONE REAL DIFFERENCE, ASSERTED AS A DIFFERENCE. Fedora carries the GitHub CLI in its own
+# repositories; Rocky does not, and needs GitHub's added first. That distinction produced
+# three of the nine defects #186 closed, so it is worth holding rather than smoothing over.
+case "$OS_TIER_LABEL" in
+  rocky)  saw "Rocky needs GitHub's repository added first" "cli.github.com/packages/rpm/gh-cli.repo" ;;
+  fedora) never "Fedora ships gh itself — no third-party repository is added" "gh-cli.repo" ;;
+  *)      info "apt distros: gh comes from the archive, or the note says what to do when it does not" ;;
+esac
 
 info "the checklist tells the truth about a machine with no git and no gh"
 says "it ends by naming the organization step, not by stopping" "Next: your organization"

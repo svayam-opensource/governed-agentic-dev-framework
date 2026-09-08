@@ -33,6 +33,10 @@ drive() {
 conv() { local f=/work/conv.$$; cat > "$f"; echo "$f"; }
 
 saw()   { grep -qF -- "$2" "$PLAIN" && pass "$1" || { fail "$1"; printf '%s     expected: %s%s\n' "$DIM" "$2" "$RST"; }; }
+# For what differs by distro in SPELLING but not in shape — `dnf install -y git` against
+# `apt-get install -y git`. Asserting one distro's wording on four distros is the same
+# blindness this tier exists to catch.
+saw_re(){ grep -qE -- "$2" "$PLAIN" && pass "$1" || { fail "$1"; printf '%s     expected /%s/%s\n' "$DIM" "$2" "$RST"; }; }
 says()  { grep -qF -- "$2" "$FLAT" && pass "$1" || { fail "$1"; printf '%s     expected sentence: %s%s\n' "$DIM" "$2" "$RST"; }; }
 never() { grep -qF -- "$2" "$PLAIN" && { fail "$1"; printf '%s     forbidden: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
 exists(){ [ -e "$2" ] && pass "$1" || { fail "$1"; printf '%s     no such path: %s%s\n' "$DIM" "$2" "$RST"; }; }
