@@ -18,7 +18,7 @@
  * The rule that removes the class: whoever owns the terminal does the asking, and everything
  * that needs to ask BORROWS that owner. Never open a second reader, however carefully.
  */
-import type * as readline from "node:readline";
+import * as readline from "node:readline";
 
 export interface AskFns {
   /** Ask, and let the answer echo — the reader needs to see what they typed. */
@@ -50,6 +50,30 @@ export function askFns(rl: readline.Interface, prompt: (q: string) => Promise<st
           // The question itself must appear; everything typed after it must not.
           if (!muted && s.includes(question)) { original?.call(rl, s); muted = true; return; }
           if (!muted) { original?.call(rl, s); return; }
+          // HIDDEN IS NOT THE SAME AS INVISIBLE (#218).
+          //
+          // Writing nothing at all was the classic password behaviour, and it is wrong for
+          // the thing actually being asked for here. A password is TYPED, so the typist knows
+          // they typed; an API key is PASTED, and a paste that produces no change on screen is
+          // indistinguishable from a paste that did not arrive. A walk-through stalled on
+          // exactly that: the key had landed, the screen said nothing, and the only way to
+          // find out was to press Enter and see what happened.
+          //
+          // So redraw the line as one bullet per character held. The secret never reaches the
+          // screen; the fact that it arrived, and how much of it, does. Length is not a
+          // meaningful disclosure for a pasted credential — anyone watching the paste saw it.
+          const out = (rl as unknown as { output?: NodeJS.WritableStream }).output;
+          const held = (rl as unknown as { line?: string }).line?.length ?? 0;
+          if (!out) return;
+          try {
+            readline.cursorTo(out as NodeJS.WritableStream & { columns?: number }, 0);
+            readline.clearLine(out as NodeJS.WritableStream & { columns?: number }, 0);
+          } catch {
+            // Not a TTY (piped, or a test harness). Redrawing is meaningless there, and the
+            // caller still gets the answer — so fall silent rather than corrupt the stream.
+            return;
+          }
+          out.write(question + "•".repeat(held));
         };
         rl.question(question, (answer) => {
           iface._writeToOutput = original;
