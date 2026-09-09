@@ -14,6 +14,7 @@ import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
+import { log, closeLog } from "../log.js";
 import { readExistingOrgConfig, deriveOrgConfig, type OrgConfigValues } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
 import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
@@ -28,7 +29,7 @@ const stdoutColor = (): boolean => useColor({ isTty: process.stdout.isTTY === tr
 /** The same question for STDERR, where every prompt and progress line goes (#204). The two
  *  streams are redirected independently, so they are asked separately. */
 const stderrColor = (): boolean => useColor({ isTty: process.stderr.isTTY === true, env: process.env });
-import type { AgentCandidate } from "./agent-catalog.js";
+import { AGENT_CATALOG, type AgentCandidate } from "./agent-catalog.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -372,7 +373,14 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
 function linkAgentIntoPath(cmd: string): string | null {
   const nodeBin = path.dirname(process.execPath);
   const target = path.join(nodeBin, cmd);
-  if (!fsSync.existsSync(target)) return null;                       // installed elsewhere; not ours to link
+  // BOTH REFUSALS, NAMED. This function returns null for two entirely different reasons and the
+  // adopter sees the same nothing either way — which is how #209's guard no-opped the fix
+  // without anyone being able to tell from the screen which branch had been taken.
+  if (!fsSync.existsSync(target)) {
+    log("debug", "no wrapper written: the command is not beside gov's node",
+      "gov-work:cli:main", "linkAgentIntoPath", { cmd, nodeBin });
+    return null;                                                     // installed elsewhere; not ours to link
+  }
   const pathDirs = (process.env.PATH ?? "").split(path.delimiter);
   // THE WRONG PATH WAS BEING ASKED. This used to skip the wrapper when `nodeBin` was already
   // on PATH — "already reachable without help" — reading gov's OWN process environment. But
@@ -386,7 +394,14 @@ function linkAgentIntoPath(cmd: string): string | null {
   // add — which `~/.local/bin` is, and `nodeBin` is exactly not. A redundant wrapper costs
   // nothing; a missing one costs the thing this function exists for.
   const dir = path.join(os.homedir(), ".local", "bin");
-  if (!pathDirs.includes(dir)) return null;                          // a file nobody would find
+  if (!pathDirs.includes(dir)) {
+    // WARN, not debug: this one has a consequence the adopter will meet later, when the agent
+    // gov just installed is not on their PATH after gov exits. It should be in the log of a
+    // run nobody thought to switch anything on for.
+    log("warn", "no wrapper written: ~/.local/bin is not on PATH, so the agent will not be found after gov exits",
+      "gov-work:cli:main", "linkAgentIntoPath", { cmd, dir });
+    return null;                                                     // a file nobody would find
+  }
   const shim = path.join(dir, cmd);
   try {
     fsSync.mkdirSync(dir, { recursive: true });
@@ -506,6 +521,11 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
     const pathFlag = typeof flags["path"] === "string" ? (flags["path"] as string) : undefined;
     const pre = createPreflight(io, rawTarget, slug, pathFlag);
     if (!pre.ok) {
+      // WHICH ARM REFUSED. `explainFailure` writes prose for the adopter; the log records the
+      // discriminant, so a report of "it just stopped" can be answered without a re-run. This
+      // is the last gate before anything is created, and the one most often reached blind.
+      log("warn", "preflight refused — nothing was created", "gov-work:setup:create", "preflight",
+        { target: rawTarget, slug, reason: pre.failure });
       for (const line of explainFailure(pre.failure)) process.stderr.write(`${line}\n`);
       return 1;
     }
@@ -975,6 +995,12 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // No handle to close before delegating: `ask` holds one only for the length of a
     // question, so `gov setup` finds the terminal free and leaves it free.
     createWorkspace: (target, pre) => runSetupCommand(["setup", target], now, undefined, pre),
+    // WHAT GITHUB ALREADY KNOWS. `user/orgs` needs the `read:org` scope, so an empty answer
+    // means "gov cannot see", never "you belong to none" — both interviews treat it that way.
+    listMyOrgs: () => {
+      const out = tryRun("gh", ["api", "user/orgs", "--jq", ".[].login"]);
+      return out ? out.split("\n").map((l) => l.trim()).filter(Boolean) : [];
+    },
     // The interview's defaults. `originUrl` is empty on purpose: on the adopter path
     // nothing is cloned yet, so github_org/workspace_repo come from the answers (Q3/Q4)
     // rather than from a remote that does not exist.
@@ -1183,6 +1209,17 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
         if (note) for (const l of note) process.stderr.write(`${r1.step(l)}\n`);
         await pauseBeforeLaunch(agent);
       }
+      // THE LAUNCH, AND WHETHER THE KEY WENT WITH IT. #213's last wrong fix stored the key
+      // correctly and then launched the agent without it — and gov's output is identical
+      // either way, because storing and passing are different acts and only one of them shows.
+      // The env var's PRESENCE is recorded, never its value (POL-427 is C01).
+      const credEnv = AGENT_CATALOG.find((a) => a.id === agent)?.credentialEnv;
+      log("info", "launching the agent", "gov-work:cli:main", "launch", {
+        agent, cmd: s.cmd, args: s.args, cwd, detached: s.detached === true,
+        promptDelivery: s.promptToPaste ? "paste" : "argv",
+        ...(credEnv ? { credentialEnv: credEnv, credentialPresent: Boolean(process.env[credEnv]) } : {}),
+      });
+      closeLog();                              // spawnSync blocks until the agent exits; flush first
       if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
       const r = spawnSync(s.cmd, [...s.args], { cwd, stdio: "inherit" });
       if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed and on PATH?\n`); return 1; }

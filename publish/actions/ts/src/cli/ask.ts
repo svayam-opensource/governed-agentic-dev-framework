@@ -19,6 +19,7 @@
  * that needs to ask BORROWS that owner. Never open a second reader, however carefully.
  */
 import * as readline from "node:readline";
+import { log } from "../log.js";
 
 export interface AskFns {
   /** Ask, and let the answer echo — the reader needs to see what they typed. */
@@ -37,6 +38,10 @@ export interface AskFns {
  * interface writes has none of that liability and needs no `finally` to be correct.
  */
 export function askFns(rl: readline.Interface, prompt: (q: string) => Promise<string>): AskFns {
+  // WHICH ASKER ANSWERED. #213 cost four wrong fixes because that question had no answer
+  // anywhere except a screen recording: three call sites could reach a prompt, one of them
+  // through a stub that answered itself, and gov's output looked identical either way.
+  log("debug", "real asker constructed on an existing readline", "gov-work:cli:ask", "askFns");
   return {
     line: prompt,
     secret: (question) =>
@@ -77,6 +82,9 @@ export function askFns(rl: readline.Interface, prompt: (q: string) => Promise<st
         };
         rl.question(question, (answer) => {
           iface._writeToOutput = original;
+          // LENGTH, NEVER THE VALUE (POL-427 is C01). "did anything arrive, and roughly how
+          // much" is the whole diagnostic value of a secret prompt; the secret itself has none.
+          log("debug", "hidden answer received", "gov-work:cli:ask", "secret", { chars: answer.trim().length });
           // The typed newline was swallowed with the rest, so the next line starts on its own.
           rl.write("\n");
           resolve(answer.trim());

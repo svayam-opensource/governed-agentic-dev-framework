@@ -47,8 +47,10 @@ mkdir -p "$HOME/.gov/acme/projects/PRJ-9-infra/acme-gov/.git"
 drive "$(conv <<C
 > Select \\(A/B/C\\)
 < B
-> Governance repo \\(clone URL\\)
-< https://github.test/acme/acme-gov.git
+> Q1 - What is the Github Organization ID
+< acme
+> Q2 - What is the name of your org
+< acme-gov
 ~ 180
 > start work now
 < n

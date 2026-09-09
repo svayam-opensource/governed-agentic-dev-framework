@@ -31,6 +31,7 @@ import {
   nonEmpty, orgSlug as orgSlugRule, emailShape, isoDate,
   branchChoice, parseBranchChoice, branchName, type Validator,
 } from "./answers.js";
+import { renderOrgChoices, resolveOrgChoice, defaultOrg } from "./org-choice.js";
 
 /** The answers under construction — `OrgConfigValues` is readonly by design. */
 type Answers = { -readonly [K in keyof OrgConfigValues]?: OrgConfigValues[K] };
@@ -51,6 +52,11 @@ export interface InterviewIo {
    * to the joiner path). Absent means "carry on".
    */
   readonly afterOrg?: (org: string) => Promise<boolean> | boolean;
+  /**
+   * Organizations the signed-in GitHub account belongs to, offered at Q3 as a numbered list.
+   * A convenience, never a gate — see `org-choice.ts`.
+   */
+  readonly myOrgs?: () => readonly string[];
 }
 
 export interface InterviewResult {
@@ -123,14 +129,14 @@ export function interviewSummary(o: InterviewOutcome): readonly string[] {
  * "ask again" assumes someone is there to answer; a stream that repeats itself is
  * recognised for what it is rather than looped on forever.
  */
-async function ask(io: InterviewIo, n: number, question: string, def: string | undefined, rule: Validator): Promise<string> {
+async function ask(io: InterviewIo, n: number, question: string, def: string | undefined, rule: Validator, extra: readonly string[] = []): Promise<string> {
   io.print("");
   // ONE STRING, NOT A PRINT PLUS A PROMPT. The question travels WITH the prompt so
   // that whatever is driving the terminal — a person, the e2e `expect` harness, a unit
   // test's stub — identifies it the same way: by reading it. Printing the question and
   // then prompting with a bare "-" splits those two audiences, and only the person can
   // see both halves. The renderer supplies the ` [default]: ` tail.
-  const prompt = `Q${n} - ${question}\n-`;
+  const prompt = `Q${n} - ${question}\n${extra.length ? extra.join("\n") + "\n" : ""}-`;
   // A MISSING DEFAULT IS BLANK, NOT A CRASH. `derive` is injected, and a caller that
   // supplies none (or one that cannot compute a field yet) must produce a question the
   // human can still answer — not a TypeError three frames down.
@@ -182,9 +188,16 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
     "What is short name of your organization that you would like to use in headings etc?",
     dName.orgShortName || dName.orgName, nonEmpty("A short display name"));
 
-  const org = await ask(io, 3,
+  // ASKED WITH THE ANSWER ON SCREEN. GitHub knows which organizations this account belongs to,
+  // so the common case is a number rather than a recalled identifier. A name that is not on the
+  // list is still accepted: the token needs `read:org` to see them all, and an organization that
+  // gov cannot see is not thereby the wrong answer.
+  const mine = io.myOrgs?.() ?? [];
+  const org = resolveOrgChoice(await ask(io, 3,
     "What is the Github Organization ID of your organization? This is where your new governance repo will be created?",
-    io.derive(a).githubOrg, RULE_GITHUB_ORG);
+    defaultOrg(mine, io.derive(a).githubOrg),
+    (v) => RULE_GITHUB_ORG(resolveOrgChoice(v, mine)),
+    renderOrgChoices(mine)), mine);
   a.githubOrg = org;
 
   // THE PROBE, AT THE EARLIEST POSSIBLE MOMENT — see the file header.
