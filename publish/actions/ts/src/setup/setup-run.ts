@@ -18,6 +18,15 @@ export interface SetupIo {
   readonly gitEmail: string | null;
   readonly today: string;
   readonly existing?: Partial<OrgConfigValues>;
+  /**
+   * Did the org interview already ask everything (adopter path)? Set ONLY by that path.
+   *
+   * It cannot be inferred from `existing` being populated: a bare `gov setup` re-run in
+   * a configured repo populates `existing` too, and there the values are DEFAULTS to be
+   * offered, not answers to be skipped. Conflating the two would silently turn
+   * reconfiguration into a no-op.
+   */
+  readonly interviewed?: boolean;
   /** Ask a question with a default; return the answer (default if blank). Injected. */
   readonly prompt: (question: string, def: string) => Promise<string>;
   readonly print: (line: string) => void;
@@ -80,51 +89,73 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
   const ctx: SetupContext = { originUrl: io.originUrl, ghUser: io.ghUser, gitEmail: io.gitEmail, today: io.today, existing: io.existing };
   const answers: Partial<Record<keyof OrgConfigValues, string>> = {};
 
+  // ALREADY ANSWERED? The adopter path runs the whole interview (setup/interview.ts)
+  // BEFORE anything is created and hands the answers down as `existing`. A question
+  // re-asked here would invite a second, different answer to a settled fact, with
+  // nothing reconciling the two — the defect #192 fixed for the slug alone, which
+  // applies identically to every other value once the interview owns them all.
+  //
+  // Bare `gov setup` (configure-in-place) supplies none of these and is unchanged:
+  // it still asks, in this order, exactly as before.
+  const known = <K extends keyof OrgConfigValues>(k: K): string | null => {
+    if (io.interviewed !== true) return null;      // defaults, not answers — see `interviewed`
+    const v = io.existing?.[k];
+    return typeof v === "string" && v !== "" ? v : null;
+  };
+
+  // Did the interview already run? Then these echo lines are noise: the closing
+  // summary block reports every one of these values, with addresses.
+  const interviewed = io.interviewed === true;
+
   if (interactive) {
     const d0 = deriveOrgConfig({}, ctx);
-    answers.orgName = await askValid(io, "Full legal name of your organization", d0.orgName, nonEmpty("An organization name"));
+    answers.orgName = known("orgName")
+      ?? await askValid(io, "Full legal name of your organization", d0.orgName, nonEmpty("An organization name"));
     // Re-derive after the legal name so the short name has a default worth
     // accepting. Offering an empty default and then refusing empty is a question
     // that answers itself wrongly.
     const dName = deriveOrgConfig(answers, ctx);
-    answers.orgShortName = await askValid(io, "Short display name (used in headings)", dName.orgShortName || dName.orgName, nonEmpty("A short display name"));
+    answers.orgShortName = known("orgShortName")
+      ?? await askValid(io, "Short display name (used in headings)", dName.orgShortName || dName.orgName, nonEmpty("A short display name"));
     // ASKED ONCE (#192). `gov setup <org>/<repo>` already asks for the slug — it has
     // to, because the slug decides where the workspace is created, before anything
     // exists. Asking again here invited a second, different answer to a question
     // already settled, with nothing reconciling the two.
     if (io.existing?.orgSlug) {
       answers.orgSlug = io.existing.orgSlug;
-      io.print(`  Org slug                         ${answers.orgSlug}`);
+      if (!interviewed) io.print(`  Org slug                         ${answers.orgSlug}`);
     } else {
       answers.orgSlug = await askValid(io, "Org slug (uppercase, 2-6 chars; e.g. ACME)", d0.orgSlug, orgSlugRule);
     }
     // Re-derive so path/owner defaults reflect the just-entered slug + email.
     const d1 = deriveOrgConfig(answers, ctx);
-    io.print(`  github_org:     ${d1.githubOrg}  (from origin)`);
-    io.print(`  workspace_repo: ${d1.workspaceRepo}  (from origin)`);
+    if (!interviewed) io.print(`  github_org:     ${d1.githubOrg}  (from origin)`);
+    if (!interviewed) io.print(`  workspace_repo: ${d1.workspaceRepo}  (from origin)`);
     // A CHOICE, not free text (#192): only two answers mean anything here, and a
     // typo produces a branch the rest of the tool looks for and never finds.
     const branchDefault = parseBranchChoice(d1.defaultBranch) === "master" ? "2" : "1";
-    answers.defaultBranch = parseBranchChoice(
+    answers.defaultBranch = known("defaultBranch") ?? parseBranchChoice(
       await askValid(io, "Default branch for all repositories (1 = main, 2 = master)", branchDefault, branchChoice),
     ) ?? "main";
     // Reworded: the old "Default base branch for code repositories" read as "the
     // base branch OF code repositories", which is not what it means.
-    answers.defaultCodeBranch = await askValid(
+    answers.defaultCodeBranch = known("defaultCodeBranch") ?? await askValid(
       io, "Default branch in code repositories to be used for development", d1.defaultCodeBranch, branchName,
     );
     // NOT ASKED (#192). It is derived from the org slug, and a different answer
     // produces a layout nothing else in the tool expects — the three-way
     // disagreement fixed in #186 came from exactly this value being settable in one
     // place and derived in another. Told, not asked.
-    io.print(`  Project workspaces will live in  ${d1.agentWorkRoot}`);
-    answers.policyOwnerEmail = await askValid(io, "Policy Owner email", d1.policyOwnerEmail, emailShape);
+    if (!interviewed) io.print(`  Project workspaces will live in  ${d1.agentWorkRoot}`);
+    answers.policyOwnerEmail = known("policyOwnerEmail")
+      ?? await askValid(io, "Policy Owner email", d1.policyOwnerEmail, emailShape);
     // NOT ASKED either. The email above identifies a GitHub account; the handle is
     // a lookup, not an opinion. Asking invited an answer that disagreed with the
     // email above it, and nothing downstream reconciled the two.
     const derivedHandle = deriveOrgConfig(answers, ctx).policyOwnerGithub;
-    if (derivedHandle) io.print(`  Policy Owner GitHub handle       ${derivedHandle}`);
-    answers.policyEffectiveDate = await askValid(io, "Policy effective date (YYYY-MM-DD)", d1.policyEffectiveDate, isoDate);
+    if (derivedHandle && !interviewed) io.print(`  Policy Owner GitHub handle       ${derivedHandle}`);
+    answers.policyEffectiveDate = known("policyEffectiveDate")
+      ?? await askValid(io, "Policy effective date (YYYY-MM-DD)", d1.policyEffectiveDate, isoDate);
     // NOT MENTIONED HERE (#192). Service endpoints are org-level values the deploy
     // clients read (gov-cicd, gov-infra); gov-work needs none of them. Announcing a
     // heading for a section that then asks nothing left an adopter waiting for a

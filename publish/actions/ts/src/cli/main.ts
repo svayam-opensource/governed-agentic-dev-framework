@@ -14,7 +14,8 @@ import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
-import { readExistingOrgConfig } from "../setup/setup.js";
+import { readExistingOrgConfig, deriveOrgConfig, type OrgConfigValues } from "../setup/setup.js";
+import { interviewSummary } from "../setup/interview.js";
 import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
@@ -432,7 +433,7 @@ const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
  * by this tool. The org slug is asked first because it is what decides where the clone goes (contract R9)
  * — there is no point creating anything before we know that.
  */
-async function runCreateWorkspace(rawTarget: string, flags: Record<string, string | boolean>): Promise<{ home: string; slug: string } | number> {
+async function runCreateWorkspace(rawTarget: string, flags: Record<string, string | boolean>, preAnswers?: Partial<OrgConfigValues>): Promise<{ home: string; slug: string } | number> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def: string): Promise<string> =>
     new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || def)));
@@ -454,13 +455,18 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
     // Named for what it DECIDES. Asking "Org slug" here and again in the setup flow read as the same
     // question twice; this one chooses the governance home's location, the later one is the org-config
     // value (pre-filled from this answer). #159 finding 1a.
-    const slug = parsedTarget
-      ? await ask(
-          "A 2-6 character uppercase token for your organization. Choose it carefully — it is used\n" +
-          `  throughout, including the workspace folder where all governance files live (~/.gov/<slug>)`,
-          defaultSlug,
-        )
-      : defaultSlug;
+    // ALREADY ANSWERED (Q5) when the org interview ran — see setup/interview.ts. Asking
+    // here as well is the same defect #159 finding 1a fixed downstream: one fact, two
+    // prompts, nothing reconciling a disagreement between them.
+    const slug = preAnswers?.orgSlug
+      ? preAnswers.orgSlug
+      : parsedTarget
+        ? await ask(
+            "A 2-6 character uppercase token for your organization. Choose it carefully — it is used\n" +
+            `  throughout, including the workspace folder where all governance files live (~/.gov/<slug>)`,
+            defaultSlug,
+          )
+        : defaultSlug;
 
     const pathFlag = typeof flags["path"] === "string" ? (flags["path"] as string) : undefined;
     const pre = createPreflight(io, rawTarget, slug, pathFlag);
@@ -529,6 +535,8 @@ export async function runSetupCommand(
   argv: readonly string[],
   now: string = new Date().toISOString(),
   cwd: string = process.cwd(),
+  /** Answers already collected by the org interview — nothing here is asked again. */
+  pre?: Partial<OrgConfigValues>,
 ): Promise<number> {
   const parsed = parseArgv(argv);
   const nonInteractiveFlag = !("error" in parsed) && "non-interactive" in parsed.flags;
@@ -541,7 +549,7 @@ export async function runSetupCommand(
   // the cwd — creation must never be inferred from location, so a CI re-run cannot make a repository.
   const positional = "error" in parsed ? [] : parsed.positionals;
   if (positional.length > 0 && !nonInteractiveFlag) {
-    const created = await runCreateWorkspace(positional[0], "error" in parsed ? {} : parsed.flags);
+    const created = await runCreateWorkspace(positional[0], "error" in parsed ? {} : parsed.flags, pre);
     if (typeof created === "number") return created;
     cwd = created.home;                             // continue into the normal flow, inside the new clone
     createdHome = created.home;
@@ -582,7 +590,8 @@ export async function runSetupCommand(
         ghUser: tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null,
         gitEmail: tryRun("git", ["-C", cwd, "config", "user.email"]) ?? null,
         today: now.slice(0, 10),
-        existing: { ...(existingText ? readExistingOrgConfig(existingText) : {}), ...(createdSlug ? { orgSlug: createdSlug } : {}) },
+        existing: { ...(existingText ? readExistingOrgConfig(existingText) : {}), ...(pre ?? {}), ...(createdSlug ? { orgSlug: createdSlug } : {}) },
+        interviewed: pre !== undefined,
         prompt: ask,
         print: (l) => process.stdout.write(`${l}\n`),
         setOriginRemote: (url) => {
@@ -687,6 +696,24 @@ export async function runSetupCommand(
         "gov                                                — the interactive front door",
         ...(activeNote ? [activeNote] : []),
       ])) process.stdout.write(`${line}\n`);
+
+      // THE CLOSING BLOCK, only on the interviewed path. Every question the adopter
+      // answered was abstract — a name, a slug, a branch — and this is the only place
+      // they learn where those answers ended up. Addresses, not adjectives: each line
+      // names a thing that now exists and how to reach it.
+      if (pre) {
+        const written = readExistingOrgConfig(cfgText);
+        const [pOrg, pRepo] = (positional[0] ?? "/").split("/");
+        const base = `https://github.com/${pOrg}/${pRepo}`;
+        for (const line of interviewSummary({
+          repoUrl: base,
+          localPath: createdHome,
+          // A REAL URL, not the `#org-config.yaml` fragment the design sketch used:
+          // a fragment on a repo page scrolls nowhere. This one opens the file.
+          configUrl: `${base}/blob/${written.defaultBranch || "main"}/org-config.yaml`,
+          projectsPath: written.agentWorkRoot || path.join(os.homedir(), ".gov"),
+        })) process.stdout.write(`${line}\n`);
+      }
     }
     return rc;
   } finally {
@@ -912,7 +939,16 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     },
     // No handle to close before delegating: `ask` holds one only for the length of a
     // question, so `gov setup` finds the terminal free and leaves it free.
-    createWorkspace: (target) => runSetupCommand(["setup", target], now),
+    createWorkspace: (target, pre) => runSetupCommand(["setup", target], now, undefined, pre),
+    // The interview's defaults. `originUrl` is empty on purpose: on the adopter path
+    // nothing is cloned yet, so github_org/workspace_repo come from the answers (Q3/Q4)
+    // rather than from a remote that does not exist.
+    deriveOrgDefaults: (partial) => deriveOrgConfig(partial, {
+      originUrl: "",
+      ghUser: tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null,
+      gitEmail: tryRun("git", ["config", "user.email"]) ?? null,
+      today: now.slice(0, 10),
+    }),
     register: (org, home) => {
       const deps = { store, govConfigAt: (p: string) => env.govConfigAt(p) };
       const added = orgAdd(deps, org, home);

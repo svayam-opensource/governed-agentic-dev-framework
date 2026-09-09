@@ -106,6 +106,21 @@ function io(over: Partial<FirstRunIo> = {}) {
   return { w, out, acts };
 }
 
+/**
+ * Answers the whole org interview (setup/interview.ts). Every question now precedes
+ * creation, so an adopter stub has nine to answer rather than two — matched on the
+ * `Qn - ` prefix the interview puts in the prompt itself, which is also how the e2e
+ * `expect` harness drives it.
+ */
+const INTERVIEW_ANSWERS: Record<string, string> = {
+  Q1: "Acme Incorporated", Q2: "Acme", Q3: "svm-geneva", Q4: "svm-geneva-gov",
+  Q5: "GENEVA", Q6: "1", Q7: "dev", Q8: "rk@acme.io", Q9: "2026-01-01",
+};
+const interviewAnswer = (q: string): string | undefined => {
+  const m = /^Q([1-9]) - /.exec(q);
+  return m ? INTERVIEW_ANSWERS[`Q${m[1]}`] : undefined;
+};
+
 describe("gov-work — first run: the flow", () => {
   it("already set up → null, NOT 0 — the command the user typed still has to run", async () => {
     const { w } = io({ facts: { orgs: ["Svayamtech"], active: "Svayamtech", interactive: true } });
@@ -156,12 +171,13 @@ describe("gov-work — first run: the flow", () => {
   it("ADOPTER: does not ask for a clone URL — it creates the repo instead", async () => {
     const created: string[] = [];
     const { w, acts } = io({
-      // Two questions now (#192): the organization, then the repository name, which
-      // is defaulted so Enter is the right answer for almost everyone.
+      // NINE questions now, all of them before anything is created (setup/interview.ts).
+      // The repository name is still defaulted, so Enter remains the right answer to Q4.
       prompt: async (q: string, def: string) => {
         if (/Select \(A\/B\/C\)/.test(q)) return "A";
-        if (/Which organization/.test(q)) return "acme-corp";
-        return def;
+        if (/^Q3 - /.test(q)) return "acme-corp";
+        if (/^Q4 - /.test(q)) return def;                 // the point of this test
+        return interviewAnswer(q) ?? def;
       },
       createWorkspace: async (t) => { created.push(t); return 0; },
     });
@@ -178,8 +194,9 @@ describe("gov-work — first run: the flow", () => {
     const { w, out } = io({
       prompt: async (q: string, def: string) => {
         if (/Select \(A\/B\/C\)/.test(q)) return "A";
-        if (/Which organization/.test(q)) return ++asked === 1 ? "acme-corp/acme-governance" : "acme-corp";
-        return def;
+        if (/^Q3 - /.test(q)) return ++asked === 1 ? "acme-corp/acme-governance" : "acme-corp";
+        if (/^Q4 - /.test(q)) return def;
+        return interviewAnswer(q) ?? def;
       },
       createWorkspace: async (t) => { created.push(t); return 0; },
     });
@@ -192,7 +209,10 @@ describe("gov-work — first run: the flow", () => {
   it("ADOPTER: a stream that never gives a usable answer stops, it does not spin", async () => {
     const { w, out } = io({ prompt: async (q: string) => (/Select \(A\/B\/C\)/.test(q) ? "A" : URL) });
     expect(await runFirstRun(w)).to.equal(1);
-    expect(out.join("\n")).to.match(/which organization to adopt for/);
+    // The interview names the question that could not be answered (Q3, the GitHub
+    // organization — a URL is not one) rather than the old single-question wording.
+    expect(out.join("\n")).to.match(/Q3: the same answer came back three times/);
+    expect(out.join("\n")).to.match(/Nothing was created/);
   });
 
   it("C explains, then asks again — and 'I am not sure' is an answer, not a refusal", async () => {
@@ -280,8 +300,7 @@ describe("gov-work — first run: an adopter whose org is already governed", () 
   const adopterAnswering = (extra: (q: string) => string | undefined) =>
     async (q: string, def: string): Promise<string> => {
       if (/Select \(A\/B\/C\)/.test(q)) return "A";
-      if (/Which organization/.test(q)) return "svm-geneva";
-      return extra(q) ?? def;
+      return extra(q) ?? interviewAnswer(q) ?? def;
     };
 
   it("stops before the questions only a creator can answer, and joins what exists instead", async () => {
@@ -370,8 +389,8 @@ describe("gov-work — adoption offers to start the policy review", () => {
   const adopter = (extra: (q: string) => string | undefined) =>
     async (q: string, def: string): Promise<string> => {
       if (/Select \(A\/B\/C\)/.test(q)) return "A";
-      if (/Which organization/.test(q)) return "acme-corp";
-      return extra(q) ?? def;
+      if (/^Q3 - /.test(q)) return "acme-corp";
+      return extra(q) ?? interviewAnswer(q) ?? def;
     };
 
   it("asks after the next steps, and Enter is yes", async () => {

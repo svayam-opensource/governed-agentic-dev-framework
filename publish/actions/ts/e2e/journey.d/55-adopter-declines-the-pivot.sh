@@ -9,7 +9,14 @@ export GH_STUB_GOVERNED="acme/acme-gov"
 drive "$(conv <<'C'
 > Select \(A/B/C\)
 < A
-> Which organization
+# The two NAME questions now precede the org id (#215), so the probe fires one
+# question later than it used to. That is the documented cost of asking a human for
+# their organization's name before its GitHub identifier.
+> Q1 - What is full legal name
+< Acme Incorporated
+> Q2 - What is short name
+<
+> Q3 - What is the Github Organization ID
 < acme
 > Join acme/acme-gov now
 < n

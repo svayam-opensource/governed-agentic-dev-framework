@@ -43,7 +43,23 @@ new_world() {
   # A git identity, because step 6 of adoption sets one and every verb's preflight requires
   # it. Without this the world is a machine mid-adoption, which is a different scenario —
   # one worth its own fragment (20-bare), not the silent default for all of them.
-  printf '[user]\n\tname = Adopter Bot\n\temail = adopter@example.test\n' > "$HOME/.gitconfig"
+  #
+  # `safe.directory = *` because the world's repositories are created inside a `mktemp -d`
+  # and then handed between processes, and in a CI container the uid that made a directory
+  # is not always the uid that later runs git in it. Git then refuses:
+  #
+  #     fatal: detected dubious ownership in repository at '/tmp/tmp.XXXX/remote/acme-gov'
+  #
+  # and — this is the part that cost an afternoon — it refuses SOFTLY. `gh repo create`
+  # still reports success, the clone still runs, and the adopter is left holding an EMPTY
+  # repository with a warning buried above the next screen. The scenario then fails eight
+  # assertions later, at the agent question, describing none of it.
+  #
+  # The wildcard is safe precisely because HOME is this world: the config is written to
+  # $WORLD/home/.gitconfig, thrown away with the world, and never visible to the developer's
+  # own git. Narrowing it to $WORLD would be tidier and would also have to be re-added for
+  # every directory a scenario invents.
+  printf '[user]\n\tname = Adopter Bot\n\temail = adopter@example.test\n[safe]\n\tdirectory = *\n' > "$HOME/.gitconfig"
   export GH_STUB_LOG="$WORLD/gh.log"
   export AGENT_DOUBLE_LOG="$WORLD/agent.log"
   : > "$GH_STUB_LOG"; : > "$AGENT_DOUBLE_LOG"

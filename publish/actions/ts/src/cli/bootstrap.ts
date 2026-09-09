@@ -36,6 +36,8 @@
 import * as path from "node:path";
 import { paint } from "./format.js";
 import { approvalPrompt, parseApprovalChoice, approvalSummary } from "./approve-agents-step.js";
+import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused } from "../setup/interview.js";
+import type { OrgConfigValues } from "../setup/setup.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
 export type BootstrapStep =
@@ -322,8 +324,19 @@ export interface FirstRunIo {
   /**
    * The ADOPTER path: create the organization's governance repo from the template
    * and configure it — i.e. `gov setup <org>/<repo>`. Returns its exit code.
+   *
+   * `pre` carries the answers the interview already collected, so nothing downstream
+   * asks again. Every question now precedes creation (see setup/interview.ts), and a
+   * second prompt for a settled fact is how the slug came to have two answers (#159
+   * finding 1a).
    */
-  createWorkspace(target: string): Promise<number>;
+  createWorkspace(target: string, pre?: Partial<OrgConfigValues>): Promise<number>;
+  /**
+   * Defaults for the org interview, derived from the environment (gh user, git email,
+   * today). Injected because only the caller knows those facts. Absent means the
+   * interview offers no defaults, which is usable but joyless.
+   */
+  deriveOrgDefaults?: (partial: Partial<OrgConfigValues>) => OrgConfigValues;
   /** Record the org's approved agents in llm-governance.md. Returns whether it wrote (#196). */
   approveAgents?: (agents: readonly { readonly id: string; readonly default?: boolean }[]) => boolean;
   /** Build the starter review project; returns the lines to print (#186). */
@@ -415,70 +428,58 @@ async function askRole(io: FirstRunIo): Promise<FirstRunRole | null> {
   return null;
 }
 
-/** The ADOPTER path: name the repo to create, and hand it to `gov setup`. */
+/** The ADOPTER path: interview the adopter, then create the repo from their answers. */
 async function foundNewOrg(io: FirstRunIo): Promise<number> {
-  // TWO QUESTIONS, NOT ONE (#192). "Organization/repository to create" asks a
-  // newcomer to compose a form they have not been taught, out of two things they
-  // know separately — and the second of them they should not have to invent at all.
+  // ALL QUESTIONS, THEN THE WORK. The repository used to be created between question
+  // two and question three, so an adopter answered six questions about an
+  // organization whose repository already existed — and Ctrl-C after the third
+  // question left a repository behind that `gh` cannot delete. The interview now runs
+  // to completion first; until its last answer, quitting costs nothing.
   io.print("");
-  io.print(paint("Adopting the framework creates a NEW repository in your GitHub organization.", "bold", io.color ?? false));
-  io.print("It will hold your policies, your knowledge, and a record of every project.");
-  io.print("");
+  for (const line of INTERVIEW_HEADER) io.print(paint(line, "bold", io.color ?? false));
 
-  let org = "";
-  for (let attempt = 0; attempt < 5; attempt++) {
-    org = (await io.prompt(paint("Which organization are you adopting the governance framework for?", "bold", io.color ?? false) + " (GitHub organization name, or Enter to stop): ", "")).trim();
-    if (org === "") {
+  // The probe's verdict has to escape the callback, which can only say stop/continue.
+  let divertedTo: number | null = null;
+  let result;
+  try {
+    result = await askOrgInterview({
+      prompt: io.prompt.bind(io),
+      print: io.print.bind(io),
+      derive: io.deriveOrgDefaults ?? ((p) => p as OrgConfigValues),
+      // LOOK BEFORE ASKING THE REST (#197). Every question after this one exists to
+      // create something; if the organization already has a governance repository,
+      // none of them has an answer worth collecting, and the refusal would arrive
+      // later anyway as an error with the run over. An UNVERIFIED probe says nothing
+      // and changes nothing — `preflight` still refuses to create when it cannot see.
+      afterOrg: async (org) => {
+        const probe = io.probeGovernance?.(org);
+        if (!probe?.verified || probe.repos.length === 0) return true;
+        divertedTo = await joinInsteadOfAdopting(io, org, probe.repos);
+        return false;
+      },
+    });
+  } catch (e) {
+    if (e instanceof InterviewRefused) {
       io.print("");
-      io.print("Nothing created. When you are ready:  gov setup <your-github-org>/<repo-name>");
-      return 0;
+      io.print(`gov: ${e.message}`);
+      io.print("Nothing was created. Re-run `gov` when you can answer interactively.");
+      return 1;
     }
-    if (/^[A-Za-z0-9._-]+$/.test(org)) break;
-    io.print(org.includes("/")
-      ? `  ✗ '${org}' looks like <organization>/<repository>. Just the organization here — the repository is the next question.`
-      : `  ✗ '${org}' is not a GitHub organization name (letters, digits, dots, dashes).`);
-    org = "";
+    throw e;
   }
-  if (!org) {
+  if (result === null) {
+    // Two ways to get here: the probe diverted us to the joiner path (it owns the exit
+    // code), or the adopter pressed Enter at the first question. The second is a clean
+    // stop, not a failure — nothing was created, and saying how to come back is the
+    // whole content of the message.
+    if (divertedTo !== null) return divertedTo;
     io.print("");
-    io.print("Nothing created. Re-run `gov` when you know which organization to adopt for.");
-    return 1;
+    io.print("Nothing created. When you are ready:  gov setup <your-github-org>/<repo-name>");
+    return 0;
   }
 
-  // LOOK BEFORE ASKING ANYTHING ELSE (#197).
-  //
-  // Every remaining question on this path — the repository name, the org slug asked
-  // inside `gov setup` — exists to create something. If the organization already has
-  // a governance repository, none of them has an answer worth collecting, and the
-  // refusal was arriving three questions later anyway, as an error, with the run
-  // over. The probe is one GraphQL call and it is the same one `preflight` makes.
-  //
-  // An UNVERIFIED probe says nothing and changes nothing: `preflight` still refuses
-  // to create when it cannot see, which is the guard that matters.
-  const probe = io.probeGovernance?.(org);
-  if (probe?.verified && probe.repos.length > 0) return joinInsteadOfAdopting(io, org, probe.repos);
-
-  // Defaulted, because nobody should have to invent a name for a repository whose
-  // purpose is fixed. Enter is the right answer here for almost everyone.
-  const defaultRepo = `${org}-gov`;
-  let repo = "";
-  for (let attempt = 0; attempt < 5; attempt++) {
-    repo = (await io.prompt(
-      `${paint("Name for the governance repository that will be created to house your policies", "bold", io.color ?? false)} [${defaultRepo}]: `,
-      defaultRepo,
-    )).trim();
-    if (/^[A-Za-z0-9._-]+$/.test(repo)) break;
-    io.print(`  ✗ '${repo}' is not a repository name (letters, digits, dots, dashes).`);
-    repo = "";
-  }
-  if (!repo) {
-    io.print("");
-    io.print("Nothing created. Re-run `gov` and accept the suggested name, or give a simple one.");
-    return 1;
-  }
-
-  const target = `${org}/${repo}`;
-  const code = await io.createWorkspace(target);
+  const target = `${result.org}/${result.repo}`;
+  const code = await io.createWorkspace(target, result.answers);
   if (code !== 0) return code;
 
   // WHICH AGENTS THIS ORGANIZATION ALLOWS (#196, Q3).
