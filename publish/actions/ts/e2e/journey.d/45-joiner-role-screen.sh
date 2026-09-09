@@ -8,8 +8,10 @@ make_gov_repo "$REMOTE" "acme" "ACME"
 drive "$(conv <<C
 > Select \\(A/B/C\\)
 < B
-> Governance repo \\(clone URL\\)
-< https://github.test/acme/acme-gov.git
+> Q1 - What is the Github Organization ID
+< acme
+> Q2 - What is the name of your org
+< acme-gov
 ~ 120
 > Active org
 > start work now

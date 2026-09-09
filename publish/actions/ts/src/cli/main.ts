@@ -995,6 +995,12 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // No handle to close before delegating: `ask` holds one only for the length of a
     // question, so `gov setup` finds the terminal free and leaves it free.
     createWorkspace: (target, pre) => runSetupCommand(["setup", target], now, undefined, pre),
+    // WHAT GITHUB ALREADY KNOWS. `user/orgs` needs the `read:org` scope, so an empty answer
+    // means "gov cannot see", never "you belong to none" — both interviews treat it that way.
+    listMyOrgs: () => {
+      const out = tryRun("gh", ["api", "user/orgs", "--jq", ".[].login"]);
+      return out ? out.split("\n").map((l) => l.trim()).filter(Boolean) : [];
+    },
     // The interview's defaults. `originUrl` is empty on purpose: on the adopter path
     // nothing is cloned yet, so github_org/workspace_repo come from the answers (Q3/Q4)
     // rather than from a remote that does not exist.

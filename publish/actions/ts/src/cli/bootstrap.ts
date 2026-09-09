@@ -37,6 +37,7 @@ import * as path from "node:path";
 import { paint } from "./format.js";
 import { approvalPrompt, parseApprovalChoice, approvalSummary } from "./approve-agents-step.js";
 import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused } from "../setup/interview.js";
+import { askJoinInterview, cloneTargetFor, JOIN_HEADER, joinSummary, JoinRefused } from "../setup/join-interview.js";
 import type { OrgConfigValues } from "../setup/setup.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
@@ -136,6 +137,8 @@ export interface GovernanceProbe {
 /** Where the repo to join came from: a URL the user typed, or one gov derived from `owner/repo`. */
 interface CloneSource {
   readonly url: string;
+  /** Print the joiner's closing block on success — set only by the interviewed path. */
+  readonly summarize?: boolean;
   /** `owner/repo` when gov found it, null when the user typed a URL gov cannot attribute. */
   readonly nameWithOwner: string | null;
 }
@@ -311,6 +314,16 @@ export interface FirstRunIo {
    * `preflight` still refuses to create a second one either way.
    */
   probeGovernance?(org: string): GovernanceProbe;
+  /**
+   * Organizations the signed-in GitHub account belongs to, offered as a numbered list at the
+   * one question both interviews ask.
+   *
+   * A CONVENIENCE, NEVER A GATE. It needs the `read:org` scope and returns only what the token
+   * can see, so an organization can be real, correct, and absent. Absent means "gov cannot
+   * help here", never "that is not your organization" — the #197 discipline, applied to a
+   * different probe.
+   */
+  listMyOrgs?(): readonly string[];
   /** the repo's declared identity, or null when it has none yet (→ FOUNDING). */
   readIdentity(repoDir: string): OrgIdentity | null;
   /** does anything already live here? Placing must never overwrite an existing home. */
@@ -446,6 +459,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
       prompt: io.prompt.bind(io),
       print: io.print.bind(io),
       derive: io.deriveOrgDefaults ?? ((p) => p as OrgConfigValues),
+      myOrgs: io.listMyOrgs?.bind(io),
       // LOOK BEFORE ASKING THE REST (#197). Every question after this one exists to
       // create something; if the organization already has a governance repository,
       // none of them has an answer worth collecting, and the refusal would arrive
@@ -614,24 +628,40 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
   }
   if (role === "adopter") return foundNewOrg(io);
 
-  // JOINER. Now the clone URL is a fair question: their organization's governance
-  // repo exists, and someone can tell them where it is.
+  // JOINER. The clone URL used to be the question here — plumbing, asked of the person least
+  // likely to know it, with "ask your governance administrator" as the fallback plan. gov can
+  // find it: GitHub knows which organizations this account belongs to, and #197's probe knows
+  // which repository inside one is the governance repo. Two answers, usually a number each.
   io.print("");
-  io.print(paint("Joining an organization that already uses gov.", "bold", io.color ?? false));
-  io.print("Your governance administrator has the repo's clone URL — ask them if you do not have it.");
-  io.print("");
-  const url = (await io.prompt(paint("Governance repo (clone URL)", "bold", io.color ?? false) + ", or Enter to stop: ", "")).trim();
-  if (url === "") {
+  for (const line of JOIN_HEADER) io.print(paint(line, "bold", io.color ?? false));
+
+  let picked;
+  try {
+    picked = await askJoinInterview({
+      prompt: io.prompt.bind(io),
+      print: io.print.bind(io),
+      myOrgs: io.listMyOrgs?.bind(io),
+      // null, not [], when the probe cannot run: "gov does not know" and "there are none" lead
+      // a joiner to opposite places, and the second one ends in a forked policy.
+      governanceReposIn: io.probeGovernance
+        ? (org) => { const p = io.probeGovernance?.(org); return p?.verified ? p.repos : null; }
+        : undefined,
+    });
+  } catch (e) {
+    if (e instanceof JoinRefused) {
+      io.print("");
+      io.print(`gov: ${e.message}`);
+      io.print("Nothing was cloned. Re-run `gov` when you can answer interactively.");
+      return 1;
+    }
+    throw e;
+  }
+  if (picked === null) {
     io.print("");
-    io.print("Nothing registered. Re-run `gov` once you have the clone URL.");
+    io.print("Nothing registered. Re-run `gov` when you know which organization to join.");
     return 0;
   }
-  if (!looksLikeRepoUrl(url)) {
-    io.print(`'${url}' does not look like a clone URL — expected something like git@github.com:Org/org-gov.git`);
-    io.print("If nobody has adopted the framework for your organization yet, re-run and choose A.");
-    return 1;
-  }
-  return joinExisting(io, { url, nameWithOwner: null });
+  return joinExisting(io, { ...cloneTargetFor(picked), summarize: true });
 }
 
 /**
@@ -696,6 +726,15 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
     const after = founding ? io.adopterNextSteps : io.joinerNextSteps;
     for (const line of after?.() ?? []) io.print(line);
     io.print(`Active org → ${identity.org}`);
+    // THE CLOSING BLOCK, only on the interviewed path. Two questions were answered in the
+    // abstract; this is where the joiner learns what those answers produced and where it is.
+    if (src.summarize && src.nameWithOwner) {
+      for (const line of joinSummary({
+        repoUrl: `https://github.com/${src.nameWithOwner}`,
+        localPath: home,
+        projectsPath: path.join(io.homeDir, ".gov", identity.orgSlug.toLowerCase(), "projects"),
+      })) io.print(line);
+    }
     // The joiner's next steps are the same three lines to retype — run gov, choose Work, pick
     // your project — and this path is where an ADOPTER lands too once #197 finds their org is
     // already governed. Ending it with a recipe was the gap the offer exists to close.
