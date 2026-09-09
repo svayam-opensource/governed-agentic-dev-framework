@@ -419,6 +419,41 @@ const neverAsks: AskFns = {
   secret: () => { throw new Error("asked for a secret from a read-only path"); },
 };
 
+/**
+ * What an agent does on its FIRST run that gov should warn about, because gov is about to hand
+ * over the terminal and cannot help once it has.
+ *
+ * These are the vendor's screens, not gov's, and gov must not pretend otherwise — but watching
+ * someone press Enter for eighteen seconds at a prompt that wanted `y` is a cost gov can remove
+ * with two lines. Only add an entry that has been SEEN on a real machine; a guess here is worse
+ * than silence, because it teaches a keystroke that may not exist.
+ */
+function firstRunNote(agent: string): readonly string[] | null {
+  if (agent === "ibm-bob") {
+    return [
+      "On first run IBM Bob shows its licence screen. Press `y` to accept — Enter only opens",
+      "the licence in a viewer, which on a machine with no desktop appears to do nothing.",
+    ];
+  }
+  return null;
+}
+
+/**
+ * Hold the screen until the person is ready, so the prompt above survives the agent's UI.
+ *
+ * Returns immediately when there is no terminal: a non-interactive run has nobody to wait for,
+ * and blocking there would turn a scripted `gov work` into a hang.
+ */
+async function pauseBeforeLaunch(agent: string): Promise<void> {
+  if (!process.stdin.isTTY) return;
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    await new Promise<void>((resolve) => rl.question(`  Press Enter to start ${agent}… `, () => resolve()));
+  } finally {
+    rl.close();
+  }
+}
+
 /** The template every governance repo is created from. */
 const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
 
@@ -1110,14 +1145,43 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
         process.stderr.write(`  The project is ready at ${cwd}. Start it there yourself, or: gov work --agent shell\n`);
         return 1;
       }
-      // SAY IT BEFORE THE AGENT TAKES THE TERMINAL (#207). Once it is running, anything gov
-      // prints is competing with a full-screen UI — so the prompt to paste goes out first.
+      // SAYING IT FIRST IS NOT ENOUGH (#218).
+      //
+      // #207 printed the prompt before launching, reasoning that anything written afterwards
+      // competes with a full-screen UI. That is true and insufficient: an agent whose UI takes
+      // the ALTERNATE SCREEN does not compete with what came before, it ERASES it. A walk-through
+      // ended with the agent idle at its own prompt, the instruction gone, and the session-start
+      // protocol never run — the exact outcome the printing existed to prevent.
+      //
+      // No repository instructions file fixes this either. AGENTS.md and CLAUDE.md tell an agent
+      // how to behave once it is answering; they cannot make one SPEAK FIRST. Claude Code manages
+      // it through a session-start hook. An agent without that mechanism only ever acts on a
+      // first message, so the first message has to survive to be sent.
+      //
+      // So write it to a file the agent can be pointed at afterwards, and WAIT before launching.
+      // The pause is the part that matters: it puts the text on a screen nobody is about to
+      // clear, for as long as the person needs to copy it.
       if (s.promptToPaste) {
         const r1 = reporter(stdoutColor());
+        // A read-only project is not a reason to refuse to launch — the prompt is still
+        // printed below, and the file is a convenience for recovering it afterwards.
+        const saved = ((): string | null => {
+          try {
+            const dir = path.join(cwd, ".gov");
+            fsSync.mkdirSync(dir, { recursive: true });
+            const at = path.join(dir, "session-prompt.md");
+            fsSync.writeFileSync(at, `${s.promptToPaste}\n`, "utf8");
+            return at;
+          } catch { return null; }
+        })();
         process.stderr.write("\n");
         process.stderr.write(`${r1.step(`gov does not know how ${agent} takes a first message, so it is starting bare.`)}\n`);
         process.stderr.write(`${r1.step("Paste this as your first message — it runs the session-start protocol:")}\n\n`);
         process.stderr.write(`${s.promptToPaste}\n\n`);
+        if (saved) process.stderr.write(`${r1.step(`Saved to ${saved} — ${agent} may be able to read it directly.`)}\n`);
+        const note = firstRunNote(agent);
+        if (note) for (const l of note) process.stderr.write(`${r1.step(l)}\n`);
+        await pauseBeforeLaunch(agent);
       }
       if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
       const r = spawnSync(s.cmd, [...s.args], { cwd, stdio: "inherit" });
