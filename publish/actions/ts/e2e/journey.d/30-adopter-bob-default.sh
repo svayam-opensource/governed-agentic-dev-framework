@@ -24,28 +24,36 @@ chmod +x "$WORLD/bin/curl"
 drive "$(conv <<'C'
 > Select \(A/B/C\)
 < A
-> Which organization
+# NINE QUESTIONS, ALL BEFORE ANYTHING IS CREATED (#215). Names first, identifiers
+# second, and the repository is created only after Q9 — so this block is the whole
+# interview, uninterrupted, and the `creating acme/acme-gov` line comes after it.
+~ 240
+> Q1 - What is full legal name
+< Acme Incorporated
+# Q2 defaults to the legal name just given, so Enter is the honest answer here.
+> Q2 - What is short name
+<
+> Q3 - What is the Github Organization ID
 < acme
+# The #197 probe runs here, the instant the org is known — before any question that
+# only a creator could answer.
 ~ 240
-> Name for the governance repository
+> Q4 - What would you like the name of your new governance repo
 < acme-gov
-> uppercase token
+> Q5 - What would you like the identifier
 < ACME
-# `gov setup` asks its own seven, every one of them defaulted — so an adopter who trusts
-# the defaults presses Enter seven times, and so does this.
+> Q6 - Default branch to be used for production
+<
+> Q7 - Default branch to be used for development
+<
+# ANSWERED, not defaulted: the container may have no git user.email, and an empty
+# default against an email rule is a question that cannot be answered by pressing
+# Enter — which in a pty driver is a hang, not a failure.
+> Q8 - What is policy owner email
+< adopter@acme.test
+> Q9 - What should be the policy effective date
+<
 ~ 240
-> Full legal name of your organization
-<
-> Short display name
-<
-> Default branch for all repositories
-<
-> Default branch in code repositories
-<
-> Policy Owner email
-<
-> Policy effective date
-<
 > Allowed agents
 < ibm-bob
 > Create it\? \[y/N\]
@@ -55,6 +63,26 @@ drive "$(conv <<'C'
 < n
 C
 )" gov
+
+info "#215 — every question precedes the work, and the work is reported back"
+saw "the interview opens with a header that says what is about to happen" "Adopting Governance Framework for your organization"
+# ORDER, not merely presence: a human's own words for their organization come before
+# the identifier a machine needs. Asserted by position, because both lines exist
+# either way and only the order is the change.
+q1="$(grep -n 'Q1 - What is full legal name' "$PLAIN" | head -1 | cut -d: -f1)"
+q3="$(grep -n 'Q3 - What is the Github Organization ID' "$PLAIN" | head -1 | cut -d: -f1)"
+create="$(grep -n 'creating acme/acme-gov' "$PLAIN" | head -1 | cut -d: -f1)"
+q9="$(grep -n 'Q9 - What should be the policy effective date' "$PLAIN" | head -1 | cut -d: -f1)"
+[ -n "$q1" ] && [ -n "$q3" ] && [ "$q1" -lt "$q3" ] \
+  && pass "the legal NAME is asked before the GitHub identifier" \
+  || fail "the legal NAME is asked before the GitHub identifier"
+# The whole point of #215: nothing irreversible happens until the last answer is in.
+[ -n "$q9" ] && [ -n "$create" ] && [ "$q9" -lt "$create" ] \
+  && pass "nothing is created until the LAST question is answered" \
+  || fail "nothing is created until the LAST question is answered"
+saw "and the closing block names the repository it made" "A new governance repo is created for your organization at"
+saw "with the local path, which is what the adopter needs next" "/.gov/acme/gov_repo"
+never "the mid-flow echoes are gone — they are in the closing block now" "(from origin)"
 
 info "founding"
 saw "it creates the repository from the framework template" "creating acme/acme-gov"
