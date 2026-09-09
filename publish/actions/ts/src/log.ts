@@ -41,12 +41,21 @@ export const APP_ID = "gov-work";
  * PURE, and separate from everything that writes, because the branch that matters — "is there
  * an organization yet?" — is the one worth testing, and testing it should not require a disk.
  */
-export function logDirFor(activeOrg: string | null, home: string = os.homedir()): string {
-  const base = path.join(home, ".gov");
+export function logDirFor(
+  activeOrg: string | null,
+  home: string = os.homedir(),
+  platform: NodeJS.Platform = process.platform,
+): string {
+  // THE PLATFORM IS A PARAMETER, as it is in `resolve/node-env.ts` for the registry paths this
+  // sits beside. A bare `path.join` takes the separator from whatever machine is running, which
+  // makes the function untestable anywhere but that machine — the Windows CI job failed on
+  // exactly that, asserting `/H/.gov/logs` against a correct `\H\.gov\logs`.
+  const j = platform === "win32" ? path.win32 : path.posix;
+  const base = j.join(home, ".gov");
   // A slug is a directory name here; anything that could climb out of `~/.gov` is not one.
   const slug = activeOrg?.trim().toLowerCase() ?? "";
   const safe = /^[a-z0-9][a-z0-9._-]*$/.test(slug) && !slug.startsWith(".");
-  return safe ? path.join(base, slug, "logs") : path.join(base, "logs");
+  return safe ? j.join(base, slug, "logs") : j.join(base, "logs");
 }
 
 type Logger = ReturnType<typeof createApplicationLogger>;
