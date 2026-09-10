@@ -33,7 +33,7 @@ import { offeredAgents, parsePick } from "../../src/cli/agent-selection.js";
  * `credEnv`   — the variable a headless key would use, or null.
  */
 const EXPECTED: Readonly<Record<string, {
-  install: "npm" | "script" | "brew" | "url";
+  install: "npm" | "script" | "brew" | "pip" | "url";
   launch: "cli" | "ide" | "no";
   prompt: "argv" | "paste";
   credEnv: string | null;
@@ -49,7 +49,7 @@ const EXPECTED: Readonly<Record<string, {
   "cline":              { install: "npm",    launch: "cli", prompt: "paste", credEnv: null },
   "continue":           { install: "npm",    launch: "cli", prompt: "paste", credEnv: null },
   "ibm-bob":            { install: "script", launch: "cli", prompt: "paste", credEnv: "BOB_API_KEY" },
-  "aider":              { install: "url",    launch: "cli", prompt: "paste", credEnv: "OPENAI_API_KEY" },
+  "aider":              { install: "pip",    launch: "cli", prompt: "paste", credEnv: "OPENAI_API_KEY" },
 };
 
 const selectable = AGENT_CATALOG.filter((a) => a.launch !== "none");
@@ -63,8 +63,8 @@ const selectable = AGENT_CATALOG.filter((a) => a.launch !== "none");
  * and launched by gov — which is the criterion, and what the test below enforces.
  */
 const GA = ["claude-code", "cursor", "openai-codex", "gemini-code-assist", "github-copilot",
-            "cline", "continue", "ibm-bob"];
-const DEFERRED = ["windsurf", "aider"];
+            "cline", "continue", "ibm-bob", "aider"];
+const DEFERRED = ["windsurf"];
 
 describe("every selectable agent — the catalog's claims", () => {
   it("the table covers every launchable entry, in catalog order", () => {
@@ -86,8 +86,8 @@ describe("every selectable agent — the catalog's claims", () => {
     // launch it. windsurf and aider fail the first half, which is the whole reason they are off.
     for (const id of GA) {
       const a = selectable.find((x) => x.id === id)!;
-      const installable = Boolean(a.install?.npm || a.install?.script || a.install?.brew)
-        || (a.variants ?? []).some((v) => v.kind === "extension" || v.install?.npm || v.install?.script);
+      const installable = Boolean(a.install?.npm || a.install?.script || a.install?.brew || a.install?.pip)
+        || (a.variants ?? []).some((v) => v.kind === "extension" || v.install?.npm || v.install?.script || v.install?.pip);
       expect(installable, `${id} is offered but gov can install nothing for it`).to.equal(true);
       expect(a.cmd, `${id} is offered but gov cannot launch it`).to.be.a("string");
     }
@@ -116,7 +116,7 @@ describe("every selectable agent — the catalog's claims", () => {
 
       it(`gov ${want.install === "url" ? "can only point at a page" : `installs it by ${want.install}`}`, () => {
         const i = a().install;
-        const how = i?.npm ? "npm" : i?.script ? "script" : i?.brew ? "brew" : "url";
+        const how = i?.npm ? "npm" : i?.script ? "script" : i?.brew ? "brew" : i?.pip ? "pip" : "url";
         expect(how).to.equal(want.install);
       });
 
@@ -195,20 +195,19 @@ describe("the gaps this matrix exists to keep visible", () => {
     // Both are OFF the menu because of this. Kept asserted so the reasons stay attached to the
     // fact: one is a desktop download, the other is a package manager gov does not speak.
     const noEntryInstall = selectable
-      .filter((a) => !(a.install?.npm || a.install?.script || a.install?.brew))
+      .filter((a) => !(a.install?.npm || a.install?.script || a.install?.brew || a.install?.pip))
       .map((a) => a.id);
-    expect(noEntryInstall).to.deep.equal(["windsurf", "aider"]);
-    expect(GA, "and neither is offered").to.not.include("windsurf");
-    expect(GA).to.not.include("aider");
+    expect(noEntryInstall, "aider left this list when install.pip arrived (#221)").to.deep.equal(["windsurf"]);
+    expect(GA, "and the one that remains is not offered").to.not.include("windsurf");
   });
 
-  it("aider is the one exclusion a field would fix — it is PyPI, and `install` has no pip", () => {
-    // windsurf is a desktop application and always will be. aider is a real CLI that gov could
-    // install if `install.pip` existed, so it is a missing capability rather than a policy —
-    // recorded here so the two are not filed as one thing.
+  it("aider installs from PyPI, and NOT from the npm name anyone would guess", () => {
+    // This assertion used to record the gap — "install has no pip" — and #221 closed it. What
+    // is worth keeping is the trap: npm `aider` exists (v1.0.1, maintainer 36634584@qq.com) and
+    // is a squat on exactly the name a well-meaning change would reach for.
     const aider = selectable.find((a) => a.id === "aider")!;
-    expect(aider.cmd, "there is a binary to launch").to.equal("aider");
-    expect(aider.install?.url).to.contain("aider");
-    expect((aider.install as Record<string, unknown>).pip, "no pip route exists yet").to.equal(undefined);
+    expect(aider.install?.pip, "the project's own distribution").to.equal("aider-chat");
+    expect(aider.install?.npm, "never the npm name — it is not theirs").to.equal(undefined);
+    expect(GA, "and it is offered again now that gov can install it").to.include("aider");
   });
 });

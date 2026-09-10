@@ -120,6 +120,23 @@ export function formatAgentReport(r: AgentReport): readonly string[] {
 }
 
 /** What `install` will do, decided before anything runs. */
+/**
+ * A route gov could take if a host editor existed — stated instead of skipped (#221).
+ *
+ * The plan used to `continue` past an extension variant with no host, so the route vanished and
+ * the report said only "needs VS Code or Cursor". That is true and it is a dead end: an adopter
+ * on a desktop machine with no editor yet is told what is missing and left there, and gov never
+ * checks back. Naming it here lets the caller offer to guide the install and then RE-PROBE,
+ * which is the part that turns a refusal into a step.
+ */
+export interface HostNeeded {
+  /** the variant's label, e.g. "in VS Code" */
+  readonly what: string;
+  /** commands that would satisfy it, in preference order — `code`, `cursor`, `windsurf` */
+  readonly hosts: readonly string[];
+  readonly extensionId: string;
+}
+
 export type InstallPlan =
   | { readonly ok: false; readonly message: string }
   | {
@@ -128,6 +145,8 @@ export type InstallPlan =
       readonly steps: readonly { readonly what: string; readonly command: readonly string[] }[];
       readonly signIn: readonly string[] | null;
       readonly signupUrl: string | null;
+      /** Routes waiting on a host editor. Empty when every route is runnable as-is. */
+      readonly hostNeeded: readonly HostNeeded[];
     };
 
 export function planAgentInstall(
@@ -153,20 +172,41 @@ export function planAgentInstall(
   }
 
   const steps: { what: string; command: readonly string[] }[] = [];
+  const hostNeeded: HostNeeded[] = [];
   for (const v of variantStatuses(agent, hasTool)) {
     if (v.variant.kind === "extension") {
-      if (v.host) steps.push({ what: `${v.variant.label} (into ${v.host})`, command: [v.host, "--install-extension", v.variant.extensionId!] });
-      continue;                                     // no host → skipped, never created
+      if (v.host) {
+        steps.push({ what: `${v.variant.label} (into ${v.host})`, command: [v.host, "--install-extension", v.variant.extensionId!] });
+      } else if (v.variant.extensionId) {
+        // NAMED, NOT SKIPPED (#221). gov still will not install an editor — but it can say
+        // which ones would do, and ask again once the adopter has one.
+        hostNeeded.push({ what: v.variant.label, hosts: v.variant.hosts ?? [], extensionId: v.variant.extensionId });
+      }
+      continue;
     }
     if (v.installed) continue;
     const inst = v.variant.install;
     if (inst?.npm) steps.push({ what: v.variant.label, command: ["npm", "install", "-g", inst.npm] });
     else if (inst?.script) steps.push({ what: v.variant.label, command: ["sh", "-c", inst.script] });
+    else if (inst?.pip) steps.push({ what: v.variant.label, command: ["pip", "install", "--user", inst.pip] });
   }
 
-  if (!steps.length) {
-    return { ok: false, message: `${agent.tool} is already installed. \`gov agent\` shows what is signed in.` };
+  // WHEN "ALREADY INSTALLED" IS THE HONEST ANSWER, AND WHEN IT IS NOT.
+  //
+  // A host-needed route is worth surfacing only when the agent is otherwise UNUSABLE. If its
+  // CLI is already there, the extension is an extra, and naming an editor the adopter does not
+  // have would be noise on a question they did not ask.
+  //
+  // The case this exists for is the opposite one: nothing runnable, and the only route left
+  // needs an editor. That used to fall into "already installed" — wrong twice over, because
+  // nothing was installed and the one useful fact was never said.
+  const runnable = variantStatuses(agent, hasTool).some((v) => v.installed);
+  if (!steps.length && (runnable || !hostNeeded.length)) {
+    const extra = hostNeeded.length
+      ? `\n  ${hostNeeded.map((h) => `${h.what} would also work, in ${h.hosts.join(" or ")}`).join("\n  ")}`
+      : "";
+    return { ok: false, message: `${agent.tool} is already installed. \`gov agent\` shows what is signed in.${extra}` };
   }
   const cli = (agent.variants ?? []).find((v) => v.kind === "cli" && v.login);
-  return { ok: true, agent, steps, signIn: cli?.login ?? null, signupUrl: agent.signupUrl ?? null };
+  return { ok: true, agent, steps, hostNeeded, signIn: cli?.login ?? null, signupUrl: agent.signupUrl ?? null };
 }

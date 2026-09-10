@@ -39,7 +39,7 @@ export interface AgentVariant {
   /** The command to probe and to launch. Extensions have none of their own. */
   readonly cmd?: string;
   /** npm package, or a shell line for a vendor installer. */
-  readonly install?: { readonly npm?: string; readonly script?: string; readonly url: string };
+  readonly install?: { readonly npm?: string; readonly script?: string; readonly pip?: string; readonly url: string };
   /** For extensions: the marketplace id, installed through the host's own CLI. */
   readonly extensionId?: string;
   /** The hosts that can carry this extension, in preference order. */
@@ -60,7 +60,7 @@ export interface AgentCandidate {
    * a vendor's own installer, piped into a shell. gov runs either — but only for an
    * agent the org has approved, because approval IS the trust decision (#196, Q2).
    */
-  readonly install?: { readonly npm?: string; readonly brew?: string; readonly script?: string; readonly url: string };
+  readonly install?: { readonly npm?: string; readonly brew?: string; readonly script?: string; readonly pip?: string; readonly url: string };
   /** The environment variable that would hold a key, so gov can report its absence. */
   readonly credentialEnv?: string;
   /**
@@ -228,10 +228,10 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
         install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" } },
       { kind: "editor", label: "the Bob IDE", cmd: "bob-ide", install: { url: "https://bob.ibm.com/download" } },
     ] },
-  { deferred: true, // DEFERRED (2026-09-10): gov can install nothing for it TODAY: aider is PyPI (`pip install aider-chat`) and
-  // `install` has no `pip` field. Offering it would be a dead end until that exists.
-    id: "aider", tool: "Aider", launch: "cli", cmd: "aider",
-    install: { url: "https://aider.chat" }, credentialEnv: "OPENAI_API_KEY" },
+  { id: "aider", tool: "Aider", launch: "cli", cmd: "aider",
+    // PyPI, not npm — and npm `aider` is a SQUAT (v1.0.1, maintainer 36634584@qq.com), which is
+    // why the obvious guess was never taken. `aider-chat` is the project's own distribution.
+    install: { pip: "aider-chat", url: "https://aider.chat" }, credentialEnv: "OPENAI_API_KEY" },
   // No command, by nature. Kept so the catalog and the manifest agree, and so
   // nobody adds it to the menu later by mistake.
   { id: "chatgpt-web", tool: "ChatGPT (web) / custom GPT", launch: "none",
