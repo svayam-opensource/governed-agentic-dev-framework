@@ -121,8 +121,8 @@ async function ask(io: JoinInterviewIo, n: number, question: string, def: string
   // the ` [default]: ` tail.
   // See interview.ts for why the label names the KIND of answer rather than being a bare dash.
   const label = choices.length
-    ? `Choose [${choices.join("/")}] `
-    : def ? `Enter Value [${def}] ` : "Enter Value ";
+    ? `Choose [${choices.join("/")}] : `
+    : def ? `Enter Value [${def}] : ` : "Enter Value : ";
   const prompt = `Q${n} - ${question}\n${extra.length ? extra.join("\n") + "\n" : ""}${label}`;
   const MAX_ATTEMPTS = 10;
   let last: string | null = null;
@@ -155,7 +155,7 @@ export async function askJoinInterview(io: JoinInterviewIo): Promise<JoinIntervi
   // whole point of having asked GitHub.
   if (!orgDefault) {
     io.print("");
-    const q1 = `Q1 - ${Q1}\n${choices.length ? choices.join("\n") + "\n" : ""}${orgs.length ? `Choose [${orgs.map((_, i) => i + 1).join("/")}] ` : "Enter Value "}`;
+    const q1 = `Q1 - ${Q1}\n${choices.length ? choices.join("\n") + "\n" : ""}${orgs.length ? `Choose [${orgs.map((_, i) => i + 1).join("/")}] : ` : "Enter Value : "}`;
     const first = ((await io.prompt(q1, "")) ?? "").trim();
     if (first === "") return null;
     const picked = resolveOrgChoice(first, orgs);

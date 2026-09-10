@@ -14,8 +14,9 @@ import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
+import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog } from "../log.js";
-import { readExistingOrgConfig, deriveOrgConfig, type OrgConfigValues } from "../setup/setup.js";
+import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
 import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
@@ -29,7 +30,7 @@ const stdoutColor = (): boolean => useColor({ isTty: process.stdout.isTTY === tr
 /** The same question for STDERR, where every prompt and progress line goes (#204). The two
  *  streams are redirected independently, so they are asked separately. */
 const stderrColor = (): boolean => useColor({ isTty: process.stderr.isTTY === true, env: process.env });
-import { AGENT_CATALOG, type AgentCandidate } from "./agent-catalog.js";
+import { AGENT_CATALOG, harnessFileFor, type AgentCandidate } from "./agent-catalog.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
@@ -445,9 +446,13 @@ const neverAsks: AskFns = {
  */
 function firstRunNote(agent: string): readonly string[] | null {
   if (agent === "ibm-bob") {
+    // WHAT A WALK ACTUALLY SAW. The first version of this note said Enter "opens the licence in
+    // a viewer", read off Bob's own wording. It does not — on a machine with no desktop Enter
+    // does nothing observable at all, which is worse than the note described and is the whole
+    // reason someone sits there pressing it. Say only what was seen.
     return [
-      "On first run IBM Bob shows its licence screen. Press `y` to accept — Enter only opens",
-      "the licence in a viewer, which on a machine with no desktop appears to do nothing.",
+      "On first run IBM Bob shows its licence screen. Press `y` to accept.",
+      "Enter appears to do nothing there — it is not the key that continues.",
     ];
   }
   return null;
@@ -483,7 +488,7 @@ const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
  * by this tool. The org slug is asked first because it is what decides where the clone goes (contract R9)
  * — there is no point creating anything before we know that.
  */
-async function runCreateWorkspace(rawTarget: string, flags: Record<string, string | boolean>, preAnswers?: Partial<OrgConfigValues>): Promise<{ home: string; slug: string } | number> {
+async function runCreateWorkspace(rawTarget: string, flags: Record<string, string | boolean>, preAnswers?: SetupPreAnswers): Promise<{ home: string; slug: string } | number> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def: string): Promise<string> =>
     new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || def)));
@@ -591,7 +596,7 @@ export async function runSetupCommand(
   now: string = new Date().toISOString(),
   cwd: string = process.cwd(),
   /** Answers already collected by the org interview — nothing here is asked again. */
-  pre?: Partial<OrgConfigValues>,
+  pre?: SetupPreAnswers,
 ): Promise<number> {
   const parsed = parseArgv(argv);
   const nonInteractiveFlag = !("error" in parsed) && "non-interactive" in parsed.flags;
@@ -621,6 +626,34 @@ export async function runSetupCommand(
       for (const l of seed.lines) process.stderr.write(`${l}\n`);
       process.stderr.write(`gov setup: could not seed content from publish/. The repo exists — re-run to resume.\n`);
       return 1;
+    }
+    // THE ORGANIZATION'S AGENT POLICY, WRITTEN BEFORE THE COMMIT (#196).
+    //
+    // This used to be written by `approveAgents` in bootstrap.ts, AFTER `createWorkspace`
+    // returned — which is after the `git add -A && git commit && git push` at the end of this
+    // function. So the adopter answered the question, the file changed in the working tree, and
+    // the change was never committed and never pushed.
+    //
+    // A walk proved it: svm-geneva-gov's llm-governance.md on `main` has NO approved_agents
+    // fence, and the joiner who cloned it was told "your organization has not approved any
+    // agents yet, so these are the framework's defaults" — the exact fallback #196 exists to
+    // remove, reintroduced by an ordering mistake rather than by a decision.
+    //
+    // Q10 collects the answer before anything is created, so it is available here, which is the
+    // only place that is both after the seed and before the commit.
+    if (pre?.agents?.length) {
+      const policy = path.join(created.home, "knowledge", "policies", "llm-governance.md");
+      const before = fsSync.existsSync(policy) ? fsSync.readFileSync(policy, "utf8") : null;
+      const after = before === null ? null : withApprovedAgents(before, pre.agents);
+      if (after === null) {
+        // LOUD, because a silent failure here is a governance hole: every joiner would fall
+        // back to gov's own list and nobody would know the policy had not been recorded.
+        process.stderr.write("gov setup: could not record the approved agents in knowledge/policies/llm-governance.md.\n");
+        process.stderr.write("  The repo exists. Add them with `gov agent approve <id>` before inviting anyone.\n");
+      } else {
+        fsSync.writeFileSync(policy, after, "utf8");
+        process.stdout.write(`  recorded ${pre.agents.length} approved agent(s) in knowledge/policies/llm-governance.md\n`);
+      }
     }
     // #159 finding 1a — the slug was asked BEFORE creating (it decides the location), then asked again
     // by the setup flow, with a blank default. One fact, one question: carry the answer forward.
@@ -1200,11 +1233,31 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
             return at;
           } catch { return null; }
         })();
+        // WHAT ACTUALLY GOVERNS THE SESSION (walk of 2026-09-10, items 2 and 6).
+        //
+        // This used to open with "gov does not know how <agent> takes a first message, so it is
+        // starting bare" and then five lines to paste. Both halves misled. gov cannot make any
+        // agent but Claude Code SPEAK FIRST — that needs a SessionStart hook, and no other
+        // vendor has one — so "does not know" reads as a gap in gov where the truth is a
+        // property of every CLI agent there is.
+        //
+        // And "starting bare" was wrong wherever a harness file exists. `ensureRootProtocol`
+        // mirrors that file into the project on every launch, and the agent reads it on every
+        // turn — which governs the whole session, not merely its opening. So the honest
+        // instruction is "say anything", and the five-line paste is the fallback for an agent
+        // that has no such file, not the primary route.
+        const harness = harnessFileFor(agent);
         process.stderr.write("\n");
-        process.stderr.write(`${r1.step(`gov does not know how ${agent} takes a first message, so it is starting bare.`)}\n`);
-        process.stderr.write(`${r1.step("Paste this as your first message — it runs the session-start protocol:")}\n\n`);
-        process.stderr.write(`${s.promptToPaste}\n\n`);
-        if (saved) process.stderr.write(`${r1.step(`Saved to ${saved} — ${agent} may be able to read it directly.`)}\n`);
+        if (harness) {
+          process.stderr.write(`${r1.step(`${agent} reads ${harness} in this project, and it carries the session-start protocol.`)}\n`);
+          process.stderr.write(`${r1.step("Say anything to begin — the protocol runs before it answers you.")}\n`);
+          if (saved) process.stderr.write(`${r1.step(`If it does not, paste ${saved} as your first message.`)}\n`);
+        } else {
+          process.stderr.write(`${r1.step(`gov has no instructions file for ${agent}, so nothing governs its session yet.`)}\n`);
+          process.stderr.write(`${r1.step("Paste this as your first message — it runs the session-start protocol:")}\n\n`);
+          process.stderr.write(`${s.promptToPaste}\n\n`);
+          if (saved) process.stderr.write(`${r1.step(`Saved to ${saved} — ${agent} may be able to read it directly.`)}\n`);
+        }
         const note = firstRunNote(agent);
         if (note) for (const l of note) process.stderr.write(`${r1.step(l)}\n`);
         await pauseBeforeLaunch(agent);

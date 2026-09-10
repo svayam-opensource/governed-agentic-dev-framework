@@ -75,8 +75,16 @@ describe("gov-work — what the menu offers", () => {
   it("falls back to the framework's list when the org has not decided — and says so", () => {
     const empty = approvedAgents([]);
     expect(empty.usingDefaults).to.equal(true);
-    expect(empty.ids).to.have.length(AGENT_CATALOG.length);
+    // NOT THE WHOLE CATALOG. A walk saw all ten proposed as an org's defaults, Windsurf
+    // included — gov suggesting agents its own adoption menu declines to offer. `deferred`
+    // means "not offered", and that has to hold on every path that shows a list.
+    expect(empty.ids).to.have.length(AGENT_CATALOG.filter((a) => !a.deferred).length);
+    expect(empty.ids, "a deferred agent is never proposed as a default").to.not.include("windsurf");
+    expect(empty.ids, "and `launch: none` entries were already excluded elsewhere").to.include("claude-code");
     expect(approvedAgents(["cursor"]).usingDefaults).to.equal(false);
+    // AN ORG'S OWN LIST IS HONOURED VERBATIM, deferred or not: upgrading gov must never take
+    // an agent away from an organization that approved it.
+    expect(approvedAgents(["windsurf"]).ids).to.deep.equal(["windsurf"]);
   });
 
   it("says what each choice DOES, not just what it is called", () => {

@@ -167,7 +167,7 @@ export async function askAgentSelection(io: SelectIo): Promise<readonly Approved
       if (++asked > MAX) return null;
       const offered = offeredAgents();
       for (const l of defaultAgentLines(offered, io.color ?? false)) io.print(l);
-      const r = parsePick(await io.prompt(`  Choose ${optionsLabel(offered)} `, ""), offered, false);
+      const r = parsePick(await io.prompt(`  Choose ${optionsLabel(offered)} : `, ""), offered, false);
       if (r.kind === "error") { io.print(`  ✗ ${r.message}`); continue; }
       if (r.kind === "pick") chosen.push({ id: r.id, default: true });
     }
@@ -178,7 +178,7 @@ export async function askAgentSelection(io: SelectIo): Promise<readonly Approved
       if (offered.length === 0) break;                    // everything is approved; nothing left to ask
       if (++asked > MAX) return null;
       for (const l of addMoreLines(offered, io.color ?? false)) io.print(l);
-      const r = parsePick(await io.prompt(`  Choose ${optionsLabel(offered)} `, ""), offered, true);
+      const r = parsePick(await io.prompt(`  Choose ${optionsLabel(offered)} : `, ""), offered, true);
       if (r.kind === "done") break;
       if (r.kind === "error") { io.print(`  ✗ ${r.message}`); continue; }
       chosen.push({ id: r.id });
@@ -187,7 +187,7 @@ export async function askAgentSelection(io: SelectIo): Promise<readonly Approved
     // ── read it back ──────────────────────────────────────────────────────────────
     for (const l of confirmLines(chosen)) io.print(l);
     if (++asked > MAX) return null;
-    const yn = (await io.prompt("  Choose (Y/n) ", "")).trim().toLowerCase();
+    const yn = (await io.prompt("  Choose (Y/n) : ", "")).trim().toLowerCase();
     if (yn === "" || yn === "y" || yn === "yes") return chosen;
     io.print("");
     io.print("  Discarded. Choosing again.");

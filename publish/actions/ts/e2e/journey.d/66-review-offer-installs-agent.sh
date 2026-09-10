@@ -89,7 +89,14 @@ info "#218 — the first message survives the agent taking the screen"
 # The walk that found this ended with Bob idle at its own prompt, the instruction gone, and
 # the session-start protocol never run. Printing first was not the fix: an agent whose UI
 # takes the alternate screen erases what came before rather than competing with it.
-saw "the prompt to paste is still printed" "runs the session-start protocol"
+# WHAT GOVERNS THE SESSION, NAMED (walk of 2026-09-10, items 2 and 6). This used to assert the
+# five-line paste block, on a message that opened "gov does not know how ibm-bob takes a first
+# message, so it is starting bare". Both halves misled: no CLI agent but Claude Code can be made
+# to speak first, and nothing is "bare" when a harness file is mirrored into the project and read
+# on every turn. The paste is the fallback now, for an agent that has no such file.
+saw "the file that actually governs the session is named" "reads AGENTS.md in this project"
+saw "and it says the protocol runs before the agent answers" "Say anything to begin"
+never "no longer claims gov does not know how to talk to it" "so it is starting bare"
 saw "it is also written somewhere the UI cannot erase" "session-prompt.md"
 exists "and the file is really there" "$HOME/.gov/acme/projects/PRJ-9-infra/.gov/session-prompt.md"
 runs grep -q "session-start protocol" "$HOME/.gov/acme/projects/PRJ-9-infra/.gov/session-prompt.md" \

@@ -273,7 +273,40 @@ export function approvedAgents(orgApproved: readonly string[] | null): {
   readonly ids: readonly string[]; readonly usingDefaults: boolean;
 } {
   if (orgApproved && orgApproved.length) return { ids: orgApproved, usingDefaults: false };
-  return { ids: AGENT_CATALOG.map((a) => a.id), usingDefaults: true };
+  // THE FALLBACK MUST NOT OFFER MORE THAN ADOPTION DOES. A walk saw all ten listed here,
+  // Windsurf included — gov proposing, as an organization's defaults, agents its own adoption
+  // menu declines to offer. `deferred` means "not offered"; that has to hold on every path
+  // that shows a list, not only the one that asks the question.
+  return { ids: AGENT_CATALOG.filter((a) => !a.deferred).map((a) => a.id), usingDefaults: true };
+}
+
+/**
+ * The instructions file this agent reads, relative to the project root — or null when gov has
+ * no way to govern its session except by handing it a first message.
+ *
+ * WHY THIS MATTERS MORE THAN A PROMPT. Only Claude Code can be made to SPEAK FIRST (a
+ * SessionStart hook); every other CLI agent waits for input. But an instructions file it reads
+ * on every turn is stronger than one first message anyway — it governs the whole session rather
+ * than its opening. So when this returns a path, gov's job is done by `ensureRootProtocol`
+ * mirroring the file, and the honest instruction to the human is "say anything", not "paste
+ * these five lines".
+ *
+ * Kept beside the catalog and matching `agent/harness-manifest.yaml`, which is what renders
+ * them. An agent absent from both is ungoverned, and gov says so rather than implying otherwise.
+ */
+export function harnessFileFor(agentId: string): string | null {
+  switch (agentId) {
+    case "claude-code": return "CLAUDE.md";
+    case "openai-codex": case "ibm-bob": return "AGENTS.md";
+    case "cursor": return ".cursor/rules/agent.mdc";
+    case "cline": return ".clinerules/agent.md";
+    case "continue": return ".continue/rules.md";
+    case "gemini-code-assist": return ".gemini/styleguide.md";
+    case "github-copilot": return ".github/copilot-instructions.md";
+    case "windsurf": return ".windsurf/rules/agent.md";
+    case "aider": return "CONVENTIONS.md";
+    default: return null;
+  }
 }
 
 /** Offerable = approved, launchable, and actually here. */

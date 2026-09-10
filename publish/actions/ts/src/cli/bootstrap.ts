@@ -36,7 +36,7 @@
 import * as path from "node:path";
 import { paint } from "./format.js";
 import { approvalSummary } from "./approve-agents-step.js";
-import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused } from "../setup/interview.js";
+import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused, type SetupPreAnswers } from "../setup/interview.js";
 import { askJoinInterview, cloneTargetFor, JOIN_HEADER, joinSummary, JoinRefused } from "../setup/join-interview.js";
 import type { OrgConfigValues } from "../setup/setup.js";
 
@@ -352,7 +352,7 @@ export interface FirstRunIo {
    * second prompt for a settled fact is how the slug came to have two answers (#159
    * finding 1a).
    */
-  createWorkspace(target: string, pre?: Partial<OrgConfigValues>): Promise<number>;
+  createWorkspace(target: string, pre?: SetupPreAnswers): Promise<number>;
   /**
    * Defaults for the org interview, derived from the environment (gh user, git email,
    * today). Injected because only the caller knows those facts. Absent means the
@@ -508,7 +508,9 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   }
 
   const target = `${result.org}/${result.repo}`;
-  const code = await io.createWorkspace(target, result.answers);
+  // The agent policy travels WITH the other answers, because the only place it can be written
+  // and still be committed is inside createWorkspace — see the note in main.ts.
+  const code = await io.createWorkspace(target, { ...result.answers, ...(result.agents ? { agents: result.agents } : {}) });
   if (code !== 0) return code;
 
   // WRITE DOWN WHAT Q10 DECIDED (#196).

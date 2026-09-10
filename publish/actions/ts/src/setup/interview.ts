@@ -64,6 +64,15 @@ export interface InterviewIo {
   readonly color?: boolean;
 }
 
+/**
+ * Everything the adopter answered, in the shape the setup flow takes it.
+ *
+ * `agents` rides along with the org-config values because the only place the approved list can
+ * be written AND still be committed is inside `createWorkspace` — see the note in main.ts. It
+ * is not an org-config key, hence its own type rather than a cast at the call site.
+ */
+export type SetupPreAnswers = Partial<OrgConfigValues> & { readonly agents?: readonly ApprovedAgent[] };
+
 export interface InterviewResult {
   /** The GitHub organization (Q3). */
   readonly org: string;
@@ -159,8 +168,8 @@ async function ask(io: InterviewIo, n: number, question: string, def: string | u
   // its own ` [def]: ` and two sets of brackets on one line is worse than either.
   const fallback = def ?? "";
   const label = choices.length
-    ? `Choose [${choices.join("/")}] `
-    : fallback ? `Enter Value [${fallback}] ` : "Enter Value ";
+    ? `Choose [${choices.join("/")}] : `
+    : fallback ? `Enter Value [${fallback}] : ` : "Enter Value : ";
   const prompt = `Q${n} - ${question}\n${extra.length ? extra.join("\n") + "\n" : ""}${label}`;
   const MAX_ATTEMPTS = 10;
   let last: string | null = null;
@@ -197,7 +206,7 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   // whole point of offering it.
   const d0 = io.derive(a);
   if (!d0.orgName) {
-    const first = ((await io.prompt(`Q1 - What is full legal name of your organization ?\nEnter Value `, "")) ?? "").trim();
+    const first = ((await io.prompt(`Q1 - What is full legal name of your organization ?\nEnter Value : `, "")) ?? "").trim();
     if (first === "") return null;
     const bad = nonEmpty("An organization name")(first);
     a.orgName = bad ? await ask(io, 1, "What is full legal name of your organization ?", "", nonEmpty("An organization name")) : first;

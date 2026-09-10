@@ -43,10 +43,14 @@ IMAGES=(
   # curl is deliberately absent from these two: Rocky and Fedora ship `curl-minimal`,
   # which PROVIDES /usr/bin/curl and CONFLICTS with `curl`. Asking for it fails the whole
   # transaction — on the very image an adopter is most likely to be on.
-  "rocky|rockylinux:9|dnf install -y -q sudo expect tar xz which findutils procps-ng"
-  "fedora|fedora:latest|dnf install -y -q sudo expect tar xz which findutils procps-ng"
-  "debian|debian:stable-slim|apt-get update -qq && apt-get install -y -qq sudo expect curl ca-certificates xz-utils procps"
-  "ubuntu|ubuntu:24.04|apt-get update -qq && apt-get install -y -qq sudo expect curl ca-certificates xz-utils procps"
+  # Xvfb IS PART OF THE FIXTURE, NOT PART OF THE PRODUCT (#221). `98-desktop-hint.sh` needs a
+  # REAL X server to prove gov changes its mind about a desktop — an env var it set itself would
+  # only prove the variable is readable. gov never installs this and never needs it; the
+  # fragment says plainly when an image cannot supply it rather than skipping quietly.
+  "rocky|rockylinux:9|dnf install -y -q sudo expect tar xz which findutils procps-ng xorg-x11-server-Xvfb"
+  "fedora|fedora:latest|dnf install -y -q sudo expect tar xz which findutils procps-ng xorg-x11-server-Xvfb"
+  "debian|debian:stable-slim|apt-get update -qq && apt-get install -y -qq sudo expect curl ca-certificates xz-utils procps xvfb"
+  "ubuntu|ubuntu:24.04|apt-get update -qq && apt-get install -y -qq sudo expect curl ca-certificates xz-utils procps xvfb"
 )
 
 command -v docker >/dev/null || { echo "os-tier.sh needs docker"; exit 2; }
