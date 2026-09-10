@@ -85,25 +85,17 @@ info "#213 — and the agent gov launched actually RECEIVED it"
 # adopter finds out when the agent asks for a browser a second later.
 ran "IBM Bob was launched with BOB_API_KEY set in its environment" "env=BOB_API_KEY:set"
 
-info "#218 — the first message survives the agent taking the screen"
-# The walk that found this ended with Bob idle at its own prompt, the instruction gone, and
-# the session-start protocol never run. Printing first was not the fix: an agent whose UI
-# takes the alternate screen erases what came before rather than competing with it.
-# WHAT GOVERNS THE SESSION, NAMED (walk of 2026-09-10, items 2 and 6). This used to assert the
-# five-line paste block, on a message that opened "gov does not know how ibm-bob takes a first
-# message, so it is starting bare". Both halves misled: no CLI agent but Claude Code can be made
-# to speak first, and nothing is "bare" when a harness file is mirrored into the project and read
-# on every turn. The paste is the fallback now, for an agent that has no such file.
-saw "the file that actually governs the session is named" "reads AGENTS.md in this project"
-saw "and it says the protocol runs before the agent answers" "Say anything to begin"
-never "no longer claims gov does not know how to talk to it" "so it is starting bare"
-saw "it is also written somewhere the UI cannot erase" "session-prompt.md"
-exists "and the file is really there" "$HOME/.gov/acme/projects/PRJ-9-infra/.gov/session-prompt.md"
-runs grep -q "session-start protocol" "$HOME/.gov/acme/projects/PRJ-9-infra/.gov/session-prompt.md" \
-  && pass "holding the prompt itself, not a description of it" \
-  || fail "session-prompt.md does not contain the prompt"
-saw "gov waits instead of launching over the instruction" "Press Enter to start"
-# The licence screen is IBM's, not gov's — but a walk lost eighteen seconds to it, pressing
-# Enter at a prompt that wanted `y`. Naming it costs two lines and gov cannot help once the
-# agent owns the terminal.
-saw "and it warns about IBM Bob's own licence screen before handing over" "Press \`y\` to accept"
+info "#6 — the protocol is HANDED to the agent, not handed to the human"
+# THIS BLOCK USED TO ASSERT THE PASTE PATH — the five-line prompt, the saved file, the pause.
+# All three were the best available answer while nobody had read `bob --help`. Someone did, in a
+# container on 2026-09-11: `-p, --prompt <prompt>  Prompt to send to the agent`. So the prompt
+# now travels in the argv and there is nothing to paste, nothing to preserve, and nothing to
+# pause for. The paste path is still tested — on `aider`, where it is still the honest answer.
+saw "gov says that governance happened" "Handing ibm-bob the session-start protocol as its first message"
+never "there is nothing to paste any more" "Paste this as your first message"
+never "and nothing is described as starting bare" "so it is starting bare"
+ran "the interactive flag is the one used" "arg1=-p"
+ran "and the protocol itself is arg 2, not a paste instruction" "arg2=Run the session-start protocol"
+# THE LICENCE NOTE MUST NOT DEPEND ON HOW THE PROMPT TRAVELS. It lived inside the paste branch,
+# so wiring promptArgv silently removed it — a fix taking away an unrelated fix.
+saw "and it still warns about IBM Bob's own licence screen" "Press \`y\` to accept"

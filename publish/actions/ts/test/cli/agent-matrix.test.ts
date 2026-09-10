@@ -40,15 +40,15 @@ const EXPECTED: Readonly<Record<string, {
 }>> = {
   "claude-code":        { install: "npm",    launch: "cli", prompt: "argv",  credEnv: "ANTHROPIC_API_KEY" },
   "cursor":             { install: "script", launch: "cli", prompt: "argv",  credEnv: null },
-  "openai-codex":       { install: "npm",    launch: "cli", prompt: "paste", credEnv: "OPENAI_API_KEY" },
-  "gemini-code-assist": { install: "npm",    launch: "cli", prompt: "paste", credEnv: "GEMINI_API_KEY" },
-  "github-copilot":     { install: "npm",    launch: "cli", prompt: "paste", credEnv: null },
+  "openai-codex":       { install: "npm",    launch: "cli", prompt: "argv", credEnv: "OPENAI_API_KEY" },
+  "gemini-code-assist": { install: "npm",    launch: "cli", prompt: "argv", credEnv: "GEMINI_API_KEY" },
+  "github-copilot":     { install: "npm",    launch: "cli", prompt: "argv", credEnv: null },
   "windsurf":           { install: "url",    launch: "ide", prompt: "paste", credEnv: null },
   // Both shipped CLIs after these entries were written; the catalog said otherwise until
   // 2026-09-10. `continue`'s binary is `cn`, not `continue` — see the catalog comment.
-  "cline":              { install: "npm",    launch: "cli", prompt: "paste", credEnv: null },
-  "continue":           { install: "npm",    launch: "cli", prompt: "paste", credEnv: null },
-  "ibm-bob":            { install: "script", launch: "cli", prompt: "paste", credEnv: "BOB_API_KEY" },
+  "cline":              { install: "npm",    launch: "cli", prompt: "argv", credEnv: null },
+  "continue":           { install: "npm",    launch: "cli", prompt: "argv", credEnv: null },
+  "ibm-bob":            { install: "script", launch: "cli", prompt: "argv", credEnv: "BOB_API_KEY" },
   "aider":              { install: "pip",    launch: "cli", prompt: "paste", credEnv: "OPENAI_API_KEY" },
 };
 
@@ -176,12 +176,32 @@ describe("every selectable agent — the catalog's claims", () => {
 });
 
 describe("the gaps this matrix exists to keep visible", () => {
-  it("only two agents have a verified argv — the rest paste, and that is recorded per agent", () => {
-    // Across the WHOLE catalog, offered or not.
-    // A COUNT, ASSERTED. Raising it is #207's job; this fails when someone adds a promptArgv
-    // without also verifying it here, and when someone removes one.
+  it("EIGHT of ten agents take the protocol as argv — read from their own --help", () => {
+    // This used to read "only two agents have a verified argv" and pin the pair. The count was
+    // honest; the reason for it was not — nobody had looked. Every vendor's `--help` was read in
+    // a container on 2026-09-11 and all six unknowns take a prompt, IBM Bob included, which is
+    // the resolution of #6. It needed a container, not a debate.
     const withArgv = selectable.filter((a) => a.promptArgv).map((a) => a.id);
-    expect(withArgv).to.deep.equal(["claude-code", "cursor"]);
+    expect(withArgv).to.deep.equal([
+      "claude-code", "cursor", "openai-codex", "gemini-code-assist", "github-copilot",
+      "cline", "continue", "ibm-bob",
+    ]);
+    // The two left are the two the container could not answer: windsurf has no CLI at all, and
+    // aider installs from PyPI so it was not in the npm sweep.
+    expect(selectable.filter((a) => !a.promptArgv).map((a) => a.id)).to.deep.equal(["windsurf", "aider"]);
+  });
+
+  it("the INTERACTIVE flag, never the headless one — the trap in gemini and copilot", () => {
+    // `-p/--prompt` on both runs the prompt and EXITS. Using it would deliver the session-start
+    // protocol and then throw away the session it exists to govern: a launch that reports
+    // success and leaves the adopter at a shell.
+    const argv = (id: string): readonly string[] => selectable.find((a) => a.id === id)!.promptArgv!;
+    expect(argv("gemini-code-assist")).to.deep.equal(["-i", "{prompt}"]);
+    expect(argv("github-copilot")).to.deep.equal(["-i", "{prompt}"]);
+    expect(argv("gemini-code-assist"), "-p would be headless").to.not.include("-p");
+    expect(argv("github-copilot"), "-p would be headless").to.not.include("-p");
+    // bob's `-p` IS its interactive form; `run [prompt...]` is the headless one.
+    expect(argv("ibm-bob")).to.deep.equal(["-p", "{prompt}"]);
   });
 
   it("NOTHING launchable is left without a command — the gap cline and continue used to be", () => {

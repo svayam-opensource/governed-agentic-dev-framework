@@ -1258,10 +1258,22 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
           process.stderr.write(`${s.promptToPaste}\n\n`);
           if (saved) process.stderr.write(`${r1.step(`Saved to ${saved} — ${agent} may be able to read it directly.`)}\n`);
         }
-        const note = firstRunNote(agent);
-        if (note) for (const l of note) process.stderr.write(`${r1.step(l)}\n`);
         await pauseBeforeLaunch(agent);
       }
+
+      // WHAT THE FIRST-RUN NOTE AND THE PROTOCOL CONFIRMATION HAVE IN COMMON: neither depends on
+      // HOW the prompt is delivered. Both used to live inside the paste branch, so wiring
+      // `promptArgv` for an agent silently removed its licence warning — a fix taking away an
+      // unrelated fix, which is the shape of regression that only a test catches.
+      const r2 = reporter(stdoutColor());
+      if (s.promptArgvUsed) {
+        // SAY THAT GOVERNANCE HAPPENED. The protocol is being handed over as the agent's first
+        // message; an adopter who cannot see that has no way to tell a governed launch from a
+        // bare one, and the difference is the whole point.
+        process.stderr.write(`\n${r2.step(`Handing ${agent} the session-start protocol as its first message.`)}\n`);
+      }
+      const note = firstRunNote(agent);
+      if (note) for (const l of note) process.stderr.write(`${r2.step(l)}\n`);
       // THE LAUNCH, AND WHETHER THE KEY WENT WITH IT. #213's last wrong fix stored the key
       // correctly and then launched the agent without it — and gov's output is identical
       // either way, because storing and passing are different acts and only one of them shows.

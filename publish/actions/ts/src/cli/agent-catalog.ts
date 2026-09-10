@@ -113,6 +113,24 @@ export interface AgentCandidate {
  * Every harness the framework renders. `launch: "none"` entries are governed but
  * not startable from here — a browser tool has no command to run.
  */
+/*
+ * HOW EACH AGENT TAKES A FIRST MESSAGE — read from the vendors' own `--help`, in a container,
+ * on 2026-09-11 (#207, and the resolution of #6).
+ *
+ * This was unverified for seven of nine agents for weeks, on the reasoning that guessing a
+ * vendor's flags is worse than pasting. That reasoning was right; not looking was not. Every
+ * one of them takes a prompt, IBM Bob included, and the version each was read from is recorded
+ * beside it so a flag that changes is a diff rather than a mystery.
+ *
+ * THE TRAP, AND IT IS NOT SUBTLE ONCE SEEN. For `gemini` and `copilot`, `-p/--prompt` is the
+ * NON-INTERACTIVE flag: it runs the prompt and exits. Using it would deliver the session-start
+ * protocol and then throw away the session it was meant to govern — a launch that reports
+ * success and leaves the adopter at a shell. `-i` is the interactive form for both. `cn` has
+ * the same shape (`-p, --print` prints and exits), so its bare positional is the right one.
+ *
+ * WHAT IS VERIFIED, PRECISELY: that the flag exists and what the vendor says it does. Whether
+ * the agent then runs the protocol needs a credential and a real session, which is the walk.
+ */
 export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // promptArgv verified in use: both take the first message as a bare positional.
   { id: "claude-code", tool: "Claude Code", launch: "cli", cmd: "claude", promptArgv: ["{prompt}"],
@@ -137,6 +155,8 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
       { kind: "editor", label: "the Cursor editor", cmd: "cursor", install: { url: "https://cursor.com/downloads" } },
     ] },
   { id: "openai-codex", tool: "OpenAI Codex", launch: "cli", cmd: "codex",
+    // codex --help: `[PROMPT]  Optional user prompt to start the session` (read 2026-09-11)
+    promptArgv: ["{prompt}"],
     install: { npm: "@openai/codex", url: "https://developers.openai.com/codex/cli" },
     credentialEnv: "OPENAI_API_KEY", signupUrl: "https://platform.openai.com/signup",
     variants: [
@@ -146,6 +166,9 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
       { kind: "extension", label: "in VS Code", extensionId: "openai.chatgpt", hosts: ["code", "cursor", "windsurf"] },
     ] },
   { id: "gemini-code-assist", tool: "Gemini Code Assist", launch: "cli", cmd: "gemini",
+    // gemini 0.59.0: `-i, --prompt-interactive  Execute the provided prompt and continue in
+    // interactive mode`. NOT `-p`, which is headless and exits (read 2026-09-11).
+    promptArgv: ["-i", "{prompt}"],
     install: { npm: "@google/gemini-cli", url: "https://github.com/google-gemini/gemini-cli" },
     credentialEnv: "GEMINI_API_KEY", signupUrl: "https://aistudio.google.com/apikey",
     variants: [
@@ -154,6 +177,9 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
       { kind: "extension", label: "in VS Code", extensionId: "Google.geminicodeassist", hosts: ["code", "cursor", "windsurf"] },
     ] },
   { id: "github-copilot", tool: "GitHub Copilot", launch: "cli", cmd: "copilot",
+    // copilot 1.0.83: `-i, --interactive <prompt>  Start interactive mode and automatically
+    // execute this prompt`. NOT `-p`, which is non-interactive (read 2026-09-11).
+    promptArgv: ["-i", "{prompt}"],
     install: { npm: "@github/copilot", url: "https://github.com/features/copilot/cli" },
     signupUrl: "https://github.com/features/copilot",
     variants: [
@@ -188,6 +214,8 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // written down: repository `github.com/cline/cline`, maintainers all `@cline.bot`.
   // Binary is `cline` (npm `bin: { cline: "bin/cline" }`).
   { id: "cline", tool: "Cline / Roo Code", launch: "cli", cmd: "cline",
+    // cline 3.0.61: `[prompt]  Your prompt. Default to start in act mode` (read 2026-09-11)
+    promptArgv: ["{prompt}"],
     install: { npm: "cline", url: "https://cline.bot" },
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "cline", install: { npm: "cline", url: "https://cline.bot" } },
@@ -198,6 +226,9 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // command-not-found after a successful install — the shape #199 exists to prevent.
   // Provenance: repository `github.com/continuedev/continue`, maintainers `@continue.dev`.
   { id: "continue", tool: "Continue.dev", launch: "cli", cmd: "cn",
+    // cn 1.5.47: `[prompt]  Optional prompt to send to the assistant`. The bare positional,
+    // not `-p, --print`, which prints and exits (read 2026-09-11).
+    promptArgv: ["{prompt}"],
     install: { npm: "@continuedev/cli", url: "https://continue.dev" },
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "cn", install: { npm: "@continuedev/cli", url: "https://continue.dev" } },
@@ -219,6 +250,10 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   { id: "ibm-bob", tool: "IBM Bob", launch: "cli", cmd: "bob",
     install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" },
     // Verified on a container: Bob prints its own sign-in URL and waits (#208).
+    // bob 2.0.2: `-p, --prompt <prompt>  Prompt to send to the agent`. `run [prompt...]` is
+    // the headless form and is deliberately not used (read 2026-09-11). This is the answer
+    // to #6: gov CAN hand IBM Bob the session-start protocol as its first message.
+    promptArgv: ["-p", "{prompt}"],
     credentialEnv: "BOB_API_KEY", signsInItself: true, signupUrl: "https://bob.ibm.com",
     variants: [
       // No login subcommand: Bob Shell opens the browser itself when it needs to

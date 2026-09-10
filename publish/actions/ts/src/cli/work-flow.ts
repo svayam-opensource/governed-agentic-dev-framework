@@ -200,6 +200,8 @@ export interface LaunchSpec {
    * say how (#207). The caller prints it to paste. Absent when the prompt was passed.
    */
   readonly promptToPaste?: string;
+  /** True when the prompt travelled in `args` — so the caller can say governance happened. */
+  readonly promptArgvUsed?: true;
 }
 
 /**
@@ -244,7 +246,7 @@ export function agentLaunchSpec(
   // after a clean install. An entry that has not been checked launches BARE: the agent still
   // starts in the project, and its harness file is what governs the session anyway.
   return c.promptArgv
-    ? { cmd: c.cmd, args: c.promptArgv.map((a) => a.replaceAll("{prompt}", inject)), detached: false }
+    ? { cmd: c.cmd, args: c.promptArgv.map((a) => a.replaceAll("{prompt}", inject)), detached: false, promptArgvUsed: true }
     : { cmd: c.cmd, args: [], detached: false, promptToPaste: inject };
 }
 

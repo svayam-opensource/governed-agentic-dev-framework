@@ -161,8 +161,8 @@ describe("gov-work — guided Work flow", () => {
   });
 
   it("agentLaunchSpec: right binary + detached flag + inject-as-first-message (guards the launch mapping)", () => {
-    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false });     // speak-first
-    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false });    // speak-first
+    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false, promptArgvUsed: true });     // speak-first
+    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false, promptArgvUsed: true });    // speak-first
     // GUI opens the dir, detached — AND carries the prompt to paste. An editor cannot take a
     // positional prompt, and giving it none meant the session-start protocol never ran at all.
     expect(agentLaunchSpec("cursor-gui", "/p", "GO")).to.deep.equal({ cmd: "cursor", args: ["/p"], detached: true, promptToPaste: "GO" });
@@ -195,13 +195,19 @@ describe("gov-work — guided Work flow", () => {
   it("the prompt goes where the agent takes it, or nowhere at all (#207)", () => {
     // A bare positional for everyone is what killed the bob launch: "too many arguments.
     // Expected 0 arguments but got 1", after a clean install and a "Starting it in…".
-    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false });
-    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false });
+    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false, promptArgvUsed: true });
+    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false, promptArgvUsed: true });
 
-    // Unverified: launch bare, and hand the prompt back to be pasted. The agent still starts in
-    // the project, and its harness file is what governs the session.
-    const bob = agentLaunchSpec("ibm-bob", "/p", "GO");
-    expect(bob, "no guessed argv").to.deep.equal({ cmd: "bob", args: [], detached: false, promptToPaste: "GO" });
+    // bob WAS the example of "unverified, so launch bare and hand the prompt back to be pasted".
+    // It is verified now — `bob --help` in a container on 2026-09-11: `-p, --prompt <prompt>
+    // Prompt to send to the agent`. The old expectation was correct discipline and a stale fact.
+    expect(agentLaunchSpec("ibm-bob", "/p", "GO"))
+      .to.deep.equal({ cmd: "bob", args: ["-p", "GO"], detached: false, promptArgvUsed: true });
+
+    // THE PASTE PATH IS STILL REACHABLE, and still the right answer where nobody has looked.
+    // `aider` installs from PyPI, so the npm sweep that answered the others could not answer it.
+    expect(agentLaunchSpec("aider", "/p", "GO"))
+      .to.deep.equal({ cmd: "aider", args: [], detached: false, promptToPaste: "GO" });
   });
 
   it("no agent is handed an argument nobody checked it accepts (#207)", () => {
