@@ -19,6 +19,8 @@
  * rather than enforced: an unverified probe must not become a gate.
  */
 import { type Validator } from "./answers.js";
+import { AGENT_CATALOG } from "../cli/agent-catalog.js";
+import type { ApprovedAgent } from "../config/approved-agents.js";
 import { renderOrgChoices, resolveOrgChoice, defaultOrg } from "./org-choice.js";
 
 /** Thrown when a prompt cannot get a usable answer — never on a human's typo. */
@@ -35,12 +37,24 @@ export interface JoinInterviewIo {
    * as "there are none".
    */
   readonly governanceReposIn?: (org: string) => readonly string[] | null;
+  /**
+   * The agents this organization has AUTHORIZED, read from the governance repo before it is
+   * cloned. null when gov cannot tell — which includes the common case of an organization
+   * whose policy predates the approved-agents list and simply has none.
+   */
+  readonly approvedAgentsIn?: (org: string, repo: string) => readonly ApprovedAgent[] | null;
 }
 
 export interface JoinInterviewResult {
   readonly org: string;
   /** Repository name only, not `owner/repo`. */
   readonly repo: string;
+  /**
+   * The authorized agent this joiner picked (Q3), or undefined when the question was not
+   * asked — the organization recorded no list, so there is nothing to pick from and gov must
+   * not invent one.
+   */
+  readonly agent?: string;
 }
 
 const RULE_GITHUB_ORG: Validator = (v) => {
@@ -98,19 +112,24 @@ export function joinSummary(o: JoinOutcome): readonly string[] {
 }
 
 /** Ask until the answer is usable; bounded, so a scripted stdin stops rather than spins. */
-async function ask(io: JoinInterviewIo, n: number, question: string, def: string, rule: Validator, extra: readonly string[] = []): Promise<string> {
+async function ask(io: JoinInterviewIo, n: number, question: string, def: string, rule: Validator, extra: readonly string[] = [], choices: readonly string[] = []): Promise<string> {
   io.print("");
   // ONE STRING, NOT A PRINT PLUS A PROMPT (#218). The question travels WITH the prompt so that
   // whatever is driving the terminal — a person, the e2e `expect` harness, a unit stub —
   // identifies it the same way: by reading it. Printing it separately and prompting with a bare
   // "-" splits those audiences, and only the person can see both halves. The renderer supplies
   // the ` [default]: ` tail.
-  const prompt = `Q${n} - ${question}\n${extra.length ? extra.join("\n") + "\n" : ""}-`;
+  // See interview.ts for why the label names the KIND of answer rather than being a bare dash.
+  const label = choices.length
+    ? `Choose [${choices.join("/")}] `
+    : def ? `Enter Value [${def}] ` : "Enter Value ";
+  const prompt = `Q${n} - ${question}\n${extra.length ? extra.join("\n") + "\n" : ""}${label}`;
   const MAX_ATTEMPTS = 10;
   let last: string | null = null;
   let repeats = 0;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const answer = ((await io.prompt(prompt, def)) ?? "").trim();
+    const raw = ((await io.prompt(prompt, "")) ?? "").trim();
+    const answer = raw === "" ? def : raw;
     const problem = rule(answer);
     if (!problem) return answer;
     if (answer === last && ++repeats >= 2) throw new JoinRefused(`Q${n}: the same answer came back three times — ${problem}`);
@@ -136,7 +155,7 @@ export async function askJoinInterview(io: JoinInterviewIo): Promise<JoinIntervi
   // whole point of having asked GitHub.
   if (!orgDefault) {
     io.print("");
-    const q1 = `Q1 - ${Q1}\n${choices.length ? choices.join("\n") + "\n" : ""}-`;
+    const q1 = `Q1 - ${Q1}\n${choices.length ? choices.join("\n") + "\n" : ""}${orgs.length ? `Choose [${orgs.map((_, i) => i + 1).join("/")}] ` : "Enter Value "}`;
     const first = ((await io.prompt(q1, "")) ?? "").trim();
     if (first === "") return null;
     const picked = resolveOrgChoice(first, orgs);
@@ -145,7 +164,8 @@ export async function askJoinInterview(io: JoinInterviewIo): Promise<JoinIntervi
     io.print(`  ✗ ${bad}`);                        // fall through and ask properly
   }
 
-  const answered = await ask(io, 1, Q1, orgDefault, (v) => RULE_GITHUB_ORG(resolveOrgChoice(v, orgs)), choices);
+  const answered = await ask(io, 1, Q1, orgDefault, (v) => RULE_GITHUB_ORG(resolveOrgChoice(v, orgs)), choices,
+    orgs.map((_, i) => String(i + 1)));
   return askAfterOrg(io, resolveOrgChoice(answered, orgs));
 }
 
@@ -175,11 +195,57 @@ async function askAfterOrg(io: JoinInterviewIo, org: string): Promise<JoinInterv
 
   const def = names.length === 1 ? (names[0] as string) : "";
   const answered = await ask(io, 2, "What is the name of your org's governance repo?", def,
-    (v) => RULE_REPO(resolveOrgChoice(v, names)), extra);
+    (v) => RULE_REPO(resolveOrgChoice(v, names)), extra,
+    names.length > 1 ? names.map((_, i) => String(i + 1)) : []);
   const repo = resolveOrgChoice(answered, names);
 
+  const agent = await askAgent(io, org, repo);
   io.print("");
-  return { org, repo };
+  return { org, repo, ...(agent ? { agent } : {}) };
+}
+
+/**
+ * Q3 — which of the organization's authorized agents this joiner will use.
+ *
+ * ASKED ONLY WHEN THERE IS A LIST. An organization whose `llm-governance.md` predates the
+ * approved-agents fence has authorized nothing explicitly, and offering the framework's own
+ * catalogue here would present gov's defaults as the org's policy — the exact fallback #196
+ * removed at adoption. So gov says nothing and the work flow decides later, as it does today.
+ *
+ * The list is read from the governance repo BEFORE it is cloned, so this question can sit with
+ * the other two rather than appearing after the clone as an afterthought.
+ */
+async function askAgent(io: JoinInterviewIo, org: string, repo: string): Promise<string | undefined> {
+  const approved = io.approvedAgentsIn?.(org, repo) ?? null;
+  if (!approved || approved.length === 0) return undefined;
+
+  const name = (id: string): string => AGENT_CATALOG.find((a) => a.id === id)?.tool ?? id;
+  const def = approved.find((a) => a.default) ?? approved[0]!;
+  const rows = approved.map((a, i) => `    ${i + 1}) ${name(a.id)}${a.default ? " (default)" : ""}`);
+
+  // ONE AUTHORIZED AGENT IS NOT A CHOICE. Asking someone to pick from a list of one is a
+  // question whose answer is already on the screen; they are told instead, as they are for
+  // every other step the organization has already settled.
+  if (approved.length === 1) {
+    io.print("");
+    io.print(`  Your organization has authorized one AI agent: ${name(def.id)}. That is what gov will use.`);
+    return def.id;
+  }
+
+  const answered = await ask(io, 3,
+    "Your organization has authorized the following AI agents. Which would you like to use,\nor press enter to use the default?",
+    String(approved.indexOf(def) + 1),
+    (v) => {
+      const t = v.trim();
+      if (/^\d+$/.test(t) && Number(t) >= 1 && Number(t) <= approved.length) return null;
+      if (approved.some((a) => a.id === t.toLowerCase())) return null;
+      return `'${t}' is not one of the numbers above.`;
+    },
+    rows,
+    approved.map((_, i) => String(i + 1)));
+
+  const t = answered.trim();
+  return /^\d+$/.test(t) ? approved[Number(t) - 1]!.id : t.toLowerCase();
 }
 
 /** For the caller: what to clone, given the two answers. */

@@ -130,13 +130,34 @@ describe("gov-work — every agent's real variants (#196)", () => {
     }
   });
 
-  it("an extension-only agent is unrunnable without a host, and says so", () => {
-    // Cline has no CLI. On a machine with no editor there is nothing to launch, and
-    // gov will not install an editor to create one.
+  it("an agent with a CLI variant is runnable with no editor at all", () => {
+    // THIS TEST USED TO BE ABOUT CLINE, on the grounds that "Cline has no CLI". Cline shipped
+    // one (npm `cline`), so the example was asserting a fact about the vendor that had stopped
+    // being true — and freezing gov into offering an agent it could not install.
+    //
+    // The shape worth testing is unchanged: a CLI variant needs no host, an extension variant
+    // needs one. Cline now has both, which makes it the better example rather than a worse one.
     const cline = AGENT_CATALOG.find((x) => x.id === "cline")!;
-    expect(cline.variants!.every((v) => v.kind === "extension")).to.equal(true);
-    expect(runnableVariants(variantStatuses(cline, () => false))).to.have.length(0);
-    expect(runnableVariants(variantStatuses(cline, (c) => c === "code"))).to.have.length(1);
+    expect(cline.variants!.some((v) => v.kind === "cli"), "cline has a terminal route now").to.equal(true);
+    // `hasTool` answers "is this present", so nothing is RUNNABLE on a bare machine — a CLI
+    // included. That is the honest reading and the distinction that matters: installable is
+    // not the same as runnable, and this agent is now the former without an editor.
+    expect(runnableVariants(variantStatuses(cline, () => false)), "a bare machine can run nothing")
+      .to.have.length(0);
+    expect(runnableVariants(variantStatuses(cline, (c) => c === "cline")), "its own binary, no editor")
+      .to.have.length(1);
+    // With an editor and no CLI, only the extension route is offered — which is what the
+    // previous version of this test was really checking.
+    expect(runnableVariants(variantStatuses(cline, (c) => c === "code")), "editor only")
+      .to.have.length(1);
+  });
+
+  it("an EXTENSION-ONLY agent is still unrunnable without a host, and says so", () => {
+    // The case cline used to demonstrate, kept alive with an agent that genuinely has no
+    // binary. `windsurf`'s only route is its own editor; `chatgpt-web` has no route at all.
+    const ws = AGENT_CATALOG.find((x) => x.id === "windsurf")!;
+    expect(ws.variants!.every((v) => v.kind === "editor" || v.kind === "extension")).to.equal(true);
+    expect(ws.install?.npm, "and gov must not claim to install it from npm").to.equal(undefined);
   });
 });
 
@@ -195,6 +216,24 @@ describe("gov-work — an install must come from the vendor it names (#201)", ()
     "gemini-code-assist": ["@google"],
     "github-copilot": ["@github"],
     aider: ["@aider"],
+    continue: ["@continuedev"],
+  };
+
+  /**
+   * UNSCOPED packages a human has checked, with the evidence written down.
+   *
+   * The scope test is a MECHANISM for the real rule — "a person confirmed this package is the
+   * vendor's" — and it only works for scoped names. `cline` is unscoped, so it can never start
+   * with `@vendor/` and the guard would have refused it forever, pushing the entry back to a
+   * url-only state that is now simply wrong.
+   *
+   * This does not prove provenance; nothing in a unit test can. It records that the check was
+   * made, which is exactly what the scope list records for the scoped ones.
+   */
+  const UNSCOPED_VERIFIED: Record<string, { readonly pkg: string; readonly evidence: string }> = {
+    // npm `cline` v3.0.61 — repository github.com/cline/cline; maintainers john@cline.bot,
+    // saoud@cline.bot, beatrix@cline.bot. Checked 2026-09-10.
+    cline: { pkg: "cline", evidence: "repo cline/cline, maintainers @cline.bot, checked 2026-09-10" },
   };
 
   const npmInstalls = (): Array<{ id: string; pkg: string }> => {
@@ -208,6 +247,12 @@ describe("gov-work — an install must come from the vendor it names (#201)", ()
 
   it("every npm package is in a scope the vendor owns", () => {
     for (const { id, pkg } of npmInstalls()) {
+      const unscoped = UNSCOPED_VERIFIED[id];
+      if (unscoped) {
+        expect(pkg, `${id}: '${pkg}' is not the unscoped package that was verified (${unscoped.evidence})`)
+          .to.equal(unscoped.pkg);
+        continue;
+      }
       const scopes = VENDOR_SCOPES[id];
       expect(scopes, `${id} installs '${pkg}' from npm and no vendor scope is declared for it — ` +
         "add one only after checking the package's maintainers, or install from the vendor's own URL").to.not.equal(undefined);

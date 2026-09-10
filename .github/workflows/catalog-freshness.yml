@@ -1,0 +1,30 @@
+# Has a vendor shipped a CLI since we last looked?
+#
+# ON A SCHEDULE, NOT ON A PR. The check queries npm, so a registry hiccup would turn into a red
+# pull request for a reason that has nothing to do with the change under review. Weekly is
+# frequent enough for a vendor release and rare enough that nobody learns to ignore it.
+#
+# It exits 1 only when a package exists that the VENDOR published for an agent the catalog says
+# gov cannot install. A lookalike from an unrelated maintainer is reported and ignored — that
+# refusal is the point (#201), not a limitation.
+name: catalog-freshness
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"          # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  freshness:
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Look
+        working-directory: publish/actions/ts
+        run: |
+          npm ci --no-audit --no-fund
+          npm run catalog:freshness

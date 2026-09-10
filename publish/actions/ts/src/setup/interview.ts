@@ -32,6 +32,8 @@ import {
   branchChoice, parseBranchChoice, branchName, type Validator,
 } from "./answers.js";
 import { renderOrgChoices, resolveOrgChoice, defaultOrg } from "./org-choice.js";
+import { askAgentSelection } from "../cli/agent-selection.js";
+import type { ApprovedAgent } from "../config/approved-agents.js";
 
 /** The answers under construction — `OrgConfigValues` is readonly by design. */
 type Answers = { -readonly [K in keyof OrgConfigValues]?: OrgConfigValues[K] };
@@ -57,11 +59,22 @@ export interface InterviewIo {
    * A convenience, never a gate — see `org-choice.ts`.
    */
   readonly myOrgs?: () => readonly string[];
+  /** Ask the agent-approval question (Q10). Absent = do not ask; the caller asks elsewhere. */
+  readonly selectAgents?: boolean;
+  readonly color?: boolean;
 }
 
 export interface InterviewResult {
   /** The GitHub organization (Q3). */
   readonly org: string;
+  /**
+   * The organization's approved agents (Q10), first one default.
+   *
+   * IN THE INTERVIEW, not after the repository exists. It used to be asked once the clone had
+   * landed, which put the single most consequential policy answer in adoption AFTER the point
+   * of no return — and left it out of the block that reads every other answer back.
+   */
+  readonly agents?: readonly ApprovedAgent[];
   /** The governance repository to create (Q4). */
   readonly repo: string;
   /** Every answer, keyed as org-config values, ready to hand to `runSetup` as `existing`. */
@@ -129,23 +142,32 @@ export function interviewSummary(o: InterviewOutcome): readonly string[] {
  * "ask again" assumes someone is there to answer; a stream that repeats itself is
  * recognised for what it is rather than looped on forever.
  */
-async function ask(io: InterviewIo, n: number, question: string, def: string | undefined, rule: Validator, extra: readonly string[] = []): Promise<string> {
+async function ask(io: InterviewIo, n: number, question: string, def: string | undefined, rule: Validator, extra: readonly string[] = [], choices: readonly string[] = []): Promise<string> {
   io.print("");
   // ONE STRING, NOT A PRINT PLUS A PROMPT. The question travels WITH the prompt so
   // that whatever is driving the terminal — a person, the e2e `expect` harness, a unit
   // test's stub — identifies it the same way: by reading it. Printing the question and
   // then prompting with a bare "-" splits those two audiences, and only the person can
   // see both halves. The renderer supplies the ` [default]: ` tail.
-  const prompt = `Q${n} - ${question}\n${extra.length ? extra.join("\n") + "\n" : ""}-`;
-  // A MISSING DEFAULT IS BLANK, NOT A CRASH. `derive` is injected, and a caller that
-  // supplies none (or one that cannot compute a field yet) must produce a question the
-  // human can still answer — not a TypeError three frames down.
+  // THE LABEL SAYS WHAT KIND OF ANSWER IT WANTS. A bare `-` said only "type here"; a reader
+  // could not tell a number from free text, and the offered default was doing double duty as
+  // both a suggestion and the only hint about the shape. `Choose [1/2/3] :` and
+  // `Enter Value :` name the two kinds, and the default rides inside the value form where it
+  // belongs.
+  //
+  // The default is substituted HERE rather than by the renderer, because the renderer appends
+  // its own ` [def]: ` and two sets of brackets on one line is worse than either.
   const fallback = def ?? "";
+  const label = choices.length
+    ? `Choose [${choices.join("/")}] `
+    : fallback ? `Enter Value [${fallback}] ` : "Enter Value ";
+  const prompt = `Q${n} - ${question}\n${extra.length ? extra.join("\n") + "\n" : ""}${label}`;
   const MAX_ATTEMPTS = 10;
   let last: string | null = null;
   let repeats = 0;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const answer = ((await io.prompt(prompt, fallback)) ?? "").trim();
+    const raw = ((await io.prompt(prompt, "")) ?? "").trim();
+    const answer = raw === "" ? fallback : raw;
     const problem = rule(answer);
     if (!problem) return answer;
     if (answer === last && ++repeats >= 2) {
@@ -175,7 +197,7 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   // whole point of offering it.
   const d0 = io.derive(a);
   if (!d0.orgName) {
-    const first = ((await io.prompt(`Q1 - What is full legal name of your organization ?\n-`, "")) ?? "").trim();
+    const first = ((await io.prompt(`Q1 - What is full legal name of your organization ?\nEnter Value `, "")) ?? "").trim();
     if (first === "") return null;
     const bad = nonEmpty("An organization name")(first);
     a.orgName = bad ? await ask(io, 1, "What is full legal name of your organization ?", "", nonEmpty("An organization name")) : first;
@@ -197,7 +219,7 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
     "What is the Github Organization ID of your organization? This is where your new governance repo will be created?",
     defaultOrg(mine, io.derive(a).githubOrg),
     (v) => RULE_GITHUB_ORG(resolveOrgChoice(v, mine)),
-    renderOrgChoices(mine)), mine);
+    renderOrgChoices(mine), mine.map((_, i) => String(i + 1))), mine);
   a.githubOrg = org;
 
   // THE PROBE, AT THE EARLIEST POSSIBLE MOMENT — see the file header.
@@ -219,7 +241,7 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   // produces a branch the rest of the tool looks for and never finds.
   a.defaultBranch = parseBranchChoice(await ask(io, 6,
     "Default branch to be used for production (BaseRef) in your code repository?\n  (1 = main, 2 = master)",
-    parseBranchChoice(dSlug.defaultBranch ?? "") === "master" ? "2" : "1", branchChoice)) ?? "main";
+    parseBranchChoice(dSlug.defaultBranch ?? "") === "master" ? "2" : "1", branchChoice, [], ["1", "2"])) ?? "main";
 
   a.defaultCodeBranch = await ask(io, 7,
     "Default branch to be used for development?", dSlug.defaultCodeBranch, branchName);
@@ -230,6 +252,26 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   a.policyEffectiveDate = await ask(io, 9,
     "What should be the policy effective date ?", io.derive(a).policyEffectiveDate, isoDate);
 
+  // Q10 — WHICH AGENTS THIS ORGANIZATION ALLOWS.
+  //
+  // Last, because it is the only answer that is a POLICY rather than a fact about the
+  // organization, and because it is the one an adopter most needs the preceding context to
+  // answer well. Inside the interview, though: it used to run after the clone, which put the
+  // most consequential decision in adoption on the far side of the irreversible step and
+  // outside the block that reads every other answer back.
+  let agents: readonly ApprovedAgent[] | undefined;
+  if (io.selectAgents) {
+    io.print("");
+    io.print("Q10 - Which AI agents may be used in this organization?");
+    const picked = await askAgentSelection({
+      prompt: io.prompt,
+      print: io.print,
+      ...(io.color === undefined ? {} : { color: io.color }),
+    });
+    if (picked === null) throw new InterviewRefused("Q10: no usable AI agent selection.");
+    agents = picked;
+  }
+
   io.print("");
-  return { org, repo, answers: a };
+  return { org, repo, answers: a, ...(agents ? { agents } : {}) };
 }

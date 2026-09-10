@@ -163,7 +163,9 @@ describe("gov-work — guided Work flow", () => {
   it("agentLaunchSpec: right binary + detached flag + inject-as-first-message (guards the launch mapping)", () => {
     expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false });     // speak-first
     expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false });    // speak-first
-    expect(agentLaunchSpec("cursor-gui", "/p", "GO")).to.deep.equal({ cmd: "cursor", args: ["/p"], detached: true });        // GUI opens the dir, detached
+    // GUI opens the dir, detached — AND carries the prompt to paste. An editor cannot take a
+    // positional prompt, and giving it none meant the session-start protocol never ran at all.
+    expect(agentLaunchSpec("cursor-gui", "/p", "GO")).to.deep.equal({ cmd: "cursor", args: ["/p"], detached: true, promptToPaste: "GO" });
     expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/bin/fish" } as NodeJS.ProcessEnv)).to.deep.equal({ cmd: "/bin/fish", args: [], detached: false });
   });
 
@@ -174,9 +176,12 @@ describe("gov-work — guided Work flow", () => {
       expect(agentLaunchSpec(a.id, "/p", "GO")?.cmd, a.id).to.equal(a.cmd);
       expect(agentLaunchSpec(a.id, "/p", "GO")?.detached, a.id).to.equal(false);
     }
-    // An `ide` entry opens the directory and detaches, rather than being handed a prompt it cannot read.
+    // An `ide` entry opens the directory and detaches — it cannot READ a prompt from argv, so the
+    // prompt travels as `promptToPaste`. It used to travel not at all, which meant gov opened an
+    // editor and the session-start protocol silently never ran (found by test/cli/agent-matrix).
     for (const a of AGENT_CATALOG.filter((c) => c.launch === "ide" && c.cmd)) {
-      expect(agentLaunchSpec(a.id, "/p", "GO"), a.id).to.deep.equal({ cmd: a.cmd, args: ["/p"], detached: true });
+      expect(agentLaunchSpec(a.id, "/p", "GO"), a.id)
+        .to.deep.equal({ cmd: a.cmd, args: ["/p"], detached: true, promptToPaste: "GO" });
     }
   });
 
@@ -278,7 +283,8 @@ describe("gov-work — guided Work flow", () => {
     const fs = { ...fsWith([]), readFile: (f: string) => f.endsWith("agent.mdc") ? "---\nalwaysApply: true\nglobs: [\"**/*\"]\n---\n<protocol>" : null, writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"]).to.match(/alwaysApply: true/);
-    expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK")).to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true });   // cwd passes through verbatim
+    expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK"))
+      .to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true, promptToPaste: "KICK" });   // cwd verbatim, prompt carried
   });
 });
 

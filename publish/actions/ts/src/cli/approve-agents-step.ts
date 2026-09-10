@@ -22,7 +22,8 @@ import type { ApprovedAgent } from "../config/approved-agents.js";
 
 /** The agents worth offering at adoption: the ones with something to run. */
 export function selectableAgents(): readonly { readonly id: string; readonly tool: string; readonly how: string }[] {
-  return AGENT_CATALOG.filter((a) => a.launch !== "none").map((a) => ({
+  // `deferred` entries are known to gov and NOT offered — see AgentCandidate.deferred.
+  return AGENT_CATALOG.filter((a) => a.launch !== "none" && !a.deferred).map((a) => ({
     id: a.id,
     tool: a.tool,
     how: a.variants?.map((v) => v.label).join(" · ") ?? (a.launch === "ide" ? "the editor" : "in the terminal"),

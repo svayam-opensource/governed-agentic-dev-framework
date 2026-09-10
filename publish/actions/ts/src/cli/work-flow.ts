@@ -227,11 +227,18 @@ export function agentLaunchSpec(
   if (agent === "shell") return { cmd: env.SHELL || "/bin/zsh", args: [], detached: false };
   // The Cursor EDITOR opened on the project dir. Not a catalog entry of its own: the policy approves
   // `cursor` the agent, and this is one of the ways to run it (#196, Q8).
-  if (agent === "cursor-gui") return { cmd: "cursor", args: [cwd], detached: true };
+  //
+  // AN EDITOR STILL NEEDS THE FIRST MESSAGE. It used to get no prompt at all — neither argv nor
+  // paste — so gov opened the editor and the session-start protocol simply never ran, silently.
+  // A GUI cannot take a positional prompt, so paste is the only route, and #218 already made
+  // paste survivable: the text is written to <project>/.gov/session-prompt.md and gov waits
+  // before launching. That machinery is more useful here than in a terminal, because the editor
+  // opens in another window and leaves the instruction on screen.
+  if (agent === "cursor-gui") return { cmd: "cursor", args: [cwd], detached: true, promptToPaste: inject };
 
   const c = catalog.find((a) => a.id === agent);
   if (!c?.cmd || c.launch === "none") return null;
-  if (c.launch === "ide") return { cmd: c.cmd, args: [cwd], detached: true };
+  if (c.launch === "ide") return { cmd: c.cmd, args: [cwd], detached: true, promptToPaste: inject };
   // HOW TO HAND IT THE PROMPT IS PER-AGENT (#207). It was a bare positional for everyone,
   // which `bob` rejects outright — zero positionals, and the launch died with a usage error
   // after a clean install. An entry that has not been checked launches BARE: the agent still

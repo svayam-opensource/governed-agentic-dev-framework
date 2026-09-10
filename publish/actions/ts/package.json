@@ -44,7 +44,8 @@
     "postbuild": "chmod +x lib/esm/cli/bin.js",
     "test:adopter": "bash e2e/run-adopter-e2e.sh",
     "test:adopter:smoke": "bash e2e/adopter-smoke.sh",
-    "test:journey": "bash e2e/journey.sh"
+    "test:journey": "bash e2e/journey.sh",
+    "catalog:freshness": "npm run build --silent && node scripts/catalog-freshness.mjs"
   },
   "keywords": [
     "gov",

@@ -35,7 +35,7 @@
 
 import * as path from "node:path";
 import { paint } from "./format.js";
-import { approvalPrompt, parseApprovalChoice, approvalSummary } from "./approve-agents-step.js";
+import { approvalSummary } from "./approve-agents-step.js";
 import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused } from "../setup/interview.js";
 import { askJoinInterview, cloneTargetFor, JOIN_HEADER, joinSummary, JoinRefused } from "../setup/join-interview.js";
 import type { OrgConfigValues } from "../setup/setup.js";
@@ -139,6 +139,8 @@ interface CloneSource {
   readonly url: string;
   /** Print the joiner's closing block on success — set only by the interviewed path. */
   readonly summarize?: boolean;
+  /** The authorized agent the joiner chose at Q3, carried to the work flow they are offered. */
+  readonly agent?: string;
   /** `owner/repo` when gov found it, null when the user typed a URL gov cannot attribute. */
   readonly nameWithOwner: string | null;
 }
@@ -324,6 +326,13 @@ export interface FirstRunIo {
    * different probe.
    */
   listMyOrgs?(): readonly string[];
+  /**
+   * The agents an organization has authorized, read from its governance repo BEFORE the clone,
+   * so the joiner's Q3 can sit with the other questions. null when gov cannot tell — including
+   * an organization whose policy simply has no list, where offering the framework's own
+   * catalogue would present gov's defaults as the org's policy.
+   */
+  approvedAgentsIn?(org: string, repo: string): readonly { readonly id: string; readonly default?: boolean }[] | null;
   /** the repo's declared identity, or null when it has none yet (→ FOUNDING). */
   readIdentity(repoDir: string): OrgIdentity | null;
   /** does anything already live here? Placing must never overwrite an existing home. */
@@ -376,7 +385,11 @@ export interface FirstRunIo {
    * starter project, or no workspace resolved. Optional: without it the run ends exactly
    * as it did.
    */
-  reviewNow?: (role: AdoptionRole) => Promise<number | null>;
+  /**
+   * Offer the work flow now (#203). `agent` is the authorized agent a JOINER picked at Q3 —
+   * passed so the flow does not re-ask a question the interview already answered.
+   */
+  reviewNow?: (role: AdoptionRole, agent?: string) => Promise<number | null>;
   /** What to do now, for a joiner. */
   joinerNextSteps?: () => readonly string[];
   /** register the home and make it active. */
@@ -460,6 +473,8 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
       print: io.print.bind(io),
       derive: io.deriveOrgDefaults ?? ((p) => p as OrgConfigValues),
       myOrgs: io.listMyOrgs?.bind(io),
+      selectAgents: Boolean(io.approveAgents),
+      ...(io.color === undefined ? {} : { color: io.color }),
       // LOOK BEFORE ASKING THE REST (#197). Every question after this one exists to
       // create something; if the organization already has a governance repository,
       // none of them has an answer worth collecting, and the refusal would arrive
@@ -496,27 +511,20 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   const code = await io.createWorkspace(target, result.answers);
   if (code !== 0) return code;
 
-  // WHICH AGENTS THIS ORGANIZATION ALLOWS (#196, Q3).
+  // WRITE DOWN WHAT Q10 DECIDED (#196).
   //
-  // Asked here, during adoption, because the alternative is a fallback — treat the
-  // framework's list as approved when no policy exists — and that leaves an
-  // organization permanently governed by a decision nobody made. The state is
-  // removed rather than guarded: adoption produces an approved list, so "nobody has
-  // decided" never persists past setup.
-  if (io.approveAgents) {
-    for (const line of approvalPrompt(io.color ?? false)) io.print(line);
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const answer = await io.prompt("  " + paint("Allowed agents:", "bold", io.color ?? false) + " ", "");
-      const choice = parseApprovalChoice(answer);
-      if (choice.ok) {
-        if (io.approveAgents(choice.agents)) {
-          for (const line of approvalSummary(choice.agents)) io.print(line);
-        } else {
-          io.print("  ✗ Could not write llm-governance.md — approve them later with `gov agent approve <id>`.");
-        }
-        break;
-      }
-      io.print(`  ✗ ${choice.message}`);
+  // The QUESTION moved into the interview, where every other answer is collected; only the
+  // recording is left here, because the file it writes to did not exist until the clone above.
+  // Asking after the clone put the one genuine POLICY decision in adoption on the far side of
+  // the irreversible step, and left it out of the block that reads every other answer back.
+  //
+  // The fallback that #196 removed stays removed: an approved list is produced during adoption,
+  // so "nobody has decided" still never persists past setup.
+  if (io.approveAgents && result.agents?.length) {
+    if (io.approveAgents(result.agents)) {
+      for (const line of approvalSummary(result.agents)) io.print(line);
+    } else {
+      io.print("  ✗ Could not write llm-governance.md — approve them later with `gov agent approve <id>`.");
     }
   }
 
@@ -553,7 +561,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
  * install a tool may want to read roles.md first. A keypress makes the governed route the
  * default without making it compulsory.
  */
-async function offerTheReview(io: FirstRunIo, role: AdoptionRole): Promise<number> {
+async function offerTheReview(io: FirstRunIo, role: AdoptionRole, agent?: string): Promise<number> {
   if (!io.reviewNow) return 0;
   // The adopter has one thing to do and gov knows which; the joiner has a list only they can
   // choose from. Same offer, different last word.
@@ -569,7 +577,7 @@ async function offerTheReview(io: FirstRunIo, role: AdoptionRole): Promise<numbe
       : "  Nothing else to do here. When you are ready:  gov   → 1. Work → your project.");
     return 0;
   }
-  const code = await io.reviewNow(role);
+  const code = await io.reviewNow(role, agent);
   // NULL IS NOT FAILURE. No starter project means the adopter declined it a moment ago, or
   // the token could not create a board — both already reported, neither worth a second
   // complaint at the very end of a successful adoption.
@@ -641,6 +649,7 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
       prompt: io.prompt.bind(io),
       print: io.print.bind(io),
       myOrgs: io.listMyOrgs?.bind(io),
+      approvedAgentsIn: io.approvedAgentsIn?.bind(io),
       // null, not [], when the probe cannot run: "gov does not know" and "there are none" lead
       // a joiner to opposite places, and the second one ends in a forked policy.
       governanceReposIn: io.probeGovernance
@@ -661,7 +670,7 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
     io.print("Nothing registered. Re-run `gov` when you know which organization to join.");
     return 0;
   }
-  return joinExisting(io, { ...cloneTargetFor(picked), summarize: true });
+  return joinExisting(io, { ...cloneTargetFor(picked), summarize: true, ...(picked.agent ? { agent: picked.agent } : {}) });
 }
 
 /**
@@ -738,7 +747,7 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
     // The joiner's next steps are the same three lines to retype — run gov, choose Work, pick
     // your project — and this path is where an ADOPTER lands too once #197 finds their org is
     // already governed. Ending it with a recipe was the gap the offer exists to close.
-    return await offerTheReview(io, founding ? "adopter" : "joiner");
+    return await offerTheReview(io, founding ? "adopter" : "joiner", src.agent);
   } catch (e) {
     io.print(`${(e as Error)?.message ?? String(e)}`);
     return 1;

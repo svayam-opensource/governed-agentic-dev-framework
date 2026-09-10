@@ -64,6 +64,19 @@ export interface AgentCandidate {
   /** The environment variable that would hold a key, so gov can report its absence. */
   readonly credentialEnv?: string;
   /**
+   * Known to gov, NOT yet offered at adoption (Policy Owner, 2026-09-10).
+   *
+   * A launch list of ten is ten paths a real adopter can take, of which two have verified
+   * prompt delivery. The decision was to make a smaller list foolproof first and expand from
+   * there — so these entries keep their catalog knowledge, their manifest parity and their
+   * tests, and simply do not appear in the Q10 menu.
+   *
+   * DEFERRAL AFFECTS THE MENU ONLY. An organization that already approved one of these keeps
+   * working: `approvedAgents` still resolves it, `agentLaunchSpec` still launches it. Upgrading
+   * gov must never take an agent away from an org that is using it.
+   */
+  readonly deferred?: true;
+  /**
    * It opens its own browser the first time it needs to authenticate (#208).
    *
    * The THIRD sign-in shape, and the one the code did not have. gov had two — a `login`
@@ -150,17 +163,46 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     ] },
   // A standalone editor, like Cursor: the editor IS the agent, so there is no
   // extension for someone else's host.
-  { id: "windsurf", tool: "Windsurf", launch: "ide", cmd: "windsurf",
+  // EDITOR ONLY, and deliberately so — two near-misses are recorded here because both
+  // look like the answer.
+  //
+  // 1. `windsurf` on npm is NOT the vendor's: v0.0.1, description "Coming soon.",
+  //    maintainer `colin@edgedb.com`. Exactly the #201 shape.
+  // 2. `curl -fsSL https://cli.devin.ai/install.sh | bash` IS Cognition's (they own
+  //    Windsurf), and it even has a `curl-bash-windsurfcom` distribution — but it sets
+  //    `BINARY_NAME="devin"`. It installs the DEVIN CLI, a different product from the
+  //    Windsurf editor. Adding it here would give this entry a binary it does not have.
+  //
+  // A Devin entry would be legitimate on its own, once someone records which
+  // instructions file it reads — an agent gov can launch but cannot hand a session
+  // protocol to is worse than one it refuses (harness-manifest.yaml).
+  { deferred: true, // DEFERRED (2026-09-10): gov can install NOTHING for it: the editor is a desktop download, and `windsurf`
+  // on npm is not the vendor's (v0.0.1, maintainer colin@edgedb.com).
+    id: "windsurf", tool: "Windsurf", launch: "ide", cmd: "windsurf",
     install: { url: "https://windsurf.com/editor" },
     variants: [{ kind: "editor", label: "the Windsurf editor", cmd: "windsurf", install: { url: "https://windsurf.com/editor" } }] },
-  // Extension-only: there is no Cline CLI, so an adopter with no editor cannot run
-  // it — which the menu says rather than silently offering nothing.
-  { id: "cline", tool: "Cline / Roo Code", launch: "ide",
-    install: { url: "https://cline.bot" },
-    variants: [{ kind: "extension", label: "in VS Code", extensionId: "saoudrizwan.claude-dev", hosts: ["code", "cursor", "windsurf"] }] },
-  { id: "continue", tool: "Continue.dev", launch: "ide",
-    install: { url: "https://continue.dev" },
-    variants: [{ kind: "extension", label: "in VS Code", extensionId: "Continue.continue", hosts: ["code", "cursor", "windsurf"] }] },
+  // A CLI NOW — this entry said "there is no Cline CLI" and was true when written. Cline
+  // shipped one (npm `cline`, v3.0.61+), so the old comment made gov offer an agent it
+  // could neither install nor launch, and the menu told an adopter with no editor that
+  // they could not use it. Provenance checked the #201 way before the package name was
+  // written down: repository `github.com/cline/cline`, maintainers all `@cline.bot`.
+  // Binary is `cline` (npm `bin: { cline: "bin/cline" }`).
+  { id: "cline", tool: "Cline / Roo Code", launch: "cli", cmd: "cline",
+    install: { npm: "cline", url: "https://cline.bot" },
+    variants: [
+      { kind: "cli", label: "in the terminal", cmd: "cline", install: { npm: "cline", url: "https://cline.bot" } },
+      { kind: "extension", label: "in VS Code", extensionId: "saoudrizwan.claude-dev", hosts: ["code", "cursor", "windsurf"] },
+    ] },
+  // Also a CLI now, and the BINARY IS NOT THE ID: npm `@continuedev/cli` installs `cn`
+  // (`bin: { cn: "dist/cn.js" }`). Recording `cmd: "continue"` would have produced a
+  // command-not-found after a successful install — the shape #199 exists to prevent.
+  // Provenance: repository `github.com/continuedev/continue`, maintainers `@continue.dev`.
+  { id: "continue", tool: "Continue.dev", launch: "cli", cmd: "cn",
+    install: { npm: "@continuedev/cli", url: "https://continue.dev" },
+    variants: [
+      { kind: "cli", label: "in the terminal", cmd: "cn", install: { npm: "@continuedev/cli", url: "https://continue.dev" } },
+      { kind: "extension", label: "in VS Code", extensionId: "Continue.continue", hosts: ["code", "cursor", "windsurf"] },
+    ] },
   // IBM Bob — a CLI and a STANDALONE IDE, not a VS Code extension (verified against
   // IBM's own quickstart: "Bob is a standalone IDE application and not an
   // extension"). Reads AGENTS.md, which the framework already renders, so it needed
@@ -186,7 +228,9 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
         install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" } },
       { kind: "editor", label: "the Bob IDE", cmd: "bob-ide", install: { url: "https://bob.ibm.com/download" } },
     ] },
-  { id: "aider", tool: "Aider", launch: "cli", cmd: "aider",
+  { deferred: true, // DEFERRED (2026-09-10): gov can install nothing for it TODAY: aider is PyPI (`pip install aider-chat`) and
+  // `install` has no `pip` field. Offering it would be a dead end until that exists.
+    id: "aider", tool: "Aider", launch: "cli", cmd: "aider",
     install: { url: "https://aider.chat" }, credentialEnv: "OPENAI_API_KEY" },
   // No command, by nature. Kept so the catalog and the manifest agree, and so
   // nobody adds it to the menu later by mistake.
