@@ -24,7 +24,7 @@ drive "$(conv <<'C'
 < n
 C
 )" env GOV_PKG=/work/gov.tgz GOV_YES=1 bash /src/install.sh
-exists "gov is installed" "$HOME/.local/bin/gov"
+require_gov "whether gov links what it installs (#209)" || return
 
 # The doubles the journey tier uses, brought in here: gov reaches GitHub only through `gh`,
 # and the vendor's installer only through `curl`. Everything between them is the real thing.

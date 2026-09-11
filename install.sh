@@ -270,9 +270,18 @@ install_node() {
   step "Installing Node $NODE_MAJOR for $plat"
   local listing file url tmp
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
+  # RETRY BEFORE BLAMING THE NETWORK.
+  #
+  # Both of these used to fail on the first blip and say "check your network or proxy" — bad
+  # advice for a transient 429 or a dropped TLS handshake, and it aborts an install that would
+  # have worked a second later. nodejs.org rate-limits repeated fetches, which is ordinary on a
+  # shared or NAT'd connection and reliable in CI: the OS tier hit it four times in one run.
+  #
+  # `--retry-all-errors` is the part that matters — plain `--retry` ignores connection failures
+  # and 4xx, which is most of what actually happens here.
   spin "asking nodejs.org which version is current" \
-    bash -c "curl -fsSL 'https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/' -o '$tmp/listing.html'" \
-    || die "could not reach nodejs.org — check your network or proxy"
+    bash -c "curl -fsSL --retry 4 --retry-delay 2 --retry-all-errors 'https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/' -o '$tmp/listing.html'" \
+    || die "could not reach nodejs.org after several tries — check your network or proxy"
   listing="$(cat "$tmp/listing.html")"
   # .tar.gz, not .tar.xz: minimal RHEL and Debian images ship tar without the xz
   # helper binary, and the failure is an opaque "xz: Cannot exec". gzip is built
@@ -282,7 +291,8 @@ install_node() {
   url="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/$file"
 
   info "downloading ${file} (about 50 MB)"
-  curl -fSL --progress-bar "$url" -o "$tmp/node.tar.gz" || die "download failed: $url"
+  curl -fSL --progress-bar --retry 4 --retry-delay 2 --retry-all-errors "$url" -o "$tmp/node.tar.gz" \
+    || die "download failed after several tries: $url"
 
   rm -rf "$NODE_DIR"; mkdir -p "$NODE_DIR"
   spin "unpacking into $(tilde "$NODE_DIR")" \

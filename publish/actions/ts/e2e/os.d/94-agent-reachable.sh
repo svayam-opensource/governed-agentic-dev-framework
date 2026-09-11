@@ -25,7 +25,7 @@ drive "$(conv <<'C'
 < n
 C
 )" env GOV_PKG=/work/gov.tgz GOV_YES=1 bash /src/install.sh
-exists "gov is installed" "$HOME/.local/bin/gov"
+require_gov "the shells an agent is reachable from" || return
 
 NODEBIN="$HOME/.local/share/gov/node/bin"
 cp /src/publish/actions/ts/e2e/stub/agent-double "$NODEBIN/bob"

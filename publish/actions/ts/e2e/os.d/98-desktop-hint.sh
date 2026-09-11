@@ -19,7 +19,7 @@ drive "$(conv <<'C'
 < n
 C
 )" env GOV_PKG=/work/gov.tgz GOV_YES=1 bash /src/install.sh
-exists "gov is installed" "$HOME/.local/bin/gov"
+require_gov "what gov concludes about a desktop (#221)" || return
 
 NODE="$HOME/.local/share/gov/node/bin/node"
 PKG="$HOME/.local/share/gov/node/lib/node_modules/@svayam-opensource/gov"

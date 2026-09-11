@@ -48,6 +48,34 @@ exists(){ [ -e "$2" ] && pass "$1" || { fail "$1"; printf '%s     no such path: 
 # while the probe's answers were exactly right. An undefined helper is indistinguishable from a
 # real failure in the output, which is the worst possible place for the two to be confusable.
 runs()  { "$@" >/dev/null 2>&1; }
+
+# A PRECONDITION IS NOT AN ASSERTION — say which one failed.
+#
+# 94, 96 and 98 all begin by running install.sh to GET a machine with gov on it; none of them
+# is testing install.sh. When the install fails — and it does, because six scenarios per image
+# each re-download Node and nodejs.org throttles — every assertion after it fails too, blaming
+# whatever that fragment was about. One throttled download reported as ten broken desktop
+# probes, with the probe's answers perfectly correct underneath.
+#
+# An infrastructure failure that reads as a product failure is the same defect as the undefined
+# `runs` above, and more expensive: it sends you to read code that was never wrong. So the
+# precondition is checked once, named as a precondition, and the fragment stops.
+#
+#   require_gov "the desktop probe" || return
+#
+# `return` works because fragments are `source`d, so this ends the fragment and not the tier.
+require_gov() {
+  if [ -e "$HOME/.local/bin/gov" ] || in_a_new_login_shell "gov --version"; then
+    pass "gov is installed"
+    return 0
+  fi
+  fail "PRECONDITION: gov is not installed, so nothing below ran"
+  printf '%s     install.sh did not complete — see the transcript above. This says NOTHING
+' "$DIM"
+  printf '     about %s; those assertions were skipped, not failed.%s
+' "$1" "$RST"
+  return 1
+}
 absent(){ [ -e "$2" ] && { fail "$1"; printf '%s     should not exist: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
 
 # THE ONLY QUESTION THAT MATTERS FOR #209: does it work in a shell that gov did not start?
