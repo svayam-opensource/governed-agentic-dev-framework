@@ -21,6 +21,7 @@ import { interviewSummary } from "../setup/interview.js";
 import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
+import { verifyAgentContext } from "../lifecycle/root-protocol.js";
 import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
 import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
 import { askFns, type AskFns } from "./ask.js";
@@ -779,7 +780,7 @@ export async function runSetupCommand(
       manifest.push({ what: "Committed", detail: committed ? (pushed ? "and pushed to the default branch" : "locally — push failed, run: git push") : "nothing to commit" });
 
       for (const line of renderManifest(manifest, [
-        "knowledge/policies/agentic-development-policy.md   — make the policy yours",
+        "knowledge/policies/org-ai-agent-governance-policy.md   — make the policy yours",
         "agent/session-protocol.md                          — what your agents read at session start",
         "gov                                                — the interactive front door",
         ...(activeNote ? [activeNote] : []),
@@ -1195,6 +1196,32 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     // Launch with cwd = the project dir via the tested spec: detached (GUI editor) opens and returns;
     // a terminal agent or shell inherits stdio and blocks until it exits.
     launch: async (agent, cwd, inject) => {
+      // VERIFY BEFORE LAUNCHING, AND REFUSE (Policy Owner, 2026-09-11).
+      //
+      // The guarantee gov makes is that the governance requirements are in the agent's context
+      // at launch and on every turn, "from a file gov placed and VERIFIED at the start of the
+      // session". Placing happens in `ensureRootProtocol`, upstream of here. This is where the
+      // verification has teeth — because a guarantee that degrades to a warning when it fails is
+      // the same fallback-indistinguishable-from-success this project keeps removing.
+      //
+      // Only agents gov claims to govern are gated: `harnessFileFor` returning null means gov
+      // never promised anything for that target (`--agent shell`, chatgpt-web), and the loud
+      // "nothing governs its session yet" further down is the honest answer there.
+      const gate = harnessFileFor(agent);
+      if (gate) {
+        const v = verifyAgentContext(fs, cwd, gate);
+        if (!v.ok) {
+          const rv = reporter(stdoutColor());
+          process.stderr.write(`\n${rv.fail(`gov will not start ${agent} — the governance it needs is not in place.`)}\n`);
+          process.stderr.write(`  Expected the session-start protocol at ${v.at}, but ${v.why}.\n`);
+          process.stderr.write(`  Nothing is wrong with your project; this is gov refusing to hand you an\n`);
+          process.stderr.write(`  ungoverned session. Re-render and re-sync the protocol, then try again:\n`);
+          process.stderr.write(`    gov sync\n`);
+          process.stderr.write(`  If ${gate} is a file you wrote yourself, move it aside first — gov will not\n`);
+          process.stderr.write(`  overwrite it, and it cannot govern with it in the way.\n`);
+          return 1;
+        }
+      }
       const s = agentLaunchSpec(agent, cwd, inject);
       // NO SILENT SHELL (#199). An agent gov cannot start is said out loud, with the directory, so
       // the person can start it themselves. Substituting a shell here is what let five approved
@@ -1213,9 +1240,11 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       // protocol never run — the exact outcome the printing existed to prevent.
       //
       // No repository instructions file fixes this either. AGENTS.md and CLAUDE.md tell an agent
-      // how to behave once it is answering; they cannot make one SPEAK FIRST. Claude Code manages
-      // it through a session-start hook. An agent without that mechanism only ever acts on a
-      // first message, so the first message has to survive to be sent.
+      // how to behave once it is answering; they cannot make one SPEAK FIRST. Nothing gov ships
+      // can — the Claude-only hook that could was removed for consistency (2026-09-11) — so
+      // every agent acts only on a first message, and the first message has to survive to be
+      // sent. For the eight with a wired `promptArgv` it is handed over as argv and survives by
+      // construction; this branch is the remainder.
       //
       // So write it to a file the agent can be pointed at afterwards, and WAIT before launching.
       // The pause is the part that matters: it puts the text on a screen nobody is about to
@@ -1236,9 +1265,8 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
         // WHAT ACTUALLY GOVERNS THE SESSION (walk of 2026-09-10, items 2 and 6).
         //
         // This used to open with "gov does not know how <agent> takes a first message, so it is
-        // starting bare" and then five lines to paste. Both halves misled. gov cannot make any
-        // agent but Claude Code SPEAK FIRST — that needs a SessionStart hook, and no other
-        // vendor has one — so "does not know" reads as a gap in gov where the truth is a
+        // starting bare" and then five lines to paste. Both halves misled. gov cannot make ANY
+        // agent speak first, so "does not know" reads as a gap in gov where the truth is a
         // property of every CLI agent there is.
         //
         // And "starting bare" was wrong wherever a harness file exists. `ensureRootProtocol`

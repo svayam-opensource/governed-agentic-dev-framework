@@ -41,7 +41,7 @@ export function starterProject(githubOrg: string, workspaceRepo: string): Starte
       "  setup. Name the people who will actually hold them, or leave a role with the",
       "  Policy Owner deliberately. An empty role escalates by design; an *assumed*",
       "  one does not exist.",
-      "- `knowledge/policies/agentic-development-policy.md` — the rules of work.",
+      "- `knowledge/policies/org-ai-agent-governance-policy.md` — the rules of work.",
       "  Read §2 (compliance levels) and §7 (agent operating standards) before",
       "  changing anything; most of the document rests on those two.",
       "- `knowledge/policies/data-classification.md` and `llm-governance.md` — what may",

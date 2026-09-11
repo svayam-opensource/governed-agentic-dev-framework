@@ -49,8 +49,13 @@ IMAGES=(
   # fragment says plainly when an image cannot supply it rather than skipping quietly.
   "rocky|rockylinux:9|dnf install -y -q sudo expect tar xz which findutils procps-ng xorg-x11-server-Xvfb"
   "fedora|fedora:latest|dnf install -y -q sudo expect tar xz which findutils procps-ng xorg-x11-server-Xvfb"
-  "debian|debian:stable-slim|apt-get update -qq && apt-get install -y -qq sudo expect curl ca-certificates xz-utils procps xvfb"
-  "ubuntu|ubuntu:24.04|apt-get update -qq && apt-get install -y -qq sudo expect curl ca-certificates xz-utils procps xvfb"
+  # DEBIAN_FRONTEND=noninteractive, AND IT IS LOAD-BEARING. Xvfb pulls in tzdata, whose postinst
+  # opens a debconf timezone prompt on ubuntu:24.04 — with nothing on the other end. Image prep
+  # sat on that question for an hour and reported neither a pass nor a failure, which is how a
+  # fixture dependency became a phantom test outcome. TZ makes the answer deterministic instead
+  # of leaving it to whatever debconf would have defaulted to.
+  "debian|debian:stable-slim|apt-get update -qq && DEBIAN_FRONTEND=noninteractive TZ=UTC apt-get install -y -qq sudo expect curl ca-certificates xz-utils procps xvfb"
+  "ubuntu|ubuntu:24.04|apt-get update -qq && DEBIAN_FRONTEND=noninteractive TZ=UTC apt-get install -y -qq sudo expect curl ca-certificates xz-utils procps xvfb"
 )
 
 command -v docker >/dev/null || { echo "os-tier.sh needs docker"; exit 2; }

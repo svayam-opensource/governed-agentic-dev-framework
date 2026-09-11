@@ -122,7 +122,55 @@ YAML
   cp "$CONTENT_DIR/agent/session-protocol.md" "$dir/agent/" 2>/dev/null || echo "# protocol" > "$dir/agent/session-protocol.md"
   cp "$CONTENT_DIR/knowledge/policies/llm-governance.md" "$dir/knowledge/policies/" 2>/dev/null \
     || echo "# llm governance" > "$dir/knowledge/policies/llm-governance.md"
+
+  # THE RENDERED HARNESS — what makes this a GOVERNED workspace rather than one that says it is.
+  #
+  # This fixture used to carry `agent/session-protocol.md`, the SOURCE, and none of the files
+  # rendered from it. A real adopter's workspace repo is seeded from publish/content and holds
+  # all nine. So `ensureRootProtocol` had nothing to mirror, the project root got no protocol,
+  # and every assertion in this suite about the protocol being handed over passed in a world
+  # where no protocol file existed anywhere an agent reads.
+  #
+  # Nothing failed, because nothing looked. `verifyAgentContext` looks now, and refused to
+  # launch — which is how this fixture's gap was finally found rather than argued about.
+  for rel in AGENTS.md CLAUDE.md CONVENTIONS.md .clinerules/agent.md .cursor/rules/agent.mdc \
+             .gemini/styleguide.md .github/copilot-instructions.md .continue/rules.md \
+             .windsurf/rules/agent.md; do
+    if [ -f "$CONTENT_DIR/$rel" ]; then
+      mkdir -p "$dir/$(dirname "$rel")"
+      cp "$CONTENT_DIR/$rel" "$dir/$rel"
+    else
+      # Say it, rather than quietly building a workspace that cannot pass its own gate.
+      printf 'make_gov_repo: %s is not rendered in %s — run agent/render-harness.mjs\n' \
+        "$rel" "$CONTENT_DIR" >&2
+      return 1
+    fi
+  done
   ( cd "$dir" && git init -q . && git add -A && git -c user.email=e@x -c user.name=e commit -qm init )
+}
+
+# A project workspace as a REAL join leaves it: a git dir, and the rendered harness in it.
+#
+# Three fragments fabricate this directory to say "the project is already here, do not clone
+# it". All three created `<project>/<workspace-repo>/.git` and nothing else, which is a governed
+# project with no governance in it — and gov now refuses to launch an agent into exactly that.
+# The shortcut was fine while nothing checked; it is a false world now, so it has a helper that
+# builds the true one.
+fake_joined_project() {
+  local project_dir="$1" ws="$2"
+  mkdir -p "$project_dir/$ws/.git"
+  for rel in AGENTS.md CLAUDE.md CONVENTIONS.md .clinerules/agent.md .cursor/rules/agent.mdc \
+             .gemini/styleguide.md .github/copilot-instructions.md .continue/rules.md \
+             .windsurf/rules/agent.md; do
+    if [ -f "$CONTENT_DIR/$rel" ]; then
+      mkdir -p "$project_dir/$ws/$(dirname "$rel")"
+      cp "$CONTENT_DIR/$rel" "$project_dir/$ws/$rel"
+    else
+      printf 'fake_joined_project: %s is not rendered in %s — run agent/render-harness.mjs\n' \
+        "$rel" "$CONTENT_DIR" >&2
+      return 1
+    fi
+  done
 }
 
 # Record the org's approved agents the way `gov agent approve` would.

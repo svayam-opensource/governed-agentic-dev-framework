@@ -36,7 +36,8 @@ chmod +x "$WORLD/bin/curl"
 # is about, and a fixture for it would be a board fetch, an anchor and a branch push to make a
 # point about a readline.
 export GH_STUB_LOGIN=acme GH_STUB_BOARDS="9:Infra"
-mkdir -p "$HOME/.gov/acme/projects/PRJ-9-infra/acme-gov/.git"
+# The project as a real join leaves it — git dir AND the rendered harness (see journey.sh).
+fake_joined_project "$HOME/.gov/acme/projects/PRJ-9-infra" "acme-gov"
 
 drive "$(conv <<C
 > Select \\(A/B/C\\)

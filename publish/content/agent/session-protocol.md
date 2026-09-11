@@ -111,6 +111,6 @@ During an active project:
 For the canonical, full version of this protocol and the policy that governs it:
 
 - **`docs/DEVELOPER_GUIDE.md`** — step-by-step session walkthrough with example prompts.
-- **`knowledge/policies/agentic-development-policy.md`** — full policy text. POL-113 through POL-171 govern session protocol.
+- **`knowledge/policies/org-ai-agent-governance-policy.md`** — full policy text. POL-113 through POL-171 govern session protocol.
 
 Per-project specifics (the actual `<PROJECT_ID>`, paths, GitHub Project URL, etc.) are filled in at `projects/<PROJECT_ID>/agent.md` once the project is seeded — that file is your project-specific entrypoint.

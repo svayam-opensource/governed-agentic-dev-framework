@@ -319,12 +319,17 @@ export function approvedAgents(orgApproved: readonly string[] | null): {
  * The instructions file this agent reads, relative to the project root — or null when gov has
  * no way to govern its session except by handing it a first message.
  *
- * WHY THIS MATTERS MORE THAN A PROMPT. Only Claude Code can be made to SPEAK FIRST (a
- * SessionStart hook); every other CLI agent waits for input. But an instructions file it reads
- * on every turn is stronger than one first message anyway — it governs the whole session rather
- * than its opening. So when this returns a path, gov's job is done by `ensureRootProtocol`
- * mirroring the file, and the honest instruction to the human is "say anything", not "paste
- * these five lines".
+ * WHY THIS MATTERS MORE THAN A PROMPT. No CLI agent speaks first; every one of them waits for
+ * input. gov once leaned on a Claude-only SessionStart hook to close that gap, and the hook was
+ * removed (2026-09-11) — not because it failed, but because a mechanism one vendor has makes
+ * that vendor the better-governed choice for a reason unrelated to the agent, and it biases the
+ * selection at Q10.
+ *
+ * It cost nothing to remove, because an instructions file read on EVERY TURN was always the
+ * stronger half: it governs the whole session rather than its opening. So when this returns a
+ * path, gov's job is done by `ensureRootProtocol` mirroring the file and `verifyAgentContext`
+ * refusing to launch if it did not land — and the honest instruction to the human is "say
+ * anything", not "paste these five lines".
  *
  * Kept beside the catalog and matching `agent/harness-manifest.yaml`, which is what renders
  * them. An agent absent from both is ungoverned, and gov says so rather than implying otherwise.

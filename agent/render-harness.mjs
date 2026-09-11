@@ -52,7 +52,49 @@ const M = yamlLoad(readFileSync(MANIFEST, "utf8")) || {};
 const banner = (M.generated_banner || "").trim();
 const templates = M.templates || {};
 const harnesses = M.harnesses || [];
-const body = readFileSync(PROTOCOL, "utf8").replace(/\n+$/, "");
+// THE C01 DIGEST IS INLINED, NOT REFERENCED (Policy Owner, 2026-09-11).
+//
+// A reference is only as strong as the agent's willingness to open a second file, and gov
+// cannot verify that it did — so "the governance requirements are in the agent's context"
+// would have degraded to "are reachable from it". Inlining at RENDER time keeps the single
+// source of truth in the policy (no second copy to drift, the copies carry a do-not-edit
+// banner) while putting the rules where the agent already is.
+//
+// A missing or unmarked digest is FATAL. Rendering a protocol whose Part A is empty would
+// produce a file that looks governed and governs nothing — and gov now refuses to launch on
+// a bad protocol file, so a silent hole here becomes a blocked adoption later, far from here.
+const POLICY = join(REPO, "publish", "content", "knowledge", "policies", "org-ai-agent-governance-policy.md");
+function alwaysRules() {
+  if (!existsSync(POLICY)) {
+    process.stderr.write(`ERROR: ${POLICY} is missing — Part A of the protocol cannot be built\n`);
+    process.exit(1);
+  }
+  const text = readFileSync(POLICY, "utf8");
+  const m = /<!--\s*C01-DIGEST:start\s*-->\n([\s\S]*?)\n<!--\s*C01-DIGEST:end\s*-->/.exec(text);
+  if (!m || !m[1].trim()) {
+    process.stderr.write("ERROR: no C01-DIGEST block in the policy — Part A would render empty\n");
+    process.exit(1);
+  }
+  return m[1].replace(/\n+$/, "");
+}
+
+// THE MARKER IS WHAT MAKES THE FILE VERIFIABLE, so its absence is fatal here rather than
+// discovered at launch. `verifyAgentContext` refuses to start an agent whose instructions file
+// carries no `gov-protocol-version` line — that is how gov tells its own protocol apart from an
+// adopter's hand-written CLAUDE.md, and it is the only discriminator it has. Render a protocol
+// without the marker and every agent becomes unlaunchable, in a way whose cause is nowhere near
+// the effect. One `grep` here costs nothing and keeps the two ends honest.
+const PROTOCOL_MARKER = "gov-protocol-version";
+const body = (() => {
+  const raw = readFileSync(PROTOCOL, "utf8");
+  if (!raw.includes(PROTOCOL_MARKER)) {
+    process.stderr.write(`ERROR: ${PROTOCOL} carries no '${PROTOCOL_MARKER}' line.\n`);
+    process.stderr.write("       gov verifies that marker before launching any agent; without it every\n");
+    process.stderr.write("       rendered harness file would be rejected as 'not the protocol gov renders'.\n");
+    process.exit(1);
+  }
+  return raw.replace(/\n+$/, "").replaceAll("{{render.always_rules}}", alwaysRules());
+})();
 
 const replaceAll = (s, from, to) => s.split(from).join(to);
 
@@ -121,7 +163,11 @@ if (mode === "render" || mode === "check") {
   }
   for (const w of wrote) process.stdout.write(`rendered: ${w}\n`);
   process.stdout.write(`\n${wrote.length} files rendered from agent/session-protocol.md.\n`);
-  process.stdout.write("Note: CLAUDE.md is import-tier (hand-maintained) — not regenerated.\n");
+  // The note that used to be here said "CLAUDE.md is import-tier (hand-maintained) — not
+  // regenerated", two lines under a list that included `rendered: publish/content/CLAUDE.md`.
+  // It was true until claude-code moved onto the shared template; a line that contradicts the
+  // output above it teaches the reader to distrust both.
+  process.stdout.write("Every agent receives the same rendered text — no per-vendor special case.\n");
   process.exit(0);
 }
 

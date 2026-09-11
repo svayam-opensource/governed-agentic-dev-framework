@@ -15,8 +15,9 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   AGENT_CATALOG, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines,
-  variantStatuses, runnableVariants,
+  variantStatuses, runnableVariants, harnessFileFor,
 } from "../../src/cli/agent-catalog.js";
+import { ROOT_HARNESS_FILES, verifyAgentContext, PROTOCOL_MARKER } from "../../src/lifecycle/root-protocol.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -286,5 +287,110 @@ describe("gov-work — an install must come from the vendor it names (#201)", ()
       if (!a.install) continue;
       expect(a.install.url, `${a.id} must name where it comes from`).to.match(/^https:\/\//);
     }
+  });
+});
+
+/**
+ * THE ASSERTION WHOSE ABSENCE COST CLINE ITS GOVERNANCE.
+ *
+ * `agent-catalog` already checked that every rendered harness is in the catalog — by ID. Both
+ * of the places that name a harness PATH went unchecked, and both drifted: `ROOT_HARNESS_FILES`
+ * said `.clinerules` where the manifest renders `.clinerules/agent.md`, so the mirror loop read
+ * a directory, got null, and skipped it without a word. Cline launched into governed projects
+ * with an empty context for as long as that stood.
+ *
+ * Three copies of the same fact is the real defect and it stays for now (the manifest is not
+ * shipped at runtime, so neither source can read it). What must not stay is three copies with
+ * nothing comparing them.
+ */
+describe("gov-work — harness PATHS agree with the manifest, not just ids", () => {
+  function manifestPaths(): Map<string, string> {
+    const text = fs.readFileSync(path.join(repoRoot, "agent", "harness-manifest.yaml"), "utf8");
+    const out = new Map<string, string>();
+    for (const b of text.split(/^ {2}- id:\s*/m).slice(1)) {
+      const id = b.split(/\s/)[0]!;
+      const status = /^\s*status:\s*(\S+)/m.exec(b)?.[1] ?? "";
+      const p = /^\s*path:\s*(\S+)/m.exec(b)?.[1] ?? "";
+      // `publish/content/<rel>` is what the renderer writes; <rel> is what the agent reads.
+      const rel = p.replace(/^publish\/content\//, "");
+      if (status === "active" && rel && rel !== p) out.set(id, rel);
+    }
+    return out;
+  }
+
+  it("harnessFileFor returns the path the renderer actually writes", () => {
+    for (const [id, rel] of manifestPaths()) {
+      if (!AGENT_CATALOG.some((a) => a.id === id)) continue;
+      expect(harnessFileFor(id), `${id}: harnessFileFor vs harness-manifest.yaml`).to.equal(rel);
+    }
+  });
+
+  it("the project-root mirror list covers every rendered harness path", () => {
+    const mirrored = new Set<string>(ROOT_HARNESS_FILES);
+    for (const [id, rel] of manifestPaths()) {
+      if (!AGENT_CATALOG.some((a) => a.id === id)) continue;
+      expect(mirrored.has(rel), `${id}: '${rel}' is rendered but never mirrored to the project root`).to.equal(true);
+    }
+  });
+
+  it("and mirrors nothing that is not a rendered harness", () => {
+    const rendered = new Set([...manifestPaths().values()]);
+    for (const rel of ROOT_HARNESS_FILES) {
+      expect(rendered.has(rel), `'${rel}' is mirrored but no active harness renders it`).to.equal(true);
+    }
+  });
+
+  it("every mirrored file exists in the shipped content — the render really happened", () => {
+    for (const rel of ROOT_HARNESS_FILES) {
+      const at = path.join(repoRoot, "publish", "content", rel);
+      expect(fs.existsSync(at), `${rel} is mirrored but not rendered into publish/content`).to.equal(true);
+      expect(fs.readFileSync(at, "utf8"), `${rel} carries the version marker gov verifies`).to.contain(PROTOCOL_MARKER);
+    }
+  });
+});
+
+describe("gov-work — gov verifies the context before it launches (the guarantee's teeth)", () => {
+  // Windows CI has failed a correct answer here before (logDirFor, 2026-09): compare separators
+  // as posix, because what is being asserted is the PATH, not the platform.
+  const px = (p: string) => p.split(path.sep).join("/");
+  const at = (rel: string) => `/work/PRJ-9/${rel}`;
+  const fsOf = (files: Record<string, string>) => ({ readFile: (f: string) => files[px(f)] ?? null });
+
+  it("passes when the placed file is gov's protocol", () => {
+    const v = verifyAgentContext(fsOf({ [at("CLAUDE.md")]: "<!-- gov-protocol-version: 2 -->\n# protocol" }), "/work/PRJ-9", "CLAUDE.md");
+    expect(v.ok).to.equal(true);
+  });
+
+  it("blocks when the file was never placed — the .clinerules case, now named out loud", () => {
+    const v = verifyAgentContext(fsOf({}), "/work/PRJ-9", ".clinerules/agent.md");
+    expect(v.ok).to.equal(false);
+    if (v.ok) return;
+    expect(v.why).to.contain("not there");
+    expect(px(v.at), "says WHICH path, so it can be checked").to.equal(at(".clinerules/agent.md"));
+  });
+
+  it("blocks on an empty file — a truncated write is not a governed session", () => {
+    const v = verifyAgentContext(fsOf({ [at("AGENTS.md")]: "   \n\n" }), "/work/PRJ-9", "AGENTS.md");
+    expect(v.ok).to.equal(false);
+    if (!v.ok) expect(v.why).to.contain("empty");
+  });
+
+  it("blocks on someone else's file of the same name, rather than overwriting it", () => {
+    // An adopter's own CLAUDE.md is a real possibility. Silently replacing it would be its own
+    // defect, so the marker is the discriminator and the refusal names the conflict.
+    const v = verifyAgentContext(fsOf({ [at("CLAUDE.md")]: "# my own house rules\nuse tabs" }), "/work/PRJ-9", "CLAUDE.md");
+    expect(v.ok).to.equal(false);
+    if (!v.ok) expect(v.why).to.contain("gov-protocol-version");
+  });
+
+  it("the marker it looks for is the one the protocol source carries", () => {
+    // Asserted at the SOURCE, not the render output — the block above already checks the output.
+    // A source edit that drops the line would otherwise pass every test and make every agent
+    // unlaunchable, with the cause nowhere near the effect. The renderer now hard-fails on it
+    // too; this is the same fact asserted where it is cheapest to see.
+    const src = fs.readFileSync(path.join(repoRoot, "agent", "session-protocol.md"), "utf8");
+    expect(src, "session-protocol.md must carry the marker verifyAgentContext requires").to.contain(PROTOCOL_MARKER);
+    const r = fs.readFileSync(path.join(repoRoot, "agent", "render-harness.mjs"), "utf8");
+    expect(r, "and the renderer must refuse to render without it").to.contain(PROTOCOL_MARKER);
   });
 });

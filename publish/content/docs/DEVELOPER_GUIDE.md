@@ -6,7 +6,7 @@ This document is for the **developer or agent** doing actual work on an active p
 - A GitHub Project has been created and at least one Issue is linked to it from a repo you can push to.
 - You have `gh auth status` showing a usable identity.
 
-For the framework's concepts, roles, and CLI reference, see [USER_GUIDE.md](USER_GUIDE.md). For the policy ledger that governs every step below, see [`knowledge/policies/agentic-development-policy.md`](../knowledge/policies/agentic-development-policy.md).
+For the framework's concepts, roles, and CLI reference, see [USER_GUIDE.md](USER_GUIDE.md). For the policy ledger that governs every step below, see [`knowledge/policies/org-ai-agent-governance-policy.md`](../knowledge/policies/org-ai-agent-governance-policy.md).
 
 > **Current model at a glance (ADR-0001).** The framework is converging on a small surface:
 > - **Developer verbs:** `gov seed` · `gov join` · `gov task` · `gov sync` · `gov merge` ·
@@ -462,5 +462,5 @@ double-curly placeholder token) fails the gate before it lands.
 ## Where to go next
 
 - [USER_GUIDE.md](USER_GUIDE.md) — concepts, roles, full CLI reference
-- [`knowledge/policies/agentic-development-policy.md`](../knowledge/policies/agentic-development-policy.md) — the governing policy (POL-001 through POL-171)
+- [`knowledge/policies/org-ai-agent-governance-policy.md`](../knowledge/policies/org-ai-agent-governance-policy.md) — the governing policy (POL-001 through POL-171)
 - [`knowledge/policies/agentic-development-procedures.md`](../knowledge/policies/agentic-development-procedures.md) — procedural protocols

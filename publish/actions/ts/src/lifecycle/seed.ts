@@ -324,9 +324,10 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     });
 
     tx.commit();
-    // Make an agent launched at the project ROOT run session-start: mirror the harness + drop the Claude
-    // SessionStart hook. Best-effort finalization — the workspace worktree (with the rendered harness) is
-    // present by now. Same helper the interactive Work flow uses.
+    // Make an agent launched at the project ROOT run session-start: mirror every agent's rendered harness
+    // file to the paths those agents read. (It used to also drop a Claude-only SessionStart hook; removed
+    // 2026-09-11 — one mechanism for all agents.) Best-effort finalization: the workspace worktree, with
+    // the rendered harness in it, is present by now. Same helper the interactive Work flow uses.
     ensureRootProtocol(deps.fs, paths.projectWorkRoot, config.workspaceRepo);
     return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef };
   } catch (error) {

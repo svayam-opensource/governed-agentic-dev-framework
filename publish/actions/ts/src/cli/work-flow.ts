@@ -151,7 +151,7 @@ export function matchProjects<T extends { readonly projectId: string }>(items: r
  *  from the PROJECT ROOT (where the agent launches), so the agent reads the right files across repos. */
 export function sessionStartPrompt(projectId: string, workspaceRepo: string): string {
   const w = workspaceRepo;
-  return `Run the session-start protocol for ${projectId} now, before I send anything else: read ${w}/org-config.yaml, ${w}/projects/${projectId}/agent.md, ${w}/knowledge/policies/agentic-development-policy.md, and surface any "## Open" items from ${w}/projects/${projectId}/knowledge/todo.md; then post the context manifest and wait for my direction.`;
+  return `Run the session-start protocol for ${projectId} now, before I send anything else: read ${w}/org-config.yaml, ${w}/projects/${projectId}/agent.md, ${w}/knowledge/policies/org-ai-agent-governance-policy.md, and surface any "## Open" items from ${w}/projects/${projectId}/knowledge/todo.md; then post the context manifest and wait for my direction.`;
 }
 
 export interface StartSession {

@@ -7,13 +7,13 @@ owner: <POLICY_OWNER_EMAIL>
 version: pending-first-commit
 effective_date: 2026-05-05
 policy_owner: <POLICY_OWNER_EMAIL>
-parent_policy: knowledge/policies/agentic-development-policy.md
+parent_policy: knowledge/policies/org-ai-agent-governance-policy.md
 ---
 
 # <ORG_NAME> — Agentic Development Procedures
 
 This document defines the operational procedures for all agentic development work at <ORG_NAME>
-Every procedure references the governing policy clause(s) from `agentic-development-policy.md`.
+Every procedure references the governing policy clause(s) from `org-ai-agent-governance-policy.md`.
 
 Agents must read this document as part of the knowledge layer stack during every work session.
 See `agent.md` for layer loading order.
@@ -392,7 +392,7 @@ When the developer with write access (the anchor-issue assignee) becomes unavail
 ### Steps
 1. Policy Owner identifies need for policy update (from compliance review, domain owner input, etc.)
 2. Run `gov knowledge` to create a `knowledge-<slug>` branch
-3. Edit `knowledge/policies/agentic-development-policy.md` and/or `knowledge/policies/roles.md`
+3. Edit `knowledge/policies/org-ai-agent-governance-policy.md` and/or `knowledge/policies/roles.md`
 4. Raise PR — CODEOWNERS routes to Policy Owner
 5. Policy Owner reviews and merges
 6. On merge: new policy version is the commit SHA; CI/CD regenerates PDFs, site, vectors

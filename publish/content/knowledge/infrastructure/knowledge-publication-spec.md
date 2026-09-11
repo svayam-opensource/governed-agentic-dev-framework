@@ -9,7 +9,7 @@ owner: <POLICY_OWNER_EMAIL>
 # Knowledge Publication Specification
 
 **Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)
-**Parent Policy:** `knowledge/policies/agentic-development-policy.md` (POL-083 to POL-086)
+**Parent Policy:** `knowledge/policies/org-ai-agent-governance-policy.md` (POL-083 to POL-086)
 
 ---
 
@@ -31,7 +31,7 @@ Primary knowledge consumption interface for developers, governance teams, and au
 - **Navigation:** Hyperlinked — policies link to roles, roles link to exceptions, exceptions link to approvals, decisions link back to projects
 - **Search:** Full-text search across all knowledge content
 - **Currency:** Must reflect current `<DEFAULT_BRANCH>` within 1 hour of any merge
-- **URL structure:** Mirrors the folder structure of `knowledge/` (e.g., `/policies/agentic-development-policy`)
+- **URL structure:** Mirrors the folder structure of `knowledge/` (e.g., `/policies/org-ai-agent-governance-policy`)
 
 ### Content Coverage
 - All `knowledge/` subfolders and documents
@@ -60,7 +60,7 @@ Formal documents suitable for regulators, external auditors, and legal review.
 - **Scope:** One PDF per top-level policy document in `knowledge/policies/`
 
 ### PDF Documents Generated
-- `agentic-development-policy.pdf`
+- `org-ai-agent-governance-policy.pdf`
 - `data-classification.pdf`
 - `llm-governance.pdf`
 - `roles.pdf`

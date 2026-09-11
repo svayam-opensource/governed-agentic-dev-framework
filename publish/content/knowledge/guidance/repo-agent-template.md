@@ -19,7 +19,7 @@ This file represents the **repo-local knowledge layer** — third priority in th
 
 **This file cannot override org-wide knowledge or policy.**
 In case of conflict, org-wide knowledge always wins.
-See `<WORKSPACE_REPO>/knowledge/policies/agentic-development-policy.md` for the governing policy.
+See `<WORKSPACE_REPO>/knowledge/policies/org-ai-agent-governance-policy.md` for the governing policy.
 
 ---
 

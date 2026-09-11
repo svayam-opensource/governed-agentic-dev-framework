@@ -109,7 +109,7 @@ describe("POL-408 — project knowledge front matter", () => {
     it("project knowledge, not the org tree and not code", () => {
       expect(isProjectDoc("projects/PRJ-43-gov/knowledge/adr-x.md")).to.equal(true);
       expect(isProjectDoc("projects/PRJ-43-gov/knowledge/units/gov-work/SDD.md")).to.equal(true);
-      expect(isProjectDoc("knowledge/policies/agentic-development-policy.md"), "the org tree is checkKnowledge's").to.equal(false);
+      expect(isProjectDoc("knowledge/policies/org-ai-agent-governance-policy.md"), "the org tree is checkKnowledge's").to.equal(false);
       expect(isProjectDoc("projects/PRJ-43-gov/project.yaml")).to.equal(false);
       expect(isProjectDoc("src/cli/main.ts")).to.equal(false);
     });

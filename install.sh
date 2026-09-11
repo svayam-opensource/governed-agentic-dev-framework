@@ -120,7 +120,7 @@ confirm() {
     say "  ${DIM}(no terminal to ask on — continuing)${RST}"
     return 0
   fi
-  printf '  %s [Y/n] ' "$q" > /dev/tty
+  printf '  %s [Y/n] : ' "$q" > /dev/tty
   read -r ans < /dev/tty || ans=""
   case "$ans" in [nN]|[nN][oO]) return 1 ;; *) return 0 ;; esac
 }
@@ -366,6 +366,26 @@ say "   9. [ ] Finish setting up this machine"
 say ""
 say "${DIM}  Steps 3 onward are gov's own; it shows this list again, ticked off, at the end.${RST}"
 say ""
+
+# A GATE SO THE PLAN CAN BE READ BEFORE IT SCROLLS AWAY.
+#
+# Everything above this line is the only place an adopter is told what the next few minutes
+# will do to their machine — and installing Node alone produces enough output to push it off
+# screen. A plan nobody had a chance to read is not consent, it is a formality performed at
+# them, and this installer's own promise two paragraphs earlier is "nothing is installed or
+# changed without being shown to you first".
+#
+# `confirm` handles the two cases that must not block: GOV_YES=1 and no controlling terminal.
+# Someone who invoked an installer non-interactively has already answered, and the e2e tiers
+# run exactly that way — a gate that stops CI is a gate that gets removed.
+if ! confirm "Continue"; then
+  say ""
+  say "  Nothing was installed. Re-run this installer when you are ready:"
+  say "    curl -fsSL ${DIM}<the url above>${RST} -o install.sh && bash install.sh"
+  exit 0
+fi
+
+say ""
 say "$RULE"
 say "${B}                          Starting install${RST}"
 say "$RULE"
@@ -405,32 +425,6 @@ finish() {
   say ""
 }
 
-# THE LAST WORD, printed where the reader actually is.
-#
-# This used to be said just after the install and before `gov doctor --fix`. On a
-# machine that needed git, gh and a browser sign-in, that put it several screens
-# and a few minutes above the prompt the person was left staring at — and the
-# first thing they typed was `gov doctor`, which their shell had never heard of.
-# A reminder that has scrolled away is not a reminder.
-finish() {
-  say ""
-  if [ "$IMMEDIATELY_USABLE" = "1" ]; then
-    say "${GRN}${B}gov is ready in this shell.${RST} Try: ${B}gov${RST}"
-    say ""
-    return
-  fi
-  if [ -n "$PROFILE_TOUCHED" ]; then
-    say "${YEL}${B}One last thing.${RST} This shell was started before gov was installed,"
-    say "so it does not know about it yet. Run:"
-    say ""
-    say "    ${B}source $(tilde "$PROFILE_TOUCHED")${RST}"
-    say ""
-    say "…or just open a new terminal. Then ${B}gov${RST} will work."
-  else
-    say "Run ${B}gov${RST} on its own to open the menu — start there if you are new."
-  fi
-  say ""
-}
 
 
 # HAND OVER, and do not stop at a report.

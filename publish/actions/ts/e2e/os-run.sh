@@ -40,6 +40,14 @@ saw_re(){ grep -qE -- "$2" "$PLAIN" && pass "$1" || { fail "$1"; printf '%s     
 says()  { grep -qF -- "$2" "$FLAT" && pass "$1" || { fail "$1"; printf '%s     expected sentence: %s%s\n' "$DIM" "$2" "$RST"; }; }
 never() { grep -qF -- "$2" "$PLAIN" && { fail "$1"; printf '%s     forbidden: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
 exists(){ [ -e "$2" ] && pass "$1" || { fail "$1"; printf '%s     no such path: %s%s\n' "$DIM" "$2" "$RST"; }; }
+# Run a command for its EXIT STATUS, quietly — the same helper journey.sh has, because a
+# fragment that uses it there and not here fails with 127 and reads as a defect in gov.
+#
+# That happened: 98's eight assertions were all `runs test "${V%%|*}" = "no" && pass || fail`,
+# `runs` did not exist in this tier, and every one of them reported the desktop probe broken
+# while the probe's answers were exactly right. An undefined helper is indistinguishable from a
+# real failure in the output, which is the worst possible place for the two to be confusable.
+runs()  { "$@" >/dev/null 2>&1; }
 absent(){ [ -e "$2" ] && { fail "$1"; printf '%s     should not exist: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
 
 # THE ONLY QUESTION THAT MATTERS FOR #209: does it work in a shell that gov did not start?
@@ -63,8 +71,14 @@ for f in "$HERE"/os.d/*.sh; do
   [ -n "$FILTER" ] && [[ "$name" != *"$FILTER"* ]] && continue
   before=$FAIL
   reset_machine
+  # NOTHING IN A FRAGMENT MAY READ THIS RUNNER'S STDIN.
+  #
+  # `drive` talks to gov through a pty, so no fragment ever needs stdin — but a plain command
+  # inside one inherits it, and a gov command that asks a question then blocks forever on input
+  # that cannot arrive is what stalled this tier twice (see 96). Interactive things belong in a
+  # conversation; everything else gets EOF immediately, which turns a hang into a result.
   # shellcheck disable=SC1090
-  source "$f"
+  source "$f" < /dev/null
   if [ "$FAIL" -gt "$before" ]; then
     printf '\n  %slast 30 lines of what the adopter saw:%s\n' "$DIM" "$RST"
     tail -30 "$PLAIN" 2>/dev/null | sed 's/^/      /'

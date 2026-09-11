@@ -32,7 +32,7 @@
 {"query": "How is the private npm registry (Verdaccio) operated?", "expected_paths": ["knowledge/support/specs/verdaccio.md", "knowledge/infrastructure/verdaccio.md"], "layer": "spec", "domain": "support"}
 {"query": "How does the internal support ticketing and intake system work?", "expected_paths": ["knowledge/support/specs/ticketing.md"], "layer": "spec", "domain": "support"}
 {"query": "What are the platform host configuration and CI/CD conventions?", "expected_paths": ["knowledge/policies/platform-host-config-and-cicd-conventions.md"], "layer": "mandate", "domain": "policies"}
-{"query": "What does the agentic development policy require of coding agents?", "expected_paths": ["knowledge/policies/agentic-development-policy.md"], "layer": "mandate", "domain": "policies"}
+{"query": "What does the agentic development policy require of coding agents?", "expected_paths": ["knowledge/policies/org-ai-agent-governance-policy.md"], "layer": "mandate", "domain": "policies"}
 {"query": "What is the procedure for agentic development work sessions?", "expected_paths": ["knowledge/policies/procedures/agentic-development-procedures.md", "knowledge/policies/agentic-development-procedures.md"], "layer": "procedure", "domain": "policies"}
 {"query": "What rules govern building and publishing API packages to the registry?", "expected_paths": ["knowledge/policies/api-development-policy.md", "knowledge/architecture/system/mandates/api-development-policy.md", "knowledge/architecture/system/mandates/svayam-http-api-standard.md"], "layer": "mandate", "domain": "policies"}
 {"query": "What were the lessons learned building the IAM system?", "expected_paths": ["knowledge/development/patterns/iam-build-lessons.md"], "layer": "pattern", "domain": "development"}

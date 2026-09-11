@@ -32,25 +32,32 @@ generated_banner: "<!-- GENERATED from the framework harness source — do not e
 
 harnesses:
   # ── Tier: import ──────────────────────────────────────────────────────────
+  # ONE MECHANISM FOR ALL AGENTS (Policy Owner, 2026-09-11).
+  #
+  # This was `tier: import` with an @-import stub — Claude read `@agent/session-protocol.md`
+  # rather than the rendered text every other agent gets. Two reasons it is gone:
+  #
+  #  1. A special case that makes one vendor better-governed than the rest biases the agent
+  #     choice at Q10 for a reason that has nothing to do with the agent. Consistency was
+  #     ruled to matter more than the marginal capability.
+  #  2. It failed differently. An @-import resolves at READ time, so a broken workspace path
+  #     gave Claude an EMPTY context with no error, where every other agent would have had
+  #     the text or nothing at all.
+  #
+  # The SessionStart hook gov used to write is gone for the same reason: the guarantee is now
+  # "the requirements are in context, every turn", which the rendered file satisfies for
+  # everyone. A hook that only one vendor has added nothing to that and privileged one choice.
   - id: claude-code
     tool: Claude Code
     status: active
-    tier: import
+    tier: generate_auto
     path: publish/content/CLAUDE.md
-    generated: false
+    generated: true
     seed_copy: true
     per_project_path: projects/{project_id}/CLAUDE.md
-    per_project_template: |
-      @../../agent/session-protocol.md
-      @agent.md
-
-      <!-- ADOPTER_C03_EXTENSIONS -->
-    verify: "Run /memory — must list CLAUDE.md and imported agent files"
-    notes: |
-      Claude does not read AGENTS.md unless @AGENTS.md is added.
-      First @import shows approval dialog once per project.
-
-  # ── Tier: generate_auto ───────────────────────────────────────────────────
+    template: markdown-plain
+    verify: "First message — the reply must be the context manifest, before any work"
+    notes: "Rendered text, not an @-import: same file contents as AGENTS.md and the rest."
   - id: cursor
     tool: Cursor
     status: active

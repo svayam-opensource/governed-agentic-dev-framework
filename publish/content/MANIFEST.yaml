@@ -87,7 +87,7 @@ files:
   # touches framework-owned paths listed here.
   # ─────────────────────────────────────────────────────────────────────
 
-  - { src: knowledge/policies/agentic-development-policy.md,      dst: knowledge/policies/agentic-development-policy.md,      mode: scaffold-prompt }
+  - { src: knowledge/policies/org-ai-agent-governance-policy.md,      dst: knowledge/policies/org-ai-agent-governance-policy.md,      mode: scaffold-prompt }
   - { src: knowledge/policies/agentic-development-procedures.md,  dst: knowledge/policies/agentic-development-procedures.md,  mode: scaffold-prompt }
   - { src: knowledge/policies/data-classification.md,             dst: knowledge/policies/data-classification.md,             mode: scaffold-prompt }
   - { src: knowledge/policies/llm-governance.md,                  dst: knowledge/policies/llm-governance.md,                  mode: scaffold-prompt }

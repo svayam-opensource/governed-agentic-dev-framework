@@ -52,6 +52,7 @@ set lines [split [read $fh] "\n"]
 close $fh
 
 eval spawn -noecho $cmd
+set child [exp_pid]
 
 foreach line $lines {
   set line [string trimright $line]
@@ -93,8 +94,27 @@ if {!$finished} {
     timeout { note "process did not exit within 30s of the last answer" }
   }
 }
+# BOUND THE LAST WAIT — the only unbounded call in this script, and the one that hung a tier.
+#
+# Every `>` above times out, and the drain caps at 30s, so this script could not hang on
+# EXPECTING anything. It could hang on REAPING: `close` drops the pty, and a child that ignores
+# that and keeps working — a vendor installer, an npm fetch — leaves a bare `wait` blocking with
+# no timeout and nothing printed. Scenario 96 sat like that for two days across two runs, and
+# the tier reported neither a pass nor a failure, which is worse than either.
+#
+# So the child is asked to stop, then made to. If it already exited both kills fail and are
+# caught, which is the ordinary case.
 catch { close }
-catch { wait }
+if {[info exists child]} {
+  catch { exec kill -TERM $child }
+  after 2000
+  if {[catch { exec kill -0 $child }] == 0} {
+    note "child $child ignored SIGTERM after the pty closed — killing it"
+    catch { exec kill -KILL $child }
+    after 500
+  }
+}
+catch { wait -nowait }
 
 log_file
 set fh [open $transcript r]

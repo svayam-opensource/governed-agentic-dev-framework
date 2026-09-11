@@ -10,6 +10,22 @@
  * FAIL-OPEN: a client nudge must never brick the workspace — the tool-agnostic
  * server gate (Layer 3) is the real enforcement. Logic is pure; a thin bin shim
  * (wired at cutover) reads stdin + the marker and prints the hook JSON.
+ *
+ * ══ NOT WIRED, AND DO NOT WIRE IT FOR ONE VENDOR ══
+ *
+ * No CLI command reaches this module today. Its shape — `hookEventName: "SessionStart"`,
+ * `PreToolUse` tool names — is Claude Code's hook protocol, and the Claude-only SessionStart
+ * hook gov used to write was REMOVED on 2026-09-11 by ruling: a governance mechanism only one
+ * vendor has makes that vendor the better-governed choice for a reason unrelated to the agent,
+ * which biases the selection step. Consistency was ruled to matter more than the marginal
+ * capability.
+ *
+ * So this stays as the port it is, unwired, and the guarantee is met the same way for all ten
+ * agents instead: `ensureRootProtocol` places each agent's own instructions file,
+ * `verifyAgentContext` refuses to launch when it did not land, and `gov sync` re-places it.
+ * If this is ever wired, it must be behind something every approved agent can use — Cursor's
+ * `.cursor/hooks/session-gate.sh` (see governance/protocol.ts) is the second such seam, not a
+ * precedent for doing it for Claude alone.
  */
 import * as path from "node:path";
 import type { Fs } from "../lifecycle/fs-io.js";

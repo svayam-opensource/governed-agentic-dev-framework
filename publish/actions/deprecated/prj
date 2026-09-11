@@ -245,7 +245,7 @@ PY
 }
 
 agent_session_start_prompt() {
-  printf 'Run the session-start protocol for %s now, before I send anything else: read org-config.yaml, projects/%s/agent.md, knowledge/policies/agentic-development-policy.md, and surface any "## Open" items from projects/%s/knowledge/todo.md; then post the context manifest and wait for my direction.' "$1" "$1" "$1"
+  printf 'Run the session-start protocol for %s now, before I send anything else: read org-config.yaml, projects/%s/agent.md, knowledge/policies/org-ai-agent-governance-policy.md, and surface any "## Open" items from projects/%s/knowledge/todo.md; then post the context manifest and wait for my direction.' "$1" "$1" "$1"
 }
 
 SANCTIONED_AGENTS="claude cursor cursor-gui"

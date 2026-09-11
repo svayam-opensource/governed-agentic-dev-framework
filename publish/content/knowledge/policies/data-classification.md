@@ -9,7 +9,7 @@ owner: <POLICY_OWNER_EMAIL>
 # Data Classification Policy
 
 **Owner:** Policy Owner (`<POLICY_OWNER_EMAIL>`)
-**Parent Policy:** `knowledge/policies/agentic-development-policy.md`
+**Parent Policy:** `knowledge/policies/org-ai-agent-governance-policy.md`
 **Compliance Level:** C01 for Restricted tier; C02 for Confidential tier
 
 ---

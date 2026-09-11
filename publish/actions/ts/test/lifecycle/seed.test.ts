@@ -100,7 +100,12 @@ function fakeFs(existing: Set<string> = new Set()) {
     pathExists: (p) => existing.has(px(p)),
     mkdirp: () => {},
     writeFile: (f) => writes.push(px(f)),
-    readFile: () => null, // no todo template / tool files in these tests
+    // Harness entrypoints read as RENDERED (that is what the workspace repo holds after a seed);
+    // everything else — todo template, tool files — is absent in these tests.
+    readFile: (f: string) =>
+      /(?:AGENTS|CLAUDE|CONVENTIONS)\.md$|\.clinerules$|agent\.mdc$|styleguide\.md$|copilot-instructions\.md$|rules\.md$|windsurf\/rules\/agent\.md$/.test(f)
+        ? `# rendered protocol (${f})`
+        : null,
     // Deletion is MODELLED, not ignored: an undo that removes the wrong path is
     // exactly the defect #191 records, and a no-op rm cannot express it.
     rm: (f) => { removed.push(px(f)); existing.delete(px(f)); },
@@ -142,9 +147,13 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     // wrote authored content — agent.md — but NO project.yaml (GitHub is SoT)
     expect(writes.some((w) => w.endsWith("/agent.md"))).to.equal(true);
     expect(writes.some((w) => w.endsWith("/project.yaml"))).to.equal(false);
-    // seed folds in the project-ROOT harness so an agent launched at <project> runs session-start:
-    expect(writes.some((w) => w.endsWith("/CLAUDE.md")), "root CLAUDE.md import").to.equal(true);
-    expect(writes.some((w) => w.endsWith("/.claude/settings.json")), "Claude SessionStart hook").to.equal(true);
+    // seed folds in the project-ROOT harness so an agent launched at <project> runs session-start.
+    // ONE MECHANISM FOR ALL: each agent's file is the rendered protocol, copied — including
+    // Claude's, which used to be an @-import stub plus a SessionStart hook only it had.
+    expect(writes.some((w) => w.endsWith("/CLAUDE.md")), "Claude's file, mirrored like the rest").to.equal(true);
+    expect(writes.some((w) => w.endsWith("/AGENTS.md")), "codex + ibm-bob").to.equal(true);
+    expect(writes.some((w) => w.endsWith("/.github/copilot-instructions.md")), "github-copilot").to.equal(true);
+    expect(writes.some((w) => w.endsWith("/.claude/settings.json")), "NO Claude-only hook").to.equal(false);
     // base clone was missing → cloned
     expect(pxAll(cloned)).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
     // gov worktree created before the code-repo push; home default pushed

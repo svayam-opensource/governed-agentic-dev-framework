@@ -9,7 +9,7 @@ labels: question
 Before opening a question, please:
   1. Read README.md and docs/USER_GUIDE.md
   2. Search existing issues (open and closed) for the same question
-  3. Check the policy text at knowledge/policies/agentic-development-policy.md
+  3. Check the policy text at knowledge/policies/org-ai-agent-governance-policy.md
 
 If you've checked those and still have a question, file away.
 -->

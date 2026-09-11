@@ -17,7 +17,7 @@ Project state is derived live from GitHub (boards + anchor issues) — there is 
 ## Authoritative Policy
 
 All work in this repository and all agentic development at <ORG_NAME> is governed by:
-`knowledge/policies/agentic-development-policy.md`
+`knowledge/policies/org-ai-agent-governance-policy.md`
 
 Read this policy before beginning any work session.
 
@@ -57,7 +57,7 @@ governing force**. Never self-govern by your own unratified edits. Project-speci
 A `knowledge/` change becomes organizational standard only when merged to `<DEFAULT_BRANCH>` via a PR
 approved by the Policy Owner **and** the CODEOWNERS domain owner(s) whose folders it touches — all
 owners for `policies/`/`mandates/` (POL-086c). See
-`knowledge/policies/agentic-development-policy.md` §6.4.
+`knowledge/policies/org-ai-agent-governance-policy.md` §6.4.
 
 ## Data Classification — Hard Rules
 

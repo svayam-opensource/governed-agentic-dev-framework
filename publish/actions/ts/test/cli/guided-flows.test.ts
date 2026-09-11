@@ -234,46 +234,62 @@ describe("gov-work — guided Work flow", () => {
     expect(p).to.match(/post the context manifest/);
   });
 
-  it("ensureRootProtocol drops a root CLAUDE.md (@-import) + a SessionStart hook — idempotent, never clobbers", () => {
+  it("ensureRootProtocol writes NO Claude special case — no @-import stub, no SessionStart hook", () => {
+    // BOTH MECHANISMS REMOVED BY RULING (Policy Owner, 2026-09-11): one mechanism for all
+    // agents, because a special case that makes one vendor better-governed biases the agent
+    // choice at Q10 for a reason unrelated to the agent. The @-import also failed differently —
+    // it resolved at READ time, so a broken workspace path gave Claude an empty context with
+    // no error, where every other agent would have had the text or nothing at all.
     const writes: Array<[string, string]> = [];
-    const d = { ...deps().deps, fs: { ...fsWith([]), writeFile: (p: string, c: string) => writes.push([p, c]) } };
-    ensureRootProtocol(d.fs, "/work/PRJ-9-infra", "acme-gov");
+    const fs = {
+      ...fsWith([]),
+      readFile: () => null,                                  // nothing rendered in the workspace
+      writeFile: (p: string, c: string) => writes.push([p, c]),
+      mkdirp: () => {},
+    };
+    ensureRootProtocol(fs, "/work/PRJ-9-infra", "acme-gov");
     const byPath = Object.fromEntries(writes.map(([f, c]) => [px(f), c]));
-    expect(byPath["/work/PRJ-9-infra/CLAUDE.md"]).to.equal("@acme-gov/agent/session-protocol.md\n@acme-gov/framework/agent.md\n");
-    expect(byPath["/work/PRJ-9-infra/.claude/settings.json"]).to.match(/SessionStart/);
-    // idempotent: nothing re-written when the root protocol + hook already exist
-    const w2: Array<[string, string]> = [];
-    const d2 = { ...deps().deps, fs: { ...fsWith(["/work/PRJ-9-infra/CLAUDE.md", "/work/PRJ-9-infra/.claude/settings.json"]), writeFile: (p: string, c: string) => w2.push([p, c]) } };
-    ensureRootProtocol(d2.fs, "/work/PRJ-9-infra", "acme-gov");
-    expect(w2).to.have.length(0);
+    expect(byPath["/work/PRJ-9-infra/CLAUDE.md"], "no stub written from thin air").to.equal(undefined);
+    expect(byPath["/work/PRJ-9-infra/.claude/settings.json"], "no hook gov owns").to.equal(undefined);
+    expect(writes, "nothing to mirror means nothing written").to.have.length(0);
   });
 
   it("ensureRootProtocol mirrors the FULL harness — every agent's entrypoint at <project>, not just Claude", () => {
     const writes: Array<[string, string]> = []; const dirs: string[] = [];
     const fs = {
       ...fsWith([]),
-      readFile: (f: string) => (f.endsWith("AGENTS.md") || f.endsWith("agent.mdc")) ? `# rendered protocol (${f})` : null,   // these rendered; others absent
+      // CLAUDE.md is in the mirrored list now — same rendered text as every other agent.
+      readFile: (f: string) => (f.endsWith("AGENTS.md") || f.endsWith("agent.mdc") || f.endsWith("CLAUDE.md"))
+        ? `# rendered protocol (${f})` : null,   // these rendered; others absent
       writeFile: (p: string, c: string) => writes.push([p, c]),
       mkdirp: (dir: string) => dirs.push(dir),
     };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     const written = writes.map(([p]) => p);
-    expect(pxAll(written)).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude via @-import stub
+    expect(pxAll(written)).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude — copied, like the rest
     expect(pxAll(written)).to.include("/work/PRJ-9/AGENTS.md");                 // Codex/Cursor — copied
     expect(pxAll(written)).to.include("/work/PRJ-9/.cursor/rules/agent.mdc");   // Cursor — copied (nested)
     expect(pxAll(dirs)).to.include("/work/PRJ-9/.cursor/rules");               // mkdirp for the nested path
     expect(written).to.not.include("/work/PRJ-9/CONVENTIONS.md");        // not rendered here → skipped
   });
 
-  it("session-start FIRES for Claude — root CLAUDE.md import + SessionStart hook + injected kickoff", () => {
+  it("session-start reaches Claude the same way it reaches everyone — a mirrored file and an argv", () => {
+    // WAS: "root CLAUDE.md import + SessionStart hook + injected kickoff". The first two were
+    // Claude-only and are gone; the third is now how EIGHT of ten agents receive the protocol,
+    // read from their own --help rather than assumed.
     const w: Array<[string, string]> = []; const dirs: string[] = [];
-    const fs = { ...fsWith([]), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: (d: string) => dirs.push(d) };
+    const fs = {
+      ...fsWith([]),
+      readFile: (f: string) => f.endsWith("CLAUDE.md") ? "# rendered protocol" : null,
+      writeFile: (p: string, c: string) => w.push([p, c]),
+      mkdirp: (d: string) => dirs.push(d),
+    };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     const byPath = Object.fromEntries(w.map(([f, c]) => [px(f), c]));
-    expect(byPath["/work/PRJ-9/CLAUDE.md"], "protocol loaded at root").to.match(/@acme-gov\/agent\/session-protocol\.md/);
-    expect(byPath["/work/PRJ-9/.claude/settings.json"], "fires on a bare/`/clear` launch").to.match(/"SessionStart"/);
-    expect(pxAll(dirs)).to.include("/work/PRJ-9/.claude");
-    expect(agentLaunchSpec("claude-code", "/work/PRJ-9", "KICK")!.args, "speak-first on Work launch").to.deep.equal(["KICK"]);
+    expect(byPath["/work/PRJ-9/CLAUDE.md"], "the rendered protocol, mirrored").to.equal("# rendered protocol");
+    expect(byPath["/work/PRJ-9/.claude/settings.json"], "and no hook").to.equal(undefined);
+    expect(agentLaunchSpec("claude-code", "/work/PRJ-9", "KICK")!.args, "handed over as argv")
+      .to.deep.equal(["KICK"]);
   });
 
   it("session-start FIRES for cursor (CLI) — injected kickoff + alwaysApply rule mirrored to root", () => {
@@ -313,7 +329,7 @@ describe("work — non-TTY session start", () => {
     // the prompt must name the four files the session-start protocol requires
     expect(s?.prompt).to.contain("gov_repo/org-config.yaml");
     expect(s?.prompt).to.contain("gov_repo/projects/PRJ-43-gov/agent.md");
-    expect(s?.prompt).to.contain("agentic-development-policy.md");
+    expect(s?.prompt).to.contain("org-ai-agent-governance-policy.md");
     expect(s?.prompt).to.contain("todo.md");
   });
 

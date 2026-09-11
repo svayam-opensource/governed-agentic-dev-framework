@@ -430,9 +430,18 @@ describe("lifecycle coverage — sync", () => {
   it("happy path → exit 0 with exact lines", () => {
     const r = run(["sync"]);
     expect(r.code).to.equal(0);
+    // A SYNC IS THE MOMENT GOVERNANCE CAN CHANGE, so it is also the moment the mirrored copies
+    // every agent reads must be re-placed, and the moment the person needs the one sentence
+    // that makes a RUNNING session pick the change up. gov cannot reach into a live session;
+    // handing over that sentence is the whole of the mid-session guarantee, and it is the same
+    // sentence for every agent — no vendor hook.
     expect(pxDeep(r.lines)).to.deep.equal([
       `Synced ${PBRANCH}`,
       "  1 repo(s) up to date",
+      "  session-start protocol re-placed at /awr/PRJ-43-governance-common-project",
+      "",
+      "Governance may have changed. Paste this into your running session:",
+      "  Re-read the session-start protocol from disk; it has changed. Then continue.",
     ]);
   });
 

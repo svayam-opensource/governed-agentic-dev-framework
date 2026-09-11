@@ -52,8 +52,15 @@ printf '# llm governance\n\n```yaml\napproved_agents:\n  - id: ibm-bob\n    defa
 printf '# protocol\n' > "$WS/agent/session-protocol.md"
 printf '[user]\n\tname = Adopter Bot\n\temail = adopter@example.test\n' > "$HOME/.gitconfig"
 ( cd "$WS" && git init -q . && git add -A && git -c user.email=e@x -c user.name=e commit -qm init ) >/dev/null 2>&1
-bash -lc "gov org add acme --home '$WS'" >/dev/null 2>&1
-bash -lc "gov org use acme" >/dev/null 2>&1
+# `< /dev/null`, AND IT IS NOT DECORATION.
+#
+# Without it these two hung the entire tier — twice, for hours, reporting neither a pass nor a
+# failure. `gov org add` asks something when the workspace is already registered, and with
+# stdout and stderr sent to /dev/null and stdin inherited from the runner, it waited on input
+# that could never arrive, with the question it was waiting on discarded. Redirecting output
+# without also closing input is how a silent test becomes a stuck one.
+bash -lc "gov org add acme --home '$WS'" >/dev/null 2>&1 < /dev/null
+bash -lc "gov org use acme" >/dev/null 2>&1 < /dev/null
 
 info "the install itself — gov's own code, not a re-implementation of it"
 drive "$(conv <<'C'

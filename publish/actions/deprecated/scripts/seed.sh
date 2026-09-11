@@ -771,7 +771,7 @@ SEED_OK=1
 
 # ── First-session prompt ─────────────────────────────────────────────────────
 
-FIRST_PROMPT="Start project $PROJECT_ID. I'm working in $ORG_GOV_CLONE on branch $BRANCH. Follow your session-start protocol: read org-config.yaml, then read projects/$PROJECT_ID/agent.md, then knowledge/policies/agentic-development-policy.md, then surface any \\\`## Open\\\` items from projects/$PROJECT_ID/knowledge/todo.md before planning work."
+FIRST_PROMPT="Start project $PROJECT_ID. I'm working in $ORG_GOV_CLONE on branch $BRANCH. Follow your session-start protocol: read org-config.yaml, then read projects/$PROJECT_ID/agent.md, then knowledge/policies/org-ai-agent-governance-policy.md, then surface any \\\`## Open\\\` items from projects/$PROJECT_ID/knowledge/todo.md before planning work."
 
 cat <<EOF
 

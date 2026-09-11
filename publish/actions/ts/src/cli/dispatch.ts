@@ -29,6 +29,7 @@ import { task } from "../lifecycle/task-run.js";
 import { merge } from "../lifecycle/merge.js";
 import { close } from "../lifecycle/close.js";
 import { sync } from "../lifecycle/sync.js";
+import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
 import { addRepo } from "../lifecycle/add-repo.js";
 import { join } from "../lifecycle/join.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
@@ -318,9 +319,33 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo, defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch },
         { govClone: ctx.home, projectWorkRoot },
       );
-      return r.ok
-        ? { code: 0, lines: [`Synced ${r.projectBranch}`, `  ${r.synced.length} repo(s) up to date`] }
-        : { code: r.code, lines: [r.message] };
+      if (!r.ok) return { code: r.code, lines: [r.message] };
+      // RE-MIRROR AFTER SYNC, OR THE SYNC GOVERNS NOTHING (Policy Owner, 2026-09-11).
+      //
+      // `sync` merges the default branch — which is where ratified governance lives (POL-086a)
+      // — into the project branch. So a sync is exactly the moment the protocol can have
+      // changed. It was also the moment nothing re-copied it: the rendered files moved forward
+      // in the workspace repo while the mirrored copies at the project root, the ones every
+      // agent actually reads, stayed at whatever they were seeded with. A sync that updates
+      // governance everywhere except where it is read is a sync that reports success and
+      // changes nothing an agent sees.
+      ensureRootProtocol(ctx.fs, projectWorkRoot, c.workspaceRepo);
+      return {
+        code: 0,
+        lines: [
+          `Synced ${r.projectBranch}`,
+          `  ${r.synced.length} repo(s) up to date`,
+          `  session-start protocol re-placed at ${projectWorkRoot}`,
+          "",
+          // THE MID-SESSION HALF OF THE GUARANTEE. gov cannot reach into a session already
+          // running: the agent read its instructions file and will read it again next turn, but
+          // whether it re-reads from disk is the agent's business, not gov's. What gov CAN do is
+          // hand the person the one sentence that makes it certain — same mechanism for every
+          // agent, no vendor hook.
+          "Governance may have changed. Paste this into your running session:",
+          "  Re-read the session-start protocol from disk; it has changed. Then continue.",
+        ],
+      };
     }
 
     case "join": {

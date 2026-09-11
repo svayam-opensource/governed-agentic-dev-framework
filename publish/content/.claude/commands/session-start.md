@@ -10,7 +10,7 @@ acknowledge (step 3), `Edit`/`Write`/`Bash` are blocked by the PreToolUse gate â
    - `org-config.yaml` (org layer)
    - the active project's `projects/<PROJECT_ID>/agent.md` and
      `projects/<PROJECT_ID>/knowledge/todo.md` (surface every `## Open` item)
-   - `knowledge/policies/agentic-development-policy.md` (policy layer)
+   - `knowledge/policies/org-ai-agent-governance-policy.md` (policy layer)
    - your developer prefs, if present.
 2. **Post the context manifest** in the required format (Project, Branch,
    Status (GitHub board open/closed), Repos, Open todos, Layers loaded, Awaiting). Then

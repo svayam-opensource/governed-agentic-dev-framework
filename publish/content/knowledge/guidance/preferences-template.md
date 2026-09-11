@@ -7,7 +7,7 @@
 #
 # Created automatically by `gov setup` from this template. Edit freely.
 #
-# See: <WORKSPACE_REPO>/knowledge/policies/agentic-development-policy.md (POL-131 to POL-136)
+# See: <WORKSPACE_REPO>/knowledge/policies/org-ai-agent-governance-policy.md (POL-131 to POL-136)
 
 ---
 

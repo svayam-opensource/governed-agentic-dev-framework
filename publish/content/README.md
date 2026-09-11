@@ -55,7 +55,7 @@ silently, which is the one failure the framework cannot detect afterwards.
 **3. Make the policy yours, then commit.**
 
 ```bash
-$EDITOR knowledge/policies/agentic-development-policy.md
+$EDITOR knowledge/policies/org-ai-agent-governance-policy.md
 git add -A && git commit -m "configure the framework for <your-org>" && git push
 
 gov          # you are ready — the interactive front door
@@ -129,7 +129,7 @@ Full details in [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor — proposing changes to the framework itself |
 | [SECURITY.md](SECURITY.md) | Security reporter |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
-| [knowledge/policies/agentic-development-policy.md](knowledge/policies/agentic-development-policy.md) | The policy itself — read this once you've adopted |
+| [knowledge/policies/org-ai-agent-governance-policy.md](knowledge/policies/org-ai-agent-governance-policy.md) | The policy itself — read this once you've adopted |
 
 ---
 
