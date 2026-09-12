@@ -18,7 +18,7 @@ import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog } from "../log.js";
 import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
-import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, INHERITED_FILES, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { verifyAgentContext } from "../lifecycle/root-protocol.js";
@@ -700,6 +700,14 @@ export async function runSetupCommand(
     for (const d of [...PUBLISHER_ONLY_DIRS, ...INHERITED_DIRS]) {
       const dir = path.join(created.home, d);
       if (fsSync.existsSync(dir)) fsSync.rmSync(dir, { recursive: true, force: true });
+    }
+    // AND THE FRAMEWORK'S OWN ROOT FILES — see INHERITED_FILES for what this cost.
+    // Without this the template's AGENTS.md survived the seed (no baseline on a first seed
+    // means scaffold-prompt calls it a conflict and skips it), and codex and ibm-bob were
+    // governed by this repository's contributor notes instead of the protocol.
+    for (const f of INHERITED_FILES) {
+      const file = path.join(created.home, f);
+      if (fsSync.existsSync(file)) fsSync.rmSync(file, { force: true });
     }
     const seed = runUpgradeSync(path.join(created.home, "publish", "content"), created.home, { apply: true });
     if (seed.code !== 0) {

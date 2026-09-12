@@ -18,6 +18,7 @@ import {
   variantStatuses, runnableVariants, harnessFileFor,
 } from "../../src/cli/agent-catalog.js";
 import { ROOT_HARNESS_FILES, verifyAgentContext, PROTOCOL_MARKER, RENDERED_BANNER } from "../../src/lifecycle/root-protocol.js";
+import { INHERITED_FILES } from "../../src/setup/create.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -438,5 +439,54 @@ describe("gov-work — gov verifies the context before it launches (the guarante
     expect(src, "session-protocol.md must carry the marker verifyAgentContext requires").to.contain(PROTOCOL_MARKER);
     const r = fs.readFileSync(path.join(repoRoot, "agent", "render-harness.mjs"), "utf8");
     expect(r, "and the renderer must refuse to render without it").to.contain(PROTOCOL_MARKER);
+  });
+});
+
+/**
+ * THE ADOPTER'S COPY MUST BE THE RENDERER'S, not this repository's own.
+ *
+ * Found on a walk 2026-09-12, and it had been true since the harness existed. This repo has its
+ * own root `AGENTS.md` — contributor notes, which even say the adopter protocol lives in
+ * `publish/content/`. `gh repo create --template` copies it into every adopter's repo; the seed
+ * then classifies it `scaffold-prompt`, finds no baseline on a first seed, calls it
+ * "org-customized" and skips it. So openai-codex and ibm-bob, both of which read AGENTS.md,
+ * were governed by instructions for building this repository.
+ *
+ * Nothing failed. No test looked, because every test compared the CONTENT tree against the
+ * catalog and the manifest — never the framework's own root against the paths an agent reads.
+ */
+describe("adoption — the framework's own files never become the adopter's protocol", () => {
+  it("every path an agent reads is pruned from the template copy, or not in this repo's root", () => {
+    for (const rel of ROOT_HARNESS_FILES) {
+      const ownCopy = path.join(repoRoot, rel);
+      if (!fs.existsSync(ownCopy)) continue;                 // no collision: nothing to inherit
+      const rendered = fs.readFileSync(ownCopy, "utf8").includes(RENDERED_BANNER);
+      if (rendered) continue;                                // the framework's copy IS a render
+      expect(
+        INHERITED_FILES.includes(rel),
+        `${rel} exists in this repo's root, is NOT a render, and is not in INHERITED_FILES — `
+        + "so the template copy would survive the seed and govern the adopter's agents",
+      ).to.equal(true);
+    }
+  });
+
+  it("AGENTS.md specifically — the one that was actually wrong", () => {
+    // Pinned by name, because a generic rule is easy to weaken by accident and this file is
+    // read by two of the agents on the launch list.
+    const own = path.join(repoRoot, "AGENTS.md");
+    expect(fs.existsSync(own), "this repo still has its own AGENTS.md").to.equal(true);
+    expect(fs.readFileSync(own, "utf8"), "and it is NOT a rendered protocol").to.not.contain(RENDERED_BANNER);
+    expect(INHERITED_FILES, "so it must be pruned from an adopter's clone").to.include("AGENTS.md");
+  });
+
+  it("what ships as the adopter's AGENTS.md is the rendered protocol, and passes the gate", () => {
+    // The other half: pruning is only right if the seed then puts the REAL protocol there.
+    const shipped = path.join(repoRoot, "publish", "content", "AGENTS.md");
+    const text = fs.readFileSync(shipped, "utf8");
+    expect(text, "carries the renderer's banner").to.contain(RENDERED_BANNER);
+    expect(text, "and the version marker gov verifies").to.contain(PROTOCOL_MARKER);
+    const v = verifyAgentContext({ readFile: () => text }, "/work/PRJ-9", "AGENTS.md");
+    expect(v.ok, "so a launch is allowed").to.equal(true);
+    if (v.ok) expect(v.current, "with no upgrade warning").to.equal(true);
   });
 });

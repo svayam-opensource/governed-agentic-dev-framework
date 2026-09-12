@@ -266,6 +266,34 @@ export const PUBLISHER_ONLY_DIRS: readonly string[] = ["ci", "docs", "packages",
 export const INHERITED_DIRS: readonly string[] = ["agent", "knowledge"];
 
 /**
+ * The framework's OWN root FILES, which the template copy also brings — and which used to
+ * survive the seed and govern the adopter's agents.
+ *
+ * THE GOVERNANCE HOLE THIS CLOSES, found on a walk 2026-09-12. This repo has its own
+ * `AGENTS.md`: twenty-five lines about contributing to the framework, which even says "the
+ * adopter-facing agent protocol lives in `publish/content/`". `gh repo create --template`
+ * copies it into every adopter's repo. Then the seed plans it as `scaffold-prompt`, and on a
+ * FIRST seed there is no baseline to compare against — so `base === null`, the entry is
+ * classified `conflict`, and `applyUpgrade` skips conflicts. The verdict "org-customized —
+ * review before applying" was wrong: the adopter had customized nothing, they had inherited the
+ * template.
+ *
+ * The consequence was invisible and total for two of the launch-list agents. `ensureRootProtocol`
+ * mirrors `<workspace>/AGENTS.md` to the project root, so openai-codex and ibm-bob — both of
+ * which read AGENTS.md — were handed instructions for building this repository instead of the
+ * governance protocol. Nothing failed; they were simply governed by the wrong document.
+ * `verifyAgentContext` is what finally noticed, because the file carries no renderer banner.
+ *
+ * `README.md` is the same mistake with a smaller blast radius: adopters were reading the
+ * framework's README rather than the one written for them.
+ *
+ * Pruned in the adopter's clone, never in the framework repo. The framework keeps its own
+ * AGENTS.md at the conventional name, which is right for its own contributors — it just must
+ * not be inherited, exactly like `agent/` and `knowledge/` are not.
+ */
+export const INHERITED_FILES: readonly string[] = ["AGENTS.md", "README.md"];
+
+/**
  * What an adopter should be left with — asserted after pruning so a new publisher
  * dir cannot creep in. The FLOOR, not the whole answer: everything MANIFEST.yaml
  * scaffolds is expected too, and {@link expectedDirs} unions the two.
