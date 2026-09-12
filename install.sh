@@ -4,7 +4,7 @@
 #
 # gov bootstrap installer — macOS and Linux.
 #
-#   curl -fsSL https://raw.githubusercontent.com/svayam-opensource/governed-agentic-dev-framework/main/install.sh | bash
+#   curl -fsSL <GOV_INSTALL_URL> | bash        # the URL is one constant, defined below
 #
 # WHY THIS EXISTS. `gov` runs on Node 24, so it cannot install Node 24 — the whole
 # class of first-run failure happens before `gov` exists to help. Three of them,
@@ -36,6 +36,29 @@ NODE_MAJOR=24
 GOV_PKG="${GOV_PKG:-@svayam-opensource/gov}"
 GOV_HOME="${GOV_INSTALL_DIR:-$HOME/.local/share/gov}"
 NODE_DIR="$GOV_HOME/node"
+# A NODE ARCHIVE ALREADY ON DISK, for a machine that cannot reach nodejs.org.
+#
+# Air-gapped and proxied networks are the real case: today this script dies with "check your
+# network or proxy" and there is nothing the adopter can do about it except give up. Point this
+# at a node-v24.*-<plat>.tar.gz they brought with them and the install completes offline.
+#
+# DELIBERATELY A FILE PATH, NEVER A URL (#201). An env var that could redirect where a runtime
+# is fetched FROM is a supply-chain surface; one that can only name a file already on this
+# machine is not — the archive is something the person already has and chose. It is checked for
+# existence, announced on screen so it is never a silent substitution, and the unpacked result
+# still has to run `node -v` before anything is claimed.
+GOV_NODE_TARBALL="${GOV_NODE_TARBALL:-}"
+
+# WHERE THIS SCRIPT IS SERVED FROM — one constant, because it is printed back to the adopter
+# and a URL living in two places drifts.
+#
+# NOT FINAL. Two things are wrong with it and only one is cosmetic:
+#   · it pins `main`, so an adopter gets whatever is on main at that instant, including a
+#     half-merged change. A tag or a release branch belongs here (#201 discipline applies to
+#     our own artefact, not only to vendors').
+#   · raw.githubusercontent.com is not an address anyone can say out loud or type from memory.
+# A short vanity host redirecting to a TAGGED raw URL fixes both without new infrastructure.
+GOV_INSTALL_URL="${GOV_INSTALL_URL:-https://raw.githubusercontent.com/svayam-opensource/governed-agentic-dev-framework/main/install.sh}"
 
 # ── output ────────────────────────────────────────────────────────────────────
 # TERM=dumb is the terminal saying what NO_COLOR says on the person's behalf (#204). Both are
@@ -270,38 +293,67 @@ install_node() {
   step "Installing Node $NODE_MAJOR for $plat"
   local listing file url tmp
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
-  # RETRY BEFORE BLAMING THE NETWORK.
-  #
-  # Both of these used to fail on the first blip and say "check your network or proxy" — bad
-  # advice for a transient 429 or a dropped TLS handshake, and it aborts an install that would
-  # have worked a second later. nodejs.org rate-limits repeated fetches, which is ordinary on a
-  # shared or NAT'd connection and reliable in CI: the OS tier hit it four times in one run.
-  #
-  # `--retry-all-errors` is the part that matters — plain `--retry` ignores connection failures
-  # and 4xx, which is most of what actually happens here.
-  spin "asking nodejs.org which version is current" \
-    bash -c "curl -fsSL --retry 4 --retry-delay 2 --retry-all-errors 'https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/' -o '$tmp/listing.html'" \
-    || die "could not reach nodejs.org after several tries — check your network or proxy"
-  listing="$(cat "$tmp/listing.html")"
-  # .tar.gz, not .tar.xz: minimal RHEL and Debian images ship tar without the xz
-  # helper binary, and the failure is an opaque "xz: Cannot exec". gzip is built
-  # into every tar that can run here. The extra few megabytes are worth it.
-  file="$(printf '%s' "$listing" | grep -o "node-v${NODE_MAJOR}\.[0-9.]*-${plat}\.tar\.gz" | head -1)"
-  [ -n "$file" ] || die "no Node $NODE_MAJOR build published for $plat"
-  url="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/$file"
+  if [ -n "$GOV_NODE_TARBALL" ]; then
+    # Named a file that is not there? Say so and stop. Falling back to the network would be a
+    # silent substitution of the thing the adopter explicitly asked for, and on an air-gapped
+    # machine it would fail a second later with a misleading message about the network.
+    [ -f "$GOV_NODE_TARBALL" ] \
+      || die "GOV_NODE_TARBALL is set but there is no file there:
+    $GOV_NODE_TARBALL
+  Point it at a node-v${NODE_MAJOR}.*-${plat}.tar.gz, or unset it to download from nodejs.org."
+    info "using the Node archive you provided, not downloading: $GOV_NODE_TARBALL"
+    cp "$GOV_NODE_TARBALL" "$tmp/node.tar.gz" \
+      || die "could not read $GOV_NODE_TARBALL — check the path and its permissions"
+  else
+    # RETRY BEFORE BLAMING THE NETWORK.
+    #
+    # Both of these used to fail on the first blip and say "check your network or proxy" — bad
+    # advice for a transient 429 or a dropped TLS handshake, and it aborts an install that would
+    # have worked a second later. nodejs.org rate-limits repeated fetches, which is ordinary on a
+    # shared or NAT'd connection and reliable in CI: the OS tier hit it four times in one run.
+    #
+    # `--retry-all-errors` is the part that matters — plain `--retry` ignores connection failures
+    # and 4xx, which is most of what actually happens here.
+    spin "asking nodejs.org which version is current" \
+      bash -c "curl -fsSL --retry 4 --retry-delay 2 --retry-all-errors 'https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/' -o '$tmp/listing.html'" \
+      || die "could not reach nodejs.org after several tries — check your network or proxy"
+    listing="$(cat "$tmp/listing.html")"
+    # .tar.gz, not .tar.xz: minimal RHEL and Debian images ship tar without the xz
+    # helper binary, and the failure is an opaque "xz: Cannot exec". gzip is built
+    # into every tar that can run here. The extra few megabytes are worth it.
+    file="$(printf '%s' "$listing" | grep -o "node-v${NODE_MAJOR}\.[0-9.]*-${plat}\.tar\.gz" | head -1)"
+    [ -n "$file" ] || die "no Node $NODE_MAJOR build published for $plat"
+    url="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/$file"
 
-  info "downloading ${file} (about 50 MB)"
-  curl -fSL --progress-bar --retry 4 --retry-delay 2 --retry-all-errors "$url" -o "$tmp/node.tar.gz" \
-    || die "download failed after several tries: $url"
+    info "downloading ${file} (about 50 MB)"
+    curl -fSL --progress-bar --retry 4 --retry-delay 2 --retry-all-errors "$url" -o "$tmp/node.tar.gz" \
+      || die "download failed after several tries: $url"
+  fi
 
   rm -rf "$NODE_DIR"; mkdir -p "$NODE_DIR"
   spin "unpacking into $(tilde "$NODE_DIR")" \
     tar -xzf "$tmp/node.tar.gz" -C "$NODE_DIR" --strip-components=1 \
     || die "could not unpack the Node archive — see the error above"
 
+  # PROVE IT RUNS BEFORE CLAIMING IT — and before touching the profile.
+  #
+  # Newly reachable. Until GOV_NODE_TARBALL existed the archive always came from nodejs.org for
+  # the platform this script had just detected, so "unpacked but will not run" was not a real
+  # case. An adopter can now hand over an archive built for another architecture, and the old
+  # line — `ok "Node $(node -v)"` — failed inside a command substitution and said nothing about
+  # why. The tree is removed rather than left half-installed, and no PATH entry is added for a
+  # Node that does not work: the same rule the agent wrapper follows.
+  local ver
+  if ! ver="$("$NODE_DIR/bin/node" -v 2>/dev/null)" || [ -z "$ver" ]; then
+    rm -rf "$NODE_DIR"
+    die "the archive unpacked, but the node inside it does not run on this machine.
+  This machine is ${plat}. If you supplied the archive yourself it is most likely built for a
+  different platform — use a node-v${NODE_MAJOR}.*-${plat}.tar.gz, or unset GOV_NODE_TARBALL
+  to let this script download the right one."
+  fi
   export PATH="$NODE_DIR/bin:$PATH"
   add_to_path "$NODE_DIR/bin"
-  ok "Node $("$NODE_DIR/bin/node" -v)"
+  ok "Node $ver"
   say "===> 1. [✓] Install Node version 24"
 }
 
@@ -390,8 +442,8 @@ say ""
 # run exactly that way — a gate that stops CI is a gate that gets removed.
 if ! confirm "Continue"; then
   say ""
-  say "  Nothing was installed. Re-run this installer when you are ready:"
-  say "    curl -fsSL ${DIM}<the url above>${RST} -o install.sh && bash install.sh"
+  say "  Nothing was installed. Run it again when you are ready:"
+  say "    ${B}curl -fsSL $GOV_INSTALL_URL | bash${RST}"
   exit 0
 fi
 

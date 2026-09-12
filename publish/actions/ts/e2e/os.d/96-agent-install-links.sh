@@ -23,7 +23,7 @@ drive "$(conv <<'C'
 > Continue now\? \[Y/n\]
 < n
 C
-)" env GOV_PKG=/work/gov.tgz GOV_YES=1 bash /src/install.sh
+)" env GOV_PKG=/work/gov.tgz GOV_NODE_TARBALL=/work/node.tar.gz GOV_YES=1 bash /src/install.sh
 require_gov "whether gov links what it installs (#209)" || return
 
 # The doubles the journey tier uses, brought in here: gov reaches GitHub only through `gh`,
@@ -41,7 +41,19 @@ case "\$*" in
 esac
 EOF
 chmod +x "$STUBS/gh" "$STUBS/curl"
+# PLACED WHERE A LOGIN SHELL WILL FIND THEM. `export PATH="$STUBS:$PATH"` was not enough:
+# `gov agent install` runs through `bash -lc` below (the only way gov is reachable on debian),
+# and debian's and ubuntu's /etc/profile OVERWRITE PATH, so the stub dir was dropped and the
+# real bob.ibm.com and the real npm registry were contacted on two of four images. See
+# `stub_on_login_path` in os-run.sh.
+stub_on_login_path "$STUBS/gh"   gh
+stub_on_login_path "$STUBS/curl" curl
 export PATH="$STUBS:$PATH"
+# THE STUB IS IN EFFECT, PROVED RATHER THAN ASSUMED — in the same kind of shell that will run
+# the install. Without this the whole fragment can quietly test the vendor's servers instead.
+in_a_new_login_shell 'curl -fsSL https://bob.ibm.com/download/bobshell.sh | grep -q agent-double' \
+  && pass "the vendor stub is in effect in a LOGIN shell, not just this one" \
+  || fail "a login shell would reach the real bob.ibm.com — the stub is not on its PATH"
 export GH_STUB_LOGIN=acme GH_STUB_LOG=/work/gh.log
 : > /work/gh.log
 

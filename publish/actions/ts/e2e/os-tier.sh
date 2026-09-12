@@ -71,6 +71,60 @@ fi
 [ -n "$TARBALL" ] || { echo "could not pack gov"; exit 2; }
 echo "${DIM}artefact: $(basename "$TARBALL")${RST}"
 
+# ── the Node cache ────────────────────────────────────────────────────────────
+# ONE DOWNLOAD PER MACHINE, NOT SIX PER IMAGE.
+#
+# THE ROOT CAUSE. gov's private Node lives INSIDE the directory the harness wipes:
+# install.sh sets NODE_DIR="$GOV_HOME/node", and `reset_machine` deletes
+# ~/.local/share/gov before every fragment. So one directory holds three things with
+# completely different lifetimes and costs — the gov client (small, and the thing under
+# test), the Node runtime (50 MB, off the network, NOT under test in most scenarios), and
+# the agent binaries a vendor installs into node/bin. `reset_machine` could only say "all
+# or nothing", because there was nothing finer to say. It was written for scenario 90,
+# which genuinely needs a bare machine; the other five inherited it.
+#
+# Six scenarios per image × four images = 24 downloads of the same 50 MB archive in one
+# run, and nodejs.org rate-limits: a full run hit "could not reach nodejs.org" four times
+# and no single run of the tier could pass.
+#
+# So the archive is fetched ONCE, here, and mounted read-only into every container.
+# Scenarios pass it to install.sh as GOV_NODE_TARBALL — the same seam an adopter on an
+# air-gapped or proxied network uses, so this is exercising a real path rather than a test
+# hook. It persists between runs, so a second run costs nothing.
+#
+# SCENARIO 90 DELIBERATELY DOES NOT USE IT. It is the one whose job is "install.sh from
+# nothing", and that includes the listing fetch, the download and their retries. If every
+# scenario read from cache, the network path would have no coverage at all — and it is the
+# path that just grew retry logic.
+NODE_MAJOR=24
+NODE_CACHE_DIR="${GOV_OS_TIER_CACHE:-$HOME/.cache/gov-os-tier}"
+# The containers are Linux on this host's architecture, which is not necessarily this
+# host's platform — a Mac fetches linux-arm64, not darwin-arm64.
+case "$(uname -m)" in
+  arm64|aarch64) NODE_PLAT="linux-arm64" ;;
+  x86_64|amd64)  NODE_PLAT="linux-x64" ;;
+  *) echo "os-tier.sh: unknown architecture $(uname -m)"; exit 2 ;;
+esac
+NODE_CACHE="$NODE_CACHE_DIR/node-$NODE_MAJOR-$NODE_PLAT.tar.gz"
+if [ ! -s "$NODE_CACHE" ]; then
+  mkdir -p "$NODE_CACHE_DIR"
+  echo "${DIM}caching Node $NODE_MAJOR ($NODE_PLAT) once for every image…${RST}"
+  NODE_LISTING="https://nodejs.org/dist/latest-v$NODE_MAJOR.x/"
+  NODE_FILE="$(curl -fsSL --retry 4 --retry-delay 2 --retry-all-errors "$NODE_LISTING" \
+    | grep -o "node-v$NODE_MAJOR\.[0-9.]*-$NODE_PLAT\.tar\.gz" | head -1)"
+  [ -n "$NODE_FILE" ] || { echo "could not find a Node $NODE_MAJOR build for $NODE_PLAT"; exit 2; }
+  # A PARTIAL FILE MUST NOT BECOME THE CACHE. Download beside it and rename only on success,
+  # or an interrupted run poisons every later one with an archive that cannot unpack.
+  curl -fSL --retry 4 --retry-delay 2 --retry-all-errors "$NODE_LISTING$NODE_FILE" -o "$NODE_CACHE.part" \
+    || { rm -f "$NODE_CACHE.part"; echo "could not download $NODE_FILE"; exit 2; }
+  tar -tzf "$NODE_CACHE.part" >/dev/null 2>&1 \
+    || { rm -f "$NODE_CACHE.part"; echo "the downloaded archive does not unpack"; exit 2; }
+  mv "$NODE_CACHE.part" "$NODE_CACHE"
+  echo "${DIM}cached $NODE_FILE${RST}"
+else
+  echo "${DIM}Node cache: $(basename "$NODE_CACHE") (reused)${RST}"
+fi
+
 FAILED=0
 for entry in "${IMAGES[@]}"; do
   IFS='|' read -r label image deps <<< "$entry"
@@ -79,6 +133,7 @@ for entry in "${IMAGES[@]}"; do
   if docker run --rm \
       -v "$REPO:/src:ro" \
       -v "$TARBALL:/tmp/gov.tgz:ro" \
+      -v "$NODE_CACHE:/tmp/node.tar.gz:ro" \
       -e "OS_TIER_DEPS=$deps" \
       -e "OS_TIER_LABEL=$label" \
       -e "OS_TIER_FRAGMENT=${OS_TIER_FRAGMENT:-}" \

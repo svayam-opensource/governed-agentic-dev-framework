@@ -26,6 +26,12 @@ chmod 0440 /etc/sudoers.d/tester
 # /src is read-only, so the fragments write to a home the tester owns.
 install -d -o tester -g tester /work
 cp /tmp/gov.tgz /work/gov.tgz && chown tester:tester /work/gov.tgz
+# The Node archive the host fetched once for every image (see os-tier.sh). Scenarios that are
+# not testing the download pass it to install.sh as GOV_NODE_TARBALL, which is the same seam an
+# adopter behind a proxy uses. Copied rather than read from /tmp so the tester owns it.
+if [ -f /tmp/node.tar.gz ]; then
+  cp /tmp/node.tar.gz /work/node.tar.gz && chown tester:tester /work/node.tar.gz
+fi
 
 # `sudo -u`, NOT `su`. fedora:latest ships no `su` at all — `exec: su: not found` — and every
 # image here already has sudo, because a real adopter needs it for `doctor --fix`. Using the

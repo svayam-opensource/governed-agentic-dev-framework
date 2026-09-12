@@ -25,7 +25,7 @@ drive "$(conv <<'C'
 > Continue \[Y/n\] :
 < n
 C
-)" env GOV_PKG=/work/gov.tgz bash /src/install.sh
+)" env GOV_PKG=/work/gov.tgz GOV_NODE_TARBALL=/work/node.tar.gz bash /src/install.sh
 
 # The checklist is the thing being protected; assert it actually arrived first.
 saw "the nine steps were shown"                      "9. [ ] Finish setting up this machine"
@@ -46,7 +46,7 @@ drive "$(conv <<'C'
 > Continue now\? \[Y/n\]
 < n
 C
-)" env GOV_PKG=/work/gov.tgz GOV_YES=1 bash /src/install.sh
+)" env GOV_PKG=/work/gov.tgz GOV_NODE_TARBALL=/work/node.tar.gz GOV_YES=1 bash /src/install.sh
 
 never "GOV_YES=1 is not asked to continue" "Continue [Y/n] :"
 saw   "it goes straight through"           "Starting install"

@@ -18,7 +18,7 @@ drive "$(conv <<'C'
 > Continue now\? \[Y/n\]
 < n
 C
-)" env GOV_PKG=/work/gov.tgz GOV_YES=1 bash /src/install.sh
+)" env GOV_PKG=/work/gov.tgz GOV_NODE_TARBALL=/work/node.tar.gz GOV_YES=1 bash /src/install.sh
 require_gov "what gov concludes about a desktop (#221)" || return
 
 NODE="$HOME/.local/share/gov/node/bin/node"

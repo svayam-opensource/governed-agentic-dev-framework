@@ -64,6 +64,35 @@ runs()  { "$@" >/dev/null 2>&1; }
 #   require_gov "the desktop probe" || return
 #
 # `return` works because fragments are `source`d, so this ends the fragment and not the tier.
+# ── stubs that survive a login shell ─────────────────────────────────────────
+# THE STUB MUST BE ON THE LOGIN SHELL'S PATH, NOT ONE WE PREPEND.
+#
+# 96 exported PATH="$STUBS:$PATH" and then ran `gov agent install` through `bash -lc`, because
+# on debian that is the only way gov itself is reachable. But a LOGIN shell re-reads
+# /etc/profile, and debian's and ubuntu's OVERWRITE PATH rather than appending to it:
+#
+#   non-login: /stubs:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+#   login:            /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+#
+# So on two of four images the stub was silently dropped and `gov agent install` reached the
+# REAL bob.ibm.com and the REAL npm registry. The assertion "the vendor put bob beside gov's
+# private Node" then passed whenever that live install happened to work — a test passing for
+# the wrong reason, and unannounced network calls to a vendor from CI, which is exactly the
+# discipline #201 is about.
+#
+# /usr/local/bin is on the login PATH in every one of these images and precedes /usr/bin and
+# /usr/sbin, and no image ships curl or gh there (curl is /usr/bin/curl on rocky,
+# /usr/sbin/curl on fedora, and absent until apt installs it on the two debians). So a stub
+# placed there shadows the real tool for a login shell too.
+stub_on_login_path() {   # <source-file> <command-name>
+  sudo install -m 0755 "$1" "/usr/local/bin/$2"
+}
+# Removed between fragments, or a stub leaks into the next scenario as a real tool. Only the
+# names we place are touched, and none of them legitimately exists in /usr/local/bin here.
+clear_login_path_stubs() {
+  sudo rm -f /usr/local/bin/curl /usr/local/bin/gh 2>/dev/null || true
+}
+
 require_gov() {
   if [ -e "$HOME/.local/bin/gov" ] || in_a_new_login_shell "gov --version"; then
     pass "gov is installed"
@@ -85,6 +114,7 @@ in_a_new_login_shell() { bash -lc "$1" >/dev/null 2>&1; }
 
 # A machine with nothing: no gov, no node of ours, no profile edit, no workspace.
 reset_machine() {
+  clear_login_path_stubs
   rm -rf "$HOME/.local/share/gov" "$HOME/.local/bin/gov" "$HOME/.gov" "$HOME/.config/prj" 2>/dev/null
   for p in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
     [ -f "$p" ] && sed -i '/gov-work bootstrap/,+1d' "$p" 2>/dev/null
