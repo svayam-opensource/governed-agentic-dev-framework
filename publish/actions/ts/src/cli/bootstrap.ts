@@ -359,8 +359,20 @@ export interface FirstRunIo {
    * interview offers no defaults, which is usable but joyless.
    */
   deriveOrgDefaults?: (partial: Partial<OrgConfigValues>) => OrgConfigValues;
-  /** Record the org's approved agents in llm-governance.md. Returns whether it wrote (#196). */
-  approveAgents?: (agents: readonly { readonly id: string; readonly default?: boolean }[]) => boolean;
+  /**
+   * Can this environment record an approved-agent list? Gates whether Q10 is asked at all.
+   *
+   * IT WAS A WRITER, AND THE WRITE WAS ALREADY DONE. This used to be
+   * `approveAgents(agents) => boolean`, called after `createWorkspace` returned, and a walk on
+   * 2026-09-12 showed it printing "✗ Could not write llm-governance.md" on a successful
+   * adoption. Nothing had failed: `createWorkspace` records the list before its own commit
+   * (main.ts, #196), so this second call re-rendered an identical block, and
+   * `withApprovedAgents` correctly returns null when nothing would change — which this branch
+   * read as "could not write". A false alarm on the one governance decision in adoption is
+   * worse than no message, because the adopter's next move is to fix something that is not
+   * broken. There is only ever one writer now, and it is the one that can also commit.
+   */
+  recordsApprovals?: boolean;
   /** Build the starter review project; returns the lines to print (#186). */
   createStarterProject?: () => readonly string[];
   /**
@@ -473,7 +485,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
       print: io.print.bind(io),
       derive: io.deriveOrgDefaults ?? ((p) => p as OrgConfigValues),
       myOrgs: io.listMyOrgs?.bind(io),
-      selectAgents: Boolean(io.approveAgents),
+      selectAgents: io.recordsApprovals === true,
       ...(io.color === undefined ? {} : { color: io.color }),
       // LOOK BEFORE ASKING THE REST (#197). Every question after this one exists to
       // create something; if the organization already has a governance repository,
@@ -522,12 +534,12 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   //
   // The fallback that #196 removed stays removed: an approved list is produced during adoption,
   // so "nobody has decided" still never persists past setup.
-  if (io.approveAgents && result.agents?.length) {
-    if (io.approveAgents(result.agents)) {
-      for (const line of approvalSummary(result.agents)) io.print(line);
-    } else {
-      io.print("  ✗ Could not write llm-governance.md — approve them later with `gov agent approve <id>`.");
-    }
+  // READ BACK WHAT Q10 DECIDED. The recording happened inside `createWorkspace`, which is the
+  // only place that is both after the content seed and before the commit — so if it had failed,
+  // it would already have said so loudly on stderr, naming the file and the recovery command.
+  // This is the summary, not a second attempt at the write.
+  if (result.agents?.length) {
+    for (const line of approvalSummary(result.agents)) io.print(line);
   }
 
   // THE FIRST GOVERNED THING, MADE FOR THEM (#186).

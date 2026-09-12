@@ -115,6 +115,19 @@ runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/knowledge/policies/llm-governan
   && pass "ibm-bob is in llm-governance.md — the approved list is a file, not a memory" \
   || fail "ibm-bob was not written to llm-governance.md"
 
+# ONE WRITER, AND NO FALSE ALARM ABOUT IT.
+#
+# A walk on 2026-09-12 ended a SUCCESSFUL adoption with "✗ Could not write llm-governance.md —
+# approve them later with `gov agent approve <id>`". Nothing had failed. The list is recorded
+# inside `createWorkspace`, before its own commit (#196); a second writer then re-rendered an
+# identical block, and `withApprovedAgents` returns null when nothing would change — which the
+# caller read as a write failure. The assertion above could not catch it, because the file WAS
+# correct; only the message was wrong. A false alarm on the one governance decision in adoption
+# is worse than silence: the adopter's next move is to repair something that is not broken.
+never "no false alarm about writing the policy" "Could not write llm-governance.md"
+saw   "and the recording is reported once, by the writer that can commit it" \
+      "approved agent(s) in knowledge/policies/llm-governance.md"
+
 info "#193 — no placeholder survives into the adopter's own policies"
 never "<ORG_NAME> is resolved" "<ORG_NAME>"
 never "and so is <GITHUB_ORG>" "<GITHUB_ORG>"

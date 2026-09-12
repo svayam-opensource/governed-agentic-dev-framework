@@ -1015,17 +1015,10 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       const c = parseOrgConfig(text);
       return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
     },
-    approveAgents: (agents) => {
-      const r = prjResolveGov(createNodeEnv());
-      if (!r.ok) return false;
-      const policy = path.join(r.home, "knowledge", "policies", "llm-governance.md");
-      if (!fsSync.existsSync(policy)) return false;
-      const before = fsSync.readFileSync(policy, "utf8");
-      const after = withApprovedAgents(before, agents);
-      if (after === null) return false;
-      fsSync.writeFileSync(policy, after, "utf8");
-      return true;
-    },
+    // The list is recorded inside `createWorkspace` (see #196 above), which is the only place
+    // both after the content seed and before the commit. This says the environment CAN record
+    // one, which is what decides whether Q10 is asked; it is not a second writer.
+    recordsApprovals: true,
     createStarterProject: () => {
       // Reads the terminal directly rather than through `ask`, because this hook is
       // synchronous. Same rule either way: the handle lives only as long as the
@@ -1289,16 +1282,29 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       const gate = harnessFileFor(agent);
       if (gate) {
         const v = verifyAgentContext(fs, cwd, gate);
+        const rv = reporter(stdoutColor());
         if (!v.ok) {
-          const rv = reporter(stdoutColor());
           process.stderr.write(`\n${rv.fail(`gov will not start ${agent} — the governance it needs is not in place.`)}\n`);
           process.stderr.write(`  Expected the session-start protocol at ${v.at}, but ${v.why}.\n`);
-          process.stderr.write(`  Nothing is wrong with your project; this is gov refusing to hand you an\n`);
-          process.stderr.write(`  ungoverned session. Re-render and re-sync the protocol, then try again:\n`);
-          process.stderr.write(`    gov sync\n`);
-          process.stderr.write(`  If ${gate} is a file you wrote yourself, move it aside first — gov will not\n`);
-          process.stderr.write(`  overwrite it, and it cannot govern with it in the way.\n`);
+          process.stderr.write("  Nothing is wrong with your project; this is gov refusing to hand you an\n");
+          process.stderr.write("  ungoverned session.\n");
+          process.stderr.write(`  If ${gate} is a file you wrote yourself, move it aside and re-run — gov will\n`);
+          process.stderr.write("  not overwrite it, and it cannot govern with it in the way.\n");
+          process.stderr.write("  Otherwise pull the framework's protocol into your organization:  gov upgrade\n");
           return 1;
+        }
+        // GOVERNED, BUT NOT CURRENT — a warning, never a refusal.
+        //
+        // This branch exists because the refusal was wrong here, and a walk proved it: every
+        // organization adopted before 2026-09-11 has a protocol with no version marker, and
+        // blocking them meant no agent could start anywhere. An older ratified protocol is
+        // real governance. Saying nothing would be the other error — the adopter would never
+        // learn there is a newer one — so it is said once, with the command that fixes it.
+        if (!v.current) {
+          process.stderr.write(`\n${rv.warn(`${agent} is governed by an older protocol than this gov renders.`)}\n`);
+          process.stderr.write(`  ${v.at}\n`);
+          process.stderr.write(`  It is valid and it governs the session — ${v.why}.\n`);
+          process.stderr.write("  To pick up the current one:  gov upgrade\n");
         }
       }
       const s = agentLaunchSpec(agent, cwd, inject);

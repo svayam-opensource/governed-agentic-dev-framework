@@ -17,7 +17,7 @@ import {
   AGENT_CATALOG, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines,
   variantStatuses, runnableVariants, harnessFileFor,
 } from "../../src/cli/agent-catalog.js";
-import { ROOT_HARNESS_FILES, verifyAgentContext, PROTOCOL_MARKER } from "../../src/lifecycle/root-protocol.js";
+import { ROOT_HARNESS_FILES, verifyAgentContext, PROTOCOL_MARKER, RENDERED_BANNER } from "../../src/lifecycle/root-protocol.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -377,10 +377,56 @@ describe("gov-work — gov verifies the context before it launches (the guarante
 
   it("blocks on someone else's file of the same name, rather than overwriting it", () => {
     // An adopter's own CLAUDE.md is a real possibility. Silently replacing it would be its own
-    // defect, so the marker is the discriminator and the refusal names the conflict.
+    // defect, so the refusal names the conflict — and it is told apart from gov's own older
+    // renders by the absence of the renderer's banner, not by the version marker alone.
     const v = verifyAgentContext(fsOf({ [at("CLAUDE.md")]: "# my own house rules\nuse tabs" }), "/work/PRJ-9", "CLAUDE.md");
     expect(v.ok).to.equal(false);
-    if (!v.ok) expect(v.why).to.contain("gov-protocol-version");
+    if (!v.ok) expect(v.why).to.contain("not a file gov rendered");
+  });
+
+  it("an OLDER gov protocol still governs — it warns, it does not refuse", () => {
+    // THE DEFECT A WALK FOUND, and it was mine. The first version of this gate refused anything
+    // without a `gov-protocol-version` line. That line was added on 2026-09-11; the content
+    // every organization adopted before then was seeded from predates it — the 118-line protocol
+    // on `main` carries the renderer's banner and no marker. So the gate blocked every agent
+    // launch in every existing organization, on content that is perfectly valid governance.
+    //
+    // Refusing there inverts the guarantee's purpose: it exists so nobody is handed an
+    // UNGOVERNED session, and an org running last month's protocol is governed, just not current.
+    const old118 = [
+      "<!-- GENERATED from the framework harness source — do not edit by hand -->",
+      "",
+      "# Agent Session-Start Protocol — <ORG_NAME>",
+      "## Context manifest",
+    ].join("\n");
+    const v = verifyAgentContext(fsOf({ [at("AGENTS.md")]: old118 }), "/work/PRJ-9", "AGENTS.md");
+    expect(v.ok, "it must LAUNCH").to.equal(true);
+    if (!v.ok) return;
+    expect(v.current, "but it is not the current protocol").to.equal(false);
+    if (v.current) return;
+    expect(v.why, "and says why, so the warning is actionable").to.contain("earlier framework version");
+  });
+
+  it("the banner is what separates gov's older render from a stranger's file", () => {
+    // Same absence of a marker, opposite verdicts. If this ever collapses to one answer, the
+    // gate is either bricking existing orgs again or silently accepting anyone's CLAUDE.md.
+    const banner = "<!-- GENERATED from the framework harness source — do not edit by hand -->";
+    expect(RENDERED_BANNER, "the constant must match the manifest's banner").to.be.a("string");
+    expect(banner).to.contain(RENDERED_BANNER);
+    const govs = verifyAgentContext(fsOf({ [at("AGENTS.md")]: `${banner}\n# protocol` }), "/work/PRJ-9", "AGENTS.md");
+    const mine = verifyAgentContext(fsOf({ [at("AGENTS.md")]: "# protocol" }), "/work/PRJ-9", "AGENTS.md");
+    expect(govs.ok, "gov's own older file: launch").to.equal(true);
+    expect(mine.ok, "a file gov never wrote: refuse").to.equal(false);
+  });
+
+  it("the banner it looks for is the one the manifest defines", () => {
+    // Asserted against the manifest, because that is where the renderer reads it from. A
+    // reworded banner would otherwise turn every existing org's protocol into "a stranger's
+    // file" and start refusing launches again — the exact failure this pair of branches fixed.
+    const m = fs.readFileSync(path.join(repoRoot, "agent", "harness-manifest.yaml"), "utf8");
+    const line = /^generated_banner:\s*"(.+)"\s*$/m.exec(m);
+    expect(line, "harness-manifest.yaml must define generated_banner").to.not.equal(null);
+    expect(line![1], "and verifyAgentContext must look for a substring of it").to.contain(RENDERED_BANNER);
   });
 
   it("the marker it looks for is the one the protocol source carries", () => {
