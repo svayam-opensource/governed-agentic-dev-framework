@@ -66,6 +66,15 @@ export interface Reporter {
   ok(text: string): string;
   /** Did not happen. Colour is the least of what says so; the mark and the words carry it. */
   fail(text: string): string;
+  /**
+   * It happened, AND there is a consequence the reader will meet later.
+   *
+   * The gap between `ok` and `fail` is where #209 lived: gov installed an agent successfully
+   * and could not put it on the adopter's PATH, so `ok` was a half-truth and `fail` was wrong.
+   * With only two marks the honest line had nowhere to go, and the code said nothing at all —
+   * leaving `✓ installed and runnable` as the last word before `bob: command not found`.
+   */
+  warn(text: string): string;
   /** The end of a phase that succeeded, when the phase deserves an ending. */
   complete(text: string): readonly string[];
 }
@@ -79,6 +88,7 @@ export function reporter(color: boolean): Reporter {
     step: (text) => `${PAD}${paint("\u2192", "cyan", color)} ${text}`,
     ok: (text) => `${PAD}${paint("\u2713", "green", color)} ${text}`,
     fail: (text) => `${PAD}${paint("\u2717", "red", color)} ${text}`,
+    warn: (text) => `${PAD}${paint("!", "yellow", color)} ${text}`,
     complete: (text) => ["", `${paint(text, "bold", color)} ${paint("\u2713", "green", color)}`, ""],
   };
 }

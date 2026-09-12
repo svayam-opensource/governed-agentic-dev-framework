@@ -25,7 +25,7 @@ import { verifyAgentContext } from "../lifecycle/root-protocol.js";
 import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
 import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
 import { askFns, type AskFns } from "./ask.js";
-import { reporter, useColor } from "./format.js";
+import { reporter, useColor, type Reporter } from "./format.js";
 /** One answer for the whole process: whether STDOUT can carry ANSI (#204). */
 const stdoutColor = (): boolean => useColor({ isTty: process.stdout.isTTY === true, env: process.env });
 /** The same question for STDERR, where every prompt and progress line goes (#204). The two
@@ -166,8 +166,7 @@ async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>
     // this for `gov` with a two-line wrapper; the agent gets the same one, or the adopter gets
     // `bob: command not found` while reading the vendor's own advice to run `bob --resume`.
     if (plan.agent.cmd) {
-      const linked = linkAgentIntoPath(plan.agent.cmd);
-      if (linked) say(r0.ok(`linked into ${linked}, so \`${plan.agent.cmd}\` works after gov exits`));
+      sayAll(linkOutcomeLines(linkAgentIntoPath(plan.agent.cmd), plan.agent.cmd, r0));
     }
 
     // SIGNING IN IS THE PART NOBODY CAN AUTOMATE. Even the account is theirs to
@@ -364,15 +363,90 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
  * found and then fail with `env: 'node': No such file or directory`, because Node lives in the
  * directory the wrapper exists to add. Found but unrunnable is worse than not found.
  *
- * Returns the directory it wrote to, or null when there was nothing to do or nowhere safe to
- * do it — the binary is not in gov's Node directory (a vendor put it somewhere already on
- * PATH), or `~/.local/bin` is not on PATH, in which case writing there is writing a file
- * nobody will find.
+ * RETURNS AN OUTCOME, NOT A NULL — because three very different things used to come back as
+ * the same nothing, and the adopter saw the same nothing for all three:
+ *
+ *   not-ours          the binary is not beside gov's Node; a vendor put it somewhere already
+ *                     on PATH, so there is genuinely nothing to do and nothing to say
+ *   nowhere-to-link   `~/.local/bin` is not on PATH, so a wrapper there is a file nobody
+ *                     finds — the agent will NOT be runnable once gov exits
+ *   wrapper-failed    the wrapper was written and could not run, so it was removed
+ *
+ * The last two have a consequence the adopter meets minutes later; the first has none. This
+ * function's own comment used to say that telling them apart was impossible from the screen,
+ * "which is how #209's guard no-opped the fix without anyone being able to tell which branch
+ * had been taken" — and then it returned `null` for all three anyway. On debian:stable-slim
+ * and ubuntu:24.04, where `~/.local/bin` is not on PATH, that produced `✓ Bob Shell 2.0.2
+ * installed and runnable` followed by `bob: command not found`, with the only record a `warn`
+ * in a log nobody had switched on.
+ *
+ * Resolved 2026-09-11 with option (b) of the two on the table: gov does NOT start editing shell
+ * profiles (POL/#211 — gov does not change what a person's terminal carries after it exits),
+ * it SAYS what is true. The caller turns each outcome into the right line.
  *
  * PROVED, NOT ANNOUNCED. If the wrapper cannot run, it is removed and nothing is claimed —
  * `install.sh` does exactly this, and it is the reason gov's own link is trustworthy.
  */
-function linkAgentIntoPath(cmd: string): string | null {
+export type LinkOutcome =
+  /** A wrapper exists in `dir` and ran; the command works after gov exits. */
+  | { readonly kind: "linked"; readonly dir: string }
+  /** Not beside gov's Node — already reachable by whatever put it there. Say nothing. */
+  | { readonly kind: "not-ours" }
+  /** `dir` is not on PATH, so nothing was written. `nodeBin` is where the binary actually is. */
+  | { readonly kind: "nowhere-to-link"; readonly dir: string; readonly nodeBin: string }
+  /** A wrapper was written in `dir`, did not run, and was removed. */
+  | { readonly kind: "wrapper-failed"; readonly dir: string; readonly nodeBin: string };
+
+/**
+ * What to tell the adopter about an agent gov installed but cannot put on their PATH.
+ *
+ * Kept separate from the writing so it can be tested without a filesystem, and so the wording
+ * lives next to the outcome it explains rather than inside an `if` in a 400-line flow.
+ * Returns no lines for the two outcomes that need none.
+ */
+export function linkOutcomeLines(o: LinkOutcome, cmd: string, r: Reporter): readonly string[] {
+  if (o.kind === "linked") {
+    return [r.ok(`linked into ${o.dir}, so \`${cmd}\` works after gov exits`)];
+  }
+  if (o.kind === "not-ours") return [];   // a vendor put it on PATH; nothing happened, nothing owed
+
+  // WRAPPED AT 80 COLUMNS, BY HAND. The paths in here are long enough that one sentence per
+  // line runs past 100 characters, and a warning that wraps mid-word in the terminal it is
+  // meant to be read in is a warning that gets skipped. The same lesson as the bullet
+  // indicator that wrapped and repeated itself thirty times.
+  const head = [
+    r.warn(`\`${cmd}\` will not be on your PATH after gov exits.`),
+    `    It is installed and working, in gov's own Node directory:`,
+    `      ${o.nodeBin}`,
+    "    That directory is deliberately private, so gov's Node never becomes",
+    "    your machine's Node — which is why the command needs a shortcut.",
+    "",
+  ];
+  // THE REMEDY DIFFERS, so it cannot be one shared block. `nowhere-to-link` is the adopter's
+  // PATH and they can fix it; `wrapper-failed` is gov's shortcut failing to run, which they
+  // cannot fix and should not be asked to. Telling someone to add a directory that is already
+  // on their PATH — as a shared block did — is advice that cannot work.
+  const remedy = o.kind === "nowhere-to-link"
+    ? [
+        `    gov did not add a shortcut in ${o.dir},`,
+        "    because that directory is not on your PATH. Either:",
+        "",
+        `      · add ${o.dir} to your PATH and run this install`,
+        "        again — gov will add the shortcut next time",
+        `      · or run it by its full path: ${path.join(o.nodeBin, cmd)}`,
+      ]
+    : [
+        `    gov wrote a shortcut in ${o.dir} and it did not run,`,
+        "    so gov removed it rather than leave you a command that is found",
+        "    and then fails. This one is gov's to fix, not yours.",
+        "",
+        `      · run it by its full path: ${path.join(o.nodeBin, cmd)}`,
+        "      · and please report it — a shortcut that will not run is a bug",
+      ];
+  return [...head, ...remedy];
+}
+
+function linkAgentIntoPath(cmd: string): LinkOutcome {
   const nodeBin = path.dirname(process.execPath);
   const target = path.join(nodeBin, cmd);
   // BOTH REFUSALS, NAMED. This function returns null for two entirely different reasons and the
@@ -381,7 +455,7 @@ function linkAgentIntoPath(cmd: string): string | null {
   if (!fsSync.existsSync(target)) {
     log("debug", "no wrapper written: the command is not beside gov's node",
       "gov-work:cli:main", "linkAgentIntoPath", { cmd, nodeBin });
-    return null;                                                     // installed elsewhere; not ours to link
+    return { kind: "not-ours" };                                     // installed elsewhere; not ours to link
   }
   const pathDirs = (process.env.PATH ?? "").split(path.delimiter);
   // THE WRONG PATH WAS BEING ASKED. This used to skip the wrapper when `nodeBin` was already
@@ -402,7 +476,9 @@ function linkAgentIntoPath(cmd: string): string | null {
     // run nobody thought to switch anything on for.
     log("warn", "no wrapper written: ~/.local/bin is not on PATH, so the agent will not be found after gov exits",
       "gov-work:cli:main", "linkAgentIntoPath", { cmd, dir });
-    return null;                                                     // a file nobody would find
+    // AND NOW IT IS SAID ON SCREEN TOO. A warn in the log was the whole of the record for the
+    // adopter's most likely next surprise; the caller prints this one.
+    return { kind: "nowhere-to-link", dir, nodeBin };                // a file nobody would find
   }
   const shim = path.join(dir, cmd);
   try {
@@ -411,9 +487,12 @@ function linkAgentIntoPath(cmd: string): string | null {
       `#!/bin/sh\n# written by gov — see #209\nPATH="${nodeBin}:$PATH"; export PATH\nexec "${target}" "$@"\n`,
       { mode: 0o755 });
     fsSync.chmodSync(shim, 0o755);
-    if (tryRun(shim, ["--version"]) === undefined) { fsSync.rmSync(shim, { force: true }); return null; }
-    return dir;
-  } catch { return null; }
+    if (tryRun(shim, ["--version"]) === undefined) {
+      fsSync.rmSync(shim, { force: true });
+      return { kind: "wrapper-failed", dir, nodeBin };
+    }
+    return { kind: "linked", dir };
+  } catch { return { kind: "wrapper-failed", dir, nodeBin }; }
 }
 
 /** `~/x` → `<home>/x`. Paths in org-config and the catalog are written for humans. */
