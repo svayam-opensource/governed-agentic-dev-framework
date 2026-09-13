@@ -161,12 +161,12 @@ describe("gov-work — guided Work flow", () => {
   });
 
   it("agentLaunchSpec: right binary + detached flag + inject-as-first-message (guards the launch mapping)", () => {
-    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false, promptArgvUsed: true });     // speak-first
-    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false, promptArgvUsed: true });    // speak-first
+    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false, promptArgvUsed: true, promptText: "GO" });     // speak-first
+    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false, promptArgvUsed: true, promptText: "GO" });    // speak-first
     // GUI opens the dir, detached — AND carries the prompt to paste. An editor cannot take a
     // positional prompt, and giving it none meant the session-start protocol never ran at all.
-    expect(agentLaunchSpec("cursor-gui", "/p", "GO")).to.deep.equal({ cmd: "cursor", args: ["/p"], detached: true, promptToPaste: "GO" });
-    expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/bin/fish" } as NodeJS.ProcessEnv)).to.deep.equal({ cmd: "/bin/fish", args: [], detached: false });
+    expect(agentLaunchSpec("cursor-gui", "/p", "GO")).to.deep.equal({ cmd: "cursor", args: ["/p"], detached: true, promptToPaste: "GO", promptText: "GO" });
+    expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/bin/fish" } as NodeJS.ProcessEnv)).to.deep.equal({ cmd: "/bin/fish", args: [], detached: false, promptText: "GO" });
   });
 
   it("EVERY cli agent in the catalog launches its own binary — not a shell (#199)", () => {
@@ -181,7 +181,7 @@ describe("gov-work — guided Work flow", () => {
     // editor and the session-start protocol silently never ran (found by test/cli/agent-matrix).
     for (const a of AGENT_CATALOG.filter((c) => c.launch === "ide" && c.cmd)) {
       expect(agentLaunchSpec(a.id, "/p", "GO"), a.id)
-        .to.deep.equal({ cmd: a.cmd, args: ["/p"], detached: true, promptToPaste: "GO" });
+        .to.deep.equal({ cmd: a.cmd, args: ["/p"], detached: true, promptToPaste: "GO", promptText: "GO" });
     }
   });
 
@@ -195,19 +195,19 @@ describe("gov-work — guided Work flow", () => {
   it("the prompt goes where the agent takes it, or nowhere at all (#207)", () => {
     // A bare positional for everyone is what killed the bob launch: "too many arguments.
     // Expected 0 arguments but got 1", after a clean install and a "Starting it in…".
-    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false, promptArgvUsed: true });
-    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false, promptArgvUsed: true });
+    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
+    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
 
     // bob WAS the example of "unverified, so launch bare and hand the prompt back to be pasted".
     // It is verified now — `bob --help` in a container on 2026-09-11: `-p, --prompt <prompt>
     // Prompt to send to the agent`. The old expectation was correct discipline and a stale fact.
     expect(agentLaunchSpec("ibm-bob", "/p", "GO"))
-      .to.deep.equal({ cmd: "bob", args: ["-p", "GO"], detached: false, promptArgvUsed: true });
+      .to.deep.equal({ cmd: "bob", args: ["-p", "GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
 
     // THE PASTE PATH IS STILL REACHABLE, and still the right answer where nobody has looked.
     // `aider` installs from PyPI, so the npm sweep that answered the others could not answer it.
     expect(agentLaunchSpec("aider", "/p", "GO"))
-      .to.deep.equal({ cmd: "aider", args: [], detached: false, promptToPaste: "GO" });
+      .to.deep.equal({ cmd: "aider", args: [], detached: false, promptToPaste: "GO", promptText: "GO" });
   });
 
   it("no agent is handed an argument nobody checked it accepts (#207)", () => {
@@ -306,7 +306,7 @@ describe("gov-work — guided Work flow", () => {
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"]).to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK"))
-      .to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true, promptToPaste: "KICK" });   // cwd verbatim, prompt carried
+      .to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true, promptToPaste: "KICK", promptText: "KICK" });   // cwd verbatim, prompt carried
   });
 });
 

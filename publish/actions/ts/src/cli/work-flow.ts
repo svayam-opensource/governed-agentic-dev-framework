@@ -202,6 +202,15 @@ export interface LaunchSpec {
   readonly promptToPaste?: string;
   /** True when the prompt travelled in `args` — so the caller can say governance happened. */
   readonly promptArgvUsed?: true;
+  /**
+   * The protocol text itself, ALWAYS — regardless of how it was delivered.
+   *
+   * Separate from `promptToPaste`, which means "delivery is by paste and the caller must print
+   * it". Conflating the two left the first-run handover unable to show the protocol on the one
+   * path where it is needed most: an argv agent that refused the argv. The spec knew the text
+   * and had nowhere to put it.
+   */
+  readonly promptText: string;
 }
 
 /**
@@ -226,7 +235,7 @@ export function agentLaunchSpec(
   env: NodeJS.ProcessEnv = process.env,
   catalog: readonly AgentCandidate[] = AGENT_CATALOG,
 ): LaunchSpec | null {
-  if (agent === "shell") return { cmd: env.SHELL || "/bin/zsh", args: [], detached: false };
+  if (agent === "shell") return { cmd: env.SHELL || "/bin/zsh", args: [], detached: false, promptText: inject };
   // The Cursor EDITOR opened on the project dir. Not a catalog entry of its own: the policy approves
   // `cursor` the agent, and this is one of the ways to run it (#196, Q8).
   //
@@ -236,18 +245,18 @@ export function agentLaunchSpec(
   // paste survivable: the text is written to <project>/.gov/session-prompt.md and gov waits
   // before launching. That machinery is more useful here than in a terminal, because the editor
   // opens in another window and leaves the instruction on screen.
-  if (agent === "cursor-gui") return { cmd: "cursor", args: [cwd], detached: true, promptToPaste: inject };
+  if (agent === "cursor-gui") return { cmd: "cursor", args: [cwd], detached: true, promptToPaste: inject, promptText: inject };
 
   const c = catalog.find((a) => a.id === agent);
   if (!c?.cmd || c.launch === "none") return null;
-  if (c.launch === "ide") return { cmd: c.cmd, args: [cwd], detached: true, promptToPaste: inject };
+  if (c.launch === "ide") return { cmd: c.cmd, args: [cwd], detached: true, promptToPaste: inject, promptText: inject };
   // HOW TO HAND IT THE PROMPT IS PER-AGENT (#207). It was a bare positional for everyone,
   // which `bob` rejects outright — zero positionals, and the launch died with a usage error
   // after a clean install. An entry that has not been checked launches BARE: the agent still
   // starts in the project, and its harness file is what governs the session anyway.
   return c.promptArgv
-    ? { cmd: c.cmd, args: c.promptArgv.map((a) => a.replaceAll("{prompt}", inject)), detached: false, promptArgvUsed: true }
-    : { cmd: c.cmd, args: [], detached: false, promptToPaste: inject };
+    ? { cmd: c.cmd, args: c.promptArgv.map((a) => a.replaceAll("{prompt}", inject)), detached: false, promptArgvUsed: true, promptText: inject }
+    : { cmd: c.cmd, args: [], detached: false, promptToPaste: inject, promptText: inject };
 }
 
 /**

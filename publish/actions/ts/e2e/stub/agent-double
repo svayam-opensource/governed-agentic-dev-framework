@@ -27,4 +27,27 @@ me="$(basename "$0")"
   i=1; for a in "$@"; do printf 'arg%s=%s\n' "$i" "$a"; i=$((i+1)); done
   printf '%s\n' '--'
 } >> "$AGENT_DOUBLE_LOG"
+
+# A FIRST-RUN GATE, THE WAY A REAL VENDOR HAS ONE.
+#
+# IBM Bob refuses a first message until its licence is accepted:
+#
+#     Error: A license agreement is required. Please accept the license terms before proceeding.
+#
+# and it refuses in the very mode gov uses to deliver the protocol, so the licence screen it
+# tells you to go and find can never appear. gov's answer is to hand the terminal over, let the
+# person settle it, and retry — which is untestable without an agent that actually refuses.
+#
+# Armed by pointing AGENT_DOUBLE_LICENCE at a path. While that file is absent, a run carrying a
+# prompt fails the way Bob fails; a run with NO arguments is the interactive one, so it creates
+# the file and succeeds — the double's stand-in for a person reading and pressing `y`.
+if [ -n "${AGENT_DOUBLE_LICENCE:-}" ] && [ ! -f "$AGENT_DOUBLE_LICENCE" ]; then
+  if [ "$#" -gt 0 ]; then
+    echo "Error: A license agreement is required. Please accept the license terms before proceeding." >&2
+    echo "Launch $me in interactive mode to accept it." >&2
+    exit 3
+  fi
+  : > "$AGENT_DOUBLE_LICENCE"
+  echo "  [$me] licence accepted"
+fi
 exit 0

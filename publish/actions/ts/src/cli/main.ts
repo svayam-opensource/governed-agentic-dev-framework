@@ -557,6 +557,47 @@ async function pauseBeforeLaunch(agent: string): Promise<void> {
   }
 }
 
+/**
+ * A first-run gate the adopter has just read, and the offer to clear it here.
+ *
+ * IBM Bob will not accept a first message until its licence is accepted:
+ *
+ *     Error: A license agreement is required. Please accept the license terms before proceeding.
+ *     Launch Bob Shell in interactive mode or view license with `bob --show-license`
+ *
+ * gov was launching with `-p`, which is a mode that can never show that screen — while printing
+ * "On first run IBM Bob shows its licence screen. Press `y` to accept", so the advice and the
+ * action disagreed. A walk on 2026-09-13 ended there.
+ *
+ * WHY GOV DOES NOT JUST PASS `--accept-license`. Accepting a vendor's licence is a legal act by
+ * a person. A tool that performs it silently on their behalf is the category of thing this
+ * framework exists to prevent — and driving the prompt with a pty, which gov's own test harness
+ * could do, is the same act laundered through automation.
+ *
+ * WHY NOT A SECOND TERMINAL, which is the obvious shape. A container has no terminal emulator
+ * at all — no xterm, no gnome-terminal — and the container walk is exactly where this bites. gov
+ * does not need one: it is a foreground process that already owns the adopter's terminal, so it
+ * hands that over, waits, and takes it back.
+ *
+ * WHY NO PER-AGENT FLAG, AND NO READING THE ERROR. gov reacts to the observable fact — the agent
+ * exited non-zero almost immediately — and says nothing about the cause, because the adopter has
+ * just read the cause on their own screen. That keeps this general to any agent with a first-run
+ * gate, and keeps gov from asserting a diagnosis it did not make.
+ */
+const IMMEDIATE_EXIT_MS = 15_000;
+
+/** `Continue [Y/n] : ` on the controlling terminal. Enter means yes, matching install.sh. */
+async function askYes(question: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return false;         // nobody to ask; do not assume consent
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const a = await new Promise<string>((resolve) => rl.question(`  ${question} [Y/n] : `, resolve));
+    return !/^n(o)?$/i.test(a.trim());
+  } finally {
+    rl.close();
+  }
+}
+
 /** The template every governance repo is created from. */
 const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
 
@@ -1404,9 +1445,47 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       });
       closeLog();                              // spawnSync blocks until the agent exits; flush first
       if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
-      const r = spawnSync(s.cmd, [...s.args], { cwd, stdio: "inherit" });
+
+      const runIt = (args: readonly string[]): { status: number; error: boolean; ms: number } => {
+        const at = Date.now();
+        const rr = spawnSync(s.cmd, [...args], { cwd, stdio: "inherit" });
+        return { status: rr.status ?? 0, error: Boolean(rr.error), ms: Date.now() - at };
+      };
+
+      let r = runIt(s.args);
       if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed and on PATH?\n`); return 1; }
-      return r.status ?? 0;
+
+      // A FIRST-RUN GATE THE ADOPTER HAS JUST READ — see IMMEDIATE_EXIT_MS above for why this
+      // reacts to an exit rather than to a parsed error, and why the offer is to hand over THIS
+      // terminal rather than open another one.
+      //
+      // Only when the protocol travelled as argv: the paste path already leaves the person in
+      // the agent, where any licence screen appears on its own.
+      if (r.status !== 0 && r.ms < IMMEDIATE_EXIT_MS && s.promptArgvUsed) {
+        const r3 = reporter(stdoutColor());
+        process.stderr.write(`\n${r3.warn(`${agent} stopped straight away, before the protocol could reach it.`)}\n`);
+        process.stderr.write("  Agents often need something done once by hand on a first run — accepting a\n");
+        process.stderr.write("  licence, or signing in. Whatever it just asked you for, gov will not do on\n");
+        process.stderr.write("  your behalf.\n\n");
+        process.stderr.write(`  gov can hand this terminal to ${agent} so you can settle it now. Do that,\n`);
+        process.stderr.write(`  quit ${agent}, and gov will hand it the protocol again.\n\n`);
+        if (await askYes(`Open ${agent} here`)) {
+          // No prompt argv: that is the whole point — the agent starts the way it starts on its
+          // own, so whatever screen it was withholding is shown.
+          process.stderr.write(`\n${r3.step(`${agent} has the terminal. Quit it when you are done.`)}\n\n`);
+          runIt([]);
+          process.stderr.write(`\n${r3.step(`Handing ${agent} the session-start protocol again.`)}\n\n`);
+          r = runIt(s.args);
+        }
+        // STILL NO, AND SAID SO. A retry that fails silently would leave an adopter believing
+        // the session is governed when nothing was ever delivered.
+        if (r.status !== 0) {
+          process.stderr.write(`\n${r3.fail(`${agent} still will not take the protocol as a first message.`)}\n`);
+          process.stderr.write(`  Start it yourself in ${cwd} and paste this as your first message:\n\n`);
+          process.stderr.write(`${s.promptText}\n\n`);
+        }
+      }
+      return r.status;
     },
   };
 }

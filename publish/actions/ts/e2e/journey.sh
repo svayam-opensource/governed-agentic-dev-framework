@@ -62,6 +62,19 @@ new_world() {
   printf '[user]\n\tname = Adopter Bot\n\temail = adopter@example.test\n[safe]\n\tdirectory = *\n' > "$HOME/.gitconfig"
   export GH_STUB_LOG="$WORLD/gh.log"
   export AGENT_DOUBLE_LOG="$WORLD/agent.log"
+  # A DESKTOP, PINNED — so the sign-in MENU ORDER does not depend on whose machine ran this.
+  #
+  # `desktopHint` (#221) answers from the environment, and #213's screen now uses it to put the
+  # key-paste route first where no browser is reachable. That is correct behaviour and it makes
+  # the option NUMBERS vary: on a developer's macOS laptop the browser route is 1, and on a
+  # headless Linux CI runner it is 2. Every `Choose [1-3]` answer in this suite is a number, so
+  # without pinning, the same conversation picks a different route in CI than on a laptop —
+  # which is worse than a failure, because it silently tests something else.
+  #
+  # Pinned to "has a desktop", which keeps the historical numbering. The HEADLESS branch is
+  # asserted in the OS tier, in a container with no DISPLAY, where the answer cannot drift.
+  export DISPLAY=":0"
+  unset SSH_CONNECTION SSH_TTY WAYLAND_DISPLAY
   : > "$GH_STUB_LOG"; : > "$AGENT_DOUBLE_LOG"
   mkdir -p "$WORLD/bin"
   cp "$HERE/stub/gh" "$WORLD/bin/gh"
