@@ -1292,27 +1292,21 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
         const v = verifyAgentContext(fs, cwd, gate);
         const rv = reporter(stdoutColor());
         if (!v.ok) {
-          process.stderr.write(`\n${rv.fail(`gov will not start ${agent} — the governance it needs is not in place.`)}\n`);
+          // NOTHING IS IN CONTEXT. The only two ways to reach here are an absent file and an
+          // empty one, so there is no "maybe it is yours" to hedge about.
+          process.stderr.write(`\n${rv.fail(`gov will not start ${agent} — nothing would govern the session.`)}\n`);
           process.stderr.write(`  Expected the session-start protocol at ${v.at}, but ${v.why}.\n`);
-          process.stderr.write("  Nothing is wrong with your project; this is gov refusing to hand you an\n");
-          process.stderr.write("  ungoverned session.\n");
-          process.stderr.write(`  If ${gate} is a file you wrote yourself, move it aside and re-run — gov will\n`);
-          process.stderr.write("  not overwrite it, and it cannot govern with it in the way.\n");
-          process.stderr.write("  Otherwise pull the framework's protocol into your organization:  gov upgrade\n");
+          process.stderr.write("  gov mirrors that file from your governance repo on every launch, so this\n");
+          process.stderr.write(`  usually means ${gate} is missing from the repo itself.\n`);
+          process.stderr.write("  Pull the framework's protocol into your organization:  gov upgrade\n");
           return 1;
         }
-        // GOVERNED, BUT NOT CURRENT — a warning, never a refusal.
-        //
-        // This branch exists because the refusal was wrong here, and a walk proved it: every
-        // organization adopted before 2026-09-11 has a protocol with no version marker, and
-        // blocking them meant no agent could start anywhere. An older ratified protocol is
-        // real governance. Saying nothing would be the other error — the adopter would never
-        // learn there is a newer one — so it is said once, with the command that fixes it.
         if (!v.current) {
-          process.stderr.write(`\n${rv.warn(`${agent} is governed by an older protocol than this gov renders.`)}\n`);
+          process.stderr.write(`\n${rv.warn(`${agent}'s instructions are not the protocol this gov renders.`)}\n`);
           process.stderr.write(`  ${v.at}\n`);
-          process.stderr.write(`  It is valid and it governs the session — ${v.why}.\n`);
-          process.stderr.write("  To pick up the current one:  gov upgrade\n");
+          process.stderr.write(`  ${v.why}.\n`);
+          process.stderr.write("  The session is going ahead — that file is your organization's, mirrored\n");
+          process.stderr.write("  from your governance repo. To take the current protocol:  gov upgrade\n");
         }
       }
       const s = agentLaunchSpec(agent, cwd, inject);

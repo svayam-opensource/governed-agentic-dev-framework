@@ -376,13 +376,42 @@ describe("gov-work — gov verifies the context before it launches (the guarante
     if (!v.ok) expect(v.why).to.contain("empty");
   });
 
-  it("blocks on someone else's file of the same name, rather than overwriting it", () => {
-    // An adopter's own CLAUDE.md is a real possibility. Silently replacing it would be its own
-    // defect, so the refusal names the conflict — and it is told apart from gov's own older
-    // renders by the absence of the renderer's banner, not by the version marker alone.
+  it("does NOT refuse a file gov did not render — it warns and gets out of the way", () => {
+    // REVERSED BY A SECOND WALK, 2026-09-13, and the reversal is the point.
+    //
+    // This used to assert a refusal, on the theory that an unrecognised file might be the
+    // adopter's own and gov should not govern through it. But `ensureRootProtocol` OVERWRITES
+    // this path from `<workspace>/<rel>` on every launch, so what is read here is always a copy
+    // of the organization's own governed repository. If they edited it, that edit is their
+    // ratified choice (POL-086) and gov has no standing to refuse it.
+    //
+    // Refusing also kept bricking real installs: first every org predating the version marker,
+    // then Claude specifically, because `main` still ships CLAUDE.md as an @-import stub with
+    // no banner. Each unanticipated shape blocked EVERY launch — a bad trade for a narrow check.
     const v = verifyAgentContext(fsOf({ [at("CLAUDE.md")]: "# my own house rules\nuse tabs" }), "/work/PRJ-9", "CLAUDE.md");
-    expect(v.ok).to.equal(false);
-    if (!v.ok) expect(v.why).to.contain("not a file gov rendered");
+    expect(v.ok, "it launches").to.equal(true);
+    if (!v.ok) return;
+    expect(v.current, "but gov says it is not the protocol it renders").to.equal(false);
+    if (v.current) return;
+    expect(v.why).to.contain("gov did not render it");
+  });
+
+  it("the OLD Claude @-import stub is recognised as gov's, not as a stranger's file", () => {
+    // THE SHAPE THAT BROKE THE SECOND WALK. `main`'s publish/content/CLAUDE.md is two lines:
+    //
+    //   @agent/session-protocol.md
+    //   @agent.md
+    //
+    // No banner and no marker, by design — it was the Claude mechanism before 2026-09-11, and
+    // it works: Claude resolves the imports and reads the protocol. A gate that called this "not
+    // gov's file" refused to launch Claude in every organization seeded from main.
+    const stub = "@agent/session-protocol.md\n@agent.md\n";
+    const v = verifyAgentContext(fsOf({ [at("CLAUDE.md")]: stub }), "/work/PRJ-9", "CLAUDE.md");
+    expect(v.ok).to.equal(true);
+    if (!v.ok) return;
+    expect(v.current).to.equal(false);
+    if (v.current) return;
+    expect(v.why, "and it is named for what it is").to.contain("@-import");
   });
 
   it("an OLDER gov protocol still governs — it warns, it does not refuse", () => {
@@ -408,16 +437,25 @@ describe("gov-work — gov verifies the context before it launches (the guarante
     expect(v.why, "and says why, so the warning is actionable").to.contain("earlier framework version");
   });
 
-  it("the banner is what separates gov's older render from a stranger's file", () => {
-    // Same absence of a marker, opposite verdicts. If this ever collapses to one answer, the
-    // gate is either bricking existing orgs again or silently accepting anyone's CLAUDE.md.
-    const banner = "<!-- GENERATED from the framework harness source — do not edit by hand -->";
-    expect(RENDERED_BANNER, "the constant must match the manifest's banner").to.be.a("string");
-    expect(banner).to.contain(RENDERED_BANNER);
-    const govs = verifyAgentContext(fsOf({ [at("AGENTS.md")]: `${banner}\n# protocol` }), "/work/PRJ-9", "AGENTS.md");
-    const mine = verifyAgentContext(fsOf({ [at("AGENTS.md")]: "# protocol" }), "/work/PRJ-9", "AGENTS.md");
-    expect(govs.ok, "gov's own older file: launch").to.equal(true);
-    expect(mine.ok, "a file gov never wrote: refuse").to.equal(false);
+  it("ONLY missing and empty refuse — nothing else can brick an existing org", () => {
+    // The whole rule, asserted as a rule rather than case by case, because the failure mode of
+    // getting it wrong is that no agent starts anywhere. Two walks produced exactly that.
+    const refuses = [undefined, "", "   \n\n"];
+    for (const body of refuses) {
+      const files = body === undefined ? {} : { [at("AGENTS.md")]: body };
+      const v = verifyAgentContext(fsOf(files), "/work/PRJ-9", "AGENTS.md");
+      expect(v.ok, `must refuse: ${JSON.stringify(body)}`).to.equal(false);
+    }
+    const launches = [
+      "<!-- gov-protocol-version: 2 -->\n# protocol",
+      "<!-- GENERATED from the framework harness source — do not edit by hand -->\n# old",
+      "@agent/session-protocol.md\n@agent.md\n",
+      "# something an org wrote themselves",
+    ];
+    for (const body of launches) {
+      const v = verifyAgentContext(fsOf({ [at("AGENTS.md")]: body }), "/work/PRJ-9", "AGENTS.md");
+      expect(v.ok, `must launch: ${body.slice(0, 40)}`).to.equal(true);
+    }
   });
 
   it("the banner it looks for is the one the manifest defines", () => {

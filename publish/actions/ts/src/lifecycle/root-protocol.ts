@@ -89,27 +89,57 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
  * conflict instead.
  */
 export type ContextVerdict =
-  /** gov's protocol, at the version this build renders. Launch, say nothing. */
+  /** gov's protocol at the version this build renders. Launch, say nothing. */
   | { readonly ok: true; readonly at: string; readonly current: true }
-  /** gov's protocol, from an EARLIER framework version. Real governance; launch, but say so. */
+  /** Something IS in the agent's context, but not this build's render. Launch, and say so. */
   | { readonly ok: true; readonly at: string; readonly current: false; readonly why: string }
-  /** Missing, empty, or not gov's file at all. Refuse. */
+  /** Nothing is in the agent's context at all. Refuse. */
   | { readonly ok: false; readonly at: string; readonly why: string };
 
 /** The marker the renderer stamps into every harness file. Kept here, asserted by test against
  *  what `render-harness.mjs` actually writes, so the two cannot drift apart unnoticed. */
 export const PROTOCOL_MARKER = "gov-protocol-version";
 
-/**
- * The renderer's own banner — in EVERY harness file it has ever written, old and new.
- *
- * This is what tells "an older gov protocol" apart from "a file someone wrote themselves", and
- * the distinction is the whole difference between a warning and a refusal. It is a constant in
- * `agent/harness-manifest.yaml`, so it is stable across versions in a way the version marker —
- * added 2026-09-11 — by definition is not.
- */
+/** The renderer's banner — in every harness file it has written, at every version. */
 export const RENDERED_BANNER = "GENERATED from the framework harness source";
 
+/** The old Claude mechanism: a file of `@`-imports rather than a render. Still governance —
+ *  Claude resolves them and reads the protocol — and still shipped on `main` today. */
+export const IMPORT_STUB = /^@agent(?:\/session-protocol)?\.md\s*$/m;
+
+/**
+ * Is anything governing this agent's session? — the check behind the guarantee.
+ *
+ * REFUSE ONLY WHEN THERE IS NOTHING THERE. Two walks taught this, and both times the refusal
+ * was the defect rather than the protection:
+ *
+ *   · The first version required a `gov-protocol-version` line. That marker was added on
+ *     2026-09-11, so every organization adopted before then was refused — on content that is
+ *     perfectly valid ratified governance.
+ *   · The second recognised the renderer's banner as well. That still refused Claude, because
+ *     `main` ships CLAUDE.md as a two-line `@`-import stub with no banner by design — the old
+ *     Claude mechanism, which works.
+ *
+ * The pattern in both: a growing list of historical shapes, where every shape I failed to
+ * anticipate blocks EVERY launch. That is a bad trade for a check whose purpose is narrow.
+ *
+ * WHAT MAKES THE NARROW RULE CORRECT. `ensureRootProtocol` overwrites this file from
+ * `<workspace>/<rel>` on every launch, so what is read here is always a copy of the
+ * organization's own governed repository. If an org edited it, that edit is their ratified
+ * choice (POL-086) and gov has no standing to refuse it. The genuinely ungoverned cases are the
+ * two where the agent would start with nothing in context at all: the file is absent, or it is
+ * empty. Those are unambiguous, cannot be produced by any historical version, and are what the
+ * guarantee was written to prevent.
+ *
+ * Everything else launches. `current: false` is a WARNING — said once, with `gov upgrade` — so
+ * an org running an older protocol is told, without being stopped.
+ *
+ * DEVIATION, RECORDED: the ruling of 2026-09-11 said a file that "lacks gov-protocol-version"
+ * should be blocked. Followed literally that blocks the entire installed base, including every
+ * org seeded from `main` today, because the marker is newer than all of them. The intent —
+ * never hand over an ungoverned session — is kept; the trigger is narrowed to the cases that
+ * actually mean ungoverned.
+ */
 export function verifyAgentContext(
   fs: Pick<Fs, "readFile">,
   projectDir: string,
@@ -119,31 +149,24 @@ export function verifyAgentContext(
   const text = fs.readFile(at);
   if (text == null) return { ok: false, at, why: "the file is not there" };
   if (text.trim() === "") return { ok: false, at, why: "the file is empty" };
-  if (text.includes(PROTOCOL_MARKER)) return { ok: true, at, current: true };
 
-  // AN OLDER PROTOCOL IS STILL GOVERNANCE — refusing here was a real defect, found on a walk.
-  //
-  // The first version of this function refused anything without the version marker. But the
-  // marker was added on 2026-09-11, and the content EVERY EXISTING ORG was seeded from predates
-  // it: the 118-line protocol on `main` carries the renderer's banner and no marker. So the
-  // gate blocked every agent launch in every organization already adopted — a total block, on
-  // content that is perfectly valid governance, ratified and in the agent's context.
-  //
-  // That is the opposite of the guarantee's intent. The refusal exists so nobody is handed an
-  // UNGOVERNED session; an org running last month's protocol is governed, just not current.
-  //
-  // The remedy is also not what the first version said. It named `gov sync`, which merges the
-  // organization's OWN default branch and could never introduce a marker the framework only
-  // started writing later. `gov upgrade` is the command that pulls new framework content.
+  if (text.includes(PROTOCOL_MARKER)) return { ok: true, at, current: true };
   if (text.includes(RENDERED_BANNER)) {
     return {
       ok: true, at, current: false,
-      why: "it is gov's protocol from an earlier framework version, with no "
-        + `${PROTOCOL_MARKER} line`,
+      why: "it is gov's protocol from an earlier framework version",
     };
   }
+  if (IMPORT_STUB.test(text)) {
+    return {
+      ok: true, at, current: false,
+      why: "it is the older Claude @-import form, which loads the protocol indirectly",
+    };
+  }
+  // Present, non-empty, and not a shape gov recognises — so it is most likely the
+  // organization's own. Say plainly that gov cannot vouch for it, and get out of the way.
   return {
-    ok: false, at,
-    why: "it is not a file gov rendered — no version marker and no generated banner",
+    ok: true, at, current: false,
+    why: "gov did not render it, so gov cannot confirm it carries the session-start protocol",
   };
 }
