@@ -72,3 +72,74 @@ describe("gov-work — how would you like to sign in (#213)", () => {
       .to.contain("cannot run until it has a key");
   });
 });
+
+/**
+ * THE DESKTOP GOV ALREADY KNEW ABOUT (#221 applied to #213).
+ *
+ * Three walks on 2026-09-13 ended identically: a container with no browser, an adopter choosing
+ * option 1 because it is option 1, and a login flow waiting for a browser that cannot open.
+ * OpenAI Codex started a local login server; Claude Code sat at `/login` asking for a code from
+ * a page nobody could reach. gov had worked out there was no desktop — #221 landed that probe —
+ * and this screen was still printing "gov cannot tell whether this machine has one".
+ *
+ * #221's ruling is the constraint and it has not changed: a desktop hint may REORDER and
+ * ANNOTATE, never withhold. Every test here asserts one of those two, or the invariant.
+ */
+describe("gov-work — sign-in order follows what the machine can do (#221 → #213)", () => {
+  const container = { verdict: "no", because: "no DISPLAY or WAYLAND_DISPLAY" } as const;
+  const overSsh = { verdict: "remote", because: "DISPLAY=localhost:10.0 over SSH" } as const;
+  const desktop = { verdict: "yes", because: "DISPLAY=:0" } as const;
+  const methods = (f: SignInFacts): readonly string[] => signInOptions(f).map((o) => o.method);
+
+  it("on a machine with no browser, the key route is offered FIRST", () => {
+    expect(methods({ ...claude, desktop: container })[0]).to.equal("api-key");
+  });
+
+  it("on a real desktop the browser route stays first — the hint is not a veto either way", () => {
+    expect(methods({ ...claude, desktop: desktop })[0]).to.equal("login-command");
+  });
+
+  it("a remote display is treated like no local browser, because that is what it is", () => {
+    // The case that shaped #221: GUI-capable, display elsewhere. A browser opens on the machine
+    // holding the display, which is not the machine the adopter is typing on.
+    expect(methods({ ...claude, desktop: overSsh })[0]).to.equal("api-key");
+  });
+
+  it("NEVER WITHHOLDS — every route survives every verdict", () => {
+    // The invariant, and the one that matters most: a wrong guess about a desktop may cost
+    // someone a reordered menu and must never cost them the only route that works.
+    const withNone = methods(claude);
+    for (const d of [container, overSsh, desktop]) {
+      const got = methods({ ...claude, desktop: d });
+      expect([...got].sort(), `verdict ${d.verdict} dropped a route`).to.deep.equal([...withNone].sort());
+    }
+  });
+
+  it("skip stays last wherever it is reordered", () => {
+    expect(methods({ ...claude, desktop: container }).at(-1)).to.equal("skip");
+    expect(methods({ ...bob, desktop: container }).at(-1)).to.equal("skip");
+  });
+
+  it("says WHAT it observed, so a reader who knows better can disagree", () => {
+    const text = signInPrompt({ ...claude, desktop: container }, signInOptions({ ...claude, desktop: container })).join("\n");
+    expect(text).to.contain("no desktop here");
+    expect(text, "the evidence, not just the conclusion").to.contain("no DISPLAY or WAYLAND_DISPLAY");
+    expect(text, "and it must not still disclaim knowledge it has").to.not.contain("gov cannot tell");
+  });
+
+  it("with no hint at all it says exactly what it always said", () => {
+    // Absent means "take no view". Every caller before #221 was in this state and must not
+    // start seeing invented conclusions.
+    const text = signInPrompt(claude, signInOptions(claude)).join("\n");
+    expect(text).to.contain("gov cannot tell whether this machine has one");
+  });
+
+  it("the browser caveat talks about a BROWSER, not an editor", () => {
+    // desktopCaveat ends "an editor may have nowhere to open" — right for the editor route,
+    // wrong on a sign-in screen. Reusing it printed a sentence about editors to someone
+    // choosing how to log in.
+    const text = signInPrompt({ ...claude, desktop: container }, signInOptions({ ...claude, desktop: container })).join("\n");
+    expect(text).to.contain("browser");
+    expect(text).to.not.contain("editor");
+  });
+});

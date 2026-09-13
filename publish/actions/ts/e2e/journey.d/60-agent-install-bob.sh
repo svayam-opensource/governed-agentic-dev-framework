@@ -63,7 +63,25 @@ saw "#201 — IBM's own channel is what runs" "bob.ibm.com/download/bobshell.sh"
 # container where Bob's loopback callback could never reach the host's browser, and the run
 # had nowhere to go. The offer is unconditional now; only the wording depends on the agent.
 says "it ASKS rather than deciding" "How would you like to sign IBM Bob in?"
-says "and does NOT pretend to know whether this machine has a browser" "cannot tell whether this machine has one"
+
+# #221 → #213 — WHAT CAN BE ASSERTED ON WHATEVER MACHINE RUNS THIS SUITE.
+#
+# This asserted "cannot tell whether this machine has one", the honest answer until #221 landed
+# a desktop probe — after which gov kept printing it while knowing better. Three walks on
+# 2026-09-13 were lost to that: a container with no browser, an adopter choosing option 1
+# because it is option 1, and a login flow waiting on a browser that could never open.
+#
+# THE WORDING IS NOT ASSERTABLE HERE. This suite is hermetic but runs on the HOST, and
+# `desktopHint` answers "yes" from the platform alone on macOS and Windows. Asserting the
+# headless sentence would pass or fail depending on whose laptop ran it — which is the kind of
+# test this project keeps deleting. The headless branch is asserted in the OS tier, on a real
+# Linux container with no DISPLAY, where the question has one answer.
+#
+# What IS platform-independent is #221's ruling, and it is the part worth pinning anyway:
+# reorder and annotate, never withhold. Both routes must be on the screen either way.
+says "the browser route is offered"          "Let IBM Bob sign you in when it starts"
+says "and so is the key route"               "Paste an API key now"
+never "and gov does not invent a conclusion" "gov sees no desktop here (unknown)"
 saw "the browser route is named" "1. Let IBM Bob sign you in when it starts"
 saw "and so is the key — not an escape hatch behind an Enter" "2. Paste an API key now"
 saw "and skipping is a choice with a number, like the others" "3. Skip for now"

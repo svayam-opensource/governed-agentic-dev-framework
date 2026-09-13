@@ -26,6 +26,7 @@ import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
 import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
 import { askFns, type AskFns } from "./ask.js";
 import { reporter, useColor, type Reporter } from "./format.js";
+import { desktopHint } from "./desktop.js";
 /** One answer for the whole process: whether STDOUT can carry ANSI (#204). */
 const stdoutColor = (): boolean => useColor({ isTty: process.stdout.isTTY === true, env: process.env });
 /** The same question for STDERR, where every prompt and progress line goes (#204). The two
@@ -195,6 +196,8 @@ async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>
       loginCommand: plan.signIn,
       signsInItself: plan.agent.signsInItself ?? false,
       credentialEnv: plan.agent.credentialEnv ?? null,
+      // gov has had this answer since #221 and was not using it here — see signInPrompt.
+      desktop: desktopHint(),
     };
     const options = signInOptions(facts);
     // One real option means no question worth asking — offering a menu of one is theatre.

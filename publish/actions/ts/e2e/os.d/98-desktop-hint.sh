@@ -67,3 +67,43 @@ else
   # say plainly that this image cannot answer the question.
   info "SKIPPED — Xvfb is not in this image, so the desktop branch was NOT exercised here"
 fi
+
+# ── AND WHAT IT DOES WITH THAT VERDICT ON A SIGN-IN SCREEN (#221 → #213) ──
+#
+# The block above proves gov reaches the right conclusion about this machine. This proves it
+# ACTS on it, which is the half that was missing for weeks: #221 landed the probe, and the
+# sign-in screen went on printing "gov cannot tell whether this machine has one".
+#
+# Three walks on 2026-09-13 were lost to exactly that — a container with no browser, an adopter
+# choosing option 1 because it is option 1, and a login flow waiting on a browser that could
+# never open. OpenAI Codex started a local login server; Claude Code sat at `/login` wanting a
+# code from a page nobody could reach.
+#
+# Asserted HERE rather than in the journey because the journey runs on the host, where
+# `desktopHint` answers "yes" from the platform alone on macOS. This container is the only
+# place the headless answer is the same every time.
+info "and it ACTS on that verdict where it matters — the sign-in screen"
+SCREEN="$("$NODE" -e '
+  const s = require(process.env.PKG + "/lib/cjs/cli/sign-in-choice.js");
+  const d = require(process.env.PKG + "/lib/cjs/cli/desktop.js");
+  const f = { tool: "Claude Code", loginCommand: ["claude", "/login"],
+              credentialEnv: "ANTHROPIC_API_KEY", desktop: d.desktopHint() };
+  process.stdout.write(s.signInPrompt(f, s.signInOptions(f)).join("\n"));
+' 2>/dev/null)"
+
+runs sh -c 'case "$1" in *"1. Paste an API key now"*) exit 0;; *) exit 1;; esac' _ "$SCREEN" \
+  && pass "the key route is offered FIRST on a machine with no browser" \
+  || fail "option 1 is still the browser route here: $SCREEN"
+runs sh -c 'case "$1" in *"no desktop here"*) exit 0;; *) exit 1;; esac' _ "$SCREEN" \
+  && pass "and it says what it observed, rather than disclaiming it" \
+  || fail "no observation given: $SCREEN"
+runs sh -c 'case "$1" in *"cannot tell whether this machine has one"*) exit 1;; *) exit 0;; esac' _ "$SCREEN" \
+  && pass "the old disclaimer is gone" \
+  || fail "still printing 'gov cannot tell' on a machine it can read: $SCREEN"
+# THE RULING, ON THE SCREEN IT GOVERNS: reorder and annotate, never withhold.
+runs sh -c 'case "$1" in *"claude /login"*) exit 0;; *) exit 1;; esac' _ "$SCREEN" \
+  && pass "and the browser route is STILL offered — reordered, never withheld" \
+  || fail "the browser route was removed, which #221 forbids: $SCREEN"
+runs sh -c 'case "$1" in *editor*) exit 1;; *) exit 0;; esac' _ "$SCREEN" \
+  && pass "the caveat talks about a browser, not an editor" \
+  || fail "printed the editor caveat on a sign-in screen: $SCREEN"

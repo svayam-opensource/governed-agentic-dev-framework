@@ -92,4 +92,21 @@ export function desktopCaveat(hint: DesktopHint): string | null {
  * ORDERING IS THE WHOLE PERMITTED USE. Nothing is dropped: an adopter on a machine gov thinks
  * is headless still sees every route, in an order that puts the one likely to work first.
  */
+/**
+ * The same observation, said about a BROWSER rather than an editor.
+ *
+ * `desktopCaveat` ends "an editor may have nowhere to open", which is exactly right where it is
+ * used — the editor/IDE route — and exactly the wrong noun on a sign-in screen, where what
+ * needs to open is a vendor's OAuth page. Reusing it there printed a sentence about editors to
+ * someone choosing how to log in, so the two are separate functions with one shared verdict.
+ *
+ * Null when a desktop was detected: the route needs no caveat and adding one would be noise.
+ */
+export function browserCaveat(hint: DesktopHint): string | null {
+  if (hint.verdict === "yes") return null;
+  return hint.verdict === "remote"
+    ? `the display looks remote (${hint.because}), so a browser would open on the machine holding it, not here`
+    : `gov sees no desktop here (${hint.because}), so a browser probably cannot open`;
+}
+
 export const preferCli = (hint: DesktopHint): boolean => hint.verdict !== "yes";
