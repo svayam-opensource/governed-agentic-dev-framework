@@ -5,7 +5,7 @@
  * meaning survives without them, because colour is the part most likely to be absent.
  */
 import { expect } from "chai";
-import { useColor, paint, reporter } from "../../src/cli/format.js";
+import { useColor, paint, reporter, wrap } from "../../src/cli/format.js";
 
 const ARROW = "\u2192", TICK = "\u2713", CROSS = "\u2717";
 const CYAN = "\u001b[36m", GREEN = "\u001b[32m", RED = "\u001b[31m", RESET = "\u001b[0m";
@@ -67,5 +67,34 @@ describe("gov-work — the two marks (#204)", () => {
   it("paint is the only place a code is written, and it no-ops when off", () => {
     expect(paint("x", "green", false)).to.equal("x");
     expect(paint("x", "green", true)).to.equal(`${GREEN}x${RESET}`);
+  });
+});
+
+describe("gov-work — wrap", () => {
+  it("keeps every line inside the width, indent included", () => {
+    // The long lines kept coming back: the #209 warning shipped at 110 characters, and the
+    // credential diagnosis at 155, because its longest part is interpolated — no care in the
+    // template can bound text that arrives at runtime.
+    const long = "gov sees no desktop here (no DISPLAY or WAYLAND_DISPLAY), so a browser probably cannot open — a key is the only route that works on this machine.";
+    for (const l of wrap(long)) expect(l.length, l).to.be.at.most(76);
+  });
+
+  it("never cuts a word in half", () => {
+    // An over-long path or URL gets its own too-long line rather than being split where it
+    // cannot be copied — which is worse than overflowing.
+    const url = "https://auth.openai.com/oauth/authorize?client_id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const lines = wrap(`open ${url} to continue`);
+    expect(lines.some((l) => l.includes(url)), "the url survives whole").to.equal(true);
+  });
+
+  it("indents every line the same, so it reads as one block", () => {
+    for (const l of wrap("one two three four five six seven eight nine ten eleven twelve thirteen fourteen", 30)) {
+      expect(l.startsWith("  "), l).to.equal(true);
+    }
+  });
+
+  it("collapses whitespace rather than emitting empty lines", () => {
+    expect(wrap("  a   b  ")).to.deep.equal(["  a b"]);
+    expect(wrap("")).to.deep.equal([]);
   });
 });

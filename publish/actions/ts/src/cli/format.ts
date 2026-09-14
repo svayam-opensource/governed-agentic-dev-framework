@@ -79,6 +79,31 @@ export interface Reporter {
   complete(text: string): readonly string[];
 }
 
+/**
+ * Break a sentence to fit a terminal, at a word boundary.
+ *
+ * WRITTEN BECAUSE THE LONG LINES KEPT COMING BACK. The #209 warning ran to 110 characters on
+ * its first draft and needed a test pinning it to 80; the credential diagnosis then arrived at
+ * 155 because its longest part is interpolated — `browserCaveat`'s text — so no amount of care
+ * in the template can bound it. A message that wraps mid-word in the terminal it is meant to be
+ * read in is a message that gets skipped, which is the whole reason any of this is written out.
+ *
+ * Never breaks a word: an over-long token (a path, a URL) gets its own line, too long, rather
+ * than being cut in half where it cannot be copied.
+ */
+export function wrap(text: string, width = 76, indent = "  "): readonly string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (line === "") { line = word; continue; }
+    if (`${line} ${word}`.length + indent.length <= width) { line = `${line} ${word}`; continue; }
+    out.push(indent + line);
+    line = word;
+  }
+  if (line !== "") out.push(indent + line);
+  return out;
+}
+
 /** Two spaces: everything gov prints inside a run is indented under its step banner. */
 const PAD = "  ";
 

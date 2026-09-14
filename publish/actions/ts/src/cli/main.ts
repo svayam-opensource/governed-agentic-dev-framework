@@ -25,8 +25,8 @@ import { verifyAgentContext } from "../lifecycle/root-protocol.js";
 import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
 import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
 import { askFns, type AskFns } from "./ask.js";
-import { reporter, useColor, type Reporter } from "./format.js";
-import { desktopHint } from "./desktop.js";
+import { reporter, useColor, wrap, type Reporter } from "./format.js";
+import { desktopHint, preferCli, browserCaveat } from "./desktop.js";
 /** One answer for the whole process: whether STDOUT can carry ANSI (#204). */
 const stdoutColor = (): boolean => useColor({ isTty: process.stdout.isTTY === true, env: process.env });
 /** The same question for STDERR, where every prompt and progress line goes (#204). The two
@@ -1481,7 +1481,40 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
         // the session is governed when nothing was ever delivered.
         if (r.status !== 0) {
           process.stderr.write(`\n${r3.fail(`${agent} still will not take the protocol as a first message.`)}\n`);
-          process.stderr.write(`  Start it yourself in ${cwd} and paste this as your first message:\n\n`);
+          // SAY THE CAUSE GOV ALREADY KNOWS, instead of shrugging at it.
+          //
+          // A walk on 2026-09-14 ended here. The handover itself worked — Bob refused, gov
+          // offered the terminal, the person took it, gov retried — and then Bob said:
+          //
+          //     Error: Bob API key is required. Set BOB_API_KEY environment variable.
+          //
+          // while gov printed only "still will not take the protocol". gov holds both halves of
+          // that diagnosis: the catalog names the agent's credential variable, and the
+          // environment says whether it is set. Printing a shrug over the top of two facts it
+          // has is the same defect as the sign-in screen disclaiming a desktop verdict it had.
+          //
+          // Only asserted when the variable is genuinely absent. If a key IS set and the agent
+          // still refuses, the cause is something else and guessing would send someone to
+          // re-paste a key that was never the problem.
+          const needsKey = Boolean(credEnv) && !process.env[credEnv!];
+          if (needsKey) {
+            const say2 = (t: string): void => { for (const l of wrap(t)) process.stderr.write(`${l}\n`); };
+            process.stderr.write("\n");
+            say2(`${credEnv} is not set, and ${agent} needs it to take a first message.`);
+            const hint = desktopHint();
+            if (preferCli(hint)) {
+              // The other route is a browser, and gov has already concluded there is not one.
+              // Saying so is what turns "try again" into "try the other option".
+              // Two sentences, deliberately: `browserCaveat` already ends in its own "so …"
+              // clause, and joining them produced "so a browser probably cannot open — so a key
+              // is the only route". Interpolated prose cannot be punctuated from the outside.
+              say2(`Its only other route is a browser sign-in, and ${browserCaveat(hint)}.`);
+              say2("A key is the only route that works on this machine.");
+            }
+            process.stderr.write("\n");
+            say2(`Run gov again and choose "Paste an API key" when it asks how to sign in.`);
+          }
+          process.stderr.write(`\n  Or start ${agent} yourself in ${cwd} and paste this as your first message:\n\n`);
           process.stderr.write(`${s.promptText}\n\n`);
         }
       }
