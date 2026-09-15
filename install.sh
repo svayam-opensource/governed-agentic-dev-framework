@@ -85,6 +85,20 @@ skip() { printf '  %s·%s %s %s(already present)%s\n' "$DIM" "$RST" "$*" "$DIM" 
 warn() { printf '  %s!%s %s\n' "$YEL" "$RST" "$*"; }
 die()  { printf '\n%serror:%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 
+# SHA-256 OF A FILE, on whatever this machine happens to have.
+#
+# Three spellings because there is no one command: coreutils gives `sha256sum` (every Linux image
+# gov supports), macOS gives `shasum` and no sha256sum, and `openssl` covers the rest. Returns
+# non-zero if none exist, and the caller treats that as a hard failure rather than as "unverified" —
+# a check that quietly does not run is worse than no check, because the output still looks clean.
+sha256_of() {
+  if   command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum    >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v openssl   >/dev/null 2>&1; then openssl dgst -sha256 "$1" | awk '{print $NF}'
+  else return 1
+  fi
+}
+
 # Run something slow with a spinner, so silence never looks like a hang.
 #
 # A tester watched `npm install -g` for half a minute with nothing on screen and
@@ -304,6 +318,25 @@ install_node() {
     info "using the Node archive you provided, not downloading: $GOV_NODE_TARBALL"
     cp "$GOV_NODE_TARBALL" "$tmp/node.tar.gz" \
       || die "could not read $GOV_NODE_TARBALL — check the path and its permissions"
+
+    # AN ARCHIVE YOU SUPPLIED IS NOT CHECKED AGAINST THE NETWORK, and the output says which.
+    #
+    # The reason GOV_NODE_TARBALL exists is a machine that cannot reach nodejs.org, so fetching
+    # SHASUMS256.txt to verify it would defeat the point and fail on exactly the machines that need
+    # it. Set GOV_NODE_SHA256 to have it checked; leave it unset and the hash is PRINTED rather than
+    # silently skipped, so it can be compared by hand and so the output never implies a check that
+    # did not happen.
+    supplied_sha="$(sha256_of "$tmp/node.tar.gz")" \
+      || die "no sha256 tool on this machine (looked for sha256sum, shasum, openssl)."
+    if [ -n "${GOV_NODE_SHA256:-}" ]; then
+      [ "$supplied_sha" = "$GOV_NODE_SHA256" ] || die "CHECKSUM MISMATCH on the archive you supplied.
+    expected  $GOV_NODE_SHA256
+    actual    $supplied_sha
+  Nothing was unpacked."
+      ok "checksum verified against GOV_NODE_SHA256: ${supplied_sha}"
+    else
+      warn "not verified — no GOV_NODE_SHA256 given. sha256 is ${supplied_sha}"
+    fi
   else
     # RETRY BEFORE BLAMING THE NETWORK.
     #
@@ -328,6 +361,41 @@ install_node() {
     info "downloading ${file} (about 50 MB)"
     curl -fSL --progress-bar --retry 4 --retry-delay 2 --retry-all-errors "$url" -o "$tmp/node.tar.gz" \
       || die "download failed after several tries: $url"
+
+    # VERIFY WHAT IS ABOUT TO BE UNPACKED AND RUN (#205).
+    #
+    # This script downloads a 50 MB archive over the network and then executes what is inside it.
+    # nodejs.org publishes SHASUMS256.txt beside every release for exactly this, and until now it
+    # was not read. Fetched from the same directory as the archive, so it pins the file we actually
+    # took rather than some other build of the same version.
+    #
+    # NOT a supply-chain proof on its own: whoever could substitute the archive could substitute the
+    # checksum file with it. It does catch the case that actually happens — a truncated or corrupted
+    # download, a proxy that served something else, a mirror that is stale — and it is the
+    # precondition for the signature check that comes next (SHASUMS256.txt.asc, which needs the Node
+    # release keyring; deliberately a separate step).
+    spin "verifying the download against nodejs.org's checksums" \
+      bash -c "curl -fsSL --retry 4 --retry-delay 2 --retry-all-errors 'https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/SHASUMS256.txt' -o '$tmp/SHASUMS256.txt'" \
+      || die "could not fetch nodejs.org's checksums after several tries.
+  The Node archive downloaded but cannot be verified, so it will not be unpacked."
+
+    expected="$(awk -v f="$file" '$2 == f { print $1; exit }' "$tmp/SHASUMS256.txt")"
+    [ -n "$expected" ] || die "nodejs.org's SHASUMS256.txt does not list ${file}.
+  Refusing to unpack an archive that cannot be checked."
+
+    actual="$(sha256_of "$tmp/node.tar.gz")" \
+      || die "no sha256 tool on this machine (looked for sha256sum, shasum, openssl).
+  Install one of those and run this again — the download will not be unpacked unverified."
+
+    if [ "$actual" != "$expected" ]; then
+      rm -f "$tmp/node.tar.gz"
+      die "CHECKSUM MISMATCH on ${file} — the download has been deleted, nothing was unpacked.
+    expected  $expected
+    actual    $actual
+  A corrupted or truncated download is the usual cause; run this again. If it repeats, something
+  between you and nodejs.org is altering the file and that is worth investigating before retrying."
+    fi
+    ok "checksum verified: ${actual}"
   fi
 
   rm -rf "$NODE_DIR"; mkdir -p "$NODE_DIR"
