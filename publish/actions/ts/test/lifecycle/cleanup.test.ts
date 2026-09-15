@@ -12,6 +12,10 @@ import { expect } from "chai";
 import { seedPathsFor, type LeftoverArtifact } from "../../src/lifecycle/leftover.js";
 import { classify, planCleanup, inReversalOrder, hasRefusals, reverse, planLines, type CleanupEnv, type CleanupConfig } from "../../src/lifecycle/cleanup.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
+// The doubles record produced paths, which are path.join'd — `a\\b` on Windows. Normalise the ACTUAL
+// at the assertion boundary so the test can keep saying what it means. Same fix as the 83 that failed
+// the first time this suite met Windows; I wrote these without it and CI caught it on #232.
+import { pxDeep, px } from "../helpers/paths.js";
 
 const CFG: CleanupConfig = { defaultBranch: "main", remote: "origin", workspaceRepo: "svm-prj-work" };
 const PATHS = seedPathsFor({ govHome: "/gov", agentWorkRoot: "/awr", projectId: "PRJ-9-x", branch: "BRNCH-9-x" });
@@ -136,8 +140,8 @@ describe("#230 — reversing a failed seed: what gov will and will not do", () =
     const { e, calls, removed } = env();
     const s = classify(e, CFG, A.homeStub, PATHS);
     expect(reverse(e, CFG, s, PATHS).ok).to.equal(true);
-    expect(removed).to.deep.equal(["/gov/projects/PRJ-9-x"]);
-    expect(calls).to.deep.equal(["addPath /gov projects/PRJ-9-x", "commit /gov", "push origin main"]);
+    expect(pxDeep(removed)).to.deep.equal(["/gov/projects/PRJ-9-x"]);
+    expect(pxDeep(calls)).to.deep.equal(["addPath /gov projects/PRJ-9-x", "commit /gov", "push origin main"]);
   });
 
   it("reversing a work root detaches worktrees through git before removing it", () => {
@@ -146,8 +150,8 @@ describe("#230 — reversing a failed seed: what gov will and will not do", () =
     const { e, calls } = env({ readdir: () => ["svm-prj-work"] });
     const s = classify(e, CFG, A.workspaceDir, PATHS);
     expect(reverse(e, CFG, s, PATHS).ok).to.equal(true);
-    expect(calls[0], "the governance worktree is detached from govHome, its parent").to.equal("worktreeRemove /gov /awr/PRJ-9-x/svm-prj-work");
-    expect(calls).to.include("worktreeRemove /gov /awr/PRJ-9-x");
+    expect(px(calls[0]), "the governance worktree is detached from govHome, its parent").to.equal("worktreeRemove /gov /awr/PRJ-9-x/svm-prj-work");
+    expect(pxDeep(calls)).to.include("worktreeRemove /gov /awr/PRJ-9-x");
   });
 
   it("branch reversals use the recorded data rather than recomputing it", () => {
