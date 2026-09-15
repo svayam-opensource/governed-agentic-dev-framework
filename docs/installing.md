@@ -1,3 +1,30 @@
+# Installing `gov`
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/svayam-opensource/governed-agentic-dev-framework/main/install.sh -o install.sh \
+  && bash install.sh
+source ~/.bashrc          # or ~/.zshrc — the installer says which
+gov
+```
+
+`install.sh` fetches its own Node under your home directory and installs
+`@svayam-opensource/gov` from npm. It touches no system directory and needs no
+`sudo`; `curl` and `tar` are the only prerequisites, and both are already present
+everywhere this can run. Testers point it at a local build with
+`GOV_PKG=/path/to.tgz`.
+
+**Fetch, then run — do not `curl … | bash`.** Piped, a failed download is silent:
+`curl -f` writes nothing and exits 22, `bash` reads an empty stdin and exits 0, and
+the pipeline reports success. Nothing installs, and the first symptom is
+`gov: command not found` somewhere later, with nothing connecting the two.
+
+> **The rest of this page is out of date.** It documents `@svayam-opensource/prj`,
+> the CLI `gov` superseded, and its vendored/un-vendored model no longer applies.
+> Rewriting it is framework#181; it is left here rather than deleted so nothing
+> that still links to it breaks in the meantime.
+
+---
+
 # Installing the `prj` CLI (un-vendored) — ADR-0001 Phase 4
 
 By default `prj` runs **vendored** — the CLI lives inside each governance repo
