@@ -342,12 +342,17 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     deps.vcs.push(config.govHome, remote, config.defaultBranch);
 
     // ── Anchor issue (best-effort; not transactional) ─────────────────────────
+    // RECORD THE BASE BRANCH, because close cannot work it out later (merge-chain.ts explains why).
+    // One base per project: if the repos disagree there is no single order for close to merge in, so
+    // nothing is recorded and close falls back loudly rather than picking one of them.
+    const declaredBases = [...new Set(codeRepoUrls.map((u) => input.repoBases?.[u] ?? config.defaultCodeBranch))];
     const anchorRef = deps.anchor.createAnchorIssue({
       boardNumber: ref.number,
       title: board.title,
       owner: ref.owner,
       workspaceRepo: config.workspaceRepo,
       assigneeLogin: input.seederLogin ?? null,
+      baseBranch: declaredBases.length === 1 ? declaredBases[0]! : null,
     });
 
     tx.commit();

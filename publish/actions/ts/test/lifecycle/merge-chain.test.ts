@@ -8,7 +8,8 @@
  * below it (or the next ordinary release silently reverts the fix and nothing notices).
  */
 import { expect } from "chai";
-import { envLadder, mergeChain, baseBranchOf } from "../../src/lifecycle/merge-chain.js";
+import { envLadder, mergeChain, baseBranchFor } from "../../src/lifecycle/merge-chain.js";
+import { anchorIssueBody, baseBranchFromAnchorBody } from "../../src/lifecycle/anchor.js";
 import { repoSlugFromUrl } from "../../src/lifecycle/repo.js";
 
 const CFG = { defaultBranch: "main", defaultCodeBranch: "dev" };
@@ -64,30 +65,50 @@ describe("close — the merge chain", () => {
 });
 
 describe("close — reading the project's base", () => {
-  const yaml = (b: string): string => `repos:\n- url: https://github.com/O/r\n  role: primary\n  base_branch: ${b}\n`;
-
-  it("no project.yaml → the fallback, which is every ordinary project", () => {
-    expect(baseBranchOf(null, "dev")).to.deep.equal({ base: "dev" });
+  it("nothing recorded → the fallback, and it SAYS it assumed", () => {
+    expect(baseBranchFor(null, "dev")).to.deep.equal({ base: "dev", assumed: true });
+    expect(baseBranchFor(undefined, "dev")).to.deep.equal({ base: "dev", assumed: true });
   });
 
-  it("reads a declared base", () => {
-    expect(baseBranchOf(yaml("main"), "dev")).to.deep.equal({ base: "main" });
+  it("a recorded base is used, and is not reported as an assumption", () => {
+    expect(baseBranchFor("uat", "dev")).to.deep.equal({ base: "uat", assumed: false });
   });
 
-  it("a seeded project with no base declared yet falls back", () => {
-    expect(baseBranchOf("repos:\n- url: null\n  role: primary\n  base_branch: null\n", "dev")).to.deep.equal({ base: "dev" });
+  it("the fallback is DISTINGUISHABLE from a recorded value that happens to match it", () => {
+    // The whole defect this replaces: project.yaml was never written, so the fallback was taken
+    // every time and looked exactly like a decision. A recorded "dev" and an assumed "dev" must
+    // not be the same value.
+    expect(baseBranchFor("dev", "dev").assumed, "recorded").to.equal(false);
+    expect(baseBranchFor(null, "dev").assumed, "assumed").to.equal(true);
   });
 
-  it("repos agreeing on one base is fine, however many there are", () => {
-    expect(baseBranchOf(yaml("main") + yaml("main"), "dev")).to.deep.equal({ base: "main" });
+  it("whitespace is not a recorded base", () => {
+    expect(baseBranchFor("   ", "dev")).to.deep.equal({ base: "dev", assumed: true });
   });
 
-  it("repos DISAGREEING is refused — close would have no single order to merge in", () => {
-    const r = baseBranchOf(yaml("main") + yaml("dev"), "dev");
-    expect("error" in r).to.equal(true);
-    if (!("error" in r)) return;
-    expect(r.error).to.include("main, dev");
-    expect(r.error, "say what to do about it").to.match(/Split the project, or align the bases/);
+  it("round-trips through the anchor body, which is where it is actually stored", () => {
+    for (const b of ["dev", "uat", "release/2026.09"]) {
+      const body = anchorIssueBody(42, "Invoice API", b);
+      expect(baseBranchFromAnchorBody(body), b).to.equal(b);
+      expect(body, "the board number stays parseable — find/findAll depend on it").to.include("Project #42");
+    }
+  });
+
+  it("an anchor seeded BEFORE the base was recorded reads as nothing, not as a wrong branch", () => {
+    // Every project that exists today has a body with no base line. It must fall back loudly
+    // rather than parse something adjacent out of the prose.
+    const legacy = anchorIssueBody(7, "Old project");
+    expect(baseBranchFromAnchorBody(legacy)).to.equal(null);
+    expect(baseBranchFor(baseBranchFromAnchorBody(legacy), "dev")).to.deep.equal({ base: "dev", assumed: true });
+  });
+
+  it("the recorded base drives the chain a hotfix needs", () => {
+    // The case merge-chain exists for, end to end: cut from uat, must ship to uat AND protect dev.
+    const ladder = envLadder({ defaultBranch: "main", defaultCodeBranch: "dev" }, ["uat"]);
+    const recorded = baseBranchFromAnchorBody(anchorIssueBody(9, "Hotfix", "uat"));
+    expect(mergeChain(baseBranchFor(recorded, "dev").base, ladder)).to.deep.equal(["uat", "dev"]);
+    // and with nothing recorded it would have been dev alone — the leg that was being dropped.
+    expect(mergeChain(baseBranchFor(null, "dev").base, ladder)).to.deep.equal(["dev"]);
   });
 });
 

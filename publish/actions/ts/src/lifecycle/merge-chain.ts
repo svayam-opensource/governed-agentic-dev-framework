@@ -64,20 +64,23 @@ export function mergeChain(base: string, ladder: readonly string[]): string[] {
 }
 
 /**
- * The branch a project's repos were cut from, read from `project.yaml`'s `repos[].base_branch`.
+ * The branch a project must land in, and whether that was RECORDED or merely ASSUMED.
  *
- * One base per project, not per repo. A project spanning repos with different bases is a project doing two
- * jobs, and close would have no single order to merge in — so this refuses rather than picking one, and the
- * caller reports it. Absent → the fallback (`defaultCodeBranch`), which is every ordinary project.
+ * This used to read `repos[].base_branch` out of `project.yaml`. That file is not written any more —
+ * GitHub is the source of truth — so the read always missed and every project silently fell back to
+ * `defaultCodeBranch`. Invisible for an ordinary project, which is cut from that branch anyway, and
+ * fatal for the only case this module exists to serve: a hotfix cut from `uat` got the chain
+ * `["dev"]`, never merged into `uat`, and so dropped the *ship* leg. See framework todo, 2026-09-15.
+ *
+ * The base is now recorded in the project's anchor-issue body at seed (`anchor.ts`), which is where
+ * the board number already lives. It has to be recorded rather than derived, because git cannot
+ * answer the question afterwards: it knows the commit a branch descends from, not the branch name
+ * someone typed, and two env branches sitting on the same commit are indistinguishable by ancestry.
+ *
+ * `assumed` is returned rather than hidden so the caller can say which it used. A fallback that
+ * reads identically to a recorded value is the defect this replaces.
  */
-export function baseBranchOf(projectYaml: string | null, fallback: string): { readonly base: string } | { readonly error: string } {
-  if (!projectYaml) return { base: fallback };
-  const declared = [...projectYaml.matchAll(/^\s*base_branch:\s*(\S+)\s*$/gm)]
-    .map((m) => m[1]!)
-    .filter((b) => b !== "null" && b !== "~");
-  const distinct = [...new Set(declared)];
-  if (distinct.length > 1) {
-    return { error: `repos declare different base branches (${distinct.join(", ")}) — close has no single order to merge in. Split the project, or align the bases.` };
-  }
-  return { base: distinct[0] ?? fallback };
+export function baseBranchFor(recorded: string | null | undefined, fallback: string): { readonly base: string; readonly assumed: boolean } {
+  const base = (recorded ?? "").trim();
+  return base ? { base, assumed: false } : { base: fallback, assumed: true };
 }

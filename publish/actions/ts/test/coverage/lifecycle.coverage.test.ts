@@ -80,7 +80,15 @@ const fs: Fs = {
   mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
 };
 const issues: Issues = { state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {}, resolveIssueUrl: () => null, closeBoard: () => {} };
-const anchor: AnchorCreator = { createAnchorIssue: () => "r#1", setState: () => true } as unknown as AnchorCreator;
+// `find` is part of AnchorCreator and close now calls it to read the recorded base branch. The
+// double used to omit it behind a cast, which typechecked and then threw at runtime — so it is
+// implemented here rather than guarded against in close.
+const anchor: AnchorCreator = {
+  createAnchorIssue: () => "r#1",
+  setState: () => true,
+  find: () => ({ url: "https://github.com/O/r/issues/1", number: 1, labels: [], assignees: [], baseBranch: null }),
+  setAssignee: () => true,
+} as unknown as AnchorCreator;
 const pulls: Pulls = { create: () => "pr", merge: () => "merged" };
 
 function ctx(over: Partial<CliContext> = {}): CliContext {
@@ -663,6 +671,46 @@ describe("lifecycle coverage — close", () => {
     const r = run(["close"], { fs: closeFs(), pulls: { create: () => null, merge: () => "merged" } });
     expect(r.code).to.equal(0);
     expect(r.lines[1]).to.equal("  PR: (merged)");
+  });
+
+  // ── WHERE close LANDS THE BRANCH, and where it learned that from ─────────────
+  //
+  // The base branch used to be read from `project.yaml`, which is not written any more, so the
+  // fallback to defaultCodeBranch was taken on every close while reading like a decision. A hotfix
+  // cut from `uat` therefore merged into `dev` alone and never reached `uat` — it dropped the leg
+  // that actually fixes production. These two prove the round-trip through the anchor issue.
+  /** A Vcs that records every branch close checked out, so the merge legs are observable. */
+  const recordingVcs = (): { vcs: Vcs; legs: () => string[] } => {
+    const seen: string[] = [];
+    const v = fakeVcs();
+    // close also checks out the project branch itself (gate + archive); the MERGE LEGS are the
+    // env-branch checkouts, so the project branch is filtered out rather than positionally skipped.
+    return { vcs: { ...v, checkout: (_dir: string, b: string) => { seen.push(b); } }, legs: () => seen.filter((b) => b !== PBRANCH) };
+  };
+  /** An anchor whose recorded base is `base` (null = an anchor seeded before this was recorded). */
+  const anchorWithBase = (base: string | null): AnchorCreator => ({
+    ...anchor,
+    find: () => ({ url: "https://github.com/O/r/issues/1", number: 1, labels: [], assignees: [], baseBranch: base }),
+  } as unknown as AnchorCreator);
+
+  it("a base RECORDED on the anchor drives the legs — uat ships, dev is protected", () => {
+    const { vcs, legs } = recordingVcs();
+    const r = run(["close"], {
+      fs: closeFs(), vcs, board: boardWithCodeRepo, anchor: anchorWithBase("uat"),
+      config: { ...CONFIG, envBranches: ["uat"] },
+    });
+    expect(r.code, r.lines.join(" | ")).to.equal(0);
+    expect(legs(), "uat first (ship), then dev (protect)").to.deep.equal(["uat", "dev"]);
+  });
+
+  it("nothing recorded → dev alone, which is right for an ordinary project", () => {
+    const { vcs, legs } = recordingVcs();
+    const r = run(["close"], {
+      fs: closeFs(), vcs, board: boardWithCodeRepo, anchor: anchorWithBase(null),
+      config: { ...CONFIG, envBranches: ["uat"] },
+    });
+    expect(r.code, r.lines.join(" | ")).to.equal(0);
+    expect(legs(), "the uat leg is absent — nothing said to ship there").to.deep.equal(["dev"]);
   });
 
   it("happy path with a passing test-merge gate → exit 0", () => {

@@ -301,7 +301,8 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
 
     case "close": {
       const r = close(
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, pulls: ctx.pulls, authorize: ctx.authorize, gate: ctx.gate, log: ctx.log },
+        // `anchor` is what lets close read the base branch seed recorded, instead of assuming dev.
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, pulls: ctx.pulls, authorize: ctx.authorize, gate: ctx.gate, anchor: ctx.anchor, log: ctx.log },
         // envBranches: the rungs BETWEEN main and dev, so a hotfix lands in every branch below its base.
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo, defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch, envBranches: c.envBranches },
         { govClone: ctx.home, projectWorkRoot, today: ctx.today },
