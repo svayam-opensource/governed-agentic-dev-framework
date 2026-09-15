@@ -35,6 +35,18 @@ export function parseArgv(argv: readonly string[]): ParsedArgs | { error: string
   return { command, positionals, flags };
 }
 
+/**
+ * Read a flag as a switch: true when the name is present, whatever it carries.
+ *
+ * Presence rather than value, because the parser above assigns the next token to a flag that has no
+ * `=`. So `--clean https://…` records the URL as the flag's value, and testing `=== true` would read
+ * that as "not set" — a switch that silently does nothing when the operator puts it before the
+ * positional. Here it stays true, and the missing positional is reported by the usage check.
+ */
+export function flagBool(flags: Readonly<Record<string, string | boolean>>, name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(flags, name);
+}
+
 /** Read a flag as a string, or undefined if absent / boolean. */
 export function flagStr(flags: Readonly<Record<string, string | boolean>>, name: string): string | undefined {
   const v = flags[name];

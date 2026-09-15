@@ -11,7 +11,7 @@
  * (ctx.home is the project clone; projectWorkRoot is its parent).
  */
 import * as path from "node:path";
-import { type ParsedArgs, flagStr } from "./args.js";
+import { type ParsedArgs, flagStr, flagBool } from "./args.js";
 import type { OrgConfig } from "../config/org-config.js";
 import type { Board } from "../lifecycle/board.js";
 import type { Vcs } from "../lifecycle/vcs.js";
@@ -23,7 +23,8 @@ import type { BoardRef } from "../lifecycle/identity.js";
 import type { GateResult } from "../lifecycle/close-gate.js";
 import { planIssue, issueSummary } from "../lifecycle/issue-create.js";
 import { agentReport, formatAgentReport, planAgentInstall } from "./agent-verb.js";
-import { seed } from "../lifecycle/seed.js";
+import { seed, inspectLeftovers, applyCleanup } from "../lifecycle/seed.js";
+import { planLines } from "../lifecycle/cleanup.js";
 import { expandTilde } from "../resolve/node-env.js";
 import { task } from "../lifecycle/task-run.js";
 import { merge } from "../lifecycle/merge.js";
@@ -243,7 +244,46 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     }
 
     case "seed": {
-      if (positionals.length < 1) return usage("seed <board-url> [--assignee <login>]");
+      if (positionals.length < 1) return usage("seed <board-url> [--assignee <login>] [--clean [--consent]]");
+
+      // ── `--clean`: reverse what a failed run left behind (#230) ───────────────
+      //
+      // A separate entry point rather than a mode of the seed below, so it can never fall through
+      // into creating a project. Two steps on purpose: `--clean` shows the plan and does the items
+      // whose safety is established by evidence; `--clean --consent` additionally does the ones that
+      // risk something, which the operator has by then been told about item by item. Items gov
+      // REFUSES are never done under either — a confirmation does not make destroying unpushed work
+      // correct, so it is not offered.
+      if (flagBool(flags, "clean")) {
+        const seedCfg = {
+          govHome: ctx.home, workspaceRepo: c.workspaceRepo, agentWorkRoot: c.agentWorkRoot,
+          defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch,
+          githubOrg: c.githubOrg, repoOverrides: c.repoOverrides, orgTokens: c.orgTokens,
+        };
+        const seedDeps = { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding };
+        const found = inspectLeftovers(seedDeps, seedCfg, { boardUrl: positionals[0] });
+        if (!found.ok) return { code: found.code, lines: [found.message] };
+        if (found.leftovers.length === 0) {
+          return { code: 0, lines: ["Nothing to reverse — this board has no leftover state on this machine."] };
+        }
+
+        const consent = flagBool(flags, "consent");
+        const r = applyCleanup(seedDeps, seedCfg, found.plan, found.paths, consent);
+        const lines = [
+          ...planLines(found.plan), "",
+          ...r.done.map((d) => `  reversed: ${d}`),
+          ...r.skipped.map((d) => `  left:     ${d}`),
+          ...r.failed.map((d) => `  FAILED:   ${d}`),
+        ];
+        if (r.skipped.some((x) => x.includes("needs --consent"))) {
+          lines.push("", "  Re-run with --consent to do the items above that risk something.");
+        }
+        // Non-zero while anything remains: a cleanup that cleared three of four artifacts has not
+        // cleared the way for a re-seed, and exiting 0 would say it had.
+        const remaining = r.skipped.length + r.failed.length;
+        return { code: r.failed.length ? 1 : remaining ? 1 : 0, lines };
+      }
+
       const r = seed(
         { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding },
         {

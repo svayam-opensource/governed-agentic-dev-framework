@@ -131,7 +131,7 @@ describe("lifecycle coverage — seed", () => {
   it("missing <board-url> → usage (exit 2)", () => {
     const r = run(["seed"]);
     expect(r.code).to.equal(2);
-    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov seed <board-url> [--assignee <login>]"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov seed <board-url> [--assignee <login>] [--clean [--consent]]"]);
   });
 
   it("happy path → exit 0 with exact lines", () => {
@@ -209,11 +209,42 @@ describe("lifecycle coverage — seed", () => {
     expect(px(r.lines[0])).to.equal("Cannot derive project id (empty-slug).");
   });
 
-  it("error: leftover state from a prior failed run → exit 1", () => {
+  it("error: leftover state from a prior failed run → exit 1, AND a route out of it (#230)", () => {
     // Default fakeVcs.remoteBranchExists === true → the project branch already exists.
+    // This used to assert only that gov described the state. Describing it and stopping was #230:
+    // it told the reader gov understood the problem, which implies it can act on it. The message
+    // must now name what reversal would do, and the command that does it.
     const r = run(["seed", BOARD_URL]);
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.match(/^Detected leftover state from a previous failed run:/);
+    const text = r.lines.join("\n");
+    expect(text, "say gov can reverse it").to.match(/gov can reverse it, one piece at a time/);
+    expect(text, "and name the command").to.include("--clean");
+    expect(text, "each item verdicted").to.match(/\[(safe|ask|REFUSE)/);
+  });
+
+  it("--clean on a board with NOTHING left over does not seed by accident (#230)", () => {
+    // The reason --clean is its own entry point rather than a mode of seed: a flag consumed thirty
+    // lines before the write phases would have created a project here.
+    const r = run(["seed", BOARD_URL, "--clean"], { vcs: seedVcs() });
+    expect(r.code).to.equal(0);
+    expect(r.lines[0]).to.match(/Nothing to reverse/);
+  });
+
+  it("--clean without --consent leaves the risky items and says so (#230)", () => {
+    // fakeVcs: remoteBranchExists true, isAncestor false → an unmerged remote branch, which is the
+    // one artifact that can destroy the only copy of real work.
+    const r = run(["seed", BOARD_URL, "--clean"]);
+    expect(r.code, "anything remaining is a non-zero exit — the way is not clear for a re-seed").to.equal(1);
+    const text = r.lines.join("\n");
+    expect(text).to.match(/needs --consent/);
+    expect(text).to.match(/Re-run with --consent/);
+    expect(text, "and it must NOT have deleted the branch").to.not.match(/reversed: delete remote branch/);
+  });
+
+  it("--clean --consent reverses the risky item it just described (#230)", () => {
+    const r = run(["seed", BOARD_URL, "--clean", "--consent"]);
+    const text = r.lines.join("\n");
+    expect(text).to.match(/reversed: delete remote branch/);
   });
 
   it("error: an effect throws mid-transaction → exit 1 (seed-failed)", () => {

@@ -19,7 +19,8 @@ import type { Fs } from "./fs-io.js";
 import type { AnchorCreator } from "./anchor.js";
 import { ensureRootProtocol } from "./root-protocol.js";
 import { deriveProjectIdentity, parseBoardUrl, boardTitleFor } from "./identity.js";
-import { seedPathsFor, detectLeftovers, leftoversMessage, type LeftoverArtifact } from "./leftover.js";
+import { seedPathsFor, detectLeftovers, type LeftoverArtifact, type SeedPaths } from "./leftover.js";
+import { planCleanup, planLines, reverse, type CleanupStep } from "./cleanup.js";
 import { renderAgentMd, renderTodoMd } from "./content.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
 import { repoNameFromUrl } from "./repo.js";
@@ -98,6 +99,14 @@ export type SeedResult =
   | {
       readonly ok: false; readonly code: number; readonly reason: string; readonly message: string;
       readonly leftovers?: readonly LeftoverArtifact[];
+      /**
+       * What reversing each leftover would do, and whether gov may (#230). Carried rather than
+       * merely described, for the same reason `suggestOverrides` is: the caller owns the terminal
+       * and can offer, and a plan the caller has to recompute is a plan that drifts. `seedPaths`
+       * rides along because only seed derived them.
+       */
+      readonly cleanupPlan?: readonly CleanupStep[];
+      readonly seedPaths?: SeedPaths;
       readonly rollbackFailures?: readonly RollbackFailure[];
       /**
        * Fixes the preflight worked out for itself (#194): upstream → the adopter's
@@ -120,6 +129,67 @@ function gitkeepStub(i: {
 # truth (no project.yaml / registry.yaml, SDD-012). The authored content
 # (agent.md, knowledge/) lives on branch '${i.branch}'.
 `;
+}
+
+/**
+ * What a previous failed seed left behind for this board, and what gov may do about it (#230).
+ *
+ * Split out of `seed` so `--clean` has an entry point that CANNOT fall through into seeding. Doing
+ * this by adding a mode flag to `seed` would have meant one function whose late phases run or not
+ * depending on an argument set thirty lines earlier — and a `--clean` on a board with nothing left
+ * over would have quietly created a project instead of saying there was nothing to do.
+ *
+ * Read-only: identity derivation, the board fetch `seed` does anyway, and the leftover probes.
+ */
+export type InspectResult =
+  | { readonly ok: true; readonly paths: SeedPaths; readonly leftovers: readonly LeftoverArtifact[]; readonly plan: readonly CleanupStep[] }
+  | { readonly ok: false; readonly code: number; readonly reason: string; readonly message: string };
+
+export function inspectLeftovers(deps: SeedDeps, config: SeedConfig, input: Pick<SeedInput, "boardUrl" | "legacyBranches">): InspectResult {
+  const remote = config.remote ?? "origin";
+  const ref = parseBoardUrl(input.boardUrl);
+  if (!ref) return { ok: false, code: 1, reason: "bad-url", message: `Not a GitHub Project URL: ${input.boardUrl}` };
+
+  const board = deps.board.fetchProject(ref);
+  const gate = validateBoard(board);
+  if (!gate.ok) return { ok: false, code: 1, reason: gate.reason, message: boardValidationMessage(gate) };
+
+  const idr = deriveProjectIdentity({ url: input.boardUrl, title: board.title, legacyBranches: input.legacyBranches });
+  if (!idr.ok) return { ok: false, code: 1, reason: idr.reason, message: `Cannot derive project id (${idr.reason}).` };
+
+  const paths = seedPathsFor({ govHome: config.govHome, agentWorkRoot: config.agentWorkRoot, projectId: idr.projectId, branch: idr.branch });
+  const leftovers = detectLeftovers({ vcs: deps.vcs, fs: deps.fs }, paths);
+  const env = { vcs: deps.vcs, fs: deps.fs, readdir: (d: string) => deps.fs.readdir(d), rm: (t: string) => deps.fs.rm(t) };
+  const plan = planCleanup(env, { defaultBranch: config.defaultBranch, remote, workspaceRepo: config.workspaceRepo }, leftovers, paths);
+  return { ok: true, paths, leftovers, plan };
+}
+
+/**
+ * Reverse an already-approved plan, step by step, stopping at the first failure.
+ *
+ * `consent` is what the operator typed after reading the plan, so it is checked HERE rather than
+ * inside `reverse`: the executor performs one approved step and does not re-litigate approval.
+ * `refused` steps are never run whatever the flags say — there is no answer that makes destroying
+ * unpushed work correct.
+ */
+export function applyCleanup(deps: SeedDeps, config: SeedConfig, plan: readonly CleanupStep[], paths: SeedPaths, consent: boolean): { readonly done: string[]; readonly skipped: string[]; readonly failed: string[] } {
+  const remote = config.remote ?? "origin";
+  const cfg = { defaultBranch: config.defaultBranch, remote, workspaceRepo: config.workspaceRepo };
+  const env = { vcs: deps.vcs, fs: deps.fs, readdir: (d: string) => deps.fs.readdir(d), rm: (t: string) => deps.fs.rm(t) };
+  const done: string[] = [], skipped: string[] = [], failed: string[] = [];
+  for (const step of plan) {
+    if (step.verdict.kind === "refused") { skipped.push(`${step.action} — REFUSED: ${step.verdict.why}`); continue; }
+    if (step.verdict.kind === "needs-consent" && !consent) { skipped.push(`${step.action} — needs --consent: ${step.verdict.why}`); continue; }
+    const r = reverse(env, cfg, step, paths);
+    if (r.ok) done.push(step.action);
+    else {
+      failed.push(`${step.action} — ${r.why}`);
+      // Stop here. The order is load-bearing (a worktree before its branch), so continuing past a
+      // failure means attempting steps whose precondition just did not happen.
+      break;
+    }
+  }
+  return { done, skipped, failed };
 }
 
 /** Seed a project workspace from its GitHub Project board. */
@@ -147,7 +217,16 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
   // ── Leftover-state guard ────────────────────────────────────────────────────
   const leftovers = detectLeftovers({ vcs: deps.vcs, fs: deps.fs }, paths);
   if (leftovers.length) {
-    return { ok: false, code: 1, reason: "leftover-state", message: leftoversMessage(leftovers), leftovers };
+    // DETECTION THAT LEADS SOMEWHERE (#230). This used to return a list and stop, which told the
+    // reader gov understood the problem while offering nothing about it. The plan says, per
+    // artifact, what reversal would do and whether gov may — and names the command that does it.
+    const cleanupEnv = { vcs: deps.vcs, fs: deps.fs, readdir: (d: string) => deps.fs.readdir(d), rm: (t: string) => deps.fs.rm(t) };
+    const cleanupPlan = planCleanup(cleanupEnv, { defaultBranch: config.defaultBranch, remote, workspaceRepo: config.workspaceRepo }, leftovers, paths);
+    const message = [
+      ...planLines(cleanupPlan),
+      `  gov seed ${input.boardUrl} --clean            reverse what is safe, and say what is not`,
+    ].join("\n");
+    return { ok: false, code: 1, reason: "leftover-state", message, leftovers, cleanupPlan, seedPaths: paths };
   }
 
   const linkedRepoUrls = board.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo);
