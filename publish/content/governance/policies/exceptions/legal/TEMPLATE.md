@@ -1,6 +1,6 @@
 # Legal Exception Request Template
 
-**Exception Path:** `knowledge/policies/exceptions/legal/`
+**Exception Path:** `governance/policies/exceptions/legal/`
 **Approver:** Legal Owner (current: `<POLICY_OWNER_EMAIL>`)
 **Compliance Level:** C02 — Always Apply exception process
 

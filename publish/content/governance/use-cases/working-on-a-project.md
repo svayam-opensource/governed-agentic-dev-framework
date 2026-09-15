@@ -6,7 +6,7 @@ This document is for the **developer or agent** doing actual work on an active p
 - A GitHub Project has been created and at least one Issue is linked to it from a repo you can push to.
 - You have `gh auth status` showing a usable identity.
 
-For the framework's concepts, roles, and CLI reference, see [USER_GUIDE.md](USER_GUIDE.md). For the policy ledger that governs every step below, see [`knowledge/policies/org-ai-agent-governance-policy.md`](../knowledge/policies/org-ai-agent-governance-policy.md).
+For the framework's concepts, roles, and CLI reference, see [USER_GUIDE.md](USER_GUIDE.md). For the policy ledger that governs every step below, see [`governance/policies/org-ai-agent-governance-policy.md`](../governance/policies/org-ai-agent-governance-policy.md).
 
 > **Current model at a glance (ADR-0001).** The framework is converging on a small surface:
 > - **Developer verbs:** `gov seed` · `gov join` · `gov task` · `gov sync` · `gov merge` ·
@@ -197,7 +197,7 @@ Open the workspace at **`projects/<PID>/`** (recommended) or gov repo root on th
 | **Agent** | Read knowledge layers (required) | Read tool → `knowledge/`, project, repos, prefs | Same | Same |
 | **You** | Verify | `/memory` lists imports | Settings → Rules → `agent.mdc` = **Always** | Ask agent to summarize write restrictions |
 
-**Not automatic for any tool:** full `knowledge/policies/`, `projects/<PID>/knowledge/*`, code repo `knowledge/`, or preferences — the agent must read these each session.
+**Not automatic for any tool:** full `governance/policies/`, `projects/<PID>/knowledge/*`, code repo `knowledge/`, or preferences — the agent must read these each session.
 
 Detailed step tables and timeline: [`docs/design/agent-context-assembly-spec.md`](design/agent-context-assembly-spec.md) Appendix D.
 
@@ -221,7 +221,7 @@ Harness registry (all tools): [`agent/harness-manifest.yaml`](../agent/harness-m
 - Drive the work by **direction**, not by **delegation**. The agent shouldn't autonomously decide what to implement.
 - When asking the agent to make a change, point at the file path under `$AGENT_WORK_ROOT/projects/...` so it doesn't get confused with the workspace repo's tree.
 - For non-obvious decisions, ask the agent to write the rationale into `projects/.../knowledge/notes.md` before the corresponding code change. That keeps the audit trail honest.
-- When a policy question comes up mid-session and an exception might be needed: stop, file an exception request in `knowledge/policies/exceptions/<domain>/`, and `gov pause` until it's approved. Agents must hard-stop on unresolved C01 (POL-117).
+- When a policy question comes up mid-session and an exception might be needed: stop, file an exception request in `governance/policies/exceptions/<domain>/`, and `gov pause` until it's approved. Agents must hard-stop on unresolved C01 (POL-117).
 
 ### Session-end protocol
 
@@ -377,7 +377,7 @@ Per-project copies under `projects/<PID>/` are composed at seed time (protocol +
 
 Harness delivery covers **protocol only**. The agent must read these each session:
 
-- Full `knowledge/policies/` text
+- Full `governance/policies/` text
 - `projects/<PID>/knowledge/*`
 - Code repo `knowledge/`
 - `$AGENT_WORK_ROOT/preferences/<gh-login>.md`
@@ -411,7 +411,7 @@ touching org-specific values.
 
 ### How upgrades work (Direction A)
 
-Framework files (`knowledge/policies/`, `CLAUDE.md`, `AGENTS.md`,
+Framework files (`governance/policies/`, `CLAUDE.md`, `AGENTS.md`,
 the per-tool rule files, etc.) contain **no org-specific values**. They use
 angle-bracketed tokens like `<ORG_NAME>` and `<DEFAULT_BRANCH>` that the agent
 resolves at runtime from `org-config.yaml`. After `gov setup`, the ONLY file
@@ -462,5 +462,5 @@ double-curly placeholder token) fails the gate before it lands.
 ## Where to go next
 
 - [USER_GUIDE.md](USER_GUIDE.md) — concepts, roles, full CLI reference
-- [`knowledge/policies/org-ai-agent-governance-policy.md`](../knowledge/policies/org-ai-agent-governance-policy.md) — the governing policy (POL-001 through POL-171)
-- [`knowledge/policies/agentic-development-procedures.md`](../knowledge/policies/agentic-development-procedures.md) — procedural protocols
+- [`governance/policies/org-ai-agent-governance-policy.md`](../governance/policies/org-ai-agent-governance-policy.md) — the governing policy (POL-001 through POL-171)
+- [`governance/policies/agentic-development-procedures.md`](../governance/policies/agentic-development-procedures.md) — procedural protocols

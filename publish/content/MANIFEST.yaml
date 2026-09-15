@@ -83,7 +83,9 @@ files:
   - { src: agent/harness/.clinerules/agent.md,          dst: agent/harness/.clinerules/agent.md,          mode: scaffold-auto }
   - { src: agent/harness/.windsurf/rules/agent.md,      dst: agent/harness/.windsurf/rules/agent.md,      mode: scaffold-auto }
   - { src: agent/harness/.github/copilot-instructions.md, dst: agent/harness/.github/copilot-instructions.md, mode: scaffold-auto }
-  - { src: agent/harness/.continue/rules.md,            dst: agent/harness/.continue/rules.md,            mode: scaffold-auto }
+  # `.continue/rules/` is a DIRECTORY the CLI scans, not a file (verified in @continuedev/cli).
+  # Shipped as `.continue/rules.md` it was never read — the fourth path of this shape.
+  - { src: agent/harness/.continue/rules/agent.md,      dst: agent/harness/.continue/rules/agent.md,      mode: scaffold-auto }
 
   # The six vendor hooks are GONE (Decision 4) — .claude/hooks/, .claude/settings.json,
   # .claude/commands/session-start.md, .cursor/hooks/, .cursor/hooks.json and
@@ -161,15 +163,20 @@ files:
   # Orgs customise PR templates, so the framework hands one over and then stays out.
   - { src: .github/pull_request_template.md,   dst: .github/pull_request_template.md,   mode: seed-once }
 
-  # THE ONLY REAL scaffold-prompt IN THE MANIFEST. Both sides genuinely evolve: the framework
-  # adds validators over time, and an org adds `runs-on: [self-hosted]` and its own steps.
-  # Neither version is right on its own, so a human merges. Everything else was scaffold-prompt
-  # by default rather than by analysis.
+  # scaffold-prompt IS GONE FROM THE MANIFEST ENTIRELY (2026-09-15).
   #
-  # This entry is the reason `readBaseline` must finally be implemented — without a baseline it
-  # cannot tell "the framework changed it" from "the org changed it" and reports every
-  # difference as a conflict.
-  - { src: .github/workflows/gov-validate.yml, dst: .github/workflows/gov-validate.yml, mode: scaffold-prompt }
+  # This was the last entry that wanted it: both sides genuinely evolve — the framework adds
+  # validators, the org adds `runs-on: [self-hosted]` and its own steps. But scaffold-prompt
+  # needs a BASELINE to tell "we changed it" from "they changed it", and `readBaseline` has
+  # never been implemented, so it reported every difference as a conflict and skipped it. One
+  # mode, one file, and a dead dependency to build for it.
+  #
+  # Resolved with the pattern seed-once's own limit already names: when the framework must keep
+  # evolving a file's structure, ship it as a REFERENCE the org copies from rather than a file
+  # the org edits in place. The workflow is the org's outright; the framework's current version
+  # ships beside it under governance/specs/ and is always up to date to diff against.
+  - { src: .github/workflows/gov-validate.yml,       dst: .github/workflows/gov-validate.yml,       mode: seed-once }
+  - { src: governance/specs/gov-validate.reference.yml, dst: governance/specs/gov-validate.reference.yml, mode: scaffold-auto }
 
   # .gitignore: the org's, after the first install — they add their own build artefacts.
   - { src: .gitignore, dst: .gitignore, mode: seed-once }

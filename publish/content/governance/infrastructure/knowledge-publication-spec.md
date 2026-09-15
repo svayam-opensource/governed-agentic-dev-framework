@@ -9,7 +9,7 @@ owner: <POLICY_OWNER_EMAIL>
 # Knowledge Publication Specification
 
 **Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)
-**Parent Policy:** `knowledge/policies/org-ai-agent-governance-policy.md` (POL-083 to POL-086)
+**Parent Policy:** `governance/policies/org-ai-agent-governance-policy.md` (POL-083 to POL-086)
 
 ---
 
@@ -38,7 +38,7 @@ Primary knowledge consumption interface for developers, governance teams, and au
 - All `projects/PRJ-<board#>-<slug>/knowledge/` content
 - A project dashboard derived from GitHub (Project boards + anchor issues) — there is no `registry.yaml`
 - CODEOWNERS rendered as domain ownership map
-- `knowledge/policies/roles.md` rendered as an org chart
+- the governance policy's §3.2 roles rendered as an org chart
 
 ---
 
@@ -49,7 +49,7 @@ Formal documents suitable for regulators, external auditors, and legal review.
 
 ### Requirements
 - **Download location:** Downloadable from the static site (linked from each policy document)
-- **Trigger:** Regenerated on every merge touching `knowledge/policies/`
+- **Trigger:** Regenerated on every merge touching `governance/policies/`
 - **Format:** Professional PDF with page numbers, headers, footers
 - **Required metadata on every PDF:**
   - Document title
@@ -57,7 +57,7 @@ Formal documents suitable for regulators, external auditors, and legal review.
   - Effective date
   - Policy owner name and role
   - <ORG_NAME> branding
-- **Scope:** One PDF per top-level policy document in `knowledge/policies/`
+- **Scope:** One PDF per top-level policy document in `governance/policies/`
 
 ### PDF Documents Generated
 - `org-ai-agent-governance-policy.pdf`

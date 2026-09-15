@@ -58,7 +58,7 @@ The developer preferences file is **per-user**, keyed on your GitHub login. `gov
 Every rule in the policy is tagged with a level:
 
 - **C01 — Non-Negotiable**: Hard stop. `gov-work` refuses to proceed. Exceptions require Policy Owner approval via PR.
-- **C02 — Always Apply**: Block work pending an approved exception PR (in `knowledge/policies/exceptions/`).
+- **C02 — Always Apply**: Block work pending an approved exception PR (in `governance/policies/exceptions/`).
 - **C03 — Apply Intelligently**: Proceed if you have good reason; document the deviation in the project's `compliance.md`.
 
 The validators (`gov validate`) enforce structural invariants. The compliance levels apply to *interpretation* of policy by humans and agents.
@@ -71,7 +71,7 @@ Two role types: **Owners** (accountable, approve PRs) and **Managers** (delegate
 
 | Role | Approves what |
 |---|---|
-| Policy Owner | Any change to `knowledge/policies/`, roles, agent.md |
+| Policy Owner | Any change to `governance/policies/`, roles, agent.md |
 | Legal Owner | `knowledge/legal/` |
 | Infrastructure Owner | `knowledge/infrastructure/`, CI/CD |
 | System Architecture Owner | `knowledge/architecture/system/` |
@@ -79,7 +79,7 @@ Two role types: **Owners** (accountable, approve PRs) and **Managers** (delegate
 
 CODEOWNERS in this repo enforces the routing automatically — domain owners are auto-assigned as PR reviewers based on which folders the PR touches.
 
-Current role holders are listed in `knowledge/policies/roles.md`. By default at adoption, the Policy Owner holds all roles until they're delegated.
+Current role holders are listed in `governance/policies/org-ai-agent-governance-policy.md` §3.2. By default at adoption, the Policy Owner holds all roles until they're delegated.
 
 ---
 
@@ -254,7 +254,7 @@ This is the right path for:
 
 When you need to deviate from policy, raise an exception PR:
 
-1. Copy the appropriate template from `knowledge/policies/exceptions/<domain>/TEMPLATE.md`:
+1. Copy the appropriate template from `governance/policies/exceptions/<domain>/TEMPLATE.md`:
    - `legal/` — legal/regulatory deviations (Legal Owner approves)
    - `infrastructure/` — CI/CD, hosting (Infrastructure Owner)
    - `architecture/` — system or data architecture (the relevant Architecture Owner)
@@ -308,8 +308,8 @@ This scaffolds the `knowledge/` structure and raises a PR in that repo. Repo own
 ## Where to dig deeper
 
 - [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) — step-by-step day-in-the-life of working on a project, including how to prompt the agent
-- `knowledge/policies/org-ai-agent-governance-policy.md` — the full policy text with all clause IDs
-- `knowledge/policies/roles.md` — current role holders
+- `governance/policies/org-ai-agent-governance-policy.md` — the full policy text with all clause IDs
+- `governance/policies/org-ai-agent-governance-policy.md` §3.2 — current role holders
 - `gov validate` — exactly which invariants are checked
 - The local pre-merge gate — the validators `gov-work` runs before a merge or close
 - `gov upgrade` — pulling upstream framework updates

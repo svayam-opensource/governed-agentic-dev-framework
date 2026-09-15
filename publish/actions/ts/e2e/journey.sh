@@ -18,7 +18,7 @@
 # A scenario is a file in journey.d/. It gets the helpers below and a clean world.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TS_DIR="$(cd "$HERE/.." && pwd)"
+TS_DIR="$(cd "$HERE/.." && pwd)"; export TS_DIR
 CONTENT_DIR="$(cd "$TS_DIR/../../content" && pwd)"
 FILTER="${1:-}"
 
@@ -116,6 +116,30 @@ no_agents_installed() {
 
 # A governance workspace a JOINER could clone: the identity plus the two files the flows
 # read. Built from the shipped content, so it cannot drift from what gov actually seeds.
+# THE HARNESS LIST, DERIVED FROM THE CODE — not a sixth hand-maintained copy.
+#
+# This list existed in FIVE places: agent/harness-manifest.yaml, publish/content/MANIFEST.yaml,
+# ROOT_HARNESS_FILES, harnessFileFor, and twice in this file. Every path defect so far has been
+# one copy disagreeing with another — `.clinerules` as a file, `.gemini/styleguide.md` from a
+# different product, `.continue/rules.md` where the CLI scans a directory — and the last of
+# those took six edits to fix, of which this file was the one forgotten. The guard caught it and
+# six joiner assertions failed on a governance repo that was never built.
+#
+# `root-protocol.ts` already says "DERIVED WOULD BE BETTER THAN LISTED". Here it is cheap: ask
+# the built module.
+harness_files() {
+  # An empty answer means the build is missing or the export moved. Iterating over nothing would
+  # build a governance repo with NO harness and leave a suite of green assertions about a
+  # protocol that was never placed — so it is fatal, not a skip.
+  local out
+  out="$(node -e 'process.stdout.write(require(process.env.TS_DIR + "/lib/cjs/lifecycle/root-protocol.js").ROOT_HARNESS_FILES.join(" "))' 2>/dev/null)"
+  if [ -z "$out" ]; then
+    printf 'harness_files: could not read ROOT_HARNESS_FILES from %s/lib/cjs — run `npm run build`\n' "$TS_DIR" >&2
+    exit 1
+  fi
+  printf '%s' "$out"
+}
+
 make_gov_repo() {
   local dir="$1" org="$2" slug="$3"
   mkdir -p "$dir/governance/policies" "$dir/governance/guidance" "$dir/agent" "$dir/knowledge"
@@ -148,9 +172,7 @@ YAML
   # launch — which is how this fixture's gap was finally found rather than argued about.
   # UNDER agent/harness/ SINCE DECISION 2 (2026-09-14), and GEMINI.md not .gemini/styleguide.md
   # since Decision 15 — the Gemini CLI reads GEMINI.md and never looked at the styleguide.
-  for rel in AGENTS.md CLAUDE.md CONVENTIONS.md GEMINI.md .clinerules/agent.md \
-             .cursor/rules/agent.mdc .github/copilot-instructions.md .continue/rules.md \
-             .windsurf/rules/agent.md; do
+  for rel in $(harness_files); do
     if [ -f "$CONTENT_DIR/agent/harness/$rel" ]; then
       mkdir -p "$dir/agent/harness/$(dirname "$rel")"
       cp "$CONTENT_DIR/agent/harness/$rel" "$dir/agent/harness/$rel"
@@ -176,9 +198,7 @@ fake_joined_project() {
   mkdir -p "$project_dir/$ws/.git"
   # UNDER agent/harness/ SINCE DECISION 2 (2026-09-14), and GEMINI.md not .gemini/styleguide.md
   # since Decision 15 — the Gemini CLI reads GEMINI.md and never looked at the styleguide.
-  for rel in AGENTS.md CLAUDE.md CONVENTIONS.md GEMINI.md .clinerules/agent.md \
-             .cursor/rules/agent.mdc .github/copilot-instructions.md .continue/rules.md \
-             .windsurf/rules/agent.md; do
+  for rel in $(harness_files); do
     if [ -f "$CONTENT_DIR/agent/harness/$rel" ]; then
       mkdir -p "$project_dir/$ws/agent/harness/$(dirname "$rel")"
       cp "$CONTENT_DIR/agent/harness/$rel" "$project_dir/$ws/agent/harness/$rel"

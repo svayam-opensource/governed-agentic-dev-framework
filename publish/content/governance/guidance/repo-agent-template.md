@@ -19,7 +19,7 @@ This file represents the **repo-local knowledge layer** — third priority in th
 
 **This file cannot override org-wide knowledge or policy.**
 In case of conflict, org-wide knowledge always wins.
-See `<WORKSPACE_REPO>/knowledge/policies/org-ai-agent-governance-policy.md` for the governing policy.
+See `<WORKSPACE_REPO>/governance/policies/org-ai-agent-governance-policy.md` for the governing policy.
 
 ---
 
@@ -61,4 +61,4 @@ During an active project:
 ## Data Classification Reminder
 
 - Never commit credentials, secrets, API keys, or PII to this repository (C01)
-- See `<WORKSPACE_REPO>/knowledge/policies/data-classification.md` for full classification rules
+- See `<WORKSPACE_REPO>/governance/policies/org-ai-agent-governance-policy.md` §7.6 for full classification rules

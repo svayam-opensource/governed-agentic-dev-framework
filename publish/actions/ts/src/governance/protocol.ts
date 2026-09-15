@@ -12,28 +12,46 @@
 import * as path from "node:path";
 import type { ValidateContext, ValidationResult } from "./validate.js";
 
-/** Stable §0 anchors — if any disappears, the core mandate was gutted. */
-const MANDATE_ANCHORS = ["agent speaks first", "context manifest", "before you change any code"];
+/**
+ * Stable §0 anchors — if any disappears, the core mandate was gutted.
+ *
+ * REWRITTEN AFTER THE 2026-09-11 RESTRUCTURE, and the reason it went unnoticed is the point.
+ * The old anchors were "agent speaks first" and "before you change any code", phrases from the
+ * pre-restructure §0. The restructure replaced that section with the Policy-Owner-approved
+ * "Before any meaningful work" — so this check should have failed from that day. It did not,
+ * because it reads `publish/content/agent/session-protocol.md`, and THAT copy had drifted to
+ * the old protocol. The validator was asserting a stale file against stale phrases and agreeing
+ * with itself.
+ *
+ * Syncing the shipped copy to the render source is what surfaced it.
+ *
+ * These anchors are now the load-bearing sentences of the approved §0: what the first reply
+ * must be, and that work is refused until it happens. Phrases, not headings, so a reworded
+ * title does not trip it and a gutted mandate does.
+ */
+// LOWERCASE, because the check lowercases the document before comparing. My first version of
+// this list had "Before any meaningful work" with a capital B, which can never match — a broken
+// check that reports the mandate missing from a protocol that carries it.
+const MANDATE_ANCHORS = ["context manifest", "refuse meaningful work", "before any meaningful work"];
 
-const CLAUDE_GATE_PARTS = [
-  ".claude/hooks/session-start.sh",
-  ".claude/hooks/pre-tool-gate.sh",
-  ".claude/hooks/session-ack.sh",
-  ".claude/commands/session-start.md",
-];
-const CURSOR_GATE_PARTS = [
-  ".cursor/hooks/session-start.sh",
-  ".cursor/hooks/session-gate.sh",
-  ".cursor/hooks/session-ack.sh",
-];
+// THE CLIENT-GATE CHECKS ARE GONE (Decision 4, 2026-09-14).
+//
+// They asserted that if `.claude/settings.json` mentions a session-start hook, then
+// `.claude/hooks/{session-start,pre-tool-gate,session-ack}.sh` and
+// `.claude/commands/session-start.md` all exist and are non-empty — and the same for Cursor.
+//
+// gov no longer ships any of those files. They never fired anyway: every launch uses the
+// project directory as cwd and the harness mirror never carried them, so they sat in the
+// governance worktree where no agent looks. Two of nine approved agents having a gate the rest
+// cannot have would bias agent choice (POL-430).
+//
+// Keeping the check would be worse than useless: a developer's OWN .claude/settings.json is
+// theirs, and gov reporting their hooks as "missing/empty" is gov policing a file it has no
+// business in — and was explicitly changed to stop writing.
 
 export function checkProtocol(ctx: ValidateContext): ValidationResult {
   const errors: string[] = [];
   const read = (rel: string): string | null => ctx.fs.readFile(path.join(ctx.repoRoot, rel));
-  const presentNonEmpty = (rel: string): boolean => {
-    const t = read(rel);
-    return t !== null && t.trim() !== "";
-  };
 
   const protocol = read("agent/session-protocol.md");
   if (protocol === null) {
@@ -45,20 +63,6 @@ export function checkProtocol(ctx: ValidateContext): ValidationResult {
     const low = protocol.toLowerCase();
     const missing = MANDATE_ANCHORS.filter((a) => !low.includes(a));
     if (missing.length) errors.push(`agent/session-protocol.md no longer contains its §0 mandate (missing: ${missing.join(", ")})`);
-  }
-
-  // Client gates: if configured, every hook part must be present + non-empty.
-  const settings = read(".claude/settings.json");
-  if (settings !== null && settings.includes("session-start")) {
-    for (const rel of CLAUDE_GATE_PARTS) {
-      if (!presentNonEmpty(rel)) errors.push(`session-start gate is configured but ${rel} is missing/empty`);
-    }
-  }
-  const cursorHooks = read(".cursor/hooks.json");
-  if (cursorHooks !== null && cursorHooks.includes("session-gate")) {
-    for (const rel of CURSOR_GATE_PARTS) {
-      if (!presentNonEmpty(rel)) errors.push(`Cursor session-start gate is configured but ${rel} is missing/empty`);
-    }
   }
 
   return { name: "protocol", ok: errors.length === 0, errors };

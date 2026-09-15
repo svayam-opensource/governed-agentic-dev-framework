@@ -38,7 +38,7 @@ export const ROOT_HARNESS_FILES = [
   ".cursor/rules/agent.mdc",            // cursor
   "GEMINI.md",                          // gemini-code-assist — NOT .gemini/styleguide.md
   ".github/copilot-instructions.md",    // github-copilot
-  ".continue/rules.md",                 // continue
+  ".continue/rules/agent.md",           // continue — a DIRECTORY the CLI scans, not a file
   ".windsurf/rules/agent.md",           // windsurf
 ] as const;
 

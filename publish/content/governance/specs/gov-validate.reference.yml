@@ -1,0 +1,25 @@
+# Governance validation for this gov workspace. Runs the `gov validate` suite
+# (session protocol · knowledge structure · secrets scan · privacy · version
+# sync) on every PR. The CLI is installed from npm — this repo holds no CLI
+# source. Adjust the trigger branches to match your default branch if needed.
+name: gov-validate
+
+on:
+  pull_request:
+  push:
+    branches: ["main", "master"]
+
+jobs:
+  validate:
+    name: gov validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install the gov CLI
+        run: npm install -g @svayam-opensource/gov
+      - name: Validate the workspace
+        run: gov validate --gov-home .

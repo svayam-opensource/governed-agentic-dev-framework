@@ -17,7 +17,7 @@ Project state is derived live from GitHub (boards + anchor issues) — there is 
 ## Authoritative Policy
 
 All work in this repository and all agentic development at <ORG_NAME> is governed by:
-`knowledge/policies/org-ai-agent-governance-policy.md`
+`governance/policies/org-ai-agent-governance-policy.md`
 
 Read this policy before beginning any work session.
 
@@ -34,7 +34,7 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 ## Conflict Resolution by Compliance Level
 
 - **C01 — Non-Negotiable**: Hard stop. Refuse to proceed. Surface to human immediately.
-- **C02 — Always Apply**: Block work. Require approved PR in `knowledge/policies/exceptions/` before continuing.
+- **C02 — Always Apply**: Block work. Require approved PR in `governance/policies/exceptions/` before continuing.
 - **C03 — Apply Intelligently**: Proceed with deviation, but document reasoning in `projects/PRJ-<board#>-<slug>/knowledge/compliance.md`.
 
 ## Session Start Checklist (C01 — complete before any work)
@@ -57,7 +57,7 @@ governing force**. Never self-govern by your own unratified edits. Project-speci
 A `knowledge/` change becomes organizational standard only when merged to `<DEFAULT_BRANCH>` via a PR
 approved by the Policy Owner **and** the CODEOWNERS domain owner(s) whose folders it touches — all
 owners for `policies/`/`mandates/` (POL-086c). See
-`knowledge/policies/org-ai-agent-governance-policy.md` §6.4.
+`governance/policies/org-ai-agent-governance-policy.md` §6.4.
 
 ## Data Classification — Hard Rules
 
@@ -67,7 +67,7 @@ owners for `policies/`/`mandates/` (POL-086c). See
 
 ## Roles
 
-Current role holders are defined in `knowledge/policies/roles.md`.
+Current role holders are defined in `governance/policies/org-ai-agent-governance-policy.md` §3.2.
 All policy roles are currently held by `<POLICY_OWNER_EMAIL>`.
 
 ## Lifecycle operations
