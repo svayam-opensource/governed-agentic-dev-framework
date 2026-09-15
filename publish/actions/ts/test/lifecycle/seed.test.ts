@@ -308,3 +308,73 @@ describe("prj-work Phase 2 — createNodeFs (real temp dir)", () => {
     }
   });
 });
+
+/**
+ * THE BOARD RENAME AT SEED (Policy Owner, 2026-09-15) — and the two ways it must not misbehave.
+ *
+ * Renaming is a convenience for people reading GitHub. The project id lives in the branch and
+ * the directory regardless, and `slugify` strips a `PRJ-<n>` prefix repeatedly — so a rename
+ * that fails, or a title someone edits afterwards, costs nothing. That is what makes it safe to
+ * do at all, and safe to do only once.
+ */
+describe("prj-work Phase 2 — the board rename at seed", () => {
+  const renaming = (over: Partial<Board> = {}) => {
+    const calls: Array<{ number: number; title: string }> = [];
+    const board: Board = {
+      ...fakeBoard(),
+      renameProject: (ref, title) => { calls.push({ number: ref.number, title }); return true; },
+      ...over,
+    };
+    return { board, calls };
+  };
+  const runWith = (board: Board) => {
+    const { vcs } = fakeVcs();
+    const { fsPort } = fakeFs();
+    return seed({ board, vcs, fs: fsPort, anchor: fakeAnchor(), cloneRepo: () => {} }, CONFIG, INPUT);
+  };
+
+  it("prefixes the title with the project id, keeping the human words", () => {
+    const { board, calls } = renaming();
+    const r = runWith(board);
+    expect(r.ok).to.equal(true);
+    expect(calls).to.have.length(1);
+    expect(calls[0]!.title, "the id, then what the person called it")
+      .to.equal("PRJ-43 · @Governance Common Project");
+    expect(calls[0]!.number, "the board it was asked about").to.equal(43);
+  });
+
+  it("reports whether it actually happened, rather than announcing it", () => {
+    const yes = runWith(renaming().board);
+    expect(yes.ok && yes.boardRenamed, "renamed").to.equal(true);
+    const no = runWith(renaming({ renameProject: () => false }).board);
+    expect(no.ok && no.boardRenamed, "declined — say so").to.equal(false);
+  });
+
+  it("a rename that THROWS does not fail the seed", () => {
+    // By the time this runs, branches, worktrees and an anchor issue exist. A board gov cannot
+    // rename — a token without the `project` scope is the ordinary case — must not undo that.
+    const r = runWith(renaming({ renameProject: () => { throw new Error("missing project scope"); } }).board);
+    expect(r.ok, "the seed still succeeded").to.equal(true);
+    expect(r.ok && r.boardRenamed).to.equal(false);
+    expect(r.ok && r.projectId, "and the project is still itself").to.equal("PRJ-43-governance-common-project");
+  });
+
+  it("works against a Board with no renameProject at all", () => {
+    // The method is optional so every existing adapter and fake keeps working. A board gov
+    // cannot rename is a missing nicety, not a failed seed.
+    const plain = fakeBoard();
+    expect((plain as Board).renameProject, "the fake has none").to.equal(undefined);
+    const r = runWith(plain);
+    expect(r.ok).to.equal(true);
+    expect(r.ok && r.boardRenamed).to.equal(false);
+  });
+
+  it("does not call rename when the title already says it", () => {
+    const { board, calls } = renaming({
+      fetchProject: () => ({ ...fakeBoard().fetchProject({} as never), title: "PRJ-43 · @Governance Common Project" }),
+    });
+    const r = runWith(board);
+    expect(r.ok).to.equal(true);
+    expect(calls, "nothing to change, so nothing is sent").to.have.length(0);
+  });
+});

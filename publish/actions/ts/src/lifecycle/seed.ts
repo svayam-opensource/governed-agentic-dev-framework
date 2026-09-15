@@ -18,7 +18,7 @@ import type { Vcs } from "./vcs.js";
 import type { Fs } from "./fs-io.js";
 import type { AnchorCreator } from "./anchor.js";
 import { ensureRootProtocol } from "./root-protocol.js";
-import { deriveProjectIdentity, parseBoardUrl } from "./identity.js";
+import { deriveProjectIdentity, parseBoardUrl, boardTitleFor } from "./identity.js";
 import { seedPathsFor, detectLeftovers, leftoversMessage, type LeftoverArtifact } from "./leftover.js";
 import { renderAgentMd, renderTodoMd } from "./content.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
@@ -83,6 +83,14 @@ export interface SeedSuccess {
   readonly orgGovClone: string;
   readonly repos: ReadonlyArray<{ name: string; url: string; repoDir: string }>;
   readonly anchorRef: string | null;
+  /**
+   * Did gov rename the GitHub board to `PRJ-<n> · <title>`?
+   *
+   * Reported rather than assumed: the rename is best-effort — a token without the `project`
+   * write scope simply leaves the title alone — and a caller that announced it unconditionally
+   * would be claiming something it did not check.
+   */
+  readonly boardRenamed: boolean;
 }
 
 export type SeedResult =
@@ -348,7 +356,35 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     // 2026-09-11 — one mechanism for all agents.) Best-effort finalization: the workspace worktree, with
     // the rendered harness in it, is present by now. Same helper the interactive Work flow uses.
     ensureRootProtocol(deps.fs, paths.projectWorkRoot, config.workspaceRepo);
-    return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef };
+
+    // NAME THE BOARD WHAT GOV CALLS IT (Policy Owner, 2026-09-15).
+    //
+    // A board someone titles "Invoice API" becomes `PRJ-26-invoice-api` in every branch,
+    // directory and document gov writes, and nothing on GitHub says so. Prefixing the title to
+    // `PRJ-26 · Invoice API` closes that gap from the GitHub side and keeps the words a person
+    // chose — a board list of bare ids is harder to scan than the names people gave.
+    //
+    // AFTER `tx.commit()`, DELIBERATELY. Everything above is transactional and rolls back; this
+    // is not. A failed rename must not undo a seed that has created branches, worktrees and an
+    // anchor issue, and a rename that succeeded must not be rolled back into a title that no
+    // longer matches anything.
+    //
+    // AT SEED ONLY. gov does not re-assert the title later: one someone edited afterwards is
+    // theirs. `slugify` strips a `PRJ-<n>` prefix repeatedly, so the two drifting apart costs
+    // nothing — which is what makes "seed only" a safe ruling rather than a loose end.
+    let boardRenamed = false;
+    if (deps.board.renameProject) {
+      const wanted = boardTitleFor(projectId, board.title);
+      if (wanted !== board.title) {
+        // Never fatal: the title is a convenience for people reading GitHub, and the project id
+        // lives in the branch and the directory regardless.
+        try { boardRenamed = deps.board.renameProject(ref, wanted) === true; } catch { boardRenamed = false; }
+        log(boardRenamed
+          ? `board #${ref.number} renamed to "${wanted}"`
+          : `board #${ref.number} left as "${board.title}" — gov could not rename it (needs the \`project\` scope)`);
+      }
+    }
+    return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef, boardRenamed };
   } catch (error) {
     const rollbackFailures = tx.rollback();
     // A rollback that leaves the workspace unresolvable is a bigger event than the
