@@ -177,6 +177,37 @@ seven of them turned out to be real.
 
 ---
 
+## What a container cannot test, and must not be marked failed for
+
+Some steps cannot pass in here no matter how correct gov is. Recognise them, or you
+will file gov defects against the test rig — three walks were lost that way.
+
+**Any browser-based sign-in.** The agent starts a loopback listener *inside* the
+container and prints a URL for a browser that is *outside* it, so the callback never
+arrives. IBM Bob is the one you will hit first: it listens on `127.0.0.1:<random>`
+and waits. Nothing is wrong with Bob or with gov.
+
+Two ways through, and pick deliberately:
+
+```bash
+# in the container — skip the browser entirely
+export BOB_API_KEY=...        # then let gov's key route take it
+```
+
+or run that one step on the host, where a browser exists.
+
+This is also why **#213** matters and why `98-desktop-hint.sh` asserts it: on a machine
+with no desktop, gov must offer the paste-a-key route *first* and must never withhold the
+browser route. If you see gov push you at a browser in here, that **is** a gov defect —
+the distinction is between gov offering an impossible route first (a defect) and the
+route itself being impossible in a container (the rig).
+
+**Anything needing a real desktop.** `98-desktop-hint.sh` runs an actual `Xvfb` when the
+image has one and says `SKIPPED` when it does not. A skipped assertion is not a pass;
+if the image lacks `Xvfb`, that branch was not exercised here at all.
+
+---
+
 ## Resetting
 
 Containers are `--rm`, so scenario 1 is a fresh `docker run`. To reset in place

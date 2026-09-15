@@ -80,7 +80,15 @@ const fs: Fs = {
   mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
 };
 const issues: Issues = { state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {}, resolveIssueUrl: () => null, closeBoard: () => {} };
-const anchor: AnchorCreator = { createAnchorIssue: () => "r#1", setState: () => true } as unknown as AnchorCreator;
+// `find` is part of AnchorCreator and close now calls it to read the recorded base branch. The
+// double used to omit it behind a cast, which typechecked and then threw at runtime — so it is
+// implemented here rather than guarded against in close.
+const anchor: AnchorCreator = {
+  createAnchorIssue: () => "r#1",
+  setState: () => true,
+  find: () => ({ url: "https://github.com/O/r/issues/1", number: 1, labels: [], assignees: [], baseBranch: null }),
+  setAssignee: () => true,
+} as unknown as AnchorCreator;
 const pulls: Pulls = { create: () => "pr", merge: () => "merged" };
 
 function ctx(over: Partial<CliContext> = {}): CliContext {
@@ -123,7 +131,7 @@ describe("lifecycle coverage — seed", () => {
   it("missing <board-url> → usage (exit 2)", () => {
     const r = run(["seed"]);
     expect(r.code).to.equal(2);
-    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov seed <board-url> [--assignee <login>]"]);
+    expect(pxDeep(r.lines)).to.deep.equal(["usage: gov seed <board-url> [--assignee <login>] [--clean [--consent]]"]);
   });
 
   it("happy path → exit 0 with exact lines", () => {
@@ -201,11 +209,42 @@ describe("lifecycle coverage — seed", () => {
     expect(px(r.lines[0])).to.equal("Cannot derive project id (empty-slug).");
   });
 
-  it("error: leftover state from a prior failed run → exit 1", () => {
+  it("error: leftover state from a prior failed run → exit 1, AND a route out of it (#230)", () => {
     // Default fakeVcs.remoteBranchExists === true → the project branch already exists.
+    // This used to assert only that gov described the state. Describing it and stopping was #230:
+    // it told the reader gov understood the problem, which implies it can act on it. The message
+    // must now name what reversal would do, and the command that does it.
     const r = run(["seed", BOARD_URL]);
     expect(r.code).to.equal(1);
-    expect(r.lines[0]).to.match(/^Detected leftover state from a previous failed run:/);
+    const text = r.lines.join("\n");
+    expect(text, "say gov can reverse it").to.match(/gov can reverse it, one piece at a time/);
+    expect(text, "and name the command").to.include("--clean");
+    expect(text, "each item verdicted").to.match(/\[(safe|ask|REFUSE)/);
+  });
+
+  it("--clean on a board with NOTHING left over does not seed by accident (#230)", () => {
+    // The reason --clean is its own entry point rather than a mode of seed: a flag consumed thirty
+    // lines before the write phases would have created a project here.
+    const r = run(["seed", BOARD_URL, "--clean"], { vcs: seedVcs() });
+    expect(r.code).to.equal(0);
+    expect(r.lines[0]).to.match(/Nothing to reverse/);
+  });
+
+  it("--clean without --consent leaves the risky items and says so (#230)", () => {
+    // fakeVcs: remoteBranchExists true, isAncestor false → an unmerged remote branch, which is the
+    // one artifact that can destroy the only copy of real work.
+    const r = run(["seed", BOARD_URL, "--clean"]);
+    expect(r.code, "anything remaining is a non-zero exit — the way is not clear for a re-seed").to.equal(1);
+    const text = r.lines.join("\n");
+    expect(text).to.match(/needs --consent/);
+    expect(text).to.match(/Re-run with --consent/);
+    expect(text, "and it must NOT have deleted the branch").to.not.match(/reversed: delete remote branch/);
+  });
+
+  it("--clean --consent reverses the risky item it just described (#230)", () => {
+    const r = run(["seed", BOARD_URL, "--clean", "--consent"]);
+    const text = r.lines.join("\n");
+    expect(text).to.match(/reversed: delete remote branch/);
   });
 
   it("error: an effect throws mid-transaction → exit 1 (seed-failed)", () => {
@@ -663,6 +702,46 @@ describe("lifecycle coverage — close", () => {
     const r = run(["close"], { fs: closeFs(), pulls: { create: () => null, merge: () => "merged" } });
     expect(r.code).to.equal(0);
     expect(r.lines[1]).to.equal("  PR: (merged)");
+  });
+
+  // ── WHERE close LANDS THE BRANCH, and where it learned that from ─────────────
+  //
+  // The base branch used to be read from `project.yaml`, which is not written any more, so the
+  // fallback to defaultCodeBranch was taken on every close while reading like a decision. A hotfix
+  // cut from `uat` therefore merged into `dev` alone and never reached `uat` — it dropped the leg
+  // that actually fixes production. These two prove the round-trip through the anchor issue.
+  /** A Vcs that records every branch close checked out, so the merge legs are observable. */
+  const recordingVcs = (): { vcs: Vcs; legs: () => string[] } => {
+    const seen: string[] = [];
+    const v = fakeVcs();
+    // close also checks out the project branch itself (gate + archive); the MERGE LEGS are the
+    // env-branch checkouts, so the project branch is filtered out rather than positionally skipped.
+    return { vcs: { ...v, checkout: (_dir: string, b: string) => { seen.push(b); } }, legs: () => seen.filter((b) => b !== PBRANCH) };
+  };
+  /** An anchor whose recorded base is `base` (null = an anchor seeded before this was recorded). */
+  const anchorWithBase = (base: string | null): AnchorCreator => ({
+    ...anchor,
+    find: () => ({ url: "https://github.com/O/r/issues/1", number: 1, labels: [], assignees: [], baseBranch: base }),
+  } as unknown as AnchorCreator);
+
+  it("a base RECORDED on the anchor drives the legs — uat ships, dev is protected", () => {
+    const { vcs, legs } = recordingVcs();
+    const r = run(["close"], {
+      fs: closeFs(), vcs, board: boardWithCodeRepo, anchor: anchorWithBase("uat"),
+      config: { ...CONFIG, envBranches: ["uat"] },
+    });
+    expect(r.code, r.lines.join(" | ")).to.equal(0);
+    expect(legs(), "uat first (ship), then dev (protect)").to.deep.equal(["uat", "dev"]);
+  });
+
+  it("nothing recorded → dev alone, which is right for an ordinary project", () => {
+    const { vcs, legs } = recordingVcs();
+    const r = run(["close"], {
+      fs: closeFs(), vcs, board: boardWithCodeRepo, anchor: anchorWithBase(null),
+      config: { ...CONFIG, envBranches: ["uat"] },
+    });
+    expect(r.code, r.lines.join(" | ")).to.equal(0);
+    expect(legs(), "the uat leg is absent — nothing said to ship there").to.deep.equal(["dev"]);
   });
 
   it("happy path with a passing test-merge gate → exit 0", () => {

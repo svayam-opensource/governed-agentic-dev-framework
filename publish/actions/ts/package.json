@@ -77,5 +77,9 @@
   },
   "dependencies": {
     "@svayam-opensource/svm-util-log": "^1.0.1"
+  },
+  "homepage": "https://github.com/svayam-opensource/governed-agentic-dev-framework#readme",
+  "bugs": {
+    "url": "https://github.com/svayam-opensource/governed-agentic-dev-framework/issues"
   }
 }
