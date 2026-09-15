@@ -15,6 +15,7 @@
  * words were the missing product.
  */
 import { expect } from "chai";
+import * as path from "node:path";
 import { linkOutcomeLines, type LinkOutcome } from "../../src/cli/main.js";
 import { reporter } from "../../src/cli/format.js";
 
@@ -22,7 +23,16 @@ const NODE_BIN = "/home/tester/.local/share/gov/node/bin";
 const LOCAL_BIN = "/home/tester/.local/bin";
 const r = reporter(false);                       // no ANSI: assert words, never colour
 const lines = (o: LinkOutcome): readonly string[] => linkOutcomeLines(o, "bob", r);
-const text = (o: LinkOutcome): string => lines(o).join("\n");
+/**
+ * Separators normalised — Windows CI failed these on a CORRECT answer.
+ *
+ * `linkOutcomeLines` builds the escape-hatch path with `path.join`, which is right: on Windows a
+ * real `nodeBin` is a Windows path and must render with backslashes. The fixture here is a
+ * POSIX path, so on Windows the join produced `\home\tester\…` and the assertion looked for
+ * `/home/tester/…`. The same mistake as `logDirFor` earlier in this project: asserting the
+ * PLATFORM when what is under test is the PATH.
+ */
+const text = (o: LinkOutcome): string => lines(o).join("\n").split(path.sep).join("/");
 
 describe("#209 — gov says when an installed agent will not be on the PATH", () => {
   it("linked: says so, and says where", () => {

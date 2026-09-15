@@ -772,7 +772,7 @@ describe("coverage — validate suite over a fake fs (pass + fail per validator)
   const PKG = "publish/actions/ts/package.json";
   const VER = "publish/content/VERSION";
   const FM = "---\ndomain: policies\nlayer: mandate\ncompliance: C01\nstatus: current\nowner: rkant\n---\n";
-  const PROTO = "§0: the agent speaks first, posts the context manifest before you change any code.";
+  const PROTO = "## 0. Before any meaningful work — your first substantive reply must be the context manifest; until then you must refuse meaningful work.";
 
   /** A fully-green workspace for the CORE suite. */
   const greenFiles = (): Record<string, string> => ({

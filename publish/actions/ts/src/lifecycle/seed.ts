@@ -20,7 +20,7 @@ import type { AnchorCreator } from "./anchor.js";
 import { ensureRootProtocol } from "./root-protocol.js";
 import { deriveProjectIdentity, parseBoardUrl } from "./identity.js";
 import { seedPathsFor, detectLeftovers, leftoversMessage, type LeftoverArtifact } from "./leftover.js";
-import { renderAgentMd, renderTodoMd, substituteTokens } from "./content.js";
+import { renderAgentMd, renderTodoMd } from "./content.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
 import { repoNameFromUrl } from "./repo.js";
 import { classifyProjectBranch, preconditionFailures, adoptions, suggestedOverrides, type RepoPrecondition, type RemoteRef, type RepoStanding } from "./branch-adoption.js";
