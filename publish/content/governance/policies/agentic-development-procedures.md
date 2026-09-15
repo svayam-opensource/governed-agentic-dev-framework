@@ -7,7 +7,7 @@ owner: <POLICY_OWNER_EMAIL>
 version: pending-first-commit
 effective_date: 2026-05-05
 policy_owner: <POLICY_OWNER_EMAIL>
-parent_policy: knowledge/policies/org-ai-agent-governance-policy.md
+parent_policy: governance/policies/org-ai-agent-governance-policy.md
 ---
 
 # <ORG_NAME> — Agentic Development Procedures
@@ -305,10 +305,10 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 
 ### Steps
 1. Identify which exception path applies:
-   - Legal constraint → `knowledge/policies/exceptions/legal/`
-   - Infrastructure constraint → `knowledge/policies/exceptions/infrastructure/`
-   - Architecture constraint → `knowledge/policies/exceptions/architecture/`
-   - Other policy constraint → `knowledge/policies/exceptions/policy/`
+   - Legal constraint → `governance/policies/exceptions/legal/`
+   - Infrastructure constraint → `governance/policies/exceptions/infrastructure/`
+   - Architecture constraint → `governance/policies/exceptions/architecture/`
+   - Other policy constraint → `governance/policies/exceptions/policy/`
 2. Copy the appropriate `TEMPLATE.md` from that folder
 3. Rename: `YYYY-MM-DD-PRJ-<board#>-<slug>-brief-description.md`
 4. Fill in all required fields
@@ -334,7 +334,7 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 
 ### When to Use
 - Initial bootstrap of `knowledge/` before first project
-- Policy Owner updating `knowledge/policies/` directly
+- Policy Owner updating `governance/policies/` directly
 - Ad-hoc knowledge that arises outside any project
 
 ### Steps
@@ -351,13 +351,13 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 ## PROC-15: Developer Offboarding / Emergency Reassignment
 
 **Governs:** POL-053 — C02 Exception Required
-**Exception Path:** `knowledge/policies/exceptions/policy/`
+**Exception Path:** `governance/policies/exceptions/policy/`
 
 ### When to Use
 When the developer with write access (the anchor-issue assignee) becomes unavailable (departure, illness, role change) and the project must continue.
 
 ### Steps (Policy Owner performs)
-1. Create exception request file in `knowledge/policies/exceptions/policy/` using TEMPLATE.md
+1. Create exception request file in `governance/policies/exceptions/policy/` using TEMPLATE.md
    - Include `reassignment_from`, `reassignment_to`, `reassignment_reason`
 2. Raise PR to <DEFAULT_BRANCH>
 3. Policy Owner reviews and merges (or delegates to Policy Representative)
@@ -392,7 +392,7 @@ When the developer with write access (the anchor-issue assignee) becomes unavail
 ### Steps
 1. Policy Owner identifies need for policy update (from compliance review, domain owner input, etc.)
 2. Run `gov knowledge` to create a `knowledge-<slug>` branch
-3. Edit `knowledge/policies/org-ai-agent-governance-policy.md` and/or `knowledge/policies/roles.md`
+3. Edit `governance/policies/org-ai-agent-governance-policy.md` and/or `governance/policies/roles.md`
 4. Raise PR — CODEOWNERS routes to Policy Owner
 5. Policy Owner reviews and merges
 6. On merge: new policy version is the commit SHA; CI/CD regenerates PDFs, site, vectors

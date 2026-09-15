@@ -58,7 +58,7 @@ These jobs run after every successful merge to `<DEFAULT_BRANCH>`. **(C02)**
 - Authentication: internal only
 
 ### 2. PDF Regeneration
-- Trigger: only when merge touches `knowledge/policies/`
+- Trigger: only when merge touches `governance/policies/`
 - Regenerate PDF exports for all policy documents
 - Each PDF must include: title, version (commit SHA), effective date, policy owner
 

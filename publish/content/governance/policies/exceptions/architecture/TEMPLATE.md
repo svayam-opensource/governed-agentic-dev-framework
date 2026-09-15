@@ -1,6 +1,6 @@
 # Architecture Exception Request Template
 
-**Exception Path:** `knowledge/policies/exceptions/architecture/`
+**Exception Path:** `governance/policies/exceptions/architecture/`
 **Approver:** System Architecture Owner or Data Architecture Owner (current: `<POLICY_OWNER_EMAIL>`)
 **Compliance Level:** C02 — Always Apply exception process
 

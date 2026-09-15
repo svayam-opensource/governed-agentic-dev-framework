@@ -1364,7 +1364,9 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       return /^\s*preferred_agent:\s*(\S+)/m.exec(prefs ?? "")?.[1] ?? null;
     },
     applyRepoOverrides,
-    config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot },
+    // govHome is the default-branch clone — POL-086a requires governance be read from there,
+    // never from the project-branch worktree. See sessionStartPrompt.
+    config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot, govHome: resolved.home },
     me,
     canWriteBoard: (n) =>
       tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${n}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) !== "false",

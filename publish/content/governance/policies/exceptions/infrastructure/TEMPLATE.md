@@ -1,6 +1,6 @@
 # Infrastructure Exception Request Template
 
-**Exception Path:** `knowledge/policies/exceptions/infrastructure/`
+**Exception Path:** `governance/policies/exceptions/infrastructure/`
 **Approver:** Infrastructure Owner (current: `<POLICY_OWNER_EMAIL>`)
 **Compliance Level:** C02 — Always Apply exception process
 

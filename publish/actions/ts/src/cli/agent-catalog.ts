@@ -340,7 +340,12 @@ export function harnessFileFor(agentId: string): string | null {
     case "openai-codex": case "ibm-bob": return "AGENTS.md";
     case "cursor": return ".cursor/rules/agent.mdc";
     case "cline": return ".clinerules/agent.md";
-    case "continue": return ".continue/rules.md";
+    // `.continue/rules/` is a DIRECTORY the CLI scans for markdown rule files, not a file —
+    // verified in @continuedev/cli, which builds `rulesDirs = [path.join(cwd, ".continue",
+    // "rules"), …]` and scans them. gov shipped `.continue/rules.md`, so Continue read nothing.
+    // The fourth instance of this class, after .clinerules, AGENTS.md and .gemini/styleguide.md
+    // — and the first one found by a tool rather than by a person noticing.
+    case "continue": return ".continue/rules/agent.md";
     // GEMINI.md, NOT .gemini/styleguide.md (Decision 15, 2026-09-14). Verified against the
     // published @google/gemini-cli 0.59.0: `contextFileName` defaults to "GEMINI.md", which
     // appears 227 times in the package; `styleguide.md` appears nowhere. The styleguide is

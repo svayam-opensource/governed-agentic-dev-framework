@@ -641,3 +641,49 @@ describe("gov-work — the fork question is asked where the terminal is (#194)",
     }
   });
 });
+
+/**
+ * POL-086a — WHICH BRANCH THE AGENT IS POINTED AT (C01).
+ *
+ * The prompt used to read everything from `<project>/<workspace-repo>/…`, a worktree on the
+ * PROJECT branch. POL-086a is explicit that org knowledge, the protocol and policies "must be
+ * built, and rebuilt each session, from <DEFAULT_BRANCH>, never from a project branch", while
+ * `projects/PRJ-…/` is read from the project branch.
+ *
+ * That is not a technicality. POL-086b lets a project branch edit org knowledge as a PROPOSAL
+ * with no governing force — so pointing the agent at the same branch makes an unratified edit
+ * the thing it obeys. Self-governing, which POL-086b prohibits in as many words, reachable by
+ * accident rather than by intent.
+ */
+describe("gov-work — the session prompt reads governance from the default branch (POL-086a)", () => {
+  const GOV = "/home/t/.gov/acme/gov_repo";
+
+  it("governance comes from the default-branch clone, not the worktree", () => {
+    const p = sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV);
+    expect(p, "org-config from the default branch").to.contain(`${GOV}/org-config.yaml`);
+    expect(p, "and the policy too").to.contain(`${GOV}/governance/policies/org-ai-agent-governance-policy.md`);
+    expect(p, "never the worktree copy of the policy")
+      .to.not.contain("acme-gov/governance/policies/org-ai-agent-governance-policy.md");
+  });
+
+  it("project paths still come from the project branch", () => {
+    // The other half of POL-086a: `projects/PRJ-…/` IS the project branch's, and reading it
+    // from the default branch would show the state before this project started.
+    const p = sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV);
+    expect(p).to.contain("acme-gov/projects/PRJ-9-infra/agent.md");
+    expect(p).to.contain("acme-gov/projects/PRJ-9-infra/knowledge/todo.md");
+  });
+
+  it("says WHICH branch governs, so the agent can apply POL-086b itself", () => {
+    // The agent is told the rule, not just handed two paths — it has to refuse to treat a
+    // project-branch edit as authority, and it cannot do that without knowing which is which.
+    expect(sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV)).to.contain("POL-086a");
+  });
+
+  it("falls back to the worktree when no govHome is known, rather than naming a dead path", () => {
+    // A wrong-branch read is a governance defect; a path that does not exist is a dead end that
+    // stops the session. Neither is good, and the first at least proceeds.
+    const p = sessionStartPrompt("PRJ-9-infra", "acme-gov");
+    expect(p).to.contain("acme-gov/org-config.yaml");
+  });
+});

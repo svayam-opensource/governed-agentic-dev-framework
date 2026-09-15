@@ -1,6 +1,6 @@
 # Policy Exception Request Template
 
-**Exception Path:** `knowledge/policies/exceptions/policy/`
+**Exception Path:** `governance/policies/exceptions/policy/`
 **Approver:** Policy Owner (current: `<POLICY_OWNER_EMAIL>`)
 **Compliance Level:** C02 — Always Apply exception process
 

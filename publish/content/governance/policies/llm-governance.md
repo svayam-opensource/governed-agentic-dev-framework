@@ -9,7 +9,7 @@ owner: <POLICY_OWNER_EMAIL>
 # LLM Governance Policy
 
 **Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)
-**Parent Policy:** `knowledge/policies/org-ai-agent-governance-policy.md`
+**Parent Policy:** `governance/policies/org-ai-agent-governance-policy.md`
 **Compliance Level:** C01 for Prohibited tier and data rules; C02 for Provisional tier
 
 ---
@@ -42,7 +42,7 @@ Vetted providers and models that have been reviewed for security, data residency
 Providers or models not yet vetted. May be used for specific projects with Infrastructure Owner approval.
 
 **Usage:** Allowed with Infrastructure Owner C02 approval documented in project exception folder.
-**Process:** Raise exception in `knowledge/policies/exceptions/infrastructure/` before use.
+**Process:** Raise exception in `governance/policies/exceptions/infrastructure/` before use.
 **Agent config:** Must still be declared in the agent's run configuration.
 
 ---
@@ -78,7 +78,7 @@ Regardless of provider approval tier:
 2. **No Confidential data** may be passed to any LLM provider without explicit C02 approval. **(C01)**
 3. Agents must treat all LLM API calls as potentially logged by the provider.
 
-See `knowledge/policies/data-classification.md` for data classification definitions.
+See `governance/policies/org-ai-agent-governance-policy.md` §7.6 for data classification definitions.
 
 ---
 

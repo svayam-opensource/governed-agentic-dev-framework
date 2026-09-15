@@ -93,7 +93,7 @@ C01 rules cannot be waived, overridden, or deferred by any role — including th
 
 Exceptions to C02 rules are permitted only when all of the following conditions are met:
 
-1. A formal exception request file has been created in the appropriate subfolder under `knowledge/policies/exceptions/`. **(POL-017)**
+1. A formal exception request file has been created in the appropriate subfolder under `governance/policies/exceptions/`. **(POL-017)**
 2. The exception request PR has been reviewed and merged by the authorized domain representative (see Section 9). **(POL-018)**
 3. The approved PR exists and is referenceable at the time the exception is exercised. **(POL-019)**
 
@@ -170,9 +170,9 @@ Every defined role must have a current, named holder at all times. **(POL-033)**
 
 A role that becomes vacant for any reason — resignation, reassignment, organizational change — must be filled promptly. Until a new holder is named, the role's authority escalates to the Policy Owner. **(POL-034)**
 
-One individual may hold multiple roles simultaneously if and only if that arrangement is explicitly documented in `knowledge/policies/roles.md`. A role held by implication or assumption does not constitute a valid assignment. **(POL-035)**
+One individual may hold multiple roles simultaneously if and only if that arrangement is explicitly documented in this policy, §3.2. A role held by implication or assumption does not constitute a valid assignment. **(POL-035)**
 
-Manager assignments for each role are made exclusively by the role's Owner and must be recorded in `knowledge/policies/roles.md`. **(POL-036)**
+Manager assignments for each role are made exclusively by the role's Owner and must be recorded in this policy, §3.2. **(POL-036)**
 
 Stakeholder and Developer roles are not defined in this policy. They are managed via GitHub organization permissions and team membership. **(POL-037)**
 
@@ -232,7 +232,7 @@ Projects move through the following states:
 
 A project in `active` or `paused` status may not be reassigned to a different individual or team except via a C02 exception approved by the Policy Owner. **(POL-053)**
 
-Any approved reassignment must document the reassignment reason, date, and approving authority in the approved C02 exception PR (`knowledge/policies/exceptions/policy/`); the change is then reflected by GitHub Project access and the anchor issue's assignees. There is no per-project state file to edit. **(POL-054)**
+Any approved reassignment must document the reassignment reason, date, and approving authority in the approved C02 exception PR (`governance/policies/exceptions/policy/`); the change is then reflected by GitHub Project access and the anchor issue's assignees. There is no per-project state file to edit. **(POL-054)**
 
 After a reassignment, the new assignee must run `gov resume` before beginning any work. Starting work without running `gov resume` after a reassignment is a C02 violation. **(POL-055)**
 
@@ -511,7 +511,15 @@ entitled to rely on. It is stated as what gov *does*, not as what agents *should
 every turn, from a file gov placed and verified at the start of the session.** The file is each
 agent's own conventional instructions path — `CLAUDE.md`, `AGENTS.md`,
 `.cursor/rules/agent.mdc`, and the rest — rendered from §7.0 above and mirrored into the project
-root before the agent starts. **(POL-428)**
+root before the agent starts.
+
+**The guarantee applies to sessions `gov` starts.** gov launches an agent with the project
+directory as its working directory, and that is the directory each agent's conventional
+instructions path is resolved against. An agent a developer starts themselves — in a code repo,
+a subdirectory, or anywhere else — is outside it: some agents search parent directories and
+would still find the protocol, and some anchor at the directory they were opened in and would
+not. gov cannot place a file into a session it did not start, so it does not claim to.
+**(POL-428)**
 
 **Verification is part of the guarantee, not a courtesy.** gov refuses to launch an agent when
 that file is missing, empty, or does not carry the protocol version marker it renders. A
@@ -610,11 +618,11 @@ Agents must declare both `model` and `provider` in the agent's run configuration
 
 The organizational default is `model: auto, provider: cursor`. **(POL-135)**
 
-The list of approved LLM providers and models is maintained by the Infrastructure Owner in `knowledge/policies/llm-governance.md`. This list is the authoritative source for what is and is not permitted. **(POL-136)**
+The list of approved LLM providers and models is maintained by the Infrastructure Owner in `governance/policies/llm-governance.md`. This list is the authoritative source for what is and is not permitted. **(POL-136)**
 
 Sending any confidential or restricted data to any LLM provider is prohibited regardless of whether the provider is approved **(C01, POL-137)**. Approval of a provider grants permission to use the provider for non-sensitive data only.
 
-Using a prohibited LLM provider — one not listed in `knowledge/policies/llm-governance.md` — is a C01 violation **(POL-138)**. The agent must hard stop and surface this to the human immediately.
+Using a prohibited LLM provider — one not listed in `governance/policies/llm-governance.md` — is a C01 violation **(POL-138)**. The agent must hard stop and surface this to the human immediately.
 
 ### 7.6 Data Classification
 
@@ -676,10 +684,10 @@ Compliance events must be tracked at two levels:
 When a C02 rule cannot be applied in a specific circumstance, the exception must be formally requested and approved before work proceeds. The process is:
 
 1. The requester creates an exception request file in the appropriate exceptions subfolder: **(POL-152)**
-   - Legal exceptions → `knowledge/policies/exceptions/legal/`
-   - Infrastructure exceptions → `knowledge/policies/exceptions/infrastructure/`
-   - Architecture exceptions → `knowledge/policies/exceptions/architecture/`
-   - Policy exceptions → `knowledge/policies/exceptions/policy/`
+   - Legal exceptions → `governance/policies/exceptions/legal/`
+   - Infrastructure exceptions → `governance/policies/exceptions/infrastructure/`
+   - Architecture exceptions → `governance/policies/exceptions/architecture/`
+   - Policy exceptions → `governance/policies/exceptions/policy/`
 
 2. The requester raises a PR for this exception request file. **(POL-153)**
 
@@ -786,9 +794,15 @@ The following `gov` subcommands constitute the authorized tooling for project an
 
 ### Appendix C: Role Registry
 
-Current role assignments and manager designations are maintained in `knowledge/policies/roles.md`. That file is the authoritative, up-to-date record of who holds each role. **(POL-166)**
+Current role assignments and manager designations are recorded in **this policy**, §3.2, and the
+GitHub handle of each holder is recorded in `org-config.yaml`. There is no separate roles file:
+`governance/policies/roles.md` defined the same roles this policy already defines, and `POL-402`
+prohibits a fact living in two documents — a drifted copy is false authority. **(POL-166)**
 
-This policy document records initial role assignments at the time of writing. All subsequent changes must be made via PR to `knowledge/policies/roles.md`, approved by the Policy Owner. **(POL-167)**
+Changes to role assignments require a PR approved by the Policy Owner. `CODEOWNERS` is
+**generated** from the roles in this policy and the handles in `org-config.yaml`, so it cannot
+disagree with them; `org-config.yaml` is itself Policy-Owner-gated, because it holds the handle
+registry that `CODEOWNERS` is written from. **(POL-167)**
 
 ---
 
@@ -829,8 +843,8 @@ POL-031: System Architecture Owner is accountable for system design standards; c
 POL-032: Data Architecture Owner is accountable for data standards and data governance; current holder: TBD.
 POL-033: Every defined role must have a current, named holder at all times.
 POL-034: A vacant role escalates to the Policy Owner until a new holder is named.
-POL-035: One person may hold multiple roles only if explicitly documented in knowledge/policies/roles.md.
-POL-036: Manager assignments are made by the role's Owner and recorded in knowledge/policies/roles.md.
+POL-035: One person may hold multiple roles only if explicitly documented in this policy §3.2.
+POL-036: Manager assignments are made by the role's Owner and recorded in this policy §3.2.
 POL-037: Stakeholder and Developer roles are managed via GitHub org permissions, not defined in this policy.
 POL-038: Any change to role assignments requires a PR approved by the Policy Owner.
 POL-039: Domain owners have final approval authority within their own domain; no other role may approve domain PRs.
@@ -934,7 +948,7 @@ POL-132: Every preferences file must open with the declaration: "# Developer Pre
 POL-133: An agent detecting a preferences file overriding org policy must disregard the override and surface it to the human.
 POL-134: Agents must declare model and provider in the agent's run configuration before beginning work.
 POL-135: Organizational default is model: auto, provider: cursor.
-POL-136: Approved LLM providers and models are listed in knowledge/policies/llm-governance.md, maintained by Infrastructure Owner.
+POL-136: Approved LLM providers and models are listed in governance/policies/llm-governance.md, maintained by Infrastructure Owner.
 POL-137: Sending confidential or restricted data to any LLM provider is prohibited regardless of provider approval status (C01).
 POL-138: Using a prohibited LLM provider is a C01 violation requiring hard stop and escalation.
 POL-139: Agents must apply data classification rules without exception.
@@ -950,13 +964,13 @@ POL-148: CI/CD on <WORKSPACE_REPO> validates project workspace structure, CODEOW
 POL-149: CI/CD structural validation failures are C01 events; a failing PR must not be merged.
 POL-150: Per-project compliance.md records all C01 violations, C02 exceptions, and C03 deviations for the project.
 POL-151: Org-wide compliance summary in knowledge/compliance/ is updated at every project close and reviewed quarterly.
-POL-152: C02 exception requests must be filed in the appropriate exceptions subfolder under knowledge/policies/exceptions/.
+POL-152: C02 exception requests must be filed in the appropriate exceptions subfolder under governance/policies/exceptions/.
 POL-153: C02 exception requester must raise a PR for the exception request file.
 POL-154: The appropriate domain owner reviews and merges the exception PR; the merge constitutes formal approval.
 POL-155: Agents block all work dependent on a C02 exception until the approved PR is merged and referenceable.
 POL-156: Exception request files must document: rule being excepted, context, business reason, scope/duration, and compensating controls.
 POL-157: Until domain owners are appointed, all exception approvals fall to the Policy Owner.
-POL-158: Authorized exception approvers by domain are recorded in this policy and kept current in knowledge/policies/roles.md.
+POL-158: Authorized exception approvers by domain are recorded in this policy and kept current in this policy §3.2.
 POL-159: Infrastructure Policy (pending) will govern CI/CD, hosting, vector store, authentication, and LLM provider governance.
 POL-160: System Architecture Policy (pending) will govern system design standards, API contracts, and architectural decisions.
 POL-161: Data Architecture Policy (pending) will govern data modeling, pipeline architecture, data residency, and data governance.
@@ -964,13 +978,13 @@ POL-162: Legal & Compliance Policy (pending) will govern legal requirements, thi
 POL-163: The Glossary defines all key terms used in this policy.
 POL-164: Agents and developers must use the authorized gov commands rather than performing lifecycle operations manually.
 POL-165: The Command Inventory lists all authorized gov lifecycle and standalone subcommands with their purposes.
-POL-166: Current role assignments and manager designations are maintained authoritatively in knowledge/policies/roles.md.
-POL-167: Changes to role assignments require a PR to knowledge/policies/roles.md approved by the Policy Owner.
+POL-166: Role assignments are recorded in this policy (§3.2) and the holders' GitHub handles in org-config.yaml; there is no separate roles file, because POL-402 prohibits one fact in two documents.
+POL-167: Changes to role assignments require a PR approved by the Policy Owner; CODEOWNERS is generated from this policy plus org-config.yaml, and org-config.yaml is itself Policy-Owner-gated because it holds the handle registry CODEOWNERS is written from.
 POL-168: Each project maintains a carry-forward to-do list at projects/PRJ-<board#>-<slug>/knowledge/todo.md, scaffolded by gov seed from knowledge/guidance/todo-template.md.
 POL-169: At session start, an agent must read the project's todo.md and surface its Open items to the developer before planning new work (C01).
 POL-170: During work, an agent (or developer) must capture intermediate to-dos in the project's todo.md as they arise — not at session end.
 POL-171: Projects are stateful and session-spanning; sessions are not project-bound. When an agent switches to a different project's branch within the same session, it must re-run the full session-start protocol for the new project (POL-113 through POL-116, POL-169) and must not carry forward in-memory context from the previous project.
-POL-428: gov guarantees the governance requirements are in the agent's context at launch and on every turn, from a file gov placed and verified at the start of the session — each agent's own conventional instructions path, rendered from the C01 digest and mirrored into the project root before launch.
+POL-428: gov guarantees the governance requirements are in the agent's context at launch and on every turn, from a file gov placed and verified at the start of the session — for sessions GOV STARTS. gov launches with the project directory as the working directory; an agent started by a developer elsewhere is outside the guarantee, because gov cannot place a file into a session it did not start.
 POL-429: gov must refuse to launch an agent when that context file is missing, empty, or does not carry the protocol version marker gov renders; the refusal names the path it checked.
 POL-430: No agent may be governed by a mechanism another approved agent lacks — consistency across the approved list takes precedence over any marginal per-vendor capability, because a vendor-specific mechanism biases agent selection for reasons unrelated to the agent.
 POL-431: Governance changes are picked up in new sessions automatically; mid-session, `gov sync` re-places every agent's context file and prints the one sentence — the same for every agent — that makes a running session re-read it. Until that is sent, the session continues under the governance loaded at launch.

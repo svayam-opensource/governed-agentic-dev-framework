@@ -34,10 +34,23 @@ referenced by it.
 
 ## 2. Domains — the ownership tree
 
-**Invariant: a top-level domain exists if and only if a named Owner role
-exists for it in `knowledge/policies/roles.md` (POL-033). The tree changes
-only when an accountability domain and its owner role are created or
-retired.** **(POL-403, C02)**
+**Invariant: a top-level domain under `knowledge/` exists if and only if a named Owner role
+exists for it in this organization's policy §3.2 (POL-033). The tree changes only when an
+accountability domain and its owner role are created or retired.** **(POL-403, C02)**
+
+**`knowledge/` therefore ships EMPTY.** The framework creates no domains for you. It used to
+ship eight — `accumulated/ architecture/ compliance/ legal/ patterns/ policies/ guidance/
+infrastructure/` — several with owner roles whose holder was `TBD`, which ran this invariant
+backwards: the tree existed before the accountability did. It also committed every adopter to
+one taxonomy before they knew their own domains. An organization structuring knowledge by SDLC
+phase, by product line, or by anything else is doing what this standard asks, not working
+around it.
+
+**Framework doctrine lives under `governance/`, not `knowledge/`.** Storage follows
+accountability (POL-401), and the two have different accountable parties: the framework authors
+its policies, procedures, guidance and specs, and an upgrade overwrites them; the organization
+authors everything under `knowledge/`. Naming an organization's Policy Owner as the approver of
+a file an upgrade replaces claims an authority they do not have — POL-402's false authority.
 
 | Domain | Owner role | Scope |
 |---|---|---|
@@ -86,7 +99,7 @@ stub index. **(POL-405, C02)**
 A document's layer states its **default** compliance level; a clause inside it
 may declare a stricter level explicitly. **(POL-406, C03)**
 
-`knowledge/policies/exceptions/` gains one subfolder per domain (the existing
+`governance/policies/exceptions/` gains one subfolder per domain (the existing
 `legal/ infrastructure/ architecture/ policy/` set extends with
 `development/ testing/ deployment/ support/`). **(POL-407, C02)**
 
@@ -116,7 +129,10 @@ becomes trivial (Section 7).
   *write-side* (this tree, the layer table, the boundary rules, how to
   propose) and *read-side* (the journey index + per-domain inventory links).
   It is the home page of the published knowledge site (POL-101). **(POL-409, C02)**
-- Journeys live in `knowledge/paths/<journey>.md`, owned by the Policy Owner.
+- Journeys live in `governance/paths/<journey>.md` when they traverse framework doctrine and
+  in `knowledge/paths/<journey>.md` when they traverse the organization's own domains. Both
+  are owned by the Policy Owner. Two roots, because framework doctrine and org knowledge have
+  different accountable parties (§2); a journey is links only in either.
   A journey doc is a **consultation order across domains — links only, never
   content** (mandates → procedures/use-cases → specs → repo-local). **(POL-410, C02)**
 - Anyone may add or extend a journey by PR. **(POL-411, C03)**

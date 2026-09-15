@@ -121,8 +121,19 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders): 
     if (current === content) { actions.push({ kind: "same", dst: e.dst, src: e.src }); continue; }
     if (e.mode === "seed-once") { actions.push({ kind: "same", dst: e.dst, src: e.src, detail: "yours since the first install" }); continue; }
     if (e.mode === "scaffold-auto") { actions.push({ kind: "update", dst: e.dst, src: e.src, detail: "framework-owned overwrite" }); continue; }
-    // scaffold-prompt: overwrite only if the org copy still matches the shipped
-    // baseline (unmodified); otherwise flag for review.
+    // scaffold-prompt: NO MANIFEST ENTRY USES THIS ANY MORE (2026-09-15).
+    //
+    // It survives as a mode because the shape is sound — overwrite when the org copy still
+    // matches the last-installed baseline, flag for review otherwise. What never existed is
+    // `readBaseline`: declared optional below, called here, implemented nowhere. So `base` was
+    // always null, every difference became a `conflict`, and every conflict was skipped. That is
+    // the exact mechanism of the 2026-09-12 AGENTS.md defect, and it governed 42 of 49 entries
+    // because scaffold-prompt was the default rather than an analysis.
+    //
+    // DO NOT USE IT AGAIN WITHOUT IMPLEMENTING readBaseline. A mode that silently skips is worse
+    // than one that overwrites: the org keeps a stale file and is told nothing. The last entry
+    // that wanted a 3-way merge — the CI workflow — is seed-once now, with the framework's
+    // current version shipped beside it as a reference to diff against.
     const base = r.readBaseline?.(e.dst) ?? null;
     if (base !== null && base === current) actions.push({ kind: "update", dst: e.dst, src: e.src, detail: "unmodified since last sync" });
     else actions.push({ kind: "conflict", dst: e.dst, src: e.src, detail: "org-customized — review before applying" });

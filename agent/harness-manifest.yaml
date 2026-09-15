@@ -156,12 +156,12 @@ harnesses:
     tool: Continue.dev
     status: active
     tier: generate_auto
-    path: publish/content/agent/harness/.continue/rules.md
+    path: publish/content/agent/harness/.continue/rules/agent.md
     generated: true
     seed_copy: true
     template: markdown-plain
     verify: "First message — confirm system rules loaded"
-    notes: "Complements .continue/config.yaml context providers."
+    notes: "`.continue/rules/` is a DIRECTORY the CLI scans for markdown rule files — verified in @continuedev/cli: `rulesDirs = [path.join(cwd, '.continue', 'rules'), …]`. It was shipped as `.continue/rules.md`, a file, so nothing was ever read. Same defect as `.clinerules` vs `.clinerules/agent.md`."
 
   # ── Tier: generate_manual ─────────────────────────────────────────────────
   - id: aider

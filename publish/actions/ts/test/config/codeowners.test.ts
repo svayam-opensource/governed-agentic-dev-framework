@@ -103,6 +103,16 @@ describe("CODEOWNERS generation", () => {
     expect(accessFiles, "no CODEOWNERS may ship at all").to.deep.equal([]);
   });
 
+  it("no manifest entry uses scaffold-prompt, because readBaseline does not exist", () => {
+    // The guard for the decision, not the decision itself. scaffold-prompt needs a baseline to
+    // distinguish "we changed it" from "they changed it"; `readBaseline` is declared, called,
+    // and implemented nowhere, so every difference became a skipped conflict. If an entry
+    // reappears in this mode, that silent-skip behaviour comes back with it.
+    const manifest = fs.readFileSync(path.join(repoRoot, "publish", "content", "MANIFEST.yaml"), "utf8");
+    const entries = manifest.match(/\{\s*src:[^}]*mode:\s*scaffold-prompt\s*\}/g) ?? [];
+    expect(entries, "implement readBaseline before using scaffold-prompt again").to.deep.equal([]);
+  });
+
   it("the shipped protocol source matches the one the renderer reads", () => {
     // FOUND WHILE WRITING THESE TESTS. publish/content/agent/session-protocol.md had drifted to
     // the pre-2026-09-11 protocol — no version marker — while every rendered harness file came
