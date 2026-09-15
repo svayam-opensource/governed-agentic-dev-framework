@@ -1,27 +1,14 @@
-# Developer Guide — Working on a Project
-
-This document is for the **developer or agent** doing actual work on an active project. It assumes:
-
-- The org has already adopted the framework (`gov setup` ran successfully).
-- A GitHub Project has been created and at least one Issue is linked to it from a repo you can push to.
-- You have `gh auth status` showing a usable identity.
-
-For the framework's concepts, roles, and CLI reference, see [USER_GUIDE.md](USER_GUIDE.md). For the policy ledger that governs every step below, see [`governance/policies/org-ai-agent-governance-policy.md`](../governance/policies/org-ai-agent-governance-policy.md).
-
-> **Current model at a glance (ADR-0001).** The framework is converging on a small surface:
-> - **Developer verbs:** `gov seed` · `gov join` · `gov task` · `gov sync` · `gov merge` ·
->   `gov close`. These are the lifecycle surface you work with directly.
-> - **Authorization = GitHub Project access.** You may seed/join/work on a project if you
->   have **write access to its linked GitHub Project** (`projectV2.viewerCanUpdate`); an
->   owner grants it with `gov manage assign`. There is no per-project state file — GitHub
->   Project write access is the sole gate.
-> - **Per-project workspaces are git worktrees** of one shared base clone per repo (under
->   `$AGENT_WORK_ROOT/.bases/`), not full per-project clones.
-> - **The gov-work CLI is installed from npm** — `npm i -g @svayam-opensource/gov` (requires
->   Node 24) — so repos carry only data, never a vendored copy of the framework. See
->   [ADR-0001](../../docs/adr/ADR-0001-simplify-developer-experience.md).
-
 ---
+domain: governance
+layer: use-case
+owner: policy-owner
+compliance: C02
+status: current
+---
+# Working on a project
+
+The session loop: start a project, run the session-start protocol, do the work, end the
+session. This is the one you will reread — the rest are read once.
 
 ## The path at a glance
 
@@ -56,39 +43,6 @@ Each per-project workspace is a set of **git worktrees** of one shared base
 clone per repo (under `$AGENT_WORK_ROOT/.bases/`), not a full clone per project.
 N parallel projects ⇒ N per-project worktrees, but only one home checkout that
 never switches branches.
-
----
-
-## 1. Before the first session
-
-### Verify your env
-
-```bash
-git config --global user.name    # must be set
-git config --global user.email   # must be set
-gh api user --jq .login          # should print your GitHub handle
-```
-
-The framework reads `agent_work_root` from `org-config.yaml` (set when the
-Policy Owner ran `gov setup`). The default is `~/.<org_slug_lower>/projects`
-(e.g. `~/.acme/projects/`). To inspect:
-
-```bash
-yq '.agent_work_root' org-config.yaml
-```
-
-To override for a single command (e.g. in a CI sandbox), export `AGENT_WORK_ROOT`
-in the shell — env wins over the org-config value.
-
-### Confirm you have access to the GitHub Project
-
-Authorization is **write access to the project's linked GitHub Project**
-(`projectV2.viewerCanUpdate`). The Policy Owner (or any repo collaborator with
-manage rights) creates the GitHub Project and grants you that access via
-`gov manage assign`; org owners/admins already have access to everything.
-If you lack write access, `gov seed`/`gov join` won't let you seed or join the
-project — ask an owner to run `gov manage assign`. There is no per-project state
-file; GitHub Project write access is the sole gate.
 
 ---
 
@@ -244,28 +198,6 @@ The HOME repo stays on the default branch throughout — there's no `git push` n
 
 ---
 
-## 4. Parallel work — when to use tasks
-
-If you (or another developer) want to work on something independently while the
-main project work continues, start a task with `gov task`:
-
-```bash
-gov task <linked-issue-url>
-```
-
-This creates a sub-branch `brnch-001-feature-x/<issue-slug>` in the workspace and in every linked code repo, and assigns the GitHub Issue. The sub-branch is where you do the work; when done, submit it with `gov merge`:
-
-```bash
-gov merge
-```
-
-Merges the sub-branch back into `brnch-001-feature-x` and archives it.
-
-**Use a task when**: the work is a discrete unit on the Project board, multiple people might work in parallel, or you want a clean PR trail.
-**Skip it when**: you're making a small ad-hoc change that's part of the main work stream — just commit directly on the project branch.
-
----
-
 ## 5. Pausing, resuming, syncing
 
 - **`gov pause`** — for "I need to stop and come back later, possibly weeks." Marks the project paused. Must be cleanly committed first.
@@ -290,44 +222,6 @@ This is POL-171 in the policy ledger.
 
 ---
 
-## 7. Closing the project
-
-When all goal-level work is done and project knowledge is curated, run `gov close`
-from the **per-project workspace** (not the HOME repo):
-
-```bash
-cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<workspace_repo>
-gov close
-```
-
-The close runs a governance gate: it merges the project branch back into the default branch in
-the workspace repo and in every code repo. After it succeeds, you can pull
-the merged state into the HOME repo:
-
-```bash
-cd <your home checkout>
-git pull origin main
-```
-
-What this enforces:
-
-- `projects/PRJ-001-feature-x/knowledge/` must be non-empty.
-- `compliance.md` should exist (`gov close` will tell you if it doesn't).
-
-What this does:
-
-- Merges the project branch into the default code branch in each code repo.
-- Merges the project branch into the workspace's default branch.
-- Creates archive tags `archive/brnch-001-feature-x` everywhere and deletes the project branch.
-- Runs the knowledge-close step of `gov close`, which:
-  - Creates `brnch-001-feature-x-knowledge` branch.
-  - Synthesizes a knowledge-close proposal (or pauses for you/an agent to do so).
-  - Opens a PR for domain owners (CODEOWNERS auto-assigns reviewers).
-
-The project's GitHub board is closed (done). The knowledge PR is reviewed and merged separately — that lands new project-derived learnings into org-wide knowledge.
-
----
-
 ## 8. Common situations
 
 **"The agent suggested doing X — should I let it?"** — Compare against the four knowledge layers in priority order. If org policy says no, the agent is wrong regardless of what it claims. If repo conventions say no, same. Developer preferences cannot override either.
@@ -341,126 +235,3 @@ The project's GitHub board is closed (done). The knowledge PR is reviewed and me
 **"I want to know what's left."** — `gov list` shows projects + statuses. For an individual project, `gov status <PROJECT_ID>`. For carry-forward work, `projects/<PID>/knowledge/todo.md`.
 
 ---
-
-## 9. Tool-specific notes
-
-The session-start protocol is **one canonical source**, delivered through each tool's conventional install path. Full design: [`docs/design/agent-context-assembly-spec.md`](design/agent-context-assembly-spec.md) §3.3–§3.4.
-
-### Canonical source (edit these)
-
-| File | Purpose |
-|---|---|
-| `agent/session-protocol.md` | C01 session protocol — layer load order, gates, write rules, capture (POL-113–117) |
-| `agent.md` | Org workspace entrypoint — policy pointers, repo identity |
-
-**Do not** hand-edit generated harness install paths (see below). Run `node agent/render-harness.mjs` after changing the canonical source.
-
-### How each tool gets protocol into system context
-
-Full matrix and Claude/Cursor/Gemini step-by-step: [`docs/design/agent-context-assembly-spec.md`](design/agent-context-assembly-spec.md) Appendix D. Registry: [`agent/harness-manifest.yaml`](../agent/harness-manifest.yaml).
-
-| Tool | Install path | Tier | Auto? | Verify |
-|---|---|---|---|---|
-| **Claude Code** | `CLAUDE.md` | import (`@`) | Yes | `/memory` |
-| **Cursor** | `.cursor/rules/agent.mdc` | generate_auto | Yes | Settings → Rules → Always |
-| **OpenAI Codex** | `AGENTS.md` | generate_auto | Yes | First-message summary |
-| **Gemini Code Assist** | `.gemini/styleguide.md` | generate_auto | Yes | Ask re write restrictions |
-| **GitHub Copilot** | `.github/copilot-instructions.md` | generate_auto | On assist | Weaker session gate |
-| **Windsurf** | `.windsurf/rules/agent.md` | generate_auto | Yes | First message |
-| **Cline / Roo Code** | `.clinerules/agent.md` | generate_auto | Yes | Startup / first message |
-| **Continue.dev** | `.continue/rules.md` | generate_auto | Yes | First message |
-| **Aider** | `CONVENTIONS.md` | generate_manual | **`--read` only** | Confirm in context |
-
-Per-project copies under `projects/<PID>/` are composed at seed time (protocol + `projects/<PID>/agent.md`) so opening the project folder as workspace still works.
-
-### What harness does *not* load
-
-Harness delivery covers **protocol only**. The agent must read these each session:
-
-- Full `governance/policies/` text
-- `projects/<PID>/knowledge/*`
-- Code repo `knowledge/`
-- `$AGENT_WORK_ROOT/preferences/<gh-login>.md`
-
-Reads persist in **chat transcript** for the rest of the session; they are not re-injected each turn like rules.
-
-### General foot-guns regardless of tool
-
-- **Text pointers are not file loads.** *"See `agent.md`"* in a rule instructs the model; it does not embed the file. Use Claude `@import` or Cursor generation.
-- **Verify loading.** First prompt: ask for a context manifest (project, branch, open todos). Claude: `/memory`. Cursor: confirm Always rules in Settings → Rules.
-- **Adopter C03 extensions** go below the `ADOPTER_C03_EXTENSIONS` marker in `agent/session-protocol.local.md` or the generated harness footer — never contradict layer priority or C01/C02 rules.
-- **Migration note:** Until `agent/session-protocol.md` and `agent/render-harness.mjs` land, harness files still inline duplicate protocol — update them in lockstep if you edit protocol text.
-
----
-
-## 10. Framework upgrades from TEMPLATE
-
-The framework template lives at
-[`svayam-opensource/governed-agentic-dev-framework`](https://github.com/svayam-opensource/governed-agentic-dev-framework).
-Your org's repo was created from it (`gh repo create --template ...` or "Use
-this template" on GitHub). `gov setup` configured a `template` remote
-pointing at the upstream so you can pull future framework updates without
-touching org-specific values.
-
-> **The gov-work CLI is installed from npm** — `npm i -g @svayam-opensource/gov`
-> (requires Node 24), never vendored into a repo. Repos carry only data
-> (`org-config.yaml`, `projects/`, `knowledge/`), and you upgrade the CLI itself
-> with `npm i -g @svayam-opensource/gov@latest`, independently of any project's
-> data. Framework *content* (policies, scaffolded files) upgrades separately via
-> `gov upgrade`, described below.
-
-### How upgrades work (Direction A)
-
-Framework files (`governance/policies/`, `CLAUDE.md`, `AGENTS.md`,
-the per-tool rule files, etc.) contain **no org-specific values**. They use
-angle-bracketed tokens like `<ORG_NAME>` and `<DEFAULT_BRANCH>` that the agent
-resolves at runtime from `org-config.yaml`. After `gov setup`, the ONLY file
-that diverges from upstream TEMPLATE is `org-config.yaml` (plus `projects/` as
-you do project work). That makes upgrades conflict-free.
-
-### Pulling an upgrade (v0.3.0+)
-
-v0.3.0 introduces a framework-as-package upgrade model. Framework files live
-in a `framework/` directory inside TEMPLATE; on ORG side that directory is
-ephemeral — it gets fetched, applied, and deleted on every upgrade. ORG's
-working tree at rest contains only org-owned content + scaffolded canonical
-paths populated by the framework.
-
-From your HOME repo on the default branch:
-
-```bash
-gov upgrade [version]      # e.g. gov upgrade v0.3.1
-```
-
-That fetches the `template` remote at the requested version (or `template/main`
-if no version is given) and applies the framework update:
-1. Checks out `framework/` at the requested version.
-2. Applies the framework's `MANIFEST.yaml`, which governs how each shipped file
-   lands:
-   - For `scaffold-auto` files (scripts, CI): overwrites the canonical copy
-     without asking.
-   - For `scaffold-prompt` files (agent rule files, policy text): 3-way
-     merges against the previous framework version. Prompts only when your
-     org has customized AND the framework also changed the same file.
-   - For `overlay-schema` files (`org-config.yaml`): adds new keys with
-     empty values; never modifies existing values.
-   - Leaves `projects/` and your custom knowledge files completely untouched.
-3. Writes `.framework-version` to record what's now installed.
-4. Deletes `framework/` from the working tree.
-5. Stages everything for your review.
-
-After upgrading, run `gov validate` to confirm everything still validates.
-
-### What the test-merge gate catches
-
-CI runs the same validators against `template/main` merges. A regression on
-the upstream side (e.g. a framework file accidentally introducing a
-double-curly placeholder token) fails the gate before it lands.
-
----
-
-## Where to go next
-
-- [USER_GUIDE.md](USER_GUIDE.md) — concepts, roles, full CLI reference
-- [`governance/policies/org-ai-agent-governance-policy.md`](../governance/policies/org-ai-agent-governance-policy.md) — the governing policy (POL-001 through POL-171)
-- [`governance/policies/agentic-development-procedures.md`](../governance/policies/agentic-development-procedures.md) — procedural protocols

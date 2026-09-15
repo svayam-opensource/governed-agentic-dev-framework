@@ -137,8 +137,25 @@ files:
   # Organised by TASK, not by audience. Persona belongs in paths/, which per POL-410 carries a
   # consultation order across domains — LINKS ONLY, never content, so a persona document cannot
   # become a second copy of a fact (POL-402).
-  - { src: governance/use-cases/working-on-a-project.md, dst: governance/use-cases/working-on-a-project.md, mode: scaffold-auto }
+  # Task documents. The two guides were 466 and 317 lines and each mixed "what a project is"
+  # with "what to type" — one read once, the other consulted repeatedly. Split by TASK, and
+  # verified for it: no heading appears in two documents (POL-402), and the only sections of the
+  # originals not carried over are their three navigation sections, which `paths/` replaces.
+  - { src: governance/use-cases/setting-up-your-machine.md,      dst: governance/use-cases/setting-up-your-machine.md,      mode: scaffold-auto }
+  - { src: governance/use-cases/working-on-a-project.md,         dst: governance/use-cases/working-on-a-project.md,         mode: scaffold-auto }
+  - { src: governance/use-cases/running-parallel-tasks.md,       dst: governance/use-cases/running-parallel-tasks.md,       mode: scaffold-auto }
+  - { src: governance/use-cases/closing-a-project.md,            dst: governance/use-cases/closing-a-project.md,            mode: scaffold-auto }
+  - { src: governance/use-cases/proposing-knowledge.md,          dst: governance/use-cases/proposing-knowledge.md,          mode: scaffold-auto }
+  - { src: governance/use-cases/upgrading-the-framework.md,      dst: governance/use-cases/upgrading-the-framework.md,      mode: scaffold-auto }
+  - { src: governance/use-cases/configuring-agent-harnesses.md,  dst: governance/use-cases/configuring-agent-harnesses.md,  mode: scaffold-auto }
+
+  # Reference — consulted, not read through.
+  - { src: governance/specs/concepts.md,                dst: governance/specs/concepts.md,                mode: scaffold-auto }
   - { src: governance/specs/gov-command-reference.md,    dst: governance/specs/gov-command-reference.md,    mode: scaffold-auto }
+
+  # Persona entry points. LINKS ONLY, never content (POL-410) — so a persona document cannot
+  # become a second copy of a fact. This is where "I am a joiner" belongs, not in the tree.
+  - { src: governance/paths/, dst: governance/paths/, mode: scaffold-auto }
 
   # ── knowledge/ — the ADOPTER's, shipped EMPTY (Decision 10) ─────────────────────────────
   #
