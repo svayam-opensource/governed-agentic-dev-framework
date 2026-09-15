@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install gov — Governed Agentic Development Framework</title>
+<meta name="robots" content="{{ROBOTS}}">
+<meta name="description" content="Install the gov client. One command on macOS, Linux and Windows — gov brings its own Node and touches nothing you already have.">
+<link rel="stylesheet" href="./style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>&#9881;</text></svg>">
+</head>
+<body>
+{{ENV_BANNER}}
+<header class="top"><div class="wrap">
+  <div class="brand">gov <span>· governed agentic development</span></div>
+  <nav class="top">
+    <a href="{{REPO}}#readme">Docs</a>
+    <a href="{{REPO}}/releases">Releases</a>
+    <a href="{{REPO}}">Source</a>
+  </nav>
+</div></header>
+
+<main class="wrap">
+  <section class="hero">
+    <h1>Install <code>gov</code> in one command.</h1>
+    <p class="lede">
+      gov installs its own private Node and leaves the one you already have alone. No
+      administrator rights, no package manager, nothing to uninstall but one directory.
+    </p>
+    <div class="pins">
+      <span class="pin">serving <b>{{REF}}</b></span>
+      <span class="pin">installs <b>{{PKG}}</b></span>
+      <span class="pin">host <b>{{HOST}}</b></span>
+    </div>
+  </section>
+
+  <section class="install">
+    <!-- Tabs, not a grid of binaries: the payload is a script and an npm package, so the thing
+         to hand over is a command. The detected OS is selected first and the others stay one
+         click away — reorder and annotate, never withhold (#221). -->
+    <div class="tabs" role="tablist" aria-label="Operating system">
+      <button class="tab" role="tab" id="tab-unix" aria-controls="p-unix" aria-selected="true">macOS &amp; Linux</button>
+      <button class="tab" role="tab" id="tab-win" aria-controls="p-win" aria-selected="false">Windows</button>
+    </div>
+
+    <div class="panel" role="tabpanel" id="p-unix" aria-labelledby="tab-unix">
+      <div class="cmd">
+        <code id="cmd-unix">curl -fsSL https://{{HOST}}/install.sh | bash</code>
+        <button type="button" data-copy="cmd-unix">Copy</button>
+      </div>
+      <p class="note">
+        Reads the plan to you and asks before it installs anything. Set <code>GOV_YES=1</code> to skip the
+        prompt in a script. Prefer to read it first? <a href="./install.sh">View install.sh</a>.
+      </p>
+    </div>
+
+    <div class="panel" role="tabpanel" id="p-win" aria-labelledby="tab-win" hidden>
+      <div class="cmd">
+        <code id="cmd-win">irm https://{{HOST}}/install.ps1 | iex</code>
+        <button type="button" data-copy="cmd-win">Copy</button>
+      </div>
+      <p class="note">
+        PowerShell 5.1 or later. <a href="./install.ps1">View install.ps1</a>.
+        Installing an <em>AI agent</em> through gov does not work on Windows yet —
+        <a href="{{REPO}}/issues/223">#223</a> tracks it, and the rest of gov is unaffected.
+      </p>
+    </div>
+  </section>
+
+  <div class="cols">
+    <div>
+      <h2>What it does to this machine</h2>
+      <ul>
+        <li>Installs a private Node under <code>~/.local/share/gov</code>.</li>
+        <li>Links <code>gov</code> into <code>~/.local/bin</code>, and says so.</li>
+        <li>Adds one marked line to your shell profile, so it can be found and removed.</li>
+        <li>Installs git or <code>gh</code> only if they are missing — and asks first.</li>
+      </ul>
+    </div>
+    <div>
+      <h2>What it needs from you</h2>
+      <ul>
+        <li>A GitHub account with access to your organization.</li>
+        <li>A sign-in only a person can do — gov never stores a credential for you.</li>
+        <li>Nothing else. Re-running is boring by design: it resumes, it does not repeat.</li>
+      </ul>
+    </div>
+  </div>
+</main>
+
+<footer><div class="wrap">
+  <div class="grid">
+    <div><h3>gov</h3><ul>
+      <li><a href="https://{{HOST}}/install.sh">install.sh</a></li>
+      <li><a href="https://{{HOST}}/install.ps1">install.ps1</a></li>
+      <li><a href="{{REPO}}/releases">All releases</a></li>
+    </ul></div>
+    <div><h3>Pinned versions</h3><ul>
+        {{VERSIONED}}
+    </ul></div>
+    <div><h3>Resources</h3><ul>
+      <li><a href="{{REPO}}#readme">Documentation</a></li>
+      <li><a href="{{REPO}}/releases">Changelog</a></li>
+      <li><a href="{{REPO}}/issues">Report a problem</a></li>
+    </ul></div>
+    <div><h3>Project</h3><ul>
+      <li><a href="{{REPO}}">Source on GitHub</a></li>
+      <li><a href="{{REPO}}/blob/{{REF}}/LICENSE">Licence (MIT)</a></li>
+      <li><a href="{{REPO}}/blob/{{REF}}/docs/CODE_OF_CONDUCT.md">Code of conduct</a></li>
+    </ul></div>
+  </div>
+  <p class="legal">
+    Serving <b>{{REF}}</b> · built {{BUILT}} · Svayam Infoware Pvt. Ltd. ·
+    this page is static and sets no cookies.
+  </p>
+</div></footer>
+
+<script>
+(function () {
+  "use strict";
+  // ── OS detection, used only to ORDER the tabs ────────────────────────────────────────────────
+  // A wrong guess must never hide a route: both tabs are always present and clickable, and the
+  // detection only decides which opens first. userAgentData where available, UA string otherwise;
+  // if neither says Windows, the unix tab stays selected, which is the markup's default.
+  var tabs = [
+    { btn: document.getElementById("tab-unix"), panel: document.getElementById("p-unix") },
+    { btn: document.getElementById("tab-win"),  panel: document.getElementById("p-win")  }
+  ];
+  function select(i) {
+    tabs.forEach(function (t, n) {
+      t.btn.setAttribute("aria-selected", String(n === i));
+      t.panel.hidden = n !== i;
+    });
+  }
+  tabs.forEach(function (t, i) { t.btn.addEventListener("click", function () { select(i); }); });
+
+  var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.userAgent || "";
+  if (/win/i.test(plat)) select(1);
+
+  // ── copy, with a spoken result ──────────────────────────────────────────────────────────────
+  // A copy button that silently does nothing is the worst version of this control, and clipboard
+  // access is refused often enough (insecure origin, permission, older browser) that the failure
+  // path has to be real. On failure the text is selected so ⌘C still works.
+  document.querySelectorAll("button[data-copy]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var el = document.getElementById(b.getAttribute("data-copy"));
+      var restore = function (msg) {
+        b.textContent = msg;
+        setTimeout(function () { b.textContent = "Copy"; }, 1600);
+      };
+      var ok = function () { restore("Copied"); };
+      var no = function () {
+        var r = document.createRange();
+        r.selectNodeContents(el);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+        restore("Select + copy");
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(el.textContent).then(ok, no);
+      } else {
+        no();
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>
