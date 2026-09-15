@@ -87,7 +87,7 @@ export function approvalSummary(agents: readonly ApprovedAgent[]): readonly stri
     `  Approved for this organization: ${agents.map((a) => name(a.id)).join(", ")}`,
     `  Default for people who join:    ${name(agents.find((a) => a.default)!.id)}`,
     "",
-    "  Recorded in knowledge/policies/llm-governance.md. Changing it later goes",
+    "  Recorded in governance/policies/llm-governance.md. Changing it later goes",
     "  through a pull request — `gov agent approve <id>`.",
   ];
 }

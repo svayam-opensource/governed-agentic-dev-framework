@@ -312,8 +312,11 @@ describe("gov-work — harness PATHS agree with the manifest, not just ids", () 
       const id = b.split(/\s/)[0]!;
       const status = /^\s*status:\s*(\S+)/m.exec(b)?.[1] ?? "";
       const p = /^\s*path:\s*(\S+)/m.exec(b)?.[1] ?? "";
-      // `publish/content/<rel>` is what the renderer writes; <rel> is what the agent reads.
-      const rel = p.replace(/^publish\/content\//, "");
+      // THE MANIFEST PATH IS NOW THE SOURCE, NOT THE DESTINATION (Decision 2, 2026-09-14).
+      // The renderer writes `publish/content/agent/harness/<rel>`; `<rel>` is still what the
+      // agent reads at the root of the directory it runs in. Those two stopped being equal
+      // when the harness moved under `agent/`, so the strip has two prefixes now.
+      const rel = p.replace(/^publish\/content\/agent\/harness\//, "").replace(/^publish\/content\//, "");
       if (status === "active" && rel && rel !== p) out.set(id, rel);
     }
     return out;
@@ -343,7 +346,8 @@ describe("gov-work — harness PATHS agree with the manifest, not just ids", () 
 
   it("every mirrored file exists in the shipped content — the render really happened", () => {
     for (const rel of ROOT_HARNESS_FILES) {
-      const at = path.join(repoRoot, "publish", "content", rel);
+      // Under `agent/harness/` since Decision 2 — the repo root is for curation and knowledge.
+      const at = path.join(repoRoot, "publish", "content", "agent", "harness", rel);
       expect(fs.existsSync(at), `${rel} is mirrored but not rendered into publish/content`).to.equal(true);
       expect(fs.readFileSync(at, "utf8"), `${rel} carries the version marker gov verifies`).to.contain(PROTOCOL_MARKER);
     }
@@ -519,7 +523,7 @@ describe("adoption — the framework's own files never become the adopter's prot
 
   it("what ships as the adopter's AGENTS.md is the rendered protocol, and passes the gate", () => {
     // The other half: pruning is only right if the seed then puts the REAL protocol there.
-    const shipped = path.join(repoRoot, "publish", "content", "AGENTS.md");
+    const shipped = path.join(repoRoot, "publish", "content", "agent", "harness", "AGENTS.md");
     const text = fs.readFileSync(shipped, "utf8");
     expect(text, "carries the renderer's banner").to.contain(RENDERED_BANNER);
     expect(text, "and the version marker gov verifies").to.contain(PROTOCOL_MARKER);

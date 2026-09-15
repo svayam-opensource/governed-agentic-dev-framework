@@ -63,7 +63,9 @@ const harnesses = M.harnesses || [];
 // A missing or unmarked digest is FATAL. Rendering a protocol whose Part A is empty would
 // produce a file that looks governed and governs nothing — and gov now refuses to launch on
 // a bad protocol file, so a silent hole here becomes a blocked adoption later, far from here.
-const POLICY = join(REPO, "publish", "content", "knowledge", "policies", "org-ai-agent-governance-policy.md");
+// governance/, not knowledge/ — Decision 10 (2026-09-14) split framework doctrine from the
+// adopter's own knowledge tree, which now ships empty.
+const POLICY = join(REPO, "publish", "content", "governance", "policies", "org-ai-agent-governance-policy.md");
 function alwaysRules() {
   if (!existsSync(POLICY)) {
     process.stderr.write(`ERROR: ${POLICY} is missing — Part A of the protocol cannot be built\n`);

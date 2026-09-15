@@ -76,7 +76,7 @@ export function formatAgentReport(r: AgentReport): readonly string[] {
   const out: string[] = [""];
   out.push(r.usingDefaults
     ? "  Your organization has not approved any agents yet — showing the framework's list."
-    : "  Approved by your organization  (knowledge/policies/llm-governance.md)");
+    : "  Approved by your organization  (governance/policies/llm-governance.md)");
   out.push("");
 
   if (!r.rows.length && !r.unknownIds.length) {
@@ -167,7 +167,7 @@ export function planAgentInstall(
       ok: false,
       message: `${agent.tool} is not approved by your organization, so gov will not install it.\n` +
         `  Propose it with:  gov agent approve ${id}\n` +
-        "  That raises a pull request to whoever owns knowledge/policies/llm-governance.md.",
+        "  That raises a pull request to whoever owns governance/policies/llm-governance.md.",
     };
   }
 

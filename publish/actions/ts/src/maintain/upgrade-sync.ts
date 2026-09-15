@@ -7,6 +7,26 @@
  * planner) + a small applier; no network. The MANIFEST (publish/content/
  * MANIFEST.yaml) classifies every shipped file:
  *   scaffold-auto   — framework-owned; overwrite.
+ *   seed-once       — the org owns it outright after the first install; leave it alone,
+ *                     SILENTLY. Not a conflict: there is nothing to decide.
+ *
+ *                     WHY IT IS NOT scaffold-prompt. A conflict says "I could not decide, go
+ *                     look" — it is reported on every upgrade and can be forced with
+ *                     --include-conflicts. An org's CODEOWNERS-gated policy file naming their
+ *                     own people is not an unresolved conflict, and reporting it as one every
+ *                     time trains people to ignore conflict output.
+ *
+ *                     THE FILE THAT FORCED THIS: llm-governance.md is the only shipped file gov
+ *                     WRITES INTO (`withApprovedAgents` rewrites its approved_agents fence), so
+ *                     the org's copy always differs from the shipped one by design. Under
+ *                     scaffold-prompt that was a permanent false conflict, and
+ *                     --include-conflicts would have replaced the org's approved-agent list
+ *                     with an empty template. Any file gov writes into must be seed-once or
+ *                     overlay-schema.
+ *
+ *                     ACCEPTED LIMIT: the framework can never add required STRUCTURE to a
+ *                     seed-once file. If it must, that file belongs in overlay-schema
+ *                     (structured data) or should ship as a reference the org copies from.
  *   scaffold-prompt — org may extend; create if missing, update if it still
  *                     matches the shipped baseline, else flag as a conflict to
  *                     review (a full 3-way merge is a later refinement).
@@ -16,7 +36,7 @@
  * .framework-version, vendored bash) that the new layout removes.
  */
 
-export type EntryMode = "scaffold-auto" | "scaffold-prompt" | "overlay-schema";
+export type EntryMode = "scaffold-auto" | "seed-once" | "scaffold-prompt" | "overlay-schema";
 export interface ManifestEntry { readonly src: string; readonly dst: string; readonly mode: EntryMode; }
 export interface Manifest { readonly files: readonly ManifestEntry[]; readonly owned: readonly string[]; }
 
@@ -99,6 +119,7 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders): 
     }
     if (current === null) { actions.push({ kind: "create", dst: e.dst, src: e.src }); continue; }
     if (current === content) { actions.push({ kind: "same", dst: e.dst, src: e.src }); continue; }
+    if (e.mode === "seed-once") { actions.push({ kind: "same", dst: e.dst, src: e.src, detail: "yours since the first install" }); continue; }
     if (e.mode === "scaffold-auto") { actions.push({ kind: "update", dst: e.dst, src: e.src, detail: "framework-owned overwrite" }); continue; }
     // scaffold-prompt: overwrite only if the org copy still matches the shipped
     // baseline (unmodified); otherwise flag for review.

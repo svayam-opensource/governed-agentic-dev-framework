@@ -118,7 +118,7 @@ no_agents_installed() {
 # read. Built from the shipped content, so it cannot drift from what gov actually seeds.
 make_gov_repo() {
   local dir="$1" org="$2" slug="$3"
-  mkdir -p "$dir/knowledge/policies" "$dir/agent"
+  mkdir -p "$dir/governance/policies" "$dir/governance/guidance" "$dir/agent" "$dir/knowledge"
   cat > "$dir/org-config.yaml" <<YAML
 org_name: "$org Ltd"
 org_short_name: "$org"
@@ -133,8 +133,8 @@ agent_work_root: "$HOME/.gov/$(echo "$slug" | tr '[:upper:]' '[:lower:]')/projec
 policy_owner_email: "owner@example.test"
 YAML
   cp "$CONTENT_DIR/agent/session-protocol.md" "$dir/agent/" 2>/dev/null || echo "# protocol" > "$dir/agent/session-protocol.md"
-  cp "$CONTENT_DIR/knowledge/policies/llm-governance.md" "$dir/knowledge/policies/" 2>/dev/null \
-    || echo "# llm governance" > "$dir/knowledge/policies/llm-governance.md"
+  cp "$CONTENT_DIR/governance/policies/llm-governance.md" "$dir/governance/policies/" 2>/dev/null \
+    || echo "# llm governance" > "$dir/governance/policies/llm-governance.md"
 
   # THE RENDERED HARNESS — what makes this a GOVERNED workspace rather than one that says it is.
   #
@@ -146,15 +146,17 @@ YAML
   #
   # Nothing failed, because nothing looked. `verifyAgentContext` looks now, and refused to
   # launch — which is how this fixture's gap was finally found rather than argued about.
-  for rel in AGENTS.md CLAUDE.md CONVENTIONS.md .clinerules/agent.md .cursor/rules/agent.mdc \
-             .gemini/styleguide.md .github/copilot-instructions.md .continue/rules.md \
+  # UNDER agent/harness/ SINCE DECISION 2 (2026-09-14), and GEMINI.md not .gemini/styleguide.md
+  # since Decision 15 — the Gemini CLI reads GEMINI.md and never looked at the styleguide.
+  for rel in AGENTS.md CLAUDE.md CONVENTIONS.md GEMINI.md .clinerules/agent.md \
+             .cursor/rules/agent.mdc .github/copilot-instructions.md .continue/rules.md \
              .windsurf/rules/agent.md; do
-    if [ -f "$CONTENT_DIR/$rel" ]; then
-      mkdir -p "$dir/$(dirname "$rel")"
-      cp "$CONTENT_DIR/$rel" "$dir/$rel"
+    if [ -f "$CONTENT_DIR/agent/harness/$rel" ]; then
+      mkdir -p "$dir/agent/harness/$(dirname "$rel")"
+      cp "$CONTENT_DIR/agent/harness/$rel" "$dir/agent/harness/$rel"
     else
       # Say it, rather than quietly building a workspace that cannot pass its own gate.
-      printf 'make_gov_repo: %s is not rendered in %s — run agent/render-harness.mjs\n' \
+      printf 'make_gov_repo: agent/harness/%s is not rendered in %s — run agent/render-harness.mjs\n' \
         "$rel" "$CONTENT_DIR" >&2
       return 1
     fi
@@ -172,14 +174,16 @@ YAML
 fake_joined_project() {
   local project_dir="$1" ws="$2"
   mkdir -p "$project_dir/$ws/.git"
-  for rel in AGENTS.md CLAUDE.md CONVENTIONS.md .clinerules/agent.md .cursor/rules/agent.mdc \
-             .gemini/styleguide.md .github/copilot-instructions.md .continue/rules.md \
+  # UNDER agent/harness/ SINCE DECISION 2 (2026-09-14), and GEMINI.md not .gemini/styleguide.md
+  # since Decision 15 — the Gemini CLI reads GEMINI.md and never looked at the styleguide.
+  for rel in AGENTS.md CLAUDE.md CONVENTIONS.md GEMINI.md .clinerules/agent.md \
+             .cursor/rules/agent.mdc .github/copilot-instructions.md .continue/rules.md \
              .windsurf/rules/agent.md; do
-    if [ -f "$CONTENT_DIR/$rel" ]; then
-      mkdir -p "$project_dir/$ws/$(dirname "$rel")"
-      cp "$CONTENT_DIR/$rel" "$project_dir/$ws/$rel"
+    if [ -f "$CONTENT_DIR/agent/harness/$rel" ]; then
+      mkdir -p "$project_dir/$ws/agent/harness/$(dirname "$rel")"
+      cp "$CONTENT_DIR/agent/harness/$rel" "$project_dir/$ws/agent/harness/$rel"
     else
-      printf 'fake_joined_project: %s is not rendered in %s — run agent/render-harness.mjs\n' \
+      printf 'fake_joined_project: agent/harness/%s is not rendered in %s — run agent/render-harness.mjs\n' \
         "$rel" "$CONTENT_DIR" >&2
       return 1
     fi
@@ -188,7 +192,7 @@ fake_joined_project() {
 
 # Record the org's approved agents the way `gov agent approve` would.
 approve_agents() {
-  local file="$1/knowledge/policies/llm-governance.md"; shift
+  local file="$1/governance/policies/llm-governance.md"; shift
   { printf '\n```yaml\napproved_agents:\n'
     local first=1
     for id in "$@"; do

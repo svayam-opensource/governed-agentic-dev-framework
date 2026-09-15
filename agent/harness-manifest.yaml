@@ -51,7 +51,7 @@ harnesses:
     tool: Claude Code
     status: active
     tier: generate_auto
-    path: publish/content/CLAUDE.md
+    path: publish/content/agent/harness/CLAUDE.md
     generated: true
     seed_copy: true
     per_project_path: projects/{project_id}/CLAUDE.md
@@ -62,7 +62,7 @@ harnesses:
     tool: Cursor
     status: active
     tier: generate_auto
-    path: publish/content/.cursor/rules/agent.mdc
+    path: publish/content/agent/harness/.cursor/rules/agent.mdc
     generated: true
     seed_copy: true
     template: cursor-mdc
@@ -79,7 +79,7 @@ harnesses:
     tool: OpenAI Codex
     status: active
     tier: generate_auto
-    path: publish/content/AGENTS.md
+    path: publish/content/agent/harness/AGENTS.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -98,7 +98,7 @@ harnesses:
     tool: IBM Bob
     status: active
     tier: generate_auto
-    path: publish/content/AGENTS.md
+    path: publish/content/agent/harness/AGENTS.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -109,7 +109,7 @@ harnesses:
     tool: Gemini Code Assist
     status: active
     tier: generate_auto
-    path: publish/content/.gemini/styleguide.md
+    path: publish/content/agent/harness/GEMINI.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -122,7 +122,7 @@ harnesses:
     tool: GitHub Copilot
     status: active
     tier: generate_auto
-    path: publish/content/.github/copilot-instructions.md
+    path: publish/content/agent/harness/.github/copilot-instructions.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -135,7 +135,7 @@ harnesses:
     tool: Windsurf
     status: active
     tier: generate_auto
-    path: publish/content/.windsurf/rules/agent.md
+    path: publish/content/agent/harness/.windsurf/rules/agent.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -145,7 +145,7 @@ harnesses:
     tool: Cline / Roo Code
     status: active
     tier: generate_auto
-    path: publish/content/.clinerules/agent.md
+    path: publish/content/agent/harness/.clinerules/agent.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -156,7 +156,7 @@ harnesses:
     tool: Continue.dev
     status: active
     tier: generate_auto
-    path: publish/content/.continue/rules.md
+    path: publish/content/agent/harness/.continue/rules.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -168,7 +168,7 @@ harnesses:
     tool: Aider
     status: active
     tier: generate_manual
-    path: publish/content/CONVENTIONS.md
+    path: publish/content/agent/harness/CONVENTIONS.md
     generated: true
     seed_copy: true
     template: markdown-plain

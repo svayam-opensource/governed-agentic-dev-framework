@@ -40,12 +40,11 @@ import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 import { onboard } from "../lifecycle/onboard.js";
 
-/** Tool files seed token-substitutes into the project (bash TOOL_FILES). */
-export const TOOL_FILES = [
-  "AGENTS.md", "CONVENTIONS.md", ".cursor/rules/agent.mdc", ".clinerules/agent.md",
-  ".windsurf/rules/agent.md", ".github/copilot-instructions.md", ".gemini/styleguide.md",
-  ".continue/rules.md", "CLAUDE.md",
-] as const;
+// TOOL_FILES IS GONE (Decision 1, 2026-09-14). It listed the nine harness files for seed's
+// per-project scaffold loop, which read them from `<repo>/framework/<rel>` — a directory in
+// RETIRE_PATHS that was never shipped. Every read returned null; nothing was ever written.
+// The harness reaches an agent through `ensureRootProtocol`, which mirrors to the project
+// directory on every launch.
 
 /** Everything the router needs: config, the resolved workspace, identity + ports. */
 export interface CliContext {
@@ -256,7 +255,6 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           githubOrg: c.githubOrg,
           repoOverrides: c.repoOverrides,
           orgTokens: c.orgTokens,
-          toolFiles: [...TOOL_FILES],
         },
         {
           boardUrl: positionals[0],

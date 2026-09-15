@@ -105,7 +105,13 @@ class World {
       this.files.set(px(f), c);
       this.paths.add(px(f));
     },
-    readFile: (f) => this.files.get(px(f)) ?? null,
+    // The todo template is part of the world now: seed FAILS without it rather than skipping
+    // silently (Decision 1, 2026-09-14). While it was read from `framework/…` the read returned
+    // null and no project was ever given a todo list, though the protocol tells every agent to
+    // read one and surface its `## Open` items.
+    readFile: (f) => (px(f).endsWith("governance/guidance/todo-template.md")
+      ? "# To-do for <PROJECT_ID>\n\n## Open\n\n## Done\n"
+      : this.files.get(px(f)) ?? null),
     rm: (t) => {
       this.paths.delete(px(t));
       this.files.delete(px(t));

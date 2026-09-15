@@ -62,6 +62,7 @@ import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
 import { parseApprovedAgents, withApprovedAgents } from "../config/approved-agents.js";
+import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
 import { planAgentInstall } from "./agent-verb.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { parseArgv, flagStr } from "./args.js";
@@ -774,17 +775,17 @@ export async function runSetupCommand(
     // Q10 collects the answer before anything is created, so it is available here, which is the
     // only place that is both after the seed and before the commit.
     if (pre?.agents?.length) {
-      const policy = path.join(created.home, "knowledge", "policies", "llm-governance.md");
+      const policy = path.join(created.home, "governance", "policies", "llm-governance.md");
       const before = fsSync.existsSync(policy) ? fsSync.readFileSync(policy, "utf8") : null;
       const after = before === null ? null : withApprovedAgents(before, pre.agents);
       if (after === null) {
         // LOUD, because a silent failure here is a governance hole: every joiner would fall
         // back to gov's own list and nobody would know the policy had not been recorded.
-        process.stderr.write("gov setup: could not record the approved agents in knowledge/policies/llm-governance.md.\n");
+        process.stderr.write("gov setup: could not record the approved agents in governance/policies/llm-governance.md.\n");
         process.stderr.write("  The repo exists. Add them with `gov agent approve <id>` before inviting anyone.\n");
       } else {
         fsSync.writeFileSync(policy, after, "utf8");
-        process.stdout.write(`  recorded ${pre.agents.length} approved agent(s) in knowledge/policies/llm-governance.md\n`);
+        process.stdout.write(`  recorded ${pre.agents.length} approved agent(s) in governance/policies/llm-governance.md\n`);
       }
     }
     // #159 finding 1a — the slug was asked BEFORE creating (it decides the location), then asked again
@@ -886,8 +887,64 @@ export async function runSetupCommand(
           }
         }
       };
-      for (const d of INHERITED_DIRS) { const dir = path.join(createdHome, d); if (fsSync.existsSync(dir)) sweepDir(dir); }
-      manifest.push({ what: "Swept", detail: `${swept} file(s) — org tokens resolved in ${INHERITED_DIRS.join("/ ")}/ (publish/ untouched)` });
+      // SWEEP THE SUBSTITUTED DIRS, AND THE ROOT FILES TOO (Decision 7, 2026-09-14).
+      //
+      // This covered `INHERITED_DIRS` only — `agent/` and `knowledge/` — so nothing at the repo
+      // ROOT was ever substituted. The consequence was not cosmetic: shipped CODEOWNERS reached
+      // every adopter with seven unresolved tokens (`<POLICY_OWNER_GITHUB>`,
+      // `<LEGAL_OWNER_GITHUB>`, …). GitHub cannot resolve those as users or teams, so NO
+      // CODEOWNERS RULE APPLIED, and `governance/policies/` was unprotected in every adopter
+      // repo — while the policy itself said changes there require the Policy Owner's approval.
+      //
+      // The same gap left `<ORG_NAME>` literal in the mirrored harness files, so every agent
+      // read "Agent operating protocol — <ORG_NAME>" and was told to consult
+      // `<WORKSPACE_REPO>/org-config.yaml` verbatim.
+      //
+      // Root FILES only, never a recursive root sweep: `publish/` must stay untouched — it is
+      // the copy source — and the directories are handled just above.
+      const SWEEP_DIRS = [...INHERITED_DIRS, "governance"];
+      for (const d of SWEEP_DIRS) { const dir = path.join(createdHome, d); if (fsSync.existsSync(dir)) sweepDir(dir); }
+      for (const e of fsSync.readdirSync(createdHome, { withFileTypes: true })) {
+        if (e.isDirectory()) continue;
+        if (!/\.(md|ya?ml|json|txt)$/i.test(e.name) && e.name !== "CODEOWNERS") continue;
+        const f = path.join(createdHome, e.name);
+        const before = fsSync.readFileSync(f, "utf8");
+        const after = substituteTokens(before, values);
+        if (after !== before) { fsSync.writeFileSync(f, after, "utf8"); swept++; }
+        for (const l of leftoverTokens(after)) {
+          if (PER_PROJECT_TOKENS.has(l)) continue;
+          if (!leftovers.has(l)) leftovers.set(l, path.relative(createdHome, e.name));
+        }
+      }
+      manifest.push({ what: "Swept", detail: `${swept} file(s) — org tokens resolved in ${SWEEP_DIRS.join("/ ")}/ and the root files (publish/ untouched)` });
+
+      // CODEOWNERS, GENERATED (Decision 13, 2026-09-14) — see src/config/codeowners.ts for why
+      // it is no longer shipped, and for the deviation from Decision 13's letter (handles must
+      // stay in org-config.yaml, because the policy is scaffold-auto and would overwrite them).
+      // `tokenValuesFromOrgConfig` keys by TOKEN (`POLICY_OWNER_GITHUB`), not by config key —
+      // passing it straight in made every handle undefined, so `renderCodeowners` returned null
+      // and setup aborted with "names no policy_owner_github" on a config that named one.
+      const handles = Object.fromEntries(Object.entries(values).map(([k, v]) => [k.toLowerCase(), v]));
+      const owners = renderCodeowners(handles);
+      if (owners === null) {
+        process.stderr.write("gov setup: org-config.yaml names no policy_owner_github, so CODEOWNERS\n");
+        process.stderr.write("  cannot be generated and governance/ would be unprotected. Set it, then re-run.\n");
+        return 1;
+      }
+      const leftInOwners = unresolvedTokens(owners.text);
+      if (leftInOwners.length) {
+        // Decision 8: a generated file with an unresolved handle fails as silently as a shipped
+        // one, so it is caught here rather than discovered on GitHub.
+        process.stderr.write(`gov setup: generated CODEOWNERS still carries ${leftInOwners.join(", ")} — refusing to write it.\n`);
+        return 1;
+      }
+      fsSync.writeFileSync(path.join(createdHome, "CODEOWNERS"), owners.text, "utf8");
+      manifest.push({
+        what: "Generated",
+        detail: owners.unheld.length
+          ? `CODEOWNERS — Policy Owner on ${POLICY_OWNER_PATHS.length} path(s); no holder yet for ${owners.unheld.join(", ")}`
+          : `CODEOWNERS — every role held`,
+      });
       // Name the file. "Unresolved: <FOO>" tells you a token survived; it does not
       // tell you where to look, which is the only part that lets anyone act.
       if (leftovers.size) {
@@ -911,7 +968,7 @@ export async function runSetupCommand(
       manifest.push({ what: "Committed", detail: committed ? (pushed ? "and pushed to the default branch" : "locally — push failed, run: git push") : "nothing to commit" });
 
       for (const line of renderManifest(manifest, [
-        "knowledge/policies/org-ai-agent-governance-policy.md   — make the policy yours",
+        "governance/policies/org-ai-agent-governance-policy.md   — make the policy yours",
         "agent/session-protocol.md                          — what your agents read at session start",
         "gov                                                — the interactive front door",
         ...(activeNote ? [activeNote] : []),
@@ -1026,7 +1083,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // already know the name of.
     finalStatus: (role) => {
       const r = prjResolveGov(createNodeEnv());
-      const policyPath = r.ok ? path.join(r.home, "knowledge", "policies", "llm-governance.md") : null;
+      const policyPath = r.ok ? path.join(r.home, "governance", "policies", "llm-governance.md") : null;
       const policy = policyPath && fsSync.existsSync(policyPath) ? fsSync.readFileSync(policyPath, "utf8") : null;
       const cfgText = r.ok && fsSync.existsSync(path.join(r.home, "org-config.yaml"))
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
@@ -1291,13 +1348,13 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     // set (presence only — never the value), and what this org has approved.
     hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
     env: process.env,
-    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(resolved.home, "knowledge", "policies", "llm-governance.md"))),
+    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(resolved.home, "governance", "policies", "llm-governance.md"))),
     // The person's own choice, from the lowest knowledge layer (C03). Read every
     // time, and validated against the org's list at launch — not at write time.
     // The joiner's ordinary case: nothing installed, and the org already chose what
     // should be. Same plan and same performer as `gov agent install` — one path.
     installAgent: async (id: string, ask: AskFns) => {
-      const policy = fs.readFile(path.join(resolved.home, "knowledge", "policies", "llm-governance.md"));
+      const policy = fs.readFile(path.join(resolved.home, "governance", "policies", "llm-governance.md"));
       const plan = planAgentInstall(id, parseApprovedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
       if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return false; }
       return await performAgentInstallReal(plan, ask);
@@ -1549,7 +1606,7 @@ export async function runAgentInstall(argv: readonly string[]): Promise<number> 
   const r = prjResolveGov(createNodeEnv());
   if (!r.ok) { process.stderr.write("  No governance workspace resolved. Run `gov setup`, then `gov org add/use`.\n"); return 1; }
   const fs = createNodeFs();
-  const policy = fs.readFile(path.join(r.home, "knowledge", "policies", "llm-governance.md"));
+  const policy = fs.readFile(path.join(r.home, "governance", "policies", "llm-governance.md"));
   const plan = planAgentInstall(id, parseApprovedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
   if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return 1; }
 
@@ -2249,7 +2306,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
     repoStanding,
     hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
-    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(home, "knowledge", "policies", "llm-governance.md"))),
+    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(home, "governance", "policies", "llm-governance.md"))),
     /**
      * Install, then offer the sign-in (#196, Q5). gov orchestrates; the vendor
      * authenticates — the `gh auth login` shape, including its browser fallback.
@@ -2267,7 +2324,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       `Proposing ${id} for your organization's approved list.`,
       "",
       "  This is a policy change, so it goes to whoever owns",
-      "  knowledge/policies/llm-governance.md — not straight into the file.",
+      "  governance/policies/llm-governance.md — not straight into the file.",
       "",
       `  gov knowledge propose approve-agent-${id}`,
       `  …edit the approved_agents block, then:`,

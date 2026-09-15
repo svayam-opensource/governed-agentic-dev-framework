@@ -103,6 +103,7 @@ function fakeFs(existing: Set<string> = new Set()) {
     // Harness entrypoints read as RENDERED (that is what the workspace repo holds after a seed);
     // everything else — todo template, tool files — is absent in these tests.
     readFile: (f: string) =>
+      /todo-template\.md$/.test(f) ? "# To-do for <PROJECT_ID>\n\n## Open\n\n## Done\n" :
       /(?:AGENTS|CLAUDE|CONVENTIONS)\.md$|\.clinerules$|agent\.mdc$|styleguide\.md$|copilot-instructions\.md$|rules\.md$|windsurf\/rules\/agent\.md$/.test(f)
         ? `# rendered protocol (${f})`
         : null,

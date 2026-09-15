@@ -39,7 +39,7 @@ export interface SeedConfig {
   /** Token → value for tool-file substitution (e.g. ORG_NAME). */
   readonly orgTokens: Readonly<Record<string, string>>;
   /** Tool files (paths under `framework/`) to token-substitute into the project. */
-  readonly toolFiles?: readonly string[];
+
   readonly remote?: string;
 }
 
@@ -270,17 +270,36 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
         repos: codeRepoUrls.map((url) => ({ name: repoNameFromUrl(url), url })),
       }),
     );
+    // THE TODO TEMPLATE, READ FROM WHERE IT ACTUALLY SHIPS (Decision 1, 2026-09-14).
+    //
+    // This read `<repo>/framework/knowledge/guidance/todo-template.md`. `framework/` is in
+    // RETIRE_PATHS and was never shipped — the template has always lived at
+    // `knowledge/guidance/`, and now at `governance/guidance/`. So the read returned null, the
+    // guard skipped it silently, and NO project has ever been given a `knowledge/todo.md` —
+    // while the session-start protocol tells every agent to read one and surface its `## Open`
+    // items, and POL-168/169 require it to exist. A missing file behind a null-check is the
+    // quietest way to lose a C01 obligation.
+    //
+    // Not optional any more: without the template the project has no todo list, so say so.
     const todoTemplate = deps.fs.readFile(
-      path.join(orgGovClone, "framework", "knowledge", "guidance", "todo-template.md"),
+      path.join(orgGovClone, "governance", "guidance", "todo-template.md"),
     );
-    if (todoTemplate !== null) {
-      deps.fs.writeFile(path.join(projectDir, "knowledge", "todo.md"), renderTodoMd(todoTemplate, projectId));
+    if (todoTemplate === null) {
+      throw new Error(
+        "seed: governance/guidance/todo-template.md is missing from the governance repo — a "
+        + "project cannot be seeded without a todo list (POL-168). Run `gov upgrade`.",
+      );
     }
-    const tokens = { ...config.orgTokens, PROJECT_ID: projectId };
-    for (const rel of config.toolFiles ?? []) {
-      const src = deps.fs.readFile(path.join(orgGovClone, "framework", rel));
-      if (src !== null) deps.fs.writeFile(path.join(projectDir, rel), substituteTokens(src, tokens));
-    }
+    deps.fs.writeFile(path.join(projectDir, "knowledge", "todo.md"), renderTodoMd(todoTemplate, projectId));
+
+    // THE PER-PROJECT TOOL-FILE SCAFFOLD IS GONE (Decision 1, 2026-09-14).
+    //
+    // It copied the nine harness files from `<repo>/framework/<rel>` into
+    // `projects/<PID>/<rel>`, token-substituted. `framework/` never existed, so all nine reads
+    // returned null and all nine writes were skipped, for as long as the code has existed. It
+    // was also the wrong shape: an agent reads its instructions from the directory it is
+    // launched in — `<project>/` — never from `projects/<PID>/` inside the repo.
+    // `ensureRootProtocol` is the mechanism that works, and it runs on every launch.
     deps.vcs.addPath(orgGovClone, `projects/${projectId}`);
     deps.vcs.commit(orgGovClone, `seed: scaffold project content for ${projectId}`);
 

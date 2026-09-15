@@ -111,7 +111,7 @@ exists "the workspace lands where every tool looks" "$HOME/.gov/acme/gov_repo/or
 info "#196 — the org decides which agents it allows, during adoption"
 says "the question is asked" "Which AI agents may be used in this organization"
 saw_re "and the answer is written to the policy, not remembered" "approved_agents|IBM Bob"
-runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/knowledge/policies/llm-governance.md" \
+runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/governance/policies/llm-governance.md" \
   && pass "ibm-bob is in llm-governance.md — the approved list is a file, not a memory" \
   || fail "ibm-bob was not written to llm-governance.md"
 
@@ -126,7 +126,7 @@ runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/knowledge/policies/llm-governan
 # is worse than silence: the adopter's next move is to repair something that is not broken.
 never "no false alarm about writing the policy" "Could not write llm-governance.md"
 saw   "and the recording is reported once, by the writer that can commit it" \
-      "approved agent(s) in knowledge/policies/llm-governance.md"
+      "approved agent(s) in governance/policies/llm-governance.md"
 
 info "#193 — no placeholder survives into the adopter's own policies"
 never "<ORG_NAME> is resolved" "<ORG_NAME>"

@@ -291,7 +291,21 @@ export const INHERITED_DIRS: readonly string[] = ["agent", "knowledge"];
  * AGENTS.md at the conventional name, which is right for its own contributors — it just must
  * not be inherited, exactly like `agent/` and `knowledge/` are not.
  */
-export const INHERITED_FILES: readonly string[] = ["AGENTS.md", "README.md"];
+export const INHERITED_FILES: readonly string[] = [
+  // Collide with a manifest destination — found by the 2026-09-12 AGENTS.md defect.
+  "AGENTS.md", "README.md",
+  // NO manifest counterpart at all, so nothing replaced or removed them (Decision 5,
+  // 2026-09-14). `INHERITED_FILES` originally covered only COLLISIONS, because that is the
+  // shape the AGENTS.md bug had; these seven reached every adopter untouched.
+  //
+  // CONTRIBUTING.md is the same defect as AGENTS.md without a collision to reveal it: this
+  // repository's own contributing guide, landing in an adopter's governance repo.
+  "CONTRIBUTING.md",
+  // The framework's licence, not the org's.
+  "LICENSE",
+  // Publisher artifacts — an adopter's governance repo builds nothing.
+  "package.json", "package-lock.json", ".npmignore",
+];
 
 /**
  * What an adopter should be left with — asserted after pruning so a new publisher

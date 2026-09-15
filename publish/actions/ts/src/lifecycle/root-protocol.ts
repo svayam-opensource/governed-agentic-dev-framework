@@ -27,13 +27,16 @@ import type { Fs } from "./fs-io.js";
  * Reading the manifest at runtime would need it shipped and parsed, so the list stays for now —
  * with a test asserting it covers every active harness, which is the part that was absent.
  */
+/** Where the canonical copies live inside the governance repo (Decision 2, 2026-09-14). */
+export const HARNESS_SRC_DIR = path.join("agent", "harness");
+
 export const ROOT_HARNESS_FILES = [
   "AGENTS.md",                          // openai-codex, ibm-bob
   "CLAUDE.md",                          // claude-code — rendered text now, not an @-import
   "CONVENTIONS.md",                     // aider
   ".clinerules/agent.md",               // cline — a DIRECTORY of rules; the file is what renders
   ".cursor/rules/agent.mdc",            // cursor
-  ".gemini/styleguide.md",              // gemini-code-assist
+  "GEMINI.md",                          // gemini-code-assist — NOT .gemini/styleguide.md
   ".github/copilot-instructions.md",    // github-copilot
   ".continue/rules.md",                 // continue
   ".windsurf/rules/agent.md",           // windsurf
@@ -58,8 +61,13 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
   //
   // Mirror each self-contained rendered file to the project root, refreshed every call so it can never go
   // stale against the workspace. Files not rendered for this workspace are skipped.
+  // SOURCE MOVED, DESTINATION DID NOT (Decision 2, 2026-09-14). The canonical copies now live
+  // at `<repo>/agent/harness/<rel>`, because 13 of the governance repo's 19 top-level entries
+  // were harness paths in a repo whose purpose is curation and knowledge. The DESTINATION is
+  // still `<project>/<rel>`: those paths are vendor conventions, not gov's choice, and the
+  // project directory is the agent's cwd because code repos are its siblings.
   for (const rel of ROOT_HARNESS_FILES) {
-    const src = fs.readFile(path.join(projectDir, ws, rel));
+    const src = fs.readFile(path.join(projectDir, ws, HARNESS_SRC_DIR, rel));
     if (src == null) continue;
     const dst = path.join(projectDir, rel);
     if (rel.includes("/")) fs.mkdirp(path.dirname(dst));

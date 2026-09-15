@@ -341,7 +341,13 @@ export function harnessFileFor(agentId: string): string | null {
     case "cursor": return ".cursor/rules/agent.mdc";
     case "cline": return ".clinerules/agent.md";
     case "continue": return ".continue/rules.md";
-    case "gemini-code-assist": return ".gemini/styleguide.md";
+    // GEMINI.md, NOT .gemini/styleguide.md (Decision 15, 2026-09-14). Verified against the
+    // published @google/gemini-cli 0.59.0: `contextFileName` defaults to "GEMINI.md", which
+    // appears 227 times in the package; `styleguide.md` appears nowhere. The styleguide is
+    // Gemini Code Assist's GitHub CODE-REVIEW file — a different product surface — so the CLI
+    // this catalog launches was receiving no protocol at all, and `verifyAgentContext` passed
+    // throughout because it checks the file gov PLACED, not the file the agent READS.
+    case "gemini-code-assist": return "GEMINI.md";
     case "github-copilot": return ".github/copilot-instructions.md";
     case "windsurf": return ".windsurf/rules/agent.md";
     case "aider": return "CONVENTIONS.md";
@@ -382,7 +388,7 @@ export function nothingInstalledLines(missing: readonly AgentStatus[], usingDefa
     "",
     ...(usingDefaults
       ? ["  Your organization has not approved any agents yet, so these are the framework's",
-         "  defaults. Narrow them in knowledge/policies/llm-governance.md when you decide.",
+         "  defaults. Narrow them in governance/policies/llm-governance.md when you decide.",
          ""]
       : []),
     "  Approved and available to install:",

@@ -70,7 +70,15 @@ const boardTitled = (title: string, linkedItemCount = 1): Board => ({
   fetchProject: () => ({ id: "P", title, shortDescription: null, linkedItemCount, repoUrls: [] }),
 });
 
-const fs: Fs = { pathExists: () => false, readFile: () => null, mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [] };
+// The todo template must answer: seed now FAILS LOUDLY without it rather than skipping
+// silently (Decision 1, 2026-09-14). For as long as it read `framework/…` it returned null and
+// no project ever got a knowledge/todo.md, while the protocol told every agent to read one.
+const TODO_TEMPLATE = "# To-do for <PROJECT_ID>\n\n## Open\n\n## Done\n";
+const fs: Fs = {
+  pathExists: () => false,
+  readFile: (p: string) => (p.endsWith("todo-template.md") ? TODO_TEMPLATE : null),
+  mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
+};
 const issues: Issues = { state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {}, resolveIssueUrl: () => null, closeBoard: () => {} };
 const anchor: AnchorCreator = { createAnchorIssue: () => "r#1", setState: () => true } as unknown as AnchorCreator;
 const pulls: Pulls = { create: () => "pr", merge: () => "merged" };
