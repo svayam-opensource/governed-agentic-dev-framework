@@ -544,6 +544,36 @@ sync` also prints the one sentence to send into the running session, and it is t
 for every agent. Until it is sent, the session continues under the governance it loaded at
 launch. **(POL-431)**
 
+### 7.0.2 Logging and the audit trail
+
+Digest rules 1 and 6 both turn on logging, and this is where they are stated in full.
+
+**Log through the organization's designated shared logging utility, not ad-hoc output.** A run has
+to be reviewable after the fact by someone who was not present for it, which requires a consistent
+level scheme, consistent structure, and one place to change either. `print`, `console.log` and
+bespoke per-module loggers each defeat that in a different way: they cannot be silenced together,
+they cannot be re-levelled together, and they cannot have a redaction rule applied to all of them
+at once. Where the organization has designated no utility, the obligation is unchanged and is met
+by choosing one and recording it — not by falling back to ad-hoc output. Svayam's is
+`@svayam-opensource/svm-util-log`. **(POL-423)**
+
+**Restricted data must never be written to a log at any level or through any transport.** This is
+narrower and stricter than it first reads, and each part of it has been the cause of a real
+incident somewhere:
+
+- **any level** — a secret in a `debug` or `trace` call is still a secret in a log. "It is off in
+  production" is a configuration claim, not a property of the code, and it is one flag away from
+  being false.
+- **any transport** — console, file, syslog, a hosted log aggregator, a crash reporter, an APM
+  trace, a span attribute. A log line leaving the process is a log line.
+- **structured fields too** — a redacted message with the credential in a structured field, or an
+  exception object logged whole because it happens to carry the request that carried the key, is
+  the common way this clause is broken while appearing to be honoured.
+
+POL-143 forbids restricted data in any knowledge folder or repository; POL-137 forbids sending it
+to an LLM provider. This clause closes the third route, which is the one that looks like
+diligence. **(POL-427)**
+
 ### 7.1 Standard Work Session
 
 Every agent work session is governed by a mandatory start protocol and a recommended end protocol. Deviating from the start protocol is a C01 violation.
@@ -984,6 +1014,8 @@ POL-168: Each project maintains a carry-forward to-do list at projects/PRJ-<boar
 POL-169: At session start, an agent must read the project's todo.md and surface its Open items to the developer before planning new work (C01).
 POL-170: During work, an agent (or developer) must capture intermediate to-dos in the project's todo.md as they arise — not at session end.
 POL-171: Projects are stateful and session-spanning; sessions are not project-bound. When an agent switches to a different project's branch within the same session, it must re-run the full session-start protocol for the new project (POL-113 through POL-116, POL-169) and must not carry forward in-memory context from the previous project.
+POL-423: Agents and developers must log through the organization's designated shared logging utility rather than ad-hoc output, so a run is reviewable afterwards; where none is designated, one must be chosen and recorded.
+POL-427: Restricted data must never be written to a log at any level (including debug and trace), through any transport (console, file, syslog, aggregator, crash reporter, APM trace or span attribute), or in any structured field or logged exception object (C01).
 POL-428: gov guarantees the governance requirements are in the agent's context at launch and on every turn, from a file gov placed and verified at the start of the session — for sessions GOV STARTS. gov launches with the project directory as the working directory; an agent started by a developer elsewhere is outside the guarantee, because gov cannot place a file into a session it did not start.
 POL-429: gov must refuse to launch an agent when that context file is missing, empty, or does not carry the protocol version marker gov renders; the refusal names the path it checked.
 POL-430: No agent may be governed by a mechanism another approved agent lacks — consistency across the approved list takes precedence over any marginal per-vendor capability, because a vendor-specific mechanism biases agent selection for reasons unrelated to the agent.
