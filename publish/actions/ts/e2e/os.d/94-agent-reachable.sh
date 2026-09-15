@@ -24,8 +24,8 @@ drive "$(conv <<'C'
 > Continue now\? \[Y/n\]
 < n
 C
-)" env GOV_PKG=/work/gov.tgz GOV_YES=1 bash /src/install.sh
-exists "gov is installed" "$HOME/.local/bin/gov"
+)" env GOV_PKG=/work/gov.tgz GOV_NODE_TARBALL=/work/node.tar.gz GOV_YES=1 bash /src/install.sh
+require_gov "the shells an agent is reachable from" || return
 
 NODEBIN="$HOME/.local/share/gov/node/bin"
 cp /src/publish/actions/ts/e2e/stub/agent-double "$NODEBIN/bob"

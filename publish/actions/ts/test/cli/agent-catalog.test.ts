@@ -15,8 +15,10 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   AGENT_CATALOG, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines,
-  variantStatuses, runnableVariants,
+  variantStatuses, runnableVariants, harnessFileFor,
 } from "../../src/cli/agent-catalog.js";
+import { ROOT_HARNESS_FILES, verifyAgentContext, PROTOCOL_MARKER, RENDERED_BANNER } from "../../src/lifecycle/root-protocol.js";
+import { INHERITED_FILES } from "../../src/setup/create.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -75,8 +77,16 @@ describe("gov-work — what the menu offers", () => {
   it("falls back to the framework's list when the org has not decided — and says so", () => {
     const empty = approvedAgents([]);
     expect(empty.usingDefaults).to.equal(true);
-    expect(empty.ids).to.have.length(AGENT_CATALOG.length);
+    // NOT THE WHOLE CATALOG. A walk saw all ten proposed as an org's defaults, Windsurf
+    // included — gov suggesting agents its own adoption menu declines to offer. `deferred`
+    // means "not offered", and that has to hold on every path that shows a list.
+    expect(empty.ids).to.have.length(AGENT_CATALOG.filter((a) => !a.deferred).length);
+    expect(empty.ids, "a deferred agent is never proposed as a default").to.not.include("windsurf");
+    expect(empty.ids, "and `launch: none` entries were already excluded elsewhere").to.include("claude-code");
     expect(approvedAgents(["cursor"]).usingDefaults).to.equal(false);
+    // AN ORG'S OWN LIST IS HONOURED VERBATIM, deferred or not: upgrading gov must never take
+    // an agent away from an organization that approved it.
+    expect(approvedAgents(["windsurf"]).ids).to.deep.equal(["windsurf"]);
   });
 
   it("says what each choice DOES, not just what it is called", () => {
@@ -130,13 +140,34 @@ describe("gov-work — every agent's real variants (#196)", () => {
     }
   });
 
-  it("an extension-only agent is unrunnable without a host, and says so", () => {
-    // Cline has no CLI. On a machine with no editor there is nothing to launch, and
-    // gov will not install an editor to create one.
+  it("an agent with a CLI variant is runnable with no editor at all", () => {
+    // THIS TEST USED TO BE ABOUT CLINE, on the grounds that "Cline has no CLI". Cline shipped
+    // one (npm `cline`), so the example was asserting a fact about the vendor that had stopped
+    // being true — and freezing gov into offering an agent it could not install.
+    //
+    // The shape worth testing is unchanged: a CLI variant needs no host, an extension variant
+    // needs one. Cline now has both, which makes it the better example rather than a worse one.
     const cline = AGENT_CATALOG.find((x) => x.id === "cline")!;
-    expect(cline.variants!.every((v) => v.kind === "extension")).to.equal(true);
-    expect(runnableVariants(variantStatuses(cline, () => false))).to.have.length(0);
-    expect(runnableVariants(variantStatuses(cline, (c) => c === "code"))).to.have.length(1);
+    expect(cline.variants!.some((v) => v.kind === "cli"), "cline has a terminal route now").to.equal(true);
+    // `hasTool` answers "is this present", so nothing is RUNNABLE on a bare machine — a CLI
+    // included. That is the honest reading and the distinction that matters: installable is
+    // not the same as runnable, and this agent is now the former without an editor.
+    expect(runnableVariants(variantStatuses(cline, () => false)), "a bare machine can run nothing")
+      .to.have.length(0);
+    expect(runnableVariants(variantStatuses(cline, (c) => c === "cline")), "its own binary, no editor")
+      .to.have.length(1);
+    // With an editor and no CLI, only the extension route is offered — which is what the
+    // previous version of this test was really checking.
+    expect(runnableVariants(variantStatuses(cline, (c) => c === "code")), "editor only")
+      .to.have.length(1);
+  });
+
+  it("an EXTENSION-ONLY agent is still unrunnable without a host, and says so", () => {
+    // The case cline used to demonstrate, kept alive with an agent that genuinely has no
+    // binary. `windsurf`'s only route is its own editor; `chatgpt-web` has no route at all.
+    const ws = AGENT_CATALOG.find((x) => x.id === "windsurf")!;
+    expect(ws.variants!.every((v) => v.kind === "editor" || v.kind === "extension")).to.equal(true);
+    expect(ws.install?.npm, "and gov must not claim to install it from npm").to.equal(undefined);
   });
 });
 
@@ -195,6 +226,24 @@ describe("gov-work — an install must come from the vendor it names (#201)", ()
     "gemini-code-assist": ["@google"],
     "github-copilot": ["@github"],
     aider: ["@aider"],
+    continue: ["@continuedev"],
+  };
+
+  /**
+   * UNSCOPED packages a human has checked, with the evidence written down.
+   *
+   * The scope test is a MECHANISM for the real rule — "a person confirmed this package is the
+   * vendor's" — and it only works for scoped names. `cline` is unscoped, so it can never start
+   * with `@vendor/` and the guard would have refused it forever, pushing the entry back to a
+   * url-only state that is now simply wrong.
+   *
+   * This does not prove provenance; nothing in a unit test can. It records that the check was
+   * made, which is exactly what the scope list records for the scoped ones.
+   */
+  const UNSCOPED_VERIFIED: Record<string, { readonly pkg: string; readonly evidence: string }> = {
+    // npm `cline` v3.0.61 — repository github.com/cline/cline; maintainers john@cline.bot,
+    // saoud@cline.bot, beatrix@cline.bot. Checked 2026-09-10.
+    cline: { pkg: "cline", evidence: "repo cline/cline, maintainers @cline.bot, checked 2026-09-10" },
   };
 
   const npmInstalls = (): Array<{ id: string; pkg: string }> => {
@@ -208,6 +257,12 @@ describe("gov-work — an install must come from the vendor it names (#201)", ()
 
   it("every npm package is in a scope the vendor owns", () => {
     for (const { id, pkg } of npmInstalls()) {
+      const unscoped = UNSCOPED_VERIFIED[id];
+      if (unscoped) {
+        expect(pkg, `${id}: '${pkg}' is not the unscoped package that was verified (${unscoped.evidence})`)
+          .to.equal(unscoped.pkg);
+        continue;
+      }
       const scopes = VENDOR_SCOPES[id];
       expect(scopes, `${id} installs '${pkg}' from npm and no vendor scope is declared for it — ` +
         "add one only after checking the package's maintainers, or install from the vendor's own URL").to.not.equal(undefined);
@@ -233,5 +288,247 @@ describe("gov-work — an install must come from the vendor it names (#201)", ()
       if (!a.install) continue;
       expect(a.install.url, `${a.id} must name where it comes from`).to.match(/^https:\/\//);
     }
+  });
+});
+
+/**
+ * THE ASSERTION WHOSE ABSENCE COST CLINE ITS GOVERNANCE.
+ *
+ * `agent-catalog` already checked that every rendered harness is in the catalog — by ID. Both
+ * of the places that name a harness PATH went unchecked, and both drifted: `ROOT_HARNESS_FILES`
+ * said `.clinerules` where the manifest renders `.clinerules/agent.md`, so the mirror loop read
+ * a directory, got null, and skipped it without a word. Cline launched into governed projects
+ * with an empty context for as long as that stood.
+ *
+ * Three copies of the same fact is the real defect and it stays for now (the manifest is not
+ * shipped at runtime, so neither source can read it). What must not stay is three copies with
+ * nothing comparing them.
+ */
+describe("gov-work — harness PATHS agree with the manifest, not just ids", () => {
+  function manifestPaths(): Map<string, string> {
+    const text = fs.readFileSync(path.join(repoRoot, "agent", "harness-manifest.yaml"), "utf8");
+    const out = new Map<string, string>();
+    for (const b of text.split(/^ {2}- id:\s*/m).slice(1)) {
+      const id = b.split(/\s/)[0]!;
+      const status = /^\s*status:\s*(\S+)/m.exec(b)?.[1] ?? "";
+      const p = /^\s*path:\s*(\S+)/m.exec(b)?.[1] ?? "";
+      // THE MANIFEST PATH IS NOW THE SOURCE, NOT THE DESTINATION (Decision 2, 2026-09-14).
+      // The renderer writes `publish/content/agent/harness/<rel>`; `<rel>` is still what the
+      // agent reads at the root of the directory it runs in. Those two stopped being equal
+      // when the harness moved under `agent/`, so the strip has two prefixes now.
+      const rel = p.replace(/^publish\/content\/agent\/harness\//, "").replace(/^publish\/content\//, "");
+      if (status === "active" && rel && rel !== p) out.set(id, rel);
+    }
+    return out;
+  }
+
+  it("harnessFileFor returns the path the renderer actually writes", () => {
+    for (const [id, rel] of manifestPaths()) {
+      if (!AGENT_CATALOG.some((a) => a.id === id)) continue;
+      expect(harnessFileFor(id), `${id}: harnessFileFor vs harness-manifest.yaml`).to.equal(rel);
+    }
+  });
+
+  it("the project-root mirror list covers every rendered harness path", () => {
+    const mirrored = new Set<string>(ROOT_HARNESS_FILES);
+    for (const [id, rel] of manifestPaths()) {
+      if (!AGENT_CATALOG.some((a) => a.id === id)) continue;
+      expect(mirrored.has(rel), `${id}: '${rel}' is rendered but never mirrored to the project root`).to.equal(true);
+    }
+  });
+
+  it("and mirrors nothing that is not a rendered harness", () => {
+    const rendered = new Set([...manifestPaths().values()]);
+    for (const rel of ROOT_HARNESS_FILES) {
+      expect(rendered.has(rel), `'${rel}' is mirrored but no active harness renders it`).to.equal(true);
+    }
+  });
+
+  it("every mirrored file exists in the shipped content — the render really happened", () => {
+    for (const rel of ROOT_HARNESS_FILES) {
+      // Under `agent/harness/` since Decision 2 — the repo root is for curation and knowledge.
+      const at = path.join(repoRoot, "publish", "content", "agent", "harness", rel);
+      expect(fs.existsSync(at), `${rel} is mirrored but not rendered into publish/content`).to.equal(true);
+      expect(fs.readFileSync(at, "utf8"), `${rel} carries the version marker gov verifies`).to.contain(PROTOCOL_MARKER);
+    }
+  });
+});
+
+describe("gov-work — gov verifies the context before it launches (the guarantee's teeth)", () => {
+  // Windows CI has failed a correct answer here before (logDirFor, 2026-09): compare separators
+  // as posix, because what is being asserted is the PATH, not the platform.
+  const px = (p: string) => p.split(path.sep).join("/");
+  const at = (rel: string) => `/work/PRJ-9/${rel}`;
+  const fsOf = (files: Record<string, string>) => ({ readFile: (f: string) => files[px(f)] ?? null });
+
+  it("passes when the placed file is gov's protocol", () => {
+    const v = verifyAgentContext(fsOf({ [at("CLAUDE.md")]: "<!-- gov-protocol-version: 2 -->\n# protocol" }), "/work/PRJ-9", "CLAUDE.md");
+    expect(v.ok).to.equal(true);
+  });
+
+  it("blocks when the file was never placed — the .clinerules case, now named out loud", () => {
+    const v = verifyAgentContext(fsOf({}), "/work/PRJ-9", ".clinerules/agent.md");
+    expect(v.ok).to.equal(false);
+    if (v.ok) return;
+    expect(v.why).to.contain("not there");
+    expect(px(v.at), "says WHICH path, so it can be checked").to.equal(at(".clinerules/agent.md"));
+  });
+
+  it("blocks on an empty file — a truncated write is not a governed session", () => {
+    const v = verifyAgentContext(fsOf({ [at("AGENTS.md")]: "   \n\n" }), "/work/PRJ-9", "AGENTS.md");
+    expect(v.ok).to.equal(false);
+    if (!v.ok) expect(v.why).to.contain("empty");
+  });
+
+  it("does NOT refuse a file gov did not render — it warns and gets out of the way", () => {
+    // REVERSED BY A SECOND WALK, 2026-09-13, and the reversal is the point.
+    //
+    // This used to assert a refusal, on the theory that an unrecognised file might be the
+    // adopter's own and gov should not govern through it. But `ensureRootProtocol` OVERWRITES
+    // this path from `<workspace>/<rel>` on every launch, so what is read here is always a copy
+    // of the organization's own governed repository. If they edited it, that edit is their
+    // ratified choice (POL-086) and gov has no standing to refuse it.
+    //
+    // Refusing also kept bricking real installs: first every org predating the version marker,
+    // then Claude specifically, because `main` still ships CLAUDE.md as an @-import stub with
+    // no banner. Each unanticipated shape blocked EVERY launch — a bad trade for a narrow check.
+    const v = verifyAgentContext(fsOf({ [at("CLAUDE.md")]: "# my own house rules\nuse tabs" }), "/work/PRJ-9", "CLAUDE.md");
+    expect(v.ok, "it launches").to.equal(true);
+    if (!v.ok) return;
+    expect(v.current, "but gov says it is not the protocol it renders").to.equal(false);
+    if (v.current) return;
+    expect(v.why).to.contain("gov did not render it");
+  });
+
+  it("the OLD Claude @-import stub is recognised as gov's, not as a stranger's file", () => {
+    // THE SHAPE THAT BROKE THE SECOND WALK. `main`'s publish/content/CLAUDE.md is two lines:
+    //
+    //   @agent/session-protocol.md
+    //   @agent.md
+    //
+    // No banner and no marker, by design — it was the Claude mechanism before 2026-09-11, and
+    // it works: Claude resolves the imports and reads the protocol. A gate that called this "not
+    // gov's file" refused to launch Claude in every organization seeded from main.
+    const stub = "@agent/session-protocol.md\n@agent.md\n";
+    const v = verifyAgentContext(fsOf({ [at("CLAUDE.md")]: stub }), "/work/PRJ-9", "CLAUDE.md");
+    expect(v.ok).to.equal(true);
+    if (!v.ok) return;
+    expect(v.current).to.equal(false);
+    if (v.current) return;
+    expect(v.why, "and it is named for what it is").to.contain("@-import");
+  });
+
+  it("an OLDER gov protocol still governs — it warns, it does not refuse", () => {
+    // THE DEFECT A WALK FOUND, and it was mine. The first version of this gate refused anything
+    // without a `gov-protocol-version` line. That line was added on 2026-09-11; the content
+    // every organization adopted before then was seeded from predates it — the 118-line protocol
+    // on `main` carries the renderer's banner and no marker. So the gate blocked every agent
+    // launch in every existing organization, on content that is perfectly valid governance.
+    //
+    // Refusing there inverts the guarantee's purpose: it exists so nobody is handed an
+    // UNGOVERNED session, and an org running last month's protocol is governed, just not current.
+    const old118 = [
+      "<!-- GENERATED from the framework harness source — do not edit by hand -->",
+      "",
+      "# Agent Session-Start Protocol — <ORG_NAME>",
+      "## Context manifest",
+    ].join("\n");
+    const v = verifyAgentContext(fsOf({ [at("AGENTS.md")]: old118 }), "/work/PRJ-9", "AGENTS.md");
+    expect(v.ok, "it must LAUNCH").to.equal(true);
+    if (!v.ok) return;
+    expect(v.current, "but it is not the current protocol").to.equal(false);
+    if (v.current) return;
+    expect(v.why, "and says why, so the warning is actionable").to.contain("earlier framework version");
+  });
+
+  it("ONLY missing and empty refuse — nothing else can brick an existing org", () => {
+    // The whole rule, asserted as a rule rather than case by case, because the failure mode of
+    // getting it wrong is that no agent starts anywhere. Two walks produced exactly that.
+    const refuses = [undefined, "", "   \n\n"];
+    for (const body of refuses) {
+      const files = body === undefined ? {} : { [at("AGENTS.md")]: body };
+      const v = verifyAgentContext(fsOf(files), "/work/PRJ-9", "AGENTS.md");
+      expect(v.ok, `must refuse: ${JSON.stringify(body)}`).to.equal(false);
+    }
+    const launches = [
+      "<!-- gov-protocol-version: 2 -->\n# protocol",
+      "<!-- GENERATED from the framework harness source — do not edit by hand -->\n# old",
+      "@agent/session-protocol.md\n@agent.md\n",
+      "# something an org wrote themselves",
+    ];
+    for (const body of launches) {
+      const v = verifyAgentContext(fsOf({ [at("AGENTS.md")]: body }), "/work/PRJ-9", "AGENTS.md");
+      expect(v.ok, `must launch: ${body.slice(0, 40)}`).to.equal(true);
+    }
+  });
+
+  it("the banner it looks for is the one the manifest defines", () => {
+    // Asserted against the manifest, because that is where the renderer reads it from. A
+    // reworded banner would otherwise turn every existing org's protocol into "a stranger's
+    // file" and start refusing launches again — the exact failure this pair of branches fixed.
+    const m = fs.readFileSync(path.join(repoRoot, "agent", "harness-manifest.yaml"), "utf8");
+    const line = /^generated_banner:\s*"(.+)"\s*$/m.exec(m);
+    expect(line, "harness-manifest.yaml must define generated_banner").to.not.equal(null);
+    expect(line![1], "and verifyAgentContext must look for a substring of it").to.contain(RENDERED_BANNER);
+  });
+
+  it("the marker it looks for is the one the protocol source carries", () => {
+    // Asserted at the SOURCE, not the render output — the block above already checks the output.
+    // A source edit that drops the line would otherwise pass every test and make every agent
+    // unlaunchable, with the cause nowhere near the effect. The renderer now hard-fails on it
+    // too; this is the same fact asserted where it is cheapest to see.
+    const src = fs.readFileSync(path.join(repoRoot, "agent", "session-protocol.md"), "utf8");
+    expect(src, "session-protocol.md must carry the marker verifyAgentContext requires").to.contain(PROTOCOL_MARKER);
+    const r = fs.readFileSync(path.join(repoRoot, "agent", "render-harness.mjs"), "utf8");
+    expect(r, "and the renderer must refuse to render without it").to.contain(PROTOCOL_MARKER);
+  });
+});
+
+/**
+ * THE ADOPTER'S COPY MUST BE THE RENDERER'S, not this repository's own.
+ *
+ * Found on a walk 2026-09-12, and it had been true since the harness existed. This repo has its
+ * own root `AGENTS.md` — contributor notes, which even say the adopter protocol lives in
+ * `publish/content/`. `gh repo create --template` copies it into every adopter's repo; the seed
+ * then classifies it `scaffold-prompt`, finds no baseline on a first seed, calls it
+ * "org-customized" and skips it. So openai-codex and ibm-bob, both of which read AGENTS.md,
+ * were governed by instructions for building this repository.
+ *
+ * Nothing failed. No test looked, because every test compared the CONTENT tree against the
+ * catalog and the manifest — never the framework's own root against the paths an agent reads.
+ */
+describe("adoption — the framework's own files never become the adopter's protocol", () => {
+  it("every path an agent reads is pruned from the template copy, or not in this repo's root", () => {
+    for (const rel of ROOT_HARNESS_FILES) {
+      const ownCopy = path.join(repoRoot, rel);
+      if (!fs.existsSync(ownCopy)) continue;                 // no collision: nothing to inherit
+      const rendered = fs.readFileSync(ownCopy, "utf8").includes(RENDERED_BANNER);
+      if (rendered) continue;                                // the framework's copy IS a render
+      expect(
+        INHERITED_FILES.includes(rel),
+        `${rel} exists in this repo's root, is NOT a render, and is not in INHERITED_FILES — `
+        + "so the template copy would survive the seed and govern the adopter's agents",
+      ).to.equal(true);
+    }
+  });
+
+  it("AGENTS.md specifically — the one that was actually wrong", () => {
+    // Pinned by name, because a generic rule is easy to weaken by accident and this file is
+    // read by two of the agents on the launch list.
+    const own = path.join(repoRoot, "AGENTS.md");
+    expect(fs.existsSync(own), "this repo still has its own AGENTS.md").to.equal(true);
+    expect(fs.readFileSync(own, "utf8"), "and it is NOT a rendered protocol").to.not.contain(RENDERED_BANNER);
+    expect(INHERITED_FILES, "so it must be pruned from an adopter's clone").to.include("AGENTS.md");
+  });
+
+  it("what ships as the adopter's AGENTS.md is the rendered protocol, and passes the gate", () => {
+    // The other half: pruning is only right if the seed then puts the REAL protocol there.
+    const shipped = path.join(repoRoot, "publish", "content", "agent", "harness", "AGENTS.md");
+    const text = fs.readFileSync(shipped, "utf8");
+    expect(text, "carries the renderer's banner").to.contain(RENDERED_BANNER);
+    expect(text, "and the version marker gov verifies").to.contain(PROTOCOL_MARKER);
+    const v = verifyAgentContext({ readFile: () => text }, "/work/PRJ-9", "AGENTS.md");
+    expect(v.ok, "so a launch is allowed").to.equal(true);
+    if (v.ok) expect(v.current, "with no upgrade warning").to.equal(true);
   });
 });

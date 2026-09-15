@@ -23,7 +23,7 @@ run_installer() {
 > Continue now\? \[Y/n\]
 < n
 C
-)" env GOV_PKG=/work/gov.tgz GOV_YES=1 bash /src/install.sh
+)" env GOV_PKG=/work/gov.tgz GOV_NODE_TARBALL=/work/node.tar.gz GOV_YES=1 bash /src/install.sh
 }
 
 run_installer
@@ -35,7 +35,15 @@ rm -f "$HOME/.local/bin/gov"
 rm -rf "$HOME/.local/share/gov/node/lib/node_modules/@svayam-opensource" 2>/dev/null
 
 run_installer
-exists "second run: gov is back" "$HOME/.local/bin/gov"
+# ASSERT WHAT WAS REMOVED IS BACK, not where one distro happens to put a wrapper.
+#
+# This checked `~/.local/bin/gov` and failed on debian and ubuntu, where that directory is not
+# on PATH so install.sh deliberately takes the profile route instead (scenario 90 documents the
+# difference, and 91 had the identical bug). It was also redundant: the line below already asks
+# the only question that matters on every image — can a new login shell run gov. What the retry
+# is actually about is the CLIENT coming back, which is precisely what was deleted above.
+exists "second run: the client is back where the retry deleted it" \
+  "$HOME/.local/share/gov/node/lib/node_modules/@svayam-opensource"
 in_a_new_login_shell "gov --version" \
   && pass "and runnable — a retry RESUMES rather than half-repeating" \
   || fail "gov is still not runnable after the retry"

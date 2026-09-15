@@ -66,8 +66,42 @@ export interface Reporter {
   ok(text: string): string;
   /** Did not happen. Colour is the least of what says so; the mark and the words carry it. */
   fail(text: string): string;
+  /**
+   * It happened, AND there is a consequence the reader will meet later.
+   *
+   * The gap between `ok` and `fail` is where #209 lived: gov installed an agent successfully
+   * and could not put it on the adopter's PATH, so `ok` was a half-truth and `fail` was wrong.
+   * With only two marks the honest line had nowhere to go, and the code said nothing at all —
+   * leaving `✓ installed and runnable` as the last word before `bob: command not found`.
+   */
+  warn(text: string): string;
   /** The end of a phase that succeeded, when the phase deserves an ending. */
   complete(text: string): readonly string[];
+}
+
+/**
+ * Break a sentence to fit a terminal, at a word boundary.
+ *
+ * WRITTEN BECAUSE THE LONG LINES KEPT COMING BACK. The #209 warning ran to 110 characters on
+ * its first draft and needed a test pinning it to 80; the credential diagnosis then arrived at
+ * 155 because its longest part is interpolated — `browserCaveat`'s text — so no amount of care
+ * in the template can bound it. A message that wraps mid-word in the terminal it is meant to be
+ * read in is a message that gets skipped, which is the whole reason any of this is written out.
+ *
+ * Never breaks a word: an over-long token (a path, a URL) gets its own line, too long, rather
+ * than being cut in half where it cannot be copied.
+ */
+export function wrap(text: string, width = 76, indent = "  "): readonly string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (line === "") { line = word; continue; }
+    if (`${line} ${word}`.length + indent.length <= width) { line = `${line} ${word}`; continue; }
+    out.push(indent + line);
+    line = word;
+  }
+  if (line !== "") out.push(indent + line);
+  return out;
 }
 
 /** Two spaces: everything gov prints inside a run is indented under its step banner. */
@@ -79,6 +113,7 @@ export function reporter(color: boolean): Reporter {
     step: (text) => `${PAD}${paint("\u2192", "cyan", color)} ${text}`,
     ok: (text) => `${PAD}${paint("\u2713", "green", color)} ${text}`,
     fail: (text) => `${PAD}${paint("\u2717", "red", color)} ${text}`,
+    warn: (text) => `${PAD}${paint("!", "yellow", color)} ${text}`,
     complete: (text) => ["", `${paint(text, "bold", color)} ${paint("\u2713", "green", color)}`, ""],
   };
 }

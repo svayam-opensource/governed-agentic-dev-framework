@@ -54,8 +54,19 @@ drive "$(conv <<'C'
 > Q9 - What should be the policy effective date
 <
 ~ 240
-> Allowed agents
-< ibm-bob
+# Q10 — THE AGENT POLICY, NOW INSIDE THE INTERVIEW AND BEFORE THE CLONE. It used to be asked
+# after the repository existed, which put the one genuine policy decision in adoption on the
+# far side of the irreversible step. One agent at a time now: the old shape was a
+# space-separated list, where a typo silently changed the organization's default.
+> default for your organization
+< 8
+# Additions, one number each, until a blank finishes. Blank straight away is the single-agent
+# org — a default by definition, and the case a joiner is never asked to choose in.
+> add any other AI agent
+<
+# And it is read back before it becomes a rule.
+> happy with your AI agent selection
+< y
 > Create it\? \[y/N\]
 < y
 ~ 240
@@ -72,17 +83,25 @@ saw "the interview opens with a header that says what is about to happen" "Adopt
 q1="$(grep -n 'Q1 - What is full legal name' "$PLAIN" | head -1 | cut -d: -f1)"
 q3="$(grep -n 'Q3 - What is the Github Organization ID' "$PLAIN" | head -1 | cut -d: -f1)"
 create="$(grep -n 'creating acme/acme-gov' "$PLAIN" | head -1 | cut -d: -f1)"
-q9="$(grep -n 'Q9 - What should be the policy effective date' "$PLAIN" | head -1 | cut -d: -f1)"
+q9="$(grep -n 'happy with your AI agent selection' "$PLAIN" | head -1 | cut -d: -f1)"
 [ -n "$q1" ] && [ -n "$q3" ] && [ "$q1" -lt "$q3" ] \
   && pass "the legal NAME is asked before the GitHub identifier" \
   || fail "the legal NAME is asked before the GitHub identifier"
 # The whole point of #215: nothing irreversible happens until the last answer is in.
 [ -n "$q9" ] && [ -n "$create" ] && [ "$q9" -lt "$create" ] \
-  && pass "nothing is created until the LAST question is answered" \
-  || fail "nothing is created until the LAST question is answered"
+  && pass "nothing is created until the LAST question (Q10's confirmation) is answered" \
+  || fail "nothing is created until the LAST question (Q10's confirmation) is answered"
 saw "and the closing block names the repository it made" "A new governance repo is created for your organization at"
 saw "with the local path, which is what the adopter needs next" "/.gov/acme/gov_repo"
 never "the mid-flow echoes are gone — they are in the closing block now" "(from origin)"
+
+info "#196 — the agent policy is asked one agent at a time, and read back"
+saw "the default is its own question" "default for your organization"
+saw "additions are offered one at a time" "add any other AI agent to the allowed list"
+saw "the selection is read back before it becomes a rule" "You have selected"
+saw "naming the default explicitly" "'IBM Bob' (default)"
+saw "and it says where the answer can be changed" "llm-governance.md"
+never "the old space-separated shape is gone" "separated by spaces"
 
 info "founding"
 saw "it creates the repository from the framework template" "creating acme/acme-gov"
@@ -92,9 +111,22 @@ exists "the workspace lands where every tool looks" "$HOME/.gov/acme/gov_repo/or
 info "#196 — the org decides which agents it allows, during adoption"
 says "the question is asked" "Which AI agents may be used in this organization"
 saw_re "and the answer is written to the policy, not remembered" "approved_agents|IBM Bob"
-runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/knowledge/policies/llm-governance.md" \
+runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/governance/policies/llm-governance.md" \
   && pass "ibm-bob is in llm-governance.md — the approved list is a file, not a memory" \
   || fail "ibm-bob was not written to llm-governance.md"
+
+# ONE WRITER, AND NO FALSE ALARM ABOUT IT.
+#
+# A walk on 2026-09-12 ended a SUCCESSFUL adoption with "✗ Could not write llm-governance.md —
+# approve them later with `gov agent approve <id>`". Nothing had failed. The list is recorded
+# inside `createWorkspace`, before its own commit (#196); a second writer then re-rendered an
+# identical block, and `withApprovedAgents` returns null when nothing would change — which the
+# caller read as a write failure. The assertion above could not catch it, because the file WAS
+# correct; only the message was wrong. A false alarm on the one governance decision in adoption
+# is worse than silence: the adopter's next move is to repair something that is not broken.
+never "no false alarm about writing the policy" "Could not write llm-governance.md"
+saw   "and the recording is reported once, by the writer that can commit it" \
+      "approved agent(s) in governance/policies/llm-governance.md"
 
 info "#193 — no placeholder survives into the adopter's own policies"
 never "<ORG_NAME> is resolved" "<ORG_NAME>"

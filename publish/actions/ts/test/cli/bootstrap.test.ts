@@ -79,6 +79,25 @@ describe("gov-work — first run: helpers", () => {
 const JOINER: OrgIdentity = { org: "Svayamtech", orgSlug: "SVM" };
 const URL = "git@github.com:Svayamtech/svm-prj-work.git";
 
+/**
+ * Answers the JOINER interview (setup/join-interview.ts). The clone URL question is gone —
+ * gov asks for an organization and a repository name and builds the URL itself — so a joiner
+ * stub now answers two questions rather than pasting plumbing.
+ */
+/**
+ * What gov CLONES on the joiner path now: derived from the two answers, not typed.
+ *
+ * https rather than the ssh `URL` above, because gov builds it — and https is the protocol that
+ * works on a machine which has only run `gh auth login`, with no key generated or uploaded.
+ */
+const JOINED_URL = "https://github.com/Svayamtech/svm-prj-work.git";
+
+const joinerAnswer = (q: string, org = "Svayamtech", repo = "svm-prj-work"): string | undefined => {
+  if (/^Q1 - /.test(q)) return org;
+  if (/^Q2 - /.test(q)) return repo;
+  return undefined;
+};
+
 /** A recording world: every external act is captured, nothing happens. */
 function io(over: Partial<FirstRunIo> = {}) {
   const out: string[] = [];
@@ -89,7 +108,7 @@ function io(over: Partial<FirstRunIo> = {}) {
     // The role question comes first now (#186). Default to B (joiner) so the tests
     // below still describe what they say they describe; the adopter path has its
     // own tests.
-    prompt: async (q: string) => (/Select \(A\/B\/C\)/.test(q) ? "B" : URL),
+    prompt: async (q: string) => (/Select \(A\/B\/C\)/.test(q) ? "B" : (joinerAnswer(q) ?? URL)),
     print: (l) => out.push(l),
     tempDir: () => "/tmp/boot",
     clone: (u, d) => acts.push(`clone ${u} -> ${px(d)}`),
@@ -131,7 +150,7 @@ describe("gov-work — first run: the flow", () => {
     const { w, out, acts } = io();
     expect(await runFirstRun(w)).to.equal(0);
     expect(acts).to.deep.equal([
-      `clone ${URL} -> /tmp/boot/svm-prj-work`,
+      `clone ${JOINED_URL} -> /tmp/boot/svm-prj-work`,
       "place /tmp/boot/svm-prj-work -> /home/rk/.gov/svm/gov_repo",
       "discard /tmp/boot",
     ]);
@@ -152,16 +171,29 @@ describe("gov-work — first run: the flow", () => {
     expect(pxAll(out)).to.include("Registered Acme → /home/rk/.gov/acme/gov_repo");
   });
 
-  it("a bad URL is rejected before anything is cloned", async () => {
-    const { w, out, acts } = io({ prompt: async (q: string) => (/Select \(A\/B\/C\)/.test(q) ? "B" : "svm-prj-work") });
-    expect(await runFirstRun(w)).to.equal(1);
-    expect(acts, "nothing touched the disk").to.deep.equal([]);
-    expect(out.join("\n")).to.match(/does not look like a clone URL/);
+  it("an <org>/<repo> where an organization belongs is explained, then asked again", async () => {
+    // The clone URL question is gone — gov asks for an organization and a repository and builds
+    // the URL itself — so the guard that mattered moved with it. A joiner who types the whole
+    // path into Q1 gets the half that belongs there named, and a second attempt, rather than a
+    // failed run: the same treatment #192 gave the adopter's version of this mistake.
+    let attempt = 0;
+    const { w, out, acts } = io({
+      prompt: async (q: string) => {
+        if (/Select \(A\/B\/C\)/.test(q)) return "B";
+        if (/^Q1 - /.test(q)) return ++attempt === 1 ? "Svayamtech/svm-prj-work" : "Svayamtech";
+        return joinerAnswer(q) ?? URL;
+      },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(attempt, "asked a second time rather than ending the run").to.equal(2);
+    expect(out.join("\n"), "and said which half belongs here").to.match(/Just the organization here/);
+    expect(acts.join("\n"), "nothing was cloned until the answer was usable")
+      .to.match(/clone https:\/\/github\.com\/Svayamtech\/svm-prj-work\.git/);
   });
 
   it("asks which role you are here in, before asking anything only one role can answer", async () => {
     const asked: string[] = [];
-    const { w, out } = io({ prompt: async (q: string) => { asked.push(q); return /Select \(A\/B\/C\)/.test(q) ? "B" : URL; } });
+    const { w, out } = io({ prompt: async (q: string) => { asked.push(q); return /Select \(A\/B\/C\)/.test(q) ? "B" : (joinerAnswer(q) ?? URL); } });
     await runFirstRun(w);
     expect(asked[0], "the role question comes first").to.match(/Select \(A\/B\/C\)/);
     expect(out.join("\n")).to.match(/I am an ADOPTER/);
@@ -219,7 +251,7 @@ describe("gov-work — first run: the flow", () => {
     let asked = 0;
     const { w, out } = io({
       prompt: async (q: string) => {
-        if (!/Select \(A\/B\/C\)/.test(q)) return URL;
+        if (!/Select \(A\/B\/C\)/.test(q)) return joinerAnswer(q) ?? URL;
         asked++;
         return asked === 1 ? "C" : "B";
       },
@@ -260,7 +292,7 @@ describe("gov-work — first run: the flow", () => {
     const { w, acts } = io({ readIdentity: () => null, found: async () => null, register: () => { registered++; return { ok: true }; } });
     expect(await runFirstRun(w)).to.equal(1);
     expect(registered).to.equal(0);
-    expect(acts).to.deep.equal([`clone ${URL} -> /tmp/boot/svm-prj-work`, "discard /tmp/boot"]);
+    expect(acts).to.deep.equal([`clone ${JOINED_URL} -> /tmp/boot/svm-prj-work`, "discard /tmp/boot"]);
   });
 
   it("choose: picks by number or by name, and refuses anything else", async () => {
@@ -437,7 +469,7 @@ describe("gov-work — adoption offers to start the policy review", () => {
     const roles: string[] = [];
     const asked: string[] = [];
     const { w } = io({
-      prompt: async (q, def) => { asked.push(q); return /Select \(A\/B\/C\)/.test(q) ? "B" : (/start work now/.test(q) ? def : URL); },
+      prompt: async (q, def) => { asked.push(q); return /Select \(A\/B\/C\)/.test(q) ? "B" : (/start work now/.test(q) ? def : (joinerAnswer(q) ?? URL)); },
       reviewNow: async (role) => { roles.push(role); return 0; },
     });
     expect(await runFirstRun(w)).to.equal(0);

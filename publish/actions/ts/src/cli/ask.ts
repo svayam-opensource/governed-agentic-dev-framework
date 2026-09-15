@@ -19,6 +19,7 @@
  * that needs to ask BORROWS that owner. Never open a second reader, however carefully.
  */
 import * as readline from "node:readline";
+import { log } from "../log.js";
 
 export interface AskFns {
   /** Ask, and let the answer echo — the reader needs to see what they typed. */
@@ -37,6 +38,10 @@ export interface AskFns {
  * interface writes has none of that liability and needs no `finally` to be correct.
  */
 export function askFns(rl: readline.Interface, prompt: (q: string) => Promise<string>): AskFns {
+  // WHICH ASKER ANSWERED. #213 cost four wrong fixes because that question had no answer
+  // anywhere except a screen recording: three call sites could reach a prompt, one of them
+  // through a stub that answered itself, and gov's output looked identical either way.
+  log("debug", "real asker constructed on an existing readline", "gov-work:cli:ask", "askFns");
   return {
     line: prompt,
     secret: (question) =>
@@ -50,33 +55,41 @@ export function askFns(rl: readline.Interface, prompt: (q: string) => Promise<st
           // The question itself must appear; everything typed after it must not.
           if (!muted && s.includes(question)) { original?.call(rl, s); muted = true; return; }
           if (!muted) { original?.call(rl, s); return; }
-          // HIDDEN IS NOT THE SAME AS INVISIBLE (#218).
+          // HIDDEN IS NOT THE SAME AS INVISIBLE (#218) — BUT IT MUST FIT ON ONE LINE.
           //
-          // Writing nothing at all was the classic password behaviour, and it is wrong for
-          // the thing actually being asked for here. A password is TYPED, so the typist knows
-          // they typed; an API key is PASTED, and a paste that produces no change on screen is
-          // indistinguishable from a paste that did not arrive. A walk-through stalled on
-          // exactly that: the key had landed, the screen said nothing, and the only way to
-          // find out was to press Enter and see what happened.
+          // The first version of this drew one bullet per character. A pasted API key is longer
+          // than a terminal is wide, so the line WRAPPED, and `clearLine` can only clear the
+          // physical row the cursor is on. Every chunk of a paste then redrew a full wrapped
+          // line and left the previous remnant behind: a walk-through recorded THIRTY repeats
+          // of the prompt marching up the screen. Fixing silence with noise is not a fix.
           //
-          // So redraw the line as one bullet per character held. The secret never reaches the
-          // screen; the fact that it arrived, and how much of it, does. Length is not a
-          // meaningful disclosure for a pasted credential — anyone watching the paste saw it.
-          const out = (rl as unknown as { output?: NodeJS.WritableStream }).output;
+          // So the indicator has a CEILING and never grows past it. Beyond that, the count
+          // carries the information the bullets were there to carry — "it arrived, and roughly
+          // this much of it" — in a form whose width does not depend on the secret's length.
+          const out = (rl as unknown as { output?: NodeJS.WriteStream }).output;
           const held = (rl as unknown as { line?: string }).line?.length ?? 0;
           if (!out) return;
+          const columns = out.columns && out.columns > 20 ? out.columns : 80;
+          // Leave room for the question, the count, and a cursor that is not at the last column
+          // (some terminals wrap on the final cell rather than after it).
+          const room = Math.max(0, columns - question.length - 14);
+          const shown = Math.min(held, room);
+          const tail = held > shown ? ` ${held} chars` : "";
           try {
-            readline.cursorTo(out as NodeJS.WritableStream & { columns?: number }, 0);
-            readline.clearLine(out as NodeJS.WritableStream & { columns?: number }, 0);
+            readline.cursorTo(out, 0);
+            readline.clearLine(out, 0);
           } catch {
             // Not a TTY (piped, or a test harness). Redrawing is meaningless there, and the
             // caller still gets the answer — so fall silent rather than corrupt the stream.
             return;
           }
-          out.write(question + "•".repeat(held));
+          out.write(question + "•".repeat(shown) + tail);
         };
         rl.question(question, (answer) => {
           iface._writeToOutput = original;
+          // LENGTH, NEVER THE VALUE (POL-427 is C01). "did anything arrive, and roughly how
+          // much" is the whole diagnostic value of a secret prompt; the secret itself has none.
+          log("debug", "hidden answer received", "gov-work:cli:ask", "secret", { chars: answer.trim().length });
           // The typed newline was swallowed with the rest, so the next line starts on its own.
           rl.write("\n");
           resolve(answer.trim());

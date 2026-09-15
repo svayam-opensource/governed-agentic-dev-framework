@@ -40,7 +40,12 @@ export interface WorkFlowDeps {
   readonly projects: Projects;
   readonly anchor: AnchorCreator;
   readonly fs: Fs;
-  readonly config: { readonly githubOrg: string; readonly workspaceRepo: string; readonly agentWorkRoot: string; readonly ownerField?: "organization" | "user" };
+  /**
+   * `govHome` is the governance clone held on the DEFAULT branch (`~/.gov/<slug>/gov_repo`).
+   * Optional so a caller that cannot resolve it still works — the prompt then falls back to the
+   * project-branch worktree, which is a wrong-branch read (POL-086a) but not a dead path.
+   */
+  readonly config: { readonly githubOrg: string; readonly workspaceRepo: string; readonly agentWorkRoot: string; readonly govHome?: string; readonly ownerField?: "organization" | "user" };
   readonly me: string | null;
   readonly canWriteBoard: (boardNumber: number) => boolean;
   readonly run: (argv: readonly string[]) => Promise<number> | number;
@@ -149,10 +154,33 @@ export function matchProjects<T extends { readonly projectId: string }>(items: r
 /** The kickoff prompt that makes a speak-first CLI agent run the session-start protocol immediately, before
  *  the user types anything (ports the bash prj `agent_session_start_prompt`). Paths are workspace-relative
  *  from the PROJECT ROOT (where the agent launches), so the agent reads the right files across repos. */
-export function sessionStartPrompt(projectId: string, workspaceRepo: string): string {
+export function sessionStartPrompt(projectId: string, workspaceRepo: string, govHome?: string): string {
   const w = workspaceRepo;
-  return `Run the session-start protocol for ${projectId} now, before I send anything else: read ${w}/org-config.yaml, ${w}/projects/${projectId}/agent.md, ${w}/knowledge/policies/agentic-development-policy.md, and surface any "## Open" items from ${w}/projects/${projectId}/knowledge/todo.md; then post the context manifest and wait for my direction.`;
+  // GOVERNANCE FROM THE DEFAULT BRANCH, PROJECT PATHS FROM THE PROJECT BRANCH (POL-086a, C01).
+  //
+  // This pointed every read at `<project>/<workspace-repo>/…`, which is a worktree on the
+  // PROJECT branch. POL-086a is explicit: org knowledge, the session protocol and policies
+  // "must be built, and rebuilt each session, from <DEFAULT_BRANCH>, never from a project
+  // branch", while `projects/PRJ-…/` is read from the project branch.
+  //
+  // Reading the policy from the project branch is not pedantically wrong, it is the hole
+  // POL-086b warns about: a project branch MAY edit org knowledge, as a proposal with no
+  // governing force. Point the agent at that same branch and an unratified edit becomes the
+  // thing it obeys — self-governing, which POL-086b prohibits in as many words.
+  //
+  // `govHome` is the clone held on the default branch (~/.gov/<slug>/gov_repo). When a caller
+  // cannot supply it the prompt falls back to the worktree copy rather than naming a path that
+  // may not exist — a wrong-branch read is a governance defect, a missing path is a dead end.
+  const governance = govHome ?? w;
+  return `Run the session-start protocol for ${projectId} now, before I send anything else: `
+    + `read ${governance}/org-config.yaml and `
+    + `${governance}/governance/policies/org-ai-agent-governance-policy.md — both from the `
+    + `default branch, which is the only branch that governs (POL-086a) — then `
+    + `${w}/projects/${projectId}/agent.md and any "## Open" items from `
+    + `${w}/projects/${projectId}/knowledge/todo.md, which are the project branch's; `
+    + `then post the context manifest and wait for my direction.`;
 }
+
 
 export interface StartSession {
   readonly projectId: string;
@@ -200,6 +228,17 @@ export interface LaunchSpec {
    * say how (#207). The caller prints it to paste. Absent when the prompt was passed.
    */
   readonly promptToPaste?: string;
+  /** True when the prompt travelled in `args` — so the caller can say governance happened. */
+  readonly promptArgvUsed?: true;
+  /**
+   * The protocol text itself, ALWAYS — regardless of how it was delivered.
+   *
+   * Separate from `promptToPaste`, which means "delivery is by paste and the caller must print
+   * it". Conflating the two left the first-run handover unable to show the protocol on the one
+   * path where it is needed most: an argv agent that refused the argv. The spec knew the text
+   * and had nowhere to put it.
+   */
+  readonly promptText: string;
 }
 
 /**
@@ -224,21 +263,28 @@ export function agentLaunchSpec(
   env: NodeJS.ProcessEnv = process.env,
   catalog: readonly AgentCandidate[] = AGENT_CATALOG,
 ): LaunchSpec | null {
-  if (agent === "shell") return { cmd: env.SHELL || "/bin/zsh", args: [], detached: false };
+  if (agent === "shell") return { cmd: env.SHELL || "/bin/zsh", args: [], detached: false, promptText: inject };
   // The Cursor EDITOR opened on the project dir. Not a catalog entry of its own: the policy approves
   // `cursor` the agent, and this is one of the ways to run it (#196, Q8).
-  if (agent === "cursor-gui") return { cmd: "cursor", args: [cwd], detached: true };
+  //
+  // AN EDITOR STILL NEEDS THE FIRST MESSAGE. It used to get no prompt at all — neither argv nor
+  // paste — so gov opened the editor and the session-start protocol simply never ran, silently.
+  // A GUI cannot take a positional prompt, so paste is the only route, and #218 already made
+  // paste survivable: the text is written to <project>/.gov/session-prompt.md and gov waits
+  // before launching. That machinery is more useful here than in a terminal, because the editor
+  // opens in another window and leaves the instruction on screen.
+  if (agent === "cursor-gui") return { cmd: "cursor", args: [cwd], detached: true, promptToPaste: inject, promptText: inject };
 
   const c = catalog.find((a) => a.id === agent);
   if (!c?.cmd || c.launch === "none") return null;
-  if (c.launch === "ide") return { cmd: c.cmd, args: [cwd], detached: true };
+  if (c.launch === "ide") return { cmd: c.cmd, args: [cwd], detached: true, promptToPaste: inject, promptText: inject };
   // HOW TO HAND IT THE PROMPT IS PER-AGENT (#207). It was a bare positional for everyone,
   // which `bob` rejects outright — zero positionals, and the launch died with a usage error
   // after a clean install. An entry that has not been checked launches BARE: the agent still
   // starts in the project, and its harness file is what governs the session anyway.
   return c.promptArgv
-    ? { cmd: c.cmd, args: c.promptArgv.map((a) => a.replaceAll("{prompt}", inject)), detached: false }
-    : { cmd: c.cmd, args: [], detached: false, promptToPaste: inject };
+    ? { cmd: c.cmd, args: c.promptArgv.map((a) => a.replaceAll("{prompt}", inject)), detached: false, promptArgvUsed: true, promptText: inject }
+    : { cmd: c.cmd, args: [], detached: false, promptToPaste: inject, promptText: inject };
 }
 
 /**
@@ -466,7 +512,7 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
       print(`  Set it up first:  gov work --project=${p.projectId}`);
       return 1;
     }
-    deps.printPrompt?.(sessionStartPrompt(p.projectId, deps.config.workspaceRepo));
+    deps.printPrompt?.(sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
     return 0;
   }
 
@@ -569,7 +615,7 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
             // and Cursor to "shell", so an org whose default was Bob, codex, gemini, copilot or
             // aider was told its agent had started and handed a shell prompt.
             print(`  ✓ ${defName} is ready. Starting it in ${projectDir}…`);
-            return await deps.launch(def, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo));
+            return await deps.launch(def, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
           }
           // INSTALLED IS NOT READY (#200). `installAgent` now answers "can it run", so an agent
           // waiting on a key stops here instead of being announced as started. The project is made
@@ -578,14 +624,14 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
           print(`  The project is ready at ${projectDir}.`);
           print("");
           print(`  Opening a shell there. Type 'exit' to come back.`);
-          return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo));
+          return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
         }
       }
 
       for (const line of nothingInstalledLines(installable(statuses, approved.ids), approved.usingDefaults)) print(line);
       print("");
       print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
-      return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo));
+      return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
     }
 
     // ORG DEFAULT → USER PREFERENCE → ASK (#196, Q9). Three layers already existed;
@@ -618,5 +664,5 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
   }
   if (!agent) { print(`  Later:  cd "${projectDir}" && claude "<session-start>"      # or your agent`); return 0; }
   print(`  Launching ${agent === "cursor-gui" ? "Cursor (GUI)" : agent} in ${projectDir}…`);
-  return await deps.launch(agent, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo));
+  return await deps.launch(agent, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
 }

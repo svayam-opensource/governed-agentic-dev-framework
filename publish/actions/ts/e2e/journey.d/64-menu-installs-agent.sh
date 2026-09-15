@@ -41,14 +41,17 @@ EOF
 chmod +x "$WORLD/bin/curl"
 
 export GH_STUB_LOGIN=acme GH_STUB_BOARDS="9:Infra"
-mkdir -p "$HOME/.gov/acme/projects/PRJ-9-infra/acme-gov/.git"
+# The project as a real join leaves it — git dir AND the rendered harness (see journey.sh).
+fake_joined_project "$HOME/.gov/acme/projects/PRJ-9-infra" "acme-gov"
 
 # Register the org first, so `gov` opens on the menu rather than on first-run.
 drive "$(conv <<C
 > Select \\(A/B/C\\)
 < B
-> Governance repo \\(clone URL\\)
-< https://github.test/acme/acme-gov.git
+> Q1 - What is the Github Organization ID
+< acme
+> Q2 - What is the name of your org
+< acme-gov
 ~ 180
 > start work now
 < n

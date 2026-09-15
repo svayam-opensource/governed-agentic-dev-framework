@@ -91,7 +91,7 @@ describe("gov-work — what to do now (#186)", () => {
   it("a joiner is told the opposite — it is settled, here is where to read it", () => {
     const t = joinerNextSteps(F).join("\n");
     expect(t).to.contain("nothing for you to configure");
-    expect(t).to.contain("agentic-development-policy.md");
+    expect(t).to.contain("org-ai-agent-governance-policy.md");
     expect(t, "and how to push back without working around it").to.contain("gov knowledge propose");
     expect(t, "no founding instructions").to.not.contain("UNGOVERNED");
   });

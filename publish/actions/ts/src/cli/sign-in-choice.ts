@@ -30,6 +30,8 @@ export interface SignInOption {
 }
 
 /** What gov knows about one agent's sign-in surface. Facts, not preferences. */
+import { type DesktopHint, browserCaveat, preferCli } from "./desktop.js";
+
 export interface SignInFacts {
   readonly tool: string;
   /** the vendor's own login command, when it has one (`claude setup-token`, …). */
@@ -38,6 +40,12 @@ export interface SignInFacts {
   readonly signsInItself?: boolean;
   /** the variable that holds a key, when gov knows which one it is. */
   readonly credentialEnv?: string | null;
+  /**
+   * What gov concluded about this machine's desktop (#221) — used to ORDER and ANNOTATE only.
+   *
+   * Absent means "do not take a view", which is what every caller did before the probe existed.
+   */
+  readonly desktop?: DesktopHint | null;
 }
 
 /**
@@ -60,22 +68,50 @@ export function signInOptions(f: SignInFacts): readonly SignInOption[] {
     out.push({ method: "api-key", label: `Paste an API key now — gov will store it (${f.credentialEnv})` });
   }
   out.push({ method: "skip", label: "Skip for now" });
+
+  // ORDER BY WHAT THE MACHINE CAN ACTUALLY DO (#221), and never by less than that.
+  //
+  // Three walks on 2026-09-13 ended the same way: a container with no browser, an adopter
+  // picking option 1 because it is option 1, and a login flow waiting forever for a browser
+  // that cannot open. Codex started a local login server; Claude sat at `/login` asking for a
+  // code from a page nobody could reach. gov had already worked out there was no desktop and
+  // said nothing with it.
+  //
+  // #221's ruling is the constraint: a desktop hint may REORDER and ANNOTATE, never withhold.
+  // So every route is still offered, in the same words — the key-paste one is simply first
+  // where a browser is not reachable, because defaults are what people press.
+  if (f.desktop && preferCli(f.desktop) && out.some((o) => o.method === "api-key")) {
+    const rank = (m: SignInOption["method"]): number =>
+      m === "api-key" ? 0 : m === "skip" ? 2 : 1;
+    out.sort((a, b) => rank(a.method) - rank(b.method));
+  }
   return out;
 }
 
 /**
  * The screen. Returns lines; the caller prints and asks.
  *
- * THE MACHINE IS NAMED, not detected. gov cannot know whether a browser is reachable —
- * $DISPLAY, xdg-open and $SSH_CONNECTION are each wrong somewhere — and a wrong guess here
- * silently removes the only route that works. Saying "gov cannot tell" is both true and more
- * useful than a guess: it tells the reader the choice is theirs because it genuinely is.
+ * IT USED TO SAY "gov cannot tell whether this machine has one". That was true when it was
+ * written and stopped being true when #221 landed a desktop probe — and it kept being printed,
+ * so gov was disclaiming knowledge it had. Three walks lost to browser sign-in on a container
+ * is what that cost.
+ *
+ * A wrong guess must still never remove the only route that works, which is why this only ever
+ * REORDERS and ANNOTATES. When gov has no view, it says so exactly as before.
  */
 export function signInPrompt(f: SignInFacts, options: readonly SignInOption[]): readonly string[] {
   const lines = ["", `  How would you like to sign ${f.tool} in?`, ""];
   const browserish = options.some((o) => o.method === "login-command" || o.method === "browser-at-start");
   if (browserish && options.some((o) => o.method === "api-key")) {
-    lines.push("  This may want a browser, and gov cannot tell whether this machine has one.", "");
+    const caveat = f.desktop ? browserCaveat(f.desktop) : null;
+    if (caveat) {
+      // What gov OBSERVED, in its own words, so a reader who knows better can disagree with it.
+      lines.push(`  One of these wants a browser — ${caveat}.`, "");
+    } else if (f.desktop && f.desktop.verdict === "yes") {
+      lines.push("  One of these wants a browser; this machine appears to have one.", "");
+    } else {
+      lines.push("  This may want a browser, and gov cannot tell whether this machine has one.", "");
+    }
   }
   options.forEach((o, i) => lines.push(`    ${i + 1}. ${o.label}`));
   lines.push("");

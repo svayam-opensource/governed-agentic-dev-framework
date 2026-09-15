@@ -32,30 +32,37 @@ generated_banner: "<!-- GENERATED from the framework harness source — do not e
 
 harnesses:
   # ── Tier: import ──────────────────────────────────────────────────────────
+  # ONE MECHANISM FOR ALL AGENTS (Policy Owner, 2026-09-11).
+  #
+  # This was `tier: import` with an @-import stub — Claude read `@agent/session-protocol.md`
+  # rather than the rendered text every other agent gets. Two reasons it is gone:
+  #
+  #  1. A special case that makes one vendor better-governed than the rest biases the agent
+  #     choice at Q10 for a reason that has nothing to do with the agent. Consistency was
+  #     ruled to matter more than the marginal capability.
+  #  2. It failed differently. An @-import resolves at READ time, so a broken workspace path
+  #     gave Claude an EMPTY context with no error, where every other agent would have had
+  #     the text or nothing at all.
+  #
+  # The SessionStart hook gov used to write is gone for the same reason: the guarantee is now
+  # "the requirements are in context, every turn", which the rendered file satisfies for
+  # everyone. A hook that only one vendor has added nothing to that and privileged one choice.
   - id: claude-code
     tool: Claude Code
     status: active
-    tier: import
-    path: publish/content/CLAUDE.md
-    generated: false
+    tier: generate_auto
+    path: publish/content/agent/harness/CLAUDE.md
+    generated: true
     seed_copy: true
     per_project_path: projects/{project_id}/CLAUDE.md
-    per_project_template: |
-      @../../agent/session-protocol.md
-      @agent.md
-
-      <!-- ADOPTER_C03_EXTENSIONS -->
-    verify: "Run /memory — must list CLAUDE.md and imported agent files"
-    notes: |
-      Claude does not read AGENTS.md unless @AGENTS.md is added.
-      First @import shows approval dialog once per project.
-
-  # ── Tier: generate_auto ───────────────────────────────────────────────────
+    template: markdown-plain
+    verify: "First message — the reply must be the context manifest, before any work"
+    notes: "Rendered text, not an @-import: same file contents as AGENTS.md and the rest."
   - id: cursor
     tool: Cursor
     status: active
     tier: generate_auto
-    path: publish/content/.cursor/rules/agent.mdc
+    path: publish/content/agent/harness/.cursor/rules/agent.mdc
     generated: true
     seed_copy: true
     template: cursor-mdc
@@ -72,7 +79,7 @@ harnesses:
     tool: OpenAI Codex
     status: active
     tier: generate_auto
-    path: publish/content/AGENTS.md
+    path: publish/content/agent/harness/AGENTS.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -91,7 +98,7 @@ harnesses:
     tool: IBM Bob
     status: active
     tier: generate_auto
-    path: publish/content/AGENTS.md
+    path: publish/content/agent/harness/AGENTS.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -102,7 +109,7 @@ harnesses:
     tool: Gemini Code Assist
     status: active
     tier: generate_auto
-    path: publish/content/.gemini/styleguide.md
+    path: publish/content/agent/harness/GEMINI.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -115,7 +122,7 @@ harnesses:
     tool: GitHub Copilot
     status: active
     tier: generate_auto
-    path: publish/content/.github/copilot-instructions.md
+    path: publish/content/agent/harness/.github/copilot-instructions.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -128,7 +135,7 @@ harnesses:
     tool: Windsurf
     status: active
     tier: generate_auto
-    path: publish/content/.windsurf/rules/agent.md
+    path: publish/content/agent/harness/.windsurf/rules/agent.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -138,7 +145,7 @@ harnesses:
     tool: Cline / Roo Code
     status: active
     tier: generate_auto
-    path: publish/content/.clinerules/agent.md
+    path: publish/content/agent/harness/.clinerules/agent.md
     generated: true
     seed_copy: true
     template: markdown-plain
@@ -149,19 +156,19 @@ harnesses:
     tool: Continue.dev
     status: active
     tier: generate_auto
-    path: publish/content/.continue/rules.md
+    path: publish/content/agent/harness/.continue/rules/agent.md
     generated: true
     seed_copy: true
     template: markdown-plain
     verify: "First message — confirm system rules loaded"
-    notes: "Complements .continue/config.yaml context providers."
+    notes: "`.continue/rules/` is a DIRECTORY the CLI scans for markdown rule files — verified in @continuedev/cli: `rulesDirs = [path.join(cwd, '.continue', 'rules'), …]`. It was shipped as `.continue/rules.md`, a file, so nothing was ever read. Same defect as `.clinerules` vs `.clinerules/agent.md`."
 
   # ── Tier: generate_manual ─────────────────────────────────────────────────
   - id: aider
     tool: Aider
     status: active
     tier: generate_manual
-    path: publish/content/CONVENTIONS.md
+    path: publish/content/agent/harness/CONVENTIONS.md
     generated: true
     seed_copy: true
     template: markdown-plain

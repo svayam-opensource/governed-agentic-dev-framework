@@ -39,7 +39,7 @@ export interface AgentVariant {
   /** The command to probe and to launch. Extensions have none of their own. */
   readonly cmd?: string;
   /** npm package, or a shell line for a vendor installer. */
-  readonly install?: { readonly npm?: string; readonly script?: string; readonly url: string };
+  readonly install?: { readonly npm?: string; readonly script?: string; readonly pip?: string; readonly url: string };
   /** For extensions: the marketplace id, installed through the host's own CLI. */
   readonly extensionId?: string;
   /** The hosts that can carry this extension, in preference order. */
@@ -60,9 +60,22 @@ export interface AgentCandidate {
    * a vendor's own installer, piped into a shell. gov runs either — but only for an
    * agent the org has approved, because approval IS the trust decision (#196, Q2).
    */
-  readonly install?: { readonly npm?: string; readonly brew?: string; readonly script?: string; readonly url: string };
+  readonly install?: { readonly npm?: string; readonly brew?: string; readonly script?: string; readonly pip?: string; readonly url: string };
   /** The environment variable that would hold a key, so gov can report its absence. */
   readonly credentialEnv?: string;
+  /**
+   * Known to gov, NOT yet offered at adoption (Policy Owner, 2026-09-10).
+   *
+   * A launch list of ten is ten paths a real adopter can take, of which two have verified
+   * prompt delivery. The decision was to make a smaller list foolproof first and expand from
+   * there — so these entries keep their catalog knowledge, their manifest parity and their
+   * tests, and simply do not appear in the Q10 menu.
+   *
+   * DEFERRAL AFFECTS THE MENU ONLY. An organization that already approved one of these keeps
+   * working: `approvedAgents` still resolves it, `agentLaunchSpec` still launches it. Upgrading
+   * gov must never take an agent away from an org that is using it.
+   */
+  readonly deferred?: true;
   /**
    * It opens its own browser the first time it needs to authenticate (#208).
    *
@@ -100,6 +113,24 @@ export interface AgentCandidate {
  * Every harness the framework renders. `launch: "none"` entries are governed but
  * not startable from here — a browser tool has no command to run.
  */
+/*
+ * HOW EACH AGENT TAKES A FIRST MESSAGE — read from the vendors' own `--help`, in a container,
+ * on 2026-09-11 (#207, and the resolution of #6).
+ *
+ * This was unverified for seven of nine agents for weeks, on the reasoning that guessing a
+ * vendor's flags is worse than pasting. That reasoning was right; not looking was not. Every
+ * one of them takes a prompt, IBM Bob included, and the version each was read from is recorded
+ * beside it so a flag that changes is a diff rather than a mystery.
+ *
+ * THE TRAP, AND IT IS NOT SUBTLE ONCE SEEN. For `gemini` and `copilot`, `-p/--prompt` is the
+ * NON-INTERACTIVE flag: it runs the prompt and exits. Using it would deliver the session-start
+ * protocol and then throw away the session it was meant to govern — a launch that reports
+ * success and leaves the adopter at a shell. `-i` is the interactive form for both. `cn` has
+ * the same shape (`-p, --print` prints and exits), so its bare positional is the right one.
+ *
+ * WHAT IS VERIFIED, PRECISELY: that the flag exists and what the vendor says it does. Whether
+ * the agent then runs the protocol needs a credential and a real session, which is the walk.
+ */
 export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // promptArgv verified in use: both take the first message as a bare positional.
   { id: "claude-code", tool: "Claude Code", launch: "cli", cmd: "claude", promptArgv: ["{prompt}"],
@@ -124,6 +155,8 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
       { kind: "editor", label: "the Cursor editor", cmd: "cursor", install: { url: "https://cursor.com/downloads" } },
     ] },
   { id: "openai-codex", tool: "OpenAI Codex", launch: "cli", cmd: "codex",
+    // codex --help: `[PROMPT]  Optional user prompt to start the session` (read 2026-09-11)
+    promptArgv: ["{prompt}"],
     install: { npm: "@openai/codex", url: "https://developers.openai.com/codex/cli" },
     credentialEnv: "OPENAI_API_KEY", signupUrl: "https://platform.openai.com/signup",
     variants: [
@@ -133,6 +166,9 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
       { kind: "extension", label: "in VS Code", extensionId: "openai.chatgpt", hosts: ["code", "cursor", "windsurf"] },
     ] },
   { id: "gemini-code-assist", tool: "Gemini Code Assist", launch: "cli", cmd: "gemini",
+    // gemini 0.59.0: `-i, --prompt-interactive  Execute the provided prompt and continue in
+    // interactive mode`. NOT `-p`, which is headless and exits (read 2026-09-11).
+    promptArgv: ["-i", "{prompt}"],
     install: { npm: "@google/gemini-cli", url: "https://github.com/google-gemini/gemini-cli" },
     credentialEnv: "GEMINI_API_KEY", signupUrl: "https://aistudio.google.com/apikey",
     variants: [
@@ -141,6 +177,9 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
       { kind: "extension", label: "in VS Code", extensionId: "Google.geminicodeassist", hosts: ["code", "cursor", "windsurf"] },
     ] },
   { id: "github-copilot", tool: "GitHub Copilot", launch: "cli", cmd: "copilot",
+    // copilot 1.0.83: `-i, --interactive <prompt>  Start interactive mode and automatically
+    // execute this prompt`. NOT `-p`, which is non-interactive (read 2026-09-11).
+    promptArgv: ["-i", "{prompt}"],
     install: { npm: "@github/copilot", url: "https://github.com/features/copilot/cli" },
     signupUrl: "https://github.com/features/copilot",
     variants: [
@@ -150,17 +189,51 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     ] },
   // A standalone editor, like Cursor: the editor IS the agent, so there is no
   // extension for someone else's host.
-  { id: "windsurf", tool: "Windsurf", launch: "ide", cmd: "windsurf",
+  // EDITOR ONLY, and deliberately so — two near-misses are recorded here because both
+  // look like the answer.
+  //
+  // 1. `windsurf` on npm is NOT the vendor's: v0.0.1, description "Coming soon.",
+  //    maintainer `colin@edgedb.com`. Exactly the #201 shape.
+  // 2. `curl -fsSL https://cli.devin.ai/install.sh | bash` IS Cognition's (they own
+  //    Windsurf), and it even has a `curl-bash-windsurfcom` distribution — but it sets
+  //    `BINARY_NAME="devin"`. It installs the DEVIN CLI, a different product from the
+  //    Windsurf editor. Adding it here would give this entry a binary it does not have.
+  //
+  // A Devin entry would be legitimate on its own, once someone records which
+  // instructions file it reads — an agent gov can launch but cannot hand a session
+  // protocol to is worse than one it refuses (harness-manifest.yaml).
+  { deferred: true, // DEFERRED (2026-09-10): gov can install NOTHING for it: the editor is a desktop download, and `windsurf`
+  // on npm is not the vendor's (v0.0.1, maintainer colin@edgedb.com).
+    id: "windsurf", tool: "Windsurf", launch: "ide", cmd: "windsurf",
     install: { url: "https://windsurf.com/editor" },
     variants: [{ kind: "editor", label: "the Windsurf editor", cmd: "windsurf", install: { url: "https://windsurf.com/editor" } }] },
-  // Extension-only: there is no Cline CLI, so an adopter with no editor cannot run
-  // it — which the menu says rather than silently offering nothing.
-  { id: "cline", tool: "Cline / Roo Code", launch: "ide",
-    install: { url: "https://cline.bot" },
-    variants: [{ kind: "extension", label: "in VS Code", extensionId: "saoudrizwan.claude-dev", hosts: ["code", "cursor", "windsurf"] }] },
-  { id: "continue", tool: "Continue.dev", launch: "ide",
-    install: { url: "https://continue.dev" },
-    variants: [{ kind: "extension", label: "in VS Code", extensionId: "Continue.continue", hosts: ["code", "cursor", "windsurf"] }] },
+  // A CLI NOW — this entry said "there is no Cline CLI" and was true when written. Cline
+  // shipped one (npm `cline`, v3.0.61+), so the old comment made gov offer an agent it
+  // could neither install nor launch, and the menu told an adopter with no editor that
+  // they could not use it. Provenance checked the #201 way before the package name was
+  // written down: repository `github.com/cline/cline`, maintainers all `@cline.bot`.
+  // Binary is `cline` (npm `bin: { cline: "bin/cline" }`).
+  { id: "cline", tool: "Cline / Roo Code", launch: "cli", cmd: "cline",
+    // cline 3.0.61: `[prompt]  Your prompt. Default to start in act mode` (read 2026-09-11)
+    promptArgv: ["{prompt}"],
+    install: { npm: "cline", url: "https://cline.bot" },
+    variants: [
+      { kind: "cli", label: "in the terminal", cmd: "cline", install: { npm: "cline", url: "https://cline.bot" } },
+      { kind: "extension", label: "in VS Code", extensionId: "saoudrizwan.claude-dev", hosts: ["code", "cursor", "windsurf"] },
+    ] },
+  // Also a CLI now, and the BINARY IS NOT THE ID: npm `@continuedev/cli` installs `cn`
+  // (`bin: { cn: "dist/cn.js" }`). Recording `cmd: "continue"` would have produced a
+  // command-not-found after a successful install — the shape #199 exists to prevent.
+  // Provenance: repository `github.com/continuedev/continue`, maintainers `@continue.dev`.
+  { id: "continue", tool: "Continue.dev", launch: "cli", cmd: "cn",
+    // cn 1.5.47: `[prompt]  Optional prompt to send to the assistant`. The bare positional,
+    // not `-p, --print`, which prints and exits (read 2026-09-11).
+    promptArgv: ["{prompt}"],
+    install: { npm: "@continuedev/cli", url: "https://continue.dev" },
+    variants: [
+      { kind: "cli", label: "in the terminal", cmd: "cn", install: { npm: "@continuedev/cli", url: "https://continue.dev" } },
+      { kind: "extension", label: "in VS Code", extensionId: "Continue.continue", hosts: ["code", "cursor", "windsurf"] },
+    ] },
   // IBM Bob — a CLI and a STANDALONE IDE, not a VS Code extension (verified against
   // IBM's own quickstart: "Bob is a standalone IDE application and not an
   // extension"). Reads AGENTS.md, which the framework already renders, so it needed
@@ -177,6 +250,10 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   { id: "ibm-bob", tool: "IBM Bob", launch: "cli", cmd: "bob",
     install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" },
     // Verified on a container: Bob prints its own sign-in URL and waits (#208).
+    // bob 2.0.2: `-p, --prompt <prompt>  Prompt to send to the agent`. `run [prompt...]` is
+    // the headless form and is deliberately not used (read 2026-09-11). This is the answer
+    // to #6: gov CAN hand IBM Bob the session-start protocol as its first message.
+    promptArgv: ["-p", "{prompt}"],
     credentialEnv: "BOB_API_KEY", signsInItself: true, signupUrl: "https://bob.ibm.com",
     variants: [
       // No login subcommand: Bob Shell opens the browser itself when it needs to
@@ -187,7 +264,9 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
       { kind: "editor", label: "the Bob IDE", cmd: "bob-ide", install: { url: "https://bob.ibm.com/download" } },
     ] },
   { id: "aider", tool: "Aider", launch: "cli", cmd: "aider",
-    install: { url: "https://aider.chat" }, credentialEnv: "OPENAI_API_KEY" },
+    // PyPI, not npm — and npm `aider` is a SQUAT (v1.0.1, maintainer 36634584@qq.com), which is
+    // why the obvious guess was never taken. `aider-chat` is the project's own distribution.
+    install: { pip: "aider-chat", url: "https://aider.chat" }, credentialEnv: "OPENAI_API_KEY" },
   // No command, by nature. Kept so the catalog and the manifest agree, and so
   // nobody adds it to the menu later by mistake.
   { id: "chatgpt-web", tool: "ChatGPT (web) / custom GPT", launch: "none",
@@ -229,7 +308,56 @@ export function approvedAgents(orgApproved: readonly string[] | null): {
   readonly ids: readonly string[]; readonly usingDefaults: boolean;
 } {
   if (orgApproved && orgApproved.length) return { ids: orgApproved, usingDefaults: false };
-  return { ids: AGENT_CATALOG.map((a) => a.id), usingDefaults: true };
+  // THE FALLBACK MUST NOT OFFER MORE THAN ADOPTION DOES. A walk saw all ten listed here,
+  // Windsurf included — gov proposing, as an organization's defaults, agents its own adoption
+  // menu declines to offer. `deferred` means "not offered"; that has to hold on every path
+  // that shows a list, not only the one that asks the question.
+  return { ids: AGENT_CATALOG.filter((a) => !a.deferred).map((a) => a.id), usingDefaults: true };
+}
+
+/**
+ * The instructions file this agent reads, relative to the project root — or null when gov has
+ * no way to govern its session except by handing it a first message.
+ *
+ * WHY THIS MATTERS MORE THAN A PROMPT. No CLI agent speaks first; every one of them waits for
+ * input. gov once leaned on a Claude-only SessionStart hook to close that gap, and the hook was
+ * removed (2026-09-11) — not because it failed, but because a mechanism one vendor has makes
+ * that vendor the better-governed choice for a reason unrelated to the agent, and it biases the
+ * selection at Q10.
+ *
+ * It cost nothing to remove, because an instructions file read on EVERY TURN was always the
+ * stronger half: it governs the whole session rather than its opening. So when this returns a
+ * path, gov's job is done by `ensureRootProtocol` mirroring the file and `verifyAgentContext`
+ * refusing to launch if it did not land — and the honest instruction to the human is "say
+ * anything", not "paste these five lines".
+ *
+ * Kept beside the catalog and matching `agent/harness-manifest.yaml`, which is what renders
+ * them. An agent absent from both is ungoverned, and gov says so rather than implying otherwise.
+ */
+export function harnessFileFor(agentId: string): string | null {
+  switch (agentId) {
+    case "claude-code": return "CLAUDE.md";
+    case "openai-codex": case "ibm-bob": return "AGENTS.md";
+    case "cursor": return ".cursor/rules/agent.mdc";
+    case "cline": return ".clinerules/agent.md";
+    // `.continue/rules/` is a DIRECTORY the CLI scans for markdown rule files, not a file —
+    // verified in @continuedev/cli, which builds `rulesDirs = [path.join(cwd, ".continue",
+    // "rules"), …]` and scans them. gov shipped `.continue/rules.md`, so Continue read nothing.
+    // The fourth instance of this class, after .clinerules, AGENTS.md and .gemini/styleguide.md
+    // — and the first one found by a tool rather than by a person noticing.
+    case "continue": return ".continue/rules/agent.md";
+    // GEMINI.md, NOT .gemini/styleguide.md (Decision 15, 2026-09-14). Verified against the
+    // published @google/gemini-cli 0.59.0: `contextFileName` defaults to "GEMINI.md", which
+    // appears 227 times in the package; `styleguide.md` appears nowhere. The styleguide is
+    // Gemini Code Assist's GitHub CODE-REVIEW file — a different product surface — so the CLI
+    // this catalog launches was receiving no protocol at all, and `verifyAgentContext` passed
+    // throughout because it checks the file gov PLACED, not the file the agent READS.
+    case "gemini-code-assist": return "GEMINI.md";
+    case "github-copilot": return ".github/copilot-instructions.md";
+    case "windsurf": return ".windsurf/rules/agent.md";
+    case "aider": return "CONVENTIONS.md";
+    default: return null;
+  }
 }
 
 /** Offerable = approved, launchable, and actually here. */
@@ -265,7 +393,7 @@ export function nothingInstalledLines(missing: readonly AgentStatus[], usingDefa
     "",
     ...(usingDefaults
       ? ["  Your organization has not approved any agents yet, so these are the framework's",
-         "  defaults. Narrow them in knowledge/policies/llm-governance.md when you decide.",
+         "  defaults. Narrow them in governance/policies/llm-governance.md when you decide.",
          ""]
       : []),
     "  Approved and available to install:",

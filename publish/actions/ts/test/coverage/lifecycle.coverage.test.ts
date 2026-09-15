@@ -70,7 +70,15 @@ const boardTitled = (title: string, linkedItemCount = 1): Board => ({
   fetchProject: () => ({ id: "P", title, shortDescription: null, linkedItemCount, repoUrls: [] }),
 });
 
-const fs: Fs = { pathExists: () => false, readFile: () => null, mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [] };
+// The todo template must answer: seed now FAILS LOUDLY without it rather than skipping
+// silently (Decision 1, 2026-09-14). For as long as it read `framework/…` it returned null and
+// no project ever got a knowledge/todo.md, while the protocol told every agent to read one.
+const TODO_TEMPLATE = "# To-do for <PROJECT_ID>\n\n## Open\n\n## Done\n";
+const fs: Fs = {
+  pathExists: () => false,
+  readFile: (p: string) => (p.endsWith("todo-template.md") ? TODO_TEMPLATE : null),
+  mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
+};
 const issues: Issues = { state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {}, resolveIssueUrl: () => null, closeBoard: () => {} };
 const anchor: AnchorCreator = { createAnchorIssue: () => "r#1", setState: () => true } as unknown as AnchorCreator;
 const pulls: Pulls = { create: () => "pr", merge: () => "merged" };
@@ -430,9 +438,18 @@ describe("lifecycle coverage — sync", () => {
   it("happy path → exit 0 with exact lines", () => {
     const r = run(["sync"]);
     expect(r.code).to.equal(0);
+    // A SYNC IS THE MOMENT GOVERNANCE CAN CHANGE, so it is also the moment the mirrored copies
+    // every agent reads must be re-placed, and the moment the person needs the one sentence
+    // that makes a RUNNING session pick the change up. gov cannot reach into a live session;
+    // handing over that sentence is the whole of the mid-session guarantee, and it is the same
+    // sentence for every agent — no vendor hook.
     expect(pxDeep(r.lines)).to.deep.equal([
       `Synced ${PBRANCH}`,
       "  1 repo(s) up to date",
+      "  session-start protocol re-placed at /awr/PRJ-43-governance-common-project",
+      "",
+      "Governance may have changed. Paste this into your running session:",
+      "  Re-read the session-start protocol from disk; it has changed. Then continue.",
     ]);
   });
 

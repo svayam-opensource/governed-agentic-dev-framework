@@ -18,7 +18,7 @@
 # A scenario is a file in journey.d/. It gets the helpers below and a clean world.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TS_DIR="$(cd "$HERE/.." && pwd)"
+TS_DIR="$(cd "$HERE/.." && pwd)"; export TS_DIR
 CONTENT_DIR="$(cd "$TS_DIR/../../content" && pwd)"
 FILTER="${1:-}"
 
@@ -62,6 +62,19 @@ new_world() {
   printf '[user]\n\tname = Adopter Bot\n\temail = adopter@example.test\n[safe]\n\tdirectory = *\n' > "$HOME/.gitconfig"
   export GH_STUB_LOG="$WORLD/gh.log"
   export AGENT_DOUBLE_LOG="$WORLD/agent.log"
+  # A DESKTOP, PINNED — so the sign-in MENU ORDER does not depend on whose machine ran this.
+  #
+  # `desktopHint` (#221) answers from the environment, and #213's screen now uses it to put the
+  # key-paste route first where no browser is reachable. That is correct behaviour and it makes
+  # the option NUMBERS vary: on a developer's macOS laptop the browser route is 1, and on a
+  # headless Linux CI runner it is 2. Every `Choose [1-3]` answer in this suite is a number, so
+  # without pinning, the same conversation picks a different route in CI than on a laptop —
+  # which is worse than a failure, because it silently tests something else.
+  #
+  # Pinned to "has a desktop", which keeps the historical numbering. The HEADLESS branch is
+  # asserted in the OS tier, in a container with no DISPLAY, where the answer cannot drift.
+  export DISPLAY=":0"
+  unset SSH_CONNECTION SSH_TTY WAYLAND_DISPLAY
   : > "$GH_STUB_LOG"; : > "$AGENT_DOUBLE_LOG"
   mkdir -p "$WORLD/bin"
   cp "$HERE/stub/gh" "$WORLD/bin/gh"
@@ -103,9 +116,33 @@ no_agents_installed() {
 
 # A governance workspace a JOINER could clone: the identity plus the two files the flows
 # read. Built from the shipped content, so it cannot drift from what gov actually seeds.
+# THE HARNESS LIST, DERIVED FROM THE CODE — not a sixth hand-maintained copy.
+#
+# This list existed in FIVE places: agent/harness-manifest.yaml, publish/content/MANIFEST.yaml,
+# ROOT_HARNESS_FILES, harnessFileFor, and twice in this file. Every path defect so far has been
+# one copy disagreeing with another — `.clinerules` as a file, `.gemini/styleguide.md` from a
+# different product, `.continue/rules.md` where the CLI scans a directory — and the last of
+# those took six edits to fix, of which this file was the one forgotten. The guard caught it and
+# six joiner assertions failed on a governance repo that was never built.
+#
+# `root-protocol.ts` already says "DERIVED WOULD BE BETTER THAN LISTED". Here it is cheap: ask
+# the built module.
+harness_files() {
+  # An empty answer means the build is missing or the export moved. Iterating over nothing would
+  # build a governance repo with NO harness and leave a suite of green assertions about a
+  # protocol that was never placed — so it is fatal, not a skip.
+  local out
+  out="$(node -e 'process.stdout.write(require(process.env.TS_DIR + "/lib/cjs/lifecycle/root-protocol.js").ROOT_HARNESS_FILES.join(" "))' 2>/dev/null)"
+  if [ -z "$out" ]; then
+    printf 'harness_files: could not read ROOT_HARNESS_FILES from %s/lib/cjs — run `npm run build`\n' "$TS_DIR" >&2
+    exit 1
+  fi
+  printf '%s' "$out"
+}
+
 make_gov_repo() {
   local dir="$1" org="$2" slug="$3"
-  mkdir -p "$dir/knowledge/policies" "$dir/agent"
+  mkdir -p "$dir/governance/policies" "$dir/governance/guidance" "$dir/agent" "$dir/knowledge"
   cat > "$dir/org-config.yaml" <<YAML
 org_name: "$org Ltd"
 org_short_name: "$org"
@@ -120,14 +157,62 @@ agent_work_root: "$HOME/.gov/$(echo "$slug" | tr '[:upper:]' '[:lower:]')/projec
 policy_owner_email: "owner@example.test"
 YAML
   cp "$CONTENT_DIR/agent/session-protocol.md" "$dir/agent/" 2>/dev/null || echo "# protocol" > "$dir/agent/session-protocol.md"
-  cp "$CONTENT_DIR/knowledge/policies/llm-governance.md" "$dir/knowledge/policies/" 2>/dev/null \
-    || echo "# llm governance" > "$dir/knowledge/policies/llm-governance.md"
+  cp "$CONTENT_DIR/governance/policies/llm-governance.md" "$dir/governance/policies/" 2>/dev/null \
+    || echo "# llm governance" > "$dir/governance/policies/llm-governance.md"
+
+  # THE RENDERED HARNESS — what makes this a GOVERNED workspace rather than one that says it is.
+  #
+  # This fixture used to carry `agent/session-protocol.md`, the SOURCE, and none of the files
+  # rendered from it. A real adopter's workspace repo is seeded from publish/content and holds
+  # all nine. So `ensureRootProtocol` had nothing to mirror, the project root got no protocol,
+  # and every assertion in this suite about the protocol being handed over passed in a world
+  # where no protocol file existed anywhere an agent reads.
+  #
+  # Nothing failed, because nothing looked. `verifyAgentContext` looks now, and refused to
+  # launch — which is how this fixture's gap was finally found rather than argued about.
+  # UNDER agent/harness/ SINCE DECISION 2 (2026-09-14), and GEMINI.md not .gemini/styleguide.md
+  # since Decision 15 — the Gemini CLI reads GEMINI.md and never looked at the styleguide.
+  for rel in $(harness_files); do
+    if [ -f "$CONTENT_DIR/agent/harness/$rel" ]; then
+      mkdir -p "$dir/agent/harness/$(dirname "$rel")"
+      cp "$CONTENT_DIR/agent/harness/$rel" "$dir/agent/harness/$rel"
+    else
+      # Say it, rather than quietly building a workspace that cannot pass its own gate.
+      printf 'make_gov_repo: agent/harness/%s is not rendered in %s — run agent/render-harness.mjs\n' \
+        "$rel" "$CONTENT_DIR" >&2
+      return 1
+    fi
+  done
   ( cd "$dir" && git init -q . && git add -A && git -c user.email=e@x -c user.name=e commit -qm init )
+}
+
+# A project workspace as a REAL join leaves it: a git dir, and the rendered harness in it.
+#
+# Three fragments fabricate this directory to say "the project is already here, do not clone
+# it". All three created `<project>/<workspace-repo>/.git` and nothing else, which is a governed
+# project with no governance in it — and gov now refuses to launch an agent into exactly that.
+# The shortcut was fine while nothing checked; it is a false world now, so it has a helper that
+# builds the true one.
+fake_joined_project() {
+  local project_dir="$1" ws="$2"
+  mkdir -p "$project_dir/$ws/.git"
+  # UNDER agent/harness/ SINCE DECISION 2 (2026-09-14), and GEMINI.md not .gemini/styleguide.md
+  # since Decision 15 — the Gemini CLI reads GEMINI.md and never looked at the styleguide.
+  for rel in $(harness_files); do
+    if [ -f "$CONTENT_DIR/agent/harness/$rel" ]; then
+      mkdir -p "$project_dir/$ws/agent/harness/$(dirname "$rel")"
+      cp "$CONTENT_DIR/agent/harness/$rel" "$project_dir/$ws/agent/harness/$rel"
+    else
+      printf 'fake_joined_project: agent/harness/%s is not rendered in %s — run agent/render-harness.mjs\n' \
+        "$rel" "$CONTENT_DIR" >&2
+      return 1
+    fi
+  done
 }
 
 # Record the org's approved agents the way `gov agent approve` would.
 approve_agents() {
-  local file="$1/knowledge/policies/llm-governance.md"; shift
+  local file="$1/governance/policies/llm-governance.md"; shift
   { printf '\n```yaml\napproved_agents:\n'
     local first=1
     for id in "$@"; do

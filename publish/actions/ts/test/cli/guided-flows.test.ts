@@ -161,10 +161,12 @@ describe("gov-work — guided Work flow", () => {
   });
 
   it("agentLaunchSpec: right binary + detached flag + inject-as-first-message (guards the launch mapping)", () => {
-    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false });     // speak-first
-    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false });    // speak-first
-    expect(agentLaunchSpec("cursor-gui", "/p", "GO")).to.deep.equal({ cmd: "cursor", args: ["/p"], detached: true });        // GUI opens the dir, detached
-    expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/bin/fish" } as NodeJS.ProcessEnv)).to.deep.equal({ cmd: "/bin/fish", args: [], detached: false });
+    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false, promptArgvUsed: true, promptText: "GO" });     // speak-first
+    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false, promptArgvUsed: true, promptText: "GO" });    // speak-first
+    // GUI opens the dir, detached — AND carries the prompt to paste. An editor cannot take a
+    // positional prompt, and giving it none meant the session-start protocol never ran at all.
+    expect(agentLaunchSpec("cursor-gui", "/p", "GO")).to.deep.equal({ cmd: "cursor", args: ["/p"], detached: true, promptToPaste: "GO", promptText: "GO" });
+    expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/bin/fish" } as NodeJS.ProcessEnv)).to.deep.equal({ cmd: "/bin/fish", args: [], detached: false, promptText: "GO" });
   });
 
   it("EVERY cli agent in the catalog launches its own binary — not a shell (#199)", () => {
@@ -174,9 +176,12 @@ describe("gov-work — guided Work flow", () => {
       expect(agentLaunchSpec(a.id, "/p", "GO")?.cmd, a.id).to.equal(a.cmd);
       expect(agentLaunchSpec(a.id, "/p", "GO")?.detached, a.id).to.equal(false);
     }
-    // An `ide` entry opens the directory and detaches, rather than being handed a prompt it cannot read.
+    // An `ide` entry opens the directory and detaches — it cannot READ a prompt from argv, so the
+    // prompt travels as `promptToPaste`. It used to travel not at all, which meant gov opened an
+    // editor and the session-start protocol silently never ran (found by test/cli/agent-matrix).
     for (const a of AGENT_CATALOG.filter((c) => c.launch === "ide" && c.cmd)) {
-      expect(agentLaunchSpec(a.id, "/p", "GO"), a.id).to.deep.equal({ cmd: a.cmd, args: ["/p"], detached: true });
+      expect(agentLaunchSpec(a.id, "/p", "GO"), a.id)
+        .to.deep.equal({ cmd: a.cmd, args: ["/p"], detached: true, promptToPaste: "GO", promptText: "GO" });
     }
   });
 
@@ -190,13 +195,19 @@ describe("gov-work — guided Work flow", () => {
   it("the prompt goes where the agent takes it, or nowhere at all (#207)", () => {
     // A bare positional for everyone is what killed the bob launch: "too many arguments.
     // Expected 0 arguments but got 1", after a clean install and a "Starting it in…".
-    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false });
-    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false });
+    expect(agentLaunchSpec("claude-code", "/p", "GO")).to.deep.equal({ cmd: "claude", args: ["GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
+    expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
 
-    // Unverified: launch bare, and hand the prompt back to be pasted. The agent still starts in
-    // the project, and its harness file is what governs the session.
-    const bob = agentLaunchSpec("ibm-bob", "/p", "GO");
-    expect(bob, "no guessed argv").to.deep.equal({ cmd: "bob", args: [], detached: false, promptToPaste: "GO" });
+    // bob WAS the example of "unverified, so launch bare and hand the prompt back to be pasted".
+    // It is verified now — `bob --help` in a container on 2026-09-11: `-p, --prompt <prompt>
+    // Prompt to send to the agent`. The old expectation was correct discipline and a stale fact.
+    expect(agentLaunchSpec("ibm-bob", "/p", "GO"))
+      .to.deep.equal({ cmd: "bob", args: ["-p", "GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
+
+    // THE PASTE PATH IS STILL REACHABLE, and still the right answer where nobody has looked.
+    // `aider` installs from PyPI, so the npm sweep that answered the others could not answer it.
+    expect(agentLaunchSpec("aider", "/p", "GO"))
+      .to.deep.equal({ cmd: "aider", args: [], detached: false, promptToPaste: "GO", promptText: "GO" });
   });
 
   it("no agent is handed an argument nobody checked it accepts (#207)", () => {
@@ -223,46 +234,62 @@ describe("gov-work — guided Work flow", () => {
     expect(p).to.match(/post the context manifest/);
   });
 
-  it("ensureRootProtocol drops a root CLAUDE.md (@-import) + a SessionStart hook — idempotent, never clobbers", () => {
+  it("ensureRootProtocol writes NO Claude special case — no @-import stub, no SessionStart hook", () => {
+    // BOTH MECHANISMS REMOVED BY RULING (Policy Owner, 2026-09-11): one mechanism for all
+    // agents, because a special case that makes one vendor better-governed biases the agent
+    // choice at Q10 for a reason unrelated to the agent. The @-import also failed differently —
+    // it resolved at READ time, so a broken workspace path gave Claude an empty context with
+    // no error, where every other agent would have had the text or nothing at all.
     const writes: Array<[string, string]> = [];
-    const d = { ...deps().deps, fs: { ...fsWith([]), writeFile: (p: string, c: string) => writes.push([p, c]) } };
-    ensureRootProtocol(d.fs, "/work/PRJ-9-infra", "acme-gov");
+    const fs = {
+      ...fsWith([]),
+      readFile: () => null,                                  // nothing rendered in the workspace
+      writeFile: (p: string, c: string) => writes.push([p, c]),
+      mkdirp: () => {},
+    };
+    ensureRootProtocol(fs, "/work/PRJ-9-infra", "acme-gov");
     const byPath = Object.fromEntries(writes.map(([f, c]) => [px(f), c]));
-    expect(byPath["/work/PRJ-9-infra/CLAUDE.md"]).to.equal("@acme-gov/agent/session-protocol.md\n@acme-gov/framework/agent.md\n");
-    expect(byPath["/work/PRJ-9-infra/.claude/settings.json"]).to.match(/SessionStart/);
-    // idempotent: nothing re-written when the root protocol + hook already exist
-    const w2: Array<[string, string]> = [];
-    const d2 = { ...deps().deps, fs: { ...fsWith(["/work/PRJ-9-infra/CLAUDE.md", "/work/PRJ-9-infra/.claude/settings.json"]), writeFile: (p: string, c: string) => w2.push([p, c]) } };
-    ensureRootProtocol(d2.fs, "/work/PRJ-9-infra", "acme-gov");
-    expect(w2).to.have.length(0);
+    expect(byPath["/work/PRJ-9-infra/CLAUDE.md"], "no stub written from thin air").to.equal(undefined);
+    expect(byPath["/work/PRJ-9-infra/.claude/settings.json"], "no hook gov owns").to.equal(undefined);
+    expect(writes, "nothing to mirror means nothing written").to.have.length(0);
   });
 
   it("ensureRootProtocol mirrors the FULL harness — every agent's entrypoint at <project>, not just Claude", () => {
     const writes: Array<[string, string]> = []; const dirs: string[] = [];
     const fs = {
       ...fsWith([]),
-      readFile: (f: string) => (f.endsWith("AGENTS.md") || f.endsWith("agent.mdc")) ? `# rendered protocol (${f})` : null,   // these rendered; others absent
+      // CLAUDE.md is in the mirrored list now — same rendered text as every other agent.
+      readFile: (f: string) => (f.endsWith("AGENTS.md") || f.endsWith("agent.mdc") || f.endsWith("CLAUDE.md"))
+        ? `# rendered protocol (${f})` : null,   // these rendered; others absent
       writeFile: (p: string, c: string) => writes.push([p, c]),
       mkdirp: (dir: string) => dirs.push(dir),
     };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     const written = writes.map(([p]) => p);
-    expect(pxAll(written)).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude via @-import stub
+    expect(pxAll(written)).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude — copied, like the rest
     expect(pxAll(written)).to.include("/work/PRJ-9/AGENTS.md");                 // Codex/Cursor — copied
     expect(pxAll(written)).to.include("/work/PRJ-9/.cursor/rules/agent.mdc");   // Cursor — copied (nested)
     expect(pxAll(dirs)).to.include("/work/PRJ-9/.cursor/rules");               // mkdirp for the nested path
     expect(written).to.not.include("/work/PRJ-9/CONVENTIONS.md");        // not rendered here → skipped
   });
 
-  it("session-start FIRES for Claude — root CLAUDE.md import + SessionStart hook + injected kickoff", () => {
+  it("session-start reaches Claude the same way it reaches everyone — a mirrored file and an argv", () => {
+    // WAS: "root CLAUDE.md import + SessionStart hook + injected kickoff". The first two were
+    // Claude-only and are gone; the third is now how EIGHT of ten agents receive the protocol,
+    // read from their own --help rather than assumed.
     const w: Array<[string, string]> = []; const dirs: string[] = [];
-    const fs = { ...fsWith([]), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: (d: string) => dirs.push(d) };
+    const fs = {
+      ...fsWith([]),
+      readFile: (f: string) => f.endsWith("CLAUDE.md") ? "# rendered protocol" : null,
+      writeFile: (p: string, c: string) => w.push([p, c]),
+      mkdirp: (d: string) => dirs.push(d),
+    };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     const byPath = Object.fromEntries(w.map(([f, c]) => [px(f), c]));
-    expect(byPath["/work/PRJ-9/CLAUDE.md"], "protocol loaded at root").to.match(/@acme-gov\/agent\/session-protocol\.md/);
-    expect(byPath["/work/PRJ-9/.claude/settings.json"], "fires on a bare/`/clear` launch").to.match(/"SessionStart"/);
-    expect(pxAll(dirs)).to.include("/work/PRJ-9/.claude");
-    expect(agentLaunchSpec("claude-code", "/work/PRJ-9", "KICK")!.args, "speak-first on Work launch").to.deep.equal(["KICK"]);
+    expect(byPath["/work/PRJ-9/CLAUDE.md"], "the rendered protocol, mirrored").to.equal("# rendered protocol");
+    expect(byPath["/work/PRJ-9/.claude/settings.json"], "and no hook").to.equal(undefined);
+    expect(agentLaunchSpec("claude-code", "/work/PRJ-9", "KICK")!.args, "handed over as argv")
+      .to.deep.equal(["KICK"]);
   });
 
   it("session-start FIRES for cursor (CLI) — injected kickoff + alwaysApply rule mirrored to root", () => {
@@ -278,7 +305,8 @@ describe("gov-work — guided Work flow", () => {
     const fs = { ...fsWith([]), readFile: (f: string) => f.endsWith("agent.mdc") ? "---\nalwaysApply: true\nglobs: [\"**/*\"]\n---\n<protocol>" : null, writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"]).to.match(/alwaysApply: true/);
-    expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK")).to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true });   // cwd passes through verbatim
+    expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK"))
+      .to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true, promptToPaste: "KICK", promptText: "KICK" });   // cwd verbatim, prompt carried
   });
 });
 
@@ -301,7 +329,7 @@ describe("work — non-TTY session start", () => {
     // the prompt must name the four files the session-start protocol requires
     expect(s?.prompt).to.contain("gov_repo/org-config.yaml");
     expect(s?.prompt).to.contain("gov_repo/projects/PRJ-43-gov/agent.md");
-    expect(s?.prompt).to.contain("agentic-development-policy.md");
+    expect(s?.prompt).to.contain("org-ai-agent-governance-policy.md");
     expect(s?.prompt).to.contain("todo.md");
   });
 
@@ -611,5 +639,51 @@ describe("gov-work — the fork question is asked where the terminal is (#194)",
       expect(w.ran.filter((a) => a[0] === "seed"), "and did not retry").to.have.length(1);
       expect(w.out.join("\n")).to.match(/Left alone/);
     }
+  });
+});
+
+/**
+ * POL-086a — WHICH BRANCH THE AGENT IS POINTED AT (C01).
+ *
+ * The prompt used to read everything from `<project>/<workspace-repo>/…`, a worktree on the
+ * PROJECT branch. POL-086a is explicit that org knowledge, the protocol and policies "must be
+ * built, and rebuilt each session, from <DEFAULT_BRANCH>, never from a project branch", while
+ * `projects/PRJ-…/` is read from the project branch.
+ *
+ * That is not a technicality. POL-086b lets a project branch edit org knowledge as a PROPOSAL
+ * with no governing force — so pointing the agent at the same branch makes an unratified edit
+ * the thing it obeys. Self-governing, which POL-086b prohibits in as many words, reachable by
+ * accident rather than by intent.
+ */
+describe("gov-work — the session prompt reads governance from the default branch (POL-086a)", () => {
+  const GOV = "/home/t/.gov/acme/gov_repo";
+
+  it("governance comes from the default-branch clone, not the worktree", () => {
+    const p = sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV);
+    expect(p, "org-config from the default branch").to.contain(`${GOV}/org-config.yaml`);
+    expect(p, "and the policy too").to.contain(`${GOV}/governance/policies/org-ai-agent-governance-policy.md`);
+    expect(p, "never the worktree copy of the policy")
+      .to.not.contain("acme-gov/governance/policies/org-ai-agent-governance-policy.md");
+  });
+
+  it("project paths still come from the project branch", () => {
+    // The other half of POL-086a: `projects/PRJ-…/` IS the project branch's, and reading it
+    // from the default branch would show the state before this project started.
+    const p = sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV);
+    expect(p).to.contain("acme-gov/projects/PRJ-9-infra/agent.md");
+    expect(p).to.contain("acme-gov/projects/PRJ-9-infra/knowledge/todo.md");
+  });
+
+  it("says WHICH branch governs, so the agent can apply POL-086b itself", () => {
+    // The agent is told the rule, not just handed two paths — it has to refuse to treat a
+    // project-branch edit as authority, and it cannot do that without knowing which is which.
+    expect(sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV)).to.contain("POL-086a");
+  });
+
+  it("falls back to the worktree when no govHome is known, rather than naming a dead path", () => {
+    // A wrong-branch read is a governance defect; a path that does not exist is a dead end that
+    // stops the session. Neither is good, and the first at least proceeds.
+    const p = sessionStartPrompt("PRJ-9-infra", "acme-gov");
+    expect(p).to.contain("acme-gov/org-config.yaml");
   });
 });

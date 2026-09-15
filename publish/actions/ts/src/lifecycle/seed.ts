@@ -18,9 +18,9 @@ import type { Vcs } from "./vcs.js";
 import type { Fs } from "./fs-io.js";
 import type { AnchorCreator } from "./anchor.js";
 import { ensureRootProtocol } from "./root-protocol.js";
-import { deriveProjectIdentity, parseBoardUrl } from "./identity.js";
+import { deriveProjectIdentity, parseBoardUrl, boardTitleFor } from "./identity.js";
 import { seedPathsFor, detectLeftovers, leftoversMessage, type LeftoverArtifact } from "./leftover.js";
-import { renderAgentMd, renderTodoMd, substituteTokens } from "./content.js";
+import { renderAgentMd, renderTodoMd } from "./content.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
 import { repoNameFromUrl } from "./repo.js";
 import { classifyProjectBranch, preconditionFailures, adoptions, suggestedOverrides, type RepoPrecondition, type RemoteRef, type RepoStanding } from "./branch-adoption.js";
@@ -39,7 +39,7 @@ export interface SeedConfig {
   /** Token → value for tool-file substitution (e.g. ORG_NAME). */
   readonly orgTokens: Readonly<Record<string, string>>;
   /** Tool files (paths under `framework/`) to token-substitute into the project. */
-  readonly toolFiles?: readonly string[];
+
   readonly remote?: string;
 }
 
@@ -83,6 +83,14 @@ export interface SeedSuccess {
   readonly orgGovClone: string;
   readonly repos: ReadonlyArray<{ name: string; url: string; repoDir: string }>;
   readonly anchorRef: string | null;
+  /**
+   * Did gov rename the GitHub board to `PRJ-<n> · <title>`?
+   *
+   * Reported rather than assumed: the rename is best-effort — a token without the `project`
+   * write scope simply leaves the title alone — and a caller that announced it unconditionally
+   * would be claiming something it did not check.
+   */
+  readonly boardRenamed: boolean;
 }
 
 export type SeedResult =
@@ -270,17 +278,36 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
         repos: codeRepoUrls.map((url) => ({ name: repoNameFromUrl(url), url })),
       }),
     );
+    // THE TODO TEMPLATE, READ FROM WHERE IT ACTUALLY SHIPS (Decision 1, 2026-09-14).
+    //
+    // This read `<repo>/framework/knowledge/guidance/todo-template.md`. `framework/` is in
+    // RETIRE_PATHS and was never shipped — the template has always lived at
+    // `knowledge/guidance/`, and now at `governance/guidance/`. So the read returned null, the
+    // guard skipped it silently, and NO project has ever been given a `knowledge/todo.md` —
+    // while the session-start protocol tells every agent to read one and surface its `## Open`
+    // items, and POL-168/169 require it to exist. A missing file behind a null-check is the
+    // quietest way to lose a C01 obligation.
+    //
+    // Not optional any more: without the template the project has no todo list, so say so.
     const todoTemplate = deps.fs.readFile(
-      path.join(orgGovClone, "framework", "knowledge", "guidance", "todo-template.md"),
+      path.join(orgGovClone, "governance", "guidance", "todo-template.md"),
     );
-    if (todoTemplate !== null) {
-      deps.fs.writeFile(path.join(projectDir, "knowledge", "todo.md"), renderTodoMd(todoTemplate, projectId));
+    if (todoTemplate === null) {
+      throw new Error(
+        "seed: governance/guidance/todo-template.md is missing from the governance repo — a "
+        + "project cannot be seeded without a todo list (POL-168). Run `gov upgrade`.",
+      );
     }
-    const tokens = { ...config.orgTokens, PROJECT_ID: projectId };
-    for (const rel of config.toolFiles ?? []) {
-      const src = deps.fs.readFile(path.join(orgGovClone, "framework", rel));
-      if (src !== null) deps.fs.writeFile(path.join(projectDir, rel), substituteTokens(src, tokens));
-    }
+    deps.fs.writeFile(path.join(projectDir, "knowledge", "todo.md"), renderTodoMd(todoTemplate, projectId));
+
+    // THE PER-PROJECT TOOL-FILE SCAFFOLD IS GONE (Decision 1, 2026-09-14).
+    //
+    // It copied the nine harness files from `<repo>/framework/<rel>` into
+    // `projects/<PID>/<rel>`, token-substituted. `framework/` never existed, so all nine reads
+    // returned null and all nine writes were skipped, for as long as the code has existed. It
+    // was also the wrong shape: an agent reads its instructions from the directory it is
+    // launched in — `<project>/` — never from `projects/<PID>/` inside the repo.
+    // `ensureRootProtocol` is the mechanism that works, and it runs on every launch.
     deps.vcs.addPath(orgGovClone, `projects/${projectId}`);
     deps.vcs.commit(orgGovClone, `seed: scaffold project content for ${projectId}`);
 
@@ -324,11 +351,40 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     });
 
     tx.commit();
-    // Make an agent launched at the project ROOT run session-start: mirror the harness + drop the Claude
-    // SessionStart hook. Best-effort finalization — the workspace worktree (with the rendered harness) is
-    // present by now. Same helper the interactive Work flow uses.
+    // Make an agent launched at the project ROOT run session-start: mirror every agent's rendered harness
+    // file to the paths those agents read. (It used to also drop a Claude-only SessionStart hook; removed
+    // 2026-09-11 — one mechanism for all agents.) Best-effort finalization: the workspace worktree, with
+    // the rendered harness in it, is present by now. Same helper the interactive Work flow uses.
     ensureRootProtocol(deps.fs, paths.projectWorkRoot, config.workspaceRepo);
-    return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef };
+
+    // NAME THE BOARD WHAT GOV CALLS IT (Policy Owner, 2026-09-15).
+    //
+    // A board someone titles "Invoice API" becomes `PRJ-26-invoice-api` in every branch,
+    // directory and document gov writes, and nothing on GitHub says so. Prefixing the title to
+    // `PRJ-26 · Invoice API` closes that gap from the GitHub side and keeps the words a person
+    // chose — a board list of bare ids is harder to scan than the names people gave.
+    //
+    // AFTER `tx.commit()`, DELIBERATELY. Everything above is transactional and rolls back; this
+    // is not. A failed rename must not undo a seed that has created branches, worktrees and an
+    // anchor issue, and a rename that succeeded must not be rolled back into a title that no
+    // longer matches anything.
+    //
+    // AT SEED ONLY. gov does not re-assert the title later: one someone edited afterwards is
+    // theirs. `slugify` strips a `PRJ-<n>` prefix repeatedly, so the two drifting apart costs
+    // nothing — which is what makes "seed only" a safe ruling rather than a loose end.
+    let boardRenamed = false;
+    if (deps.board.renameProject) {
+      const wanted = boardTitleFor(projectId, board.title);
+      if (wanted !== board.title) {
+        // Never fatal: the title is a convenience for people reading GitHub, and the project id
+        // lives in the branch and the directory regardless.
+        try { boardRenamed = deps.board.renameProject(ref, wanted) === true; } catch { boardRenamed = false; }
+        log(boardRenamed
+          ? `board #${ref.number} renamed to "${wanted}"`
+          : `board #${ref.number} left as "${board.title}" — gov could not rename it (needs the \`project\` scope)`);
+      }
+    }
+    return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef, boardRenamed };
   } catch (error) {
     const rollbackFailures = tx.rollback();
     // A rollback that leaves the workspace unresolvable is a bigger event than the
