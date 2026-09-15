@@ -71,3 +71,31 @@ describe("gov-work — setup (bootstrap)", () => {
     expect(code).to.equal(1);
   });
 });
+
+// token-lifetime-standard.md §3.2 — the org's access-token life is DECLARED in org-config.yaml, and
+// gov writes that file. A key gov does not know about is a key that disagrees with the tool reading it,
+// which is what org-config.yaml's own banner warns against.
+describe("gov-work — setup, session policy (§3.2)", () => {
+  it("writes a session block with the standard's default, so a fresh org starts compliant", () => {
+    const v = deriveOrgConfig({ orgName: "Acme Inc", orgSlug: "ACME" }, CTX);
+    const text = renderOrgConfig(v);
+    expect(text).to.contain("session:");
+    expect(text).to.contain("access_ttl_sec: 300");
+    // It must not read as a service endpoint — the others are URLs of things we talk to.
+    expect(text.indexOf("session:")).to.be.greaterThan(text.indexOf("services:"));
+  });
+
+  it("PRESERVES an amended value on a re-run rather than resetting it to the default", () => {
+    // The number is changed by amending the standard, and a re-run of setup must not quietly undo that.
+    const amended = renderOrgConfig(deriveOrgConfig({ orgName: "Acme Inc", orgSlug: "ACME" }, CTX))
+      .replace("access_ttl_sec: 300", "access_ttl_sec: 900");
+    expect(readExistingOrgConfig(amended).accessTtlSec).to.equal("900");
+  });
+
+  it("round-trips through the reader gov-cicd and gov both use", () => {
+    const text = renderOrgConfig(deriveOrgConfig({ orgName: "Acme Inc", orgSlug: "ACME" }, CTX));
+    // The written file must parse — a block gov writes that gov cannot read back is the same defect
+    // one step later.
+    expect(readExistingOrgConfig(text).accessTtlSec).to.equal("300");
+  });
+});
