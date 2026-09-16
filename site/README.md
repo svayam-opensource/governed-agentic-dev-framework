@@ -119,13 +119,16 @@ pass.
 
 ## What `--verify` asserts, and why
 
-The adopter-facing command is `curl … | bash`. The single worst outcome is a host answering
-`/install.sh` with **HTML** — a redirect notice, a 404 page, a client-side router — which is then
-piped into a shell. It fails silently and confusingly. So:
+The adopter-facing command fetches `/install.sh` to a file, then runs it. The single worst outcome
+is a host answering with **HTML** — a redirect notice, a 404 page, a client-side router — which is
+then handed to a shell. It fails silently and confusingly. So:
 
 - `install.sh` begins with a shebang and neither script looks like HTML;
 - both pins actually applied, asserted against the **output** rather than trusting the substitution;
 - no `raw.githubusercontent.com` URL for our own artefact survives;
+- the page's primary command fetches to a file and does **not** pipe `curl` into `bash` — piped, a
+  failed download exits 0 and installs nothing (`docs/installing.md`); the one-liner appears only
+  as the CI form;
 - the page carries no unsubstituted `{{TOKEN}}`, and states its host, ref and package;
 - a non-prod build carries its environment banner and prod does not.
 

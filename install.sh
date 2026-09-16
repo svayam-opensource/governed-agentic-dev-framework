@@ -4,7 +4,10 @@
 #
 # gov bootstrap installer — macOS and Linux.
 #
-#   curl -fsSL <GOV_INSTALL_URL> | bash        # the URL is one constant, defined below
+#   curl -fsSL <GOV_INSTALL_URL> -o install.sh && bash install.sh   # the URL is one constant, defined below
+#
+# Fetch, then run. `curl -fsSL <url> | bash` hides a failed download: curl writes nothing, bash
+# runs an empty script and exits 0, and the pipeline reports success (docs/installing.md).
 #
 # WHY THIS EXISTS. `gov` runs on Node 24, so it cannot install Node 24 — the whole
 # class of first-run failure happens before `gov` exists to help. Three of them,
@@ -511,7 +514,7 @@ say ""
 if ! confirm "Continue"; then
   say ""
   say "  Nothing was installed. Run it again when you are ready:"
-  say "    ${B}curl -fsSL $GOV_INSTALL_URL | bash${RST}"
+  say "    ${B}curl -fsSL $GOV_INSTALL_URL -o install.sh && bash install.sh${RST}"
   exit 0
 fi
 
