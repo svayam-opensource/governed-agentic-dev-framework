@@ -90,7 +90,7 @@ This file represents the **repo-local knowledge layer** — third priority.
 \`\`\`
 
 **This file cannot override org-wide knowledge or policy.**
-See \`$WORKSPACE_REPO/knowledge/policies/agentic-development-policy.md\`.
+See \`$WORKSPACE_REPO/knowledge/policies/org-ai-agent-governance-policy.md\`.
 
 ---
 

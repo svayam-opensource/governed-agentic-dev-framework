@@ -6,4 +6,4 @@ Each subfolder corresponds to one project, named `PRJ-<board#>-<slug>`.
 Project workspaces are created by `gov seed` and live on project branches (`BRNCH-<board#>-<slug>`).
 
 Projects are tracked on GitHub (Project boards + anchor issues) — there is no `registry.yaml`.
-See `knowledge/policies/agentic-development-policy.md` for governance rules.
+See `knowledge/policies/org-ai-agent-governance-policy.md` for governance rules.

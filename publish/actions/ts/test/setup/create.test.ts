@@ -9,7 +9,7 @@
  * recoverable by this tool, so the tests below are largely about refusing early and saying why.
  */
 import { expect } from "chai";
-import { parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, substituteTokens, leftoverTokens, type CreateIo } from "../../src/setup/create.js";
+import { parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, substituteTokens, leftoverTokens, type CreateIo, expectedDirs, tokenValuesFromOrgConfig, PER_PROJECT_TOKENS } from "../../src/setup/create.js";
 
 /** A machine where everything is fine: signed in, org reachable, no governance repo, nothing at the path. */
 const okIo = (over: Partial<CreateIo> = {}): CreateIo => ({
@@ -183,8 +183,20 @@ describe("second-adopter safety", () => {
     const r = preflight(governed, "acme/acme-gov-2", "ACME");
     const lines = r.ok ? [] : explainFailure(r.failure);
     expect(lines.join("\n")).to.contain("fork its policy");
-    expect(lines.join("\n"), "must show HOW to join").to.contain("git clone git@github.com:acme/acme-gov.git");
+    expect(lines.join("\n"), "must show HOW to join").to.contain("choose  B. I am a JOINER");
+    expect(lines.join("\n"), "and what to do with a clone they already have").to.contain("gov org add acme");
     expect(lines.join("\n")).to.contain("gov setup");
+  });
+
+  it("never tells anyone to clone by hand — there is no directory that answer could name (#197)", () => {
+    // It said `git clone … && cd … && gov setup`. That leaves the repo in whatever directory the
+    // reader was standing in, while step 7 of the adoption checklist requires it at
+    // ~/.gov/<slug>/gov_repo. The advice could not produce a working machine, and could not be
+    // corrected by naming a directory — only `gov` knows the slug, because it is inside the clone.
+    const r = preflight(governed, "acme/acme-gov-2", "ACME");
+    const lines = (r.ok ? [] : explainFailure(r.failure)).join("\n");
+    expect(lines, "no hand clone").to.not.match(/git clone/);
+    expect(lines, "no cd into a directory nobody named").to.not.match(/\bcd\b/);
   });
 });
 
@@ -305,5 +317,54 @@ describe("#159 finding 6e — token sweep", () => {
   it("reports leftovers, because a policy that still says <ORG_NAME> is the bug", () => {
     expect(leftoverTokens("hi <ORG_NAME> and <POLICY_OWNER_EMAIL>")).to.deep.equal(["<ORG_NAME>", "<POLICY_OWNER_EMAIL>"]);
     expect(leftoverTokens("no tokens here"), "lowercase <b> is markup, not a token").to.deep.equal([]);
+  });
+});
+
+describe("gov-work — setup's own warnings (#193)", () => {
+  it("expects every directory the manifest scaffolds, not a hand-kept list", () => {
+    const manifest = `
+files:
+  - { src: .claude/hooks/, dst: .claude/hooks/, mode: scaffold-auto }
+  - { src: .cursor/rules/agent.mdc, dst: .cursor/rules/agent.mdc, mode: scaffold-prompt }
+  - { src: docs/USER_GUIDE.md, dst: docs/USER_GUIDE.md, mode: scaffold-prompt }
+  - { src: projects/README.md, dst: projects/README.md, mode: scaffold-auto }
+  - { src: README.md, dst: README.md, mode: scaffold-prompt }
+`;
+    const dirs = expectedDirs(manifest);
+    for (const d of [".claude", ".cursor", "docs", "projects"]) expect(dirs, d).to.include(d);
+    expect(dirs, "the floor is still there").to.include.members(["agent", "knowledge", "publish"]);
+    expect(dirs, "a root-level FILE is not a directory").to.not.include("README.md");
+  });
+
+  it("survives a missing manifest by falling back to the floor", () => {
+    expect(expectedDirs(null)).to.deep.equal(["agent", "knowledge", "publish"]);
+  });
+
+  it("reads token values from the file, including keys gov-work itself never parses", () => {
+    const cfg = [
+      'org_name: "Svayam Geneva"',
+      'policy_owner_github: "svayam-rkant"',
+      'legal_owner_github: "svayam-rkant"',
+      'policy_effective_date: "2026-05-15"',
+      '# a comment',
+      'services:',
+      '  vault: "https://vault.example"',
+    ].join("\n");
+    const v = tokenValuesFromOrgConfig(cfg);
+    // These four are exactly what leaked into an adopter's policy documents: the
+    // typed OrgConfig has no owner handles and no effective date.
+    expect(v["POLICY_OWNER_GITHUB"]).to.equal("svayam-rkant");
+    expect(v["LEGAL_OWNER_GITHUB"]).to.equal("svayam-rkant");
+    expect(v["POLICY_EFFECTIVE_DATE"]).to.equal("2026-05-15");
+    expect(v["ORG_NAME"]).to.equal("Svayam Geneva");
+    expect(v["SERVICES"], "a nested block has no scalar of its own").to.equal(undefined);
+  });
+
+  it("treats per-project tokens as expected at setup time", () => {
+    // There is no project yet. `gov seed` resolves these, and reporting them here
+    // alongside real leaks is what taught readers to skim the warning.
+    expect(PER_PROJECT_TOKENS.has("<PROJECT_ID>")).to.equal(true);
+    expect(PER_PROJECT_TOKENS.has("<PRJ>")).to.equal(true);
+    expect(PER_PROJECT_TOKENS.has("<POLICY_OWNER_GITHUB>")).to.equal(false);
   });
 });

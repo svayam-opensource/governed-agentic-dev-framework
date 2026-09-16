@@ -8,6 +8,7 @@
  * uses for tool-file substitution.
  */
 import * as os from "node:os";
+import { parseRepoOverrides } from "./repo-overrides.js";
 import { readTopLevelScalar, expandTilde } from "../resolve/node-env.js";
 
 export interface OrgConfig {
@@ -36,6 +37,12 @@ export interface OrgConfig {
    * the duplication is a decision rather than something a later reader has to guess at (rkant, 2026-08-09).
    */
   readonly envBranches: readonly string[];
+  /**
+   * `repo_overrides` — where the WORK happens, when that is not where the issue
+   * lives (#194). `owner/repo: owner/repo`, upstream on the left, the repo this org
+   * can write on the right. Empty for every org that does not work from forks.
+   */
+  readonly repoOverrides: Readonly<Record<string, string>>;
   /** `agent_work_root`, expanded to an absolute path. */
   readonly agentWorkRoot: string;
   /** `gov_workspace`, expanded to an absolute path. */
@@ -115,6 +122,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
   const defaultBranch = get("default_branch");
   const defaultCodeBranch = get("default_code_branch");
   const envBranches = readTopLevelList(text, "env_branches");
+  const repoOverrides = parseRepoOverrides(text);
   const agentWorkRoot = expandTilde(get("agent_work_root"), home);
   const govWorkspace = expandTilde(get("gov_workspace"), home);
   const policyOwnerEmail = get("policy_owner_email");
@@ -147,6 +155,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
     defaultBranch,
     defaultCodeBranch,
     envBranches,
+    repoOverrides,
     agentWorkRoot,
     govWorkspace,
     policyOwnerEmail,

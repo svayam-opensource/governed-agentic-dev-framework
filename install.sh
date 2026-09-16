@@ -4,17 +4,10 @@
 #
 # gov bootstrap installer — macOS and Linux.
 #
-#   curl -fsSL https://raw.githubusercontent.com/svayam-opensource/governed-agentic-dev-framework/main/install.sh -o install.sh \
-#     && bash install.sh
+#   curl -fsSL <GOV_INSTALL_URL> -o install.sh && bash install.sh   # the URL is one constant, defined below
 #
-# FETCH, THEN RUN — do not `curl … | bash`. Piped, a failed download is SILENT:
-# `curl -f` writes nothing and exits 22, `bash` reads an empty stdin and exits 0,
-# and THE PIPELINE REPORTS SUCCESS. Nothing is installed; the first sign is
-# `gov: command not found` at some later step, with nothing connecting the two.
-#
-# That is not hypothetical. This file was absent from `main` for its whole life —
-# the URL in this very comment returned 404 — and every `curl … | bash` against it
-# exited 0. Two forms differ by one `-o` and one `&&`; only one of them can fail.
+# Fetch, then run. `curl -fsSL <url> | bash` hides a failed download: curl writes nothing, bash
+# runs an empty script and exits 0, and the pipeline reports success (docs/installing.md).
 #
 # WHY THIS EXISTS. `gov` runs on Node 24, so it cannot install Node 24 — the whole
 # class of first-run failure happens before `gov` exists to help. Three of them,
@@ -46,6 +39,29 @@ NODE_MAJOR=24
 GOV_PKG="${GOV_PKG:-@svayam-opensource/gov}"
 GOV_HOME="${GOV_INSTALL_DIR:-$HOME/.local/share/gov}"
 NODE_DIR="$GOV_HOME/node"
+# A NODE ARCHIVE ALREADY ON DISK, for a machine that cannot reach nodejs.org.
+#
+# Air-gapped and proxied networks are the real case: today this script dies with "check your
+# network or proxy" and there is nothing the adopter can do about it except give up. Point this
+# at a node-v24.*-<plat>.tar.gz they brought with them and the install completes offline.
+#
+# DELIBERATELY A FILE PATH, NEVER A URL (#201). An env var that could redirect where a runtime
+# is fetched FROM is a supply-chain surface; one that can only name a file already on this
+# machine is not — the archive is something the person already has and chose. It is checked for
+# existence, announced on screen so it is never a silent substitution, and the unpacked result
+# still has to run `node -v` before anything is claimed.
+GOV_NODE_TARBALL="${GOV_NODE_TARBALL:-}"
+
+# WHERE THIS SCRIPT IS SERVED FROM — one constant, because it is printed back to the adopter
+# and a URL living in two places drifts.
+#
+# NOT FINAL. Two things are wrong with it and only one is cosmetic:
+#   · it pins `main`, so an adopter gets whatever is on main at that instant, including a
+#     half-merged change. A tag or a release branch belongs here (#201 discipline applies to
+#     our own artefact, not only to vendors').
+#   · raw.githubusercontent.com is not an address anyone can say out loud or type from memory.
+# A short vanity host redirecting to a TAGGED raw URL fixes both without new infrastructure.
+GOV_INSTALL_URL="${GOV_INSTALL_URL:-https://raw.githubusercontent.com/svayam-opensource/governed-agentic-dev-framework/main/install.sh}"
 
 # ── output ────────────────────────────────────────────────────────────────────
 # TERM=dumb is the terminal saying what NO_COLOR says on the person's behalf (#204). Both are
@@ -71,6 +87,20 @@ ok()   { printf '  %s✓%s %s\n' "$GRN" "$RST" "$*"; }
 skip() { printf '  %s·%s %s %s(already present)%s\n' "$DIM" "$RST" "$*" "$DIM" "$RST"; }
 warn() { printf '  %s!%s %s\n' "$YEL" "$RST" "$*"; }
 die()  { printf '\n%serror:%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
+
+# SHA-256 OF A FILE, on whatever this machine happens to have.
+#
+# Three spellings because there is no one command: coreutils gives `sha256sum` (every Linux image
+# gov supports), macOS gives `shasum` and no sha256sum, and `openssl` covers the rest. Returns
+# non-zero if none exist, and the caller treats that as a hard failure rather than as "unverified" —
+# a check that quietly does not run is worse than no check, because the output still looks clean.
+sha256_of() {
+  if   command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum    >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v openssl   >/dev/null 2>&1; then openssl dgst -sha256 "$1" | awk '{print $NF}'
+  else return 1
+  fi
+}
 
 # Run something slow with a spinner, so silence never looks like a hang.
 #
@@ -130,7 +160,7 @@ confirm() {
     say "  ${DIM}(no terminal to ask on — continuing)${RST}"
     return 0
   fi
-  printf '  %s [Y/n] ' "$q" > /dev/tty
+  printf '  %s [Y/n] : ' "$q" > /dev/tty
   read -r ans < /dev/tty || ans=""
   case "$ans" in [nN]|[nN][oO]) return 1 ;; *) return 0 ;; esac
 }
@@ -280,28 +310,121 @@ install_node() {
   step "Installing Node $NODE_MAJOR for $plat"
   local listing file url tmp
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
-  spin "asking nodejs.org which version is current" \
-    bash -c "curl -fsSL 'https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/' -o '$tmp/listing.html'" \
-    || die "could not reach nodejs.org — check your network or proxy"
-  listing="$(cat "$tmp/listing.html")"
-  # .tar.gz, not .tar.xz: minimal RHEL and Debian images ship tar without the xz
-  # helper binary, and the failure is an opaque "xz: Cannot exec". gzip is built
-  # into every tar that can run here. The extra few megabytes are worth it.
-  file="$(printf '%s' "$listing" | grep -o "node-v${NODE_MAJOR}\.[0-9.]*-${plat}\.tar\.gz" | head -1)"
-  [ -n "$file" ] || die "no Node $NODE_MAJOR build published for $plat"
-  url="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/$file"
+  if [ -n "$GOV_NODE_TARBALL" ]; then
+    # Named a file that is not there? Say so and stop. Falling back to the network would be a
+    # silent substitution of the thing the adopter explicitly asked for, and on an air-gapped
+    # machine it would fail a second later with a misleading message about the network.
+    [ -f "$GOV_NODE_TARBALL" ] \
+      || die "GOV_NODE_TARBALL is set but there is no file there:
+    $GOV_NODE_TARBALL
+  Point it at a node-v${NODE_MAJOR}.*-${plat}.tar.gz, or unset it to download from nodejs.org."
+    info "using the Node archive you provided, not downloading: $GOV_NODE_TARBALL"
+    cp "$GOV_NODE_TARBALL" "$tmp/node.tar.gz" \
+      || die "could not read $GOV_NODE_TARBALL — check the path and its permissions"
 
-  info "downloading ${file} (about 50 MB)"
-  curl -fSL --progress-bar "$url" -o "$tmp/node.tar.gz" || die "download failed: $url"
+    # AN ARCHIVE YOU SUPPLIED IS NOT CHECKED AGAINST THE NETWORK, and the output says which.
+    #
+    # The reason GOV_NODE_TARBALL exists is a machine that cannot reach nodejs.org, so fetching
+    # SHASUMS256.txt to verify it would defeat the point and fail on exactly the machines that need
+    # it. Set GOV_NODE_SHA256 to have it checked; leave it unset and the hash is PRINTED rather than
+    # silently skipped, so it can be compared by hand and so the output never implies a check that
+    # did not happen.
+    supplied_sha="$(sha256_of "$tmp/node.tar.gz")" \
+      || die "no sha256 tool on this machine (looked for sha256sum, shasum, openssl)."
+    if [ -n "${GOV_NODE_SHA256:-}" ]; then
+      [ "$supplied_sha" = "$GOV_NODE_SHA256" ] || die "CHECKSUM MISMATCH on the archive you supplied.
+    expected  $GOV_NODE_SHA256
+    actual    $supplied_sha
+  Nothing was unpacked."
+      ok "checksum verified against GOV_NODE_SHA256: ${supplied_sha}"
+    else
+      warn "not verified — no GOV_NODE_SHA256 given. sha256 is ${supplied_sha}"
+    fi
+  else
+    # RETRY BEFORE BLAMING THE NETWORK.
+    #
+    # Both of these used to fail on the first blip and say "check your network or proxy" — bad
+    # advice for a transient 429 or a dropped TLS handshake, and it aborts an install that would
+    # have worked a second later. nodejs.org rate-limits repeated fetches, which is ordinary on a
+    # shared or NAT'd connection and reliable in CI: the OS tier hit it four times in one run.
+    #
+    # `--retry-all-errors` is the part that matters — plain `--retry` ignores connection failures
+    # and 4xx, which is most of what actually happens here.
+    spin "asking nodejs.org which version is current" \
+      bash -c "curl -fsSL --retry 4 --retry-delay 2 --retry-all-errors 'https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/' -o '$tmp/listing.html'" \
+      || die "could not reach nodejs.org after several tries — check your network or proxy"
+    listing="$(cat "$tmp/listing.html")"
+    # .tar.gz, not .tar.xz: minimal RHEL and Debian images ship tar without the xz
+    # helper binary, and the failure is an opaque "xz: Cannot exec". gzip is built
+    # into every tar that can run here. The extra few megabytes are worth it.
+    file="$(printf '%s' "$listing" | grep -o "node-v${NODE_MAJOR}\.[0-9.]*-${plat}\.tar\.gz" | head -1)"
+    [ -n "$file" ] || die "no Node $NODE_MAJOR build published for $plat"
+    url="https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/$file"
+
+    info "downloading ${file} (about 50 MB)"
+    curl -fSL --progress-bar --retry 4 --retry-delay 2 --retry-all-errors "$url" -o "$tmp/node.tar.gz" \
+      || die "download failed after several tries: $url"
+
+    # VERIFY WHAT IS ABOUT TO BE UNPACKED AND RUN (#205).
+    #
+    # This script downloads a 50 MB archive over the network and then executes what is inside it.
+    # nodejs.org publishes SHASUMS256.txt beside every release for exactly this, and until now it
+    # was not read. Fetched from the same directory as the archive, so it pins the file we actually
+    # took rather than some other build of the same version.
+    #
+    # NOT a supply-chain proof on its own: whoever could substitute the archive could substitute the
+    # checksum file with it. It does catch the case that actually happens — a truncated or corrupted
+    # download, a proxy that served something else, a mirror that is stale — and it is the
+    # precondition for the signature check that comes next (SHASUMS256.txt.asc, which needs the Node
+    # release keyring; deliberately a separate step).
+    spin "verifying the download against nodejs.org's checksums" \
+      bash -c "curl -fsSL --retry 4 --retry-delay 2 --retry-all-errors 'https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/SHASUMS256.txt' -o '$tmp/SHASUMS256.txt'" \
+      || die "could not fetch nodejs.org's checksums after several tries.
+  The Node archive downloaded but cannot be verified, so it will not be unpacked."
+
+    expected="$(awk -v f="$file" '$2 == f { print $1; exit }' "$tmp/SHASUMS256.txt")"
+    [ -n "$expected" ] || die "nodejs.org's SHASUMS256.txt does not list ${file}.
+  Refusing to unpack an archive that cannot be checked."
+
+    actual="$(sha256_of "$tmp/node.tar.gz")" \
+      || die "no sha256 tool on this machine (looked for sha256sum, shasum, openssl).
+  Install one of those and run this again — the download will not be unpacked unverified."
+
+    if [ "$actual" != "$expected" ]; then
+      rm -f "$tmp/node.tar.gz"
+      die "CHECKSUM MISMATCH on ${file} — the download has been deleted, nothing was unpacked.
+    expected  $expected
+    actual    $actual
+  A corrupted or truncated download is the usual cause; run this again. If it repeats, something
+  between you and nodejs.org is altering the file and that is worth investigating before retrying."
+    fi
+    ok "checksum verified: ${actual}"
+  fi
 
   rm -rf "$NODE_DIR"; mkdir -p "$NODE_DIR"
   spin "unpacking into $(tilde "$NODE_DIR")" \
     tar -xzf "$tmp/node.tar.gz" -C "$NODE_DIR" --strip-components=1 \
     || die "could not unpack the Node archive — see the error above"
 
+  # PROVE IT RUNS BEFORE CLAIMING IT — and before touching the profile.
+  #
+  # Newly reachable. Until GOV_NODE_TARBALL existed the archive always came from nodejs.org for
+  # the platform this script had just detected, so "unpacked but will not run" was not a real
+  # case. An adopter can now hand over an archive built for another architecture, and the old
+  # line — `ok "Node $(node -v)"` — failed inside a command substitution and said nothing about
+  # why. The tree is removed rather than left half-installed, and no PATH entry is added for a
+  # Node that does not work: the same rule the agent wrapper follows.
+  local ver
+  if ! ver="$("$NODE_DIR/bin/node" -v 2>/dev/null)" || [ -z "$ver" ]; then
+    rm -rf "$NODE_DIR"
+    die "the archive unpacked, but the node inside it does not run on this machine.
+  This machine is ${plat}. If you supplied the archive yourself it is most likely built for a
+  different platform — use a node-v${NODE_MAJOR}.*-${plat}.tar.gz, or unset GOV_NODE_TARBALL
+  to let this script download the right one."
+  fi
   export PATH="$NODE_DIR/bin:$PATH"
   add_to_path "$NODE_DIR/bin"
-  ok "Node $("$NODE_DIR/bin/node" -v)"
+  ok "Node $ver"
   say "===> 1. [✓] Install Node version 24"
 }
 
@@ -376,6 +499,26 @@ say "   9. [ ] Finish setting up this machine"
 say ""
 say "${DIM}  Steps 3 onward are gov's own; it shows this list again, ticked off, at the end.${RST}"
 say ""
+
+# A GATE SO THE PLAN CAN BE READ BEFORE IT SCROLLS AWAY.
+#
+# Everything above this line is the only place an adopter is told what the next few minutes
+# will do to their machine — and installing Node alone produces enough output to push it off
+# screen. A plan nobody had a chance to read is not consent, it is a formality performed at
+# them, and this installer's own promise two paragraphs earlier is "nothing is installed or
+# changed without being shown to you first".
+#
+# `confirm` handles the two cases that must not block: GOV_YES=1 and no controlling terminal.
+# Someone who invoked an installer non-interactively has already answered, and the e2e tiers
+# run exactly that way — a gate that stops CI is a gate that gets removed.
+if ! confirm "Continue"; then
+  say ""
+  say "  Nothing was installed. Run it again when you are ready:"
+  say "    ${B}curl -fsSL $GOV_INSTALL_URL -o install.sh && bash install.sh${RST}"
+  exit 0
+fi
+
+say ""
 say "$RULE"
 say "${B}                          Starting install${RST}"
 say "$RULE"
@@ -415,32 +558,6 @@ finish() {
   say ""
 }
 
-# THE LAST WORD, printed where the reader actually is.
-#
-# This used to be said just after the install and before `gov doctor --fix`. On a
-# machine that needed git, gh and a browser sign-in, that put it several screens
-# and a few minutes above the prompt the person was left staring at — and the
-# first thing they typed was `gov doctor`, which their shell had never heard of.
-# A reminder that has scrolled away is not a reminder.
-finish() {
-  say ""
-  if [ "$IMMEDIATELY_USABLE" = "1" ]; then
-    say "${GRN}${B}gov is ready in this shell.${RST} Try: ${B}gov${RST}"
-    say ""
-    return
-  fi
-  if [ -n "$PROFILE_TOUCHED" ]; then
-    say "${YEL}${B}One last thing.${RST} This shell was started before gov was installed,"
-    say "so it does not know about it yet. Run:"
-    say ""
-    say "    ${B}source $(tilde "$PROFILE_TOUCHED")${RST}"
-    say ""
-    say "…or just open a new terminal. Then ${B}gov${RST} will work."
-  else
-    say "Run ${B}gov${RST} on its own to open the menu — start there if you are new."
-  fi
-  say ""
-}
 
 
 # HAND OVER, and do not stop at a report.

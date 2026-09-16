@@ -8,7 +8,8 @@
  */
 import { expect } from "chai";
 import {
-  nextStep, govHomeFor, repoNameFromUrl, looksLikeRepoUrl, runFirstRun,
+  nextStep, govHomeFor, repoNameFromUrl, looksLikeRepoUrl, cloneUrlFor, runFirstRun,
+  roleQuestion, ROLE_QUESTION, alreadyGovernedNotice,
   type FirstRunIo, type OrgIdentity,
 } from "../../src/cli/bootstrap.js";
 import { px, pxAll } from "../helpers/paths.js";
@@ -57,7 +58,7 @@ describe("gov-work — first run: which rung is this machine on", () => {
 
 describe("gov-work — first run: helpers", () => {
   it("gov_home is ~/.<slug>/gov_repo, lower-cased from the authored slug", () => {
-    expect(px(govHomeFor("/home/rk", "SVM"))).to.equal("/home/rk/.svm/gov_repo");
+    expect(px(govHomeFor("/home/rk", "SVM"))).to.equal("/home/rk/.gov/svm/gov_repo");
   });
 
   it("repoNameFromUrl strips the path and .git for ssh and https", () => {
@@ -78,6 +79,25 @@ describe("gov-work — first run: helpers", () => {
 const JOINER: OrgIdentity = { org: "Svayamtech", orgSlug: "SVM" };
 const URL = "git@github.com:Svayamtech/svm-prj-work.git";
 
+/**
+ * Answers the JOINER interview (setup/join-interview.ts). The clone URL question is gone —
+ * gov asks for an organization and a repository name and builds the URL itself — so a joiner
+ * stub now answers two questions rather than pasting plumbing.
+ */
+/**
+ * What gov CLONES on the joiner path now: derived from the two answers, not typed.
+ *
+ * https rather than the ssh `URL` above, because gov builds it — and https is the protocol that
+ * works on a machine which has only run `gh auth login`, with no key generated or uploaded.
+ */
+const JOINED_URL = "https://github.com/Svayamtech/svm-prj-work.git";
+
+const joinerAnswer = (q: string, org = "Svayamtech", repo = "svm-prj-work"): string | undefined => {
+  if (/^Q1 - /.test(q)) return org;
+  if (/^Q2 - /.test(q)) return repo;
+  return undefined;
+};
+
 /** A recording world: every external act is captured, nothing happens. */
 function io(over: Partial<FirstRunIo> = {}) {
   const out: string[] = [];
@@ -85,7 +105,10 @@ function io(over: Partial<FirstRunIo> = {}) {
   const w: FirstRunIo = {
     facts: { orgs: [], active: null, interactive: true },
     homeDir: "/home/rk",
-    prompt: async () => URL,
+    // The role question comes first now (#186). Default to B (joiner) so the tests
+    // below still describe what they say they describe; the adopter path has its
+    // own tests.
+    prompt: async (q: string) => (/Select \(A\/B\/C\)/.test(q) ? "B" : (joinerAnswer(q) ?? URL)),
     print: (l) => out.push(l),
     tempDir: () => "/tmp/boot",
     clone: (u, d) => acts.push(`clone ${u} -> ${px(d)}`),
@@ -94,12 +117,28 @@ function io(over: Partial<FirstRunIo> = {}) {
     place: (f, t) => acts.push(`place ${px(f)} -> ${px(t)}`),
     discard: (d) => acts.push(`discard ${px(d)}`),
     found: async () => null,
+    createWorkspace: async () => 0,
     register: () => ({ ok: true }),
     activate: () => ({ ok: true }),
     ...over,
   };
   return { w, out, acts };
 }
+
+/**
+ * Answers the whole org interview (setup/interview.ts). Every question now precedes
+ * creation, so an adopter stub has nine to answer rather than two — matched on the
+ * `Qn - ` prefix the interview puts in the prompt itself, which is also how the e2e
+ * `expect` harness drives it.
+ */
+const INTERVIEW_ANSWERS: Record<string, string> = {
+  Q1: "Acme Incorporated", Q2: "Acme", Q3: "svm-geneva", Q4: "svm-geneva-gov",
+  Q5: "GENEVA", Q6: "1", Q7: "dev", Q8: "rk@acme.io", Q9: "2026-01-01",
+};
+const interviewAnswer = (q: string): string | undefined => {
+  const m = /^Q([1-9]) - /.exec(q);
+  return m ? INTERVIEW_ANSWERS[`Q${m[1]}`] : undefined;
+};
 
 describe("gov-work — first run: the flow", () => {
   it("already set up → null, NOT 0 — the command the user typed still has to run", async () => {
@@ -111,13 +150,13 @@ describe("gov-work — first run: the flow", () => {
     const { w, out, acts } = io();
     expect(await runFirstRun(w)).to.equal(0);
     expect(acts).to.deep.equal([
-      `clone ${URL} -> /tmp/boot/svm-prj-work`,
-      "place /tmp/boot/svm-prj-work -> /home/rk/.svm/gov_repo",
+      `clone ${JOINED_URL} -> /tmp/boot/svm-prj-work`,
+      "place /tmp/boot/svm-prj-work -> /home/rk/.gov/svm/gov_repo",
       "discard /tmp/boot",
     ]);
     expect(out.join("\n"), "never asks a joiner to author the org's identity").to.not.match(/NEW organization/);
     expect(out).to.include("Joining Svayamtech.");
-    expect(pxAll(out)).to.include("Registered Svayamtech → /home/rk/.svm/gov_repo");
+    expect(pxAll(out)).to.include("Registered Svayamtech → /home/rk/.gov/svm/gov_repo");
   });
 
   it("FOUNDING: no org-config.yaml → setup authors it, and the slug it produced picks the home", async () => {
@@ -128,15 +167,109 @@ describe("gov-work — first run: the flow", () => {
     });
     expect(await runFirstRun(w)).to.equal(0);
     expect(founded, "setup runs in the CLONE, before it is placed").to.deep.equal(["/tmp/boot/svm-prj-work"]);
-    expect(acts).to.include("place /tmp/boot/svm-prj-work -> /home/rk/.acme/gov_repo");
-    expect(pxAll(out)).to.include("Registered Acme → /home/rk/.acme/gov_repo");
+    expect(acts).to.include("place /tmp/boot/svm-prj-work -> /home/rk/.gov/acme/gov_repo");
+    expect(pxAll(out)).to.include("Registered Acme → /home/rk/.gov/acme/gov_repo");
   });
 
-  it("a bad URL is rejected before anything is cloned", async () => {
-    const { w, out, acts } = io({ prompt: async () => "svm-prj-work" });
+  it("an <org>/<repo> where an organization belongs is explained, then asked again", async () => {
+    // The clone URL question is gone — gov asks for an organization and a repository and builds
+    // the URL itself — so the guard that mattered moved with it. A joiner who types the whole
+    // path into Q1 gets the half that belongs there named, and a second attempt, rather than a
+    // failed run: the same treatment #192 gave the adopter's version of this mistake.
+    let attempt = 0;
+    const { w, out, acts } = io({
+      prompt: async (q: string) => {
+        if (/Select \(A\/B\/C\)/.test(q)) return "B";
+        if (/^Q1 - /.test(q)) return ++attempt === 1 ? "Svayamtech/svm-prj-work" : "Svayamtech";
+        return joinerAnswer(q) ?? URL;
+      },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(attempt, "asked a second time rather than ending the run").to.equal(2);
+    expect(out.join("\n"), "and said which half belongs here").to.match(/Just the organization here/);
+    expect(acts.join("\n"), "nothing was cloned until the answer was usable")
+      .to.match(/clone https:\/\/github\.com\/Svayamtech\/svm-prj-work\.git/);
+  });
+
+  it("asks which role you are here in, before asking anything only one role can answer", async () => {
+    const asked: string[] = [];
+    const { w, out } = io({ prompt: async (q: string) => { asked.push(q); return /Select \(A\/B\/C\)/.test(q) ? "B" : (joinerAnswer(q) ?? URL); } });
+    await runFirstRun(w);
+    expect(asked[0], "the role question comes first").to.match(/Select \(A\/B\/C\)/);
+    expect(out.join("\n")).to.match(/I am an ADOPTER/);
+    expect(out.join("\n")).to.match(/I am a JOINER/);
+  });
+
+  it("ADOPTER: does not ask for a clone URL — it creates the repo instead", async () => {
+    const created: string[] = [];
+    const { w, acts } = io({
+      // NINE questions now, all of them before anything is created (setup/interview.ts).
+      // The repository name is still defaulted, so Enter remains the right answer to Q4.
+      prompt: async (q: string, def: string) => {
+        if (/Select \(A\/B\/C\)/.test(q)) return "A";
+        if (/^Q3 - /.test(q)) return "acme-corp";
+        if (/^Q4 - /.test(q)) return def;                 // the point of this test
+        return interviewAnswer(q) ?? def;
+      },
+      createWorkspace: async (t) => { created.push(t); return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(created, "the repo name defaults to <org>-gov").to.deep.equal(["acme-corp/acme-corp-gov"]);
+    expect(acts, "nothing is cloned on the adopter path").to.deep.equal([]);
+  });
+
+  it("ADOPTER: a URL where an organization belongs is explained, then asked again (#192)", async () => {
+    // It used to end the command. A misread question costs a line of explanation now,
+    // and the second attempt succeeds — the only way out is the user's own Ctrl-C.
+    let asked = 0;
+    const created: string[] = [];
+    const { w, out } = io({
+      prompt: async (q: string, def: string) => {
+        if (/Select \(A\/B\/C\)/.test(q)) return "A";
+        if (/^Q3 - /.test(q)) return ++asked === 1 ? "acme-corp/acme-governance" : "acme-corp";
+        if (/^Q4 - /.test(q)) return def;
+        return interviewAnswer(q) ?? def;
+      },
+      createWorkspace: async (t) => { created.push(t); return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(asked, "asked a second time").to.equal(2);
+    expect(out.join("\n"), "and said which half belongs here").to.match(/Just the organization here/);
+    expect(created).to.deep.equal(["acme-corp/acme-corp-gov"]);
+  });
+
+  it("ADOPTER: a stream that never gives a usable answer stops, it does not spin", async () => {
+    const { w, out } = io({ prompt: async (q: string) => (/Select \(A\/B\/C\)/.test(q) ? "A" : URL) });
     expect(await runFirstRun(w)).to.equal(1);
-    expect(acts, "nothing touched the disk").to.deep.equal([]);
-    expect(out.join("\n")).to.match(/does not look like a clone URL/);
+    // The interview names the question that could not be answered (Q3, the GitHub
+    // organization — a URL is not one) rather than the old single-question wording.
+    expect(out.join("\n")).to.match(/Q3: the same answer came back three times/);
+    expect(out.join("\n")).to.match(/Nothing was created/);
+  });
+
+  it("C explains, then asks again — and 'I am not sure' is an answer, not a refusal", async () => {
+    let asked = 0;
+    const { w, out } = io({
+      prompt: async (q: string) => {
+        if (!/Select \(A\/B\/C\)/.test(q)) return joinerAnswer(q) ?? URL;
+        asked++;
+        return asked === 1 ? "C" : "B";
+      },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(asked, "asked again after explaining").to.equal(2);
+    expect(out.join("\n"), "explains what an organization is").to.match(/It is NOT your user account/);
+    expect(out.join("\n"), "explains the one-adoption rule").to.match(/ONE organization, ONE adoption/);
+  });
+
+  it("Enter on either path stops cleanly rather than erroring", async () => {
+    const join = io({ prompt: async (q: string) => (/Select \(A\/B\/C\)/.test(q) ? "B" : "") });
+    expect(await runFirstRun(join.w)).to.equal(0);
+    expect(join.acts).to.deep.equal([]);
+
+    const found = io({ prompt: async (q: string) => (/Select \(A\/B\/C\)/.test(q) ? "A" : "") });
+    expect(await runFirstRun(found.w)).to.equal(0);
+    expect(found.out.join("\n")).to.match(/gov setup <your-github-org>/);
   });
 
   it("a failed clone leaves no staging dir behind", async () => {
@@ -151,7 +284,7 @@ describe("gov-work — first run: the flow", () => {
     expect(await runFirstRun(w)).to.equal(1);
     expect(acts.some((a) => a.startsWith("place")), "nothing was placed").to.equal(false);
     expect(acts).to.include("discard /tmp/boot");
-    expect(pxAll(out).join("\n")).to.match(/gov org add Svayamtech \/home\/rk\/\.svm\/gov_repo/);
+    expect(pxAll(out).join("\n")).to.match(/gov org add Svayamtech \/home\/rk\/\.gov\/svm\/gov_repo/);
   });
 
   it("abandoning setup discards the clone and does NOT register a half-made org", async () => {
@@ -159,7 +292,7 @@ describe("gov-work — first run: the flow", () => {
     const { w, acts } = io({ readIdentity: () => null, found: async () => null, register: () => { registered++; return { ok: true }; } });
     expect(await runFirstRun(w)).to.equal(1);
     expect(registered).to.equal(0);
-    expect(acts).to.deep.equal([`clone ${URL} -> /tmp/boot/svm-prj-work`, "discard /tmp/boot"]);
+    expect(acts).to.deep.equal([`clone ${JOINED_URL} -> /tmp/boot/svm-prj-work`, "discard /tmp/boot"]);
   });
 
   it("choose: picks by number or by name, and refuses anything else", async () => {
@@ -182,5 +315,237 @@ describe("gov-work — first run: the flow", () => {
     expect(await runFirstRun(w)).to.equal(1);
     expect(acts).to.deep.equal([]);
     expect(out.join("\n")).to.match(/run `gov` in a terminal/);
+  });
+});
+
+/**
+ * ADOPTER, for an organization that is already governed (#197).
+ *
+ * The answer was not wrong — they said what they knew. gov then looked, and found otherwise. What
+ * follows must be a pivot into the joining path, not a refusal and a shell command that puts the
+ * repository somewhere gov does not look.
+ */
+describe("gov-work — first run: an adopter whose org is already governed", () => {
+  const GOVERNED = "svm-geneva/svm-geneva-gov";
+
+  /** Answers A, names the org, and takes the default for everything after. */
+  const adopterAnswering = (extra: (q: string) => string | undefined) =>
+    async (q: string, def: string): Promise<string> => {
+      if (/Select \(A\/B\/C\)/.test(q)) return "A";
+      return extra(q) ?? interviewAnswer(q) ?? def;
+    };
+
+  it("stops before the questions only a creator can answer, and joins what exists instead", async () => {
+    const asked: string[] = [];
+    const cloned: string[] = [];
+    const { w, out, acts } = io({
+      prompt: async (q, def) => { asked.push(q); return adopterAnswering(() => undefined)(q, def); },
+      probeGovernance: () => ({ repos: [GOVERNED], verified: true }),
+      cloneRepo: (n, d) => { cloned.push(`gh clone ${n} -> ${px(d)}`); },
+      readIdentity: () => ({ org: "svm-geneva", orgSlug: "GENEVA" }),
+      createWorkspace: async () => { throw new Error("must not create a second governance repo"); },
+    });
+
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(asked.some((q) => /Name for the governance repository/.test(q)),
+      "the repo-name question is never reached — there is nothing to name").to.equal(false);
+    expect(out.join("\n")).to.match(/svm-geneva is already governed/);
+    expect(out.join("\n"), "names the repository, so the claim is checkable").to.include(GOVERNED);
+    expect(cloned, "gh clones it — a private repo on a machine whose only credential is gh")
+      .to.deep.equal([`gh clone ${GOVERNED} -> /tmp/boot/svm-geneva-gov`]);
+    expect(acts).to.include("place /tmp/boot/svm-geneva-gov -> /home/rk/.gov/geneva/gov_repo");
+    expect(pxAll(out)).to.include("Registered svm-geneva → /home/rk/.gov/geneva/gov_repo");
+  });
+
+  it("declining stops cleanly — it does not fall through to a create that preflight would refuse", async () => {
+    const { w, out, acts } = io({
+      prompt: async (q, def) => adopterAnswering((qq) => (/Join .* now\?/.test(qq) ? "n" : undefined))(q, def),
+      probeGovernance: () => ({ repos: [GOVERNED], verified: true }),
+      createWorkspace: async () => { throw new Error("must not create a second governance repo"); },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(acts, "nothing touched the disk").to.deep.equal([]);
+    expect(out.join("\n")).to.match(/Nothing created, and nothing changed/);
+    expect(out.join("\n"), "names the way back in").to.match(/choose B/);
+  });
+
+  it("more than one governance repo is not gov's choice to make — it asks which", async () => {
+    const cloned: string[] = [];
+    const { w, out } = io({
+      prompt: async (q, def) => adopterAnswering((qq) => (/Which one governs/.test(qq) ? "2" : undefined))(q, def),
+      probeGovernance: () => ({ repos: ["svm-geneva/old-gov", GOVERNED], verified: true }),
+      cloneRepo: (n) => { cloned.push(n); },
+      readIdentity: () => ({ org: "svm-geneva", orgSlug: "GENEVA" }),
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(out.join("\n"), "both are listed").to.match(/1\) svm-geneva\/old-gov/);
+    expect(cloned, "the one they picked, not the first one").to.deep.equal([GOVERNED]);
+  });
+
+  it("an UNVERIFIED probe says nothing and changes nothing — blind is not clear", async () => {
+    // The probe failing open is what created a duplicate governance repo on the first real adoption
+    // run. Here it must not even speak: `preflight` still refuses to create when it cannot see.
+    const created: string[] = [];
+    const { w, out } = io({
+      prompt: adopterAnswering(() => undefined),
+      probeGovernance: () => ({ repos: [], verified: false }),
+      createWorkspace: async (t) => { created.push(t); return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(created, "the create still runs, and preflight is what refuses").to.deep.equal(["svm-geneva/svm-geneva-gov"]);
+    expect(out.join("\n")).to.not.match(/already governed/);
+  });
+
+  it("a clean org is unaffected — the probe is a detour, not a gate", async () => {
+    const created: string[] = [];
+    const { w } = io({
+      prompt: adopterAnswering(() => undefined),
+      probeGovernance: () => ({ repos: [], verified: true }),
+      createWorkspace: async (t) => { created.push(t); return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(created).to.deep.equal(["svm-geneva/svm-geneva-gov"]);
+  });
+
+  it("the offered URL is https — the one that works on a machine that only ran `gh auth login`", () => {
+    expect(cloneUrlFor(GOVERNED)).to.equal("https://github.com/svm-geneva/svm-geneva-gov.git");
+  });
+});
+
+/**
+ * THE LAST QUESTION (#203). Adoption used to end by printing three steps — run gov, choose
+ * Work, pick the review project — at the close of a run that had just proved it could do
+ * all three. The governed route was the one costing the most keystrokes.
+ */
+describe("gov-work — adoption offers to start the policy review", () => {
+  const adopter = (extra: (q: string) => string | undefined) =>
+    async (q: string, def: string): Promise<string> => {
+      if (/Select \(A\/B\/C\)/.test(q)) return "A";
+      if (/^Q3 - /.test(q)) return "acme-corp";
+      return extra(q) ?? interviewAnswer(q) ?? def;
+    };
+
+  it("asks after the next steps, and Enter is yes", async () => {
+    let opened = 0;
+    const asked: string[] = [];
+    const { w } = io({
+      // Takes the default at every question, which is what pressing Enter throughout does.
+      prompt: async (q, def) => { asked.push(q); return adopter(() => undefined)(q, def); },
+      createWorkspace: async () => 0,
+      reviewNow: async () => { opened++; return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(opened, "the default opens it — the governed route is the cheap one now").to.equal(1);
+    expect(asked.at(-1), "and it is the LAST thing asked").to.match(/review your governance policies now.*\[Y\/n\]/);
+  });
+
+  it("declining changes nothing, and still names the way back", async () => {
+    let opened = 0;
+    const { w, out } = io({
+      prompt: adopter((q) => (/review your governance policies/.test(q) ? "n" : undefined)),
+      createWorkspace: async () => 0,
+      reviewNow: async () => { opened++; return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(opened, "nobody's terminal is taken over without a yes").to.equal(0);
+    expect(out.join("\n")).to.match(/gov {3}→ 1\. Work/);
+  });
+
+  it("no starter project is not a failure at the end of a successful adoption", async () => {
+    // They declined it a moment ago, or the token could not create a board. Both were
+    // already reported; a second complaint on the last line helps nobody.
+    const { w, out } = io({
+      prompt: adopter(() => undefined),
+      createWorkspace: async () => 0,
+      reviewNow: async () => null,
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(out.join("\n")).to.match(/nothing to open yet/);
+  });
+
+  it("a JOINER is offered it too — their next steps are the same three lines to retype", async () => {
+    // And this is where an ADOPTER lands once #197 finds their organization already governed,
+    // so skipping it here left the pivot ending in a recipe.
+    const roles: string[] = [];
+    const asked: string[] = [];
+    const { w } = io({
+      prompt: async (q, def) => { asked.push(q); return /Select \(A\/B\/C\)/.test(q) ? "B" : (/start work now/.test(q) ? def : (joinerAnswer(q) ?? URL)); },
+      reviewNow: async (role) => { roles.push(role); return 0; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(roles, "the picker, not the starter project — only they know which is theirs").to.deep.equal(["joiner"]);
+    expect(asked.at(-1)).to.match(/start work now.*projects you are assigned to/);
+  });
+
+  it("without the hook, adoption ends exactly as it did", async () => {
+    const { w, out } = io({ prompt: adopter(() => undefined), createWorkspace: async () => 0 });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(out.join("\n")).to.not.match(/review your governance policies now/);
+  });
+});
+
+/**
+ * WHICH ROLE THE RUN ENDED IN decides the last screen, and it is derived from what happened —
+ * not from what was answered at the role question (#197).
+ */
+describe("gov-work — first run: the closing screen follows the path actually walked", () => {
+  it("a joiner is shown the joiner's checklist and next steps, not the founder's", async () => {
+    const roles: string[] = [];
+    const shown: string[] = [];
+    const { w } = io({
+      finalStatus: (role) => { roles.push(role); return []; },
+      adopterNextSteps: () => { shown.push("adopter"); return []; },
+      joinerNextSteps: () => { shown.push("joiner"); return []; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(roles).to.deep.equal(["joiner"]);
+    expect(shown).to.deep.equal(["joiner"]);
+  });
+
+  it("cloning a repo with no org-config.yaml IS founding — that run ends as an adopter", async () => {
+    const roles: string[] = [];
+    const shown: string[] = [];
+    const { w } = io({
+      readIdentity: () => null,
+      found: async () => ({ org: "Acme", orgSlug: "ACME" }),
+      finalStatus: (role) => { roles.push(role); return []; },
+      adopterNextSteps: () => { shown.push("adopter"); return []; },
+      joinerNextSteps: () => { shown.push("joiner"); return []; },
+    });
+    expect(await runFirstRun(w)).to.equal(0);
+    expect(roles, "they just authored the org's identity — they are not joining it").to.deep.equal(["adopter"]);
+    expect(shown).to.deep.equal(["adopter"]);
+  });
+});
+
+/**
+ * PROMPTS ARE THE SCREEN AN ADOPTER READS MOST (#204). They go to STDERR, which is why the
+ * colour decision is passed in rather than read from stdout: the two streams are redirected
+ * independently, and gating a prompt on the wrong one is how it stays plain in a terminal.
+ */
+describe("gov-work — the questions in colour (#204)", () => {
+  // eslint-disable-next-line no-control-regex
+  const strip = (s: string): string => s.replace(/\u001b\[\d+m/g, "");
+
+  it("the role question: stripping the codes gives back exactly the plain form", () => {
+    expect(roleQuestion(true).map(strip)).to.deep.equal([...roleQuestion(false)]);
+    expect(roleQuestion(false)).to.deep.equal([...ROLE_QUESTION]);
+  });
+
+  it("the LETTER is what is coloured — it is what you have to find and type", () => {
+    const coloured = roleQuestion(true);
+    expect(coloured[2], "A. is marked").to.contain("\u001b[36mA.\u001b[0m");
+    expect(coloured[2], "the sentence after it is not").to.contain("I am an ADOPTER");
+    expect(strip(coloured[2]!)).to.contain("  A. I am an ADOPTER");
+  });
+
+  it("plain is the default, so a caller that has not been told stays plain", () => {
+    expect(roleQuestion().join("")).to.not.contain("\u001b");
+    expect(alreadyGovernedNotice("acme", ["acme/acme-gov"]).join("")).to.not.contain("\u001b");
+  });
+
+  it("the already-governed notice keeps its words when the colour goes", () => {
+    const a = alreadyGovernedNotice("acme", ["acme/acme-gov"], true).map(strip);
+    expect(a).to.deep.equal([...alreadyGovernedNotice("acme", ["acme/acme-gov"], false)]);
   });
 });
