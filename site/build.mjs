@@ -106,6 +106,18 @@ function pin(text, pattern, replacement, what) {
   return text.replace(pattern, replacement);
 }
 
+/**
+ * A RELEASE IS gov's TAG, `gov-work-<semver>` — cut by `gov promote gov-work --to prod` at the commit the
+ * published artifact was built from (Svayamtech/910-GOV-CICD#274). There is no other release mechanism
+ * (framework decision 2026-09-17: one path, gov), so a `v*` tag names nothing and is refused.
+ */
+const RELEASE_TAG = /^gov-work-(\d+\.\d+\.\d+)$/;
+function releaseVersion(tag) {
+  const m = RELEASE_TAG.exec(tag);
+  if (!m) die(`'${tag}' in versioned is not a gov release tag (gov-work-<semver>). Releases are cut by gov promote, never by hand.`);
+  return m[1];
+}
+
 const RE_URL = /^GOV_INSTALL_URL="\$\{GOV_INSTALL_URL:-[^"]*"$/m;
 const RE_PKG = /^GOV_PKG="\$\{GOV_PKG:-[^"]*"$/m;
 
@@ -124,7 +136,7 @@ OUT_DIR = out;   // from here on, any failure takes the directory with it
 // ── the page ────────────────────────────────────────────────────────────────────────────────────
 const banner = env.label ? `<div class="envbar">${env.label}</div>` : "";
 const versionedList = (cfg.versioned ?? [])
-  .map((v) => `<li><a href="./v/${v}/install.sh">${v}</a></li>`)
+  .map((v) => `<li><a href="./v/${releaseVersion(v)}/install.sh">${releaseVersion(v)}</a></li>`)
   .join("\n        ");
 const html = readFileSync(join(HERE, "template", "index.html"), "utf8")
   .replaceAll("{{HOST}}", host)
@@ -156,10 +168,10 @@ writeFileSync(join(out, "install.ps1"), pin(ps1src.text,
 // release's OWN client. nvm's `/v<version>/install.sh` is the precedent.
 const versionedBuilt = [];
 for (const v of cfg.versioned ?? []) {
-  const bare = v.replace(/^v/, "");
-  const dir = join(out, "v", v);
+  const bare = releaseVersion(v);
+  const dir = join(out, "v", bare);
   mkdirSync(dir, { recursive: true });
-  const built = installerFor(v, `@svayam-opensource/gov@${bare}`, `/v/${v}/install.sh`, host);
+  const built = installerFor(v, `@svayam-opensource/gov@${bare}`, `/v/${bare}/install.sh`, host);
   writeFileSync(join(dir, "install.sh"), built.sh);
   writeFileSync(join(dir, "install.ps1"), readAtRef(v, "install.ps1").text);
   versionedBuilt.push({ v, resolved: built.resolved });
@@ -173,7 +185,7 @@ writeFileSync(join(out, "robots.txt"), env.robots.startsWith("noindex")
 
 console.log(`built ${envName} → site/dist/${envName}`);
 console.log(`  host ${host} (derived) · script from ${current.resolved} · installs ${env.pkg}`);
-for (const b of versionedBuilt) console.log(`  versioned /v/${b.v}/install.sh ← ${b.resolved}`);
+for (const b of versionedBuilt) console.log(`  versioned /v/${releaseVersion(b.v)}/install.sh ← ${b.resolved}`);
 
 // ── --verify ────────────────────────────────────────────────────────────────────────────────────
 if (verify) {
@@ -209,15 +221,22 @@ if (verify) {
   }
   if (!psOut.includes(`https://${host}/install.ps1`)) fail.push("install.ps1 was not pinned to the host");
 
+  // PROD PINS SOMETHING THAT CANNOT MOVE. A branch name serves whatever lands on it next, which is the
+  // `main` pin this site exists to replace (#231). A gov release tag, or a full commit sha where the
+  // release predates the installer (1.2.2 was built from c05aa80, which has no install.sh).
+  if (envName === "prod" && !(RELEASE_TAG.test(env.ref) || /^[0-9a-f]{40}$/.test(env.ref))) {
+    fail.push(`prod pins '${env.ref}', which can move — pin a gov release tag (gov-work-<semver>) or a full commit sha`);
+  }
+
   // Versioned pairs: each must pin its OWN version, never the environment's.
   for (const v of cfg.versioned ?? []) {
-    const p = join(out, "v", v, "install.sh");
-    if (!existsSync(p)) { fail.push(`missing /v/${v}/install.sh`); continue; }
+    const bare = releaseVersion(v);
+    const p = join(out, "v", bare, "install.sh");
+    if (!existsSync(p)) { fail.push(`missing /v/${bare}/install.sh`); continue; }
     const t = readFileSync(p, "utf8");
-    const bare = v.replace(/^v/, "");
-    if (!t.startsWith("#!")) fail.push(`/v/${v}/install.sh does not begin with a shebang`);
-    if (!t.includes(`@svayam-opensource/gov@${bare}`)) fail.push(`/v/${v}/install.sh is not pinned to gov@${bare}`);
-    if (!t.includes(`https://${host}/v/${v}/install.sh`)) fail.push(`/v/${v}/install.sh does not point its retry hint at itself`);
+    if (!t.startsWith("#!")) fail.push(`/v/${bare}/install.sh does not begin with a shebang`);
+    if (!t.includes(`@svayam-opensource/gov@${bare}`)) fail.push(`/v/${bare}/install.sh is not pinned to gov@${bare}`);
+    if (!t.includes(`https://${host}/v/${bare}/install.sh`)) fail.push(`/v/${bare}/install.sh does not point its retry hint at itself`);
   }
 
   const page = readFileSync(join(out, "index.html"), "utf8");
