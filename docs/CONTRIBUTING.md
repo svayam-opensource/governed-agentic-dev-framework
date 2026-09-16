@@ -107,8 +107,7 @@ bash tests/bats/run.sh        # fetches pinned bats libs, runs every tests/bats/
 
 It gated the npm publish through `ci/Jenkinsfile`, which was **deleted in 2026-09-16**: it
 published `@svayam-opensource/prj`, now deprecated, and gated on paths that had moved under
-`publish/actions/deprecated/`. Publishing is now `.github/workflows/release.yml` — see
-**Releasing** below. Design + roadmap: `tests/TESTBED-DESIGN.md`.
+`publish/actions/deprecated/`. Publishing is gov-cicd's `gov-work` unit — see **Releasing** below. Design + roadmap: `tests/TESTBED-DESIGN.md`.
 
 **Rule: a new or changed command must adjust the test bed in the same PR.** Two
 gates enforce it automatically:
@@ -131,39 +130,35 @@ invariant checks; the existing `tests/*.sh` are being migrated into the BATS bed
 
 ## Releasing
 
-One path, and it starts with a tag. Before 2026-09-16 nothing in CI published gov and every 1.x
-release went out by hand, which is how npm reached 1.2.2 while the newest tag was `v0.10.0` and the
-newest GitHub release was from May (#235).
+**One path: `gov`.** `@svayam-opensource/gov` is the gov-cicd catalog unit `gov-work`, and every
+version reaches a registry through `gov deploy` / `gov promote` — nothing in this repository publishes.
+No GitHub Actions workflow, no Jenkinsfile, no hand `npm publish`, and no npm token stored as a
+repository secret: the publish credential lives in gov's cred store.
 
-```bash
-cd publish/actions/ts
-npm version patch          # writes package.json AND package-lock.json — use it, don't hand-edit
-# land that through dev → uat → main, then:
-git tag v1.2.3 && git push origin v1.2.3
+```mermaid
+flowchart LR
+  B["npm version patch<br/>+ catalog semver"] --> L["land dev → uat → main"]
+  L --> D["gov deploy gov-work --env dev<br/>npm.svayamtech.com · cuts tag gov-work-&lt;semver&gt;"]
+  D --> U["uat<br/>npm.svayamtech.com"]
+  U --> P["gov promote gov-work --from uat --to prod<br/>registry.npmjs.org"]
 ```
 
-Pushing a `v*` tag runs `.github/workflows/release.yml`, which:
-
-1. **refuses if the tag and `package.json` disagree**, before building anything — a tag saying
-   `v1.3.0` over a package saying `1.2.2` would publish 1.2.2 and mislabel it forever;
-2. refuses if `package-lock.json` disagrees too (1.2.2's release commit had to fix a lock stale by
-   three minor versions);
-3. re-runs build, lint, test, e2e and the adopter smoke **against the tagged tree** — not taken on
-   trust from the PR, because a tag can point anywhere;
-4. publishes with `--provenance`, so npm serves a sigstore attestation tying the tarball to this
-   run and commit. Adopters verify with `npm audit signatures`;
-5. verifies the version actually resolves on the public registry before claiming success;
-6. creates the GitHub release with that version's section from `CHANGELOG.md`.
-
-A version already on npm is a **skip with a reason**, not a failure — the first tags cut under this
-workflow are retroactive, and a pipeline that breaks the first time it is used gets abandoned.
+- **Three copies of the version must agree:** `package.json`, `package-lock.json`, and `semver:` for
+  `gov-work` in the org's `knowledge/deployment/catalog/services.yaml`. `npm version` writes the first
+  two; hand-editing `package.json` leaves the lock behind, and the version gate refuses.
+- **Release tags are gov's, named `gov-work-<semver>`.** A `dev` deploy cuts the tag; `uat` and `prod`
+  require it and never re-cut. Do not push `v*` tags as a release mechanism.
+- **Fetch the mirror first**, or the recorded `content_sha` describes a stale tree — see
+  [releasing-and-the-stale-mirror.md](releasing-and-the-stale-mirror.md).
 
 `publishConfig.registry` in `package.json` points at the internal registry on purpose: that is the
-contributor default. The release workflow passes `--registry` explicitly for the public publish, so
-which one wins is never in question.
+contributor default, and the public registry is only ever reached explicitly, by the `prod` promote.
 
-**Add your change to `CHANGELOG.md` under `## Unreleased`** in the same PR. The release step fails
-when a version has no section, because a release nobody can read is not a release.
+**Add your change to `CHANGELOG.md` under `## Unreleased`** in the same PR.
+
+On 2026-09-17 a tag-triggered GitHub Actions publish (added in #236 for #235) was removed before it
+ever ran: it was a second path to the same registry, built on the mistaken premise that nothing in CI
+published gov.
 
 ---
 
