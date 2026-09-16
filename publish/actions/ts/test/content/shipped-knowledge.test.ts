@@ -37,9 +37,13 @@ function walk(root: string, rel = ""): string[] {
 }
 
 describe("gov-work — shipped knowledge passes its own validator (publish gate)", () => {
-  it("publish/content/knowledge validates clean", () => {
+  it("publish/content/governance validates clean", () => {
     const content = contentDir();
-    const files = walk(path.join(content, "knowledge")).map((f) => `knowledge/${f}`);
+    // governance/, not knowledge/ (Decision 10, 2026-09-14). Framework doctrine moved out of
+    // knowledge/, which now ships EMPTY and belongs to the adopter — so validating
+    // publish/content/knowledge would now assert over nothing, which is how a publish gate
+    // quietly stops gating.
+    const files = walk(path.join(content, "governance")).map((f) => `governance/${f}`);
     const realFs: Fs = {
       readFile: (p) => (fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null),
       pathExists: (p) => fs.existsSync(p),

@@ -148,5 +148,45 @@ export function createGhBoard(runGh: RunGh = defaultRunGh): Board {
         "GitHub Project paging did not terminate — refusing to return a partial board.",
       );
     },
+
+    /**
+     * Prefix the board title with the project id, once, at seed.
+     *
+     * NEVER FATAL. A board gov cannot rename — a token without the `project` write scope, a
+     * board owned elsewhere, a GitHub outage — must not fail a seed that has already created
+     * branches, worktrees and an anchor issue. The title is a convenience for people reading
+     * GitHub; the project id lives in the branch and the directory either way, and derivation
+     * tolerates both spellings.
+     *
+     * Returns whether the title actually changed, so the caller can report it truthfully rather
+     * than announce a rename that did not happen.
+     */
+    renameProject(ref: BoardRef, title: string): boolean {
+      const ownerQuery = ref.ownerField === "user" ? "user" : "organization";
+      // Two calls, because the mutation needs the project's NODE id and the ref carries its
+      // number. Read it fresh rather than threading it through: a stale node id renames the
+      // wrong board, and this runs once per project.
+      let nodeId: string;
+      try {
+        const q = `query{${ownerQuery}(login:"${ref.owner}"){projectV2(number:${ref.number}){id title}}}`;
+        const out = runGh(["api", "graphql", "-f", `query=${q}`]);
+        const parsed = JSON.parse(out) as {
+          data?: { organization?: { projectV2?: { id?: string; title?: string } }; user?: { projectV2?: { id?: string; title?: string } } };
+        };
+        const proj = parsed.data?.organization?.projectV2 ?? parsed.data?.user?.projectV2;
+        if (!proj?.id) return false;
+        if (proj.title === title) return false;          // already says what we want
+        nodeId = proj.id;
+      } catch {
+        return false;
+      }
+      try {
+        const m = `mutation{updateProjectV2(input:{projectId:"${nodeId}",title:${JSON.stringify(title)}}){projectV2{id}}}`;
+        runGh(["api", "graphql", "-f", `query=${m}`]);
+        return true;
+      } catch {
+        return false;
+      }
+    },
   };
 }

@@ -22,7 +22,8 @@ import { repoNameFromUrl, repoSlugFromUrl } from "./repo.js";
 import { projectBranchOf, boardNumberFromBranch } from "./task.js";
 import { closeGate, type GateResult } from "./close-gate.js";
 import { archiveBranch } from "./merge.js";
-import { envLadder, mergeChain, baseBranchOf } from "./merge-chain.js";
+import { envLadder, mergeChain, baseBranchFor } from "./merge-chain.js";
+import type { AnchorCreator } from "./anchor.js";
 
 export interface CloseConfig {
   readonly githubOrg: string;
@@ -53,6 +54,10 @@ export interface CloseDeps {
   readonly authorize: (ref: BoardRef) => boolean;
   /** REQUIRED — the test-merge validators (Phase 3). Always run before any push. */
   readonly gate: () => GateResult;
+  /** Reads the base branch recorded on the project's anchor issue. OPTIONAL: without it close
+   *  assumes `defaultCodeBranch` and says so — which is every caller's behaviour before this
+   *  existed, so no existing caller changes meaning by omitting it. */
+  readonly anchor?: Pick<AnchorCreator, "find">;
   /** Best-effort workspace teardown (worktree detach + rm); deferred if absent. */
   readonly cleanup?: () => void;
   readonly log?: (msg: string) => void;
@@ -136,10 +141,16 @@ export function close(deps: CloseDeps, config: CloseConfig, input: CloseInput): 
   // one branch — byte-identical to the previous behaviour. A HOTFIX was cut from a higher env branch, and
   // must reach that one (or production is never fixed) AND every branch below it (or the next ordinary
   // release silently reverts it). See merge-chain.ts.
-  const baseRead = baseBranchOf(deps.fs.readFile(path.join(projectDir, "project.yaml")), config.defaultCodeBranch);
-  if ("error" in baseRead) {
-    return { ok: false, code: 1, reason: "ambiguous-base", message: `Cannot close ${projectId}: ${baseRead.error}` };
-  }
+  // Read from the anchor issue, which is where seed recorded it. NOT from `project.yaml` — that file
+  // is not written any more, so the old read always missed and the fallback below was taken every
+  // time while looking like a decision. `assumed` makes the difference audible.
+  const recordedBase = deps.anchor?.find(ref, config.workspaceRepo)?.baseBranch ?? null;
+  const baseRead = baseBranchFor(recordedBase, config.defaultCodeBranch);
+  log(
+    baseRead.assumed
+      ? `Base branch: assuming '${baseRead.base}' — the anchor issue records none. Correct for an ordinary project; if this was cut from a higher env branch, stop and record it before closing.`
+      : `Base branch: '${baseRead.base}', recorded on the anchor issue at seed.`,
+  );
   const chain = mergeChain(baseRead.base, envLadder(config, config.envBranches ?? []));
   // The release branch is GOVERNED — its leg is a PR, never a push (the same rule the deploy side applies
   // to `base_ref`). Split here so the loop below only ever merges branches we may push.

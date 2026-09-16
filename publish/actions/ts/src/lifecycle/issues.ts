@@ -8,6 +8,7 @@
  */
 import type { BoardRef } from "./identity.js";
 import type { RunGh } from "./gh-board.js";
+import type { UpstreamIssue } from "./issue-mirror.js";
 
 export type IssueState = "OPEN" | "CLOSED" | "UNKNOWN";
 
@@ -25,11 +26,53 @@ export interface Issues {
   resolveIssueUrl(ref: BoardRef, issueNumber: number): string | null;
   /** Close the project board (best-effort) — makes the project read as completed. */
   closeBoard(ref: BoardRef): void;
+  /** Create an issue, assigned. Returns its URL, or null when creation failed (#182). */
+  create(repo: string, title: string, body: string, assignee: string): string | null;
+  /** Read an upstream issue for mirroring (#194). Null when it cannot be read. */
+  read(repo: string, number: number): UpstreamIssue | null;
+  /** Put an existing issue on a Project board. False when it did not land. */
+  addToBoard(owner: string, board: number, issueUrl: string): boolean;
 }
 
 /** An {@link Issues} backed by the `gh` CLI. `runGh` is injectable for tests. */
 export function createGhIssues(runGh: RunGh): Issues {
   return {
+    create(repo, title, body, assignee) {
+      try {
+        // --assignee at CREATION, not after: an issue that exists unassigned, even
+        // for a moment, is the state POL-413 exists to prevent, and a failure
+        // between the two calls would leave it that way permanently.
+        const out = runGh(["issue", "create", "--repo", repo, "--title", title, "--body", body, "--assignee", assignee]);
+        return out.trim().split(/\s+/).find((w) => w.startsWith("http")) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    read(repo, number) {
+      try {
+        const out = runGh(["issue", "view", String(number), "--repo", repo, "--json", "title,body,url,state,author"]);
+        const j = JSON.parse(out) as { title?: string; body?: string; url?: string; state?: string; author?: { login?: string } };
+        if (!j.url) return null;
+        return {
+          repo, number,
+          title: j.title ?? "",
+          body: j.body ?? "",
+          url: j.url,
+          state: j.state ?? "UNKNOWN",
+          author: j.author?.login ?? null,
+        };
+      } catch {
+        return null;
+      }
+    },
+    addToBoard(owner, board, issueUrl) {
+      try {
+        runGh(["project", "item-add", String(board), "--owner", owner, "--url", issueUrl]);
+        return true;
+      } catch {
+        return false;
+      }
+    },
     state(issueUrl) {
       let out: string;
       try {

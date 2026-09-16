@@ -1,0 +1,289 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+#
+# THE INTERACTIVE ADOPTER JOURNEY — the tier that answers questions.
+#
+# `adopter-smoke.sh` drives the same real binary and never types anything, so it reaches
+# only the surface gov exposes non-interactively. Every defect between #197 and #209 lived
+# behind a prompt. This runs gov in a REAL PTY, answers as an adopter would, and asserts on
+# the transcript an adopter would have read.
+#
+# Hermetic: stub `gh`, doubles for the agents, an isolated HOME and registry. No token, no
+# network, no side effects. Runs anywhere `expect` does.
+#
+#   bash e2e/journey.sh                 every scenario
+#   bash e2e/journey.sh 30-adopter      just the ones whose name matches
+#
+# A scenario is a file in journey.d/. It gets the helpers below and a clean world.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+TS_DIR="$(cd "$HERE/.." && pwd)"; export TS_DIR
+CONTENT_DIR="$(cd "$TS_DIR/../../content" && pwd)"
+FILTER="${1:-}"
+
+BOLD=$'\033[1m'; CYA=$'\033[36m'; GRN=$'\033[32m'; RED=$'\033[31m'; DIM=$'\033[2m'; RST=$'\033[0m'
+[ -t 1 ] && [ -z "${NO_COLOR:-}" ] || { BOLD=""; CYA=""; GRN=""; RED=""; DIM=""; RST=""; }
+
+PASS=0; FAIL=0; SCENARIO=""
+scenario(){ SCENARIO="$1"; printf '\n%s%s%s\n\n' "$BOLD" "$1" "$RST"; }
+pass(){ printf '  %s✓%s %s\n' "$GRN" "$RST" "$*"; PASS=$((PASS+1)); }
+fail(){ printf '  %s✗%s %s\n' "$RED" "$RST" "$*"; FAIL=$((FAIL+1)); }
+info(){ printf '  %s→%s %s\n' "$CYA" "$RST" "$*"; }
+
+command -v expect >/dev/null || { echo "journey.sh needs \`expect\` (dnf/apt install expect)"; exit 2; }
+
+# ── the world each scenario gets ──────────────────────────────────────────────
+# A HOME of its own, so nothing here can see or touch the machine's real gov.
+new_world() {
+  WORLD="$(mktemp -d)"
+  export HOME="$WORLD/home"; mkdir -p "$HOME/.local/bin"
+  export XDG_CONFIG_HOME="$HOME/.config"
+  export PATH="$WORLD/bin:$HOME/.local/bin:$PATH"
+  # A git identity, because step 6 of adoption sets one and every verb's preflight requires
+  # it. Without this the world is a machine mid-adoption, which is a different scenario —
+  # one worth its own fragment (20-bare), not the silent default for all of them.
+  #
+  # `safe.directory = *` because the world's repositories are created inside a `mktemp -d`
+  # and then handed between processes, and in a CI container the uid that made a directory
+  # is not always the uid that later runs git in it. Git then refuses:
+  #
+  #     fatal: detected dubious ownership in repository at '/tmp/tmp.XXXX/remote/acme-gov'
+  #
+  # and — this is the part that cost an afternoon — it refuses SOFTLY. `gh repo create`
+  # still reports success, the clone still runs, and the adopter is left holding an EMPTY
+  # repository with a warning buried above the next screen. The scenario then fails eight
+  # assertions later, at the agent question, describing none of it.
+  #
+  # The wildcard is safe precisely because HOME is this world: the config is written to
+  # $WORLD/home/.gitconfig, thrown away with the world, and never visible to the developer's
+  # own git. Narrowing it to $WORLD would be tidier and would also have to be re-added for
+  # every directory a scenario invents.
+  printf '[user]\n\tname = Adopter Bot\n\temail = adopter@example.test\n[safe]\n\tdirectory = *\n' > "$HOME/.gitconfig"
+  export GH_STUB_LOG="$WORLD/gh.log"
+  export AGENT_DOUBLE_LOG="$WORLD/agent.log"
+  # A DESKTOP, PINNED — so the sign-in MENU ORDER does not depend on whose machine ran this.
+  #
+  # `desktopHint` (#221) answers from the environment, and #213's screen now uses it to put the
+  # key-paste route first where no browser is reachable. That is correct behaviour and it makes
+  # the option NUMBERS vary: on a developer's macOS laptop the browser route is 1, and on a
+  # headless Linux CI runner it is 2. Every `Choose [1-3]` answer in this suite is a number, so
+  # without pinning, the same conversation picks a different route in CI than on a laptop —
+  # which is worse than a failure, because it silently tests something else.
+  #
+  # Pinned to "has a desktop", which keeps the historical numbering. The HEADLESS branch is
+  # asserted in the OS tier, in a container with no DISPLAY, where the answer cannot drift.
+  export DISPLAY=":0"
+  unset SSH_CONNECTION SSH_TTY WAYLAND_DISPLAY
+  : > "$GH_STUB_LOG"; : > "$AGENT_DOUBLE_LOG"
+  mkdir -p "$WORLD/bin"
+  cp "$HERE/stub/gh" "$WORLD/bin/gh"
+  cp "$HERE/stub/git" "$WORLD/bin/git"
+  export GIT_STUB_REMOTES="$WORLD/remote"; mkdir -p "$GIT_STUB_REMOTES"
+  # What `--template` copies: this repository. See the note in stub/gh.
+  export GH_STUB_TEMPLATE="$(cd "$TS_DIR/../../.." && pwd)"
+  # `gov` as a wrapper on the built binary — the same shape install.sh writes, so PATH
+  # behaves the way it does on a real machine.
+  printf '#!/usr/bin/env bash\nexec node "%s/lib/esm/cli/bin.js" "$@"\n' "$TS_DIR" > "$WORLD/bin/gov"
+  chmod +x "$WORLD/bin/gh" "$WORLD/bin/git" "$WORLD/bin/gov"
+  no_agents_installed
+  TRANSCRIPT="$WORLD/transcript.txt"      # exactly what the terminal received, codes and all
+  PLAIN="$WORLD/plain.txt"                # the same, readable — what the words say
+  FLAT="$WORLD/flat.txt"                  # one line, for prose that the terminal wrapped
+}
+
+# An agent binary that exists on PATH and records how it was called (#199/#207/#209).
+give_agent() { cp "$HERE/stub/agent-double" "$WORLD/bin/$1"; chmod +x "$WORLD/bin/$1"; }
+
+# NOTHING IS ALREADY TRUE HERE (#186's whole lesson, applied to the harness itself).
+#
+# The world inherits the machine's PATH so it can find node, git and the shell — and with it
+# whatever the person running the tests happens to have installed. The first run of this
+# suite reported "IBM Bob is already installed", because `bob` was on the developer's laptop.
+# A harness that passes differently on two machines is the thing it exists to prevent.
+#
+# So every agent gov knows about is shadowed by a command that fails, which is what "not
+# installed" looks like to `tryRun(cmd, ["--version"])`. A scenario that wants one calls
+# `give_agent`, and says so.
+AGENT_COMMANDS="claude cursor-agent cursor codex gemini copilot bob aider windsurf code bob-ide"
+no_agents_installed() {
+  local c
+  for c in $AGENT_COMMANDS; do
+    printf '#!/bin/sh\nexit 127\n' > "$WORLD/bin/$c"
+    chmod +x "$WORLD/bin/$c"
+  done
+}
+
+# A governance workspace a JOINER could clone: the identity plus the two files the flows
+# read. Built from the shipped content, so it cannot drift from what gov actually seeds.
+# THE HARNESS LIST, DERIVED FROM THE CODE — not a sixth hand-maintained copy.
+#
+# This list existed in FIVE places: agent/harness-manifest.yaml, publish/content/MANIFEST.yaml,
+# ROOT_HARNESS_FILES, harnessFileFor, and twice in this file. Every path defect so far has been
+# one copy disagreeing with another — `.clinerules` as a file, `.gemini/styleguide.md` from a
+# different product, `.continue/rules.md` where the CLI scans a directory — and the last of
+# those took six edits to fix, of which this file was the one forgotten. The guard caught it and
+# six joiner assertions failed on a governance repo that was never built.
+#
+# `root-protocol.ts` already says "DERIVED WOULD BE BETTER THAN LISTED". Here it is cheap: ask
+# the built module.
+harness_files() {
+  # An empty answer means the build is missing or the export moved. Iterating over nothing would
+  # build a governance repo with NO harness and leave a suite of green assertions about a
+  # protocol that was never placed — so it is fatal, not a skip.
+  local out
+  out="$(node -e 'process.stdout.write(require(process.env.TS_DIR + "/lib/cjs/lifecycle/root-protocol.js").ROOT_HARNESS_FILES.join(" "))' 2>/dev/null)"
+  if [ -z "$out" ]; then
+    printf 'harness_files: could not read ROOT_HARNESS_FILES from %s/lib/cjs — run `npm run build`\n' "$TS_DIR" >&2
+    exit 1
+  fi
+  printf '%s' "$out"
+}
+
+make_gov_repo() {
+  local dir="$1" org="$2" slug="$3"
+  mkdir -p "$dir/governance/policies" "$dir/governance/guidance" "$dir/agent" "$dir/knowledge"
+  cat > "$dir/org-config.yaml" <<YAML
+org_name: "$org Ltd"
+org_short_name: "$org"
+org_slug: "$slug"
+org_slug_lower: "$(echo "$slug" | tr '[:upper:]' '[:lower:]')"
+org_repo_url: "git@github.com:$org/$org-gov.git"
+github_org: "$org"
+workspace_repo: "$org-gov"
+default_branch: "main"
+default_code_branch: "dev"
+agent_work_root: "$HOME/.gov/$(echo "$slug" | tr '[:upper:]' '[:lower:]')/projects"
+policy_owner_email: "owner@example.test"
+YAML
+  cp "$CONTENT_DIR/agent/session-protocol.md" "$dir/agent/" 2>/dev/null || echo "# protocol" > "$dir/agent/session-protocol.md"
+  cp "$CONTENT_DIR/governance/policies/llm-governance.md" "$dir/governance/policies/" 2>/dev/null \
+    || echo "# llm governance" > "$dir/governance/policies/llm-governance.md"
+
+  # THE RENDERED HARNESS — what makes this a GOVERNED workspace rather than one that says it is.
+  #
+  # This fixture used to carry `agent/session-protocol.md`, the SOURCE, and none of the files
+  # rendered from it. A real adopter's workspace repo is seeded from publish/content and holds
+  # all nine. So `ensureRootProtocol` had nothing to mirror, the project root got no protocol,
+  # and every assertion in this suite about the protocol being handed over passed in a world
+  # where no protocol file existed anywhere an agent reads.
+  #
+  # Nothing failed, because nothing looked. `verifyAgentContext` looks now, and refused to
+  # launch — which is how this fixture's gap was finally found rather than argued about.
+  # UNDER agent/harness/ SINCE DECISION 2 (2026-09-14), and GEMINI.md not .gemini/styleguide.md
+  # since Decision 15 — the Gemini CLI reads GEMINI.md and never looked at the styleguide.
+  for rel in $(harness_files); do
+    if [ -f "$CONTENT_DIR/agent/harness/$rel" ]; then
+      mkdir -p "$dir/agent/harness/$(dirname "$rel")"
+      cp "$CONTENT_DIR/agent/harness/$rel" "$dir/agent/harness/$rel"
+    else
+      # Say it, rather than quietly building a workspace that cannot pass its own gate.
+      printf 'make_gov_repo: agent/harness/%s is not rendered in %s — run agent/render-harness.mjs\n' \
+        "$rel" "$CONTENT_DIR" >&2
+      return 1
+    fi
+  done
+  ( cd "$dir" && git init -q . && git add -A && git -c user.email=e@x -c user.name=e commit -qm init )
+}
+
+# A project workspace as a REAL join leaves it: a git dir, and the rendered harness in it.
+#
+# Three fragments fabricate this directory to say "the project is already here, do not clone
+# it". All three created `<project>/<workspace-repo>/.git` and nothing else, which is a governed
+# project with no governance in it — and gov now refuses to launch an agent into exactly that.
+# The shortcut was fine while nothing checked; it is a false world now, so it has a helper that
+# builds the true one.
+fake_joined_project() {
+  local project_dir="$1" ws="$2"
+  mkdir -p "$project_dir/$ws/.git"
+  # UNDER agent/harness/ SINCE DECISION 2 (2026-09-14), and GEMINI.md not .gemini/styleguide.md
+  # since Decision 15 — the Gemini CLI reads GEMINI.md and never looked at the styleguide.
+  for rel in $(harness_files); do
+    if [ -f "$CONTENT_DIR/agent/harness/$rel" ]; then
+      mkdir -p "$project_dir/$ws/agent/harness/$(dirname "$rel")"
+      cp "$CONTENT_DIR/agent/harness/$rel" "$project_dir/$ws/agent/harness/$rel"
+    else
+      printf 'fake_joined_project: agent/harness/%s is not rendered in %s — run agent/render-harness.mjs\n' \
+        "$rel" "$CONTENT_DIR" >&2
+      return 1
+    fi
+  done
+}
+
+# Record the org's approved agents the way `gov agent approve` would.
+approve_agents() {
+  local file="$1/governance/policies/llm-governance.md"; shift
+  { printf '\n```yaml\napproved_agents:\n'
+    local first=1
+    for id in "$@"; do
+      printf '  - id: %s\n' "$id"
+      [ $first = 1 ] && printf '    default: true\n'; first=0
+    done
+    printf '```\n'; } >> "$file"
+}
+
+# ── driving ───────────────────────────────────────────────────────────────────
+# Run a command in a pty, answering from a conversation. Returns expect's verdict.
+drive() {
+  local conv="$1"; shift
+  : > "$TRANSCRIPT"
+  expect "$HERE/pty/drive.exp" "$TRANSCRIPT" "$conv" -- "$@" >/dev/null 2>"$WORLD/drive.err"
+  local rc=$?
+  # A pty transcript carries the colour AND readline's cursor moves. Assertions about WORDS
+  # read the stripped copy; assertions about colour read the raw one. Grepping the raw text
+  # for a phrase that happens to be painted is a test that fails for the wrong reason.
+  perl -pe 's/\e\[[0-9;]*[a-zA-Z]//g; s/\r//g' "$TRANSCRIPT" > "$PLAIN"
+  # WRAPPED PROSE IS STILL THE SAME SENTENCE. Asserting on a phrase that happens to straddle a
+  # line break is a test that fails when someone rewraps a paragraph — which teaches people to
+  # loosen assertions. One long line, whitespace collapsed, and the sentence survives.
+  tr '\n' ' ' < "$PLAIN" | tr -s ' ' > "$FLAT"
+  return $rc
+}
+
+# A conversation written inline by the scenario.
+conv() { CONV="$WORLD/conv.$$"; cat > "$CONV"; echo "$CONV"; }
+
+# ── assertions, all against the transcript an adopter would have read ─────────
+saw()     { grep -qF -- "$2" "$PLAIN" && pass "$1" || { fail "$1"; printf '%s     expected: %s%s\n' "$DIM" "$2" "$RST"; }; }
+saw_re()  { grep -qE -- "$2" "$PLAIN" && pass "$1" || { fail "$1"; printf '%s     expected /%s/%s\n' "$DIM" "$2" "$RST"; }; }
+never()   { grep -qF -- "$2" "$PLAIN" && { fail "$1"; printf '%s     forbidden: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
+says()    { grep -qF -- "$2" "$FLAT" && pass "$1" || { fail "$1"; printf '%s     expected sentence: %s%s\n' "$DIM" "$2" "$RST"; }; }
+never_says(){ grep -qF -- "$2" "$FLAT" && { fail "$1"; printf '%s     forbidden sentence: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
+never_re(){ grep -qE -- "$2" "$PLAIN" && { fail "$1"; printf '%s     forbidden /%s/%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
+# Colour lives in the RAW transcript, and is asserted as "this phrase arrived painted" —
+# never as a bare escape code somewhere on the screen (#204).
+painted()   { grep -qE -- $'\033\\[[0-9;]*m[^\033]*'"$2" "$TRANSCRIPT" && pass "$1" || { fail "$1"; printf '%s     expected painted: %s%s\n' "$DIM" "$2" "$RST"; }; }
+unpainted() { grep -qE -- $'\033\\[[0-9;]*m[^\033]*'"$2" "$TRANSCRIPT" && { fail "$1"; printf '%s     should be plain: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
+ran()     { grep -qF -- "$2" "$AGENT_DOUBLE_LOG" && pass "$1" || { fail "$1"; printf '%s     agent log:%s\n%s\n' "$DIM" "$RST" "$(sed 's/^/       /' "$AGENT_DOUBLE_LOG")"; }; }
+not_ran() { grep -qF -- "$2" "$AGENT_DOUBLE_LOG" && fail "$1" || pass "$1"; }
+gh_ran()  { grep -qF -- "$2" "$GH_STUB_LOG" && pass "$1" || { fail "$1"; printf '%s     gh log:%s\n%s\n' "$DIM" "$RST" "$(sed 's/^/       /' "$GH_STUB_LOG")"; }; }
+gh_never(){ grep -qF -- "$2" "$GH_STUB_LOG" && { fail "$1"; printf '%s     forbidden gh: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
+exists()  { [ -e "$2" ] && pass "$1" || { fail "$1"; printf '%s     no such path: %s%s\n' "$DIM" "$2" "$RST"; }; }
+runs()    { "$@" >/dev/null 2>&1; }
+dump()    { printf '%s--- transcript ---%s\n%s\n' "$DIM" "$RST" "$(sed 's/^/    /' "$PLAIN")"; }
+
+[ -f "$TS_DIR/lib/esm/cli/bin.js" ] || ( cd "$TS_DIR" && npm run build >/dev/null 2>&1 )
+
+export HERE TS_DIR CONTENT_DIR
+shopt -s nullglob
+for f in "$HERE"/journey.d/*.sh; do
+  name="$(basename "$f" .sh)"
+  [ -n "$FILTER" ] && [[ "$name" != *"$FILTER"* ]] && continue
+  new_world
+  before=$FAIL
+  # shellcheck disable=SC1090
+  source "$f"
+  # A FAILURE SHOWS ITS WORK. Without this, every red line costs a re-run to find out what
+  # the screen actually said — which is the friction this whole tier exists to remove.
+  if [ "$FAIL" -gt "$before" ]; then
+    printf '\n  %slast 25 lines of what the adopter saw:%s\n' "$DIM" "$RST"
+    tail -25 "$PLAIN" 2>/dev/null | sed 's/^/      /'
+    [ -s "$WORLD/drive.err" ] && { printf '  %sdriver:%s\n' "$DIM" "$RST"; sed 's/^/      /' "$WORLD/drive.err"; }
+  fi
+  # E2E_KEEP=1 leaves the world behind, named, for a failure worth opening.
+  if [ "${E2E_KEEP:-}" = "1" ]; then printf '  %skept: %s%s\n' "$DIM" "$WORLD" "$RST"; else rm -rf "$WORLD"; fi
+done
+shopt -u nullglob
+
+printf '\n%s%d passed, %d failed%s\n' "$BOLD" "$PASS" "$FAIL" "$RST"
+[ "$FAIL" -eq 0 ]

@@ -20,6 +20,9 @@ export interface AnchorParams {
   /** GitHub login to assign (the seeder), if known. */
   readonly assigneeLogin?: string | null;
   readonly anchorLabel?: string;
+  /** The branch the project's code repos were cut from. Recorded so `close` can read it back — see
+   *  `baseBranchFromAnchor` in merge-chain.ts. Absent → nothing is recorded and close assumes. */
+  readonly baseBranch?: string | null;
 }
 
 /** The status-carrying label on the anchor issue. */
@@ -53,17 +56,35 @@ export interface AnchorInfo {
   readonly number: number;
   readonly labels: readonly string[];
   readonly assignees: readonly string[];
+  /** The base branch recorded in the body at seed, or null when the body carries none (every
+   *  project seeded before this was recorded). Optional so a test double need not supply it. */
+  readonly baseBranch?: string | null;
 }
 
 /** The anchor issue body (matches seed.sh wording). */
-export function anchorIssueBody(boardNumber: number, title: string): string {
+export function anchorIssueBody(boardNumber: number, title: string, baseBranch?: string | null): string {
   return `Anchor issue for the project on GitHub Project #${boardNumber} — *${title}*.
 
 Owners = this issue's assignees (managed via \`prj manage\`). Status carrier:
 a \`paused\` or \`cancelled\` label here drives the project's derived lifecycle
 status (with the board's open/closed state). Long-lived scope marker; closed at
-project close.`;
+project close.${baseBranch ? `\n\n${BASE_BRANCH_LINE}\`${baseBranch}\` — where \`gov close\` must land this project. Recorded at seed because it cannot be recovered afterwards: git knows the commit a branch descends from, not the branch name someone typed, and two env branches pointing at the same commit are indistinguishable by ancestry alone.` : ""}`;
 }
+
+/** The literal prefix of the anchor body's base-branch line. One definition, written and parsed. */
+export const BASE_BRANCH_LINE = "Base branch: ";
+
+/**
+ * The base branch recorded in an anchor body, or null when it carries none.
+ *
+ * Kept as a literal pattern rather than one built from BASE_BRANCH_LINE: the line is written in one
+ * place and read in one place, and a regex assembled from a caption is the kind of cleverness that
+ * breaks silently the day the caption gains punctuation.
+ */
+export function baseBranchFromAnchorBody(body: string | null | undefined): string | null {
+  return /^Base branch: `([^`\s]+)`/m.exec(body ?? "")?.[1] ?? null;
+}
+
 
 /** One anchor issue as returned by `gh issue list --json`. */
 type RawAnchorIssue = { url?: string; number?: number; body?: string; labels?: Array<{ name?: string }>; assignees?: Array<{ login?: string }> };
@@ -78,6 +99,7 @@ function toAnchorInfo(it: RawAnchorIssue): AnchorInfo {
     url: it.url!, number: it.number!,
     labels: (it.labels ?? []).map((l) => l.name ?? "").filter(Boolean),
     assignees: (it.assignees ?? []).map((a) => a.login ?? "").filter(Boolean),
+    baseBranch: baseBranchFromAnchorBody(it.body),
   };
 }
 
@@ -108,7 +130,7 @@ export function createGhAnchor(runGh: RunGh): AnchorCreator {
           label,
           ...(p.assigneeLogin ? ["--assignee", p.assigneeLogin] : []),
           "--body",
-          anchorIssueBody(p.boardNumber, p.title),
+          anchorIssueBody(p.boardNumber, p.title, p.baseBranch),
         ]);
       } catch {
         return null; // seed continues without an anchor

@@ -43,12 +43,60 @@ export function parseBoardUrl(url: string): BoardRef | null {
 }
 
 /**
+ * A `PRJ-<n>` prefix gov itself put on the board title — stripped before slugifying.
+ *
+ * WHY THIS HAS TO EXIST BEFORE gov RENAMES ANYTHING. `deriveProjectIdentity` reads the LIVE
+ * board title on every `gov work` (work-flow.ts, three call sites), not only at seed. So a board
+ * renamed to `PRJ-26 · Invoice API` derived `PRJ-26-prj-26-invoice-api` on the next run, and the
+ * project stopped matching its own directory and branch — invisible to the picker, though
+ * `close` and `merge` kept working because those read the id from the branch.
+ *
+ * That made the rename unsafe and, worse, made a rename BY HAND unsafe too: anyone tidying a
+ * board title to match the docs broke their own project.
+ *
+ * Matches both separators because gov writes ` · ` and a person tidying up writes `-`.
+ */
+const SELF_PREFIX = /^\s*PRJ-\d+\s*(?:·|-)\s*/i;
+
+/**
+ * The human part of a board title — what it said before gov prefixed it.
+ *
+ * Strips REPEATEDLY. One pass left `PRJ-7 · PRJ-26 · Odd` deriving
+ * `PRJ-26-prj-26-odd`, which is the same defect the strip exists to prevent, just needing two
+ * prefixes instead of one. It costs a loop, and it means no amount of hand-prefixing can break
+ * a board.
+ */
+export function titleWithoutProjectPrefix(title: string): string {
+  let t = title;
+  for (let prev = ""; t !== prev;) { prev = t; t = t.replace(SELF_PREFIX, ""); }
+  return t;
+}
+
+/**
+ * The board title gov writes at seed: `PRJ-26 · Invoice API`.
+ *
+ * THE SEPARATOR IS DELIBERATE, and so is keeping the human half. The bare id would match the
+ * docs exactly, and make a GitHub board list unreadable — a column of `PRJ-26-invoice-api`
+ * entries is harder to scan than the words someone chose. The id answers "which project is this
+ * in gov"; the title answers "what is it". Both fit.
+ *
+ * Idempotent: passing an already-prefixed title back returns the same string, because the human
+ * part is recovered first.
+ */
+export function boardTitleFor(projectIdValue: string, currentTitle: string): string {
+  const n = /^PRJ-(\d+)-/.exec(projectIdValue)?.[1];
+  const human = titleWithoutProjectPrefix(currentTitle).trim();
+  return n === undefined || human === "" ? currentTitle : `PRJ-${n} \u00b7 ${human}`;
+}
+
+/**
  * Slugify a project title: lowercase, non-`[a-z0-9]` → `-`, collapse runs of `-`,
- * trim leading/trailing `-`. Byte-for-byte the behavior of lib.sh `slugify`.
+ * trim leading/trailing `-`. Byte-for-byte the behavior of lib.sh `slugify`, except that a
+ * `PRJ-<n>` prefix gov wrote is stripped first so the operation is idempotent.
  * A title with no ASCII alphanumerics slugifies to "" (rejected by the caller).
  */
 export function slugify(title: string): string {
-  return title
+  return titleWithoutProjectPrefix(title)
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "-")
     .replace(/-+/g, "-")

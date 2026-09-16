@@ -52,3 +52,4 @@ work/
 
 # Cursor session-start gate marker (per-session runtime state)
 .cursor/.session-ack
+site/dist/

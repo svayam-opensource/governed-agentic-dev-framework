@@ -11,7 +11,7 @@
  * (ctx.home is the project clone; projectWorkRoot is its parent).
  */
 import * as path from "node:path";
-import { type ParsedArgs, flagStr } from "./args.js";
+import { type ParsedArgs, flagStr, flagBool } from "./args.js";
 import type { OrgConfig } from "../config/org-config.js";
 import type { Board } from "../lifecycle/board.js";
 import type { Vcs } from "../lifecycle/vcs.js";
@@ -21,12 +21,16 @@ import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
 import type { GateResult } from "../lifecycle/close-gate.js";
-import { seed } from "../lifecycle/seed.js";
+import { planIssue, issueSummary } from "../lifecycle/issue-create.js";
+import { agentReport, formatAgentReport, planAgentInstall } from "./agent-verb.js";
+import { seed, inspectLeftovers, applyCleanup } from "../lifecycle/seed.js";
+import { planLines } from "../lifecycle/cleanup.js";
 import { expandTilde } from "../resolve/node-env.js";
 import { task } from "../lifecycle/task-run.js";
 import { merge } from "../lifecycle/merge.js";
 import { close } from "../lifecycle/close.js";
 import { sync } from "../lifecycle/sync.js";
+import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
 import { addRepo } from "../lifecycle/add-repo.js";
 import { join } from "../lifecycle/join.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
@@ -37,12 +41,11 @@ import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 import { onboard } from "../lifecycle/onboard.js";
 
-/** Tool files seed token-substitutes into the project (bash TOOL_FILES). */
-export const TOOL_FILES = [
-  "AGENTS.md", "CONVENTIONS.md", ".cursor/rules/agent.mdc", ".clinerules/agent.md",
-  ".windsurf/rules/agent.md", ".github/copilot-instructions.md", ".gemini/styleguide.md",
-  ".continue/rules.md", "CLAUDE.md",
-] as const;
+// TOOL_FILES IS GONE (Decision 1, 2026-09-14). It listed the nine harness files for seed's
+// per-project scaffold loop, which read them from `<repo>/framework/<rel>` — a directory in
+// RETIRE_PATHS that was never shipped. Every read returned null; nothing was ever written.
+// The harness reaches an agent through `ensureRootProtocol`, which mirrors to the project
+// directory on every launch.
 
 /** Everything the router needs: config, the resolved workspace, identity + ports. */
 export interface CliContext {
@@ -63,6 +66,29 @@ export interface CliContext {
   readonly pulls: Pulls;
   readonly projects: Projects;
   readonly cloneRepo: (url: string, dest: string) => void;
+  /** Write access + a fork under this org, per repo (#194). Absent → branch checks only. */
+  readonly repoStanding?: (url: string, githubOrg: string) => { readonly canPush: boolean; readonly forkUnderOrg: string | null } | undefined;
+  /**
+   * Ask whether to record a fork mapping, and write it to org-config.yaml on yes
+   * (#194). Returns whether anything was written. Absent → the message stands on
+   * its own and the adopter edits the file themselves.
+   */
+  /** Record what the preflight proposed, for the caller that owns the terminal to ask about (#194). */
+  readonly noteRepoOverrides?: (proposed: readonly { readonly from: string; readonly to: string }[]) => void;
+  /** Is this command on PATH? The same probe the work flow uses (#195/#196). */
+  readonly hasTool?: (cmd: string) => boolean;
+  /** The org's approved-agent block, or null when the policy carries none (#196). */
+  readonly approvedAgents?: () => readonly { readonly id: string; readonly default?: boolean }[] | null;
+  /** Does the backup copy of this agent's key differ from the one it uses? Never the values. */
+  readonly credentialDrift?: (agentId: string) => boolean;
+  /** Run an install plan, and offer the sign-in. Owns the terminal; returns success. */
+  /**
+   * Absent by design since #213: installing ASKS and SPAWNS, so `bin.ts` handles
+   * `agent install` before routing — next to `work`, for the reason stated below.
+   */
+  readonly performAgentInstall?: (plan: ReturnType<typeof planAgentInstall>) => boolean;
+  /** Raise a pull request adding an agent to llm-governance.md. */
+  readonly proposeAgentApproval?: (id: string) => readonly string[];
   /** REQUIRED (C01) — write-access to the GitHub Project (viewerCanUpdate). The lifecycle ops call it
    *  unconditionally; wiring it here is what makes the CLI actually ENFORCE authorization. */
   readonly authorize: (ref: BoardRef) => boolean;
@@ -149,10 +175,117 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
   const ownerField = "organization" as const;
 
   switch (command) {
+    // `gov agent` — the door that stays open (#196). Reporting is here; installing
+    // and signing in are performed by the caller, which owns the terminal.
+    case "agent": {
+      const sub = positionals[0] ?? "";
+      const approved = ctx.approvedAgents?.() ?? null;
+
+      if (!sub || sub === "list") {
+        return { code: 0, lines: formatAgentReport(agentReport({
+          approved,
+          hasTool: ctx.hasTool ?? (() => false),
+          env: process.env,
+          credentialDrift: ctx.credentialDrift,
+        })) };
+      }
+
+      if (sub === "install") {
+        const id = positionals[1];
+        if (!id) return usage("agent install <id>");
+        const plan = planAgentInstall(id, approved, ctx.hasTool ?? (() => false));
+        if (!plan.ok) return { code: 1, lines: [plan.message] };
+        return ctx.performAgentInstall
+          ? { code: ctx.performAgentInstall(plan) ? 0 : 1, lines: [] }
+          : { code: 1, lines: ["No terminal to install in. Run `gov agent install` from a shell."] };
+      }
+
+      if (sub === "approve") {
+        const id = positionals[1];
+        if (!id) return usage("agent approve <id>");
+        // A pull request, never an edit: the approved list is C01 (POL-136) and
+        // belongs to the Infrastructure Owner, not to whoever typed the command.
+        return ctx.proposeAgentApproval
+          ? { code: 0, lines: ctx.proposeAgentApproval(id) }
+          : { code: 1, lines: ["Cannot propose a change here — run this inside your governance workspace."] };
+      }
+
+      return usage("agent [list | install <id> | approve <id>]");
+    }
+
+    // `gov issue` — the first step of governed work, which had no verb (#182, #194).
+    case "issue": {
+      const from = flagStr(flags, "from");
+      const bodyFile = flagStr(flags, "body-file");
+      const boardFlag = flagStr(flags, "board");
+      const planned = planIssue(
+        {
+          repo: positionals[0] ?? flagStr(flags, "repo"),
+          title: flagStr(flags, "title"),
+          body: bodyFile ? (ctx.fs.readFile(bodyFile) ?? "") : flagStr(flags, "body"),
+          from,
+          board: boardFlag ? Number(boardFlag) : null,
+          // POL-413: the actor, not an option with a blank default.
+          assignee: flagStr(flags, "assignee") ?? ctx.login ?? "",
+          githubOrg: c.githubOrg,
+          defaultRepo: `${c.githubOrg}/${c.workspaceRepo}`,
+        },
+        (repo, number) => ctx.issues.read(repo, number),
+      );
+      if (!planned.ok) return { code: 1, lines: [planned.message] };
+      const plan = planned.plan;
+
+      const url = ctx.issues.create(plan.repo, plan.title, plan.body, plan.assignee);
+      if (!url) return { code: 1, lines: [`Could not create the issue in ${plan.repo}. Check that you can write there.`] };
+      const added = plan.board === null ? false : ctx.issues.addToBoard(c.githubOrg, plan.board, url);
+      // A board issue that never reached the board is invisible to gov, so it is a
+      // non-zero exit even though the issue itself exists — the summary says which.
+      return { code: plan.board !== null && !added ? 1 : 0, lines: issueSummary(plan, url, added) };
+    }
+
     case "seed": {
-      if (positionals.length < 1) return usage("seed <board-url> [--assignee <login>]");
+      if (positionals.length < 1) return usage("seed <board-url> [--assignee <login>] [--clean [--consent]]");
+
+      // ── `--clean`: reverse what a failed run left behind (#230) ───────────────
+      //
+      // A separate entry point rather than a mode of the seed below, so it can never fall through
+      // into creating a project. Two steps on purpose: `--clean` shows the plan and does the items
+      // whose safety is established by evidence; `--clean --consent` additionally does the ones that
+      // risk something, which the operator has by then been told about item by item. Items gov
+      // REFUSES are never done under either — a confirmation does not make destroying unpushed work
+      // correct, so it is not offered.
+      if (flagBool(flags, "clean")) {
+        const seedCfg = {
+          govHome: ctx.home, workspaceRepo: c.workspaceRepo, agentWorkRoot: c.agentWorkRoot,
+          defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch,
+          githubOrg: c.githubOrg, repoOverrides: c.repoOverrides, orgTokens: c.orgTokens,
+        };
+        const seedDeps = { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding };
+        const found = inspectLeftovers(seedDeps, seedCfg, { boardUrl: positionals[0] });
+        if (!found.ok) return { code: found.code, lines: [found.message] };
+        if (found.leftovers.length === 0) {
+          return { code: 0, lines: ["Nothing to reverse — this board has no leftover state on this machine."] };
+        }
+
+        const consent = flagBool(flags, "consent");
+        const r = applyCleanup(seedDeps, seedCfg, found.plan, found.paths, consent);
+        const lines = [
+          ...planLines(found.plan), "",
+          ...r.done.map((d) => `  reversed: ${d}`),
+          ...r.skipped.map((d) => `  left:     ${d}`),
+          ...r.failed.map((d) => `  FAILED:   ${d}`),
+        ];
+        if (r.skipped.some((x) => x.includes("needs --consent"))) {
+          lines.push("", "  Re-run with --consent to do the items above that risk something.");
+        }
+        // Non-zero while anything remains: a cleanup that cleared three of four artifacts has not
+        // cleared the way for a re-seed, and exiting 0 would say it had.
+        const remaining = r.skipped.length + r.failed.length;
+        return { code: r.failed.length ? 1 : remaining ? 1 : 0, lines };
+      }
+
       const r = seed(
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log },
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding },
         {
           govHome: ctx.home,
           workspaceRepo: c.workspaceRepo,
@@ -160,8 +293,8 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           defaultBranch: c.defaultBranch,
           defaultCodeBranch: c.defaultCodeBranch,
           githubOrg: c.githubOrg,
+          repoOverrides: c.repoOverrides,
           orgTokens: c.orgTokens,
-          toolFiles: [...TOOL_FILES],
         },
         {
           boardUrl: positionals[0],
@@ -172,9 +305,14 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           seederLogin: flagStr(flags, "login") ?? ctx.login ?? null,
         },
       );
-      return r.ok
-        ? { code: 0, lines: [`Project ${r.projectId} seeded on ${r.branch}`, `  workspace: ${r.projectWorkRoot}`, `  anchor: ${r.anchorRef ?? "(none — designate with prj manage)"}`] }
-        : { code: r.code, lines: [r.message] };
+      if (r.ok) {
+        return { code: 0, lines: [`Project ${r.projectId} seeded on ${r.branch}`, `  workspace: ${r.projectWorkRoot}`, `  anchor: ${r.anchorRef ?? "(none — designate with prj manage)"}`] };
+      }
+      // The preflight found the fork. It is NOT asked about here: this function has
+      // no terminal of its own, and the flow that called it does. Hand the finding
+      // up; `runWorkFlow` asks with the readline that owns the terminal (#194).
+      if (r.suggestOverrides?.length) ctx.noteRepoOverrides?.(r.suggestOverrides);
+      return { code: r.code, lines: [r.message] };
     }
 
     case "task": {
@@ -203,7 +341,8 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
 
     case "close": {
       const r = close(
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, pulls: ctx.pulls, authorize: ctx.authorize, gate: ctx.gate, log: ctx.log },
+        // `anchor` is what lets close read the base branch seed recorded, instead of assuming dev.
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, pulls: ctx.pulls, authorize: ctx.authorize, gate: ctx.gate, anchor: ctx.anchor, log: ctx.log },
         // envBranches: the rungs BETWEEN main and dev, so a hotfix lands in every branch below its base.
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo, defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch, envBranches: c.envBranches },
         { govClone: ctx.home, projectWorkRoot, today: ctx.today },
@@ -219,9 +358,33 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo, defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch },
         { govClone: ctx.home, projectWorkRoot },
       );
-      return r.ok
-        ? { code: 0, lines: [`Synced ${r.projectBranch}`, `  ${r.synced.length} repo(s) up to date`] }
-        : { code: r.code, lines: [r.message] };
+      if (!r.ok) return { code: r.code, lines: [r.message] };
+      // RE-MIRROR AFTER SYNC, OR THE SYNC GOVERNS NOTHING (Policy Owner, 2026-09-11).
+      //
+      // `sync` merges the default branch — which is where ratified governance lives (POL-086a)
+      // — into the project branch. So a sync is exactly the moment the protocol can have
+      // changed. It was also the moment nothing re-copied it: the rendered files moved forward
+      // in the workspace repo while the mirrored copies at the project root, the ones every
+      // agent actually reads, stayed at whatever they were seeded with. A sync that updates
+      // governance everywhere except where it is read is a sync that reports success and
+      // changes nothing an agent sees.
+      ensureRootProtocol(ctx.fs, projectWorkRoot, c.workspaceRepo);
+      return {
+        code: 0,
+        lines: [
+          `Synced ${r.projectBranch}`,
+          `  ${r.synced.length} repo(s) up to date`,
+          `  session-start protocol re-placed at ${projectWorkRoot}`,
+          "",
+          // THE MID-SESSION HALF OF THE GUARANTEE. gov cannot reach into a session already
+          // running: the agent read its instructions file and will read it again next turn, but
+          // whether it re-reads from disk is the agent's business, not gov's. What gov CAN do is
+          // hand the person the one sentence that makes it certain — same mechanism for every
+          // agent, no vendor hook.
+          "Governance may have changed. Paste this into your running session:",
+          "  Re-read the session-start protocol from disk; it has changed. Then continue.",
+        ],
+      };
     }
 
     case "join": {

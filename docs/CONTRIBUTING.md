@@ -6,7 +6,13 @@ Thanks for considering a contribution. This guide explains where to send changes
 
 ## Where to send changes
 
-This repository's `publish` branch is the open-source-ready framework — that's the upstream that adopters pull from. **All contributions target `publish`.**
+**Contributions target `dev`.** There is no `publish` branch — this guide said so until 2026-09-16
+and it had not existed for some time. The branches are `dev`, `uat` and `main`.
+
+Work in this repository follows the same flow as any other project the framework governs: **cut your
+branch from `dev`, and changes promote `dev` → `uat` → `main`.** Nothing lands on `main` except by
+promotion (Policy Owner, 2026-09-15). `main` is what an adopter's `install.sh` and the install site
+serve, which is why it is the end of the chain rather than the start.
 
 If you're an adopter (you cloned this template into your own org), you typically don't contribute back upstream — you customize your fork. Contributions are about improving the framework itself: scripts, validators, policy templates, governance machinery, documentation.
 
@@ -17,8 +23,8 @@ If you're an adopter (you cloned this template into your own org), you typically
 1. Fork the repository (or create a feature branch in a fork).
 2. Make your change. Keep it focused — one concern per PR.
 3. Run the local checks (see below).
-4. Open a pull request targeting the `publish` branch.
-5. CI runs validators and (if you're working in the source repo) a privacy check.
+4. Open a pull request targeting `dev`.
+5. CI runs the client on three OSes, the bootstrap installer on a machine with no Node, and the adopter smoke run — see below.
 6. A maintainer reviews. Address feedback by pushing more commits — don't force-push unless asked.
 
 ---
@@ -39,14 +45,19 @@ Failing local checks will fail in CI too — save yourself a round trip.
 
 ---
 
-## What the test-merge gate does
+## What CI runs on your PR
 
-When you open a PR to `publish`, two CI workflows run:
+- **`node-ci`** — the client built, linted and tested on Linux, macOS and Windows, plus the
+  full-flow e2e gate. `fail-fast` is off on purpose: when Windows breaks it should be visible
+  whether macOS did too.
+- **`node-ci` / bootstrap installer** — `install.sh` and `install.ps1` on a machine with no Node at
+  all, with the runner's own Node stripped from `PATH`. The only place `install.ps1` is exercised.
+- **`adopter-e2e`** — the hermetic adopter smoke run, and the live-GitHub journey.
+- **`catalog-freshness`** — weekly, not per-PR: checks each approved agent's context filename against
+  its published package.
 
-- **test-merge gate** — runs `scripts/validate/run.py` against the proposed merge commit. Catches schema and lifecycle invariant violations.
-- **privacy check** (in the upstream source repo only) — ensures no per-org private values leak into the publish branch.
-
-Both must pass before merge. They're not gating opinion — they catch concrete invariant violations that would corrupt downstream consumers' state.
+All required checks must pass before merge. They are not gating opinion — they catch concrete
+invariant violations that would reach an adopter.
 
 ---
 
@@ -83,15 +94,21 @@ The framework uses double-curly placeholder syntax for values substituted by `se
 
 ### Tests — the governance test bed (BATS)
 
+> **This section describes the FROZEN bash CLI** (`@svayam-opensource/prj`, at
+> `publish/actions/deprecated/`), which is deprecated and no longer published. For the current
+> TypeScript client the checks are `npm run build`, `npm run lint`, `npm test`, `npm run test:e2e`
+> and `npm run test:adopter:smoke`, all from `publish/actions/ts`.
+
 The governance test bed lives in `tests/bats/` (BATS). Run it locally with:
 
 ```bash
 bash tests/bats/run.sh        # fetches pinned bats libs, runs every tests/bats/*.bats
 ```
 
-It runs on every PR (`.github/workflows/bats.yml`) **and gates the npm publish**
-(Jenkinsfile) — so the test bed cannot drift behind the CLI. Design + roadmap:
-`tests/TESTBED-DESIGN.md`.
+It gated the npm publish through `ci/Jenkinsfile`, which was **deleted in 2026-09-16**: it
+published `@svayam-opensource/prj`, now deprecated, and gated on paths that had moved under
+`publish/actions/deprecated/`. Publishing is now `.github/workflows/release.yml` — see
+**Releasing** below. Design + roadmap: `tests/TESTBED-DESIGN.md`.
 
 **Rule: a new or changed command must adjust the test bed in the same PR.** Two
 gates enforce it automatically:
@@ -109,6 +126,44 @@ gates enforce it automatically:
 
 The legacy `scripts/validate/run.py` validators still run as org-content
 invariant checks; the existing `tests/*.sh` are being migrated into the BATS bed.
+
+---
+
+## Releasing
+
+One path, and it starts with a tag. Before 2026-09-16 nothing in CI published gov and every 1.x
+release went out by hand, which is how npm reached 1.2.2 while the newest tag was `v0.10.0` and the
+newest GitHub release was from May (#235).
+
+```bash
+cd publish/actions/ts
+npm version patch          # writes package.json AND package-lock.json — use it, don't hand-edit
+# land that through dev → uat → main, then:
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which:
+
+1. **refuses if the tag and `package.json` disagree**, before building anything — a tag saying
+   `v1.3.0` over a package saying `1.2.2` would publish 1.2.2 and mislabel it forever;
+2. refuses if `package-lock.json` disagrees too (1.2.2's release commit had to fix a lock stale by
+   three minor versions);
+3. re-runs build, lint, test, e2e and the adopter smoke **against the tagged tree** — not taken on
+   trust from the PR, because a tag can point anywhere;
+4. publishes with `--provenance`, so npm serves a sigstore attestation tying the tarball to this
+   run and commit. Adopters verify with `npm audit signatures`;
+5. verifies the version actually resolves on the public registry before claiming success;
+6. creates the GitHub release with that version's section from `CHANGELOG.md`.
+
+A version already on npm is a **skip with a reason**, not a failure — the first tags cut under this
+workflow are retroactive, and a pipeline that breaks the first time it is used gets abandoned.
+
+`publishConfig.registry` in `package.json` points at the internal registry on purpose: that is the
+contributor default. The release workflow passes `--registry` explicitly for the public publish, so
+which one wins is never in question.
+
+**Add your change to `CHANGELOG.md` under `## Unreleased`** in the same PR. The release step fails
+when a version has no section, because a release nobody can read is not a release.
 
 ---
 

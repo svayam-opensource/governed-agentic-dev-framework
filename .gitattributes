@@ -16,7 +16,6 @@ prj                text eol=lf
 bin/prj            text eol=lf
 setup.sh           text eol=lf
 install.sh         text eol=lf
-Jenkinsfile        text eol=lf
 .framework-version text eol=lf
 # Test-bed golden snapshots are byte-compared — must never be CRLF.
 tests/bats/golden/** text eol=lf
