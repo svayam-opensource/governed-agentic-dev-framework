@@ -5,7 +5,8 @@ Versions of `@svayam-opensource/gov`, the governance client.
 This file starts at 1.0.0 and is **reconstructed from release commits and npm publish dates**
 (#235). Everything before it was published by hand with no tag, no release and no changelog, so the
 entries below say what the release commit said and no more — they are not a retrospective audit of
-each diff. From the first tag onward, entries are written at release time.
+each diff. From here on, entries are written at release time — a release being `gov-work-<semver>`,
+cut by gov (see Releasing in `docs/CONTRIBUTING.md`).
 
 The format is loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions are
 [semver](https://semver.org/spec/v2.0.0.html).
