@@ -75,7 +75,8 @@ Then, as `tester`, the whole adopter step:
 
 ```bash
 export GOV_PKG=/tmp/gov.tgz
-curl -fsSL https://raw.githubusercontent.com/svayam-opensource/governed-agentic-dev-framework/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/svayam-opensource/governed-agentic-dev-framework/main/install.sh -o install.sh \
+  && bash install.sh
 ```
 
 Testing an unmerged branch? Swap `main` for the branch name in that URL.

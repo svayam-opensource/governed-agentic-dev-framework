@@ -45,12 +45,17 @@
 
     <div class="panel" role="tabpanel" id="p-unix" aria-labelledby="tab-unix">
       <div class="cmd">
-        <code id="cmd-unix">curl -fsSL https://{{HOST}}/install.sh | bash</code>
+        <code id="cmd-unix">curl -fsSL https://{{HOST}}/install.sh -o install.sh &amp;&amp; bash install.sh</code>
         <button type="button" data-copy="cmd-unix">Copy</button>
       </div>
       <p class="note">
         Reads the plan to you and asks before it installs anything. Set <code>GOV_YES=1</code> to skip the
         prompt in a script. Prefer to read it first? <a href="./install.sh">View install.sh</a>.
+      </p>
+      <p class="note">
+        Fetch, then run: piped straight into <code>bash</code>, a failed download exits 0 and installs
+        nothing without saying so. In CI, where the exit status is checked,
+        <code>curl -fsSL https://{{HOST}}/install.sh | GOV_YES=1 bash</code> also works.
       </p>
     </div>
 
