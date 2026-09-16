@@ -2,7 +2,7 @@
 
 **Status:** Draft — design only, not implemented  
 **Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)  
-**Parent policy:** `knowledge/policies/agentic-development-policy.md` (POL-076–081, POL-113–123, POL-129–138)  
+**Parent policy:** `knowledge/policies/org-ai-agent-governance-policy.md` (POL-076–081, POL-113–123, POL-129–138)  
 **Related specs:** `knowledge/infrastructure/knowledge-publication-spec.md`, `knowledge/guidance/scripts/close-knowledge-spec.md`  
 **Audience:** Infrastructure Owner, Policy Owner, agent harness maintainers, framework implementers
 
@@ -325,7 +325,7 @@ Always load (from `<DEFAULT_BRANCH>` of workspace repo, even when project branch
 
 | File / pattern | Reason |
 |---|---|
-| `knowledge/policies/agentic-development-policy.md` | Governing policy — at minimum load §2 compliance levels + §6–§7 | 
+| `knowledge/policies/org-ai-agent-governance-policy.md` | Governing policy — at minimum load §2 compliance levels + §6–§7 | 
 | `knowledge/policies/data-classification.md` | C01 data rules |
 | `knowledge/policies/llm-governance.md` | Provider approval |
 | `agent.md` (root) | Org entrypoint |
@@ -411,7 +411,7 @@ Do **not** embed or retrieve from:
 Each indexed chunk carries:
 
 ```yaml
-path: knowledge/policies/agentic-development-policy.md
+path: knowledge/policies/org-ai-agent-governance-policy.md
 section: "## 2.1 C01 — Non-Negotiable"
 clause: POL-011
 layer: org

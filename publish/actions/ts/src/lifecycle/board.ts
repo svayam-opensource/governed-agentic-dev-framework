@@ -18,11 +18,28 @@ export interface BoardProject {
   readonly repoUrls: readonly string[];
 }
 
-/** Read-side of a GitHub Project board. */
+/** Read-side of a GitHub Project board, plus the one write gov makes to it. */
 export interface Board {
   /** Fetch a project's board metadata; throws {@link BoardFetchError} when the
    *  project is missing/inaccessible or the payload is malformed. */
   fetchProject(ref: BoardRef): BoardProject;
+  /**
+   * Set the board's title — used once, at seed, to prefix it with the project id.
+   *
+   * Optional so every existing fake and caller keeps working, and so a board gov cannot rename
+   * is a missing nicety rather than a failed seed. Returns whether the title changed.
+   *
+   * WHY GOV TOUCHES THE TITLE AT ALL. A board someone names "Invoice API" becomes
+   * `PRJ-26-invoice-api` everywhere in gov — branches, directories, documentation — and nothing
+   * on GitHub says so. Prefixing the title to `PRJ-26 · Invoice API` closes that gap from the
+   * GitHub side while keeping the words a person chose.
+   *
+   * AT SEED ONLY, BY RULING (Policy Owner, 2026-09-15). gov does not re-assert it on later
+   * commands: a title someone deliberately edited afterwards is theirs, and silently overwriting
+   * it on every `gov work` would be gov quietly disagreeing with a person about their own board.
+   * Derivation tolerates either spelling, so the two staying different costs nothing.
+   */
+  renameProject?(ref: BoardRef, title: string): boolean;
 }
 
 /** Raised when the board can't be fetched or parsed. */

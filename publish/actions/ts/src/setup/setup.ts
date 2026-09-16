@@ -79,7 +79,12 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
   const policyOwnerGithub = pick("policyOwnerGithub", ctx.ghUser ? `@${ctx.ghUser}` : "");
 
   return {
-    orgName: pick("orgName", ""),
+    // A DEFAULT WORTH ACCEPTING (#210). This was `""` against a `nonEmpty` rule, so the first
+    // question of the founding path offered nothing and then refused the nothing it invited —
+    // the exact shape the comment on the NEXT question already names. The GitHub organization
+    // is not the legal name, and a default is a suggestion rather than an assertion; it is
+    // what the adopter typed two questions earlier, and it beats a blank that gets rejected.
+    orgName: pick("orgName", origin?.owner ?? ""),
     orgShortName: pick("orgShortName", ""),
     orgSlug,
     orgSlugLower,
@@ -88,8 +93,21 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
     workspaceRepo: pick("workspaceRepo", origin?.repo ?? ""),
     defaultBranch: pick("defaultBranch", "main"),
     defaultCodeBranch: pick("defaultCodeBranch", "dev"),
-    agentWorkRoot: pick("agentWorkRoot", `~/.${orgSlugLower}/projects`),
-    govWorkspace: pick("govWorkspace", `~/.${orgSlugLower}/gov_repo`),
+    // `~/.gov/<slug>/…`, NOT `~/.<slug>/…`.
+    //
+    // `create.ts` has always PUT them at `~/.gov/<slug>/gov_repo` and
+    // `~/.gov/<slug>/projects` (the workspace-resolution contract, R9/R10), while
+    // these defaults DESCRIBED them as `~/.<slug>/…`. Two halves of the same
+    // command disagreeing about where they work — the exact "second copy of a
+    // value, with nothing comparing them" that create.ts's own header names as the
+    // shape behind most of this project's defects.
+    //
+    // `~/.gov/` as the root is also what makes more than one governed organization
+    // possible on one machine: every org's home is a sibling under it, next to the
+    // `workspaces` registry that maps between them. `~/.<slug>/` scattered them
+    // across the home directory with nothing to enumerate.
+    agentWorkRoot: pick("agentWorkRoot", `~/.gov/${orgSlugLower}/projects`),
+    govWorkspace: pick("govWorkspace", `~/.gov/${orgSlugLower}/gov_repo`),
     policyOwnerEmail: pick("policyOwnerEmail", ctx.gitEmail ?? ""),
     policyOwnerGithub,
     legalOwnerGithub: pick("legalOwnerGithub", policyOwnerGithub),
@@ -146,6 +164,16 @@ default_code_branch: "${v.defaultCodeBranch}"
 
 # Per-project workspaces are created under this path.
 agent_work_root: "${v.agentWorkRoot}"
+
+# Where the WORK happens, when that is not where the issue lives (#194).
+# A board may link an issue in a repository this org can read but not write — the
+# usual shape when you work from a fork. Map upstream to your own copy and gov
+# branches, pushes and merges in yours, while the board keeps linking theirs:
+#
+# repo_overrides:
+#   genevaers/Workbench: svm-geneva/Workbench
+#
+# Declared, never guessed: gov will not choose where your code is pushed.
 
 
 # Policy Owner details (initial holder of all policy roles at launch)

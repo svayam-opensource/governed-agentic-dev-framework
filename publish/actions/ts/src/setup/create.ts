@@ -214,11 +214,21 @@ export function explainFailure(f: PreflightFailure): readonly string[] {
     case "already-governed":
       // Refuses INTO something. A bare refusal here sends a new developer off to create one under a
       // different name, which is the outcome this check exists to prevent.
+      //
+      // NAME A COMMAND THAT WORKS (#197). This used to say `git clone … && cd … && gov setup`, which
+      // leaves the clone in whatever directory the reader happened to be standing in — while the
+      // adoption checklist requires it at `~/.gov/<org-slug>/gov_repo`. So the advice could not
+      // produce a working machine, and did not say which directory to be in, because no answer
+      // existed. `gov` walks the joining path and places the clone where everything else looks.
+      //
+      // The first-run wizard pivots into that path by itself; this message is for whoever reached
+      // `gov setup <org>/<repo>` directly, with no wizard around them.
       return [f.all.length > 1
                 ? `gov setup: this org already has ${f.all.length} governance repos (${f.all.join(", ")}) — creating another would fork its policy further.`
                 : `gov setup: '${f.repo}' already governs this org — creating a second workspace would fork its policy.`,
-              "  you want to JOIN it, not create one:",
-              `    git clone git@github.com:${f.repo}.git && cd ${f.repo.split("/")[1]} && gov setup`];
+              "  you want to JOIN it, not create one. gov clones and places it for you:",
+              "    gov          then choose  B. I am a JOINER",
+              `  already have a clone?  gov org add ${f.repo.split("/")[0]} --home <path-to-your-clone>`];
     case "cannot-verify":
       // Refuse, do not guess. A duplicate governance repo forks the org's policy silently and cannot be
       // detected afterwards; a refusal costs one command.
@@ -255,8 +265,112 @@ export const PUBLISHER_ONLY_DIRS: readonly string[] = ["ci", "docs", "packages",
  */
 export const INHERITED_DIRS: readonly string[] = ["agent", "knowledge"];
 
-/** What an adopter should be left with — asserted after pruning so a new publisher dir cannot creep in. */
+/**
+ * The framework's OWN root FILES, which the template copy also brings — and which used to
+ * survive the seed and govern the adopter's agents.
+ *
+ * THE GOVERNANCE HOLE THIS CLOSES, found on a walk 2026-09-12. This repo has its own
+ * `AGENTS.md`: twenty-five lines about contributing to the framework, which even says "the
+ * adopter-facing agent protocol lives in `publish/content/`". `gh repo create --template`
+ * copies it into every adopter's repo. Then the seed plans it as `scaffold-prompt`, and on a
+ * FIRST seed there is no baseline to compare against — so `base === null`, the entry is
+ * classified `conflict`, and `applyUpgrade` skips conflicts. The verdict "org-customized —
+ * review before applying" was wrong: the adopter had customized nothing, they had inherited the
+ * template.
+ *
+ * The consequence was invisible and total for two of the launch-list agents. `ensureRootProtocol`
+ * mirrors `<workspace>/AGENTS.md` to the project root, so openai-codex and ibm-bob — both of
+ * which read AGENTS.md — were handed instructions for building this repository instead of the
+ * governance protocol. Nothing failed; they were simply governed by the wrong document.
+ * `verifyAgentContext` is what finally noticed, because the file carries no renderer banner.
+ *
+ * `README.md` is the same mistake with a smaller blast radius: adopters were reading the
+ * framework's README rather than the one written for them.
+ *
+ * Pruned in the adopter's clone, never in the framework repo. The framework keeps its own
+ * AGENTS.md at the conventional name, which is right for its own contributors — it just must
+ * not be inherited, exactly like `agent/` and `knowledge/` are not.
+ */
+export const INHERITED_FILES: readonly string[] = [
+  // Collide with a manifest destination — found by the 2026-09-12 AGENTS.md defect.
+  "AGENTS.md", "README.md",
+  // NO manifest counterpart at all, so nothing replaced or removed them (Decision 5,
+  // 2026-09-14). `INHERITED_FILES` originally covered only COLLISIONS, because that is the
+  // shape the AGENTS.md bug had; these seven reached every adopter untouched.
+  //
+  // CONTRIBUTING.md is the same defect as AGENTS.md without a collision to reveal it: this
+  // repository's own contributing guide, landing in an adopter's governance repo.
+  "CONTRIBUTING.md",
+  // The framework's licence, not the org's.
+  "LICENSE",
+  // Publisher artifacts — an adopter's governance repo builds nothing.
+  "package.json", "package-lock.json", ".npmignore",
+];
+
+/**
+ * What an adopter should be left with — asserted after pruning so a new publisher
+ * dir cannot creep in. The FLOOR, not the whole answer: everything MANIFEST.yaml
+ * scaffolds is expected too, and {@link expectedDirs} unions the two.
+ */
 export const ADOPTER_DIRS: readonly string[] = ["agent", "knowledge", "publish"];
+
+/**
+ * Every top-level directory the manifest scaffolds into an adopter's repo (#193).
+ *
+ * A clean adoption used to end by calling `.claude .clinerules .continue .cursor
+ * .gemini .github .windsurf docs projects` "unexpected directories" and asking to
+ * be told if they were publisher-only. They are not: MANIFEST.yaml scaffolds every
+ * one of them on purpose — the agent harness is what the session-start protocol
+ * runs on. `.github` was in the publisher-only list AND in the manifest, which is
+ * the clearest sign the two had drifted.
+ *
+ * The hand-kept list was a second description of something the manifest already
+ * states file by file, and the manifest is the one the installer follows. Deriving
+ * removes the copy rather than correcting it — the same move as retiring
+ * `registry.yaml` in favour of GitHub, and `ADOPTER_DIRS` vs `~/.gov/<slug>` before it.
+ */
+export function expectedDirs(manifestText: string | null): readonly string[] {
+  const dirs = new Set<string>(ADOPTER_DIRS);
+  for (const m of (manifestText ?? "").matchAll(/\bdst:\s*([^\s,}]+)/g)) {
+    const dst = m[1]?.trim();
+    if (!dst || !dst.includes("/")) continue;      // a root-level FILE, not a directory
+    const top = dst.split("/")[0];
+    if (top) dirs.add(top);
+  }
+  return [...dirs];
+}
+
+/**
+ * Tokens that are SUPPOSED to survive setup: they belong to a project, and at setup
+ * time there is no project. `gov seed` resolves them.
+ *
+ * Reporting these alongside real leaks is what made the warning easy to dismiss —
+ * six of the eight it named were genuine, and these two were not.
+ */
+export const PER_PROJECT_TOKENS: ReadonlySet<string> = new Set(["<PROJECT_ID>", "<PRJ>"]);
+
+/**
+ * Token values from org-config.yaml's TEXT, not from its typed parse (#193).
+ *
+ * The sweep built its map from `parseOrgConfig`, whose interface carries the keys
+ * gov-work itself reads — org name, slug, branches. It has no
+ * `policy_owner_github`, no `legal_owner_github`, no `policy_effective_date`, so
+ * those tokens had no values and survived into the adopter's policy documents:
+ * exactly the first impression this whole flow exists to fix.
+ *
+ * The file is the authority on what it contains. Read it as such.
+ */
+export function tokenValuesFromOrgConfig(text: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const m = /^([a-z][a-z0-9_]*):\s*(.+?)\s*$/.exec(raw);
+    if (!m) continue;                                  // comment, blank, or nested
+    const value = (m[2] ?? "").replace(/^["']|["']$/g, "").trim();
+    if (!value || value === "|" || value === ">") continue;
+    values[m[1]!.toUpperCase()] = value;
+  }
+  return values;
+}
 
 /** One line per thing setup actually did, printed at the end instead of leaving it silent (6b/6d). */
 export interface ManifestLine { readonly what: string; readonly detail: string }

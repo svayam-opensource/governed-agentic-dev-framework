@@ -1,0 +1,98 @@
+/* SPDX-License-Identifier: MIT */
+/* gov install site (#231). No framework, no build step for CSS — one file a reviewer can read. */
+:root {
+  --bg: #fbfaf8; --panel: #ffffff; --ink: #14171a; --muted: #5b6570; --line: #e3e1dd;
+  --accent: #1f5f4f; --accent-ink: #ffffff; --code-bg: #14171a; --code-ink: #eef2f0;
+  --warn-bg: #fff6e5; --warn-line: #e8c880; --warn-ink: #6b4a05;
+  --radius: 10px; --wrap: 880px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101315; --panel: #171b1e; --ink: #e9edf0; --muted: #98a3ad; --line: #2a3035;
+    --accent: #59b39b; --accent-ink: #0b1a16; --code-bg: #0a0d0f; --code-ink: #e9edf0;
+    --warn-bg: #2a2110; --warn-line: #6b551f; --warn-ink: #f0d79a;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 20px; }
+
+/* ── the environment banner. dev and uat must never be mistaken for prod ── */
+.envbar {
+  background: var(--warn-bg); border-bottom: 1px solid var(--warn-line); color: var(--warn-ink);
+  font-size: 13px; font-weight: 600; padding: 9px 0; text-align: center; letter-spacing: .01em;
+}
+
+header.top { border-bottom: 1px solid var(--line); background: var(--panel); }
+header.top .wrap { display: flex; align-items: center; gap: 22px; height: 58px; }
+.brand { font-weight: 700; letter-spacing: -.01em; margin-right: auto; font-size: 15px; }
+.brand span { color: var(--muted); font-weight: 400; }
+nav.top a { color: var(--muted); font-size: 14px; }
+nav.top { display: flex; gap: 20px; }
+
+.hero { padding: 56px 0 8px; }
+.hero h1 { font-size: 34px; line-height: 1.2; letter-spacing: -.02em; margin: 0 0 12px; }
+.hero p.lede { font-size: 18px; color: var(--muted); margin: 0 0 6px; max-width: 62ch; }
+.pins { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 0; }
+.pin {
+  font: 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  padding: 7px 12px; color: var(--muted);
+}
+.pin b { color: var(--ink); font-weight: 600; }
+
+/* ── the primary control: a command you copy, not a binary you pick ── */
+section.install { margin: 34px 0 10px; }
+.tabs { display: flex; gap: 6px; margin-bottom: -1px; }
+.tab {
+  font: 600 13px/1 inherit; padding: 10px 16px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0; color: var(--muted);
+}
+.tab[aria-selected="true"] { background: var(--panel); border-color: var(--line); color: var(--ink); }
+.panel {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 0 var(--radius) var(--radius) var(--radius); padding: 20px;
+}
+.cmd { display: flex; align-items: stretch; gap: 0; }
+.cmd code {
+  flex: 1; background: var(--code-bg); color: var(--code-ink);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 14px 16px; border-radius: var(--radius) 0 0 var(--radius);
+  overflow-x: auto; white-space: pre; scrollbar-width: thin;
+}
+.cmd button {
+  border: none; background: var(--accent); color: var(--accent-ink); cursor: pointer;
+  font: 600 13px/1 inherit; padding: 0 18px; border-radius: 0 var(--radius) var(--radius) 0;
+  min-width: 92px;
+}
+.cmd button:hover { filter: brightness(1.08); }
+.note { color: var(--muted); font-size: 13.5px; margin: 14px 0 0; }
+.note code { font-size: 12.5px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin: 44px 0 0; }
+.cols h2 { font-size: 15px; margin: 0 0 10px; letter-spacing: -.01em; }
+.cols ul { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14.5px; }
+.cols li { margin: 5px 0; }
+
+footer { border-top: 1px solid var(--line); margin-top: 56px; padding: 32px 0 44px; background: var(--panel); }
+footer .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
+footer h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+footer ul { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+footer li { margin: 6px 0; }
+footer .legal { color: var(--muted); font-size: 13px; margin-top: 26px; }
+
+@media (max-width: 680px) {
+  .cols, footer .grid { grid-template-columns: 1fr; }
+  .hero h1 { font-size: 27px; }
+  .cmd { flex-direction: column; }
+  .cmd code { border-radius: var(--radius) var(--radius) 0 0; }
+  .cmd button { border-radius: 0 0 var(--radius) var(--radius); padding: 13px 0; }
+  nav.top { display: none; }
+}

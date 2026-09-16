@@ -18,11 +18,14 @@ import type { Vcs } from "./vcs.js";
 import type { Fs } from "./fs-io.js";
 import type { AnchorCreator } from "./anchor.js";
 import { ensureRootProtocol } from "./root-protocol.js";
-import { deriveProjectIdentity, parseBoardUrl } from "./identity.js";
-import { seedPathsFor, detectLeftovers, leftoversMessage, type LeftoverArtifact } from "./leftover.js";
-import { renderAgentMd, renderTodoMd, substituteTokens } from "./content.js";
+import { deriveProjectIdentity, parseBoardUrl, boardTitleFor } from "./identity.js";
+import { seedPathsFor, detectLeftovers, type LeftoverArtifact, type SeedPaths } from "./leftover.js";
+import { planCleanup, planLines, reverse, type CleanupStep } from "./cleanup.js";
+import { renderAgentMd, renderTodoMd } from "./content.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
 import { repoNameFromUrl } from "./repo.js";
+import { classifyProjectBranch, preconditionFailures, adoptions, suggestedOverrides, type RepoPrecondition, type RemoteRef, type RepoStanding } from "./branch-adoption.js";
+import { resolveWorkRepo, appliedOverrides, type RepoOverrides } from "../config/repo-overrides.js";
 
 /** Org-config-derived settings for a seed run. */
 export interface SeedConfig {
@@ -32,10 +35,12 @@ export interface SeedConfig {
   readonly defaultBranch: string;
   readonly defaultCodeBranch: string;
   readonly githubOrg: string;
+  /** `owner/repo` → `owner/repo`, from org-config (#194). */
+  readonly repoOverrides?: Readonly<Record<string, string>>;
   /** Token → value for tool-file substitution (e.g. ORG_NAME). */
   readonly orgTokens: Readonly<Record<string, string>>;
   /** Tool files (paths under `framework/`) to token-substitute into the project. */
-  readonly toolFiles?: readonly string[];
+
   readonly remote?: string;
 }
 
@@ -63,6 +68,12 @@ export interface SeedDeps {
   readonly anchor: AnchorCreator;
   readonly cloneRepo: (url: string, dest: string) => void;
   readonly log?: (msg: string) => void;
+  /**
+   * Whether this adopter can push to a repo, and whether they have a fork of it
+   * (#194). Optional: `ls-remote` alone cannot answer either, and a caller with no
+   * GitHub client still gets the branch checks.
+   */
+  readonly repoStanding?: (url: string, githubOrg: string) => RepoStanding | undefined;
 }
 
 export interface SeedSuccess {
@@ -73,11 +84,37 @@ export interface SeedSuccess {
   readonly orgGovClone: string;
   readonly repos: ReadonlyArray<{ name: string; url: string; repoDir: string }>;
   readonly anchorRef: string | null;
+  /**
+   * Did gov rename the GitHub board to `PRJ-<n> · <title>`?
+   *
+   * Reported rather than assumed: the rename is best-effort — a token without the `project`
+   * write scope simply leaves the title alone — and a caller that announced it unconditionally
+   * would be claiming something it did not check.
+   */
+  readonly boardRenamed: boolean;
 }
 
 export type SeedResult =
   | SeedSuccess
-  | { readonly ok: false; readonly code: number; readonly reason: string; readonly message: string; readonly leftovers?: readonly LeftoverArtifact[]; readonly rollbackFailures?: readonly RollbackFailure[] };
+  | {
+      readonly ok: false; readonly code: number; readonly reason: string; readonly message: string;
+      readonly leftovers?: readonly LeftoverArtifact[];
+      /**
+       * What reversing each leftover would do, and whether gov may (#230). Carried rather than
+       * merely described, for the same reason `suggestOverrides` is: the caller owns the terminal
+       * and can offer, and a plan the caller has to recompute is a plan that drifts. `seedPaths`
+       * rides along because only seed derived them.
+       */
+      readonly cleanupPlan?: readonly CleanupStep[];
+      readonly seedPaths?: SeedPaths;
+      readonly rollbackFailures?: readonly RollbackFailure[];
+      /**
+       * Fixes the preflight worked out for itself (#194): upstream → the adopter's
+       * own fork. Carried out rather than merely described, so the caller can offer
+       * to write them and run again.
+       */
+      readonly suggestOverrides?: readonly { readonly from: string; readonly to: string }[];
+    };
 
 function gitkeepStub(i: {
   projectId: string;
@@ -92,6 +129,67 @@ function gitkeepStub(i: {
 # truth (no project.yaml / registry.yaml, SDD-012). The authored content
 # (agent.md, knowledge/) lives on branch '${i.branch}'.
 `;
+}
+
+/**
+ * What a previous failed seed left behind for this board, and what gov may do about it (#230).
+ *
+ * Split out of `seed` so `--clean` has an entry point that CANNOT fall through into seeding. Doing
+ * this by adding a mode flag to `seed` would have meant one function whose late phases run or not
+ * depending on an argument set thirty lines earlier — and a `--clean` on a board with nothing left
+ * over would have quietly created a project instead of saying there was nothing to do.
+ *
+ * Read-only: identity derivation, the board fetch `seed` does anyway, and the leftover probes.
+ */
+export type InspectResult =
+  | { readonly ok: true; readonly paths: SeedPaths; readonly leftovers: readonly LeftoverArtifact[]; readonly plan: readonly CleanupStep[] }
+  | { readonly ok: false; readonly code: number; readonly reason: string; readonly message: string };
+
+export function inspectLeftovers(deps: SeedDeps, config: SeedConfig, input: Pick<SeedInput, "boardUrl" | "legacyBranches">): InspectResult {
+  const remote = config.remote ?? "origin";
+  const ref = parseBoardUrl(input.boardUrl);
+  if (!ref) return { ok: false, code: 1, reason: "bad-url", message: `Not a GitHub Project URL: ${input.boardUrl}` };
+
+  const board = deps.board.fetchProject(ref);
+  const gate = validateBoard(board);
+  if (!gate.ok) return { ok: false, code: 1, reason: gate.reason, message: boardValidationMessage(gate) };
+
+  const idr = deriveProjectIdentity({ url: input.boardUrl, title: board.title, legacyBranches: input.legacyBranches });
+  if (!idr.ok) return { ok: false, code: 1, reason: idr.reason, message: `Cannot derive project id (${idr.reason}).` };
+
+  const paths = seedPathsFor({ govHome: config.govHome, agentWorkRoot: config.agentWorkRoot, projectId: idr.projectId, branch: idr.branch });
+  const leftovers = detectLeftovers({ vcs: deps.vcs, fs: deps.fs }, paths);
+  const env = { vcs: deps.vcs, fs: deps.fs, readdir: (d: string) => deps.fs.readdir(d), rm: (t: string) => deps.fs.rm(t) };
+  const plan = planCleanup(env, { defaultBranch: config.defaultBranch, remote, workspaceRepo: config.workspaceRepo }, leftovers, paths);
+  return { ok: true, paths, leftovers, plan };
+}
+
+/**
+ * Reverse an already-approved plan, step by step, stopping at the first failure.
+ *
+ * `consent` is what the operator typed after reading the plan, so it is checked HERE rather than
+ * inside `reverse`: the executor performs one approved step and does not re-litigate approval.
+ * `refused` steps are never run whatever the flags say — there is no answer that makes destroying
+ * unpushed work correct.
+ */
+export function applyCleanup(deps: SeedDeps, config: SeedConfig, plan: readonly CleanupStep[], paths: SeedPaths, consent: boolean): { readonly done: string[]; readonly skipped: string[]; readonly failed: string[] } {
+  const remote = config.remote ?? "origin";
+  const cfg = { defaultBranch: config.defaultBranch, remote, workspaceRepo: config.workspaceRepo };
+  const env = { vcs: deps.vcs, fs: deps.fs, readdir: (d: string) => deps.fs.readdir(d), rm: (t: string) => deps.fs.rm(t) };
+  const done: string[] = [], skipped: string[] = [], failed: string[] = [];
+  for (const step of plan) {
+    if (step.verdict.kind === "refused") { skipped.push(`${step.action} — REFUSED: ${step.verdict.why}`); continue; }
+    if (step.verdict.kind === "needs-consent" && !consent) { skipped.push(`${step.action} — needs --consent: ${step.verdict.why}`); continue; }
+    const r = reverse(env, cfg, step, paths);
+    if (r.ok) done.push(step.action);
+    else {
+      failed.push(`${step.action} — ${r.why}`);
+      // Stop here. The order is load-bearing (a worktree before its branch), so continuing past a
+      // failure means attempting steps whose precondition just did not happen.
+      break;
+    }
+  }
+  return { done, skipped, failed };
 }
 
 /** Seed a project workspace from its GitHub Project board. */
@@ -119,19 +217,107 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
   // ── Leftover-state guard ────────────────────────────────────────────────────
   const leftovers = detectLeftovers({ vcs: deps.vcs, fs: deps.fs }, paths);
   if (leftovers.length) {
-    return { ok: false, code: 1, reason: "leftover-state", message: leftoversMessage(leftovers), leftovers };
+    // DETECTION THAT LEADS SOMEWHERE (#230). This used to return a list and stop, which told the
+    // reader gov understood the problem while offering nothing about it. The plan says, per
+    // artifact, what reversal would do and whether gov may — and names the command that does it.
+    const cleanupEnv = { vcs: deps.vcs, fs: deps.fs, readdir: (d: string) => deps.fs.readdir(d), rm: (t: string) => deps.fs.rm(t) };
+    const cleanupPlan = planCleanup(cleanupEnv, { defaultBranch: config.defaultBranch, remote, workspaceRepo: config.workspaceRepo }, leftovers, paths);
+    const message = [
+      ...planLines(cleanupPlan),
+      `  gov seed ${input.boardUrl} --clean            reverse what is safe, and say what is not`,
+    ].join("\n");
+    return { ok: false, code: 1, reason: "leftover-state", message, leftovers, cleanupPlan, seedPaths: paths };
   }
 
-  const codeRepoUrls = board.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo);
+  const linkedRepoUrls = board.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo);
+
+  // WHERE THE ISSUE LIVES IS NOT ALWAYS WHERE THE WORK HAPPENS (#194). The board
+  // links what it links; a declared override sends the branch to the repo this org
+  // can actually write. Never inferred — see config/repo-overrides.ts.
+  const overrides: RepoOverrides = config.repoOverrides ?? {};
+  const redirected = appliedOverrides(linkedRepoUrls, overrides);
+  for (const r of redirected) log(`Work repo: ${r.from} → ${r.to} (repo_overrides)`);
+  // DEDUPE AFTER MAPPING, not before. `board.repoUrls` is already distinct, but an
+  // override can collapse two of them onto one: a board that links an issue in the
+  // fork AND an issue upstream ends up with the same work repo twice. Phase C then
+  // creates the project branch for the first, meets it again for the second, and
+  // reports "Branch … already exists" about a branch it had made moments earlier —
+  // in a container with no leftovers at all, which is what made it so confusing.
+  const codeRepoUrls = [...new Set(linkedRepoUrls.map((u) => resolveWorkRepo(u, overrides)))];
+
+  // ── REMOTE PREFLIGHT, before the first write (#180) ─────────────────────────
+  //
+  // These conditions used to be evaluated in Phase C, after three phases of writes.
+  // Nothing about them needs those phases: a branch either exists on a remote or it
+  // does not, and that is knowable from `ls-remote` before anything is created. The
+  // adopter met the answer as a failure four phases in, and the failed run left a
+  // pushed branch behind that made every retry fail at the same place.
+  //
+  // Same discipline as `create.ts`: nothing is created until everything is known.
+  const checks: RepoPrecondition[] = codeRepoUrls.map((url) => {
+    let refs: readonly RemoteRef[];
+    try {
+      refs = deps.vcs.lsRemoteRefs(url);
+    } catch (e) {
+      // Unreadable is its own answer, and a common one: a private repo the adopter
+      // has not been granted, or a URL with a typo. Say which repo, and what git said.
+      return { url, verdict: { kind: "no-base" as const, detail: `Cannot read ${url}: ${(e as Error).message}` } };
+    }
+    const standing: RepoStanding | undefined = deps.repoStanding
+      ? deps.repoStanding(url, config.githubOrg)
+      : undefined;
+    return { url, verdict: classifyProjectBranch(refs, config.defaultCodeBranch ?? "dev", branch, url, standing) };
+  });
+  const blockers = preconditionFailures(checks);
+  if (blockers.length) {
+    return {
+      ok: false,
+      code: 1,
+      reason: "preflight-failed",
+      message: `Cannot seed ${projectId} — nothing has been created:\n${blockers.join("\n")}`,
+      // Carried out, not just described: the caller can offer to write these and
+      // run again. gov found the fork; making someone retype what it found is
+      // busywork, and "declared" means consented and recorded, not hand-copied.
+      suggestOverrides: suggestedOverrides(checks),
+    };
+  }
+  const reused = adoptions(checks);
+  if (reused.length) {
+    // Say it. Reusing a branch is a decision made on the adopter's behalf, and the
+    // reason it is safe — no commits of its own — is exactly what they would check.
+    log(`Reusing the project branch left by an earlier attempt in: ${reused.join(", ")}`);
+  }
+  const adoptIn = new Set(reused);
+
   const tx = new Transaction();
+
+  // The one file that makes this directory a governance workspace. Recorded before
+  // anything runs so its disappearance can be REPORTED rather than discovered by
+  // the next command, several minutes later, as "no gov workspace resolved" (#191).
+  const orgConfigPath = path.join(config.govHome, "org-config.yaml");
+  const orgConfigWasThere = deps.fs.pathExists(orgConfigPath);
 
   try {
     // ── Phase A: home stub commit (local; pushed in D) ────────────────────────
     log(`Phase A: home stub projects/${projectId}/`);
     const preSha = deps.vcs.headSha(config.govHome);
+    // UNDO WITHOUT `reset --hard`, and without `clean` (#191).
+    //
+    // Both were pointed at `config.govHome` — the resolved workspace itself, not a
+    // scratch copy — and they are the two git commands that destroy work rather
+    // than move pointers. A seed that failed in Phase C therefore left an adopter
+    // with a workspace that no longer resolved: `org-config.yaml` is written by
+    // `gov setup` and committed by the human, so between those two moments it is an
+    // untracked file sitting in the blast radius.
+    //
+    // The invariant: undoing a PROJECT may touch `projects/<id>/` and that project's
+    // worktrees. It may not touch anything that makes the workspace resolvable.
+    //
+    // `reset --mixed` un-commits and unstages while leaving every file on disk; the
+    // one path this phase created is then removed by name. Nothing else is reachable.
     tx.onRollback("reset home", () => {
-      deps.vcs.resetHard(config.govHome, preSha);
-      deps.vcs.cleanUntracked(config.govHome, "projects");
+      deps.vcs.resetKeepingFiles(config.govHome, preSha);
+      deps.fs.rm(paths.homeStub);
     });
     deps.fs.writeFile(
       path.join(paths.homeStub, ".gitkeep"),
@@ -171,17 +357,36 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
         repos: codeRepoUrls.map((url) => ({ name: repoNameFromUrl(url), url })),
       }),
     );
+    // THE TODO TEMPLATE, READ FROM WHERE IT ACTUALLY SHIPS (Decision 1, 2026-09-14).
+    //
+    // This read `<repo>/framework/knowledge/guidance/todo-template.md`. `framework/` is in
+    // RETIRE_PATHS and was never shipped — the template has always lived at
+    // `knowledge/guidance/`, and now at `governance/guidance/`. So the read returned null, the
+    // guard skipped it silently, and NO project has ever been given a `knowledge/todo.md` —
+    // while the session-start protocol tells every agent to read one and surface its `## Open`
+    // items, and POL-168/169 require it to exist. A missing file behind a null-check is the
+    // quietest way to lose a C01 obligation.
+    //
+    // Not optional any more: without the template the project has no todo list, so say so.
     const todoTemplate = deps.fs.readFile(
-      path.join(orgGovClone, "framework", "knowledge", "guidance", "todo-template.md"),
+      path.join(orgGovClone, "governance", "guidance", "todo-template.md"),
     );
-    if (todoTemplate !== null) {
-      deps.fs.writeFile(path.join(projectDir, "knowledge", "todo.md"), renderTodoMd(todoTemplate, projectId));
+    if (todoTemplate === null) {
+      throw new Error(
+        "seed: governance/guidance/todo-template.md is missing from the governance repo — a "
+        + "project cannot be seeded without a todo list (POL-168). Run `gov upgrade`.",
+      );
     }
-    const tokens = { ...config.orgTokens, PROJECT_ID: projectId };
-    for (const rel of config.toolFiles ?? []) {
-      const src = deps.fs.readFile(path.join(orgGovClone, "framework", rel));
-      if (src !== null) deps.fs.writeFile(path.join(projectDir, rel), substituteTokens(src, tokens));
-    }
+    deps.fs.writeFile(path.join(projectDir, "knowledge", "todo.md"), renderTodoMd(todoTemplate, projectId));
+
+    // THE PER-PROJECT TOOL-FILE SCAFFOLD IS GONE (Decision 1, 2026-09-14).
+    //
+    // It copied the nine harness files from `<repo>/framework/<rel>` into
+    // `projects/<PID>/<rel>`, token-substituted. `framework/` never existed, so all nine reads
+    // returned null and all nine writes were skipped, for as long as the code has existed. It
+    // was also the wrong shape: an agent reads its instructions from the directory it is
+    // launched in — `<project>/` — never from `projects/<PID>/` inside the repo.
+    // `ensureRootProtocol` is the mechanism that works, and it runs on every launch.
     deps.vcs.addPath(orgGovClone, `projects/${projectId}`);
     deps.vcs.commit(orgGovClone, `seed: scaffold project content for ${projectId}`);
 
@@ -192,6 +397,7 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
         { vcs: deps.vcs, fs: deps.fs, tx, cloneRepo: deps.cloneRepo },
         {
           url,
+          adoptExisting: adoptIn.has(url),
           baseBranch: input.repoBases?.[url] ?? config.defaultCodeBranch,
           projectBranch: branch,
           agentWorkRoot: config.agentWorkRoot,
@@ -215,27 +421,75 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     deps.vcs.push(config.govHome, remote, config.defaultBranch);
 
     // ── Anchor issue (best-effort; not transactional) ─────────────────────────
+    // RECORD THE BASE BRANCH, because close cannot work it out later (merge-chain.ts explains why).
+    // One base per project: if the repos disagree there is no single order for close to merge in, so
+    // nothing is recorded and close falls back loudly rather than picking one of them.
+    const declaredBases = [...new Set(codeRepoUrls.map((u) => input.repoBases?.[u] ?? config.defaultCodeBranch))];
     const anchorRef = deps.anchor.createAnchorIssue({
       boardNumber: ref.number,
       title: board.title,
       owner: ref.owner,
       workspaceRepo: config.workspaceRepo,
       assigneeLogin: input.seederLogin ?? null,
+      baseBranch: declaredBases.length === 1 ? declaredBases[0]! : null,
     });
 
     tx.commit();
-    // Make an agent launched at the project ROOT run session-start: mirror the harness + drop the Claude
-    // SessionStart hook. Best-effort finalization — the workspace worktree (with the rendered harness) is
-    // present by now. Same helper the interactive Work flow uses.
+    // Make an agent launched at the project ROOT run session-start: mirror every agent's rendered harness
+    // file to the paths those agents read. (It used to also drop a Claude-only SessionStart hook; removed
+    // 2026-09-11 — one mechanism for all agents.) Best-effort finalization: the workspace worktree, with
+    // the rendered harness in it, is present by now. Same helper the interactive Work flow uses.
     ensureRootProtocol(deps.fs, paths.projectWorkRoot, config.workspaceRepo);
-    return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef };
+
+    // NAME THE BOARD WHAT GOV CALLS IT (Policy Owner, 2026-09-15).
+    //
+    // A board someone titles "Invoice API" becomes `PRJ-26-invoice-api` in every branch,
+    // directory and document gov writes, and nothing on GitHub says so. Prefixing the title to
+    // `PRJ-26 · Invoice API` closes that gap from the GitHub side and keeps the words a person
+    // chose — a board list of bare ids is harder to scan than the names people gave.
+    //
+    // AFTER `tx.commit()`, DELIBERATELY. Everything above is transactional and rolls back; this
+    // is not. A failed rename must not undo a seed that has created branches, worktrees and an
+    // anchor issue, and a rename that succeeded must not be rolled back into a title that no
+    // longer matches anything.
+    //
+    // AT SEED ONLY. gov does not re-assert the title later: one someone edited afterwards is
+    // theirs. `slugify` strips a `PRJ-<n>` prefix repeatedly, so the two drifting apart costs
+    // nothing — which is what makes "seed only" a safe ruling rather than a loose end.
+    let boardRenamed = false;
+    if (deps.board.renameProject) {
+      const wanted = boardTitleFor(projectId, board.title);
+      if (wanted !== board.title) {
+        // Never fatal: the title is a convenience for people reading GitHub, and the project id
+        // lives in the branch and the directory regardless.
+        try { boardRenamed = deps.board.renameProject(ref, wanted) === true; } catch { boardRenamed = false; }
+        log(boardRenamed
+          ? `board #${ref.number} renamed to "${wanted}"`
+          : `board #${ref.number} left as "${board.title}" — gov could not rename it (needs the \`project\` scope)`);
+      }
+    }
+    return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef, boardRenamed };
   } catch (error) {
     const rollbackFailures = tx.rollback();
+    // A rollback that leaves the workspace unresolvable is a bigger event than the
+    // failure that triggered it, and it used to be silent: the reader was told the
+    // seed failed, and found out about the workspace on their next command, phrased
+    // as though they had never had one.
+    const lostOrgConfig = orgConfigWasThere && !deps.fs.pathExists(orgConfigPath);
+    const message = lostOrgConfig
+      ? `${(error as Error).message}\n\n` +
+        `AND THE ROLLBACK DAMAGED THE WORKSPACE: ${orgConfigPath} is gone.\n` +
+        "  That file is what makes this directory a governance workspace, so gov will\n" +
+        "  now report 'no gov workspace resolved' even though the workspace is registered.\n" +
+        "  Restore it with:  git -C " + config.govHome + " checkout -- org-config.yaml\n" +
+        "  or, if it was never committed:  cd " + config.govHome + " && gov setup\n" +
+        "  Please report this — a project's rollback must never un-configure the org."
+      : (error as Error).message;
     return {
       ok: false,
       code: 1,
-      reason: "seed-failed",
-      message: (error as Error).message,
+      reason: lostOrgConfig ? "rollback-damaged-workspace" : "seed-failed",
+      message,
       rollbackFailures,
     };
   }

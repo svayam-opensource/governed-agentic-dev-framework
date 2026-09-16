@@ -25,9 +25,11 @@ function fakeVcs() {
   const log: string[] = [];
   const vcs: Vcs = {
     localBranchExists: () => false, remoteBranchExists: () => true, headSha: () => "h", refExists: () => false,
-    lsRemoteHeads: () => [], defaultBranch: () => null, revParse: () => null, currentBranch: () => "main",
+    lsRemoteHeads: () => [],
+    // The base exists; no project branch yet — the ordinary case the preflight sees.
+    lsRemoteRefs: () => [{ name: "dev", sha: "base-sha" }], defaultBranch: () => null, revParse: () => null, currentBranch: () => "main",
     isAncestor: () => false, isClean: () => true, remoteBranchesMatching: () => [], addPath: () => {}, commit: () => {},
-    resetHard: () => {}, cleanUntracked: () => {},
+    resetHard: () => {}, resetKeepingFiles: () => {}, cleanUntracked: () => {},
     worktreeAdd: (_b, br, wt, sp) => log.push(`worktreeAdd ${wt} ${br} @ ${sp}`),
     worktreeRemove: () => {}, branchDelete: () => {}, push: () => {}, pushDelete: () => {}, clone: () => {},
     fetch: (r, _rm, ref) => log.push(`fetch ${r} ${ref}`), setIdentity: () => {}, checkout: () => {}, checkoutNew: () => {},

@@ -26,7 +26,7 @@ sequenceDiagram
 
 The `/session-start` steps the agent performs:
 1. **Load context** — `org-config.yaml` (org), the active project's `agent.md` +
-   `knowledge/todo.md` (`## Open` items), `knowledge/policies/agentic-development-policy.md`,
+   `knowledge/todo.md` (`## Open` items), `knowledge/policies/org-ai-agent-governance-policy.md`,
    and the developer's prefs.
 2. **Post the context manifest** (Project · Branch · Status · Repos · Open todos ·
    Layers loaded · Awaiting) and stop for direction.

@@ -55,3 +55,20 @@ describe("gov-work — doctor", () => {
     expect(formatDoctorReport(doctor(facts({ gitPresent: false }))).pop()).to.match(/doctor: FAILED/);
   });
 });
+
+describe("gov-work — the doctor report in colour (#204)", () => {
+  // eslint-disable-next-line no-control-regex
+  const strip = (s: string): string => s.replace(/\u001b\[\d+m/g, "");
+
+  it("stripping the codes gives back exactly the plain report", () => {
+    const r = doctor(facts({ gitPresent: false }));
+    expect(formatDoctorReport(r, true).map(strip)).to.deep.equal(formatDoctorReport(r, false));
+  });
+
+  it("plain is the default, and the MARK still tells ok from fail", () => {
+    const lines = formatDoctorReport(doctor(facts({ gitPresent: false })));
+    expect(lines.join("")).to.not.contain("\u001b");
+    expect(lines.some((l) => l.includes("\u2717 git")), "a fail is a cross, not a colour").to.equal(true);
+    expect(lines.some((l) => l.includes("\u2713 CLI version")), "an ok is a tick").to.equal(true);
+  });
+});

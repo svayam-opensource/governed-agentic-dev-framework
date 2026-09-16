@@ -1,0 +1,33 @@
+{
+  "_comment": [
+    "THE INSTALL SITE'S ENVIRONMENTS (#231).",
+    "",
+    "WHAT THIS FILE DOES NOT DECIDE, and deliberately so:",
+    "",
+    "  · the HOSTNAME. A unit's public DN is DERIVED per environment by gov from `app_domain` plus",
+    "    the base domain — prod is bare, every other env carries `-<env>` (svm-prj-work:",
+    "    knowledge/deployment/specs/public-dn-convention.md, ratified PRJ-43 2026-07-28). Listing",
+    "    hosts here would be a second copy of a derived fact, which is the two-copies-never-compared",
+    "    pattern. `dn` below is what gov derives, recorded ONLY so the built page can print it.",
+    "  · the CLIENT VERSION for a deploy. `gov-cicd deploy` owns per-env pins in",
+    "    catalog/pins.yaml and `--promote <from> <to>` copies them env to env (build-once-promote).",
+    "",
+    "INTERIM: prod is on gov.svayamtech.com, not gov.svayam.ai. The DN convention hardcodes the",
+    "apex, so a second SLD is not expressible yet — Svayamtech/910-GOV-CICD#273 requests",
+    "app_domain + base_domain, and that issue also carries the `former_domains` redirect requirement",
+    "so the eventual switch keeps old links working. Change `base` here when #273 lands.",
+    "",
+    "PRERELEASE CHANNELS DO NOT EXIST YET. The published package carries exactly one dist-tag",
+    "(latest -> 1.2.2): no next, no uat, no dev. So uat and dev pin the SAME client as prod and",
+    "differ only in the SCRIPT ref. They can diverge the moment a prerelease channel is published;",
+    "pinning them at a channel that does not exist would fail with `No matching version found`."
+  ],
+  "app_domain": "gov",
+  "base": "svayamtech.com",
+  "envs": {
+    "prod": { "ref": "v1.2.2", "pkg": "@svayam-opensource/gov@1.2.2", "label": null, "robots": "index, follow" },
+    "uat":  { "ref": "uat",    "pkg": "@svayam-opensource/gov@1.2.2", "label": "UAT — release candidate. Not the version to adopt.", "robots": "noindex, nofollow" },
+    "dev":  { "ref": "dev",    "pkg": "@svayam-opensource/gov@1.2.2", "label": "DEV — the tip of the dev branch. Expect it to be broken.", "robots": "noindex, nofollow" }
+  },
+  "versioned": ["v1.2.2"]
+}

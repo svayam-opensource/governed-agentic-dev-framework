@@ -14,14 +14,30 @@ import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
-import { readExistingOrgConfig } from "../setup/setup.js";
-import { parseTarget, preflight as createPreflight, explainFailure, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, ADOPTER_DIRS, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
+import type { SetupPreAnswers } from "../setup/interview.js";
+import { log, closeLog } from "../log.js";
+import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
+import { interviewSummary } from "../setup/interview.js";
+import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, INHERITED_FILES, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
+import { verifyAgentContext } from "../lifecycle/root-protocol.js";
+import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
+import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
+import { askFns, type AskFns } from "./ask.js";
+import { reporter, useColor, wrap, type Reporter } from "./format.js";
+import { desktopHint, preferCli, browserCaveat } from "./desktop.js";
+/** One answer for the whole process: whether STDOUT can carry ANSI (#204). */
+const stdoutColor = (): boolean => useColor({ isTty: process.stdout.isTTY === true, env: process.env });
+/** The same question for STDERR, where every prompt and progress line goes (#204). The two
+ *  streams are redirected independently, so they are asked separately. */
+const stderrColor = (): boolean => useColor({ isTty: process.stderr.isTTY === true, env: process.env });
+import { AGENT_CATALOG, harnessFileFor, type AgentCandidate } from "./agent-catalog.js";
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
+import { withRepoOverrides } from "../config/repo-overrides.js";
 import { assembleNeeds } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
@@ -35,6 +51,8 @@ import { createGhProjects } from "../lifecycle/project-list.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
+import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes } from "../maintain/fix-env.js";
+import { checklist, renderChecklist, checklistPreamble, statusSoFar, finalStatus, stepBanner, stepDone, type ChecklistFacts } from "./checklist.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
@@ -42,6 +60,11 @@ import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } 
 import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
+import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
+import { parseApprovedAgents, withApprovedAgents } from "../config/approved-agents.js";
+import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
+import { planAgentInstall } from "./agent-verb.js";
+import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { parseArgv, flagStr } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 import { orgAdd, orgUse } from "../resolve/org.js";
@@ -53,6 +76,526 @@ function tryRun(cmd: string, args: string[]): string | undefined {
     return execFileSync(cmd, args, { encoding: "utf8" }).trim();
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * What GitHub says about this adopter's standing in a repo (#194): may they push,
+ * and do they have a fork of it under their own org? Both are one API call each,
+ * and both are unknowable from `git ls-remote` — which is why "base branch 'dev'
+ * does not exist" used to be the only thing a fork-based adopter was told.
+ */
+const repoStanding = (url: string, githubOrg: string): { canPush: boolean; forkUnderOrg: string | null } | undefined => {
+  const m = /github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim());
+  if (!m) return undefined;
+  const [owner, name] = [m[1]!, m[2]!];
+  const canPush = ((): boolean | undefined => {
+    const out = tryRun("gh", ["api", `repos/${owner}/${name}`, "--jq", ".permissions.push"]);
+    return out === undefined ? undefined : out.trim() === "true";
+  })();
+  if (canPush === undefined) return undefined;              // unknown is not "no"
+  // A fork under the adopter's org, named the same, whose parent is this repo.
+  const forkUnderOrg = owner.toLowerCase() === githubOrg.toLowerCase()
+    ? null
+    : ((): string | null => {
+        const parent = tryRun("gh", ["api", `repos/${githubOrg}/${name}`, "--jq", ".parent.full_name // empty"]);
+        return parent && parent.trim().toLowerCase() === `${owner}/${name}`.toLowerCase() ? `${githubOrg}/${name}` : null;
+      })();
+  return { canPush, forkUnderOrg };
+}
+
+/**
+ * Fork mappings the last `seed` proposed (#194).
+ *
+ * Deliberately a handover, not a prompt: `route()` is synchronous and owns no
+ * terminal, and the flow that called it — `runWorkFlow` — already holds a readline
+ * on the one terminal there is. Two readers of the same terminal is how the first
+ * two attempts at this question answered themselves.
+ */
+let pendingRepoOverrides: readonly { readonly from: string; readonly to: string }[] = [];
+
+async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>, ask: AskFns): Promise<boolean> {
+    if (!plan.ok) return false;
+    // HEADLESS INSTALLS, AND NEVER SIGNS ANYONE IN (#196, Q11). The consent for
+    // installing already happened, in policy, by the Infrastructure Owner — that is
+    // what an approved list IS. Authentication cannot be delegated to anybody, so
+    // it is left, and the machine ends in a state `gov agent` can describe:
+    // installed, not signed in.
+    const headless = !process.stdin.isTTY;
+    // NAMED PHASES AND TWO MARKS (#204). The arrow is under way, the tick is true now. It was
+    // one mark doing both jobs, in a wall of text dense enough that a five-minute browser
+    // sign-in arrived with no break before it.
+    const r0 = reporter(stdoutColor());
+    const say = (l: string): void => { process.stdout.write(`${l}\n`); };
+    const sayAll = (ls: readonly string[]): void => { for (const l of ls) say(l); };
+
+    sayAll(r0.phase(`Installing ${plan.agent.tool}`));
+    // SHOWN BEFORE ANYTHING RUNS, with WHERE IT COMES FROM (#201). An adopter who approved a
+    // vendor can only refuse a package that is not theirs if they are told which one it is.
+    for (const s of plan.steps) say(r0.step(s.command.join(" ")));
+    if (plan.agent.install?.url) say(r0.step(`Vendor: ${plan.agent.install.url}`));
+    say("");
+
+    let ok = true;
+    for (const s of plan.steps) {
+      say(r0.step(`${s.what}…`));
+      const [bin, ...rest] = s.command;
+      const r = spawnSync(bin!, rest, { stdio: "inherit" });
+      if (r.status !== 0) { ok = false; say(r0.fail(`${s.what} failed — see above`)); }
+    }
+    if (!ok) return false;
+
+    // INSTALLED IS NOT RUNNABLE (#202). npm exiting 0 says a package was written to disk;
+    // it says nothing about whether the command it claims to provide runs. An `ibm-bob`
+    // install produced a `bob` with no shebang — thirty lines of shell errors, after three
+    // ticks and a "Starting it in…". So the plan's own probe is re-run against the thing
+    // the plan just created, and installed-but-not-runnable is reported as what it is.
+    const version = plan.agent.cmd ? tryRun(plan.agent.cmd, ["--version"]) : undefined;
+    if (plan.agent.cmd && version === undefined) {
+      say("");
+      say(r0.fail(`${plan.agent.tool} installed, but '${plan.agent.cmd}' does not run.`));
+      say("    The install reported success, so this is the vendor's package, not your machine.");
+      if (plan.agent.install?.url) say(`    Check ${plan.agent.install.url}, and tell gov-work what you find.`);
+      return false;
+    }
+    // SAY WHAT IS TRUE, not that something happened: the version is the proof the probe just
+    // gathered, and "Bob Shell 2.0.2 installed" is a claim a reader can check.
+    say("");
+    say(r0.ok(`${plan.agent.tool}${version ? ` ${version.trim().split("\n")[0]}` : ""} installed and runnable`));
+    // AND RUNNABLE AFTER GOV EXITS (#209). It ran a moment ago only because gov's own process
+    // has its private Node directory on PATH. A plain login shell does not, and must not — that
+    // directory is private so gov's Node never becomes the machine's Node. `install.sh` solved
+    // this for `gov` with a two-line wrapper; the agent gets the same one, or the adopter gets
+    // `bob: command not found` while reading the vendor's own advice to run `bob --resume`.
+    if (plan.agent.cmd) {
+      sayAll(linkOutcomeLines(linkAgentIntoPath(plan.agent.cmd), plan.agent.cmd, r0));
+    }
+
+    // SIGNING IN IS THE PART NOBODY CAN AUTOMATE. Even the account is theirs to
+    // create — no vendor exposes signup as an API, and gov holds no credential.
+    if (headless) {
+      process.stdout.write("\n  No terminal here, so gov stopped before signing you in — nobody else can do\n" +
+                           `  that step. On a machine with a terminal: ${plan.signIn ? plan.signIn.join(" ") : "sign in to " + plan.agent.tool}\n`);
+      return true;
+    }
+    if (plan.signupUrl) {
+      process.stdout.write(`\n  If you do not have an account yet: ${plan.signupUrl}\n`);
+    }
+    // A CHOICE, NAMED, THE WAY `gh` ASKS IT (#213).
+    //
+    //     How would you like to authenticate GitHub CLI?
+    //     > Login with a web browser
+    //       Paste an authentication token
+    //
+    // gov used to decide FOR the adopter: a login command was run without asking, and only an
+    // agent with neither a login command nor `signsInItself` was offered a key. On a container
+    // that meant handing the terminal to a tool that opened a browser nobody could reach, with
+    // the one route that works never mentioned. Both routes are named now, for every agent
+    // that has them, and nothing is inferred from the machine.
+    const facts: SignInFacts = {
+      tool: plan.agent.tool,
+      loginCommand: plan.signIn,
+      signsInItself: plan.agent.signsInItself ?? false,
+      credentialEnv: plan.agent.credentialEnv ?? null,
+      // gov has had this answer since #221 and was not using it here — see signInPrompt.
+      desktop: desktopHint(),
+    };
+    const options = signInOptions(facts);
+    // One real option means no question worth asking — offering a menu of one is theatre.
+    let chosen: SignInMethod = options.length > 1 ? "skip" : options[0]!.method;
+    if (options.length > 1) {
+      for (const line of signInPrompt(facts, options)) process.stdout.write(`${line}\n`);
+      // Bounded, and it re-asks rather than ending: the same rule as #192. A stream that
+      // cannot answer falls through to skip, which is safe and reversible.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const answer = await ask.line(`  Choose [1-${options.length}]: `);
+        const m = parseSignInChoice(answer, options);
+        if (m) { chosen = m; break; }
+        process.stdout.write(`  ✗ '${answer}' is not one of the choices.\n`);
+      }
+    }
+
+    if (chosen === "login-command" && plan.signIn) {
+      process.stdout.write(`\n  Signing you in — ${plan.signIn.join(" ")} takes over from here.\n\n`);
+      const [bin, ...rest] = plan.signIn;
+      spawnSync(bin!, rest, { stdio: "inherit" });
+      return true;
+    }
+    // TIER 2: GOV HANDLES THE KEY (#196 Q6, wired in #200, made unconditional in #213).
+    if (chosen === "api-key") return await captureAgentKey(plan.agent, ask);
+
+    // WHAT WAS SKIPPED IS THE AGENT'S ROUTE, NOT THE CHOICE JUST MADE. Reading `chosen` here
+    // asked "did you pick the browser?" when the answer is always "no, I picked skip" — so an
+    // agent that signs itself in was told it "cannot run until it has a key", which is exactly
+    // the #208 conflation running the other way. The journey suite caught it on the first run.
+    const primary = plan.signIn ? "login-command" : plan.agent.signsInItself ? "browser-at-start" : "none";
+    for (const line of afterSkip(facts, primary)) process.stdout.write(`${line}\n`);
+    if (plan.agent.credentialEnv) {
+      if (plan.agent.signupUrl) process.stdout.write(`    get a key at   ${plan.agent.signupUrl}\n`);
+      process.stdout.write(`    then:          export ${plan.agent.credentialEnv}=<your key>\n`);
+      process.stdout.write(`    or re-run:     gov agent install ${plan.agent.id}   (it asks again)\n`);
+    }
+    // Skipping leaves an agent that can still authenticate itself USABLE, and one that cannot
+    // NOT — the distinction #208 collapsed, in the other direction. Read from the agent's own
+    // route for the same reason as above: `chosen` is "skip" by construction here.
+    return primary !== "none";
+  }
+
+/**
+ * Ask for an API key, write it where it belongs, and say honestly whether the agent can run.
+ *
+ * Returns whether the agent is USABLE NOW. That is the answer the caller needs: it was being told
+ * "installed" and printing "ready", which are not the same claim about an agent with no credential.
+ *
+ * ENTER IS A REAL ANSWER. Someone who has not created an account yet is told exactly how to finish,
+ * naming the variable and the verb — the alternative is the dead end this replaces.
+ */
+async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<boolean> {
+  const envVar = agent.credentialEnv;
+
+  // NEVER ASSUME A BROWSER (#213, Policy Owner). This used to return here for an agent that
+  // `signsInItself`, on the reasoning that the vendor handles authentication — true, and true
+  // ONLY WHERE A BROWSER EXISTS. The flag describes the AGENT; whether its flow can complete
+  // is a property of the agent × the MACHINE, and gov was checking one half.
+  //
+  // A real walk found the other half: on a container, Bob printed
+  // `callback_uri=http://127.0.0.1:38701/bob-callback` and waited forever. That listener is on
+  // the CONTAINER's loopback; the browser was on the host. Same address, different machines.
+  // Containers, servers over SSH and CI boxes are most of the Linux gov will ever run on.
+  //
+  // AND GOV DOES NOT TRY TO DETECT IT. Every heuristic — $DISPLAY, xdg-open, $SSH_CONNECTION —
+  // is wrong on some real machine, and being wrong here means silently withholding the only
+  // way through. So the key is ALWAYS offered where the agent can take one; `signsInItself`
+  // now changes the WORDING and the meaning of skipping, never whether the offer is made.
+  if (!envVar) {
+    // Nothing to offer, and saying so beats silence: the adopter is about to be handed to a
+    // tool that may ask for a browser this machine does not have.
+    process.stdout.write(`\n  ${agent.tool} signs in through its own client — gov has no key to store for it.\n`);
+    process.stdout.write("  If it asks for a browser and this machine has none, sign in on one that does.\n");
+    return true;
+  }
+  if (process.env[envVar]) {
+    process.stdout.write(`\n  ${envVar} is already set — ${agent.tool} has what it needs.\n`);
+    return true;
+  }
+
+  const me = tryRun("gh", ["api", "user", "--jq", ".login // empty"])?.trim() || "";
+  const r = prjResolveGov(createNodeEnv());
+  const cfgText = r.ok && fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+    ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+  const workRoot = cfgText ? parseOrgConfig(cfgText).agentWorkRoot : "";
+  // No work root and no login means nowhere to keep the backup — say so rather than inventing a path.
+  const prefsDir = workRoot && me ? path.join(expandHome(workRoot), "preferences", me) : null;
+  // Verified per vendor or absent. A guessed config path fails at the worst moment, silently, and
+  // the same caution is already recorded for the extension ids.
+  const configPath = agent.credentialFile ? expandHome(agent.credentialFile) : null;
+
+  if (configPath && prefsDir) {
+    for (const line of credentialNotice(agent.id, configPath, prefsDir)) process.stdout.write(`${line}\n`);
+  } else if (agent.signsInItself) {
+    // The browser is the vendor's preferred route and gov does not pretend to know whether it
+    // is available. Both ways out are named, and neither is presented as the fallback.
+    process.stdout.write(`\n  ${agent.tool} signs in through a browser. gov cannot tell whether this machine\n`);
+    process.stdout.write("  has one, and does not need to guess:\n\n");
+    process.stdout.write(`    · paste an API key now and gov will store it${agent.signupUrl ? ` — get one at ${agent.signupUrl}` : ""}\n`);
+    process.stdout.write(`    · or press Enter, and sign in when ${agent.tool} starts\n\n`);
+  } else {
+    process.stdout.write(`\n  ${agent.tool} signs in with an API key rather than a browser.\n`);
+    process.stdout.write(`  gov does not know where ${agent.tool} keeps its config, so it will not guess:\n`);
+    process.stdout.write(`  the key goes in your environment as ${envVar}.\n\n`);
+  }
+
+  const key = await ask.secret(`  Paste the ${envVar} (hidden), or press Enter to skip: `);
+  if (!key) {
+    // SKIPPING MEANS DIFFERENT THINGS, and reporting them the same way is how #208 happened in
+    // reverse. An agent that signs itself in is READY — it will ask when it starts, and on a
+    // machine with a browser that is the better route. An agent that has only a key is not.
+    if (agent.signsInItself) {
+      process.stdout.write(`\n  Nothing saved. ${agent.tool} will ask you to sign in when it starts.\n`);
+      process.stdout.write("  If that turns out to need a browser this machine does not have:\n");
+      if (agent.signupUrl) process.stdout.write(`    get a key at   ${agent.signupUrl}\n`);
+      process.stdout.write(`    then:          export ${envVar}=<your key>\n`);
+      process.stdout.write(`    or re-run:     gov agent install ${agent.id}   (it asks again)\n`);
+      return true;
+    }
+    process.stdout.write(`\n  Nothing saved. ${agent.tool} is installed but cannot run yet.\n`);
+    if (agent.signupUrl) process.stdout.write(`  Get a key:      ${agent.signupUrl}\n`);
+    process.stdout.write(`  Then either:    export ${envVar}=<your key>\n`);
+    process.stdout.write("  or re-run:      gov agent install " + agent.id + "   (it asks again)\n");
+    return false;
+  }
+
+  const writes = planCredentialWrites(agent.id, key, configPath ?? "", prefsDir ?? "");
+  let wrote = 0;
+  for (const w of writes) {
+    if (!w.path || w.path === "/credentials") continue;         // no destination for this half
+    try {
+      fsSync.mkdirSync(path.dirname(w.path), { recursive: true, mode: 0o700 });
+      fsSync.writeFileSync(w.path, w.contents, { mode: w.mode });
+      fsSync.chmodSync(w.path, w.mode);                          // an existing file keeps its old mode otherwise
+      process.stdout.write(`  ✓ written: ${w.path}\n`);
+      wrote++;
+    } catch (e) {
+      process.stdout.write(`  ✗ could not write ${w.path}: ${(e as Error)?.message ?? String(e)}\n`);
+    }
+  }
+  if (!wrote) {
+    process.stdout.write(`  Nothing could be written. Set it yourself:  export ${envVar}=<your key>\n`);
+    return false;
+  }
+  // AND GIVE IT TO THE AGENT GOV IS ABOUT TO LAUNCH.
+  //
+  // Without this the key was collected, stored, and then withheld from the only process that
+  // needed it: gov spawns the agent with the environment it inherited, which never had the
+  // variable. An adopter pasted a key, watched gov write it, and was handed Bob's browser
+  // sign-in a second later — because as far as Bob could tell, no key existed.
+  //
+  // Set on THIS process only. Nothing is written to a shell profile: gov does not get to
+  // change what a person's terminal carries after it exits (#211 is that lesson), and every
+  // agent gov launches is a child of this process.
+  process.env[envVar] = key;
+  // The line below is about the adopter's OWN shell afterwards, which is a different thing
+  // from the child gov starts — and only worth saying where the agent reads no config file.
+  if (!configPath) process.stdout.write(`  For this shell too:  export ${envVar}=<your key>\n`);
+  return true;
+}
+
+/**
+ * Give an agent installed beside gov's private Node a way to be found afterwards (#209).
+ *
+ * The same wrapper `install.sh` writes for `gov`, for the same reason: a symlink would be
+ * found and then fail with `env: 'node': No such file or directory`, because Node lives in the
+ * directory the wrapper exists to add. Found but unrunnable is worse than not found.
+ *
+ * RETURNS AN OUTCOME, NOT A NULL — because three very different things used to come back as
+ * the same nothing, and the adopter saw the same nothing for all three:
+ *
+ *   not-ours          the binary is not beside gov's Node; a vendor put it somewhere already
+ *                     on PATH, so there is genuinely nothing to do and nothing to say
+ *   nowhere-to-link   `~/.local/bin` is not on PATH, so a wrapper there is a file nobody
+ *                     finds — the agent will NOT be runnable once gov exits
+ *   wrapper-failed    the wrapper was written and could not run, so it was removed
+ *
+ * The last two have a consequence the adopter meets minutes later; the first has none. This
+ * function's own comment used to say that telling them apart was impossible from the screen,
+ * "which is how #209's guard no-opped the fix without anyone being able to tell which branch
+ * had been taken" — and then it returned `null` for all three anyway. On debian:stable-slim
+ * and ubuntu:24.04, where `~/.local/bin` is not on PATH, that produced `✓ Bob Shell 2.0.2
+ * installed and runnable` followed by `bob: command not found`, with the only record a `warn`
+ * in a log nobody had switched on.
+ *
+ * Resolved 2026-09-11 with option (b) of the two on the table: gov does NOT start editing shell
+ * profiles (POL/#211 — gov does not change what a person's terminal carries after it exits),
+ * it SAYS what is true. The caller turns each outcome into the right line.
+ *
+ * PROVED, NOT ANNOUNCED. If the wrapper cannot run, it is removed and nothing is claimed —
+ * `install.sh` does exactly this, and it is the reason gov's own link is trustworthy.
+ */
+export type LinkOutcome =
+  /** A wrapper exists in `dir` and ran; the command works after gov exits. */
+  | { readonly kind: "linked"; readonly dir: string }
+  /** Not beside gov's Node — already reachable by whatever put it there. Say nothing. */
+  | { readonly kind: "not-ours" }
+  /** `dir` is not on PATH, so nothing was written. `nodeBin` is where the binary actually is. */
+  | { readonly kind: "nowhere-to-link"; readonly dir: string; readonly nodeBin: string }
+  /** A wrapper was written in `dir`, did not run, and was removed. */
+  | { readonly kind: "wrapper-failed"; readonly dir: string; readonly nodeBin: string };
+
+/**
+ * What to tell the adopter about an agent gov installed but cannot put on their PATH.
+ *
+ * Kept separate from the writing so it can be tested without a filesystem, and so the wording
+ * lives next to the outcome it explains rather than inside an `if` in a 400-line flow.
+ * Returns no lines for the two outcomes that need none.
+ */
+export function linkOutcomeLines(o: LinkOutcome, cmd: string, r: Reporter): readonly string[] {
+  if (o.kind === "linked") {
+    return [r.ok(`linked into ${o.dir}, so \`${cmd}\` works after gov exits`)];
+  }
+  if (o.kind === "not-ours") return [];   // a vendor put it on PATH; nothing happened, nothing owed
+
+  // WRAPPED AT 80 COLUMNS, BY HAND. The paths in here are long enough that one sentence per
+  // line runs past 100 characters, and a warning that wraps mid-word in the terminal it is
+  // meant to be read in is a warning that gets skipped. The same lesson as the bullet
+  // indicator that wrapped and repeated itself thirty times.
+  const head = [
+    r.warn(`\`${cmd}\` will not be on your PATH after gov exits.`),
+    `    It is installed and working, in gov's own Node directory:`,
+    `      ${o.nodeBin}`,
+    "    That directory is deliberately private, so gov's Node never becomes",
+    "    your machine's Node — which is why the command needs a shortcut.",
+    "",
+  ];
+  // THE REMEDY DIFFERS, so it cannot be one shared block. `nowhere-to-link` is the adopter's
+  // PATH and they can fix it; `wrapper-failed` is gov's shortcut failing to run, which they
+  // cannot fix and should not be asked to. Telling someone to add a directory that is already
+  // on their PATH — as a shared block did — is advice that cannot work.
+  const remedy = o.kind === "nowhere-to-link"
+    ? [
+        `    gov did not add a shortcut in ${o.dir},`,
+        "    because that directory is not on your PATH. Either:",
+        "",
+        `      · add ${o.dir} to your PATH and run this install`,
+        "        again — gov will add the shortcut next time",
+        `      · or run it by its full path: ${path.join(o.nodeBin, cmd)}`,
+      ]
+    : [
+        `    gov wrote a shortcut in ${o.dir} and it did not run,`,
+        "    so gov removed it rather than leave you a command that is found",
+        "    and then fails. This one is gov's to fix, not yours.",
+        "",
+        `      · run it by its full path: ${path.join(o.nodeBin, cmd)}`,
+        "      · and please report it — a shortcut that will not run is a bug",
+      ];
+  return [...head, ...remedy];
+}
+
+function linkAgentIntoPath(cmd: string): LinkOutcome {
+  const nodeBin = path.dirname(process.execPath);
+  const target = path.join(nodeBin, cmd);
+  // BOTH REFUSALS, NAMED. This function returns null for two entirely different reasons and the
+  // adopter sees the same nothing either way — which is how #209's guard no-opped the fix
+  // without anyone being able to tell from the screen which branch had been taken.
+  if (!fsSync.existsSync(target)) {
+    log("debug", "no wrapper written: the command is not beside gov's node",
+      "gov-work:cli:main", "linkAgentIntoPath", { cmd, nodeBin });
+    return { kind: "not-ours" };                                     // installed elsewhere; not ours to link
+  }
+  const pathDirs = (process.env.PATH ?? "").split(path.delimiter);
+  // THE WRONG PATH WAS BEING ASKED. This used to skip the wrapper when `nodeBin` was already
+  // on PATH — "already reachable without help" — reading gov's OWN process environment. But
+  // `install.sh` does `export PATH="$NODE_DIR/bin:$PATH"` before running gov, so that is
+  // ALWAYS true during an install, and the wrapper was never written. The adopter's shell,
+  // started before any of this, has no such entry, and answered `bob: command not found`
+  // seconds after Bob printed `bob --resume`. The whole point of #209, no-opped by its guard.
+  //
+  // gov's PATH is the login shell's PATH plus whatever the installer added to it. So a
+  // directory's presence is evidence about the adopter's shell only for entries gov did not
+  // add — which `~/.local/bin` is, and `nodeBin` is exactly not. A redundant wrapper costs
+  // nothing; a missing one costs the thing this function exists for.
+  const dir = path.join(os.homedir(), ".local", "bin");
+  if (!pathDirs.includes(dir)) {
+    // WARN, not debug: this one has a consequence the adopter will meet later, when the agent
+    // gov just installed is not on their PATH after gov exits. It should be in the log of a
+    // run nobody thought to switch anything on for.
+    log("warn", "no wrapper written: ~/.local/bin is not on PATH, so the agent will not be found after gov exits",
+      "gov-work:cli:main", "linkAgentIntoPath", { cmd, dir });
+    // AND NOW IT IS SAID ON SCREEN TOO. A warn in the log was the whole of the record for the
+    // adopter's most likely next surprise; the caller prints this one.
+    return { kind: "nowhere-to-link", dir, nodeBin };                // a file nobody would find
+  }
+  const shim = path.join(dir, cmd);
+  try {
+    fsSync.mkdirSync(dir, { recursive: true });
+    fsSync.writeFileSync(shim,
+      `#!/bin/sh\n# written by gov — see #209\nPATH="${nodeBin}:$PATH"; export PATH\nexec "${target}" "$@"\n`,
+      { mode: 0o755 });
+    fsSync.chmodSync(shim, 0o755);
+    if (tryRun(shim, ["--version"]) === undefined) {
+      fsSync.rmSync(shim, { force: true });
+      return { kind: "wrapper-failed", dir, nodeBin };
+    }
+    return { kind: "linked", dir };
+  } catch { return { kind: "wrapper-failed", dir, nodeBin }; }
+}
+
+/** `~/x` → `<home>/x`. Paths in org-config and the catalog are written for humans. */
+function expandHome(p: string): string {
+  return p.startsWith("~/") ? path.join(os.homedir(), p.slice(2)) : p;
+}
+
+
+
+
+/**
+ * An asker for code paths that read rather than ask — `myProjects` and friends.
+ *
+ * It THROWS. Returning "" would be the fallback this whole change removes: a question that
+ * looks answered. If this is ever reached, something is asking from a place that has no
+ * terminal, and a stack trace is the useful answer.
+ */
+const neverAsks: AskFns = {
+  line: () => { throw new Error("asked a question from a read-only path"); },
+  secret: () => { throw new Error("asked for a secret from a read-only path"); },
+};
+
+/**
+ * What an agent does on its FIRST run that gov should warn about, because gov is about to hand
+ * over the terminal and cannot help once it has.
+ *
+ * These are the vendor's screens, not gov's, and gov must not pretend otherwise — but watching
+ * someone press Enter for eighteen seconds at a prompt that wanted `y` is a cost gov can remove
+ * with two lines. Only add an entry that has been SEEN on a real machine; a guess here is worse
+ * than silence, because it teaches a keystroke that may not exist.
+ */
+function firstRunNote(agent: string): readonly string[] | null {
+  if (agent === "ibm-bob") {
+    // WHAT A WALK ACTUALLY SAW. The first version of this note said Enter "opens the licence in
+    // a viewer", read off Bob's own wording. It does not — on a machine with no desktop Enter
+    // does nothing observable at all, which is worse than the note described and is the whole
+    // reason someone sits there pressing it. Say only what was seen.
+    return [
+      "On first run IBM Bob shows its licence screen. Press `y` to accept.",
+      "Enter appears to do nothing there — it is not the key that continues.",
+    ];
+  }
+  return null;
+}
+
+/**
+ * Hold the screen until the person is ready, so the prompt above survives the agent's UI.
+ *
+ * Returns immediately when there is no terminal: a non-interactive run has nobody to wait for,
+ * and blocking there would turn a scripted `gov work` into a hang.
+ */
+async function pauseBeforeLaunch(agent: string): Promise<void> {
+  if (!process.stdin.isTTY) return;
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    await new Promise<void>((resolve) => rl.question(`  Press Enter to start ${agent}… `, () => resolve()));
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * A first-run gate the adopter has just read, and the offer to clear it here.
+ *
+ * IBM Bob will not accept a first message until its licence is accepted:
+ *
+ *     Error: A license agreement is required. Please accept the license terms before proceeding.
+ *     Launch Bob Shell in interactive mode or view license with `bob --show-license`
+ *
+ * gov was launching with `-p`, which is a mode that can never show that screen — while printing
+ * "On first run IBM Bob shows its licence screen. Press `y` to accept", so the advice and the
+ * action disagreed. A walk on 2026-09-13 ended there.
+ *
+ * WHY GOV DOES NOT JUST PASS `--accept-license`. Accepting a vendor's licence is a legal act by
+ * a person. A tool that performs it silently on their behalf is the category of thing this
+ * framework exists to prevent — and driving the prompt with a pty, which gov's own test harness
+ * could do, is the same act laundered through automation.
+ *
+ * WHY NOT A SECOND TERMINAL, which is the obvious shape. A container has no terminal emulator
+ * at all — no xterm, no gnome-terminal — and the container walk is exactly where this bites. gov
+ * does not need one: it is a foreground process that already owns the adopter's terminal, so it
+ * hands that over, waits, and takes it back.
+ *
+ * WHY NO PER-AGENT FLAG, AND NO READING THE ERROR. gov reacts to the observable fact — the agent
+ * exited non-zero almost immediately — and says nothing about the cause, because the adopter has
+ * just read the cause on their own screen. That keeps this general to any agent with a first-run
+ * gate, and keeps gov from asserting a diagnosis it did not make.
+ */
+const IMMEDIATE_EXIT_MS = 15_000;
+
+/** `Continue [Y/n] : ` on the controlling terminal. Enter means yes, matching install.sh. */
+async function askYes(question: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return false;         // nobody to ask; do not assume consent
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const a = await new Promise<string>((resolve) => rl.question(`  ${question} [Y/n] : `, resolve));
+    return !/^n(o)?$/i.test(a.trim());
+  } finally {
+    rl.close();
   }
 }
 
@@ -70,7 +613,7 @@ const TEMPLATE_REPO = "svayam-opensource/governed-agentic-dev-framework";
  * by this tool. The org slug is asked first because it is what decides where the clone goes (contract R9)
  * — there is no point creating anything before we know that.
  */
-async function runCreateWorkspace(rawTarget: string, flags: Record<string, string | boolean>): Promise<{ home: string; slug: string } | number> {
+async function runCreateWorkspace(rawTarget: string, flags: Record<string, string | boolean>, preAnswers?: SetupPreAnswers): Promise<{ home: string; slug: string } | number> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def: string): Promise<string> =>
     new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || def)));
@@ -92,13 +635,27 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
     // Named for what it DECIDES. Asking "Org slug" here and again in the setup flow read as the same
     // question twice; this one chooses the governance home's location, the later one is the org-config
     // value (pre-filled from this answer). #159 finding 1a.
-    const slug = parsedTarget
-      ? await ask("Governance home ~/.gov/<slug> (uppercase, 2-6 chars)", defaultSlug)
-      : defaultSlug;
+    // ALREADY ANSWERED (Q5) when the org interview ran — see setup/interview.ts. Asking
+    // here as well is the same defect #159 finding 1a fixed downstream: one fact, two
+    // prompts, nothing reconciling a disagreement between them.
+    const slug = preAnswers?.orgSlug
+      ? preAnswers.orgSlug
+      : parsedTarget
+        ? await ask(
+            "A 2-6 character uppercase token for your organization. Choose it carefully — it is used\n" +
+            `  throughout, including the workspace folder where all governance files live (~/.gov/<slug>)`,
+            defaultSlug,
+          )
+        : defaultSlug;
 
     const pathFlag = typeof flags["path"] === "string" ? (flags["path"] as string) : undefined;
     const pre = createPreflight(io, rawTarget, slug, pathFlag);
     if (!pre.ok) {
+      // WHICH ARM REFUSED. `explainFailure` writes prose for the adopter; the log records the
+      // discriminant, so a report of "it just stopped" can be answered without a re-run. This
+      // is the last gate before anything is created, and the one most often reached blind.
+      log("warn", "preflight refused — nothing was created", "gov-work:setup:create", "preflight",
+        { target: rawTarget, slug, reason: pre.failure });
       for (const line of explainFailure(pre.failure)) process.stderr.write(`${line}\n`);
       return 1;
     }
@@ -163,6 +720,8 @@ export async function runSetupCommand(
   argv: readonly string[],
   now: string = new Date().toISOString(),
   cwd: string = process.cwd(),
+  /** Answers already collected by the org interview — nothing here is asked again. */
+  pre?: SetupPreAnswers,
 ): Promise<number> {
   const parsed = parseArgv(argv);
   const nonInteractiveFlag = !("error" in parsed) && "non-interactive" in parsed.flags;
@@ -175,7 +734,7 @@ export async function runSetupCommand(
   // the cwd — creation must never be inferred from location, so a CI re-run cannot make a repository.
   const positional = "error" in parsed ? [] : parsed.positionals;
   if (positional.length > 0 && !nonInteractiveFlag) {
-    const created = await runCreateWorkspace(positional[0], "error" in parsed ? {} : parsed.flags);
+    const created = await runCreateWorkspace(positional[0], "error" in parsed ? {} : parsed.flags, pre);
     if (typeof created === "number") return created;
     cwd = created.home;                             // continue into the normal flow, inside the new clone
     createdHome = created.home;
@@ -187,11 +746,47 @@ export async function runSetupCommand(
       const dir = path.join(created.home, d);
       if (fsSync.existsSync(dir)) fsSync.rmSync(dir, { recursive: true, force: true });
     }
+    // AND THE FRAMEWORK'S OWN ROOT FILES — see INHERITED_FILES for what this cost.
+    // Without this the template's AGENTS.md survived the seed (no baseline on a first seed
+    // means scaffold-prompt calls it a conflict and skips it), and codex and ibm-bob were
+    // governed by this repository's contributor notes instead of the protocol.
+    for (const f of INHERITED_FILES) {
+      const file = path.join(created.home, f);
+      if (fsSync.existsSync(file)) fsSync.rmSync(file, { force: true });
+    }
     const seed = runUpgradeSync(path.join(created.home, "publish", "content"), created.home, { apply: true });
     if (seed.code !== 0) {
       for (const l of seed.lines) process.stderr.write(`${l}\n`);
       process.stderr.write(`gov setup: could not seed content from publish/. The repo exists — re-run to resume.\n`);
       return 1;
+    }
+    // THE ORGANIZATION'S AGENT POLICY, WRITTEN BEFORE THE COMMIT (#196).
+    //
+    // This used to be written by `approveAgents` in bootstrap.ts, AFTER `createWorkspace`
+    // returned — which is after the `git add -A && git commit && git push` at the end of this
+    // function. So the adopter answered the question, the file changed in the working tree, and
+    // the change was never committed and never pushed.
+    //
+    // A walk proved it: svm-geneva-gov's llm-governance.md on `main` has NO approved_agents
+    // fence, and the joiner who cloned it was told "your organization has not approved any
+    // agents yet, so these are the framework's defaults" — the exact fallback #196 exists to
+    // remove, reintroduced by an ordering mistake rather than by a decision.
+    //
+    // Q10 collects the answer before anything is created, so it is available here, which is the
+    // only place that is both after the seed and before the commit.
+    if (pre?.agents?.length) {
+      const policy = path.join(created.home, "governance", "policies", "llm-governance.md");
+      const before = fsSync.existsSync(policy) ? fsSync.readFileSync(policy, "utf8") : null;
+      const after = before === null ? null : withApprovedAgents(before, pre.agents);
+      if (after === null) {
+        // LOUD, because a silent failure here is a governance hole: every joiner would fall
+        // back to gov's own list and nobody would know the policy had not been recorded.
+        process.stderr.write("gov setup: could not record the approved agents in governance/policies/llm-governance.md.\n");
+        process.stderr.write("  The repo exists. Add them with `gov agent approve <id>` before inviting anyone.\n");
+      } else {
+        fsSync.writeFileSync(policy, after, "utf8");
+        process.stdout.write(`  recorded ${pre.agents.length} approved agent(s) in governance/policies/llm-governance.md\n`);
+      }
     }
     // #159 finding 1a — the slug was asked BEFORE creating (it decides the location), then asked again
     // by the setup flow, with a blank default. One fact, one question: carry the answer forward.
@@ -216,7 +811,8 @@ export async function runSetupCommand(
         ghUser: tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null,
         gitEmail: tryRun("git", ["-C", cwd, "config", "user.email"]) ?? null,
         today: now.slice(0, 10),
-        existing: { ...(existingText ? readExistingOrgConfig(existingText) : {}), ...(createdSlug ? { orgSlug: createdSlug } : {}) },
+        existing: { ...(existingText ? readExistingOrgConfig(existingText) : {}), ...(pre ?? {}), ...(createdSlug ? { orgSlug: createdSlug } : {}) },
+        interviewed: pre !== undefined,
         prompt: ask,
         print: (l) => process.stdout.write(`${l}\n`),
         setOriginRemote: (url) => {
@@ -271,10 +867,11 @@ export async function runSetupCommand(
       // replaces it on upgrade. Leftovers are reported, not tolerated: a policy the adopter opens and
       // finds <ORG_NAME> in is the first impression this whole change exists to fix.
       const cfgText = fsSync.readFileSync(path.join(createdHome, "org-config.yaml"), "utf8");
-      const oc = parseOrgConfig(cfgText) as unknown as Record<string, string>;
-      const values: Record<string, string> = {};
-      for (const [k, v] of Object.entries(oc)) if (typeof v === "string" && v) values[k.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase()] = v;
-      const leftovers = new Set<string>();
+      // From the FILE, not from parseOrgConfig: that interface carries only the keys
+      // gov-work reads, so the owner handles and the effective date had no values and
+      // survived into the adopter's policy documents (#193).
+      const values = tokenValuesFromOrgConfig(cfgText);
+      const leftovers = new Map<string, string>();     // token → first file it survived in
       let swept = 0;
       const sweepDir = (dir: string): void => {
         for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
@@ -284,14 +881,84 @@ export async function runSetupCommand(
           const before = fsSync.readFileSync(f, "utf8");
           const after = substituteTokens(before, values);
           if (after !== before) { fsSync.writeFileSync(f, after, "utf8"); swept++; }
-          for (const l of leftoverTokens(after)) leftovers.add(l);
+          for (const l of leftoverTokens(after)) {
+            if (PER_PROJECT_TOKENS.has(l)) continue;   // resolved by `gov seed`; expected here
+            if (!leftovers.has(l)) leftovers.set(l, path.relative(createdHome, f));
+          }
         }
       };
-      for (const d of INHERITED_DIRS) { const dir = path.join(createdHome, d); if (fsSync.existsSync(dir)) sweepDir(dir); }
-      manifest.push({ what: "Swept", detail: `${swept} file(s) — org tokens resolved in ${INHERITED_DIRS.join("/ ")}/ (publish/ untouched)` });
-      if (leftovers.size) manifest.push({ what: "⚠ Tokens", detail: `unresolved: ${[...leftovers].join(" ")} — tell gov-work; these should not reach an adopter` });
+      // SWEEP THE SUBSTITUTED DIRS, AND THE ROOT FILES TOO (Decision 7, 2026-09-14).
+      //
+      // This covered `INHERITED_DIRS` only — `agent/` and `knowledge/` — so nothing at the repo
+      // ROOT was ever substituted. The consequence was not cosmetic: shipped CODEOWNERS reached
+      // every adopter with seven unresolved tokens (`<POLICY_OWNER_GITHUB>`,
+      // `<LEGAL_OWNER_GITHUB>`, …). GitHub cannot resolve those as users or teams, so NO
+      // CODEOWNERS RULE APPLIED, and `governance/policies/` was unprotected in every adopter
+      // repo — while the policy itself said changes there require the Policy Owner's approval.
+      //
+      // The same gap left `<ORG_NAME>` literal in the mirrored harness files, so every agent
+      // read "Agent operating protocol — <ORG_NAME>" and was told to consult
+      // `<WORKSPACE_REPO>/org-config.yaml` verbatim.
+      //
+      // Root FILES only, never a recursive root sweep: `publish/` must stay untouched — it is
+      // the copy source — and the directories are handled just above.
+      const SWEEP_DIRS = [...INHERITED_DIRS, "governance"];
+      for (const d of SWEEP_DIRS) { const dir = path.join(createdHome, d); if (fsSync.existsSync(dir)) sweepDir(dir); }
+      for (const e of fsSync.readdirSync(createdHome, { withFileTypes: true })) {
+        if (e.isDirectory()) continue;
+        if (!/\.(md|ya?ml|json|txt)$/i.test(e.name) && e.name !== "CODEOWNERS") continue;
+        const f = path.join(createdHome, e.name);
+        const before = fsSync.readFileSync(f, "utf8");
+        const after = substituteTokens(before, values);
+        if (after !== before) { fsSync.writeFileSync(f, after, "utf8"); swept++; }
+        for (const l of leftoverTokens(after)) {
+          if (PER_PROJECT_TOKENS.has(l)) continue;
+          if (!leftovers.has(l)) leftovers.set(l, path.relative(createdHome, e.name));
+        }
+      }
+      manifest.push({ what: "Swept", detail: `${swept} file(s) — org tokens resolved in ${SWEEP_DIRS.join("/ ")}/ and the root files (publish/ untouched)` });
+
+      // CODEOWNERS, GENERATED (Decision 13, 2026-09-14) — see src/config/codeowners.ts for why
+      // it is no longer shipped, and for the deviation from Decision 13's letter (handles must
+      // stay in org-config.yaml, because the policy is scaffold-auto and would overwrite them).
+      // `tokenValuesFromOrgConfig` keys by TOKEN (`POLICY_OWNER_GITHUB`), not by config key —
+      // passing it straight in made every handle undefined, so `renderCodeowners` returned null
+      // and setup aborted with "names no policy_owner_github" on a config that named one.
+      const handles = Object.fromEntries(Object.entries(values).map(([k, v]) => [k.toLowerCase(), v]));
+      const owners = renderCodeowners(handles);
+      if (owners === null) {
+        process.stderr.write("gov setup: org-config.yaml names no policy_owner_github, so CODEOWNERS\n");
+        process.stderr.write("  cannot be generated and governance/ would be unprotected. Set it, then re-run.\n");
+        return 1;
+      }
+      const leftInOwners = unresolvedTokens(owners.text);
+      if (leftInOwners.length) {
+        // Decision 8: a generated file with an unresolved handle fails as silently as a shipped
+        // one, so it is caught here rather than discovered on GitHub.
+        process.stderr.write(`gov setup: generated CODEOWNERS still carries ${leftInOwners.join(", ")} — refusing to write it.\n`);
+        return 1;
+      }
+      fsSync.writeFileSync(path.join(createdHome, "CODEOWNERS"), owners.text, "utf8");
+      manifest.push({
+        what: "Generated",
+        detail: owners.unheld.length
+          ? `CODEOWNERS — Policy Owner on ${POLICY_OWNER_PATHS.length} path(s); no holder yet for ${owners.unheld.join(", ")}`
+          : `CODEOWNERS — every role held`,
+      });
+      // Name the file. "Unresolved: <FOO>" tells you a token survived; it does not
+      // tell you where to look, which is the only part that lets anyone act.
+      if (leftovers.size) {
+        manifest.push({
+          what: "⚠ Tokens",
+          detail: `unresolved: ${[...leftovers].map(([t2, f]) => `${t2} (${f})`).join(", ")} — tell gov-work; these should not reach an adopter`,
+        });
+      }
       const left = fsSync.readdirSync(createdHome).filter((e) => e !== ".git" && fsSync.statSync(path.join(createdHome, e)).isDirectory());
-      const unexpected = left.filter((d) => !ADOPTER_DIRS.includes(d));
+      const manifestText = fsSync.existsSync(path.join(createdHome, "publish", "content", "MANIFEST.yaml"))
+        ? fsSync.readFileSync(path.join(createdHome, "publish", "content", "MANIFEST.yaml"), "utf8")
+        : null;
+      const expected = expectedDirs(manifestText);
+      const unexpected = left.filter((d) => !expected.includes(d));
       if (unexpected.length) manifest.push({ what: "Note", detail: `unexpected directories kept: ${unexpected.join(" ")} — tell gov-work if these are publisher-only` });
 
       const git = (...a: string[]): boolean => { try { execFileSync("git", ["-C", createdHome, ...a], { stdio: "ignore" }); return true; } catch { return false; } };
@@ -301,11 +968,29 @@ export async function runSetupCommand(
       manifest.push({ what: "Committed", detail: committed ? (pushed ? "and pushed to the default branch" : "locally — push failed, run: git push") : "nothing to commit" });
 
       for (const line of renderManifest(manifest, [
-        "knowledge/policies/agentic-development-policy.md   — make the policy yours",
+        "governance/policies/org-ai-agent-governance-policy.md   — make the policy yours",
         "agent/session-protocol.md                          — what your agents read at session start",
         "gov                                                — the interactive front door",
         ...(activeNote ? [activeNote] : []),
       ])) process.stdout.write(`${line}\n`);
+
+      // THE CLOSING BLOCK, only on the interviewed path. Every question the adopter
+      // answered was abstract — a name, a slug, a branch — and this is the only place
+      // they learn where those answers ended up. Addresses, not adjectives: each line
+      // names a thing that now exists and how to reach it.
+      if (pre) {
+        const written = readExistingOrgConfig(cfgText);
+        const [pOrg, pRepo] = (positional[0] ?? "/").split("/");
+        const base = `https://github.com/${pOrg}/${pRepo}`;
+        for (const line of interviewSummary({
+          repoUrl: base,
+          localPath: createdHome,
+          // A REAL URL, not the `#org-config.yaml` fragment the design sketch used:
+          // a fragment on a repo page scrolls nowhere. This one opens the file.
+          configUrl: `${base}/blob/${written.defaultBranch || "main"}/org-config.yaml`,
+          projectsPath: written.agentWorkRoot || path.join(os.homedir(), ".gov"),
+        })) process.stdout.write(`${line}\n`);
+      }
     }
     return rc;
   } finally {
@@ -333,7 +1018,30 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
   if (facts.orgs.length === 1) return null;
 
   const env = createNodeEnv();
-  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+
+  /**
+   * ONE QUESTION, ONE INTERFACE (#186).
+   *
+   * A single readline held for the whole flow kept being closed under its own
+   * users: `gov setup` opens and closes one of its own, and every question asked
+   * after that died with ERR_USE_AFTER_CLOSE — the starter project's, then the
+   * approved-agents one, on the last steps of an otherwise complete adoption. Twice
+   * the same crash, in the same place, from the same shared handle.
+   *
+   * Two readlines on one stdin also double the echo, which is what turned "Rakesh"
+   * into "RRaakkeesshh". Both faults are the same fact: a terminal has one owner at
+   * a time, and holding a handle across code that hands the terminal away is a bet
+   * on nobody else needing it.
+   *
+   * So the handle lasts exactly as long as the question. Slightly more work per
+   * prompt; no shared lifetime to get wrong.
+   */
+  const ask = (q: string, def: string): Promise<string> =>
+    new Promise((res) => {
+      const one = readline.createInterface({ input: process.stdin, output: process.stderr });
+      one.question(def ? `  ${q}[${def}] ` : `  ${q}`, (a) => { one.close(); res(a.trim() || def); });
+    });
+
   const identityAt = (repoDir: string): OrgIdentity | null => {
     const cfg = env.govConfigAt(repoDir);
     if (!cfg) return null;
@@ -343,16 +1051,180 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
   };
   const io: FirstRunIo = {
     facts,
+    color: stderrColor(),
     homeDir: os.homedir(),
-    prompt: (q, def) => new Promise((res) => rl.question(def ? `  ${q}[${def}] ` : `  ${q}`, (a) => res(a.trim() || def))),
+    prompt: ask,
     print: (l) => process.stderr.write(`${l}\n`),
     tempDir: () => fsSync.mkdtempSync(path.join(os.tmpdir(), "gov-firstrun-")),
     clone: (url, dest) => { execFileSync("git", ["clone", url, dest], { stdio: ["ignore", "ignore", "inherit"] }); },
+    // For a repo GOV found (#197). `gh` resolves the protocol and carries the token, so a private
+    // governance repo clones on a machine whose only credential is `gh auth login` — the same call
+    // `gov setup` makes for the repo it creates.
+    cloneRepo: (nameWithOwner, dest) => { execFileSync("gh", ["repo", "clone", nameWithOwner, dest], { stdio: ["ignore", "ignore", "inherit"] }); },
+    // Asked before the adopter's remaining questions, so a joiner is never made to answer them
+    // (#197). Unverified is NOT "clear": it reports exactly that, and the flow says nothing.
+    probeGovernance: (org) => {
+      const probeIo: CreateIo = {
+        gh: (args) => { try { return execFileSync("gh", [...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return null; } },
+        home: os.homedir(),
+        exists: (p) => fsSync.existsSync(p),
+        print: () => { /* the caller does the talking */ },
+      };
+      const found = findExistingGovernanceRepo(probeIo, org);
+      return { repos: found.repos, verified: found.verified };
+    },
     readIdentity: identityAt,
     exists: (d) => fsSync.existsSync(d),
     place: (from, to) => { fsSync.mkdirSync(path.dirname(to), { recursive: true }); fsSync.renameSync(from, to); },
     discard: (d) => { try { fsSync.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } },
     found: async (repoDir) => (await runSetupCommand([], now, repoDir)) === 0 ? identityAt(repoDir) : null,
+    // The adopter path is exactly `gov setup <org>/<repo>` — the same code, reached
+    // from the first-run question instead of from a command the newcomer had to
+    // already know the name of.
+    finalStatus: (role) => {
+      const r = prjResolveGov(createNodeEnv());
+      const policyPath = r.ok ? path.join(r.home, "governance", "policies", "llm-governance.md") : null;
+      const policy = policyPath && fsSync.existsSync(policyPath) ? fsSync.readFileSync(policyPath, "utf8") : null;
+      const cfgText = r.ok && fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+        ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+      const c = cfgText ? parseOrgConfig(cfgText) : null;
+      const gitCfg2 = (k: string): string | null => tryRun("git", ["config", "--global", "--get", k]) ?? null;
+      return finalStatus(checklist({
+        gitPresent: tryRun("git", ["--version"]) !== undefined,
+        ghPresent: tryRun("gh", ["--version"]) !== undefined,
+        ghAuthenticated: (() => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } })(),
+        ghScopesOk: true,
+        gitIdentityOk: Boolean(gitCfg2("user.name") && gitCfg2("user.email")),
+        workspaceResolves: r.ok,
+        orgActive: createNodeEnv().readActiveOrg(),
+        workspacePath: r.ok ? r.home : null,
+        orgSlug: c?.orgSlug ?? null,
+        // PASSED, not assumed (#197). Hardcoding "adopter" showed a joiner the founding steps —
+        // "create the governance repository", "choose which agents this org allows" — against their
+        // own name, as things they had failed to do rather than things not theirs to do.
+        role,
+        approvedAgents: (parseApprovedAgents(policy) ?? []).map((a) => a.id),
+      }), stdoutColor());
+    },
+    adopterNextSteps: () => {
+      const r = prjResolveGov(createNodeEnv());
+      if (!r.ok) return [];
+      const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+        ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+      if (!text) return [];
+      const c = parseOrgConfig(text);
+      return adopterNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
+    },
+    joinerNextSteps: () => {
+      const r = prjResolveGov(createNodeEnv());
+      if (!r.ok) return [];
+      const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+        ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+      if (!text) return [];
+      const c = parseOrgConfig(text);
+      return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
+    },
+    // The list is recorded inside `createWorkspace` (see #196 above), which is the only place
+    // both after the content seed and before the commit. This says the environment CAN record
+    // one, which is what decides whether Q10 is asked; it is not a second writer.
+    recordsApprovals: true,
+    createStarterProject: () => {
+      // Reads the terminal directly rather than through `ask`, because this hook is
+      // synchronous. Same rule either way: the handle lives only as long as the
+      // question.
+      const askHere = (q: string): string => {
+        try {
+          const fd = fsSync.openSync("/dev/tty", "r");
+          try {
+            process.stdout.write(q);
+            const buf = Buffer.alloc(64);
+            const n = fsSync.readSync(fd, buf, 0, buf.length, null);
+            return buf.toString("utf8", 0, n).trim().toLowerCase();
+          } finally { fsSync.closeSync(fd); }
+        } catch {
+          return "";                                   // no terminal: treated as "no"
+        }
+      };
+      process.stdout.write("\n" + [
+        "One more thing, and it is the useful one.",
+        "",
+        "The policies that arrived are the framework's starting position, not yours.",
+        "gov can create a small project for reviewing them — a board and one issue —",
+        "so the first governed change in your organization is the one that decides how",
+        "everything after it will be governed.",
+        "",
+      ].join("\n") + "\n");
+      const answer = askHere("Create it? [y/N] ");
+      if (!/^y(es)?$/.test(answer)) {
+        return ["  Skipped. You can review the policies on GitHub or in your editor."];
+      }
+      // Real calls, reported honestly: a board this token cannot create is a missing
+      // `project` scope, not a broken adoption, and saying so beats a stack trace.
+      const cfg = ((): { org: string; repo: string; home: string } | null => {
+        const r = prjResolveGov(createNodeEnv());
+        if (!r.ok) return null;
+        const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
+          ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
+        if (!text) return null;
+        const c = parseOrgConfig(text);
+        return { org: c.githubOrg, repo: c.workspaceRepo, home: r.home };
+      })();
+      if (!cfg) return ["  (no workspace resolved yet — skipping the starter project)"];
+
+      const spec = starterProject(cfg.org, cfg.repo);
+      const boardUrl = tryRun("gh", ["project", "create", "--owner", cfg.org, "--title", spec.boardTitle, "--format", "json"])
+        ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null;
+      const issues = createGhIssues((args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+      const issueUrl = boardUrl ? issues.create(spec.issueRepo, spec.issueTitle, spec.issueBody, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")) : null;
+      if (boardUrl && issueUrl) {
+        const n = Number(boardUrl.match(/\/projects\/(\d+)/)?.[1] ?? 0);
+        if (n) issues.addToBoard(cfg.org, n, issueUrl);
+      }
+      return ["", "Starter project:", ...starterSummary({ boardUrl, issueUrl, seeded: false })];
+    },
+    // THE LAST STEP, DONE RATHER THAN DESCRIBED (#203). The same code path as
+    // `gov` -> 1. Work -> pick the review project, reached from the question that
+    // replaces those three lines. Matched by slug rather than by a board number
+    // captured earlier: the starter project may also have been created on a previous
+    // run, and the slug is what `deriveProjectIdentity` produces from its title either way.
+    reviewNow: async (role) => {
+      const who = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null;
+      const workDeps = buildWorkDeps(who);
+      if (!workDeps) return null;
+      // An ADOPTER has exactly one thing to review and gov made it, so it is named. A JOINER's
+      // project is whichever they are assigned — nobody but them can pick it — so they get the
+      // picker, which is step 3 of the instructions this question replaces.
+      const spec = starterProject("", "");                       // the title is org-independent
+      const slug = spec.boardTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      // Its own readline: `ask` above holds one only for the length of a question, and the
+      // work flow needs the terminal for the whole session.
+      const rl2 = readline.createInterface({ input: process.stdin, output: process.stderr });
+      const ask2 = (q: string): Promise<string> => new Promise((res) => rl2.question(q, res));
+      try {
+        return await runWorkFlow(
+          { ...workDeps, prompt: ask2, print: (l) => process.stderr.write(`${l}\n`), color: stderrColor(), ask: askFns(rl2, ask2) },
+          { ...(role === "adopter" ? { projectPattern: slug } : {}), interactive: true },
+        );
+      } finally { rl2.close(); }
+    },
+    // No handle to close before delegating: `ask` holds one only for the length of a
+    // question, so `gov setup` finds the terminal free and leaves it free.
+    createWorkspace: (target, pre) => runSetupCommand(["setup", target], now, undefined, pre),
+    // WHAT GITHUB ALREADY KNOWS. `user/orgs` needs the `read:org` scope, so an empty answer
+    // means "gov cannot see", never "you belong to none" — both interviews treat it that way.
+    listMyOrgs: () => {
+      const out = tryRun("gh", ["api", "user/orgs", "--jq", ".[].login"]);
+      return out ? out.split("\n").map((l) => l.trim()).filter(Boolean) : [];
+    },
+    // The interview's defaults. `originUrl` is empty on purpose: on the adopter path
+    // nothing is cloned yet, so github_org/workspace_repo come from the answers (Q3/Q4)
+    // rather than from a remote that does not exist.
+    deriveOrgDefaults: (partial) => deriveOrgConfig(partial, {
+      originUrl: "",
+      ghUser: tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null,
+      gitEmail: tryRun("git", ["config", "user.email"]) ?? null,
+      today: now.slice(0, 10),
+    }),
     register: (org, home) => {
       const deps = { store, govConfigAt: (p: string) => env.govConfigAt(p) };
       const added = orgAdd(deps, org, home);
@@ -365,11 +1237,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       return used.ok ? { ok: true } : { ok: false, message: used.message };
     },
   };
-  try {
-    return await runFirstRun(io);
-  } finally {
-    rl.close();
-  }
+  return await runFirstRun(io);
 }
 
 /** Read the CLI's own version from its package.json. Walks up from this module
@@ -441,20 +1309,64 @@ export async function gatherMenuContext(): Promise<MenuContext> {
  * it. `null` when no workspace resolves — the caller says what to do about that, because the answer differs
  * (the menu offers setup; the verb prints and exits).
  */
-function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | null {
+/**
+ * Everything a work flow needs EXCEPT how to ask.
+ *
+ * `ask` is deliberately not here: it belongs to whoever owns the terminal, and each of the
+ * three callers owns a different one. Omitting it makes that obligation a compile error
+ * rather than a runtime shrug — which is how the review offer (#203) came to build a flow
+ * with no asker and silently skip a key prompt.
+ */
+function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0], "ask"> | null {
   const fs = createNodeFs();
   const env = createNodeEnv();
   const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   const resolved = prjResolveGov(env);
   if (!resolved.ok) return null;
-  const cfgText = fs.readFile(path.join(resolved.home, "org-config.yaml"));
+  const cfgPath = path.join(resolved.home, "org-config.yaml");
+  const cfgText = fs.readFile(cfgPath);
   if (!cfgText) return null;
   const config = parseOrgConfig(cfgText);
+  // The fork question's two halves: what seed proposed, and how to record it. The
+  // ASKING belongs to runWorkFlow, which owns the terminal (#194).
+  const pendingRepoOverridesFn = (): readonly { readonly from: string; readonly to: string }[] => pendingRepoOverrides;
+  const applyRepoOverrides = (o: readonly { readonly from: string; readonly to: string }[]): boolean => {
+    const before = fs.readFile(cfgPath);
+    if (before === null) return false;
+    const after = withRepoOverrides(before, o);
+    if (after === null) return false;
+    fs.writeFile(cfgPath, after);
+    pendingRepoOverrides = [];
+    return true;
+  };
   return {
     projects: createGhProjects(runGh),
     anchor: createGhAnchor(runGh),
     fs,
-    config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot },
+    pendingRepoOverrides: pendingRepoOverridesFn,
+    // The three facts the agent menu needs (#195): what is on PATH, what keys are
+    // set (presence only — never the value), and what this org has approved.
+    hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
+    env: process.env,
+    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(resolved.home, "governance", "policies", "llm-governance.md"))),
+    // The person's own choice, from the lowest knowledge layer (C03). Read every
+    // time, and validated against the org's list at launch — not at write time.
+    // The joiner's ordinary case: nothing installed, and the org already chose what
+    // should be. Same plan and same performer as `gov agent install` — one path.
+    installAgent: async (id: string, ask: AskFns) => {
+      const policy = fs.readFile(path.join(resolved.home, "governance", "policies", "llm-governance.md"));
+      const plan = planAgentInstall(id, parseApprovedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
+      if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return false; }
+      return await performAgentInstallReal(plan, ask);
+    },
+    agentPreference: () => {
+      const prefs = fs.readFile(path.join(config.agentWorkRoot, "preferences", `${me ?? ""}.md`));
+      return /^\s*preferred_agent:\s*(\S+)/m.exec(prefs ?? "")?.[1] ?? null;
+    },
+    applyRepoOverrides,
+    // govHome is the default-branch clone — POL-086a requires governance be read from there,
+    // never from the project-branch worktree. See sessionStartPrompt.
+    config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot, govHome: resolved.home },
     me,
     canWriteBoard: (n) =>
       tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${n}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) !== "false",
@@ -467,11 +1379,205 @@ function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | n
     // Launch with cwd = the project dir via the tested spec: detached (GUI editor) opens and returns;
     // a terminal agent or shell inherits stdio and blocks until it exits.
     launch: async (agent, cwd, inject) => {
+      // VERIFY BEFORE LAUNCHING, AND REFUSE (Policy Owner, 2026-09-11).
+      //
+      // The guarantee gov makes is that the governance requirements are in the agent's context
+      // at launch and on every turn, "from a file gov placed and VERIFIED at the start of the
+      // session". Placing happens in `ensureRootProtocol`, upstream of here. This is where the
+      // verification has teeth — because a guarantee that degrades to a warning when it fails is
+      // the same fallback-indistinguishable-from-success this project keeps removing.
+      //
+      // Only agents gov claims to govern are gated: `harnessFileFor` returning null means gov
+      // never promised anything for that target (`--agent shell`, chatgpt-web), and the loud
+      // "nothing governs its session yet" further down is the honest answer there.
+      const gate = harnessFileFor(agent);
+      if (gate) {
+        const v = verifyAgentContext(fs, cwd, gate);
+        const rv = reporter(stdoutColor());
+        if (!v.ok) {
+          // NOTHING IS IN CONTEXT. The only two ways to reach here are an absent file and an
+          // empty one, so there is no "maybe it is yours" to hedge about.
+          process.stderr.write(`\n${rv.fail(`gov will not start ${agent} — nothing would govern the session.`)}\n`);
+          process.stderr.write(`  Expected the session-start protocol at ${v.at}, but ${v.why}.\n`);
+          process.stderr.write("  gov mirrors that file from your governance repo on every launch, so this\n");
+          process.stderr.write(`  usually means ${gate} is missing from the repo itself.\n`);
+          process.stderr.write("  Pull the framework's protocol into your organization:  gov upgrade\n");
+          return 1;
+        }
+        if (!v.current) {
+          process.stderr.write(`\n${rv.warn(`${agent}'s instructions are not the protocol this gov renders.`)}\n`);
+          process.stderr.write(`  ${v.at}\n`);
+          process.stderr.write(`  ${v.why}.\n`);
+          process.stderr.write("  The session is going ahead — that file is your organization's, mirrored\n");
+          process.stderr.write("  from your governance repo. To take the current protocol:  gov upgrade\n");
+        }
+      }
       const s = agentLaunchSpec(agent, cwd, inject);
+      // NO SILENT SHELL (#199). An agent gov cannot start is said out loud, with the directory, so
+      // the person can start it themselves. Substituting a shell here is what let five approved
+      // agents report a successful start and open a bare prompt instead.
+      if (!s) {
+        process.stderr.write(`  gov cannot start '${agent}' — it has no command gov knows how to run.\n`);
+        process.stderr.write(`  The project is ready at ${cwd}. Start it there yourself, or: gov work --agent shell\n`);
+        return 1;
+      }
+      // SAYING IT FIRST IS NOT ENOUGH (#218).
+      //
+      // #207 printed the prompt before launching, reasoning that anything written afterwards
+      // competes with a full-screen UI. That is true and insufficient: an agent whose UI takes
+      // the ALTERNATE SCREEN does not compete with what came before, it ERASES it. A walk-through
+      // ended with the agent idle at its own prompt, the instruction gone, and the session-start
+      // protocol never run — the exact outcome the printing existed to prevent.
+      //
+      // No repository instructions file fixes this either. AGENTS.md and CLAUDE.md tell an agent
+      // how to behave once it is answering; they cannot make one SPEAK FIRST. Nothing gov ships
+      // can — the Claude-only hook that could was removed for consistency (2026-09-11) — so
+      // every agent acts only on a first message, and the first message has to survive to be
+      // sent. For the eight with a wired `promptArgv` it is handed over as argv and survives by
+      // construction; this branch is the remainder.
+      //
+      // So write it to a file the agent can be pointed at afterwards, and WAIT before launching.
+      // The pause is the part that matters: it puts the text on a screen nobody is about to
+      // clear, for as long as the person needs to copy it.
+      if (s.promptToPaste) {
+        const r1 = reporter(stdoutColor());
+        // A read-only project is not a reason to refuse to launch — the prompt is still
+        // printed below, and the file is a convenience for recovering it afterwards.
+        const saved = ((): string | null => {
+          try {
+            const dir = path.join(cwd, ".gov");
+            fsSync.mkdirSync(dir, { recursive: true });
+            const at = path.join(dir, "session-prompt.md");
+            fsSync.writeFileSync(at, `${s.promptToPaste}\n`, "utf8");
+            return at;
+          } catch { return null; }
+        })();
+        // WHAT ACTUALLY GOVERNS THE SESSION (walk of 2026-09-10, items 2 and 6).
+        //
+        // This used to open with "gov does not know how <agent> takes a first message, so it is
+        // starting bare" and then five lines to paste. Both halves misled. gov cannot make ANY
+        // agent speak first, so "does not know" reads as a gap in gov where the truth is a
+        // property of every CLI agent there is.
+        //
+        // And "starting bare" was wrong wherever a harness file exists. `ensureRootProtocol`
+        // mirrors that file into the project on every launch, and the agent reads it on every
+        // turn — which governs the whole session, not merely its opening. So the honest
+        // instruction is "say anything", and the five-line paste is the fallback for an agent
+        // that has no such file, not the primary route.
+        const harness = harnessFileFor(agent);
+        process.stderr.write("\n");
+        if (harness) {
+          process.stderr.write(`${r1.step(`${agent} reads ${harness} in this project, and it carries the session-start protocol.`)}\n`);
+          process.stderr.write(`${r1.step("Say anything to begin — the protocol runs before it answers you.")}\n`);
+          if (saved) process.stderr.write(`${r1.step(`If it does not, paste ${saved} as your first message.`)}\n`);
+        } else {
+          process.stderr.write(`${r1.step(`gov has no instructions file for ${agent}, so nothing governs its session yet.`)}\n`);
+          process.stderr.write(`${r1.step("Paste this as your first message — it runs the session-start protocol:")}\n\n`);
+          process.stderr.write(`${s.promptToPaste}\n\n`);
+          if (saved) process.stderr.write(`${r1.step(`Saved to ${saved} — ${agent} may be able to read it directly.`)}\n`);
+        }
+        await pauseBeforeLaunch(agent);
+      }
+
+      // WHAT THE FIRST-RUN NOTE AND THE PROTOCOL CONFIRMATION HAVE IN COMMON: neither depends on
+      // HOW the prompt is delivered. Both used to live inside the paste branch, so wiring
+      // `promptArgv` for an agent silently removed its licence warning — a fix taking away an
+      // unrelated fix, which is the shape of regression that only a test catches.
+      const r2 = reporter(stdoutColor());
+      if (s.promptArgvUsed) {
+        // SAY THAT GOVERNANCE HAPPENED. The protocol is being handed over as the agent's first
+        // message; an adopter who cannot see that has no way to tell a governed launch from a
+        // bare one, and the difference is the whole point.
+        process.stderr.write(`\n${r2.step(`Handing ${agent} the session-start protocol as its first message.`)}\n`);
+      }
+      const note = firstRunNote(agent);
+      if (note) for (const l of note) process.stderr.write(`${r2.step(l)}\n`);
+      // THE LAUNCH, AND WHETHER THE KEY WENT WITH IT. #213's last wrong fix stored the key
+      // correctly and then launched the agent without it — and gov's output is identical
+      // either way, because storing and passing are different acts and only one of them shows.
+      // The env var's PRESENCE is recorded, never its value (POL-427 is C01).
+      const credEnv = AGENT_CATALOG.find((a) => a.id === agent)?.credentialEnv;
+      log("info", "launching the agent", "gov-work:cli:main", "launch", {
+        agent, cmd: s.cmd, args: s.args, cwd, detached: s.detached === true,
+        promptDelivery: s.promptToPaste ? "paste" : "argv",
+        ...(credEnv ? { credentialEnv: credEnv, credentialPresent: Boolean(process.env[credEnv]) } : {}),
+      });
+      closeLog();                              // spawnSync blocks until the agent exits; flush first
       if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
-      const r = spawnSync(s.cmd, [...s.args], { cwd, stdio: "inherit" });
+
+      const runIt = (args: readonly string[]): { status: number; error: boolean; ms: number } => {
+        const at = Date.now();
+        const rr = spawnSync(s.cmd, [...args], { cwd, stdio: "inherit" });
+        return { status: rr.status ?? 0, error: Boolean(rr.error), ms: Date.now() - at };
+      };
+
+      let r = runIt(s.args);
       if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed and on PATH?\n`); return 1; }
-      return r.status ?? 0;
+
+      // A FIRST-RUN GATE THE ADOPTER HAS JUST READ — see IMMEDIATE_EXIT_MS above for why this
+      // reacts to an exit rather than to a parsed error, and why the offer is to hand over THIS
+      // terminal rather than open another one.
+      //
+      // Only when the protocol travelled as argv: the paste path already leaves the person in
+      // the agent, where any licence screen appears on its own.
+      if (r.status !== 0 && r.ms < IMMEDIATE_EXIT_MS && s.promptArgvUsed) {
+        const r3 = reporter(stdoutColor());
+        process.stderr.write(`\n${r3.warn(`${agent} stopped straight away, before the protocol could reach it.`)}\n`);
+        process.stderr.write("  Agents often need something done once by hand on a first run — accepting a\n");
+        process.stderr.write("  licence, or signing in. Whatever it just asked you for, gov will not do on\n");
+        process.stderr.write("  your behalf.\n\n");
+        process.stderr.write(`  gov can hand this terminal to ${agent} so you can settle it now. Do that,\n`);
+        process.stderr.write(`  quit ${agent}, and gov will hand it the protocol again.\n\n`);
+        if (await askYes(`Open ${agent} here`)) {
+          // No prompt argv: that is the whole point — the agent starts the way it starts on its
+          // own, so whatever screen it was withholding is shown.
+          process.stderr.write(`\n${r3.step(`${agent} has the terminal. Quit it when you are done.`)}\n\n`);
+          runIt([]);
+          process.stderr.write(`\n${r3.step(`Handing ${agent} the session-start protocol again.`)}\n\n`);
+          r = runIt(s.args);
+        }
+        // STILL NO, AND SAID SO. A retry that fails silently would leave an adopter believing
+        // the session is governed when nothing was ever delivered.
+        if (r.status !== 0) {
+          process.stderr.write(`\n${r3.fail(`${agent} still will not take the protocol as a first message.`)}\n`);
+          // SAY THE CAUSE GOV ALREADY KNOWS, instead of shrugging at it.
+          //
+          // A walk on 2026-09-14 ended here. The handover itself worked — Bob refused, gov
+          // offered the terminal, the person took it, gov retried — and then Bob said:
+          //
+          //     Error: Bob API key is required. Set BOB_API_KEY environment variable.
+          //
+          // while gov printed only "still will not take the protocol". gov holds both halves of
+          // that diagnosis: the catalog names the agent's credential variable, and the
+          // environment says whether it is set. Printing a shrug over the top of two facts it
+          // has is the same defect as the sign-in screen disclaiming a desktop verdict it had.
+          //
+          // Only asserted when the variable is genuinely absent. If a key IS set and the agent
+          // still refuses, the cause is something else and guessing would send someone to
+          // re-paste a key that was never the problem.
+          const needsKey = Boolean(credEnv) && !process.env[credEnv!];
+          if (needsKey) {
+            const say2 = (t: string): void => { for (const l of wrap(t)) process.stderr.write(`${l}\n`); };
+            process.stderr.write("\n");
+            say2(`${credEnv} is not set, and ${agent} needs it to take a first message.`);
+            const hint = desktopHint();
+            if (preferCli(hint)) {
+              // The other route is a browser, and gov has already concluded there is not one.
+              // Saying so is what turns "try again" into "try the other option".
+              // Two sentences, deliberately: `browserCaveat` already ends in its own "so …"
+              // clause, and joining them produced "so a browser probably cannot open — so a key
+              // is the only route". Interpolated prose cannot be punctuated from the outside.
+              say2(`Its only other route is a browser sign-in, and ${browserCaveat(hint)}.`);
+              say2("A key is the only route that works on this machine.");
+            }
+            process.stderr.write("\n");
+            say2(`Run gov again and choose "Paste an API key" when it asks how to sign in.`);
+          }
+          process.stderr.write(`\n  Or start ${agent} yourself in ${cwd} and paste this as your first message:\n\n`);
+          process.stderr.write(`${s.promptText}\n\n`);
+        }
+      }
+      return r.status;
     },
   };
 }
@@ -487,6 +1593,32 @@ function buildWorkDeps(me: string | null): Parameters<typeof runWorkFlow>[0] | n
  * guess a project or an agent: there is nobody to correct a wrong guess, and a session started on the wrong
  * project is worse than no session.
  */
+/**
+ * `gov agent install <id>` — lifted out of the router for the reason the router itself gives
+ * for `work`: it asks questions and it spawns things, and neither belongs in a pure route.
+ *
+ * It also gets to OWN the terminal here. That is the whole of #213: one reader per run, and
+ * everything that needs to ask borrows it. When this ran through `route` it had no reader of
+ * its own and reached for the terminal directly — which was harmless standing alone and lost
+ * a race the moment the same code was reached from the menu.
+ */
+export async function runAgentInstall(argv: readonly string[]): Promise<number> {
+  const id = argv[2];
+  if (!id) { process.stderr.write("usage: gov agent install <id>\n"); return 1; }
+  const r = prjResolveGov(createNodeEnv());
+  if (!r.ok) { process.stderr.write("  No governance workspace resolved. Run `gov setup`, then `gov org add/use`.\n"); return 1; }
+  const fs = createNodeFs();
+  const policy = fs.readFile(path.join(r.home, "governance", "policies", "llm-governance.md"));
+  const plan = planAgentInstall(id, parseApprovedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
+  if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return 1; }
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const prompt = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
+  try {
+    return await performAgentInstallReal(plan, askFns(rl, prompt)) ? 0 : 1;
+  } finally { rl.close(); }
+}
+
 export async function runWork(argv: readonly string[]): Promise<number> {
   const flagOf = (name: string): string | undefined => {
     const eq = argv.find((a) => a.startsWith(`--${name}=`));
@@ -513,7 +1645,7 @@ export async function runWork(argv: readonly string[]): Promise<number> {
   const prompt = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
   try {
     return await runWorkFlow(
-      { ...deps, prompt, print: (l) => process.stderr.write(`${l}\n`) },
+      { ...deps, prompt, print: (l) => process.stderr.write(`${l}\n`), color: stderrColor(), ask: askFns(rl, prompt) },
     {
       ...(pattern ? { projectPattern: pattern } : {}),
       ...(agent ? { agent: agent as AgentKind } : {}),
@@ -564,9 +1696,13 @@ const CMD_DESC: Record<string, string> = {
   org: "Manage governance workspaces (the active org)", validate: "Validate the workspace / shipped content",
   list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
   doctor: "Diagnose this machine: git · gh · workspace · active org · versions",
+  issue: "Create an issue — assigned to you, on the board. `--from <url>` mirrors an upstream one",
+  agent: "Which AI agents your org approves, what is installed, and how to add one",
   upgrade: "Pull the latest framework CONTENT into this org (not the CLI — that is `npm i -g`)", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
 };
 const CMD_USAGE: Record<string, string> = {
+  agent: "[list | install <id> | approve <id>]",
+  issue: "[<org>/<repo>] --title <t> [--body <b>|--body-file <f>] [--board <n>]  |  --from <upstream-issue-url> [--board <n>]",
   seed: "<board-url> [--assignee <login>]", work: "[<project-id>] [--print-prompt]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
   knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
   org: "add <github_org> --home <path> | use|list|remove <github_org>",
@@ -609,13 +1745,23 @@ export async function runMainMenu(): Promise<number> {
         io.print("  No governance workspace resolved. Set one up first: `gov setup`, then `gov org add/use`.");
         return 1;
       }
-      return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print });
+      // The MENU owns the reader here, and it stays open for the whole loop — which is why a
+      // second one inside the agent install lost the race on a real walk while the direct
+      // `gov work` path happened to survive it. Whoever owns the terminal does the asking.
+      return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print, ask: io.ask });
     },
     switchOrg: (org) => runAny(["org", "use", org]),
     help: (command) => helpLines(command),
     helpCommands: helpCommandNames,
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
-    listMyProjects: () => { try { return workDeps ? myProjects(workDeps).map((p) => p.projectId) : []; } catch { return []; } },
+    // `myProjects` reads boards and asks nothing, so the asker it will never reach is a stub —
+    // one that THROWS rather than returning "", because reaching it would mean a question was
+    // asked somewhere that cannot ask, and that must be loud.
+    listMyProjects: () => {
+      try {
+        return workDeps ? myProjects({ ...workDeps, ask: neverAsks }).map((p) => p.projectId) : [];
+      } catch { return []; }
+    },
   };
   return runMenu(ctx, handlers);
 }
@@ -741,21 +1887,322 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // The prerequisite report `deps` used to print — same probe, same per-OS install hints, now in the one
     // place a person looks when something is wrong.
     const depsReport = checkDeps((n) => tryRun(n, ["--version"]) !== undefined, process.platform);
+    const gitPresent = tryRun("git", ["--version"]) !== undefined;
+    // NOT GUARDED BY `gitPresent`, which is captured before the run and stays false
+    // on a machine where `--fix` installs git a moment later. That stale capture
+    // disabled this probe for the rest of the command, so the identity step could
+    // succeed and the checklist would still report it undone — the third time in
+    // this issue that a value was read before the step that changes it.
+    // `git config --get` simply fails when git is absent, which is the same answer.
+    const gitCfg = (k: string): string | null => {
+      const v = tryRun("git", ["config", "--global", "--get", k]);
+      return v && v.trim() ? v.trim() : null;
+    };
+    const gitIdentity = gitPresent ? { name: gitCfg("user.name"), email: gitCfg("user.email") } : undefined;
+    const ghPresent = tryRun("gh", ["--version"]) !== undefined;
+    // Installed and signed-in are different facts; only the second predicts whether
+    // the next GitHub call works (#186).
+    // One call answers both questions — signed in, and with which permissions. gh
+    // writes the status to stderr, so it has to be captured, not just tested.
+    const ghStatus = ghPresent ? ((): string | null => {
+      try { return execFileSync("gh", ["auth", "status"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
+      catch (e) { const r = (e as { stdout?: string; stderr?: string }); return (r.stdout ?? "") + (r.stderr ?? "") || null; }
+    })() : null;
+    const ghAuthed = ghPresent && ((): boolean => {
+      try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; }
+    })();
+    const ghScopes = ghAuthed && ghStatus ? parseGrantedScopes(ghStatus) : null;
     const report = doctor({
-      gitPresent: tryRun("git", ["--version"]) !== undefined,
-      ghPresent: tryRun("gh", ["--version"]) !== undefined,
+      gitPresent,
+      ghPresent,
+      ghAuthenticated: ghAuthed,
+      ghScopes,
+      gitIdentity,
       resolve,
       activeOrg: env.readActiveOrg(),
       cliVersion,
       contentVersion: fs.readFile(path.join(home, "VERSION"))?.trim() ?? null,
-      staleArtifacts: RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
+      // `install.sh` is BOTH a retired adopter artifact (the vendored bash CLI's
+      // installer) and the framework repo's own bootstrap installer (#186). In an
+      // adopter workspace the retire rule is right; in the framework checkout it is
+      // a false alarm aimed at maintainers. publish/content/MANIFEST.yaml exists
+      // only in the source repo, so it tells the two apart.
+      staleArtifacts: fs.pathExists(path.join(home, "publish", "content", "MANIFEST.yaml"))
+        ? []
+        : RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
     });
-    for (const line of formatDoctorReport(report)) process.stdout.write(`${line}\n`);
+    for (const line of formatDoctorReport(report, stdoutColor())) process.stdout.write(`${line}\n`);
+
+    // `--fix` (#186): act on the report instead of leaving the reader to translate
+    // hints into commands for a package manager they may not have. Interactive by
+    // default — each command is shown and consented to before it runs; `--yes` is
+    // for unattended use (CI, a provisioning script).
+    if (parsed.flags["fix"]) {
+      // /etc/os-release is the only reliable way to tell Fedora from Rocky, and they
+      // need different plans despite sharing `dnf`.
+      const osId = ((): string | null => {
+        try {
+          const m = /^ID=("?)([^"\n]+)\1/m.exec(fsSync.readFileSync("/etc/os-release", "utf8"));
+          return m?.[2]?.toLowerCase() ?? null;
+        } catch { return null; }
+      })();
+      const plan = planFixes(
+        { gitPresent, ghPresent, ghAuthenticated: ghAuthed, platform: process.platform, osId, ghScopes, gitIdentity },
+        detectPackageManager((n) => tryRun(n, ["--version"]) !== undefined),
+      );
+      // THE WHOLE THING, BEFORE ANY OF IT (#186). An adopter met these one surprise
+      // at a time and could not tell how far along they were. Derived from what gov
+      // can see, never from a progress file: two processes writing one would
+      // disagree, and a stale tick is worse than none.
+      const facts = (): ChecklistFacts => ({
+        gitPresent, ghPresent, ghAuthenticated: ghAuthed,
+        ghScopesOk: Boolean(ghScopes && missingScopes(ghScopes).length === 0),
+        gitIdentityOk: Boolean(gitIdentity?.name && gitIdentity.email),
+        workspaceResolves: resolve.ok,
+        orgActive: env.readActiveOrg(),
+        workspacePath: resolve.ok ? resolve.home : null,
+        orgSlug: null,
+        role: null,
+        installCmd: plan.steps.length
+          ? {
+              git: plan.steps.find((s) => s.fixes === "git") ? renderCommand(plan.steps.find((s) => s.fixes === "git")!) : "already installed",
+              ghRepo: plan.steps.find((s) => s.fixes === "gh repo") ? renderCommand(plan.steps.find((s) => s.fixes === "gh repo")!) : undefined,
+              gh: plan.steps.find((s) => s.fixes === "gh") ? renderCommand(plan.steps.find((s) => s.fixes === "gh")!) : "already installed",
+            }
+          : undefined,
+      });
+      for (const line of checklistPreamble(stdoutColor())) process.stdout.write(`${line}\n`);
+      for (const line of renderChecklist(checklist(facts()), stdoutColor())) process.stdout.write(`${line}\n`);
+
+      process.stdout.write("\n");
+      for (const line of formatPlanNarrative(plan, stdoutColor())) process.stdout.write(`${line}\n`);
+      if (!plan.steps.length) {
+        if (!plan.manual.length) process.stdout.write("doctor --fix: nothing to fix\n");
+        return report.ok ? 0 : 1;
+      }
+
+      const assumeYes = Boolean(parsed.flags["yes"]);
+      // A SYNCHRONOUS prompt, not readline: main() is sync by design (it returns an
+      // exit code, and every other command is pure over injected IO). Reading stdin
+      // directly keeps that contract rather than making the whole entry point async
+      // for one interactive branch.
+      //
+      // EAGAIN IS NOT AN ANSWER. Node leaves a terminal fd non-blocking, so the very
+      // first `readSync` usually throws EAGAIN — there is nothing typed yet, because
+      // the human has not had time to type it. Treating that as an empty reply meant
+      // the consent gate answered itself "no" the instant it was printed, and the
+      // installer reported "Nothing was changed" to someone who never got to press a
+      // key. It retries until there is something to read.
+      //
+      // Only a genuinely unreadable stdin returns null, and the caller must then say
+      // so rather than assume either answer.
+      const askSync = (q: string): string | null => {
+        process.stdout.write(q);
+        const buf = Buffer.alloc(256);
+        const deadline = Date.now() + 10 * 60_000;      // a person, not a timeout
+        for (;;) {
+          try {
+            const n = fsSync.readSync(0, buf, 0, buf.length, null);
+            if (n === 0) return null;                   // EOF: stdin closed, no answer coming
+            return buf.toString("utf8", 0, n).trim().toLowerCase();
+          } catch (e) {
+            const code = (e as NodeJS.ErrnoException).code;
+            if (code !== "EAGAIN" && code !== "EWOULDBLOCK") return null;
+            if (Date.now() > deadline) return null;
+            // Nothing typed yet. Sleep synchronously — a busy loop on a terminal is
+            // a hot CPU for no reason, and Atomics.wait is the only way to pause a
+            // synchronous function without spawning something.
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+          }
+        }
+      };
+
+      // Elevation facts, gathered once: `process.getuid` is undefined on Windows,
+      // where the whole question does not arise.
+      const amRoot = typeof process.getuid === "function" && process.getuid() === 0;
+      const haveSudo = tryRun("sudo", ["--version"]) !== undefined;
+      // Can we actually elevate, or only invoke the command? `sudo -n true` answers
+      // without prompting: it succeeds for a passwordless sudoer and fails both for
+      // someone who must type a password and for someone with no rights at all.
+      const sudoNoPassword = haveSudo && ((): boolean => {
+        // Silent on purpose: `sudo: a password is required` on stderr IS the answer,
+        // not an error to show the reader in the middle of a plan.
+        try { execFileSync("sudo", ["-n", "true"], { stdio: "ignore" }); return true; } catch { return false; }
+      })();
+      const needElevation = plan.steps.some((s) => s.sudo) && !amRoot;
+      // Say what the plan will ASK OF THEM before the first command, not after a
+      // wall of sudo's own error text. Installing git and gh is a change to the
+      // machine, and on Linux that is an administrator's act — the adopter who does
+      // not have those rights should learn it here, in a sentence, not from
+      // "sudo: a password is required".
+      if (needElevation && !sudoNoPassword) {
+        process.stdout.write(
+          !haveSudo
+            ? "\n  Note: installing git or gh changes the system, and `sudo` is not available here.\n" +
+              "  Ask whoever administers this machine to install them, or install them yourself.\n"
+            : assumeYes
+              ? "\n  Note: installing git or gh needs administrator rights, and --yes cannot type a\n" +
+                "  password. Re-run `gov doctor --fix` without --yes, or ask your administrator.\n"
+              : "\n  Note: installing git or gh needs administrator rights — you will be asked for\n" +
+                "  your password. If you do not have those rights, ask whoever administers this\n" +
+                "  machine; nothing else in gov needs them.\n",
+        );
+      }
+      // Unattended AND unable to elevate: emitting sudo's own failure for every step
+      // teaches nothing. Say it once, above, and do the steps that need no rights.
+      const skipElevated = needElevation && assumeYes && !sudoNoPassword;
+      // ONE gate, before anything runs, defaulting to NO.
+      //
+      // Asking per command made the reader agree four times to a plan they had
+      // already been shown, and each prompt arrived after the previous command's
+      // output had scrolled the plan away. One informed yes is better consent than
+      // four uninformed ones — and defaulting to N means a stray Enter changes
+      // nothing on their machine.
+      if (!assumeYes) {
+        const go = askSync("\nDo you want to continue (y/N)? ");
+        if (go === null) {
+          // Never invent an answer. Silence here is our failure to ask, not their
+          // refusal, and reporting it as "you said no" is how a working install
+          // ends looking like an abandoned one.
+          process.stdout.write("\n\nCould not read your answer — this terminal is not accepting input.\n" +
+                               "Nothing was changed. Run `gov doctor --fix` directly, or run the commands above yourself.\n");
+          return 1;
+        }
+        if (go !== "y" && go !== "yes") {
+          process.stdout.write("\nNothing was changed. The commands above are safe to run yourself.\n");
+          return report.ok ? 0 : 1;
+        }
+      }
+      let ran = 0, failed = 0;
+      const broken = new Set<string>();
+      {
+        for (const step of plan.steps) {
+          const unmet = step.dependsOn?.filter((d) => broken.has(d)) ?? [];
+          if (unmet.length) {
+            process.stdout.write(`\n  skipped: ${step.what}\n    (it needs ${unmet.map((u) => `"${u}"`).join(" and ")}, which did not succeed)\n`);
+            broken.add(step.fixes);
+            continue;
+          }
+          const elevationBlocked = step.sudo && !amRoot && skipElevated;
+          if (elevationBlocked) {
+            process.stdout.write(`\n  skipped: ${step.what}\n    (needs administrator rights — see the note above)\n`);
+            broken.add(step.fixes);
+            continue;
+          }
+          // `--yes` means "do not ask me", which cannot include a step whose whole
+          // purpose is to ask: `gh auth login` opens a browser and waits. In
+          // unattended use it would hang forever with no one at the terminal. Name
+          // it as the human's remaining job instead.
+          if (assumeYes && step.interactive && step.fixes !== "git identity") {
+            process.stdout.write(`\n  ${step.what}\n    needs you — run it yourself:  ${renderCommand(step)}\n`);
+            broken.add(step.fixes);
+            continue;
+          }
+          // The identity step has no canned command: its VALUES are the point, and the
+          // best source is the GitHub account the sign-in just proved. Ask, defaulting
+          // to that — after the login, so the defaults exist.
+          if (step.fixes === "git identity") {
+            process.stdout.write(`\n  ${step.what}\n`);
+            const ghName = tryRun("gh", ["api", "user", "--jq", ".name // empty"]) ?? "";
+            const ghLogin = tryRun("gh", ["api", "user", "--jq", ".login // empty"]) ?? "";
+            const ghId = tryRun("gh", ["api", "user", "--jq", ".id // empty"]) ?? "";
+            const ghEmail = tryRun("gh", ["api", "user", "--jq", ".email // empty"]) ?? "";
+            // GitHub hides most people's address. The noreply form is what GitHub
+            // itself recommends and what its web edits use, so commits still attribute.
+            const defEmail = ghEmail || (ghId && ghLogin ? `${ghId}+${ghLogin}@users.noreply.github.com` : "");
+            const defName = ghName || ghLogin;
+            // ASK AGAIN rather than give up (#192). An empty name or a mistyped
+            // address is a slip, not a decision to abandon the setup — and the only
+            // way out that belongs to the user is Ctrl-C, which they already know.
+            // Bounded, because against a closed stdin "ask again" is a hang.
+            const askUntil = (label: string, def: string, ok: (v: string) => string | null): string | null => {
+              for (let i = 0; i < 5; i++) {
+                const raw = askSync(`    ${label}${def ? ` [${def}]` : ""}: `);
+                if (raw === null) return null;                 // no stdin: not a refusal, an absence
+                const v = (raw || def).trim();
+                const problem = ok(v);
+                if (!problem) return v;
+                process.stdout.write(`    ✗ ${problem}\n`);
+              }
+              return null;
+            };
+            const finalName = askUntil("Your name for git commits", defName,
+              (v) => (v ? null : "git will not commit without a name."));
+            const finalEmail = finalName === null ? null : askUntil("Your email for git commits", defEmail,
+              (v) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : `'${v}' does not look like an email address (name@example.com).`));
+            if (!finalName || !finalEmail) {
+              failed++; broken.add(step.fixes);
+              process.stdout.write("  ✗ skipped — git needs both a name and an email. Set them yourself with:\n" +
+                                   "      git config --global user.name  \"Your Name\"\n" +
+                                   "      git config --global user.email \"you@your-org\"\n");
+              continue;
+            }
+            const okName = spawnSync("git", ["config", "--global", "user.name", finalName], { stdio: "inherit" }).status === 0;
+            const okMail = spawnSync("git", ["config", "--global", "user.email", finalEmail], { stdio: "inherit" }).status === 0;
+            if (okName && okMail) { ran++; process.stdout.write(`  ✓ git will sign your commits as ${finalName} <${finalEmail}>\n`); }
+            else { failed++; broken.add(step.fixes); process.stdout.write("  ✗ could not write your git config\n"); }
+            continue;
+          }
+          // The run reads as the plan did: a banner opens the step, the command is
+          // shown, and a ticked line closes it. Same numbers, same words.
+          const item = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
+          if (item) for (const line of stepBanner(item, stdoutColor())) process.stdout.write(`${line}\n`);
+          process.stdout.write(`  run:  ${renderCommand(step)}\n`);
+          // sudo is prepended only here, where the user has just seen and accepted the
+          // exact line — never silently inside the plan. Two environments make the
+          // naive prefix wrong: a container running as root has no `sudo` and does
+          // not need one, and a locked-down machine has neither. Say which, rather
+          // than failing with an exit code the reader cannot interpret.
+          const needsElevation = step.sudo && !amRoot;
+          if (needsElevation && !haveSudo) {
+            failed++;
+            process.stdout.write("  ✗ needs administrator rights, and `sudo` is not installed here.\n" +
+                                 "    Run the command above as an administrator, then re-run `gov doctor`.\n");
+            continue;
+          }
+          const [bin, ...rest] = needsElevation ? ["sudo", ...step.command] : [...step.command];
+          const r = spawnSync(bin!, rest, { stdio: "inherit" });
+          if (r.status === 0) {
+            ran++;
+            const it = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
+            process.stdout.write(it ? `\n${stepDone(it, true, stdoutColor())}\n` : `  ${reporter(stdoutColor()).ok("done")}\n`);
+          }
+          else {
+            failed++;
+            broken.add(step.fixes);
+            const why = r.error ? r.error.message : `exit ${r.status ?? "unknown"}`;
+            process.stdout.write(`  ✗ failed — ${why}\n`);
+          }
+        }
+      }
+      process.stdout.write(`\n${ran} fixed, ${failed} failed.\n`);
+      // Recomputed, not decremented: the list describes the machine as it is now,
+      // which is the only version of it worth showing.
+      const after: ChecklistFacts = {
+        ...facts(),
+        gitPresent: tryRun("git", ["--version"]) !== undefined,
+        ghPresent: tryRun("gh", ["--version"]) !== undefined,
+        ghAuthenticated: (() => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } })(),
+        ghScopesOk: (() => {
+          try {
+            const s = execFileSync("gh", ["auth", "status"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+            const g = parseGrantedScopes(s);
+            return Boolean(g && missingScopes(g).length === 0);
+          } catch { return false; }
+        })(),
+        gitIdentityOk: Boolean(gitCfg("user.name") && gitCfg("user.email")),
+      };
+      // `doctor --fix` is a waypoint, not the end: the organization comes next.
+      for (const line of statusSoFar(checklist(after), stdoutColor())) process.stdout.write(`${line}\n`);
+      return failed ? 1 : 0;
+    }
+
     // Only when something IS missing: a healthy machine does not need install instructions, and a report
     // that prints them anyway trains the reader to skim past the part that matters.
     if (!depsReport.ok) {
       process.stdout.write("\n");
       for (const line of formatDepsReport(depsReport)) process.stdout.write(`${line}\n`);
+      process.stdout.write("\n  or let gov do it:  gov doctor --fix\n");
     }
     return report.ok && depsReport.ok ? 0 : 1;
   }
@@ -859,6 +2306,36 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     pulls: createGhPulls(runGh),
     projects: createGhProjects(runGh),
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
+    repoStanding,
+    hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
+    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(home, "governance", "policies", "llm-governance.md"))),
+    /**
+     * Install, then offer the sign-in (#196, Q5). gov orchestrates; the vendor
+     * authenticates — the `gh auth login` shape, including its browser fallback.
+     * Every command is shown before it runs, because approval means the org agreed
+     * to the tool, not that the person at the keyboard agreed to this moment.
+     */
+    // `agent install` is handled in bin.ts, next to `work`, because it prompts and spawns.
+
+    /**
+     * `approve` raises a pull request. It does not edit the policy: the approved
+     * list is C01 (POL-136) and belongs to the Infrastructure Owner, not to whoever
+     * typed the command — the same reason `gov knowledge` exists.
+     */
+    proposeAgentApproval: (id) => [
+      `Proposing ${id} for your organization's approved list.`,
+      "",
+      "  This is a policy change, so it goes to whoever owns",
+      "  governance/policies/llm-governance.md — not straight into the file.",
+      "",
+      `  gov knowledge propose approve-agent-${id}`,
+      `  …edit the approved_agents block, then:`,
+      `  gov knowledge submit approve-agent-${id}`,
+    ],
+    // Consent, then record. The prompt is what makes the mapping a decision; writing
+    // it is what makes it reviewable. Neither needs a human to retype what the
+    // preflight already worked out (#194).
+    noteRepoOverrides: (proposed) => { pendingRepoOverrides = proposed; },
     // C01 authorization — write-access to the GitHub Project (viewerCanUpdate), the SoT for authority
     // (`prj manage assign`). The lifecycle ops now call this unconditionally, so wiring it here is what
     // makes the CLI enforce it. Only "false" denies; a null/errored probe does NOT silently authorize —
