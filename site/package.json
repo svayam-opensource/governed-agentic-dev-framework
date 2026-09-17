@@ -1,0 +1,10 @@
+{
+  "name": "gov-install-site",
+  "private": true,
+  "type": "module",
+  "description": "The gov CLI install site — built by build.mjs, served by the gov-install container. gov's container recipe runs `npm test` here.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}
