@@ -18,23 +18,22 @@
     "so the eventual switch keeps old links working. Change `base` here when #273 lands.",
     "",
     "PRERELEASE CHANNELS DO NOT EXIST YET. The published package carries exactly one dist-tag",
-    "(latest -> 1.2.2): no next, no uat, no dev. So uat and dev pin the SAME client as prod and",
+    "(latest -> 1.2.3): no next, no uat, no dev. So uat and dev pin the SAME client as prod and",
     "differ only in the SCRIPT ref. They can diverge the moment a prerelease channel is published;",
     "pinning them at a channel that does not exist would fail with `No matching version found`.",
     "",
-    "PROD PINS TWO IMMUTABLE THINGS (2026-09-17). The CLIENT is 1.2.2, which npm stamps as built from",
-    "c05aa80 — the Policy Owner's pin for 1.2.2. That commit has NO install.sh (the installer landed",
-    "later), so the SCRIPT ref is a full `main` commit that carries the fetch-then-run installer.",
-    "From 1.2.3 onward both are one gov release tag: set prod.ref to `gov-work-<semver>` once",
-    "`gov promote gov-work --to prod` has cut it (Svayamtech/910-GOV-CICD#274), and add that tag",
-    "to `versioned`. 1.2.2 has no versioned pair: a release with no installer of its own has none to serve."
+    "PROD PINS ONE gov RELEASE TAG (2026-09-17). `gov-work-1.2.3` was cut by `gov-cicd promote gov-work",
+    "--to prod` at cd1715b, the commit npm stamps on 1.2.3 — so the installer and the client it installs",
+    "are the SAME release. After each release: prod.ref and prod.pkg to the new tag and version, and",
+    "append the tag to `versioned`. 1.2.2 (built from c05aa80, no installer of its own) has no pair.",
+    "uat and dev pin the latest released client: gov publishes no prerelease dist-tag adopters should use."
   ],
   "app_domain": "gov",
   "base": "svayamtech.com",
   "envs": {
-    "prod": { "ref": "1e3807b795da46cfd382f1e3fda4e63ff4219361", "pkg": "@svayam-opensource/gov@1.2.2", "label": null, "robots": "index, follow" },
-    "uat":  { "ref": "uat",    "pkg": "@svayam-opensource/gov@1.2.2", "label": "UAT — release candidate. Not the version to adopt.", "robots": "noindex, nofollow" },
-    "dev":  { "ref": "dev",    "pkg": "@svayam-opensource/gov@1.2.2", "label": "DEV — the tip of the dev branch. Expect it to be broken.", "robots": "noindex, nofollow" }
+    "prod": { "ref": "gov-work-1.2.3", "pkg": "@svayam-opensource/gov@1.2.3", "label": null, "robots": "index, follow" },
+    "uat":  { "ref": "uat",    "pkg": "@svayam-opensource/gov@1.2.3", "label": "UAT — release candidate. Not the version to adopt.", "robots": "noindex, nofollow" },
+    "dev":  { "ref": "dev",    "pkg": "@svayam-opensource/gov@1.2.3", "label": "DEV — the tip of the dev branch. Expect it to be broken.", "robots": "noindex, nofollow" }
   },
-  "versioned": []
+  "versioned": ["gov-work-1.2.3"]
 }
