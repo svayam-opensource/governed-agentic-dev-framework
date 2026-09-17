@@ -13,6 +13,12 @@ The format is loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); 
 
 ## Unreleased
 
+## 1.2.3 — 2026-09-17
+
+- The install instructions fetch `install.sh` to a file, then run it. Piped into `bash`, a failed
+  download exits 0 and installs nothing without saying so (#240).
+- One path to a published version: gov (`gov deploy` / `gov promote`). The tag-triggered GitHub
+  Actions publish added for #235 is removed; releases are gov's `gov-work-<semver>` tags (#243).
 - `install.sh` verifies the Node archive it downloads against nodejs.org's `SHASUMS256.txt`, and
   refuses rather than warning on a mismatch (#205).
 - An install site serving `install.sh` and `install.ps1` from a named host, per environment (#231).
