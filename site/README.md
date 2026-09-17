@@ -30,21 +30,27 @@ That is what makes three hosts worth more than three DNS records. `site/envs.jso
 
 | Env | DN (derived) | Serves ref | Installs |
 |---|---|---|---|
-| prod | `gov.svayamtech.com` | `v1.2.2` | `@svayam-opensource/gov@1.2.2` |
+| prod | `gov.svayamtech.com` | `main` @ `1e3807b` (full sha) | `@svayam-opensource/gov@1.2.2` (built from `c05aa80`) |
 | uat | `gov-uat.svayamtech.com` | `uat` | `@svayam-opensource/gov@1.2.2` |
 | dev | `gov-dev.svayamtech.com` | `dev` | `@svayam-opensource/gov@1.2.2` |
 
 All three pin the **same client**, because there is no prerelease channel to pin to: the published
 package carries exactly one dist-tag (`latest → 1.2.2`) — no `next`, no `uat`, no `dev`. Pinning at
 a channel that does not exist fails with `No matching version found`. They differ only in the
-**script** ref until #235 gives the release line somewhere to publish prereleases.
+**script** ref until gov publishes a prerelease channel.
 
 `ref` is what the deploy checks out; the build bakes it into the page so the site states out loud
 which ref it is serving. The client version is rewritten into the copied `install.sh` — `GOV_PKG` was
 already overridable at `install.sh:36`, so no installer change was needed.
 
-**Bump `prod.pkg` and `prod.ref` in the same commit that tags a release**, or the site advertises a
-version nobody can install. `--verify` catches an unpinned build; it cannot catch a pin to a version
+**Releases are gov's tags, `gov-work-<semver>`**, cut by `gov promote gov-work --to prod` at the commit
+the published artifact was built from (Svayamtech/910-GOV-CICD#274). Nothing else tags or publishes
+(decision 2026-09-17). After a release: set `prod.ref` to its tag, `prod.pkg` to its version, and add
+the tag to `versioned` — in one commit, or the site advertises a version nobody can install.
+
+1.2.2 is the exception, and prod shows it: its client was built from `c05aa80`, which predates the
+installer, so prod serves the installer from a pinned `main` commit and has no `/v/1.2.2/` pair.
+`--verify` refuses a prod ref that can move — a gov release tag or a full commit sha only. `--verify` catches an unpinned build; it cannot catch a pin to a version
 that was never published.
 
 ## Where it deploys — a catalog unit, not a hosting product
@@ -98,24 +104,9 @@ Change `base` in `envs.json` when #273 lands.
 
 `install.sh` is read from the **pinned ref**, and today:
 
-| ref | what it has |
-|---|---|
-| `origin/main` | a 509-line `install.sh` — no cached-tarball support, no checksums |
-| `origin/uat` | no `install.sh` at all |
-| `origin/dev` | no `install.sh` at all |
-
-So `node site/build.mjs dev` **fails on purpose** — it refuses to serve a ref that has no installer
-rather than silently falling back to the working tree. The order that unblocks it:
-
-1. #233 `main` → `dev`, #234 `dev` → `uat`, then `uat` → `main` — close the branch split.
-2. Land PRJ-121 into `dev`, resolving the `install.sh` add/add conflict **toward the project
-   branch** (its 623-line version has the cached tarball and the checksums; main's 509-line version
-   predates both).
-3. Promote `dev` → `uat` → `main`.
-4. Tag (**#235**), then set `prod.ref`.
-
-A CI job for the site is deliberately not added until step 4, because it would be a job that cannot
-pass.
+**Unblocked 2026-09-17.** The branch split is closed, PRJ-121 is promoted to `main`, and prod pins
+immutable refs, so `node site/build.mjs <env> --verify` passes for all three environments. The site's
+CI job and its deploy through gov are the remaining steps.
 
 ## What `--verify` asserts, and why
 
@@ -130,7 +121,8 @@ then handed to a shell. It fails silently and confusingly. So:
   failed download exits 0 and installs nothing (`docs/installing.md`); the one-liner appears only
   as the CI form;
 - the page carries no unsubstituted `{{TOKEN}}`, and states its host, ref and package;
-- a non-prod build carries its environment banner and prod does not.
+- a non-prod build carries its environment banner and prod does not;
+- prod pins a ref that cannot move, and every `versioned` entry is a gov release tag.
 
 This is why the scripts are copied as plain files beside the page rather than served through anything
 that could decide to be clever.
@@ -140,7 +132,7 @@ that could decide to be clever.
 - **Checksums (#205).** The Node-tarball half is now done in `install.sh` (verified against
   nodejs.org's `SHASUMS256.txt`, refusing rather than warning). Publishing `install.sh`'s own hash
   is NOT done and should not be done beside the file on this host — whoever controls the host
-  controls both. It belongs in the git tag / release notes, which needs #235.
+  controls both. It belongs with the release — gov's `gov-work-<semver>` tag — not on this host.
 - **The repo's own copies of the URL.** `install.sh` holds it in one overridable constant; the
   literal in `docs/testing-the-adopter-path.md` is a tester's command and deliberately still points
   at `raw.githubusercontent.com`, because a tester must be able to run the installer before a site
