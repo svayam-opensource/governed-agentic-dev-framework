@@ -84,6 +84,12 @@ test("the page's primary command fetches to a file, then runs it", () => {
   assert.doesNotMatch(cmd, /\|\s*bash/);
 });
 
+test("every base image is fully qualified — the deploy agent's podman cannot resolve short names", () => {
+  const froms = [...read("Dockerfile").matchAll(/^FROM\s+(\S+)/gm)].map((m) => m[1]);
+  assert.ok(froms.length >= 2);
+  for (const image of froms) assert.match(image, /^[a-z0-9.-]+\.[a-z]+\/[^\s]+$/, `${image} is not fully qualified`);
+});
+
 test("the build output never reaches the image context", () => {
   assert.match(read(".dockerignore"), /^dist$/m);
 });

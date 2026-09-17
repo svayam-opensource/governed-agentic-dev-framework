@@ -12,7 +12,10 @@
 # is `--depth 1` on one branch, and copying its .git in would bake the job's access token into the image.
 # The repository is public, so the build clones it anonymously — and then lays THIS context's site/ over the
 # clone, so the page, envs.json and build.mjs are the commit being deployed, not the default branch's.
-FROM node:24-alpine AS build
+# FULLY QUALIFIED image names: the deploy agent builds with podman, which enforces short-name resolution and
+# cannot prompt without a TTY — `caddy:2-alpine` failed there (Jenkins deploy/dev/gov-install #1), and `node`
+# only resolved because it happens to be in the agent's alias list.
+FROM docker.io/library/node:24-alpine AS build
 RUN apk add --no-cache git
 ARG REPO=https://github.com/svayam-opensource/governed-agentic-dev-framework.git
 RUN git clone --quiet --no-single-branch "$REPO" /src
@@ -24,7 +27,7 @@ RUN set -e; \
     done; \
     node site/caddyfile.mjs site/dist > /src/Caddyfile
 
-FROM caddy:2-alpine
+FROM docker.io/library/caddy:2-alpine
 COPY --from=build /src/site/dist /srv
 COPY --from=build /src/Caddyfile /etc/caddy/Caddyfile
 EXPOSE 4002
