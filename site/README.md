@@ -53,48 +53,51 @@ no `/v/1.2.2/` pair. From 1.2.3 the installer and client are one release tag.
 `--verify` refuses a prod ref that can move — a gov release tag or a full commit sha only. `--verify` catches an unpinned build; it cannot catch a pin to a version
 that was never published.
 
-## Where it deploys — a catalog unit, not a hosting product
+## Where it deploys — catalog unit `gov-install`, through gov
 
-**Earlier draft recommended Cloudflare Pages. That was wrong and is withdrawn.** The organization
-already runs a shared Apache web-server engine (`ws-1`) that serves per-DN vhosts, and there is a
-direct precedent for exactly this shape: `iam-web`, a static bundle served by `ws-1` at
-`security.svayamtech.com` (`svm-prj-work:knowledge/deployment/catalog/services.yaml`). The blocker
-raised against GitHub Pages — one custom domain per repository — simply does not exist here. No new
-hosting vendor, no new DNS, no new deploy mechanism.
+The site is an ordinary governed unit (Svayamtech/svm-prj-work#426), modelled on `portal-web`: a container
+behind the Caddy edge on swagat, which terminates TLS. There is no CI job and no hosting product.
 
-So this is catalog unit shape **4b** from `catalog-unit-shapes.md`: `engine-content` /
-`web-content`.
+```mermaid
+flowchart LR
+  E["caddy@swagat (TLS)"] -->|gov-dev.svayamtech.com| A["ayodhya :4002"]
+  E -->|gov-uat.svayamtech.com| M["mathura :4002"]
+  E -->|gov.svayamtech.com| K["kashi :4002"]
+```
 
 ```yaml
 - id: gov-install
-  type: engine-content
-  sub_type: web-content
-  source: { repo: svayam-opensource/governed-agentic-dev-framework, path: . }
-  deps: [{ unit: ws-1, compat: ^2.4 }]
-  web:
-    slug: gov                               # → gov / gov-uat / gov-dev .svayamtech.com
-    content: ws-1
-    spa: false                              # ← load-bearing; see below
-    root: site/dist/{{env}}
-    build: node site/build.mjs {{env}} --verify
-    clone: full                             # the build reads install.sh at other refs and tags
+  type: app
+  sub_type: spa
+  packaging: container
+  source: { repo: svayam-opensource/governed-agentic-dev-framework, path: site }
+  build: { context: path, dockerfile: Dockerfile }
+  serve: { ports: [4002], health: /healthz }        # private endpoint — only the edge reaches it
+  web: { edge: caddy, slug: gov }                   # DN derived per env: prod bare, else -<env>
+  hosts: { dev: ayodhya, uat: mathura, prod: kashi }
 ```
 
-The unit is **`gov-install`**, drafted in Svayamtech/svm-prj-work#426. It deploys through gov like any
-other unit — `gov-cicd deploy gov-install --env dev`, then `promote` — and there is no separate CI job.
-It waits on **Svayamtech/910-GOV-CICD#282**: today a non-edge web-content unit gets the database applier
-on shared envs, the Apache path needs an explicit `web.dn`, `build`/`root` take no `{{env}}`, and the
-deploy clone is shallow with no tags. `slug`, `{{env}}` and `clone` above are that issue's proposal.
+```
+gov-cicd deploy  gov-install --env dev
+gov-cicd promote gov-install --from dev --to uat
+gov-cicd promote gov-install --from uat --to prod    # after the uat → main PR
+```
 
-**`spa: false` is the most important line.** `spa: true` renders
-`FallbackResource /index.html`, which is precisely the mechanism that answers `/install.sh` with a
-web page — piping HTML into someone's shell. The `iam-web` precedent sets it true because it is an
-Angular SPA. This unit must not.
+**One image, every environment.** gov builds a container once at dev and promotes that image. So
+`Dockerfile` builds every env in `envs.json` into it, and `caddyfile.mjs` serves each request from its env's
+build, matched by Host. The host names are read from each build's `CNAME`, so the DN rule lives only in
+`build.mjs`.
 
-Two notes for whoever wires the unit up: `source.repo` crosses orgs (the installer lives in
-`svayam-opensource`, every existing unit sources from `Svayamtech`), so gov-cicd's deploy
-credentials need read access there. And the DN is **derived, never declared** — prod is bare, every
-other env carries `-<env>`.
+**Why the image build clones.** `build.mjs` reads `install.sh` at pinned refs (`uat`, `dev`,
+`gov-work-<semver>`). The deploy checkout is `--depth 1` on one branch, and its `.git` carries the job's
+token. The repository is public, so the Dockerfile clones it anonymously and lays the deployed commit's
+`site/` over it.
+
+**A missing path is a 404, never a page.** There is no fallback, so an adopter can never pipe HTML into a
+shell. An unknown host is a 404 too. `install.sh` and `install.ps1` are `text/plain`, because `irm … | iex`
+needs a string.
+
+`npm test` in `site/` is what gov's container recipe runs. It needs no git history and no network.
 
 ### Interim: `gov.svayamtech.com`, not `gov.svayam.ai`
 
