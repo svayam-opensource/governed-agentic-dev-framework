@@ -30,12 +30,12 @@ That is what makes three hosts worth more than three DNS records. `site/envs.jso
 
 | Env | DN (derived) | Serves ref | Installs |
 |---|---|---|---|
-| prod | `gov.svayamtech.com` | `main` @ `1e3807b` (full sha) | `@svayam-opensource/gov@1.2.2` (built from `c05aa80`) |
-| uat | `gov-uat.svayamtech.com` | `uat` | `@svayam-opensource/gov@1.2.2` |
-| dev | `gov-dev.svayamtech.com` | `dev` | `@svayam-opensource/gov@1.2.2` |
+| prod | `gov.svayamtech.com` | `gov-work-1.2.3` | `@svayam-opensource/gov@1.2.3` |
+| uat | `gov-uat.svayamtech.com` | `uat` | `@svayam-opensource/gov@1.2.3` |
+| dev | `gov-dev.svayamtech.com` | `dev` | `@svayam-opensource/gov@1.2.3` |
 
 All three pin the **same client**, because there is no prerelease channel to pin to: the published
-package carries exactly one dist-tag (`latest → 1.2.2`) — no `next`, no `uat`, no `dev`. Pinning at
+package carries exactly one dist-tag (`latest → 1.2.3`) — no `next`, no `uat`, no `dev`. Pinning at
 a channel that does not exist fails with `No matching version found`. They differ only in the
 **script** ref until gov publishes a prerelease channel.
 
@@ -48,8 +48,8 @@ the published artifact was built from (Svayamtech/910-GOV-CICD#274). Nothing els
 (decision 2026-09-17). After a release: set `prod.ref` to its tag, `prod.pkg` to its version, and add
 the tag to `versioned` — in one commit, or the site advertises a version nobody can install.
 
-1.2.2 is the exception, and prod shows it: its client was built from `c05aa80`, which predates the
-installer, so prod serves the installer from a pinned `main` commit and has no `/v/1.2.2/` pair.
+1.2.2 is the exception: its client was built from `c05aa80`, which predates the installer, so it has
+no `/v/1.2.2/` pair. From 1.2.3 the installer and client are one release tag.
 `--verify` refuses a prod ref that can move — a gov release tag or a full commit sha only. `--verify` catches an unpinned build; it cannot catch a pin to a version
 that was never published.
 
