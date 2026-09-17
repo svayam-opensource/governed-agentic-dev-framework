@@ -66,19 +66,25 @@ So this is catalog unit shape **4b** from `catalog-unit-shapes.md`: `engine-cont
 `web-content`.
 
 ```yaml
-- id: gov-site
+- id: gov-install
   type: engine-content
   sub_type: web-content
+  source: { repo: svayam-opensource/governed-agentic-dev-framework, path: . }
   deps: [{ unit: ws-1, compat: ^2.4 }]
   web:
-    app_domain: gov
+    slug: gov                               # → gov / gov-uat / gov-dev .svayamtech.com
     content: ws-1
-    spa: false          # ← load-bearing; see below
-    root: site/dist
-    build: node site/build.mjs <env> --verify
-  source:
-    repo: svayam-opensource/governed-agentic-dev-framework
+    spa: false                              # ← load-bearing; see below
+    root: site/dist/{{env}}
+    build: node site/build.mjs {{env}} --verify
+    clone: full                             # the build reads install.sh at other refs and tags
 ```
+
+The unit is **`gov-install`**, drafted in Svayamtech/svm-prj-work#426. It deploys through gov like any
+other unit — `gov-cicd deploy gov-install --env dev`, then `promote` — and there is no separate CI job.
+It waits on **Svayamtech/910-GOV-CICD#282**: today a non-edge web-content unit gets the database applier
+on shared envs, the Apache path needs an explicit `web.dn`, `build`/`root` take no `{{env}}`, and the
+deploy clone is shallow with no tags. `slug`, `{{env}}` and `clone` above are that issue's proposal.
 
 **`spa: false` is the most important line.** `spa: true` renders
 `FallbackResource /index.html`, which is precisely the mechanism that answers `/install.sh` with a
@@ -100,13 +106,13 @@ follows redirects, so no adopter command changes.
 
 Change `base` in `envs.json` when #273 lands.
 
-### This cannot be deployed yet, and the build says so
+### Build status
 
-`install.sh` is read from the **pinned ref**, and today:
+`install.sh` is read from the **pinned ref**, never the working tree.
 
-**Unblocked 2026-09-17.** The branch split is closed, PRJ-121 is promoted to `main`, and prod pins
-immutable refs, so `node site/build.mjs <env> --verify` passes for all three environments. The site's
-CI job and its deploy through gov are the remaining steps.
+**Builds since 2026-09-17.** The branch split is closed, PRJ-121 is promoted to `main`, and prod pins
+immutable refs, so `node site/build.mjs <env> --verify` passes for all three environments. What remains
+is the deploy through gov: 910-GOV-CICD#282, then the `gov-install` unit.
 
 ## What `--verify` asserts, and why
 
