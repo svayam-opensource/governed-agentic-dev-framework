@@ -68,7 +68,9 @@ test("the image builds EVERY env in envs.json — one image, promoted unchanged"
   const df = read("Dockerfile");
   assert.match(df, /Object\.keys\(require\('\.\/site\/envs\.json'\)\.envs\)/);
   assert.match(df, /node site\/build\.mjs "\$e" --verify/);
-  assert.match(df, /COPY \. \/src\/site/, "the deployed commit's site/ must overlay the clone");
+  // The deployed commit's site/ REPLACES the clone's, from whichever context the catalog chose.
+  assert.match(df, /COPY \. \/ctx/, "the whole build context is taken, whether it is the repo root or site/");
+  assert.match(df, /rm -rf \/src\/site && cp -r "\$site" \/src\/site/, "the deployed commit's site/ must replace the clone's");
 });
 
 test("envs.json: prod pins refs that cannot move", () => {
@@ -198,4 +200,90 @@ test("an env whose ref predates GOV_REGISTRY is served the released pair, never 
   assert.match(b, /env = \{ \.\.\.env, pkg: cfg\.envs\.prod\.pkg, registry: undefined \}/,
     "the fallback is prod's release pair from the adopter's own registry — `@uat` without a registry would die");
   assert.match(b, /console\.warn\(/, "the fallback must be ANNOUNCED — a site quietly serving the released client is the bug");
+});
+
+// ── the LOCAL sandbox (PRJ-121, 2026-09-21) ──────────────────────────────────────────────────────────
+//
+// `gov-cicd deploy gov-install --env local` builds a fourth site from the WORKTREE — its install.sh, and a
+// client packed from its publish/actions/ts — so a change can be walked before it goes anywhere. The property
+// that matters most is the negative one: that variant must never exist in an image a shared env builds.
+
+test("the local site is built ONLY when GOV_LOCAL=1 — a shared build never contains it", () => {
+  const df = read("Dockerfile");
+  assert.match(df, /^ARG GOV_LOCAL=\s*$/m, "absent by default: a shared-env build must not be told it is local");
+  assert.match(df, /if \[ "\$GOV_LOCAL" = 1 \]; then/, "the local build must be gated on the arg");
+  assert.match(df, /node site\/build-local\.mjs/, "the local site is built by its own script, not by build.mjs");
+});
+
+test("GOV_LOCAL without the repo root refuses — never a silent skip", () => {
+  assert.match(read("Dockerfile"), /\[ -n "\$root" \] \|\| \{ echo "GOV_LOCAL=1 needs build\.context: repo/);
+});
+
+test("the Dockerfile works with EITHER context, so catalog and site can change in any order", () => {
+  // Two repositories cannot change in one step. A Dockerfile that assumed one context would break the next
+  // dev deploy in the window between them.
+  assert.match(read("Dockerfile"), /if \[ -f \/ctx\/site\/build\.mjs \]; then site=\/ctx\/site; root=\/ctx; else site=\/ctx; root=; fi/);
+});
+
+test("build.mjs never builds `local` — the rule that protects adopters has no local branch in it", () => {
+  // build.mjs refuses the working tree; build-local.mjs reads nothing else. Keeping them apart is the point.
+  const cfg = JSON.parse(read("envs.json"));
+  assert.equal(cfg.envs.local, undefined, "`local` must not be an envs.json env — every shared build loops over those");
+  // CODE only — a comment pointing a reader at the local builder is welcome; a code path into it is not.
+  const code = read("build.mjs").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /build-local|GOV_LOCAL/);
+});
+
+test("the local installer asks for the SERVED client over plain http, and pins no registry", () => {
+  const b = read("build-local.mjs");
+  assert.match(b, /GOV_PKG="\\\$\{GOV_PKG:-http:\/\/\$\{SELF\}\/gov\.tgz\}"/, "the walk must install YOUR client, not @dev");
+  assert.match(b, /must not pin a registry/, "GOV_PKG is a URL; a registry pin would be meaningless");
+  assert.match(b, /\.replaceAll\("https:\/\/\{\{HOST\}\}", "http:\/\/\{\{HOST\}\}"\)/, "nothing local serves TLS");
+});
+
+test("the local site answers ONLY to local names", () => {
+  // Read from source, never imported: build-local.mjs is a CLI whose top level exits without arguments, and an
+  // import would take this whole test process down with it.
+  const hosts = JSON.parse(read("build-local.mjs").match(/LOCAL_HOSTS = (\[[^\]]*\])/)[1]);
+  assert.deepEqual([...hosts].sort(), ["127.0.0.1", "host.docker.internal", "localhost"]);
+});
+
+test("the build context never carries node_modules, build output, tarballs or .git", () => {
+  const ig = read("Dockerfile.dockerignore").split("\n").filter((l) => l && !l.startsWith("#"));
+  for (const p of [".git", "**/node_modules", "**/lib", "**/dist", "**/*.tgz"]) assert.ok(ig.includes(p), `missing ${p}`);
+  // Deny-only: an allow-list (`*` then `!site`) empties the build when the context IS site/.
+  assert.ok(!ig.includes("*"), "an allow-list breaks the site/ context");
+});
+
+// ── the Windows installer gets the same pins as install.sh (PRJ-121, 2026-09-21) ──────────────────────
+//
+// install.ps1 hardcoded '@svayam-opensource/gov' and nothing pinned it, so every site's Windows installer —
+// dev and uat included — installed the RELEASED client. A Windows walk of dev tested the code a change replaced.
+
+test("install.ps1 carries the two defaults the site pins, each on ONE line in the pinnable shape", () => {
+  const ps = readFileSync(join(SITE, "..", "install.ps1"), "utf8");
+  assert.match(ps, /^\$GovPkgDefault\s*=\s*'@svayam-opensource\/gov'$/m, "build.mjs rewrites this exact line — its shape is load-bearing");
+  assert.match(ps, /^\$GovRegistryDefault\s*=\s*''$/m, "empty by default: a released install uses the adopter's own registry");
+  assert.match(ps, /if \(\$env:GOV_PKG\)\s*\{ \$env:GOV_PKG \}\s*else \{ \$GovPkgDefault \}/, "the env var still overrides, for testers");
+});
+
+test("install.ps1 passes the SCOPED registry flag, built safely", () => {
+  const ps = readFileSync(join(SITE, "..", "install.ps1"), "utf8");
+  // A scope mapping in any npmrc outranks --registry for a scoped package. `$($Matches[1])`, never `$scope:` —
+  // PowerShell reads `$name:` as a scope-qualified variable, like `$env:X`.
+  assert.match(ps, /"--\$\(\$Matches\[1\]\):registry=\$GovRegistry"/);
+  assert.match(ps, /& npm @npmArgs/, "an argument array, splatted — no string the shell has to re-split");
+});
+
+test("build.mjs pins the Windows installer's package and registry, and --verify holds it both ways", () => {
+  const b = read("build.mjs");
+  assert.match(b, /\$GovPkgDefault      = '\$\{pkg\}'/);
+  assert.match(b, /\$GovRegistryDefault = '\$\{registry\}'/);
+  assert.match(b, /install\.ps1 was not pinned to \$\{env\.pkg\}/, "a missing package pin must fail the build");
+  assert.match(b, /declares no registry, but install\.ps1 carries one/, "a registry leaking onto prod must fail the build");
+});
+
+test("an older ref's install.ps1 is served as it was — never a failed image", () => {
+  // One image builds every env; failing on uat's or a release tag's older ps1 would sink a dev deploy.
+  assert.match(read("build.mjs"), /if \(!RE_PS1_PKG\.test\(text\)\) return \{ text, legacy: true \};/);
 });

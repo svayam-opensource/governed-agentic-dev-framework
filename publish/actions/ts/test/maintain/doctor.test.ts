@@ -72,3 +72,33 @@ describe("gov-work — the doctor report in colour (#204)", () => {
     expect(lines.some((l) => l.includes("\u2713 CLI version")), "an ok is a tick").to.equal(true);
   });
 });
+
+// ── old-world artifacts are looked for only in a WORKSPACE (PRJ-121, 2026-09-21) ────────────────────
+//
+// Found by the first walk of the local install site. With no workspace resolved, doctor's "home" is just the
+// cwd — on a fresh machine the adopter's home directory, where our own documented command
+// (`curl … -o install.sh && bash install.sh`) had just saved install.sh. The first thing a new adopter saw was
+// `old-world artifacts (install.sh) — run gov upgrade --from <content>`.
+import { staleArtifactsIn } from "../../src/maintain/upgrade-sync.js";
+
+describe("staleArtifactsIn — retire only what a workspace left behind", () => {
+  const present = (...rels: string[]) => (rel: string) => rels.includes(rel);
+
+  it("finds NOTHING outside a workspace, whatever the directory holds", () => {
+    // A fresh adopter's home: the installer we told them to save, and the ~/bin and ~/scripts many people keep.
+    expect(staleArtifactsIn(false, present("install.sh", "bin", "scripts"))).to.deep.equal([]);
+  });
+
+  it("still finds them in a real adopter workspace — the rule is right where it applies", () => {
+    // Reported as RETIRE_PATHS spells them (`framework/`), in its order — what doctor has always printed.
+    expect(staleArtifactsIn(true, present("install.sh", "registry.yaml", "framework"))).to.deep.equal(["framework/", "registry.yaml", "install.sh"]);
+  });
+
+  it("exempts the framework's own checkout, where install.sh is the bootstrap installer (#186)", () => {
+    expect(staleArtifactsIn(true, present("publish/content/MANIFEST.yaml", "install.sh"))).to.deep.equal([]);
+  });
+
+  it("a clean workspace reports nothing", () => {
+    expect(staleArtifactsIn(true, present())).to.deep.equal([]);
+  });
+});
