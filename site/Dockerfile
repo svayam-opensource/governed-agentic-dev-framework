@@ -18,12 +18,22 @@
 FROM docker.io/library/node:24-alpine AS build
 RUN apk add --no-cache git
 ARG REPO=https://github.com/svayam-opensource/governed-agentic-dev-framework.git
+# WHAT THIS IMAGE'S DECLARED DEPS RESOLVE TO, passed by `gov deploy` from the catalog (PRJ-121).
+#
+# JSON, one entry per `deps:` edge on the gov-install unit: [{unit, package, semver, registries}]. It is the
+# version of the gov CLI this site advertises and installs, and it comes from gov-work's own catalog entry
+# rather than a string typed into envs.json — so bumping gov-work is the single edit that moves it.
+#
+# EMPTY IS A VALID BUILD, and stays valid deliberately. A local `docker build` for a quick page check has no
+# gov deploy behind it, and must not need one; build.mjs then falls back to the pins written in envs.json.
+# gov always passes it, so the deployed image is never the fallback.
+ARG GOV_DEPS=
 RUN git clone --quiet --no-single-branch "$REPO" /src
 COPY . /src/site
 WORKDIR /src
 RUN set -e; \
     for e in $(node -p "Object.keys(require('./site/envs.json').envs).join(' ')"); do \
-      node site/build.mjs "$e" --verify; \
+      GOV_DEPS="$GOV_DEPS" node site/build.mjs "$e" --verify; \
     done; \
     node site/caddyfile.mjs site/dist > /src/Caddyfile
 
