@@ -84,7 +84,10 @@ const RE_PS1_SELF = /^#\s+irm https?:\/\/\S+install\.ps1 \| iex$/m;
 const shSrc = readFileSync(join(tree, "install.sh"), "utf8");
 let sh = pin(shSrc, RE_URL, `GOV_INSTALL_URL="\${GOV_INSTALL_URL:-http://${SELF}/install.sh}"`, "GOV_INSTALL_URL");
 sh = pin(sh, RE_PKG, `GOV_PKG="\${GOV_PKG:-http://${SELF}/gov.tgz}"`, "GOV_PKG");
-const ps1 = pin(readFileSync(join(tree, "install.ps1"), "utf8"), RE_PS1_SELF, `#   irm http://${SELF}/install.ps1 | iex`, "the install.ps1 self-reference");
+const RE_PS1_PKG = /^\$GovPkgDefault\s*=\s*'[^']*'$/m;
+let ps1 = pin(readFileSync(join(tree, "install.ps1"), "utf8"), RE_PS1_SELF, `#   irm http://${SELF}/install.ps1 | iex`, "the install.ps1 self-reference");
+// The Windows installer installs YOUR client too — the same served tarball. No registry: it is a URL.
+ps1 = pin(ps1, RE_PS1_PKG, `$GovPkgDefault      = 'http://${SELF}/gov.tgz'`, "install.ps1 $GovPkgDefault");
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
@@ -96,8 +99,7 @@ copyFileSync(tgz, join(OUT, "gov.tgz"));
 
 // The page. The template says https://{{HOST}}; local is plain http, so the scheme is rewritten BEFORE the host
 // is filled in — the template and build.mjs stay exactly as the shared envs need them.
-const banner = `<div class="envbar">LOCAL — your working tree, built on this machine. Never deployed anywhere. ` +
-  `Windows: install.ps1 here is your worktree's script but installs the PUBLISHED client.</div>`;
+const banner = `<div class="envbar">LOCAL — your working tree, built on this machine. Never deployed anywhere.</div>`;
 const html = readFileSync(join(HERE, "template", "index.html"), "utf8")
   .replaceAll("https://{{HOST}}", "http://{{HOST}}")
   .replaceAll("{{HOST}}", SELF)
@@ -135,6 +137,9 @@ if (verify) {
   if (!served.includes(`GOV_PKG="\${GOV_PKG:-http://${SELF}/gov.tgz}"`)) fail.push("GOV_PKG does not point at the served client");
   // No registry: GOV_PKG is a URL. A pinned registry here would be meaningless at best.
   if (/^GOV_REGISTRY="\$\{GOV_REGISTRY:-.+\}"$/m.test(served)) fail.push("a local install.sh must not pin a registry");
+  const servedPs1 = readFileSync(join(OUT, "install.ps1"), "utf8");
+  if (!servedPs1.includes(`$GovPkgDefault      = 'http://${SELF}/gov.tgz'`)) fail.push("install.ps1 does not install the served client");
+  if (/^\$GovRegistryDefault\s*=\s*'[^']+'$/m.test(servedPs1)) fail.push("a local install.ps1 must not pin a registry");
 
   // The tarball must be the gov client, not merely a file that exists.
   const head = readFileSync(join(OUT, "gov.tgz")).subarray(0, 2);

@@ -14,9 +14,20 @@
 $ErrorActionPreference = 'Stop'
 
 $NodeMajor = 24
-# Overridable so a pre-release build can be tested through the SAME path an adopter
-# takes: $env:GOV_PKG = 'C:\path\to\pkg.tgz'
-$GovPkg    = if ($env:GOV_PKG) { $env:GOV_PKG } else { '@svayam-opensource/gov' }
+# WHAT TO INSTALL, AND FROM WHERE — the two defaults each install site pins for its environment
+# (site/build.mjs), exactly as it pins GOV_PKG / GOV_REGISTRY in install.sh. Keep each on ONE line,
+# in this shape: the site's build rewrites these lines and refuses to ship if it cannot find them.
+#
+# They used to be a single hardcoded '@svayam-opensource/gov' that nothing pinned, so every site's
+# Windows installer — dev and uat included — installed the RELEASED client from the public registry.
+# A Windows walk of gov-dev therefore tested the code a change had just replaced. (PRJ-121, 2026-09-21)
+#
+# Still overridable, so a pre-release build can be tested through the SAME path an adopter takes:
+# $env:GOV_PKG = 'C:\path\to\pkg.tgz'
+$GovPkgDefault      = '@svayam-opensource/gov'
+$GovRegistryDefault = ''
+$GovPkg      = if ($env:GOV_PKG)      { $env:GOV_PKG }      else { $GovPkgDefault }
+$GovRegistry = if ($env:GOV_REGISTRY) { $env:GOV_REGISTRY } else { $GovRegistryDefault }
 $GovHome   = Join-Path $env:LOCALAPPDATA 'gov'
 $NodeDir   = Join-Path $GovHome 'node'
 
@@ -93,7 +104,17 @@ function Install-Gov {
   if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     Die "npm did not come with Node — the install is incomplete. Delete $NodeDir and re-run."
   }
-  & npm install -g --silent $GovPkg
+  $npmArgs = @('install', '-g', '--silent')
+  if ($GovRegistry) {
+    $npmArgs += @('--registry', $GovRegistry)
+    # --registry ALONE LOSES to a `@<scope>:registry` mapping in any npmrc, for a scoped package — and a
+    # developer's npmrc carries exactly that mapping. The scoped flag is what wins (same fix as install.sh).
+    # `$($Matches[1])`, never `$scope:` — PowerShell would read that as a scope-qualified variable.
+    if ($GovPkg -match '^(@[^/]+)/') { $npmArgs += "--$($Matches[1]):registry=$GovRegistry" }
+    Say "    (from $GovRegistry)"
+  }
+  $npmArgs += $GovPkg
+  & npm @npmArgs
   if ($LASTEXITCODE -ne 0) { Die "npm could not install $GovPkg — the output above says why" }
   Ok "gov installed"
 }

@@ -43,6 +43,29 @@ export interface Manifest { readonly files: readonly ManifestEntry[]; readonly o
 /** Paths (prefixes / exact) the new layout retires from an adopter repo. */
 export const RETIRE_PATHS = ["framework/", "registry.yaml", ".framework-version", "bin/", "scripts/", "setup.sh", "install.sh", "prj"] as const;
 
+/**
+ * Which retired artifacts are present — looked for ONLY in a governance workspace (PRJ-121, 2026-09-21).
+ *
+ * RETIRE_PATHS describes an old ADOPTER REPO. `gov doctor` used to scan whatever directory it resolved as
+ * "home" — and with no workspace resolved, that is simply where the person is standing. On a fresh machine that
+ * is their home directory, which is exactly where the documented install command
+ * (`curl … -o install.sh && bash install.sh`) had just saved `install.sh`. So the first thing a new adopter saw
+ * after installing was `old-world artifacts (install.sh) — run gov upgrade --from <content>`: wrong advice,
+ * about a file we told them to create, from a check that had no workspace to be right about. It fired just as
+ * readily on any `~/bin` or `~/scripts`. Found by the first local-site walk, before it reached anyone.
+ *
+ *   isWorkspace  — `home` is a resolved governance workspace, or one the person named (`--gov-home`).
+ *   exists(rel)  — whether `rel` exists under home. Injected, so this stays free of the filesystem.
+ *
+ * The framework's OWN checkout is exempt: `install.sh` is its bootstrap installer there, not a leftover
+ * (#186). publish/content/MANIFEST.yaml exists only in the source repo, so it tells the two apart.
+ */
+export function staleArtifactsIn(isWorkspace: boolean, exists: (rel: string) => boolean): string[] {
+  if (!isWorkspace) return [];
+  if (exists("publish/content/MANIFEST.yaml")) return [];
+  return RETIRE_PATHS.filter((rp) => exists(rp.replace(/\/$/, "")));
+}
+
 /** Parse the flow-style MANIFEST (files[] of {src,dst,mode} + owned[]). */
 export function parseManifest(text: string): Manifest {
   const files: ManifestEntry[] = [];

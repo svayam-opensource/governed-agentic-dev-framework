@@ -254,3 +254,36 @@ test("the build context never carries node_modules, build output, tarballs or .g
   // Deny-only: an allow-list (`*` then `!site`) empties the build when the context IS site/.
   assert.ok(!ig.includes("*"), "an allow-list breaks the site/ context");
 });
+
+// ── the Windows installer gets the same pins as install.sh (PRJ-121, 2026-09-21) ──────────────────────
+//
+// install.ps1 hardcoded '@svayam-opensource/gov' and nothing pinned it, so every site's Windows installer —
+// dev and uat included — installed the RELEASED client. A Windows walk of dev tested the code a change replaced.
+
+test("install.ps1 carries the two defaults the site pins, each on ONE line in the pinnable shape", () => {
+  const ps = readFileSync(join(SITE, "..", "install.ps1"), "utf8");
+  assert.match(ps, /^\$GovPkgDefault\s*=\s*'@svayam-opensource\/gov'$/m, "build.mjs rewrites this exact line — its shape is load-bearing");
+  assert.match(ps, /^\$GovRegistryDefault\s*=\s*''$/m, "empty by default: a released install uses the adopter's own registry");
+  assert.match(ps, /if \(\$env:GOV_PKG\)\s*\{ \$env:GOV_PKG \}\s*else \{ \$GovPkgDefault \}/, "the env var still overrides, for testers");
+});
+
+test("install.ps1 passes the SCOPED registry flag, built safely", () => {
+  const ps = readFileSync(join(SITE, "..", "install.ps1"), "utf8");
+  // A scope mapping in any npmrc outranks --registry for a scoped package. `$($Matches[1])`, never `$scope:` —
+  // PowerShell reads `$name:` as a scope-qualified variable, like `$env:X`.
+  assert.match(ps, /"--\$\(\$Matches\[1\]\):registry=\$GovRegistry"/);
+  assert.match(ps, /& npm @npmArgs/, "an argument array, splatted — no string the shell has to re-split");
+});
+
+test("build.mjs pins the Windows installer's package and registry, and --verify holds it both ways", () => {
+  const b = read("build.mjs");
+  assert.match(b, /\$GovPkgDefault      = '\$\{pkg\}'/);
+  assert.match(b, /\$GovRegistryDefault = '\$\{registry\}'/);
+  assert.match(b, /install\.ps1 was not pinned to \$\{env\.pkg\}/, "a missing package pin must fail the build");
+  assert.match(b, /declares no registry, but install\.ps1 carries one/, "a registry leaking onto prod must fail the build");
+});
+
+test("an older ref's install.ps1 is served as it was — never a failed image", () => {
+  // One image builds every env; failing on uat's or a release tag's older ps1 would sink a dev deploy.
+  assert.match(read("build.mjs"), /if \(!RE_PS1_PKG\.test\(text\)\) return \{ text, legacy: true \};/);
+});

@@ -271,10 +271,35 @@ copyFileSync(join(HERE, "template", "style.css"), join(out, "style.css"));
 const current = installerFor(env.ref, env.pkg, "/install.sh", host, env.registry);
 writeFileSync(join(out, "install.sh"), current.sh);
 
-const ps1src = readAtRef(env.ref, "install.ps1");
-writeFileSync(join(out, "install.ps1"), pin(ps1src.text,
-  /^#\s+irm https:\/\/\S+install\.ps1 \| iex$/m,
-  `#   irm https://${host}/install.ps1 | iex`, "the install.ps1 self-reference"));
+/**
+ * THE WINDOWS INSTALLER GETS THE SAME PINS AS install.sh (PRJ-121, 2026-09-21).
+ *
+ * It used to get only its self-reference. install.ps1 hardcoded '@svayam-opensource/gov' and nothing pinned
+ * it, so gov-dev's and gov-uat's Windows installers installed the RELEASED client from the public registry —
+ * a Windows walk of dev tested the code a change had just replaced, the same failure install.sh had before
+ * #259. Now `$GovPkgDefault` gets the env's pkg and, where the env routes one, `$GovRegistryDefault` its
+ * registry.
+ *
+ * A REF WHOSE install.ps1 PREDATES THOSE LINES is served as it always was, and announced — the same
+ * reasoning as install.sh's legacy routing: failing would sink the whole image over one env's older ref.
+ */
+const RE_PS1_PKG = /^\$GovPkgDefault\s*=\s*'[^']*'$/m;
+const RE_PS1_REG = /^\$GovRegistryDefault\s*=\s*'[^']*'$/m;
+function ps1For(ref, pkg, registry, selfPin) {
+  let text = readAtRef(ref, "install.ps1").text;
+  if (selfPin) text = pin(text, /^#\s+irm https:\/\/\S+install\.ps1 \| iex$/m, selfPin, "the install.ps1 self-reference");
+  if (!RE_PS1_PKG.test(text)) return { text, legacy: true };
+  text = pin(text, RE_PS1_PKG, `$GovPkgDefault      = '${pkg}'`, "install.ps1 $GovPkgDefault");
+  if (registry) text = pin(text, RE_PS1_REG, `$GovRegistryDefault = '${registry}'`, "install.ps1 $GovRegistryDefault");
+  return { text, legacy: false };
+}
+const ps1 = ps1For(env.ref, env.pkg, env.registry, `#   irm https://${host}/install.ps1 | iex`);
+if (ps1.legacy) {
+  console.warn(`\n  NOTE ${envName}: install.ps1 at '${env.ref}' predates the package pin, so the Windows installer here installs\n` +
+    `  the RELEASED client from the adopter's own registry, as it always has. ` +
+    (RELEASE_TAG.test(env.ref) ? `A release tag never moves: the NEXT release carries the pin.\n` : `It is pinned once install.ps1 reaches '${env.ref}'.\n`));
+}
+writeFileSync(join(out, "install.ps1"), ps1.text);
 
 // ── VERSIONED PAIRS (#231, Q6) ──────────────────────────────────────────────────────────────────
 //
@@ -290,7 +315,8 @@ for (const v of cfg.versioned ?? []) {
   mkdirSync(dir, { recursive: true });
   const built = installerFor(v, `@svayam-opensource/gov@${bare}`, `/v/${bare}/install.sh`, host);
   writeFileSync(join(dir, "install.sh"), built.sh);
-  writeFileSync(join(dir, "install.ps1"), readAtRef(v, "install.ps1").text);
+  // The same release's own client — pinned where that release's install.ps1 can be (it was served raw before).
+  writeFileSync(join(dir, "install.ps1"), ps1For(v, `@svayam-opensource/gov@${bare}`, undefined, null).text);
   versionedBuilt.push({ v, resolved: built.resolved });
 }
 
@@ -371,6 +397,16 @@ if (verify) {
     fail.push("install.sh still carries a raw.githubusercontent URL for our own artefact");
   }
   if (!psOut.includes(`https://${host}/install.ps1`)) fail.push("install.ps1 was not pinned to the host");
+  // THE WINDOWS PINS, BOTH WAYS ROUND — the same contract install.sh is held to above.
+  if (!ps1.legacy && !psOut.includes(`$GovPkgDefault      = '${env.pkg}'`)) {
+    fail.push(`install.ps1 was not pinned to ${env.pkg} — the Windows installer would install the released client`);
+  }
+  if (env.registry && !ps1.legacy && !psOut.includes(`$GovRegistryDefault = '${env.registry}'`)) {
+    fail.push(`install.ps1 was not pinned to the ${envName} registry ${env.registry}`);
+  }
+  if (!env.registry && /^\$GovRegistryDefault\s*=\s*'[^']+'$/m.test(psOut)) {
+    fail.push(`${envName} declares no registry, but install.ps1 carries one — adopters would be routed off their own registry`);
+  }
 
   // PROD PINS SOMETHING THAT CANNOT MOVE. A branch name serves whatever lands on it next, which is the
   // `main` pin this site exists to replace (#231). A gov release tag, or a full commit sha where the

@@ -58,8 +58,8 @@ as ever, gets a 404.
 
 `host.docker.internal` reaches the host out of the box on Docker Desktop. On native Linux docker, add
 `--add-host=host.docker.internal:host-gateway` to the walker, and note the site is bound to loopback.
-Windows: `install.ps1` on the local site is your worktree's script, but it installs the **published**
-client — it has no per-env package pin at all yet.
+`install.ps1` gets the same treatment: the local site's Windows installer installs your client from
+`/gov.tgz`, and every shared site pins its own env's package and registry, exactly as `install.sh` does.
 
 ### Walk what `dev` has deployed
 

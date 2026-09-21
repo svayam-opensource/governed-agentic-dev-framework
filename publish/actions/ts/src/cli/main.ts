@@ -57,7 +57,7 @@ import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
 import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } from "../maintain/upgrade-run.js";
-import { RETIRE_PATHS } from "../maintain/upgrade-sync.js";
+import { staleArtifactsIn } from "../maintain/upgrade-sync.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
@@ -1922,14 +1922,9 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       activeOrg: env.readActiveOrg(),
       cliVersion,
       contentVersion: fs.readFile(path.join(home, "VERSION"))?.trim() ?? null,
-      // `install.sh` is BOTH a retired adopter artifact (the vendored bash CLI's
-      // installer) and the framework repo's own bootstrap installer (#186). In an
-      // adopter workspace the retire rule is right; in the framework checkout it is
-      // a false alarm aimed at maintainers. publish/content/MANIFEST.yaml exists
-      // only in the source repo, so it tells the two apart.
-      staleArtifacts: fs.pathExists(path.join(home, "publish", "content", "MANIFEST.yaml"))
-        ? []
-        : RETIRE_PATHS.filter((rp) => fs.pathExists(path.join(home, rp.replace(/\/$/, "")))),
+      // Only a WORKSPACE has old-world artifacts to retire. With none resolved, `home` is just the cwd — on a
+      // fresh machine the adopter's home dir, holding the install.sh our own install command saved there.
+      staleArtifacts: staleArtifactsIn(!!doctorHomeOverride || resolve.ok, (rel) => fs.pathExists(path.join(home, rel))),
     });
     for (const line of formatDoctorReport(report, stdoutColor())) process.stdout.write(`${line}\n`);
 
