@@ -71,7 +71,42 @@ if (!envName || !cfg.envs[envName]) {
   console.error(`usage: node site/build.mjs <${Object.keys(cfg.envs).join("|")}> [--verify]`);
   process.exit(2);
 }
-const env = cfg.envs[envName];
+/**
+ * THE CATALOG OUTRANKS envs.json (PRJ-121, 2026-09-21).
+ *
+ * `gov deploy` passes GOV_DEPS — what this unit's declared `deps:` resolve to, straight from the catalog:
+ * [{unit, package, semver, registries}]. When it is present, the gov-work entry decides BOTH pins:
+ *
+ *   pkg      = <package>@<semver>       the version the catalog says is current for this unit
+ *   registry = registries[<env>]        where that version lives, per env — and build-once-promote
+ *                                       publishes to the dev registry FIRST, which is the whole point
+ *
+ * `registries.prod` is the public registry, and pinning prod at it would be the same as pinning nothing
+ * while looking deliberate. So prod keeps an ABSENT registry: npm then uses the adopter's own default,
+ * which is the only correct answer for a released install.
+ *
+ * WHY envs.json STILL CARRIES PINS. A plain `docker build`, or a contributor running build.mjs to look at
+ * the page, has no deploy behind it. Falling back keeps that working. It also means a stale envs.json can
+ * no longer mislead a DEPLOYED site — gov always passes GOV_DEPS, so the fallback is never what ships.
+ */
+function envWithDepPins(base, name) {
+  const raw = (process.env.GOV_DEPS ?? "").trim();
+  if (!raw) return base;
+  let pins;
+  try {
+    pins = JSON.parse(raw);
+  } catch (e) {
+    die(`GOV_DEPS is not valid JSON (${e.message}).\n  gov deploy passes it; a hand-run build should leave it unset rather than guess at it.`);
+  }
+  const gov = (Array.isArray(pins) ? pins : []).find((p) => p?.unit === "gov-work");
+  if (!gov) return base;
+  if (!gov.package || !gov.semver) {
+    die(`GOV_DEPS names gov-work but without a package/semver (got ${JSON.stringify(gov)}).\n  The catalog entry for gov-work is incomplete — fix it there, not here.`);
+  }
+  const registry = name === "prod" ? undefined : gov.registries?.[name];
+  return { ...base, pkg: `${gov.package}@${gov.semver}`, ...(registry ? { registry } : { registry: undefined }) };
+}
+const env = envWithDepPins(cfg.envs[envName], envName);
 
 /** The DN gov would derive: prod is bare, every other env carries `-<env>`. */
 const dnFor = (e) => (e === "prod" ? `${cfg.app_domain}.${cfg.base}` : `${cfg.app_domain}-${e}.${cfg.base}`);
@@ -99,9 +134,16 @@ function readAtRef(ref, relPath) {
 }
 
 /** Replace exactly one occurrence, or fail. A pin that did not apply must never reach a host. */
-function pin(text, pattern, replacement, what) {
+function pin(text, pattern, replacement, what, hint) {
   const hits = text.match(pattern);
-  if (!hits) die(`could not pin ${what} — no line matched ${pattern}.\n  The installer changed shape. Fix this build script rather than shipping an unpinned site.`);
+  if (!hits) {
+    die(
+      `could not pin ${what} — no line matched ${pattern}.\n` +
+      (hint ? `  ${hint}\n` : "") +
+      `  Either the installer changed shape, or the pinned ref predates this pin. Fix whichever is\n` +
+      `  actually true — never ship an unpinned site.`,
+    );
+  }
   if (hits.length > 1) die(`could not pin ${what} — ${hits.length} lines matched ${pattern}, so the intended one is ambiguous.`);
   return text.replace(pattern, replacement);
 }
@@ -120,12 +162,26 @@ function releaseVersion(tag) {
 
 const RE_URL = /^GOV_INSTALL_URL="\$\{GOV_INSTALL_URL:-[^"]*"$/m;
 const RE_PKG = /^GOV_PKG="\$\{GOV_PKG:-[^"]*"$/m;
+const RE_REG = /^GOV_REGISTRY="\$\{GOV_REGISTRY:-[^"]*"$/m;
 
-/** The installer as served: the ref's bytes, with exactly the two pins applied. */
-function installerFor(ref, pkg, urlPath, hostName) {
+/** The installer as served: the ref's bytes, with exactly the pins applied.
+ *
+ * GOV_REGISTRY IS PINNED ONLY WHEN THE ENV DECLARES ONE, and prod never does. Build-once-promote
+ * publishes a new version to the DEV registry first and moves it to the public one on promotion,
+ * so a non-prod site must install from its own registry or it serves the RELEASED client — the
+ * code a dev change just replaced. Leaving prod unpinned keeps the adopter's own default registry,
+ * which is the only correct answer for a released install.
+ */
+function installerFor(ref, pkg, urlPath, hostName, registry) {
   const { text, resolved } = readAtRef(ref, "install.sh");
   let sh = pin(text, RE_URL, `GOV_INSTALL_URL="\${GOV_INSTALL_URL:-https://${hostName}${urlPath}}"`, "GOV_INSTALL_URL");
   sh = pin(sh, RE_PKG, `GOV_PKG="\${GOV_PKG:-${pkg}}"`, "GOV_PKG");
+  if (registry) {
+    sh = pin(sh, RE_REG, `GOV_REGISTRY="\${GOV_REGISTRY:-${registry}}"`, "GOV_REGISTRY",
+      `GOV_REGISTRY reached install.sh later than this environment's ref ('${ref}'). The ref must carry\n` +
+      `  the line before a site that pins it can build — land install.sh on '${ref}' first, or drop\n` +
+      `  'registry' for this environment until it has.`);
+  }
   return { sh, source: text, resolved };
 }
 
@@ -151,7 +207,7 @@ writeFileSync(join(out, "index.html"), html);
 copyFileSync(join(HERE, "template", "style.css"), join(out, "style.css"));
 
 // ── the current pair, at the root ────────────────────────────────────────────────────────────────
-const current = installerFor(env.ref, env.pkg, "/install.sh", host);
+const current = installerFor(env.ref, env.pkg, "/install.sh", host, env.registry);
 writeFileSync(join(out, "install.sh"), current.sh);
 
 const ps1src = readAtRef(env.ref, "install.ps1");
@@ -206,12 +262,29 @@ if (verify) {
   if (a.length !== b.length) {
     fail.push(`served install.sh has ${b.length} lines, the ref's has ${a.length} — it is not the ref's script`);
   } else {
+    // THE PIN COUNT IS DERIVED, NEVER A CONSTANT. It is 2 for prod (url + pkg) and 3 wherever the
+    // env declares a registry. Hardcoding it was right while there were only two pins and would now
+    // fail every non-prod build — and, worse, a stale constant would let a FOURTH pin through
+    // unnoticed. The point of this assertion is that the served script differs from the ref's bytes
+    // in exactly the ways we intended and no other.
+    const expected = [RE_URL, RE_PKG, ...(env.registry ? [RE_REG] : [])];
     const differing = a.map((l, i) => (l === b[i] ? null : i)).filter((i) => i !== null);
-    if (differing.length !== 2) {
-      fail.push(`served install.sh differs from ${env.ref} on ${differing.length} line(s); exactly 2 (the pins) are expected`);
-    } else if (!differing.every((i) => RE_URL.test(a[i]) || RE_PKG.test(a[i]))) {
-      fail.push(`served install.sh differs from ${env.ref} on a line that is NOT one of the two pins (lines ${differing.map((i) => i + 1).join(", ")})`);
+    if (differing.length !== expected.length) {
+      fail.push(`served install.sh differs from ${env.ref} on ${differing.length} line(s); exactly ${expected.length} (the pins) are expected`);
+    } else if (!differing.every((i) => expected.some((re) => re.test(a[i])))) {
+      fail.push(`served install.sh differs from ${env.ref} on a line that is NOT one of the ${expected.length} pins (lines ${differing.map((i) => i + 1).join(", ")})`);
     }
+  }
+
+  // THE REGISTRY PIN, BOTH WAYS ROUND. A missing pin on dev is the bug this whole change exists to
+  // remove — the site would install the released client and a walk would pass on the wrong binary.
+  // A pin PRESENT on prod is worse: every adopter would be routed at our private registry.
+  if (env.registry) {
+    if (!shOut.includes(`GOV_REGISTRY="\${GOV_REGISTRY:-${env.registry}}"`)) {
+      fail.push(`install.sh was not pinned to the ${envName} registry ${env.registry}`);
+    }
+  } else if (/^GOV_REGISTRY="\$\{GOV_REGISTRY:-.+\}"$/m.test(shOut)) {
+    fail.push(`${envName} declares no registry, but install.sh carries a registry pin — adopters would be routed off their own registry`);
   }
 
   if (!shOut.includes(`https://${host}/install.sh`)) fail.push("install.sh was not pinned to the host");
@@ -259,5 +332,6 @@ if (verify) {
     for (const f of fail) console.error(`  ✗ ${f}`);
     process.exit(1);
   }
-  console.log(`  verify: served install.sh IS ${env.ref}'s, differing only in the two pins`);
+  const pinNames = ["GOV_INSTALL_URL", "GOV_PKG", ...(env.registry ? ["GOV_REGISTRY"] : [])];
+  console.log(`  verify: served install.sh IS ${env.ref}'s, differing only in ${pinNames.length} pins (${pinNames.join(", ")})`);
 }

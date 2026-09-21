@@ -93,3 +93,38 @@ test("every base image is fully qualified — the deploy agent's podman cannot r
 test("the build output never reaches the image context", () => {
   assert.match(read(".dockerignore"), /^dist$/m);
 });
+
+// ── the catalog decides the version, not this file (PRJ-121) ──────────────────────────────────────
+//
+// The pins in envs.json are a FALLBACK for a hand-run build. What a deployed site installs comes from
+// `gov deploy`, which passes GOV_DEPS from the catalog. The bug this guards against was silent and the
+// wrong way round: a gov-work fix lands on dev, the site still installs the released client, and a walk
+// against it passes — on the code the fix replaced.
+
+test("the Dockerfile accepts GOV_DEPS and passes it to every env's build", () => {
+  const df = read("Dockerfile");
+  assert.match(df, /^ARG GOV_DEPS=/m, "gov deploy passes --build-arg GOV_DEPS; the Dockerfile must declare it");
+  assert.match(df, /GOV_DEPS="\$GOV_DEPS" node site\/build\.mjs/, "the ARG must reach build.mjs, not just exist");
+});
+
+test("an empty GOV_DEPS stays a valid build — a local docker build has no deploy behind it", () => {
+  assert.match(read("Dockerfile"), /^ARG GOV_DEPS=\s*$/m, "the ARG must default to empty, not be required");
+});
+
+test("envs.json declares a registry for every non-prod env, and none for prod", () => {
+  const { envs } = JSON.parse(read("envs.json"));
+  assert.equal(envs.prod.registry, undefined,
+    "a registry on prod would route every adopter off their own registry");
+  for (const [name, e] of Object.entries(envs)) {
+    if (name === "prod") continue;
+    assert.match(e.registry ?? "", /^https:\/\//,
+      `${name} must pin a registry — build-once-promote publishes there FIRST, so without it ${name} installs the RELEASED client`);
+  }
+});
+
+test("install.sh routes the registry per-call and never writes it to the adopter's npm config", () => {
+  const sh = readFileSync(join(SITE, "..", "install.sh"), "utf8");
+  assert.match(sh, /^GOV_REGISTRY="\$\{GOV_REGISTRY:-\}"$/m, "build.mjs pins this exact line — its shape is load-bearing");
+  assert.match(sh, /npm_args\+=\(--registry "\$GOV_REGISTRY"\)/, "an array, not an unquoted ${VAR:+…}: zsh does not word-split");
+  assert.doesNotMatch(sh, /npm config set registry/, "the adopter's own npm config must survive an install");
+});

@@ -16,6 +16,16 @@ on:
   # letting it be a REQUIRED status check (a path-filtered required check blocks
   # PRs that don't touch the paths, since the check never runs). It's cached + fast.
   pull_request:
+    # `labeled` IS LOAD-BEARING, and its absence made the os-tier escape hatch a no-op.
+    #
+    # The os-tier job reads `contains(github.event.pull_request.labels.*.name, 'os-tier')`, which is
+    # evaluated against the payload of the event that STARTED the run. A bare `pull_request:` means
+    # types [opened, synchronize, reopened] — so labelling an existing PR fires nothing, and the run
+    # that already exists was created when the label was not there. The job skipped whatever anyone
+    # did, and the skip looked like the ordinary "not labelled" case rather than a broken gate.
+    # Found 2026-09-21 by labelling PR #258 and watching it skip anyway. (The label did not exist in
+    # the repository either — both halves of the documented hatch were dead.)
+    types: [opened, synchronize, reopened, labeled]
   # Pushes: the LONG-LIVED branches only — a branch with an open PR is already covered
   # by `pull_request`, and firing on both ran every job twice per commit.
   push:

@@ -37,6 +37,16 @@ NODE_MAJOR=24
 # takes, rather than through a different one that proves less: GOV_PKG=/path/to.tgz
 # or GOV_PKG='@svayam-opensource/gov@next'.
 GOV_PKG="${GOV_PKG:-@svayam-opensource/gov}"
+# THE REGISTRY THAT PACKAGE COMES FROM. Empty on a released install — npm uses the adopter's
+# own default, which is what an adopter wants and what prod must never override.
+#
+# Non-prod install sites set it, because build-once-promote publishes a new version to the
+# DEV registry FIRST and only moves it to the public one on promotion. Without this, gov-dev
+# could only ever install the released client — i.e. the code a dev change just replaced —
+# and a walk against it would pass while testing the wrong binary.
+#
+# Scoped to this one npm call: no `npm config set`, nothing written to the adopter's ~/.npmrc.
+GOV_REGISTRY="${GOV_REGISTRY:-}"
 GOV_HOME="${GOV_INSTALL_DIR:-$HOME/.local/share/gov}"
 NODE_DIR="$GOV_HOME/node"
 # A NODE ARCHIVE ALREADY ON DISK, for a machine that cannot reach nodejs.org.
@@ -448,8 +458,16 @@ install_gov() {
     fi
   fi
 
+  # An ARRAY, not an unquoted ${VAR:+…}. The expansion form relies on word splitting to become
+  # two arguments — which bash does and zsh does not, and this script has been read under both.
+  local npm_args=(install -g --silent)
+  if [ -n "$GOV_REGISTRY" ]; then
+    npm_args+=(--registry "$GOV_REGISTRY")
+    say "    (from $GOV_REGISTRY)"
+  fi
+  npm_args+=("$GOV_PKG")
   spin "downloading and installing gov (this takes a moment)" \
-    npm install -g --silent "$GOV_PKG" \
+    npm "${npm_args[@]}" \
     || die "npm could not install $GOV_PKG — the output above says why"
   ok "$(gov --version 2>/dev/null | head -1 || echo "gov installed")"
   say "===> 2. [✓] Install the governance client — gov"

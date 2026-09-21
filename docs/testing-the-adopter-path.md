@@ -10,6 +10,26 @@ were **not** true. So: throwaway containers, one per scenario.
 
 ---
 
+## First decide which question you are asking
+
+There are two recipes on this page and they answer different questions. Picking the
+wrong one wastes a walk — or worse, passes while testing the wrong binary.
+
+| Your change is… | Walk | Because |
+|---|---|---|
+| **already released** | the **live site** — `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` | It is the artefact an adopter receives, and it exercises the site and the fetch-then-run form too. No mount, no `GOV_PKG`. |
+| **not yet released** | the **tarball recipe** below (`GOV_PKG`) | The published package does not contain your change, so the site route would install the code you just replaced — and report success. |
+
+Check before assuming: `npm view @svayam-opensource/gov version` against the commit
+you are testing. If your fix is in that version, use the site.
+
+> **`gov-dev.svayamtech.com` is not yet a third option.** It serves `install.sh`
+> from the `dev` ref but installs the **released** client — `site/envs.json` pins
+> every environment to the same package. So it walks an unreleased *installer*, never
+> an unreleased *client*. Until that is wired, an unreleased client means the tarball.
+
+---
+
 ## The one thing testers do that adopters don't: `GOV_PKG`
 
 `install.sh` installs the **published** package:
