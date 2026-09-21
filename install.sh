@@ -463,6 +463,17 @@ install_gov() {
   local npm_args=(install -g --silent)
   if [ -n "$GOV_REGISTRY" ]; then
     npm_args+=(--registry "$GOV_REGISTRY")
+    # --registry ALONE IS SILENTLY IGNORED FOR A SCOPED PACKAGE whenever `@<scope>:registry` is set in
+    # any npmrc — the scope mapping outranks it. Measured 2026-09-21: with
+    # `@svayam-opensource:registry=https://registry.npmjs.org` in the user npmrc and `--registry` aimed
+    # at the dev registry, npm read the PUBLIC one and saw only `latest`. So a developer (whose npmrc
+    # carries exactly that mapping) got the released client, with nothing printed to say so.
+    #
+    # A fresh container has no npmrc, which is why every container test passed with the bug in place.
+    # The scoped flag is what wins; `--registry` stays for an unscoped GOV_PKG.
+    case "$GOV_PKG" in
+      @*/*) npm_args+=("--${GOV_PKG%%/*}:registry=$GOV_REGISTRY") ;;
+    esac
     say "    (from $GOV_REGISTRY)"
   fi
   npm_args+=("$GOV_PKG")

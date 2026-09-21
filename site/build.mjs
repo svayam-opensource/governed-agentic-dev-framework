@@ -89,7 +89,38 @@ if (!envName || !cfg.envs[envName]) {
  * the page, has no deploy behind it. Falling back keeps that working. It also means a stale envs.json can
  * no longer mislead a DEPLOYED site — gov always passes GOV_DEPS, so the fallback is never what ships.
  */
+/**
+ * WHAT A SITE ASKS npm FOR: an exact version on prod, the env's DIST-TAG everywhere else (2026-09-21).
+ *
+ * The first cut pinned `<package>@<semver>` for every env, and it was wrong for dev in both directions.
+ * gov-cicd's release model (versioning-and-release-lines.md) publishes, per env:
+ *
+ *   dev   `<semver>-dev.g<sha7>`, content-addressed, on dist-tag `dev`
+ *   uat   the clean `<semver>`, on dist-tag `uat`
+ *   prod  a dist-tag move onto that clean version: `latest`
+ *
+ * So `<package>@<semver>` on dev either named the RELEASED version (semver not yet bumped — the site
+ * installs the code a dev change replaced, which is the bug this whole change exists to remove) or a
+ * version that does not exist yet (bumped — `No matching version found`). The dev build's version is only
+ * known once it is published, and the dist-tag is the name that follows it.
+ *
+ * The tag names are `distTagFor(env)` in gov-cicd — `prod → latest`, every other env its own name — and a
+ * site that disagreed would ask for a tag nobody set.
+ *
+ * PROD IS NEVER DERIVED — it is a RELEASE PAIR (corrected 2026-09-21). The first cut let GOV_DEPS set prod's
+ * `pkg` from the catalog `semver`, and running the real build showed what that meant:
+ *
+ *     script from gov-work-1.2.3 · installs @svayam-opensource/gov@1.2.4
+ *
+ * A 1.2.3 installer installing a 1.2.4 client. The catalog `semver` is the NEXT release — between a bump and
+ * its cut it names a version the public registry does not have — so the next promotion of this image would
+ * have pinned prod at something that may not exist. And it broke the rule this site was built on (decision
+ * 2026-09-17): the installer and the client it installs are ONE gov release. So prod's `ref` and `pkg` stay
+ * in envs.json and move together, after a release, as that file's own comment instructs. An install site
+ * that said `latest` instead would serve whatever moves the tag next — the moving pin #231 exists to remove.
+ */
 function envWithDepPins(base, name) {
+  if (name === "prod") return base;   // a release pair — see above; nothing here may move it
   const raw = (process.env.GOV_DEPS ?? "").trim();
   if (!raw) return base;
   let pins;
@@ -100,13 +131,15 @@ function envWithDepPins(base, name) {
   }
   const gov = (Array.isArray(pins) ? pins : []).find((p) => p?.unit === "gov-work");
   if (!gov) return base;
-  if (!gov.package || !gov.semver) {
-    die(`GOV_DEPS names gov-work but without a package/semver (got ${JSON.stringify(gov)}).\n  The catalog entry for gov-work is incomplete — fix it there, not here.`);
+  if (!gov.package) {
+    die(`GOV_DEPS names gov-work but without a package (got ${JSON.stringify(gov)}).\n  The catalog entry for gov-work is incomplete — fix it there, not here.`);
   }
-  const registry = name === "prod" ? undefined : gov.registries?.[name];
-  return { ...base, pkg: `${gov.package}@${gov.semver}`, ...(registry ? { registry } : { registry: undefined }) };
+  // Only the package NAME and the env's REGISTRY come from the catalog. The version is the dist-tag, so the
+  // catalog `semver` is deliberately unused here — the dev build's version is not known until it publishes.
+  const registry = gov.registries?.[name];
+  return { ...base, pkg: `${gov.package}@${name}`, ...(registry ? { registry } : { registry: undefined }) };
 }
-const env = envWithDepPins(cfg.envs[envName], envName);
+let env = envWithDepPins(cfg.envs[envName], envName);
 
 /** The DN gov would derive: prod is bare, every other env carries `-<env>`. */
 const dnFor = (e) => (e === "prod" ? `${cfg.app_domain}.${cfg.base}` : `${cfg.app_domain}-${e}.${cfg.base}`);
@@ -163,6 +196,36 @@ function releaseVersion(tag) {
 const RE_URL = /^GOV_INSTALL_URL="\$\{GOV_INSTALL_URL:-[^"]*"$/m;
 const RE_PKG = /^GOV_PKG="\$\{GOV_PKG:-[^"]*"$/m;
 const RE_REG = /^GOV_REGISTRY="\$\{GOV_REGISTRY:-[^"]*"$/m;
+
+/**
+ * AN ENV WHOSE INSTALLER CANNOT ROUTE A REGISTRY IS SERVED THE RELEASED PAIR — AND SAYS SO (2026-09-21).
+ *
+ * The image builds EVERY env in one `set -e` loop. So an env whose ref predates GOV_REGISTRY does not fail
+ * alone: it fails the whole image, and a deploy to DEV — where the ref does carry the line — dies because
+ * of UAT's ref. Measured the day this landed: `dev` had the line, `uat` did not, and nothing could deploy.
+ *
+ * Failing is wrong because it couples every env to the slowest one. Pinning the registry anyway is
+ * impossible: there is no line to pin. And pinning `@uat` WITHOUT a registry is worse than either — the old
+ * installer would ask the adopter's default registry, which has no `uat` tag, and die with "No matching
+ * version found".
+ *
+ * So such an env gets exactly what an installer of its vintage can install: the released pair, from the
+ * adopter's own registry — prod's `pkg`. That is not a regression; it is what the env served before routing
+ * existed. It is announced on every build, because an env quietly serving the released client while
+ * labelled `uat` is the failure this change set out to remove, and the notice is what stops it being quiet.
+ * It resolves itself: once install.sh reaches this env's ref, the next build routes it.
+ */
+let legacyRouting = false;
+if (envName !== "prod" && env.registry && !RE_REG.test(readAtRef(env.ref, "install.sh").text)) {
+  legacyRouting = true;
+  console.warn(
+    `\n  NOTE ${envName}: its ref ('${env.ref}') predates GOV_REGISTRY, so this site CANNOT route to ${env.registry}.\n` +
+    `  Serving the released pair instead — ${cfg.envs.prod.pkg}, from the adopter's own registry — which is what\n` +
+    `  ${envName} served before registry routing existed. A walk here tests the RELEASED client, not ${envName}'s.\n` +
+    `  It routes itself once install.sh reaches '${env.ref}'.\n`,
+  );
+  env = { ...env, pkg: cfg.envs.prod.pkg, registry: undefined };
+}
 
 /** The installer as served: the ref's bytes, with exactly the pins applied.
  *
@@ -274,6 +337,23 @@ if (verify) {
     } else if (!differing.every((i) => expected.some((re) => re.test(a[i])))) {
       fail.push(`served install.sh differs from ${env.ref} on a line that is NOT one of the ${expected.length} pins (lines ${differing.map((i) => i + 1).join(", ")})`);
     }
+  }
+
+  // THE CLIENT SPEC, BOTH WAYS ROUND. Prod names an exact release; every other env names its own
+  // dist-tag. A version on dev is the bug that shipped in the first cut of this change — it asks for
+  // the released client, or for a version the dev build never published.
+  const spec = env.pkg.slice(env.pkg.lastIndexOf("@") + 1);
+  // PROD SERVES ITS RELEASE PAIR, EXACTLY. Nothing derived may move it — not GOV_DEPS, not the catalog
+  // `semver`, which names the NEXT release and so is often a version the public registry lacks.
+  if (envName === "prod" && env.pkg !== cfg.envs.prod.pkg) {
+    fail.push(`prod installs '${env.pkg}' but its release pair says '${cfg.envs.prod.pkg}' — the installer and the client must be ONE release`);
+  }
+  if (envName === "prod" || legacyRouting) {
+    // prod, and an env whose installer predates routing, name the exact released version.
+    if (!/^\d+\.\d+\.\d+$/.test(spec)) fail.push(`${envName} installs '${env.pkg}' — it must name an exact release, never a tag that moves`);
+    if (legacyRouting && env.pkg !== cfg.envs.prod.pkg) fail.push(`${envName} predates routing but does not serve prod's released pair (${cfg.envs.prod.pkg})`);
+  } else if (spec !== envName) {
+    fail.push(`${envName} installs '${env.pkg}' — a non-prod site must ask for its own dist-tag ('@${envName}'), or it serves the released client`);
   }
 
   // THE REGISTRY PIN, BOTH WAYS ROUND. A missing pin on dev is the bug this whole change exists to
