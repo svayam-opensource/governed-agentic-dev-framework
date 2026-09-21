@@ -35,6 +35,11 @@ directory** (for `local`, the catalog is your working tree):
 gov-cicd deploy gov-install --env local
 ```
 
+> **Check your gov-cicd first if you have unpushed commits.** Before 910-GOV-CICD#289, a local deploy
+> run while your checkout was *ahead* of origin **force-reset your branch to origin**, silently orphaning
+> the unpushed commits (recoverable only from `git reflog`). With an older gov-cicd, **push before you
+> deploy local** — or check `git reflog` afterwards for `branch: Reset to origin/…`.
+
 gov-work deploys first, then the site, which comes up on `127.0.0.1:4002` carrying a fourth build,
 `local`, made from your worktree: its `install.sh`, and a client packed from its `publish/actions/ts` and
 served at `/gov.tgz`. Walk it from a container:
