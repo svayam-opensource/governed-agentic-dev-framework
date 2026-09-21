@@ -72,22 +72,20 @@ if (!envName || !cfg.envs[envName]) {
   process.exit(2);
 }
 /**
- * THE CATALOG OUTRANKS envs.json (PRJ-121, 2026-09-21).
+ * WHAT THE CATALOG DECIDES, AND WHAT IT DOES NOT (PRJ-121, corrected 2026-09-21).
  *
- * `gov deploy` passes GOV_DEPS — what this unit's declared `deps:` resolve to, straight from the catalog:
- * [{unit, package, semver, registries}]. When it is present, the gov-work entry decides BOTH pins:
- *
- *   pkg      = <package>@<semver>       the version the catalog says is current for this unit
- *   registry = registries[<env>]        where that version lives, per env — and build-once-promote
- *                                       publishes to the dev registry FIRST, which is the whole point
- *
- * `registries.prod` is the public registry, and pinning prod at it would be the same as pinning nothing
- * while looking deliberate. So prod keeps an ABSENT registry: npm then uses the adopter's own default,
- * which is the only correct answer for a released install.
+ * `gov deploy` passes GOV_DEPS — what this unit's declared `deps:` resolve to: [{unit, package, semver,
+ * registries}]. For uat and dev it supplies the package NAME and the env's REGISTRY. It does NOT supply a
+ * version: non-prod asks for its own dist-tag, and PROD IS NEVER DERIVED — it is a release pair in envs.json.
+ * (A first cut took `<package>@<semver>` from here for every env; that pinned dev at the released client and
+ * paired a 1.2.3 installer with a 1.2.4 client on prod. Both reasons are in the comment below.)
  *
  * WHY envs.json STILL CARRIES PINS. A plain `docker build`, or a contributor running build.mjs to look at
- * the page, has no deploy behind it. Falling back keeps that working. It also means a stale envs.json can
- * no longer mislead a DEPLOYED site — gov always passes GOV_DEPS, so the fallback is never what ships.
+ * the page, has no deploy behind it, and a LOCAL build receives no GOV_DEPS at all. Falling back keeps those
+ * working, and for non-prod the fallback is exactly what GOV_DEPS would have said.
+ *
+ * `local` IS NOT BUILT HERE. It reads the working tree, which this file refuses on principle; see
+ * build-local.mjs.
  */
 /**
  * WHAT A SITE ASKS npm FOR: an exact version on prod, the env's DIST-TAG everywhere else (2026-09-21).

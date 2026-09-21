@@ -12,19 +12,56 @@ were **not** true. So: throwaway containers, one per scenario.
 
 ## First decide which question you are asking
 
-There are two recipes on this page and they answer different questions. Picking the
+There are four routes on this page and they answer different questions. Picking the
 wrong one wastes a walk — or worse, passes while testing the wrong binary.
 
 | Your change is… | Walk | Because |
 |---|---|---|
 | **already released** | the **live site** — `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` | It is the artefact an adopter receives, and it exercises the site and the fetch-then-run form too. No mount, no `GOV_PKG`. |
-| **deployed to dev** | **`gov-dev.svayamtech.com`** — see *The third option* below | The dev-first loop. Installer from the `dev` ref, client from the dev registry at `@dev`. Not for template changes. |
-| **not deployed anywhere** | the **tarball recipe** below (`GOV_PKG`) | No site has your change yet, so either site route would install the code you just replaced — and report success. |
+| **deployed to dev** | **`gov-dev.svayamtech.com`** — see *Walk what dev has deployed* below | The dev-first loop. Installer from the `dev` ref, client from the dev registry at `@dev`. Not for template changes. |
+| **only in your working tree** | the **local site** — see *Walk your working tree* below | Your installer and your client, served on your machine. Nothing pushed, nothing deployed. Start here. |
+| **no gov-cicd to hand** | the **tarball recipe** below (`GOV_PKG`) | The same test by hand: mount a packed client and your `install.sh` into the container yourself. |
 
 Check before assuming: `npm view @svayam-opensource/gov version` against the commit
 you are testing. If your fix is in that version, use the site.
 
-### The third option: walk what `dev` has deployed
+### Walk your working tree — before anything goes anywhere
+
+The loop to use first: fix it locally, then send it to dev. **Commit** your change (the deploy judges drift
+on `HEAD`, so an uncommitted edit reads as `no-op` — pushing is not needed), then from the **project
+directory** (for `local`, the catalog is your working tree):
+
+```bash
+gov-cicd deploy gov-install --env local
+```
+
+gov-work deploys first, then the site, which comes up on `127.0.0.1:4002` carrying a fourth build,
+`local`, made from your worktree: its `install.sh`, and a client packed from its `publish/actions/ts` and
+served at `/gov.tgz`. Walk it from a container:
+
+```bash
+docker run --rm -it rockylinux:9 bash
+# root prep as in the base recipe, then as tester:
+curl -fsSL http://host.docker.internal:4002/install.sh -o install.sh && bash install.sh
+```
+
+**The tell that you are walking your own build**, since the client's version string is the same as the
+release it will become: the installer prints
+`Installing the governance client — http://host.docker.internal:4002/gov.tgz`. Anything else, and it is not.
+
+A client-only change counts: gov-install's catalog entry lists `publish/actions/ts` under `also_local`, so
+locally — and only locally — the site rebuilds when the client does.
+
+It never leaves your machine. Only a local build is given `GOV_LOCAL=1`, a local image is never pushed,
+and the `local` build answers only to `localhost`, `127.0.0.1` and `host.docker.internal`. Every other host,
+as ever, gets a 404.
+
+`host.docker.internal` reaches the host out of the box on Docker Desktop. On native Linux docker, add
+`--add-host=host.docker.internal:host-gateway` to the walker, and note the site is bound to loopback.
+Windows: `install.ps1` on the local site is your worktree's script, but it installs the **published**
+client — it has no per-env package pin at all yet.
+
+### Walk what `dev` has deployed
 
 Once a change is deployed to dev, walk **`gov-dev.svayamtech.com`** in a container —
 the same fetch-then-run command, the dev host:
@@ -122,7 +159,10 @@ curl -fsSL https://raw.githubusercontent.com/svayam-opensource/governed-agentic-
   && bash install.sh
 ```
 
-Testing an unmerged branch? Swap `main` for the branch name in that URL.
+Testing an unpushed `install.sh`? Mount it rather than fetching one:
+`-v "$PWD/install.sh":/tmp/install.sh:ro`, then `bash /tmp/install.sh`. (Swapping the
+branch name into the URL works too, but only after you push.) Or skip all of this and
+use the local site above, which does both for you.
 
 It will show you what is missing, ask once, and — if you say yes — install git,
 install `gh`, and walk you through signing in to GitHub.
