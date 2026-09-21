@@ -18,15 +18,38 @@ wrong one wastes a walk — or worse, passes while testing the wrong binary.
 | Your change is… | Walk | Because |
 |---|---|---|
 | **already released** | the **live site** — `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` | It is the artefact an adopter receives, and it exercises the site and the fetch-then-run form too. No mount, no `GOV_PKG`. |
-| **not yet released** | the **tarball recipe** below (`GOV_PKG`) | The published package does not contain your change, so the site route would install the code you just replaced — and report success. |
+| **deployed to dev** | **`gov-dev.svayamtech.com`** — see *The third option* below | The dev-first loop. Installer from the `dev` ref, client from the dev registry at `@dev`. Not for template changes. |
+| **not deployed anywhere** | the **tarball recipe** below (`GOV_PKG`) | No site has your change yet, so either site route would install the code you just replaced — and report success. |
 
 Check before assuming: `npm view @svayam-opensource/gov version` against the commit
 you are testing. If your fix is in that version, use the site.
 
-> **`gov-dev.svayamtech.com` is not yet a third option.** It serves `install.sh`
-> from the `dev` ref but installs the **released** client — `site/envs.json` pins
-> every environment to the same package. So it walks an unreleased *installer*, never
-> an unreleased *client*. Until that is wired, an unreleased client means the tarball.
+### The third option: walk what `dev` has deployed
+
+Once a change is deployed to dev, walk **`gov-dev.svayamtech.com`** in a container —
+the same fetch-then-run command, the dev host:
+
+```bash
+curl -fsSL https://gov-dev.svayamtech.com/install.sh -o install.sh && bash install.sh
+```
+
+That is the dev-first loop: change lands in `dev` → deploy → walk here → promote.
+It installs `install.sh` from the `dev` ref and the client from the dev registry at
+dist-tag `@dev` (`⟨semver⟩-dev.g⟨sha7⟩`). **Check the version it reports** — if it
+says a clean release like `1.2.3`, the dev pin is wrong and you are walking the code
+your change replaced.
+
+Two things it does **not** give you, so do not rely on it for them:
+
+- **Governance template content.** Founding an org (answer **A**) runs
+  `gh repo create --template`, which always copies the framework's **`main`**. A dev
+  walk exercises a dev *client* against *released* templates. A template change cannot
+  be walked from here.
+- **A developer machine.** A fresh container has no `~/.npmrc`. The installer had a
+  bug that only bit where `@svayam-opensource:registry` was mapped — a scope mapping
+  silently outranks `--registry` — and every container walk passed straight over it.
+  Anything that depends on the tester's own npm config needs a test that plants that
+  config first.
 
 ---
 
