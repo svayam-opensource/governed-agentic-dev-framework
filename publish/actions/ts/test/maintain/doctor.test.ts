@@ -6,6 +6,8 @@ import type { ResolveResult } from "../../src/resolve/types.js";
 
 const resolved: ResolveResult = { ok: true, home: "/gov", org: "Svayamtech", via: "active-org" };
 const unresolved: ResolveResult = { ok: false, code: 2, reason: "no-active-org" };
+// A workspace that EXISTS but will not resolve: an org is set, its home is gone. Still a failure.
+const broken: ResolveResult = { ok: false, code: 2, reason: "no-home", activeOrg: "Svayamtech" };
 
 const facts = (over: Partial<DoctorFacts> = {}): DoctorFacts => ({
   gitPresent: true,
@@ -27,9 +29,34 @@ describe("gov-work — doctor", () => {
   it("fails (not ok) when git/gh missing or the workspace won't resolve", () => {
     expect(doctor(facts({ gitPresent: false })).ok).to.equal(false);
     expect(doctor(facts({ ghPresent: false })).ok).to.equal(false);
-    const r = doctor(facts({ resolve: unresolved }));
+    const r = doctor(facts({ resolve: broken }));
     expect(r.ok).to.equal(false);
     expect(r.diagnostics.find((d) => d.name === "gov workspace")!.status).to.equal("fail");
+  });
+
+  // PRJ-121, 2026-09-22 — right after "gov is installed", a walk got the same fact three times (banner ⚠,
+  // ✗ gov workspace, ! active org) with two different remedies, and the ✗ made the report FAILED.
+  it("NOT SET UP YET is one warning with one remedy — the next step, not a failure", () => {
+    const r = doctor(facts({ resolve: unresolved, activeOrg: null }));
+    const ws = r.diagnostics.filter((d) => d.name === "gov workspace");
+    expect(ws).to.have.length(1);
+    expect(ws[0]!.status).to.equal("warn");
+    expect(ws[0]!.detail).to.match(/not set up yet — run `gov`/);
+    expect(r.diagnostics.find((d) => d.name === "active org"), "the same fact is not repeated").to.equal(undefined);
+    expect(r.ok, "tools present + nothing set up yet = ready for the next step").to.equal(true);
+  });
+
+  // The sibling of 5bec707: with no workspace, doctor read VERSION from the cwd and said
+  // "✓ version compat: … run `gov upgrade`", and "✓ content layout: current" about nothing.
+  it("rows ABOUT a workspace are absent when there is none — not a tick about nothing", () => {
+    const r = doctor(facts({ resolve: unresolved, activeOrg: null, contentVersion: null }));
+    expect(r.diagnostics.find((d) => d.name === "version compat")).to.equal(undefined);
+    expect(r.diagnostics.find((d) => d.name === "content layout")).to.equal(undefined);
+  });
+
+  it("a workspace the person NAMED (--gov-home) is still examined, even if nothing resolves", () => {
+    const r = doctor(facts({ resolve: unresolved, workspaceChecked: true, contentVersion: null }));
+    expect(r.diagnostics.find((d) => d.name === "version compat")).to.not.equal(undefined);
   });
 
   it("warns on old-world content artifacts (points to gov upgrade)", () => {

@@ -129,12 +129,16 @@ describe("coverage — doctor(facts): full cartesian", () => {
                 resolve: resolveOk ? RESOLVED : UNRESOLVED,
                 activeOrg, contentVersion,
               }));
-              const expectedOk = gitPresent && ghPresent && resolveOk && compatStatus !== "cli-behind-major";
+              // UNRESOLVED here is `no-active-org` — never set up. Since PRJ-121 (2026-09-22) that is the next step,
+              // not a failure, and the rows ABOUT a workspace (version compat, active org) are absent without one.
+              const expectedOk = gitPresent && ghPresent && (resolveOk ? compatStatus !== "cli-behind-major" : true);
               expect(r.ok, `git=${gitPresent} gh=${ghPresent} res=${resolveOk} compat=${compatStatus}`).to.equal(expectedOk);
-              expect(r.diagnostics.find((d) => d.name === "version compat")!.status).to.equal(diagStatus);
+              const compat = r.diagnostics.find((d) => d.name === "version compat");
+              if (resolveOk) expect(compat!.status).to.equal(diagStatus); else expect(compat).to.equal(undefined);
               expect(r.diagnostics.find((d) => d.name === "git")!.status).to.equal(gitPresent ? "ok" : "fail");
               expect(r.diagnostics.find((d) => d.name === "gh")!.status).to.equal(ghPresent ? "ok" : "fail");
-              expect(r.diagnostics.find((d) => d.name === "active org")!.status).to.equal(activeOrg ? "ok" : "warn");
+              const org = r.diagnostics.find((d) => d.name === "active org");
+              if (resolveOk) expect(org!.status).to.equal(activeOrg ? "ok" : "warn"); else expect(org).to.equal(undefined);
             }
     expect(n).to.equal(2 * 2 * 2 * 2 * contentCases.length); // 96 combos
   });
@@ -143,9 +147,13 @@ describe("coverage — doctor(facts): full cartesian", () => {
     const okD = doctor(facts()).diagnostics.find((d) => d.name === "gov workspace")!;
     expect(okD.status).to.equal("ok");
     expect(okD.detail).to.equal("resolved → /gov (Svayamtech)");
-    const failD = doctor(facts({ resolve: UNRESOLVED })).diagnostics.find((d) => d.name === "gov workspace")!;
+    // A workspace that EXISTS but will not resolve is a failure, with its actionable message.
+    const failD = doctor(facts({ resolve: { ok: false, code: 2, reason: "no-home", activeOrg: "Svayamtech" } })).diagnostics.find((d) => d.name === "gov workspace")!;
     expect(failD.status).to.equal("fail");
-    expect(failD.detail).to.match(/gov org use/);
+    // Never set up is the next step, with the one remedy that is right for adopters AND joiners.
+    const notYet = doctor(facts({ resolve: UNRESOLVED })).diagnostics.find((d) => d.name === "gov workspace")!;
+    expect(notYet.status).to.equal("warn");
+    expect(notYet.detail).to.match(/run `gov`/);
   });
 
   it("staleArtifacts: empty/undefined → content layout ok; non-empty → warn pointing at gov upgrade", () => {

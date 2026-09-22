@@ -55,6 +55,9 @@ export interface DoctorFacts {
   readonly cliVersion: string;
   /** Old-world artifacts found in the workspace (framework/, registry.yaml, …). */
   readonly staleArtifacts?: readonly string[];
+  /** A workspace was actually examined — one resolved, or one the person named (`--gov-home`). Absent means
+   *  "whatever `resolve` says". Rows ABOUT a workspace (version compat, content layout) need one to exist. */
+  readonly workspaceChecked?: boolean;
   /** The workspace's content VERSION marker, or null. */
   readonly contentVersion?: string | null;
 }
@@ -102,20 +105,45 @@ export function doctor(facts: DoctorFacts): DoctorReport {
             : { name: "gh scopes", status: "ok" as DiagnosticStatus, detail: facts.ghScopes.join(", ") };
         })()]
       : []),
-    facts.resolve.ok
-      ? { name: "gov workspace", status: "ok", detail: `resolved → ${facts.resolve.home} (${facts.resolve.org})` }
-      : { name: "gov workspace", status: "fail", detail: resolveFailureMessage(facts.resolve) },
-    facts.activeOrg
-      ? { name: "active org", status: "ok", detail: facts.activeOrg }
-      : { name: "active org", status: "warn", detail: "not set — run `gov org use <org>`" },
+    // NOT SET UP YET IS THE NEXT STEP, NOT A FAILURE (PRJ-121, 2026-09-22). On a fresh machine — no org has
+    // ever been chosen — a walk got the same fact three times: the banner's "⚠ no gov workspace resolved — run
+    // `gov setup` / `gov org use`", then "✗ gov workspace: No active org is set. Run `gov org use <github_org>`",
+    // then "! active org: not set — run `gov org use <org>`". Two different remedies, one premature (git and gh
+    // were not even installed yet), and the ✗ made the whole report FAILED seconds after "gov is installed" —
+    // on the state the installer's very next section ("Next: your organization") exists to change.
+    //
+    // So "never set up" is ONE warning with ONE remedy. `gov` is it, because any gov command starts the
+    // first-run flow, which asks whether you are adopting the framework or joining your org's — right for
+    // both roles, where `gov setup` and `gov org use` are each right for only one. A workspace that EXISTS but
+    // will not resolve (an org set, its home missing; a conflict) is still a failure.
+    ...(!facts.resolve.ok && facts.resolve.reason === "no-active-org"
+      ? [{ name: "gov workspace", status: "warn" as DiagnosticStatus, detail: "not set up yet — run `gov`; it asks whether you are adopting the framework or joining your organization's" }]
+      : [
+          facts.resolve.ok
+            ? { name: "gov workspace", status: "ok" as DiagnosticStatus, detail: `resolved → ${facts.resolve.home} (${facts.resolve.org})` }
+            : { name: "gov workspace", status: "fail" as DiagnosticStatus, detail: resolveFailureMessage(facts.resolve) },
+          facts.activeOrg
+            ? { name: "active org", status: "ok" as DiagnosticStatus, detail: facts.activeOrg }
+            : { name: "active org", status: "warn" as DiagnosticStatus, detail: "not set — run `gov org use <org>`" },
+        ]),
     { name: "CLI version", status: "ok", detail: facts.cliVersion },
-    ((): Diagnostic => {
-      const c = checkVersionCompat(facts.cliVersion, facts.contentVersion ?? null);
-      return { name: "version compat", status: c.ok ? (c.status === "ok" || c.status === "no-marker" ? "ok" : "warn") : "fail", detail: c.message };
-    })(),
-    (facts.staleArtifacts && facts.staleArtifacts.length)
-      ? { name: "content layout", status: "warn", detail: `old-world artifacts (${facts.staleArtifacts.join(", ")}) — run \`gov upgrade --from <content>\`` }
-      : { name: "content layout", status: "ok", detail: "current" },
+    // ROWS ABOUT A WORKSPACE NEED ONE (PRJ-121, 2026-09-22). With none resolved, doctor used to read `VERSION`
+    // from wherever the person stood and print "✓ version compat: no content VERSION marker — run `gov upgrade`"
+    // — a tick carrying an instruction, aimed at someone with no workspace to upgrade — and "✓ content layout:
+    // current" about a layout that did not exist. The sibling of the old-world-artifact false alarm fixed in
+    // 5bec707. The rule this file already states for gh auth applies: a row about a fact nobody gathered is
+    // worse than no row.
+    ...((facts.workspaceChecked ?? facts.resolve.ok)
+      ? [
+          ((): Diagnostic => {
+            const c = checkVersionCompat(facts.cliVersion, facts.contentVersion ?? null);
+            return { name: "version compat", status: c.ok ? (c.status === "ok" || c.status === "no-marker" ? "ok" : "warn") : "fail", detail: c.message };
+          })(),
+          (facts.staleArtifacts && facts.staleArtifacts.length)
+            ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: `old-world artifacts (${facts.staleArtifacts.join(", ")}) — run \`gov upgrade --from <content>\`` }
+            : { name: "content layout", status: "ok" as DiagnosticStatus, detail: "current" },
+        ]
+      : []),
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
 }

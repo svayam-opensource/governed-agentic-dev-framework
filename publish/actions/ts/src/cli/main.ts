@@ -1914,7 +1914,9 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       resolve,
       activeOrg: env.readActiveOrg(),
       cliVersion,
-      contentVersion: fs.readFile(path.join(home, "VERSION"))?.trim() ?? null,
+      // Only a WORKSPACE has a content VERSION. With none resolved, `home` is just the cwd (see staleArtifactsIn).
+      workspaceChecked: !!doctorHomeOverride || resolve.ok,
+      contentVersion: (!!doctorHomeOverride || resolve.ok) ? (fs.readFile(path.join(home, "VERSION"))?.trim() ?? null) : undefined,
       // Only a WORKSPACE has old-world artifacts to retire. With none resolved, `home` is just the cwd — on a
       // fresh machine the adopter's home dir, holding the install.sh our own install command saved there.
       staleArtifacts: staleArtifactsIn(!!doctorHomeOverride || resolve.ok, (rel) => fs.pathExists(path.join(home, rel))),

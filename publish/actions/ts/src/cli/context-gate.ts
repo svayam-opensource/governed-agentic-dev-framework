@@ -54,7 +54,10 @@ function buildContextInfo(): ContextInfo {
   }
   const mode: ContextInfo["mode"] = projectPath ? "project" : govRepo ? "governed" : "none";
   const user = tryRun("git", ["config", "user.email"]) ?? tryRun("gh", ["api", "user", "--jq", ".login"]);
-  if (!govRepo) anomalies.push("no gov workspace resolved — run `gov setup` / `gov org use`");
+  // ONE REMEDY, the same one doctor gives (PRJ-121, 2026-09-22). This said "run `gov setup` / `gov org use`":
+  // two commands, each right for only one role, printed right after install to someone who has not been asked
+  // their role yet. `gov` starts the first-run flow, which asks.
+  if (!govRepo) anomalies.push("no organization set up on this machine yet — `gov` asks whether you are adopting the framework or joining your organization's");
   else if (!services.vault) anomalies.push("vault not configured (vault_addr) — governed creds/deploys need it");
   return { mode, projectPath, agentWorkRoot, govRepo, orgConfigPath, orgConfigHash, user, branch, services, anomalies };
 }
@@ -74,6 +77,12 @@ export async function confirmContextOrBail(argv: readonly string[]): Promise<boo
   const info = buildContextInfo();
   const fp = contextFingerprint(info, undefined, readCliVersion());
   for (const l of renderBanner(info)) process.stderr.write(l + "\n");
+  // NOTHING RESOLVED, NOTHING TO CONFIRM (PRJ-121, 2026-09-22). The gate exists so you cannot act on the wrong
+  // org, repo or branch after they change. In `none` mode there is no org, repo or branch — so on a fresh machine
+  // it asked a bare `Proceed? (y/N)` over "context: NONE", right after the installer promised to show each command
+  // before running it, and in front of a READ-ONLY report. It guarded nothing and could not be answered
+  // meaningfully. The banner still shows; the first REAL context still gets confirmed.
+  if (info.mode === "none") return true;
   const now = Date.now();
   const acks = readAcks();
   if (isAcked(acks, fp, now)) return true;
