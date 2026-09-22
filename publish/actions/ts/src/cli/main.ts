@@ -52,7 +52,7 @@ import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
 import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes } from "../maintain/fix-env.js";
-import { checklist, renderChecklist, checklistPreamble, statusSoFar, finalStatus, stepBanner, stepDone, type ChecklistFacts } from "./checklist.js";
+import { checklist, renderChecklist, checklistPreamble, statusSoFar, finalStatus, stepBanner, stepDone, itemForFix, type ChecklistFacts } from "./checklist.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
@@ -2090,6 +2090,9 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           // best source is the GitHub account the sign-in just proved. Ask, defaulting
           // to that — after the login, so the defaults exist.
           if (step.fixes === "git identity") {
+            // Headed like every other step. It had none, so the one step that asks two questions arrived unannounced.
+            const gi = itemForFix(step.fixes, checklist(facts()));
+            if (gi) for (const line of stepBanner(gi, stdoutColor())) process.stdout.write(`${line}\n`);
             process.stdout.write(`\n  ${step.what}\n`);
             const ghName = tryRun("gh", ["api", "user", "--jq", ".name // empty"]) ?? "";
             const ghLogin = tryRun("gh", ["api", "user", "--jq", ".login // empty"]) ?? "";
@@ -2127,13 +2130,17 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             }
             const okName = spawnSync("git", ["config", "--global", "user.name", finalName], { stdio: "inherit" }).status === 0;
             const okMail = spawnSync("git", ["config", "--global", "user.email", finalEmail], { stdio: "inherit" }).status === 0;
-            if (okName && okMail) { ran++; process.stdout.write(`  ✓ git will sign your commits as ${finalName} <${finalEmail}>\n`); }
+            if (okName && okMail) {
+              ran++;
+              process.stdout.write(`  ✓ git will sign your commits as ${finalName} <${finalEmail}>\n`);
+              if (gi) process.stdout.write(`\n${stepDone(gi, true, stdoutColor())}\n`);
+            }
             else { failed++; broken.add(step.fixes); process.stdout.write("  ✗ could not write your git config\n"); }
             continue;
           }
           // The run reads as the plan did: a banner opens the step, the command is
           // shown, and a ticked line closes it. Same numbers, same words.
-          const item = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
+          const item = itemForFix(step.fixes, checklist(facts()));
           if (item) for (const line of stepBanner(item, stdoutColor())) process.stdout.write(`${line}\n`);
           process.stdout.write(`  run:  ${renderCommand(step)}\n`);
           // sudo is prepended only here, where the user has just seen and accepted the
@@ -2152,7 +2159,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           const r = spawnSync(bin!, rest, { stdio: "inherit" });
           if (r.status === 0) {
             ran++;
-            const it = checklist(facts()).find((c) => c.text.toLowerCase().includes(step.fixes.split(" ")[0]!));
+            const it = itemForFix(step.fixes, checklist(facts()));
             process.stdout.write(it ? `\n${stepDone(it, true, stdoutColor())}\n` : `  ${reporter(stdoutColor()).ok("done")}\n`);
           }
           else {

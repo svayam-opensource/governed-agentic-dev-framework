@@ -68,14 +68,14 @@ describe("gov-work — doctor --fix planning", () => {
     expect(plan.steps).to.have.length(1);
     // The scopes are requested AT login: a bare `gh auth login` grants gh's own
     // minimum, and the gap would only be visible on a later run.
-    expect(renderCommand(plan.steps[0]!)).to.equal("gh auth login -s repo,read:org,project");
+    expect(renderCommand(plan.steps[0]!)).to.equal("gh auth login --hostname github.com --git-protocol https --web -s repo,read:org,project");
     expect(plan.steps[0]!.interactive).to.equal(true);
   });
 
   it("marks system package managers as needing sudo, and brew/winget as not", () => {
     const linux = planFixes({ gitPresent: false, ghPresent: true, ghAuthenticated: true, platform: "linux" }, "apt");
     expect(linux.steps[0]!.sudo).to.equal(true);
-    expect(renderCommand(linux.steps[0]!)).to.equal("sudo apt-get install -y git");
+    expect(renderCommand(linux.steps[0]!)).to.equal("sudo apt-get install -y -qq git");
 
     const mac = planFixes({ gitPresent: false, ghPresent: true, ghAuthenticated: true, platform: "darwin" }, "brew");
     expect(mac.steps[0]!.sudo).to.equal(false);
@@ -104,7 +104,7 @@ describe("gov-work — doctor --fix planning", () => {
     const lines = formatPlan(plan);
     expect(lines[0]).to.equal("These commands will fix what is missing:");
     expect(lines[1]).to.contain("Install Git using dnf");
-    expect(lines[2]).to.contain("sudo dnf install -y git");
+    expect(lines[2]).to.contain("sudo dnf install -y -q git");
   });
 });
 
@@ -238,4 +238,24 @@ describe("gov-work — the consent screen in colour (#204)", () => {
   it("plain is the default", () => {
     expect(formatPlanNarrative(plan).join("")).to.not.contain("\u001b");
   });
+});
+
+// PRJ-121, 2026-09-22 — a walk hit four gh prompts, one of them ("HTTPS or SSH?") unanswerable for a new adopter.
+describe("gh sign-in — the answers gov already knows are given, not asked", () => {
+  it("names the host, the protocol and the browser route, and still requests every scope", () => {
+    const auth = planFixes({ gitPresent: true, ghPresent: true, ghAuthenticated: false, platform: "linux" }, "dnf").steps.find((s) => s.fixes === "gh auth")!;
+    for (const flag of ["--hostname", "--git-protocol", "--web"]) expect(auth.command, flag).to.include(flag);
+    expect(auth.command[auth.command.indexOf("--git-protocol") + 1]).to.equal("https");
+    expect(auth.command[auth.command.indexOf("-s") + 1]).to.equal("repo,read:org,project");
+  });
+});
+
+// PRJ-121, 2026-09-22 — dnf's ~350 lines buried the plan the person had just agreed to, on a walk.
+describe("package installs are quiet, and the quiet flag is in the command that is shown", () => {
+  for (const [pm, flag] of [["apt", "-qq"], ["dnf", "-q"], ["yum", "-q"], ["apk", "--quiet"], ["zypper", "--quiet"]] as const) {
+    it(`${pm} installs git with ${flag}`, () => {
+      const git = planFixes({ gitPresent: false, ghPresent: true, ghAuthenticated: true, platform: "linux" }, pm).steps.find((s) => s.fixes === "git")!;
+      expect(git.command, "shown = run: the flag is part of the command itself").to.include(flag);
+    });
+  }
 });

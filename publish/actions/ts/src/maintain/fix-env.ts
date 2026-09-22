@@ -133,13 +133,18 @@ export function detectPackageManager(hasTool: (name: string) => boolean): Packag
 
 /** Install arguments per manager, keyed by the tool being installed. */
 const INSTALL: Readonly<Record<PackageManager, Readonly<Record<"git" | "gh", readonly string[]>>>> = {
+  // QUIET, AND SHOWN QUIET (PRJ-121, 2026-09-22). On a walk, `dnf install -y git` printed ~350 lines — every
+  // dependency, then every "Verifying" — and scrolled away the plan the person had just consented to. The flag is
+  // IN the command, so what is shown is what runs; quiet still prints prompts and errors, which matters: the
+  // alternative, capturing the output, would hide a package's own question and look like a hang. brew and pacman
+  // are already brief, and are left as they are.
   brew:   { git: ["brew", "install", "git"],                        gh: ["brew", "install", "gh"] },
-  apt:    { git: ["apt-get", "install", "-y", "git"],               gh: ["apt-get", "install", "-y", "gh"] },
-  dnf:    { git: ["dnf", "install", "-y", "git"],                   gh: ["dnf", "install", "-y", "gh"] },
-  yum:    { git: ["yum", "install", "-y", "git"],                   gh: ["yum", "install", "-y", "gh"] },
-  apk:    { git: ["apk", "add", "git"],                             gh: ["apk", "add", "github-cli"] },
+  apt:    { git: ["apt-get", "install", "-y", "-qq", "git"],        gh: ["apt-get", "install", "-y", "-qq", "gh"] },
+  dnf:    { git: ["dnf", "install", "-y", "-q", "git"],             gh: ["dnf", "install", "-y", "-q", "gh"] },
+  yum:    { git: ["yum", "install", "-y", "-q", "git"],             gh: ["yum", "install", "-y", "-q", "gh"] },
+  apk:    { git: ["apk", "add", "--quiet", "git"],                  gh: ["apk", "add", "--quiet", "github-cli"] },
   pacman: { git: ["pacman", "-S", "--noconfirm", "git"],            gh: ["pacman", "-S", "--noconfirm", "github-cli"] },
-  zypper: { git: ["zypper", "install", "-y", "git"],                gh: ["zypper", "install", "-y", "gh"] },
+  zypper: { git: ["zypper", "--quiet", "install", "-y", "git"],     gh: ["zypper", "--quiet", "install", "-y", "gh"] },
   winget: { git: ["winget", "install", "--id", "Git.Git", "-e"],    gh: ["winget", "install", "--id", "GitHub.cli", "-e"] },
 };
 
@@ -222,7 +227,13 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
       fixes: "gh auth",
       what: "Sign in to GitHub (opens your browser)",
       why: "You are not signed in to GitHub. Governance work happens on GitHub, so gov needs your authorization to act as you.",
-      command: ["gh", "auth", "login", "-s", REQUIRED_SCOPES.map((r) => r.scope).join(",")],
+      // THE THREE QUESTIONS gov ALREADY KNOWS THE ANSWERS TO (PRJ-121, 2026-09-22). Bare `gh auth login` asked
+      // "Where do you use GitHub?", "HTTPS or SSH?" and "How would you like to authenticate?" — and "HTTPS or
+      // SSH" is one a new adopter cannot answer. gov's org is on github.com; gov clones over HTTPS (and a fresh
+      // machine has no SSH key); `--web` is the one-time-code route, which works from a container or over SSH
+      // because the code is typed into a browser on ANY machine. gh may still ask whether to authenticate git
+      // with these credentials — a real question, and the answer is yours.
+      command: ["gh", "auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web", "-s", REQUIRED_SCOPES.map((r) => r.scope).join(",")],
       sudo: false,
       interactive: true,
       ...(facts.ghPresent ? {} : { dependsOn: ["gh"] }),

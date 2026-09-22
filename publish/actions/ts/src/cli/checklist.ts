@@ -204,3 +204,32 @@ export function checklistProgress(items: readonly ChecklistItem[], color = false
   const total = items.filter((i) => !i.sub).length;
   return ["", `Progress \u2014 ${done} of ${total} done:`, "", ...renderChecklist(items, color), ""];
 }
+
+/**
+ * WHICH CHECKLIST ITEM A `doctor --fix` STEP IS (PRJ-121, 2026-09-22).
+ *
+ * The run used to pick an item by looking for the FIRST WORD of the fix id anywhere in the item text:
+ * `"gh repo"`, `"gh"` and `"gh auth"` all begin `gh`, so all three were headed and ticked as step 4. On a walk,
+ * `===> 4. [✓] Install dependency — gh` printed after only ADDING GitHub's package repository — gh was not yet
+ * installed, so the tick was false — then twice more; signing in to GitHub (step 5) ran under step 4's name, and
+ * `git identity` (step 6) had no heading at all. The final checklist was right; the live run was not.
+ *
+ * An explicit table, because the ids and the numbers are both gov's own and neither should be guessed from prose.
+ * Each id lists its preferences in order: `4a`/`4b` exist only when GitHub's repository has to be added first, so
+ * `gh repo` and `gh` fall back to `4` otherwise.
+ */
+const ITEM_FOR_FIX: Readonly<Record<string, readonly string[]>> = {
+  "git": ["3"],
+  "gh repo": ["4a", "4"],
+  "gh": ["4b", "4"],
+  "gh auth": ["5"],
+  "gh scopes": ["5"],
+  "git identity": ["6"],
+};
+export function itemForFix(fixes: string, items: readonly ChecklistItem[]): ChecklistItem | undefined {
+  for (const n of ITEM_FOR_FIX[fixes] ?? []) {
+    const it = items.find((i) => i.n === n);
+    if (it) return it;
+  }
+  return undefined;
+}
