@@ -108,6 +108,16 @@ saw "it creates the repository from the framework template" "creating acme/acme-
 gh_ran "and does so through gh, with --template" "repo create acme/acme-gov --template"
 exists "the workspace lands where every tool looks" "$HOME/.gov/acme/gov_repo/org-config.yaml"
 
+# THE MANIFEST IS THE ONLY DOOR (PRJ-121, 2026-09-22). svm-geneva-gov was created with ~450 of the framework's
+# own files — publish/ (436), site/, install.ps1 — because a hand-kept delete list had gone stale. The stub's
+# template copy is this whole repository, as GitHub's is, so these would reappear here if the rule broke.
+info "the adopter's repo holds only what the manifest produces"
+for leak in publish site install.ps1 install.sh CHANGELOG.md packages ci docs AGENTS.md; do
+  [ ! -e "$HOME/.gov/acme/gov_repo/$leak" ] && pass "no framework '$leak' in the adopter's repo" \
+    || fail "the framework's '$leak' reached the adopter's repo"
+done
+saw "and setup says what it removed from the template copy" "the framework's own files from the template copy"
+
 info "#196 — the org decides which agents it allows, during adoption"
 says "the question is asked" "Which AI agents may be used in this organization"
 saw_re "and the answer is written to the policy, not remembered" "approved_agents|IBM Bob"

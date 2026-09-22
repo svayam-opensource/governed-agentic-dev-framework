@@ -146,7 +146,7 @@ export function doctor(facts: DoctorFacts): DoctorReport {
             return { name: "version compat", status: c.ok ? (c.status === "ok" || c.status === "no-marker" ? "ok" : "warn") : "fail", detail: c.message };
           })(),
           (facts.staleArtifacts && facts.staleArtifacts.length)
-            ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: `old-world artifacts (${facts.staleArtifacts.join(", ")}) — run \`gov upgrade --from <content>\`` }
+            ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: `files that are not this org's (${facts.staleArtifacts.join(", ")}) — \`gov upgrade --apply\` removes them (or \`gov upgrade --pr\` to review first)` }
             : { name: "content layout", status: "ok" as DiagnosticStatus, detail: "current" },
         ]
       : []),

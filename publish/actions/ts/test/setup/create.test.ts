@@ -8,8 +8,11 @@
  * that a normal `gh auth login` does not grant. A half-made repo in an adopter's GitHub org is not
  * recoverable by this tool, so the tests below are largely about refusing early and saying why.
  */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect } from "chai";
-import { parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, substituteTokens, leftoverTokens, type CreateIo, expectedDirs, tokenValuesFromOrgConfig, PER_PROJECT_TOKENS } from "../../src/setup/create.js";
+import { cleanSlateEntries, strayRootEntries, adopterRootEntries, parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, substituteTokens, leftoverTokens, type CreateIo, expectedDirs, tokenValuesFromOrgConfig, PER_PROJECT_TOKENS } from "../../src/setup/create.js";
 
 /** A machine where everything is fine: signed in, org reachable, no governance repo, nothing at the path. */
 const okIo = (over: Partial<CreateIo> = {}): CreateIo => ({
@@ -332,12 +335,13 @@ files:
 `;
     const dirs = expectedDirs(manifest);
     for (const d of [".claude", ".cursor", "docs", "projects"]) expect(dirs, d).to.include(d);
-    expect(dirs, "the floor is still there").to.include.members(["agent", "knowledge", "publish"]);
+    expect(dirs, "the floor is still there").to.include.members(["agent", "knowledge"]);
+    expect(dirs, "publish/ is the seed SOURCE, never the adopter's (2026-09-22)").to.not.include("publish");
     expect(dirs, "a root-level FILE is not a directory").to.not.include("README.md");
   });
 
   it("survives a missing manifest by falling back to the floor", () => {
-    expect(expectedDirs(null)).to.deep.equal(["agent", "knowledge", "publish"]);
+    expect(expectedDirs(null)).to.deep.equal(["agent", "knowledge"]);
   });
 
   it("reads token values from the file, including keys gov-work itself never parses", () => {
@@ -366,5 +370,33 @@ files:
     expect(PER_PROJECT_TOKENS.has("<PROJECT_ID>")).to.equal(true);
     expect(PER_PROJECT_TOKENS.has("<PRJ>")).to.equal(true);
     expect(PER_PROJECT_TOKENS.has("<POLICY_OWNER_GITHUB>")).to.equal(false);
+  });
+});
+
+
+// PRJ-121, 2026-09-22 — svm-geneva-gov was created with 507 files, ~450 the framework's own: publish/ (436),
+// site/, install.ps1, CHANGELOG.md, .gitattributes. A hand-kept delete list had gone stale. Now the MANIFEST is
+// the only door, and these tests run the rule against THIS repo's real root and real manifest — so a new
+// top-level folder in the framework fails here instead of reaching an adopter.
+describe("adoption — only what the manifest produces reaches an adopter", () => {
+  const frameworkRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
+  const manifestText = fs.readFileSync(path.join(frameworkRoot, "publish/content/MANIFEST.yaml"), "utf8");
+
+  it("the clean slate removes every root entry but .git and the seed source", () => {
+    expect(cleanSlateEntries([".git", "publish", "site", "AGENTS.md", "install.ps1"])).to.deep.equal(["site", "AGENTS.md", "install.ps1"]);
+  });
+
+  it("after the seed, what the manifest did not produce goes — publish/ included", () => {
+    expect(strayRootEntries([".git", "publish", "governance", "agent", "org-config.yaml", "CODEOWNERS"], manifestText)).to.deep.equal(["publish"]);
+  });
+
+  it("against THIS repo: none of the framework's own root entries survives into an adopter's repo", () => {
+    const root = fs.readdirSync(frameworkRoot);
+    const survivors = root.filter((e) => !cleanSlateEntries(root).includes(e));           // .git, publish
+    const leaked = survivors.filter((e) => !strayRootEntries(survivors, manifestText).includes(e) && e !== ".git");
+    expect(leaked, "framework root entries that would reach every adopter").to.deep.equal([]);
+    for (const known of ["publish", "site", "install.ps1", "install.sh", "CHANGELOG.md", "packages", "ci", "docs"]) {
+      if (root.includes(known)) expect(adopterRootEntries(manifestText).has(known), `${known} must not be an adopter root entry`).to.equal(false);
+    }
   });
 });

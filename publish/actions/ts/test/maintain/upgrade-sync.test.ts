@@ -79,3 +79,23 @@ describe("gov-work — upgrade overlay-sync engine", () => {
     expect(formatPlan(plan).join("\n")).to.match(/plan:/);
   });
 });
+
+
+// PRJ-121, 2026-09-22 — the framework's own files left in an adopter repo by the template copy.
+describe("planUpgrade — retires the framework's leftovers, only by fingerprint, only in an adopter repo", () => {
+  const plan = (files: string[]) => planUpgrade([], { readContent: () => null, readAdopter: () => null, adopterPaths: () => files })
+    .actions.filter((a) => a.kind === "retire").map((a) => a.dst);
+
+  it("an adopter's inherited publish/, site/ and install.ps1 are retired", () => {
+    expect(plan(["org-config.yaml", "publish/actions/ts/package.json", "publish/content/VERSION", "site/caddyfile.mjs", "install.ps1"]))
+      .to.include.members(["publish/", "site/", "install.ps1"]);
+  });
+
+  it("the framework's OWN checkout (no org-config.yaml) is never told to delete publish/", () => {
+    expect(plan(["publish/actions/ts/package.json", "site/caddyfile.mjs"])).to.not.include("publish/").and.not.include("site/");
+  });
+
+  it("an org's own site/ without the framework's fingerprint stays", () => {
+    expect(plan(["org-config.yaml", "site/index.html"])).to.not.include("site/");
+  });
+});

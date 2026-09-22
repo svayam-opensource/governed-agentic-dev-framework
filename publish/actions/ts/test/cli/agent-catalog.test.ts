@@ -18,7 +18,7 @@ import {
   variantStatuses, runnableVariants, harnessFileFor,
 } from "../../src/cli/agent-catalog.js";
 import { ROOT_HARNESS_FILES, verifyAgentContext, PROTOCOL_MARKER, RENDERED_BANNER } from "../../src/lifecycle/root-protocol.js";
-import { INHERITED_FILES } from "../../src/setup/create.js";
+import { cleanSlateEntries } from "../../src/setup/create.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -498,17 +498,15 @@ describe("gov-work — gov verifies the context before it launches (the guarante
  * catalog and the manifest — never the framework's own root against the paths an agent reads.
  */
 describe("adoption — the framework's own files never become the adopter's protocol", () => {
-  it("every path an agent reads is pruned from the template copy, or not in this repo's root", () => {
+  // The mechanism changed 2026-09-22: a hand-kept INHERITED_FILES list became a CLEAN SLATE — every root entry
+  // of the template copy except `.git` and the seed source is removed before the seed. The property is the same.
+  it("every path an agent reads is removed from the template copy by the clean slate", () => {
+    const root = fs.readdirSync(repoRoot);
+    const removed = cleanSlateEntries(root);
     for (const rel of ROOT_HARNESS_FILES) {
-      const ownCopy = path.join(repoRoot, rel);
-      if (!fs.existsSync(ownCopy)) continue;                 // no collision: nothing to inherit
-      const rendered = fs.readFileSync(ownCopy, "utf8").includes(RENDERED_BANNER);
-      if (rendered) continue;                                // the framework's copy IS a render
-      expect(
-        INHERITED_FILES.includes(rel),
-        `${rel} exists in this repo's root, is NOT a render, and is not in INHERITED_FILES — `
-        + "so the template copy would survive the seed and govern the adopter's agents",
-      ).to.equal(true);
+      const top = rel.split("/")[0]!;
+      if (!root.includes(top)) continue;                     // no collision: nothing to inherit
+      expect(removed, `${top} is in this repo's root and would survive into the adopter's clone`).to.include(top);
     }
   });
 
@@ -518,7 +516,7 @@ describe("adoption — the framework's own files never become the adopter's prot
     const own = path.join(repoRoot, "AGENTS.md");
     expect(fs.existsSync(own), "this repo still has its own AGENTS.md").to.equal(true);
     expect(fs.readFileSync(own, "utf8"), "and it is NOT a rendered protocol").to.not.contain(RENDERED_BANNER);
-    expect(INHERITED_FILES, "so it must be pruned from an adopter's clone").to.include("AGENTS.md");
+    expect(cleanSlateEntries(fs.readdirSync(repoRoot)), "so the clean slate removes it").to.include("AGENTS.md");
   });
 
   it("what ships as the adopter's AGENTS.md is the rendered protocol, and passes the gate", () => {

@@ -137,4 +137,14 @@ describe("staleArtifactsIn — retire only what a workspace left behind", () => 
   it("a clean workspace reports nothing", () => {
     expect(staleArtifactsIn(true, present())).to.deep.equal([]);
   });
+
+  // PRJ-121, 2026-09-22 — svm-geneva-gov inherited publish/ (436 files), site/ and install.ps1 from the template.
+  it("an ADOPTER that inherited the framework's files is not mistaken for the framework — they are reported", () => {
+    const geneva = present("org-config.yaml", "publish/content/MANIFEST.yaml", "publish/actions/ts/package.json", "site/caddyfile.mjs", "install.ps1");
+    expect(staleArtifactsIn(true, geneva)).to.deep.equal(["publish/", "site/", "install.ps1"]);
+  });
+
+  it("an org's OWN site/ or publish/ (no framework fingerprint) is never flagged", () => {
+    expect(staleArtifactsIn(true, present("org-config.yaml", "site/index.html", "publish/report.md"))).to.deep.equal([]);
+  });
 });

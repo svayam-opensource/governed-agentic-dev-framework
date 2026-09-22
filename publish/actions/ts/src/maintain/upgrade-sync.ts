@@ -44,6 +44,22 @@ export interface Manifest { readonly files: readonly ManifestEntry[]; readonly o
 export const RETIRE_PATHS = ["framework/", "registry.yaml", ".framework-version", "bin/", "scripts/", "setup.sh", "install.sh", "prj"] as const;
 
 /**
+ * THE FRAMEWORK'S OWN FILES, LEFT IN AN ADOPTER REPO BY THE TEMPLATE COPY (PRJ-121, 2026-09-22).
+ *
+ * Until setup's clean slate (create.ts `cleanSlateEntries`), `gh repo create --template` copied the whole
+ * framework repo and a stale delete-list let most of it through: svm-geneva-gov holds `publish/` (436 files:
+ * the CLI's source and tests), `site/` and `install.ps1`. Retired by upgrade like RETIRE_PATHS, but each is
+ * named by a FINGERPRINT that only the framework's copy has, so an org's own folder of the same name is never
+ * touched. And only in an ADOPTER repo (one with org-config.yaml): run in the framework's own checkout,
+ * `publish/` is the framework itself.
+ */
+export const TEMPLATE_LEFTOVERS: readonly { readonly path: string; readonly fingerprint: string }[] = [
+  { path: "publish/", fingerprint: "publish/actions/ts/package.json" },
+  { path: "site/", fingerprint: "site/caddyfile.mjs" },
+  { path: "install.ps1", fingerprint: "install.ps1" },
+];
+
+/**
  * Which retired artifacts are present — looked for ONLY in a governance workspace (PRJ-121, 2026-09-21).
  *
  * RETIRE_PATHS describes an old ADOPTER REPO. `gov doctor` used to scan whatever directory it resolved as
@@ -62,8 +78,14 @@ export const RETIRE_PATHS = ["framework/", "registry.yaml", ".framework-version"
  */
 export function staleArtifactsIn(isWorkspace: boolean, exists: (rel: string) => boolean): string[] {
   if (!isWorkspace) return [];
-  if (exists("publish/content/MANIFEST.yaml")) return [];
-  return RETIRE_PATHS.filter((rp) => exists(rp.replace(/\/$/, "")));
+  // THE FRAMEWORK'S OWN CHECKOUT is the source repo WITHOUT an org-config.yaml. The MANIFEST alone used to decide
+  // it — and an adopter repo that inherited `publish/` from the template has the MANIFEST too, so every check was
+  // skipped exactly where the leftovers were (svm-geneva-gov, 2026-09-22).
+  if (exists("publish/content/MANIFEST.yaml") && !exists("org-config.yaml")) return [];
+  return [
+    ...RETIRE_PATHS.filter((rp) => exists(rp.replace(/\/$/, ""))),
+    ...TEMPLATE_LEFTOVERS.filter((t) => exists(t.fingerprint)).map((t) => t.path),
+  ];
 }
 
 /** Parse the flow-style MANIFEST (files[] of {src,dst,mode} + owned[]). */
@@ -168,6 +190,16 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders): 
     for (const rp of RETIRE_PATHS) {
       const hit = rp.endsWith("/") ? p.startsWith(rp) : p === rp;
       if (hit && !seenRetire.has(rp)) { seenRetire.add(rp); actions.push({ kind: "retire", dst: rp, detail: "removed under the new layout" }); }
+    }
+  }
+  // The framework's own files left by the template copy — fingerprinted, and only in an adopter repo.
+  const paths = new Set(r.adopterPaths());
+  if (paths.has("org-config.yaml")) {
+    for (const t of TEMPLATE_LEFTOVERS) {
+      if (paths.has(t.fingerprint) && !seenRetire.has(t.path)) {
+        seenRetire.add(t.path);
+        actions.push({ kind: "retire", dst: t.path, detail: "the framework's own files, left by the template copy" });
+      }
     }
   }
   return { actions };

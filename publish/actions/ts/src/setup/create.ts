@@ -242,18 +242,6 @@ export function explainFailure(f: PreflightFailure): readonly string[] {
   }
 }
 
-/**
- * Publisher scaffolding that must not reach an adopter (#159 finding 6c).
- *
- * The framework repo is also the template, so `gh repo create --template` copies EVERYTHING the
- * publisher needs to build and test itself. An adopter has no TypeScript to build and no framework to
- * document, so these are noise at best — and `.github` is worse than noise: the workflows build the
- * CLI's own source, so a brand-new adopter's first push turns their repo red.
- *
- * Pruned in the adopter's clone, never in the framework repo, which keeps whatever shape it needs.
- * `publish/` is deliberately NOT here: it is the copy source the framework replaces on upgrade.
- */
-export const PUBLISHER_ONLY_DIRS: readonly string[] = ["ci", "docs", "packages", ".github"];
 
 /**
  * The framework's OWN working copies, which the template copy also brings.
@@ -265,54 +253,57 @@ export const PUBLISHER_ONLY_DIRS: readonly string[] = ["ci", "docs", "packages",
  */
 export const INHERITED_DIRS: readonly string[] = ["agent", "knowledge"];
 
-/**
- * The framework's OWN root FILES, which the template copy also brings — and which used to
- * survive the seed and govern the adopter's agents.
- *
- * THE GOVERNANCE HOLE THIS CLOSES, found on a walk 2026-09-12. This repo has its own
- * `AGENTS.md`: twenty-five lines about contributing to the framework, which even says "the
- * adopter-facing agent protocol lives in `publish/content/`". `gh repo create --template`
- * copies it into every adopter's repo. Then the seed plans it as `scaffold-prompt`, and on a
- * FIRST seed there is no baseline to compare against — so `base === null`, the entry is
- * classified `conflict`, and `applyUpgrade` skips conflicts. The verdict "org-customized —
- * review before applying" was wrong: the adopter had customized nothing, they had inherited the
- * template.
- *
- * The consequence was invisible and total for two of the launch-list agents. `ensureRootProtocol`
- * mirrors `<workspace>/AGENTS.md` to the project root, so openai-codex and ibm-bob — both of
- * which read AGENTS.md — were handed instructions for building this repository instead of the
- * governance protocol. Nothing failed; they were simply governed by the wrong document.
- * `verifyAgentContext` is what finally noticed, because the file carries no renderer banner.
- *
- * `README.md` is the same mistake with a smaller blast radius: adopters were reading the
- * framework's README rather than the one written for them.
- *
- * Pruned in the adopter's clone, never in the framework repo. The framework keeps its own
- * AGENTS.md at the conventional name, which is right for its own contributors — it just must
- * not be inherited, exactly like `agent/` and `knowledge/` are not.
- */
-export const INHERITED_FILES: readonly string[] = [
-  // Collide with a manifest destination — found by the 2026-09-12 AGENTS.md defect.
-  "AGENTS.md", "README.md",
-  // NO manifest counterpart at all, so nothing replaced or removed them (Decision 5,
-  // 2026-09-14). `INHERITED_FILES` originally covered only COLLISIONS, because that is the
-  // shape the AGENTS.md bug had; these seven reached every adopter untouched.
-  //
-  // CONTRIBUTING.md is the same defect as AGENTS.md without a collision to reveal it: this
-  // repository's own contributing guide, landing in an adopter's governance repo.
-  "CONTRIBUTING.md",
-  // The framework's licence, not the org's.
-  "LICENSE",
-  // Publisher artifacts — an adopter's governance repo builds nothing.
-  "package.json", "package-lock.json", ".npmignore",
-];
+// PUBLISHER_ONLY_DIRS and INHERITED_FILES — hand-kept lists of framework paths to delete from the template
+// copy — were retired 2026-09-22 for cleanSlateEntries / strayRootEntries below. They covered the defect of
+// 2026-09-12 (the framework's own AGENTS.md survived the seed and governed openai-codex and ibm-bob), but
+// went stale on the next top-level entry the framework grew. The clean slate removes EVERY root entry.
 
 /**
  * What an adopter should be left with — asserted after pruning so a new publisher
  * dir cannot creep in. The FLOOR, not the whole answer: everything MANIFEST.yaml
  * scaffolds is expected too, and {@link expectedDirs} unions the two.
  */
-export const ADOPTER_DIRS: readonly string[] = ["agent", "knowledge", "publish"];
+export const ADOPTER_DIRS: readonly string[] = ["agent", "knowledge"];
+
+/**
+ * THE MANIFEST IS THE ONLY DOOR (PRJ-121, 2026-09-22).
+ *
+ * The template copy brings the WHOLE framework repo, and setup used to delete a hand-kept list of framework
+ * paths (PUBLISHER_ONLY_DIRS, INHERITED_FILES). The list went stale every time the framework grew a
+ * top-level entry: a real adopter repo, svm-geneva-gov, was created with 507 files, ~450 of them the
+ * framework's own — `publish/` (436: the CLI's source, its tests, a second copy of the content), `site/`,
+ * `install.ps1`, `CHANGELOG.md`, `.gitattributes`. And keeping `publish/` made the adopter repo LOOK like the
+ * framework to gov's own checks: `staleArtifactsIn` skipped it, and the framework's version-sync gate ran in
+ * the adopter's CI.
+ *
+ * So the rule is inverted, and nothing needs to be remembered:
+ *   before the seed — CLEAN SLATE: remove every root entry except `.git` and `publish/` (the seed's source);
+ *   after the seed  — remove every root entry the manifest did not produce, `publish/` included.
+ * `gov upgrade` never needed the local copy: it fetches publish/content from the template remote.
+ */
+export const GENERATED_ROOT_ENTRIES: readonly string[] = ["CODEOWNERS"];   // written by setup, not the manifest
+
+/** Root entries to remove from the template copy BEFORE seeding: everything but `.git` and the seed source. */
+export function cleanSlateEntries(rootEntries: readonly string[]): string[] {
+  return rootEntries.filter((e) => e !== ".git" && e !== "publish");
+}
+
+/** The root entries an adopter's repo is meant to have: the top level of every manifest destination, plus what
+ *  setup itself generates, plus `.git`. */
+export function adopterRootEntries(manifestText: string): Set<string> {
+  const keep = new Set<string>([".git", ...ADOPTER_DIRS, ...GENERATED_ROOT_ENTRIES]);
+  for (const m of manifestText.matchAll(/\bdst:\s*([^\s,}]+)/g)) {
+    const top = m[1]?.trim().split("/")[0];
+    if (top) keep.add(top);
+  }
+  return keep;
+}
+
+/** Root entries left AFTER seeding that the manifest did not produce — removed before the first commit. */
+export function strayRootEntries(rootEntries: readonly string[], manifestText: string): string[] {
+  const keep = adopterRootEntries(manifestText);
+  return rootEntries.filter((e) => !keep.has(e));
+}
 
 /**
  * Every top-level directory the manifest scaffolds into an adopter's repo (#193).

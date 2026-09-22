@@ -18,7 +18,7 @@ import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog } from "../log.js";
 import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
-import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, INHERITED_FILES, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, projectFromPath, type AgentKind } from "./work-flow.js";
 import { verifyAgentContext } from "../lifecycle/root-protocol.js";
@@ -755,6 +755,7 @@ export async function runSetupCommand(
   const nonInteractiveFlag = !("error" in parsed) && "non-interactive" in parsed.flags;
   const fs = createNodeFs();
   let createdHome: string | null = null;
+  let templateRemovedFromCreate: string[] = [];   // framework root entries the clean slate removed (reported below)
   let createdSlug: string | null = null;
 
   // ONE VERB, THE ARGUMENT DECIDES (#159). A positional `<org>/<repo>` means CREATE; its absence means
@@ -770,18 +771,12 @@ export async function runSetupCommand(
     // from publish/, so drop the inherited copies and seed from the manifest before setup configures
     // anything (#159 finding 6c, publish-folder model). Seeding here also means a brand-new workspace is
     // never "behind the CLI" — the CLI that created it did the seeding.
-    for (const d of [...PUBLISHER_ONLY_DIRS, ...INHERITED_DIRS]) {
-      const dir = path.join(created.home, d);
-      if (fsSync.existsSync(dir)) fsSync.rmSync(dir, { recursive: true, force: true });
-    }
-    // AND THE FRAMEWORK'S OWN ROOT FILES — see INHERITED_FILES for what this cost.
-    // Without this the template's AGENTS.md survived the seed (no baseline on a first seed
-    // means scaffold-prompt calls it a conflict and skips it), and codex and ibm-bob were
-    // governed by this repository's contributor notes instead of the protocol.
-    for (const f of INHERITED_FILES) {
-      const file = path.join(created.home, f);
-      if (fsSync.existsSync(file)) fsSync.rmSync(file, { force: true });
-    }
+    // CLEAN SLATE, then seed (PRJ-121, 2026-09-22 — see cleanSlateEntries). The template copy is the whole
+    // framework repo; everything but `.git` and the seed source goes, so a framework file can reach the adopter
+    // only by being in the manifest. This replaced two hand-kept lists that had gone stale.
+    const templateRemoved = cleanSlateEntries(fsSync.readdirSync(created.home));
+    for (const e of templateRemoved) fsSync.rmSync(path.join(created.home, e), { recursive: true, force: true });
+    templateRemovedFromCreate = templateRemoved;
     const seed = runUpgradeSync(path.join(created.home, "publish", "content"), created.home, { apply: true });
     if (seed.code !== 0) {
       for (const l of seed.lines) process.stderr.write(`${l}\n`);
@@ -981,13 +976,15 @@ export async function runSetupCommand(
           detail: `unresolved: ${[...leftovers].map(([t2, f]) => `${t2} (${f})`).join(", ")} — tell gov-work; these should not reach an adopter`,
         });
       }
-      const left = fsSync.readdirSync(createdHome).filter((e) => e !== ".git" && fsSync.statSync(path.join(createdHome, e)).isDirectory());
-      const manifestText = fsSync.existsSync(path.join(createdHome, "publish", "content", "MANIFEST.yaml"))
-        ? fsSync.readFileSync(path.join(createdHome, "publish", "content", "MANIFEST.yaml"), "utf8")
-        : null;
-      const expected = expectedDirs(manifestText);
-      const unexpected = left.filter((d) => !expected.includes(d));
-      if (unexpected.length) manifest.push({ what: "Note", detail: `unexpected directories kept: ${unexpected.join(" ")} — tell gov-work if these are publisher-only` });
+      // ONLY WHAT THE MANIFEST PRODUCED IS COMMITTED — `publish/`, the seed's source, included in what goes.
+      // This used to print "unexpected directories kept: … — tell gov-work" and keep them: svm-geneva-gov
+      // got the framework's site/ and 436 files of publish/ that way.
+      const manifestPath = path.join(createdHome, "publish", "content", "MANIFEST.yaml");
+      const manifestText = fsSync.existsSync(manifestPath) ? fsSync.readFileSync(manifestPath, "utf8") : "";
+      const stray = manifestText ? strayRootEntries(fsSync.readdirSync(createdHome), manifestText) : [];
+      for (const e of stray) fsSync.rmSync(path.join(createdHome, e), { recursive: true, force: true });
+      const dropped = [...new Set([...templateRemovedFromCreate, ...stray])].sort();
+      if (dropped.length) manifest.push({ what: "Removed", detail: `the framework's own files from the template copy: ${dropped.join(" ")}` });
 
       const git = (...a: string[]): boolean => { try { execFileSync("git", ["-C", createdHome, ...a], { stdio: "ignore" }); return true; } catch { return false; } };
       git("add", "-A");
