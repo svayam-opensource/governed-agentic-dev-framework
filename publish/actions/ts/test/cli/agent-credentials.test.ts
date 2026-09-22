@@ -43,3 +43,27 @@ describe("gov-work — handling an API key (#196)", () => {
     expect(text, "and what it will not do with it").to.contain("never puts it in an agent's context");
   });
 });
+
+// PRJ-121, 2026-09-22 — on a walk the backup held `IBM_BOB_KEY=…` while Bob reads `BOB_API_KEY`, so sourcing it
+// (the recovery the backup exists for) set a variable nothing reads. And the file was overwritten per agent.
+describe("the backup — the agent's real variable, and one file that keeps every agent's key", () => {
+  it("names the variable the AGENT reads, not one derived from its id", () => {
+    const w = planCredentialWrites("ibm-bob", "k1", "", "/p", "BOB_API_KEY");
+    expect(w[1]!.contents).to.contain("BOB_API_KEY=k1");
+    expect(w[1]!.contents).to.not.contain("IBM_BOB_KEY=");
+  });
+
+  it("merges: a second agent's key does not erase the first's", () => {
+    const first = planCredentialWrites("ibm-bob", "k1", "", "/p", "BOB_API_KEY")[1]!.contents;
+    const both = planCredentialWrites("claude-code", "k2", "", "/p", "ANTHROPIC_API_KEY", first)[1]!.contents;
+    expect(both).to.contain("BOB_API_KEY=k1").and.to.contain("ANTHROPIC_API_KEY=k2");
+  });
+
+  it("replaces only this agent's line — including one an older gov wrote under the derived name", () => {
+    const old = "# ibm-bob — saved by gov as a backup. The agent's own config is what it reads.\nIBM_BOB_KEY=old\nOTHER=keep\n";
+    const next = planCredentialWrites("ibm-bob", "new", "", "/p", "BOB_API_KEY", old)[1]!.contents;
+    expect(next).to.contain("BOB_API_KEY=new").and.to.contain("OTHER=keep");
+    expect(next, "the stale legacy line is gone, not left to be sourced by mistake").to.not.contain("IBM_BOB_KEY=old");
+    expect(next.match(/# ibm-bob — saved by gov/g), "one comment per agent").to.have.length(1);
+  });
+});

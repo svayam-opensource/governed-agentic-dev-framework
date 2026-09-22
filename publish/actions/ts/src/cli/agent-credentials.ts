@@ -51,14 +51,30 @@ export function planCredentialWrites(
   key: string,
   agentConfigPath: string,
   preferencesDir: string,
+  /** The variable the AGENT reads (catalog `credentialEnv`). Absent → the old id-derived name. */
+  envVar?: string,
+  /** What the backup file holds already, so a second agent's key does not erase the first's. */
+  existingBackup?: string | null,
 ): readonly CredentialWrite[] {
+  // THE BACKUP NAMES THE VARIABLE THE AGENT READS (PRJ-121, 2026-09-22). It used to be derived from the
+  // agent's id — `ibm-bob` → `IBM_BOB_KEY` — while Bob reads `BOB_API_KEY`. The backup exists "so the person
+  // can recover it", and recovering means sourcing it; under the derived name that set a variable nothing reads.
+  const name = envVar ?? `${agentId.toUpperCase().replace(/-/g, "_")}_KEY`;
+  const legacy = `${agentId.toUpperCase().replace(/-/g, "_")}_KEY`;
+  // ONE FILE PER PERSON, SO MERGE (PRJ-121, 2026-09-22). This was a plain overwrite: storing a second agent's
+  // key erased the first's. Keep every other line; replace only this agent's — under its real name, or the
+  // legacy name an older gov wrote — and its comment.
+  const kept = (existingBackup ?? "").split("\n").filter((l) =>
+    l.trim() !== "" &&
+    !l.startsWith(`${name}=`) && !l.startsWith(`${legacy}=`) &&
+    !l.startsWith(`# ${agentId} — saved by gov`));
   return [
     { path: agentConfigPath, contents: `${key}\n`, mode: 0o600 },
     {
       path: `${preferencesDir}/credentials`,
       // Named and dated, because a bare key in a file tells whoever finds it nothing
       // about what it opens or whether it is still current.
-      contents: `# ${agentId} — saved by gov as a backup. The agent's own config is what it reads.\n${agentId.toUpperCase().replace(/-/g, "_")}_KEY=${key}\n`,
+      contents: [...kept, `# ${agentId} — saved by gov as a backup. The agent's own config is what it reads.`, `${name}=${key}`, ""].join("\n"),
       mode: 0o600,
     },
   ];

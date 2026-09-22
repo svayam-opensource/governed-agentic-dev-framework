@@ -318,7 +318,9 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
     return false;
   }
 
-  const writes = planCredentialWrites(agent.id, key, configPath ?? "", prefsDir ?? "");
+  // Merged into what the backup already holds — see planCredentialWrites.
+  const existingBackup = prefsDir ? ((): string | null => { try { return fsSync.readFileSync(path.join(prefsDir, "credentials"), "utf8"); } catch { return null; } })() : null;
+  const writes = planCredentialWrites(agent.id, key, configPath ?? "", prefsDir ?? "", envVar, existingBackup);
   let wrote = 0;
   for (const w of writes) {
     if (!w.path || w.path === "/credentials") continue;         // no destination for this half
