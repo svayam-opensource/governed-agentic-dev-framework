@@ -99,7 +99,13 @@ copyFileSync(tgz, join(OUT, "gov.tgz"));
 
 // The page. The template says https://{{HOST}}; local is plain http, so the scheme is rewritten BEFORE the host
 // is filled in — the template and build.mjs stay exactly as the shared envs need them.
-const banner = `<div class="envbar">LOCAL — your working tree, built on this machine. Never deployed anywhere.</div>`;
+// WHERE THE COMMANDS RUN (PRJ-121, 2026-09-22). Every command on this page names host.docker.internal, because
+// that is how a walker CONTAINER reaches this machine. Asked on the walk: does that load in the browser? Only
+// where the OS resolves it (Docker Desktop adds it). The banner says so, and gives the address that always works.
+const banner = `<div class="envbar">LOCAL — your working tree, built on this machine. Never deployed anywhere.<br>` +
+  `The commands below are for a walker <strong>container</strong> (host.docker.internal is how it reaches this machine). ` +
+  `In this machine's browser, use <a href="http://localhost:${PORT}/">http://localhost:${PORT}</a>. ` +
+  `On native Linux Docker, start the container with <code>--add-host=host.docker.internal:host-gateway</code>.</div>`;
 const html = readFileSync(join(HERE, "template", "index.html"), "utf8")
   .replaceAll("https://{{HOST}}", "http://{{HOST}}")
   .replaceAll("{{HOST}}", SELF)
@@ -154,6 +160,7 @@ if (verify) {
   const page = readFileSync(join(OUT, "index.html"), "utf8");
   if (page.includes("{{")) fail.push("index.html has an unsubstituted {{TOKEN}}");
   if (!page.includes("LOCAL — your working tree")) fail.push("the local page is missing its LOCAL banner");
+  if (!page.includes(`http://localhost:${PORT}`)) fail.push("the local page does not say which address works in this machine's browser");
   if (page.includes("https://" + SELF)) fail.push("the local page still says https — nothing local serves TLS");
   const primary = page.match(/<code id="cmd-unix">([^<]*)<\/code>/)?.[1] ?? "";
   if (!primary.includes("-o install.sh")) fail.push("the primary install command does not fetch to a file first");
