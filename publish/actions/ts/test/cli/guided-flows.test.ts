@@ -169,6 +169,24 @@ describe("gov-work — guided Work flow", () => {
     expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/bin/fish" } as NodeJS.ProcessEnv)).to.deep.equal({ cmd: "/bin/fish", args: [], detached: false, promptText: "GO" });
   });
 
+  // PRJ-121, 2026-09-22 — found on a walk as root in `docker run … bash`, where $SHELL is unset. The fallback was
+  // a hardcoded /bin/zsh (macOS's), absent from every Linux image an adopter arrives on, so declining the agent
+  // printed `could not launch '/bin/zsh'` and left the person with no agent AND no shell.
+  it("with no $SHELL, opens a shell that is actually on the machine — never zsh by assumption", () => {
+    const on = (...present: string[]) => (p: string) => present.includes(p);
+    const noShell = {} as NodeJS.ProcessEnv;
+    // A Rocky/Debian/Ubuntu image: bash, no zsh.
+    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/bash", "/bin/sh"))!.cmd).to.equal("/bin/bash");
+    // A minimal image with only POSIX sh.
+    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/sh"))!.cmd).to.equal("/bin/sh");
+    // zsh is never chosen on assumption, even where it exists — bash comes first when $SHELL says nothing.
+    expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/zsh", "/bin/bash", "/bin/sh"))!.cmd).to.equal("/bin/bash");
+  });
+
+  it("a $SHELL that is set still wins — the person's own shell, unchanged", () => {
+    expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/usr/bin/zsh" } as NodeJS.ProcessEnv, undefined, () => false)!.cmd).to.equal("/usr/bin/zsh");
+  });
+
   it("EVERY cli agent in the catalog launches its own binary — not a shell (#199)", () => {
     // Five of the seven used to collapse to "shell": codex, gemini, copilot, bob, aider. gov then
     // announced the agent had started, and opened a bare prompt.
@@ -543,6 +561,62 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
     });
     await runWorkFlow(d);
     expect(out.join("\n")).to.contain("No AI agent is installed");
+    expect(launched[0]?.[0]).to.equal("shell");
+  });
+
+  // PRJ-121, 2026-09-22 — the Policy Owner, on a walk: "I was expecting to see a choice of approved agents rather
+  // than forced to use just the default." The org approved three; `n` used to print the other two as commands to
+  // run elsewhere, then open a shell.
+  it("every APPROVED agent is offered, the default first and pre-selected", async () => {
+    const asked: string[] = [];
+    const { deps: d, out } = deps({
+      hasTool: () => false,
+      approvedAgents: () => [{ id: "claude-code" }, { id: "ibm-bob", default: true }, { id: "openai-codex" }],
+      installAgent: () => true,
+      prompt: async (q: string) => { asked.push(q); return /Install which/.test(q) ? "" : "1"; },
+    });
+    await runWorkFlow(d);
+    const menu = out.join("\n");
+    expect(menu).to.match(/1\) IBM Bob\s+— your organization's default/, "the default leads, and says so");
+    expect(menu).to.match(/2\) Claude Code/).and.to.match(/3\) OpenAI Codex/);
+    expect(menu).to.match(/4\) none — open a shell here/);
+    expect(asked.some((q) => /Install which\?.*\[1\]/.test(q)), "Enter means the default").to.equal(true);
+  });
+
+  it("picking a NON-default approved agent installs and starts THAT one", async () => {
+    const installed: string[] = [];
+    const { deps: d, launched } = deps({
+      hasTool: () => false,
+      approvedAgents: () => [{ id: "ibm-bob", default: true }, { id: "claude-code" }],
+      installAgent: (id: string) => { installed.push(id); return true; },
+      prompt: async (q: string) => (/Install which/.test(q) ? "2" : "1"),
+    });
+    await runWorkFlow(d);
+    expect(installed, "not the default — the one chosen").to.deep.equal(["claude-code"]);
+    expect(launched[0]?.[0]).to.equal("claude-code");
+  });
+
+  it("a bad answer is asked again, and three of them leave you in a shell — never a silent install", async () => {
+    let n = 0;
+    const { deps: d, launched } = deps({
+      hasTool: () => false,
+      approvedAgents: () => [{ id: "ibm-bob", default: true }, { id: "claude-code" }],
+      installAgent: () => { throw new Error("must not be called"); },
+      prompt: async (q: string) => (/Install which|Choose a number/.test(q) ? (n++, "zz") : "1"),
+    });
+    await runWorkFlow(d);
+    expect(n, "asked three times").to.equal(3);
+    expect(launched[0]?.[0]).to.equal("shell");
+  });
+
+  it("with no default, Enter chooses nothing — gov never installs what nobody picked", async () => {
+    const { deps: d, launched } = deps({
+      hasTool: () => false,
+      approvedAgents: () => [{ id: "ibm-bob" }, { id: "claude-code" }],
+      installAgent: () => { throw new Error("must not be called"); },
+      prompt: async (q: string) => (/Install which|Choose a number/.test(q) ? "" : "1"),
+    });
+    await runWorkFlow(d);
     expect(launched[0]?.[0]).to.equal("shell");
   });
 

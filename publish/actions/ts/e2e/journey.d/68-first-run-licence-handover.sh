@@ -64,8 +64,8 @@ drive "$(conv <<'C'
 ~ 240
 > Proceed\? \(y/N\)
 < y
-> Install IBM Bob now
-< y
+> Install which
+< 1
 > Choose \[1-3\]
 < 3
 # THE HANDOVER OFFER. The agent has just refused the protocol and said why, on screen, in its

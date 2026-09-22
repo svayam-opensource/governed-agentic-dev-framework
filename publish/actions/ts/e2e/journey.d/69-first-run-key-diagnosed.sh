@@ -67,8 +67,8 @@ drive "$(conv <<'C'
 ~ 240
 > Proceed\? \(y/N\)
 < y
-> Install IBM Bob now
-< y
+> Install which
+< 1
 # 3 = Skip for now. The walk's person took the browser route, which in a container amounts to
 # the same thing: no key reaches the agent.
 > Choose \[1-3\]

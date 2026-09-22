@@ -6,6 +6,7 @@
  * seed if new, join if not cloned locally, else it's ready → session-start
  * guidance. Pure over injected deps (ports + run + prompt/print), so it's testable.
  */
+import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Projects } from "../lifecycle/project-list.js";
 import type { AnchorCreator } from "../lifecycle/anchor.js";
@@ -256,14 +257,29 @@ export interface LaunchSpec {
  * Speak-first CLI agents get the `inject` prompt as their first message; an `ide` entry opens the
  * directory and detaches. Pure (env + catalog injected), so the mapping is tested without spawning.
  */
+
+/**
+ * The shell to open when `$SHELL` is not set — one that is actually on this machine (PRJ-121, 2026-09-22).
+ *
+ * This was a hardcoded `/bin/zsh`: macOS's default, and absent from the Rocky, Debian and Ubuntu images an
+ * adopter arrives on. `$SHELL` is unset more often than it looks — root in `docker run … bash`, CI, cloud
+ * shells, minimal containers — and there the DECLINE path had no exit: answer `n` to installing an agent and
+ * gov promised a shell, printed `could not launch '/bin/zsh'`, and dropped the person back out. Found on a
+ * walk as root; `su - tester` sets `$SHELL`, which is why the tester walk never saw it.
+ */
+export function fallbackShell(exists: (p: string) => boolean = fs.existsSync): string {
+  for (const s of ["/bin/bash", "/bin/sh"]) if (exists(s)) return s;
+  return "/bin/sh";   // POSIX guarantees it; if even this is missing, the error names a shell that should be there
+}
 export function agentLaunchSpec(
   agent: AgentKind,
   cwd: string,
   inject: string,
   env: NodeJS.ProcessEnv = process.env,
   catalog: readonly AgentCandidate[] = AGENT_CATALOG,
+  exists: (p: string) => boolean = fs.existsSync,
 ): LaunchSpec | null {
-  if (agent === "shell") return { cmd: env.SHELL || "/bin/zsh", args: [], detached: false, promptText: inject };
+  if (agent === "shell") return { cmd: env.SHELL || fallbackShell(exists), args: [], detached: false, promptText: inject };
   // The Cursor EDITOR opened on the project dir. Not a catalog entry of its own: the policy approves
   // `cursor` the agent, and this is one of the ways to run it (#196, Q8).
   //
@@ -604,28 +620,60 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
       const def = defaultAgent(approvedList);
       const defName = def ? AGENT_CATALOG.find((a) => a.id === def)?.tool ?? def : null;
 
-      if (def && defName && deps.installAgent) {
+      // EVERY APPROVED AGENT IS A REAL CHOICE, THE DEFAULT PRE-SELECTED (PRJ-121, 2026-09-22).
+      //
+      // This used to offer the default alone — `Install IBM Bob now? (Y/n)` — and answering `n` printed the
+      // other approved agents as commands to run elsewhere, then opened a shell: the very "list to retype" the
+      // Y/n was introduced to replace. An org approving three agents gave a joiner one. The Policy Owner, on a
+      // walk: "I was expecting to see a choice of approved agents rather than forced to use just the default."
+      //
+      // `installAgent` already installs ANY approved agent (the same plan as `gov agent install`, checked
+      // against the policy), so this is only the offer. Enter — and a reflexive `y` — still mean the default,
+      // so #196's one-keypress intent stands; `n` still means none.
+      //
+      // Only for an org that has APPROVED agents. With none approved the list is the framework's fallback,
+      // and gov does not install on an organization's behalf what the organization never chose.
+      const choices = deps.installAgent && !approved.usingDefaults
+        ? [...installable(statuses, approved.ids)].sort((a, b) => Number(b.candidate.id === def) - Number(a.candidate.id === def))
+        : [];
+      if (choices.length && deps.installAgent) {
+        const hasDefault = choices[0]!.candidate.id === def;
+        const none = choices.length + 1;
         print("");
-        print(`  No AI agent is installed here yet. Your organization's default is ${defName}.`);
+        print(`  No AI agent is installed here yet.${hasDefault && defName ? ` Your organization's default is ${defName}.` : ""}`);
         print("");
-        const yes = (await deps.prompt(`  ${paint(`Install ${defName} now?`, "bold", deps.color ?? false)} (Y/n) `)).trim().toLowerCase();
-        if (!/^n(o)?$/.test(yes)) {
-          if (await deps.installAgent(def, deps.ask)) {
+        print("  Which would you like to install?");
+        choices.forEach((s, i) => print(`     ${i + 1}) ${s.candidate.tool}${s.candidate.id === def ? "  — your organization's default" : ""}`));
+        print(`     ${none}) none — open a shell here`);
+        print("");
+        const ask = `  ${paint("Install which?", "bold", deps.color ?? false)} ${hasDefault ? "[1] " : `[1-${none}] `}`;
+        let n = NaN;
+        for (let tries = 0; tries < 3 && !(n >= 1 && n <= none); tries++) {
+          const a = (await deps.prompt(tries ? `  Choose a number from 1 to ${none}: ` : ask)).trim().toLowerCase();
+          n = a === "" || /^y(es)?$/.test(a) ? (hasDefault ? 1 : NaN) : /^n(o)?$/.test(a) ? none : Number(a);
+        }
+        const pick = n >= 1 && n < none ? choices[n - 1]!.candidate : null;
+        if (pick) {
+          if (await deps.installAgent(pick.id, deps.ask)) {
             // THE ID IS THE LAUNCH INSTRUCTION (#199). This used to map anything but Claude Code
             // and Cursor to "shell", so an org whose default was Bob, codex, gemini, copilot or
             // aider was told its agent had started and handed a shell prompt.
-            print(`  ✓ ${defName} is ready. Starting it in ${projectDir}…`);
-            return await deps.launch(def, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
+            print(`  ✓ ${pick.tool} is ready. Starting it in ${projectDir}…`);
+            return await deps.launch(pick.id, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
           }
           // INSTALLED IS NOT READY (#200). `installAgent` now answers "can it run", so an agent
           // waiting on a key stops here instead of being announced as started. The project is made
           // and the shell is a real place to work from; the claim is what had to go.
-          print(`  ${defName} is not ready yet — the lines above say what it still needs.`);
+          print(`  ${pick.tool} is not ready yet — the lines above say what it still needs.`);
           print(`  The project is ready at ${projectDir}.`);
           print("");
           print(`  Opening a shell there. Type 'exit' to come back.`);
           return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
         }
+        // None chosen (or no valid answer in three tries): a shell, with the choice still open for later.
+        print(`  No agent installed. Any of them is one command away:  gov agent install <${choices.map((s) => s.candidate.id).join(" | ")}>`);
+        print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
+        return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
       }
 
       for (const line of nothingInstalledLines(installable(statuses, approved.ids), approved.usingDefaults)) print(line);

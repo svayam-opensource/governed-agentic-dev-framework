@@ -59,12 +59,12 @@ drive "$(conv <<'C'
 ~ 240
 > Proceed\? \(y/N\)
 < y
-# MATCHES THE RAW STREAM, WHICH CARRIES COLOUR. "Install IBM Bob now?" is painted bold
+# MATCHES THE RAW STREAM, WHICH CARRIES COLOUR. "Install which?" is painted bold
 # (#204), so escape codes sit between the `?` and the ` (Y/n)` — a pattern spanning them
 # never matches, and the run reads as a hang rather than a typo. Match inside one painted
 # run, never across its edges.
-> Install IBM Bob now
-< y
+> Install which
+< 1
 # THE ASSERTION IS THAT THESE TWO PROMPTS ARE REACHED AND WAIT. Before the fix the whole
 # screen scrolled past unanswered, because a readline already held fd 0.
 > Choose \[1-3\]

@@ -5,7 +5,7 @@
 # THE HUMAN, AUTOMATED.
 #
 # Every defect found between #197 and #209 lived behind a prompt — the role question, the
-# organization's name, the approved-agent list, "Install IBM Bob now?", the closing offer.
+# organization's name, the approved-agent list, "Install which?" (the approved-agent menu), the closing offer.
 # 893 unit tests and a hermetic smoke suite passed through all of them, because none of
 # them ever typed anything. A test that cannot answer a question cannot reach the code
 # behind it.

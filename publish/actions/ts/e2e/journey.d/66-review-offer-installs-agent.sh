@@ -48,8 +48,8 @@ drive "$(conv <<C
 < y
 > Choose:
 < 1
-> Install IBM Bob now
-< y
+> Install which
+< 1
 > Choose \\[1-3\\]
 < 2
 > Paste the BOB_API_KEY

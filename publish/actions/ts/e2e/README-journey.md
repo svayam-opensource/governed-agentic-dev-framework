@@ -13,7 +13,7 @@ bootstrap matrix          installs on five OSes — never types
 
 The common gap has one name: **nothing ever answered a prompt.** A test that cannot answer
 a question cannot reach the code behind it, and every one of those twelve lived behind one —
-the role question, the organization's name, the approved-agent list, "Install IBM Bob now?",
+the role question, the organization's name, the approved-agent list, "Install which?" (the approved-agent menu),
 the closing offer, a context gate.
 
 This tier types. It runs gov in a **real pty**, answers as an adopter would, and asserts on
