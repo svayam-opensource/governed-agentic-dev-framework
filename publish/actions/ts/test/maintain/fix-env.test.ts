@@ -248,6 +248,16 @@ describe("gh sign-in — the answers gov already knows are given, not asked", ()
     expect(auth.command[auth.command.indexOf("--git-protocol") + 1]).to.equal("https");
     expect(auth.command[auth.command.indexOf("-s") + 1]).to.equal("repo,read:org,project");
   });
+
+  // PRJ-121 #6 — in a container gh printed "! Authentication credentials saved in plain text", unexplained.
+  const authWhy = (platform: string) =>
+    planFixes({ gitPresent: true, ghPresent: true, ghAuthenticated: false, platform }, "dnf").steps.find((s) => s.fixes === "gh auth")!.why;
+  it("on Linux, says ahead of time where gh's plain-text token goes and how to remove it", () => {
+    expect(authWhy("linux")).to.contain("saved in plain text").and.to.contain("~/.config/gh/hosts.yml").and.to.contain("gh auth logout");
+  });
+  it("on macOS and Windows, where a keyring always exists, says nothing about it", () => {
+    for (const p of ["darwin", "win32"]) expect(authWhy(p), p).to.not.contain("plain text");
+  });
 });
 
 // PRJ-121, 2026-09-22 — dnf's ~350 lines buried the plan the person had just agreed to, on a walk.

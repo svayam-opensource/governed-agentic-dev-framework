@@ -226,7 +226,15 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
     steps.push({
       fixes: "gh auth",
       what: "Sign in to GitHub (opens your browser)",
-      why: "You are not signed in to GitHub. Governance work happens on GitHub, so gov needs your authorization to act as you.",
+      // THE PLAIN-TEXT WARNING, explained before gh prints it (PRJ-121 #6). On Linux gh keeps the token in the
+      // system keyring only when one is running; a container or a headless server has none, and gh says
+      // "! Authentication credentials saved in plain text" with no word on where or what to do. macOS and
+      // Windows always have one (Keychain, Credential Manager), so the sentence is for Linux only.
+      why: "You are not signed in to GitHub. Governance work happens on GitHub, so gov needs your authorization to act as you." +
+        (facts.platform === "linux"
+          ? " If this machine has no keyring (a container or a headless server does not), gh will say the token was" +
+            " \"saved in plain text\": it is in ~/.config/gh/hosts.yml, readable only by you. `gh auth logout` removes it."
+          : ""),
       // THE THREE QUESTIONS gov ALREADY KNOWS THE ANSWERS TO (PRJ-121, 2026-09-22). Bare `gh auth login` asked
       // "Where do you use GitHub?", "HTTPS or SSH?" and "How would you like to authenticate?" — and "HTTPS or
       // SSH" is one a new adopter cannot answer. gov's org is on github.com; gov clones over HTTPS (and a fresh
