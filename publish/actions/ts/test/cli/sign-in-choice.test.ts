@@ -8,7 +8,7 @@
  */
 import { expect } from "chai";
 import {
-  signInOptions, signInPrompt, parseSignInChoice, afterSkip, type SignInFacts,
+  apiKeyIntro, signInOptions, signInPrompt, parseSignInChoice, afterSkip, type SignInFacts,
 } from "../../src/cli/sign-in-choice.js";
 
 const bob: SignInFacts = { tool: "IBM Bob", signsInItself: true, credentialEnv: "BOB_API_KEY" };
@@ -141,5 +141,24 @@ describe("gov-work — sign-in order follows what the machine can do (#221 → #
     const text = signInPrompt({ ...claude, desktop: container }, signInOptions({ ...claude, desktop: container })).join("\n");
     expect(text).to.contain("browser");
     expect(text).to.not.contain("editor");
+  });
+});
+
+// PRJ-121, 2026-09-22 — after choosing "1. Paste an API key", a walk got the old disclaimer ("gov cannot tell
+// whether this machine has one") straight after the menu had said "gov sees no desktop here", and was offered the
+// same choice again. apiKeyIntro is what prints between that choice and the paste prompt.
+describe("apiKeyIntro — after the key was chosen, no second question", () => {
+  it("says nothing for an agent that signs itself in — the menu already explained", () => {
+    expect(apiKeyIntro("IBM Bob", true, "BOB_API_KEY")).to.deep.equal([]);
+  });
+  it("never repeats the disclaimer or re-offers the choice, for any agent", () => {
+    for (const signs of [true, false]) {
+      const text = apiKeyIntro("X", signs, "X_KEY").join("\n");
+      expect(text).to.not.contain("cannot tell whether");
+      expect(text).to.not.match(/press Enter, and sign in/);
+    }
+  });
+  it("for a key-only agent, says where the key will go — the menu does not", () => {
+    expect(apiKeyIntro("Aider", false, "OPENAI_API_KEY").join("\n")).to.contain("the key goes in your environment as OPENAI_API_KEY");
   });
 });

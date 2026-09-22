@@ -23,7 +23,7 @@ import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { verifyAgentContext } from "../lifecycle/root-protocol.js";
 import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
-import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
+import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, apiKeyIntro, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
 import { askFns, type AskFns } from "./ask.js";
 import { reporter, useColor, wrap, type Reporter } from "./format.js";
 import { desktopHint, preferCli, browserCaveat } from "./desktop.js";
@@ -292,17 +292,10 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
 
   if (configPath && prefsDir) {
     for (const line of credentialNotice(agent.id, configPath, prefsDir)) process.stdout.write(`${line}\n`);
-  } else if (agent.signsInItself) {
-    // The browser is the vendor's preferred route and gov does not pretend to know whether it
-    // is available. Both ways out are named, and neither is presented as the fallback.
-    process.stdout.write(`\n  ${agent.tool} signs in through a browser. gov cannot tell whether this machine\n`);
-    process.stdout.write("  has one, and does not need to guess:\n\n");
-    process.stdout.write(`    · paste an API key now and gov will store it${agent.signupUrl ? ` — get one at ${agent.signupUrl}` : ""}\n`);
-    process.stdout.write(`    · or press Enter, and sign in when ${agent.tool} starts\n\n`);
   } else {
-    process.stdout.write(`\n  ${agent.tool} signs in with an API key rather than a browser.\n`);
-    process.stdout.write(`  gov does not know where ${agent.tool} keeps its config, so it will not guess:\n`);
-    process.stdout.write(`  the key goes in your environment as ${envVar}.\n\n`);
+    // The person has ALREADY chosen "paste an API key" — this is the menu's api-key branch, its only caller.
+    // No re-offer, no disclaimer; see apiKeyIntro.
+    for (const line of apiKeyIntro(agent.tool, !!agent.signsInItself, envVar)) process.stdout.write(`${line}\n`);
   }
 
   const key = await ask.secret(`  Paste the ${envVar} (hidden), or press Enter to skip: `);
