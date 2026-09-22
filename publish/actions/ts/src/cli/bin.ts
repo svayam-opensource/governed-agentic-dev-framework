@@ -8,6 +8,9 @@
 import { main, runSetupCommand, runWork, runAgentInstall, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines, isKnownCommand } from "./main.js";
 import { confirmContextOrBail } from "./context-gate.js";
 import { helpRequest } from "./help-request.js";
+import { runContext } from "./run-context.js";
+import { endRun, log, pruneLogs, runDir, startRun } from "../log.js";
+import { commandOf, logsRoot } from "../state-paths.js";
 
 const argv = process.argv.slice(2);
 
@@ -60,4 +63,43 @@ async function dispatch(): Promise<number> {
   return main(argv);
 }
 
-dispatch().then((code) => process.exit(code)).catch((e) => { process.stderr.write(`${(e as Error)?.stack ?? e}\n`); process.exit(1); });
+/**
+ * EVERY RUN LEAVES A FILE (PRJ-121, 2026-09-23) — started before dispatch, so a command that dies in its first
+ * line still says what was asked; ended with the exit code, so a log answers "did it work?" without the screen.
+ * The whole of it is best-effort: logging never changes what gov returns, and never takes it down.
+ */
+async function runCli(): Promise<number> {
+  const ctx = runContext();
+  try {
+    startRun({ argv, command: commandOf(argv), project: ctx.project, workRoot: ctx.workRoot, login: ctx.login, version: readCliVersion() });
+    // Retention runs here, once per invocation, where it costs one readdir and can never race a write: the
+    // folders it removes are whole days, and this run's day is not one of them.
+    if (ctx.workRoot && ctx.login) pruneLogs(logsRoot(ctx.workRoot, ctx.login), new Date());
+  } catch { /* a run with no log is still a run */ }
+
+  try {
+    const code = await dispatch();
+    endRun(code);
+    return code;
+  } catch (e) {
+    // The stack goes to the LOG as well as the screen: a stack in a scrollback is gone by the time it is asked
+    // about, and this is the case where the run's own file is most worth naming.
+    try { logFatal(e); } catch { /* … */ }
+    process.stderr.write(`${(e as Error)?.stack ?? e}\n`);
+    const where = runDir();
+    if (where) process.stderr.write(`  details: ${where}\n`);
+    endRun(1);
+    return 1;
+  }
+}
+
+function logFatal(e: unknown): void {
+  const err = e as Error | undefined;
+  log("error", "unhandled failure", "gov-work:cli:bin", "runCli", { message: err?.message ?? String(e), stack: err?.stack });
+}
+
+// EXIT BY EXIT CODE, NOT `process.exit` (PRJ-121, 2026-09-23). `process.exit` kills the process where it
+// stands, and the log transport's last write goes with it: the first run under this logger left a folder with
+// the bookkeeping file and no log. Setting `exitCode` lets Node finish the flush and leave with the same code.
+// A hung handle would show up as a command that does not return, which the journey tier would catch at once.
+runCli().then((code) => { process.exitCode = code; });

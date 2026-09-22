@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync, spawn } from "node:child_process";
 import { runSetup } from "../setup/setup-run.js";
 import type { SetupPreAnswers } from "../setup/interview.js";
-import { log, closeLog } from "../log.js";
+import { log, closeLog, cacheLogin } from "../log.js";
 import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
 import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
@@ -59,6 +59,9 @@ import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
 import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } from "../maintain/upgrade-run.js";
 import { staleArtifactsIn } from "../maintain/upgrade-sync.js";
+import { formatRuns, listRuns, selectRuns } from "../maintain/log-view.js";
+import { runContext } from "./run-context.js";
+import { logsRoot } from "../state-paths.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
@@ -305,6 +308,7 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
   }
 
   const me = tryRun("gh", ["api", "user", "--jq", ".login // empty"])?.trim() || "";
+  rememberLogin(me || null);
   const r = prjResolveGov(createNodeEnv());
   const cfgText = r.ok && fsSync.existsSync(path.join(r.home, "org-config.yaml"))
     ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
@@ -1317,6 +1321,7 @@ export async function gatherMenuContext(): Promise<MenuContext> {
     if (seg) { mode = "project"; project = seg; }
   }
   const user = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? tryRun("git", ["config", "user.email"]) ?? undefined;
+  rememberLogin(tryRun("gh", ["api", "user", "--jq", ".login // empty"])?.trim() || null);
   let workspaceCount: number | undefined;
   try {
     workspaceCount = createNodeRegistryStore().readHomes().length;
@@ -1696,6 +1701,17 @@ export async function runAgentInstall(argv: readonly string[]): Promise<number> 
   } finally { rl.close(); }
 }
 
+/**
+ * REMEMBER WHO THIS IS, for the next run's log folder (PRJ-121, 2026-09-23).
+ *
+ * The folder is keyed by the GitHub login, and asking `gh` costs a process — so a log must never ask. Whoever
+ * has just paid for the answer writes it down, and the next run reads the file. Best effort throughout: an
+ * unknown login only means the run logs to `~/.gov/logs/` instead.
+ */
+function rememberLogin(login: string | null | undefined): void {
+  try { const slug = runContext().orgSlug; if (login && slug) cacheLogin(slug, login); } catch { /* next time */ }
+}
+
 export async function runWork(argv: readonly string[]): Promise<number> {
   const flagOf = (name: string): string | undefined => {
     const eq = argv.find((a) => a.startsWith(`--${name}=`));
@@ -1705,6 +1721,9 @@ export async function runWork(argv: readonly string[]): Promise<number> {
   };
   const me = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? tryRun("git", ["config", "user.email"]) ?? null;
   const deps = buildWorkDeps(me);
+  // REMEMBER WHO THIS IS, for the next run's log path (PRJ-121, 2026-09-23). The log folder is keyed by the
+  // GitHub login, and asking `gh` costs a process — so whoever has just paid for the answer writes it down.
+  rememberLogin(me);
   if (!deps) {
     // Reachable only when the first run was skipped or declined (see runFirstRunIfNeeded), or when the
     // registry resolves but org-config.yaml does not.
@@ -1758,7 +1777,7 @@ export function runAny(argv: readonly string[]): Promise<number> | number {
  * the way in.
  */
 const HELP_GROUPS: Record<string, string[]> = {
-  "Your commands": ["work", "org", "doctor", "upgrade"],
+  "Your commands": ["work", "org", "doctor", "upgrade", "log"],
   "Your agent runs these (you can too)": [
     "seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel",
     "manage", "anchor", "knowledge", "onboard", "validate", "list", "list-all", "status",
@@ -1776,6 +1795,7 @@ const CMD_DESC: Record<string, string> = {
   org: "Manage governance workspaces (the active org)", validate: "Validate the workspace / shipped content",
   list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
   doctor: "Diagnose this machine: git · gh · workspace · active org · versions",
+  log: "What gov did — one log per run, on this machine",
   issue: "Create an issue — assigned to you, on the board. `--from <url>` mirrors an upstream one",
   agent: "Which AI agents your org approves, what is installed, and how to add one",
   setup: "Set up this machine for an organization — the first `gov` run does this for you",
@@ -1788,7 +1808,8 @@ const CMD_USAGE: Record<string, string> = {
   seed: "<board-url> [--assignee <login>]", work: "[<project-id>] [--print-prompt]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
   knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
   org: "add <github_org> --home <path> | use|list|remove <github_org>",
-  upgrade: "[--ref <branch>] [--from <dir>] [--apply]", "bump-version": "<x.y.z>",
+  upgrade: "[--ref <branch>] [--from <dir>] [--apply]",
+  log: "[<run-id>] [--last] [--project <name>] [--limit <n>]", "bump-version": "<x.y.z>",
 };
 
 /** All commands in reference order. */
@@ -1878,6 +1899,34 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     }
     process.stderr.write(`${r.error}\n`);
     return r.code;
+  }
+
+  // `gov log` — find this machine's run logs (PRJ-121, 2026-09-23). One file per run is only useful if the
+  // files can be found; a failure names a run's folder, and this is how you get back to it later.
+  if (parsed.command === "log") {
+    const ctx = runContext();
+    // Before gov knows the person's GitHub login, runs are logged to `~/.gov/logs` (log.ts `runDirFor`), so
+    // that is where `gov log` looks too — a log you cannot find is the same as no log.
+    const root = ctx.workRoot && ctx.login ? logsRoot(ctx.workRoot, ctx.login) : path.join(os.homedir(), ".gov", "logs");
+    const listFs = { list: (d: string): string[] => { try { return fsSync.readdirSync(d); } catch { return []; } } };
+    const runs = selectRuns(listRuns(listFs, root), {
+      ...(parsed.positionals[0] ? { runId: parsed.positionals[0] } : {}),
+      ...(flagStr(parsed.flags, "project") ? { project: flagStr(parsed.flags, "project")! } : {}),
+      last: "last" in parsed.flags,
+      limit: Number(flagStr(parsed.flags, "limit") ?? 20),
+    });
+    // One run asked for by id, or `--last`: print WHERE it is, and its lines. Otherwise the list.
+    if ((parsed.positionals[0] || "last" in parsed.flags) && runs[0]) {
+      const dir = runs[0].dir;
+      process.stdout.write(`  ${dir}\n`);
+      for (const f of listFs.list(dir).filter((n) => n.endsWith(".log"))) {
+        process.stdout.write(fsSync.readFileSync(path.join(dir, f), "utf8"));
+      }
+      return 0;
+    }
+    for (const line of formatRuns(runs)) process.stdout.write(`${line}\n`);
+    if (runs.length) process.stdout.write("\n  one run:  gov log <run-id>   ·   the newest:  gov log --last\n");
+    return 0;
   }
 
   // `gov deps` — report runtime prerequisites (git/gh); pre-resolve.

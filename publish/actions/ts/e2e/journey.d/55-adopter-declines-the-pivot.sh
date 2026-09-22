@@ -26,4 +26,11 @@ C
 saw "nothing happened, and it says so" "Nothing created, and nothing changed"
 saw "and names the way back in" "choose B"
 gh_never "no repository was created" "repo create"
-[ -e "$HOME/.gov" ] && fail "nothing should have been written to ~/.gov" || pass "nothing was written to ~/.gov"
+# NO WORKSPACE, NO REGISTRY — which is what declining means. This used to assert that `~/.gov` did not exist
+# at all; since 2026-09-23 every run leaves its own log there (and only there, until gov knows the person's
+# login), and a log of a run that changed nothing is not a change. So the assertion names the state instead.
+for leftover in workspaces active acme; do
+  [ -e "$HOME/.gov/$leftover" ] && fail "declining wrote ~/.gov/$leftover" || pass "declining wrote no ~/.gov/$leftover"
+done
+[ -d "$HOME/.gov/logs" ] && pass "…and the run still left a log, as every run does" \
+  || fail "the run left no log at ~/.gov/logs"
