@@ -21,7 +21,22 @@
  *   `gov agent` COMPARES them and reports a difference, printing neither
  *
  * Comparison is by digest. gov never puts a key on screen, in a log, or in an
- * agent's context, and there is no code path here that returns one.
+ * agent's context.
+ *
+ * ── SUPERSEDED IN PART, Policy Owner, 2026-09-22 ─────────────────────────────────────────────────────────────
+ *
+ * "Any credentials, including agent API keys, should be stored/loaded in/from the designated user preferences
+ * folder/file." The preferences credentials file is now THE STORE, and gov LOADS from it.
+ *
+ * Why the old rule could not stand: "never read back" guarded against TWO copies drifting. For an agent that
+ * only reads an environment variable — every catalogued agent; `credentialFile` is set on none — gov can write
+ * no first copy, so the backup was the ONLY copy, and nothing read it. On a walk, a key pasted once was gone the
+ * moment gov exited: every later session started without it, and a headless machine was sent to a browser
+ * sign-in that cannot complete there.
+ *
+ * What still holds: never on screen, never in a log (presence only, POL-427), never in an agent's context; the
+ * file is 0600 and gov will not load one that others can read. `storedCredential` is the one code path that
+ * returns a key, and it returns it only to be placed in the environment of a process gov starts.
  */
 import { createHash } from "node:crypto";
 
@@ -74,7 +89,7 @@ export function planCredentialWrites(
       path: `${preferencesDir}/credentials`,
       // Named and dated, because a bare key in a file tells whoever finds it nothing
       // about what it opens or whether it is still current.
-      contents: [...kept, `# ${agentId} — saved by gov as a backup. The agent's own config is what it reads.`, `${name}=${key}`, ""].join("\n"),
+      contents: [...kept, `# ${agentId} — saved by gov; gov loads it into the sessions it starts.`, `${name}=${key}`, ""].join("\n"),
       mode: 0o600,
     },
   ];
@@ -87,10 +102,36 @@ export function credentialNotice(agentId: string, agentConfigPath: string, prefe
     `  ${agentId} signs in with an API key rather than a browser, so gov has to handle it.`,
     "",
     `    it goes to   ${agentConfigPath}          — where the agent reads it`,
-    `    and to       ${preferencesDir}/credentials   — your own backup`,
+    `    and to       ${preferencesDir}/credentials   — gov's store, loaded into the sessions it starts`,
     "",
     "  Both are 0600, outside any repository, and never committed. gov keeps no other",
     "  copy, does not log it, and never puts it in an agent's context.",
     "",
   ];
+}
+
+
+/** The store: `<agent_work_root>/preferences/<gh_user>/credentials` — beside the person's preferences file. */
+export function credentialsPathFor(agentWorkRoot: string, login: string): string {
+  return `${agentWorkRoot.replace(/\/+$/, "")}/preferences/${login}/credentials`;
+}
+
+/**
+ * The stored value of `envVar`, or null. Also accepts the id-derived name an older gov wrote (`IBM_BOB_KEY`), so
+ * a key stored before 2026-09-22 still loads rather than being asked for again.
+ */
+export function storedCredential(fileText: string | null, envVar: string, agentId: string): string | null {
+  if (!fileText) return null;
+  const legacy = `${agentId.toUpperCase().replace(/-/g, "_")}_KEY`;
+  for (const name of [envVar, legacy]) {
+    const line = fileText.split("\n").find((l) => l.startsWith(`${name}=`));
+    const v = line?.slice(name.length + 1).trim();
+    if (v) return v;
+  }
+  return null;
+}
+
+/** May gov load this store? Only if no one else can read it. Windows has no such mode bits to check. */
+export function storeIsPrivate(mode: number, platform: string): boolean {
+  return platform === "win32" || (mode & 0o077) === 0;
 }

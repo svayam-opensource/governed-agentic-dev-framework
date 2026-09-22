@@ -86,5 +86,22 @@ never "nothing was skipped" "Nothing saved."
 saw_re "the key was stored where a person can find it again" "written: .*preferences/.*/credentials"
 exists "and it really is on disk" "$HOME/.gov/acme/projects/preferences/$GH_STUB_LOGIN/credentials"
 runs grep -q "sk-test-not-a-real-key" "$HOME/.gov/acme/projects/preferences/$GH_STUB_LOGIN/credentials" \
-  && pass "the backup copy holds the key that was typed" \
+  && pass "the store holds the key that was typed" \
   || fail "the credentials file does not contain the key that was pasted"
+
+# A LATER SESSION GETS THE KEY (Policy Owner, 2026-09-22: credentials are stored in, and loaded from, the
+# preferences credentials file). Before, a key pasted once was gone the moment gov exited: the next session
+# started without it, and a headless machine was sent to a browser sign-in that cannot complete. So: a NEW gov
+# process, the key NOT in the environment, and the agent must still receive it — without it ever being printed.
+: > "$AGENT_DOUBLE_LOG"
+drive "$(conv <<'C'
+~ 180
+> $
+C
+)" env -u BOB_API_KEY GOV_YES=1 gov work --project=infra --agent=ibm-bob
+
+info "a later session loads the key gov stored — the person is not asked again"
+says "gov says it used the stored key" "Using the IBM Bob key gov stored for you"
+ran "and the agent it started received it" "env=BOB_API_KEY:set"
+never "and gov did not ask for the key again" "Paste the BOB_API_KEY"
+never "and the key itself is never printed" "sk-test-not-a-real-key"

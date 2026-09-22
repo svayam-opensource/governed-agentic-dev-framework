@@ -22,7 +22,7 @@ import { parseTarget, preflight as createPreflight, explainFailure, findExisting
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { verifyAgentContext } from "../lifecycle/root-protocol.js";
-import { credentialNotice, planCredentialWrites } from "./agent-credentials.js";
+import { credentialNotice, planCredentialWrites, credentialsPathFor, storedCredential, storeIsPrivate } from "./agent-credentials.js";
 import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, apiKeyIntro, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
 import { askFns, type AskFns } from "./ask.js";
 import { reporter, useColor, wrap, type Reporter } from "./format.js";
@@ -250,6 +250,30 @@ async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>
  * ENTER IS A REAL ANSWER. Someone who has not created an account yet is told exactly how to finish,
  * naming the variable and the verb — the alternative is the dead end this replaces.
  */
+/**
+ * LOAD A STORED KEY INTO THIS PROCESS'S ENVIRONMENT — for the agent gov is about to start (Policy Owner,
+ * 2026-09-22: credentials are stored in, and loaded from, the preferences credentials file). Only when the
+ * variable is not already set: a key the person exported themselves always wins. The value is never printed;
+ * gov says only that it used the stored key, and where from. A store others can read is refused, not loaded.
+ */
+function loadStoredKey(agentId: string, tool: string, envVar: string, workRoot: string, login: string, out: NodeJS.WriteStream): boolean {
+  if (!envVar || process.env[envVar] || !workRoot || !login) return false;
+  const at = credentialsPathFor(expandHome(workRoot), login);
+  let text: string;
+  try {
+    if (!storeIsPrivate(fsSync.statSync(at).mode, process.platform)) {
+      out.write(`\n  ! gov will not load ${at} — other users on this machine can read it.\n    Fix with:  chmod 600 ${at}\n`);
+      return false;
+    }
+    text = fsSync.readFileSync(at, "utf8");
+  } catch { return false; }   // no store yet — the ordinary case, not an error
+  const key = storedCredential(text, envVar, agentId);
+  if (!key) return false;
+  process.env[envVar] = key;
+  out.write(`\n  ✓ Using the ${tool} key gov stored for you (${at}).\n`);
+  return true;
+}
+
 async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<boolean> {
   const envVar = agent.credentialEnv;
 
@@ -286,6 +310,8 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
   const workRoot = cfgText ? parseOrgConfig(cfgText).agentWorkRoot : "";
   // No work root and no login means nowhere to keep the backup — say so rather than inventing a path.
   const prefsDir = workRoot && me ? path.join(expandHome(workRoot), "preferences", me) : null;
+  // A key already in the store is used, not asked for again (Policy Owner, 2026-09-22).
+  if (loadStoredKey(agent.id, agent.tool, envVar, workRoot, me, process.stdout)) return true;
   // Verified per vendor or absent. A guessed config path fails at the worst moment, silently, and
   // the same caution is already recorded for the extension ids.
   const configPath = agent.credentialFile ? expandHome(agent.credentialFile) : null;
@@ -1492,6 +1518,9 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       // either way, because storing and passing are different acts and only one of them shows.
       // The env var's PRESENCE is recorded, never its value (POL-427 is C01).
       const credEnv = AGENT_CATALOG.find((a) => a.id === agent)?.credentialEnv;
+      // A LATER SESSION GETS THE KEY TOO. It used to start without it whenever the person had not exported it
+      // themselves — so a key pasted once was gone the moment gov exited (walk, 2026-09-21).
+      if (credEnv) loadStoredKey(agent, AGENT_CATALOG.find((a) => a.id === agent)?.tool ?? agent, credEnv, config.agentWorkRoot, me ?? "", process.stderr);
       log("info", "launching the agent", "gov-work:cli:main", "launch", {
         agent, cmd: s.cmd, args: s.args, cwd, detached: s.detached === true,
         promptDelivery: s.promptToPaste ? "paste" : "argv",
