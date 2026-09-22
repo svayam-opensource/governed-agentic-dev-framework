@@ -37,7 +37,7 @@ import * as path from "node:path";
 import { paint } from "./format.js";
 import { approvalSummary } from "./approve-agents-step.js";
 import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused, type SetupPreAnswers } from "../setup/interview.js";
-import { askJoinInterview, cloneTargetFor, JOIN_HEADER, joinSummary, JoinRefused } from "../setup/join-interview.js";
+import { askJoinInterview, cloneTargetFor, JOIN_HEADER, JoinRefused } from "../setup/join-interview.js";
 import type { OrgConfigValues } from "../setup/setup.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
@@ -137,8 +137,6 @@ export interface GovernanceProbe {
 /** Where the repo to join came from: a URL the user typed, or one gov derived from `owner/repo`. */
 interface CloneSource {
   readonly url: string;
-  /** Print the joiner's closing block on success — set only by the interviewed path. */
-  readonly summarize?: boolean;
   /** The authorized agent the joiner chose at Q3, carried to the work flow they are offered. */
   readonly agent?: string;
   /** `owner/repo` when gov found it, null when the user typed a URL gov cannot attribute. */
@@ -684,7 +682,7 @@ async function cloneAndRegister(io: FirstRunIo): Promise<number> {
     io.print("Nothing registered. Re-run `gov` when you know which organization to join.");
     return 0;
   }
-  return joinExisting(io, { ...cloneTargetFor(picked), summarize: true, ...(picked.agent ? { agent: picked.agent } : {}) });
+  return joinExisting(io, { ...cloneTargetFor(picked), ...(picked.agent ? { agent: picked.agent } : {}) });
 }
 
 /**
@@ -748,16 +746,10 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
     for (const line of io.finalStatus?.(founding ? "adopter" : "joiner") ?? []) io.print(line);
     const after = founding ? io.adopterNextSteps : io.joinerNextSteps;
     for (const line of after?.() ?? []) io.print(line);
-    io.print(`Active org → ${identity.org}`);
-    // THE CLOSING BLOCK, only on the interviewed path. Two questions were answered in the
-    // abstract; this is where the joiner learns what those answers produced and where it is.
-    if (src.summarize && src.nameWithOwner) {
-      for (const line of joinSummary({
-        repoUrl: `https://github.com/${src.nameWithOwner}`,
-        localPath: home,
-        projectsPath: path.join(io.homeDir, ".gov", identity.orgSlug.toLowerCase(), "projects"),
-      })) io.print(line);
-    }
+    // ONE CLOSING BLOCK, NOT FOUR (PRJ-121 #12). A walk ended a join with "Final status", "Install complete",
+    // "Active org → …" and a "Thank you … final configuration" block — the last two repeating the two paths the
+    // first two had just given. The checklist shows the org activated (9a); the next-steps block names the
+    // workspace, where it was cloned from, and where projects go. Nothing else needs saying twice.
     // The joiner's next steps are the same three lines to retype — run gov, choose Work, pick
     // your project — and this path is where an ADOPTER lands too once #197 finds their org is
     // already governed. Ending it with a recipe was the gap the offer exists to close.

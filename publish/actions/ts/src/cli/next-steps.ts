@@ -123,6 +123,9 @@ export function joinerNextSteps(f: NextStepsFacts, color = false): readonly stri
     "       the rules already loaded.",
     "",
     `Your workspace: ${home}`,
+    // "Cloned", never "created": the repository already existed, and telling a joiner they created it is the one
+    // sentence that could make them think they had done something to their organization.
+    ...(f.githubOrg && f.workspaceRepo ? [`  cloned from https://github.com/${f.githubOrg}/${f.workspaceRepo} — nothing was created in your organization`] : []),
     `Projects will be cloned under: ~/.gov/${slug}/projects/`,
     "",
     "If a rule gets in your way, propose a change rather than working around it:",

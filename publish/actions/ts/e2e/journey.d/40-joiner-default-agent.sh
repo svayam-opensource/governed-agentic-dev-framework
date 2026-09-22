@@ -38,7 +38,7 @@ drive "$(conv <<C
 > Q2 - What is the name of your org
 < acme-gov
 ~ 120
-> Active org
+> Install complete
 > start work now
 < n
 C
@@ -60,6 +60,8 @@ never "the clone URL is not asked for any more" "clone URL"
 saw "Q1 asks for the organization" "Q1 - What is the Github Organization ID"
 saw "Q2 asks for the repository by name" "Q2 - What is the name of your org"
 info "and the closing block says what happened, in the joiner's terms"
-saw "the repo is reported as CLONED, never created — a joiner made nothing" "is cloned to your local machine at"
+saw "the repo is reported as CLONED, never created — a joiner made nothing" "cloned from https://github.com/acme/acme-gov — nothing was created"
 never_re "and 'created' never appears about their governance repo" "governance repo.*is created"
-saw "with the workspace they will actually use" "Your local project workspace is at"
+never "and ONE closing block, not four — the repeat of the same two paths is gone (PRJ-121 #12)" "Please note the final configuration"
+never "nor a second \"Active org\" line after the checklist already showed it" "Active org →"
+saw "with the workspace they will actually use" "Projects will be cloned under: ~/.gov/acme/projects/"

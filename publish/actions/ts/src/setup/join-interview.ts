@@ -88,29 +88,6 @@ export const JOIN_HEADER: readonly string[] = [
   "================================================================",
 ];
 
-export interface JoinOutcome {
-  readonly repoUrl: string;
-  readonly localPath: string;
-  readonly projectsPath: string;
-}
-
-/**
- * The closing block. "Cloned to", never "created": the repository already existed, and telling a
- * joiner they created it is the one sentence that could make them think they had done something
- * to their organization.
- */
-export function joinSummary(o: JoinOutcome): readonly string[] {
-  return [
-    "================================================================",
-    "- Thank you. Your organization and governance repo in it is now identified.",
-    "- Please note the final configuration being used from below.",
-    `1. Your organization's governance repo (${o.repoUrl})`,
-    `   is cloned to your local machine at ——> ${o.localPath}`,
-    `2. Your local project workspace is at  ——> ${o.projectsPath}`,
-    "================================================================",
-  ];
-}
-
 /** Ask until the answer is usable; bounded, so a scripted stdin stops rather than spins. */
 async function ask(io: JoinInterviewIo, n: number, question: string, def: string, rule: Validator, extra: readonly string[] = [], choices: readonly string[] = []): Promise<string> {
   io.print("");
