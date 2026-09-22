@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { prjResolveGov, resolveFailureMessage } from "../../src/resolve/resolve-gov.js";
+import { prjResolveGov, resolveFailureMessage, workspaceStateMessage } from "../../src/resolve/resolve-gov.js";
 import type { GovConfig, ResolveEnv, ResolveResult } from "../../src/resolve/types.js";
 
 /** In-memory, read-only ResolveEnv double. */
@@ -168,5 +168,34 @@ describe("prj-work Phase 1 — prjResolveGov (SDD-040, active-org anchored)", ()
       activeOrg: "Svayamtech",
     });
     expect(prjResolveGov(env)).to.include({ ok: true, home: "/a/b", via: "cwd" });
+  });
+});
+
+// PRJ-121, 2026-09-22 — a walk: two orgs registered, the ACTIVE one's folder deleted, and the banner said
+// "no organization set up on this machine yet". Only an empty registry earns that sentence.
+describe("workspaceStateMessage — the reason no workspace resolved, in words that fit", () => {
+  const noActive: Extract<ResolveResult, { ok: false }> = { ok: false, code: 2, reason: "no-active-org" };
+  const dead: Extract<ResolveResult, { ok: false }> = { ok: false, code: 2, reason: "pointer-mismatch", home: "/tmp/gone", activeOrg: "ghost", detail: { why: "not-a-gov-repo" } };
+
+  it("nothing registered → 'not set up yet', the first-run case (setUp: false)", () => {
+    const m = workspaceStateMessage(noActive, []);
+    expect(m.setUp).to.equal(false);
+    expect(m.text).to.contain("no organization set up on this machine yet");
+  });
+
+  it("orgs registered, none active → names them and `gov org use`, never 'not set up'", () => {
+    const m = workspaceStateMessage(noActive, ["Acme", "Beta"]);
+    expect(m.setUp).to.equal(true);
+    expect(m.text).to.contain("Acme, Beta").and.contain("gov org use").and.not.contain("not set up");
+  });
+
+  it("active org's folder gone → re-point or DROP it, and switch to another by name", () => {
+    const m = workspaceStateMessage(dead, ["Svayamtech", "ghost"]);
+    expect(m.text).to.contain("gov org remove ghost").and.contain("Or switch: `gov org use Svayamtech`");
+    expect(m.text, "not `org add` alone for a folder that is gone").to.not.contain("Fix it with");
+  });
+
+  it("no other org to switch to → no switch hint", () => {
+    expect(workspaceStateMessage(dead, ["ghost"]).text).to.not.contain("Or switch");
   });
 });

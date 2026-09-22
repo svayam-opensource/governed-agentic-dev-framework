@@ -7,7 +7,7 @@
  *   Status  → review (list · list-all · status)
  *   Work    → GUIDED flow: pick your project → seed-if-new / continue → session-start
  *   Admin   → curated governance actions (manage · knowledge · onboard · …)
- *   Help    → the full command reference (for agents/devs working in TTY)
+ *   (Help is NOT a menu item — the menu guides; the command line is documented by `gov help <cmd>`.)
  * Rendering + choice-resolution are pure/testable; runMenu delegates the guided
  * flows + command runs to injected handlers. (Enterprise catalog/deploy is a
  * SEPARATE CLI, `gov-cicd` — this menu has no knowledge of it.)
@@ -46,8 +46,7 @@ export interface SubCommand {
 }
 export type MenuAction =
   | { readonly kind: "guided"; readonly key: "work"; readonly label: string; readonly desc: string; readonly hint: string; readonly scopes?: readonly Scope[] }
-  | { readonly kind: "submenu"; readonly key: "admin"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[]; readonly scopes?: readonly Scope[] }
-  | { readonly kind: "help"; readonly key: "help"; readonly label: string; readonly desc: string; readonly hint: string; readonly scopes?: readonly Scope[] };
+  | { readonly kind: "submenu"; readonly key: "admin"; readonly label: string; readonly desc: string; readonly commands: readonly SubCommand[]; readonly scopes?: readonly Scope[] };
 
 /** The FULL main-menu definition (every mode) — gov-work's OWN verbs, and only those. The menu used to
  *  merge submenus discovered from the gov-cicd and do-admin plugins; the three clients each render their
@@ -68,16 +67,21 @@ export function mainActions(): MenuAction[] {
     // `issue` (#182) is deliberately NOT here, by that same rule: writing down a unit of work is exactly
     // the kind of thing you ask your agent for, and this menu is what you cannot. It is a direct verb.
     { kind: "submenu", key: "admin", label: "Admin", desc: "This machine and this org", commands: [
-      { cmd: "org", desc: "governance workspaces — switch / add / list / remove", scopes: ["project", "governed"], subs: [
+      // `org` and `doctor` in EVERY context, NONE included (PRJ-121, 2026-09-22). Both were scoped to
+      // project/governed, so with no workspace resolved Admin vanished — and with it `org use`, the one way OUT
+      // of that state. A walk hit it with two orgs registered and a dead one active.
+      { cmd: "org", desc: "governance workspaces — switch / add / list / remove", subs: [
         { cmd: "use", desc: "switch the active org", argHint: "<github_org>" },
         { cmd: "add", desc: "register a governance workspace", argHint: "<github_org>", flagArgs: [{ name: "home", hint: "gov_repo path, e.g. ~/.acme/gov_repo" }] },
         { cmd: "list", desc: "registered workspaces" },
         { cmd: "remove", desc: "deregister a workspace", argHint: "<github_org>" },
       ] },
-      { cmd: "doctor", desc: "diagnose this machine — git · gh · workspace · versions", scopes: ["project", "governed"] },
+      { cmd: "doctor", desc: "diagnose this machine — git · gh · workspace · versions" },
       { cmd: "upgrade", desc: "pull the latest framework content into this org", scopes: ["governed"] },
     ] },
-    { kind: "help", key: "help", label: "Help", desc: "gov command-line use", hint: "pick a command" },
+    // HELP LEFT THE MENU (Policy Owner, 2026-09-22). A picker of 24 command names, each answering with one line,
+    // taught nothing — and the menu is the guided surface; the command line is documented where it is used,
+    // `gov help <cmd>` / `gov <cmd> --help`. The footer points there.
   ];
 }
 
@@ -119,31 +123,48 @@ const ARG_HELP: Record<string, string> = {
   "<board-url>": "the GitHub Project board URL",
 };
 
-export function formatMainMenu(ctx: MenuContext): string[] {
-  const actions = visibleActions(ctx);
-  const out: string[] = ["", `  ▸ ${ctx.orgName ?? "Governed Agentic Development Framework"} — Governed Agentic Development Framework (v${ctx.cliVersion ?? "?"})`];
+/** The header: who, where, which version, which context. Printed ONCE per menu session (and on `c`). */
+export function formatMenuHeader(ctx: MenuContext): string[] {
+  // No org name → the framework's name ONCE, not "X — X" (a walk, 2026-09-22).
+  const title = ctx.orgName ? `${ctx.orgName} — Governed Agentic Development Framework` : "Governed Agentic Development Framework";
+  const out: string[] = ["", `  ▸ ${title} (v${ctx.cliVersion ?? "?"})`];
   const bits = [ctx.githubOrg && `Org: ${ctx.githubOrg}`, ctx.branch && `Branch: ${ctx.branch}`, ctx.user && `User: ${ctx.user}`].filter(Boolean) as string[];
   if (bits.length) out.push(`  ${bits.join("  |  ")}`);
   if (ctx.workspaceCount !== undefined) out.push(`  ${ctx.workspaceCount} governance workspace(s) registered — press o to switch the active org.`);
   const modeLabel = ctx.mode === "project" ? `PROJECT${ctx.project ? ` (${ctx.project})` : ""}` : ctx.mode === "governed" ? "GOVERNED (org home)" : ctx.mode === "none" ? "no workspace resolved" : undefined;
   if (modeLabel) out.push(`  Context: ${modeLabel}`);
-  out.push("", RULE, "", `  ${"Action".padEnd(10)}  ${"Description".padEnd(32)}  Goes to`, `  ${"-".repeat(10)}  ${"-".repeat(32)}  ${"-".repeat(30)}`);
+  return out;
+}
+
+/** The action table + footer — what every return to the main menu shows. */
+export function formatActionList(ctx: MenuContext): string[] {
+  const actions = visibleActions(ctx);
+  const out: string[] = ["", RULE, "", `  ${"Action".padEnd(10)}  ${"Description".padEnd(32)}  Goes to`, `  ${"-".repeat(10)}  ${"-".repeat(32)}  ${"-".repeat(30)}`];
   actions.forEach((a, i) => {
     let desc = a.desc;
     let goesTo = a.kind === "submenu" ? a.commands.map((c) => c.cmd).slice(0, 4).join(" · ") + (a.commands.length > 4 ? " · …" : "") : a.hint;
     if (a.key === "work") {   // adapt the guided flow to the context
-      desc = ctx.mode === "project" ? "Continue the current project" : ctx.mode === "none" ? "Set up a workspace first" : "Start or continue a project";
-      goesTo = ctx.mode === "project" ? `continue ${ctx.project ?? "this project"}` : ctx.mode === "none" ? "gov setup" : "pick / seed a project";
+      // NONE with orgs REGISTERED is not "set up first" — the fix is choosing one (a walk, 2026-09-22).
+      const switchFirst = ctx.mode === "none" && (ctx.workspaceCount ?? 0) > 0;
+      desc = ctx.mode === "project" ? "Continue the current project" : switchFirst ? "Choose a working org first" : ctx.mode === "none" ? "Set up a workspace first" : "Start or continue a project";
+      goesTo = ctx.mode === "project" ? `continue ${ctx.project ?? "this project"}` : switchFirst ? "press o, or Admin → org" : ctx.mode === "none" ? "gov setup" : "pick / seed a project";
     }
     out.push(`  (${i + 1}) ${a.label.padEnd(8)}  ${desc.padEnd(32)}  ${goesTo}`);
   });
-  out.push("", "  Type a number; o to switch org; 0 to exit.", RULE);
+  out.push("", "  Type a number; o to switch org; c to show the context again; 0 to exit.",
+    "  Command line: `gov help` · `gov <command> --help`", RULE);
   return out;
+}
+
+/** The whole first screen: header + actions. */
+export function formatMainMenu(ctx: MenuContext): string[] {
+  return [...formatMenuHeader(ctx), ...formatActionList(ctx)];
 }
 
 export type TopChoice =
   | { readonly kind: "action"; readonly action: MenuAction }
   | { readonly kind: "org" }
+  | { readonly kind: "context" }
   | { readonly kind: "quit" }
   | { readonly kind: "unknown" };
 
@@ -151,6 +172,7 @@ export function resolveTopChoice(input: string, ctx: MenuContext = {}): TopChoic
   const t = input.trim().toLowerCase();
   if (t === "0" || t === "q" || t === "") return { kind: "quit" };
   if (t === "o") return { kind: "org" };
+  if (t === "c") return { kind: "context" };
   const actions = visibleActions(ctx);
   const n = Number(t);
   if (Number.isInteger(n) && n >= 1 && n <= actions.length) return { kind: "action", action: actions[n - 1] };
@@ -181,10 +203,6 @@ export interface MenuHandlers {
   readonly runWork: (io: MenuIo) => Promise<number>;
   /** Switch the active org. */
   readonly switchOrg: (org: string) => Promise<number> | number;
-  /** Help lines — full reference when no command, else per-command help. */
-  readonly help: (command?: string) => readonly string[];
-  /** All command names, in reference order — for the "help for one command" picker. */
-  readonly helpCommands: () => readonly string[];
   /** Registered governance workspaces — for the org switcher (so the user picks, not types the exact name). */
   readonly listOrgs: () => readonly { readonly org: string; readonly home: string }[];
   /** Discoverable subject value sets for the pickers (§2). Called on demand (a `gh` call may be slow). */
@@ -197,133 +215,133 @@ function pickCmd(cmds: readonly SubCommand[], input: string): SubCommand | null 
   return Number.isInteger(idx) && idx >= 0 && idx < cmds.length ? cmds[idx] : cmds.find((c) => c.cmd === input) ?? null;
 }
 
+/** A level's answer: "go up one level", or the exit code of what it ran. */
+const BACK = Symbol("back");
+type LevelResult = number | typeof BACK;
+
+/** Pick one of `items` by number or exact name; null = unknown. */
+function pickFrom<T>(items: readonly T[], input: string, name: (t: T) => string): T | null {
+  const idx = Number(input) - 1;
+  return Number.isInteger(idx) && idx >= 0 && idx < items.length ? items[idx]! : items.find((t) => name(t) === input) ?? null;
+}
+
+/**
+ * NAVIGATION IS A STACK (PRJ-121, 2026-09-22). Every sub-menu used to `continue` the MAIN loop, so `0`, an
+ * unknown answer, or finishing anything at depth two landed on the main menu. Now each level is its own
+ * loop: `0` (or Enter) returns to the level above, an unknown answer asks again at the SAME level.
+ *
+ * THE HEADER PRINTS ONCE. It was redrawn on every return to the main menu; now the action list is, and
+ * `c` shows the context again. A context change (an org switch) ends the menu, so the header is never stale.
+ */
 export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
   const w = (l: string): void => void process.stderr.write(`${l}\n`);
-  try {
+  const isBack = (x: string): boolean => x === "0" || x === "";
+
+  /** A leaf: ask for its subject and flags, then run it. BACK when a picker is backed out of or a value refused. */
+  const runLeaf = async (cmdPath: readonly string[], leaf: SubCommand): Promise<LevelResult> => {
+    // Ask for the SUBJECT (one verbatim value), then each flag qualifier (each its own verbatim line —
+    // no whitespace splitting, so a multi-word --description survives; CLI conventions §3).
+    const extra: string[] = [];
+    if (leaf.argHint || leaf.flagArgs?.length || leaf.subjectKind) { w(""); w(`  ${cmdPath.join(" ")} — ${leaf.desc}`); }
+    // GOVERNED (org-home) has no current project, so `manage assign/unassign` must target a board explicitly.
+    if (ctx.mode === "governed" && cmdPath[0] === "manage" && (leaf.cmd === "assign" || leaf.cmd === "unassign")) {
+      const bn = (await ask("  board number to manage (see `manage list`): ")).trim();
+      if (!/^\d+$/.test(bn)) { w("  a numeric board number is required"); return BACK; }
+      extra.push("--board", bn);
+    }
+    // SUBJECT: a discoverable subject (unit / project) → pick from a list (§2 value discovery); else free-text.
+    if (leaf.subjectKind === "project" && ctx.mode === "project" && ctx.project) {
+      extra.push(ctx.project);   // inside a project → operate on THIS one, no prompt
+      w(`  project: ${ctx.project}  (current)`);
+    } else if (leaf.subjectKind) {
+      w(`  ⏳ loading ${leaf.subjectKind}s…`);
+      const items = h.listMyProjects?.() ?? [];
+      if (!items.length) { w(`  no ${leaf.subjectKind}s available to pick — is the workspace configured?`); return BACK; }
+      for (;;) {
+        w(`  Select a ${leaf.subjectKind}:`);
+        items.forEach((it, i) => w(`    ${String(i + 1).padStart(2)}) ${it}`));
+        w("     0) back");
+        const pick = (await ask("  Choose: ")).trim();
+        if (isBack(pick)) return BACK;
+        const chosen = pickFrom(items, pick, (x) => x);
+        if (chosen) { extra.push(chosen); break; }
+        w("  unknown choice");
+      }
+    } else if (leaf.argHint) {
+      const hint = ARG_HELP[leaf.argHint];
+      if (hint) w(`    ${leaf.argHint.padEnd(16)} ${hint}`);
+      const v = (await ask(`  ${leaf.argHint}: `)).trim();
+      if (v) extra.push(v);
+    }
+    for (const fa of leaf.flagArgs ?? []) {
+      if (fa.kind === "env") {   // context-scoped picker — no free-typing an env (value discovery, §2)
+        const envs = contextEnvs(ctx.mode);
+        if (envs.length === 1) { extra.push(`--${fa.name}`, envs[0]!); w(`  --${fa.name}: ${envs[0]}  (only choice in this context)`); continue; }
+        w(`  --${fa.name} (${fa.hint}):`);
+        envs.forEach((e, i) => w(`    ${i + 1}) ${e}`));
+        const pick = (await ask("  Choose: ")).trim();
+        const e = pickFrom(envs, pick, (x) => x);
+        if (e) extra.push(`--${fa.name}`, e);
+        else if (!fa.optional) { w(`  unknown env '${pick}' — choose ${envs.join(" · ")}`); return BACK; }   // never run a broken command
+        continue;
+      }
+      const v = (await ask(`  --${fa.name} (${fa.hint})${fa.optional ? " [optional, blank to skip]" : ""}: `)).trim();
+      if (v) extra.push(`--${fa.name}`, v);
+    }
+    return await h.runCommand([...cmdPath, ...extra]);
+  };
+
+  /** A list of commands at one level. A command with `subs` opens the next level; `0` comes back here. */
+  const runLevel = async (title: string, cmds: readonly SubCommand[], path: readonly string[]): Promise<LevelResult> => {
     for (;;) {
-      for (const l of formatMainMenu(ctx)) w(l);
+      w(""); w(`  ${title}:`);
+      cmds.forEach((c, i) => w(`    ${String(i + 1).padStart(2)}) ${c.cmd.padEnd(11)} ${c.desc}`));
+      w("     0) back");
+      const input = (await ask("  Choose: ")).trim();
+      if (isBack(input)) return BACK;
+      const chosen = pickCmd(cmds, input);
+      if (!chosen) { w("  unknown choice"); continue; }
+      const r = chosen.subs?.length
+        ? await runLevel(chosen.cmd, chosen.subs, [...path, chosen.cmd])
+        : await runLeaf([...path, chosen.cmd], chosen);
+      if (r !== BACK) return r;        // ran something → done; BACK → show THIS level again
+    }
+  };
+
+  try {
+    let header = true;
+    for (;;) {
+      for (const l of header ? formatMainMenu(ctx) : formatActionList(ctx)) w(l);
+      header = false;
       const top = resolveTopChoice(await ask("  Choose: "), ctx);
       if (top.kind === "quit") return 0;
       if (top.kind === "unknown") { w("  unknown choice"); continue; }
+      if (top.kind === "context") { header = true; continue; }
       if (top.kind === "org") {
         const orgs = h.listOrgs();
         if (orgs.length === 0) { w("  No governance workspaces registered. Add one via Admin → org → add."); continue; }
-        w(""); w("  Switch org — registered workspaces:");
-        orgs.forEach((o, i) => w(`    ${String(i + 1).padStart(2)}) ${o.org.padEnd(20)} ${o.home}`));
-        w("     0) back");
-        const pick = (await ask("  Choose: ")).trim();
-        if (pick === "0" || pick === "") continue;
-        const i = Number(pick) - 1;
-        const chosen = Number.isInteger(i) && i >= 0 && i < orgs.length ? orgs[i] : orgs.find((o) => o.org === pick);
-        if (!chosen) { w("  unknown choice"); continue; }
-        return await h.switchOrg(chosen.org);
+        for (;;) {
+          w(""); w("  Switch org — registered workspaces:");
+          orgs.forEach((o, i) => w(`    ${String(i + 1).padStart(2)}) ${o.org.padEnd(20)} ${o.home}`));
+          w("     0) back");
+          const pick = (await ask("  Choose: ")).trim();
+          if (isBack(pick)) break;
+          const chosen = pickFrom(orgs, pick, (o) => o.org);
+          if (chosen) return await h.switchOrg(chosen.org);
+          w("  unknown choice");
+        }
+        continue;
       }
       const a = top.action;
       if (a.kind === "guided") {
         const io: MenuIo = { prompt: ask, print: w, ask: askFns(rl, ask) };
         return await h.runWork(io);
       }
-      if (a.kind === "help") {
-        w("");
-        w("  Help — gov command-line use:");
-        w("    1) full reference (all commands)");
-        w("    2) help for one command");
-        w("    0) back");
-        const c = (await ask("  Choose: ")).trim();
-        if (c === "1") for (const l of h.help()) w(l);
-        else if (c === "2") {
-          const cmds = h.helpCommands();
-          w("");
-          w("  Pick a command for help:");
-          cmds.forEach((cmd, i) => w(`    ${String(i + 1).padStart(2)}) ${cmd}`));
-          w("     0) back");
-          const pick = (await ask("  Choose: ")).trim();
-          if (pick !== "0" && pick !== "") {
-            const i = Number(pick) - 1;
-            const chosen = Number.isInteger(i) && i >= 0 && i < cmds.length ? cmds[i] : cmds.includes(pick) ? pick : undefined;
-            if (chosen) for (const l of h.help(chosen)) w(l);
-            else w("  unknown choice");
-          }
-        }
-        continue;
-      }
       // submenu → pick a command → run. Commands are already context-filtered (hard-hide), so no guard here.
-      w("");
-      w(`  ${a.label}:`);
-      a.commands.forEach((c, i) => w(`    ${String(i + 1).padStart(2)}) ${c.cmd.padEnd(11)} ${c.desc}`));
-      w("     0) back");
-      const sub = (await ask("  Choose: ")).trim();
-      if (sub === "0" || sub === "") continue;
-      const chosen = pickCmd(a.commands, sub);
-      if (!chosen) { w("  unknown choice"); continue; }
-      const cmdPath: string[] = [chosen.cmd];
-      let leaf: SubCommand = chosen;
-      // one level of guided nesting: a command WITH subcommands (manage/knowledge/org) → pick one
-      if (chosen.subs?.length) {
-        w(""); w(`  ${chosen.cmd}:`);
-        chosen.subs.forEach((s, i) => w(`    ${String(i + 1).padStart(2)}) ${s.cmd.padEnd(11)} ${s.desc}`));
-        w("     0) back");
-        const ss = (await ask("  Choose: ")).trim();
-        if (ss === "0" || ss === "") continue;
-        const chosenSub = pickCmd(chosen.subs, ss);
-        if (!chosenSub) { w("  unknown choice"); continue; }
-        cmdPath.push(chosenSub.cmd);
-        leaf = chosenSub;
-      }
-      // Ask for the SUBJECT (one verbatim value), then each flag qualifier (each its own verbatim line —
-      // no whitespace splitting, so a multi-word --description survives; CLI conventions §3).
-      const extra: string[] = [];
-      if (leaf.argHint || leaf.flagArgs?.length || leaf.subjectKind) { w(""); w(`  ${cmdPath.join(" ")} — ${leaf.desc}`); }
-      // GOVERNED (org-home) has no current project, so `manage assign/unassign` must target a board explicitly.
-      if (ctx.mode === "governed" && cmdPath[0] === "manage" && (leaf.cmd === "assign" || leaf.cmd === "unassign")) {
-        const bn = (await ask("  board number to manage (see `manage list`): ")).trim();
-        if (!/^\d+$/.test(bn)) { w("  a numeric board number is required"); continue; }
-        extra.push("--board", bn);
-      }
-      // SUBJECT: a discoverable subject (unit / project) → pick from a list (§2 value discovery); else free-text.
-      if (leaf.subjectKind === "project" && ctx.mode === "project" && ctx.project) {
-        extra.push(ctx.project);   // inside a project → operate on THIS one, no prompt
-        w(`  project: ${ctx.project}  (current)`);
-      } else if (leaf.subjectKind) {
-        w(`  ⏳ loading ${leaf.subjectKind}s…`);
-        const items = h.listMyProjects?.() ?? [];
-        if (!items.length) { w(`  no ${leaf.subjectKind}s available to pick — is the workspace configured?`); continue; }
-        w(`  Select a ${leaf.subjectKind}:`);
-        items.forEach((it, i) => w(`    ${String(i + 1).padStart(2)}) ${it}`));
-        w("     0) back");
-        const pick = (await ask("  Choose: ")).trim();
-        if (pick === "0" || pick === "") continue;
-        const idx = Number(pick) - 1;
-        const chosen = Number.isInteger(idx) && idx >= 0 && idx < items.length ? items[idx] : items.includes(pick) ? pick : undefined;
-        if (!chosen) { w("  unknown choice"); continue; }
-        extra.push(chosen);
-      } else if (leaf.argHint) {
-        const hint = ARG_HELP[leaf.argHint];
-        if (hint) w(`    ${leaf.argHint.padEnd(16)} ${hint}`);
-        const v = (await ask(`  ${leaf.argHint}: `)).trim();
-        if (v) extra.push(v);
-      }
-      let aborted = false;
-      for (const fa of leaf.flagArgs ?? []) {
-        if (fa.kind === "env") {   // context-scoped picker — no free-typing an env (value discovery, §2)
-          const envs = contextEnvs(ctx.mode);
-          if (envs.length === 1) { extra.push(`--${fa.name}`, envs[0]); w(`  --${fa.name}: ${envs[0]}  (only choice in this context)`); continue; }
-          w(`  --${fa.name} (${fa.hint}):`);
-          envs.forEach((e, i) => w(`    ${i + 1}) ${e}`));
-          const pick = (await ask("  Choose: ")).trim();
-          const idx = Number(pick) - 1;
-          const e = Number.isInteger(idx) && idx >= 0 && idx < envs.length ? envs[idx] : envs.includes(pick) ? pick : undefined;
-          if (e) extra.push(`--${fa.name}`, e);
-          else if (!fa.optional) { w(`  unknown env '${pick}' — choose ${envs.join(" · ")}`); aborted = true; break; }
-          continue;
-        }
-        const v = (await ask(`  --${fa.name} (${fa.hint})${fa.optional ? " [optional, blank to skip]" : ""}: `)).trim();
-        if (v) extra.push(`--${fa.name}`, v);
-      }
-      if (aborted) continue;   // bad required value → back to the main menu, don't run a broken command
-      return await h.runCommand([...cmdPath, ...extra]);
+      const r = await runLevel(a.label, a.commands, []);
+      if (r !== BACK) return r;
     }
   } finally {
     rl.close();

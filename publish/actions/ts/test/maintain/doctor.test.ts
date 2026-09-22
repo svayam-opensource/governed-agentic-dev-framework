@@ -46,6 +46,15 @@ describe("gov-work — doctor", () => {
     expect(r.ok, "tools present + nothing set up yet = ready for the next step").to.equal(true);
   });
 
+  // …but only on an EMPTY registry (PRJ-121, 2026-09-22): with orgs registered and none active, "not set up
+  // yet" was false and sent the person to the first-run flow.
+  it("orgs registered, none active → names them and `gov org use`, not 'not set up yet'", () => {
+    const r = doctor(facts({ resolve: unresolved, activeOrg: null, registeredOrgs: ["Svayamtech", "Beta"] }));
+    const ws = r.diagnostics.find((d) => d.name === "gov workspace")!;
+    expect(ws.status).to.equal("warn");
+    expect(ws.detail).to.contain("Svayamtech, Beta").and.contain("gov org use").and.not.match(/not set up yet/);
+  });
+
   // The sibling of 5bec707: with no workspace, doctor read VERSION from the cwd and said
   // "✓ version compat: … run `gov upgrade`", and "✓ content layout: current" about nothing.
   it("rows ABOUT a workspace are absent when there is none — not a tick about nothing", () => {

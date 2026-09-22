@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { mainActions, visibleActions, formatMainMenu, resolveTopChoice, contextEnvs, type MenuContext } from "../../src/cli/menu.js";
+import { mainActions, visibleActions, formatMainMenu, formatMenuHeader, formatActionList, resolveTopChoice, contextEnvs, type MenuContext } from "../../src/cli/menu.js";
 
 const CTX: MenuContext = { orgName: "Acme Inc", githubOrg: "Acme", branch: "main", user: "rk", workspaceCount: 2, cliVersion: "1.0.0" };
 
@@ -16,16 +16,16 @@ describe("gov-work — interactive menu (context-scoped)", () => {
   // render their own menu now (adr-three-clients, PRJ-43), so gov's menu offers gov's verbs and nothing else.
   it("offers only gov-work's own submenus — no discovered plugin verbs", () => {
     const keys = mainActions().map((a) => a.key);
-    expect(keys).to.deep.equal(["work", "admin", "help"]);
+    expect(keys, "Help left the menu (2026-09-22) — the CLI documents itself").to.deep.equal(["work", "admin"]);
     expect(mainActions().find((x) => x.label === "Operate"), "Operate was the gov-cicd merge").to.equal(undefined);
     expect(mainActions().find((x) => x.label === "Infra"), "Infra was the do-admin merge").to.equal(undefined);
   });
 
   // The menu is the HUMAN surface. Status (list/list-all/status) left on 2026-08-07 — those are the
   // work-management system's answers — and Admin now carries only what an agent cannot do for you.
-  it("GOVERNED context: Work · Admin · Help, and Admin is org + doctor + upgrade", () => {
+  it("GOVERNED context: Work · Admin, and Admin is org + doctor + upgrade", () => {
     const g = { ...CTX, mode: "governed" as const };
-    expect(labels(g)).to.deep.equal(["Work", "Admin", "Help"]);
+    expect(labels(g)).to.deep.equal(["Work", "Admin"]);
     expect(adminCmds(g)).to.deep.equal(["org", "doctor", "upgrade"]);
   });
 
@@ -46,8 +46,34 @@ describe("gov-work — interactive menu (context-scoped)", () => {
   });
 
 
-  it("NONE context: empty submenus disappear — only Work (setup) + Help remain", () => {
-    expect(labels({ ...CTX, mode: "none" })).to.deep.equal(["Work", "Help"]);
+  // PRJ-121, 2026-09-22: Admin vanished in NONE — and with it `org use`, the only way OUT of NONE.
+  it("NONE context: Admin stays, with org + doctor — the way out of NONE is a menu item", () => {
+    expect(labels({ ...CTX, mode: "none" })).to.deep.equal(["Work", "Admin"]);
+    expect(adminCmds({ ...CTX, mode: "none" })).to.deep.equal(["org", "doctor"]);
+  });
+
+  it("NONE with orgs registered: Work says choose an org, not set one up", () => {
+    const m = formatActionList({ ...CTX, mode: "none", workspaceCount: 2 }).join("\n");
+    expect(m).to.match(/Work.*Choose a working org first/).and.not.match(/gov setup/);
+    expect(formatActionList({ ...CTX, mode: "none", workspaceCount: 0 }).join("\n")).to.match(/Set up a workspace first.*gov setup/);
+  });
+
+  it("the header and the action list are separate — the loop prints the header once", () => {
+    const header = formatMenuHeader(CTX).join("\n");
+    const list = formatActionList(CTX).join("\n");
+    expect(header).to.contain("▸").and.not.contain("Type a number");
+    expect(list).to.contain("Type a number").and.not.contain("▸");
+    expect(formatMainMenu(CTX)).to.deep.equal([...formatMenuHeader(CTX), ...formatActionList(CTX)]);
+  });
+
+  it("no org name → the framework's name once, not doubled", () => {
+    const h = formatMenuHeader({ cliVersion: "1.0.0" }).join("\n");
+    expect(h).to.contain("▸ Governed Agentic Development Framework (v1.0.0)");
+    expect(h).to.not.contain("Framework — Governed");
+  });
+
+  it("the footer points at the command line's help", () => {
+    expect(formatActionList(CTX).join("\n")).to.contain("Command line: `gov help` · `gov <command> --help`");
   });
 
   it("contextEnvs: PROJECT = local only; GOVERNED/other = dev/uat/prod", () => {
@@ -75,6 +101,7 @@ describe("gov-work — interactive menu (context-scoped)", () => {
 
   it("resolves o / quit / unknown", () => {
     expect(resolveTopChoice("o", CTX)).to.deep.equal({ kind: "org" });
+    expect(resolveTopChoice("c", CTX), "c shows the context header again").to.deep.equal({ kind: "context" });
     expect(resolveTopChoice("0", CTX)).to.deep.equal({ kind: "quit" });
     expect(resolveTopChoice("99", CTX)).to.deep.equal({ kind: "unknown" });
   });

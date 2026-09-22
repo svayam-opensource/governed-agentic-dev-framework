@@ -92,6 +92,35 @@ function confirmHome(env: ResolveEnv, home: string, org: string): HomeCheckFailu
   return null;
 }
 
+/**
+ * WHY NO WORKSPACE RESOLVED, in the words that fit the machine (PRJ-121, 2026-09-22).
+ *
+ * The banner and doctor said "no organization set up on this machine yet" for EVERY failure — on a walk,
+ * with two orgs registered and the active one pointing at a folder that no longer existed. That sentence
+ * sends a person to the first-run flow, which is for a machine with nothing on it. Only "nothing is
+ * registered" earns it; every other failure has its own message, with the command that fixes it.
+ *
+ * `setUp: false` means the first-run case: nothing registered. Callers treat it as a warning, not a failure.
+ */
+export function workspaceStateMessage(
+  r: Extract<ResolveResult, { ok: false }>, registeredOrgs: readonly string[],
+): { readonly text: string; readonly setUp: boolean } {
+  if (r.reason === "no-active-org") {
+    if (registeredOrgs.length === 0) {
+      return { setUp: false, text: "no organization set up on this machine yet — `gov` asks whether you are adopting the framework or joining your organization's" };
+    }
+    return { setUp: true, text: `${registeredOrgs.length} organization(s) registered (${registeredOrgs.join(", ")}), none active — \`gov org use <github_org>\`, or menu → Admin → org` };
+  }
+  // The active org is broken (its folder gone, a mismatch). If ANOTHER org is registered, the quickest way out is
+  // to switch — say so, by name, rather than leaving only the repair of the broken one.
+  const active = "activeOrg" in r ? r.activeOrg : undefined;
+  const others = registeredOrgs.filter((o) => o !== active);
+  const switchHint = r.reason !== "not-in-a-project" && others.length
+    ? ` Or switch: \`gov org use ${others[0]}\`${others.length > 1 ? ` (registered: ${others.join(", ")})` : ""}.`
+    : "";
+  return { setUp: true, text: resolveFailureMessage(r) + switchHint };
+}
+
 /** Render a resolution failure as an actionable one-line CLI message. */
 export function resolveFailureMessage(r: Extract<ResolveResult, { ok: false }>): string {
   switch (r.reason) {
@@ -123,7 +152,9 @@ export function resolveFailureMessage(r: Extract<ResolveResult, { ok: false }>):
           : r.detail.why === "org-mismatch"
             ? `its org-config says github_org=${r.detail.found}.`
             : `it is not a canonical gov home (its gov_workspace is ${r.detail.found}).`;
-      return base + tail + " Fix it with `gov org add`.";
+      // "Fix it with `gov org add`" alone was the wrong advice when the folder is simply GONE (a walk, 2026-09-22):
+      // re-pointing needs a path that may not exist. Offer both: re-point it, or drop it.
+      return base + tail + ` Re-point it with \`gov org add ${r.activeOrg} <path>\`, or drop it with \`gov org remove ${r.activeOrg}\`.`;
     }
   }
 }

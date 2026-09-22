@@ -13,7 +13,8 @@ import * as path from "node:path";
 import * as fsSync from "node:fs";
 import * as readline from "node:readline";
 import { spawnSync } from "node:child_process";
-import { prjResolveGov } from "../resolve/resolve-gov.js";
+import { prjResolveGov, workspaceStateMessage } from "../resolve/resolve-gov.js";
+import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { createNodeEnv } from "../resolve/node-env.js";
 import { parseOrgConfig } from "../config/org-config.js";
 import { readCliVersion } from "./main.js";
@@ -30,8 +31,14 @@ function buildContextInfo(): ContextInfo {
   const services: Record<string, string | undefined> = {};
   const anomalies: string[] = [];
   let govRepo: string | undefined, orgConfigPath: string | undefined, orgConfigHash: string | undefined, branch: string | undefined, agentWorkRoot: string | undefined;
+  let unresolved: string | undefined;
   try {
     const resolve = prjResolveGov(createNodeEnv());
+    if (!resolve.ok) {
+      let orgs: string[] = [];
+      try { orgs = createNodeRegistryStore().readHomes().map((h) => h.org); } catch { /* unreadable → none */ }
+      unresolved = workspaceStateMessage(resolve, orgs).text;
+    }
     if (resolve.ok) {
       govRepo = resolve.home;
       const p = path.join(resolve.home, "org-config.yaml");
@@ -57,7 +64,8 @@ function buildContextInfo(): ContextInfo {
   // ONE REMEDY, the same one doctor gives (PRJ-121, 2026-09-22). This said "run `gov setup` / `gov org use`":
   // two commands, each right for only one role, printed right after install to someone who has not been asked
   // their role yet. `gov` starts the first-run flow, which asks.
-  if (!govRepo) anomalies.push("no organization set up on this machine yet — `gov` asks whether you are adopting the framework or joining your organization's");
+  // WHICH failure it is (PRJ-121, 2026-09-22): "not set up" only when nothing is registered — see workspaceStateMessage.
+  if (!govRepo) anomalies.push(unresolved ?? "no organization set up on this machine yet — `gov` asks whether you are adopting the framework or joining your organization's");
   else if (!services.vault) anomalies.push("vault not configured (vault_addr) — governed creds/deploys need it");
   return { mode, projectPath, agentWorkRoot, govRepo, orgConfigPath, orgConfigHash, user, branch, services, anomalies };
 }

@@ -1808,7 +1808,7 @@ export function helpLines(command?: string): string[] {
     for (const c of cmds) out.push(`     ${c.padEnd(14)} ${CMD_DESC[c] ?? ""}`);
     out.push("");
   }
-  out.push("  See `gov help <command>` for a specific command (or menu → Help → help for one command).", "");
+  out.push("  See `gov help <command>` (or `gov <command> --help`) for a specific command.", "");
   return out;
 }
 
@@ -1822,7 +1822,10 @@ export async function runMainMenu(): Promise<number> {
     runCommand: runAny,
     runWork: async (io) => {
       if (!workDeps) {
-        io.print("  No governance workspace resolved. Set one up first: `gov setup`, then `gov org add/use`.");
+        // Orgs registered → choosing one is the fix, not setup (a walk, 2026-09-22).
+        io.print((ctx.workspaceCount ?? 0) > 0
+          ? "  No working org is active. Choose one: press o at the menu, or Admin → org → use."
+          : "  No governance workspace resolved. Set one up first: `gov setup`, then `gov org add/use`.");
         return 1;
       }
       // The MENU owns the reader here, and it stays open for the whole loop — which is why a
@@ -1831,8 +1834,6 @@ export async function runMainMenu(): Promise<number> {
       return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print, ask: io.ask });
     },
     switchOrg: (org) => runAny(["org", "use", org]),
-    help: (command) => helpLines(command),
-    helpCommands: helpCommandNames,
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
     // `myProjects` reads boards and asks nothing, so the asker it will never reach is a stub —
     // one that THROWS rather than returning "", because reaching it would mean a question was
@@ -2000,6 +2001,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       gitIdentity,
       resolve,
       activeOrg: env.readActiveOrg(),
+      registeredOrgs: (() => { try { return createNodeRegistryStore().readHomes().map((h) => h.org); } catch { return []; } })(),
       cliVersion,
       // Only a WORKSPACE has a content VERSION. With none resolved, `home` is just the cwd (see staleArtifactsIn).
       workspaceChecked: !!doctorHomeOverride || resolve.ok,

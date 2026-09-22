@@ -7,7 +7,7 @@
  */
 import { paint, type Ink } from "../cli/format.js";
 import type { ResolveResult } from "../resolve/types.js";
-import { resolveFailureMessage } from "../resolve/resolve-gov.js";
+import { workspaceStateMessage } from "../resolve/resolve-gov.js";
 import { checkVersionCompat } from "./version-compat.js";
 import { missingScopes, RECOMMENDED_SCOPES } from "./fix-env.js";
 
@@ -52,6 +52,8 @@ export interface DoctorFacts {
   readonly gitIdentity?: { readonly name: string | null; readonly email: string | null };
   readonly resolve: ResolveResult;
   readonly activeOrg: string | null;
+  /** Orgs in the registry. Absent = not gathered (treated as none): "not set up" is said only when this is empty. */
+  readonly registeredOrgs?: readonly string[];
   readonly cliVersion: string;
   /** Old-world artifacts found in the workspace (framework/, registry.yaml, …). */
   readonly staleArtifacts?: readonly string[];
@@ -116,12 +118,16 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // first-run flow, which asks whether you are adopting the framework or joining your org's — right for
     // both roles, where `gov setup` and `gov org use` are each right for only one. A workspace that EXISTS but
     // will not resolve (an org set, its home missing; a conflict) is still a failure.
-    ...(!facts.resolve.ok && facts.resolve.reason === "no-active-org"
+    // …and only when NOTHING is registered (PRJ-121, 2026-09-22). With orgs registered and none active, "not set
+    // up yet" was false, and sent the person to the first-run flow; that case names the orgs and `gov org use`.
+    ...(!facts.resolve.ok && facts.resolve.reason === "no-active-org" && !facts.registeredOrgs?.length
       ? [{ name: "gov workspace", status: "warn" as DiagnosticStatus, detail: "not set up yet — run `gov`; it asks whether you are adopting the framework or joining your organization's" }]
+      : !facts.resolve.ok && facts.resolve.reason === "no-active-org"
+      ? [{ name: "gov workspace", status: "warn" as DiagnosticStatus, detail: workspaceStateMessage(facts.resolve, facts.registeredOrgs ?? []).text }]
       : [
           facts.resolve.ok
             ? { name: "gov workspace", status: "ok" as DiagnosticStatus, detail: `resolved → ${facts.resolve.home} (${facts.resolve.org})` }
-            : { name: "gov workspace", status: "fail" as DiagnosticStatus, detail: resolveFailureMessage(facts.resolve) },
+            : { name: "gov workspace", status: "fail" as DiagnosticStatus, detail: workspaceStateMessage(facts.resolve, facts.registeredOrgs ?? []).text },
           facts.activeOrg
             ? { name: "active org", status: "ok" as DiagnosticStatus, detail: facts.activeOrg }
             : { name: "active org", status: "warn" as DiagnosticStatus, detail: "not set — run `gov org use <org>`" },
