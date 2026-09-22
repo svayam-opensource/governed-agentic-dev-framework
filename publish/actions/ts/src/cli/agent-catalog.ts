@@ -103,6 +103,16 @@ export interface AgentCandidate {
    * Filling these in means running each vendor's CLI and recording what it accepts.
    */
   readonly promptArgv?: readonly string[];
+  /**
+   * FOR AN AGENT WHOSE FIRST-MESSAGE MODE ENDS THE SESSION (PRJ-121, 2026-09-22).
+   *
+   * Some agents take a first message only in a one-shot mode: they run it, print a task id and exit. Handing
+   * such an agent the protocol "as its first message" answers the protocol and then leaves the person at a
+   * shell — the manifest says "Awaiting your direction" to nobody. `resume` reopens that conversation
+   * interactively: `argv` with `{taskId}` read from the first run's output by `taskIdPattern`; `pickerArgv` when
+   * no id could be read, which opens the agent's own list of tasks rather than guessing.
+   */
+  readonly resume?: { readonly argv: readonly string[]; readonly pickerArgv: readonly string[]; readonly taskIdPattern: RegExp };
   /** Where to go to create an account, when there is no automating it. */
   readonly signupUrl?: string;
   /** Every way to run it. The policy approves the agent; this is what that buys. */
@@ -250,10 +260,19 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   { id: "ibm-bob", tool: "IBM Bob", launch: "cli", cmd: "bob",
     install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" },
     // Verified on a container: Bob prints its own sign-in URL and waits (#208).
-    // bob 2.0.2: `-p, --prompt <prompt>  Prompt to send to the agent`. `run [prompt...]` is
-    // the headless form and is deliberately not used (read 2026-09-11). This is the answer
-    // to #6: gov CAN hand IBM Bob the session-start protocol as its first message.
+    //
+    // `-p` IS ONE-SHOT — corrected 2026-09-22 on a walk (bob 2.0.4). This comment used to say `-p` hands the
+    // protocol over "as its first message" and stop there, which was checked only as far as Bob ACCEPTING the
+    // flag. What it DOES: runs the prompt, prints a transcript, `Task Summary · Total Cost · Task ID`, and EXITS.
+    // So the walk got a correct context manifest ending "Awaiting: your direction" — and a shell prompt. The
+    // first launch agreed: refusing the licence, Bob said "Launch Bob Shell in interactive mode".
+    //
+    // `bob chat` is the interactive client and takes no first message (`bob chat --help`). But
+    // `bob chat --resume <task-id>` reopens a task WITH its history — verified on the walk: the prompt, the
+    // answer, and the context and cost carried over. So: `-p` delivers the protocol, `resume` hands the person
+    // the live session. Tasks are per user and per machine (a resume from another container: "No task found").
     promptArgv: ["-p", "{prompt}"],
+    resume: { argv: ["chat", "--resume", "{taskId}"], pickerArgv: ["chat", "--resume"], taskIdPattern: /Task ID:\s+([0-9a-f]{32})/ },
     credentialEnv: "BOB_API_KEY", signsInItself: true, signupUrl: "https://bob.ibm.com",
     variants: [
       // No login subcommand: Bob Shell opens the browser itself when it needs to

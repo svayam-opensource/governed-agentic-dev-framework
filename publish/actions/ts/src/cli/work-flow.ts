@@ -231,6 +231,8 @@ export interface LaunchSpec {
   readonly promptToPaste?: string;
   /** True when the prompt travelled in `args` — so the caller can say governance happened. */
   readonly promptArgvUsed?: true;
+  /** How to reopen the session after a one-shot first message — see AgentCandidate.resume. */
+  readonly resume?: AgentCandidate["resume"];
   /**
    * The protocol text itself, ALWAYS — regardless of how it was delivered.
    *
@@ -299,7 +301,7 @@ export function agentLaunchSpec(
   // after a clean install. An entry that has not been checked launches BARE: the agent still
   // starts in the project, and its harness file is what governs the session anyway.
   return c.promptArgv
-    ? { cmd: c.cmd, args: c.promptArgv.map((a) => a.replaceAll("{prompt}", inject)), detached: false, promptArgvUsed: true, promptText: inject }
+    ? { cmd: c.cmd, args: c.promptArgv.map((a) => a.replaceAll("{prompt}", inject)), detached: false, promptArgvUsed: true, promptText: inject, ...(c.resume ? { resume: c.resume } : {}) }
     : { cmd: c.cmd, args: [], detached: false, promptToPaste: inject, promptText: inject };
 }
 

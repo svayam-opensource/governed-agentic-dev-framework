@@ -65,4 +65,11 @@ if [ -n "${AGENT_DOUBLE_NEEDS_KEY:-}" ] && [ -z "${!AGENT_DOUBLE_NEEDS_KEY:-}" ]
   echo "Error: ${me} API key is required. Set ${AGENT_DOUBLE_NEEDS_KEY} environment variable." >&2
   exit 4
 fi
+# A ONE-SHOT FIRST MESSAGE, AS BOB 2.0.4 ENDS ONE (PRJ-121, 2026-09-22). `bob -p` answers, prints a summary
+# with its task id, and exits; gov reads the id and reopens the session with `chat --resume <id>`. The line is
+# spaced exactly as the walk's log showed it, so the pattern gov uses is exercised against the real shape.
+if [ "${1:-}" = "-p" ]; then
+  echo "Task Summary"
+  echo "Task ID:                 0123456789abcdef0123456789abcdef"
+fi
 exit 0

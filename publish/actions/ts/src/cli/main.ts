@@ -1504,7 +1504,27 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
         return { status: rr.status ?? 0, error: Boolean(rr.error), ms: Date.now() - at };
       };
 
-      let r = runIt(s.args);
+      // A ONE-SHOT FIRST MESSAGE IS READ AS IT RUNS, NOT HIDDEN (PRJ-121, 2026-09-22). An agent with `resume`
+      // prints a task id we need; so its output is passed straight through to the terminal AND kept, and the id
+      // is found in the copy. Capturing without passing through was rejected: a licence screen or a sign-in URL
+      // in that run would be invisible, and the launch would look hung.
+      const runCapture = (args: readonly string[]): Promise<{ status: number; error: boolean; ms: number; out: string }> =>
+        new Promise((resolve) => {
+          const at = Date.now();
+          let out = "";
+          let done = false;
+          const finish = (v: { status: number; error: boolean; ms: number; out: string }): void => { if (!done) { done = true; resolve(v); } };
+          const keep = (b: Buffer, to: NodeJS.WriteStream): void => { to.write(b); out = (out + b.toString("utf8")).slice(-65536); };
+          const child = spawn(s.cmd, [...args], { cwd, stdio: ["inherit", "pipe", "pipe"] });
+          child.stdout?.on("data", (b: Buffer) => keep(b, process.stdout));
+          child.stderr?.on("data", (b: Buffer) => keep(b, process.stderr));
+          child.on("error", () => finish({ status: 1, error: true, ms: Date.now() - at, out }));
+          child.on("close", (code) => finish({ status: code ?? 0, error: false, ms: Date.now() - at, out }));
+        });
+      const firstRun = async (args: readonly string[]): Promise<{ status: number; error: boolean; ms: number; out?: string }> =>
+        s.resume ? await runCapture(args) : runIt(args);
+
+      let r: { status: number; error: boolean; ms: number; out?: string } = await firstRun(s.args);
       if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed and on PATH?\n`); return 1; }
 
       // A FIRST-RUN GATE THE ADOPTER HAS JUST READ — see IMMEDIATE_EXIT_MS above for why this
@@ -1527,7 +1547,7 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
           process.stderr.write(`\n${r3.step(`${agent} has the terminal. Quit it when you are done.`)}\n\n`);
           runIt([]);
           process.stderr.write(`\n${r3.step(`Handing ${agent} the session-start protocol again.`)}\n\n`);
-          r = runIt(s.args);
+          r = await firstRun(s.args);
         }
         // STILL NO, AND SAID SO. A retry that fails silently would leave an adopter believing
         // the session is governed when nothing was ever delivered.
@@ -1568,6 +1588,22 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
           }
           process.stderr.write(`\n  Or start ${agent} yourself in ${cwd} and paste this as your first message:\n\n`);
           process.stderr.write(`${s.promptText}\n\n`);
+        }
+      }
+      // THE PROTOCOL WAS ANSWERED — NOW HAND OVER THE SESSION (PRJ-121, 2026-09-22). For an agent whose first-
+      // message mode exits, stopping here left the person at a shell under a manifest ending "Awaiting: your
+      // direction". Reopen that conversation instead: the protocol and its answer are in its history.
+      if (s.resume && r.status === 0) {
+        const r4 = reporter(stdoutColor());
+        const id = s.resume.taskIdPattern.exec(r.out ?? "")?.[1];
+        if (id) {
+          process.stderr.write(`\n${r4.step(`${agent} has answered the protocol. Reopening that conversation so you can carry on in it.`)}\n\n`);
+          r = runIt(s.resume.argv.map((a) => a.replaceAll("{taskId}", id)));
+        } else {
+          // No id is not a reason to leave the person at a shell, and not a licence to guess one.
+          process.stderr.write(`\n${r4.warn(`${agent} answered the protocol, but gov could not find its task id.`)}\n`);
+          process.stderr.write(`  Opening ${agent}'s list of tasks — the newest is the one gov just ran.\n\n`);
+          r = runIt(s.resume.pickerArgv);
         }
       }
       return r.status;

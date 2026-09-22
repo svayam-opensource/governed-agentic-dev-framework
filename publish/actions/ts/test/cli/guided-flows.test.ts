@@ -183,6 +183,22 @@ describe("gov-work — guided Work flow", () => {
     expect(agentLaunchSpec("shell", "/p", "GO", noShell, undefined, on("/bin/zsh", "/bin/bash", "/bin/sh"))!.cmd).to.equal("/bin/bash");
   });
 
+  // PRJ-121, 2026-09-22 — `bob -p` is ONE-SHOT: on a walk it answered the protocol, printed its Task ID and exited,
+  // leaving a manifest that said "Awaiting: your direction" to a shell. `bob chat --resume <id>` reopens it with
+  // the history (verified on the walk). The pattern is tested against the line exactly as Bob printed it.
+  it("IBM Bob: the protocol goes by -p, and the session comes back by resume, with the id Bob printed", () => {
+    const spec = agentLaunchSpec("ibm-bob", "/p", "GO")!;
+    expect(spec.args).to.deep.equal(["-p", "GO"]);
+    expect(spec.resume!.argv).to.deep.equal(["chat", "--resume", "{taskId}"]);
+    expect(spec.resume!.pickerArgv, "no id → Bob's own task list, never a guess").to.deep.equal(["chat", "--resume"]);
+    const fromTheWalk = "Assistant Messages:      1\nTool Calls:              18\nTask ID:                 7cf32c9e9c54ac18f1519a07d741c94b\n";
+    expect(spec.resume!.taskIdPattern.exec(fromTheWalk)?.[1]).to.equal("7cf32c9e9c54ac18f1519a07d741c94b");
+  });
+
+  it("an agent whose first message does NOT end the session gets no resume step", () => {
+    expect(agentLaunchSpec("claude-code", "/p", "GO")!.resume).to.equal(undefined);
+  });
+
   it("a $SHELL that is set still wins — the person's own shell, unchanged", () => {
     expect(agentLaunchSpec("shell", "/p", "GO", { SHELL: "/usr/bin/zsh" } as NodeJS.ProcessEnv, undefined, () => false)!.cmd).to.equal("/usr/bin/zsh");
   });
@@ -217,10 +233,11 @@ describe("gov-work — guided Work flow", () => {
     expect(agentLaunchSpec("cursor", "/p", "GO")).to.deep.equal({ cmd: "cursor-agent", args: ["GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
 
     // bob WAS the example of "unverified, so launch bare and hand the prompt back to be pasted".
-    // It is verified now — `bob --help` in a container on 2026-09-11: `-p, --prompt <prompt>
-    // Prompt to send to the agent`. The old expectation was correct discipline and a stale fact.
+    // `bob --help` in a container on 2026-09-11: `-p, --prompt <prompt>  Prompt to send to the agent`.
+    // That verified Bob ACCEPTS the flag, not what it does: a walk on 2026-09-21 showed `-p` is one-shot — it
+    // answers and exits — so the spec now also carries `resume` (asserted in its own test below).
     expect(agentLaunchSpec("ibm-bob", "/p", "GO"))
-      .to.deep.equal({ cmd: "bob", args: ["-p", "GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
+      .to.deep.include({ cmd: "bob", args: ["-p", "GO"], detached: false, promptArgvUsed: true, promptText: "GO" });
 
     // THE PASTE PATH IS STILL REACHABLE, and still the right answer where nobody has looked.
     // `aider` installs from PyPI, so the npm sweep that answered the others could not answer it.
