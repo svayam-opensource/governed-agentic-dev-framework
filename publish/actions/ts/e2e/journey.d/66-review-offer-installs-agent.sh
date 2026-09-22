@@ -106,3 +106,4 @@ ran "and the protocol itself is arg 2, not a paste instruction" "arg2=Run the se
 # THE LICENCE NOTE MUST NOT DEPEND ON HOW THE PROMPT TRAVELS. It lived inside the paste branch,
 # so wiring promptArgv silently removed it — a fix taking away an unrelated fix.
 saw "and it still warns about IBM Bob's own licence screen" "Press \`y\` to accept"
+saw "and about the folder-trust question that comes BEFORE it (PRJ-121 #11)" "Do you trust this folder?"

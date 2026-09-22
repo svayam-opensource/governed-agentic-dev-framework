@@ -23,6 +23,7 @@ import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
 import { verifyAgentContext } from "../lifecycle/root-protocol.js";
 import { credentialNotice, planCredentialWrites, credentialsPathFor, storedCredential, storeIsPrivate } from "./agent-credentials.js";
+import { snapshotGovernance } from "../lifecycle/governance-snapshot.js";
 import { signInOptions, signInPrompt, parseSignInChoice, afterSkip, apiKeyIntro, type SignInFacts, type SignInMethod } from "./sign-in-choice.js";
 import { askFns, type AskFns } from "./ask.js";
 import { reporter, useColor, wrap, type Reporter } from "./format.js";
@@ -555,8 +556,14 @@ function firstRunNote(agent: string): readonly string[] | null {
     // a viewer", read off Bob's own wording. It does not — on a machine with no desktop Enter
     // does nothing observable at all, which is worse than the note described and is the whole
     // reason someone sits there pressing it. Say only what was seen.
+    // THE TRUST QUESTION COMES FIRST, and the walk (PRJ-121 #11) met it unwarned. It is the person's security
+    // decision, so gov explains it and does NOT pass `--trust`. "Trust folder" is enough: the governing files
+    // are snapshotted INTO the project (governance-snapshot.ts), so nothing the protocol reads is outside it.
     return [
-      "On first run IBM Bob shows its licence screen. Press `y` to accept.",
+      "On first run IBM Bob asks \"Do you trust this folder?\" — your decision; gov does not answer it for you.",
+      "  1. Trust folder (this project) is all the session needs: the governing files are copied into it.",
+      "  Use ↑/↓ and Enter to choose. \"Don't trust\" stops Bob running the commands it suggests.",
+      "Then it shows its licence screen. Press `y` to accept.",
       "Enter appears to do nothing there — it is not the key that continues.",
     ];
   }
@@ -1380,6 +1387,19 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return false; }
       return await performAgentInstallReal(plan, ask);
     },
+    // THE GOVERNING FILES, COPIED FROM THE DEFAULT BRANCH INTO THE PROJECT (PRJ-121, 2026-09-22) — so an agent that
+    // sandboxes its reads to the project folder can read them. See lifecycle/governance-snapshot.ts.
+    snapshotGovernance: (projectDir: string) => snapshotGovernance({
+      git: (args) => { const r = spawnSync("git", [...args], { encoding: "utf8" }); return r.status === 0 ? r.stdout : null; },
+      write: (file, content, mode) => {
+        fsSync.mkdirSync(path.dirname(file), { recursive: true });
+        // Last launch's copy is read-only (0444): make it writable, replace it, then set the mode again.
+        try { fsSync.chmodSync(file, 0o644); } catch { /* not there yet */ }
+        fsSync.writeFileSync(file, content, "utf8");
+        fsSync.chmodSync(file, mode);
+      },
+      now: () => new Date(),
+    }, projectDir, config.workspaceRepo, config.defaultBranch || "main"),
     agentPreference: () => {
       const prefs = fs.readFile(path.join(config.agentWorkRoot, "preferences", `${me ?? ""}.md`));
       return /^\s*preferred_agent:\s*(\S+)/m.exec(prefs ?? "")?.[1] ?? null;

@@ -14,6 +14,7 @@ import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveProjectIdentity } from "../lifecycle/identity.js";
 import { deriveStatus } from "../lifecycle/state.js";
 import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
+import type { GovSnapshot } from "../lifecycle/governance-snapshot.js";
 import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines, type AgentCandidate } from "./agent-catalog.js";
 import { chooseAgent, choiceExplanation } from "./agent-choice.js";
 import { defaultAgent } from "../config/approved-agents.js";
@@ -70,6 +71,9 @@ export interface WorkFlowDeps {
    * everything that needs to ask borrows it.
    */
   readonly installAgent?: (id: string, ask: AskFns) => Promise<boolean> | boolean;
+  /** Copy the governing files from the default branch into `<project>/.gov/governance` (PRJ-121). Absent or
+   *  null → the prompt keeps its old paths. */
+  readonly snapshotGovernance?: (projectDir: string) => GovSnapshot | null;
   /** Fork mappings the last `seed` proposed, if any (#194). */
   readonly pendingRepoOverrides?: () => readonly { readonly from: string; readonly to: string }[];
   /** Record them in org-config.yaml. Returns whether anything was written. */
@@ -155,7 +159,7 @@ export function matchProjects<T extends { readonly projectId: string }>(items: r
 /** The kickoff prompt that makes a speak-first CLI agent run the session-start protocol immediately, before
  *  the user types anything (ports the bash prj `agent_session_start_prompt`). Paths are workspace-relative
  *  from the PROJECT ROOT (where the agent launches), so the agent reads the right files across repos. */
-export function sessionStartPrompt(projectId: string, workspaceRepo: string, govHome?: string): string {
+export function sessionStartPrompt(projectId: string, workspaceRepo: string, govHome?: string, snapshot?: GovSnapshot | null): string {
   const w = workspaceRepo;
   // GOVERNANCE FROM THE DEFAULT BRANCH, PROJECT PATHS FROM THE PROJECT BRANCH (POL-086a, C01).
   //
@@ -172,6 +176,20 @@ export function sessionStartPrompt(projectId: string, workspaceRepo: string, gov
   // `govHome` is the clone held on the default branch (~/.gov/<slug>/gov_repo). When a caller
   // cannot supply it the prompt falls back to the worktree copy rather than naming a path that
   // may not exist — a wrong-branch read is a governance defect, a missing path is a dead end.
+  //
+  // A SNAPSHOT INSIDE THE PROJECT WHEN THERE IS ONE (PRJ-121, 2026-09-22). `govHome` is outside the project
+  // folder, where an agent that sandboxes its reads cannot go — on a walk, Bob's `read_file` there failed and it
+  // fell back to `cat`. gov now copies the two files from the default branch into `<project>/.gov/governance`
+  // (see governance-snapshot.ts) and points here; the old paths remain the fallback when no snapshot was made.
+  if (snapshot) {
+    return `Run the session-start protocol for ${projectId} now, before I send anything else: `
+      + `read ${snapshot.dir}/org-config.yaml and ${snapshot.dir}/org-ai-agent-governance-policy.md — `
+      + `a read-only snapshot of ${snapshot.source}, the default branch, which is the only branch that governs `
+      + `(POL-086a); gov copied it into this project so you can read it here — then `
+      + `${w}/projects/${projectId}/agent.md and any "## Open" items from `
+      + `${w}/projects/${projectId}/knowledge/todo.md, which are the project branch's; `
+      + `then post the context manifest, naming ${snapshot.source} as the governance you read, and wait for my direction.`;
+  }
   const governance = govHome ?? w;
   return `Run the session-start protocol for ${projectId} now, before I send anything else: `
     + `read ${governance}/org-config.yaml and `
@@ -593,6 +611,9 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
   }
 
   ensureRootProtocol(deps.fs, projectDir, deps.config.workspaceRepo);   // so an agent launched at <project> runs session-start
+  // …and the governing files it must read, copied from the default branch into the project (PRJ-121).
+  const snap = deps.snapshotGovernance?.(projectDir) ?? null;
+  const kickoff = (): string => sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome, snap);
   print("");
   print(`  ✓ '${p.projectId}' is ready at:  ${projectDir}`);
   let agent: AgentKind | null = opts.agent ?? null;
@@ -661,7 +682,7 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
             // and Cursor to "shell", so an org whose default was Bob, codex, gemini, copilot or
             // aider was told its agent had started and handed a shell prompt.
             print(`  ✓ ${pick.tool} is ready. Starting it in ${projectDir}…`);
-            return await deps.launch(pick.id, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
+            return await deps.launch(pick.id, projectDir, kickoff());
           }
           // INSTALLED IS NOT READY (#200). `installAgent` now answers "can it run", so an agent
           // waiting on a key stops here instead of being announced as started. The project is made
@@ -670,18 +691,18 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
           print(`  The project is ready at ${projectDir}.`);
           print("");
           print(`  Opening a shell there. Type 'exit' to come back.`);
-          return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
+          return await deps.launch("shell", projectDir, kickoff());
         }
         // None chosen (or no valid answer in three tries): a shell, with the choice still open for later.
         print(`  No agent installed. Any of them is one command away:  gov agent install <${choices.map((s) => s.candidate.id).join(" | ")}>`);
         print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
-        return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
+        return await deps.launch("shell", projectDir, kickoff());
       }
 
       for (const line of nothingInstalledLines(installable(statuses, approved.ids), approved.usingDefaults)) print(line);
       print("");
       print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
-      return await deps.launch("shell", projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
+      return await deps.launch("shell", projectDir, kickoff());
     }
 
     // ORG DEFAULT → USER PREFERENCE → ASK (#196, Q9). Three layers already existed;
@@ -714,5 +735,5 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
   }
   if (!agent) { print(`  Later:  cd "${projectDir}" && claude "<session-start>"      # or your agent`); return 0; }
   print(`  Launching ${agent === "cursor-gui" ? "Cursor (GUI)" : agent} in ${projectDir}…`);
-  return await deps.launch(agent, projectDir, sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
+  return await deps.launch(agent, projectDir, kickoff());
 }
