@@ -17,11 +17,18 @@ export interface BoardSummary {
 export interface Projects {
   /** All Project boards for `owner` (open + closed). */
   listBoards(owner: string): BoardSummary[];
+  /** Why the most recent listBoards returned nothing because gh FAILED — null when it answered. An empty list
+   *  is two different facts ("no boards" vs "GitHub did not answer"); callers that tell a person which one
+   *  must ask (PRJ-121, 2026-09-22). */
+  lastFailure?(): string | null;
 }
 
 export function createGhProjects(runGh: RunGh): Projects {
+  let failure: string | null = null;
   return {
+    lastFailure: () => failure,
     listBoards(owner) {
+      failure = null;
       try {
         // `gh project list` is board METADATA only (no items) — it does NOT hit the org-wide
         // projectsV2×items query that 504s on large orgs. `--limit 1000` avoids the old `--limit 100`
@@ -34,7 +41,8 @@ export function createGhProjects(runGh: RunGh): Projects {
       } catch (e) {
         // Do NOT silently show "no projects" on a gh failure — surface WHY (a bad token/network looks
         // identical to "you have no projects" otherwise).
-        process.stderr.write(`  WARNING: couldn't list projects for '${owner}' — ${(e as Error).message}. Check \`gh auth status\` / network.\n`);
+        failure = (e as Error).message.split("\n").filter(Boolean).join(" — ");
+        process.stderr.write(`  WARNING: couldn't list projects for '${owner}' — ${failure}. Check \`gh auth status\` / network.\n`);
         return [];
       }
     },

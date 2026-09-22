@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { startablePage, myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
 import { AGENT_CATALOG } from "../../src/cli/agent-catalog.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
@@ -776,5 +776,71 @@ describe("gov-work — the session prompt reads governance from the default bran
     // stops the session. Neither is good, and the first at least proceeds.
     const p = sessionStartPrompt("PRJ-9-infra", "acme-gov");
     expect(p).to.contain("acme-gov/org-config.yaml");
+  });
+});
+
+
+// PRJ-121, 2026-09-22 — a local walk: pages of 11, then 1, then 7; every `m` re-ran a 10-second gh call; a
+// dropped connection was reported as "no projects"; and Work, promised as "continue the current project",
+// listed every project instead.
+describe("Work — paging, the board cache, an honest failure, the current project", () => {
+  // 40 boards; only every 4th is mine (anchored to rk), the rest belong to others — so a board-sized page
+  // would show a quarter of its size, varying.
+  const many = Array.from({ length: 40 }, (_, i) => ({ number: 100 - i, title: `P${100 - i}` }));
+  const mine = Object.fromEntries(many.filter((_, i) => i % 4 === 0).map((b) => [b.number, ["rk"]]));
+  const others = Object.fromEntries(many.filter((_, i) => i % 4 !== 0).map((b) => [b.number, ["someone-else"]]));
+
+  it("a page is FULL — `limit` of my projects, scanning as many boards as that takes", () => {
+    const { deps: d } = deps({ projects: projects(many), anchor: anchorFor({ ...mine, ...others }) });
+    const first = startablePage(d, 5, 0);
+    expect(first.items).to.have.length(5);
+    expect(first.more).to.equal(true);
+    const second = startablePage(d, 5, first.nextOffset);
+    expect(second.items).to.have.length(5);
+    expect(second.items[0]!.boardNumber, "no project skipped or repeated").to.be.lessThan(first.items[4]!.boardNumber);
+  });
+
+  it("the last page says there is no more", () => {
+    const { deps: d } = deps({ projects: projects(many), anchor: anchorFor({ ...mine, ...others }) });
+    const all = startablePage(d, 100, 0);
+    expect(all.items).to.have.length(10);
+    expect(all.more).to.equal(false);
+  });
+
+  it("the board list is fetched ONCE per flow, however many pages are shown", async () => {
+    let calls = 0;
+    const counted: Projects = { listBoards: (o) => { calls++; return projects(many).listBoards(o); } };
+    const answers = ["m", "m", "0"];
+    const { deps: d } = deps({ projects: counted, anchor: anchorFor({ ...mine, ...others }), prompt: async () => answers.shift() ?? "0" });
+    await runWorkFlow(d);
+    expect(calls).to.equal(1);
+  });
+
+  it("GitHub not answering is said as that — never 'no projects'", async () => {
+    const failing: Projects = { listBoards: () => [], lastFailure: () => "Command failed: gh project list … EOF" };
+    const { deps: d, out } = deps({ projects: failing });
+    const code = await runWorkFlow(d);
+    expect(code).to.equal(1);
+    expect(out.join("\n")).to.contain("Could not reach GitHub").and.not.contain("No active or startable projects");
+  });
+
+  it("an empty answer that DID come back is still 'no projects', without the retired Admin ▸ manage hint", async () => {
+    const { deps: d, out } = deps({ projects: projects([]) });
+    await runWorkFlow(d);
+    expect(out.join("\n")).to.contain("No active or startable projects").and.not.contain("Admin ▸ manage");
+  });
+
+  it("standing in a project, Work continues IT — no list", async () => {
+    const { deps: d, out } = deps({ prompt: async () => { throw new Error("should not ask for a project"); } });
+    await runWorkFlow(d, { currentProject: "PRJ-7-alpha", printPromptOnly: true });
+    const text = out.join("\n");
+    expect(text).to.contain("Continuing PRJ-7-alpha — the project you are in");
+    expect(text).to.not.contain("Select a project");
+  });
+
+  it("a named --project wins over the one you stand in", async () => {
+    const { deps: d, out } = deps({ projects: projects([{ number: 7, title: "Alpha" }, { number: 8, title: "Beta" }]), anchor: anchorFor({ 7: ["rk"], 8: ["rk"] }) });
+    await runWorkFlow(d, { currentProject: "PRJ-7-alpha", projectPattern: "beta", printPromptOnly: true });
+    expect(out.join("\n")).to.not.contain("Continuing PRJ-7-alpha");
   });
 });

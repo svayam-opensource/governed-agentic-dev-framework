@@ -118,7 +118,31 @@ export function mergeBoardPages(acc: BoardProject, next: BoardProject): BoardPro
   };
 }
 
-const defaultRunGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8" });
+/**
+ * ONE RETRY FOR A DROPPED CONNECTION (PRJ-121, 2026-09-22). On a walk, `gh project list --limit 1000` — a
+ * 10–12 s GraphQL call on this org — failed with gh's bare `EOF` (GitHub closed the connection mid-response),
+ * and gov reported "No active or startable projects for you". Run by hand it succeeded three times running.
+ * A transient transport failure earns one retry; anything else (auth, a bad argument, 404) fails at once,
+ * because repeating it only doubles the wait for the same answer.
+ */
+const TRANSIENT = /\bEOF\b|\b50[234]\b|timed? ?out|timeout|connection reset|ECONNRESET|TLS handshake|stream error/i;
+
+export function isTransientGhError(e: unknown): boolean {
+  const x = e as { message?: string; stderr?: string | Buffer };
+  return TRANSIENT.test(`${x?.message ?? ""}\n${x?.stderr?.toString() ?? ""}`);
+}
+
+export function retryTransient(run: RunGh, pauseMs = 1500): RunGh {
+  return (args) => {
+    try { return run(args); } catch (e) {
+      if (!isTransientGhError(e)) throw e;
+      if (pauseMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pauseMs);   // synchronous, like the call
+      return run(args);
+    }
+  };
+}
+
+const defaultRunGh: RunGh = retryTransient((args) => execFileSync("gh", args, { encoding: "utf8" }));
 
 /** A {@link Board} backed by the `gh` CLI. `runGh` is injectable for tests. */
 export function createGhBoard(runGh: RunGh = defaultRunGh): Board {

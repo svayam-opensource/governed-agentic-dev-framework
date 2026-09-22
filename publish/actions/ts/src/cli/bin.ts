@@ -5,15 +5,24 @@
 // Development Framework. It manages projects, workspaces and org registration, and shows the context
 // banner. It hosts NOTHING: `gov-cicd` (deploy) and `gov-infra` (infrastructure) are independent clients
 // invoked directly, not verbs of this one (adr-three-clients, PRJ-43).
-import { main, runSetupCommand, runWork, runAgentInstall, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines } from "./main.js";
+import { main, runSetupCommand, runWork, runAgentInstall, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines, isKnownCommand } from "./main.js";
 import { confirmContextOrBail } from "./context-gate.js";
+import { helpRequest } from "./help-request.js";
 
 const argv = process.argv.slice(2);
 
 async function dispatch(): Promise<number> {
   // Meta flags — no workspace/plugin/context needed (an adopter's first commands).
   if (argv[0] === "--version" || argv[0] === "-v") { process.stdout.write(`gov ${readCliVersion()}\n`); return 0; }
-  if ((argv[0] === "--help" || argv[0] === "-h") && argv.length === 1) { for (const l of helpLines()) process.stdout.write(`${l}\n`); return 0; }
+  // HELP NEVER ACTS (PRJ-121, 2026-09-22) — `gov help [<cmd>]`, and `--help`/`-h` ANYWHERE before a `--`.
+  // Answered here, before first-run, the banner and resolution: help needs no workspace and runs nothing.
+  // `gov merge -h` used to attempt a merge. An unknown command asked about is a usage error (exit 2).
+  const help = helpRequest(argv);
+  if (help) {
+    const known = !help.command || isKnownCommand(help.command);
+    for (const l of helpLines(help.command)) (known ? process.stdout : process.stderr).write(`${l}\n`);
+    return known ? 0 : 2;
+  }
 
   // FIRST RUN — before the banner, which would otherwise announce "no gov workspace resolved" and hand the
   // work back with two verbs to learn.

@@ -20,7 +20,7 @@ import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
 import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, PUBLISHER_ONLY_DIRS, INHERITED_DIRS, INHERITED_FILES, expectedDirs, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
-import { runWorkFlow, myProjects, agentLaunchSpec, type AgentKind } from "./work-flow.js";
+import { runWorkFlow, myProjects, agentLaunchSpec, projectFromPath, type AgentKind } from "./work-flow.js";
 import { verifyAgentContext } from "../lifecycle/root-protocol.js";
 import { credentialNotice, planCredentialWrites, credentialsPathFor, storedCredential, storeIsPrivate } from "./agent-credentials.js";
 import { snapshotGovernance } from "../lifecycle/governance-snapshot.js";
@@ -43,7 +43,7 @@ import { assembleNeeds } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
 import { createNodeFs } from "../lifecycle/fs-io.js";
 import { createGitVcs } from "../lifecycle/vcs.js";
-import { createGhBoard, type RunGh } from "../lifecycle/gh-board.js";
+import { createGhBoard, retryTransient, type RunGh } from "../lifecycle/gh-board.js";
 import { createGhIssues } from "../lifecycle/issues.js";
 import { createGhAnchor } from "../lifecycle/anchor.js";
 import { createGhPulls } from "../lifecycle/pulls.js";
@@ -1348,7 +1348,7 @@ export async function gatherMenuContext(): Promise<MenuContext> {
 function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0], "ask"> | null {
   const fs = createNodeFs();
   const env = createNodeEnv();
-  const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const runGh: RunGh = retryTransient((args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
   const resolved = prjResolveGov(env);
   if (!resolved.ok) return null;
   const cfgPath = path.join(resolved.home, "org-config.yaml");
@@ -1719,6 +1719,7 @@ export async function runWork(argv: readonly string[]): Promise<number> {
   const positional = argv.slice(1).find((a) => !a.startsWith("--"));
   const pattern = flagOf("project") ?? positional;
   const agent = flagOf("agent");
+  const current = projectFromPath(deps.config.agentWorkRoot, process.cwd(), path.sep);
   const interactive = process.stdin.isTTY === true;
   // Prompts and progress go to STDERR; stdout is reserved for `--print-prompt`'s single line.
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
@@ -1729,6 +1730,8 @@ export async function runWork(argv: readonly string[]): Promise<number> {
     {
       ...(pattern ? { projectPattern: pattern } : {}),
       ...(agent ? { agent: agent as AgentKind } : {}),
+      // Standing in a project → continue it, unless a project was named (a walk, 2026-09-22).
+      ...(!pattern && current ? { currentProject: current } : {}),
       seedOk: argv.includes("--seed"),
       printPromptOnly: argv.includes("--print-prompt"),
       interactive,
@@ -1778,6 +1781,8 @@ const CMD_DESC: Record<string, string> = {
   doctor: "Diagnose this machine: git · gh · workspace · active org · versions",
   issue: "Create an issue — assigned to you, on the board. `--from <url>` mirrors an upstream one",
   agent: "Which AI agents your org approves, what is installed, and how to add one",
+  setup: "Set up this machine for an organization — the first `gov` run does this for you",
+  deps: "Check the tools gov needs (git, gh, Node) — also part of `gov doctor`",
   upgrade: "Pull the latest framework CONTENT into this org (not the CLI — that is `npm i -g`)", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
 };
 const CMD_USAGE: Record<string, string> = {
@@ -1789,14 +1794,17 @@ const CMD_USAGE: Record<string, string> = {
   upgrade: "[--ref <branch>] [--from <dir>] [--apply]", "bump-version": "<x.y.z>",
 };
 
-/** All commands in reference order (for the Help → "help for one command" picker). */
+/** All commands in reference order. */
 export const helpCommandNames = (): string[] => Object.values(HELP_GROUPS).flat();
+
+/** A command gov actually has — documented or not. `gov help <x>` for anything else is a usage error. */
+export const isKnownCommand = (c: string): boolean => c in CMD_DESC || helpCommandNames().includes(c);
 
 /** The command reference shown under the Help menu (git-help style), or per-command help. */
 export function helpLines(command?: string): string[] {
   if (command) {
     const desc = CMD_DESC[command];
-    if (!desc) return ["", `  Unknown command '${command}'. Run \`gov help\` for the reference.`, ""];
+    if (!desc) return ["", `  gov: no command '${command}'. \`gov help\` lists them.`, ""];
     const out = ["", `  gov ${command} — ${desc}.`];
     if (CMD_USAGE[command]) out.push(`  usage: gov ${command} ${CMD_USAGE[command]}`);
     out.push("");
@@ -1831,7 +1839,9 @@ export async function runMainMenu(): Promise<number> {
       // The MENU owns the reader here, and it stays open for the whole loop — which is why a
       // second one inside the agent install lost the race on a real walk while the direct
       // `gov work` path happened to survive it. Whoever owns the terminal does the asking.
-      return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print, ask: io.ask });
+      // PROJECT context → Work continues THIS project, as the menu line says (a walk, 2026-09-22).
+      return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print, ask: io.ask },
+        ctx.mode === "project" && ctx.project ? { currentProject: ctx.project } : {});
     },
     switchOrg: (org) => runAny(["org", "use", org]),
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
@@ -2371,7 +2381,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
 
   // Capture (don't inherit) stderr so best-effort gh failures — e.g. an
   // unsupported board op — don't spew gh's usage text to the terminal.
-  const runGh: RunGh = (args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const runGh: RunGh = retryTransient((args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
   const vcs = createGitVcs();
   const seededBy = tryRun("git", ["-C", home, "config", "user.email"]) ?? "";
   const name = tryRun("git", ["-C", home, "config", "user.name"]);

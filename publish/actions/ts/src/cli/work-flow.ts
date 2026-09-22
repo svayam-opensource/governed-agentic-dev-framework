@@ -13,6 +13,7 @@ import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveProjectIdentity } from "../lifecycle/identity.js";
 import { deriveStatus } from "../lifecycle/state.js";
+import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
 import type { GovSnapshot } from "../lifecycle/governance-snapshot.js";
 import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines, type AgentCandidate } from "./agent-catalog.js";
@@ -142,6 +143,10 @@ export interface WorkFlowOpts {
   /** false when there is no TTY: an unresolved choice must then FAIL naming the flag that would resolve it,
    *  because there is nobody to ask. */
   readonly interactive?: boolean;
+  /** The project the person is STANDING IN (cwd under the work root), when no `--project` was given. The menu
+   *  says "Continue the current project" in PROJECT context; the flow used to list every project anyway
+   *  (a walk, 2026-09-22). With this set, Work goes straight to it. */
+  readonly currentProject?: string;
 }
 
 /**
@@ -440,27 +445,68 @@ export function workspaceState(deps: WorkFlowDeps, p: WorkProject): WorkspaceSta
  *  boards (writable, un-anchored → "not started"). Paginates over BOARDS and resolves the expensive per-board
  *  `canWriteBoard` ONLY for the page (like manageList) — a large org never means a long wait. `totalBoards`
  *  is the full non-closed count (for the "more" affordance). */
-export function startablePage(deps: WorkFlowDeps, limit: number, offset: number): { items: WorkProject[]; totalBoards: number } {
-  if (!deps.me) return { items: [], totalBoards: 0 };
+/**
+ * ONE PAGE OF *YOUR* PROJECTS — `limit` of them, scanning boards from `offset` until the page is full.
+ *
+ * It used to page over BOARDS (15 at a time) and then drop the ones not yours, so a page showed whatever
+ * survived: 11, then 1, then 7 on a walk (PRJ-121, 2026-09-22). Paging is now over what is SHOWN; `nextOffset`
+ * is the board to resume from, and `more` whether any are left to scan.
+ */
+export function startablePage(deps: WorkFlowDeps, limit: number, offset: number): { items: WorkProject[]; nextOffset: number; more: boolean; totalBoards: number } {
+  if (!deps.me) return { items: [], nextOffset: 0, more: false, totalBoards: 0 };
   const ownerField = deps.config.ownerField ?? "organization";
   const allAnchors = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo);
   const boards = deps.projects.listBoards(deps.config.githubOrg).filter((b) => !b.closed).sort((a, b) => b.number - a.number);
   const items: WorkProject[] = [];
-  for (const b of boards.slice(offset, offset + limit)) {
+  let i = offset;
+  for (; i < boards.length && items.length < limit; i++) {
+    const b = boards[i]!;
     const a = allAnchors ? allAnchors.get(b.number) ?? null : deps.anchor.find({ owner: deps.config.githubOrg, ownerField, number: b.number }, deps.config.workspaceRepo);
     const id = deriveProjectIdentity({ url: b.url, title: b.title });
     const projectId = id.ok ? id.projectId : `PRJ-${b.number}`;
     if (a && a.assignees.includes(deps.me)) items.push({ boardNumber: b.number, title: b.title, url: b.url, status: deriveStatus(!b.closed, a.labels), projectId });
     else if (!a && deps.canWriteBoard(b.number)) items.push({ boardNumber: b.number, title: b.title, url: b.url, status: NOT_STARTED, projectId });
   }
-  return { items, totalBoards: boards.length };
+  return { items, nextOffset: i, more: i < boards.length, totalBoards: boards.length };
+}
+
+/**
+ * The board list and the anchors, fetched ONCE per flow. Every page (and every `m`) re-ran `gh project list`
+ * — 10–12 s on this org — and the org-wide anchor search. Nothing they return changes while a person reads a
+ * page, so the flow asks once and pages over the answer.
+ */
+function withBoardCache(deps: WorkFlowDeps): WorkFlowDeps {
+  const boards = new Map<string, ReturnType<Projects["listBoards"]>>();
+  const anchors = new Map<string, ReturnType<NonNullable<WorkFlowDeps["anchor"]["findAll"]>>>();
+  const projects: Projects = {
+    ...deps.projects,
+    listBoards: (owner) => {
+      if (!boards.has(owner)) {
+        const got = deps.projects.listBoards(owner);
+        if (deps.projects.lastFailure?.()) return got;          // never cache a failure — the next ask retries
+        boards.set(owner, got);
+      }
+      return boards.get(owner)!;
+    },
+    ...(deps.projects.lastFailure ? { lastFailure: () => deps.projects.lastFailure!() } : {}),
+  };
+  const findAll = deps.anchor.findAll;
+  const anchor = findAll
+    ? { ...deps.anchor, findAll: (org: string, repo: string) => {
+        const k = `${org}/${repo}`;
+        if (!anchors.has(k)) anchors.set(k, findAll.call(deps.anchor, org, repo));
+        return anchors.get(k)!;
+      } }
+    : deps.anchor;
+  return { ...deps, projects, anchor } as WorkFlowDeps;
 }
 
 // `ensureRootProtocol` (imported above) lives in a leaf lifecycle module so BOTH `seed` and this Work flow use
 // it (no cli→lifecycle cycle). Re-exported so existing importers/tests keep resolving it here.
 export { ensureRootProtocol };
 
-export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): Promise<number> {
+export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}): Promise<number> {
+  const deps = withBoardCache(rawDeps);
   const { print } = deps;
   const PAGE = 15;
   const interactive = opts.interactive ?? true;
@@ -472,12 +518,30 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
   // no TTY, list them and stop — a script must not be given a project it did not name); none is an error
   // that shows what WAS available, because "no match" without the candidate list is a dead end.
   let picked: WorkProject | null = null;
-  if (opts.projectPattern) {
+  // ── the project you are standing in ──────────────────────────────────────────────────────────────
+  // The menu promises "Continue the current project" in PROJECT context; the flow used to list every project
+  // (a walk, 2026-09-22). Resolved from the board list gov fetches anyway — no extra call. If the board is
+  // gone or closed, fall through to the list rather than guess.
+  if (!opts.projectPattern && opts.currentProject) {
+    const n = boardNumberFromProjectId(opts.currentProject);
+    const b = n === null ? undefined : deps.projects.listBoards(deps.config.githubOrg).find((x) => x.number === n && !x.closed);
+    if (b) {
+      const a = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo)?.get(b.number)
+        ?? deps.anchor.find({ owner: deps.config.githubOrg, ownerField: deps.config.ownerField ?? "organization", number: b.number }, deps.config.workspaceRepo);
+      picked = { boardNumber: b.number, title: b.title, url: b.url, status: a ? deriveStatus(true, a.labels) : NOT_STARTED, projectId: opts.currentProject };
+      print(`  Continuing ${opts.currentProject} — the project you are in.`);
+      print("  (Another one: `gov work --project=<pattern>`, or run gov from outside this project.)");
+    }
+  }
+  if (picked) {
+    // resolved above — skip the pattern and the list
+  } else if (opts.projectPattern) {
     const all: WorkProject[] = [];
-    for (let off = 0; ; off += PAGE) {
-      const { items, totalBoards } = startablePage(deps, PAGE, off);
+    for (let off = 0; ;) {
+      const { items, nextOffset, more } = startablePage(deps, PAGE, off);
       all.push(...items);
-      if (off + PAGE >= totalBoards) break;
+      if (!more) break;
+      off = nextOffset;
     }
     const hits = matchProjects(all, opts.projectPattern);
     if (hits.length === 0) {
@@ -510,11 +574,18 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
   let offset = 0;
   while (!p) {
     print("  ⏳ Finding your projects — assigned + boards you can start…");
-    const { items, totalBoards } = startablePage(deps, PAGE, offset);
-    const more = offset + PAGE < totalBoards;
+    const { items, nextOffset, more } = startablePage(deps, PAGE, offset);
     if (items.length === 0 && offset === 0 && !more) {
+      // "GitHub did not answer" is not "you have no projects" (a walk, 2026-09-22: gh's `EOF` was reported as
+      // the second). Say which, and give the remedy for THAT one.
+      const failed = deps.projects.lastFailure?.();
+      if (failed) {
+        print("  Could not reach GitHub to list your projects — nothing is wrong with your projects.");
+        print("  Try again in a moment; if it keeps failing, check `gh auth status` and your network.");
+        return 1;
+      }
       print(`  No active or startable projects for you${deps.me ? ` (${deps.me})` : ""}.`);
-      print("  Create a GitHub Project board (or get assigned via Admin ▸ manage), then retry.");
+      print("  Ask a project owner to assign you, or create a GitHub Project board for a new one, then retry.");
       return 0;
     }
     print("");
@@ -525,7 +596,7 @@ export async function runWorkFlow(deps: WorkFlowDeps, opts: WorkFlowOpts = {}): 
     print("     0) back");
     const sel = (await deps.prompt("  Choose: ")).trim().toLowerCase();
     if (sel === "0" || sel === "") return 0;
-    if (sel === "m" && more) { offset += PAGE; continue; }
+    if (sel === "m" && more) { offset = nextOffset; continue; }
     const idx = Number(sel) - 1;
     p = Number.isInteger(idx) && idx >= 0 && idx < items.length ? items[idx] : null;
     if (!p) print("  unknown choice");
