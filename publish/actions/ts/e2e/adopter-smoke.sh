@@ -36,7 +36,17 @@ exit 0
 GH
 chmod +x "$BIN/gov" "$BIN/gh"
 export PATH="$BIN:$PATH"
-export XDG_CONFIG_HOME="$WORK/config"   # isolate the registry from the real machine
+# ISOLATE THE REGISTRY FROM THE REAL MACHINE — by HOME, not only XDG_CONFIG_HOME (PRJ-121, 2026-09-22).
+# The registry moved to `~/.gov/{workspaces,active}` (R10, home-relative on purpose), and this line kept
+# isolating only the OLD location. Every smoke run registered `adopter-org` in the developer's real
+# `~/.gov` and made it the ACTIVE org, pointing at a temp dir deleted on exit — so their next `gov` said
+# "no organization set up" with two registered, and hid Admin → org, the one way out.
+REAL_GOV_ACTIVE="$HOME/.gov/active"; REAL_BEFORE="$(cat "$REAL_GOV_ACTIVE" 2>/dev/null || true)"
+export HOME="$WORK/home"; mkdir -p "$HOME"
+export XDG_CONFIG_HOME="$WORK/config"
+# No ~/.gitconfig in a fresh HOME: give the fragments' commits an identity, without touching any config.
+export GIT_AUTHOR_NAME=adopter-bot GIT_AUTHOR_EMAIL=adopter-bot@example.invalid
+export GIT_COMMITTER_NAME=adopter-bot GIT_COMMITTER_EMAIL=adopter-bot@example.invalid
 WS="$WORK/adopter-gov"                  # fragments build this up (10-… creates, 20-… setup, …)
 export WORK BIN WS CONTENT_DIR TS_DIR
 
@@ -47,6 +57,11 @@ for f in "$HERE"/smoke.d/*.sh; do
   source "$f"
 done
 shopt -u nullglob
+
+step "hermetic — the developer's real registry was not touched"
+REAL_AFTER="$(cat "$REAL_GOV_ACTIVE" 2>/dev/null || true)"
+[ "$REAL_AFTER" = "$REAL_BEFORE" ] && pass "real ~/.gov/active unchanged (${REAL_BEFORE:-none})" \
+  || fail "real ~/.gov/active changed: '${REAL_BEFORE:-none}' → '${REAL_AFTER:-none}'"
 
 printf '\n\033[1m═══ adopter-smoke (hermetic): %d passed, %d failed ═══\033[0m\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
