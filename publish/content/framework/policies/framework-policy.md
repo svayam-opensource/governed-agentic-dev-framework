@@ -242,16 +242,16 @@ After a reassignment, the new assignee must run `gov resume` before beginning an
 
 ### 5.1 Central Workspace Repository
 
-`<WORKSPACE_REPO>` is the organization-wide central workspace repository. It is not a code repository. It contains organizational knowledge and the workspace folder for every project; project state itself is derived from GitHub, not stored here. **(POL-056)**
+`<ORG_GOV_REPO>` is the organization-wide central workspace repository. It is not a code repository. It contains organizational knowledge and the workspace folder for every project; project state itself is derived from GitHub, not stored here. **(POL-056)**
 
-`<WORKSPACE_REPO>` is always an implicit participant in every project. It does not need to be — and must not be — listed among a project's linked code repos. **(POL-057)**
+`<ORG_GOV_REPO>` is always an implicit participant in every project. It does not need to be — and must not be — listed among a project's linked code repos. **(POL-057)**
 
 ### 5.2 Repository Structure
 
-The `<WORKSPACE_REPO>` repository is organized as follows:
+The `<ORG_GOV_REPO>` repository is organized as follows:
 
 ```
-<WORKSPACE_REPO>/
+<ORG_GOV_REPO>/
 ├── CODEOWNERS                       # maps knowledge/ to domain owners
 ├── agent.md                         # org-level agent entry point
 ├── knowledge/                       # org-wide knowledge (see Section 6)
@@ -263,7 +263,7 @@ The `<WORKSPACE_REPO>` repository is organized as follows:
         └── agent.md                 # project agent entry point
 ```
 
-This structure must be maintained exactly. Agents must not create files or folders outside this structure within `<WORKSPACE_REPO>`. **(POL-058)**
+This structure must be maintained exactly. Agents must not create files or folders outside this structure within `<ORG_GOV_REPO>`. **(POL-058)**
 
 ### 5.3 Project State (Derived from GitHub)
 
@@ -294,13 +294,13 @@ The following are **C01** (non-negotiable) requirements:
 
 The following are **C02** requirements:
 
-- Each linked Issue or PR must belong to an identifiable repository. (Exception allowed only when a project targets `<WORKSPACE_REPO>` exclusively.) **(POL-064)**
+- Each linked Issue or PR must belong to an identifiable repository. (Exception allowed only when a project targets `<ORG_GOV_REPO>` exclusively.) **(POL-064)**
 - The GitHub Project must have a description. **(POL-065)**
 - At least one linked Issue must mark the project's scope or goals. **(POL-066)**
 
 ### 5.5 Branching Standards
 
-**`<WORKSPACE_REPO>` branching**: All project work in `<WORKSPACE_REPO>` must branch from `<DEFAULT_BRANCH>` and merge back to `<DEFAULT_BRANCH>`. **(POL-067)**
+**`<ORG_GOV_REPO>` branching**: All project work in `<ORG_GOV_REPO>` must branch from `<DEFAULT_BRANCH>` and merge back to `<DEFAULT_BRANCH>`. **(POL-067)**
 
 **Code repository branching**: The default base branch for code repositories is `dev`. This may be overridden at seed time (for example, to target a production hotfix branch) by specifying a different base branch when running `gov seed`. **(POL-068)**
 
@@ -330,8 +330,8 @@ Organizational knowledge is organized in four layers. When conflicts arise betwe
 
 The layers in descending order of authority are:
 
-1. **Org-wide knowledge** — `<WORKSPACE_REPO>/knowledge/` — highest authority. **(POL-077)**
-2. **Project knowledge** — `<WORKSPACE_REPO>/projects/PRJ-<board#>-<slug>/knowledge/` — second priority. **(POL-078)**
+1. **Org-wide knowledge** — `<ORG_GOV_REPO>/knowledge/` — highest authority. **(POL-077)**
+2. **Project knowledge** — `<ORG_GOV_REPO>/projects/PRJ-<board#>-<slug>/knowledge/` — second priority. **(POL-078)**
 3. **Repo-local knowledge** — `<repo>/knowledge/` — third priority. **(POL-079)**
 4. **Developer/agent preferences** — `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` — lowest priority. Per-user, keyed on GitHub login; an agent reads only the file matching its current GitHub identity. **(POL-080)**
 
@@ -339,7 +339,7 @@ Developer preferences cannot override repo-local knowledge. Repo-local knowledge
 
 ### 6.2 Org-Wide Knowledge Structure
 
-The `<WORKSPACE_REPO>/knowledge/` folder is organized as follows:
+The `<ORG_GOV_REPO>/knowledge/` folder is organized as follows:
 
 ```
 knowledge/
@@ -362,7 +362,7 @@ knowledge/
 
 **(POL-082)**
 
-The `CODEOWNERS` file in `<WORKSPACE_REPO>` maps each folder in `knowledge/` to its domain owner. Agents and CI/CD pipelines rely on `CODEOWNERS` to determine who must review and approve PRs affecting each knowledge domain. **(POL-083)**
+The `CODEOWNERS` file in `<ORG_GOV_REPO>` maps each folder in `knowledge/` to its domain owner. Agents and CI/CD pipelines rely on `CODEOWNERS` to determine who must review and approve PRs affecting each knowledge domain. **(POL-083)**
 
 ### 6.3 Repo-Local Knowledge Structure
 
@@ -385,7 +385,7 @@ This structure is initialized by `gov onboard`. Repositories that have not been 
 
 ### 6.4 Governance Authority & Project-Branch Proposals
 
-**(a) Governance is sourced from `<DEFAULT_BRANCH>`.** Every agent's and developer's actions must be governed by org-approved knowledge and policy as recorded on the **`<DEFAULT_BRANCH>` branch** of `<WORKSPACE_REPO>`. The session-start protocol and all governing context — org-wide `knowledge/`, `agent/session-protocol.md`, and `policies/` — must be built, and rebuilt each session, from **`<DEFAULT_BRANCH>`**, never from a project branch. Project-specific working context (`projects/PRJ-<board#>-<slug>/…`) is read from the active **project branch**. **(C01, POL-086a)**
+**(a) Governance is sourced from `<DEFAULT_BRANCH>`.** Every agent's and developer's actions must be governed by org-approved knowledge and policy as recorded on the **`<DEFAULT_BRANCH>` branch** of `<ORG_GOV_REPO>`. The session-start protocol and all governing context — org-wide `knowledge/`, `agent/session-protocol.md`, and `policies/` — must be built, and rebuilt each session, from **`<DEFAULT_BRANCH>`**, never from a project branch. Project-specific working context (`projects/PRJ-<board#>-<slug>/…`) is read from the active **project branch**. **(C01, POL-086a)**
 
 **(b) Project work is recorded on the project branch — including `knowledge/`.** All project work is committed to the governance repo's **project branch** and may touch any path, **including org `knowledge/`**. Edits to org `knowledge/` on a project branch are **proposals with no governing force**; per (a), only `<DEFAULT_BRANCH>`'s `knowledge/` governs. An agent must not treat a project branch's own unratified `knowledge/` edits as authority (no self-governing). **(C01, POL-086b)**
 
@@ -404,7 +404,7 @@ Project knowledge is intentionally free-form. There is no required structural co
 When a project is completed, accumulated project knowledge is synthesized and proposed for inclusion in org-wide knowledge through the knowledge close process. The steps are:
 
 1. **Pre-close consolidation**: The developer or agent consolidates all project learnings, decisions, and artifacts into `projects/PRJ-<board#>-<slug>/knowledge/`. **(POL-089)**
-2. **Knowledge-close step**: The knowledge-close step of `gov close` runs. It uses LLM+RAG synthesis to map project knowledge to proposed changes in org-wide knowledge. **(POL-090)**
+2. **Knowledge-close step**: The knowledge-close step of `gov close` runs. It gates on the project's knowledge being complete, then proposes the project's own files for promotion into org-wide knowledge. **(POL-090)**
 3. **Branch creation**: It creates a `BRNCH-<board#>-<slug>-knowledge` branch from `<DEFAULT_BRANCH>`. **(POL-091)**
 4. **PR creation**: It proposes changes to `knowledge/` on that branch and raises a PR. CODEOWNERS automatically assigns the appropriate domain owners as reviewers. **(POL-092)**
 5. **Review**: The Policy Owner and relevant domain owners review the proposed changes and either merge, reject, request revision, or allow abandonment. **(POL-093)**
@@ -426,13 +426,13 @@ If a code defect or issue is discovered after a project has been completed, it m
 
 ### 6.8 Knowledge Publication
 
-On every merge to `<DEFAULT_BRANCH>` in `<WORKSPACE_REPO>`, the CI/CD pipeline automatically generates and publishes knowledge in three forms **(C02, POL-100)**:
+> **This is your organization's decision, not the framework's.** The clauses keep their numbers; what they
+> say is in `policies/knowledge-publication.md`, which gov seeds once and never overwrites.
 
-1. **Static site**: An internal-only website, accessible only behind authentication, intended for developers, governance teams, and audit teams. **(POL-101)**
-2. **PDF exports**: Downloadable PDF versions of all knowledge documents, available through the static site, intended for regulators and external auditors. **(POL-102)**
-3. **Vector embeddings (RAG)**: Changed files are re-embedded into the organizational vector store, providing agents with up-to-date context for retrieval-augmented generation. Only changed files are re-embedded. **(POL-103)**
-
-All three publication forms are generated from the same markdown source. **(POL-104)**
+An organization MAY publish its knowledge. If it does, every form is generated from the same markdown
+source and access follows its own rules. `knowledge_publication` in `org-config.yaml` records the choice
+(`none` by default); gov itself provides local search over the markdown every machine already has.
+**(POL-100 … POL-104 — see `policies/knowledge-publication.md`)**
 
 ### 6.9 Standalone Knowledge Operations
 
@@ -441,13 +441,13 @@ Two `gov-work` subcommands support knowledge updates outside any active project 
 - **`gov knowledge`**: Allows any authorized contributor to propose ad-hoc changes to org-wide knowledge. It raises a PR via CODEOWNERS for domain owner review. **(POL-105)**
 - **`gov onboard`**: Initializes the `knowledge/` folder structure in an existing code repository. It raises a PR via CODEOWNERS. **(POL-106)**
 
-### 6.10 Quarterly Compliance Review
+### 6.10 Compliance Review
 
-The Policy Owner must review the org-level compliance summary in `knowledge/compliance/` on a quarterly basis **(C02, POL-107)**. This review must assess whether C01 violations have been surfaced, C02 exceptions are being used appropriately, and C03 deviations are being documented.
+> **This is your organization's decision, not the framework's.** The clauses keep their numbers; what they
+> say is in `policies/compliance-review.md`, which gov seeds once and never overwrites.
 
-Per-project `compliance.md` files feed into the org-level compliance summary. **(POL-108)**
-
-Critical C01 violations escalate to the Policy Owner immediately, regardless of the quarterly review cadence. **(POL-109)**
+An organization reviews its own compliance on a cadence it sets, and escalates C01 violations immediately,
+whatever that cadence is. **(POL-107 … POL-109 — see `policies/compliance-review.md`)**
 
 ### 6.11 Org Knowledge Update Proposals
 
@@ -585,7 +585,7 @@ Before performing any work whatsoever, an agent must complete all of the followi
 1. **Verify authorization & task ownership**: Confirm the current user is authorized — they have **write access to the project's linked GitHub Project** (`projectV2.viewerCanUpdate`). When working on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is the current user (per-task lock). If authorization fails, the agent must refuse to proceed and surface this to the human immediately. (Running `gov seed` is an audit record, not a gate.) **(POL-114)**
 2. **Verify project status**: Confirm the project's GitHub board is **open** (active). Any other state — the board closed (done), or the project paused or cancelled — requires the agent to refuse and surface to the human. **(POL-115)**
 3. **Load knowledge layers fresh**: Load all four knowledge layers in priority order from their current state in the repository. Knowledge layers must never be used from a previous session's cache across session boundaries. The load order is: **(POL-116)**
-   - `<WORKSPACE_REPO>/knowledge/` (org-wide, from `<DEFAULT_BRANCH>`)
+   - `<ORG_GOV_REPO>/knowledge/` (org-wide, from `<DEFAULT_BRANCH>`)
    - `projects/PRJ-<board#>-<slug>/knowledge/` (project knowledge)
    - `<cloned-repos>/knowledge/` (repo-local, from project branch)
    - `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` (your own developer preferences only)
@@ -656,22 +656,31 @@ Using a prohibited LLM provider — one not listed in `org-config.yaml (authoriz
 
 ### 7.6 Data Classification
 
-All data handled by agents is classified under one of four categories. Agents must apply classification rules without exception. **(POL-139)**
+> **This is your organization's decision, not the framework's.** The clauses keep their numbers; what they
+> say is in `policies/data-classification.md`, which gov seeds once and never overwrites.
 
-| Classification | Description | Allowed in Knowledge Base |
-|---|---|---|
-| **Public** | Information intended for public audiences | Yes **(POL-140)** |
-| **Internal** | Internal organizational information | Yes **(POL-141)** |
-| **Confidential** | Sensitive business information | Only with explicit C02 approval **(POL-142)** |
-| **Restricted** | Credentials, secrets, PII, API keys, tokens | Never **(C01, POL-143)** |
-
-Restricted data must never appear in any knowledge folder, any repository, or in any communication with any LLM provider. **(POL-144)**
-
-An agent that detects restricted data in any repository context must immediately hard stop and escalate to the Policy Owner. **(POL-145)**
+An organization defines the kinds of data it handles and what may be written down. One rule is the
+framework's and is not a choice: whatever an organization calls its most sensitive tier, that data never
+reaches a log, a knowledge folder, a repository, or an LLM provider, at any level, through any transport
+**(C01, POL-143, POL-427)**. An agent that finds it hard stops and escalates. **(POL-139 … POL-145 — see
+`policies/data-classification.md`)**
 
 ---
 
 ## 8. Compliance & Enforcement
+
+### 8.0 What May Tighten, and What May Relax
+
+The framework's policies — this document and everything under `framework/` — are replaced on every upgrade.
+An organization does not edit them; it works alongside them:
+
+- **`policies/`** holds the organization's own decisions. gov seeds each file once and never overwrites it.
+- **Org knowledge (`knowledge/`) may TIGHTEN what this policy requires, and may never relax it.** A stricter
+  rule needs no exception; it is the organization being stricter with itself. **(POL-145a)**
+- **Relaxing a C02 or C03 rule is only by an approved exception** in `policies/exceptions/<domain>/`, written
+  from the form in `framework/templates/exceptions/`. **C01 is never relaxed, by anyone.** **(POL-145b)**
+
+---
 
 ### 8.1 Enforcement Layers
 
@@ -681,7 +690,7 @@ Compliance is enforced through three complementary layers. All three are require
 
 **Layer 2 — Command Gates**: The lifecycle commands (`gov seed`, `gov close`, `gov resume`, `gov cancel`, `gov pause`, `gov add-repo`) validate required conditions before executing. Hard blocks are applied on C01 condition failures. Warnings are issued on C02 condition gaps. These gates must never be bypassed. **(POL-147)**
 
-**Layer 3 — CI/CD Checks**: The `<WORKSPACE_REPO>` CI/CD pipeline validates every PR to `<DEFAULT_BRANCH>` on the following criteria: **(POL-148)**
+**Layer 3 — CI/CD Checks**: The `<ORG_GOV_REPO>` CI/CD pipeline validates every PR to `<DEFAULT_BRANCH>` on the following criteria: **(POL-148)**
 
 - **POL-408 front-matter** on every org and project knowledge document (`domain`, `layer`, `owner`, `compliance`, `status`)
 - **Link integrity** across `knowledge/` — no broken relative links
@@ -731,48 +740,22 @@ An exception request file must document at minimum: the specific C02 rule being 
 
 ### 9.3 Authorized Representatives
 
-The following individuals are authorized to approve exceptions in their respective domains. Until domain owners are appointed, all exception approvals fall to the Policy Owner. **(POL-157)**
+> **This is your organization's decision, not the framework's.** The clauses keep their numbers; what they
+> say is in `policies/authorized-representatives.md`, which gov seeds once and never overwrites.
 
-| Domain | Authorized Approver | Current Holder |
-|---|---|---|
-| Legal exceptions | Legal Owner | <POLICY_OWNER_EMAIL> (until Legal Owner appointed) |
-| Infrastructure exceptions | Infrastructure Owner | <POLICY_OWNER_EMAIL> (until Infrastructure Owner appointed) |
-| Architecture exceptions | System/Data Architecture Owner | <POLICY_OWNER_EMAIL> (until Architecture Owners appointed) |
-| Policy exceptions | Policy Owner | <POLICY_OWNER_EMAIL> |
-
-**(POL-158)**
+Who may approve an exception, by domain, is the organization's to say. Until it appoints owners, every
+approval falls to the Policy Owner. **(POL-157, POL-158 — see `policies/authorized-representatives.md`)**
 
 ---
 
 ## 10. Policy Domains
 
-### 10.1 Infrastructure Policy
+> **This is your organization's decision, not the framework's.** The clauses keep their numbers; what they
+> say is in `policies/policy-domains.md`, which gov seeds once and never overwrites.
 
-**Status:** Pending — Infrastructure Owner to populate via `gov knowledge`.
-**Owner:** TBD (Infrastructure Owner). Until filled, Policy Owner holds authority.
-
-The Infrastructure Policy will govern CI/CD pipeline standards, hosting platform requirements, vector store configuration, authentication and authorization requirements, and LLM provider governance. Once published, it will be the authoritative reference for all infrastructure decisions. **(POL-159)**
-
-### 10.2 System Architecture Policy
-
-**Status:** Pending — System Architecture Owner to populate via `gov knowledge`.
-**Owner:** TBD (System Architecture Owner). Until filled, Policy Owner holds authority.
-
-The System Architecture Policy will govern system design standards, API contract requirements, inter-service communication patterns, and architectural decision-making processes. **(POL-160)**
-
-### 10.3 Data Architecture Policy
-
-**Status:** Pending — Data Architecture Owner to populate via `gov knowledge`.
-**Owner:** TBD (Data Architecture Owner). Until filled, Policy Owner holds authority.
-
-The Data Architecture Policy will govern data modeling standards, data pipeline architecture, data residency and sovereignty requirements, and data governance processes. **(POL-161)**
-
-### 10.4 Legal & Compliance Policy
-
-**Status:** Pending — Legal Owner to populate via `gov knowledge`.
-**Owner:** TBD (Legal Owner). Until filled, Policy Owner holds authority.
-
-The Legal & Compliance Policy will govern legal compliance requirements applicable to software development, contractual obligations with third-party tool providers, intellectual property policies, and jurisdictional compliance requirements. **(POL-162)**
+The framework expects four domains to exist — infrastructure, system architecture, data architecture, and
+legal & compliance — each with an owner named in `org-config.yaml`. What each policy SAYS is the
+organization's. **(POL-159 … POL-162 — see `policies/policy-domains.md`)**
 
 ---
 
@@ -783,8 +766,8 @@ The Legal & Compliance Policy will govern legal compliance requirements applicab
 | Term | Definition |
 |---|---|
 | **Project** | A uniquely identifiable unit of work identified by `PRJ-<board#>-<slug>`. All organizational work must be conducted through a project. |
-| **Workspace** | The folder `projects/PRJ-<board#>-<slug>/` within `<WORKSPACE_REPO>`. Contains all project-specific files and knowledge. |
-| **Org-wide knowledge** | Content in `<WORKSPACE_REPO>/knowledge/`. The highest-authority knowledge layer. |
+| **Workspace** | The folder `projects/PRJ-<board#>-<slug>/` within `<ORG_GOV_REPO>`. Contains all project-specific files and knowledge. |
+| **Org-wide knowledge** | Content in `<ORG_GOV_REPO>/knowledge/`. The highest-authority knowledge layer. |
 | **Project knowledge** | Content in `projects/PRJ-<board#>-<slug>/knowledge/`. Second-priority knowledge layer. |
 | **Repo-local knowledge** | Content in `<repo>/knowledge/`. Third-priority knowledge layer. |
 | **Developer preferences** | Content in `$AGENT_WORK_ROOT/preferences/<gh-login>.md` — one file per developer. Lowest-priority knowledge layer; C03 only. |
@@ -895,18 +878,18 @@ POL-052: cancelled status means the project is abandoned; branches are archived;
 POL-053: A project in active or paused status may not be reassigned except via a C02 exception approved by Policy Owner.
 POL-054: Approved reassignment must document the reassignment reason, date, and approver in the approved C02 exception PR; the change is reflected by GitHub Project access and anchor-issue assignees — there is no project.yaml.
 POL-055: After reassignment, the new assignee must run gov resume before beginning work.
-POL-056: <WORKSPACE_REPO> is the org-wide central workspace repository; it is not a code repository.
-POL-057: <WORKSPACE_REPO> is an implicit participant in every project and must not be listed among a project's linked code repos.
-POL-058: The <WORKSPACE_REPO> repository structure must be maintained exactly; agents must not create files outside this structure.
+POL-056: <ORG_GOV_REPO> is the org-wide central workspace repository; it is not a code repository.
+POL-057: <ORG_GOV_REPO> is an implicit participant in every project and must not be listed among a project's linked code repos.
+POL-058: The <ORG_GOV_REPO> repository structure must be maintained exactly; agents must not create files outside this structure.
 POL-059: Every active project's authoritative state is derived from GitHub (Project board + anchor issue); there is no project.yaml or per-project state file.
 POL-060: All authoritative project facts (id, description, linked repos, ownership, authorization, status, knowledge-close status) must be resolvable from GitHub.
 POL-061: Inconsistent or unresolvable GitHub-derived project state (missing anchor issue, malformed branch, unresolvable repo) causes CI/CD failure, which is a C01 event.
 POL-062: The GitHub Project must have a name before seeding (C01).
 POL-063: The GitHub Project must have at least one linked Issue or PR before seeding (C01).
-POL-064: Each linked Issue/PR must belong to an identifiable repo before seeding (C02; exception for <WORKSPACE_REPO>-only projects).
+POL-064: Each linked Issue/PR must belong to an identifiable repo before seeding (C02; exception for <ORG_GOV_REPO>-only projects).
 POL-065: The GitHub Project must have a description before seeding (C02).
 POL-066: At least one linked Issue must mark the project's scope or goals before seeding (C02).
-POL-067: All <WORKSPACE_REPO> project work branches from <DEFAULT_BRANCH> and merges back to <DEFAULT_BRANCH>.
+POL-067: All <ORG_GOV_REPO> project work branches from <DEFAULT_BRANCH> and merges back to <DEFAULT_BRANCH>.
 POL-068: Default base branch for code repositories is dev; overridable at seed time via a base-branch argument to gov seed.
 POL-069: All project branches in every repository must be named BRNCH-<board#>-<slug>.
 POL-070: Sub-branches for parallel multi-agent work are named BRNCH-<board#>-<slug>.ISSUE-<n>.
@@ -916,13 +899,13 @@ POL-073: Sub-branches must merge to BRNCH-<board#>-<slug> only; never directly t
 POL-074: Each sub-branch is assigned to exactly one agent or developer; multiple assignees per sub-branch are not permitted.
 POL-075: Each task is a GitHub Issue on the board plus a sub-branch; task state lives on the board (open=active, closed=done), not in any per-project state file.
 POL-076: When knowledge layers conflict, higher-priority layers always take precedence.
-POL-077: Org-wide knowledge in <WORKSPACE_REPO>/knowledge/ is the highest-authority knowledge layer.
+POL-077: Org-wide knowledge in <ORG_GOV_REPO>/knowledge/ is the highest-authority knowledge layer.
 POL-078: Project knowledge in projects/PRJ-<board#>-<slug>/knowledge/ is the second-priority knowledge layer.
 POL-079: Repo-local knowledge in <repo>/knowledge/ is the third-priority knowledge layer.
 POL-080: Developer preferences in $AGENT_WORK_ROOT/preferences/<gh-login>.md are the lowest-priority knowledge layer; per-user, keyed on GitHub login.
 POL-081: Developer preferences cannot override repo knowledge; repo knowledge cannot override org knowledge.
-POL-082: The <WORKSPACE_REPO>/knowledge/ folder must follow the defined subdirectory structure exactly.
-POL-083: CODEOWNERS in <WORKSPACE_REPO> maps each knowledge/ subfolder to its domain owner for PR review.
+POL-082: The <ORG_GOV_REPO>/knowledge/ folder must follow the defined subdirectory structure exactly.
+POL-083: CODEOWNERS in <ORG_GOV_REPO> maps each knowledge/ subfolder to its domain owner for PR review.
 POL-084: Every participating code repository must contain a knowledge/ folder with the defined structure.
 POL-085: Repositories must be onboarded via gov onboard before being added to any project.
 POL-086a: Governance is sourced from <DEFAULT_BRANCH>; all governing context is rebuilt from it each session, never from a project branch (C01).
@@ -932,7 +915,7 @@ POL-086d: POL-086 governs proposing changes to <DEFAULT_BRANCH>'s knowledge; it 
 POL-087: SUPERSEDED by POL-086b — a project branch may edit any path, but only <DEFAULT_BRANCH> governs.
 POL-088: Project knowledge is intentionally free-form; no structural coupling to org knowledge is required during the project.
 POL-089: Pre-close consolidation: developer/agent consolidates all project learnings into projects/PRJ-<board#>-<slug>/knowledge/.
-POL-090: The knowledge-close step of gov close uses LLM+RAG synthesis to map project knowledge to org knowledge proposals.
+POL-090: The knowledge-close step of gov close gates on the project's knowledge and proposes its files for promotion into org knowledge. (Until 2026-09-23 this clause described LLM+RAG synthesis, which gov has never done.)
 POL-091: The knowledge-close step of gov close creates the BRNCH-<board#>-<slug>-knowledge branch from <DEFAULT_BRANCH>.
 POL-092: The knowledge-close step of gov close raises a PR against <DEFAULT_BRANCH>; CODEOWNERS auto-assigns domain owners as reviewers.
 POL-093: Policy Owner and domain owners review the knowledge PR and determine its outcome.
@@ -942,7 +925,7 @@ POL-096: An under-revision knowledge PR results in developer revision on the sam
 POL-097: An abandoned knowledge PR results in developer closing the PR, deleting the branch, and a knowledge-close status of abandoned.
 POL-098: The code state of a completed project is immutable regardless of knowledge PR outcome.
 POL-099: Code problems discovered post-close require new GitHub Issues and a new project; the original project is not reopened.
-POL-100: On every <DEFAULT_BRANCH> merge in <WORKSPACE_REPO>, CI/CD generates and publishes knowledge in three forms (C02).
+POL-100: On every <DEFAULT_BRANCH> merge in <ORG_GOV_REPO>, CI/CD generates and publishes knowledge in three forms (C02).
 POL-101: Static site publication: internal only, behind authentication, for developers and governance teams.
 POL-102: PDF export publication: downloadable from the static site, for regulators and external auditors.
 POL-103: Vector embedding publication: changed files re-embedded into the org vector store for agent RAG context.
@@ -990,7 +973,7 @@ POL-144: Restricted data must never appear in any knowledge folder, repository, 
 POL-145: An agent detecting restricted data must immediately hard stop and escalate to the Policy Owner.
 POL-146: Agent failure to perform the session start self-check is a C01 violation.
 POL-147: gov command gates hard-block on C01 failures and warn on C02 gaps; these gates must never be bypassed.
-POL-148: CI/CD on <WORKSPACE_REPO> validates project workspace structure, CODEOWNERS coverage, and project ID/branch naming against GitHub (no registry.yaml or project.yaml) on every PR to <DEFAULT_BRANCH>.
+POL-148: CI/CD on <ORG_GOV_REPO> validates project workspace structure, CODEOWNERS coverage, and project ID/branch naming against GitHub (no registry.yaml or project.yaml) on every PR to <DEFAULT_BRANCH>.
 POL-149: CI/CD structural validation failures are C01 events; a failing PR must not be merged.
 POL-150: Per-project compliance.md records all C01 violations, C02 exceptions, and C03 deviations for the project.
 POL-151: Org-wide compliance summary in knowledge/compliance/ is updated at every project close and reviewed quarterly.

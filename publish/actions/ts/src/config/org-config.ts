@@ -117,7 +117,11 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
   const orgSlug = get("org_slug");
   const orgSlugLower = get("org_slug_lower");
   const githubOrg = get("github_org");
-  const workspaceRepo = get("workspace_repo");
+  // `org_gov_repo`, with `workspace_repo` still read (Policy Owner, 2026-09-23). The name says what the
+  // repository IS — the organization's governance repo — where "workspace" named where it happened to sit.
+  // BOTH are read for one release, so an adopter who upgrades late is never broken; `gov upgrade` adds the new
+  // key with the old value, and the old one can go a release later.
+  const workspaceRepo = get("org_gov_repo") || get("workspace_repo");
   const orgRepoUrl = get("org_repo_url");
   const defaultBranch = get("default_branch");
   const defaultCodeBranch = get("default_code_branch");
@@ -137,7 +141,8 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
     ORG_SLUG: orgSlug,
     org_slug: orgSlugLower,
     GITHUB_ORG: githubOrg,
-    WORKSPACE_REPO: workspaceRepo,
+    ORG_GOV_REPO: workspaceRepo,
+    WORKSPACE_REPO: workspaceRepo,     // the old spelling, resolved for one release (see above)
     DEFAULT_BRANCH: defaultBranch,
     DEFAULT_CODE_BRANCH: defaultCodeBranch,
     AGENT_WORK_ROOT: agentWorkRoot,

@@ -1,10 +1,10 @@
 # <ORG_NAME> — Org-Level Agent Entry Point
-# Repository: <WORKSPACE_REPO>
+# Repository: <ORG_GOV_REPO>
 # This file is the primary context entry point for all agents working in this repository.
 
 ## About This Repository
 
-`<WORKSPACE_REPO>` is <ORG_NAME>'s central workspace repository for all agentic development projects.
+`<ORG_GOV_REPO>` is <ORG_NAME>'s central workspace repository for all agentic development projects.
 It is NOT a code repository. It contains:
 - Org-wide knowledge (`knowledge/`)
 - All project workspaces (`projects/PRJ-<board#>-<slug>/`)
@@ -12,7 +12,7 @@ It is NOT a code repository. It contains:
 Project state is derived live from GitHub (boards + anchor issues) — there is no
 `registry.yaml` or `project.yaml`.
 
-`<WORKSPACE_REPO>` is an implicit participant in every project — it does not need to be listed in `repos[]`.
+`<ORG_GOV_REPO>` is an implicit participant in every project — it does not need to be listed in `repos[]`.
 
 ## Authoritative Policy
 

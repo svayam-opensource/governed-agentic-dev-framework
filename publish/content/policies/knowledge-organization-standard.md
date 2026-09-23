@@ -14,7 +14,7 @@ effective_date: 2026-06-06
 **Compliance:** C02 unless a clause states otherwise
 **Decision record:** `projects/PRJ-005-oidc-step3-start-check-iam/knowledge/knowledge-reorg-decisions.md`
 
-This standard governs how org-wide knowledge (`<WORKSPACE_REPO>/knowledge/`)
+This standard governs how org-wide knowledge (`<ORG_GOV_REPO>/knowledge/`)
 is structured, typed, navigated, and consumed. It refines POL-082 and is
 referenced by it.
 

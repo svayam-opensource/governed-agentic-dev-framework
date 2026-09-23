@@ -11,15 +11,15 @@
 This file represents the **repo-local knowledge layer** — third priority in the knowledge hierarchy.
 
 ```
-1. Org-wide knowledge      → <WORKSPACE_REPO>/knowledge/        [HIGHEST]
-2. Project knowledge       → <WORKSPACE_REPO>/projects/PRJ-<board#>-<slug>/knowledge/
+1. Org-wide knowledge      → <ORG_GOV_REPO>/knowledge/        [HIGHEST]
+2. Project knowledge       → <ORG_GOV_REPO>/projects/PRJ-<board#>-<slug>/knowledge/
 3. This repo's knowledge   → this file and knowledge/repo/  [THIS FILE]
 4. Your developer prefs    → $AGENT_WORK_ROOT/preferences/<your-gh-login>.md
 ```
 
 **This file cannot override org-wide knowledge or policy.**
 In case of conflict, org-wide knowledge always wins.
-See `<WORKSPACE_REPO>/framework/policies/framework-policy.md` for the governing policy.
+See `<ORG_GOV_REPO>/framework/policies/framework-policy.md` for the governing policy.
 
 ---
 
@@ -53,7 +53,7 @@ Understanding prior project history prevents re-litigating settled decisions.
 
 During an active project:
 - Do NOT modify `knowledge/repo/` directly
-- All knowledge writes go to `<WORKSPACE_REPO>/projects/PRJ-<board#>-<slug>/knowledge/`
+- All knowledge writes go to `<ORG_GOV_REPO>/projects/PRJ-<board#>-<slug>/knowledge/`
 - Repo knowledge is updated only via the project's knowledge close PR
 
 ---
@@ -61,4 +61,4 @@ During an active project:
 ## Data Classification Reminder
 
 - Never commit credentials, secrets, API keys, or PII to this repository (C01)
-- See `<WORKSPACE_REPO>/framework/policies/framework-policy.md` §7.6 for full classification rules
+- See `<ORG_GOV_REPO>/framework/policies/framework-policy.md` §7.6 for full classification rules

@@ -52,6 +52,6 @@ alternatives_considered: |
 ```yaml
 approved_by: <POLICY_OWNER_EMAIL>
 approval_date: YYYY-MM-DD
-approval_pr: https://github.com/<GITHUB_ORG>/<WORKSPACE_REPO>/pull/NNN
+approval_pr: https://github.com/<GITHUB_ORG>/<ORG_GOV_REPO>/pull/NNN
 conditions: ~
 ```

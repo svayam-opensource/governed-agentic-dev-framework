@@ -82,3 +82,27 @@ describe("prj-work — parseOrgConfig", () => {
     expect(c.workspaceRepo).to.equal("");
   });
 });
+
+// Policy Owner, 2026-09-23: `<WORKSPACE_REPO>` becomes `<ORG_GOV_REPO>` — the name says what the repository
+// IS, where "workspace" named where it happened to sit. Both keys are read for one release, so an adopter who
+// upgrades late is never broken.
+describe("org_gov_repo — the new name, and the old one for one release", () => {
+  const cfg = (body: string): ReturnType<typeof parseOrgConfig> => parseOrgConfig(body);
+
+  it("reads the new key", () => {
+    const c = cfg('org_name: "Acme"\norg_gov_repo: "acme-gov"\n');
+    expect(c.workspaceRepo).to.equal("acme-gov");
+    expect(c.orgTokens.ORG_GOV_REPO).to.equal("acme-gov");
+  });
+
+  it("still reads the old one, and resolves BOTH tokens to it", () => {
+    const c = cfg('org_name: "Acme"\nworkspace_repo: "acme-gov"\n');
+    expect(c.workspaceRepo, "an adopter who has not upgraded is not broken").to.equal("acme-gov");
+    expect(c.orgTokens.ORG_GOV_REPO).to.equal("acme-gov");
+    expect(c.orgTokens.WORKSPACE_REPO, "documents that predate the rename still resolve").to.equal("acme-gov");
+  });
+
+  it("the new key wins when both are there — which is what an upgrade leaves behind", () => {
+    expect(cfg('org_gov_repo: "new-gov"\nworkspace_repo: "old-gov"\n').workspaceRepo).to.equal("new-gov");
+  });
+});

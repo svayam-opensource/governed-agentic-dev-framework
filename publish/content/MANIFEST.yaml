@@ -118,7 +118,13 @@ files:
   # gov's validators enforce what the org's standard DECLARES; if the org removes it they warn and continue
   # (Policy Owner, 2026-09-23).
   - { src: policies/knowledge-organization-standard.md, dst: policies/knowledge-organization-standard.md, mode: seed-once }
-  - { src: policies/knowledge-publication-spec.md,      dst: policies/knowledge-publication-spec.md,      mode: seed-once }
+  - { src: policies/knowledge-publication.md,           dst: policies/knowledge-publication.md,           mode: seed-once }
+  # The clause groups that are the ORGANIZATION'S decision, lifted out of the framework's policy (2026-09-23).
+  # Each ships as a STARTER the org curates; the framework's policy keeps the clause numbers and points here.
+  - { src: policies/compliance-review.md,               dst: policies/compliance-review.md,               mode: seed-once }
+  - { src: policies/data-classification.md,             dst: policies/data-classification.md,             mode: seed-once }
+  - { src: policies/authorized-representatives.md,      dst: policies/authorized-representatives.md,      mode: seed-once }
+  - { src: policies/policy-domains.md,                  dst: policies/policy-domains.md,                  mode: seed-once }
 
   # ── knowledge/ — the ADOPTER's, shipped EMPTY (Decision 10) ─────────────────────────────
   #
@@ -175,6 +181,6 @@ files:
 moves:
   - { from: governance/policies/exceptions/, to: policies/exceptions/, mode: move }
   - { from: governance/policies/knowledge-organization-standard.md, to: policies/knowledge-organization-standard.md, mode: move }
-  - { from: governance/infrastructure/knowledge-publication-spec.md, to: policies/knowledge-publication-spec.md, mode: move }
+  - { from: governance/infrastructure/knowledge-publication-spec.md, to: policies/knowledge-publication.md, mode: move }
   # The approved agents leave llm-governance.md for org-config.yaml — the one thing a move cannot express.
   - { from: governance/policies/llm-governance.md, to: org-config.yaml, mode: migrate, how: approved-agents-to-org-config }

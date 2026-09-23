@@ -79,8 +79,8 @@ After the manifest, **stop**. Do not propose implementation work unless the user
 
 Read `org-config.yaml` at the workspace repo root before anything else. The framework ships
 with no org-specific values baked in: files refer to them through angle-bracketed tokens that
-map to keys in that file by name — `<ORG_NAME>` is `org_name`, `<WORKSPACE_REPO>` is
-`workspace_repo`, uppercase token to snake_case key. Read the file itself rather than a copy of
+map to keys in that file by name — `<ORG_NAME>` is `org_name`, `<ORG_GOV_REPO>` is
+`org_gov_repo`, uppercase token to snake_case key. Read the file itself rather than a copy of
 its index.
 
 If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE

@@ -6,17 +6,17 @@ status: current
 owner: <POLICY_OWNER_EMAIL>
 ---
 
-# CI/CD Pipeline Specification — <WORKSPACE_REPO>
+# CI/CD Pipeline Specification — <ORG_GOV_REPO>
 
 **Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)
-**Scope:** This specification applies to `<WORKSPACE_REPO>` ONLY.
+**Scope:** This specification applies to `<ORG_GOV_REPO>` ONLY.
 **Note:** Other repos are not covered by this spec. They adopt the agentic development policy via `gov onboard` without CI/CD changes.
 
 ---
 
 ## Overview
 
-The `<WORKSPACE_REPO>` CI/CD pipeline runs on every PR and every merge to `<DEFAULT_BRANCH>`. It enforces structural integrity and keeps knowledge publications current.
+The `<ORG_GOV_REPO>` CI/CD pipeline runs on every PR and every merge to `<DEFAULT_BRANCH>`. It enforces structural integrity and keeps knowledge publications current.
 
 ---
 

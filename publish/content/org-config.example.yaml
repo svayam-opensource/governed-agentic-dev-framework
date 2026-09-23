@@ -30,7 +30,9 @@ org_repo_url: ""
 github_org: ""
 
 # Name of this workspace repository (derived from org_repo_url)
-workspace_repo: ""
+# The organization's governance repository — this repo. Named `workspace_repo` until 2026-09-23; gov reads
+# both for one release, and `gov upgrade` adds this key with the old value.
+org_gov_repo: ""
 
 # Default branch name for this workspace repo
 default_branch: "main"

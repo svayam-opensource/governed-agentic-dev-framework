@@ -6,8 +6,8 @@
 **Status:** [active | completed | cancelled]
 
 This log is maintained throughout the project lifecycle.
-Location: `<WORKSPACE_REPO>/projects/PRJ-<board#>-<slug>/knowledge/compliance.md`
-Org-wide summary is in `<WORKSPACE_REPO>/knowledge/compliance/`.
+Location: `<ORG_GOV_REPO>/projects/PRJ-<board#>-<slug>/knowledge/compliance.md`
+Org-wide summary is in `<ORG_GOV_REPO>/knowledge/compliance/`.
 
 ---
 

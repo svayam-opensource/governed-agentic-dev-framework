@@ -1,10 +1,40 @@
 ---
-domain: infrastructure
-layer: spec
-compliance: descriptive
-status: current
+domain: policies
+layer: policy
 owner: <POLICY_OWNER_EMAIL>
+compliance: C02
+status: seed
 ---
+
+<!-- YOURS AFTER THE FIRST INSTALL. gov seeds this file once and never touches it again (MANIFEST: seed-once),
+     so an upgrade cannot overwrite what your organization decides here. The clause numbers are kept: the
+     framework's policy points at this file for them, and everything that cites them still resolves. -->
+
+# Knowledge publication — <ORG_NAME>'s decision
+
+**How this organization publishes its knowledge, if it does.** The framework ships none of this
+infrastructure and requires none of it: `knowledge_publication` in `org-config.yaml` says what you have
+chosen (`none` by default), and `gov knowledge search` reads what is already on every machine.
+
+What holds whatever you choose: every form is generated from the same markdown source, and access follows
+your own rules. The starter below is the arrangement Svayam runs; keep it, cut it down, or replace it.
+
+## The three forms (starter)
+
+On every merge to `<DEFAULT_BRANCH>` in `<ORG_GOV_REPO>`, the CI/CD pipeline automatically generates and publishes knowledge in three forms **(C02, POL-100)**:
+
+1. **Static site**: An internal-only website, accessible only behind authentication, intended for developers, governance teams, and audit teams. **(POL-101)**
+2. **PDF exports**: Downloadable PDF versions of all knowledge documents, available through the static site, intended for regulators and external auditors. **(POL-102)**
+3. **Vector embeddings (RAG)**: Changed files are re-embedded into the organizational vector store, providing agents with up-to-date context for retrieval-augmented generation. Only changed files are re-embedded. **(POL-103)**
+
+All three publication forms are generated from the same markdown source. **(POL-104)**
+
+---
+
+## How it is built, if you build it (was knowledge-publication-spec.md)
+
+<!-- ONE FILE, not two: the decision and the arrangement that carries it out. Two documents about
+     one thing is the shape POL-402 forbids, and the one that drifts is always the one nobody opened. -->
 
 # Knowledge Publication Specification
 
@@ -15,7 +45,7 @@ owner: <POLICY_OWNER_EMAIL>
 
 ## Overview
 
-Org-wide knowledge in `<WORKSPACE_REPO>` is published in three forms, all generated from the same markdown source on every <DEFAULT_BRANCH> merge via the CI/CD pipeline.
+Org-wide knowledge in `<ORG_GOV_REPO>` is published in three forms, all generated from the same markdown source on every <DEFAULT_BRANCH> merge via the CI/CD pipeline.
 
 ---
 

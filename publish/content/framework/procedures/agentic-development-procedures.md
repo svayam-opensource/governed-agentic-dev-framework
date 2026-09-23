@@ -48,10 +48,10 @@ When an existing code repository needs to be brought under the <ORG_NAME> Agenti
 **Governs:** POL-041, POL-042, POL-056, POL-057, POL-058, POL-059, POL-060
 
 ### Who Performs This
-Any authorized GitHub user with access to `<WORKSPACE_REPO>`.
+Any authorized GitHub user with access to `<ORG_GOV_REPO>`.
 
 ### Steps
-1. Go to `<WORKSPACE_REPO>` on GitHub
+1. Go to `<ORG_GOV_REPO>` on GitHub
 2. Create a new GitHub Project with a descriptive name (e.g., "Invoice API v2")
 3. Add Issues and/or PRs that define the project scope:
    - At least one Issue or PR is required **(POL-058 — C01)**
@@ -62,7 +62,7 @@ Any authorized GitHub user with access to `<WORKSPACE_REPO>`.
 
 ### Notes
 - The project ID (`PRJ-<board#>`) is NOT assigned at this stage — it is assigned by `gov seed`
-- `<WORKSPACE_REPO>` is always an implicit participant — do not create an Issue in it to include it
+- `<ORG_GOV_REPO>` is always an implicit participant — do not create an Issue in it to include it
 
 ---
 
@@ -75,12 +75,12 @@ Any authorized GitHub user with access to `<WORKSPACE_REPO>`.
 The developer or agent assigned to the project.
 
 ### Pre-conditions
-- GitHub Project exists in `<WORKSPACE_REPO>` and meets minimum requirements (PROC-02)
+- GitHub Project exists in `<ORG_GOV_REPO>` and meets minimum requirements (PROC-02)
 - Assignee has `AGENT_WORK_ROOT` configured (env var; defaults to `~/work` if unset)
 - Assignee has push access to all repos that will be involved
 
 ### Steps
-1. Clone `<WORKSPACE_REPO>` if not already cloned: `git clone <<WORKSPACE_REPO>-url>`
+1. Clone `<ORG_GOV_REPO>` if not already cloned: `git clone <<ORG_GOV_REPO>-url>`
 2. Ensure you are on `<DEFAULT_BRANCH>` with latest changes: `git checkout <DEFAULT_BRANCH> && git pull`
 3. Run: `gov seed <github_project_url>`
 4. The command prompts for `base_branch` override per repo (default: `dev`) — specify if working on emergency fixes
@@ -91,7 +91,7 @@ The developer or agent assigned to the project.
 
 ### Success Criteria
 - The project's GitHub Project board is open (active)
-- Branch `BRNCH-<board#>-<slug>` exists in `<WORKSPACE_REPO>` and all identified repos
+- Branch `BRNCH-<board#>-<slug>` exists in `<ORG_GOV_REPO>` and all identified repos
 - The project is discoverable from GitHub (its board and anchor issue exist) — there is no `registry.yaml`
 
 ---
@@ -109,7 +109,7 @@ The developer or agent assigned to the project.
    - Hard stop if either check fails **(POL-113, POL-114)**
 
 2. **Load knowledge layers fresh** — never use cached layers from a prior session **(POL-115)**:
-   - Layer 1: Read `<WORKSPACE_REPO>/knowledge/` (org-wide, from <DEFAULT_BRANCH>) **(POL-076)**
+   - Layer 1: Read `<ORG_GOV_REPO>/knowledge/` (org-wide, from <DEFAULT_BRANCH>) **(POL-076)**
    - Layer 2: Read `projects/PRJ-<board#>-<slug>/knowledge/` (project knowledge) **(POL-077)**
    - Layer 3: Read `<cloned-repos>/knowledge/` (repo-local, from project branch) **(POL-078)**
    - Layer 4: Read `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md` (your own developer preferences only — do not read other developers' files in this folder) **(POL-079)**
@@ -121,7 +121,7 @@ The developer or agent assigned to the project.
 ### During Work
 
 - All writes must go to `projects/PRJ-<board#>-<slug>/` or to code in cloned repos on `BRNCH-<board#>-<slug>` branch **(POL-087 — C01)**
-- Do NOT write to `<WORKSPACE_REPO>/knowledge/` **(POL-087 — C01)**
+- Do NOT write to `<ORG_GOV_REPO>/knowledge/` **(POL-087 — C01)**
 - Capture intermediate to-dos in `projects/PRJ-<board#>-<slug>/knowledge/todo.md` (`## Open`) as they arise — not at session end.
 - If a C01 violation is detected mid-session: hard stop, commit nothing, surface to human immediately **(POL-117)**
 
