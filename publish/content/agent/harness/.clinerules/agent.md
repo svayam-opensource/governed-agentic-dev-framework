@@ -141,7 +141,7 @@ If any of these can't be verified, hard-stop and surface to the human. Do not co
 The token map (`<ORG_NAME>` → `org_name` and the rest) and the full policy text are not
 reproduced here, to keep what you carry every turn short:
 
-- **`knowledge/policies/org-ai-agent-governance-policy.md`** — the full policy. Part A above is its
+- **`framework/policies/framework-policy.md`** — the full policy. Part A above is its
   C01 digest, copied verbatim by the renderer; this is the source.
 - **`docs/DEVELOPER_GUIDE.md`** — the human walkthrough, with example prompts.
 - **`projects/<PROJECT_ID>/agent.md`** — your project-specific entrypoint, once seeded.

@@ -109,7 +109,7 @@ export function confirmLines(agents: readonly ApprovedAgent[]): readonly string[
     "",
     `  You have selected — ${namesSentence(agents)} as authorized AI agents to be used in`,
     "  your organization. You can change this selection by modifying values in",
-    "  llm-governance.md later on if required.",
+    "  org-config.yaml (authorized_agents) later on if required.",
     "",
     "  If you are happy with your AI agent selection then choose 'Y' to continue, or 'N'",
     "  to discard these selections and choose again.",

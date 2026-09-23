@@ -61,6 +61,22 @@ export interface ManifestMove {
   readonly how?: string;
 }
 
+/**
+ * WHICH LAYOUT A WORKSPACE IS ON (PRJ-121, 2026-09-23).
+ *
+ * `governance/` split into `framework/` (the framework's, overwritten) and `policies/` (the org's, seeded
+ * once). Both shapes exist in the wild for one release, so gov must be able to SAY which it is looking at —
+ * `gov doctor` names it, and the upgrade's moves carry a workspace across. Derived from what is on disk
+ * rather than stored: a marker file would be a second copy of a fact the tree already states.
+ */
+export type ContentLayout = "framework" | "governance" | "none";
+
+export function contentLayoutOf(exists: (rel: string) => boolean): ContentLayout {
+  if (exists("framework/policies")) return "framework";
+  if (exists("governance/policies")) return "governance";
+  return "none";
+}
+
 /** Paths (prefixes / exact) the new layout retires from an adopter repo. */
 export const RETIRE_PATHS = ["framework/", "registry.yaml", ".framework-version", "bin/", "scripts/", "setup.sh", "install.sh", "prj"] as const;
 

@@ -5,7 +5,7 @@
  *
  * Three layers already existed; the mistake would be inventing a fourth memory.
  *
- *   org      llm-governance.md    what is ALLOWED, and the default when >1
+ *   org      org-config.yaml      authorized_agents: what is ALLOWED, and the default when >1
  *   user     preferences/<gh>.md  what this person LIKES, C03
  *   here     the prompt           only when neither layer answers
  *

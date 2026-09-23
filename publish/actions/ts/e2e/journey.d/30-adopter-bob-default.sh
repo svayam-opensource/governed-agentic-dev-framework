@@ -100,7 +100,7 @@ saw "the default is its own question" "default for your organization"
 saw "additions are offered one at a time" "add any other AI agent to the allowed list"
 saw "the selection is read back before it becomes a rule" "You have selected"
 saw "naming the default explicitly" "'IBM Bob' (default)"
-saw "and it says where the answer can be changed" "llm-governance.md"
+saw "and it says where the answer can be changed" "org-config.yaml"
 never "the old space-separated shape is gone" "separated by spaces"
 
 info "founding"
@@ -125,10 +125,10 @@ saw "and names the command that changes it" "gov preferences"
 
 info "#196 — the org decides which agents it allows, during adoption"
 says "the question is asked" "Which AI agents may be used in this organization"
-saw_re "and the answer is written to the policy, not remembered" "approved_agents|IBM Bob"
-runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/governance/policies/llm-governance.md" \
-  && pass "ibm-bob is in llm-governance.md — the approved list is a file, not a memory" \
-  || fail "ibm-bob was not written to llm-governance.md"
+saw_re "and the answer is written down, not remembered" "authorized_agents|IBM Bob"
+runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/org-config.yaml" \
+  && pass "ibm-bob is in org-config.yaml — the authorized list is a file, not a memory" \
+  || fail "ibm-bob was not written to org-config.yaml"
 
 # ONE WRITER, AND NO FALSE ALARM ABOUT IT.
 #
@@ -139,9 +139,9 @@ runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/governance/policies/llm-governa
 # caller read as a write failure. The assertion above could not catch it, because the file WAS
 # correct; only the message was wrong. A false alarm on the one governance decision in adoption
 # is worse than silence: the adopter's next move is to repair something that is not broken.
-never "no false alarm about writing the policy" "Could not write llm-governance.md"
+never "no false alarm about writing the policy" "could not record the authorized agents"
 saw   "and the recording is reported once, by the writer that can commit it" \
-      "approved agent(s) in governance/policies/llm-governance.md"
+      "authorized agent(s) in org-config.yaml"
 
 info "#193 — no placeholder survives into the adopter's own policies"
 never "<ORG_NAME> is resolved" "<ORG_NAME>"

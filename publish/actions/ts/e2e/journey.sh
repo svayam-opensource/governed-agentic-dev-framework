@@ -142,7 +142,7 @@ harness_files() {
 
 make_gov_repo() {
   local dir="$1" org="$2" slug="$3"
-  mkdir -p "$dir/governance/policies" "$dir/governance/guidance" "$dir/agent" "$dir/knowledge"
+  mkdir -p "$dir/framework/policies" "$dir/framework/templates" "$dir/policies" "$dir/agent" "$dir/knowledge"
   cat > "$dir/org-config.yaml" <<YAML
 org_name: "$org Ltd"
 org_short_name: "$org"
@@ -157,8 +157,8 @@ agent_work_root: "$HOME/.gov/$(echo "$slug" | tr '[:upper:]' '[:lower:]')/projec
 policy_owner_email: "owner@example.test"
 YAML
   cp "$CONTENT_DIR/agent/session-protocol.md" "$dir/agent/" 2>/dev/null || echo "# protocol" > "$dir/agent/session-protocol.md"
-  cp "$CONTENT_DIR/governance/policies/llm-governance.md" "$dir/governance/policies/" 2>/dev/null \
-    || echo "# llm governance" > "$dir/governance/policies/llm-governance.md"
+  cp "$CONTENT_DIR/framework/policies/framework-policy.md" "$dir/framework/policies/" 2>/dev/null \
+    || echo "# framework policy" > "$dir/framework/policies/framework-policy.md"
 
   # THE RENDERED HARNESS — what makes this a GOVERNED workspace rather than one that says it is.
   #
@@ -210,16 +210,16 @@ fake_joined_project() {
   done
 }
 
-# Record the org's approved agents the way `gov agent approve` would.
+# Record the org's authorized agents the way `gov agent approve` would — in org-config.yaml since the
+# 2026-09-23 split: the framework publishes the master list, the org records which of them are ours.
 approve_agents() {
-  local file="$1/governance/policies/llm-governance.md"; shift
-  { printf '\n```yaml\napproved_agents:\n'
-    local first=1
+  local file="$1/org-config.yaml"; shift
+  { printf '\nauthorized_agents:\n'
+    local first=1 n=0
     for id in "$@"; do
-      printf '  - id: %s\n' "$id"
-      [ $first = 1 ] && printf '    default: true\n'; first=0
-    done
-    printf '```\n'; } >> "$file"
+      if [ $first = 1 ]; then printf '  default: "%s"\n' "$id"; first=0
+      else n=$((n+1)); printf '  agent%d: "%s"\n' "$n" "$id"; fi
+    done; } >> "$file"
 }
 
 # ── driving ───────────────────────────────────────────────────────────────────

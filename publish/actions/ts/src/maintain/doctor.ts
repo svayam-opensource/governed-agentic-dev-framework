@@ -55,7 +55,9 @@ export interface DoctorFacts {
   /** Orgs in the registry. Absent = not gathered (treated as none): "not set up" is said only when this is empty. */
   readonly registeredOrgs?: readonly string[];
   readonly cliVersion: string;
-  /** Old-world artifacts found in the workspace (framework/, registry.yaml, …). */
+  /** Which content layout the workspace is on — `governance` is the pre-2026-09-23 one. */
+  readonly contentLayout?: "framework" | "governance" | "none";
+  /** Old-world artifacts found in the workspace (registry.yaml, bin/, …). */
   readonly staleArtifacts?: readonly string[];
   /** A workspace was actually examined — one resolved, or one the person named (`--gov-home`). Absent means
    *  "whatever `resolve` says". Rows ABOUT a workspace (version compat, content layout) need one to exist. */
@@ -145,7 +147,12 @@ export function doctor(facts: DoctorFacts): DoctorReport {
             const c = checkVersionCompat(facts.cliVersion, facts.contentVersion ?? null);
             return { name: "version compat", status: c.ok ? (c.status === "ok" || c.status === "no-marker" ? "ok" : "warn") : "fail", detail: c.message };
           })(),
-          (facts.staleArtifacts && facts.staleArtifacts.length)
+          // THE LAYOUT, SAID PLAINLY (2026-09-23). A workspace still on `governance/` is not broken — it is
+          // one `gov upgrade` behind, and the upgrade carries its own files across. Saying so beats leaving
+          // someone to notice that their policy file is not where the documentation says.
+          facts.contentLayout === "governance"
+            ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: "the older `governance/` layout — `gov upgrade --pr` moves it to framework/ + policies/, carrying your own files across" }
+            : (facts.staleArtifacts && facts.staleArtifacts.length)
             ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: `files that are not this org's (${facts.staleArtifacts.join(", ")}) — \`gov upgrade --apply\` removes them (or \`gov upgrade --pr\` to review first)` }
             : { name: "content layout", status: "ok" as DiagnosticStatus, detail: "current" },
         ]

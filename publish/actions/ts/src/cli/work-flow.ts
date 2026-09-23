@@ -191,7 +191,7 @@ export function sessionStartPrompt(projectId: string, workspaceRepo: string, gov
   // (see governance-snapshot.ts) and points here; the old paths remain the fallback when no snapshot was made.
   if (snapshot) {
     return `Run the session-start protocol for ${projectId} now, before I send anything else: `
-      + `read ${snapshot.dir}/org-config.yaml and ${snapshot.dir}/org-ai-agent-governance-policy.md — `
+      + `read ${snapshot.files.map((f) => `${snapshot.dir}/${f}`).join(" and ")} — `
       + `a read-only snapshot of ${snapshot.source}, the default branch, which is the only branch that governs `
       + `(POL-086a); gov copied it into this project so you can read it here — then `
       + `${w}/projects/${projectId}/agent.md and any "## Open" items from `
@@ -201,7 +201,7 @@ export function sessionStartPrompt(projectId: string, workspaceRepo: string, gov
   const governance = govHome ?? w;
   return `Run the session-start protocol for ${projectId} now, before I send anything else: `
     + `read ${governance}/org-config.yaml and `
-    + `${governance}/governance/policies/org-ai-agent-governance-policy.md — both from the `
+    + `${governance}/framework/policies/framework-policy.md — both from the `
     + `default branch, which is the only branch that governs (POL-086a) — then `
     + `${w}/projects/${projectId}/agent.md and any "## Open" items from `
     + `${w}/projects/${projectId}/knowledge/todo.md, which are the project branch's; `

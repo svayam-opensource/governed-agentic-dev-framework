@@ -87,7 +87,7 @@ export interface CliContext {
    * `agent install` before routing — next to `work`, for the reason stated below.
    */
   readonly performAgentInstall?: (plan: ReturnType<typeof planAgentInstall>) => boolean;
-  /** Raise a pull request adding an agent to llm-governance.md. */
+  /** Raise a pull request adding an agent to the org's authorized_agents (org-config.yaml). */
   readonly proposeAgentApproval?: (id: string) => readonly string[];
   /** REQUIRED (C01) — write-access to the GitHub Project (viewerCanUpdate). The lifecycle ops call it
    *  unconditionally; wiring it here is what makes the CLI actually ENFORCE authorization. */

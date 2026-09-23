@@ -361,7 +361,7 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     //
     // This read `<repo>/framework/knowledge/guidance/todo-template.md`. `framework/` is in
     // RETIRE_PATHS and was never shipped — the template has always lived at
-    // `knowledge/guidance/`, and now at `governance/guidance/`. So the read returned null, the
+    // `knowledge/guidance/`, and now at `framework/templates/`. So the read returned null, the
     // guard skipped it silently, and NO project has ever been given a `knowledge/todo.md` —
     // while the session-start protocol tells every agent to read one and surface its `## Open`
     // items, and POL-168/169 require it to exist. A missing file behind a null-check is the
@@ -369,11 +369,11 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     //
     // Not optional any more: without the template the project has no todo list, so say so.
     const todoTemplate = deps.fs.readFile(
-      path.join(orgGovClone, "governance", "guidance", "todo-template.md"),
+      path.join(orgGovClone, "framework", "templates", "todo-template.md"),
     );
     if (todoTemplate === null) {
       throw new Error(
-        "seed: governance/guidance/todo-template.md is missing from the governance repo — a "
+        "seed: framework/templates/todo-template.md is missing from the governance repo — a "
         + "project cannot be seeded without a todo list (POL-168). Run `gov upgrade`.",
       );
     }

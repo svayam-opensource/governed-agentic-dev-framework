@@ -387,7 +387,10 @@ describe("adoption — only what the manifest produces reaches an adopter", () =
   });
 
   it("after the seed, what the manifest did not produce goes — publish/ included", () => {
-    expect(strayRootEntries([".git", "publish", "governance", "agent", "org-config.yaml", "CODEOWNERS"], manifestText)).to.deep.equal(["publish"]);
+    // `governance/` is in this list on purpose: since the 2026-09-23 split the manifest produces `framework/`
+    // and `policies/`, so an old tree left in a NEW adopter's repo is exactly what this must catch.
+    expect(strayRootEntries([".git", "publish", "governance", "framework", "policies", "agent", "org-config.yaml", "CODEOWNERS"], manifestText))
+      .to.deep.equal(["publish", "governance"]);
   });
 
   it("against THIS repo: none of the framework's own root entries survives into an adopter's repo", () => {

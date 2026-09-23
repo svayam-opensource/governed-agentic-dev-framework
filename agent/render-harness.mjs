@@ -65,7 +65,9 @@ const harnesses = M.harnesses || [];
 // a bad protocol file, so a silent hole here becomes a blocked adoption later, far from here.
 // governance/, not knowledge/ — Decision 10 (2026-09-14) split framework doctrine from the
 // adopter's own knowledge tree, which now ships empty.
-const POLICY = join(REPO, "publish", "content", "governance", "policies", "org-ai-agent-governance-policy.md");
+// framework/policies/framework-policy.md since the 2026-09-23 split: `governance/` became the framework's
+// tree and the org's, and the doctrine was renamed for what it is.
+const POLICY = join(REPO, "publish", "content", "framework", "policies", "framework-policy.md");
 function alwaysRules() {
   if (!existsSync(POLICY)) {
     process.stderr.write(`ERROR: ${POLICY} is missing — Part A of the protocol cannot be built\n`);

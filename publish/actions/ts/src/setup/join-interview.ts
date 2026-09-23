@@ -184,7 +184,7 @@ async function askAfterOrg(io: JoinInterviewIo, org: string): Promise<JoinInterv
 /**
  * Q3 — which of the organization's authorized agents this joiner will use.
  *
- * ASKED ONLY WHEN THERE IS A LIST. An organization whose `llm-governance.md` predates the
+ * ASKED ONLY WHEN THERE IS A LIST. An organization whose `org-config.yaml` predates the
  * approved-agents fence has authorized nothing explicitly, and offering the framework's own
  * catalogue here would present gov's defaults as the org's policy — the exact fallback #196
  * removed at adoption. So gov says nothing and the work flow decides later, as it does today.

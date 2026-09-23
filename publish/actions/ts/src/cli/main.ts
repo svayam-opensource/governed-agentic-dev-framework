@@ -61,7 +61,7 @@ import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
 import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } from "../maintain/upgrade-run.js";
-import { staleArtifactsIn } from "../maintain/upgrade-sync.js";
+import { contentLayoutOf, staleArtifactsIn } from "../maintain/upgrade-sync.js";
 import { formatRuns, listRuns, selectRuns } from "../maintain/log-view.js";
 import { coerce, formatPreferences, numberPref, specFor, stringPref } from "../preferences.js";
 import { didYouMean, helpFor, overview } from "./help-render.js";
@@ -72,7 +72,7 @@ import { logsRoot } from "../state-paths.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
-import { parseApprovedAgents, withApprovedAgents } from "../config/approved-agents.js";
+import { parseAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
 import { planAgentInstall } from "./agent-verb.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
@@ -806,20 +806,9 @@ export async function runSetupCommand(
     //
     // Q10 collects the answer before anything is created, so it is available here, which is the
     // only place that is both after the seed and before the commit.
-    if (pre?.agents?.length) {
-      const policy = path.join(created.home, "governance", "policies", "llm-governance.md");
-      const before = fsSync.existsSync(policy) ? fsSync.readFileSync(policy, "utf8") : null;
-      const after = before === null ? null : withApprovedAgents(before, pre.agents);
-      if (after === null) {
-        // LOUD, because a silent failure here is a governance hole: every joiner would fall
-        // back to gov's own list and nobody would know the policy had not been recorded.
-        process.stderr.write("gov setup: could not record the approved agents in governance/policies/llm-governance.md.\n");
-        process.stderr.write("  The repo exists. Add them with `gov agent approve <id>` before inviting anyone.\n");
-      } else {
-        fsSync.writeFileSync(policy, after, "utf8");
-        process.stdout.write(`  recorded ${pre.agents.length} approved agent(s) in governance/policies/llm-governance.md\n`);
-      }
-    }
+    // The org's authorized agents are recorded AFTER the workspace is configured — further down, just before
+    // the commit. Writing them here put them in a file the configure step then rewrote: gov said "recorded"
+    // and the list was not there (caught by journey 30, 2026-09-23).
     // #159 finding 1a — the slug was asked BEFORE creating (it decides the location), then asked again
     // by the setup flow, with a blank default. One fact, one question: carry the answer forward.
     createdSlug = created.slug;
@@ -1001,13 +990,31 @@ export async function runSetupCommand(
       if (dropped.length) manifest.push({ what: "Removed", detail: `the framework's own files from the template copy: ${dropped.join(" ")}` });
 
       const git = (...a: string[]): boolean => okProcess("git", ["-C", createdHome, ...a], { pgm: "gov-work:cli:main" });
+      // THE ORG'S AUTHORIZED AGENTS, in org-config.yaml, once the file is FINAL (Policy Owner, 2026-09-23).
+      // This is the last point before the commit, which is what makes it the right one: the configure step
+      // has written org-config.yaml, and nothing else will.
+      if (pre?.agents?.length) {
+        const cfgPath = path.join(createdHome, "org-config.yaml");
+        const before = fsSync.existsSync(cfgPath) ? fsSync.readFileSync(cfgPath, "utf8") : null;
+        const after = before === null ? null : withAuthorizedAgents(before, pre.agents);
+        if (after === null) {
+          // LOUD: a silent failure here is a governance hole — every joiner would fall back to gov's own list
+          // and nobody would know the org's choice had not been recorded.
+          process.stderr.write("gov setup: could not record the authorized agents in org-config.yaml.\n");
+          process.stderr.write("  The repo exists. Add them with `gov agent approve <id>` before inviting anyone.\n");
+        } else {
+          fsSync.writeFileSync(cfgPath, after, "utf8");
+          manifest.push({ what: "Agents", detail: `recorded ${pre.agents.length} authorized agent(s) in org-config.yaml` });
+        }
+      }
+
       git("add", "-A");
       const committed = git("commit", "-m", "configure the framework for this org");
       const pushed = committed && git("push", "-u", "origin", "HEAD");
       manifest.push({ what: "Committed", detail: committed ? (pushed ? "and pushed to the default branch" : "locally — push failed, run: git push") : "nothing to commit" });
 
       for (const line of renderManifest(manifest, [
-        "governance/policies/org-ai-agent-governance-policy.md   — make the policy yours",
+        "framework/policies/ — the framework's, replaced on upgrade   ·   policies/ — yours",
         "agent/session-protocol.md                          — what your agents read at session start",
         "gov                                                — the interactive front door",
         ...(activeNote ? [activeNote] : []),
@@ -1122,7 +1129,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // already know the name of.
     finalStatus: (role) => {
       const r = prjResolveGov(createNodeEnv());
-      const policyPath = r.ok ? path.join(r.home, "governance", "policies", "llm-governance.md") : null;
+      const policyPath = r.ok ? path.join(r.home, "org-config.yaml") : null;
       const policy = policyPath && fsSync.existsSync(policyPath) ? fsSync.readFileSync(policyPath, "utf8") : null;
       const cfgText = r.ok && fsSync.existsSync(path.join(r.home, "org-config.yaml"))
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
@@ -1142,7 +1149,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
         // "create the governance repository", "choose which agents this org allows" — against their
         // own name, as things they had failed to do rather than things not theirs to do.
         role,
-        approvedAgents: (parseApprovedAgents(policy) ?? []).map((a) => a.id),
+        approvedAgents: (parseAuthorizedAgents(policy) ?? []).map((a) => a.id),
       }), stdoutColor());
     },
     adopterNextSteps: () => {
@@ -1388,14 +1395,14 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     // set (presence only — never the value), and what this org has approved.
     hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
     env: process.env,
-    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(resolved.home, "governance", "policies", "llm-governance.md"))),
+    approvedAgents: () => parseAuthorizedAgents(fs.readFile(path.join(resolved.home, "org-config.yaml"))),
     // The person's own choice, from the lowest knowledge layer (C03). Read every
     // time, and validated against the org's list at launch — not at write time.
     // The joiner's ordinary case: nothing installed, and the org already chose what
     // should be. Same plan and same performer as `gov agent install` — one path.
     installAgent: async (id: string, ask: AskFns) => {
-      const policy = fs.readFile(path.join(resolved.home, "governance", "policies", "llm-governance.md"));
-      const plan = planAgentInstall(id, parseApprovedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
+      const policy = fs.readFile(path.join(resolved.home, "org-config.yaml"));
+      const plan = planAgentInstall(id, parseAuthorizedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
       if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return false; }
       return await performAgentInstallReal(plan, ask);
     },
@@ -1705,8 +1712,8 @@ export async function runAgentInstall(argv: readonly string[]): Promise<number> 
   const r = prjResolveGov(createNodeEnv());
   if (!r.ok) { process.stderr.write("  No governance workspace resolved. Run `gov setup`, then `gov org add/use`.\n"); return 1; }
   const fs = createNodeFs();
-  const policy = fs.readFile(path.join(r.home, "governance", "policies", "llm-governance.md"));
-  const plan = planAgentInstall(id, parseApprovedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
+  const policy = fs.readFile(path.join(r.home, "org-config.yaml"));
+  const plan = planAgentInstall(id, parseAuthorizedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
   if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return 1; }
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
@@ -2079,6 +2086,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       contentVersion: (!!doctorHomeOverride || resolve.ok) ? (fs.readFile(path.join(home, "VERSION"))?.trim() ?? null) : undefined,
       // Only a WORKSPACE has old-world artifacts to retire. With none resolved, `home` is just the cwd — on a
       // fresh machine the adopter's home dir, holding the install.sh our own install command saved there.
+      contentLayout: contentLayoutOf((rel) => fs.pathExists(path.join(home, rel))),
       staleArtifacts: staleArtifactsIn(!!doctorHomeOverride || resolve.ok, (rel) => fs.pathExists(path.join(home, rel))),
     });
     for (const line of formatDoctorReport(report, stdoutColor())) process.stdout.write(`${line}\n`);
@@ -2465,7 +2473,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
     repoStanding,
     hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
-    approvedAgents: () => parseApprovedAgents(fs.readFile(path.join(home, "governance", "policies", "llm-governance.md"))),
+    approvedAgents: () => parseAuthorizedAgents(fs.readFile(path.join(home, "org-config.yaml"))),
     /**
      * Install, then offer the sign-in (#196, Q5). gov orchestrates; the vendor
      * authenticates — the `gh auth login` shape, including its browser fallback.
@@ -2483,7 +2491,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       `Proposing ${id} for your organization's approved list.`,
       "",
       "  This is a policy change, so it goes to whoever owns",
-      "  governance/policies/llm-governance.md — not straight into the file.",
+      "  org-config.yaml (authorized_agents) — not straight into the file.",
       "",
       `  gov knowledge propose approve-agent-${id}`,
       `  …edit the approved_agents block, then:`,

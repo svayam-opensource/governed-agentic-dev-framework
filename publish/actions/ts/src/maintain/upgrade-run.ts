@@ -54,7 +54,37 @@ function recordMove(adopterDir: string, id: string): void {
  * cannot express. Each is versioned by its name: a manifest naming one an older CLI lacks is left undone, for
  * the upgrade that knows it, rather than half-applied.
  */
-const MIGRATIONS: Record<string, (adopterDir: string, from: string, to: string) => boolean> = {};
+const MIGRATIONS: Record<string, (adopterDir: string, from: string, to: string) => boolean> = {
+  /**
+   * THE ORG'S AGENTS LEAVE llm-governance.md FOR org-config.yaml (Policy Owner, 2026-09-23).
+   *
+   * The only relocation a straight move cannot express: a VALUE moves between two files of different shapes.
+   * The list is what a joiner is governed by, so losing it silently would send every joiner to gov's own
+   * defaults — the exact failure a walk found when the fence had never been committed.
+   *
+   * Nothing is written unless the list is read, and the old file is removed only after the new one is written.
+   */
+  "approved-agents-to-org-config": (adopterDir, from, to) => {
+    const fromPath = path.join(adopterDir, from), toPath = path.join(adopterDir, to);
+    const policy = fs.existsSync(fromPath) ? fs.readFileSync(fromPath, "utf8") : null;
+    const agents = parseApprovedAgents(policy);
+    if (!agents?.length) {
+      // No block, or an empty one: there is nothing to carry. The file still goes (the framework no longer
+      // ships it), but the org is left with gov's defaults, which is what it already had.
+      fs.rmSync(fromPath, { force: true });
+      log("info", "no approved-agent block to migrate — removed the retired file", "gov-work:maintain:upgrade-run", "migrate", { from });
+      return true;
+    }
+    const cfg = fs.existsSync(toPath) ? fs.readFileSync(toPath, "utf8") : null;
+    if (cfg === null) return false;                         // no org-config to write into: leave everything alone
+    const next = withAuthorizedAgents(cfg, agents);
+    if (next === null) { fs.rmSync(fromPath, { force: true }); return true; }   // already there
+    fs.writeFileSync(toPath, next, "utf8");
+    fs.rmSync(fromPath, { force: true });
+    log("info", "carried the org's agents into org-config.yaml", "gov-work:maintain:upgrade-run", "migrate", { agents: agents.map((a) => a.id) });
+    return true;
+  },
+};
 
 export function migrationNames(): string[] { return Object.keys(MIGRATIONS); }
 
@@ -114,6 +144,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
 
 import { run as runProcess } from "../run-process.js";
 import { log } from "../log.js";
+import { parseApprovedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 
 function git(dir: string, args: string[]): string {
   return runProcess("git", ["-C", dir, ...args], { pgm: "gov-work:maintain:upgrade-run", fn: "git" }).trim();

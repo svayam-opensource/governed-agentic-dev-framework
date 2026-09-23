@@ -26,7 +26,7 @@
  */
 
 /** Paths inside the governance repo that govern a session. */
-export const GOVERNING_FILES = ["org-config.yaml", "governance/policies/org-ai-agent-governance-policy.md"] as const;
+export const GOVERNING_FILES = ["org-config.yaml", "framework/policies/framework-policy.md"] as const;
 
 export interface GovSnapshot {
   /** The folder the files were written to: `<project>/.gov/governance`. */

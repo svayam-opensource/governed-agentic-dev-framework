@@ -83,3 +83,26 @@ services:
   jenkins: ""            # org Jenkins base — a deploy triggers a job here as the user (gov-cicd)
   npm: ""                # org npm/Verdaccio registry — publish target for npm units (gov-cicd)
   docker: ""             # org container image registry — publish target for container units (gov-cicd)
+
+# WHICH AGENTS THIS ORGANIZATION AUTHORIZES (Policy Owner, 2026-09-23).
+#
+# The FRAMEWORK publishes the master list of agents an org may adopt — `gov agent list` shows it, and every id
+# below must come from it. The ORG records which of them are authorized here, and which gov launches when
+# nobody has said otherwise. Numbered keys rather than a list, because this file is merged key by key on
+# upgrade: every entry you write survives, and a value you set is never modified.
+#
+# `gov agent approve <id>` raises the pull request that changes it. Left empty, gov uses the framework's
+# defaults and says so.
+authorized_agents:
+  default: ""
+
+# WHETHER THIS ORGANIZATION PUBLISHES ITS KNOWLEDGE, and in what form (Policy Owner, 2026-09-23).
+#
+#   none            the default. gov's own `gov knowledge search` reads what is already on every machine.
+#   site            an internal site, generated from the same markdown.
+#   site+pdf        …and PDF exports for readers who need them.
+#   site+pdf+rag    …and a vector store for agent retrieval.
+#
+# The framework ships none of that infrastructure: publishing is an add-on an org chooses, not a rule it
+# breaks by default. `policies/knowledge-publication-spec.md` is the org's own record of how it does it.
+knowledge_publication: "none"

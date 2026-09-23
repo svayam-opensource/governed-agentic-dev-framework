@@ -148,3 +148,32 @@ describe("staleArtifactsIn — retire only what a workspace left behind", () => 
     expect(staleArtifactsIn(true, present("org-config.yaml", "site/index.html", "publish/report.md"))).to.deep.equal([]);
   });
 });
+
+// PRJ-121, 2026-09-23 — `governance/` split into `framework/` (the framework's) + `policies/` (the org's).
+// Both shapes exist in the wild for one release, so gov must be able to say which one it is looking at.
+describe("the content layout, said plainly", () => {
+  it("names the older layout, and the command that moves it", () => {
+    const r = doctor(facts({ workspaceChecked: true, contentLayout: "governance", contentVersion: "1.2.3" }));
+    const row = r.diagnostics.find((d) => d.name === "content layout")!;
+    expect(row.status, "behind is not broken").to.equal("warn");
+    expect(row.detail).to.contain("governance/").and.contain("gov upgrade --pr");
+    expect(r.ok, "and it does not fail the report").to.equal(true);
+  });
+
+  it("says nothing special about the current one", () => {
+    const row = doctor(facts({ workspaceChecked: true, contentLayout: "framework", contentVersion: "1.2.3" }))
+      .diagnostics.find((d) => d.name === "content layout")!;
+    expect(row.status).to.equal("ok");
+  });
+});
+
+describe("contentLayoutOf — derived from the tree, never stored", () => {
+  it("reads the layout off what is on disk", async () => {
+    const { contentLayoutOf } = await import("../../src/maintain/upgrade-sync.js");
+    expect(contentLayoutOf((r) => r === "framework/policies")).to.equal("framework");
+    expect(contentLayoutOf((r) => r === "governance/policies")).to.equal("governance");
+    expect(contentLayoutOf(() => false), "a directory that is neither is not a workspace to upgrade").to.equal("none");
+    expect(contentLayoutOf((r) => r === "framework/policies" || r === "governance/policies"),
+      "mid-upgrade, the NEW layout is the answer").to.equal("framework");
+  });
+});

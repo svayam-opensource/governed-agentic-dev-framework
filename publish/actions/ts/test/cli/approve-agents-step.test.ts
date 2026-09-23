@@ -62,7 +62,7 @@ describe("gov-work — approving agents during adoption (#196)", () => {
     const text = approvalSummary(r.agents).join("\n");
     expect(text).to.contain("Approved for this organization");
     expect(text).to.contain("Default for people who join");
-    expect(text).to.contain("llm-governance.md");
+    expect(text, "and says where the decision is recorded").to.contain("org-config.yaml");
     expect(text).to.contain("gov agent approve");
   });
 });

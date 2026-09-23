@@ -13,12 +13,12 @@ links in sequence, no content of its own.
 
 | You are | Start at |
 |---|---|
-| bringing the framework into this organization | [`governance/paths/adopter.md`](governance/paths/adopter.md) |
-| joining an organization that already uses it | [`governance/paths/joiner.md`](governance/paths/joiner.md) |
-| working on a project today | [`governance/paths/developer.md`](governance/paths/developer.md) |
-| looking something up | [`governance/paths/reference.md`](governance/paths/reference.md) |
+| bringing the framework into this organization | [`framework/docs/user-guides/path-adopter.md`](framework/docs/user-guides/path-adopter.md) |
+| joining an organization that already uses it | [`framework/docs/user-guides/path-joiner.md`](framework/docs/user-guides/path-joiner.md) |
+| working on a project today | [`framework/docs/user-guides/path-developer.md`](framework/docs/user-guides/path-developer.md) |
+| looking something up | [`framework/docs/user-guides/path-reference.md`](framework/docs/user-guides/path-reference.md) |
 
-New to the vocabulary? [`governance/specs/concepts.md`](governance/specs/concepts.md) is the
+New to the vocabulary? [`framework/docs/specs/concepts.md`](framework/docs/specs/concepts.md) is the
 shortest path to reading the policy without stopping.
 
 ## What is where, and who owns it
@@ -51,7 +51,7 @@ actually runs — by SDLC phase, by product line, by business unit, by anything.
 
 One rule applies, and it is the rule rather than a suggestion: a top-level domain exists only
 once a named Owner role exists for it
-([`POL-403`](governance/policies/knowledge-organization-standard.md)). Create the domain and
+([`POL-403`](policies/knowledge-organization-standard.md)). Create the domain and
 name its owner together, add the owner to the policy, and `CODEOWNERS` will gate it on the next
 upgrade.
 
@@ -60,7 +60,7 @@ upgrade.
 | Treatment | Meaning | Examples |
 |---|---|---|
 | framework-owned | overwritten, every upgrade | `governance/`, `agent/` |
-| yours after the first install | never touched again | `README.md` (this file), `.github/workflows/gov-validate.yml`, `governance/policies/llm-governance.md` |
+| yours after the first install | never touched again | `README.md` (this file), `.github/workflows/gov-validate.yml`, `org-config.yaml (authorized_agents)` |
 | merged | new keys added, your values kept | `org-config.yaml` |
 | never shipped | generated from the two above | `CODEOWNERS` |
 

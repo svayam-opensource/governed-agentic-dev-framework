@@ -37,13 +37,16 @@ function walk(root: string, rel = ""): string[] {
 }
 
 describe("gov-work — shipped knowledge passes its own validator (publish gate)", () => {
-  it("publish/content/governance validates clean", () => {
+  it("publish/content/framework validates clean", () => {
     const content = contentDir();
-    // governance/, not knowledge/ (Decision 10, 2026-09-14). Framework doctrine moved out of
-    // knowledge/, which now ships EMPTY and belongs to the adopter — so validating
-    // publish/content/knowledge would now assert over nothing, which is how a publish gate
-    // quietly stops gating.
-    const files = walk(path.join(content, "governance")).map((f) => `governance/${f}`);
+    // framework/ + policies/, not knowledge/ (Decision 10 of 2026-09-14, split again 2026-09-23). Framework
+    // doctrine moved out of knowledge/, which ships EMPTY and belongs to the adopter — so validating
+    // publish/content/knowledge would assert over nothing, which is how a publish gate quietly stops gating.
+    // Both shipped trees are validated: the framework's own, and the STARTER an org will curate.
+    const files = [
+      ...walk(path.join(content, "framework")).map((f) => `framework/${f}`),
+      ...walk(path.join(content, "policies")).map((f) => `policies/${f}`),
+    ];
     const realFs: Fs = {
       readFile: (p) => (fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null),
       pathExists: (p) => fs.existsSync(p),

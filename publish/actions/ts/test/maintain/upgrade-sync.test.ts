@@ -111,7 +111,7 @@ files:
 moves:
   - { from: governance/policies/exceptions/, to: policies/exceptions/, mode: move }
   - { from: governance/policies/knowledge-organization-standard.md, to: policies/knowledge-organization-standard.md, mode: move }
-  - { from: governance/policies/llm-governance.md, to: org-config.yaml, mode: migrate, how: approved-agents-to-org-config }
+  - { from: org-config.yaml, to: org-config.yaml, mode: migrate, how: approved-agents-to-org-config }
 `;
   const manifest = parseManifest(MANIFEST);
 
@@ -167,7 +167,7 @@ moves:
   });
 
   it("a MIGRATION gov does not know is left undone — never half-applied, never recorded", () => {
-    const store: Record<string, string> = { "governance/policies/llm-governance.md": "```yaml\napproved_agents:\n  - ibm-bob\n```\n" };
+    const store: Record<string, string> = { "org-config.yaml": "```yaml\napproved_agents:\n  - ibm-bob\n```\n" };
     const plan = planUpgrade([], readers(store), manifest.moves);
     const recorded: string[] = [];
     const res = applyUpgrade(plan, {
@@ -178,20 +178,20 @@ moves:
       migrate: () => false,                       // an older CLI, a newer manifest
       recordMove: (id) => recorded.push(id),
     });
-    expect(store["governance/policies/llm-governance.md"], "the org's file is untouched").to.not.equal(undefined);
+    expect(store["org-config.yaml"], "the org's file is untouched").to.not.equal(undefined);
     expect(recorded, "and nothing is recorded, so a later gov still runs it").to.deep.equal([]);
     expect(res.skipped).to.contain("org-config.yaml");
   });
 
   it("a migration that RUNS is recorded once", () => {
-    const store: Record<string, string> = { "governance/policies/llm-governance.md": "fence\n" };
+    const store: Record<string, string> = { "org-config.yaml": "fence\n" };
     const recorded: string[] = [];
     applyUpgrade(planUpgrade([], readers(store), manifest.moves), {
       readContent: () => null, readAdopter: (p) => store[p] ?? null,
       writeAdopter: (p, t) => { store[p] = t; }, removeAdopter: (p) => { delete store[p]; },
       migrate: () => true, recordMove: (id) => recorded.push(id),
     });
-    expect(recorded).to.deep.equal(["governance/policies/llm-governance.md → org-config.yaml"]);
+    expect(recorded).to.deep.equal(["org-config.yaml → org-config.yaml"]);
   });
 
   // RETIRE ONLY AFTER VERIFY: the old tree goes only when nothing is still moving out of it.
