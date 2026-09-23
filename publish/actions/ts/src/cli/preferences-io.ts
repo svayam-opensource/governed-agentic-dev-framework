@@ -10,7 +10,7 @@
 import * as fsSync from "node:fs";
 import * as path from "node:path";
 import { log } from "../log.js";
-import { preferencesFile } from "../state-paths.js";
+import { personDir, preferencesFile } from "../state-paths.js";
 import { parsePreferences, renderPreferences, starterPreferences, type PrefValue, type Preferences } from "../preferences.js";
 import { ensureLogin, runContext } from "./run-context.js";
 
@@ -47,6 +47,11 @@ export function loadPreferences(announce?: (file: string) => void, cwd: string =
       text = starterPreferences();
       log("info", "created a preferences file", "gov-work:cli:preferences-io", "loadPreferences", { file });
       announce?.(file);
+      const ctx = runContext(cwd);
+      if (ctx.workRoot) {
+        const who = path.basename(path.dirname(file));
+        movePersonalMarkdown(ctx.workRoot, who, (from, to) => announce?.(`moved your notes: ${from} → ${to}`));
+      }
     } catch (e) {
       log("warn", "could not create the preferences file — using defaults", "gov-work:cli:preferences-io", "loadPreferences", { file, message: (e as Error)?.message });
     }
@@ -54,6 +59,27 @@ export function loadPreferences(announce?: (file: string) => void, cwd: string =
   const prefs = parsePreferences(text);
   for (const p of prefs.problems) log("warn", "preferences problem", "gov-work:cli:preferences-io", "loadPreferences", { file, problem: p });
   return { file, prefs };
+}
+
+/**
+ * THE PERSON'S MARKDOWN JOINS THEIR FOLDER (Policy Owner, 2026-09-22: one folder per person).
+ *
+ * `preferences/<gh-login>.md` — the behaviour their AGENT takes into account — predates the folder, and the
+ * retired `setup.sh` was the last thing that created one. Moved, never copied (two copies of the same prose is
+ * the shape that makes one of them stale), announced, and only when the folder does not already have it.
+ */
+export function movePersonalMarkdown(workRoot: string, login: string, announce?: (from: string, to: string) => void): void {
+  const from = path.join(workRoot, "preferences", `${login}.md`);
+  const to = path.join(personDir(workRoot, login), `${login}.md`);
+  try {
+    if (!fsSync.existsSync(from) || fsSync.existsSync(to)) return;
+    fsSync.mkdirSync(path.dirname(to), { recursive: true });
+    fsSync.renameSync(from, to);
+    log("info", "moved the person's notes into their folder", "gov-work:cli:preferences-io", "movePersonalMarkdown", { from, to });
+    announce?.(from, to);
+  } catch (e) {
+    log("warn", "could not move the person's notes", "gov-work:cli:preferences-io", "movePersonalMarkdown", { from, to, message: (e as Error)?.message });
+  }
 }
 
 /** Write one value (or remove it, with `null` for a setting whose default is not null). Returns the new state. */

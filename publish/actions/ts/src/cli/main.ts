@@ -887,6 +887,11 @@ export async function runSetupCommand(
           activeNote = `active org left as '${priorActive}' — switch when you want it:  gov org use ${cfg.org}`;
         }
         manifest.push({ what: "Registered", detail: `${cfg.org} → ${createdHome}${activeNote ? "" : " (active)"}` });
+        // YOUR PREFERENCES FILE, at the moment the org becomes yours (Policy Owner, 2026-09-22: "created by the
+        // install / org creation process"). It arrives with gov's defaults, so nothing must be decided now; the
+        // person is simply told it exists, which is how they learn there is one place to change these things.
+        const madePrefs = loadPreferences();
+        if (madePrefs.file) manifest.push({ what: "Preferences", detail: `${madePrefs.file} (gov's defaults — \`gov preferences\`)` });
       }
 
       // PRUNE publisher scaffolding (6c), then COMMIT AND PUSH (6b) — neither is an optional decision the

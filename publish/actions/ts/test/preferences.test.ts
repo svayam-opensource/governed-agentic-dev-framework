@@ -111,3 +111,41 @@ describe("preferences — what `gov preferences` prints", () => {
     expect(text).to.contain("Problems in the file").and.contain("below 1");
   });
 });
+
+// Policy Owner, 2026-09-22: one folder per person. The markdown their AGENT reads moves in beside the JSON
+// the CLI reads — moved, never copied, because two copies of the same prose is how one of them goes stale.
+describe("the person's notes join their folder", () => {
+  it("moves preferences/<login>.md into preferences/<login>/, once, and says so", async () => {
+    const fs = await import("node:fs"); const os = await import("node:os"); const path = await import("node:path");
+    const { movePersonalMarkdown } = await import("../src/cli/preferences-io.js");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "gov-prefs-"));
+    try {
+      fs.mkdirSync(path.join(root, "preferences"), { recursive: true });
+      fs.writeFileSync(path.join(root, "preferences", "rk.md"), "# how I like to work\n");
+      const said: string[] = [];
+      movePersonalMarkdown(root, "rk", (from, to) => said.push(`${from} → ${to}`));
+
+      expect(fs.existsSync(path.join(root, "preferences", "rk", "rk.md")), "it is in the folder").to.equal(true);
+      expect(fs.existsSync(path.join(root, "preferences", "rk.md")), "and not left behind as a second copy").to.equal(false);
+      expect(said, "and the person is told").to.have.length(1);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("never overwrites notes already in the folder, and is silent when there is nothing to move", async () => {
+    const fs = await import("node:fs"); const os = await import("node:os"); const path = await import("node:path");
+    const { movePersonalMarkdown } = await import("../src/cli/preferences-io.js");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "gov-prefs-"));
+    try {
+      fs.mkdirSync(path.join(root, "preferences", "rk"), { recursive: true });
+      fs.writeFileSync(path.join(root, "preferences", "rk.md"), "older\n");
+      fs.writeFileSync(path.join(root, "preferences", "rk", "rk.md"), "the one in the folder\n");
+      const said: string[] = [];
+      movePersonalMarkdown(root, "rk", () => said.push("moved"));
+      expect(fs.readFileSync(path.join(root, "preferences", "rk", "rk.md"), "utf8")).to.equal("the one in the folder\n");
+      expect(said).to.deep.equal([]);
+
+      movePersonalMarkdown(root, "nobody", () => said.push("moved"));
+      expect(said, "nothing to move is not an event").to.deep.equal([]);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+});

@@ -118,6 +118,11 @@ for leak in publish site install.ps1 install.sh CHANGELOG.md packages ci docs AG
 done
 saw "and setup says what it removed from the template copy" "the framework's own files from the template copy"
 
+# ONE PLACE FOR A PERSON'S SETTINGS (Policy Owner, 2026-09-22). Created when the org becomes theirs, with gov's
+# defaults, and SAID — a file that appears in someone's tree without a word is a file they cannot trust.
+saw "setup creates their preferences file" "preferences.json"
+saw "and names the command that changes it" "gov preferences"
+
 info "#196 — the org decides which agents it allows, during adoption"
 says "the question is asked" "Which AI agents may be used in this organization"
 saw_re "and the answer is written to the policy, not remembered" "approved_agents|IBM Bob"
