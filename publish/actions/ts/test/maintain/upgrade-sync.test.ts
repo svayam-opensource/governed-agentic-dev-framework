@@ -99,3 +99,114 @@ describe("planUpgrade — retires the framework's leftovers, only by fingerprint
     expect(plan(["org-config.yaml", "site/index.html"])).to.not.include("site/");
   });
 });
+
+// PRJ-121, 2026-09-23 (policy-split design §9). The shipped layout is about to change — governance/ becomes
+// framework/ + policies/ — and upgrade could only CREATE and RETIRE. Applied to that change, it would have
+// dropped an org's own exception files, its curated standard and its approved-agent list: worse than the old
+// layout. So relocation comes first, and every relocation is a STRAIGHT MOVE (Policy Owner).
+describe("upgrade — moving an org's own files to a new layout", () => {
+  const MANIFEST = `
+files:
+  - { src: VERSION, dst: VERSION, mode: scaffold-auto }
+moves:
+  - { from: governance/policies/exceptions/, to: policies/exceptions/, mode: move }
+  - { from: governance/policies/knowledge-organization-standard.md, to: policies/knowledge-organization-standard.md, mode: move }
+  - { from: governance/policies/llm-governance.md, to: org-config.yaml, mode: migrate, how: approved-agents-to-org-config }
+`;
+  const manifest = parseManifest(MANIFEST);
+
+  const readers = (adopter: Record<string, string>, done: string[] = []): PlanReaders => ({
+    readContent: () => "shipped\n",
+    readAdopter: (p) => adopter[p] ?? null,
+    adopterPaths: () => Object.keys(adopter),
+    doneMoves: () => done,
+  });
+
+  it("parses the moves section, straight moves and the one migration", () => {
+    expect(manifest.moves).to.have.length(3);
+    expect(manifest.moves[2]).to.include({ mode: "migrate", how: "approved-agents-to-org-config" });
+  });
+
+  it("plans a move for each of the org's files under a moved FOLDER, keeping the structure", () => {
+    const plan = planUpgrade([], readers({
+      "governance/policies/exceptions/legal/our-exception.md": "ours\n",
+      "governance/policies/exceptions/policy/another.md": "ours\n",
+    }), manifest.moves);
+    const moves = plan.actions.filter((a) => a.kind === "move").map((a) => `${a.from} → ${a.dst}`);
+    expect(moves).to.deep.equal([
+      "governance/policies/exceptions/legal/our-exception.md → policies/exceptions/legal/our-exception.md",
+      "governance/policies/exceptions/policy/another.md → policies/exceptions/policy/another.md",
+    ]);
+  });
+
+  it("plans nothing for a file the org does not have", () => {
+    expect(planUpgrade([], readers({ "VERSION": "1\n" }), manifest.moves).actions.filter((a) => a.kind === "move")).to.have.length(0);
+  });
+
+  it("runs ONCE: a relocation already recorded is not planned again", () => {
+    const adopter = { "governance/policies/knowledge-organization-standard.md": "the org's, curated\n" };
+    const id = "governance/policies/knowledge-organization-standard.md → policies/knowledge-organization-standard.md";
+    expect(planUpgrade([], readers(adopter), manifest.moves).actions.some((a) => a.kind === "move"), "first run").to.equal(true);
+    expect(planUpgrade([], readers(adopter, [id]), manifest.moves).actions.some((a) => a.kind === "move"), "second run").to.equal(false);
+  });
+
+  it("a MOVE carries the org's bytes, and leaves nothing behind", () => {
+    const store: Record<string, string> = { "governance/policies/knowledge-organization-standard.md": "OUR taxonomy, curated\n" };
+    const plan = planUpgrade([], readers(store), manifest.moves);
+    const recorded: string[] = [];
+    applyUpgrade(plan, {
+      readContent: () => null,
+      readAdopter: (p) => store[p] ?? null,
+      writeAdopter: (p, t) => { store[p] = t; },
+      removeAdopter: (p) => { delete store[p]; },
+      recordMove: (id) => recorded.push(id),
+    });
+    expect(store["policies/knowledge-organization-standard.md"], "byte for byte").to.equal("OUR taxonomy, curated\n");
+    expect(store["governance/policies/knowledge-organization-standard.md"], "and not left as a second copy").to.equal(undefined);
+    expect(recorded, "and recorded, so it happens once").to.have.length(1);
+  });
+
+  it("a MIGRATION gov does not know is left undone — never half-applied, never recorded", () => {
+    const store: Record<string, string> = { "governance/policies/llm-governance.md": "```yaml\napproved_agents:\n  - ibm-bob\n```\n" };
+    const plan = planUpgrade([], readers(store), manifest.moves);
+    const recorded: string[] = [];
+    const res = applyUpgrade(plan, {
+      readContent: () => null,
+      readAdopter: (p) => store[p] ?? null,
+      writeAdopter: (p, t) => { store[p] = t; },
+      removeAdopter: (p) => { delete store[p]; },
+      migrate: () => false,                       // an older CLI, a newer manifest
+      recordMove: (id) => recorded.push(id),
+    });
+    expect(store["governance/policies/llm-governance.md"], "the org's file is untouched").to.not.equal(undefined);
+    expect(recorded, "and nothing is recorded, so a later gov still runs it").to.deep.equal([]);
+    expect(res.skipped).to.contain("org-config.yaml");
+  });
+
+  it("a migration that RUNS is recorded once", () => {
+    const store: Record<string, string> = { "governance/policies/llm-governance.md": "fence\n" };
+    const recorded: string[] = [];
+    applyUpgrade(planUpgrade([], readers(store), manifest.moves), {
+      readContent: () => null, readAdopter: (p) => store[p] ?? null,
+      writeAdopter: (p, t) => { store[p] = t; }, removeAdopter: (p) => { delete store[p]; },
+      migrate: () => true, recordMove: (id) => recorded.push(id),
+    });
+    expect(recorded).to.deep.equal(["governance/policies/llm-governance.md → org-config.yaml"]);
+  });
+
+  // RETIRE ONLY AFTER VERIFY: the old tree goes only when nothing is still moving out of it.
+  it("does not retire a path a move is taking files out of", () => {
+    const moves = parseManifest(`
+moves:
+  - { from: framework/, to: policies/, mode: move }
+`).moves;
+    const plan = planUpgrade([], readers({ "org-config.yaml": "x", "framework/ours.md": "ours" }), moves);
+    expect(plan.actions.filter((a) => a.kind === "retire").map((a) => a.dst), "framework/ is retired by RETIRE_PATHS — but not while it is being emptied").to.not.include("framework/");
+    expect(plan.actions.some((a) => a.kind === "move" && a.dst === "policies/ours.md")).to.equal(true);
+  });
+
+  it("the plan says what will happen to the org's files, by name", () => {
+    const text = formatPlan(planUpgrade([], readers({ "governance/policies/exceptions/legal/x.md": "ours" }), manifest.moves)).join("\n");
+    expect(text).to.contain("→ move").and.contain("governance/policies/exceptions/legal/x.md → policies/exceptions/legal/x.md");
+  });
+});

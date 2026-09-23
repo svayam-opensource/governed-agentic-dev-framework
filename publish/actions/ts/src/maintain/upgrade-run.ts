@@ -28,6 +28,36 @@ function walk(root: string, rel = ""): string[] {
 
 export interface UpgradeSyncResult { readonly code: number; readonly lines: readonly string[]; }
 
+
+/**
+ * WHAT THIS WORKSPACE HAS ALREADY MOVED (PRJ-121, 2026-09-23).
+ *
+ * A relocation runs ONCE. Without a record, a second `gov upgrade` would move a file the org has since put
+ * back deliberately — and the org, not the framework, decides where its own content sits after the layout
+ * change. Kept beside the content version, in the workspace, because it is a fact about THAT workspace.
+ */
+const MOVES_FILE = ".gov-upgrade-moves.json";
+
+export function doneMoves(adopterDir: string): string[] {
+  try { return JSON.parse(fs.readFileSync(path.join(adopterDir, MOVES_FILE), "utf8")) as string[]; }
+  catch { return []; /* nothing moved yet — the ordinary case for every workspace but the one mid-upgrade */ }
+}
+
+function recordMove(adopterDir: string, id: string): void {
+  const all = [...new Set([...doneMoves(adopterDir), id])];
+  try { fs.writeFileSync(path.join(adopterDir, MOVES_FILE), `${JSON.stringify(all, null, 2)}\n`); }
+  catch (e) { log("warn", "could not record a relocation — it may be planned again", "gov-work:maintain:upgrade-run", "recordMove", { id, message: (e as Error)?.message }); }
+}
+
+/**
+ * THE NAMED MIGRATIONS. One entry per value that must LEAVE one file for another — the shape a straight move
+ * cannot express. Each is versioned by its name: a manifest naming one an older CLI lacks is left undone, for
+ * the upgrade that knows it, rather than half-applied.
+ */
+const MIGRATIONS: Record<string, (adopterDir: string, from: string, to: string) => boolean> = {};
+
+export function migrationNames(): string[] { return Object.keys(MIGRATIONS); }
+
 export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { apply: boolean }): UpgradeSyncResult {
   const manifestPath = path.join(contentDir, "MANIFEST.yaml");
   if (!fs.existsSync(manifestPath)) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
@@ -42,7 +72,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
     const p = path.join(adopterDir, rel);
     return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null;
   };
-  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir) });
+  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir) }, manifest.moves);
 
   if (!opts.apply) {
     return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), "", "Re-run with --apply to write these changes."] };
@@ -57,6 +87,21 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       fs.writeFileSync(p, text);
     },
     removeAdopter: (rel) => fs.rmSync(path.join(adopterDir, rel.replace(/\/$/, "")), { recursive: true, force: true }),
+    moveAdopter: (from, to) => {
+      const src = path.join(adopterDir, from), dst = path.join(adopterDir, to);
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.renameSync(src, dst);                       // byte for byte: a move, never a rewrite
+      log("info", "moved a file for the new layout", "gov-work:maintain:upgrade-run", "moveAdopter", { from, to });
+    },
+    migrate: (how, from, to) => {
+      const run = MIGRATIONS[how];
+      if (!run) {
+        log("warn", "a migration this gov does not know — left undone", "gov-work:maintain:upgrade-run", "migrate", { how, from, to });
+        return false;
+      }
+      return run(adopterDir, from, to);
+    },
+    recordMove: (id) => recordMove(adopterDir, id),
   });
   return {
     code: 0,
@@ -68,6 +113,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
 }
 
 import { run as runProcess } from "../run-process.js";
+import { log } from "../log.js";
 
 function git(dir: string, args: string[]): string {
   return runProcess("git", ["-C", dir, ...args], { pgm: "gov-work:maintain:upgrade-run", fn: "git" }).trim();
@@ -107,7 +153,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const entries = expandEntries(manifest, walk(contentDir));
   const readContent = (rel: string): string | null => { const p = path.join(contentDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
   const readAdopter = (rel: string): string | null => { const p = path.join(adopterDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
-  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir) });
+  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir) }, manifest.moves);
   if (plan.actions.every((a) => a.kind === "same")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
 
   try { git(adopterDir, ["checkout", "-b", branch]); } catch { /* the branch already exists — the runner logged the git failure; the message below says what to do */ return { code: 1, lines: [`gov upgrade --pr: branch '${branch}' already exists — delete it or pass --branch <name>.`] }; }
@@ -115,6 +161,21 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     readContent, readAdopter,
     writeAdopter: (rel, t) => { const p = path.join(adopterDir, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, t); },
     removeAdopter: (rel) => fs.rmSync(path.join(adopterDir, rel.replace(/\/$/, "")), { recursive: true, force: true }),
+    moveAdopter: (from, to) => {
+      const src = path.join(adopterDir, from), dst = path.join(adopterDir, to);
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.renameSync(src, dst);                       // byte for byte: a move, never a rewrite
+      log("info", "moved a file for the new layout", "gov-work:maintain:upgrade-run", "moveAdopter", { from, to });
+    },
+    migrate: (how, from, to) => {
+      const run = MIGRATIONS[how];
+      if (!run) {
+        log("warn", "a migration this gov does not know — left undone", "gov-work:maintain:upgrade-run", "migrate", { how, from, to });
+        return false;
+      }
+      return run(adopterDir, from, to);
+    },
+    recordMove: (id) => recordMove(adopterDir, id),
   }, { includeConflicts: true }); // the PR diff IS the review — apply everything
 
   git(adopterDir, ["add", "-A"]);

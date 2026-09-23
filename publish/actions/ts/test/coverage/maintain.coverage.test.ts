@@ -378,7 +378,7 @@ owned:
   });
 
   it("parseManifest: empty text → empty manifest", () => {
-    expect(parseManifest("")).to.deep.equal({ files: [], owned: [] });
+    expect(parseManifest("")).to.deep.equal({ files: [], owned: [], moves: [] });   // `moves` since 2026-09-23
   });
 
   it("expandEntries: directory entries expand per content file; file entries pass through; no-match dir yields nothing", () => {

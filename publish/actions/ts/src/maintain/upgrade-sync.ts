@@ -38,7 +38,28 @@
 
 export type EntryMode = "scaffold-auto" | "seed-once" | "scaffold-prompt" | "overlay-schema";
 export interface ManifestEntry { readonly src: string; readonly dst: string; readonly mode: EntryMode; }
-export interface Manifest { readonly files: readonly ManifestEntry[]; readonly owned: readonly string[]; }
+export interface Manifest { readonly files: readonly ManifestEntry[]; readonly owned: readonly string[]; readonly moves: readonly ManifestMove[]; }
+
+/**
+ * A RELOCATION, for the day the shipped layout changes (PRJ-121, 2026-09-23, policy-split design §9).
+ *
+ * `move` is a STRAIGHT MOVE (Policy Owner): the org's file arrives at the new path byte for byte, directory
+ * structure and all. Nothing is rewritten — the framework owns where a file lives, never what the org wrote in
+ * it. `migrate` is for the one shape a move cannot express: a value leaving one file for another (the approved
+ * agents leaving llm-governance.md for org-config.yaml). Each runs ONCE, recorded in the workspace, so a
+ * second `gov upgrade` is a no-op rather than a second move of something the org has since edited.
+ *
+ * Without this, the split would have had to CREATE the new tree and RETIRE the old — which silently drops an
+ * org's own exception files and its curated standard. That is worse than the old layout, so the mechanism
+ * comes first.
+ */
+export interface ManifestMove {
+  readonly from: string;
+  readonly to: string;
+  readonly mode: "move" | "migrate";
+  /** `migrate` only: the named, versioned migration to run. */
+  readonly how?: string;
+}
 
 /** Paths (prefixes / exact) the new layout retires from an adopter repo. */
 export const RETIRE_PATHS = ["framework/", "registry.yaml", ".framework-version", "bin/", "scripts/", "setup.sh", "install.sh", "prj"] as const;
@@ -92,22 +113,27 @@ export function staleArtifactsIn(isWorkspace: boolean, exists: (rel: string) => 
 export function parseManifest(text: string): Manifest {
   const files: ManifestEntry[] = [];
   const owned: string[] = [];
-  let section: "files" | "owned" | null = null;
+  const moves: ManifestMove[] = [];
+  let section: "files" | "owned" | "moves" | null = null;
   for (const raw of text.split(/\r?\n/)) {
     const t = raw.trim();
     if (!t || t.startsWith("#")) continue;
     if (t === "files:") { section = "files"; continue; }
     if (t === "owned:") { section = "owned"; continue; }
+    if (t === "moves:") { section = "moves"; continue; }
     if (/^[a-z_]+:/.test(t) && section === null) continue; // top-level scalars (version:)
     if (section === "files") {
       const m = t.match(/^-\s*\{\s*src:\s*([^,]+?)\s*,\s*dst:\s*([^,]+?)\s*,\s*mode:\s*([a-z-]+)\s*\}/);
       if (m) files.push({ src: m[1].trim(), dst: m[2].trim(), mode: m[3].trim() as EntryMode });
+    } else if (section === "moves") {
+      const m = t.match(/^-\s*\{\s*from:\s*([^,]+?)\s*,\s*to:\s*([^,]+?)\s*,\s*mode:\s*([a-z]+)\s*(?:,\s*how:\s*([^,}]+?)\s*)?\}/);
+      if (m) moves.push({ from: m[1].trim(), to: m[2].trim(), mode: m[3].trim() as ManifestMove["mode"], ...(m[4] ? { how: m[4].trim() } : {}) });
     } else if (section === "owned") {
       const m = t.match(/^-\s*(.+?)(?:\s+#.*)?$/);
       if (m) owned.push(m[1].trim().replace(/^["']|["']$/g, ""));
     }
   }
-  return { files, owned };
+  return { files, owned, moves };
 }
 
 /** Expand directory entries (src/dst ending in `/`) to one entry per content file. */
@@ -125,12 +151,15 @@ export function expandEntries(manifest: Manifest, contentFiles: readonly string[
   return out;
 }
 
-export type ActionKind = "create" | "same" | "update" | "conflict" | "overlay" | "retire";
+export type ActionKind = "create" | "same" | "update" | "conflict" | "overlay" | "retire" | "move" | "migrate";
 export interface PlanAction {
   readonly kind: ActionKind;
   readonly dst: string;
   readonly src?: string;
   readonly detail?: string;
+  /** `move` / `migrate`: where the org's file is now, and (for migrate) the named migration. */
+  readonly from?: string;
+  readonly how?: string;
 }
 export interface UpgradePlan { readonly actions: readonly PlanAction[]; }
 
@@ -143,10 +172,15 @@ export interface PlanReaders {
   readonly adopterPaths: () => readonly string[];
   /** The previously-installed baseline for a dst, if the engine tracks it (else null). */
   readonly readBaseline?: (rel: string) => string | null;
+  /** Relocations already carried out in this workspace, by `<from> → <to>` — so each runs ONCE. */
+  readonly doneMoves?: () => readonly string[];
 }
 
+/** The record of a relocation, as the workspace keeps it. */
+export const moveId = (m: { from: string; to: string }): string => `${m.from} → ${m.to}`;
+
 /** Compute the migration plan (no writes). */
-export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders): UpgradePlan {
+export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, moves: readonly ManifestMove[] = []): UpgradePlan {
   const actions: PlanAction[] = [];
   const shippedDst = new Set<string>();
 
@@ -184,12 +218,40 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders): 
     else actions.push({ kind: "conflict", dst: e.dst, src: e.src, detail: "org-customized — review before applying" });
   }
 
+  // ── RELOCATIONS, before anything is retired ──────────────────────────────────────────────────────────
+  //
+  // A move is planned only when the org HAS the file and has not been moved before: a second `gov upgrade`
+  // must not move something the org has since put back, and a file that was never there is not a change.
+  const present = new Set(r.adopterPaths());
+  const already = new Set(r.doneMoves?.() ?? []);
+  const movedAway = new Set<string>();
+  for (const m of moves) {
+    if (already.has(moveId(m))) continue;
+    const here = m.from.endsWith("/")
+      ? [...present].filter((p) => p.startsWith(m.from))
+      : present.has(m.from) ? [m.from] : [];
+    if (!here.length) continue;
+    if (m.mode === "migrate") {
+      actions.push({ kind: "migrate", dst: m.to, from: m.from, ...(m.how ? { how: m.how } : {}), detail: `carries the org's values into ${m.to}` });
+    } else {
+      for (const from of here) {
+        const to = m.from.endsWith("/") ? `${m.to.replace(/\/$/, "")}/${from.slice(m.from.length)}` : m.to;
+        actions.push({ kind: "move", dst: to, from, detail: "the org's file, moved as it stands" });
+      }
+    }
+    for (const h of here) movedAway.add(h);
+  }
+
   // Retire old-world artifacts present in the adopter.
   const seenRetire = new Set<string>();
   for (const p of r.adopterPaths()) {
     for (const rp of RETIRE_PATHS) {
       const hit = rp.endsWith("/") ? p.startsWith(rp) : p === rp;
-      if (hit && !seenRetire.has(rp)) { seenRetire.add(rp); actions.push({ kind: "retire", dst: rp, detail: "removed under the new layout" }); }
+      // RETIRE ONLY AFTER VERIFY (design §9.3): a path something is moving out of is not retired in the same
+      // run — the move is the account of it, and retiring it as well would race the copy.
+      if (hit && !seenRetire.has(rp) && ![...movedAway].some((mp) => mp === p || mp.startsWith(rp))) {
+        seenRetire.add(rp); actions.push({ kind: "retire", dst: rp, detail: "removed under the new layout" });
+      }
     }
   }
   // The framework's own files left by the template copy — fingerprinted, and only in an adopter repo.
@@ -233,9 +295,9 @@ export function mergeOrgConfig(templateText: string, orgText: string): string {
 }
 
 export function formatPlan(plan: UpgradePlan): string[] {
-  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", update: "~ update ", conflict: "! review ", overlay: "~ overlay", retire: "- retire " };
+  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", update: "~ update ", conflict: "! review ", overlay: "~ overlay", retire: "- retire ", move: "→ move   ", migrate: "→ migrate" };
   const shown = plan.actions.filter((a) => a.kind !== "same");
-  const lines = shown.map((a) => `  ${mark[a.kind]} ${a.dst}${a.detail ? `   (${a.detail})` : ""}`);
+  const lines = shown.map((a) => `  ${mark[a.kind]} ${a.from ? `${a.from} → ${a.dst}` : a.dst}${a.detail ? `   (${a.detail})` : ""}`);
   const counts = plan.actions.reduce<Record<string, number>>((m, a) => ((m[a.kind] = (m[a.kind] ?? 0) + 1), m), {});
   const summary = Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(" · ");
   return [...(lines.length ? lines : ["  (workspace already matches the published content)"]), "", `plan: ${summary}`];
@@ -246,6 +308,12 @@ export interface ApplyDeps {
   readonly readAdopter: (rel: string) => string | null;
   readonly writeAdopter: (rel: string, text: string) => void;
   readonly removeAdopter: (rel: string) => void;
+  /** Move the org's file, byte for byte. Defaults to read + write + remove when not supplied. */
+  readonly moveAdopter?: (from: string, to: string) => void;
+  /** Run the named migration; returns false when gov does not know it (then nothing is recorded). */
+  readonly migrate?: (how: string, from: string, to: string) => boolean;
+  /** Record that a relocation has happened, so the next run skips it. */
+  readonly recordMove?: (id: string) => void;
 }
 
 /** Apply the plan. Conflicts are skipped unless includeConflicts. */
@@ -256,6 +324,29 @@ export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { include
     if (a.kind === "same") continue;
     if (a.kind === "conflict" && !opts.includeConflicts) { skipped.push(a.dst); continue; }
     if (a.kind === "retire") { deps.removeAdopter(a.dst); applied.push(a.dst); continue; }
+    if (a.kind === "move" && a.from) {
+      // STRAIGHT MOVE: the bytes the org has, at the new path. Never a rewrite — the framework owns WHERE a
+      // file lives, never WHAT the organization wrote in it.
+      if (deps.moveAdopter) deps.moveAdopter(a.from, a.dst);
+      else {
+        const text = deps.readAdopter(a.from);
+        if (text === null) { skipped.push(a.dst); continue; }
+        deps.writeAdopter(a.dst, text);
+        deps.removeAdopter(a.from);
+      }
+      deps.recordMove?.(moveId({ from: a.from, to: a.dst }));
+      applied.push(a.dst);
+      continue;
+    }
+    if (a.kind === "migrate" && a.from) {
+      // A migration gov does not know is NOT an error to stop on, and NOT something to record: a newer content
+      // manifest naming a migration an older CLI lacks must leave the file where it is, for the upgrade that
+      // does know it.
+      const ran = a.how ? deps.migrate?.(a.how, a.from, a.dst) === true : false;
+      if (ran) { deps.recordMove?.(moveId({ from: a.from, to: a.dst })); applied.push(a.dst); }
+      else skipped.push(a.dst);
+      continue;
+    }
     if (a.kind === "overlay") {
       const tmpl = a.src ? deps.readContent(a.src) : null;
       const org = deps.readAdopter(a.dst);
