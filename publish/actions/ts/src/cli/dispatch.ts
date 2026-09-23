@@ -39,6 +39,8 @@ import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus, t
 import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
+import { search, formatHits, formatList, formatDoc, hitsJson } from "../knowledge-search.js";
+import { loadDocs, resolveDoc } from "./knowledge-io.js";
 import { onboard } from "../lifecycle/onboard.js";
 
 // TOOL_FILES IS GONE (Decision 1, 2026-09-14). It listed the nine harness files for seed's
@@ -464,7 +466,30 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
 
     case "knowledge": {
       const sub = positionals[0], slug = positionals[1];
-      if (!["propose", "submit", "archive"].includes(sub ?? "") || !slug) return usage('knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+
+      // READING comes before WRITING (tier 0, 2026-09-23). `search`/`show`/`list` answer from the markdown that
+      // is already cloned — no index service, no network — and are the same three answers an agent gets through
+      // `--json`. They take no slug, so they are routed before the propose/submit/archive argument check.
+      if (sub === "search" || sub === "show" || sub === "list") {
+        const docs = loadDocs(ctx.fs, ctx.home);
+        const json = flagBool(flags, "json");
+
+        if (sub === "list") return { code: 0, lines: json ? [JSON.stringify({ documents: docs.map((d) => d.path) }, null, 2)] : formatList(docs, positionals[1]) };
+
+        if (sub === "show") {
+          if (!slug) return usage("knowledge show <path>");
+          const { doc, candidates } = resolveDoc(docs, slug);
+          if (doc) return { code: 0, lines: json ? [JSON.stringify({ path: doc.path, text: doc.text }, null, 2)] : formatDoc(doc) };
+          return { code: 1, lines: candidates.length ? [`'${slug}' matches ${candidates.length} documents:`, ...candidates.map((p) => `  ${p}`)] : [`No knowledge document matches '${slug}'. Try: gov knowledge search ${slug}`] };
+        }
+
+        const query = positionals.slice(1).join(" ");
+        if (!query) return usage("knowledge search <text> [--json]");
+        const hits = search(docs, query, Number(flagStr(flags, "limit")) || 20);
+        return { code: 0, lines: json ? [hitsJson(hits, query)] : formatHits(hits, query) };
+      }
+
+      if (!["propose", "submit", "archive"].includes(sub ?? "") || !slug) return usage('knowledge <search|show|list|propose|submit|archive> …');
       const kcfg = { defaultBranch: c.defaultBranch, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo };
       const r =
         sub === "propose" ? proposeKnowledge(ctx.vcs, kcfg, ctx.home, slug)

@@ -250,12 +250,26 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     exit: EXIT_USUAL, seeAlso: ["close", "pause"] },
   {
     name: "knowledge", audience: "agent",
-    summary: "propose, submit or archive a change to the org's knowledge",
-    usage: "<propose|submit|archive> <slug> [--description \"<text>\"]",
+    summary: "search and read the org's knowledge — or propose a change to it",
+    usage: "search <text> [--json] | show <path> | list [<prefix>] | <propose|submit|archive> <slug>",
     where: "GOVERNED",
-    args: [{ name: "<slug>", what: "a short kebab-case name for the change, e.g. deploy-policy" }],
-    examples: ['gov knowledge propose deploy-policy', 'gov knowledge submit deploy-policy --description "why this changes"'],
-    changes: "`propose` creates and pushes a knowledge branch; `submit` opens the pull request to whoever owns that area; `archive` retires a knowledge file on a branch",
+    args: [
+      { name: "<text>", what: 'what you are looking for; every word must appear. "quote a phrase" to keep it together' },
+      { name: "<path>", what: "a path search printed, its tail, or the file name alone" },
+      { name: "<slug>", what: "a short kebab-case name for a change, e.g. deploy-policy" },
+    ],
+    flags: [
+      { name: "--json", what: "the same answer as data — how an agent retrieves knowledge (no service, no network)" },
+      { name: "--limit <n>", what: "how many results to show (default 20)" },
+      { name: "--description <text>", what: "why the change matters (submit)" },
+    ],
+    examples: [
+      'gov knowledge search "data classification"',
+      "gov knowledge show framework-policy.md",
+      "gov knowledge list policies/",
+      "gov knowledge propose deploy-policy",
+    ],
+    changes: "`search`/`show`/`list` change nothing — they read the markdown already in your workspace (org knowledge, policies, framework docs and every project's knowledge). `propose` creates and pushes a knowledge branch; `submit` opens the pull request to whoever owns that area; `archive` retires a knowledge file on a branch",
     exit: EXIT_USUAL, seeAlso: ["close", "validate"],
   },
   {

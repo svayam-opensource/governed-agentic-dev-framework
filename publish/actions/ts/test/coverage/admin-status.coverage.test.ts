@@ -228,7 +228,7 @@ describe("coverage: gov knowledge", () => {
   it("knowledge propose (missing slug) → exit 2, propose usage", () => {
     const r = run(["knowledge", "propose"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <search|show|list|propose|submit|archive> …');
   });
 
   it("knowledge propose <slug> when vcs.push throws → exit 1, error message", () => {
@@ -258,7 +258,7 @@ describe("coverage: gov knowledge", () => {
   it("knowledge submit (missing slug) → exit 2, submit usage", () => {
     const r = run(["knowledge", "submit"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <search|show|list|propose|submit|archive> …');
   });
 
   it("knowledge submit <slug> when PR cannot be opened → exit 1", () => {
@@ -276,7 +276,7 @@ describe("coverage: gov knowledge", () => {
   it("knowledge archive (missing slug) → exit 2, archive usage", () => {
     const r = run(["knowledge", "archive"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <search|show|list|propose|submit|archive> …');
   });
 
   it("knowledge archive <slug> when vcs.tag throws → exit 1, error message", () => {
@@ -288,13 +288,13 @@ describe("coverage: gov knowledge", () => {
   it("knowledge <unknown-sub> → exit 2, generic knowledge usage", () => {
     const r = run(["knowledge", "frobnicate", "x"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <search|show|list|propose|submit|archive> …');
   });
 
   it("knowledge (no subcommand) → exit 2, generic knowledge usage", () => {
     const r = run(["knowledge"]);
     expect(r.code).to.equal(2);
-    expect(r.lines[0]).to.equal('usage: gov knowledge <propose|submit|archive> <slug> [--description "<text>"]');
+    expect(r.lines[0]).to.equal('usage: gov knowledge <search|show|list|propose|submit|archive> …');
   });
 });
 
