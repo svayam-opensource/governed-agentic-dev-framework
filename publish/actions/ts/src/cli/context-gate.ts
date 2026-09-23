@@ -15,6 +15,9 @@ import * as readline from "node:readline";
 import { tryRun as tryRunProcess } from "../run-process.js";
 import { prjResolveGov, workspaceStateMessage } from "../resolve/resolve-gov.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
+import { log } from "../log.js";
+import { runContext } from "./run-context.js";
+import { stateDir } from "../state-paths.js";
 import { createNodeEnv } from "../resolve/node-env.js";
 import { parseOrgConfig } from "../config/org-config.js";
 import { readCliVersion } from "./main.js";
@@ -67,12 +70,44 @@ function buildContextInfo(): ContextInfo {
   // WHICH failure it is (PRJ-121, 2026-09-22): "not set up" only when nothing is registered — see workspaceStateMessage.
   if (!govRepo) anomalies.push(unresolved ?? "no organization set up on this machine yet — `gov` asks whether you are adopting the framework or joining your organization's");
   else if (!services.vault) anomalies.push("vault not configured (vault_addr) — governed creds/deploys need it");
+  // WHAT gov DECIDED IT WAS LOOKING AT (PRJ-121, 2026-09-23). Every "why did it do that?" starts here: which
+  // mode, which workspace, which branch. A walk spent a morning on a dead active org that this line names.
+  log("info", "context resolved", "gov-work:cli:context-gate", "gather",
+    { mode, govRepo, projectPath, branch, orgConfig: orgConfigPath, anomalies });
   return { mode, projectPath, agentWorkRoot, govRepo, orgConfigPath, orgConfigHash, user, branch, services, anomalies };
 }
 
-const ackFile = (): string => path.join(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".gov-context-ack.json");
-const readAcks = (): Ack[] => { try { return JSON.parse(fsSync.readFileSync(ackFile(), "utf8")) as Ack[]; } catch { return []; } };
-const writeAcks = (acks: Ack[]): void => { try { fsSync.writeFileSync(ackFile(), JSON.stringify(acks), { mode: 0o600 }); } catch { /* best effort */ } };
+/**
+ * WHERE THE ACKNOWLEDGEMENT LIVES (Policy Owner, 2026-09-23, preferences design §6 decision 3).
+ *
+ * It was `~/.gov-context-ack.json`: one file in the home directory, holding every org's acknowledgements
+ * together. It is gov's own state about ONE org's context, so it belongs with that org, in the person's
+ * folder — `<work-root>/preferences/<gh-login>/state/ack.json`. The old file is still READ, once, so nobody is
+ * asked again for something they already confirmed; it is never written to again.
+ */
+export const ackFileLegacy = (home: string = process.env.HOME ?? process.env.USERPROFILE ?? "."): string =>
+  path.join(home, ".gov-context-ack.json");
+
+/** The acknowledgement's home: the person's state folder when gov knows whose it is, else the legacy file. PURE. */
+export function ackFileFor(workRoot: string | null, login: string | null, home?: string): string {
+  return workRoot && login ? path.join(stateDir(workRoot, login), "ack.json") : ackFileLegacy(home);
+}
+
+const ackFile = (): string => { const { workRoot, login } = runContext(); return ackFileFor(workRoot, login); };
+const readJson = (f: string): Ack[] => { try { return JSON.parse(fsSync.readFileSync(f, "utf8")) as Ack[]; } catch { return []; } };
+const readAcks = (): Ack[] => {
+  const here = readJson(ackFile());
+  if (here.length) return here;
+  const legacy = readJson(ackFileLegacy());        // read once, so an upgrade does not re-ask
+  return legacy;
+};
+const writeAcks = (acks: Ack[]): void => {
+  try {
+    const f = ackFile();
+    fsSync.mkdirSync(path.dirname(f), { recursive: true });
+    fsSync.writeFileSync(f, JSON.stringify(acks), { mode: 0o600 });
+  } catch { /* best effort */ }
+};
 
 async function promptYesNo(label: string): Promise<boolean> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });

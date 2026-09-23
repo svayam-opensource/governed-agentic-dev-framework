@@ -90,3 +90,17 @@ describe("a run's log — the chokepoints, read back from the file", function ()
     expect(logText).to.contain("chars: 14");
   });
 });
+
+// Policy Owner, 2026-09-23 (preferences design §6, decision 3): gov's own state moves into the person's folder.
+describe("the context acknowledgement lives with the org it is about", () => {
+  it("goes to <work-root>/preferences/<login>/state/ack.json", async () => {
+    const { ackFileFor } = await import("../src/cli/context-gate.js");
+    expect(ackFileFor("/w", "rk")).to.equal(path.join("/w/preferences/rk/state", "ack.json"));
+  });
+
+  it("falls back to the legacy home file until gov knows whose it is", async () => {
+    const { ackFileFor } = await import("../src/cli/context-gate.js");
+    expect(ackFileFor(null, null, "/home/rk")).to.equal(path.join("/home/rk", ".gov-context-ack.json"));
+    expect(ackFileFor("/w", null, "/home/rk"), "a work root without a login is not enough").to.contain(".gov-context-ack.json");
+  });
+});
