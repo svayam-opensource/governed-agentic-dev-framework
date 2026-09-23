@@ -13,8 +13,14 @@
  */
 
 export interface HelpRequest {
-  /** The command help was asked about; undefined = the overview. */
+  /** The command or topic help was asked about; undefined = the overview. */
   readonly command?: string;
+  /** `-h` — the short form: usage and an example (git's distinction). */
+  readonly short?: boolean;
+  /** `--all` — include the commands for building gov itself. */
+  readonly all?: boolean;
+  /** `--json` — the specs, for an agent. */
+  readonly json?: boolean;
 }
 
 const HELP_FLAGS = new Set(["--help", "-h"]);
@@ -24,10 +30,22 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
  * Arguments after a `--` terminator are values, never flags, so `gov issue --title x -- -h` is not help.
  */
 export function helpRequest(argv: readonly string[]): HelpRequest | null {
-  if (argv[0] === "help") return argv[1] && !argv[1].startsWith("-") ? { command: argv[1] } : {};
   const end = argv.indexOf("--");
   const flags = end === -1 ? argv : argv.slice(0, end);
+  const extras = {
+    ...(flags.includes("--all") ? { all: true } : {}),
+    ...(flags.includes("--json") ? { json: true } : {}),
+  };
+  if (argv[0] === "help") {
+    return argv[1] && !argv[1].startsWith("-") ? { command: argv[1], ...extras } : extras;
+  }
   if (!flags.some((a) => HELP_FLAGS.has(a))) return null;
+  // `-h` is the SHORT page, `--help` the full one — git's distinction, and the reason both exist.
+  const short = flags.includes("-h") && !flags.includes("--help");
   const first = argv[0];
-  return first && !first.startsWith("-") ? { command: first } : {};
+  return {
+    ...(first && !first.startsWith("-") ? { command: first } : {}),
+    ...(short ? { short: true } : {}),
+    ...extras,
+  };
 }

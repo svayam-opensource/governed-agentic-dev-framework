@@ -64,6 +64,8 @@ import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } 
 import { staleArtifactsIn } from "../maintain/upgrade-sync.js";
 import { formatRuns, listRuns, selectRuns } from "../maintain/log-view.js";
 import { coerce, formatPreferences, numberPref, specFor, stringPref } from "../preferences.js";
+import { didYouMean, helpFor, overview } from "./help-render.js";
+import { COMMAND_SPECS } from "./help-spec.js";
 import { loadPreferences, savePreference } from "./preferences-io.js";
 import { ensureLogin, runContext } from "./run-context.js";
 import { logsRoot } from "../state-paths.js";
@@ -1786,79 +1788,30 @@ export function runAny(argv: readonly string[]): Promise<number> | number {
 }
 
 /** The command reference (git-help style): one-line description per command + optional usage args. */
-/**
- * The command reference, grouped by WHO TYPES IT (PRJ-43 CLI-surface walkthrough, 2026-08-07).
- *
- * It used to be four groups of ~27 verbs, all presented as equally yours. Almost none of them are: a
- * developer works inside an agent session, and the lifecycle verbs are what the AGENT runs when asked. So
- * the reference now says which is which, rather than making everyone learn the difference by trying.
- *
- * Nothing is removed — every verb still runs. `seed`, `join`, `task`, `merge` and the rest are reachable
- * for recovery, for scripts, and for the day the agent cannot start. They are simply no longer taught as
- * the way in.
- */
-const HELP_GROUPS: Record<string, string[]> = {
-  "Your commands": ["work", "org", "doctor", "upgrade", "log", "preferences"],
-  "Your agent runs these (you can too)": [
-    "seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel",
-    "manage", "anchor", "knowledge", "onboard", "validate", "list", "list-all", "status",
-  ],
-  "Framework maintainers": ["bump-version", "publish"],
-};
-const CMD_DESC: Record<string, string> = {
-  seed: "Seed a new project workspace from a GitHub Project board", join: "Join an existing project (clone its repos on the project branch)",
-  work: "Start a session on a project — picks it up wherever it is, and launches your agent",
-  task: "Create a task issue + sub-branch on the current project", merge: "Land a task sub-branch back to the project branch",
-  sync: "Sync the project branch with upstream changes", "add-repo": "Add a code repository to the current project",
-  close: "Close a completed project (closes its board)", pause: "Pause the current project", resume: "Resume a paused project", cancel: "Cancel the current project",
-  manage: "Project access — assign / unassign owners", anchor: "Show the current project's anchor issue",
-  knowledge: "Propose / submit / archive org knowledge changes", onboard: "Onboard a repository into the framework",
-  org: "Manage governance workspaces (the active org)", validate: "Validate the workspace / shipped content",
-  list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
-  doctor: "Diagnose this machine: git · gh · workspace · active org · versions",
-  log: "What gov did — one log per run, on this machine",
-  preferences: "YOUR settings for gov: the agent it launches, how the picker looks, colour, how long logs are kept",
-  issue: "Create an issue — assigned to you, on the board. `--from <url>` mirrors an upstream one",
-  agent: "Which AI agents your org approves, what is installed, and how to add one",
-  setup: "Set up this machine for an organization — the first `gov` run does this for you",
-  deps: "Check the tools gov needs (git, gh, Node) — also part of `gov doctor`",
-  upgrade: "Pull the latest framework CONTENT into this org (not the CLI — that is `npm i -g`)", "bump-version": "Bump the CLI + content version (maintainers)", publish: "Publish gate (maintainers)",
-};
-const CMD_USAGE: Record<string, string> = {
-  agent: "[list | install <id> | approve <id>]",
-  issue: "[<org>/<repo>] --title <t> [--body <b>|--body-file <f>] [--board <n>]  |  --from <upstream-issue-url> [--board <n>]",
-  seed: "<board-url> [--assignee <login>]", work: "[<project-id>] [--print-prompt]", "add-repo": "<repo-url> [--base-branch <branch>]", manage: "<assign|unassign> <github-login>",
-  knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
-  org: "add <github_org> --home <path> | use|list|remove <github_org>",
-  upgrade: "[--ref <branch>] [--from <dir>] [--apply]",
-  log: "[<run-id>] [--last] [--project <name>] [--limit <n>]",
-  preferences: "[list] | set <key> <value> | reset <key> | path", "bump-version": "<x.y.z>",
-};
+// HELP_GROUPS / CMD_DESC / CMD_USAGE were retired 2026-09-23 for help-spec.ts: three hand-kept tables that no
+// parser read, covering half the commands between them. One spec per command now feeds every surface.
 
 /** All commands in reference order. */
-export const helpCommandNames = (): string[] => Object.values(HELP_GROUPS).flat();
+export const helpCommandNames = (): string[] => COMMAND_SPECS.map((c) => c.name);
 
 /** A command gov actually has — documented or not. `gov help <x>` for anything else is a usage error. */
-export const isKnownCommand = (c: string): boolean => c in CMD_DESC || helpCommandNames().includes(c);
+export const isKnownCommand = (c: string): boolean => helpCommandNames().includes(c);
 
-/** The command reference shown under the Help menu (git-help style), or per-command help. */
-export function helpLines(command?: string): string[] {
-  if (command) {
-    const desc = CMD_DESC[command];
-    if (!desc) return ["", `  gov: no command '${command}'. \`gov help\` lists them.`, ""];
-    const out = ["", `  gov ${command} — ${desc}.`];
-    if (CMD_USAGE[command]) out.push(`  usage: gov ${command} ${CMD_USAGE[command]}`);
-    out.push("");
-    return out;
-  }
-  const out = ["", "  usage: gov <command> [<args>]", "", "  These are the gov commands used in various situations:", ""];
-  for (const [g, cmds] of Object.entries(HELP_GROUPS)) {
-    out.push(`  ${g}`);
-    for (const c of cmds) out.push(`     ${c.padEnd(14)} ${CMD_DESC[c] ?? ""}`);
-    out.push("");
-  }
-  out.push("  See `gov help <command>` (or `gov <command> --help`) for a specific command.", "");
-  return out;
+/**
+ * HELP, FROM THE SPECS (help-spec.ts / help-render.ts) — Policy Owner, 2026-09-22/23.
+ *
+ * This used to be three hand-kept tables (HELP_GROUPS, CMD_DESC, CMD_USAGE) that no parser read: 13 of ~25
+ * commands had a description, six had a usage line, none had an example. One source now feeds the overview,
+ * every command's page, `-h`, the topics and `--json`, and a test refuses a command with no spec.
+ */
+export function helpLines(command?: string, opts: { short?: boolean; all?: boolean } = {}): string[] {
+  if (!command) return overview(opts.all === true);
+  const page = helpFor(command, opts.short ? { short: true } : {});
+  if (page) return page;
+  const near = didYouMean(command);
+  return ["", `  gov: no command or topic '${command}'.`,
+    ...(near.length ? [`  did you mean:  ${near.map((n) => `gov help ${n}`).join("   ·   ")}`] : []),
+    "  `gov help` lists the commands.", ""];
 }
 
 /** Build + run the interactive main menu (no-args TTY). Async — routed from bin.ts. */

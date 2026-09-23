@@ -7,7 +7,7 @@ describe("gov-work — meta flags (--version / --help work without a workspace)"
   it("readCliVersion returns the package version (semver-ish)", () => {
     expect(readCliVersion()).to.match(/^\d+\.\d+\.\d+/);
   });
-  it("helpLines() is a git-help-style reference: usage + grouped commands WITH descriptions, referencing `gov`", () => {
+  it("helpLines() is the overview: usage + commands grouped by who runs them, referencing `gov`", () => {
     const h = helpLines().join("\n");
     expect(h).to.match(/usage: gov <command>/);
     // Grouped by WHO TYPES IT since 2026-08-07, not by domain: four commands are yours, the rest are what
@@ -15,15 +15,19 @@ describe("gov-work — meta flags (--version / --help work without a workspace)"
     expect(h).to.match(/Your commands/);
     expect(h).to.match(/Your agent runs these/);
     expect(h.indexOf("work"), "the one command an adopter needs comes first").to.be.lessThan(h.indexOf("seed"));
-    expect(h).to.match(/seed\s+Seed a new project/);            // command + its description
-    expect(h).to.match(/manage\s+Project access/);
+    expect(h).to.match(/seed\s+start a project from a GitHub Project board/);   // command + its summary
+    expect(h).to.match(/manage\s+project access/);
     expect(h).to.not.match(/gov-work/);                         // (b) references `gov`, not `gov-work`
   });
-  it("helpLines(command) gives REAL per-command help (description + usage), not a `--help` pointer", () => {
+  // The page grew from "description + usage" to the shape the Policy Owner asked for (2026-09-22): what it
+  // changes and what its exit codes mean, because gov's commands act on shared branches and boards and agents
+  // branch on the codes.
+  it("helpLines(command) is a real page: usage, an example, what it changes, and the exit codes", () => {
     const s = helpLines("seed").join("\n");
-    expect(s).to.match(/gov seed — Seed a new project/);
-    expect(s).to.match(/usage: gov seed <board-url>/);
-    expect(s).to.not.match(/--help/);
+    expect(s).to.match(/gov seed — start a project from a GitHub Project board/);
+    expect(s).to.match(/USAGE\s+gov seed <board-url>/);
+    expect(s).to.contain("EXAMPLES").and.contain("CHANGES").and.contain("EXIT");
+    expect(s, "and it says it creates the branch and the anchor issue").to.contain("anchor issue");
   });
   it("helpCommandNames lists every command in the reference — and only gov-work's own", () => {
     const names = helpCommandNames();

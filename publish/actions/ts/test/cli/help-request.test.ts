@@ -9,13 +9,15 @@ import { helpRequest } from "../../src/cli/help-request.js";
 
 describe("helpRequest — help is recognised before any command runs", () => {
   it("gov help / gov --help / gov -h → the overview", () => {
-    for (const a of [["help"], ["--help"], ["-h"]]) expect(helpRequest(a), a.join(" ")).to.deep.equal({});
+    for (const a of [["help"], ["--help"]]) expect(helpRequest(a), a.join(" ")).to.deep.equal({});
+    expect(helpRequest(["-h"]), "a bare -h asks for the short overview").to.deep.equal({ short: true });
   });
   it("gov help <cmd> → that command", () => {
     expect(helpRequest(["help", "task"])).to.deep.equal({ command: "task" });
   });
   it("--help / -h ANYWHERE after a command → that command's help, never the command", () => {
-    expect(helpRequest(["merge", "-h"])).to.deep.equal({ command: "merge" });
+    // `-h` asks for the SHORT page (git's distinction), which is why the shapes differ.
+    expect(helpRequest(["merge", "-h"])).to.deep.equal({ command: "merge", short: true });
     expect(helpRequest(["work", "--help"])).to.deep.equal({ command: "work" });
     expect(helpRequest(["org", "use", "Acme", "--help"])).to.deep.equal({ command: "org" });
   });

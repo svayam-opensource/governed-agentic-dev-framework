@@ -8,6 +8,10 @@
 import { main, runSetupCommand, runWork, runAgentInstall, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines, isKnownCommand } from "./main.js";
 import { confirmContextOrBail } from "./context-gate.js";
 import { helpRequest } from "./help-request.js";
+import { helpJson, topicOf } from "./help-render.js";
+
+/** A concept page (gov help projects) is as valid an answer as a command page. */
+const isTopic = (name: string): boolean => topicOf(name) !== undefined;
 import { runContext } from "./run-context.js";
 import { endRun, log, pruneLogs, runDir, startRun } from "../log.js";
 import { commandOf, logsRoot } from "../state-paths.js";
@@ -24,8 +28,10 @@ async function dispatch(): Promise<number> {
   // `gov merge -h` used to attempt a merge. An unknown command asked about is a usage error (exit 2).
   const help = helpRequest(argv);
   if (help) {
-    const known = !help.command || isKnownCommand(help.command);
-    for (const l of helpLines(help.command)) (known ? process.stdout : process.stderr).write(`${l}\n`);
+    if (help.json) { process.stdout.write(`${helpJson()}\n`); return 0; }
+    const known = !help.command || isKnownCommand(help.command) || isTopic(help.command);
+    const lines = helpLines(help.command, { ...(help.short ? { short: true } : {}), ...(help.all ? { all: true } : {}) });
+    for (const l of lines) (known ? process.stdout : process.stderr).write(`${l}\n`);
     return known ? 0 : 2;
   }
 

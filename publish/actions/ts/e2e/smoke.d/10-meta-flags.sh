@@ -1,11 +1,15 @@
 # Meta flags must work with NO workspace resolved (an adopter's first commands).
 has "$(gov --version)" "gov " "gov --version works without a workspace"
 has "$(gov -v)"        "gov " "gov -v works"
-has "$(gov --help)"    "These are the gov commands" "gov --help works without a workspace"
+has "$(gov --help)"    "usage: gov <command>" "gov --help works without a workspace"
 
 # HELP NEVER ACTS (PRJ-121, 2026-09-22): `gov merge -h` used to attempt a merge, `gov work --help` started the
 # work flow, and `gov help <cmd>` was "unknown command 'help'".
-has "$(gov help 2>&1)"          "These are the gov commands" "gov help works (the overview)"
+has "$(gov help 2>&1)"          "Your commands"               "gov help works (the overview)"
+has "$(gov help 2>&1)"          "Your agent runs these"       "…grouped by who runs each command"
+has "$(gov help task 2>&1)"     "CHANGES"                     "a command page says what it changes"
+has "$(gov help context 2>&1)"  "GOVERNED"                    "gov help <topic> answers about the concepts"
+has "$(gov help --json 2>&1)"   '"name": "task"'              "gov help --json is the specs, for an agent"
 has "$(gov help task 2>&1)"     "gov task —"                  "gov help <cmd> answers for that command"
 has "$(gov task --help 2>&1)"   "gov task —"                  "gov <cmd> --help is the same page"
 out="$(gov merge -h 2>&1)"; rc=$?
