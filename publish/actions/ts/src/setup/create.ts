@@ -119,7 +119,7 @@ export function findExistingGovernanceRepo(io: CreateIo, org: string): { readonl
   try {
     const parsed = JSON.parse(raw) as { repos?: string[]; more?: boolean };
     return { repos: parsed.repos ?? [], truncated: parsed.more === true, verified: true };
-  } catch {
+  } catch { /* unparseable is treated as absent — the caller's fallback is the answer */
     return { repos: [], truncated: false, verified: false };
   }
 }

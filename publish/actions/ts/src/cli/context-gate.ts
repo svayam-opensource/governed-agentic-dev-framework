@@ -52,7 +52,7 @@ function buildContextInfo(): ContextInfo {
         agentWorkRoot = c.agentWorkRoot || undefined;
         if (c.vaultAddr) services.vault = c.vaultAddr;
         Object.assign(services, c.services);   // oidc/jenkins/npm/docker from the now-typed `services:` block
-      } catch { anomalies.push("org-config.yaml not found/readable"); }
+      } catch { /* reported to the person as an anomaly on the banner, which is this function's whole job */ anomalies.push("org-config.yaml not found/readable"); }
       branch = tryRun("git", ["-C", resolve.home, "rev-parse", "--abbrev-ref", "HEAD"]);
     }
   } catch { /* unresolved → none mode */ }
@@ -94,7 +94,7 @@ export function ackFileFor(workRoot: string | null, login: string | null, home?:
 }
 
 const ackFile = (): string => { const { workRoot, login } = runContext(); return ackFileFor(workRoot, login); };
-const readJson = (f: string): Ack[] => { try { return JSON.parse(fsSync.readFileSync(f, "utf8")) as Ack[]; } catch { return []; } };
+const readJson = (f: string): Ack[] => { try { return JSON.parse(fsSync.readFileSync(f, "utf8")) as Ack[]; } catch { /* absent or unreadable is the ordinary answer here, not a failure */ return []; } };
 const readAcks = (): Ack[] => {
   const here = readJson(ackFile());
   if (here.length) return here;

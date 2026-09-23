@@ -24,7 +24,7 @@ export function createGhPulls(runGh: RunGh): Pulls {
   const existingUrl = (repo: string, head: string): string | null => {
     try {
       return runGh(["pr", "view", head, "--repo", repo, "--json", "url", "-q", ".url"]).trim() || null;
-    } catch {
+    } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
       return null;
     }
   };
@@ -47,7 +47,7 @@ export function createGhPulls(runGh: RunGh): Pulls {
         try {
           const state = runGh(["pr", "view", head, "--repo", repo, "--json", "state", "-q", ".state"]).trim().toUpperCase();
           return state === "MERGED" ? "already-merged" : "failed";
-        } catch {
+        } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
           return "failed";
         }
       }

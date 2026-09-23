@@ -462,7 +462,7 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
       if (wanted !== board.title) {
         // Never fatal: the title is a convenience for people reading GitHub, and the project id
         // lives in the branch and the directory regardless.
-        try { boardRenamed = deps.board.renameProject(ref, wanted) === true; } catch { boardRenamed = false; }
+        try { boardRenamed = deps.board.renameProject(ref, wanted) === true; } catch { /* a board that refuses the rename is not fatal: the seed goes on, and the caller reports `boardRenamed` */ boardRenamed = false; }
         log(boardRenamed
           ? `board #${ref.number} renamed to "${wanted}"`
           : `board #${ref.number} left as "${board.title}" — gov could not rename it (needs the \`project\` scope)`);

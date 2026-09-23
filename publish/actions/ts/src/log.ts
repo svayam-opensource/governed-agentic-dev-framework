@@ -78,7 +78,7 @@ export function cachedLogin(orgSlug: string | null, home: string = os.homedir())
   try {
     const t = fs.readFileSync(path.join(home, ".gov", orgSlug.toLowerCase(), "login"), "utf8").trim();
     return t || null;
-  } catch { return null; }
+  } catch { /* no login cached yet — the run logs to ~/.gov/logs until one is (runDirFor) */ return null; }
 }
 
 /** Remember the login for the next run's log path. Best effort: a failed write costs nothing. */
@@ -157,7 +157,7 @@ function logger(): Logger | null {
       gate: "level",
       methods: [{ METHOD: "file", LOGLEVEL: process.env.GOV_DEBUG ? LogLevel.debug : LogLevel.info }],
     });
-  } catch {
+  } catch { /* absent or unreadable is the ordinary answer here, not a failure */
     run.logger = null;
     run = { ...run, dir: "", logger: null };
   }

@@ -47,7 +47,7 @@ export function createNodeFs(): Fs {
     readFile: (file) => {
       try {
         return fs.readFileSync(file, "utf8");
-      } catch {
+      } catch { /* absent or unreadable is the ordinary answer here, not a failure */
         return null;
       }
     },
@@ -59,7 +59,7 @@ export function createNodeFs(): Fs {
     readdir: (dir) => {
       try {
         return fs.readdirSync(dir);
-      } catch {
+      } catch { /* absent or unreadable is the ordinary answer here, not a failure */
         return [];
       }
     },

@@ -96,7 +96,7 @@ function upgradePrBody(version: string, appliedCount: number, plan: ReturnType<t
 /** Create a gov-upgrade branch with the full plan applied, push it, open a PR. */
 export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string } = {}): UpgradeSyncResult {
   if (!fs.existsSync(path.join(contentDir, "MANIFEST.yaml"))) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
-  try { git(adopterDir, ["rev-parse", "--git-dir"]); } catch { return { code: 1, lines: ["gov upgrade --pr: not a git repository (or no remote). Use --apply for an in-place migration instead."] }; }
+  try { git(adopterDir, ["rev-parse", "--git-dir"]); } catch { /* not a git repository: the message below is the account of it */ return { code: 1, lines: ["gov upgrade --pr: not a git repository (or no remote). Use --apply for an in-place migration instead."] }; }
   if (git(adopterDir, ["status", "--porcelain"])) return { code: 1, lines: ["gov upgrade --pr: working tree has uncommitted changes — commit or stash first."] };
 
   const version = contentVersion(contentDir);
@@ -110,7 +110,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir) });
   if (plan.actions.every((a) => a.kind === "same")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
 
-  try { git(adopterDir, ["checkout", "-b", branch]); } catch { return { code: 1, lines: [`gov upgrade --pr: branch '${branch}' already exists — delete it or pass --branch <name>.`] }; }
+  try { git(adopterDir, ["checkout", "-b", branch]); } catch { /* the branch already exists — the runner logged the git failure; the message below says what to do */ return { code: 1, lines: [`gov upgrade --pr: branch '${branch}' already exists — delete it or pass --branch <name>.`] }; }
   const res = applyUpgrade(plan, {
     readContent, readAdopter,
     writeAdopter: (rel, t) => { const p = path.join(adopterDir, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, t); },

@@ -94,7 +94,7 @@ export function ensureRegistryMigrated(home: string = os.homedir(), platform: No
     const canonical = registryFiles(home, platform);
     if (fs.existsSync(canonical.workspaces) || fs.existsSync(canonical.active)) return;
     const legacy = legacyRegistryFiles(env, platform, home);
-    const read = (f: string): string | null => { try { return fs.readFileSync(f, "utf8"); } catch { return null; } };
+    const read = (f: string): string | null => { try { return fs.readFileSync(f, "utf8"); } catch { /* absent or unreadable is the ordinary answer here, not a failure */ return null; } };
     const w = read(legacy.workspaces);
     const a = read(legacy.active);
     if (w === null && a === null) return;                       // fresh machine — nothing to carry
@@ -177,7 +177,7 @@ export function createNodeEnv(opts: NodeEnvOptions = {}): ResolveEnv {
   const readText = (file: string): string | null => {
     try {
       return fs.readFileSync(file, "utf8");
-    } catch {
+    } catch { /* absent or unreadable is the ordinary answer here, not a failure */
       return null;
     }
   };
@@ -188,7 +188,7 @@ export function createNodeEnv(opts: NodeEnvOptions = {}): ResolveEnv {
     const expanded = expandTilde(p, home);
     try {
       return fs.realpathSync(expanded);
-    } catch {
+    } catch { /* absent or unreadable is the ordinary answer here, not a failure */
       return path.resolve(expanded);
     }
   };

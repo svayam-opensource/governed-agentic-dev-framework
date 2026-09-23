@@ -201,14 +201,14 @@ export function createGhBoard(runGh: RunGh = defaultRunGh): Board {
         if (!proj?.id) return false;
         if (proj.title === title) return false;          // already says what we want
         nodeId = proj.id;
-      } catch {
+      } catch { /* unparseable is treated as absent — the caller's fallback is the answer */
         return false;
       }
       try {
         const m = `mutation{updateProjectV2(input:{projectId:"${nodeId}",title:${JSON.stringify(title)}}){projectV2{id}}}`;
         runGh(["api", "graphql", "-f", `query=${m}`]);
         return true;
-      } catch {
+      } catch { /* unparseable is treated as absent — the caller's fallback is the answer */
         return false;
       }
     },

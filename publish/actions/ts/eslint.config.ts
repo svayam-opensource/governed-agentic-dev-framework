@@ -2,6 +2,8 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
+// @ts-expect-error — a local rule, plain JS by design (no build step for lint)
+import catchMustAccount from "./eslint-rules/catch-must-account.js";
 
 export default defineConfig(
   globalIgnores(["lib/", "node_modules/"]),
@@ -21,6 +23,7 @@ export default defineConfig(
     // the only door. `run-process.ts` itself is the exception, and `cli/main.ts` keeps `spawn` for the one
     // thing the runner cannot do: hand the terminal to an agent and walk away (detached / inherited stdin).
     files: ["src/**/*.ts"],
+    plugins: { gov: { rules: { "catch-must-account": catchMustAccount } } },
     ignores: ["src/run-process.ts", "src/cli/main.ts"],
     rules: {
       "no-restricted-imports": ["error", { paths: [{
@@ -30,6 +33,7 @@ export default defineConfig(
         name: "child_process",
         message: "run a process through src/run-process.ts so it is logged — POL-423.",
       }] }],
+      "gov/catch-must-account": "error",
     },
   },
   {

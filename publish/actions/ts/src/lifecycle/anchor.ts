@@ -153,7 +153,7 @@ export function createGhAnchor(runGh: RunGh): AnchorCreator {
       try {
         const it = listAnchors(runGh, repo).find((i) => i.body?.includes(`Project #${ref.number}`));
         return it?.url && it.number !== undefined ? toAnchorInfo(it) : null;
-      } catch {
+      } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return null;
       }
     },
@@ -174,7 +174,7 @@ export function createGhAnchor(runGh: RunGh): AnchorCreator {
       try {
         runGh(["issue", "edit", anchor.url, `--${action}-label`, label]);
         return true;
-      } catch {
+      } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return false;
       }
     },
@@ -182,7 +182,7 @@ export function createGhAnchor(runGh: RunGh): AnchorCreator {
       try {
         runGh(["issue", "edit", issueUrl, `--${action}-assignee`, login]);
         return true;
-      } catch {
+      } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return false;
       }
     },

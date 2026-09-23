@@ -44,7 +44,7 @@ export function createGhIssues(runGh: RunGh): Issues {
         // between the two calls would leave it that way permanently.
         const out = runGh(["issue", "create", "--repo", repo, "--title", title, "--body", body, "--assignee", assignee]);
         return out.trim().split(/\s+/).find((w) => w.startsWith("http")) ?? null;
-      } catch {
+      } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return null;
       }
     },
@@ -61,7 +61,7 @@ export function createGhIssues(runGh: RunGh): Issues {
           state: j.state ?? "UNKNOWN",
           author: j.author?.login ?? null,
         };
-      } catch {
+      } catch { /* unparseable is treated as absent — the caller's fallback is the answer */
         return null;
       }
     },
@@ -69,7 +69,7 @@ export function createGhIssues(runGh: RunGh): Issues {
       try {
         runGh(["project", "item-add", String(board), "--owner", owner, "--url", issueUrl]);
         return true;
-      } catch {
+      } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return false;
       }
     },
@@ -77,7 +77,7 @@ export function createGhIssues(runGh: RunGh): Issues {
       let out: string;
       try {
         out = runGh(["issue", "view", issueUrl, "--json", "state", "-q", ".state"]);
-      } catch {
+      } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return "UNKNOWN";
       }
       const s = out.trim().toUpperCase();
@@ -112,7 +112,7 @@ export function createGhIssues(runGh: RunGh): Issues {
       let out: string;
       try {
         out = runGh(["project", "item-list", String(ref.number), "--owner", ref.owner, "--format", "json", "--limit", "200"]);
-      } catch {
+      } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return null;
       }
       try {

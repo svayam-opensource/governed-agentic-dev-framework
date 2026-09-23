@@ -158,7 +158,7 @@ export interface WorkFlowOpts {
 export function matchProjects<T extends { readonly projectId: string }>(items: readonly T[], pattern: string): T[] {
   let re: RegExp;
   try { re = new RegExp(pattern, "i"); }
-  catch { return items.filter((i) => i.projectId.toLowerCase().includes(pattern.toLowerCase())); }
+  catch { /* an invalid regex is matched LITERALLY (see above) — someone typing `--project=portal(v2` wants a project, not a lecture */ return items.filter((i) => i.projectId.toLowerCase().includes(pattern.toLowerCase())); }
   return items.filter((i) => re.test(i.projectId));
 }
 
