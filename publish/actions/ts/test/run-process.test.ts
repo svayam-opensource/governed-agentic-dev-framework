@@ -58,3 +58,4 @@ describe("run-process — the one door every external process goes through", () 
     expect(redactArgv(["auth", "--token", "sk-live"])).to.deep.equal(["auth", "--token", "***"]);
   });
 });
+

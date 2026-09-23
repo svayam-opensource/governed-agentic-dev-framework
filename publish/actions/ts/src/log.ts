@@ -183,6 +183,17 @@ function withRun(meta: unknown): unknown {
   return { run: run?.id, value: meta };
 }
 
+/**
+ * A CHOICE gov MADE FOR THE PERSON — what it picked, and why.
+ *
+ * The walks kept asking the same question ("why did it do that?") of decisions no one could see: which agent,
+ * which project, which asker answered, which branch was built. #213 took four wrong fixes for exactly that.
+ * A decision is worth one line at `info`, always: it is the shortest path from a surprise to its cause.
+ */
+export function decide(what: string, chose: string | null, why: string, pgm: string, fn: string, meta?: Record<string, unknown>): void {
+  log("info", `chose ${what}`, pgm, fn, { decision: what, chose, why, ...(meta ?? {}) });
+}
+
 /** Flush before a short-lived process exits, or the last lines — the interesting ones — are lost. */
 export function closeLog(): void {
   try { run?.logger?.close(); } catch { /* closing a closed logger is not news */ }

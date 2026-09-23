@@ -20,6 +20,7 @@ import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, in
 import { chooseAgent, choiceExplanation } from "./agent-choice.js";
 import { defaultAgent } from "../config/approved-agents.js";
 import { paint } from "./format.js";
+import { decide, log } from "../log.js";
 
 /**
  * The status of a board that has NO anchor issue: nobody has seeded it, anywhere, ever.
@@ -529,6 +530,7 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
       const a = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo)?.get(b.number)
         ?? deps.anchor.find({ owner: deps.config.githubOrg, ownerField: deps.config.ownerField ?? "organization", number: b.number }, deps.config.workspaceRepo);
       picked = { boardNumber: b.number, title: b.title, url: b.url, status: a ? deriveStatus(true, a.labels) : NOT_STARTED, projectId: opts.currentProject };
+      decide("project", opts.currentProject, "the project you are standing in", "gov-work:cli:work-flow", "runWorkFlow", { board: b.number });
       print(`  Continuing ${opts.currentProject} — the project you are in.`);
       print("  (Another one: `gov work --project=<pattern>`, or run gov from outside this project.)");
     }
@@ -549,7 +551,7 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
       if (all.length) print(`  Available: ${all.slice(0, 10).map((i) => i.projectId).join(", ")}${all.length > 10 ? ", …" : ""}`);
       return 1;
     }
-    if (hits.length === 1) picked = hits[0]!;
+    if (hits.length === 1) { picked = hits[0]!; decide("project", picked.projectId, `--project=${opts.projectPattern} matched one`, "gov-work:cli:work-flow", "runWorkFlow", { candidates: all.length }); }
     else if (!interactive) {
       print(`  '${opts.projectPattern}' matches ${hits.length} projects: ${hits.map((i) => i.projectId).join(", ")}`);
       print("  Narrow the pattern — with no terminal there is nobody to ask.");
@@ -575,6 +577,10 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
   while (!p) {
     print("  ⏳ Finding your projects — assigned + boards you can start…");
     const { items, nextOffset, more } = startablePage(deps, PAGE, offset);
+    // THE PAGE, as the person sees it. Pages of 11, then 1, then 7 were reported from a walk before anyone
+    // could say what the flow had done; this is that fact, on the record.
+    log("info", "offered a page of projects", "gov-work:cli:work-flow", "runWorkFlow",
+      { offset, shown: items.length, nextOffset, more, unreachable: !!deps.projects.lastFailure?.() });
     if (items.length === 0 && offset === 0 && !more) {
       // "GitHub did not answer" is not "you have no projects" (a walk, 2026-09-22: gh's `EOF` was reported as
       // the second). Say which, and give the remedy for THAT one.
@@ -780,6 +786,8 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
     // the mistake would be inventing a fourth memory. Asked only when neither the
     // organization nor the person has an answer, which for most people is once.
     const decided = chooseAgent(approvedList, deps.agentPreference?.() ?? null, offer.map((o) => o.candidate.id));
+    decide("agent", decided.id, decided.source, "gov-work:cli:work-flow", "runWorkFlow",
+      { offered: offer.map((o) => o.candidate.id), ...(decided.ignoredPreference ? { ignoredPreference: decided.ignoredPreference } : {}) });
     for (const line of choiceExplanation(decided, (id) => AGENT_CATALOG.find((a) => a.id === id)?.tool ?? id)) print(line);
 
     if (decided.id) {

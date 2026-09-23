@@ -43,7 +43,14 @@ export function askFns(rl: readline.Interface, prompt: (q: string) => Promise<st
   // through a stub that answered itself, and gov's output looked identical either way.
   log("debug", "real asker constructed on an existing readline", "gov-work:cli:ask", "askFns");
   return {
-    line: prompt,
+    // EVERY QUESTION AND ITS ANSWER (PRJ-121, 2026-09-23). "What was it asked, and what did the person say?"
+    // was unanswerable after the fact, which is why #213 needed a screen recording. A secret's VALUE never
+    // goes near a log (POL-427) — the `secret` path below records its length and nothing else.
+    line: async (question: string): Promise<string> => {
+      const answer = await prompt(question);
+      log("info", "asked", "gov-work:cli:ask", "line", { question: question.trim(), answer: answer.trim() });
+      return answer;
+    },
     secret: (question) =>
       new Promise((resolve) => {
         // `_writeToOutput` is readline's own hook for exactly this; Node's docs use it for
@@ -89,7 +96,7 @@ export function askFns(rl: readline.Interface, prompt: (q: string) => Promise<st
           iface._writeToOutput = original;
           // LENGTH, NEVER THE VALUE (POL-427 is C01). "did anything arrive, and roughly how
           // much" is the whole diagnostic value of a secret prompt; the secret itself has none.
-          log("debug", "hidden answer received", "gov-work:cli:ask", "secret", { chars: answer.trim().length });
+          log("info", "asked (hidden)", "gov-work:cli:ask", "secret", { question: question.trim(), chars: answer.trim().length });
           // The typed newline was swallowed with the rest, so the next line starts on its own.
           rl.write("\n");
           resolve(answer.trim());

@@ -27,15 +27,26 @@ export interface RollbackFailure {
  * best-effort: a failing undo is collected and reported, never thrown, so one
  * stuck step can't strand the rest (matches the bash `… || true` discipline).
  */
+import { log } from "../log.js";
+
 export class Transaction {
   private readonly stack: Compensation[] = [];
   private committed = false;
 
   /** Run a forward action and register its compensating undo (receives the result). */
   step<T>(label: string, forward: () => T, undo: (result: T) => void): T {
-    const result = forward();
-    this.stack.push({ label, undo: () => undo(result) });
-    return result;
+    // EVERY STEP OF AN ORG-VISIBLE OPERATION, on the record (PRJ-121, 2026-09-23). A seed, a task or a close
+    // creates branches, issues and assignments across repositories; when one half-happened, the only account of
+    // how far it got was whatever the screen still showed.
+    try {
+      const result = forward();
+      this.stack.push({ label, undo: () => undo(result) });
+      log("info", "step done", "gov-work:lifecycle:transaction", "step", { step: label, pending: this.stack.length });
+      return result;
+    } catch (e) {
+      log("error", "step failed — rolling back", "gov-work:lifecycle:transaction", "step", { step: label, pending: this.stack.length, message: (e as Error)?.message });
+      throw e;
+    }
   }
 
   /** Register a bare undo for an effect performed outside {@link step} (e.g. a
@@ -47,6 +58,7 @@ export class Transaction {
   /** Mark the operation successful — {@link rollback} becomes a no-op. */
   commit(): void {
     this.committed = true;
+    log("info", "committed", "gov-work:lifecycle:transaction", "commit", { steps: this.stack.length });
   }
 
   /** Reverse every registered undo, newest-first. Returns any undo failures. */
@@ -57,8 +69,10 @@ export class Transaction {
       const c = this.stack[i];
       try {
         c.undo();
+        log("info", "undone", "gov-work:lifecycle:transaction", "rollback", { step: c.label });
       } catch (error) {
         failures.push({ label: c.label, error });
+        log("error", "UNDO FAILED — left behind", "gov-work:lifecycle:transaction", "rollback", { step: c.label, message: (error as Error)?.message });
       }
     }
     this.stack.length = 0;
