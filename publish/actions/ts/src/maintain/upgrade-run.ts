@@ -67,10 +67,10 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
   };
 }
 
-import { execFileSync } from "node:child_process";
+import { run as runProcess } from "../run-process.js";
 
 function git(dir: string, args: string[]): string {
-  return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  return runProcess("git", ["-C", dir, ...args], { pgm: "gov-work:maintain:upgrade-run", fn: "git" }).trim();
 }
 function contentVersion(dir: string): string {
   const p = path.join(dir, "VERSION");
@@ -122,7 +122,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   try { git(adopterDir, ["push", "-u", "origin", branch]); } catch (e) { return { code: 1, lines: [`Applied on ${branch} but push failed: ${(e as Error).message.split("\n")[0]}`] }; }
   let prUrl: string;
   try {
-    prUrl = execFileSync("gh", ["pr", "create", "--base", base, "--head", branch, "--title", `gov upgrade → framework content ${version}`, "--body", upgradePrBody(version, res.applied.length, plan)], { cwd: adopterDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    prUrl = runProcess("gh", ["pr", "create", "--base", base, "--head", branch, "--title", `gov upgrade → framework content ${version}`, "--body", upgradePrBody(version, res.applied.length, plan)], { cwd: adopterDir, pgm: "gov-work:maintain:upgrade-run", fn: "pr-create" }).trim();
   } catch (e) {
     return { code: 0, lines: [`Pushed ${branch} (open the PR manually — gh failed): ${(e as Error).message.split("\n")[0]}`] };
   }
@@ -143,8 +143,8 @@ export function fetchTemplateContent(templateUrl: string, ref: string): { conten
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gov-content-"));
   const cleanup = () => fs.rmSync(tmp, { recursive: true, force: true });
   try {
-    execFileSync("git", ["clone", "--depth", "1", "--filter=blob:none", "--sparse", "--branch", ref, templateUrl, tmp], { stdio: ["ignore", "pipe", "pipe"] });
-    execFileSync("git", ["-C", tmp, "sparse-checkout", "set", "publish/content"], { stdio: ["ignore", "pipe", "pipe"] });
+    runProcess("git", ["clone", "--depth", "1", "--filter=blob:none", "--sparse", "--branch", ref, templateUrl, tmp], { pgm: "gov-work:maintain:upgrade-run", fn: "fetch-template" });
+    runProcess("git", ["-C", tmp, "sparse-checkout", "set", "publish/content"], { pgm: "gov-work:maintain:upgrade-run" });
   } catch (e) {
     cleanup();
     throw new Error(`could not fetch content from ${templateUrl}@${ref}: ${(e as Error).message.split("\n").pop()}`, { cause: e });

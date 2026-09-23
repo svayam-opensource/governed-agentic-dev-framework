@@ -6,7 +6,7 @@
  * `python3`/`yq`). Query building and response parsing are pure and unit-tested;
  * the subprocess runner is injected so the adapter is testable without `gh`.
  */
-import { execFileSync } from "node:child_process";
+import { run as runProcess } from "../run-process.js";
 import type { BoardRef } from "./identity.js";
 import { type Board, type BoardProject, BoardFetchError } from "./board.js";
 
@@ -142,7 +142,7 @@ export function retryTransient(run: RunGh, pauseMs = 1500): RunGh {
   };
 }
 
-const defaultRunGh: RunGh = retryTransient((args) => execFileSync("gh", args, { encoding: "utf8" }));
+const defaultRunGh: RunGh = retryTransient((args) => runProcess("gh", args, { pgm: "gov-work:lifecycle:gh-board", fn: "gh" }));
 
 /** A {@link Board} backed by the `gh` CLI. `runGh` is injectable for tests. */
 export function createGhBoard(runGh: RunGh = defaultRunGh): Board {

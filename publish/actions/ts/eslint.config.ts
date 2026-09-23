@@ -13,6 +13,26 @@ export default defineConfig(
     },
   },
   {
+    // EVERY EXTERNAL PROCESS GOES THROUGH src/run-process.ts, SO EVERY ONE IS LOGGED (PRJ-121, 2026-09-23).
+    //
+    // gov's work is mostly other programs, and until this rule landed none of those calls were recorded: the
+    // walks of 2026-09-22 were diagnosed from pasted terminals because a `gh` call that failed after 11
+    // seconds left no trace. Coverage by hand would drift on the next call site added; this makes the runner
+    // the only door. `run-process.ts` itself is the exception, and `cli/main.ts` keeps `spawn` for the one
+    // thing the runner cannot do: hand the terminal to an agent and walk away (detached / inherited stdin).
+    files: ["src/**/*.ts"],
+    ignores: ["src/run-process.ts", "src/cli/main.ts"],
+    rules: {
+      "no-restricted-imports": ["error", { paths: [{
+        name: "node:child_process",
+        message: "run a process through src/run-process.ts (run · tryRun · runResult · ok · runInteractive) so it is logged — POL-423.",
+      }, {
+        name: "child_process",
+        message: "run a process through src/run-process.ts so it is logged — POL-423.",
+      }] }],
+    },
+  },
+  {
     // chai's fluent assertions (.to.be.empty, .to.exist, …) are getter expressions by design.
     files: ["test/**/*.ts"],
     rules: { "@typescript-eslint/no-unused-expressions": "off" },

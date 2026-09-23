@@ -12,7 +12,7 @@
 import * as path from "node:path";
 import * as fsSync from "node:fs";
 import * as readline from "node:readline";
-import { spawnSync } from "node:child_process";
+import { tryRun as tryRunProcess } from "../run-process.js";
 import { prjResolveGov, workspaceStateMessage } from "../resolve/resolve-gov.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { createNodeEnv } from "../resolve/node-env.js";
@@ -23,7 +23,7 @@ import {
 } from "./context-banner.js";
 
 function tryRun(cmd: string, args: string[]): string | undefined {
-  try { const r = spawnSync(cmd, args, { encoding: "utf8" }); return r.status === 0 ? r.stdout.trim() || undefined : undefined; } catch { return undefined; }
+  return tryRunProcess(cmd, args, { pgm: "gov-work:cli:context-gate" }) || undefined;
 }
 
 /** Resolve the invocation context from gov-work's own primitives. Fully defensive — never throws. */

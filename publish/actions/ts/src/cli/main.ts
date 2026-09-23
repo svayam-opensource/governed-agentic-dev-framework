@@ -12,7 +12,10 @@ import * as os from "node:os";
 import * as fsSync from "node:fs";
 import * as readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { execFileSync, spawnSync, spawn } from "node:child_process";
+// `spawn` only, and only to hand the TERMINAL to an agent (detached, or with inherited stdin): everything else
+// goes through run-process.ts so it is logged. The two launches log themselves at the call site.
+import { spawn } from "node:child_process";
+import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive } from "../run-process.js";
 import { runSetup } from "../setup/setup-run.js";
 import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog, cacheLogin } from "../log.js";
@@ -75,12 +78,10 @@ import { orgAdd, orgUse } from "../resolve/org.js";
 import { PACKAGE_NAME } from "../index.js";
 
 /** Run a command, swallowing failures (returns undefined). */
+/** Every `git`/`gh` probe in this file. Goes through the logged runner (run-process.ts), so a slow or
+ *  surprising answer is on the record rather than on someone's screen. */
 function tryRun(cmd: string, args: string[]): string | undefined {
-  try {
-    return execFileSync(cmd, args, { encoding: "utf8" }).trim();
-  } catch {
-    return undefined;
-  }
+  return tryRunProcess(cmd, args, { pgm: "gov-work:cli:main" });
 }
 
 /**
@@ -144,8 +145,8 @@ async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>
     for (const s of plan.steps) {
       say(r0.step(`${s.what}…`));
       const [bin, ...rest] = s.command;
-      const r = spawnSync(bin!, rest, { stdio: "inherit" });
-      if (r.status !== 0) { ok = false; say(r0.fail(`${s.what} failed — see above`)); }
+      const status = runInteractive(bin!, rest, { pgm: "gov-work:cli:main", fn: "fix-step", meta: { step: s.what } });
+      if (status !== 0) { ok = false; say(r0.fail(`${s.what} failed — see above`)); }
     }
     if (!ok) return false;
 
@@ -222,7 +223,7 @@ async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>
     if (chosen === "login-command" && plan.signIn) {
       process.stdout.write(`\n  Signing you in — ${plan.signIn.join(" ")} takes over from here.\n\n`);
       const [bin, ...rest] = plan.signIn;
-      spawnSync(bin!, rest, { stdio: "inherit" });
+      runInteractive(bin!, rest, { pgm: "gov-work:cli:main", fn: "agent-sign-in", meta: { agent: plan.agent } });
       return true;
     }
     // TIER 2: GOV HANDLES THE KEY (#196 Q6, wired in #200, made unconditional in #213).
@@ -650,7 +651,7 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
   const ask = (q: string, def: string): Promise<string> =>
     new Promise((res) => rl.question(def ? `  ${q} [${def}]: ` : `  ${q}: `, (a) => res(a.trim() || def)));
   const quietGh = (args: readonly string[]): string | null => {
-    try { return execFileSync("gh", [...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
+    try { return runProcess("gh", [...args], { pgm: "gov-work:cli:main" }).trim(); }
     catch { return null; }                        // a 404 while the template copies is EXPECTED, not news
   };
   const io: CreateIo = {
@@ -844,10 +845,10 @@ export async function runSetupCommand(
         print: (l) => process.stdout.write(`${l}\n`),
         setOriginRemote: (url) => {
           try {
-            execFileSync("git", ["-C", cwd, "remote", "set-url", "origin", url], { stdio: "ignore" });
+            runProcess("git", ["-C", cwd, "remote", "set-url", "origin", url], { pgm: "gov-work:cli:main" });
           } catch {
             try {
-              execFileSync("git", ["-C", cwd, "remote", "add", "origin", url], { stdio: "ignore" });
+              runProcess("git", ["-C", cwd, "remote", "add", "origin", url], { pgm: "gov-work:cli:main" });
             } catch {
               /* leave remote as-is */
             }
@@ -990,7 +991,7 @@ export async function runSetupCommand(
       const dropped = [...new Set([...templateRemovedFromCreate, ...stray])].sort();
       if (dropped.length) manifest.push({ what: "Removed", detail: `the framework's own files from the template copy: ${dropped.join(" ")}` });
 
-      const git = (...a: string[]): boolean => { try { execFileSync("git", ["-C", createdHome, ...a], { stdio: "ignore" }); return true; } catch { return false; } };
+      const git = (...a: string[]): boolean => okProcess("git", ["-C", createdHome, ...a], { pgm: "gov-work:cli:main" });
       git("add", "-A");
       const committed = git("commit", "-m", "configure the framework for this org");
       const pushed = committed && git("push", "-u", "origin", "HEAD");
@@ -1085,16 +1086,16 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     prompt: ask,
     print: (l) => process.stderr.write(`${l}\n`),
     tempDir: () => fsSync.mkdtempSync(path.join(os.tmpdir(), "gov-firstrun-")),
-    clone: (url, dest) => { execFileSync("git", ["clone", url, dest], { stdio: ["ignore", "ignore", "inherit"] }); },
+    clone: (url, dest) => { runProcess("git", ["clone", url, dest], { pgm: "gov-work:cli:main", fn: "clone", meta: { dest } }); },
     // For a repo GOV found (#197). `gh` resolves the protocol and carries the token, so a private
     // governance repo clones on a machine whose only credential is `gh auth login` — the same call
     // `gov setup` makes for the repo it creates.
-    cloneRepo: (nameWithOwner, dest) => { execFileSync("gh", ["repo", "clone", nameWithOwner, dest], { stdio: ["ignore", "ignore", "inherit"] }); },
+    cloneRepo: (nameWithOwner, dest) => { runProcess("gh", ["repo", "clone", nameWithOwner, dest], { pgm: "gov-work:cli:main", fn: "cloneRepo", meta: { repo: nameWithOwner } }); },
     // Asked before the adopter's remaining questions, so a joiner is never made to answer them
     // (#197). Unverified is NOT "clear": it reports exactly that, and the flow says nothing.
     probeGovernance: (org) => {
       const probeIo: CreateIo = {
-        gh: (args) => { try { return execFileSync("gh", [...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return null; } },
+        gh: (args) => { try { return runProcess("gh", [...args], { pgm: "gov-work:cli:main" }).trim(); } catch { return null; } },
         home: os.homedir(),
         exists: (p) => fsSync.existsSync(p),
         print: () => { /* the caller does the talking */ },
@@ -1121,7 +1122,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       return finalStatus(checklist({
         gitPresent: tryRun("git", ["--version"]) !== undefined,
         ghPresent: tryRun("gh", ["--version"]) !== undefined,
-        ghAuthenticated: (() => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } })(),
+        ghAuthenticated: (() => { return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); })(),
         ghScopesOk: true,
         gitIdentityOk: Boolean(gitCfg2("user.name") && gitCfg2("user.email")),
         workspaceResolves: r.ok,
@@ -1203,7 +1204,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       const spec = starterProject(cfg.org, cfg.repo);
       const boardUrl = tryRun("gh", ["project", "create", "--owner", cfg.org, "--title", spec.boardTitle, "--format", "json"])
         ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null;
-      const issues = createGhIssues((args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+      const issues = createGhIssues((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
       const issueUrl = boardUrl ? issues.create(spec.issueRepo, spec.issueTitle, spec.issueBody, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")) : null;
       if (boardUrl && issueUrl) {
         const n = Number(boardUrl.match(/\/projects\/(\d+)/)?.[1] ?? 0);
@@ -1350,7 +1351,7 @@ export async function gatherMenuContext(): Promise<MenuContext> {
 function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0], "ask"> | null {
   const fs = createNodeFs();
   const env = createNodeEnv();
-  const runGh: RunGh = retryTransient((args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  const runGh: RunGh = retryTransient((args) => runProcess("gh", args, { pgm: "gov-work:cli:main", fn: "gh" }));
   const resolved = prjResolveGov(env);
   if (!resolved.ok) return null;
   const cfgPath = path.join(resolved.home, "org-config.yaml");
@@ -1392,7 +1393,7 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     // THE GOVERNING FILES, COPIED FROM THE DEFAULT BRANCH INTO THE PROJECT (PRJ-121, 2026-09-22) — so an agent that
     // sandboxes its reads to the project folder can read them. See lifecycle/governance-snapshot.ts.
     snapshotGovernance: (projectDir: string) => snapshotGovernance({
-      git: (args) => { const r = spawnSync("git", [...args], { encoding: "utf8" }); return r.status === 0 ? r.stdout : null; },
+      git: (args) => tryRunProcess("git", [...args], { pgm: "gov-work:cli:main", fn: "snapshot-git" }) ?? null,
       write: (file, content, mode) => {
         fsSync.mkdirSync(path.dirname(file), { recursive: true });
         // Last launch's copy is read-only (0444): make it writable, replace it, then set the mode again.
@@ -1553,8 +1554,8 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
 
       const runIt = (args: readonly string[]): { status: number; error: boolean; ms: number } => {
         const at = Date.now();
-        const rr = spawnSync(s.cmd, [...args], { cwd, stdio: "inherit" });
-        return { status: rr.status ?? 0, error: Boolean(rr.error), ms: Date.now() - at };
+        const rr = { status: runInteractive(s.cmd, [...args], { cwd, pgm: "gov-work:cli:main", fn: "agent-launch", meta: { agent: s.cmd } }) };
+        return { status: rr.status, error: rr.status !== 0, ms: Date.now() - at };
       };
 
       // A ONE-SHOT FIRST MESSAGE IS READ AS IT RUNS, NOT HIDDEN (PRJ-121, 2026-09-22). An agent with `resume`
@@ -2042,11 +2043,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // One call answers both questions — signed in, and with which permissions. gh
     // writes the status to stderr, so it has to be captured, not just tested.
     const ghStatus = ghPresent ? ((): string | null => {
-      try { return execFileSync("gh", ["auth", "status"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
+      try { return runProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); }
       catch (e) { const r = (e as { stdout?: string; stderr?: string }); return (r.stdout ?? "") + (r.stderr ?? "") || null; }
     })() : null;
     const ghAuthed = ghPresent && ((): boolean => {
-      try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; }
+      return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" });
     })();
     const ghScopes = ghAuthed && ghStatus ? parseGrantedScopes(ghStatus) : null;
     const report = doctor({
@@ -2162,7 +2163,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       const sudoNoPassword = haveSudo && ((): boolean => {
         // Silent on purpose: `sudo: a password is required` on stderr IS the answer,
         // not an error to show the reader in the middle of a plan.
-        try { execFileSync("sudo", ["-n", "true"], { stdio: "ignore" }); return true; } catch { return false; }
+        return okProcess("sudo", ["-n", "true"], { pgm: "gov-work:cli:main" });
       })();
       const needElevation = plan.steps.some((s) => s.sudo) && !amRoot;
       // Say what the plan will ASK OF THEM before the first command, not after a
@@ -2275,8 +2276,8 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
                                    "      git config --global user.email \"you@your-org\"\n");
               continue;
             }
-            const okName = spawnSync("git", ["config", "--global", "user.name", finalName], { stdio: "inherit" }).status === 0;
-            const okMail = spawnSync("git", ["config", "--global", "user.email", finalEmail], { stdio: "inherit" }).status === 0;
+            const okName = runInteractive("git", ["config", "--global", "user.name", finalName], { pgm: "gov-work:cli:main", fn: "git-identity" }) === 0;
+            const okMail = runInteractive("git", ["config", "--global", "user.email", finalEmail], { pgm: "gov-work:cli:main", fn: "git-identity" }) === 0;
             if (okName && okMail) {
               ran++;
               process.stdout.write(`  ✓ git will sign your commits as ${finalName} <${finalEmail}>\n`);
@@ -2303,7 +2304,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             continue;
           }
           const [bin, ...rest] = needsElevation ? ["sudo", ...step.command] : [...step.command];
-          const r = spawnSync(bin!, rest, { stdio: "inherit" });
+          const r = { status: runInteractive(bin!, rest, { pgm: "gov-work:cli:main", fn: "doctor-fix-step", meta: { step: step.what } }) };
           if (r.status === 0) {
             ran++;
             const it = itemForFix(step.fixes, checklist(facts()));
@@ -2312,7 +2313,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           else {
             failed++;
             broken.add(step.fixes);
-            const why = r.error ? r.error.message : `exit ${r.status ?? "unknown"}`;
+            const why = `exit ${r.status}`;   // the runner logs the stderr tail; the screen gets the code
             process.stdout.write(`  ✗ failed — ${why}\n`);
           }
         }
@@ -2324,10 +2325,10 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         ...facts(),
         gitPresent: tryRun("git", ["--version"]) !== undefined,
         ghPresent: tryRun("gh", ["--version"]) !== undefined,
-        ghAuthenticated: (() => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } })(),
+        ghAuthenticated: (() => { return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); })(),
         ghScopesOk: (() => {
           try {
-            const s = execFileSync("gh", ["auth", "status"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+            const s = runProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" });
             const g = parseGrantedScopes(s);
             return Boolean(g && missingScopes(g).length === 0);
           } catch { return false; }
@@ -2427,7 +2428,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
 
   // Capture (don't inherit) stderr so best-effort gh failures — e.g. an
   // unsupported board op — don't spew gh's usage text to the terminal.
-  const runGh: RunGh = retryTransient((args) => execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  const runGh: RunGh = retryTransient((args) => runProcess("gh", args, { pgm: "gov-work:cli:main", fn: "gh" }));
   const vcs = createGitVcs();
   const seededBy = tryRun("git", ["-C", home, "config", "user.email"]) ?? "";
   const name = tryRun("git", ["-C", home, "config", "user.name"]);
@@ -2496,7 +2497,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
     const pf = preflight(assembleNeeds(), {
       gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
-      ghAuthOk: () => { try { execFileSync("gh", ["auth", "status"], { stdio: "ignore" }); return true; } catch { return false; } },
+      ghAuthOk: () => { return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); },
     });
     if (!pf.ok) {
       for (const line of renderGap(pf.gap)) process.stderr.write(`${line}\n`);

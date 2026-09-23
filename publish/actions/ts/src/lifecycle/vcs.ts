@@ -6,7 +6,7 @@
  * so the adapter is testable without a real repo. Read-only queries + the
  * mutating operations seed needs for phases A/B/D and rollback.
  */
-import { spawnSync } from "node:child_process";
+import { runResult } from "../run-process.js";
 import * as fs from "node:fs";
 
 /** Version-control operations seed needs. */
@@ -92,10 +92,7 @@ export interface FsProbe {
 /** Runs `git <args>`; returns exit status + stdout/stderr (never throws). */
 export type RunGit = (args: string[]) => { status: number; stdout: string; stderr?: string };
 
-const defaultRunGit: RunGit = (args) => {
-  const r = spawnSync("git", args, { encoding: "utf8" });
-  return { status: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
-};
+const defaultRunGit: RunGit = (args) => runResult("git", args, { pgm: "gov-work:lifecycle:vcs", fn: "git" });
 
 /** A {@link Vcs} backed by the `git` CLI. `runGit` is injectable for tests. */
 export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
