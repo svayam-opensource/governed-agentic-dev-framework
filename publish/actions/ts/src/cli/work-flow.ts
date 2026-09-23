@@ -144,6 +144,8 @@ export interface WorkFlowOpts {
   /** false when there is no TTY: an unresolved choice must then FAIL naming the flag that would resolve it,
    *  because there is nobody to ask. */
   readonly interactive?: boolean;
+  /** `work.picker.pageSize` — how many projects a page shows. The person's preference; 15 when unset. */
+  readonly pageSize?: number;
   /** The project the person is STANDING IN (cwd under the work root), when no `--project` was given. The menu
    *  says "Continue the current project" in PROJECT context; the flow used to list every project anyway
    *  (a walk, 2026-09-22). With this set, Work goes straight to it. */
@@ -509,7 +511,7 @@ export { ensureRootProtocol };
 export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}): Promise<number> {
   const deps = withBoardCache(rawDeps);
   const { print } = deps;
-  const PAGE = 15;
+  const PAGE = opts.pageSize && opts.pageSize >= 5 ? opts.pageSize : 15;
   const interactive = opts.interactive ?? true;
   print("");
   print("  Work — start / continue a project");

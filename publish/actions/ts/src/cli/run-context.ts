@@ -15,7 +15,8 @@ import * as fsSync from "node:fs";
 import * as path from "node:path";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
-import { cachedLogin } from "../log.js";
+import { cacheLogin, cachedLogin } from "../log.js";
+import { tryRun } from "../run-process.js";
 import { projectFromPath } from "./work-flow.js";
 
 export interface RunContext {
@@ -45,4 +46,16 @@ export function runContext(cwd: string = process.cwd()): RunContext {
   const login = cachedLogin(orgSlug);
   const project = workRoot ? projectFromPath(workRoot, cwd, path.sep) ?? null : null;
   return { workRoot, login, project, orgSlug };
+}
+
+/**
+ * The person's GitHub login, ASKING `gh` if no run has cached it yet — for the commands that need their folder
+ * (`gov preferences`, `gov log`). The logging path never calls this: a log that spawns a process to decide
+ * where to write slows every command, and it has a correct fallback (`~/.gov/logs`) until a run learns the name.
+ */
+export function ensureLogin(ctx: RunContext): string | null {
+  if (ctx.login) return ctx.login;
+  const login = tryRun("gh", ["api", "user", "--jq", ".login"], { pgm: "gov-work:cli:run-context", fn: "ensureLogin" })?.trim();
+  if (login && ctx.orgSlug) cacheLogin(ctx.orgSlug, login);
+  return login || null;
 }

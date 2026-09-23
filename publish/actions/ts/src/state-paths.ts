@@ -21,8 +21,14 @@
 
 /** The `state/` folder inside a person's preferences folder. */
 export function stateDir(workRoot: string, login: string): string {
-  return `${workRoot.replace(/\/+$/, "")}/preferences/${login}/state`;
+  return `${personDir(workRoot, login)}/state`;
 }
+
+/** A person's folder: their `*.md` (for their agent), `preferences.json` (for gov), `credentials`, `state/`. */
+export const personDir = (workRoot: string, login: string): string => `${workRoot.replace(/\/+$/, "")}/preferences/${login}`;
+
+/** THE one place a person's gov settings live (Policy Owner, 2026-09-22). */
+export const preferencesFile = (workRoot: string, login: string): string => `${personDir(workRoot, login)}/preferences.json`;
 
 export const ackDir = (workRoot: string, login: string): string => `${stateDir(workRoot, login)}/ack`;
 export const cacheDir = (workRoot: string, login: string): string => `${stateDir(workRoot, login)}/cache`;

@@ -23,15 +23,15 @@ describe("gov-work — interactive menu (context-scoped)", () => {
 
   // The menu is the HUMAN surface. Status (list/list-all/status) left on 2026-08-07 — those are the
   // work-management system's answers — and Admin now carries only what an agent cannot do for you.
-  it("GOVERNED context: Work · Admin, and Admin is org + doctor + upgrade", () => {
+  it("GOVERNED context: Work · Admin, and Admin is org + doctor + preferences + upgrade", () => {
     const g = { ...CTX, mode: "governed" as const };
     expect(labels(g)).to.deep.equal(["Work", "Admin"]);
-    expect(adminCmds(g)).to.deep.equal(["org", "doctor", "upgrade"]);
+    expect(adminCmds(g)).to.deep.equal(["org", "doctor", "preferences", "upgrade"]);
   });
 
   it("PROJECT context: upgrade is governed-only, the rest travels", () => {
     const p = { ...CTX, mode: "project" as const, project: "PRJ-43" };
-    expect(adminCmds(p)).to.deep.equal(["org", "doctor"]);
+    expect(adminCmds(p), "upgrade is governed-only; the rest travels").to.deep.equal(["org", "doctor", "preferences"]);
     expect(visibleActions(p).find((a) => a.label === "Status"), "Status is the work-mgmt system's").to.equal(undefined);
   });
 
@@ -49,7 +49,7 @@ describe("gov-work — interactive menu (context-scoped)", () => {
   // PRJ-121, 2026-09-22: Admin vanished in NONE — and with it `org use`, the only way OUT of NONE.
   it("NONE context: Admin stays, with org + doctor — the way out of NONE is a menu item", () => {
     expect(labels({ ...CTX, mode: "none" })).to.deep.equal(["Work", "Admin"]);
-    expect(adminCmds({ ...CTX, mode: "none" })).to.deep.equal(["org", "doctor"]);
+    expect(adminCmds({ ...CTX, mode: "none" })).to.deep.equal(["org", "doctor", "preferences"]);
   });
 
   it("NONE with orgs registered: Work says choose an org, not set one up", () => {
@@ -107,3 +107,18 @@ describe("gov-work — interactive menu (context-scoped)", () => {
   });
 });
 
+
+// Policy Owner, 2026-09-22 — one place for a person's settings, reachable from the menu as well as the CLI.
+describe("the menu offers a person their own settings", () => {
+  it("Admin → preferences, with list / set / reset / path under it", () => {
+    const a = visibleActions({ ...CTX, mode: "governed" }).find((x) => x.label === "Admin");
+    const prefs = a && a.kind === "submenu" ? a.commands.find((c) => c.cmd === "preferences") : undefined;
+    expect(prefs, "preferences is an Admin command").to.not.equal(undefined);
+    expect(prefs!.subs?.map((s) => s.cmd)).to.deep.equal(["list", "set", "reset", "path"]);
+  });
+
+  it("display.menuHeader: 'always' redraws the header on every return", () => {
+    // The default ("once") is the menu redesign of 361fe04; this is the person's way to have the old behaviour.
+    expect(formatMainMenu({ ...CTX, headerEvery: true })).to.deep.equal([...formatMenuHeader(CTX), ...formatActionList(CTX)]);
+  });
+});

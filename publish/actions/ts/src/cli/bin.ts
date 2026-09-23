@@ -11,6 +11,8 @@ import { helpRequest } from "./help-request.js";
 import { runContext } from "./run-context.js";
 import { endRun, log, pruneLogs, runDir, startRun } from "../log.js";
 import { commandOf, logsRoot } from "../state-paths.js";
+import { numberPref } from "../preferences.js";
+import { loadPreferences } from "./preferences-io.js";
 
 const argv = process.argv.slice(2);
 
@@ -74,7 +76,10 @@ async function runCli(): Promise<number> {
     startRun({ argv, command: commandOf(argv), project: ctx.project, workRoot: ctx.workRoot, login: ctx.login, version: readCliVersion() });
     // Retention runs here, once per invocation, where it costs one readdir and can never race a write: the
     // folders it removes are whole days, and this run's day is not one of them.
-    if (ctx.workRoot && ctx.login) pruneLogs(logsRoot(ctx.workRoot, ctx.login), new Date());
+    if (ctx.workRoot && ctx.login) {
+      // `logs.keepDays` is the person's (default 14). Read from the file gov already has open for them.
+      pruneLogs(logsRoot(ctx.workRoot, ctx.login), new Date(), numberPref(loadPreferences().prefs, "logs.keepDays"));
+    }
   } catch { /* a run with no log is still a run */ }
 
   try {

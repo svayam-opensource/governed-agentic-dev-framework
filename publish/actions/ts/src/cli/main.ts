@@ -63,7 +63,9 @@ import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
 import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } from "../maintain/upgrade-run.js";
 import { staleArtifactsIn } from "../maintain/upgrade-sync.js";
 import { formatRuns, listRuns, selectRuns } from "../maintain/log-view.js";
-import { runContext } from "./run-context.js";
+import { coerce, formatPreferences, numberPref, specFor, stringPref } from "../preferences.js";
+import { loadPreferences, savePreference } from "./preferences-io.js";
+import { ensureLogin, runContext } from "./run-context.js";
 import { logsRoot } from "../state-paths.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
@@ -1404,8 +1406,13 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       now: () => new Date(),
     }, projectDir, config.workspaceRepo, config.defaultBranch || "main"),
     agentPreference: () => {
-      const prefs = fs.readFile(path.join(config.agentWorkRoot, "preferences", `${me ?? ""}.md`));
-      return /^\s*preferred_agent:\s*(\S+)/m.exec(prefs ?? "")?.[1] ?? null;
+      // `preferences.json` FIRST (Policy Owner, 2026-09-22: the CLI's values live there; the `.md` beside it is
+      // for the person's AGENT). The old `preferred_agent:` line in that markdown still works, so nobody's
+      // existing preference is lost — it is read only when the setting has not been made.
+      const chosen = stringPref(loadPreferences().prefs, "agent.default");
+      if (chosen) return chosen;
+      const md = fs.readFile(path.join(config.agentWorkRoot, "preferences", `${me ?? ""}.md`));
+      return /^\s*preferred_agent:\s*(\S+)/m.exec(md ?? "")?.[1] ?? null;
     },
     applyRepoOverrides,
     // govHome is the default-branch clone — POL-086a requires governance be read from there,
@@ -1749,12 +1756,20 @@ export async function runWork(argv: readonly string[]): Promise<number> {
       ...(agent ? { agent: agent as AgentKind } : {}),
       // Standing in a project → continue it, unless a project was named (a walk, 2026-09-22).
       ...(!pattern && current ? { currentProject: current } : {}),
+      pageSize: numberPref(loadPreferences().prefs, "work.picker.pageSize"),
       seedOk: argv.includes("--seed"),
       printPromptOnly: argv.includes("--print-prompt"),
       interactive,
       },
     );
   } finally { rl.close(); }
+}
+
+/** The usage line for a preferences subcommand, with the settings listed under it. */
+function usageLines(usage: string, loaded: { file: string; prefs: Parameters<typeof formatPreferences>[0] }): number {
+  process.stderr.write(`usage: ${usage}\n`);
+  for (const l of formatPreferences(loaded.prefs, loaded.file)) process.stderr.write(`${l}\n`);
+  return 2;
 }
 
 /** Route any command (setup / normal) — used by the menu. There is no plugin routing: `auth`, `creds`,
@@ -1778,7 +1793,7 @@ export function runAny(argv: readonly string[]): Promise<number> | number {
  * the way in.
  */
 const HELP_GROUPS: Record<string, string[]> = {
-  "Your commands": ["work", "org", "doctor", "upgrade", "log"],
+  "Your commands": ["work", "org", "doctor", "upgrade", "log", "preferences"],
   "Your agent runs these (you can too)": [
     "seed", "join", "task", "merge", "sync", "add-repo", "close", "pause", "resume", "cancel",
     "manage", "anchor", "knowledge", "onboard", "validate", "list", "list-all", "status",
@@ -1797,6 +1812,7 @@ const CMD_DESC: Record<string, string> = {
   list: "List YOUR active projects", "list-all": "List ALL org projects (owners = anchor assignees)", status: "Show the current project's status",
   doctor: "Diagnose this machine: git · gh · workspace · active org · versions",
   log: "What gov did — one log per run, on this machine",
+  preferences: "YOUR settings for gov: the agent it launches, how the picker looks, colour, how long logs are kept",
   issue: "Create an issue — assigned to you, on the board. `--from <url>` mirrors an upstream one",
   agent: "Which AI agents your org approves, what is installed, and how to add one",
   setup: "Set up this machine for an organization — the first `gov` run does this for you",
@@ -1810,7 +1826,8 @@ const CMD_USAGE: Record<string, string> = {
   knowledge: '<propose|submit|archive> <slug> [--description "<text>"]', onboard: '<repo-url> --owner <owner> --description "<text>"',
   org: "add <github_org> --home <path> | use|list|remove <github_org>",
   upgrade: "[--ref <branch>] [--from <dir>] [--apply]",
-  log: "[<run-id>] [--last] [--project <name>] [--limit <n>]", "bump-version": "<x.y.z>",
+  log: "[<run-id>] [--last] [--project <name>] [--limit <n>]",
+  preferences: "[list] | set <key> <value> | reset <key> | path", "bump-version": "<x.y.z>",
 };
 
 /** All commands in reference order. */
@@ -1841,7 +1858,7 @@ export function helpLines(command?: string): string[] {
 
 /** Build + run the interactive main menu (no-args TTY). Async — routed from bin.ts. */
 export async function runMainMenu(): Promise<number> {
-  const ctx = await gatherMenuContext();
+  const ctx = { ...(await gatherMenuContext()), headerEvery: stringPref(loadPreferences().prefs, "display.menuHeader") === "always" };
   // fs/env/runGh moved into buildWorkDeps with the deps they served — the menu itself needs none of them.
   const workDeps = buildWorkDeps(ctx.user ?? null);
 
@@ -1860,7 +1877,7 @@ export async function runMainMenu(): Promise<number> {
       // `gov work` path happened to survive it. Whoever owns the terminal does the asking.
       // PROJECT context → Work continues THIS project, as the menu line says (a walk, 2026-09-22).
       return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print, ask: io.ask },
-        ctx.mode === "project" && ctx.project ? { currentProject: ctx.project } : {});
+        { ...(ctx.mode === "project" && ctx.project ? { currentProject: ctx.project } : {}), pageSize: numberPref(loadPreferences().prefs, "work.picker.pageSize") });
     },
     switchOrg: (org) => runAny(["org", "use", org]),
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },
@@ -1902,13 +1919,52 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     return r.code;
   }
 
+  // `gov preferences` — YOUR settings: the one place a person changes how gov behaves for them (Policy Owner,
+  // 2026-09-22). JSON carries no comments, so the listing is the documentation: every key, its value, whether
+  // it is yours or gov's default, and one line on what it does.
+  if (parsed.command === "preferences" || parsed.command === "prefs") {
+    const sub = parsed.positionals[0] ?? "list";
+    const loaded = loadPreferences((file) => process.stderr.write(`  created your preferences file at ${file}\n`));
+    if (!loaded.file) {
+      process.stderr.write("gov preferences: no organization on this machine yet — run `gov` first; it sets one up.\n");
+      return 1;
+    }
+    if (sub === "path") { process.stdout.write(`${loaded.file}\n`); return 0; }
+    if (sub === "list") { for (const l of formatPreferences(loaded.prefs, loaded.file)) process.stdout.write(`${l}\n`); return 0; }
+
+    const key = parsed.positionals[1];
+    const spec = key ? specFor(key) : undefined;
+    if (sub === "set" || sub === "reset") {
+      if (!key) return usageLines(`gov preferences ${sub} <key>${sub === "set" ? " <value>" : ""}`, loaded);
+      if (!spec) {
+        process.stderr.write(`gov preferences: no setting '${key}'. \`gov preferences\` lists them.\n`);
+        return 2;
+      }
+      if (sub === "reset") {
+        savePreference(loaded.file, loaded.prefs, key, undefined);
+        process.stdout.write(`  ${key} → ${String(spec.def ?? "—")}  (gov's default)\n`);
+        return 0;
+      }
+      const typed = parsed.positionals.slice(2).join(" ");
+      const got = coerce(spec, typed);
+      if ("error" in got) { process.stderr.write(`gov preferences: ${got.error}\n`); return 2; }
+      savePreference(loaded.file, loaded.prefs, key, got.value);
+      process.stdout.write(`  ${key} → ${String(got.value ?? "—")}  (yours)\n`);
+      return 0;
+    }
+    process.stderr.write(`gov preferences: unknown subcommand '${sub}' — list · set · reset · path\n`);
+    return 2;
+  }
+
   // `gov log` — find this machine's run logs (PRJ-121, 2026-09-23). One file per run is only useful if the
   // files can be found; a failure names a run's folder, and this is how you get back to it later.
   if (parsed.command === "log") {
     const ctx = runContext();
     // Before gov knows the person's GitHub login, runs are logged to `~/.gov/logs` (log.ts `runDirFor`), so
-    // that is where `gov log` looks too — a log you cannot find is the same as no log.
-    const root = ctx.workRoot && ctx.login ? logsRoot(ctx.workRoot, ctx.login) : path.join(os.homedir(), ".gov", "logs");
+    // that is where `gov log` looks too — a log you cannot find is the same as no log. This command may ask
+    // `gh` once for the name, which the logging path itself must never do.
+    const who = ensureLogin(ctx);
+    const root = ctx.workRoot && who ? logsRoot(ctx.workRoot, who) : path.join(os.homedir(), ".gov", "logs");
     const listFs = { list: (d: string): string[] => { try { return fsSync.readdirSync(d); } catch { return []; } } };
     const runs = selectRuns(listRuns(listFs, root), {
       ...(parsed.positionals[0] ? { runId: parsed.positionals[0] } : {}),

@@ -28,6 +28,8 @@ export interface MenuContext {
   readonly mode?: ContextMode;
   /** the current project id, when mode === "project". */
   readonly project?: string;
+  /** `display.menuHeader` — "once" (the default) or "always". The person's preference. */
+  readonly headerEvery?: boolean;
 }
 
 /** A command is visible only in these context modes; absent = every mode. See [[context-scoped-menu]]. */
@@ -77,6 +79,12 @@ export function mainActions(): MenuAction[] {
         { cmd: "remove", desc: "deregister a workspace", argHint: "<github_org>" },
       ] },
       { cmd: "doctor", desc: "diagnose this machine — git · gh · workspace · versions" },
+      { cmd: "preferences", desc: "your settings — agent · picker · colour · logs", subs: [
+        { cmd: "list", desc: "every setting, its value, and whether it is yours" },
+        { cmd: "set", desc: "change one", argHint: "<key>" },
+        { cmd: "reset", desc: "back to gov's default", argHint: "<key>" },
+        { cmd: "path", desc: "where the file is" },
+      ] },
       { cmd: "upgrade", desc: "pull the latest framework content into this org", scopes: ["governed"] },
     ] },
     // HELP LEFT THE MENU (Policy Owner, 2026-09-22). A picker of 24 command names, each answering with one line,
@@ -313,7 +321,7 @@ export async function runMenu(ctx: MenuContext, h: MenuHandlers): Promise<number
   try {
     let header = true;
     for (;;) {
-      for (const l of header ? formatMainMenu(ctx) : formatActionList(ctx)) w(l);
+      for (const l of header || ctx.headerEvery ? formatMainMenu(ctx) : formatActionList(ctx)) w(l);
       header = false;
       const top = resolveTopChoice(await ask("  Choose: "), ctx);
       if (top.kind === "quit") return 0;
