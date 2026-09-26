@@ -63,7 +63,7 @@ pull-request gate. A change to this file MAY be approved by the Policy Owner. **
 Every source file MAY open with a comment that states what the file is for and why it exists — not what the
 code does line by line, which the code already says. **(POL-201)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=172b09b -->
 > **Always in the agent's context** · POL-201 · C02
 > A NEW SOURCE FILE OPENS WITH A COMMENT saying what it is for and why it exists — the reason, not a
 > restatement of the code. No comment is a review finding, not a style preference.
@@ -75,7 +75,7 @@ code does line by line, which the code already says. **(POL-201)**
 
 A change to application behaviour MAY be accompanied by a test that would fail without it. **(POL-202)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=16751fa -->
 > **Always in the agent's context** · POL-202 · C02
 > CHANGING BEHAVIOUR? BRING A TEST that fails without your change. "Tested manually" is not a test, and a
 > test written to pass is not evidence.
@@ -106,7 +106,7 @@ waste. **(POL-204)**
 A language, framework, library, datastore, queue, test runner or CI service that is not listed in
 `policies/approved-technologies.md` MAY be introduced only with an approved exception. **(POL-210)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=fa2f24d -->
 > **Always in the agent's context** · POL-210 · C02
 > TECHNOLOGY CHOICES ARE NOT YOURS. Before adding a dependency or choosing a language, framework, library,
 > datastore, queue, test runner or CI step — or editing package.json · go.mod · pom.xml · requirements.txt ·
@@ -144,9 +144,10 @@ owners are appointed, every approval falls to the Policy Owner. **(POL-230 — s
 > This section is a guide, not a set of rules. It has no modal verbs on purpose — so `gov doctor` will not
 > report it as ungoverned, and so you can see what unnumbered guidance looks like beside real clauses.
 
-### 6.1 One clause, one rule, one modal
+### 6.1 One clause, one level
 
-A clause with two modals states two rules at two levels, and the compiler will reject it. Split it.
+Two modals at the same level are fine — *"MUST be reviewed and MUST NOT be self-merged"* is one rule. Two
+**levels** in one clause is rejected, because one POL number and one cue cannot say which half they mean.
 
 ### 6.2 Three properties of a cue that actually fires
 

@@ -68,7 +68,6 @@ const DOC = [
 const parsed = parseClauses("policies/approved-technologies.md", DOC);
 const at = (section: string, ordinal: number): Clause =>
   parsed.clauses.find((c) => c.section === section && c.ordinal === ordinal)!;
-const kinds = (): string[] => parsed.diagnostics.map((d) => d.kind);
 
 describe("notation — rule 1: the modal is ALL CAPS, or it is not a modal", () => {
   it('a lowercase "must" in ordinary prose creates no rule at all', () => {
@@ -91,6 +90,24 @@ describe("notation — rule 1: the modal is ALL CAPS, or it is not a modal", () 
     const one = parseClauses("d.md", "### 1.1 Scope\n\nThe MUSTARD standard and the CANDIDATE list apply.\n");
     expect(one.clauses[0]!.modal, "MUSTARD is not MUST").to.equal(undefined);
     expect(one.clauses[0]!.governed).to.equal(false);
+  });
+
+  it("a modal inside `inline code` is a MENTION of the notation, not a use of it", () => {
+    // THE HAZARD, found by running this compiler over the framework's own rewritten policy: §1.3 of it IS the
+    // list of these rules — "`MAY NOT` is rejected. In English it usually means prohibition…" — and read
+    // naively the document that defines the notation reports three errors against itself. The exemplar every
+    // adopter copies would be the one document that cannot compile.
+    const doc = ["### 1.3 The notation", "",
+      "3. **Negation keeps the level.** `MUST NOT` and `SHALL NOT` are C01.",
+      "4. **`MAY NOT` is rejected.** Write `MUST NOT`, or \"is not required to\".", ""].join("\n");
+    const one = parseClauses("d.md", doc);
+    expect(one.diagnostics, "the notation's own definition is not a notation error").to.deep.equal([]);
+    expect(one.clauses.map((c) => c.governed)).to.deep.equal([false, false]);
+  });
+
+  it("but a modal OUTSIDE the backticks in the same clause still counts", () => {
+    const one = parseClauses("d.md", "### 1.1 S\n\nA branch name MUST match `BRNCH-<board#>-<slug>`.\n");
+    expect(one.clauses[0]!.level).to.equal("C01");
   });
 
   it("MUST · SHALL → C01, MAY → C02, CAN → C03", () => {
@@ -193,7 +210,22 @@ describe("notation — rule 5: SHOULD is refused with a pointer", () => {
 
   it("a refused modal is reported even when it is not the FIRST modal in the clause", () => {
     const one = parseClauses("d.md", "### 1.1 S\n\nA unit MUST declare it and SHOULD keep it small.\n");
-    expect(one.diagnostics.map((x) => x.kind)).to.have.members(["split-clause", "should-unsupported"]);
+    // NOT a split-clause: SHOULD carries no level, so the clause states exactly one (C01). Rule 2 fires on
+    // distinct LEVELS, not on the count of modals — corrected 2026-09-26 after the first version failed on the
+    // framework's own policy, where ten clauses pair an obligation with its prohibition at the same level.
+    expect(one.diagnostics.map((x) => x.kind)).to.have.members(["should-unsupported"]);
+  });
+
+  it("two modals at the SAME level are one clause, not a split — the corpus case that corrected rule 2", () => {
+    const same = parseClauses("d.md", "### 1.1 S\n\nThe id MUST be issued by seed and MUST NOT be assigned by hand.\n");
+    expect(same.diagnostics, "a prohibition qualifying its own obligation is one rule").to.deep.equal([]);
+    expect(same.clauses[0]!.level).to.equal("C01");
+  });
+
+  it("two modals at DIFFERENT levels is still a split — neither the POL number nor the cue could say which half", () => {
+    const two = parseClauses("d.md", "### 1.1 S\n\nA project MAY be reassigned and SHALL NOT be reopened.\n");
+    expect(two.diagnostics.map((x) => x.kind)).to.deep.equal(["split-clause"]);
+    expect(two.diagnostics[0]!.message).to.contain("two levels in one clause");
   });
 });
 

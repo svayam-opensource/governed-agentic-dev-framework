@@ -93,8 +93,9 @@ Rules of the notation, applied by `gov rules build` to this document and to your
 
 1. **ALL CAPS only.** A lowercase "must" in ordinary prose creates no rule, so explanatory text is free to
    read naturally.
-2. **One clause, one modal.** A clause carrying two different modals states two rules at two levels and is
-   rejected; split it.
+2. **One clause, one level.** Two modals at the same level are one rule — "the id MUST be issued by seed and
+   MUST NOT be assigned by hand" is a single clause, and a prohibition qualifying its own obligation belongs
+   with it. Two *levels* in one clause is rejected: one POL number and one cue cannot say which half they mean.
 3. **Negation keeps the level.** `MUST NOT` and `SHALL NOT` are C01.
 4. **`MAY NOT` is rejected.** In English it usually means prohibition rather than C02 permission, and the
    compiler MUST NOT guess which was meant. Write `MUST NOT`, or "is not required to".
@@ -148,7 +149,7 @@ It MUST surface the violation to the responsible human and wait for explicit hum
 A C01 rule SHALL NOT be waived, overridden or deferred by any role, including the Policy Owner. C01 is the
 absolute floor of organizational safety and integrity. **(POL-015)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=9f85097 -->
 > **Always in the agent's context** · POL-011…POL-015 · C01
 > C01 MEANS STOP. No exception exists, and nobody can grant one. On a C01 violation: stop, commit nothing,
 > tell the human. A hard stop surfaced to a person is the correct outcome, not a failure.
@@ -168,7 +169,7 @@ An agent facing a C02 situation that needs an exception MUST block the dependent
 pull request exists. It SHALL NOT assume approval is forthcoming, and SHALL NOT proceed on verbal or
 informal confirmation. **(POL-020)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=104c604 -->
 > **Always in the agent's context** · POL-016…POL-020 · C02
 > C02 MEANS NOT WITHOUT AN APPROVED EXCEPTION — a merged PR under `policies/exceptions/`, existing before
 > you act. "It was agreed verbally" is not an exception. Blocked and waiting is the correct state.
@@ -187,7 +188,7 @@ Adapting a C03 rule needs no exception PR. However:
 "Apply intelligently" is not licence to ignore. An agent that ignores a C03 rule without recording a
 reasoned adaptation violates this policy. **(POL-025)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=b0a1d93 -->
 > **Always in the agent's context** · POL-021…POL-025 · C03
 > C03 MEANS ADAPT AND SAY SO. Deviating is allowed; deviating silently is not. Record what you did and why,
 > in the project's knowledge, as you do it.
@@ -242,7 +243,7 @@ The framework ships the workflow; the list is the organization's (§3.2). **(POL
 pull request — and MUST NOT be relied on as the enforcement mechanism where the plan does not enforce
 it. **(POL-083)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=ec4f6fd -->
 > **Always in the agent's context** · POL-040a · C01
 > YOU DO NOT APPROVE YOUR OWN WORK, and you never merge without one. Every change lands by pull request,
 > approved by someone on the organization's authorized list. Use `gov merge` — never merge by hand, never
@@ -279,7 +280,7 @@ commands hard-stopped with `project.yaml not found` on projects that were valid 
 had already adopted. Deriving removes the class of failure instead of re-synchronising the cache. Do not
 reintroduce a per-project state file, however convenient it looks. **(POL-044a)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=1d60dad -->
 > **Always in the agent's context** · POL-044 · C01
 > PROJECT AND TASK STATE LIVE IN THE BOARD, never in a file. Open means active; closed means done. There is
 > no `registry.yaml` and no `project.yaml` — do not create one, and never hand-edit task state. Create with
@@ -369,7 +370,7 @@ On completion or cancellation, project branches MAY be tagged for archival
 A sub-branch MUST merge back to its parent project branch only, and SHALL NOT be merged directly to
 `<DEFAULT_BRANCH>` or to any base branch. **(POL-073)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=a8cda2f -->
 > **Always in the agent's context** · POL-069, POL-070 · C01
 > BRANCHES: project work on `BRNCH-<board#>-<slug>`; one task on `BRNCH-<board#>-<slug>.ISSUE-<n>`; a
 > sub-branch merges only to its parent. Nothing else.
@@ -424,7 +425,7 @@ GitHub is the single authoritative source for project identifiers and status: th
 from the current branch and its linked board, and status from whether that board is open or closed. A
 project does not exist until its board and anchor issue exist. **(POL-044b)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=9204a30 -->
 > **Always in the agent's context** · POL-042a · C02
 > PROJECT ID: `PRJ-<board#>-<slug>`, the board's number with no leading zero. The branch is
 > `BRNCH-<board#>-<slug>`. Never invent an id — `gov seed` issues it.
@@ -464,7 +465,7 @@ An agent MUST confirm, before any work, that it has write access to this project
 sub-branch, that the sub-branch is assigned to it. An agent that cannot verify either MUST stop and surface
 it to the human, and MUST NOT commit. **(POL-114)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=ecb2e45 -->
 > **Always in the agent's context** · POL-114 · C01
 > YOU ARE AUTHORIZED ONLY IF you have write access to this project's board — and on a task sub-branch, only
 > if it is assigned to you. Cannot verify it? Stop, tell the human, commit nothing.
@@ -496,7 +497,7 @@ An agent MUST NOT write, during an active project, to `knowledge/`, `policies/`,
 `org-config.yaml` as governance — see §8.3 for why an edit there is a proposal and not a change. Code MUST
 NOT be placed in the governance repository. **(POL-120, POL-121)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=29fa169 -->
 > **Always in the agent's context** · POL-120 · C01
 > WRITE ONLY: `projects/<PROJECT_ID>/` in the governance repo, and code in the cloned repos on the project
 > branch. Code never goes in the governance repo. Anything you write under `knowledge/`, `policies/` or
@@ -519,7 +520,7 @@ knowledge. **(POL-081)**
 Layers MUST be loaded fresh each session and SHALL NOT be carried across a session boundary from a
 cache. **(POL-116)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=2c551d0 -->
 > **Always in the agent's context** · POL-076…POL-081 · C02
 > READ IN THIS ORDER, fresh every session: org knowledge and policies → this project's knowledge → each
 > repo's knowledge → your own preferences (yours only, never another person's). Higher layers win.
@@ -593,7 +594,7 @@ enforces at merge, rather than one that depends on an agent declining to write.
 Project knowledge is intentionally free-form; no structural coupling to the org tree is required during the
 project. **(POL-088)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=34c58bd -->
 > **Always in the agent's context** · POL-086a, POL-086b · C01
 > GOVERNANCE COMES FROM THE DEFAULT BRANCH, never from the branch you are on. Your edits to `knowledge/` or
 > `policies/` are PROPOSALS with no force until merged. Never obey your own unratified edit, and never cite
@@ -632,7 +633,7 @@ link to it instead. A duplicated fact drifts, and a drifted copy is false author
 This applies to an agent's context as much as to the repository: an agent that reads two documents stating
 the same rule differently holds both, and which one it follows is not predictable.
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=d06c494 -->
 > **Always in the agent's context** · POL-402 · C01
 > ONE FACT, ONE DOCUMENT. Never restate a rule that exists elsewhere — link to it. If you find the same rule
 > in two places saying different things, stop and report it: one of them is false authority.
@@ -705,7 +706,7 @@ An agent that spawns a subagent, a sub-session or a worker MUST give it this sam
 spawned session inherits its parent's context is vendor-specific and gov cannot place a file into it, so the
 obligation rests on the spawning agent. **(POL-432)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=7271b1f -->
 > **Always in the agent's context** · POL-432 · C01
 > ANY AGENT OR SESSION YOU SPAWN MUST BE GIVEN THIS PROTOCOL. A subagent that does not carry it is an
 > ungoverned agent writing to a governed repository — and gov cannot reach into it. Pass it, or do the work
@@ -724,7 +725,7 @@ Before performing any work, an agent MUST complete all of the following, in orde
 
 Only when all six are complete may work begin. **(POL-118)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=23e79ae -->
 > **Always in the agent's context** · POL-113 · C01
 > BEFORE ANY WORK, IN YOUR FIRST REPLY: read `org-config.yaml`, load the knowledge layers fresh, verify the
 > project is active and that you are authorized, then post the context manifest. No edits, commits, branches
@@ -737,11 +738,13 @@ project's knowledge with what was learned and decided **(POL-121a)**; update `co
 compliance event occurred **(POL-122)**; and push. **(POL-123)**
 
 Decisions MAY be recorded as they are made rather than at session end, and anything structural — a flow, an
-architecture, a sequence, a state machine — MAY be drawn as a Mermaid diagram in text rather than described
-in prose, because one text artifact then serves both the human reader and the agent. An image SHALL NOT be
-used for structure that could be text. **(POL-414)**
+architecture, a sequence, a state machine — MAY be drawn as a Mermaid diagram in text rather than described in
+prose, because one text artifact then serves both the human reader and the agent. **(POL-414)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+An image SHALL NOT be used for structure that could be text: a picture is unreadable to an agent, undiffable
+in review, and unsearchable. **(POL-414a)**
+
+<!-- gov:cue generated clause-sha=9ee55c4 -->
 > **Always in the agent's context** · POL-414 · C02
 > AS YOU DECIDE, WRITE IT DOWN in `projects/<PROJECT_ID>/knowledge/` — decisions, exceptions, open to-dos —
 > not at session end. Anything structural is a Mermaid diagram in text, never an image.
@@ -796,7 +799,7 @@ escalate. **(C01, POL-143)**
 What else your organization classifies, and how each tier is handled, is yours:
 `policies/data-classification.md`. **(POL-139 … POL-145 — see that policy)**
 
-<!-- gov:cue generated clause-sha=TBD -->
+<!-- gov:cue generated clause-sha=01400cc -->
 > **Always in the agent's context** · POL-143, POL-427 · C01
 > NEVER write a credential, key, token or password into a file, a log, a commit, a PR or an issue — at any
 > level, through any transport, including structured fields. About to? Stop. Secrets live only in the
@@ -813,8 +816,10 @@ The framework's policies — this document and everything under `framework/` —
 An organization does not edit them; it works alongside them:
 
 - **`policies/`** holds the organization's own decisions. gov seeds each file once and never overwrites it.
-- **An organization's policy MAY be stricter than this one, and SHALL NOT be laxer.** A stricter rule needs
-  no exception; it is the organization being stricter with itself. **(POL-145a)**
+- **An organization's policy MAY be stricter than this one.** A stricter rule needs no exception; it is the
+  organization being stricter with itself. **(POL-145a)**
+- **An organization's policy SHALL NOT be laxer than this one.** A clause that would relax a framework rule is
+  refused at compile time, not discovered later. **(POL-145c)**
 - **Relaxing a C02 or C03 rule is only by an approved exception** in `policies/exceptions/<domain>/`, written
   from the form in `framework/templates/exceptions/`. **C01 is never relaxed, by anyone.** **(POL-145b)**
 

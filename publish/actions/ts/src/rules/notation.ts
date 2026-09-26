@@ -121,8 +121,17 @@ const REJECTION: Readonly<Record<string, string>> = {
     "SHOULD is not a level here: use MAY (C02 — always applies, a deviation needs an approved exception) or CAN (C03 — apply intelligently, record the deviation).",
 };
 
-/** Every modal in a clause, canonicalised (`MAY\n NOT` → `MAY NOT`), in the order written, without repeats. */
-function modalsIn(text: string): string[] {
+/**
+ * Every modal in a clause, canonicalised (`MAY\n NOT` → `MAY NOT`), in the order written, without repeats.
+ *
+ * INLINE CODE IS A MENTION, NOT A USE, and this is not hypothetical: §1.3 of the framework's own policy is the
+ * list of these very rules — *"`MAY NOT` is rejected. In English it usually means prohibition…"*. Read naively,
+ * the document that DEFINES the notation reports a split-clause, a may-not-ambiguous and a should-unsupported
+ * error against itself, and the exemplar an adopter copies is the one document that cannot compile. Same
+ * reasoning as the skipped fences and tables: a policy has to be able to talk about its own vocabulary.
+ */
+function modalsIn(clauseText: string): string[] {
+  const text = clauseText.replace(/`[^`\n]*`/g, " ");
   const seen = new Set<string>();
   const out: string[] = [];
   for (const m of text.matchAll(MODAL_RE)) {
@@ -285,12 +294,28 @@ export function parseClauses(doc: string, text: string): ParseResult {
       const ordinal = (ordinals.get(block.section) ?? 0) + 1;
       ordinals.set(block.section, ordinal);
 
-      // Rule 2. Reported for two different MODALS, not two different levels: `MUST … MUST NOT …` is one level
-      // and two obligations, and one POL number cannot cite both, nor one cue name both moments.
-      if (modals.length > 1) {
+      // Rule 2, ON LEVELS RATHER THAN MODALS (corrected 2026-09-26 by running it over the corpus).
+      //
+      // The rule was first implemented as "two different modals is an error", which is what the notation's
+      // prose says. Run against the framework's own rewritten policy it produced 12 split-clause errors, and
+      // 10 of them were pairs at the SAME level — `MUST … MUST NOT …` (§4.2, §6.2, §6.5, §9.9) or
+      // `MUST … SHALL NOT …` (§2.2, §4.3, §5.3, §7.3, §8.5, §9.6). Each already carried one POL number,
+      // because a prohibition stated alongside the obligation it qualifies IS one rule at one level: "the id
+      // MUST be issued by seed, and MUST NOT be assigned by hand" is a single clause an author would never
+      // think to split, and splitting it would leave two POL numbers nobody cites separately.
+      //
+      // What cannot share a clause is two LEVELS: `MAY … SHALL NOT …` compiles to one number at C02 and one
+      // at C01, and neither the POL number nor the cue can say which half it means. Only §9.5 and §10.1 were
+      // that, and both are genuine defects the author should fix.
+      //
+      // So: the diagnostic fires on distinct levels. As written before, `gov rules build` failed on the
+      // exemplar that defines the notation — which is the kind of rule that gets switched off rather than
+      // obeyed.
+      const levels = [...new Set(modals.map((m) => MODALS[m]?.level).filter((l): l is Level => Boolean(l)))];
+      if (levels.length > 1) {
         diagnostics.push({
           kind: "split-clause", doc, section: block.section, line: item.line,
-          message: `two modals in one clause (${modals.join(", ")}) — one clause, one modal: split it so each level has its own clause.`,
+          message: `two levels in one clause (${modals.join(", ")} → ${levels.join(", ")}) — one clause, one level: split it so each has its own clause and POL number.`,
         });
       }
       // Every rejected modal is reported wherever it appears, not only when it comes first: a clause reading
@@ -302,7 +327,7 @@ export function parseClauses(doc: string, text: string): ParseResult {
 
       // Rule 6: no modal is NOT an error. The clause is kept, ungoverned, and listed in the report.
       const modal = modals[0];
-      const level = modals.map((m) => MODALS[m]?.level).find((l) => l);
+      const level = levels[0];
       clauses.push({
         doc, section: block.section, ordinal, line: item.line, text: item.text,
         ...(modal ? { modal } : {}), ...(level ? { level } : {}), governed: Boolean(level),
