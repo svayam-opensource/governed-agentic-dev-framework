@@ -101,6 +101,11 @@ files:
   # then theirs. The old layout mixed them in one 1023-line file, so an org that edited a decision of its own
   # lost the edit at the next upgrade, and an org that did not was bound by Svayam's choices.
   - { src: framework/policies/framework-policy.md,            dst: framework/policies/framework-policy.md,            mode: scaffold-auto }
+  # THE POL LOCK SHIPS WITH THE POLICIES IT LOCKS (PRJ-121, 2026-09-26). It is append-only and
+  # framework-owned: an upgrade replaces it, which is correct, because the numbers in it are the framework's
+  # and an adopter never allocates inside its range. An organization's own clauses are locked separately in
+  # `policies/.pol-lock.yaml`, seeded once, so an upgrade cannot renumber anything the organization wrote.
+  - { src: framework/policies/.pol-lock.yaml,                 dst: framework/policies/.pol-lock.yaml,                 mode: scaffold-auto }
   - { src: framework/policies/org_gov_repo_operations.md,     dst: framework/policies/org_gov_repo_operations.md,     mode: scaffold-auto }
   - { src: framework/policies/README.md,                      dst: framework/policies/README.md,                      mode: scaffold-auto }
   # The session-start protocol loads policies AND procedures (Policy Owner, 2026-09-23).
