@@ -68,18 +68,52 @@ const harnesses = M.harnesses || [];
 // framework/policies/framework-policy.md since the 2026-09-23 split: `governance/` became the framework's
 // tree and the org's, and the doctrine was renamed for what it is.
 const POLICY = join(REPO, "publish", "content", "framework", "policies", "framework-policy.md");
+/**
+ * THE RESIDENT BLOCK IS ASSEMBLED FROM PER-CLAUSE CUES (PRJ-121, 2026-09-26).
+ *
+ * It used to be one hand-written `C01-DIGEST` block in the policy: six rules, chosen and worded separately
+ * from the clauses they summarised, and free to drift from them. Two problems with that, both real. The
+ * digest could say something the policy did not, with nothing to detect it — and a clause added to the policy
+ * reached no agent unless somebody also remembered to add it to the digest, which is the failure that left a
+ * 1007-line policy governing nothing.
+ *
+ * Now each clause carries its OWN cue, beside it, approved in the same pull request as the clause. This
+ * function collects them in document order: framework cues first, then the organization's. Order is a
+ * reading convenience only — it creates no precedence, because a model does not rank instructions by
+ * position (see framework-policy.md §9.1). Layering is enforced at compile and check time instead.
+ *
+ * This is the interim assembler. `gov rules build` replaces it, adds the clause-sha staleness check, and
+ * reads the organization's `policies/` on the adopter's machine — which this cannot do, because it runs in
+ * the publisher's repo. Until then the framework's own cues are rendered and an adopter's are not.
+ */
+const CUE_BLOCK = /<!--\s*gov:cue\b[^>]*-->\n((?:>.*\n?)+)/g;
+
 function alwaysRules() {
   if (!existsSync(POLICY)) {
     process.stderr.write(`ERROR: ${POLICY} is missing — Part A of the protocol cannot be built\n`);
     process.exit(1);
   }
   const text = readFileSync(POLICY, "utf8");
-  const m = /<!--\s*C01-DIGEST:start\s*-->\n([\s\S]*?)\n<!--\s*C01-DIGEST:end\s*-->/.exec(text);
-  if (!m || !m[1].trim()) {
-    process.stderr.write("ERROR: no C01-DIGEST block in the policy — Part A would render empty\n");
+  // `**Always in the agent's context**` earns its place in the POLICY, where it tells a reader which clauses
+  // are resident. Here it is sixteen copies of a fact the file itself is — so it becomes the clause's own
+  // heading instead, which is what a reader of the rule actually needs to cite it.
+  const cues = [...text.matchAll(CUE_BLOCK)].map((m) => m[1]
+    .replace(/\n+$/, "")
+    .replace(/^>\s*\*\*Always in the agent's context\*\*\s*·\s*(.*)$/m, "> **$1**"));
+  if (!cues.length) {
+    process.stderr.write("ERROR: no `gov:cue` blocks in the policy — Part A would render empty.\n");
+    process.stderr.write("       Every resident rule is a cue block beside its clause; see §1.4.\n");
     process.exit(1);
   }
-  return m[1].replace(/\n+$/, "");
+  // The heading is part of the rendered text rather than the protocol source, so that the count is always
+  // the count actually rendered — a number nobody has to keep in sync with the policy.
+  return [
+    "**These rules bind every turn, not just the first. Each is compiled from the clause it names, and the\n"
+      + "clause is the authority — read it with `gov knowledge show framework-policy.md`.**",
+    // Blank lines between them, or markdown fuses consecutive blockquotes into one and sixteen distinct
+    // rules arrive as a single wall of text — which is how a resident block stops being read.
+    ...cues,
+  ].join("\n\n");
 }
 
 // THE MARKER IS WHAT MAKES THE FILE VERIFIABLE, so its absence is fatal here rather than

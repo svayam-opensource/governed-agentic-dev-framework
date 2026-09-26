@@ -117,6 +117,13 @@ files:
   # reasoning that made llm-governance.md seed-once, applied to every decision that is theirs.
   # gov's validators enforce what the org's standard DECLARES; if the org removes it they warn and continue
   # (Policy Owner, 2026-09-23).
+  # THE ORGANIZATION'S OWN DEVELOPMENT POLICY, with worked example clauses (PRJ-121, 2026-09-26). An adopter
+  # learns the notation from a policy that uses it, not from a specification of it — so this ships with real
+  # clauses (comments, tests, licence header, approved technologies) at levels they are expected to change or
+  # delete. `approved-technologies.md` is the LIST the POL-210 check reads, so it ships too: a check pointing
+  # at a file that does not exist fails every pull request on day one.
+  - { src: policies/org-policy.md,                      dst: policies/org-policy.md,                      mode: seed-once }
+  - { src: policies/approved-technologies.md,           dst: policies/approved-technologies.md,           mode: seed-once }
   - { src: policies/knowledge-organization-standard.md, dst: policies/knowledge-organization-standard.md, mode: seed-once }
   - { src: policies/knowledge-publication.md,           dst: policies/knowledge-publication.md,           mode: seed-once }
   # The clause groups that are the ORGANIZATION'S decision, lifted out of the framework's policy (2026-09-23).

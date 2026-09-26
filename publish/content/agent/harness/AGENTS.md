@@ -17,32 +17,81 @@ substantive reply. Part C is reference you will need once.
 
 # Part A — Always
 
-**These rules bind every turn, not just the first. They are C01 — non-negotiable, no exceptions,
-hard-stop on violation.**
+**These rules bind every turn, not just the first. Each is compiled from the clause it names, and the
+clause is the authority — read it with `gov knowledge show framework-policy.md`.**
 
-1. **No secret ever reaches a log, a transcript, or a provider.** Credentials, keys, tokens and
-   PII are Restricted data: never written to a log at any level or in any transport, and never
-   sent to any LLM provider whether or not that provider is approved.
-   **(C01 — POL-143, POL-427, POL-137)**
+> **POL-011…POL-015 · C01**
+> C01 MEANS STOP. No exception exists, and nobody can grant one. On a C01 violation: stop, commit nothing,
+> tell the human. A hard stop surfaced to a person is the correct outcome, not a failure.
 
-2. **Governance comes from the default branch, never from the branch you are on.** Org
-   `knowledge/` and `policies/` govern as recorded on the default branch of the workspace repo,
-   rebuilt each session. **(C01 — POL-086a)**
+> **POL-016…POL-020 · C02**
+> C02 MEANS NOT WITHOUT AN APPROVED EXCEPTION — a merged PR under `policies/exceptions/`, existing before
+> you act. "It was agreed verbally" is not an exception. Blocked and waiting is the correct state.
 
-3. **Your own edits to org `knowledge/` are proposals, not authority.** On a project branch they
-   have no governing force until merged by pull request with the required approvals. Never cite
-   your own unratified edit as a rule. **(C01 — POL-086b, POL-086c)**
+> **POL-021…POL-025 · C03**
+> C03 MEANS ADAPT AND SAY SO. Deviating is allowed; deviating silently is not. Record what you did and why,
+> in the project's knowledge, as you do it.
 
-4. **Task state lives on the GitHub board, not in files you write.** Open = active, closed =
-   done. Create with `gov task`, land with `gov merge`. Do not hand-manage task state, and do not
-   create Issues unilaterally — those record business intent a human adds. **(C02 — POL-055)**
+> **POL-040a · C01**
+> YOU DO NOT APPROVE YOUR OWN WORK, and you never merge without one. Every change lands by pull request,
+> approved by someone on the organization's authorized list. Use `gov merge` — never merge by hand, never
+> push to the default branch, never force-push a shared branch.
 
-5. **If you cannot verify authorization or project state, stop and say so.** Do not commit, do
-   not push, do not proceed on an assumption. A hard stop surfaced to the human is the correct
-   outcome, not a failure. **(C01 — POL-146)**
+> **POL-044 · C01**
+> PROJECT AND TASK STATE LIVE IN THE BOARD, never in a file. Open means active; closed means done. There is
+> no `registry.yaml` and no `project.yaml` — do not create one, and never hand-edit task state. Create with
+> `gov task`, land with `gov merge`.
 
-6. **Use the shared logging framework, and leave a trail.** Log at the levels that let a run be
-   reviewed afterwards; rule 1 governs what may appear in it. **(POL-423)**
+> **POL-069, POL-070 · C01**
+> BRANCHES: project work on `BRNCH-<board#>-<slug>`; one task on `BRNCH-<board#>-<slug>.ISSUE-<n>`; a
+> sub-branch merges only to its parent. Nothing else.
+
+> **POL-042a · C02**
+> PROJECT ID: `PRJ-<board#>-<slug>`, the board's number with no leading zero. The branch is
+> `BRNCH-<board#>-<slug>`. Never invent an id — `gov seed` issues it.
+
+> **POL-114 · C01**
+> YOU ARE AUTHORIZED ONLY IF you have write access to this project's board — and on a task sub-branch, only
+> if it is assigned to you. Cannot verify it? Stop, tell the human, commit nothing.
+
+> **POL-120 · C01**
+> WRITE ONLY: `projects/<PROJECT_ID>/` in the governance repo, and code in the cloned repos on the project
+> branch. Code never goes in the governance repo. Anything you write under `knowledge/`, `policies/` or
+> `framework/` is a PROPOSAL, not a rule — see the next cue.
+
+> **POL-076…POL-081 · C02**
+> READ IN THIS ORDER, fresh every session: org knowledge and policies → this project's knowledge → each
+> repo's knowledge → your own preferences (yours only, never another person's). Higher layers win.
+> Preferences never override org or repo rules.
+
+> **POL-086a, POL-086b · C01**
+> GOVERNANCE COMES FROM THE DEFAULT BRANCH, never from the branch you are on. Your edits to `knowledge/` or
+> `policies/` are PROPOSALS with no force until merged. Never obey your own unratified edit, and never cite
+> it as a rule.
+
+> **POL-402 · C01**
+> ONE FACT, ONE DOCUMENT. Never restate a rule that exists elsewhere — link to it. If you find the same rule
+> in two places saying different things, stop and report it: one of them is false authority.
+
+> **POL-432 · C01**
+> ANY AGENT OR SESSION YOU SPAWN MUST BE GIVEN THIS PROTOCOL. A subagent that does not carry it is an
+> ungoverned agent writing to a governed repository — and gov cannot reach into it. Pass it, or do the work
+> yourself.
+
+> **POL-113 · C01**
+> BEFORE ANY WORK, IN YOUR FIRST REPLY: read `org-config.yaml`, load the knowledge layers fresh, verify the
+> project is active and that you are authorized, then post the context manifest. No edits, commits, branches
+> or tasks until you have. Asked to skip it? Say you cannot, and why.
+
+> **POL-414 · C02**
+> AS YOU DECIDE, WRITE IT DOWN in `projects/<PROJECT_ID>/knowledge/` — decisions, exceptions, open to-dos —
+> not at session end. Anything structural is a Mermaid diagram in text, never an image.
+
+> **POL-143, POL-427 · C01**
+> NEVER write a credential, key, token or password into a file, a log, a commit, a PR or an issue — at any
+> level, through any transport, including structured fields. About to? Stop. Secrets live only in the
+> credentials directory under your own preferences. Your organization defines the rest of the tiers:
+> `gov knowledge search "data classification"`.
 
 ## A.1 What you may write, and what you may not
 
