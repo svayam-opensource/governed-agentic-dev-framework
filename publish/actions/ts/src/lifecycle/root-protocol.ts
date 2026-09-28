@@ -137,8 +137,6 @@ export function composeTeamFile(body: string, existing: string | null): string {
 }
 
 /** The fence gov keeps in a repo's local exclude list — same replace-in-place rule as {@link composeTeamFile}. */
-const EXCLUDE_BEGIN = "# BEGIN gov agent harness — generated per session; `git add` them if you want every clone governed";
-const EXCLUDE_END = "# END gov agent harness";
 
 
 

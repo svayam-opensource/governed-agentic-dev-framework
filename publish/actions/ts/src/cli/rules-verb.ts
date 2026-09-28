@@ -16,6 +16,7 @@
 import * as path from "node:path";
 import { build, renderRuleMap, isWarning, frameworkFirst, type PolicyDoc } from "../rules/rules-build.js";
 import { renderAll, type RenderFailure } from "../rules/harness-render.js";
+import { stampCues } from "../rules/cue-stamp.js";
 import { LOCK_FILE, parseLock, writeLock, parseLegacyYamlLock, nextFree } from "../rules/pol-lock-io.js";
 import { FRAMEWORK_POL_START, ORG_POL_START } from "../rules/pol-lock.js";
 import { POLICY_ROOTS, type GitRead } from "./policy-gate-io.js";
@@ -95,10 +96,10 @@ function readLock(deps: RulesDeps, home: string, dir: string, start: number): { 
 
 /** What `build`/`check` would write, and why it might refuse. */
 export function plan(deps: RulesDeps, input: RulesInput): {
-  readonly result?: { files: { path: string; content: string }[]; report: readonly string[]; asks: readonly { readonly message: string; readonly candidate?: string }[]; diagnostics: readonly string[]; locks: readonly { path: string; content: string }[]; migrated?: boolean };
+  readonly result?: { files: { path: string; content: string }[]; report: readonly string[]; asks: readonly { readonly message: string; readonly candidate?: string }[]; diagnostics: readonly string[]; locks: readonly { path: string; content: string }[]; stamps: readonly string[]; migrated?: boolean };
   readonly error?: string;
 } {
-  const docs = readPolicyDocs(deps, input);
+  let docs = readPolicyDocs(deps, input);
   if (!docs.length) {
     return {
       error: input.workingTree
@@ -110,6 +111,20 @@ export function plan(deps: RulesDeps, input: RulesInput): {
   const org = readLock(deps, input.home, LOCK_DIRS.org, ORG_POL_START);
   if (fw.error || !fw.lock) return { error: fw.error ?? "could not read the framework lock" };
   if (org.error || !org.lock) return { error: org.error ?? "could not read the organization lock" };
+
+  // STAMP THE CUES BEFORE COMPILING. A cue carrying `clause-sha=TBD` is one an author wrote and nobody hashed,
+  // so `staleCues` reports every one of them and the real staleness — a clause edited without its cue being
+  // re-approved — is lost in the noise. Filling the missing hashes is mechanical; approving a cue's WORDING is
+  // not, and this does not do that (see `stampCues`: an existing hash is left alone).
+  const stampedDocs = docs.map((d) => {
+    const r = stampCues(d.path, d.text);
+    return { doc: d, text: r.text, stamped: r.stamped };
+  });
+  const stamps = stampedDocs.flatMap((s) => s.stamped);
+  const policyWrites = stampedDocs
+    .filter((s) => s.text !== s.doc.text)
+    .map((s) => ({ path: s.doc.path, content: s.text }));
+  docs = stampedDocs.map((s) => ({ path: s.doc.path, text: s.text }));
 
   const built = build(docs, { framework: fw.lock, org: org.lock }, input.confirm ?? []);
   const protocol = deps.fs.readFile(path.join(input.home, input.protocolPath ?? PROTOCOL));
@@ -124,6 +139,10 @@ export function plan(deps: RulesDeps, input: RulesInput): {
   if (isFailure(rendered)) return { error: rendered.error };
 
   const files = [
+    // A stamped policy document is written back ONLY when the working tree was the source. The default read is
+    // `git show <default>:<path>`, and writing that content into the worktree would put a ratified document's
+    // bytes into somebody's branch as a side effect of a command they ran to LOOK at the rules.
+    ...(input.workingTree ? policyWrites : []),
     ...rendered.files.map((f) => ({ path: path.join("agent", "harness", f.path), content: f.content })),
     { path: RULE_MAP, content: renderRuleMap(built.map) },
   ];
@@ -141,7 +160,7 @@ export function plan(deps: RulesDeps, input: RulesInput): {
       // Only ERRORS block. A warning is a backlog item, and a build that refuses until a 150-item backlog is
       // cleared is a build nobody runs.
       diagnostics: built.diagnostics.filter((d) => !isWarning(d)).map((d) => `  ${d.doc} §${d.section}:${d.line}  ${d.kind} — ${d.message}`),
-      locks: writes,
+      locks: writes, stamps,
       ...(fw.migrated || org.migrated ? { migrated: true } : {}),
     },
   };
@@ -208,6 +227,7 @@ export function rules(deps: RulesDeps, input: RulesInput, mode: "build" | "check
     lines: [
       ...head,
       `wrote ${all.length} file(s)${result.migrated ? " (migrated .pol-lock.yaml → .pol-lock.json)" : ""}.`,
+      ...(result.stamps.length ? [`  stamped ${result.stamps.length} cue(s) with their clause's hash: ${result.stamps.join(", ")}`] : []),
       ...(stale.length ? [] : ["  (nothing had changed)"]),
       "",
       ...result.report,

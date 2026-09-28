@@ -12,6 +12,7 @@ import { checkVersionCompat } from "./version-compat.js";
 import { missingScopes, RECOMMENDED_SCOPES } from "./fix-env.js";
 import { unknownOrgConfigKeys } from "../config/org-config.js";
 import { agentsDiagnostic } from "../cli/approve-agents-step.js";
+import { rulesRows, type RulesFacts } from "./rules-health.js";
 import { assessProtection } from "./protection-check.js";
 import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
 
@@ -75,6 +76,11 @@ export interface DoctorFacts {
    * file and this stays testable from a string.
    */
   readonly orgConfigText?: string | null;
+  /**
+   * What the rules compiler found. Absent when doctor could not run it (no workspace, no policies) — and then
+   * there are no rows, because doctor does not report on a fact nobody gathered.
+   */
+  readonly rules?: RulesFacts;
   /**
    * What the branch-protection read found for the ONE branch gov can name without a board: the governance
    * repo's default branch (POL-040a §3.3). Absent = not probed (gh missing, not signed in, no org config).
@@ -193,6 +199,9 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // organization may adopt the framework for the structure alone — so it reports `ok`. What warns is an org
     // that never answered, because it is being governed by a list it did not choose.
     ...(() => { const a = agentsDiagnostic(facts.orgConfigText); return a ? [a] : []; })(),
+    // HOW MUCH OF THE POLICY IS ACTUALLY ENFORCED — the numbers a Policy Owner cannot get by reading. In this
+    // framework's own policy, 92 of 107 rules are advisory; nobody could have known that from the document.
+    ...rulesRows(facts.rules),
     ...(facts.orgConfigText
       ? [((): Diagnostic => {
           const unknown = unknownOrgConfigKeys(facts.orgConfigText!);
