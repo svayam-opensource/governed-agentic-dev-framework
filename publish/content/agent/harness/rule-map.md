@@ -310,7 +310,7 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | POL-410 | policies/knowledge-organization-standard.md | §5 | — | ungoverned | person | Journeys live in `framework/docs/user-guides/path-<journey>.md` when they traverse fram… |
 | POL-411 | policies/knowledge-organization-standard.md | §5 | — | ungoverned | unknown | Anyone may add or extend a journey by PR. **(POL-411, C03)** |
 | POL-412 | policies/knowledge-organization-standard.md | §5 | — | ungoverned | unknown | **Every project knowledge-close must answer: "what journey did this project traverse th… |
-| — | policies/knowledge-organization-standard.md | §5 | C01 | advisory | person | **Knowledge harvest is a hard close condition.** A project MUST NOT close until the org… |
+| — | policies/knowledge-organization-standard.md | §5 | C02 | implemented | gov | **Whether knowledge harvest gates a close is this organization's choice.** A project MA… |
 | — | policies/knowledge-organization-standard.md | §5 | — | ungoverned | gov | **CORRECTED 2026-09-28.** Two clauses here described a close gate the framework no long… |
 | POL-231 | policies/knowledge-organization-standard.md | §5 | C02 | advisory | unknown | An organization that wants a curation requirement back MAY write it as a clause with a … |
 | — | policies/knowledge-organization-standard.md | §5 | — | ungoverned | person | Those two clauses also shared POL-413 and POL-414 with §6's authoring conventions: four… |

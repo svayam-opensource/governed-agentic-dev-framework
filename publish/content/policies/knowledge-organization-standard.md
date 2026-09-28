@@ -139,8 +139,9 @@ becomes trivial (Section 7).
 - **Every project knowledge-close must answer: "what journey did this project
   traverse that is not documented?"** — undocumented journeys discovered by
   real work are proposed at close (extends POL-089). **(POL-412, C01)**
-- **Knowledge harvest is a hard close condition.** A project MUST NOT close
-  until the organization's own policy says it may be.
+- **Whether knowledge harvest gates a close is this organization's choice.** A project MAY be closed only once
+  this organization's own policy says it may be — expressed as a clause with a `gov:check … when=verb:close`, not
+  assumed by the framework.
 
   **CORRECTED 2026-09-28.** Two clauses here described a close gate the framework no longer has: it required a
   `knowledge-close.md` carrying five exact sections, free of `TBD`, alongside `compliance.md`, and `gov close`

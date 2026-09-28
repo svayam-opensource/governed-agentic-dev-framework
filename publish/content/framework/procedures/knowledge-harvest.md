@@ -14,11 +14,16 @@ that a manifest is *present and structured* — it has no project context. Only
 the agent that did the work (reading the evidence) can judge *what* to capture.
 So quality is carried by **(1) this protocol's rigor**, **(2) the Owner's C01
 review of the resulting proposal PRs**, and **(3) the completeness-critic pass** —
-never by `gov close`'s gate, which checks presence/structure only.
+never by a gate — see the note below on what `gov close` actually checks.
 
 **Output:** `projects/<PRJ>/knowledge/knowledge-close.md` (the manifest, template
 below) + the actual proposed org-knowledge changes (via `gov knowledge`).
-`gov close`'s gate refuses to close until the manifest exists and every
+> **`gov close` does NOT require any of this (corrected 2026-09-28).** It asserts only that the project's
+> `knowledge/` directory exists, because it promotes that directory. This procedure is a good way to harvest a
+> project's learnings and an organization that wants it enforced says so in its own policy, with a clause
+> carrying `gov:check … when=verb:close`. The previous text described a hardcoded gate that demanded five exact
+> headings in a file nothing scaffolded, and told whoever hit it to run this procedure — which made a
+> hand-worked project unclosable. Removed by the Policy Owner on 2026-09-27.
 section is filled (no `TBD`).
 
 ## Prime directive — reconstruct from EVIDENCE, not memory

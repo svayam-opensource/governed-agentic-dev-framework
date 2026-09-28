@@ -459,8 +459,15 @@
       "doc": "policies/knowledge-organization-standard.md",
       "section": "5",
       "ordinal": 5,
-      "clauseSha": "3897625",
-      "level": "C01"
+      "clauseSha": "a6d45a2",
+      "level": "C02",
+      "history": [
+        {
+          "doc": "policies/knowledge-organization-standard.md",
+          "section": "5",
+          "clauseSha": "3897625"
+        }
+      ]
     }
   ]
 }
