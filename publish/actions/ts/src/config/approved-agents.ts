@@ -122,12 +122,73 @@ export function withApprovedAgents(policyText: string, agents: readonly Approved
  * Numbered keys rather than a YAML list, because that file is merged key by key on upgrade (`mergeOrgConfig`):
  * every entry an org wrote survives, and a value gov did not write is never modified.
  */
-const AUTHORIZED_BLOCK = /^authorized_agents:\s*$/m;
+/**
+ * The key line, WITH whatever scalar follows it — because one of the two answers to this
+ * question is a scalar. See {@link NO_AGENTS}.
+ *
+ * It used to be `/^authorized_agents:\s*$/m`, which matches the key only when nothing follows it.
+ * That is why the regex had to change rather than gain a sibling: a reader that cannot see
+ * `authorized_agents: none` reports "no block", i.e. "nobody has decided" — the one thing the
+ * value exists to deny.
+ */
+const AUTHORIZED_BLOCK = /^authorized_agents:[ \t]*(.*)$/m;
 
-export function parseAuthorizedAgents(orgConfigText: string | null): readonly ApprovedAgent[] | null {
-  if (!orgConfigText) return null;
+/**
+ * STRUCTURE-ONLY, WRITTEN DOWN: `authorized_agents: none` (Policy Owner, 2026-09-28).
+ *
+ * An organization may adopt this framework for the FIXED process alone — projects, tasks,
+ * branches, knowledge, review — and never run an AI agent. The approval step used to refuse an
+ * empty answer ("an organization with no approved agent cannot run any"), so such an org had to
+ * approve a tool it would never use, and then found nine harness files in every project
+ * directory with no explanation. Fixed behaviour must be complete on its own; agentic behaviour
+ * is additive.
+ *
+ * WHY A SCALAR AND NOT AN EMPTY BLOCK. The block CAN be empty, in two ways that are not
+ * decisions: the shipped `org-config.example.yaml` carries `authorized_agents:` with
+ * `default: ""` under it, and an org mid-adoption has exactly that. If empty meant "none", every
+ * unanswered setup would read as a considered choice to run no agents — and the difference
+ * between a decision and an incomplete setup is the whole point of asking. So the decision gets
+ * a word of its own, and `none` can never be an agent id.
+ */
+export const NO_AGENTS = "none";
+
+/**
+ * The three states of this key, kept apart on purpose.
+ *
+ *   unset   nobody has answered — the key is absent, or present with nothing usable under it.
+ *           gov falls back to the framework's list and SAYS SO (the shipped comment in
+ *           org-config.example.yaml promises exactly that).
+ *   none    the org decided: no AI agents. Structure-only. Nothing agent-shaped may happen.
+ *   agents  the org's list, first/`default` marked.
+ *
+ * `unset` and `none` must never collapse into one value: one is a gap to close, the other is a
+ * rule to honour, and the remedies point in opposite directions.
+ */
+export type AuthorizedAgents =
+  | { readonly kind: "unset" }
+  | { readonly kind: "none" }
+  | { readonly kind: "agents"; readonly agents: readonly ApprovedAgent[] };
+
+/** Strip a trailing comment and surrounding quotes from a YAML scalar. */
+const scalarOf = (raw: string): string => raw.replace(/\s+#.*$/, "").trim().replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+
+/**
+ * Read the key, keeping the three states apart. Pure over the file's text.
+ *
+ * A NON-`none` SCALAR IS TAKEN AS ONE AGENT ID. `authorized_agents: claude-code` is not a shape
+ * gov writes, and it is the obvious thing a person types when they want one agent. Reading it as
+ * "unset" would silently govern them by the framework's whole list instead; reading it as an id
+ * they did not mean is reported where every other bad id is — `gov agent` names it as "approved
+ * but unknown to this version of gov", which is the complaint the person can act on.
+ */
+export function readAuthorizedAgents(orgConfigText: string | null): AuthorizedAgents {
+  if (!orgConfigText) return { kind: "unset" };
   const m = AUTHORIZED_BLOCK.exec(orgConfigText);
-  if (!m || m.index === undefined) return null;
+  if (!m || m.index === undefined) return { kind: "unset" };
+
+  const scalar = scalarOf(m[1] ?? "");
+  if (scalar.toLowerCase() === NO_AGENTS) return { kind: "none" };
+
   const out: ApprovedAgent[] = [];
   let seenDefault: string | null = null;
   for (const raw of orgConfigText.slice(m.index + m[0].length).split(/\r?\n/).slice(1)) {
@@ -138,18 +199,59 @@ export function parseAuthorizedAgents(orgConfigText: string | null): readonly Ap
     if (key!.toLowerCase() === "default") { seenDefault = value!; continue; }
     out.push({ id: value! });
   }
+  // `default: none` INSIDE THE BLOCK IS ALSO THE DECISION. gov writes the scalar form, but
+  // `mergeOrgConfig` walks the TEMPLATE's keys and can re-introduce the template's
+  // `  default: ""` line under an org's scalar on upgrade. Reading `none` wherever it appears
+  // means an upgrade can reshape this key without changing what it says. `none` is not an
+  // agent id, so there is no ambiguity to trade away.
+  if (seenDefault?.toLowerCase() === NO_AGENTS && !out.length) return { kind: "none" };
+
+  // A SCALAR THAT IS NEITHER `none` NOR EMPTY is one agent id — see above.
+  if (scalar && !out.length) return { kind: "agents", agents: [{ id: scalar, default: true }] };
+  if (!out.length && !seenDefault) return { kind: "unset" };               // `default: ""`, or an empty block
   if (seenDefault && !out.some((a) => a.id === seenDefault)) out.unshift({ id: seenDefault });
-  return out.map((a) => (a.id === seenDefault ? { ...a, default: true } : a));
+  return { kind: "agents", agents: out.map((a) => (a.id === seenDefault ? { ...a, default: true } : a)) };
 }
 
-/** Write the org's choice back, replacing an existing block or appending one. Null when nothing would change. */
+/** Did this organization decide to run no AI agents at all? The one question every agent-shaped step asks. */
+export function isStructureOnly(orgConfigText: string | null): boolean {
+  return readAuthorizedAgents(orgConfigText).kind === "none";
+}
+
+/**
+ * The org's list, in the shape every existing caller wants:
+ *
+ *   null  nobody has decided (`unset`) → the caller falls back to the framework's list, and says so.
+ *   []    the org decided on NO agents (`none`) → structure-only; nothing agent-shaped may happen.
+ *   […]   the list.
+ *
+ * THE EMPTY ARRAY CHANGED MEANING, deliberately. It used to be produced by an empty block, which
+ * is the shipped template's own state — so "decided on nothing" and "has not answered yet" were
+ * the same value and no caller could tell a rule from a gap. `[]` is now only ever the decision;
+ * every unanswered shape is `null`. Callers that must distinguish the three read
+ * {@link readAuthorizedAgents} instead.
+ */
+export function parseAuthorizedAgents(orgConfigText: string | null): readonly ApprovedAgent[] | null {
+  const r = readAuthorizedAgents(orgConfigText);
+  if (r.kind === "unset") return null;
+  return r.kind === "none" ? [] : r.agents;
+}
+
+/**
+ * Write the org's choice back, replacing an existing block or appending one. Null when nothing would change.
+ *
+ * An EMPTY list is not an empty block: it is the structure-only decision, and it is written as
+ * `authorized_agents: none` so that reading it back cannot be mistaken for an unanswered setup.
+ */
 export function withAuthorizedAgents(orgConfigText: string, agents: readonly ApprovedAgent[]): string | null {
   const def = agents.find((a) => a.default)?.id ?? agents[0]?.id ?? null;
-  const lines = [
-    "authorized_agents:",
-    ...(def ? [`  default: "${def}"`] : []),
-    ...agents.filter((a) => a.id !== def).map((a, i) => `  agent${i + 1}: "${a.id}"`),
-  ];
+  const lines = agents.length === 0
+    ? [`authorized_agents: ${NO_AGENTS}`]
+    : [
+        "authorized_agents:",
+        ...(def ? [`  default: "${def}"`] : []),
+        ...agents.filter((a) => a.id !== def).map((a, i) => `  agent${i + 1}: "${a.id}"`),
+      ];
   const block = lines.join("\n");
 
   const m = AUTHORIZED_BLOCK.exec(orgConfigText);
@@ -162,5 +264,5 @@ export function withAuthorizedAgents(orgConfigText: string, agents: readonly App
     return replaced === orgConfigText ? null : replaced;
   }
   const head = orgConfigText.endsWith("\n") ? orgConfigText : `${orgConfigText}\n`;
-  return `${head}\n# Which agents this organization authorizes, and which gov launches by default.\n# The framework publishes the master list (\`gov agent list\`); this says which of them are ours.\n${block}\n`;
+  return `${head}\n# Which agents this organization authorizes, and which gov launches by default.\n# The framework publishes the master list (\`gov agent list\`); this says which of them are ours.\n# \`${NO_AGENTS}\` is a real answer: this organization uses gov for its process and runs no AI agents.\n# Turn them on later with \`gov agent approve <id>\`, which raises a pull request.\n${block}\n`;
 }

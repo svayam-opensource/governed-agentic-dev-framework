@@ -17,7 +17,7 @@ import * as path from "node:path";
 import { build, renderRuleMap, isWarning, type PolicyDoc } from "../rules/rules-build.js";
 import { renderAll, type RenderFailure } from "../rules/harness-render.js";
 import { LOCK_FILE, parseLock, writeLock, parseLegacyYamlLock, nextFree } from "../rules/pol-lock-io.js";
-import { FRAMEWORK_POL_START } from "../rules/pol-lock.js";
+import { FRAMEWORK_POL_START, ORG_POL_START } from "../rules/pol-lock.js";
 import { POLICY_ROOTS, type GitRead } from "./policy-gate-io.js";
 import type { Fs } from "../lifecycle/fs-io.js";
 
@@ -45,7 +45,8 @@ export interface RulesResult {
 }
 
 const PROTOCOL = path.join("agent", "session-protocol.md");
-const LOCK_DIR = path.join("framework", "policies");
+/** One lock per tree: the framework's numbers and an organization's are never mixed (POL ranges, design §3). */
+const LOCK_DIRS = { framework: path.join("framework", "policies"), org: "policies" } as const;
 const RULE_MAP = path.join("agent", "harness", "rule-map.md");
 const isFailure = (x: unknown): x is RenderFailure => typeof x === "object" && x !== null && "error" in x;
 
@@ -81,20 +82,20 @@ export function readPolicyDocs(deps: RulesDeps, input: RulesInput): PolicyDoc[] 
  * every number the framework had allocated — the one outcome the lock exists to prevent — so it is read once and
  * rewritten as JSON.
  */
-function readLock(deps: RulesDeps, home: string): { lock?: ReturnType<typeof parseLock>["lock"]; error?: string; migrated?: boolean } {
-  const json = deps.fs.readFile(path.join(home, LOCK_DIR, LOCK_FILE));
-  if (json !== null) return parseLock(json, FRAMEWORK_POL_START);
-  const yaml = deps.fs.readFile(path.join(home, LOCK_DIR, ".pol-lock.yaml"));
+function readLock(deps: RulesDeps, home: string, dir: string, start: number): { lock?: ReturnType<typeof parseLock>["lock"]; error?: string; migrated?: boolean } {
+  const json = deps.fs.readFile(path.join(home, dir, LOCK_FILE));
+  if (json !== null) return parseLock(json, start);
+  const yaml = deps.fs.readFile(path.join(home, dir, ".pol-lock.yaml"));
   if (yaml !== null) {
     const legacy = parseLegacyYamlLock(yaml);
     return legacy.lock ? { lock: legacy.lock, migrated: true } : { error: legacy.error! };
   }
-  return parseLock(null, FRAMEWORK_POL_START);
+  return parseLock(null, start);
 }
 
 /** What `build`/`check` would write, and why it might refuse. */
 export function plan(deps: RulesDeps, input: RulesInput): {
-  readonly result?: { files: { path: string; content: string }[]; report: readonly string[]; asks: readonly { readonly message: string; readonly candidate?: string }[]; diagnostics: readonly string[]; lockText?: string; migrated?: boolean };
+  readonly result?: { files: { path: string; content: string }[]; report: readonly string[]; asks: readonly { readonly message: string; readonly candidate?: string }[]; diagnostics: readonly string[]; locks: readonly { path: string; content: string }[]; migrated?: boolean };
   readonly error?: string;
 } {
   const docs = readPolicyDocs(deps, input);
@@ -105,10 +106,12 @@ export function plan(deps: RulesDeps, input: RulesInput): {
         : `no policy documents found on ${input.defaultBranch}. Is this a governance repository, and is that branch fetched?`,
     };
   }
-  const got = readLock(deps, input.home);
-  if (got.error || !got.lock) return { error: got.error ?? "could not read the lock" };
+  const fw = readLock(deps, input.home, LOCK_DIRS.framework, FRAMEWORK_POL_START);
+  const org = readLock(deps, input.home, LOCK_DIRS.org, ORG_POL_START);
+  if (fw.error || !fw.lock) return { error: fw.error ?? "could not read the framework lock" };
+  if (org.error || !org.lock) return { error: org.error ?? "could not read the organization lock" };
 
-  const built = build(docs, got.lock, input.confirm ?? []);
+  const built = build(docs, { framework: fw.lock, org: org.lock }, input.confirm ?? []);
   const protocol = deps.fs.readFile(path.join(input.home, input.protocolPath ?? PROTOCOL));
   if (protocol === null) return { error: `${input.protocolPath ?? PROTOCOL} is missing — it is the body every agent file is rendered from.` };
 
@@ -119,8 +122,13 @@ export function plan(deps: RulesDeps, input: RulesInput): {
     ...rendered.files.map((f) => ({ path: path.join("agent", "harness", f.path), content: f.content })),
     { path: RULE_MAP, content: renderRuleMap(built.map) },
   ];
-  const lockWrite = writeLock(got.lock, built.lock);
-  if (lockWrite.error) return { error: lockWrite.error };
+  const writes: { path: string; content: string }[] = [];
+  for (const [which, dir] of Object.entries(LOCK_DIRS) as ["framework" | "org", string][]) {
+    const before = which === "framework" ? fw.lock! : org.lock!;
+    const w = writeLock(before, built.locks[which]);
+    if (w.error) return { error: w.error };
+    if (w.text) writes.push({ path: path.join(dir, LOCK_FILE), content: w.text });
+  }
 
   return {
     result: {
@@ -128,8 +136,8 @@ export function plan(deps: RulesDeps, input: RulesInput): {
       // Only ERRORS block. A warning is a backlog item, and a build that refuses until a 150-item backlog is
       // cleared is a build nobody runs.
       diagnostics: built.diagnostics.filter((d) => !isWarning(d)).map((d) => `  ${d.doc} §${d.section}:${d.line}  ${d.kind} — ${d.message}`),
-      ...(lockWrite.text ? { lockText: lockWrite.text } : {}),
-      ...(got.migrated ? { migrated: true } : {}),
+      locks: writes,
+      ...(fw.migrated || org.migrated ? { migrated: true } : {}),
     },
   };
 }
@@ -172,11 +180,9 @@ export function rules(deps: RulesDeps, input: RulesInput, mode: "build" | "check
     return { code: 1, lines: [...head, `${result.diagnostics.length} notation error(s) — fix these first:`, "", ...result.diagnostics, "", "Nothing was written."] };
   }
 
-  const stale: string[] = [];
-  for (const f of result.files) {
-    if (deps.fs.readFile(path.join(input.home, f.path)) !== f.content) stale.push(f.path);
-  }
-  if (result.lockText && deps.fs.readFile(path.join(input.home, LOCK_DIR, LOCK_FILE)) !== result.lockText) stale.push(`${LOCK_DIR}/${LOCK_FILE}`);
+  // Both locks are compared and written exactly like any other generated file, so there is one notion of "stale".
+  const all = [...result.files, ...result.locks];
+  const stale = all.filter((f) => deps.fs.readFile(path.join(input.home, f.path)) !== f.content).map((f) => f.path);
 
   if (mode === "check") {
     return stale.length
@@ -184,22 +190,23 @@ export function rules(deps: RulesDeps, input: RulesInput, mode: "build" | "check
       : { code: 0, lines: [...head, "every generated file matches the policies.", ...result.report] };
   }
 
-  for (const f of result.files) deps.fs.writeFile(path.join(input.home, f.path), f.content);
-  if (result.lockText) deps.fs.writeFile(path.join(input.home, LOCK_DIR, LOCK_FILE), result.lockText);
+  for (const f of all) deps.fs.writeFile(path.join(input.home, f.path), f.content);
   // The interim YAML lock is removed only once its JSON replacement is safely written — never before, or a
   // failed write between the two would leave a workspace with no lock and every number unaccounted for.
-  if (result.migrated) deps.fs.rm(path.join(input.home, LOCK_DIR, ".pol-lock.yaml"));
+  if (result.migrated) {
+    for (const dir of Object.values(LOCK_DIRS)) deps.fs.rm(path.join(input.home, dir, ".pol-lock.yaml"));
+  }
 
+  const fwLock = result.locks.find((l) => l.path.startsWith(LOCK_DIRS.framework));
   return {
     code: 0,
     lines: [
       ...head,
-      `wrote ${result.files.length} file(s)${result.lockText ? " and the lock" : ""}${result.migrated ? " (migrated .pol-lock.yaml → .pol-lock.json)" : ""}.`,
+      `wrote ${all.length} file(s)${result.migrated ? " (migrated .pol-lock.yaml → .pol-lock.json)" : ""}.`,
       ...(stale.length ? [] : ["  (nothing had changed)"]),
       "",
       ...result.report,
-      "",
-      `next POL number: ${nextFree(parseLock(result.lockText ?? null, FRAMEWORK_POL_START).lock!)}`,
+      ...(fwLock ? ["", `next framework POL number: ${nextFree(parseLock(fwLock.content, FRAMEWORK_POL_START).lock!)}`] : []),
       "",
       "Restart any running agent session: a session cannot pick up new rules in place.",
     ],

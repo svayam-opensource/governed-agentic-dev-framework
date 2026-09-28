@@ -58,6 +58,9 @@ export interface MappedClause {
 export const WARNING_KINDS = ["actor-unnamed"] as const;
 export const isWarning = (d: Diagnostic): boolean => (WARNING_KINDS as readonly string[]).includes(d.kind);
 
+/** Which lock a document's clauses belong in. The framework's numbers and an organization's never mix. */
+export const lockOf = (doc: string): "framework" | "org" => (doc.startsWith("framework/") ? "framework" : "org");
+
 export interface BuildResult {
   readonly clauses: readonly Clause[];
   readonly cues: readonly CueBlock[];
@@ -69,7 +72,8 @@ export interface BuildResult {
    * answer it is a dead end, and a dead end in a build step gets worked around rather than resolved.
    */
   readonly asks: readonly { readonly message: string; readonly candidate?: string }[];
-  readonly lock: PolLock;
+  /** What SHOULD be on disk, one per tree. Unchanged from the input when `asks` is non-empty. */
+  readonly locks: { readonly framework: PolLock; readonly org: PolLock };
   readonly map: readonly MappedClause[];
   readonly report: readonly string[];
 }
@@ -113,7 +117,7 @@ const gistOf = (clause: Clause): string => {
  * `lock` is what is on disk; the returned lock is what SHOULD be on disk. When `asks` is non-empty the returned
  * lock is the unchanged input, so a caller that ignores `asks` still cannot write a guess.
  */
-export function build(docs: readonly PolicyDoc[], lock: PolLock, confirm: readonly string[] = []): BuildResult {
+export function build(docs: readonly PolicyDoc[], locks: { framework: PolLock; org: PolLock }, confirm: readonly string[] = []): BuildResult {
   const ordered = frameworkFirst(docs);
   const clauses: Clause[] = [];
   const diagnostics: Diagnostic[] = [];
@@ -138,19 +142,19 @@ export function build(docs: readonly PolicyDoc[], lock: PolLock, confirm: readon
   // The documents are right here, so the missing field can be DERIVED rather than interrogated: an entry whose
   // sha still matches a clause exactly gets that clause's ordinal. Entries matching no clause keep none — those
   // are the genuinely reworded ones, and they are what the questions should be about.
-  const backfilled: PolLock = {
+  const backfill = (lock: PolLock): PolLock => ({
     ...lock,
     entries: lock.entries.map((e) => {
       if (e.ordinal !== undefined || e.retired) return e;
       const hit = clauses.find((c) => c.doc === e.doc && c.section === e.section && clauseSha(c.text) === e.clauseSha);
       return hit ? { ...e, ordinal: hit.ordinal } : e;
     }),
-  };
+  });
 
   // ── numbers ──────────────────────────────────────────────────────────────────────────────────────────────
   // A clause carrying a POL marker in its own text is already numbered; the lock records WHERE that number
   // lives so a later rewording is visible. A clause with a cue but no marker is the case the lock allocates for.
-  let current = backfilled;
+  const current: { framework: PolLock; org: PolLock } = { framework: backfill(locks.framework), org: backfill(locks.org) };
   const asks: { message: string; candidate?: string }[] = [];
   const map: MappedClause[] = [];
 
@@ -162,21 +166,29 @@ export function build(docs: readonly PolicyDoc[], lock: PolLock, confirm: readon
       .filter((b) => b.doc === clause.doc && b.line > clause.line)
       .sort((a, b) => a.line - b.line)
       .find((b) => !clauses.some((other) => other.doc === clause.doc && other.line > clause.line && other.line < b.line));
-    const marker = /POL-(\d{3}[a-z]?)/.exec(clause.text);
+    // The marker in the clause's own text, when it has one. It is passed to `allocate` as the DECLARED number:
+    // a clause that already says POL-009c keeps POL-009c, rather than being handed a fresh one.
+    const marker = /\*\*\(?(?:C0\d,\s*)?POL-(\d{3}[a-z]?)/.exec(clause.text);
     const pol = marker ? `POL-${marker[1]}` : null;
     const klass = classify(clause, cue);
 
-    if (clause.governed) {
+    // A CLAUSE THAT CARRIES A NUMBER IS LOCKED, GOVERNED OR NOT. A POL number is a citation target: if a
+    // document cites one, the lock must know where it lives. Locking only levelled clauses meant §1.7's
+    // "(POL-009a)" — prose with no modal — was invisible, so when two new sections pushed it from §1.5 to §1.7 the
+    // lock silently kept pointing at §1.5. A citation that still resolves, to the wrong place, is the failure the
+    // lock exists to prevent.
+    if (clause.governed || pol) {
+      const which = lockOf(clause.doc);
       const id = { doc: clause.doc, section: clause.section, ordinal: clause.ordinal, clauseSha: clauseSha(clause.text) };
-      const outcome = allocate(current, id, clause.level);
+      const outcome = allocate(current[which], id, clause.level, pol ?? undefined);
       if (outcome.action === "ask") {
         // A confirmation names the number, so the owner has said "yes, §4.2 IS the reworded POL-016". That moves
         // the old identity into the entry's history rather than overwriting it — the sha approved in an earlier
         // pull request survives, which is what makes a later audit able to say which text the number was for.
         const candidate = outcome.candidate?.pol;
-        if (candidate && confirm.includes(candidate)) current = confirmMatch(current, candidate, id, clause.level);
+        if (candidate && confirm.includes(candidate)) current[which] = confirmMatch(current[which], candidate, id, clause.level);
         else asks.push({ message: formatAsk(id, outcome), ...(candidate ? { candidate } : {}) });
-      } else current = outcome.lock;
+      } else current[which] = outcome.lock;
     }
     map.push({ pol, doc: clause.doc, section: clause.section, ...(clause.level ? { level: clause.level } : {}), klass, actor: clause.actor, ...(cue ? { hasCue: true } : {}), gist: gistOf(clause) });
   }
@@ -196,7 +208,10 @@ export function build(docs: readonly PolicyDoc[], lock: PolLock, confirm: readon
     ] : []),
   ];
 
-  return { clauses, cues, diagnostics, asks, lock: asks.length ? lock : current, map, report };
+  return {
+    clauses, cues, diagnostics, asks, map, report,
+    locks: asks.length ? locks : current,
+  };
 }
 
 /** The four classes, counted — the line that says how much of a policy has teeth. */

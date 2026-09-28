@@ -54,6 +54,8 @@ import { makeCloneRepo } from "../lifecycle/code-repo.js";
 import { createGhProjects } from "../lifecycle/project-list.js";
 import { readProtection, type ProtectionFacts } from "../lifecycle/branch-protection.js";
 import { runSuite } from "../governance/suite.js";
+import { policyChecks } from "./diff-check-io.js";
+import { formatDiffChecks } from "../rules/diff-check.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
 import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes } from "../maintain/fix-env.js";
@@ -73,7 +75,7 @@ import { logsRoot } from "../state-paths.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
-import { parseAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
+import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
 import { planAgentInstall } from "./agent-verb.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
@@ -994,7 +996,14 @@ export async function runSetupCommand(
       // THE ORG'S AUTHORIZED AGENTS, in org-config.yaml, once the file is FINAL (Policy Owner, 2026-09-23).
       // This is the last point before the commit, which is what makes it the right one: the configure step
       // has written org-config.yaml, and nothing else will.
-      if (pre?.agents?.length) {
+      //
+      // `agents: []` IS AN ANSWER AND MUST BE WRITTEN (Policy Owner, 2026-09-28). This read
+      // `pre?.agents?.length`, so an organization that chose "none" at Q10 had its decision
+      // silently dropped: the key never appeared, `readAuthorizedAgents` said "unset", and every
+      // joiner was governed by gov's own list — which is precisely the unowned state the question
+      // exists to remove, reached by answering it. `withAuthorizedAgents` writes
+      // `authorized_agents: none` for an empty list, so the decision survives the commit.
+      if (pre?.agents) {
         const cfgPath = path.join(createdHome, "org-config.yaml");
         const before = fsSync.existsSync(cfgPath) ? fsSync.readFileSync(cfgPath, "utf8") : null;
         const after = before === null ? null : withAuthorizedAgents(before, pre.agents);
@@ -1005,7 +1014,12 @@ export async function runSetupCommand(
           process.stderr.write("  The repo exists. Add them with `gov agent approve <id>` before inviting anyone.\n");
         } else {
           fsSync.writeFileSync(cfgPath, after, "utf8");
-          manifest.push({ what: "Agents", detail: `recorded ${pre.agents.length} authorized agent(s) in org-config.yaml` });
+          manifest.push({
+            what: "Agents",
+            detail: pre.agents.length
+              ? `recorded ${pre.agents.length} authorized agent(s) in org-config.yaml`
+              : "recorded `authorized_agents: none` in org-config.yaml — this organization runs no AI agents",
+          });
         }
       }
 
@@ -1151,6 +1165,8 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
         // own name, as things they had failed to do rather than things not theirs to do.
         role,
         approvedAgents: (parseAuthorizedAgents(policy) ?? []).map((a) => a.id),
+        // ANSWERED IS THE QUESTION, not "answered with at least one" — `none` ticks 8b too.
+        agentsChosen: readAuthorizedAgents(policy).kind !== "unset",
       }), stdoutColor());
     },
     adopterNextSteps: () => {
@@ -2436,13 +2452,34 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     const working = (tryRun("git", ["-C", home, "status", "--porcelain"]) ?? "")
       .split("\n").map((l) => l.slice(3).trim()).filter(Boolean);
     const changedFiles = [...new Set([...committed, ...working])].filter(Boolean);
+    // The branch, for a `kind=naming subject=branch` clause. Absent means unknowable, which the check reports as
+    // a warning rather than treating as a violation.
+    const branchNow = tryRun("git", ["-C", home, "rev-parse", "--abbrev-ref", "HEAD"])?.trim();
     const r = runSuite({ fs, repoRoot: home, files, changedFiles });
-    if (r.ok) {
+
+    // THE ORGANIZATION'S OWN FILE-TRIGGERED CHECKS — the second group (PRJ-121, 2026-09-28).
+    //
+    // Until this line, a `gov:check` whose trigger was a set of file globs was parsed, validated and rendered
+    // into every harness, and then evaluated by NOTHING: the seeded POL-210 ("no unapproved dependency") ran on
+    // no pull request at all, while `gov doctor` counted it as checked. The clauses are read from the DEFAULT
+    // branch and the changeset from `base…HEAD`, so a branch cannot weaken the rule that judges it — see
+    // diff-check-io.ts. COMMITTED work only: `git show <ref>:<path>` needs a ref, and what a pull request
+    // contains is commits. The validators above still see the working tree.
+    const policy = policyChecks(
+      { git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null },
+      { repo: home, ref: config.defaultBranch, base: mergeBase, head: "HEAD", ...(branchNow ? { branch: branchNow } : {}) },
+    );
+
+    if (r.ok && policy.ok) {
       process.stdout.write("validate: PASS (all validators)\n");
+      // Warnings are printed on a PASS too: a check that could not run is the one thing a green report must
+      // never hide — that is the state this whole group of diagnostics exists to end.
+      for (const line of formatDiffChecks(policy)) process.stdout.write(`${line}\n`);
       return 0;
     }
     process.stdout.write("validate: FAIL\n");
     for (const f of r.failures) process.stdout.write(`  - ${f}\n`);
+    for (const line of formatDiffChecks(policy)) process.stdout.write(`${line}\n`);
     return 1;
   }
 

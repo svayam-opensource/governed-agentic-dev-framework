@@ -536,7 +536,11 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   // only place that is both after the content seed and before the commit — so if it had failed,
   // it would already have said so loudly on stderr, naming the file and the recovery command.
   // This is the summary, not a second attempt at the write.
-  if (result.agents?.length) {
+  //
+  // READ BACK `none` TOO (Policy Owner, 2026-09-28). This was `result.agents?.length`, so the one
+  // answer that changes the most about the rest of gov — the organization runs no AI agents — was
+  // the one answer never read back. `approvalSummary` says it, and says how to change it.
+  if (result.agents) {
     for (const line of approvalSummary(result.agents)) io.print(line);
   }
 
@@ -553,7 +557,9 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   // THE REAL END, and the only place the word "final" is true.
   for (const line of io.finalStatus?.("adopter") ?? []) io.print(line);
   for (const line of io.adopterNextSteps?.() ?? []) io.print(line);
-  return await offerTheReview(io, "adopter");
+  // "…with gov and your agent" is a promise, and for an org that chose `none` it is a promise gov
+  // cannot keep. The answer is known right here, so it travels rather than being re-derived.
+  return await offerTheReview(io, "adopter", undefined, result.agents?.length === 0);
 }
 
 /**
@@ -573,12 +579,18 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
  * install a tool may want to read roles.md first. A keypress makes the governed route the
  * default without making it compulsory.
  */
-async function offerTheReview(io: FirstRunIo, role: AdoptionRole, agent?: string): Promise<number> {
+async function offerTheReview(io: FirstRunIo, role: AdoptionRole, agent?: string, agentsOff = false): Promise<number> {
   if (!io.reviewNow) return 0;
   // The adopter has one thing to do and gov knows which; the joiner has a list only they can
   // choose from. Same offer, different last word.
+  //
+  // AND FOR AN ORG THAT RUNS NO AGENTS, a different last word again: the review is still the
+  // right next step, and "with gov and your agent" would be the one sentence in adoption that
+  // contradicts the answer given two screens earlier.
   const question = role === "adopter"
-    ? "  " + paint("Would you like to review your governance policies now, with gov and your agent?", "bold", io.color ?? false) + " [Y/n]: "
+    ? agentsOff
+      ? "  " + paint("Would you like to open your new governance project and review its policies now?", "bold", io.color ?? false) + " [Y/n]: "
+      : "  " + paint("Would you like to review your governance policies now, with gov and your agent?", "bold", io.color ?? false) + " [Y/n]: "
     : "  " + paint("Would you like to start work now? gov will list the projects you are assigned to.", "bold", io.color ?? false) + " [Y/n]: ";
   io.print("");
   const yes = (await io.prompt(question, "Y")).trim().toLowerCase();

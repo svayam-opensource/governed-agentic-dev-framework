@@ -75,8 +75,12 @@ describe("gov-work — what the menu offers", () => {
   });
 
   it("falls back to the framework's list when the org has not decided — and says so", () => {
-    const empty = approvedAgents([]);
+    // NULL, NOT `[]`, IS "has not decided" (2026-09-28). `[]` is the structure-only DECISION, and
+    // while the two were one value an org that had chosen to run no agents was shown the whole
+    // framework catalogue as its own defaults.
+    const empty = approvedAgents(null);
     expect(empty.usingDefaults).to.equal(true);
+    expect(empty.structureOnly).to.equal(false);
     // NOT THE WHOLE CATALOG. A walk saw all ten proposed as an org's defaults, Windsurf
     // included — gov suggesting agents its own adoption menu declines to offer. `deferred`
     // means "not offered", and that has to hold on every path that shows a list.
@@ -87,6 +91,17 @@ describe("gov-work — what the menu offers", () => {
     // AN ORG'S OWN LIST IS HONOURED VERBATIM, deferred or not: upgrading gov must never take
     // an agent away from an organization that approved it.
     expect(approvedAgents(["windsurf"]).ids).to.deep.equal(["windsurf"]);
+  });
+
+  it("an EMPTY list offers NOTHING — the org authorized no agents, which is an answer", () => {
+    const none = approvedAgents([]);
+    expect(none.structureOnly, "an answer, not a gap").to.equal(true);
+    expect(none.usingDefaults, "so gov must not substitute its own list").to.equal(false);
+    expect(none.ids).to.deep.equal([]);
+    // And nothing downstream can find anything to offer or to install.
+    const st = agentStatuses(AGENT_CATALOG, () => true, {});
+    expect(offerable(st, none.ids)).to.deep.equal([]);
+    expect(installable(st, none.ids)).to.deep.equal([]);
   });
 
   it("says what each choice DOES, not just what it is called", () => {

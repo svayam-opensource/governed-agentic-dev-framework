@@ -18,6 +18,7 @@ import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
 import type { GovSnapshot } from "../lifecycle/governance-snapshot.js";
 import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines, type AgentCandidate } from "./agent-catalog.js";
 import { chooseAgent, choiceExplanation } from "./agent-choice.js";
+import { structureOnlyLines, TURN_AGENTS_ON } from "./approve-agents-step.js";
 import { defaultAgent } from "../config/approved-agents.js";
 import { paint } from "./format.js";
 import { decide, log } from "../log.js";
@@ -58,7 +59,19 @@ export interface WorkFlowDeps {
   readonly hasTool?: (cmd: string) => boolean;
   /** The environment, for reporting a missing key without ever reading its value. */
   readonly env?: Readonly<Record<string, string | undefined>>;
-  /** The org's approved_agents block, or null when the policy carries none (#196). */
+  /**
+   * The org's `authorized_agents`, in the three states `parseAuthorizedAgents` keeps apart (#196):
+   *
+   *   null  nobody has answered → gov falls back to the framework's list and says so
+   *   []    the org authorized NONE → structure-only; nothing agent-shaped happens here
+   *   […]   the org's list
+   *
+   * THE EMPTY ARRAY IS LOAD-BEARING. It used to be indistinguishable from null, so an org that had
+   * decided to run no agents was offered the whole framework catalogue to install — the fallback
+   * that #196 removed at adoption, arriving instead at the one moment the org had already
+   * answered. Both `[]` and null reach the same dep because the reader already tells them apart;
+   * nothing new had to be wired through the three callers that build this.
+   */
   readonly approvedAgents?: () => readonly { readonly id: string; readonly default?: boolean }[] | null;
   /** This person's preferred agent id, from their preferences file. C03. */
   readonly agentPreference?: () => string | null;
@@ -695,6 +708,37 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
   const kickoff = (): string => sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome, snap);
   print("");
   print(`  ✓ '${p.projectId}' is ready at:  ${projectDir}`);
+
+  // ── an organization that runs no AI agents ───────────────────────────────────────────────────
+  //
+  // STRUCTURE-ONLY IS A COMPLETE WAY TO USE gov (Policy Owner, 2026-09-28). Everything above this
+  // line is the fixed process — the board, the branches, the clone, the project directory — and it
+  // is finished. What follows is entirely agentic, and for an org that recorded
+  // `authorized_agents: none` it was the menu's dead primary action: `approvedAgents()` returned an
+  // empty list, `approvedAgents([])` read that as "has not decided", and gov offered the whole
+  // framework catalogue to install. The org had decided; gov argued with the decision.
+  //
+  // EXPLAIN, DO NOT JUST SKIP. Silence here is indistinguishable from gov being broken, so the
+  // decision, the file it lives in and the command that reverses it are all named — and then the
+  // project is opened in a shell, which is the whole point of the fixed process.
+  const authorized = deps.approvedAgents?.() ?? null;
+  if (authorized !== null && authorized.length === 0) {
+    print("");
+    for (const line of structureOnlyLines()) print(line);
+    // AN EXPLICIT `--agent` IS REFUSED, NOT QUIETLY TURNED INTO A SHELL. Substituting one and
+    // reporting success is the fallback-indistinguishable-from-success shape this flow keeps
+    // removing (#199); a script that asked for an agent must hear that it cannot have one.
+    if (opts.agent && opts.agent !== "shell") {
+      print("");
+      print(`  So \`--agent=${opts.agent}\` cannot be honoured here.`);
+      print(`  Use \`--agent=shell\` to work in the project, or run \`${TURN_AGENTS_ON}\` first.`);
+      return 2;
+    }
+    print("");
+    print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
+    return await deps.launch("shell", projectDir, kickoff());
+  }
+
   let agent: AgentKind | null = opts.agent ?? null;
   if (!agent && !interactive) {
     print("  No --agent=<claude|cursor|cursor-gui|shell>, and no terminal to choose in.");

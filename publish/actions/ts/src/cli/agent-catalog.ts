@@ -322,16 +322,25 @@ export function agentStatuses(
  * The approved set. An org that has not decided yet gets the framework's own list,
  * and is told so — an empty menu on day one would make the feature useless exactly
  * when it is needed most.
+ *
+ * AN EMPTY LIST IS A DECISION, NOT A GAP (Policy Owner, 2026-09-28). `null` means nobody has
+ * answered; `[]` means the organization authorized NO agents — structure-only — and
+ * `config/approved-agents.ts` now keeps those two apart. Both used to land in the fallback below,
+ * so an org that had explicitly chosen to run no agents was shown the whole framework catalogue as
+ * "yours by default": the unowned state #196 removed at adoption, re-created at the one moment the
+ * org had already answered. `structureOnly` says WHICH empty menu this is, so a caller can explain
+ * instead of showing nothing.
  */
 export function approvedAgents(orgApproved: readonly string[] | null): {
-  readonly ids: readonly string[]; readonly usingDefaults: boolean;
+  readonly ids: readonly string[]; readonly usingDefaults: boolean; readonly structureOnly: boolean;
 } {
-  if (orgApproved && orgApproved.length) return { ids: orgApproved, usingDefaults: false };
+  if (orgApproved && orgApproved.length) return { ids: orgApproved, usingDefaults: false, structureOnly: false };
+  if (orgApproved) return { ids: [], usingDefaults: false, structureOnly: true };
   // THE FALLBACK MUST NOT OFFER MORE THAN ADOPTION DOES. A walk saw all ten listed here,
   // Windsurf included — gov proposing, as an organization's defaults, agents its own adoption
   // menu declines to offer. `deferred` means "not offered"; that has to hold on every path
   // that shows a list, not only the one that asks the question.
-  return { ids: AGENT_CATALOG.filter((a) => !a.deferred).map((a) => a.id), usingDefaults: true };
+  return { ids: AGENT_CATALOG.filter((a) => !a.deferred).map((a) => a.id), usingDefaults: true, structureOnly: false };
 }
 
 /**

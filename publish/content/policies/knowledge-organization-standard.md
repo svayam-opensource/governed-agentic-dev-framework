@@ -140,17 +140,21 @@ becomes trivial (Section 7).
   traverse that is not documented?"** — undocumented journeys discovered by
   real work are proposed at close (extends POL-089). **(POL-412, C01)**
 - **Knowledge harvest is a hard close condition.** A project MUST NOT close
-  until its agent has run the [Knowledge Harvest Protocol](../development/procedures/knowledge-harvest.md)
-  and produced a complete `projects/<PRJ>/knowledge/knowledge-close.md` manifest.
-  Quality is carried by the protocol's rigor + the Owner's C01 review of the
-  resulting proposal PRs + the completeness-critic pass — **the close script
-  checks only presence + structure** (manifest exists, every section filled, no
-  `TBD`). A `graduate` disposition is satisfied only when its proposal PR is
-  **merged**, not merely open. **(POL-413, C01)**
-- **`gov close`'s gate enforces the manifest** alongside `compliance.md`:
-  the manifest must be present, structurally complete (all sections), and free
-  of `TBD`/`TODO` placeholders before the project can be marked closed.
-  **(POL-414, C01)**
+  until the organization's own policy says it may be.
+
+  **CORRECTED 2026-09-28.** Two clauses here described a close gate the framework no longer has: it required a
+  `knowledge-close.md` carrying five exact sections, free of `TBD`, alongside `compliance.md`, and `gov close`
+  refused without them. That requirement was hardcoded, nothing scaffolded the files, and the failure told a
+  human to run an agent protocol — so a developer who hand-worked a project could not close it. The Policy Owner
+  removed it on 2026-09-27: knowledge curation is this organization's decision, and `gov close` now asserts only
+  that `knowledge/` exists, because it promotes that directory.
+
+  An organization that wants a curation requirement back MAY write it as a clause with a
+  `gov:check … when=verb:close`, and gets exactly the artifacts and sections it asked for — named in the refusal,
+  with the clause cited. **(POL-231, C02)**
+
+  Those two clauses also shared POL-413 and POL-414 with §6's authoring conventions: four clauses, two numbers,
+  two different levels. §6 keeps them; this one is newly numbered in the organization's own range.
 
 ## 6. Authoring conventions
 

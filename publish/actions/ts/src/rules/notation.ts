@@ -420,12 +420,20 @@ export function formatReport(results: readonly ParseResult[]): string[] {
     );
   }
 
-  if (diagnostics.length) {
-    out.push("", `  notation errors (${diagnostics.length})`, "");
-    for (const d of diagnostics) {
+  // ERRORS IN FULL, WARNINGS COUNTED. Rule 7 fires on 75 clauses in the framework's own policy; printing each
+  // would bury the handful of errors a person must fix before anything can be written. A report where the
+  // urgent is indistinguishable from the accumulated is a report nobody reads twice.
+  const errors = diagnostics.filter((d) => d.kind !== "actor-unnamed");
+  const warnings = diagnostics.filter((d) => d.kind === "actor-unnamed");
+  if (errors.length) {
+    out.push("", `  notation errors (${errors.length}) — these must be fixed`, "");
+    for (const d of errors) {
       out.push(`     ${d.doc} §${d.section || "-"}:${d.line}  ${d.kind}`);
       out.push(`        ${d.message}`);
     }
+  }
+  if (warnings.length) {
+    out.push("", `  warnings (${warnings.length}) — rule 7: a rule that names no actor. See the rule map's actor column.`);
   }
 
   const ungoverned = clauses.filter((c) => !c.modal);

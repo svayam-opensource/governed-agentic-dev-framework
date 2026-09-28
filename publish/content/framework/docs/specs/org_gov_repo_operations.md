@@ -8,6 +8,12 @@ owner: <POLICY_OWNER_EMAIL>
 
 # CI/CD Pipeline Specification — <ORG_GOV_REPO>
 
+> **This is a specification, not a policy.** It describes what the pipeline DOES; it states no rule anybody can
+> comply with or deviate from, which is why its front matter says `layer: spec` and `compliance: descriptive`.
+> It moved out of `framework/policies/` on 2026-09-28 because a document under that folder teaches a reader that
+> everything there governs — and `gov rules build` found 21 clauses here and 0 rules, which is the signature of a
+> spec in a policy folder.
+
 **Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)
 **Scope:** This specification applies to `<ORG_GOV_REPO>` ONLY.
 **Note:** Other repos are not covered by this spec. They adopt the agentic development policy via `gov onboard` without CI/CD changes.
@@ -48,28 +54,19 @@ Project state is derived live from GitHub (Project boards + anchor issues); ther
 
 ---
 
-## On Merge to Master (Publication Pipeline)
+## On merge to the default branch
 
-These jobs run after every successful merge to `<DEFAULT_BRANCH>`. **(C02)**
+### 1. Compliance summary
 
-### 1. Static Site Rebuild
-- Rebuild and redeploy the internal knowledge site
-- SLA: complete within 1 hour of merge
-- Authentication: internal only
+An organization that aggregates its per-project `compliance.md` files does so on merge, into wherever its own
+policy says they live. Nothing in the framework requires it.
 
-### 2. PDF Regeneration
-- Trigger: only when merge touches `framework/policies/`
-- Regenerate PDF exports for all policy documents
-- Each PDF must include: title, version (commit SHA), effective date, policy owner
-
-### 3. Vector Re-embedding
-- Re-embed only the knowledge files changed in this merge (not a full re-index)
-- Update vector store with new embeddings
-- Used by agents for RAG-based context building and by the knowledge-close step of `gov close`
-
-### 4. Compliance Summary Update
-- Aggregate per-project `compliance.md` files into `knowledge/compliance/`
-- Update org-level compliance summary
+> **The publication pipeline that used to be specified here is gone.** It described a static knowledge site, PDF
+> exports of every policy, and re-embedding changed files into a vector store — infrastructure the framework
+> never shipped, so every adopter was non-compliant with it on the day they adopted. POL-100…POL-104 were
+> withdrawn on 2026-09-23 and publication became an organization's own decision, recorded as
+> `knowledge_publication` in `org-config.yaml` (`none` by default). `gov knowledge search|show|list` reads the
+> markdown already on the machine, which is what the portal was for.
 
 ---
 

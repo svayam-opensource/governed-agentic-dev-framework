@@ -8,10 +8,11 @@
  *
  * ONE MECHANISM FOR ALL AGENTS — copy the rendered file to the path that agent reads. No vendor has a
  * mechanism another lacks; see the ruling recorded at the removed Claude branches below.
- * Leaf module (Fs only) — no cli/lifecycle cycle.
+ * Leaf module (Fs + the pure org-config reader) — no cli/lifecycle cycle.
  */
 import path from "node:path";
 import type { Fs } from "./fs-io.js";
+import { isStructureOnly } from "../config/approved-agents.js";
 
 /**
  * Every agent's own path, mirrored into the project — ALL of them.
@@ -42,8 +43,40 @@ export const ROOT_HARNESS_FILES = [
   ".windsurf/rules/agent.md",           // windsurf
 ] as const;
 
-export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: string): void {
+/** What the mirror did — so a caller can say "nine files" or "nothing, and here is why". */
+export interface MirrorResult {
+  /** The org runs no AI agents (`authorized_agents: none`): nothing was mirrored, by decision. */
+  readonly structureOnly: boolean;
+  /** The paths, relative to the project dir, actually written. */
+  readonly placed: readonly string[];
+}
+
+/**
+ * NOTHING TO MIRROR FOR AN ORGANIZATION THAT RUNS NO AGENTS (Policy Owner, 2026-09-28).
+ *
+ * This is where structure-only is most visible and was worst: an org that never approved an agent
+ * still got CLAUDE.md, GEMINI.md, AGENTS.md, CONVENTIONS.md, .cursor/, .clinerules/, .continue/,
+ * .windsurf/ and .github/copilot-instructions.md dropped into every project directory, with no
+ * explanation and nothing to explain — nine vendor files for nine tools they had told gov they do
+ * not use. The guarantee these files exist for is "an agent gov launches has the governance in
+ * its context"; where gov launches no agent there is no guarantee to keep, only clutter.
+ *
+ * READ FROM THE WORKSPACE CLONE, not from a parameter. Three call sites mirror — `seed`, the Work
+ * flow and `sync` — and one of them is in a module this change may not touch. A parameter would
+ * therefore have been honoured on two paths out of three, which is worse than not having it: the
+ * one that forgot would keep writing the nine files and nothing would say so. The answer is in
+ * `<project>/<workspace-repo>/org-config.yaml`, which is the same clone the harness is read from,
+ * so every caller gets the same behaviour for free.
+ *
+ * ABSENT OR UNANSWERED CONFIG MIRRORS AS BEFORE. `isStructureOnly` is false unless the org
+ * explicitly recorded `none`, so a missing file, a stale clone or a setup mid-flight all keep the
+ * behaviour they had. Only a decision turns the mirror off.
+ */
+export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: string): MirrorResult {
   const ws = workspaceRepo;
+  if (isStructureOnly(fs.readFile(path.join(projectDir, ws, "org-config.yaml")))) {
+    return { structureOnly: true, placed: [] };
+  }
   // CLAUDE.md IS NO LONGER SPECIAL (Policy Owner, 2026-09-11). It used to be written here as
   // two @-imports, and only when absent — so a damaged copy was never repaired, and a broken
   // workspace path gave Claude an empty context with no error. It is now mirrored verbatim with
@@ -66,13 +99,16 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
   // were harness paths in a repo whose purpose is curation and knowledge. The DESTINATION is
   // still `<project>/<rel>`: those paths are vendor conventions, not gov's choice, and the
   // project directory is the agent's cwd because code repos are its siblings.
+  const placed: string[] = [];
   for (const rel of ROOT_HARNESS_FILES) {
     const src = fs.readFile(path.join(projectDir, ws, HARNESS_SRC_DIR, rel));
     if (src == null) continue;
     const dst = path.join(projectDir, rel);
     if (rel.includes("/")) fs.mkdirp(path.dirname(dst));
     fs.writeFile(dst, src);
+    placed.push(rel);
   }
+  return { structureOnly: false, placed };
 }
 
 /**

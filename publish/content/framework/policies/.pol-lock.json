@@ -71,9 +71,16 @@
     {
       "pol": "POL-009a",
       "doc": "framework/policies/framework-policy.md",
-      "section": "1.5",
+      "section": "1.7",
       "clauseSha": "4b6f1fa",
-      "ordinal": 1
+      "ordinal": 1,
+      "history": [
+        {
+          "doc": "framework/policies/framework-policy.md",
+          "section": "1.5",
+          "clauseSha": "4b6f1fa"
+        }
+      ]
     },
     {
       "pol": "POL-009b",
@@ -81,6 +88,30 @@
       "section": "9.1",
       "clauseSha": "536bf4d",
       "ordinal": 1
+    },
+    {
+      "doc": "framework/policies/framework-policy.md",
+      "section": "1.5",
+      "ordinal": 5,
+      "clauseSha": "568fb54",
+      "pol": "POL-009c",
+      "level": "C01"
+    },
+    {
+      "doc": "framework/policies/framework-policy.md",
+      "section": "1.6",
+      "ordinal": 2,
+      "clauseSha": "af7e83d",
+      "pol": "POL-009d",
+      "level": "C01"
+    },
+    {
+      "doc": "framework/policies/framework-policy.md",
+      "section": "1.6",
+      "ordinal": 4,
+      "clauseSha": "83bd4b9",
+      "pol": "POL-009e",
+      "level": "C01"
     },
     {
       "pol": "POL-010",
@@ -201,6 +232,13 @@
       "section": "2.3",
       "clauseSha": "b0a1d93",
       "ordinal": 6
+    },
+    {
+      "doc": "framework/policies/framework-policy.md",
+      "section": "3.2",
+      "ordinal": 1,
+      "clauseSha": "06afbd7",
+      "pol": "POL-026"
     },
     {
       "pol": "POL-028",
@@ -616,6 +654,13 @@
       "ordinal": 6
     },
     {
+      "doc": "framework/policies/framework-policy.md",
+      "section": "8.1",
+      "ordinal": 1,
+      "clauseSha": "d8916f1",
+      "pol": "POL-082"
+    },
+    {
       "pol": "POL-083",
       "doc": "framework/policies/framework-policy.md",
       "section": "3.4",
@@ -770,6 +815,14 @@
       "clauseSha": "7df00b3",
       "level": "C01",
       "ordinal": 7
+    },
+    {
+      "doc": "framework/policies/framework-policy.md",
+      "section": "8.8",
+      "ordinal": 1,
+      "clauseSha": "cdddfbc",
+      "pol": "POL-100",
+      "level": "C03"
     },
     {
       "pol": "POL-105",
@@ -984,12 +1037,35 @@
       "ordinal": 6
     },
     {
+      "doc": "framework/policies/framework-policy.md",
+      "section": "9.7",
+      "ordinal": 2,
+      "clauseSha": "350f8b9",
+      "pol": "POL-134",
+      "level": "C02"
+    },
+    {
+      "doc": "framework/policies/framework-policy.md",
+      "section": "9.7",
+      "ordinal": 1,
+      "clauseSha": "511e67c",
+      "pol": "POL-136",
+      "level": "C01"
+    },
+    {
       "pol": "POL-137",
       "doc": "framework/policies/framework-policy.md",
       "section": "9.7",
       "clauseSha": "40f89b3",
       "level": "C01",
       "ordinal": 3
+    },
+    {
+      "doc": "framework/policies/framework-policy.md",
+      "section": "9.9",
+      "ordinal": 2,
+      "clauseSha": "01400cc",
+      "pol": "POL-139"
     },
     {
       "pol": "POL-143",
@@ -1069,6 +1145,13 @@
       "ordinal": 1
     },
     {
+      "doc": "framework/policies/framework-policy.md",
+      "section": "10.4",
+      "ordinal": 2,
+      "clauseSha": "dd95db5",
+      "pol": "POL-151"
+    },
+    {
       "pol": "POL-152",
       "doc": "framework/policies/framework-policy.md",
       "section": "11.1",
@@ -1143,6 +1226,14 @@
       "clauseSha": "e2de643",
       "level": "C01",
       "ordinal": 1
+    },
+    {
+      "doc": "policies/knowledge-organization-standard.md",
+      "section": "5",
+      "ordinal": 5,
+      "clauseSha": "b2780f2",
+      "pol": "POL-413",
+      "level": "C01"
     },
     {
       "pol": "POL-414",
@@ -1256,37 +1347,13 @@
     {
       "pol": "POL-438",
       "doc": "framework/policies/framework-policy.md",
-      "section": "8.8",
-      "ordinal": 1,
-      "clauseSha": "cdddfbc",
-      "level": "C03"
-    },
-    {
-      "pol": "POL-439",
-      "doc": "framework/policies/framework-policy.md",
-      "section": "9.7",
-      "ordinal": 1,
-      "clauseSha": "511e67c",
-      "level": "C01"
-    },
-    {
-      "pol": "POL-440",
-      "doc": "framework/policies/framework-policy.md",
-      "section": "9.7",
-      "ordinal": 2,
-      "clauseSha": "350f8b9",
-      "level": "C02"
-    },
-    {
-      "pol": "POL-441",
-      "doc": "framework/policies/framework-policy.md",
       "section": "9.8",
       "ordinal": 2,
       "clauseSha": "b9b22a3",
       "level": "C01"
     },
     {
-      "pol": "POL-442",
+      "pol": "POL-439",
       "doc": "framework/policies/framework-policy.md",
       "section": "11.1",
       "ordinal": 1,
@@ -1294,7 +1361,7 @@
       "level": "C01"
     },
     {
-      "pol": "POL-443",
+      "pol": "POL-440",
       "doc": "framework/policies/framework-policy.md",
       "section": "12",
       "ordinal": 1,
@@ -1302,7 +1369,7 @@
       "level": "C01"
     },
     {
-      "pol": "POL-444",
+      "pol": "POL-441",
       "doc": "policies/approved-technologies.md",
       "section": "5",
       "ordinal": 1,
@@ -1310,71 +1377,7 @@
       "level": "C02"
     },
     {
-      "pol": "POL-445",
-      "doc": "policies/knowledge-organization-standard.md",
-      "section": "5",
-      "ordinal": 5,
-      "clauseSha": "b2780f2",
-      "level": "C01"
-    },
-    {
-      "pol": "POL-446",
-      "doc": "policies/org-policy.md",
-      "section": "1.3",
-      "ordinal": 1,
-      "clauseSha": "2db747d",
-      "level": "C02"
-    },
-    {
-      "pol": "POL-447",
-      "doc": "policies/org-policy.md",
-      "section": "2.1",
-      "ordinal": 1,
-      "clauseSha": "172b09b",
-      "level": "C02"
-    },
-    {
-      "pol": "POL-448",
-      "doc": "policies/org-policy.md",
-      "section": "2.2",
-      "ordinal": 1,
-      "clauseSha": "16751fa",
-      "level": "C02"
-    },
-    {
-      "pol": "POL-449",
-      "doc": "policies/org-policy.md",
-      "section": "2.3",
-      "ordinal": 1,
-      "clauseSha": "25521de",
-      "level": "C01"
-    },
-    {
-      "pol": "POL-450",
-      "doc": "policies/org-policy.md",
-      "section": "2.4",
-      "ordinal": 1,
-      "clauseSha": "a4aaadc",
-      "level": "C03"
-    },
-    {
-      "pol": "POL-451",
-      "doc": "policies/org-policy.md",
-      "section": "3.1",
-      "ordinal": 1,
-      "clauseSha": "fa2f24d",
-      "level": "C02"
-    },
-    {
-      "pol": "POL-452",
-      "doc": "policies/org-policy.md",
-      "section": "3.2",
-      "ordinal": 1,
-      "clauseSha": "1048731",
-      "level": "C02"
-    },
-    {
-      "pol": "POL-453",
+      "pol": "POL-442",
       "doc": "policies/org-policy.md",
       "section": "6.1",
       "ordinal": 1,

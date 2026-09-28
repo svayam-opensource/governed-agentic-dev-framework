@@ -24,11 +24,27 @@ describe("gov-work — gov agent reports (#196)", () => {
     expect(text).to.contain("has not approved any agents yet");
   });
 
-  it("an EMPTY block is a decision, and reads as one", () => {
-    // Different from "no block": somebody decided on nothing.
-    const text = formatAgentReport(agentReport({ approved: [], hasTool: () => false, env: {} })).join("\n");
-    expect(text).to.contain("Nothing is approved");
-    expect(text).to.contain("gov agent approve");
+  it("an EMPTY list is a decision — structure-only — and reads as a STATE, not a problem", () => {
+    // Different from "no block": the organization answered, and the answer was `none`. It used to
+    // print "Nothing is approved. Add one…", which reads as an oversight about an org that had
+    // just decided it runs no agents.
+    const r = agentReport({ approved: [], hasTool: () => false, env: {} });
+    expect(r.structureOnly, "and the report says which empty this is").to.equal(true);
+    expect(r.usingDefaults, "it is NOT the undecided state").to.equal(false);
+    const text = formatAgentReport(r).join("\n");
+    expect(text).to.contain("none authorized (structure-only)");
+    expect(text, "the fixed process is what they are left with, and it is complete").to.contain("development process");
+    expect(text, "and turning agents on is one named command").to.contain("gov agent approve");
+    expect(text, "no scolding about an empty list").to.not.contain("Nothing is approved");
+    expect(text, "and it is not reported as an undecided org").to.not.contain("has not approved any agents yet");
+  });
+
+  it("refuses an install for a structure-only org by naming the DECISION, not one missing approval", () => {
+    const plan = planAgentInstall("claude-code", [], () => false);
+    expect(plan.ok).to.equal(false);
+    if (plan.ok) return;
+    expect(plan.message).to.contain("authorizes no AI agents");
+    expect(plan.message, "and the way to change it").to.contain("gov agent approve claude-code");
   });
 
   it("reports a missing key by its absence, never by reading one", () => {

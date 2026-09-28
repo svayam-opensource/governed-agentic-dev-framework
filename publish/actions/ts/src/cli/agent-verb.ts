@@ -17,7 +17,7 @@
  *   gov agent approve <id>   propose adding one — a pull request, not an edit
  */
 import { AGENT_CATALOG, variantStatuses, runnableVariants, type AgentCandidate, type VariantStatus } from "./agent-catalog.js";
-import { defaultAgent, type ApprovedAgent } from "../config/approved-agents.js";
+import { defaultAgent, NO_AGENTS, type ApprovedAgent } from "../config/approved-agents.js";
 
 export interface AgentReportFacts {
   /** The org's block, or null when the policy carries none. */
@@ -42,6 +42,13 @@ export interface AgentReport {
   /** Approved agents the framework has no harness for — should be impossible; reported if it happens. */
   readonly unknownIds: readonly string[];
   readonly usingDefaults: boolean;
+  /**
+   * The org authorized NO agents — `authorized_agents: none`, structure-only.
+   *
+   * Distinct from `usingDefaults`, and the distinction is the whole row: one org has not answered
+   * and is being governed by gov's list, the other has answered and is being governed by its own.
+   */
+  readonly structureOnly: boolean;
 }
 
 export function agentReport(f: AgentReportFacts): AgentReport {
@@ -49,6 +56,7 @@ export function agentReport(f: AgentReportFacts): AgentReport {
   // so. An empty block is different: it means somebody decided on nothing, and an
   // empty report is the honest answer to that.
   const usingDefaults = f.approved === null;
+  const structureOnly = f.approved !== null && f.approved.length === 0;
   const approved: readonly ApprovedAgent[] = f.approved ?? AGENT_CATALOG.map((a) => ({ id: a.id }));
   const def = defaultAgent(approved);
 
@@ -67,13 +75,26 @@ export function agentReport(f: AgentReportFacts): AgentReport {
       credentialDrifted: f.credentialDrift?.(candidate.id) ?? false,
     });
   }
-  return { rows, unknownIds, usingDefaults };
+  return { rows, unknownIds, usingDefaults, structureOnly };
 }
 
 const pad = (s: string, n: number): string => (s.length >= n ? s : s + " ".repeat(n - s.length));
 
 export function formatAgentReport(r: AgentReport): readonly string[] {
   const out: string[] = [""];
+  // A STATE, NOT A MISCONFIGURATION (Policy Owner, 2026-09-28). `gov agent` on a structure-only
+  // org used to print "Nothing is approved. Add one…" — reading an answered question as an empty
+  // one, and telling an organization to undo a decision it had just made. The row that belongs
+  // here says what IS true, and names the way forward for whoever does want an agent.
+  if (r.structureOnly) {
+    out.push(`  AI agents: ${NO_AGENTS} authorized (structure-only)  —  org-config.yaml: authorized_agents`);
+    out.push("");
+    out.push("  This organization uses gov for its development process and runs no AI agents.");
+    out.push("  gov installs none, renders no agent instructions into your projects, launches none.");
+    out.push("");
+    out.push("  gov agent approve <id>   propose using one (raises a pull request)");
+    return out;
+  }
   out.push(r.usingDefaults
     ? "  Your organization has not approved any agents yet — showing the framework's list."
     : "  Approved by your organization  (org-config.yaml: authorized_agents)");
@@ -157,6 +178,19 @@ export function planAgentInstall(
   const agent = AGENT_CATALOG.find((a) => a.id === id);
   if (!agent) {
     return { ok: false, message: `'${id}' is not an agent this version of gov knows. Try \`gov agent\` for the list.` };
+  }
+  // STRUCTURE-ONLY IS ITS OWN REFUSAL (Policy Owner, 2026-09-28). An empty list reached the
+  // generic message below — "<tool> is not approved by your organization" — which is true and
+  // reads as an oversight about ONE agent. The fact is bigger and simpler: this organization runs
+  // no agents at all, so there is nothing to compare this id against. Same remedy, said once.
+  if (approved !== null && approved.length === 0) {
+    return {
+      ok: false,
+      message: `This organization authorizes no AI agents (org-config.yaml: authorized_agents: ${NO_AGENTS}),\n`
+        + `  so gov will not install ${agent.tool}.\n`
+        + `  To start using agents:  gov agent approve ${id}\n`
+        + "  That raises a pull request to whoever owns org-config.yaml.",
+    };
   }
   // Approval is the gate, and the only one. An unapproved agent is Prohibited by
   // default (C01, POL-136) — gov installing it would put the tool in breach of the

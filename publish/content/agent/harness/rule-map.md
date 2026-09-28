@@ -31,8 +31,18 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | — | framework/policies/framework-policy.md | §1.4 | — | ungoverned | agent | a **check** — a deterministic test run by `gov validate` and in CI, which does not depe… |
 | POL-009 | framework/policies/framework-policy.md | §1.4 | — | ungoverned | unknown | The cue names the moment a rule applies, the stop condition, and the command that fetch… |
 | — | framework/policies/framework-policy.md | §1.4 | — | ungoverned | agent | Cue blocks in this file are **generated and approved**, and marked as such. Editing a c… |
-| POL-009a | framework/policies/framework-policy.md | §1.5 | — | ungoverned | gov | This policy takes effect for an organization when that organization adopts the framewor… |
-| — | framework/policies/framework-policy.md | §1.5 | — | ungoverned | unknown | --- |
+| — | framework/policies/framework-policy.md | §1.5 | — | ungoverned | unknown | Three things enforce this policy, and they are not interchangeable. An organization rea… |
+| — | framework/policies/framework-policy.md | §1.5 | — | ungoverned | gov | **FIXED behaviour — a program does it.** gov, `gov-cicd` and `gov-infra` carry it out t… |
+| — | framework/policies/framework-policy.md | §1.5 | — | ungoverned | agent | **AGENTIC behaviour — an agent does it, because a rule reached its context.** Two deliv… |
+| — | framework/policies/framework-policy.md | §1.5 | — | ungoverned | gov | **PLATFORM-ENFORCED — the version control system does it, and gov cannot.** Branch prot… |
+| POL-009c | framework/policies/framework-policy.md | §1.5 | C01 | implemented | gov | The framework MUST state which of the three applies **per clause**, rather than leaving… |
+| — | framework/policies/framework-policy.md | §1.6 | — | ungoverned | agent | **A clause about an agent applies when your organization uses agents.** Roughly two fif… |
+| POL-009d | framework/policies/framework-policy.md | §1.6 | C01 | implemented | gov | The framework MUST NOT hold an organization that runs no agent to a clause addressed to… |
+| — | framework/policies/framework-policy.md | §1.6 | — | ungoverned | unknown | That is not a loophole; it is the design: fixed behaviour is complete on its own, and a… |
+| POL-009e | framework/policies/framework-policy.md | §1.6 | C01 | implemented | gov | gov MUST be fully usable with no agent approved (`authorized_agents: none`) and nothing… |
+| — | framework/policies/framework-policy.md | §1.6 | — | ungoverned | unknown | `gov doctor` says which mode a workspace is in, so nobody has to infer it from a policy. |
+| POL-009a | framework/policies/framework-policy.md | §1.7 | — | ungoverned | gov | This policy takes effect for an organization when that organization adopts the framewor… |
+| — | framework/policies/framework-policy.md | §1.7 | — | ungoverned | unknown | --- |
 | POL-010 | framework/policies/framework-policy.md | §2 | — | ungoverned | agent | Every rule carries exactly one of three levels, declared by its modal verb (§1.3). The … |
 | POL-011 | framework/policies/framework-policy.md | §2.1 | — | ungoverned | unknown | **A C01 rule admits no exception, under any circumstance.** |
 | POL-012 | framework/policies/framework-policy.md | §2.1 | C01 | advisory | agent | An agent that detects a C01 rule violated, or about to be violated, MUST hard stop all … |
@@ -157,7 +167,7 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | POL-086a | framework/policies/framework-policy.md | §8.3 | C01 | advisory | unknown | **(a)** Governance MUST be sourced from `<DEFAULT_BRANCH>` of `<ORG_GOV_REPO>`. Session… |
 | POL-086b | framework/policies/framework-policy.md | §8.3 | C01 | advisory | agent | **(b)** Project work is committed to the project branch and may touch any path, includi… |
 | POL-086c | framework/policies/framework-policy.md | §8.3 | — | ungoverned | person | **(c)** A proposal becomes organizational standard only when merged to `<DEFAULT_BRANCH… |
-| POL-086 | framework/policies/framework-policy.md | §8.3 | — | ungoverned | unknown | **(d)** POL-086 governs *proposing a change to* governance. It is distinct from, and co… |
+| POL-086d | framework/policies/framework-policy.md | §8.3 | — | ungoverned | unknown | **(d)** POL-086 governs *proposing a change to* governance. It is distinct from, and co… |
 | — | framework/policies/framework-policy.md | §8.3 | — | ungoverned | agent | **Rationale.** Integrity during concurrent project work comes from (a): because authori… |
 | POL-088 | framework/policies/framework-policy.md | §8.3 | — | ungoverned | unknown | Project knowledge is intentionally free-form; no structural coupling to the org tree is… |
 | — | framework/policies/framework-policy.md | §8.4 | — | ungoverned | unknown | At project completion, project knowledge is proposed for inclusion in org-wide knowledge: |
@@ -190,9 +200,9 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | POL-432 | framework/policies/framework-policy.md | §9.3 | C01 | implemented | gov | An agent that spawns a subagent, a sub-session or a worker MUST give it this same proto… |
 | POL-113 | framework/policies/framework-policy.md | §9.4 | C01 | advisory | agent | Before performing any work, an agent MUST complete all of the following, in order: |
 | — | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Read `org-config.yaml`, which every other step's values come from. |
-| POL-114 | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Verify authorization and task ownership — §6.5, POL-114. |
+| — | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Verify authorization and task ownership — §6.5, POL-114. |
 | POL-115 | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Verify the project is active — the board open. Any other state means refuse and surface. |
-| POL-116 | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Load the four knowledge layers fresh, in order — §7.3, POL-116. |
+| — | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Load the four knowledge layers fresh, in order — §7.3, POL-116. |
 | POL-117 | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Pull the latest project branch in every participating repository. |
 | — | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Post a context manifest naming what it loaded, and then wait. |
 | POL-118 | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Only when all six are complete may work begin. |
@@ -212,7 +222,7 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | — | framework/policies/framework-policy.md | §9.8 | — | ungoverned | unknown | **any level** — a secret in a `debug` or `trace` call is still a secret in a log. "It i… |
 | — | framework/policies/framework-policy.md | §9.8 | — | ungoverned | unknown | **any transport** — console, file, syslog, a hosted aggregator, a crash reporter, an AP… |
 | — | framework/policies/framework-policy.md | §9.8 | — | ungoverned | unknown | **structured fields too** — a redacted message with the credential in a structured fiel… |
-| POL-143 | framework/policies/framework-policy.md | §9.8 | — | ungoverned | unknown | POL-143 forbids restricted data in any repository; POL-137 forbids sending it to a prov… |
+| POL-427 | framework/policies/framework-policy.md | §9.8 | — | ungoverned | unknown | POL-143 forbids restricted data in any repository; POL-137 forbids sending it to a prov… |
 | POL-143 | framework/policies/framework-policy.md | §9.9 | C01 | advisory | agent | A credential, key, token or password MUST NOT be written into a file, a log, a commit, … |
 | POL-139 | framework/policies/framework-policy.md | §9.9 | — | ungoverned | unknown | What else your organization classifies, and how each tier is handled, is yours: `polici… |
 | — | framework/policies/framework-policy.md | §9.9 | — | ungoverned | unknown | --- |
@@ -230,9 +240,9 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | POL-146 | framework/policies/framework-policy.md | §10.3 | — | ungoverned | gov | **Layer 1 — the gate.** Branch protection, a required pull request, a required approvin… |
 | POL-147 | framework/policies/framework-policy.md | §10.3 | C01 | advisory | unknown | **Layer 2 — command gates.** The lifecycle commands validate their preconditions and ha… |
 | POL-148 | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | **Layer 3 — CI checks.** `gov validate` runs on every pull request to `<DEFAULT_BRANCH>… |
-| POL-408 | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | front matter on every knowledge document (`domain`, `layer`, `owner`, `compliance`, `st… |
+| — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | front matter on every knowledge document (`domain`, `layer`, `owner`, `compliance`, `st… |
 | — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | link integrity across `knowledge/` and `policies/` |
-| POL-143 | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | secrets and restricted-data scanning — POL-143 |
+| — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | secrets and restricted-data scanning — POL-143 |
 | — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | **rules integrity** — the rendered agent files match the cue blocks in the policies, an… |
 | — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | gov | version sync between the CLI and the framework content |
 | — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | project workspace structure of every active project |
@@ -254,35 +264,14 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | — | framework/policies/framework-policy.md | §11.4 | — | ungoverned | unknown | --- |
 | — | framework/policies/framework-policy.md | §12 | C01 | advisory | agent | `gov` is the only sanctioned way to perform a lifecycle action. An agent MUST NOT perfo… |
 | — | framework/policies/framework-policy.md | §12 | — | ungoverned | agent | Generated by `gov rules build` into `agent/harness/rule-map.md`: every clause of every … |
-| — | framework/policies/org_gov_repo_operations.md | §1 | — | ungoverned | unknown | Every project folder under `projects/` must be named `PRJ-<board#>-<slug>` and correspo… |
-| — | framework/policies/org_gov_repo_operations.md | §1 | — | ungoverned | unknown | No duplicate project IDs |
-| — | framework/policies/org_gov_repo_operations.md | §1 | — | ungoverned | unknown | Project branches follow `BRNCH-<board#>-<slug>` (legacy `brnch-NNN-<slug>` projects kee… |
-| — | framework/policies/org_gov_repo_operations.md | §2 | — | ungoverned | unknown | Every subfolder in `knowledge/` must have a mapped owner in `CODEOWNERS` |
-| — | framework/policies/org_gov_repo_operations.md | §2 | — | ungoverned | unknown | No unmapped paths |
-| — | framework/policies/org_gov_repo_operations.md | §3 | — | ungoverned | unknown | All active projects (those whose GitHub board is open) must have: - `projects/PRJ-<boar… |
-| — | framework/policies/org_gov_repo_operations.md | §4 | — | ungoverned | unknown | Scan all committed files for patterns matching Restricted data (credentials, keys, tokens) |
-| — | framework/policies/org_gov_repo_operations.md | §4 | — | ungoverned | unknown | Hard block if detected **(C01)** |
-| — | framework/policies/org_gov_repo_operations.md | §4 | — | ungoverned | unknown | --- |
-| — | framework/policies/org_gov_repo_operations.md | §1 | — | ungoverned | unknown | Rebuild and redeploy the internal knowledge site |
-| — | framework/policies/org_gov_repo_operations.md | §1 | — | ungoverned | unknown | SLA: complete within 1 hour of merge |
-| — | framework/policies/org_gov_repo_operations.md | §1 | — | ungoverned | unknown | Authentication: internal only |
-| — | framework/policies/org_gov_repo_operations.md | §2 | — | ungoverned | unknown | Trigger: only when merge touches `framework/policies/` |
-| — | framework/policies/org_gov_repo_operations.md | §2 | — | ungoverned | unknown | Regenerate PDF exports for all policy documents |
-| — | framework/policies/org_gov_repo_operations.md | §2 | — | ungoverned | unknown | Each PDF must include: title, version (commit SHA), effective date, policy owner |
-| — | framework/policies/org_gov_repo_operations.md | §3 | — | ungoverned | unknown | Re-embed only the knowledge files changed in this merge (not a full re-index) |
-| — | framework/policies/org_gov_repo_operations.md | §3 | — | ungoverned | unknown | Update vector store with new embeddings |
-| — | framework/policies/org_gov_repo_operations.md | §3 | — | ungoverned | agent | Used by agents for RAG-based context building and by the knowledge-close step of `gov c… |
-| — | framework/policies/org_gov_repo_operations.md | §4 | — | ungoverned | unknown | Aggregate per-project `compliance.md` files into `knowledge/compliance/` |
-| — | framework/policies/org_gov_repo_operations.md | §4 | — | ungoverned | unknown | Update org-level compliance summary |
-| — | framework/policies/org_gov_repo_operations.md | §4 | — | ungoverned | unknown | --- |
-| POL-211 | policies/approved-technologies.md | §5 | C02 | advisory | unknown | An entry retired here MAY still be present in a repository that has not migrated; recor… |
+| — | policies/approved-technologies.md | §5 | C02 | advisory | unknown | An entry retired here MAY still be present in a repository that has not migrated; recor… |
 | POL-401 | policies/knowledge-organization-standard.md | §1 | — | ungoverned | unknown | **Storage follows accountability; navigation follows journeys.** **(POL-401, C01)** |
 | — | policies/knowledge-organization-standard.md | §1 | — | ungoverned | unknown | The physical tree exists so that every document has exactly one owner who approves chan… |
 | — | policies/knowledge-organization-standard.md | §1 | — | ungoverned | unknown | Reader/agent journeys are served by a navigation layer (Section 5) of documents that co… |
 | POL-402 | policies/knowledge-organization-standard.md | §1 | — | ungoverned | unknown | Every fact lives in exactly one document. Duplicating a fact so it appears "on a path" … |
-| POL-033 | policies/knowledge-organization-standard.md | §2 | — | ungoverned | unknown | **Invariant: a top-level domain under `knowledge/` exists if and only if a named Owner … |
+| POL-403 | policies/knowledge-organization-standard.md | §2 | — | ungoverned | unknown | **Invariant: a top-level domain under `knowledge/` exists if and only if a named Owner … |
 | — | policies/knowledge-organization-standard.md | §2 | — | ungoverned | gov | **`knowledge/` therefore ships EMPTY.** The framework creates no domains for you. It us… |
-| POL-401 | policies/knowledge-organization-standard.md | §2 | — | ungoverned | gov | **Framework doctrine lives under `governance/`, not `knowledge/`.** Storage follows acc… |
+| — | policies/knowledge-organization-standard.md | §2 | — | ungoverned | gov | **Framework doctrine lives under `governance/`, not `knowledge/`.** Storage follows acc… |
 | POL-404 | policies/knowledge-organization-standard.md | §2 | — | ungoverned | unknown | **Boundary rules** **(POL-404, C03 — apply intelligently, document deviations):** |
 | — | policies/knowledge-organization-standard.md | §2 | — | ungoverned | unknown | *URL + users ⇒ support; IP + uptime ⇒ infrastructure.* |
 | — | policies/knowledge-organization-standard.md | §2 | — | ungoverned | unknown | Edge proxies are network edge ⇒ infrastructure, even though they are software. |
@@ -290,21 +279,23 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | — | policies/knowledge-organization-standard.md | §2 | — | ungoverned | unknown | Products the org builds are specced in `architecture/system/specs/` — support covers in… |
 | — | policies/knowledge-organization-standard.md | §2 | — | ungoverned | unknown | **Deployment owns the contract; support operates the tools; infrastructure hosts them.** |
 | — | policies/knowledge-organization-standard.md | §2 | — | ungoverned | unknown | Activities (verbs) are not domains. A verb's normative content distributes to its noun-… |
-| POL-079 | policies/knowledge-organization-standard.md | §2 | — | ungoverned | unknown | Repo-specific operational detail (build/run/test/deploy of one repo) stays in that repo… |
+| — | policies/knowledge-organization-standard.md | §2 | — | ungoverned | unknown | Repo-specific operational detail (build/run/test/deploy of one repo) stays in that repo… |
 | POL-405 | policies/knowledge-organization-standard.md | §3 | — | ungoverned | unknown | Every domain contains exactly these six subfolders. **Names are standardized org-wide; … |
 | POL-406 | policies/knowledge-organization-standard.md | §3 | — | ungoverned | unknown | A document's layer states its **default** compliance level; a clause inside it may decl… |
 | POL-407 | policies/knowledge-organization-standard.md | §3 | — | ungoverned | unknown | `policies/exceptions/` gains one subfolder per domain (the existing `legal/ infrastruct… |
 | POL-408 | policies/knowledge-organization-standard.md | §4 | — | ungoverned | unknown | Every `*.md` under `knowledge/` (except generated indexes) opens with: **(POL-408, C02)** |
 | — | policies/knowledge-organization-standard.md | §4 | — | ungoverned | agent | Purpose: (a) per-domain indexes and the dashboard become generatable; (b) RAG/vector hi… |
-| POL-101 | policies/knowledge-organization-standard.md | §5 | — | ungoverned | unknown | `knowledge/README.md` is the **single entry point** with two faces: *write-side* (this … |
+| POL-409 | policies/knowledge-organization-standard.md | §5 | — | ungoverned | unknown | `knowledge/README.md` is the **single entry point** with two faces: *write-side* (this … |
 | POL-410 | policies/knowledge-organization-standard.md | §5 | — | ungoverned | person | Journeys live in `framework/docs/user-guides/path-<journey>.md` when they traverse fram… |
 | POL-411 | policies/knowledge-organization-standard.md | §5 | — | ungoverned | unknown | Anyone may add or extend a journey by PR. **(POL-411, C03)** |
-| POL-089 | policies/knowledge-organization-standard.md | §5 | — | ungoverned | unknown | **Every project knowledge-close must answer: "what journey did this project traverse th… |
-| POL-413 | policies/knowledge-organization-standard.md | §5 | C01 | advisory | person | **Knowledge harvest is a hard close condition.** A project MUST NOT close until its age… |
-| POL-414 | policies/knowledge-organization-standard.md | §5 | — | ungoverned | unknown | **`gov close`'s gate enforces the manifest** alongside `compliance.md`: the manifest mu… |
+| POL-412 | policies/knowledge-organization-standard.md | §5 | — | ungoverned | unknown | **Every project knowledge-close must answer: "what journey did this project traverse th… |
+| — | policies/knowledge-organization-standard.md | §5 | C01 | advisory | person | **Knowledge harvest is a hard close condition.** A project MUST NOT close until the org… |
+| — | policies/knowledge-organization-standard.md | §5 | — | ungoverned | gov | **CORRECTED 2026-09-28.** Two clauses here described a close gate the framework no long… |
+| POL-231 | policies/knowledge-organization-standard.md | §5 | C02 | advisory | unknown | An organization that wants a curation requirement back MAY write it as a clause with a … |
+| — | policies/knowledge-organization-standard.md | §5 | — | ungoverned | person | Those two clauses also shared POL-413 and POL-414 with §6's authoring conventions: four… |
 | POL-413 | policies/knowledge-organization-standard.md | §6 | — | ungoverned | agent | **Standard relative markdown links only — no `[[wikilinks]]`.** Keeps GitHub, site gene… |
 | POL-414 | policies/knowledge-organization-standard.md | §6 | — | ungoverned | agent | **Diagrams as Mermaid text only — no binary images for diagrams** in `knowledge/`. One … |
-| POL-104 | policies/knowledge-organization-standard.md | §6 | — | ungoverned | unknown | Nothing new in the **write path**: git + markdown + PR approval is the only authoring/s… |
+| POL-415 | policies/knowledge-organization-standard.md | §6 | — | ungoverned | unknown | Nothing new in the **write path**: git + markdown + PR approval is the only authoring/s… |
 | — | policies/knowledge-organization-standard.md | §6 | — | ungoverned | unknown | Glossary/acronym linking follows the documentation standard (first-use expansion + glos… |
 | POL-416 | policies/knowledge-organization-standard.md | §7 | — | ungoverned | unknown | CI on every PR touching `knowledge/` **(POL-416, C02; implementation per phase P4 of th… |
 | — | policies/knowledge-organization-standard.md | §7 | — | ungoverned | unknown | **Front-matter lint** — schema valid; `domain`/`layer` agree with the file's folder; ow… |
@@ -312,9 +303,9 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | — | policies/knowledge-organization-standard.md | §7 | — | ungoverned | unknown | **Journey purity** — `paths/*.md` contain links and ordering prose only. |
 | — | policies/knowledge-organization-standard.md | §7 | — | ungoverned | unknown | **Link check** — no broken relative links; no links to `status: superseded` docs outsid… |
 | — | policies/knowledge-organization-standard.md | §7 | — | ungoverned | unknown | Existing checks (CODEOWNERS paths exist, placeholder scan) continue. |
-| POL-403 | policies/knowledge-organization-standard.md | §8 | — | ungoverned | gov | Organizations adopting the framework template adapt the **domain set** to their own rol… |
+| POL-417 | policies/knowledge-organization-standard.md | §8 | — | ungoverned | gov | Organizations adopting the framework template adapt the **domain set** to their own rol… |
 | — | policies/knowledge-organization-standard.md | §9 | — | ungoverned | unknown | Executed in phases (P2 scaffold + CODEOWNERS, P3 content moves with redirect stubs and … |
-| POL-402 | policies/org-policy.md | §1.1 | — | ungoverned | gov | This policy uses the framework's notation: **the modal verb declares the compliance lev… |
+| — | policies/org-policy.md | §1.1 | — | ungoverned | gov | This policy uses the framework's notation: **the modal verb declares the compliance lev… |
 | — | policies/org-policy.md | §1.1 | — | ungoverned | unknown | Run `gov knowledge show framework-policy.md` to read it. |
 | — | policies/org-policy.md | §1.2 | — | ungoverned | agent | `gov rules build` compiles each clause into a **cue** — a short trigger placed in every… |
 | — | policies/org-policy.md | §1.2 | — | ungoverned | agent | You write the prose. An agent drafts the cue inside the pull request; you approve it th… |

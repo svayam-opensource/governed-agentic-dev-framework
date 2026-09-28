@@ -146,7 +146,7 @@ const append = (lock: PolLock, id: ClauseIdentity, level?: Level): Allocation =>
  * The lock is returned rather than mutated: the caller writes it once, after every clause has been placed, so a
  * compile that stops at an `ask` leaves `.pol-lock.yaml` exactly as it found it.
  */
-export function allocate(lock: PolLock, id: ClauseIdentity, level?: Level): Allocation {
+export function allocate(lock: PolLock, id: ClauseIdentity, level?: Level, declared?: string): Allocation {
   const exact = lock.entries.find((e) => same(e, id));
   if (exact) {
     return exact.retired
@@ -165,6 +165,22 @@ export function allocate(lock: PolLock, id: ClauseIdentity, level?: Level): Allo
 
   const moved = lock.entries.find((e) => !e.retired && e.clauseSha === id.clauseSha);
   if (moved) return { lock, pol: null, action: "ask", candidate: moved, reason: "moved" };
+
+  // A NUMBER THE CLAUSE ALREADY DECLARES IS THE NUMBER, not a suggestion.
+  //
+  // Without this, `build` invented a fresh number for every clause the framework ships: the document said
+  // POL-009c and the lock recorded POL-185 for the same sentence. In the publisher's repo that is a confusing
+  // diff; in an ADOPTER's workspace it would renumber all 180-odd shipped clauses on their first build, and
+  // every citation anyone had ever written — including the ones in gov's own source — would point somewhere else.
+  //
+  // A declared number already held by a DIFFERENT clause is not adoptable: either the author reused a number, or
+  // this is a rewording the lock could not match. Both are decisions, so both ask.
+  if (declared) {
+    const held = lock.entries.find((e) => e.pol === declared);
+    if (held) return { lock, pol: null, action: "ask", candidate: held, reason: "reworded" };
+    const entry: PolEntry = { ...id, pol: declared, ...(level ? { level } : {}) };
+    return { lock: { ...lock, entries: [...lock.entries, entry] }, pol: declared, action: "allocated" };
+  }
 
   return append(lock, id, level);
 }

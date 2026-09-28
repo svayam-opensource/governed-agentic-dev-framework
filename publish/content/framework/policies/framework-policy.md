@@ -121,7 +121,48 @@ Cue blocks in this file are **generated and approved**, and marked as such. Edit
 re-approving its cue is a policy error that `gov rules build --check` fails on, because a cue that no longer
 matches its clause is false authority in the one place an agent is guaranteed to read.
 
-### 1.5 Effective date
+### 1.5 Fixed behaviour, agentic behaviour, and what the platform enforces
+
+Three things enforce this policy, and they are not interchangeable. An organization reading a clause is entitled
+to know which one holds it up.
+
+**FIXED behaviour — a program does it.** gov, `gov-cicd` and `gov-infra` carry it out the same way every time.
+Its parameters come from one of three places: nothing (it is hardcoded, like the branch naming grammar), your
+settings (`org-config.yaml`), or **your policy** — a clause's `gov:check` supplies the predicate and its
+arguments. That last one is why policy and configuration feel similar here: a check is policy-authored and
+program-executed.
+
+**AGENTIC behaviour — an agent does it, because a rule reached its context.** Two deliveries, and the words
+matter: **resident** (compiled into the agent's own instructions file, present on every turn) and **retrieved**
+(fetched when a resident cue tells the agent to go and read the detail). A resident cue raises the odds
+substantially and guarantees nothing, because context is persuasion.
+
+**PLATFORM-ENFORCED — the version control system does it, and gov cannot.** Branch protection, a required
+review, "no bypass". gov can configure and verify these; it cannot perform them. §3.4 states what follows when
+the platform will not provide them.
+
+The framework MUST state which of the three applies **per clause**, rather than leaving a reader to assume they
+are all equally binding; §10.2 defines the classes and `gov doctor` counts them. **(POL-009c)**
+
+### 1.6 Which clauses apply to you
+
+**A clause about an agent applies when your organization uses agents.** Roughly two fifths of the rules here are
+instructions to an agent: what it does at session start, what it may write, when it must stop.
+
+The framework MUST NOT hold an organization that runs no agent to a clause addressed to one. An organization
+that adopts the framework for the STRUCTURE — projects, tasks, branches, knowledge, a reviewed way to change
+policy — is fully compliant while every one of those clauses sits idle. **(POL-009d)**
+
+That is not a loophole; it is the design: fixed behaviour is complete on its own, and agentic behaviour is
+additive.
+
+gov MUST be fully usable with no agent approved (`authorized_agents: none`) and nothing about agents in the way.
+A framework that could not be adopted for structure alone would be asking an organization to take on AI
+governance in order to get a branch naming convention. **(POL-009e)**
+
+`gov doctor` says which mode a workspace is in, so nobody has to infer it from a policy.
+
+### 1.7 Effective date
 
 This policy takes effect for an organization when that organization adopts the framework, at the version
 recorded in `<FRAMEWORK_VERSION>`. There is no organization-specific effective date here; if your

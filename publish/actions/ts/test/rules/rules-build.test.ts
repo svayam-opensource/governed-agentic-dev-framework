@@ -19,6 +19,10 @@ import { parseLock, renderLock, writeLock, parseLegacyYamlLock, LOCK_FILE } from
 
 const doc = (path: string, text: string): PolicyDoc => ({ path, text });
 
+/** `build` takes one lock per tree now: the framework's numbers and an organization's never mix. */
+const twoLocks = (framework = emptyLock(FRAMEWORK_POL_START), org = emptyLock(200)): { framework: PolLock; org: PolLock } => ({ framework, org });
+
+
 const FOUR_IN_ONE_SECTION = `### 2.1 Levels
 
 An agent MUST hard stop. **(POL-011)**
@@ -46,14 +50,14 @@ describe("rules build — enforcement classes, counted honestly", () => {
   const docs = [doc("framework/policies/framework-policy.md", withRealSha(FOUR_IN_ONE_SECTION))];
 
   it("attributes a cue to the clause it SITS UNDER, not to every clause in the section", () => {
-    const r = build(docs, emptyLock(FRAMEWORK_POL_START));
+    const r = build(docs, twoLocks(emptyLock(FRAMEWORK_POL_START)));
     const cued = r.map.filter((m) => m.klass === "cued");
     expect(cued, "one cue, one cued clause — this reported four before").to.have.length(1);
     expect(cued[0]!.gist).to.contain("SHALL NOT be waived");
   });
 
   it("never calls unlevelled prose 'advisory' — it is not a rule at all", () => {
-    const r = build([doc("policies/p.md", "### 1.1 Intro\n\nThis document explains the policy.\n")], emptyLock(200));
+    const r = build([doc("policies/p.md", "### 1.1 Intro\n\nThis document explains the policy.\n")], twoLocks(undefined, emptyLock(200)));
     expect(r.map[0]!.klass).to.equal("ungoverned");
     expect(classSummary(r.map).join(" ")).to.contain("1 are prose (no modal verb");
   });
@@ -65,13 +69,13 @@ describe("rules build — enforcement classes, counted honestly", () => {
 
   it("a clause with a CHECK outranks one with only a cue", () => {
     const text = "### 1.1 S\n\nA dependency MAY be approved. **(POL-210)**\n\n<!-- gov:cue generated clause-sha=x -->\n> **Always in the agent's context** · POL-210 · C02\n> CHECK THE LIST.\n\n<!-- gov:check kind=list-membership when=**/package.json list=policies/a.md on_miss=fail -->\n";
-    const r = build([doc("policies/p.md", text)], emptyLock(200));
+    const r = build([doc("policies/p.md", text)], twoLocks(undefined, emptyLock(200)));
     expect(r.map.find((m) => m.level)!.klass).to.equal("checked");
   });
 
   it("counts cues that sit on a clause with NO level — resident text nobody assigned a level to", () => {
     const text = "### 1.1 S\n\nThis section explains things.\n\n<!-- gov:cue generated clause-sha=x -->\n> **Always in the agent's context** · POL-900 · C01\n> DO THE THING.\n";
-    expect(orphanCues(build([doc("policies/p.md", text)], emptyLock(200)).map)).to.equal(1);
+    expect(orphanCues(build([doc("policies/p.md", text)], twoLocks(undefined, emptyLock(200))).map)).to.equal(1);
   });
 });
 
@@ -79,59 +83,59 @@ describe("rules build — numbering converges", () => {
   const docs = [doc("framework/policies/framework-policy.md", withRealSha(FOUR_IN_ONE_SECTION))];
 
   it("a first build over an empty lock allocates every clause and asks nothing", () => {
-    const r = build(docs, emptyLock(FRAMEWORK_POL_START));
+    const r = build(docs, twoLocks(emptyLock(FRAMEWORK_POL_START)));
     expect(r.asks).to.deep.equal([]);
-    expect(r.lock.entries).to.have.length(4);
+    expect(r.locks.framework.entries).to.have.length(4);
   });
 
   it("a SECOND build over the lock it produced asks nothing and changes nothing", () => {
-    const first = build(docs, emptyLock(FRAMEWORK_POL_START));
-    const second = build(docs, first.lock);
+    const first = build(docs, twoLocks(emptyLock(FRAMEWORK_POL_START)));
+    const second = build(docs, first.locks);
     expect(second.asks, "this is the test that failed before `ordinal` was part of identity").to.deep.equal([]);
-    expect(renderLock(second.lock)).to.equal(renderLock(first.lock));
+    expect(renderLock(second.locks.framework)).to.equal(renderLock(first.locks.framework));
   });
 
   it("four clauses in ONE section get four distinct numbers — none mistaken for a rewording of another", () => {
-    const r = build(docs, emptyLock(FRAMEWORK_POL_START));
-    const pols = r.lock.entries.map((e) => e.pol);
+    const r = build(docs, twoLocks(emptyLock(FRAMEWORK_POL_START)));
+    const pols = r.locks.framework.entries.map((e) => e.pol);
     expect(new Set(pols).size).to.equal(4);
-    expect(r.lock.entries.map((e) => e.ordinal).sort()).to.deep.equal([1, 2, 3, 4]);
+    expect(r.locks.framework.entries.map((e) => e.ordinal).sort()).to.deep.equal([1, 2, 3, 4]);
   });
 
   it("an EDITED clause asks, and carries the candidate so the caller can offer the command that answers it", () => {
-    const first = build(docs, emptyLock(FRAMEWORK_POL_START));
+    const first = build(docs, twoLocks(emptyLock(FRAMEWORK_POL_START)));
     const edited = docs.map((d) => doc(d.path, d.text.replace("It MUST commit nothing.", "It MUST commit absolutely nothing.")));
-    const second = build(edited, first.lock);
+    const second = build(edited, first.locks);
     expect(second.asks).to.have.length(1);
     expect(second.asks[0]!.message).to.contain("reworded");
     expect(second.asks[0]!.candidate, "without this there is no command to print").to.match(/^POL-\d{3}/);
   });
 
   it("confirming it keeps the number and moves the old text into history", () => {
-    const first = build(docs, emptyLock(FRAMEWORK_POL_START));
+    const first = build(docs, twoLocks(emptyLock(FRAMEWORK_POL_START)));
     const edited = docs.map((d) => doc(d.path, d.text.replace("It MUST commit nothing.", "It MUST commit absolutely nothing.")));
-    const pol = build(edited, first.lock).asks[0]!.candidate!;
-    const confirmed = build(edited, first.lock, [pol]);
+    const pol = build(edited, first.locks).asks[0]!.candidate!;
+    const confirmed = build(edited, first.locks, [pol]);
     expect(confirmed.asks).to.deep.equal([]);
-    const entry = confirmed.lock.entries.find((e) => e.pol === pol)!;
+    const entry = confirmed.locks.framework.entries.find((e) => e.pol === pol)!;
     expect(entry.history, "the sha that was approved must survive the rewording").to.have.length(1);
   });
 
   it("an ASK leaves the lock exactly as it was — a caller that ignores asks still cannot write a guess", () => {
-    const first = build(docs, emptyLock(FRAMEWORK_POL_START));
+    const first = build(docs, twoLocks(emptyLock(FRAMEWORK_POL_START)));
     const edited = docs.map((d) => doc(d.path, d.text.replace("It MUST commit nothing.", "Something else entirely MUST happen.")));
-    const second = build(edited, first.lock);
+    const second = build(edited, first.locks);
     expect(second.asks.length).to.be.greaterThan(0);
-    expect(renderLock(second.lock)).to.equal(renderLock(first.lock));
+    expect(renderLock(second.locks.framework)).to.equal(renderLock(first.locks.framework));
   });
 
   it("backfills the ordinal a legacy lock has none of, instead of asking once per clause", () => {
-    const first = build(docs, emptyLock(FRAMEWORK_POL_START));
+    const first = build(docs, twoLocks(emptyLock(FRAMEWORK_POL_START)));
     // A lock as the hand-seeding produced it: right shas, no ordinals.
-    const legacy: PolLock = { start: first.lock.start, entries: first.lock.entries.map(({ ordinal: _drop, ...e }) => e) };
-    const again = build(docs, legacy);
+    const legacy: PolLock = { start: first.locks.framework.start, entries: first.locks.framework.entries.map(({ ordinal: _drop, ...e }) => e) };
+    const again = build(docs, twoLocks(legacy));
     expect(again.asks, "each confirmation used to shift the collision to the next clause").to.deep.equal([]);
-    expect(again.lock.entries.every((e) => e.ordinal !== undefined)).to.equal(true);
+    expect(again.locks.framework.entries.every((e) => e.ordinal !== undefined)).to.equal(true);
   });
 });
 
@@ -144,7 +148,7 @@ describe("rules build — the framework's documents are read first", () => {
 
 describe("rule-map.md — the audit index", () => {
   it("has one row per clause, with the class, and escapes a pipe so the table cannot break", () => {
-    const r = build([doc("policies/p.md", "### 1.1 S\n\nA thing MUST hold | always. **(POL-201)**\n")], emptyLock(200));
+    const r = build([doc("policies/p.md", "### 1.1 S\n\nA thing MUST hold | always. **(POL-201)**\n")], twoLocks(undefined, emptyLock(200)));
     const md = renderRuleMap(r.map);
     expect(md).to.contain("| POL-201 |");
     expect(md).to.contain("\\|");

@@ -346,9 +346,18 @@ describe("notation — the compile report", () => {
     expect(two).to.contain("policies/approved-technologies.md").and.contain("policies/data.md");
   });
 
-  it("locates every diagnostic by document, section and line", () => {
-    for (const d of parsed.diagnostics) expect(report).to.contain(`${d.doc} §${d.section}:${d.line}`);
+  it("locates every ERROR by document, section and line, and counts the warnings", () => {
+    // Errors in full, warnings counted (2026-09-28). Rule 7 fires on 75 clauses in the framework's own policy,
+    // and listing each would bury the handful that must be fixed before anything can be written.
+    for (const d of parsed.diagnostics.filter((x) => x.kind !== "actor-unnamed")) {
+      expect(report).to.contain(`${d.doc} §${d.section}:${d.line}`);
+    }
     expect(report).to.contain("split-clause").and.contain("may-not-ambiguous").and.contain("should-unsupported");
+    const warnings = parsed.diagnostics.filter((x) => x.kind === "actor-unnamed").length;
+    if (warnings) {
+      expect(report, "a warning is counted, with where to find the detail").to.contain(`warnings (${warnings})`);
+      expect(report).to.contain("actor column");
+    }
   });
 
   it("lists the ungoverned clauses by section, so a Policy Owner can read the sentences and decide", () => {

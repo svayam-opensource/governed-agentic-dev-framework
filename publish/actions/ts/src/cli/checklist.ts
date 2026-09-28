@@ -39,6 +39,17 @@ export interface ChecklistFacts {
   /** The ids in the org's approved_agents block, if it has one yet (#196). */
   readonly approvedAgents?: readonly string[];
   /**
+   * Has the org ANSWERED the agent question — including answering `none` (structure-only)?
+   *
+   * Separate from `approvedAgents` because an empty list is an answer, and the tick is about the
+   * DECISION, not about its size. An organization that adopted gov for its process alone had step
+   * 8b shown as outstanding for ever, on the closing screen of an adoption it had completed —
+   * "Choose which AI agents this organization allows", against a choice it had just made.
+   *
+   * Absent → derived from the list, which is what every caller did before this existed.
+   */
+  readonly agentsChosen?: boolean;
+  /**
    * Whether the starter project's review issue is closed — which is what "the
    * policies were reviewed" MEANS here, so even the soft step derives (#196, Q12).
    */
@@ -103,9 +114,10 @@ export function checklist(f: ChecklistFacts): readonly ChecklistItem[] {
   } else {
     items.push({ n: "8", done: built, text: "Set your organization up (adopters)" });
     items.push({ n: "8a", sub: true, done: built, text: `Create the governance repository at ${home}, from the framework template` });
-    // The one decision adoption cannot defer: an org with no approved agent cannot
-    // run any, and everyone who joins is offered exactly what is chosen here (#196).
-    items.push({ n: "8b", sub: true, done: Boolean(f.approvedAgents?.length), text: "Choose which AI agents this organization allows" });
+    // The one decision adoption cannot defer — and `none` is one of its answers (2026-09-28):
+    // everyone who joins is offered exactly what is chosen here, and an org may choose that
+    // nothing is. Ticked on the ANSWER, not on the list being non-empty.
+    items.push({ n: "8b", sub: true, done: f.agentsChosen ?? Boolean(f.approvedAgents?.length), text: "Choose which AI agents this organization allows" });
     items.push({ n: "8c", sub: true, done: built, text: "Seed the starter policies and agent harness into it" });
     items.push({ n: "8d", sub: true, done: built, text: "Replace the framework's placeholders with your organization's values" });
     items.push({ n: "8e", sub: true, done: built, text: "Commit and push it to your organization" });

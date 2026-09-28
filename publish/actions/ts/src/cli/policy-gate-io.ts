@@ -18,6 +18,7 @@
  */
 import * as path from "node:path";
 import { parseCueBlocks } from "../rules/cue-block.js";
+import { standaloneChecks } from "../rules/diff-check.js";
 import { checksForVerb, gateVerb, type AttachedCheck, type GateResult, type WorkspaceView } from "../rules/verb-gate.js";
 import type { GateableVerb } from "../rules/cue-block.js";
 import type { Fs } from "../lifecycle/fs-io.js";
@@ -51,11 +52,20 @@ export function policyDocsAt(git: GitRead, repo: string, ref: string): Record<st
   return out;
 }
 
-/** The checks the organization (and the framework) attached to `verb`, read from `ref`. */
+/**
+ * The checks the organization (and the framework) attached to `verb`, read from `ref`.
+ *
+ * TWO SOURCES, because a check does not need a cue. `parseCueBlocks` finds one only as the tail of a stored cue
+ * block, and "check only, no cue" is a first-class pattern the seeded org policy both documents (§6.3 — a rule a
+ * machine can see in a diff should not also cost context on every turn) and USES: POL-203, *"every source file
+ * MUST carry the SPDX licence identifier"*, `on_miss=fail`, was read by nothing at all. The starter policy's most
+ * emphatic clause was its least enforced one, and the same hole existed here on the verb side.
+ */
 export function verbChecksAt(git: GitRead, repo: string, ref: string, verb: GateableVerb): AttachedCheck[] {
   const checks: AttachedCheck[] = [];
   for (const [doc, text] of Object.entries(policyDocsAt(git, repo, ref))) {
     checks.push(...checksForVerb(parseCueBlocks(doc, text).blocks, verb));
+    checks.push(...standaloneChecks(doc, text).filter((c) => c.check.trigger.on === "verb" && c.check.trigger.verb === verb));
   }
   return checks;
 }

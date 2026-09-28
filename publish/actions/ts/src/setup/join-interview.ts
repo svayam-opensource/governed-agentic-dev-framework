@@ -41,6 +41,9 @@ export interface JoinInterviewIo {
    * The agents this organization has AUTHORIZED, read from the governance repo before it is
    * cloned. null when gov cannot tell — which includes the common case of an organization
    * whose policy predates the approved-agents list and simply has none.
+   *
+   * An EMPTY array is different, and the difference is a decision: the organization recorded
+   * `authorized_agents: none` and runs no AI agents. See {@link askAgent}.
    */
   readonly approvedAgentsIn?: (org: string, repo: string) => readonly ApprovedAgent[] | null;
 }
@@ -194,6 +197,18 @@ async function askAfterOrg(io: JoinInterviewIo, org: string): Promise<JoinInterv
  */
 async function askAgent(io: JoinInterviewIo, org: string, repo: string): Promise<string | undefined> {
   const approved = io.approvedAgentsIn?.(org, repo) ?? null;
+  // NOT ASKED, BUT SAID (Policy Owner, 2026-09-28). An EMPTY list is the organization's answer —
+  // `authorized_agents: none`, no AI agents — and it arrived here indistinguishable from "gov
+  // could not tell", so the joiner was silently not asked. A person who has just been told this
+  // is a governed agentic framework, and then meets no agent question and no agent, needs one
+  // sentence to know that is the organization's rule and not a broken install.
+  if (approved?.length === 0) {
+    io.print("");
+    io.print("  Your organization does not use AI agents — it uses gov for its development");
+    io.print("  process: projects, tasks, branches, knowledge and review. Nothing agent-shaped");
+    io.print("  will be installed here. (`gov agent approve <id>` proposes changing that.)");
+    return undefined;
+  }
   if (!approved || approved.length === 0) return undefined;
 
   const name = (id: string): string => AGENT_CATALOG.find((a) => a.id === id)?.tool ?? id;

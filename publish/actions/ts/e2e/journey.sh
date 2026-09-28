@@ -222,6 +222,16 @@ approve_agents() {
     done; } >> "$file"
 }
 
+# THE OTHER ANSWER TO THE SAME QUESTION: this organization runs NO AI agents (structure-only).
+#
+# Written the way gov writes it — a SCALAR. Not an empty block: `org-config.example.yaml` ships
+# `authorized_agents:` with `default: ""` under it, so an empty block is what an unanswered setup
+# looks like, and a fixture spelled that way would be testing "nobody has decided" while claiming
+# to test a decision.
+authorize_no_agents() {
+  printf '\nauthorized_agents: none\n' >> "$1/org-config.yaml"
+}
+
 # ── driving ───────────────────────────────────────────────────────────────────
 # Run a command in a pty, answering from a conversation. Returns expect's verdict.
 drive() {

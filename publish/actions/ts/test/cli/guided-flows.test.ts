@@ -844,3 +844,127 @@ describe("Work — paging, the board cache, an honest failure, the current proje
     expect(out.join("\n")).to.not.contain("Continuing PRJ-7-alpha");
   });
 });
+
+/**
+ * AN ORGANIZATION THAT RUNS NO AI AGENTS — gov's fixed process, complete on its own.
+ *
+ * Fixed behaviour must be complete on its own; agentic behaviour is additive. An org that recorded
+ * `authorized_agents: none` used to meet the agent machinery anyway: `approvedAgents()` returned an
+ * empty list, that was read as "has not decided", and the whole framework catalogue was offered for
+ * install. The decision had been made; gov argued with it.
+ */
+describe("gov-work — structure-only: agents off, process intact", () => {
+  const seeded = "/work/PRJ-7-alpha";
+  const ready = [seeded, `${seeded}/acme-gov/.git`];
+  /** The `[]` the reader produces from `authorized_agents: none` — an answer, not a gap. */
+  const none = () => [] as readonly { readonly id: string }[];
+
+  it("explains that agents are off, names the file and the way to turn them on", async () => {
+    const { deps: d, out } = deps({ fs: fsWith(ready), approvedAgents: none, prompt: async () => { throw new Error("must not ask"); } });
+    const code = await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: true });
+    const text = out.join("\n");
+    expect(code).to.equal(0);
+    expect(text).to.contain("AI agents are OFF for this organization");
+    expect(text).to.contain("authorized_agents: none");
+    expect(text, "and the one command that changes it").to.contain("gov agent approve <id>");
+  });
+
+  it("does not offer, install or launch an agent — and never asks which", async () => {
+    const installed: string[] = [];
+    const { deps: d, out, launched } = deps({
+      fs: fsWith(ready), approvedAgents: none, hasTool: () => false,
+      installAgent: (id: string) => { installed.push(id); return true; },
+      prompt: async () => { throw new Error("must not ask"); },
+    });
+    await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: true });
+    const text = out.join("\n");
+    expect(installed, "nothing installed on an org that authorized nothing").to.deep.equal([]);
+    expect(launched.map((l) => l[0]), "a shell, which is the whole point of the fixed process").to.deep.equal(["shell"]);
+    expect(text, "the framework's list is NOT proposed as theirs").to.not.contain("Which would you like to install");
+    expect(text).to.not.contain("No AI agent is installed");
+    expect(text).to.not.contain("Claude Code");
+  });
+
+  it("the project itself is still made ready — the process is what they came for", async () => {
+    const { deps: d, out, ran } = deps({ fs: fsWith([]), approvedAgents: none, prompt: async () => "y" });
+    await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: true });
+    expect(ran.map((a) => a[0]), "it still clones/seeds").to.include("join");
+    expect(pxAbs(out.join("\n"))).to.contain(seeded);
+  });
+
+  it("refuses an explicit --agent rather than quietly opening a shell and reporting success", async () => {
+    // Substituting a shell and calling it done is the fallback-indistinguishable-from-success
+    // shape this flow keeps removing (#199). A script that asked for an agent must hear no.
+    const { deps: d, out, launched } = deps({ fs: fsWith(ready), approvedAgents: none });
+    const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "claude-code", interactive: false });
+    expect(code).to.equal(2);
+    expect(launched, "nothing started").to.deep.equal([]);
+    expect(out.join("\n")).to.contain("--agent=claude-code` cannot be honoured");
+    expect(out.join("\n"), "and both ways forward are named").to.contain("--agent=shell");
+  });
+
+  it("--agent=shell is still honoured — a shell was never an agent", async () => {
+    const { deps: d, launched } = deps({ fs: fsWith(ready), approvedAgents: none });
+    const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "shell", interactive: false });
+    expect(code).to.equal(0);
+    expect(pxDeep(launched)).to.deep.equal([["shell", seeded]]);
+  });
+
+  it("an org that has NOT decided is untouched — it still gets the framework's list", async () => {
+    // The distinction this whole change rests on: null is a gap, [] is a decision.
+    const { deps: d, out } = deps({
+      fs: fsWith(ready), approvedAgents: () => null, hasTool: () => false,
+      prompt: async () => "",
+    });
+    await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: true });
+    expect(out.join("\n")).to.not.contain("AI agents are OFF");
+  });
+
+  it("ensureRootProtocol mirrors NOTHING — nine vendor files for nine tools they do not use", () => {
+    // The worst of it: CLAUDE.md, GEMINI.md, AGENTS.md, .cursor/, .clinerules/ and the rest
+    // appeared in every project directory of an org that had told gov it runs no agents.
+    const writes: string[] = [];
+    const fs = {
+      ...fsWith([]),
+      readFile: (f: string) => (px(f).endsWith("/acme-gov/org-config.yaml")
+        ? "authorized_agents: none\n"
+        : "# rendered protocol"),                            // everything IS rendered — and still not mirrored
+      writeFile: (p: string) => writes.push(px(p)),
+      mkdirp: () => {},
+    };
+    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    expect(r.structureOnly).to.equal(true);
+    expect(r.placed).to.deep.equal([]);
+    expect(writes, "not one vendor file").to.deep.equal([]);
+  });
+
+  it("…and mirrors everything as before for an org that DID authorize an agent", () => {
+    const writes: string[] = [];
+    const fs = {
+      ...fsWith([]),
+      readFile: (f: string) => (px(f).endsWith("/acme-gov/org-config.yaml")
+        ? 'authorized_agents:\n  default: "claude-code"\n'
+        : "# rendered protocol"),
+      writeFile: (p: string) => writes.push(px(p)),
+      mkdirp: () => {},
+    };
+    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    expect(r.structureOnly).to.equal(false);
+    expect(writes).to.include("/work/PRJ-9/CLAUDE.md");
+    expect(r.placed.length, "every rendered file").to.be.greaterThan(1);
+  });
+
+  it("an UNANSWERED org-config mirrors as before — only a decision turns the mirror off", () => {
+    const writes: string[] = [];
+    const fs = {
+      ...fsWith([]),
+      readFile: (f: string) => (px(f).endsWith("/acme-gov/org-config.yaml")
+        ? 'org_name: "Acme"\nauthorized_agents:\n  default: ""\n'                // the shipped template
+        : "# rendered protocol"),
+      writeFile: (p: string) => writes.push(px(p)),
+      mkdirp: () => {},
+    };
+    expect(ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov").structureOnly).to.equal(false);
+    expect(writes).to.include("/work/PRJ-9/CLAUDE.md");
+  });
+});
