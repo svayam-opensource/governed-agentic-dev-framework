@@ -12,8 +12,8 @@
     "build": "npm --prefix publish/actions/ts run build",
     "test": "npm --prefix publish/actions/ts test",
     "lint": "npm --prefix publish/actions/ts run lint",
-    "render-harness": "node agent/render-harness.mjs",
-    "render-harness:check": "node agent/render-harness.mjs --check"
+    "render-harness": "node --import tsx agent/render-harness.mjs",
+    "render-harness:check": "node --import tsx agent/render-harness.mjs --check"
   },
   "devDependencies": {
     "js-yaml": "^4.1.0"

@@ -479,8 +479,11 @@ describe("gov-work — gov verifies the context before it launches (the guarante
     // too; this is the same fact asserted where it is cheapest to see.
     const src = fs.readFileSync(path.join(repoRoot, "agent", "session-protocol.md"), "utf8");
     expect(src, "session-protocol.md must carry the marker verifyAgentContext requires").to.contain(PROTOCOL_MARKER);
-    const r = fs.readFileSync(path.join(repoRoot, "agent", "render-harness.mjs"), "utf8");
-    expect(r, "and the renderer must refuse to render without it").to.contain(PROTOCOL_MARKER);
+    // The guard moved INTO gov (2026-09-28): `agent/render-harness.mjs` is now a thin wrapper around
+    // `src/rules/harness-render.ts`, so that the publisher and an adopter render through one implementation.
+    // The refusal is asserted where it now lives — and a unit test drives it directly.
+    const r = fs.readFileSync(path.join(import.meta.dirname, "..", "..", "src", "rules", "harness-render.ts"), "utf8");
+    expect(r, "gov's renderer must refuse to render a protocol without the marker").to.contain(PROTOCOL_MARKER);
   });
 });
 

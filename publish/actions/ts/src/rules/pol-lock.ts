@@ -29,6 +29,19 @@ export interface ClauseIdentity {
   readonly doc: string;
   /** The numbered section, e.g. `4.2`. */
   readonly section: string;
+  /**
+   * Which clause within that section, 1-based — and the field that makes the lock CONVERGE.
+   *
+   * Without it, identity was (doc, section, sha), and "same section, different sha" meant *reworded*. A section
+   * with four clauses then had four entries sharing one (doc, section), so clause 2 matched clause 1's entry and
+   * asked "is §2.1 a rewording of POL-011?" — forever. Confirming it only moved the collision to the next
+   * clause: a build that succeeded was followed by a `check` that asked again, with a different set each time.
+   * Found by running it rather than by reading it, which is the argument for running it.
+   *
+   * OPTIONAL, because entries written before this field existed do not carry one; a missing ordinal matches any,
+   * which keeps an older lock readable instead of re-asking every question in it.
+   */
+  readonly ordinal?: number;
   /** Short hash of the clause's normalised text — see `clauseSha` in `cue-block.ts`. */
   readonly clauseSha: string;
 }
@@ -142,7 +155,12 @@ export function allocate(lock: PolLock, id: ClauseIdentity, level?: Level): Allo
   }
   // Reworded is checked before moved: an author editing §4.2 in place is the common case by a wide margin, and
   // when both readings are available it is the one whose question a person can answer from what is on screen.
-  const reworded = lock.entries.find((e) => !e.retired && e.doc === id.doc && e.section === id.section);
+  // Position within the section is part of identity now, so a second clause in §2.1 is not mistaken for a
+  // rewording of the first. An entry with no ordinal (written before the field existed) still matches, so an
+  // older lock is read rather than re-interrogated.
+  const reworded = lock.entries.find((e) =>
+    !e.retired && e.doc === id.doc && e.section === id.section
+    && (e.ordinal === undefined || id.ordinal === undefined || e.ordinal === id.ordinal));
   if (reworded) return { lock, pol: null, action: "ask", candidate: reworded, reason: "reworded" };
 
   const moved = lock.entries.find((e) => !e.retired && e.clauseSha === id.clauseSha);

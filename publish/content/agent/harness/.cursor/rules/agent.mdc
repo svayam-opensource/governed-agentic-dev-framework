@@ -1,9 +1,8 @@
 ---
-description: Agentic Development Framework — session-start protocol (POL-113..117)
+description: "Agentic Development Framework — session-start protocol and the resident rules"
 globs: ["**/*"]
 alwaysApply: true
 ---
-
 <!-- GENERATED from the framework harness source — do not edit by hand -->
 
 <!-- gov-protocol-version: 2 -->
@@ -24,7 +23,21 @@ substantive reply. Part C is reference you will need once.
 # Part A — Always
 
 **These rules bind every turn, not just the first. Each is compiled from the clause it names, and the
-clause is the authority — read it with `gov knowledge show framework-policy.md`.**
+clause is the authority — read it with `gov knowledge show <the document named>`.**
+
+> **POL-201 · C02**
+> A NEW SOURCE FILE OPENS WITH A COMMENT saying what it is for and why it exists — the reason, not a
+> restatement of the code. No comment is a review finding, not a style preference.
+
+> **POL-202 · C02**
+> CHANGING BEHAVIOUR? BRING A TEST that fails without your change. "Tested manually" is not a test, and a
+> test written to pass is not evidence.
+
+> **POL-210 · C02**
+> TECHNOLOGY CHOICES ARE NOT YOURS. Before adding a dependency or choosing a language, framework, library,
+> datastore, queue, test runner or CI step — or editing package.json · go.mod · pom.xml · requirements.txt ·
+> Dockerfile · CI config — run: `gov knowledge search "approved <thing>"`.
+> Named there? Use it. Not named? STOP and ask. Never pick one yourself.
 
 > **POL-011…POL-015 · C01**
 > C01 MEANS STOP. No exception exists, and nobody can grant one. On a C01 violation: stop, commit nothing,

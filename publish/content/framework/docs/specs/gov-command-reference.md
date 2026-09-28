@@ -29,6 +29,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov preferences](#gov-preferences) — your settings for gov: the agent it launches, the picker, colour, how long logs are kept
 - [gov log](#gov-log) — what gov did — one log per run, on this machine
 - [gov agent](#gov-agent) — which AI agents your org approves, what is installed, and how to add one
+- [gov rules](#gov-rules) — compile the policies into what agents and checks actually use
 
 **[Your agent runs these (you can too)](#your-agent-runs-these-you-can-too)**
 
@@ -377,6 +378,48 @@ gov agent approve claude
 | `2` | usage: a missing or wrong argument |
 
 **See also.** [gov work](#gov-work) · [gov preferences](#gov-preferences)
+
+### gov rules
+
+compile the policies into what agents and checks actually use
+
+```text
+gov rules <build|check|report> [--working-tree]
+```
+
+**Where.** GOVERNED
+
+**Arguments**
+
+| argument | what it is |
+| --- | --- |
+| `<mode>` | build (write) · check (verify, write nothing) · report (the numbers only) |
+
+**Flags**
+
+| flag | what it does |
+| --- | --- |
+| `--working-tree` | compile what is on disk instead of the ratified branch — for drafting; an agent is still governed by the default branch |
+
+**Examples**
+
+```bash
+gov rules report
+gov rules build
+gov rules check
+```
+
+**Changes.** `build` writes the nine agent instruction files, `agent/harness/rule-map.md` and the POL lock; `check` writes nothing and fails when any of them is stale; `report` writes nothing at all. A clause that cannot be numbered without a decision STOPS the build — nothing is written and the question is printed
+
+**Exit codes**
+
+| code | means |
+| --- | --- |
+| `0` | done |
+| `1` | a notation error, a stale file, or a question only a person can answer |
+| `2` | usage |
+
+**See also.** [gov knowledge](#gov-knowledge) · [gov doctor](#gov-doctor) · [gov validate](#gov-validate)
 
 ---
 

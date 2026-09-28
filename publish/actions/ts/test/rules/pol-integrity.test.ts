@@ -24,25 +24,17 @@ import { parseClauses } from "../../src/rules/notation.js";
 import { clauseSha } from "../../src/rules/cue-block.js";
 
 const CONTENT = path.join(import.meta.dirname, "..", "..", "..", "..", "content");
-const LOCK = path.join(CONTENT, "framework", "policies", ".pol-lock.yaml");
+const LOCK = path.join(CONTENT, "framework", "policies", ".pol-lock.json");
 
 /** A clause marker: `**(POL-042)**`, `**(C01, POL-086a)**`. NOT a prose citation like "§6.5, POL-114". */
 const MARKER = /\*\*\(?(?:C0\d,\s*)?POL-(\d{3}[a-z]?)\)?\*\*/g;
 
 interface Entry { pol: string; doc: string; section: string; clauseSha: string; retired?: boolean }
 
-/** The lock, parsed without a YAML dependency — the file is generated, so its shape is known and flat. */
+/** The lock, as gov reads it: JSON, so the test and the CLI cannot disagree about what an entry says. */
 function readLock(): { start: number; entries: Entry[] } {
-  const text = readFileSync(LOCK, "utf8");
-  const start = Number(/^start:\s*(\d+)/m.exec(text)?.[1]);
-  const entries = [...text.matchAll(/^ {2}- (.+)$/gm)].map(([, line]) => {
-    const e: Record<string, string | boolean> = {};
-    for (const [, k, v] of line.matchAll(/(\w+): ("(?:[^"\\]|\\.)*"|true|false|\d+)/g)) {
-      e[k] = v === "true" ? true : v === "false" ? false : v.startsWith('"') ? JSON.parse(v) as string : v;
-    }
-    return e as unknown as Entry;
-  });
-  return { start, entries };
+  const doc = JSON.parse(readFileSync(LOCK, "utf8")) as { start: number; entries: Entry[] };
+  return { start: doc.start, entries: doc.entries };
 }
 
 /** Every clause marker in the framework's policies, with the clause it marks. */

@@ -100,6 +100,14 @@ export interface CueBlock {
   readonly section: string;
   /** `POL-210`, as cited. */
   readonly pol: string;
+  /**
+   * The citation EXACTLY as the header writes it — `POL-011…POL-015`, not just the first number.
+   *
+   * A cue may summarise several clauses, and the framework's own §2.1 does. Reconstructing the heading from
+   * `pol` alone silently narrowed `POL-011…POL-015` to `POL-011`, which tells an agent to look up one clause
+   * when the rule spans five. Caught by diffing the re-rendered harness, which is the argument for diffing it.
+   */
+  readonly cite: string;
   readonly level: Level;
   /** Absent in a block written before hashes, or by hand — which `staleCues` reports, because it cannot verify. */
   readonly clauseSha?: string;
@@ -115,6 +123,8 @@ export interface CueBlock {
 /** What `renderCueBlock` needs. A subset of {@link CueBlock}: the document and line are not part of the text. */
 export interface RenderableCue {
   readonly pol: string;
+  /** The citation as written — a range (`POL-011…POL-015`) survives a round trip; see `CueBlock.cite`. */
+  readonly cite?: string;
   readonly level: Level;
   readonly clauseSha?: string;
   readonly approvedIn?: string;
@@ -281,6 +291,8 @@ export function parseCueBlocks(doc: string, text: string): { blocks: CueBlock[];
 
     const header = quote[0]!;
     const pol = /\bPOL-\d+[a-z]?\b/.exec(header)?.[0];
+    // Everything between the label and the level: one number, a list, or a range, kept verbatim.
+    const cite = /·\s*(.+?)\s*·\s*C0[123]/.exec(header)?.[1]?.trim() ?? pol ?? "";
     const level = /\bC0[123]\b/.exec(header)?.[0] as Level | undefined;
     if (!pol || !level) {
       diagnostics.push({
@@ -303,7 +315,7 @@ export function parseCueBlocks(doc: string, text: string): { blocks: CueBlock[];
     }
 
     blocks.push({
-      doc, section, pol, level, cue: quote.slice(1).join("\n"), line: at,
+      doc, section, pol, cite, level, cue: quote.slice(1).join("\n"), line: at,
       ...(attrs["clause-sha"] ? { clauseSha: attrs["clause-sha"] } : {}),
       ...(approved ? { approvedIn: approved[1]!.trim() } : {}),
       ...(check ? { check } : {}),
@@ -385,7 +397,7 @@ export function renderCueBlock(block: RenderableCue): string {
   while (cueLines.length && !cueLines[0]!.trim()) cueLines.shift();
   while (cueLines.length && !cueLines[cueLines.length - 1]!.trim()) cueLines.pop();
 
-  const out = [head.join(" "), `> ${CUE_HEADER} · ${block.pol} · ${block.level}`];
+  const out = [head.join(" "), `> ${CUE_HEADER} · ${block.cite ?? block.pol} · ${block.level}`];
   for (const l of cueLines) out.push(l ? `> ${l}` : ">");
   if (block.check) out.push(renderCheck(block.check));
   return out.join("\n");

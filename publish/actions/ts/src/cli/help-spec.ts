@@ -249,6 +249,18 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     examples: ["gov cancel"], changes: "labels the anchor issue and closes the board. Branches and clones are left alone",
     exit: EXIT_USUAL, seeAlso: ["close", "pause"] },
   {
+    name: "rules", audience: "you",
+    summary: "compile the policies into what agents and checks actually use",
+    usage: "<build|check|report> [--working-tree]",
+    where: "GOVERNED",
+    args: [{ name: "<mode>", what: "build (write) · check (verify, write nothing) · report (the numbers only)" }],
+    flags: [{ name: "--working-tree", what: "compile what is on disk instead of the ratified branch — for drafting; an agent is still governed by the default branch" }],
+    examples: ["gov rules report", "gov rules build", "gov rules check"],
+    changes: "`build` writes the nine agent instruction files, `agent/harness/rule-map.md` and the POL lock; `check` writes nothing and fails when any of them is stale; `report` writes nothing at all. A clause that cannot be numbered without a decision STOPS the build — nothing is written and the question is printed",
+    exit: [{ code: 0, means: "done" }, { code: 1, means: "a notation error, a stale file, or a question only a person can answer" }, { code: 2, means: "usage" }],
+    seeAlso: ["knowledge", "doctor", "validate"],
+  },
+  {
     name: "knowledge", audience: "agent",
     summary: "search and read the org's knowledge — or propose a change to it",
     usage: "search <text> [--json] | show <path> | list [<prefix>] | <propose|submit|archive> <slug>",

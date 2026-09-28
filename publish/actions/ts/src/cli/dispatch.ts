@@ -40,6 +40,7 @@ import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 import { policyGate } from "./policy-gate-io.js";
+import { rules } from "./rules-verb.js";
 import { search, formatHits, formatList, formatDoc, hitsJson } from "../knowledge-search.js";
 import { loadDocs, resolveDoc } from "./knowledge-io.js";
 import { onboard } from "../lifecycle/onboard.js";
@@ -479,6 +480,23 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         { repoUrl, owner, description },
       );
       return r.ok ? { code: 0, lines: r.lines } : { code: r.code, lines: [r.message] };
+    }
+
+    case "rules": {
+      // COMPILING THE POLICIES INTO WHAT AGENTS AND CHECKS USE. Reads the RATIFIED branch by default: a clause
+      // on a project branch is a proposal (POL-086b), and compiling it would put an unratified rule into the one
+      // place an agent is guaranteed to read. `--working-tree` is for an author mid-draft and says so in the output.
+      const mode = positionals[0] ?? "report";
+      if (!["build", "check", "report"].includes(mode)) return usage("rules <build|check|report> [--working-tree]");
+      const r = rules(
+        { fs: ctx.fs, ...(ctx.git ? { git: ctx.git } : {}) },
+        {
+          home: ctx.home, defaultBranch: c.defaultBranch, workingTree: flagBool(flags, "working-tree"),
+          confirm: (flagStr(flags, "confirm") ?? "").split(",").map((p) => p.trim()).filter(Boolean),
+        },
+        mode as "build" | "check" | "report",
+      );
+      return { code: r.code, lines: r.lines };
     }
 
     case "knowledge": {
