@@ -9,7 +9,12 @@
  */
 import { COMMAND_SPECS, specOf, specsFor, type CommandSpec } from "./help-spec.js";
 
-const GROUPS: readonly { readonly audience: "you" | "agent" | "maintainer"; readonly title: string }[] = [
+/**
+ * The groups, and their titles. EXPORTED because the generated markdown reference (reference-page.ts) groups
+ * the same commands the same way: two renderers inventing their own titles is how "Your agent runs these"
+ * became "For agents" in one of them and nobody noticed. One fact, one place.
+ */
+export const GROUPS: readonly { readonly audience: "you" | "agent" | "maintainer"; readonly title: string }[] = [
   { audience: "you", title: "Your commands" },
   { audience: "agent", title: "Your agent runs these (you can too)" },
   { audience: "maintainer", title: "Building gov itself" },
@@ -63,11 +68,7 @@ export function commandPage(spec: CommandSpec): string[] {
   for (const e of spec.examples.slice(1)) out.push(`             ${e}`);
   if (spec.changes) row("CHANGES", wrap(spec.changes, 66, 13));
   if (spec.exit?.length) {
-    // ONE LINE PER CODE. A spec that adds a nuance to an existing code (merge's "the gate failed") is saying
-    // what that code means HERE, so the lines are joined rather than printed twice with the same number.
-    const byCode = new Map<number, string[]>();
-    for (const e of spec.exit) byCode.set(e.code, [...(byCode.get(e.code) ?? []), e.means]);
-    row("EXIT", [...byCode.entries()].map(([code, means]) => `${code} ${means.join("; ")}`).join("\n             "));
+    row("EXIT", mergedExit(spec.exit).map((e) => `${e.code} ${e.means}`).join("\n             "));
   }
   if (spec.seeAlso?.length) row("SEE ALSO", spec.seeAlso.map((s) => `gov ${s}`).join(" · "));
   out.push("");
@@ -86,6 +87,21 @@ export function shortPage(spec: CommandSpec): string[] {
   ];
 }
 
+/**
+ * ONE LINE PER CODE. A spec that adds a nuance to an existing code (merge's "the gate failed" on 1) is saying
+ * what that code means HERE, so the two are joined rather than printed twice with the same number — a page
+ * that lists `1` twice reads as a bug in gov, not as a nuance.
+ *
+ * Exported so the markdown reference joins them identically; a table with two rows numbered 1 is worse still.
+ */
+export function mergedExit(
+  exit: readonly { readonly code: number; readonly means: string }[],
+): { readonly code: number; readonly means: string }[] {
+  const byCode = new Map<number, string[]>();
+  for (const e of exit) byCode.set(e.code, [...(byCode.get(e.code) ?? []), e.means]);
+  return [...byCode.entries()].map(([code, means]) => ({ code, means: means.join("; ") }));
+}
+
 /** Wrap a sentence to `width`, indenting continuation lines — CHANGES is the only long field. */
 function wrap(text: string, width: number, indent: number): string {
   const words = text.split(/\s+/);
@@ -102,7 +118,14 @@ function wrap(text: string, width: number, indent: number): string {
  * THE CONCEPTS COMMANDS ASSUME. Short on purpose: a topic that needs a page of prose is a sign the commands
  * are wrong, not that the topic is deep.
  */
-export const TOPICS: readonly { readonly name: string; readonly title: string; readonly lines: readonly string[] }[] = [
+export interface Topic {
+  readonly name: string;
+  readonly title: string;
+  /** Prose, blank lines, and runs of two-space-indented lines that are a table, not a sentence. */
+  readonly lines: readonly string[];
+}
+
+export const TOPICS: readonly Topic[] = [
   {
     name: "projects", title: "Projects and branches",
     lines: [

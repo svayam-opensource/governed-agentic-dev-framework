@@ -47,7 +47,9 @@
     "test:adopter:smoke": "bash e2e/adopter-smoke.sh",
     "test:journey": "bash e2e/journey.sh",
     "catalog:freshness": "npm run build --silent && node scripts/catalog-freshness.mjs",
-    "harness:freshness": "node scripts/harness-paths-freshness.mjs"
+    "harness:freshness": "node scripts/harness-paths-freshness.mjs",
+    "docs:cli": "node --import tsx scripts/gen-cli-reference.mjs",
+    "docs:cli:check": "node --import tsx scripts/gen-cli-reference.mjs --check"
   },
   "keywords": [
     "gov",
