@@ -485,7 +485,13 @@ describe("lifecycle coverage — sync", () => {
     expect(pxDeep(r.lines)).to.deep.equal([
       `Synced ${PBRANCH}`,
       "  1 repo(s) up to date",
-      "  session-start protocol re-placed at /awr/PRJ-43-governance-common-project",
+      // A SYNC REPORTS WHAT IT DID (2026-09-28). This line was unconditional, so a structure-only org was told
+      // the protocol had been re-placed when nothing was written, and an un-upgraded workspace was told the same
+      // while all nine sources were missing. This fixture has no rendered harness, so the warning is the point.
+      "  session-start protocol re-placed in 1 directory",
+      "  ! 9 harness file(s) could not be refreshed — this workspace has no rendered copy of them.",
+      "    Run `gov upgrade` (or `gov rules build` in the governance repo) to render them.",
+      "    9 absent: AGENTS.md, CLAUDE.md, and 7 more — no rendered source in this workspace.",
       "",
       "Governance may have changed. Paste this into your running session:",
       "  Re-read the session-start protocol from disk; it has changed. Then continue.",

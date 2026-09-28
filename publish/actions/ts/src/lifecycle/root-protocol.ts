@@ -43,12 +43,232 @@ export const ROOT_HARNESS_FILES = [
   ".windsurf/rules/agent.md",           // windsurf
 ] as const;
 
+/**
+ * WHERE A CODE REPO'S CLONE LIVES, read from disk rather than from the board (PRJ-121, defect 2).
+ *
+ * `seed`, `join` and `add-repo` all materialize a code repo at exactly `<projectWorkRoot>/<repoNameFromUrl(url)>`
+ * and nowhere else, and `add-repo` states the model out loud: "there is no project.yaml repos[] to update —
+ * membership is the board's linked items + the local worktree". So the worktrees ARE the local membership record,
+ * and `cleanup.ts::dirtyReposUnder` already reads it exactly this way: every entry directly under the root that
+ * has a `.git`, with the workspace repo told apart by name.
+ *
+ * NOT `board.fetchProject(ref).repoUrls`, which is how `close`/`merge`/`sync` reach the same directories. Those
+ * commands already hold a `BoardRef`, an authorization and a network budget. This function runs on EVERY agent
+ * launch from three call sites and is deliberately a leaf. Asking the board here would also be wrong in the one
+ * direction that matters: a clone sitting on disk that the board no longer links is still a directory somebody
+ * opens in an IDE, and it still has to be governed. The board decides what gets CLONED; the clones decide what
+ * gets GOVERNED.
+ */
+export function codeRepoDirs(
+  fs: Pick<Fs, "readdir" | "pathExists">,
+  projectDir: string,
+  workspaceRepo: string,
+): readonly string[] {
+  return fs.readdir(projectDir)
+    .filter((name) => name !== workspaceRepo)
+    .map((name) => path.join(projectDir, name))
+    .filter((dir) => fs.pathExists(path.join(dir, ".git")))
+    .sort();
+}
+
+/**
+ * GOV'S BLOCK INSIDE A FILE THAT MAY BE THE TEAM'S (PRJ-121, defect 2).
+ *
+ * A code repo's `CLAUDE.md` or `AGENTS.md` is very often already there and already theirs — build notes, house
+ * style, a test recipe. Overwriting it to install the protocol would delete content gov has no standing to delete
+ * (the same POL-086 reasoning that stops `verifyAgentContext` refusing a file gov did not render); writing nothing
+ * leaves the repo ungoverned, which is the defect. So gov owns a FENCED REGION and nothing else: replaced on every
+ * launch, every byte outside it carried over.
+ *
+ * The team's text lands below `<!-- ADOPTER_C03_EXTENSIONS -->`, the marker `agent/harness-manifest.yaml` already
+ * defines for this ("add org-specific lines below; do not contradict protocol above"), so the layering a reader
+ * sees in the file is the layering the protocol claims — rather than a second convention invented here.
+ */
+export const GOV_BLOCK_BEGIN = "<!-- BEGIN gov session-start protocol — generated every launch; edit the governance repo, not this block -->";
+export const GOV_BLOCK_END = "<!-- END gov session-start protocol -->";
+/** The manifest's `adopter_marker`. Everything below it in a code repo's file is the team's. */
+export const ADOPTER_MARKER = "<!-- ADOPTER_C03_EXTENSIONS -->";
+
+/**
+ * Harness paths gov writes VERBATIM even inside a team's repository — no fence, whole file.
+ *
+ * TWO REASONS, EITHER OF WHICH IS SUFFICIENT.
+ *
+ *  1. FRONT MATTER MUST BE LINE 1. `.cursor/rules/agent.mdc` opens with the YAML block that carries
+ *     `alwaysApply: true`, which is the only thing that makes Cursor inject the rule on every turn. An HTML
+ *     comment above it is no longer front matter, so the file parses as an advisory rule and Cursor stops
+ *     loading it — a governed project, a file full of protocol, and nothing in context. That is this module's
+ *     signature failure, and fencing would have manufactured a fresh instance of it.
+ *  2. THERE IS NOTHING TO COEXIST WITH. These four live in directories the vendor SCANS — `.clinerules/`,
+ *     `.cursor/rules/`, `.continue/rules/`, `.windsurf/rules/` — so gov's `agent.md` is one rule file beside
+ *     the team's own, never a file it has to share. Coexistence is only a question for the single fixed
+ *     filenames: `CLAUDE.md`, `AGENTS.md`, `CONVENTIONS.md`, `GEMINI.md`, `.github/copilot-instructions.md`.
+ *
+ * A second hand-kept list is exactly what drifted before, so a test asserts every entry here is a real harness
+ * path and that nothing carrying front matter is ever fenced.
+ */
+const WHOLE_FILE_IN_A_CODE_REPO: readonly string[] = [
+  ".clinerules/agent.md",
+  ".cursor/rules/agent.mdc",
+  ".continue/rules/agent.md",
+  ".windsurf/rules/agent.md",
+];
+
+/** Does gov own the whole of this file even in a team's repo, or only a fence inside it? */
+export const ownsWholeFile = (rel: string): boolean => WHOLE_FILE_IN_A_CODE_REPO.includes(rel);
+
+/**
+ * The file a code repo should hold, given gov's rendered body and whatever is there now. PURE — no disk, because
+ * the coexistence rule is exactly one thing worth testing on its own: a string transform that must be IDEMPOTENT.
+ * It runs on every launch, and a rule that grew the file each time would be its own silent defect.
+ */
+export function composeTeamFile(body: string, existing: string | null): string {
+  const block = `${GOV_BLOCK_BEGIN}\n${body.replace(/\n+$/, "")}\n${GOV_BLOCK_END}\n`;
+  if (existing == null || existing.trim() === "") return block;
+  const begin = existing.indexOf(GOV_BLOCK_BEGIN);
+  const end = existing.indexOf(GOV_BLOCK_END);
+  // Refresh in place. Anything the team wrote above or below the fence is carried over byte for byte.
+  if (begin !== -1 && end > begin) {
+    return existing.slice(0, begin) + block.replace(/\n$/, "") + existing.slice(end + GOV_BLOCK_END.length);
+  }
+  // First contact: gov above, the marker, then their file. The newline placement is chosen so that feeding this
+  // output back in takes the branch above and returns it unchanged — asserted by test, not by inspection.
+  return `${block}\n${ADOPTER_MARKER}\n\n${existing.replace(/^\n+/, "")}`;
+}
+
+/** The fence gov keeps in a repo's local exclude list — same replace-in-place rule as {@link composeTeamFile}. */
+const EXCLUDE_BEGIN = "# BEGIN gov agent harness — generated per session; `git add` them if you want every clone governed";
+const EXCLUDE_END = "# END gov agent harness";
+
+/**
+ * A repo's `.git/info/exclude` with gov's harness paths fenced into it. PURE.
+ *
+ * UNTRACKED, AND HIDDEN RATHER THAN MERELY UNTRACKED. gov must not commit into a team's repository on an agent
+ * launch — that text would enter their history, their PRs and their release diffs, and `gov merge`/`gov close`
+ * would carry a file regenerated on every launch onto `dev` and `main`, conflicting on every protocol revision.
+ * But leaving nine untracked files lying in the worktree has a concrete cost in THIS codebase, not just an
+ * aesthetic one: `cleanup.ts::dirtyReposUnder` uses `git status --porcelain`, which counts untracked files, and
+ * REFUSES to remove a work root when any repo under it is dirty — so gov would brick its own cleanup with its own
+ * files. Fencing the paths into the repo's exclude list is what makes "untracked" honest.
+ *
+ * Entries are ANCHORED (`/AGENTS.md`, not `AGENTS.md`) so a team's own `docs/AGENTS.md` keeps showing in
+ * `git status`; only the copies gov writes at the repo root are hidden. An exclude entry for a file that IS
+ * tracked is inert in git, so a team that chooses to `git add` gov's block keeps it tracked and gov keeps it
+ * fresh, with no second code path.
+ */
+export function composeExclude(existing: string | null, rels: readonly string[]): string {
+  const block = [EXCLUDE_BEGIN, ...rels.map((r) => `/${r}`), EXCLUDE_END].join("\n");
+  const base = existing ?? "";
+  const begin = base.indexOf(EXCLUDE_BEGIN);
+  const end = base.indexOf(EXCLUDE_END);
+  if (begin !== -1 && end > begin) return base.slice(0, begin) + block + base.slice(end + EXCLUDE_END.length);
+  return base === "" ? `${block}\n` : `${base.replace(/\n*$/, "")}\n\n${block}\n`;
+}
+
+/**
+ * Where git reads this repo's local exclude list — `null` when it cannot be worked out.
+ *
+ * A gov code repo is a WORKTREE of a shared base clone, so `<repo>/.git` is a FILE holding
+ * `gitdir: <base>/.git/worktrees/<name>`, not a directory. git reads `info/exclude` from the COMMON git dir,
+ * which a worktree names in its own `commondir` file — so following only the `gitdir:` line would write an
+ * exclude list git never reads, and the nine files would go on showing as untracked while this code claimed to
+ * have hidden them. That is the shape of defect this whole file exists to stop, so it is resolved properly.
+ * Reading a directory through the `Fs` port returns null, which is how the ordinary-clone case (`.git` IS a
+ * directory) is told from the worktree case without adding a `stat` to the port.
+ */
+export function gitInfoExcludeFile(fs: Pick<Fs, "readFile">, repoDir: string): string | null {
+  const dotGit = path.join(repoDir, ".git");
+  const text = fs.readFile(dotGit);
+  if (text == null) return path.join(dotGit, "info", "exclude");       // an ordinary clone
+  const gitdirLine = /^gitdir:\s*(.+?)\s*$/m.exec(text);
+  if (!gitdirLine) return null;                                        // a `.git` file of a shape gov does not know
+  const abs = (p: string, from: string): string => (path.isAbsolute(p) ? p : path.join(from, p));
+  const gitdir = abs(gitdirLine[1]!, repoDir);
+  const commondir = fs.readFile(path.join(gitdir, "commondir"))?.trim();
+  return path.join(commondir ? abs(commondir, gitdir) : gitdir, "info", "exclude");
+}
+
+/** What a destination holds while gov could not refresh it — the discriminator for the warning's wording. */
+export type StaleHolds =
+  | "the retired two-line @-import stub"
+  | "a render from an earlier framework version"
+  | "gov's fenced block, now frozen"
+  | "content gov did not write";
+
+/** One harness path gov could not mirror, and what is sitting at the destination instead. */
+export interface SkippedHarness {
+  /** The harness path, relative to the directory mirrored into. */
+  readonly rel: string;
+  /** The rendered file gov looked for and did not find. */
+  readonly source: string;
+  /** The destination gov would have written. */
+  readonly at: string;
+  /** Set only when something gov would have replaced is sitting at `at` — stale by definition. */
+  readonly stale: StaleHolds | null;
+}
+
 /** What the mirror did — so a caller can say "nine files" or "nothing, and here is why". */
 export interface MirrorResult {
   /** The org runs no AI agents (`authorized_agents: none`): nothing was mirrored, by decision. */
   readonly structureOnly: boolean;
   /** The paths, relative to the project dir, actually written. */
   readonly placed: readonly string[];
+  /**
+   * Every directory the harness was mirrored into: the project root first, then each code-repo clone.
+   * Reported because "governed" is a claim about a directory, and until now only one of them was true.
+   */
+  readonly targets: readonly string[];
+  /**
+   * A SKIPPED SOURCE IS NEVER SILENT ANY MORE (PRJ-121, defect 1). `continue` on a missing source is what let a
+   * real project's root `CLAUDE.md` stay the retired two-line `@`-import stub while `AGENTS.md` beside it carried
+   * the full protocol — Claude running on the mechanism retired on 2026-09-11, with nothing to read it, and every
+   * test green. Reported per path, with what is sitting there instead.
+   */
+  readonly skipped: readonly SkippedHarness[];
+}
+
+/** How a surviving destination should be described. Pure; reuses the shapes `verifyAgentContext` already knows. */
+function classifyStale(text: string): StaleHolds {
+  if (IMPORT_STUB.test(text)) return "the retired two-line @-import stub";
+  if (text.includes(GOV_BLOCK_BEGIN)) return "gov's fenced block, now frozen";
+  if (text.includes(RENDERED_BANNER) || text.includes(PROTOCOL_MARKER)) return "a render from an earlier framework version";
+  return "content gov did not write";
+}
+
+/**
+ * The warnings a caller must print, in the order a reader needs them. PURE — separated from the mirroring so the
+ * wording is testable without a filesystem, and so no call site can "handle" the report by dropping it.
+ *
+ * A WARNING, NOT A REFUSAL, and the reason is already written down two functions below: `verifyAgentContext`
+ * deliberately permits the old `@`-import stub, because for an organization that adopted before the version
+ * marker existed it IS valid ratified governance. Refusing here would block exactly those working adopters —
+ * the trap that check fell into twice, where every historical shape nobody anticipated bricked every launch.
+ * What was actually missing was not a gate but a SENTENCE: the un-upgraded workspace, the path it could not be
+ * read from, and the stale file it left behind, said out loud where somebody will see it.
+ */
+export function mirrorWarnings(result: MirrorResult): readonly string[] {
+  if (result.structureOnly || !result.skipped.length) return [];
+  const lines = [
+    `  ! ${result.skipped.length} harness file(s) could not be refreshed — this workspace has no rendered copy of them.`,
+    "    Run `gov upgrade` (or `gov rules build` in the governance repo) to render them.",
+  ];
+  // The stale ones first: an absent source is an un-upgraded workspace, but an absent source WITH a file at the
+  // destination is an agent reading something gov can no longer vouch for, which is the one worth the eye.
+  for (const s of result.skipped.filter((x) => x.stale !== null)) {
+    lines.push(`    STALE  ${s.at}`);
+    lines.push(`           holds ${s.stale!}; gov wanted to replace it from ${s.source}`);
+  }
+  // STALE FILES ARE NAMED INDIVIDUALLY; ABSENT ONES ARE COUNTED. An un-upgraded workspace has no rendered
+  // harness at all, so listing nine identical "no source" lines turns `gov sync`'s ordinary output into twelve
+  // lines of noise — and a warning that long is one nobody reads, which defeats the point of having stopped
+  // being silent. The stale case is different and stays per-file: something IS at that path and gov can no
+  // longer vouch for it.
+  const absent = result.skipped.filter((x) => x.stale === null);
+  if (absent.length) {
+    lines.push(`    ${absent.length} absent: ${absent.slice(0, 2).map((s) => s.at.split("/").pop()).join(", ")}`
+      + `${absent.length > 2 ? `, and ${absent.length - 2} more` : ""} — no rendered source in this workspace.`);
+  }
+  return lines;
 }
 
 /**
@@ -75,7 +295,7 @@ export interface MirrorResult {
 export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: string): MirrorResult {
   const ws = workspaceRepo;
   if (isStructureOnly(fs.readFile(path.join(projectDir, ws, "org-config.yaml")))) {
-    return { structureOnly: true, placed: [] };
+    return { structureOnly: true, placed: [], targets: [], skipped: [] };
   }
   // CLAUDE.md IS NO LONGER SPECIAL (Policy Owner, 2026-09-11). It used to be written here as
   // two @-imports, and only when absent — so a damaged copy was never repaired, and a broken
@@ -99,16 +319,60 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
   // were harness paths in a repo whose purpose is curation and knowledge. The DESTINATION is
   // still `<project>/<rel>`: those paths are vendor conventions, not gov's choice, and the
   // project directory is the agent's cwd because code repos are its siblings.
+  //
+  // AND INTO EVERY CLONED CODE REPO, NOT ONLY THE PROJECT ROOT (PRJ-121, defect 2).
+  //
+  // The project root was enough only for a vendor that walks UP the directory tree looking for its instructions
+  // file. Claude Code does; Cursor, Cline, Continue and Bob read the workspace root they were opened at. A
+  // developer who opens `<project>/910-GOV-CICD/` in their IDE — the ordinary way to work on one repo — was
+  // therefore governed by accident of vendor, on one vendor out of nine, and nothing anywhere said which.
+  const clones = codeRepoDirs(fs, projectDir, workspaceRepo);
+  const targets = [projectDir, ...clones];
   const placed: string[] = [];
+  const skipped: SkippedHarness[] = [];
   for (const rel of ROOT_HARNESS_FILES) {
-    const src = fs.readFile(path.join(projectDir, ws, HARNESS_SRC_DIR, rel));
-    if (src == null) continue;
-    const dst = path.join(projectDir, rel);
-    if (rel.includes("/")) fs.mkdirp(path.dirname(dst));
-    fs.writeFile(dst, src);
+    const source = path.join(projectDir, ws, HARNESS_SRC_DIR, rel);
+    const src = fs.readFile(source);
+    if (src == null) {
+      // A SKIPPED SOURCE IS REPORTED, and a destination gov would have overwritten but could not is reported as
+      // STALE. The bare `continue` that used to be here is defect 1: an un-upgraded workspace mirrored nothing
+      // and whatever was already at the destination SURVIVED, which is how a project ended up running Claude on
+      // the `@`-import stub retired on 2026-09-11 with a full 118-line `AGENTS.md` sitting beside it.
+      //
+      // Still not a refusal — see `mirrorWarnings` for why that would brick the adopters this is meant to help.
+      for (const dir of targets) {
+        const at = path.join(dir, rel);
+        const held = fs.readFile(at);
+        // At the project root gov would have overwritten the whole file, so anything there is stale. In a code
+        // repo gov only owns its fence, so only a frozen fence is stale — the team's own file is not gov's to
+        // call stale, and saying so would train people to ignore the warning.
+        const wouldHaveReplaced = held !== null && held.trim() !== ""
+          && (dir === projectDir || ownsWholeFile(rel) || held.includes(GOV_BLOCK_BEGIN));
+        skipped.push({ rel, source, at, stale: wouldHaveReplaced ? classifyStale(held) : null });
+      }
+      continue;
+    }
+    for (const dir of targets) {
+      const dst = path.join(dir, rel);
+      if (rel.includes("/")) fs.mkdirp(path.dirname(dst));
+      // VERBATIM AT THE PROJECT ROOT, AND FENCED IN A CODE REPO — except for the four paths gov owns outright
+      // even there. The project directory is gov's own: gov created it, nothing else writes there, and the whole
+      // file byte for byte is what `verifyAgentContext` and `gov upgrade` both assume. A code repo belongs to
+      // its team, so a file the team may already own gets a fence. See {@link composeTeamFile} and
+      // {@link ownsWholeFile}.
+      const whole = dir === projectDir || ownsWholeFile(rel);
+      fs.writeFile(dst, whole ? src : composeTeamFile(src, fs.readFile(dst)));
+    }
     placed.push(rel);
   }
-  return { structureOnly: false, placed };
+  // Keep gov's copies out of every code repo's `git status`, for the reason given on `composeExclude`.
+  if (placed.length) {
+    for (const dir of clones) {
+      const exclude = gitInfoExcludeFile(fs, dir);
+      if (exclude) fs.writeFile(exclude, composeExclude(fs.readFile(exclude), placed));
+    }
+  }
+  return { structureOnly: false, placed, targets, skipped };
 }
 
 /**
@@ -147,9 +411,22 @@ export const PROTOCOL_MARKER = "gov-protocol-version";
 /** The renderer's banner — in every harness file it has written, at every version. */
 export const RENDERED_BANNER = "GENERATED from the framework harness source";
 
-/** The old Claude mechanism: a file of `@`-imports rather than a render. Still governance —
- *  Claude resolves them and reads the protocol — and still shipped on `main` today. */
-export const IMPORT_STUB = /^@agent(?:\/session-protocol)?\.md\s*$/m;
+/**
+ * The old Claude mechanism: a file of `@`-imports rather than a render. Still governance —
+ * Claude resolves them and reads the protocol — and still shipped on `main` today.
+ *
+ * THE WORKSPACE PREFIX WAS MISSING, so the pattern did not match the stubs actually on disk (PRJ-121,
+ * 2026-09-28). It was written from the manifest's `claude-import-stub` template, which is unprefixed
+ * (`@agent/session-protocol.md`), but a stub placed at a PROJECT root has to reach into the workspace clone —
+ * `@svm-prj-work/agent/session-protocol.md` — and that is what the live project was found holding. So the one
+ * shape this exists to recognise was the one shape it did not, and the stub fell through to "gov did not render
+ * it": true, and unhelpfully vague about a mechanism gov retired and can name.
+ *
+ * Matched as "a line that is nothing but an `@`-import of an `agent.md` or a `session-protocol.md`", which is
+ * what the stub is, rather than as a list of the prefixes seen so far — the growing-list-of-shapes mistake
+ * `verifyAgentContext` made twice below.
+ */
+export const IMPORT_STUB = /^@[\w./-]*(?:agent|session-protocol)\.md\s*$/m;
 
 /**
  * Is anything governing this agent's session? — the check behind the guarantee.

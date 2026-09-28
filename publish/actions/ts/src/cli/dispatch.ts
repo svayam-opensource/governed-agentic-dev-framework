@@ -30,7 +30,7 @@ import { task } from "../lifecycle/task-run.js";
 import { merge } from "../lifecycle/merge.js";
 import { close } from "../lifecycle/close.js";
 import { sync } from "../lifecycle/sync.js";
-import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
+import { ensureRootProtocol, mirrorWarnings } from "../lifecycle/root-protocol.js";
 import { addRepo } from "../lifecycle/add-repo.js";
 import { join } from "../lifecycle/join.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
@@ -388,13 +388,20 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       // agent actually reads, stayed at whatever they were seeded with. A sync that updates
       // governance everywhere except where it is read is a sync that reports success and
       // changes nothing an agent sees.
-      ensureRootProtocol(ctx.fs, projectWorkRoot, c.workspaceRepo);
+      // A SYNC MUST NOT CLAIM WHAT IT DID NOT DO. This line was unconditional, so a structure-only
+      // organization — one that authorized no agents — was told the protocol had been re-placed when nothing
+      // was written at all, and a workspace whose harness source is missing was told the same. Both are the
+      // "reports success, changes nothing an agent sees" failure the comment above warns about.
+      const mirror = ensureRootProtocol(ctx.fs, projectWorkRoot, c.workspaceRepo);
       return {
         code: 0,
         lines: [
           `Synced ${r.projectBranch}`,
           `  ${r.synced.length} repo(s) up to date`,
-          `  session-start protocol re-placed at ${projectWorkRoot}`,
+          ...(mirror.structureOnly
+            ? ["  no agent harness placed — this organization authorized none (structure-only)"]
+            : [`  session-start protocol re-placed in ${mirror.targets.length} director${mirror.targets.length === 1 ? "y" : "ies"}`]),
+          ...mirrorWarnings(mirror),
           "",
           // THE MID-SESSION HALF OF THE GUARANTEE. gov cannot reach into a session already
           // running: the agent read its instructions file and will read it again next turn, but

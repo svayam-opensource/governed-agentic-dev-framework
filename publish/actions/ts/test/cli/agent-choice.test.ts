@@ -49,6 +49,18 @@ describe("gov-work — choosing an agent (#196)", () => {
     expect(chooseAgent(APPROVED, null, [])).to.deep.equal({ id: null, source: "none" });
   });
 
+  it("an org that authorized NO agents chooses none — whatever is installed, whatever is preferred", () => {
+    // `[]` is the structure-only decision, not "gov has no list". The filter used to be waved
+    // through on an empty list, so every installed agent counted as usable and a stated
+    // preference was launched — the organization's own rule overridden by what was on the machine.
+    expect(chooseAgent([], null, ["claude-code", "cursor"])).to.deep.equal({ id: null, source: "none" });
+    const withPref = chooseAgent([], "cursor", ["claude-code", "cursor"]);
+    expect(withPref.id).to.equal(null);
+    expect(withPref.ignoredPreference?.why, "and the person is told why not").to.contain("no longer approves it");
+    // NULL is still "no list to filter by", which is the undecided org and must not change.
+    expect(chooseAgent(null, null, ["cursor"])).to.deep.equal({ id: "cursor", source: "only-one" });
+  });
+
   it("says who decided, so nobody wonders why this one opened", () => {
     expect(choiceExplanation(chooseAgent(APPROVED, "cursor", ["claude-code", "cursor"]), name).join("\n"))
       .to.contain("your preference");

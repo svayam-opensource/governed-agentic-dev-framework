@@ -21,6 +21,13 @@ on:
     paths:
       - "publish/actions/ts/**"
       - ".github/workflows/node-ci.yml"
+      # The `generated` job below checks files rendered FROM these, so a push that changes only the
+      # protocol, a policy's cue blocks or the shipped content must still run this workflow. Leaving
+      # them out is how "the check is wired into CI" would have been true and still caught nothing.
+      - "agent/**"
+      - "publish/content/**"
+      - "package.json"
+      - "package-lock.json"
 
 # ONE RUN PER COMMIT. Keyed on the HEAD REF, not `github.ref`: for a push that is
 # `refs/heads/<branch>` and for a pull_request it is `refs/pull/<n>/merge`, so a ref-keyed
@@ -34,6 +41,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── the GENERATED files still match their sources ────────────────────────────────────────────────
+  #
+  # THREE CHECKS THAT EXISTED AND WERE CALLED BY NOTHING (PRJ-121, 2026-09-28). `render-harness --check`
+  # was implemented, documented, and invoked by no workflow, no test and no hook — so editing
+  # `agent/session-protocol.md` or a policy's `gov:cue` block and forgetting to re-render passed every gate
+  # this repository has. The nine harness files are the ONLY thing that puts governance in an agent's
+  # context; a stale one is an agent obeying a protocol nobody ratified, and it fails the way every defect
+  # in this area fails, which is silently. `docs:cli:check` is the same shape for the CLI reference.
+  #
+  # HERE, NOT A THIRD WORKFLOW. `catalog-freshness.yml` is deliberately a weekly SCHEDULE — it queries npm,
+  # and a registry hiccup must not redden a pull request. These two are offline byte comparisons and belong
+  # on the PR, so they join the workflow that already gates merges. Nothing existing is touched.
+  #
+  # ONE OS: the inputs are files in the repository and the comparison is bytes. A five-platform matrix would
+  # assert the same equality five times. Line endings are handled by `.gitattributes`, and the cross-OS
+  # suites under `test/cross-os` are where that belongs.
+  generated:
+    name: generated files match their sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: publish/actions/ts/package-lock.json
+      # BOTH manifests. `render-harness.mjs` lives at the repo root (js-yaml + tsx) and imports the renderer
+      # out of `publish/actions/ts/src`, which is the whole point of it being a thin wrapper: the publisher
+      # runs the same code an adopter's `gov rules build` runs, so the two cannot drift.
+      - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+        working-directory: publish/actions/ts
+
+      # Fails with the exact file list and the command to run. Locally: `npm run render-harness` from the
+      # repository root, then commit what it wrote.
+      - name: the nine harness files match the protocol + the policies' cue blocks
+        run: npm run render-harness:check
+
+      # Locally: `npm run docs:cli` in publish/actions/ts.
+      - name: the generated CLI reference matches the specs
+        working-directory: publish/actions/ts
+        run: npm run docs:cli:check
+
+      # ADVISORY BY CONSTRUCTION, and kept advisory here. This one asks the VENDORS — it downloads each
+      # agent's published package and looks for the context filename the catalog claims it reads — so it
+      # needs the network and exits 0 whatever it finds: a vendor renaming a file between releases is news,
+      # not a broken pull request. It runs weekly in `catalog-freshness.yml` as well; that is the run that
+      # matters. It is here so a change to the harness path list gets the vendor's answer in the same place
+      # the two gates above are read, and `continue-on-error` says out loud that it cannot fail the build —
+      # so nobody later mistakes a green tick here for a verified path.
+      #
+      # Locally: `npm run harness:freshness` in publish/actions/ts.
+      - name: (advisory) each vendor's package still ships the path gov writes for it
+        working-directory: publish/actions/ts
+        continue-on-error: true
+        run: npm run harness:freshness
+
   # ── the CLI, on every hosted OS an adopter runs it on ─────────────────────────────────────────────
   gov-work:
     name: gov-work (${{ matrix.label }})

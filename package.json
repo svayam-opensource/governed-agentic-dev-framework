@@ -15,8 +15,10 @@
     "render-harness": "node --import tsx agent/render-harness.mjs",
     "render-harness:check": "node --import tsx agent/render-harness.mjs --check"
   },
+  "_comment_devDependencies": "js-yaml parses agent/harness-manifest.yaml; tsx lets render-harness.mjs import the renderer straight out of publish/actions/ts/src so the publisher runs the SAME code an adopter's `gov rules build` runs. tsx WAS present only because packages/* happen to depend on it, and `render-harness:check` is now a required PR gate (.github/workflows/node-ci.yml) — a gate whose tool no manifest declares is a gate that disappears the day a workspace is dropped, with nothing failing. Pinned exactly to the version already in package-lock.json so declaring it re-resolved nothing.",
   "devDependencies": {
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "tsx": "4.23.1"
   },
   "workspaces": [
     "packages/*"

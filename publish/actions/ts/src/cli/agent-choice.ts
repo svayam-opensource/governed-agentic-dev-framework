@@ -40,11 +40,19 @@ export function chooseAgent(
   preference: string | null,
   runnableIds: readonly string[],
 ): ChoiceResult {
-  const allowed = (approved ?? []).map((a) => a.id);
-  const usable = runnableIds.filter((id) => allowed.length === 0 || allowed.includes(id));
+  // NULL IS "NO LIST", `[]` IS "NO AGENTS" (Policy Owner, 2026-09-28).
+  //
+  // This read `(approved ?? []).map(…)` and then waved the filter through whenever
+  // `allowed.length === 0` — one test for two opposite facts. So an organization that recorded
+  // `authorized_agents: none` had EVERY installed agent treated as usable, and a person with a
+  // stated preference got it launched: the org's decision overridden by whatever was on the
+  // machine. Null still means gov has no list to filter by; an empty list is a rule, and it
+  // filters everything out, which is what it says.
+  const allowed = approved === null ? null : approved.map((a) => a.id);
+  const usable = allowed === null ? [...runnableIds] : runnableIds.filter((id) => allowed.includes(id));
 
   if (preference) {
-    if (allowed.length && !allowed.includes(preference)) {
+    if (allowed !== null && !allowed.includes(preference)) {
       // Checked here, every time — so a policy narrowed yesterday takes effect today.
       return {
         id: pickWithout(usable, approved),

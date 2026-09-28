@@ -11,6 +11,7 @@ import { workspaceStateMessage } from "../resolve/resolve-gov.js";
 import { checkVersionCompat } from "./version-compat.js";
 import { missingScopes, RECOMMENDED_SCOPES } from "./fix-env.js";
 import { unknownOrgConfigKeys } from "../config/org-config.js";
+import { agentsDiagnostic } from "../cli/approve-agents-step.js";
 import { assessProtection } from "./protection-check.js";
 import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
 
@@ -188,6 +189,10 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // unknown setting; `org-config.yaml` — the file that gets reviewed and merged — dropped one in silence.
     // A WARNING, never a failure: the keys gov did read are unaffected, and a config gov refuses to load is a
     // gov that cannot tell you why.
+    // WHICH AGENTS THIS ORGANIZATION AUTHORIZED, as a STATE and not a scolding. `none` is a decision — an
+    // organization may adopt the framework for the structure alone — so it reports `ok`. What warns is an org
+    // that never answered, because it is being governed by a list it did not choose.
+    ...(() => { const a = agentsDiagnostic(facts.orgConfigText); return a ? [a] : []; })(),
     ...(facts.orgConfigText
       ? [((): Diagnostic => {
           const unknown = unknownOrgConfigKeys(facts.orgConfigText!);

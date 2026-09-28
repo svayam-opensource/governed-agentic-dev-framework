@@ -17,7 +17,7 @@ import { type Board, validateBoard, boardValidationMessage } from "./board.js";
 import type { Vcs } from "./vcs.js";
 import type { Fs } from "./fs-io.js";
 import type { AnchorCreator } from "./anchor.js";
-import { ensureRootProtocol } from "./root-protocol.js";
+import { ensureRootProtocol, mirrorWarnings } from "./root-protocol.js";
 import { deriveProjectIdentity, parseBoardUrl, boardTitleFor } from "./identity.js";
 import { seedPathsFor, detectLeftovers, type LeftoverArtifact, type SeedPaths } from "./leftover.js";
 import { planCleanup, planLines, reverse, type CleanupStep } from "./cleanup.js";
@@ -439,7 +439,13 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     // file to the paths those agents read. (It used to also drop a Claude-only SessionStart hook; removed
     // 2026-09-11 — one mechanism for all agents.) Best-effort finalization: the workspace worktree, with
     // the rendered harness in it, is present by now. Same helper the interactive Work flow uses.
-    ensureRootProtocol(deps.fs, paths.projectWorkRoot, config.workspaceRepo);
+    // AND into each code-repo worktree Phase C just created, because a developer opens ONE repo in an IDE far
+    // more often than the project directory, and most vendors read only the root they were opened at (PRJ-121).
+    // The report is logged rather than dropped: a source gov could not read leaves whatever was already at the
+    // destination in place, which is a stale file an agent will be governed by with nothing said (PRJ-121).
+    for (const line of mirrorWarnings(ensureRootProtocol(deps.fs, paths.projectWorkRoot, config.workspaceRepo))) {
+      log(line.trim());
+    }
 
     // NAME THE BOARD WHAT GOV CALLS IT (Policy Owner, 2026-09-15).
     //

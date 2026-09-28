@@ -14,7 +14,7 @@ import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveProjectIdentity } from "../lifecycle/identity.js";
 import { deriveStatus } from "../lifecycle/state.js";
 import { boardNumberFromProjectId } from "../lifecycle/task.js";
-import { ensureRootProtocol } from "../lifecycle/root-protocol.js";
+import { ensureRootProtocol, mirrorWarnings } from "../lifecycle/root-protocol.js";
 import type { GovSnapshot } from "../lifecycle/governance-snapshot.js";
 import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines, type AgentCandidate } from "./agent-catalog.js";
 import { chooseAgent, choiceExplanation } from "./agent-choice.js";
@@ -519,7 +519,7 @@ function withBoardCache(deps: WorkFlowDeps): WorkFlowDeps {
 
 // `ensureRootProtocol` (imported above) lives in a leaf lifecycle module so BOTH `seed` and this Work flow use
 // it (no cli→lifecycle cycle). Re-exported so existing importers/tests keep resolving it here.
-export { ensureRootProtocol };
+export { ensureRootProtocol, mirrorWarnings };
 
 export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}): Promise<number> {
   const deps = withBoardCache(rawDeps);
@@ -702,7 +702,11 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
     if (code !== 0) return code;
   }
 
-  ensureRootProtocol(deps.fs, projectDir, deps.config.workspaceRepo);   // so an agent launched at <project> runs session-start
+  // So an agent launched at <project> — OR inside any of its code-repo clones — runs session-start.
+  // The warnings are printed, not discarded: a source gov could not read means a stale file an agent is
+  // about to be governed by, and the only thing missing from that failure was somebody being told (PRJ-121).
+  const mirror = ensureRootProtocol(deps.fs, projectDir, deps.config.workspaceRepo);
+  for (const line of mirrorWarnings(mirror)) print(line);
   // …and the governing files it must read, copied from the default branch into the project (PRJ-121).
   const snap = deps.snapshotGovernance?.(projectDir) ?? null;
   const kickoff = (): string => sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome, snap);
