@@ -9,7 +9,100 @@
  */
 import * as os from "node:os";
 import { parseRepoOverrides } from "./repo-overrides.js";
+import { DOMAIN_ROLES } from "./codeowners.js";
 import { readTopLevelScalar, expandTilde } from "../resolve/node-env.js";
+
+/**
+ * THE SCALARS THIS READER READS — the one list, and the only way to name one (PRJ-121, 2026-09-27).
+ *
+ * `get()` below takes a {@link OrgConfigScalarKey}, so a key read without being declared here is a TYPE
+ * error rather than a thing someone remembers to do, and `test/config/org-config-keys.test.ts` re-reads this
+ * file's text to catch a reader that goes around `get()` entirely. The list exists because gov OWNS the
+ * schema of this channel: an org that writes `require_two_approvals: true`, has it reviewed and merged, and
+ * is told nothing has configured nothing — and only a list gov publishes can say so (see
+ * {@link unknownOrgConfigKeys}).
+ */
+const SCALARS = [
+  "org_name", "org_short_name", "org_slug", "org_slug_lower", "github_org",
+  "org_gov_repo", "workspace_repo", "org_repo_url",
+  "default_branch", "default_code_branch",
+  "agent_work_root", "gov_workspace", "policy_owner_email",
+  "vault_addr", "oidc_base", "gov_account",
+] as const;
+export type OrgConfigScalarKey = (typeof SCALARS)[number];
+
+/** Endpoints copied out of the `services:` block into {@link OrgConfig.services}. */
+const SERVICE_ENDPOINTS = ["vault", "oidc", "oidc_client_id", "jenkins", "npm", "docker"] as const;
+
+/**
+ * Every key gov reads UNDER `services:` — the endpoints plus `gov_account`, which is read there as a
+ * fallback for the top-level spelling and is not an endpoint.
+ */
+export const ORG_CONFIG_SERVICE_KEYS = [...SERVICE_ENDPOINTS, "gov_account"] as const;
+export type OrgConfigServiceKey = (typeof ORG_CONFIG_SERVICE_KEYS)[number];
+
+/**
+ * Top-level keys whose value is a BLOCK or a LIST gov reads with its own parser rather than `get()`. Listed
+ * so the block heading is recognised, and so everything indented beneath it is skipped as gov's business
+ * (nested keys are never reported unknown — the block's own parser owns them).
+ */
+const BLOCKS = [
+  "services",           // readServiceScalar, below
+  "repo_overrides",     // config/repo-overrides.ts
+  "env_branches",       // readTopLevelList, below
+  "authorized_agents",  // config/approved-agents.ts — which agents this org authorizes
+  "session",            // written by setup; `access_ttl_sec` is read by the DEPLOY clients (gov-cicd/gov-infra)
+] as const;
+
+/**
+ * Keys gov reads SOMEWHERE ELSE than this file. They belong on the list for one reason: the list answers
+ * "does gov read this key", and an org told `legal_owner_github` is ignored would be told a falsehood — the
+ * false-alarm failure mode `maintain/doctor.ts` keeps arguing against. Each names its reader; the role
+ * handles come from CODEOWNERS' own table, so adding a role cannot drift from this.
+ */
+const READ_ELSEWHERE: readonly string[] = [
+  "policy_owner_github",                    // config/codeowners.ts — the Policy Owner line
+  ...DOMAIN_ROLES.map((r) => r.key),        // legal_ / infra_ / system_arch_ / data_arch_owner_github
+  "policy_effective_date",                  // setup.ts round-trip + <POLICY_EFFECTIVE_DATE> substitution
+];
+
+/** Every top-level key gov reads, from the one place each is declared. Exported for `gov doctor`. */
+export const ORG_CONFIG_KEYS: readonly string[] = [...SCALARS, ...BLOCKS, ...READ_ELSEWHERE];
+
+/**
+ * Top-level keys present in the text that gov does not read — pure, and never a reason to stop.
+ *
+ * WHY THIS EXISTS. `preferences.ts` has said "gov does not know this setting — ignored" since it was
+ * written, and `org-config.yaml` — the governed channel, the one reviewed and merged — said nothing at all.
+ * A typed channel that silently drops what it does not understand cannot be trusted by the person filling
+ * it in: a misspelling (`defualt_branch`) and an invention (`require_two_approvals`) both read as success.
+ *
+ * NEVER FATAL, NEVER A REASON TO STOP PARSING. An unknown key changes nothing about the keys gov did read,
+ * and a config gov refuses to load is a gov that cannot tell you why.
+ *
+ * ONE CAVEAT, SAID OUT LOUD: `setup/create.ts`'s token sweep turns EVERY top-level scalar into a
+ * `<UPPERCASE>` token for content substitution, so a key on nobody's list may still reach an adopter's
+ * documents that way. "gov does not read this" is a statement about gov's typed readers, which is what the
+ * person writing a governance value is relying on.
+ */
+export function unknownOrgConfigKeys(text: string): string[] {
+  const known = new Set(ORG_CONFIG_KEYS);
+  const out: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/\r$/, "");
+    if (!line.trim()) continue;                       // blank
+    if (/^\s/.test(line)) continue;                   // indented → inside a block, not a top-level key
+    if (line.trimStart().startsWith("#")) continue;   // comment
+    if (/^-\s/.test(line)) continue;                  // a list item, not a mapping key
+    if (/^(---|\.\.\.)\s*$/.test(line)) continue;     // document markers
+    const m = /^([A-Za-z_][A-Za-z0-9_.-]*)\s*:/.exec(line);
+    if (!m) continue;                                 // not a `key:` line at all
+    const key = m[1]!;
+    if (known.has(key) || out.includes(key)) continue;
+    out.push(key);
+  }
+  return out;
+}
 
 export interface OrgConfig {
   readonly orgName: string;
@@ -92,7 +185,7 @@ function readTopLevelList(text: string, key: string): string[] {
 }
 
 /** Read a scalar under the `services:` block (one indent level), stripping quotes + inline comments. */
-function readServiceScalar(text: string, key: string): string | undefined {
+function readServiceScalar(text: string, key: OrgConfigServiceKey): string | undefined {
   let inServices = false;
   for (const line of text.split(/\r?\n/)) {
     if (/^services:\s*$/.test(line)) { inServices = true; continue; }
@@ -105,12 +198,13 @@ function readServiceScalar(text: string, key: string): string | undefined {
 }
 
 export function parseOrgConfig(text: string, home: string = os.homedir()): OrgConfig {
-  const get = (key: string): string => readTopLevelScalar(text, key) ?? "";
-  const svc = (key: string): string | undefined => readServiceScalar(text, key);
+  // TYPED, so the reader cannot read a key the published list does not name (see SCALARS above).
+  const get = (key: OrgConfigScalarKey): string => readTopLevelScalar(text, key) ?? "";
+  const svc = (key: OrgConfigServiceKey): string | undefined => readServiceScalar(text, key);
   // The org's service endpoints (org-level, governed). gov-work USES vault/oidc/account; jenkins/npm/docker
   // are read by the gov-cicd plugin — kept here as a generic map so the banner/creds see them uniformly.
   const services: Record<string, string> = {};
-  for (const k of ["vault", "oidc", "oidc_client_id", "jenkins", "npm", "docker"]) { const v = svc(k); if (v) services[k] = v; }
+  for (const k of SERVICE_ENDPOINTS) { const v = svc(k); if (v) services[k] = v; }
 
   const orgName = get("org_name");
   const orgShortName = get("org_short_name");

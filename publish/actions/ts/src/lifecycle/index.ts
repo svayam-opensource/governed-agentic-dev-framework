@@ -4,6 +4,7 @@
 export * from "./identity.js";
 export * from "./board.js";
 export * from "./gh-board.js";
+export * from "./branch-protection.js";
 export * from "./vcs.js";
 export * from "./leftover.js";
 export * from "./transaction.js";

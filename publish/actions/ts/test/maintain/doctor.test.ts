@@ -177,3 +177,79 @@ describe("contentLayoutOf — derived from the tree, never stored", () => {
       "mid-upgrade, the NEW layout is the answer").to.equal("framework");
   });
 });
+
+// PRJ-121, 2026-09-27 — gov owns the schema of org-config.yaml, so gov must report what it ignored in it.
+// An org can add `require_two_approvals: true`, have it reviewed and merged, and believe it configured
+// something. `preferences.ts` has always said "gov does not know this setting"; this channel said nothing.
+describe("org-config — what gov ignored, said out loud", () => {
+  it("names the keys gov does not read, and counts them", () => {
+    const r = doctor(facts({
+      workspaceChecked: true,
+      contentVersion: "1.0.0",
+      orgConfigText: 'org_name: "Acme"\nrequire_two_approvals: true\nfoo: bar\n',
+    }));
+    const row = r.diagnostics.find((d) => d.name === "org-config")!;
+    expect(row.status, "an unknown key is a warning, never a failure").to.equal("warn");
+    expect(row.detail).to.equal("2 keys gov does not read — require_two_approvals, foo (ignored)");
+    expect(r.ok, "and the report still passes").to.equal(true);
+  });
+
+  it("singular reads as singular", () => {
+    const row = doctor(facts({ orgConfigText: "require_two_approvals: true\n" })).diagnostics.find((d) => d.name === "org-config")!;
+    expect(row.detail).to.equal("1 key gov does not read — require_two_approvals (ignored)");
+  });
+
+  it("says so when everything is recognised", () => {
+    const row = doctor(facts({ orgConfigText: 'org_name: "Acme"\ndefault_branch: "main"\n' })).diagnostics.find((d) => d.name === "org-config")!;
+    expect(row.status).to.equal("ok");
+    expect(row.detail).to.equal("all keys recognised");
+  });
+
+  it("no config examined → no row (a row about a fact nobody gathered is worse than no row)", () => {
+    expect(doctor(facts()).diagnostics.find((d) => d.name === "org-config")).to.equal(undefined);
+    expect(doctor(facts({ orgConfigText: null })).diagnostics.find((d) => d.name === "org-config")).to.equal(undefined);
+  });
+});
+
+// PRJ-121, 2026-09-27 — POL-040a §3.3 was UNVERIFIED: nothing in src/ mentioned branch protection. It is the
+// only layer that holds when an agent runs from outside gov altogether.
+describe("branch protection — POL-040a, in the report", () => {
+  const protection = (over: Partial<NonNullable<DoctorFacts["protection"]>> = {}) => ({
+    repo: "Acme/acme-gov",
+    branch: "main",
+    facts: { pullRequestRequired: true, approvingReviews: 1, enforceAdmins: true, requiredStatusChecks: ["approver-check"] },
+    ...over,
+  });
+
+  it("four rows, and a compliant repo keeps the report green", () => {
+    const r = doctor(facts({ protection: protection() }));
+    expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(4);
+    expect(r.ok).to.equal(true);
+  });
+
+  it("a missing requirement FAILS the report — this is the layer that holds outside gov", () => {
+    const r = doctor(facts({ protection: protection({ facts: { pullRequestRequired: true, approvingReviews: 0, enforceAdmins: false, requiredStatusChecks: [] } }) }));
+    expect(r.ok).to.equal(false);
+    expect(r.diagnostics.filter((d) => d.status === "fail").map((d) => d.name))
+      .to.deep.equal(["protection · approving review", "protection · no bypass", "protection · approver check"]);
+  });
+
+  it("unreadable is ONE warning that does not fail the report, and does not read as unprotected", () => {
+    const r = doctor(facts({ protection: protection({ facts: null, why: "gh is signed in but not an admin of this repo" }) }));
+    const row = r.diagnostics.find((d) => d.name === "branch protection")!;
+    expect(row.status).to.equal("warn");
+    expect(row.detail).to.contain("UNKNOWN IS NOT UNPROTECTED");
+    expect(r.ok).to.equal(true);
+    expect(r.diagnostics.filter((d) => d.name.startsWith("protection · ")), "no invented requirement rows").to.have.length(0);
+  });
+
+  it("not probed → no rows at all", () => {
+    expect(doctor(facts()).diagnostics.filter((d) => d.name.includes("protection"))).to.have.length(0);
+  });
+
+  it("the rows render with their marks, protection included", () => {
+    const lines = formatDoctorReport(doctor(facts({ protection: protection({ facts: { pullRequestRequired: false, approvingReviews: 0, enforceAdmins: false, requiredStatusChecks: [] } }) })));
+    expect(lines.some((l) => l.includes("✗ protection · pull request:"))).to.equal(true);
+    expect(lines[lines.length - 1]).to.contain("doctor: FAILED");
+  });
+});

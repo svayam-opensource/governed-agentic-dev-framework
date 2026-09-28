@@ -10,6 +10,9 @@ import type { ResolveResult } from "../resolve/types.js";
 import { workspaceStateMessage } from "../resolve/resolve-gov.js";
 import { checkVersionCompat } from "./version-compat.js";
 import { missingScopes, RECOMMENDED_SCOPES } from "./fix-env.js";
+import { unknownOrgConfigKeys } from "../config/org-config.js";
+import { assessProtection } from "./protection-check.js";
+import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
 
@@ -64,6 +67,30 @@ export interface DoctorFacts {
   readonly workspaceChecked?: boolean;
   /** The workspace's content VERSION marker, or null. */
   readonly contentVersion?: string | null;
+  /**
+   * The TEXT of the workspace's `org-config.yaml`, for the unknown-key row. Absent/null = no config was
+   * examined, so no row — the rule the rest of this file keeps: a row about a fact nobody gathered is worse
+   * than no row. Doctor computes the row itself (`unknownOrgConfigKeys` is pure), so the caller only reads a
+   * file and this stays testable from a string.
+   */
+  readonly orgConfigText?: string | null;
+  /**
+   * What the branch-protection read found for the ONE branch gov can name without a board: the governance
+   * repo's default branch (POL-040a §3.3). Absent = not probed (gh missing, not signed in, no org config).
+   *
+   * Participating CODE repos are equally in scope for the policy and are deliberately not here: their list
+   * comes from a project's board, which `gov doctor` does not have — it is a machine/workspace check, not a
+   * project one. `gov close`'s gates are where a project's own repos get read.
+   */
+  readonly protection?: {
+    readonly repo: string;
+    readonly branch: string;
+    /** null = gh could not answer. NOT the same as unprotected; see protection-check.ts. */
+    readonly facts: ProtectionFacts | null;
+    readonly why?: string;
+    /** The approver-verifying check this org requires, when it is not the framework's default name. */
+    readonly approverCheck?: string;
+  };
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -156,6 +183,32 @@ export function doctor(facts: DoctorFacts): DoctorReport {
             ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: `files that are not this org's (${facts.staleArtifacts.join(", ")}) — \`gov upgrade --apply\` removes them (or \`gov upgrade --pr\` to review first)` }
             : { name: "content layout", status: "ok" as DiagnosticStatus, detail: "current" },
         ]
+      : []),
+    // WHAT GOV IGNORED IN ITS OWN CHANNEL (PRJ-121, 2026-09-27). `preferences.ts` has always reported an
+    // unknown setting; `org-config.yaml` — the file that gets reviewed and merged — dropped one in silence.
+    // A WARNING, never a failure: the keys gov did read are unaffected, and a config gov refuses to load is a
+    // gov that cannot tell you why.
+    ...(facts.orgConfigText
+      ? [((): Diagnostic => {
+          const unknown = unknownOrgConfigKeys(facts.orgConfigText!);
+          return unknown.length
+            ? {
+                name: "org-config",
+                status: "warn" as DiagnosticStatus,
+                detail: `${unknown.length} ${unknown.length === 1 ? "key" : "keys"} gov does not read — ${unknown.join(", ")} (ignored)`,
+              }
+            : { name: "org-config", status: "ok" as DiagnosticStatus, detail: "all keys recognised" };
+        })()]
+      : []),
+    // POL-040a §3.3 — the only enforcement that still holds for work done OUTSIDE gov, and until now the one
+    // thing gov never looked at.
+    ...(facts.protection
+      ? assessProtection(facts.protection.facts, {
+          repo: facts.protection.repo,
+          branch: facts.protection.branch,
+          ...(facts.protection.approverCheck ? { approverCheck: facts.protection.approverCheck } : {}),
+          ...(facts.protection.why ? { why: facts.protection.why } : {}),
+        })
       : []),
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
