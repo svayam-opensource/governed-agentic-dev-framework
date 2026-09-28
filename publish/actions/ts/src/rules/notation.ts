@@ -48,7 +48,18 @@ export type DiagnosticKind =
   /** §4.1 — a `gov:check` naming a predicate outside the six. */
   | "unknown-check-kind"
   /** §4.1 — a `gov:check` whose attributes cannot be read. */
-  | "malformed-check";
+  | "malformed-check"
+  /**
+   * RULE 7 — a rule whose ACTOR cannot be found (2026-09-28).
+   *
+   * Not an error: a warning, and the reason it exists is measurable. A classifier over the framework's own
+   * policy could not place 47% of clauses, because they use a pronoun — *"It MUST commit nothing, to any
+   * branch"* — with the subject in a previous sentence. If a parser cannot find the actor, neither can a reader
+   * skimming for "is this about me?", and neither can an agent deciding whether a rule governs what it is
+   * about to do. Naming the actor also makes the enforcement class derivable rather than guessed: a clause
+   * whose actor is `gov` describes the program, so editing its prose changes nothing.
+   */
+  | "actor-unnamed";
 
 export interface Diagnostic {
   readonly kind: DiagnosticKind;
@@ -63,6 +74,25 @@ export interface Diagnostic {
 }
 
 /** One paragraph (or list item) of a numbered section, classified. */
+/** Who the clause is about. `unknown` is what rule 7 reports. */
+export type Actor = "gov" | "agent" | "person" | "unknown";
+
+/**
+ * Find the actor a clause names.
+ *
+ * Deliberately conservative about `person`: an organization writes about roles it invented, so the list cannot
+ * be closed, and a clause naming no actor gets `unknown` rather than a guess. A wrong actor would be worse than
+ * none — it decides the enforcement class, and `implemented` tells a reader "your words change nothing here".
+ */
+export function actorOf(text: string): Actor {
+  const t = text.replace(/`[^`]*`/g, " ").toLowerCase();
+  // gov first: "gov MUST refuse" is about the program even when an agent is mentioned in the same clause.
+  if (/\bgov\b|\bthe framework\b|\bthe compiler\b|\bthe renderer\b/.test(t)) return "gov";
+  if (/\ban agent\b|\bagents\b|\bthe agent\b|\bevery agent\b|\bno agent\b/.test(t)) return "agent";
+  if (/\bthe (policy owner|requester|owner|organization|developer|human|assignee|approver)\b|\ba human\b|\bhumans\b|\brepresentatives?\b/.test(t)) return "person";
+  return "unknown";
+}
+
 export interface Clause {
   readonly doc: string;
   /** `4.2`, from the heading above it. */
@@ -82,6 +112,8 @@ export interface Clause {
   readonly level?: Level;
   /** True only when a modal mapped to a level. `!governed` covers rejected modals AND rule 6 prose. */
   readonly governed: boolean;
+  /** Rule 7: who the clause is about. `unknown` is reported, never guessed at. */
+  readonly actor: Actor;
 }
 
 export interface ParseResult {
@@ -318,6 +350,18 @@ export function parseClauses(doc: string, text: string): ParseResult {
           message: `two levels in one clause (${modals.join(", ")} → ${levels.join(", ")}) — one clause, one level: split it so each has its own clause and POL number.`,
         });
       }
+      // Rule 7 — a RULE must name its actor. Unlevelled prose is exempt: it is not a rule, so there is nobody
+      // for it to be about. Reported as a warning-shaped diagnostic rather than an error, because the framework's
+      // own policy has 90-odd clauses to fix and a hard failure would mean nobody could build until they were all
+      // done — which is how a good rule gets switched off.
+      if (levels.length === 1 && actorOf(item.text) === "unknown") {
+        diagnostics.push({
+          kind: "actor-unnamed", doc, section: block.section, line: item.line,
+          message: "this clause states a rule but names no actor. Say who it is about — `gov`, `an agent`, or a "
+            + "named role — so a reader (and an agent, and the classifier) can tell whether it applies to them. "
+            + "A pronoun whose subject is in a previous sentence is what this rule exists to catch.",
+        });
+      }
       // Every rejected modal is reported wherever it appears, not only when it comes first: a clause reading
       // "MUST do X and MAY NOT do Y" has both faults and the author should hear about both.
       for (const m of modals) {
@@ -330,7 +374,7 @@ export function parseClauses(doc: string, text: string): ParseResult {
       const level = levels[0];
       clauses.push({
         doc, section: block.section, ordinal, line: item.line, text: item.text,
-        ...(modal ? { modal } : {}), ...(level ? { level } : {}), governed: Boolean(level),
+        ...(modal ? { modal } : {}), ...(level ? { level } : {}), governed: Boolean(level), actor: actorOf(item.text),
       });
     }
   }

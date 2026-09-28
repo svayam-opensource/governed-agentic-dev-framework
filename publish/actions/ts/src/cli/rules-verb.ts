@@ -14,7 +14,7 @@
  * their own compile report, and it says so in the output every time.
  */
 import * as path from "node:path";
-import { build, renderRuleMap, type PolicyDoc } from "../rules/rules-build.js";
+import { build, renderRuleMap, isWarning, type PolicyDoc } from "../rules/rules-build.js";
 import { renderAll, type RenderFailure } from "../rules/harness-render.js";
 import { LOCK_FILE, parseLock, writeLock, parseLegacyYamlLock, nextFree } from "../rules/pol-lock-io.js";
 import { FRAMEWORK_POL_START } from "../rules/pol-lock.js";
@@ -125,7 +125,9 @@ export function plan(deps: RulesDeps, input: RulesInput): {
   return {
     result: {
       files, report: built.report, asks: built.asks,
-      diagnostics: built.diagnostics.map((d) => `  ${d.doc} §${d.section}:${d.line}  ${d.kind} — ${d.message}`),
+      // Only ERRORS block. A warning is a backlog item, and a build that refuses until a 150-item backlog is
+      // cleared is a build nobody runs.
+      diagnostics: built.diagnostics.filter((d) => !isWarning(d)).map((d) => `  ${d.doc} §${d.section}:${d.line}  ${d.kind} — ${d.message}`),
       ...(lockWrite.text ? { lockText: lockWrite.text } : {}),
       ...(got.migrated ? { migrated: true } : {}),
     },

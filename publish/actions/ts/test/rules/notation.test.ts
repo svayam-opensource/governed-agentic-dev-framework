@@ -9,7 +9,7 @@
  * clause with no modal is reported, never dropped — the one number a Policy Owner cannot otherwise see.
  */
 import { expect } from "chai";
-import { formatReport, parseClauses, snippet, headingSection, type Clause } from "../../src/rules/notation.js";
+import { formatReport, parseClauses, snippet, headingSection, actorOf, type Clause, type Diagnostic } from "../../src/rules/notation.js";
 
 /** A policy document shaped like the real ones: front matter, a normative table, a stored cue, a fenced sample. */
 const DOC = [
@@ -68,6 +68,16 @@ const DOC = [
 const parsed = parseClauses("policies/approved-technologies.md", DOC);
 const at = (section: string, ordinal: number): Clause =>
   parsed.clauses.find((c) => c.section === section && c.ordinal === ordinal)!;
+
+/**
+ * Diagnostics in a section, EXCLUDING rule 7's `actor-unnamed`.
+ *
+ * Rule 7 is a warning about prose style and fires on most real clauses until they are rewritten to name their
+ * actor. A test about rule 2 or about skipping tables must not also assert that the fixture's wording is
+ * exemplary — that coupling is how one new warning breaks nine unrelated tests.
+ */
+const errorsIn = (section: string): readonly Diagnostic[] =>
+  parsed.diagnostics.filter((d) => d.section === section && d.kind !== "actor-unnamed");
 
 describe("notation — rule 1: the modal is ALL CAPS, or it is not a modal", () => {
   it('a lowercase "must" in ordinary prose creates no rule at all', () => {
@@ -128,7 +138,7 @@ describe("notation — rule 2: one clause, one modal", () => {
   });
 
   it("the SAME modal twice is fine — a clause may have two obligations at one level", () => {
-    const one = parseClauses("d.md", "### 1.1 S\n\nA unit MUST declare it and MUST keep it current.\n");
+    const one = parseClauses("d.md", "### 1.1 S\n\nAn agent MUST declare it and MUST keep it current.\n");
     expect(one.diagnostics).to.deep.equal([]);
     expect(one.clauses[0]!.level).to.equal("C01");
   });
@@ -145,7 +155,7 @@ describe("notation — rule 2: one clause, one modal", () => {
     // would report as an error and no bullet could hold a POL number of its own.
     expect(at("4.3", 1).level).to.equal("C01");
     expect(at("4.3", 2).level).to.equal("C03");
-    expect(parsed.diagnostics.filter((d) => d.section === "4.3")).to.deep.equal([]);
+    expect(errorsIn("4.3")).to.deep.equal([]);
   });
 });
 
@@ -156,7 +166,7 @@ describe("notation — rule 3: negation keeps the level", () => {
   });
 
   it("SHALL NOT is C01", () => {
-    const one = parseClauses("d.md", "### 1.1 S\n\nCredentials SHALL NOT enter a repository.\n");
+    const one = parseClauses("d.md", "### 1.1 S\n\nAn agent SHALL NOT let credentials enter a repository.\n");
     expect(one.clauses[0]!.modal).to.equal("SHALL NOT");
     expect(one.clauses[0]!.level).to.equal("C01");
     expect(one.diagnostics, "a prohibition is not two modals").to.deep.equal([]);
@@ -165,7 +175,7 @@ describe("notation — rule 3: negation keeps the level", () => {
   it("a prohibition split over two lines is still one modal", () => {
     // THE HAZARD: clauses are re-wrapped by editors. `MUST\nNOT` read as a bare MUST would turn a prohibition
     // into a requirement to do the thing.
-    const one = parseClauses("d.md", "### 1.1 S\n\nA unit MUST\nNOT vendor a dependency.\n");
+    const one = parseClauses("d.md", "### 1.1 S\n\nAn agent MUST\nNOT vendor a dependency.\n");
     expect(one.clauses[0]!.modal).to.equal("MUST NOT");
     expect(one.diagnostics).to.deep.equal([]);
   });
@@ -209,7 +219,7 @@ describe("notation — rule 5: SHOULD is refused with a pointer", () => {
   });
 
   it("a refused modal is reported even when it is not the FIRST modal in the clause", () => {
-    const one = parseClauses("d.md", "### 1.1 S\n\nA unit MUST declare it and SHOULD keep it small.\n");
+    const one = parseClauses("d.md", "### 1.1 S\n\nAn agent MUST declare it and SHOULD keep it small.\n");
     // NOT a split-clause: SHOULD carries no level, so the clause states exactly one (C01). Rule 2 fires on
     // distinct LEVELS, not on the count of modals — corrected 2026-09-26 after the first version failed on the
     // framework's own policy, where ten clauses pair an obligation with its prohibition at the same level.
@@ -217,13 +227,13 @@ describe("notation — rule 5: SHOULD is refused with a pointer", () => {
   });
 
   it("two modals at the SAME level are one clause, not a split — the corpus case that corrected rule 2", () => {
-    const same = parseClauses("d.md", "### 1.1 S\n\nThe id MUST be issued by seed and MUST NOT be assigned by hand.\n");
+    const same = parseClauses("d.md", "### 1.1 S\n\ngov MUST issue the id at seed and MUST NOT accept one assigned by hand.\n");
     expect(same.diagnostics, "a prohibition qualifying its own obligation is one rule").to.deep.equal([]);
     expect(same.clauses[0]!.level).to.equal("C01");
   });
 
   it("two modals at DIFFERENT levels is still a split — neither the POL number nor the cue could say which half", () => {
-    const two = parseClauses("d.md", "### 1.1 S\n\nA project MAY be reassigned and SHALL NOT be reopened.\n");
+    const two = parseClauses("d.md", "### 1.1 S\n\nAn agent MAY reassign a project and SHALL NOT reopen a closed one.\n");
     expect(two.diagnostics.map((x) => x.kind)).to.deep.equal(["split-clause"]);
     expect(two.diagnostics[0]!.message).to.contain("two levels in one clause");
   });
@@ -260,7 +270,7 @@ describe("notation — what is NOT a clause", () => {
     // THE HAZARD: that table lists MUST · MUST NOT · MAY · CAN with their levels. Read as a clause, the first
     // thing the compiler would report about the exemplar document is a split-clause error in the normative table.
     expect(parsed.clauses.some((c) => c.text.startsWith("|")), "a table row became a clause").to.equal(false);
-    expect(parsed.diagnostics.filter((d) => d.section === "4.1"), "and no error from it").to.deep.equal([]);
+    expect(errorsIn("4.1"), "and no error from it").to.deep.equal([]);
   });
 
   it("a fenced block is a sample: a modal inside it is an example OF the notation", () => {
@@ -363,5 +373,51 @@ describe("notation — the compile report", () => {
   it("snippet flattens and cuts at 60 characters", () => {
     expect(snippet("a\n  b   c")).to.equal("a b c");
     expect(snippet("x".repeat(100))).to.have.length(61).and.to.match(/…$/);
+  });
+});
+
+describe("notation — rule 7: a rule names its actor", () => {
+  // WHY THIS RULE EXISTS, measured: a classifier over the framework's own policy could not place 47% of clauses,
+  // because they use a pronoun with the subject in a previous sentence — "It MUST commit nothing, to any branch".
+  // If a parser cannot find the actor, neither can a reader skimming for "is this about me?", and neither can an
+  // agent deciding whether the rule governs what it is about to do.
+  it("finds gov, and gov WINS when an agent is mentioned in the same clause", () => {
+    expect(actorOf("gov MUST refuse to launch an agent whose file is empty.")).to.equal("gov");
+    expect(actorOf("The framework MUST ship the workflow.")).to.equal("gov");
+  });
+
+  it("finds an agent", () => {
+    expect(actorOf("An agent MUST hard stop all work immediately.")).to.equal("agent");
+    expect(actorOf("Agents MAY be custom-built.")).to.equal("agent");
+  });
+
+  it("finds a person, by role", () => {
+    expect(actorOf("The Policy Owner MUST approve the change.")).to.equal("person");
+    expect(actorOf("The requester MUST raise a pull request.")).to.equal("person");
+  });
+
+  it("says UNKNOWN rather than guessing — a wrong actor decides the enforcement class", () => {
+    expect(actorOf("It MUST commit nothing, to any branch.")).to.equal("unknown");
+    expect(actorOf("A pull request MUST be required before merging.")).to.equal("unknown");
+  });
+
+  it("ignores an actor mentioned only inside code, which is a reference and not a subject", () => {
+    expect(actorOf("A branch named `gov-managed` MUST match the pattern.")).to.equal("unknown");
+  });
+
+  it("reports a RULE with no actor, and never reports unlevelled prose", () => {
+    const rule = parseClauses("d.md", "### 1.1 S\n\nIt MUST commit nothing.\n");
+    expect(rule.diagnostics.map((d) => d.kind)).to.deep.equal(["actor-unnamed"]);
+
+    const prose = parseClauses("d.md", "### 1.1 S\n\nThis section explains the rules that follow.\n");
+    expect(prose.diagnostics, "prose is not a rule, so it has nobody to be about").to.deep.equal([]);
+  });
+
+  it("is a WARNING, not an error — the framework's own policy has 90-odd clauses to fix", () => {
+    // A hard failure would mean nobody could build until every clause was rewritten, which is how a good rule
+    // gets switched off. The build reports it and carries on.
+    const r = parseClauses("d.md", "### 1.1 S\n\nIt MUST commit nothing.\n");
+    expect(r.clauses[0]!.level, "the clause is still compiled").to.equal("C01");
+    expect(r.clauses[0]!.actor).to.equal("unknown");
   });
 });
