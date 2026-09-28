@@ -39,6 +39,7 @@ import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus, t
 import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
+import { policyGate } from "./policy-gate-io.js";
 import { search, formatHits, formatList, formatDoc, hitsJson } from "../knowledge-search.js";
 import { loadDocs, resolveDoc } from "./knowledge-io.js";
 import { onboard } from "../lifecycle/onboard.js";
@@ -96,6 +97,12 @@ export interface CliContext {
   readonly authorize: (ref: BoardRef) => boolean;
   /** REQUIRED — close's test-merge gate (governance.runSuite). Always run before any push. */
   readonly gate: () => GateResult;
+  /**
+   * `git -C <repo> <args>` → stdout, or null. Used to read the organization's policy from the DEFAULT branch
+   * (`policy-gate-io.ts`) rather than from the branch a command is running on. Absent → no verb checks are
+   * found, which is the same behaviour as a workspace that has none.
+   */
+  readonly git?: (repo: string, args: readonly string[]) => string | null;
   readonly log?: (msg: string) => void;
 }
 
@@ -344,7 +351,17 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     case "close": {
       const r = close(
         // `anchor` is what lets close read the base branch seed recorded, instead of assuming dev.
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, pulls: ctx.pulls, authorize: ctx.authorize, gate: ctx.gate, anchor: ctx.anchor, log: ctx.log },
+        {
+          board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, pulls: ctx.pulls, authorize: ctx.authorize,
+          gate: ctx.gate, anchor: ctx.anchor, log: ctx.log,
+          // The organization's own `when=verb:close` checks, read from the DEFAULT branch — the socket that
+          // replaced the hardcoded knowledge gate (2026-09-28). A workspace with no such clause has none.
+          policyGate: (projectDir) => policyGate(
+            { git: ctx.git ?? (() => null), fs: ctx.fs },
+            { repo: ctx.home, ref: c.defaultBranch, projectDir, branch: ctx.vcs.currentBranch(ctx.home) },
+            "close",
+          ),
+        },
         // envBranches: the rungs BETWEEN main and dev, so a hotfix lands in every branch below its base.
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo, defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch, envBranches: c.envBranches },
         { govClone: ctx.home, projectWorkRoot, today: ctx.today },

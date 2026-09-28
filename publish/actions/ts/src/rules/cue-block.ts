@@ -28,19 +28,62 @@ import { createHash } from "node:crypto";
 import { headingSection, type Clause, type Diagnostic, type DiagnosticKind, type Level } from "./notation.js";
 import type { ClauseIdentity } from "./pol-lock.js";
 
-/** The six predicates, and no seventh (§4.1). A seventh requires a clause that none of these can express. */
+/**
+ * The predicates. Deliberately few (§4.1): an organization needing more adds its own required CI check, outside
+ * gov, rather than gov growing a language.
+ *
+ * `content-required` is the seventh, added on EVIDENCE (2026-09-26) — which is the process this list is meant to
+ * follow. Writing the org starter produced two clauses no other predicate can express: *every source file
+ * carries the SPDX header* and *a new file opens with a comment saying what it is for*. `content-forbidden`
+ * asserts the ABSENCE of a pattern; both of those assert a PRESENCE.
+ */
 export const CHECK_KINDS = [
-  "naming", "path-scope", "list-membership", "content-forbidden", "file-required", "frontmatter-required",
+  "naming", "path-scope", "list-membership", "content-forbidden", "content-required", "file-required",
+  "frontmatter-required",
 ] as const;
 export type CheckKind = (typeof CHECK_KINDS)[number];
+
+/**
+ * THE VERBS A CHECK MAY BE ATTACHED TO (PRJ-121, 2026-09-28).
+ *
+ * A check used to fire on one thing only: a changed file. That is right for "no unapproved dependency" — adding
+ * one IS a file change — and impossible for "a project may not be closed until its learnings are written up",
+ * where nothing changed and the trigger is a person running a command.
+ *
+ * Because it was inexpressible, that requirement was HARDCODED in `close-gate.ts`: gov insisted on a
+ * `knowledge-close.md` with five exact headings whether the organization wanted it or not. Removing the
+ * hardcoding without adding this trigger would not move the decision to the organization — it would delete the
+ * capability, and `gov close` would close a project whose knowledge is one empty `todo.md`.
+ *
+ * The list is closed on purpose. A check naming a verb that is not here is a DIAGNOSTIC, never silence: an
+ * unrecognised trigger that quietly never fires is the exact defect this design keeps finding.
+ */
+export const GATEABLE_VERBS = ["close", "merge", "task", "seed", "knowledge"] as const;
+export type GateableVerb = (typeof GATEABLE_VERBS)[number];
+
+/** What makes a check run: a changed file, or an invoked verb. */
+export type Trigger =
+  | { readonly on: "files"; readonly globs: readonly string[] }
+  | { readonly on: "verb"; readonly verb: GateableVerb };
+
+/**
+ * The two predicates that CANNOT mean anything at a verb gate, and why.
+ *
+ * Both are defined over a changeset: `list-membership` asks "is every ADDED entry approved?", and
+ * `content-forbidden` asks "does the CHANGED content contain this?". At the moment someone types `gov close`
+ * there is no changeset, so "added" and "changed" have no referent. Left unvalidated, an organization writes
+ * `kind=content-forbidden when=verb:close`, gov accepts it, and it never fires — a rule that reads as enforced
+ * and is not. Refusing it at parse time costs the author one error message and saves them that.
+ */
+const DIFF_ONLY_KINDS: readonly CheckKind[] = ["list-membership", "content-forbidden"];
 
 /** The line that makes a cue recognisable to a human skimming the printed policy. */
 export const CUE_HEADER = "**Always in the agent's context**";
 
 export interface Check {
   readonly kind: CheckKind;
-  /** The globs the predicate applies to (`when=**\/package.json,**\/go.mod`), in the order written. */
-  readonly when: readonly string[];
+  /** What makes it run: `when=**\/package.json,**\/go.mod` (files) or `when=verb:close` (a command). */
+  readonly trigger: Trigger;
   /** Every other attribute, as written. The vocabulary differs per kind and is the validator's business. */
   readonly attrs: Readonly<Record<string, string>>;
   /**
@@ -134,10 +177,48 @@ export function parseCheck(attrs: string): { check?: Check; problems: { kind: Di
   if (onMiss && onMiss !== "fail" && onMiss !== "warn") {
     problems.push({ kind: "malformed-check", message: `gov:check on_miss=${onMiss} is not fail or warn — read as fail.` });
   }
+
+  // ── the trigger ──────────────────────────────────────────────────────────────────────────────────────────
+  const parts = (when ?? "").split(",").map((w) => w.trim()).filter(Boolean);
+  const verbs = parts.filter((p) => p.startsWith("verb:"));
+  let trigger: Trigger = { on: "files", globs: parts };
+
+  if (verbs.length && verbs.length !== parts.length) {
+    // One check, one moment. A mixed trigger would have to mean "on this file change OR when this command runs",
+    // which are evaluated at different times against different material — and the author almost certainly meant
+    // one of them. Guessing which would be the wrong kind of helpful.
+    problems.push({
+      kind: "malformed-check",
+      message: `gov:check when=${when} mixes a verb trigger with file globs. One check, one trigger — write two checks.`,
+    });
+  } else if (verbs.length > 1) {
+    problems.push({ kind: "malformed-check", message: `gov:check when=${when} names ${verbs.length} verbs. One check, one verb.` });
+  } else if (verbs.length === 1) {
+    const verb = verbs[0]!.slice("verb:".length);
+    if (!(GATEABLE_VERBS as readonly string[]).includes(verb)) {
+      problems.push({
+        kind: "malformed-check",
+        message: `gov:check when=verb:${verb} — gov has no gate on '${verb}'. Gateable verbs: ${GATEABLE_VERBS.join(" · ")}.`,
+      });
+    } else {
+      trigger = { on: "verb", verb: verb as GateableVerb };
+      if (DIFF_ONLY_KINDS.includes(kind as CheckKind)) {
+        problems.push({
+          kind: "malformed-check",
+          message: `gov:check kind=${kind} cannot run on verb:${verb} — it is defined over a changeset ("every ADDED entry", "the CHANGED content"), and a command is not one. Attach it to file globs instead.`,
+        });
+      }
+    }
+  } else if (!parts.length) {
+    // An absent `when=` is not "everything": see `filterByGlobs`. Say so, rather than leaving the author to
+    // discover that their check matched nothing.
+    problems.push({ kind: "malformed-check", message: "gov:check has no when= — it would match nothing. Give file globs, or verb:<name>." });
+  }
+
   return {
     check: {
       kind: kind as CheckKind,
-      when: when ? when.split(",").map((w) => w.trim()).filter(Boolean) : [],
+      trigger,
       attrs: rest,
       onMiss: onMiss === "warn" ? "warn" : "fail",
     },
@@ -277,7 +358,8 @@ export function staleCues(clauses: readonly Clause[], blocks: readonly CueBlock[
 /** The canonical `gov:check` line. Attributes are ordered so the bytes depend on the check, not on typing order. */
 function renderCheck(check: Check): string {
   const parts = [`kind=${check.kind}`];
-  if (check.when.length) parts.push(`when=${check.when.join(",")}`);
+  const when = check.trigger.on === "verb" ? `verb:${check.trigger.verb}` : check.trigger.globs.join(",");
+  if (when) parts.push(`when=${when}`);
   // The remaining attributes are SORTED: two authors writing `list=` and `pattern=` in a different order must
   // not produce two different bytes for one rule, or `--check` fails on a diff that changes nothing.
   for (const key of Object.keys(check.attrs).sort()) parts.push(`${key}=${renderValue(check.attrs[key]!)}`);

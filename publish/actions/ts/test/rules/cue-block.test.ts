@@ -57,7 +57,7 @@ describe("cue blocks — parsing what is stored beside the clause", () => {
   it("reads the check that travels with it", () => {
     const c = blocks[0]!.check!;
     expect(c.kind).to.equal("list-membership");
-    expect(c.when).to.deep.equal(["pkg.json", "go.mod"]);
+    expect(c.trigger).to.deep.equal({ on: "files", globs: ["pkg.json", "go.mod"] });
     expect(c.attrs).to.deep.equal({ list: "policies/approved.md" });
     expect(c.onMiss).to.equal("fail");
   });
@@ -169,9 +169,10 @@ describe("cue blocks — staleness is a POLICY ERROR (§2.5)", () => {
 });
 
 describe("cue blocks — parseCheck: six predicates, no seventh", () => {
-  it("the vocabulary is exactly the six of §4.1", () => {
+  it("the vocabulary is exactly the seven of §4.1", () => {
     expect([...CHECK_KINDS]).to.deep.equal([
-      "naming", "path-scope", "list-membership", "content-forbidden", "file-required", "frontmatter-required",
+      "naming", "path-scope", "list-membership", "content-forbidden", "content-required", "file-required",
+      "frontmatter-required",
     ]);
   });
 
@@ -210,11 +211,14 @@ describe("cue blocks — parseCheck: six predicates, no seventh", () => {
   });
 
   it("when= is a comma list and may be absent; other attributes are kept as written", () => {
-    expect(parseCheck("kind=path-scope when=a,b,c").check!.when).to.deep.equal(["a", "b", "c"]);
+    expect(parseCheck("kind=path-scope when=a,b,c").check!.trigger).to.deep.equal({ on: "files", globs: ["a", "b", "c"] });
     // An unquoted value ends at the first space, so a list written with spaces must be quoted — and then the
     // spaces around each glob are trimmed rather than becoming part of a path that will never match.
-    expect(parseCheck('kind=path-scope when="a, b ,c"').check!.when).to.deep.equal(["a", "b", "c"]);
-    expect(parseCheck("kind=file-required path=knowledge/todo.md").check!.when).to.deep.equal([]);
+    expect(parseCheck('kind=path-scope when="a, b ,c"').check!.trigger).to.deep.equal({ on: "files", globs: ["a", "b", "c"] });
+    // An absent when= now REPORTS rather than matching nothing quietly (2026-09-28).
+    const bare = parseCheck("kind=file-required path=knowledge/todo.md");
+    expect(bare.check!.trigger).to.deep.equal({ on: "files", globs: [] });
+    expect(bare.problems.map((p) => p.kind)).to.deep.equal(["malformed-check"]);
     expect(parseCheck('kind=naming pattern="^BRNCH-[0-9]+" ').check!.attrs).to.deep.equal({ pattern: "^BRNCH-[0-9]+" });
   });
 
@@ -233,7 +237,7 @@ describe("cue blocks — renderCueBlock emits ONE canonical form", () => {
   const block = {
     pol: "POL-210", level: "C02" as const, clauseSha: SHA, approvedIn: "PR #214",
     cue: "TECHNOLOGY CHOICES ARE NOT YOURS.\nNot named? STOP and ask.",
-    check: { kind: "list-membership", when: ["pkg.json", "go.mod"], attrs: { list: "policies/approved.md" }, onMiss: "fail" } as Check,
+    check: { kind: "list-membership", trigger: { on: "files", globs: ["pkg.json", "go.mod"] }, attrs: { list: "policies/approved.md" }, onMiss: "fail" } as Check,
   };
 
   it("renders the block exactly as the design shows it", () => {
@@ -284,7 +288,7 @@ describe("cue blocks — renderCueBlock emits ONE canonical form", () => {
   });
 
   it("quotes a value that would otherwise break the attribute list", () => {
-    const r = renderCueBlock({ ...block, check: { kind: "naming", when: [], attrs: { pattern: "two words" }, onMiss: "warn" } });
+    const r = renderCueBlock({ ...block, check: { kind: "naming", trigger: { on: "files", globs: [] }, attrs: { pattern: "two words" }, onMiss: "warn" } });
     expect(r).to.contain('pattern="two words" on_miss=warn');
     expect(parseCueBlocks("d.md", `### 1.1 S\n\n${CLAUSE}\n\n${r}\n`).blocks[0]!.check!.attrs["pattern"]).to.equal("two words");
   });

@@ -58,6 +58,15 @@ export interface CloseDeps {
    *  assumes `defaultCodeBranch` and says so — which is every caller's behaviour before this
    *  existed, so no existing caller changes meaning by omitting it. */
   readonly anchor?: Pick<AnchorCreator, "find">;
+  /**
+   * The ORGANIZATION'S checks attached to `close` (`when=verb:close`), already evaluated.
+   *
+   * OPTIONAL, and that is the contract that let the hardcoded knowledge gate go: a workspace whose policy says
+   * nothing about closing has no checks, and close behaves exactly as it did before any of this existed. The
+   * caller reads them from the DEFAULT branch (`cli/policy-gate-io.ts`) — never from the branch being closed,
+   * or deleting a clause on your own branch would remove the gate meant to hold you (POL-086b).
+   */
+  readonly policyGate?: (projectDir: string) => { readonly ok: boolean; readonly failures: readonly { readonly message: string }[] };
   /** Best-effort workspace teardown (worktree detach + rm); deferred if absent. */
   readonly cleanup?: () => void;
   readonly log?: (msg: string) => void;
@@ -76,6 +85,7 @@ export type CloseFailReason =
   | "not-a-project-branch"
   | "ambiguous-base"
   | "knowledge-gate"
+  | "policy-gate"
   | "test-merge-gate"
   | "unauthorized"
   | "open-tasks"
@@ -106,10 +116,20 @@ export function close(deps: CloseDeps, config: CloseConfig, input: CloseInput): 
   const ref: BoardRef = { owner: config.githubOrg, ownerField: config.ownerField ?? "organization", number: boardNumber };
   const projectDir = path.join(input.govClone, "projects", projectId);
 
-  // ── C01 pre-close knowledge gate ────────────────────────────────────────────
+  // ── the framework's own pre-close conditions (structural only; see close-gate.ts) ──
   const kGate = closeGate(deps.fs, projectDir);
   if (!kGate.ok) {
-    return { ok: false, code: 1, reason: "knowledge-gate", message: "Pre-close knowledge gate failed.", failures: kGate.failures };
+    return { ok: false, code: 1, reason: "knowledge-gate", message: "Pre-close conditions not met.", failures: kGate.failures };
+  }
+
+  // ── and whatever the ORGANIZATION asked for, in its own policy ──────────────
+  const policy = deps.policyGate?.(projectDir);
+  if (policy && !policy.ok) {
+    return {
+      ok: false, code: 1, reason: "policy-gate",
+      message: `Blocked by ${policy.failures.length} policy check${policy.failures.length === 1 ? "" : "s"} on \`gov close\`.`,
+      failures: policy.failures.map((f) => f.message),
+    };
   }
   if (!deps.authorize(ref)) {
     return { ok: false, code: 1, reason: "unauthorized", message: `Not authorized to close GitHub Project #${boardNumber}.` };

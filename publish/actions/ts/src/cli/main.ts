@@ -52,6 +52,7 @@ import { createGhAnchor } from "../lifecycle/anchor.js";
 import { createGhPulls } from "../lifecycle/pulls.js";
 import { makeCloneRepo } from "../lifecycle/code-repo.js";
 import { createGhProjects } from "../lifecycle/project-list.js";
+import { readProtection, type ProtectionFacts } from "../lifecycle/branch-protection.js";
 import { runSuite } from "../governance/suite.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
@@ -2071,6 +2072,21 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" });
     })();
     const ghScopes = ghAuthed && ghStatus ? parseGrantedScopes(ghStatus) : null;
+    // The workspace's org-config, read ONCE: doctor reports the keys gov ignores in it, and the protection
+    // probe needs it to know which repo and branch POL-040a is about.
+    const doctorCfgText = (!!doctorHomeOverride || resolve.ok) ? fs.readFile(path.join(home, "org-config.yaml")) : null;
+    const doctorCfg = doctorCfgText ? parseOrgConfig(doctorCfgText) : null;
+    // POL-040a §3.3, checked instead of assumed (PRJ-121, 2026-09-27). Only when gh can be asked and the org
+    // names its governance repo — otherwise there is no question, and a row about a fact nobody gathered is
+    // worse than no row. The read itself distinguishes "no protection" from "gh could not tell me".
+    const protection = ghAuthed && doctorCfg?.githubOrg && doctorCfg.workspaceRepo
+      ? ((): { repo: string; branch: string; facts: ProtectionFacts | null; why?: string } => {
+          const repo = `${doctorCfg.githubOrg}/${doctorCfg.workspaceRepo}`;
+          const branch = doctorCfg.defaultBranch || "main";
+          const read = readProtection(repo, branch);
+          return { repo, branch, facts: read.facts, ...(read.why ? { why: read.why } : {}) };
+        })()
+      : undefined;
     const report = doctor({
       gitPresent,
       ghPresent,
@@ -2088,6 +2104,8 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       // fresh machine the adopter's home dir, holding the install.sh our own install command saved there.
       contentLayout: contentLayoutOf((rel) => fs.pathExists(path.join(home, rel))),
       staleArtifacts: staleArtifactsIn(!!doctorHomeOverride || resolve.ok, (rel) => fs.pathExists(path.join(home, rel))),
+      orgConfigText: doctorCfgText,
+      ...(protection ? { protection } : {}),
     });
     for (const line of formatDoctorReport(report, stdoutColor())) process.stdout.write(`${line}\n`);
 
@@ -2508,6 +2526,12 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     authorize: (ref) =>
       tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${ref.number}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) === "true",
     gate: () => runSuite({ fs, repoRoot: home, files: (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean) }),
+    // READING GOVERNANCE FROM THE DEFAULT BRANCH, from inside the project worktree. The worktree and the
+    // governance clone are one repository, so `git show <default>:<path>` reaches the ratified text with no
+    // second clone and no network — the same mechanism the governance snapshot uses. Without this port the
+    // organization's `when=verb:...` checks are never found, which reads exactly like a workspace that has none:
+    // so it is wired here rather than left optional in practice.
+    git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
     log: (m) => process.stderr.write(`${m}\n`),
   };
 

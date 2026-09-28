@@ -756,11 +756,15 @@ describe("lifecycle coverage — close", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: knowledge gate fails → exit 1 with failure detail lines", () => {
-    const r = run(["close"]); // default fs → empty knowledge/
+  it("error: the pre-close conditions fail → exit 1 with failure detail lines", () => {
+    // The gate is STRUCTURAL now (2026-09-27): an absent knowledge/ blocks close, because close promotes that
+    // directory. An empty or undocumented one does not — that is the organization's policy to state, with a
+    // `when=verb:close` check, not the framework's to hardcode.
+    const r = run(["close"], { fs: { ...fs, pathExists: (p: string) => !px(p).endsWith("/knowledge") } });
     expect(r.code).to.equal(1);
-    expect(px(r.lines[0])).to.equal("Pre-close knowledge gate failed.");
-    expect(r.lines).to.include("knowledge/ is empty — document project learnings first.");
+    expect(px(r.lines[0])).to.equal("Pre-close conditions not met.");
+expect(r.lines.join(" "), "the message names the directory and how to get one").to.match(/knowledge\/ does not exist/);
+    expect(r.lines.join(" "), "and never points a human at an agent protocol").to.not.match(/Protocol/);
   });
 
   it("error: unauthorized → exit 1", () => {

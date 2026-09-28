@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
 import { close, type CloseConfig, type CloseInput, type CloseDeps } from "../../src/lifecycle/close.js";
-import { closeGate, KNOWLEDGE_CLOSE_SECTIONS } from "../../src/lifecycle/close-gate.js";
+import { closeGate } from "../../src/lifecycle/close-gate.js";
 import { createGhPulls } from "../../src/lifecycle/pulls.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
@@ -11,33 +11,40 @@ import type { Issues } from "../../src/lifecycle/issues.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
 import { px, pxAll, pxDeep } from "../helpers/paths.js";
 
-const GOOD_MANIFEST = KNOWLEDGE_CLOSE_SECTIONS.map((s) => `${s}\n- done\n`).join("\n");
-
-/** An Fs whose knowledge/ contents are configurable. */
-function fakeFs(over: { files?: string[]; compliance?: boolean; manifest?: string | null } = {}): Fs {
-  const files = over.files ?? ["compliance.md", "knowledge-close.md", "notes.md"];
+/** An Fs whose knowledge/ presence is configurable. */
+function fakeFs(over: { files?: string[]; knowledgeDir?: boolean } = {}): Fs {
+  const files = over.files ?? ["compliance.md", "notes.md"];
   return {
-    pathExists: (p) => (px(p).endsWith("/compliance.md") ? (over.compliance ?? true) : true),
+    pathExists: (p) => (px(p).endsWith("/knowledge") ? (over.knowledgeDir ?? true) : true),
     mkdirp: () => {},
     writeFile: () => {},
-    readFile: (p) => (p.endsWith("knowledge-close.md") ? (over.manifest === undefined ? GOOD_MANIFEST : over.manifest) : null),
+    readFile: () => null,
     rm: () => {},
     readdir: () => files,
   };
 }
 
-describe("prj-work Phase 2 — closeGate (knowledge, model A)", () => {
-  it("passes a complete knowledge dir", () => {
-    expect(closeGate(fakeFs(), "/p")).to.deep.equal({ ok: true, failures: [] });
+describe("closeGate — the framework's own conditions, and ONLY those", () => {
+  it("passes a project whose knowledge/ exists, however sparse it is", () => {
+    expect(closeGate(fakeFs({ files: ["todo.md"] }), "/p")).to.deep.equal({ ok: true, failures: [] });
   });
-  it("fails on empty knowledge/, missing compliance.md, or missing manifest", () => {
-    const r = closeGate(fakeFs({ files: [], compliance: false, manifest: null }), "/p");
-    expect(r.ok).to.equal(false);
-    expect(r.failures).to.have.length.greaterThan(2);
+
+  // THE RULING (Policy Owner, 2026-09-27): knowledge curation is the organization's decision. It used to be
+  // hardcoded here — five exact headings in a knowledge-close.md that `gov seed` never creates — which made a
+  // human-only project unclosable, at the end of the project, with a message pointing at an agent protocol.
+  it("does NOT require compliance.md — whether a project may close without one is a policy choice", () => {
+    expect(closeGate(fakeFs({ files: ["todo.md"] }), "/p").ok).to.equal(true);
   });
-  it("fails on a missing section or a TBD placeholder", () => {
-    expect(closeGate(fakeFs({ manifest: "## Discarded\n- x" }), "/p").ok).to.equal(false);
-    expect(closeGate(fakeFs({ manifest: GOOD_MANIFEST + "\nTODO: finish" }), "/p").failures.some((f) => /placeholder/.test(f))).to.equal(true);
+  it("does NOT require a knowledge-close manifest, or any heading in one", () => {
+    const r = closeGate(fakeFs({ files: ["todo.md"] }), "/p");
+    expect(r.failures.join(" ")).to.not.match(/knowledge-close|Harvest|Completeness critic/);
+  });
+  it("does NOT judge an empty knowledge/ — only an ABSENT one, because close promotes that directory", () => {
+    expect(closeGate(fakeFs({ files: [] }), "/p").ok, "empty is the organization's business").to.equal(true);
+    const absent = closeGate(fakeFs({ knowledgeDir: false }), "/p");
+    expect(absent.ok).to.equal(false);
+    expect(absent.failures[0], "the message names the directory and how to get one").to.match(/knowledge\/ does not exist/);
+    expect(absent.failures[0]).to.not.match(/Protocol/);
   });
 });
 
@@ -149,9 +156,9 @@ describe("prj-work Phase 2 — close orchestrator (model A)", () => {
     expect(pxAll(v.log)).to.include(`tag ${CODE_DIR} archive/BRNCH-43-governance-common-project`);
   });
 
-  it("fails the knowledge gate before touching anything", () => {
+  it("fails the structural pre-close gate before touching anything", () => {
     const v = fakeVcs();
-    const r = close(deps({ vcs: v.vcs, fs: fakeFs({ manifest: null }) }), CONFIG, input());
+    const r = close(deps({ vcs: v.vcs, fs: fakeFs({ knowledgeDir: false }) }), CONFIG, input());
     expect(r.ok).to.equal(false);
     if (!r.ok) {
       expect(r.reason).to.equal("knowledge-gate");
