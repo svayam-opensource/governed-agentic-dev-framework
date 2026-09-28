@@ -140,53 +140,7 @@ export function composeTeamFile(body: string, existing: string | null): string {
 const EXCLUDE_BEGIN = "# BEGIN gov agent harness — generated per session; `git add` them if you want every clone governed";
 const EXCLUDE_END = "# END gov agent harness";
 
-/**
- * A repo's `.git/info/exclude` with gov's harness paths fenced into it. PURE.
- *
- * UNTRACKED, AND HIDDEN RATHER THAN MERELY UNTRACKED. gov must not commit into a team's repository on an agent
- * launch — that text would enter their history, their PRs and their release diffs, and `gov merge`/`gov close`
- * would carry a file regenerated on every launch onto `dev` and `main`, conflicting on every protocol revision.
- * But leaving nine untracked files lying in the worktree has a concrete cost in THIS codebase, not just an
- * aesthetic one: `cleanup.ts::dirtyReposUnder` uses `git status --porcelain`, which counts untracked files, and
- * REFUSES to remove a work root when any repo under it is dirty — so gov would brick its own cleanup with its own
- * files. Fencing the paths into the repo's exclude list is what makes "untracked" honest.
- *
- * Entries are ANCHORED (`/AGENTS.md`, not `AGENTS.md`) so a team's own `docs/AGENTS.md` keeps showing in
- * `git status`; only the copies gov writes at the repo root are hidden. An exclude entry for a file that IS
- * tracked is inert in git, so a team that chooses to `git add` gov's block keeps it tracked and gov keeps it
- * fresh, with no second code path.
- */
-export function composeExclude(existing: string | null, rels: readonly string[]): string {
-  const block = [EXCLUDE_BEGIN, ...rels.map((r) => `/${r}`), EXCLUDE_END].join("\n");
-  const base = existing ?? "";
-  const begin = base.indexOf(EXCLUDE_BEGIN);
-  const end = base.indexOf(EXCLUDE_END);
-  if (begin !== -1 && end > begin) return base.slice(0, begin) + block + base.slice(end + EXCLUDE_END.length);
-  return base === "" ? `${block}\n` : `${base.replace(/\n*$/, "")}\n\n${block}\n`;
-}
 
-/**
- * Where git reads this repo's local exclude list — `null` when it cannot be worked out.
- *
- * A gov code repo is a WORKTREE of a shared base clone, so `<repo>/.git` is a FILE holding
- * `gitdir: <base>/.git/worktrees/<name>`, not a directory. git reads `info/exclude` from the COMMON git dir,
- * which a worktree names in its own `commondir` file — so following only the `gitdir:` line would write an
- * exclude list git never reads, and the nine files would go on showing as untracked while this code claimed to
- * have hidden them. That is the shape of defect this whole file exists to stop, so it is resolved properly.
- * Reading a directory through the `Fs` port returns null, which is how the ordinary-clone case (`.git` IS a
- * directory) is told from the worktree case without adding a `stat` to the port.
- */
-export function gitInfoExcludeFile(fs: Pick<Fs, "readFile">, repoDir: string): string | null {
-  const dotGit = path.join(repoDir, ".git");
-  const text = fs.readFile(dotGit);
-  if (text == null) return path.join(dotGit, "info", "exclude");       // an ordinary clone
-  const gitdirLine = /^gitdir:\s*(.+?)\s*$/m.exec(text);
-  if (!gitdirLine) return null;                                        // a `.git` file of a shape gov does not know
-  const abs = (p: string, from: string): string => (path.isAbsolute(p) ? p : path.join(from, p));
-  const gitdir = abs(gitdirLine[1]!, repoDir);
-  const commondir = fs.readFile(path.join(gitdir, "commondir"))?.trim();
-  return path.join(commondir ? abs(commondir, gitdir) : gitdir, "info", "exclude");
-}
 
 /** What a destination holds while gov could not refresh it — the discriminator for the warning's wording. */
 export type StaleHolds =
@@ -275,6 +229,17 @@ export function mirrorWarnings(result: MirrorResult): readonly string[] {
   }
   return lines;
 }
+
+/**
+ * NO EXCLUDE LIST, BY RULING (Policy Owner, 2026-09-28). `composeExclude` and `gitInfoExcludeFile` lived here and
+ * fenced gov's nine files into each clone's `.git/info/exclude`. They are gone because the commit that tracks
+ * these files belongs to ordinary project work, and a file hidden from `git status` can never be in it.
+ *
+ * If that is ever reversed, the hard part was not the fencing: a gov code repo is a WORKTREE, so `<repo>/.git` is
+ * a FILE holding `gitdir: …/worktrees/<name>`, and git reads `info/exclude` from the common dir named in that
+ * worktree's `commondir` — following only the `gitdir:` line writes a file git never reads, while the code claims
+ * to have hidden something.
+ */
 
 /**
  * NOTHING TO MIRROR FOR AN ORGANIZATION THAT RUNS NO AGENTS (Policy Owner, 2026-09-28).
@@ -384,16 +349,17 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
     }
     placed.push(rel);
   }
-  // Keep gov's copies out of every code repo's `git status`, for the reason given on `composeExclude`.
-  if (placed.length) {
-    for (const dir of clones) {
-      const exclude = gitInfoExcludeFile(fs, dir);
-      if (!exclude) continue;
-      const before = fs.readFile(exclude);
-      const after = composeExclude(before, placed);
-      if (before !== after) { fs.writeFile(exclude, after); written++; }
-    }
-  }
+  // NO `.git/info/exclude` ENTRY ANY MORE (Policy Owner, 2026-09-28).
+  //
+  // gov used to hide its copies from every code repo's `git status`, because `cleanup.ts` reads untracked files as
+  // "dirty" and would then refuse to remove a work root on account of gov's own output. The ruling reversed it:
+  // the commit that puts these files under version control belongs to ORDINARY PROJECT WORK, made by the
+  // developer or their agent — not to gov at launch, and not to `gov add-repo`. A file hidden from `git status`
+  // can never be picked up by that commit, so hiding them prevented the very thing they were meant to enable.
+  //
+  // The cleanup problem is fixed where it belongs, in `dirtyIgnoringGovsOwnFiles`: gov discounts its own harness
+  // when judging whether deleting a directory would lose somebody's work. A team that would rather not see these
+  // files can add them to their own `.gitignore`, which is their file and their decision.
   return { structureOnly: false, placed, targets, skipped, written };
 }
 

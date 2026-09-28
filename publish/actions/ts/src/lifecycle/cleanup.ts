@@ -31,6 +31,7 @@
  * fork finding (#194), where `dispatch` hands the discovery up and `runWorkFlow` asks.
  */
 import * as path from "node:path";
+import { ROOT_HARNESS_FILES } from "./root-protocol.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { LeftoverArtifact, SeedPaths } from "./leftover.js";
 
@@ -99,7 +100,25 @@ function dirtyReposUnder(env: CleanupEnv, root: string): string[] {
   return env.readdir(root)
     .map((name) => path.join(root, name))
     .filter((dir) => env.fs.pathExists(path.join(dir, ".git")))
-    .filter((dir) => !env.vcs.isClean(dir));
+    .filter((dir) => dirtyIgnoringGovsOwnFiles(env, dir));
+}
+
+/**
+ * Is this repo dirty because of the DEVELOPER'S work, rather than because of gov's?
+ *
+ * gov places the agent harness into every cloned code repo on launch, untracked, so `isClean` says "dirty" and
+ * this refusal — the one that exists to stop gov deleting unpushed work — would fire on gov's own output, for
+ * every repo, forever. The first fix was to hide the files in `.git/info/exclude`; the Policy Owner ruled that
+ * out (2026-09-28), because a file hidden from `git status` can never be picked up by the ordinary commit a
+ * developer or their agent makes during project work, which is where that decision belongs.
+ *
+ * So the files stay VISIBLE and this check discounts them by name. A repo holding nothing but gov's harness is
+ * clean as far as "would deleting this lose somebody's work?" is concerned — gov can write those files again from
+ * the governance repo, and that is the whole difference between them and a developer's edit.
+ */
+function dirtyIgnoringGovsOwnFiles(env: CleanupEnv, dir: string): boolean {
+  const mine = new Set<string>(ROOT_HARNESS_FILES);
+  return env.vcs.dirtyPaths(dir).some((p) => !mine.has(p.replace(/\\/g, "/")));
 }
 
 /**

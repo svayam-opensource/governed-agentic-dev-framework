@@ -36,8 +36,16 @@ export interface Vcs {
   currentBranch(repoDir: string): string;
   /** True if `ancestor` is an ancestor of `descendant` (`merge-base --is-ancestor`). */
   isAncestor(repoDir: string, ancestor: string, descendant: string): boolean;
-  /** True if `repoDir`'s working tree has no uncommitted changes. */
+  /** True if `repoDir`'s working tree has no uncommitted changes. Counts untracked files. */
   isClean(repoDir: string): boolean;
+  /**
+   * The paths `git status --porcelain` reports, without their status letters.
+   *
+   * Exists because "is this repo dirty?" is the wrong question when GOV ITSELF writes files into a repo: the
+   * agent harness it places is untracked, so `isClean` says no and `gov` would refuse to clean up a work root
+   * because of its own output. A caller that needs to discount its own files needs to see which files they are.
+   */
+  dirtyPaths(repoDir: string): readonly string[];
   /** Remote branch names matching `pattern` (e.g. `BRNCH-43-x.*`), from `remote`. */
   remoteBranchesMatching(repoDir: string, remote: string, pattern: string): string[];
 
@@ -154,6 +162,13 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     isClean(repoDir) {
       const r = runGit(["-C", repoDir, "status", "--porcelain"]);
       return r.status === 0 && r.stdout.trim() === "";
+    },
+    dirtyPaths(repoDir) {
+      const r = runGit(["-C", repoDir, "status", "--porcelain"]);
+      if (r.status !== 0) return [];
+      return r.stdout.split("\n").map((l) => l.trim()).filter(Boolean)
+        // `XY path` — and `R  old -> new` for a rename, where the new name is what exists now.
+        .map((l) => l.replace(/^\S+\s+/, "").replace(/^.*->\s*/, "").replace(/^"|"$/g, ""));
     },
     remoteBranchesMatching(repoDir, remote, pattern) {
       const r = runGit(["-C", repoDir, "ls-remote", "--heads", remote, pattern]);

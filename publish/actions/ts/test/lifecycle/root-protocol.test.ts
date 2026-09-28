@@ -25,7 +25,7 @@ import * as nodeFs from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   ROOT_HARNESS_FILES, HARNESS_SRC_DIR, ensureRootProtocol, mirrorWarnings, codeRepoDirs,
-  composeTeamFile, composeExclude, gitInfoExcludeFile, verifyAgentContext,
+  composeTeamFile, verifyAgentContext,
   GOV_BLOCK_BEGIN, GOV_BLOCK_END, ADOPTER_MARKER, PROTOCOL_MARKER, ownsWholeFile,
 } from "../../src/lifecycle/root-protocol.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
@@ -206,16 +206,19 @@ describe("root-protocol — defect 2: the harness reaches every cloned code repo
       .to.be.lessThan(after.indexOf(ADOPTER_MARKER));
   });
 
-  it("gov's copies are fenced into each clone's exclude list, so they never dirty `git status`", () => {
-    // NOT COSMETIC: `cleanup.ts::dirtyReposUnder` uses `git status --porcelain`, which counts untracked
-    // files, and REFUSES to remove a work root when any repo under it is dirty. Nine untracked files per
-    // clone would have made gov brick its own cleanup with its own files.
+  it("gov's copies stay VISIBLE in each clone — no exclude entry is written", () => {
+    // REVERSED BY RULING (Policy Owner, 2026-09-28). gov used to fence these into `.git/info/exclude`, because
+    // `cleanup.ts` reads untracked files as "dirty" and would refuse to remove a work root on account of gov's own
+    // output. But the commit that puts these files under version control belongs to ORDINARY PROJECT WORK — the
+    // developer's or their agent's — and a file hidden from `git status` can never be part of that commit. So
+    // hiding them prevented the one thing they were meant to enable.
+    //
+    // The cleanup problem moved to where it belongs: `dirtyIgnoringGovsOwnFiles` discounts gov's harness when
+    // judging whether a deletion would lose somebody's work.
     const fs = seededProject();
     ensureRootProtocol(fs, PROJECT, WS);
-    const exclude = fs.files[`${BASES}/api/.git/info/exclude`];
-    expect(exclude, "written to the COMMON git dir a worktree shares").to.be.a("string");
-    expect(exclude, "anchored, so a team's docs/AGENTS.md is untouched").to.contain("/AGENTS.md");
-    expect(exclude).to.contain("/.cursor/rules/agent.mdc");
+    expect(fs.files[`${BASES}/api/.git/info/exclude`], "gov does not hide its own governance").to.equal(undefined);
+    expect(Object.keys(fs.files).some((f) => f.endsWith("/api/AGENTS.md")), "but it did place the file").to.equal(true);
   });
 
   it("a project with no clones yet behaves exactly as before — the root, and only the root", () => {
@@ -260,40 +263,6 @@ describe("root-protocol — the coexistence rule, as a pure string transform", (
     expect(out).to.equal(`ours above\n\n${GOV_BLOCK_BEGIN}\n# new protocol\n${GOV_BLOCK_END}\n\nours below\n`);
   });
 
-  it("composeExclude fences its entries and is idempotent too", () => {
-    const once = composeExclude("*.log\n", ["AGENTS.md", ".clinerules/agent.md"]);
-    expect(once, "what was there first, kept").to.contain("*.log");
-    expect(once, "anchored to the repo root").to.contain("/AGENTS.md");
-    expect(composeExclude(once, ["AGENTS.md", ".clinerules/agent.md"])).to.equal(once);
-    expect(composeExclude(once, ["AGENTS.md"]), "and the list is gov's to shrink").to.not.contain("/.clinerules/agent.md");
-  });
-});
-
-describe("root-protocol — where git actually reads a repo's exclude list", () => {
-  it("a WORKTREE resolves through `commondir`, not just the `gitdir:` line", () => {
-    // Following `gitdir:` alone writes an exclude list git never reads — and the nine files go on showing as
-    // untracked while the code claims to have hidden them. That is this file's whole failure mode, again.
-    const fs = memFs(worktreeGit("/work/PRJ-9/api", "/work/.bases/api"));
-    expect(px(gitInfoExcludeFile(fs, "/work/PRJ-9/api")!)).to.equal("/work/.bases/api/.git/info/exclude");
-  });
-
-  it("an ordinary clone — `.git` is a DIRECTORY — uses its own info/exclude", () => {
-    const fs = memFs({ "/repo/.git/HEAD": "ref: refs/heads/main\n" });
-    expect(px(gitInfoExcludeFile(fs, "/repo")!)).to.equal("/repo/.git/info/exclude");
-  });
-
-  it("a `.git` file of an unknown shape answers null rather than guessing a path", () => {
-    const fs = memFs({ "/repo/.git": "something else entirely\n" });
-    expect(gitInfoExcludeFile(fs, "/repo")).to.equal(null);
-  });
-});
-
-describe("root-protocol — the @-import stub, as it actually appears on disk", () => {
-  /**
-   * The pattern was written from the manifest's unprefixed template and so missed every stub in the wild: one
-   * placed at a PROJECT root must reach into the workspace clone. The consequence was mild but exactly backwards
-   * — gov held a name for the mechanism it had retired, and reported "gov did not render it" instead.
-   */
   it("recognises the WORKSPACE-PREFIXED stub the live project was found holding", () => {
     const v = verifyAgentContext(
       { readFile: () => "@svm-prj-work/agent/session-protocol.md\n@svm-prj-work/framework/agent.md\n" },
