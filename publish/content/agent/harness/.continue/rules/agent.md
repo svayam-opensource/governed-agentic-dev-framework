@@ -20,20 +20,6 @@ substantive reply. Part C is reference you will need once.
 **These rules bind every turn, not just the first. Each is compiled from the clause it names, and the
 clause is the authority — read it with `gov knowledge show <the document named>`.**
 
-> **POL-201 · C02**
-> A NEW SOURCE FILE OPENS WITH A COMMENT saying what it is for and why it exists — the reason, not a
-> restatement of the code. No comment is a review finding, not a style preference.
-
-> **POL-202 · C02**
-> CHANGING BEHAVIOUR? BRING A TEST that fails without your change. "Tested manually" is not a test, and a
-> test written to pass is not evidence.
-
-> **POL-210 · C02**
-> TECHNOLOGY CHOICES ARE NOT YOURS. Before adding a dependency or choosing a language, framework, library,
-> datastore, queue, test runner or CI step — or editing package.json · go.mod · pom.xml · requirements.txt ·
-> Dockerfile · CI config — run: `gov knowledge search "approved <thing>"`.
-> Named there? Use it. Not named? STOP and ask. Never pick one yourself.
-
 > **POL-011…POL-015 · C01**
 > C01 MEANS STOP. No exception exists, and nobody can grant one. On a C01 violation: stop, commit nothing,
 > tell the human. A hard stop surfaced to a person is the correct outcome, not a failure.
@@ -106,6 +92,20 @@ clause is the authority — read it with `gov knowledge show <the document named
 > level, through any transport, including structured fields. About to? Stop. Secrets live only in the
 > credentials directory under your own preferences. Your organization defines the rest of the tiers:
 > `gov knowledge search "data classification"`.
+
+> **POL-201 · C02**
+> A NEW SOURCE FILE OPENS WITH A COMMENT saying what it is for and why it exists — the reason, not a
+> restatement of the code. No comment is a review finding, not a style preference.
+
+> **POL-202 · C02**
+> CHANGING BEHAVIOUR? BRING A TEST that fails without your change. "Tested manually" is not a test, and a
+> test written to pass is not evidence.
+
+> **POL-210 · C02**
+> TECHNOLOGY CHOICES ARE NOT YOURS. Before adding a dependency or choosing a language, framework, library,
+> datastore, queue, test runner or CI step — or editing package.json · go.mod · pom.xml · requirements.txt ·
+> Dockerfile · CI config — run: `gov knowledge search "approved <thing>"`.
+> Named there? Use it. Not named? STOP and ask. Never pick one yourself.
 
 ## A.1 What you may write, and what you may not
 

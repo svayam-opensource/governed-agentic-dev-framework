@@ -14,7 +14,7 @@
  * their own compile report, and it says so in the output every time.
  */
 import * as path from "node:path";
-import { build, renderRuleMap, isWarning, type PolicyDoc } from "../rules/rules-build.js";
+import { build, renderRuleMap, isWarning, frameworkFirst, type PolicyDoc } from "../rules/rules-build.js";
 import { renderAll, type RenderFailure } from "../rules/harness-render.js";
 import { LOCK_FILE, parseLock, writeLock, parseLegacyYamlLock, nextFree } from "../rules/pol-lock-io.js";
 import { FRAMEWORK_POL_START, ORG_POL_START } from "../rules/pol-lock.js";
@@ -115,7 +115,12 @@ export function plan(deps: RulesDeps, input: RulesInput): {
   const protocol = deps.fs.readFile(path.join(input.home, input.protocolPath ?? PROTOCOL));
   if (protocol === null) return { error: `${input.protocolPath ?? PROTOCOL} is missing — it is the body every agent file is rendered from.` };
 
-  const rendered = renderAll(protocol, docs);
+  // FRAMEWORK CUES FIRST, and `docs` is not in that order: `POLICY_ROOTS` lists `policies` before
+  // `framework/policies`, so passing it straight through emitted the ORGANIZATION'S cues above the framework's —
+  // the opposite of what §9.1 says, and a silent disagreement with `render-harness.mjs`, which ordered them
+  // correctly. `build` sorts for its own purposes; the renderer needs the same order or the two producers of the
+  // nine files differ by the one thing the wrapper exists to prevent.
+  const rendered = renderAll(protocol, frameworkFirst(docs));
   if (isFailure(rendered)) return { error: rendered.error };
 
   const files = [
