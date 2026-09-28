@@ -38,6 +38,12 @@ export interface RulesInput {
   readonly protocolPath?: string;
   /** POL numbers whose rewording the owner has confirmed — the answer to a `build` that stopped and asked. */
   readonly confirm?: readonly string[];
+  /**
+   * Re-stamp a cue whose clause changed but whose WORDING still holds — the "I re-read it and it is still right"
+   * action. Never implied: an automatic re-stamp would silently approve every edit the staleness guard exists to
+   * catch, so it has to be a thing a person types.
+   */
+  readonly restamp?: boolean;
 }
 
 export interface RulesResult {
@@ -117,7 +123,7 @@ export function plan(deps: RulesDeps, input: RulesInput): {
   // re-approved — is lost in the noise. Filling the missing hashes is mechanical; approving a cue's WORDING is
   // not, and this does not do that (see `stampCues`: an existing hash is left alone).
   const stampedDocs = docs.map((d) => {
-    const r = stampCues(d.path, d.text);
+    const r = stampCues(d.path, d.text, input.restamp ? "restamp" : "fill-missing");
     return { doc: d, text: r.text, stamped: r.stamped };
   });
   const stamps = stampedDocs.flatMap((s) => s.stamped);

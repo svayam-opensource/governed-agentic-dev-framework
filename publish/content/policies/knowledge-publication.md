@@ -7,125 +7,106 @@ status: seed
 ---
 
 <!-- YOURS AFTER THE FIRST INSTALL. gov seeds this file once and never touches it again (MANIFEST: seed-once),
-     so an upgrade cannot overwrite what your organization decides here. The clause numbers are kept: the
-     framework's policy points at this file for them, and everything that cites them still resolves. -->
+     so an upgrade cannot overwrite what your organization decides here. -->
 
 # Knowledge publication — <ORG_NAME>'s decision
 
-**How this organization publishes its knowledge, if it does.** The framework ships none of this
-infrastructure and requires none of it: `knowledge_publication` in `org-config.yaml` says what you have
-chosen (`none` by default), and `gov knowledge search` reads what is already on every machine.
+**Document:** Knowledge Publication
+**Owner:** Infrastructure Owner (acting: <POLICY_OWNER_EMAIL>)
+**Status:** seed — written once by `gov setup`, and **yours to change**
 
-What holds whatever you choose: every form is generated from the same markdown source, and access follows
-your own rules. The starter below is the arrangement Svayam runs; keep it, cut it down, or replace it.
-
-## The three forms (starter)
-
-On every merge to `<DEFAULT_BRANCH>` in `<ORG_GOV_REPO>`, the CI/CD pipeline automatically generates and publishes knowledge in three forms **(C02, POL-100)**:
-
-1. **Static site**: An internal-only website, accessible only behind authentication, intended for developers, governance teams, and audit teams. **(POL-101)**
-2. **PDF exports**: Downloadable PDF versions of all knowledge documents, available through the static site, intended for regulators and external auditors. **(POL-102)**
-3. **Vector embeddings (RAG)**: Changed files are re-embedded into the organizational vector store, providing agents with up-to-date context for retrieval-augmented generation. Only changed files are re-embedded. **(POL-103)**
-
-All three publication forms are generated from the same markdown source. **(POL-104)**
-
----
-
-## How it is built, if you build it (was knowledge-publication-spec.md)
-
-<!-- ONE FILE, not two: the decision and the arrangement that carries it out. Two documents about
-     one thing is the shape POL-402 forbids, and the one that drifts is always the one nobody opened. -->
-
-# Knowledge Publication Specification
-
-**Owner:** Infrastructure Owner (acting: `<POLICY_OWNER_EMAIL>`)
-**Parent Policy:** `framework/policies/framework-policy.md` (POL-083 to POL-086)
+> ## This file is yours, and it may well be yours to delete
+>
+> The framework ships **none** of this infrastructure and requires none of it. `gov knowledge search|show`
+> reads the markdown already cloned on every machine, so an organization that publishes nothing is fully
+> compliant. `knowledge_publication` in `org-config.yaml` records what you chose; it is `none` by default.
+>
+> Everything below is a **starter** describing the arrangement Svayam runs. Keep it, cut it down to one form,
+> or delete the document — that is the expected first act, not a deviation.
+>
+> The notation is the framework's: the ALL-CAPS modal verb declares the level (`framework-policy.md` §1.3).
+> Note how few clauses this document has: it governs a pipeline **you** build, so most of it is a
+> specification for whoever builds it rather than a rule anybody can be held to.
 
 ---
 
-## Overview
+## 1. Whether this organization publishes its knowledge
 
-Org-wide knowledge in `<ORG_GOV_REPO>` is published in three forms, all generated from the same markdown source on every <DEFAULT_BRANCH> merge via the CI/CD pipeline.
+### 1.1 The decision is a setting, not a paragraph
 
----
+The Policy Owner MAY record this organization's choice in `knowledge_publication` in `org-config.yaml`. An
+arrangement described in this document but not set there is a plan, not a policy, and nothing reads it. **(POL-270)**
 
-## Form 1: Static Site (Internal)
+### 1.2 One source, several renderings
 
-### Purpose
-Primary knowledge consumption interface for developers, governance teams, and audit teams.
+The organization MAY generate every published form from the markdown in this repository, and edit no published
+artifact directly, so that no published copy can disagree with the source it came from. **(POL-271)**
 
-### Requirements
-- **Access:** Internal only — behind authentication. No public access.
-- **Authentication:** GitHub OAuth or equivalent SSO. Only <ORG_NAME> authorized users.
-- **Content:** All markdown files in `knowledge/` and `projects/` rendered as navigable web pages
-- **Navigation:** Hyperlinked — policies link to roles, roles link to exceptions, exceptions link to approvals, decisions link back to projects
-- **Search:** Full-text search across all knowledge content
-- **Currency:** Must reflect current `<DEFAULT_BRANCH>` within 1 hour of any merge
-- **URL structure:** Mirrors the folder structure of `knowledge/` (e.g., `/policies/org-ai-agent-governance-policy`)
+### 1.3 Nothing confidential reaches an unauthenticated reader
 
-### Content Coverage
-- All `knowledge/` subfolders and documents
-- All `projects/PRJ-<board#>-<slug>/knowledge/` content
-- A project dashboard derived from GitHub (Project boards + anchor issues) — there is no `registry.yaml`
-- CODEOWNERS rendered as domain ownership map
-- the governance policy's §3.2 roles rendered as an org chart
+The organization MUST NOT publish a document holding confidential or restricted data (see
+`policies/data-classification.md`) to any form reachable without authentication. **(POL-272)**
 
----
+## 2. The three forms (starter)
 
-## Form 2: PDF Exports (Formal/External)
+### 2.1 Form 1 — the static site, internal only
 
-### Purpose
-Formal documents suitable for regulators, external auditors, and legal review.
+The primary reading surface for developers, governance and audit: every document under `knowledge/` and
+`projects/` rendered as navigable, searchable, hyperlinked pages, with URLs mirroring the folder structure, and
+reflecting `<DEFAULT_BRANCH>` within an hour of a merge.
 
-### Requirements
-- **Download location:** Downloadable from the static site (linked from each policy document)
-- **Trigger:** Regenerated on every merge touching `framework/policies/`
-- **Format:** Professional PDF with page numbers, headers, footers
-- **Required metadata on every PDF:**
-  - Document title
-  - Version (git commit SHA of the merge)
-  - Effective date
-  - Policy owner name and role
-  - <ORG_NAME> branding
-- **Scope:** One PDF per top-level policy document in `framework/policies/`
+The organization MAY place the static site behind authentication that only its own authorized users pass — SSO,
+or the version-control platform's own identity. **(POL-273)**
 
-### PDF Documents Generated
-- `framework-policy.pdf`
-- `data-classification.pdf`
-- `knowledge-organization-standard.pdf`
-- `roles.pdf`
-- Domain policy PDFs (generated when domain sections are populated)
+### 2.2 Form 2 — PDF exports, for people outside
 
----
+One PDF per top-level policy document, regenerated when `framework/policies/` or `policies/` changes, linked
+from the corresponding page on the static site. These are the copies that reach a regulator or an external
+auditor.
 
-## Form 3: Vector Embeddings (RAG)
+The organization MAY carry, on every generated PDF, the document's title, the commit it was generated from, its
+effective date and the Policy Owner's name, so that a copy in someone else's hands can be traced back to a
+source. **(POL-274)**
 
-### Purpose
-Enables agents to semantically search org knowledge for context building without reading all files. Also used by the knowledge-close step of `gov close` for LLM synthesis.
+### 2.3 Form 3 — vector embeddings, for retrieval
 
-### Requirements
-- **Scope:** All files in `knowledge/` are embedded
-- **Update strategy:** Re-embed only changed files on each <DEFAULT_BRANCH> merge (not full re-index)
-- **Chunking:** Each document section (defined by `##` headings) is a separate chunk with sufficient surrounding context to be self-contained
-- **Metadata per chunk:** file path, section heading, last modified commit SHA, domain owner
-- **Access:** Internal API accessible to agents during work sessions and to the knowledge-close step of `gov close`
-- **Infrastructure Owner** is responsible for vector store choice, maintenance, and uptime
+An index over `knowledge/` that lets an agent find the relevant few documents without reading all of them.
+One chunk per `##` section, each carrying its file path, section heading, source commit and domain owner, so
+that a retrieved fragment says what it is and how binding it is.
 
-### Agent Usage
-Agents query the vector store at session start to build relevant context:
-1. Pull project knowledge from `projects/PRJ-<board#>-<slug>/`
-2. Query vector store with project context to retrieve semantically relevant org knowledge
-3. Assemble context from retrieved chunks + full priority layer stack
+The organization CAN re-embed only the files a merge changed, rather than re-indexing the whole tree. **(POL-275)**
 
-### Knowledge-close Usage
-The knowledge-close step of `gov close` queries the vector store to find existing org knowledge relevant to project learnings before proposing updates — ensuring proposals are additive and non-redundant.
+## 3. For whoever builds it
 
----
+### 3.1 What the Infrastructure Owner owns
 
-## Infrastructure Owner Checklist
+Choice of static-site generator, PDF toolchain and vector store; the ingestion pipeline; uptime; and the
+internal API that agents and `gov close` read the index through. None of it is prescribed here: these are
+renderers over the same files, and `policies/knowledge-organization-standard.md` §6 (POL-415) keeps the write
+path — git, markdown, pull-request approval — the only authoring system, precisely so that a renderer can be
+swapped without a policy change.
 
-- [ ] Static site deployed and behind authentication
-- [ ] PDF generation pipeline configured
-- [ ] Vector store provisioned and ingestion pipeline active
-- [ ] All three forms regenerate automatically on <DEFAULT_BRANCH> merge via CI/CD
-- [ ] Monitoring and alerting in place for publication pipeline failures
+### 3.2 Checklist
+
+- [ ] `knowledge_publication` set in `org-config.yaml` to what you actually run
+- [ ] static site deployed, behind authentication
+- [ ] PDF generation wired to merges touching the policy folders
+- [ ] vector store provisioned; ingestion re-embeds changed files only
+- [ ] all three forms regenerate on `<DEFAULT_BRANCH>` merge, from CI, with no manual step
+- [ ] pipeline failures alert somebody
+
+### 3.3 Why this document carries no check
+
+None of the seven predicates (`naming`, `path-scope`, `list-membership`, `content-forbidden`,
+`content-required`, `file-required`, `frontmatter-required`) can see a published site, a PDF or a vector index:
+they read a changeset and a workspace. So the clauses here are **advisory** — written because they matter, with
+nothing in gov enforcing them. The place to enforce them is the publishing pipeline's own CI, and
+`framework-policy.md` §1.5 is the distinction being drawn. `gov doctor` counts them as advisory, which is the
+honest number.
+
+### 3.4 Why it carries no cue either
+
+A cue costs context on every turn of every session. Nothing here is a judgement an agent makes mid-task: an
+agent writing a document does not decide how it is published, and the one rule an author must not get wrong —
+what may be written down at all — already has its cue in `policies/data-classification.md` §2.1. Adding a
+second, similar resident block would weaken both (`policies/org-policy.md` §6.3).

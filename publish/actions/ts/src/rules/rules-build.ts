@@ -20,6 +20,7 @@
  */
 import { parseClauses, formatReport, type Clause, type Diagnostic, type Level } from "./notation.js";
 import { parseCueBlocks, staleCues, clauseSha, type CueBlock } from "./cue-block.js";
+import { standaloneChecks } from "./diff-check.js";
 import { allocate, confirmMatch, formatAsk, type PolLock } from "./pol-lock.js";
 
 /** One policy document, as the builder sees it. */
@@ -90,12 +91,12 @@ export const frameworkFirst = (docs: readonly PolicyDoc[]): PolicyDoc[] =>
  * classifier could not place roughly half the clauses, and neither could a reader skimming for "is this about
  * me?".
  */
-export function classify(clause: Clause, cue: CueBlock | undefined): EnforcementClass {
+export function classify(clause: Clause, cue: CueBlock | undefined, hasStandaloneCheck = false): EnforcementClass {
   // A clause with no modal is not a rule, so it has no enforcement to classify. Calling it "advisory" would
   // have padded that column with 237 paragraphs of ordinary prose and hidden the handful of clauses that
   // genuinely state a requirement nothing holds up — the exact number this report exists to surface.
   if (!clause.level) return "ungoverned";
-  if (cue?.check) return "checked";
+  if (cue?.check || hasStandaloneCheck) return "checked";
   // THE ACTOR DECIDES, since rule 7 (2026-09-28). This used to be a regular expression looking for `gov` next to
   // a verb, which found 4 clauses where a hand reading of the same document found roughly 31 — because most of
   // them name the actor in a previous sentence and refer to it as "it". `actorOf` is the one place that judgement
@@ -122,6 +123,17 @@ export function build(docs: readonly PolicyDoc[], locks: { framework: PolLock; o
   const clauses: Clause[] = [];
   const diagnostics: Diagnostic[] = [];
   const cues: CueBlock[] = [];
+
+  // CHECKS WITHOUT A CUE ARE STILL CHECKS. `parseCueBlocks` finds one only as the tail of a stored cue block, and
+  // "check only, no cue" is the RIGHT answer for a rule a machine can see in a diff — the seeded org policy both
+  // teaches that (§6.3) and uses it (POL-203, the SPDX header, `on_miss=fail`). Those checks already RUN, because
+  // `validate` and the verb gate read them separately; what was wrong is that the report did not COUNT them, so
+  // `gov doctor` said "3 checked" while five checks fired. A report that undercounts enforcement is the same
+  // defect as a policy that overstates it, pointing the other way.
+  const checkedSections = new Set<string>();
+  for (const doc of ordered) {
+    for (const c of standaloneChecks(doc.path, doc.text)) checkedSections.add(`${c.doc}\u0000${c.section}`);
+  }
 
   for (const doc of ordered) {
     const parsed = parseClauses(doc.path, doc.text);
@@ -170,7 +182,7 @@ export function build(docs: readonly PolicyDoc[], locks: { framework: PolLock; o
     // a clause that already says POL-009c keeps POL-009c, rather than being handed a fresh one.
     const marker = /\*\*\(?(?:C0\d,\s*)?POL-(\d{3}[a-z]?)/.exec(clause.text);
     const pol = marker ? `POL-${marker[1]}` : null;
-    const klass = classify(clause, cue);
+    const klass = classify(clause, cue, checkedSections.has(`${clause.doc}\u0000${clause.section}`));
 
     // A CLAUSE THAT CARRIES A NUMBER IS LOCKED, GOVERNED OR NOT. A POL number is a citation target: if a
     // document cites one, the lock must know where it lives. Locking only levelled clauses meant §1.7's

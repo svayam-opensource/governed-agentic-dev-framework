@@ -117,6 +117,174 @@
       "level": "C02"
     },
     {
+      "doc": "policies/data-classification.md",
+      "section": "1.1",
+      "ordinal": 1,
+      "clauseSha": "8b451a5",
+      "pol": "POL-240",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/data-classification.md",
+      "section": "2.1",
+      "ordinal": 1,
+      "clauseSha": "66b371b",
+      "pol": "POL-241",
+      "level": "C01"
+    },
+    {
+      "doc": "policies/data-classification.md",
+      "section": "2.2",
+      "ordinal": 1,
+      "clauseSha": "5144578",
+      "pol": "POL-242",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/data-classification.md",
+      "section": "2.3",
+      "ordinal": 1,
+      "clauseSha": "f596a6d",
+      "pol": "POL-243",
+      "level": "C03"
+    },
+    {
+      "doc": "policies/data-classification.md",
+      "section": "3.1",
+      "ordinal": 1,
+      "clauseSha": "65617c7",
+      "pol": "POL-244",
+      "level": "C01"
+    },
+    {
+      "doc": "policies/authorized-representatives.md",
+      "section": "1.1",
+      "ordinal": 1,
+      "clauseSha": "ea74d03",
+      "pol": "POL-250",
+      "level": "C01"
+    },
+    {
+      "doc": "policies/authorized-representatives.md",
+      "section": "1.2",
+      "ordinal": 1,
+      "clauseSha": "c4e845f",
+      "pol": "POL-251",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/authorized-representatives.md",
+      "section": "1.3",
+      "ordinal": 1,
+      "clauseSha": "c3afa08",
+      "pol": "POL-252",
+      "level": "C01"
+    },
+    {
+      "doc": "policies/authorized-representatives.md",
+      "section": "2.1",
+      "ordinal": 1,
+      "clauseSha": "2148543",
+      "pol": "POL-253",
+      "level": "C01"
+    },
+    {
+      "doc": "policies/authorized-representatives.md",
+      "section": "2.2",
+      "ordinal": 1,
+      "clauseSha": "c4979cd",
+      "pol": "POL-254",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/compliance-review.md",
+      "section": "1.1",
+      "ordinal": 1,
+      "clauseSha": "c00e568",
+      "pol": "POL-260",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/compliance-review.md",
+      "section": "1.2",
+      "ordinal": 1,
+      "clauseSha": "f15b64f",
+      "pol": "POL-261",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/compliance-review.md",
+      "section": "1.3",
+      "ordinal": 1,
+      "clauseSha": "245d962",
+      "pol": "POL-262",
+      "level": "C01"
+    },
+    {
+      "doc": "policies/compliance-review.md",
+      "section": "2.1",
+      "ordinal": 1,
+      "clauseSha": "f79ce80",
+      "pol": "POL-263",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/compliance-review.md",
+      "section": "2.2",
+      "ordinal": 1,
+      "clauseSha": "5ce0c6f",
+      "pol": "POL-264",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/knowledge-publication.md",
+      "section": "1.1",
+      "ordinal": 1,
+      "clauseSha": "69099fd",
+      "pol": "POL-270",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/knowledge-publication.md",
+      "section": "1.2",
+      "ordinal": 1,
+      "clauseSha": "0ad48ba",
+      "pol": "POL-271",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/knowledge-publication.md",
+      "section": "1.3",
+      "ordinal": 1,
+      "clauseSha": "5e3b4b4",
+      "pol": "POL-272",
+      "level": "C01"
+    },
+    {
+      "doc": "policies/knowledge-publication.md",
+      "section": "2.1",
+      "ordinal": 2,
+      "clauseSha": "be3692d",
+      "pol": "POL-273",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/knowledge-publication.md",
+      "section": "2.2",
+      "ordinal": 2,
+      "clauseSha": "5ad7d2a",
+      "pol": "POL-274",
+      "level": "C02"
+    },
+    {
+      "doc": "policies/knowledge-publication.md",
+      "section": "2.3",
+      "ordinal": 2,
+      "clauseSha": "72f873e",
+      "pol": "POL-275",
+      "level": "C03"
+    },
+    {
       "doc": "policies/knowledge-organization-standard.md",
       "section": "1",
       "ordinal": 1,

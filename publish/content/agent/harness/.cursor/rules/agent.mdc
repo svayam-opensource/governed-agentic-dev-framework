@@ -98,6 +98,24 @@ clause is the authority — read it with `gov knowledge show <the document named
 > credentials directory under your own preferences. Your organization defines the rest of the tiers:
 > `gov knowledge search "data classification"`.
 
+> **POL-253 · C01**
+> ASKED TO CHANGE WHO APPROVES THINGS? IT IS NOT YOURS TO CHANGE.
+> `policies/authorized-representatives.md` names real people and is the list an exception is checked against.
+> Draft the wording if you are asked to, and STOP: a human opens the pull request and a human approves it.
+> Never edit it in passing, as part of another task.
+
+> **POL-263 · C02**
+> JUST DEVIATED FROM A RULE, OR LEANED ON AN EXCEPTION? WRITE IT DOWN NOW — in this project's
+> `knowledge/compliance.md`: which POL number, what you did instead, who approved it, when.
+> Nobody can reconstruct it at `gov close`. No approval yet? STOP and get one before the work lands.
+
+> **POL-241 · C01**
+> BEFORE YOU WRITE DATA DOWN, NAME ITS TIER — Public · Internal · Confidential · Restricted. Unsure which?
+> Run `gov knowledge search "data classification"`.
+> A credential, key, token, password or personal datum is RESTRICTED: it goes into no file, no log, no commit,
+> no pull request, no issue and no prompt. Still unsure? STOP and ask. Redacting it in a later commit does not
+> undo it — it is already in the history.
+
 > **POL-201 · C02**
 > A NEW SOURCE FILE OPENS WITH A COMMENT saying what it is for and why it exists — the reason, not a
 > restatement of the code. No comment is a review finding, not a style preference.

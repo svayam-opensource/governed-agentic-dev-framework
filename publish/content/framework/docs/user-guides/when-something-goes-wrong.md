@@ -24,7 +24,7 @@ exist, because close promotes that directory and proposing a directory that is n
 request. Whether it is *full* is not gov's business.
 
 **"Blocked by N policy checks on `gov close`."** This is **your organization's** rule, not the framework's, and
-the message names the clause (`POL-240`), the document, the section, and the file to create. Read the clause:
+the message names the clause (`POL-263`, say), the document, the section, and the file to create. Read the clause:
 `gov knowledge show <the document it named>`. If you disagree with the rule, that is a policy conversation — the
 gate is doing what your organization asked.
 

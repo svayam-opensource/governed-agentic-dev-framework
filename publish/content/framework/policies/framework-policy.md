@@ -730,7 +730,7 @@ the same rule differently holds both, and which one it follows is not predictabl
 An organization CAN publish its knowledge; if it does, every form is generated from the same markdown source.
 `knowledge_publication` in `org-config.yaml` records the choice, `none` by default. An organization reviews
 its own compliance on a cadence it sets, and escalates C01 violations immediately whatever that cadence is.
-**(POL-100 … POL-104, POL-107 … POL-109 — see those two policies)**
+**(see `policies/knowledge-publication.md` POL-270 … POL-275 and `policies/compliance-review.md` POL-260 … POL-264)**
 
 ---
 
@@ -875,9 +875,9 @@ folder, a repository or an LLM provider. An agent that finds one MUST hard stop 
 escalate. **(C01, POL-143)**
 
 What else your organization classifies, and how each tier is handled, is yours:
-`policies/data-classification.md`. **(POL-139 … POL-145 — see that policy)**
+`policies/data-classification.md` **POL-240 … POL-244**.
 
-<!-- gov:cue generated clause-sha=01400cc -->
+<!-- gov:cue generated clause-sha=ab010fe -->
 > **Always in the agent's context** · POL-143, POL-427 · C01
 > NEVER write a credential, key, token or password into a file, a log, a commit, a PR or an issue — at any
 > level, through any transport, including structured fields. About to? Stop. Secrets live only in the
@@ -990,7 +990,7 @@ lapsed. **(POL-156a)**
 
 > **This is your organization's decision, not the framework's.** Who approves an exception, by domain, is in
 > `policies/authorized-representatives.md`. Until an organization appoints owners, every approval falls to
-> the Policy Owner. **(POL-157, POL-158)**
+> the Policy Owner. **(see `policies/authorized-representatives.md` POL-250 … POL-254)**
 
 ### 11.4 Exceptions apply to organizational policy, never to framework mechanics
 

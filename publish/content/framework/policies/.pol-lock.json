@@ -820,9 +820,16 @@
       "doc": "framework/policies/framework-policy.md",
       "section": "8.8",
       "ordinal": 1,
-      "clauseSha": "cdddfbc",
+      "clauseSha": "0eaef28",
       "pol": "POL-100",
-      "level": "C03"
+      "level": "C03",
+      "history": [
+        {
+          "doc": "framework/policies/framework-policy.md",
+          "section": "8.8",
+          "clauseSha": "cdddfbc"
+        }
+      ]
     },
     {
       "pol": "POL-105",
@@ -1064,8 +1071,15 @@
       "doc": "framework/policies/framework-policy.md",
       "section": "9.9",
       "ordinal": 2,
-      "clauseSha": "01400cc",
-      "pol": "POL-139"
+      "clauseSha": "ab010fe",
+      "pol": "POL-139",
+      "history": [
+        {
+          "doc": "framework/policies/framework-policy.md",
+          "section": "9.9",
+          "clauseSha": "01400cc"
+        }
+      ]
     },
     {
       "pol": "POL-143",
