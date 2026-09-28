@@ -72,6 +72,9 @@ import { COMMAND_SPECS } from "./help-spec.js";
 import { loadPreferences, savePreference } from "./preferences-io.js";
 import { ensureLogin, runContext } from "./run-context.js";
 import { logsRoot } from "../state-paths.js";
+import { gatherGovernanceFacts, stampLines, withStamp } from "../lifecycle/governance-stamp.js";
+import { buildRulesAt } from "./rules-lifecycle.js";
+import { clearPending, readPending } from "../rules-pending.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
@@ -1023,6 +1026,34 @@ export async function runSetupCommand(
         }
       }
 
+      // ── COMPILE THE POLICIES INTO THE HARNESS, BEFORE THE COMMIT (design §7, PRJ-121, 2026-09-28) ─────────
+      //
+      // THE ADOPTER'S FIRST COPY. Everything above this line put the organization's policy documents on disk;
+      // this is what turns them into the nine files every approved agent actually reads, plus the POL locks. An
+      // adopter must never have to know `gov rules build` exists for their own policy to reach their agents —
+      // and until this ran here, they did: the verb was implemented and called by nothing.
+      //
+      // HERE AND NOT EARLIER. The token sweep above resolves `<ORG_NAME>` and the rest inside `framework/
+      // policies/` and `policies/`; compiling before it would render `<ORG_NAME>` verbatim into all nine files,
+      // which is the exact defect Decision 7 fixed for the mirrored harness. HERE AND NOT LATER: the next lines
+      // commit and push, and generated files that miss that commit are generated files nobody has.
+      //
+      // FROM THE WORKING TREE, deliberately. The seeded policies are not on any branch yet — a default-branch
+      // read would compile the template's own un-substituted documents instead, and the adopter's first harness
+      // would be rendered from text that is not their policy. See `rules-lifecycle.ts` for the full account.
+      //
+      // NO MARKER at setup: there is no running session to invalidate, and a workspace whose first `gov task`
+      // refuses would read as gov being broken on first contact.
+      const compiled = buildRulesAt({ fs }, { home: createdHome, defaultBranch: "", workingTree: true }, "setup");
+      manifest.push({
+        what: compiled.skipped ? "Rules" : compiled.failed || compiled.asked ? "⚠ Rules" : "Compiled",
+        detail: compiled.skipped
+          ? "no policy documents to compile — your agents read the session protocol only, until you write one"
+          : compiled.failed || compiled.asked
+            ? `the harness was NOT compiled from your policies — every agent would read the framework's shipped copy. ${compiled.lines.join(" ").trim()}`
+            : `the nine agent files + the POL locks, from your policies (rules ${compiled.hash})`,
+      });
+
       git("add", "-A");
       const committed = git("commit", "-m", "configure the framework for this org");
       const pushed = committed && git("push", "-u", "origin", "HEAD");
@@ -1494,6 +1525,35 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
           process.stderr.write("  from your governance repo. To take the current protocol:  gov upgrade\n");
         }
       }
+
+      // ── A GOV-LAUNCHED SESSION CLEARS `rules-pending` (design §8) ────────────────────────────────────────
+      //
+      // THE ONE CLEARING AN AGENT CANNOT PERFORM. `ensureRootProtocol` has just re-placed every harness file
+      // from the governance repo, and `verifyAgentContext` above refused to hand over a session that is not
+      // governed — so at this line gov KNOWS the session about to start will read the current rules. Clearing
+      // is not a claim anybody makes here; it is a consequence of a launch the agent does not control, which is
+      // exactly what §8 asks for: "either a launch it does not control, or an attribution to a person".
+      //
+      // `gov rules reload` is the attribution half, and it lives in `dispatch.ts`. An agent typing THAT is
+      // recorded by name in the run log; an agent cannot reach THIS one at all, because reaching it means
+      // having been started by it.
+      //
+      // Cleared BEFORE the launch, not after: `spawnSync` blocks until a terminal agent exits, so clearing
+      // afterwards would leave every mutating verb refusing for the whole session — the one the clearing exists
+      // to unblock.
+      if (me && config.agentWorkRoot) {
+        const pending = readPending(fs, config.agentWorkRoot, me);
+        if (pending) {
+          clearPending(fs, config.agentWorkRoot, me);
+          log("info", "a gov-launched session cleared the pending rules marker", "gov-work:cli:main", "launch",
+            { agent, login: me, hash: pending.hash, clauses: pending.clauses.length, recordedBy: pending.by });
+          const rp = reporter(stdoutColor());
+          process.stderr.write(`\n${rp.step(`${pending.clauses.length} rule(s) changed since your last session — this one starts with the new ones.`)}\n`);
+          for (const cl of pending.clauses.slice(0, 6)) process.stderr.write(`    ${cl}\n`);
+          if (pending.clauses.length > 6) process.stderr.write(`    … and ${pending.clauses.length - 6} more\n`);
+        }
+      }
+
       const s = agentLaunchSpec(agent, cwd, inject);
       // NO SILENT SHELL (#199). An agent gov cannot start is said out loud, with the directory, so
       // the person can start it themselves. Substituting a shell here is what let five approved
@@ -2024,10 +2084,38 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         }
       }
       try {
+        // ── RE-RENDER THE HARNESS FROM THE CLAUSES THIS UPGRADE WROTE (design §7) ───────────────────────────
+        //
+        // `gov upgrade` exists to put the framework's new clause text on disk. The resident block every agent
+        // reads is COMPILED from that text, so without this the policies move forward and the rules in context
+        // stay behind — the "reports success, changes nothing an agent sees" failure `gov sync` already had.
+        //
+        // `--pr` calls it through the port so the render lands in the commit that carries the clauses (a render
+        // in a later commit, or in nobody's commit, is a pull request whose prose and whose rules disagree).
+        // `--apply` calls it after the write. A dry run writes nothing and so renders nothing.
+        //
+        // THE MARKER IS RECORDED ONLY FOR `--apply`: that is the mode that puts the new rules into force in a
+        // workspace somebody is working in, whose session read the old ones. `--pr` ratifies nothing yet.
+        const compileRules = (withMarker: boolean) => (dir: string): readonly string[] => {
+          const who = withMarker ? ensureLogin(runContext()) : null;
+          const cfg = parseOrgConfig(fs.readFile(path.join(dir, "org-config.yaml")) ?? "");
+          const built = buildRulesAt(
+            { fs, ...(who && cfg.agentWorkRoot ? { marker: { workRoot: cfg.agentWorkRoot, login: who, now: () => new Date() } } : {}) },
+            { home: dir, defaultBranch: cfg.defaultBranch || "main", workingTree: true },
+            "upgrade",
+          );
+          return built.failed || built.asked
+            ? ["  ⚠ the harness was NOT re-compiled — the new clauses and the resident rules now disagree:", ...built.lines]
+            : built.lines;
+        };
+
         const res = "pr" in parsed.flags
-          ? runUpgradePr(contentDir, home, { branch: flagStr(parsed.flags, "branch") })
+          ? runUpgradePr(contentDir, home, { branch: flagStr(parsed.flags, "branch"), compileRules: compileRules(false) })
           : runUpgradeSync(contentDir, home, { apply: "apply" in parsed.flags });
         for (const line of res.lines) process.stdout.write(`${line}\n`);
+        if (res.code === 0 && "apply" in parsed.flags && !("pr" in parsed.flags)) {
+          for (const line of compileRules(true)(home)) process.stdout.write(`${line}\n`);
+        }
         return res.code;
       } finally {
         cleanup();
@@ -2569,6 +2657,33 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // organization's `when=verb:...` checks are never found, which reads exactly like a workspace that has none:
     // so it is wired here rather than left optional in practice.
     git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
+    // THE STAMP THAT MAKES A MERGE RECONSTRUCTABLE (design §10.10). Read from the resolved workspace, because
+    // the rendered harness there is what the agent had in context — not from the code repo the task touched.
+    governanceStamp: () => {
+      const got = gatherGovernanceFacts(fs, home, readCliVersion());
+      return got.facts ? { lines: stampLines(got.facts) } : { error: got.error ?? "the facts could not be read" };
+    },
+    /**
+     * `gh pr edit` on the task branch's pull request, run from inside the repository directory.
+     *
+     * READ THEN WRITE, and the read is what makes it safe: `--body` REPLACES the whole body, so the current one
+     * is fetched and the stamp merged into it by `withStamp`, which replaces any block already there. Writing
+     * the stamp alone would delete whatever the author (or the reviewer) had written — a merge that silently
+     * erases a pull request description is a far worse outcome than an unstamped one.
+     *
+     * Every failure is "failed" or "no-pr", never an exception: the merge has already landed.
+     */
+    stampPullRequest: (repoDir, head, lines) => {
+      const current = ((): string | null => {
+        const out = tryRunProcess("gh", ["pr", "view", head, "--json", "body", "-q", ".body"], { cwd: repoDir, pgm: "gov-work:cli:main", fn: "stamp-pr-read" });
+        return out === undefined ? null : out;
+      })();
+      if (current === null) return "no-pr";
+      return okProcess("gh", ["pr", "edit", head, "--body", withStamp(current, lines)], { cwd: repoDir, pgm: "gov-work:cli:main", fn: "stamp-pr" })
+        ? "stamped"
+        : "failed";
+    },
+    now: () => new Date(),
     log: (m) => process.stderr.write(`${m}\n`),
   };
 

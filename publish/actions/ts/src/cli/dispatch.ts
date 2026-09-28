@@ -41,6 +41,11 @@ import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 import { policyGate } from "./policy-gate-io.js";
 import { rules } from "./rules-verb.js";
+import { buildRulesAt } from "./rules-lifecycle.js";
+import { clearPending, isMutatingVerb, readPending, refuseForPendingRules } from "../rules-pending.js";
+import type { MergeStamp, StampOutcome } from "../lifecycle/merge.js";
+import { stampFacts } from "../lifecycle/governance-stamp.js";
+import { log } from "../log.js";
 import { search, formatHits, formatList, formatDoc, hitsJson } from "../knowledge-search.js";
 import { loadDocs, resolveDoc } from "./knowledge-io.js";
 import { onboard } from "../lifecycle/onboard.js";
@@ -104,6 +109,18 @@ export interface CliContext {
    * found, which is the same behaviour as a workspace that has none.
    */
   readonly git?: (repo: string, args: readonly string[]) => string | null;
+  /**
+   * The clock, for the `rules-pending` marker and the `gov rules reload` attestation. Absent → real time.
+   *
+   * Injected rather than read, because "the rules changed at T, the person attested at T+2m" is a fact a test
+   * has to be able to assert, and a test that cannot control the clock asserts the shape of a timestamp instead
+   * of its meaning.
+   */
+  readonly now?: () => Date;
+  /** §10.10 — the three facts `gov merge` stamps into a pull request body. Absent → merge says nothing. */
+  readonly governanceStamp?: () => { readonly lines?: readonly string[]; readonly error?: string };
+  /** Put those lines in the pull request whose head is `head`, working from inside `repoDir`. */
+  readonly stampPullRequest?: (repoDir: string, head: string, lines: readonly string[]) => StampOutcome;
   readonly log?: (msg: string) => void;
 }
 
@@ -177,12 +194,66 @@ export function routeOrg(positionals: readonly string[], flags: ParsedArgs["flag
   }
 }
 
+/**
+ * Where the person's `state/` lives, when gov knows enough to say.
+ *
+ * Both halves are needed and either may be missing — `agent_work_root` is unset in a workspace nobody has
+ * finished configuring, and the login is absent whenever `gh` cannot answer. Returning null means "no marker
+ * can be read", which is the same answer `rules-lifecycle.ts` gives for "no marker can be written": one keying
+ * rule, used by the writer and the reader, so the two can never disagree about where to look.
+ */
+function markerKey(ctx: CliContext): { workRoot: string; login: string } | null {
+  return ctx.config.agentWorkRoot && ctx.login ? { workRoot: ctx.config.agentWorkRoot, login: ctx.login } : null;
+}
+
+/**
+ * What `gov merge` says about the stamp (§10.10).
+ *
+ * IT NEVER READS AS A FAILURE, because it never is one: the merge has landed by the time this is computed. A
+ * stamp that could not be computed is stated as a fact with its reason, and the facts are printed anyway when
+ * there was no pull request to hold them — so the run log carries them even where GitHub does not.
+ */
+function stampReport(stamp: MergeStamp | undefined): string[] {
+  if (!stamp) return [];
+  if (stamp.error) return [`  governance stamp: not recorded — ${stamp.error} (the merge is done)`];
+  const stamped = stamp.placed.filter((p) => p.outcome === "stamped");
+  const failed = stamp.placed.filter((p) => p.outcome === "failed");
+  const facts = stampFacts(stamp.lines);
+  return [
+    stamped.length
+      ? `  governed by: ${facts.join(" · ")} — stamped into ${stamped.length} pull request(s)`
+      : `  governed by: ${facts.join(" · ")} — no pull request to stamp; recorded here and in the run log`,
+    ...failed.map((f) => `  ⚠ could not stamp the pull request in ${f.repoDir} (the merge is done)`),
+  ];
+}
+
 /** Route a parsed command to its orchestrator; returns an exit code + output. */
 export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
   const { command, positionals, flags } = parsed;
   const c = ctx.config;
   const projectWorkRoot = path.dirname(ctx.home);
   const ownerField = "organization" as const;
+
+  // ── A CHANGED RULE STOPS WORK UNTIL THE SESSION RESTARTS (design §8) ──────────────────────────────────────
+  //
+  // BEFORE THE SWITCH, so there is one place it is decided and no verb can be added that forgets. gov cannot
+  // replace the rules inside a session that is already running, so the only honest alternative to refusing is
+  // letting work land judged against rules that session never read — and that failure is invisible: nothing
+  // errors, the merge succeeds, and the record says the change was reviewed under the current policy.
+  //
+  // ONLY THE MUTATING VERBS. `status`, `knowledge search|show|list`, `rules` and `validate` keep working, and
+  // `doctor` and `log` never reach this function at all (main.ts answers them before resolution). A workspace
+  // where nothing can be inspected is a workspace nobody can get out of this state — bricking it would make
+  // the refusal worse than the thing it prevents.
+  {
+    const key = markerKey(ctx);
+    const pending = key && isMutatingVerb(command, positionals[0]) ? readPending(ctx.fs, key.workRoot, key.login) : null;
+    if (pending) {
+      log("warn", "refused a mutating verb — the rules changed since the session started", "gov-work:cli:dispatch", "route",
+        { command, hash: pending.hash, clauses: pending.clauses.length });
+      return { code: 1, lines: refuseForPendingRules(pending, command) };
+    }
+  }
 
   switch (command) {
     // `gov agent` — the door that stays open (#196). Reporting is here; installing
@@ -340,12 +411,19 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     case "merge": {
       if (positionals.length < 1) return usage("merge <issue-url | task-branch>");
       const r = merge(
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, authorize: ctx.authorize, log: ctx.log },
+        {
+          board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, authorize: ctx.authorize, log: ctx.log,
+          // §10.10 — what governed this change, into the pull request body. Both ports are optional in `merge`
+          // and both are wired here, because a stamp that only exists when someone remembers to pass a flag is
+          // the same "implemented, called by nothing" state the rules compiler was in.
+          ...(ctx.governanceStamp ? { stamp: ctx.governanceStamp } : {}),
+          ...(ctx.stampPullRequest ? { stampPr: ctx.stampPullRequest } : {}),
+        },
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo },
         { govClone: ctx.home, projectWorkRoot, taskArg: positionals[0] },
       );
       return r.ok
-        ? { code: 0, lines: [`Merged ${r.taskId} → ${r.projectBranch}`, `  closed issue(s): ${r.issueUrls.length}`] }
+        ? { code: 0, lines: [`Merged ${r.taskId} → ${r.projectBranch}`, `  closed issue(s): ${r.issueUrls.length}`, ...stampReport(r.stamp)] }
         : { code: r.code, lines: [r.message] };
     }
 
@@ -392,12 +470,33 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       // organization — one that authorized no agents — was told the protocol had been re-placed when nothing
       // was written at all, and a workspace whose harness source is missing was told the same. Both are the
       // "reports success, changes nothing an agent sees" failure the comment above warns about.
+      // COMPILE BEFORE MIRRORING, OR THE MIRROR CARRIES THE OLD RULES (design §7, PRJ-121, 2026-09-28).
+      //
+      // `sync` has just merged the default branch — where ratified governance lives (POL-086a) — into the
+      // project branch. So this is the one moment an ORG'S OWN ratified clause can reach a project already in
+      // flight, and it was the moment nothing compiled it: the policy documents moved forward and the resident
+      // block every agent reads stayed at whatever the last hand-run of the verb produced. `ensureRootProtocol`
+      // below copies `agent/harness/*` to the project root, so it must run AFTER the render or it faithfully
+      // mirrors the stale bytes and reports success.
+      //
+      // FROM THE DEFAULT BRANCH, never `ctx.home`'s worktree: `ctx.home` is on the PROJECT branch, and a clause
+      // edited there is a proposal (POL-086b). Compiling it would put a rule nobody ratified into the one block
+      // guaranteed to be read — by the agent whose session wrote it.
+      const built = buildRulesAt(
+        { fs: ctx.fs, ...(ctx.git ? { git: ctx.git } : {}), ...(markerKey(ctx) ? { marker: { ...markerKey(ctx)!, now: ctx.now ?? (() => new Date()) } } : {}) },
+        { home: ctx.home, defaultBranch: c.defaultBranch },
+        "sync",
+      );
       const mirror = ensureRootProtocol(ctx.fs, projectWorkRoot, c.workspaceRepo);
       return {
+        // A SYNC IS NOT FAILED BY A QUESTION ABOUT CLAUSE NUMBERING. Every branch is merged and pushed by the
+        // time this line runs; a non-zero exit would report failure for work that landed, and an agent reading
+        // the code would re-run a sync that has nothing left to do.
         code: 0,
         lines: [
           `Synced ${r.projectBranch}`,
           `  ${r.synced.length} repo(s) up to date`,
+          ...built.lines,
           ...(mirror.structureOnly
             ? ["  no agent harness placed — this organization authorized none (structure-only)"]
             : [`  session-start protocol re-placed in ${mirror.targets.length} director${mirror.targets.length === 1 ? "y" : "ies"}`]),
@@ -408,8 +507,17 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           // whether it re-reads from disk is the agent's business, not gov's. What gov CAN do is
           // hand the person the one sentence that makes it certain — same mechanism for every
           // agent, no vendor hook.
-          "Governance may have changed. Paste this into your running session:",
-          "  Re-read the session-start protocol from disk; it has changed. Then continue.",
+          //
+          // AND ONCE THE MARKER IS RECORDED, THE PASTE IS NOT ENOUGH. "Ask it to re-read the file" was the best
+          // gov could do before §8; it is now the WRONG advice, because a re-read does not clear the marker and
+          // the person would follow it, find `gov merge` still refusing, and conclude gov is broken. So the two
+          // messages are mutually exclusive by construction rather than both printed and left to be reconciled.
+          ...(built.pendingRecorded
+            ? ["The rules in your agent's context changed, so work is closed until the session restarts:",
+               "  gov work            start a fresh, governed session",
+               "  gov rules reload    if you have already restarted it"]
+            : ["Governance may have changed. Paste this into your running session:",
+               "  Re-read the session-start protocol from disk; it has changed. Then continue."]),
         ],
       };
     }
@@ -494,12 +602,60 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       // on a project branch is a proposal (POL-086b), and compiling it would put an unratified rule into the one
       // place an agent is guaranteed to read. `--working-tree` is for an author mid-draft and says so in the output.
       const mode = positionals[0] ?? "report";
-      if (!["build", "check", "report"].includes(mode)) return usage("rules <build|check|report> [--working-tree]");
+
+      // ── `gov rules reload` — THE HUMAN ATTESTATION THAT CLEARS THE MARKER (design §8) ────────────────────
+      //
+      // The marker has exactly two ways out, and neither is "a command succeeded":
+      //
+      //   1. A GOV-LAUNCHED SESSION. `gov work` re-places every harness file and `verifyAgentContext` refuses
+      //      to hand over a session that is not governed — so by the time an agent is running, gov KNOWS it
+      //      started after the change. That clearing is not a claim anybody makes; it is a consequence of a
+      //      launch the agent does not control. It happens in main.ts, at the launch.
+      //
+      //   2. THIS. A person says "I restarted it". gov cannot verify that, so instead of pretending to, it
+      //      makes the claim ATTRIBUTABLE: who, when, and which rules hash they were acknowledging, written to
+      //      the run log. An agent CAN type this command — nothing in a CLI can stop it — but it cannot type it
+      //      anonymously. The record names the person whose credentials ran it, and a session that cleared its
+      //      own refusal and then landed work under superseded rules is visible in the log beside the merge.
+      //      That is the whole mechanism: not prevention, attribution. Prevention is (1).
+      //
+      // It is deliberately NOT a mutating verb, so it keeps working while the marker is present — a clearing
+      // command the marker blocks would be a workspace nobody can recover.
+      if (mode === "reload") {
+        const key = markerKey(ctx);
+        if (!key) {
+          return { code: 1, lines: [
+            "gov rules reload: gov does not know whose session this is, so there is no marker to clear.",
+            "  it is keyed by your GitHub login and your org's agent_work_root — check `gh auth status` and org-config.yaml.",
+          ] };
+        }
+        const pending = readPending(ctx.fs, key.workRoot, key.login);
+        if (!pending) return { code: 0, lines: ["gov rules reload: nothing pending — the rules have not changed since your session started."] };
+        clearPending(ctx.fs, key.workRoot, key.login);
+        log("info", "a person attested that they restarted their agent session", "gov-work:cli:dispatch", "rules-reload", {
+          attestedBy: ctx.login, attestedEmail: ctx.seededBy, at: (ctx.now ?? (() => new Date()))().toISOString(),
+          hash: pending.hash, previous: pending.previous, clauses: pending.clauses, recordedBy: pending.by, recordedAt: pending.at,
+        });
+        return { code: 0, lines: [
+          `gov rules reload — ${pending.clauses.length} rule(s) changed at ${pending.at} (\`gov ${pending.by}\`):`,
+          "",
+          ...pending.clauses.map((cl) => `  ${cl}`),
+          ...(pending.clauses.length ? [""] : []),
+          `  rules ${pending.hash}${pending.previous ? ` (was ${pending.previous})` : ""}`,
+          `  attested by ${ctx.login ?? "(unknown)"} — recorded in the run log.`,
+          "",
+          "  task · merge · close · knowledge propose are open again. If your session is in fact still the old",
+          "  one, it is now working from rules it has not read — stop it and start again with `gov work`.",
+        ] };
+      }
+
+      if (!["build", "check", "report"].includes(mode)) return usage("rules <build|check|report|reload> [--working-tree]");
       const r = rules(
         { fs: ctx.fs, ...(ctx.git ? { git: ctx.git } : {}) },
         {
           home: ctx.home, defaultBranch: c.defaultBranch, workingTree: flagBool(flags, "working-tree"),
           confirm: (flagStr(flags, "confirm") ?? "").split(",").map((p) => p.trim()).filter(Boolean),
+          restamp: flagBool(flags, "restamp"),
         },
         mode as "build" | "check" | "report",
       );

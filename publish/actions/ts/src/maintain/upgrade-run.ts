@@ -170,8 +170,18 @@ function upgradePrBody(version: string, appliedCount: number, plan: ReturnType<t
   ].filter((l) => l !== undefined).join("\n");
 }
 
+/**
+ * Recompile the harness from the clauses this upgrade just wrote, and say what happened.
+ *
+ * INJECTED, NOT IMPORTED. The compiler lives in `cli/rules-lifecycle.ts`, and `maintain/` importing `cli/`
+ * points the dependency the wrong way — it also produced a real load-order cycle through `src/index.ts`, which
+ * re-exports `maintain/` before `cli/`, so `upgrade.ts` read `PACKAGE_NAME` before it was initialised and every
+ * test file that touched `maintain/` failed to load. A port keeps the layering honest and the cycle impossible.
+ */
+export type CompileRules = (adopterDir: string) => readonly string[];
+
 /** Create a gov-upgrade branch with the full plan applied, push it, open a PR. */
-export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string } = {}): UpgradeSyncResult {
+export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string; compileRules?: CompileRules } = {}): UpgradeSyncResult {
   if (!fs.existsSync(path.join(contentDir, "MANIFEST.yaml"))) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
   try { git(adopterDir, ["rev-parse", "--git-dir"]); } catch { /* not a git repository: the message below is the account of it */ return { code: 1, lines: ["gov upgrade --pr: not a git repository (or no remote). Use --apply for an in-place migration instead."] }; }
   if (git(adopterDir, ["status", "--porcelain"])) return { code: 1, lines: ["gov upgrade --pr: working tree has uncommitted changes — commit or stash first."] };
@@ -209,6 +219,24 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     recordMove: (id) => recordMove(adopterDir, id),
   }, { includeConflicts: true }); // the PR diff IS the review — apply everything
 
+  // ── THE RENDER TRAVELS IN THE SAME COMMIT AS THE CLAUSES (design §7, PRJ-121, 2026-09-28) ─────────────────
+  //
+  // `gov upgrade --pr` puts the framework's new clause text on a branch for review. The nine agent files are
+  // COMPILED from that text, so a pull request carrying new clauses and the previous resident block is a pull
+  // request that looks like it updates governance and does not: the reviewer approves the prose, the agents keep
+  // reading the old rules, and nothing anywhere reports a mismatch.
+  //
+  // FROM THE WORKING TREE, and this is the one place that word needs defending. The new clauses are on this
+  // branch and nowhere else — the default branch still holds the OLD ones — so a default-branch read would
+  // render the previous rules into the commit that ships the new ones. This is not POL-086b self-governance:
+  // the documents are the FRAMEWORK'S, arriving from published content, and the render is reviewed and ratified
+  // in the same pull request as the clauses it came from. `rules()` prints "from the WORKING TREE (unratified)"
+  // so the diff never claims otherwise.
+  //
+  // NO MARKER: nothing is ratified yet, so no session is stale. The marker is recorded by `--apply`, which does
+  // put the new rules into force, and by `gov sync`.
+  const compiledLines = opts.compileRules ? opts.compileRules(adopterDir) : [];
+
   git(adopterDir, ["add", "-A"]);
   git(adopterDir, ["commit", "-m", `gov upgrade: sync framework content to ${version}`]);
   try { git(adopterDir, ["push", "-u", "origin", branch]); } catch (e) { return { code: 1, lines: [`Applied on ${branch} but push failed: ${(e as Error).message.split("\n")[0]}`] }; }
@@ -216,9 +244,9 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   try {
     prUrl = runProcess("gh", ["pr", "create", "--base", base, "--head", branch, "--title", `gov upgrade → framework content ${version}`, "--body", upgradePrBody(version, res.applied.length, plan)], { cwd: adopterDir, pgm: "gov-work:maintain:upgrade-run", fn: "pr-create" }).trim();
   } catch (e) {
-    return { code: 0, lines: [`Pushed ${branch} (open the PR manually — gh failed): ${(e as Error).message.split("\n")[0]}`] };
+    return { code: 0, lines: [`Pushed ${branch} (open the PR manually — gh failed): ${(e as Error).message.split("\n")[0]}`, ...compiledLines] };
   }
-  return { code: 0, lines: [`Opened upgrade PR: ${prUrl}`, `  ${branch} → ${base} · ${res.applied.length} file(s) changed`, `  Review per-file; keep your customizations where the diff replaces them, then merge.`] };
+  return { code: 0, lines: [`Opened upgrade PR: ${prUrl}`, `  ${branch} → ${base} · ${res.applied.length} file(s) changed`, ...compiledLines, `  Review per-file; keep your customizations where the diff replaces them, then merge.`] };
 }
 
 import * as os from "node:os";

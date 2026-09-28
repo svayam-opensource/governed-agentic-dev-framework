@@ -127,3 +127,89 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
     if (r.ok) expect(r.issueUrls).to.deep.equal(["https://x/issues/123"]);
   });
 });
+
+/**
+ * WHAT GOVERNED THIS CHANGE (design §10.10).
+ *
+ * Every test here is about a way the stamp could make things worse: failing a merge that has already landed,
+ * looking for a pull request after the branch it is found by has been deleted, or reporting success when it
+ * recorded nothing.
+ */
+describe("merge — the governance stamp", () => {
+  const STAMP = ["<!-- gov:governed-by -->", "`gov-rules-hash: aaaabbbbccccdddd`", "<!-- /gov:governed-by -->"];
+
+  it("stamps the pull request in every repo the merge touched", () => {
+    const seen: { repoDir: string; head: string }[] = [];
+    const r = merge({
+      board: fakeBoard(), authorize: () => true, vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => ({ lines: STAMP }),
+      stampPr: (repoDir, head) => { seen.push({ repoDir, head }); return "stamped"; },
+    }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(pxDeep(seen.map((s) => s.repoDir))).to.deep.equal([GOV, CODE_DIR]);
+    expect(seen.every((s) => s.head === TASK_ID)).to.equal(true);
+    expect(r.stamp!.placed.map((p) => p.outcome)).to.deep.equal(["stamped", "stamped"]);
+  });
+
+  it("stamps BEFORE archiving — a pull request is found by its head branch, and archiving deletes it", () => {
+    const order: string[] = [];
+    const { vcs } = fakeVcs();
+    const watched = { ...vcs, tag: (r: string, t: string) => order.push(`tag ${r} ${t}`) };
+    merge({
+      board: fakeBoard(), authorize: () => true, vcs: watched, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => ({ lines: STAMP }),
+      stampPr: () => { order.push("stamp"); return "stamped"; },
+    }, CONFIG, input());
+    expect(order[0], "stamping after the archive would find no branch and report 'no pull request'").to.equal("stamp");
+  });
+
+  it("a task with no pull request is not a failure — the facts are carried by the result instead", () => {
+    const r = merge({
+      board: fakeBoard(), authorize: () => true, vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => ({ lines: STAMP }),
+      stampPr: () => "no-pr",
+    }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(r.stamp!.lines).to.deep.equal(STAMP);
+    expect(r.stamp!.placed.every((p) => p.outcome === "no-pr")).to.equal(true);
+  });
+
+  it("an uncomputable stamp does NOT fail the merge — the work has already landed", () => {
+    const r = merge({
+      board: fakeBoard(), authorize: () => true, vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => ({ error: "this workspace has never run `gov rules build`" }),
+      stampPr: () => "stamped",
+    }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(r.stamp!.error).to.contain("never run");
+    expect(r.stamp!.placed).to.deep.equal([]);
+  });
+
+  it("a pull request that could not be edited is reported, and the merge still succeeds", () => {
+    const r = merge({
+      board: fakeBoard(), authorize: () => true, vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => ({ lines: STAMP }),
+      stampPr: () => "failed",
+    }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (r.ok) expect(r.stamp!.placed.every((p) => p.outcome === "failed")).to.equal(true);
+  });
+
+  it("with no stamp port wired, merge behaves exactly as it did before §10.10", () => {
+    const r = merge({ board: fakeBoard(), authorize: () => true, vcs: fakeVcs().vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (r.ok) expect(r.stamp).to.equal(undefined);
+  });
+
+  it("nothing is stamped when the merge never completed — a conflict leaves no record to make", () => {
+    let called = false;
+    merge({
+      board: fakeBoard(), authorize: () => true, vcs: fakeVcs({ conflict: true }).vcs, fs: fsPresent(true), issues: fakeIssues().issues,
+      stamp: () => { called = true; return { lines: STAMP }; },
+    }, CONFIG, input());
+    expect(called).to.equal(false);
+  });
+});
