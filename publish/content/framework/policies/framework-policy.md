@@ -223,21 +223,42 @@ list rather than against an assumption. **(POL-026, POL-027, POL-029 … POL-032
 
 ### 3.3 How approval is actually enforced
 
-A named approver is worth nothing if anybody can merge. Enforcement is at the version-control gate, and the
-framework requires all four settings below on the default branch of the governance repository and of every
-participating code repository. **(POL-040a)**
+A named approver is worth nothing if anybody can merge. Enforcement belongs at the version-control gate, and
+**where the platform can enforce these, they MUST be configured** on the default branch of the governance
+repository and of every participating code repository. **(POL-040a)**
 
-1. A pull request MUST be required before merging.
-2. At least one approving review MUST be required.
-3. Bypassing MUST be disallowed — including for administrators and the repository owner.
-4. A required status check MUST verify that an approving reviewer is on the organization's list of
-   authorized representatives.
+1. A pull request required before merging.
+2. At least one approving review required.
+3. Bypassing disallowed — including for administrators and the repository owner.
+4. A required status check verifying that an approving reviewer is on the organization's list of authorized
+   representatives (§3.2). The framework ships the workflow; the list is the organization's.
 
-**Why the fourth setting exists.** On GitHub's Free plan for private repositories, "restrict who can
-push/merge" and `CODEOWNERS` enforcement are paid-tier features: any collaborator with write access can
-leave the approving review that satisfies setting 2. The status check closes that gap on every plan — a
-workflow reads the organization's authorized-representative list and fails when the approver is not on it.
-The framework ships the workflow; the list is the organization's (§3.2). **(POL-040b)**
+**The fourth exists because an approving review does not prove the approver was authorized.** Any collaborator
+with write access can leave one. A status check can read the organization's own list and fail when the approver
+is not on it — which is what turns "a review happened" into "the right person approved".
+
+### 3.4 When the platform cannot enforce any of it
+
+**This is not hypothetical, and an earlier version of this section was wrong about it.** It claimed the status
+check closed the gap "on every plan". Required status checks are *themselves* a branch-protection feature, so
+they do not. Verified 2026-09-27 against this framework's own governance repository — a private repository on a
+Free plan — where both `branches/<branch>/protection` and `rules/branches/<branch>` answer:
+
+```
+403  Upgrade to GitHub Pro or make this repository public to enable this feature.
+```
+
+None of the four can be configured there. **On such a repository there is no platform-enforced control at all**,
+and the honest consequence has to be stated rather than glossed: gov's own gates and review discipline are the
+only enforcement, and **neither binds an agent a developer starts outside gov**. **(POL-040b)**
+
+An organization whose governance repository is in that position MUST do one of three things, and record which:
+make the repository public, move to a plan that provides branch protection, or approve an exception that names
+the gap. **(POL-040d)**
+
+**gov reports which case you are in; it does not assume.** `gov doctor` reads the platform's answer and prints
+one row per requirement — and distinguishes *unprotected* (GitHub says the branch has no rule) from *unknowable*
+(gov could not read it, and says why). Those are different facts and only one of them is a finding. **(POL-040e)**
 
 `CODEOWNERS` remains required as the **routing** mechanism — it is what assigns the right reviewers to a
 pull request — and MUST NOT be relied on as the enforcement mechanism where the plan does not enforce
