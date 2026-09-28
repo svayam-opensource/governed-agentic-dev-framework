@@ -365,3 +365,63 @@ describe("root-protocol — which files gov owns outright inside a team's reposi
     }
   });
 });
+
+describe("root-protocol — a launch that changes nothing writes nothing", () => {
+  // WHY: this ran on EVERY agent launch and wrote unconditionally — nine files at the project root and nine in
+  // every cloned code repo, so a three-repo project rewrote thirty-six identical files each time somebody started
+  // an agent. Git never noticed, because the content is idempotent. mtime did, and mtime is what file watchers,
+  // IDE reload prompts and timestamp-based rebuilds key on; the Fs port also logged every write, so a launch left
+  // thirty-six "wrote a file" lines that meant nothing had happened.
+  const PROJ = "/work/PRJ-9";
+  const WSP = "acme-gov";
+  /** A workspace with one rendered harness file and one clone. */
+  const world = (): Record<string, string> => ({
+    [`${PROJ}/${WSP}/org-config.yaml`]: "org_name: Acme\n",
+    [`${PROJ}/${WSP}/agent/harness/AGENTS.md`]: "# the protocol\n",
+  });
+
+  function tracking(files: Record<string, string>): { fs: Fs; writes: string[] } {
+    const writes: string[] = [];
+    const fs: Fs = {
+      pathExists: (p) => Object.keys(files).some((f) => f === p || f.startsWith(`${p}/`)),
+      readFile: (f) => files[f] ?? null,
+      writeFile: (f, c) => { files[f] = c; writes.push(f); },
+      mkdirp: () => {},
+      rm: () => {},
+      readdir: (d) => {
+        const names = new Set<string>();
+        for (const f of Object.keys(files)) if (f.startsWith(`${d}/`)) names.add(f.slice(d.length + 1).split("/")[0]!);
+        return [...names];
+      },
+    };
+    return { fs, writes };
+  }
+
+  it("writes on the FIRST launch, and reports how many", () => {
+    const { fs, writes } = tracking(world());
+    const r = ensureRootProtocol(fs, PROJ, WSP);
+    expect(writes.length, "the first launch places what is there to place").to.be.greaterThan(0);
+    expect(r.written).to.equal(writes.length);
+  });
+
+  it("writes NOTHING on the second launch — same policy, same bytes", () => {
+    const files = world();
+    const { fs } = tracking(files);
+    ensureRootProtocol(fs, PROJ, WSP);
+    const second = tracking(files);
+    const r = ensureRootProtocol(second.fs, PROJ, WSP);
+    expect(second.writes, "nothing changed, so nothing is rewritten").to.deep.equal([]);
+    expect(r.written).to.equal(0);
+    expect(r.placed, "but gov is still responsible for the same paths").to.not.be.empty;
+  });
+
+  it("writes again the moment the POLICY changes — which is the only time a diff should appear", () => {
+    const files = world();
+    ensureRootProtocol(tracking(files).fs, PROJ, WSP);
+    files[`${PROJ}/${WSP}/agent/harness/AGENTS.md`] = "# the protocol, revised\n";
+    const after = tracking(files);
+    const r = ensureRootProtocol(after.fs, PROJ, WSP);
+    expect(r.written, "a governance change reaches every target").to.be.greaterThan(0);
+    expect(files[`${PROJ}/AGENTS.md`]).to.contain("revised");
+  });
+});

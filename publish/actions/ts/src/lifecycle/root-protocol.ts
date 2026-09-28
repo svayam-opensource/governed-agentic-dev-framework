@@ -211,8 +211,13 @@ export interface SkippedHarness {
 export interface MirrorResult {
   /** The org runs no AI agents (`authorized_agents: none`): nothing was mirrored, by decision. */
   readonly structureOnly: boolean;
-  /** The paths, relative to the project dir, actually written. */
+  /** The paths, relative to the project dir, gov is responsible for at every target. */
   readonly placed: readonly string[];
+  /**
+   * How many files this call actually CHANGED. Zero is the normal case on a second launch, and saying so is what
+   * lets a caller report "already current" instead of implying work that did not happen.
+   */
+  readonly written: number;
   /**
    * Every directory the harness was mirrored into: the project root first, then each code-repo clone.
    * Reported because "governed" is a claim about a directory, and until now only one of them was true.
@@ -295,7 +300,7 @@ export function mirrorWarnings(result: MirrorResult): readonly string[] {
 export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: string): MirrorResult {
   const ws = workspaceRepo;
   if (isStructureOnly(fs.readFile(path.join(projectDir, ws, "org-config.yaml")))) {
-    return { structureOnly: true, placed: [], targets: [], skipped: [] };
+    return { structureOnly: true, placed: [], targets: [], skipped: [], written: 0 };
   }
   // CLAUDE.md IS NO LONGER SPECIAL (Policy Owner, 2026-09-11). It used to be written here as
   // two @-imports, and only when absent — so a damaged copy was never repaired, and a broken
@@ -329,6 +334,7 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
   const clones = codeRepoDirs(fs, projectDir, workspaceRepo);
   const targets = [projectDir, ...clones];
   const placed: string[] = [];
+  let written = 0;
   const skipped: SkippedHarness[] = [];
   for (const rel of ROOT_HARNESS_FILES) {
     const source = path.join(projectDir, ws, HARNESS_SRC_DIR, rel);
@@ -361,7 +367,20 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
       // its team, so a file the team may already own gets a fence. See {@link composeTeamFile} and
       // {@link ownsWholeFile}.
       const whole = dir === projectDir || ownsWholeFile(rel);
-      fs.writeFile(dst, whole ? src : composeTeamFile(src, fs.readFile(dst)));
+      const existing = fs.readFile(dst);
+      const wanted = whole ? src : composeTeamFile(src, existing);
+      // WRITE ONLY WHEN THE BYTES CHANGE (PRJ-121, 2026-09-28).
+      //
+      // This ran on every agent launch and wrote unconditionally: nine files into the project root and nine into
+      // every cloned code repo, so a three-repo project rewrote thirty-six identical files each time somebody
+      // started an agent. Git never noticed, because the content is idempotent — but mtime did, and mtime is what
+      // file watchers, IDE reload prompts and every timestamp-based rebuild key on. The Fs port also logs each
+      // write, so a launch left thirty-six "wrote a file" lines that meant nothing happened.
+      //
+      // Comparing first makes the honest claim true: these files are written once and refreshed when the
+      // framework's or the organization's policy changes. It also makes TRACKING them reasonable for a team that
+      // wants to — a diff then appears exactly when governance changed, which is a diff worth reviewing.
+      if (existing !== wanted) { fs.writeFile(dst, wanted); written++; }
     }
     placed.push(rel);
   }
@@ -369,10 +388,13 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
   if (placed.length) {
     for (const dir of clones) {
       const exclude = gitInfoExcludeFile(fs, dir);
-      if (exclude) fs.writeFile(exclude, composeExclude(fs.readFile(exclude), placed));
+      if (!exclude) continue;
+      const before = fs.readFile(exclude);
+      const after = composeExclude(before, placed);
+      if (before !== after) { fs.writeFile(exclude, after); written++; }
     }
   }
-  return { structureOnly: false, placed, targets, skipped };
+  return { structureOnly: false, placed, targets, skipped, written };
 }
 
 /**

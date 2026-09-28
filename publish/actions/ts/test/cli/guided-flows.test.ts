@@ -294,7 +294,8 @@ describe("gov-work — guided Work flow", () => {
     const fs = {
       ...fsWith([]),
       // CLAUDE.md is in the mirrored list now — same rendered text as every other agent.
-      readFile: (f: string) => (f.endsWith("AGENTS.md") || f.endsWith("agent.mdc") || f.endsWith("CLAUDE.md"))
+      readFile: (f: string) => (px(f).includes("/agent/harness/")
+        && (f.endsWith("AGENTS.md") || f.endsWith("agent.mdc") || f.endsWith("CLAUDE.md")))
         ? `# rendered protocol (${f})` : null,   // these rendered; others absent
       writeFile: (p: string, c: string) => writes.push([p, c]),
       mkdirp: (dir: string) => dirs.push(dir),
@@ -315,7 +316,7 @@ describe("gov-work — guided Work flow", () => {
     const w: Array<[string, string]> = []; const dirs: string[] = [];
     const fs = {
       ...fsWith([]),
-      readFile: (f: string) => f.endsWith("CLAUDE.md") ? "# rendered protocol" : null,
+      readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("CLAUDE.md") ? "# rendered protocol" : null),
       writeFile: (p: string, c: string) => w.push([p, c]),
       mkdirp: (d: string) => dirs.push(d),
     };
@@ -329,7 +330,7 @@ describe("gov-work — guided Work flow", () => {
 
   it("session-start FIRES for cursor (CLI) — injected kickoff + alwaysApply rule mirrored to root", () => {
     const w: Array<[string, string]> = [];
-    const fs = { ...fsWith([]), readFile: (f: string) => f.endsWith("agent.mdc") ? "---\nalwaysApply: true\n---\n<protocol>" : null, writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
+    const fs = { ...fsWith([]), readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("agent.mdc") ? "---\nalwaysApply: true\n---\n<protocol>" : null), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"], "always-on rule at root").to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor", "/work/PRJ-9", "KICK")!.args, "speak-first").to.deep.equal(["KICK"]);
@@ -337,7 +338,7 @@ describe("gov-work — guided Work flow", () => {
 
   it("session-start FIRES for cursor GUI — alwaysApply rule mirrored to <project> (auto-applies; GUI opens the dir)", () => {
     const w: Array<[string, string]> = [];
-    const fs = { ...fsWith([]), readFile: (f: string) => f.endsWith("agent.mdc") ? "---\nalwaysApply: true\nglobs: [\"**/*\"]\n---\n<protocol>" : null, writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
+    const fs = { ...fsWith([]), readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("agent.mdc") ? "---\nalwaysApply: true\nglobs: [\"**/*\"]\n---\n<protocol>" : null), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
     ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"]).to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK"))
@@ -944,7 +945,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
       ...fsWith([]),
       readFile: (f: string) => (px(f).endsWith("/acme-gov/org-config.yaml")
         ? 'authorized_agents:\n  default: "claude-code"\n'
-        : "# rendered protocol"),
+        : px(f).includes("/agent/harness/") ? "# rendered protocol" : null),
       writeFile: (p: string) => writes.push(px(p)),
       mkdirp: () => {},
     };
@@ -960,7 +961,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
       ...fsWith([]),
       readFile: (f: string) => (px(f).endsWith("/acme-gov/org-config.yaml")
         ? 'org_name: "Acme"\nauthorized_agents:\n  default: ""\n'                // the shipped template
-        : "# rendered protocol"),
+        : px(f).includes("/agent/harness/") ? "# rendered protocol" : null),
       writeFile: (p: string) => writes.push(px(p)),
       mkdirp: () => {},
     };
