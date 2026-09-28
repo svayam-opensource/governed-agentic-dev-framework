@@ -8,7 +8,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Projects } from "../lifecycle/project-list.js";
+import { isRateLimited, type BoardSummary, type Projects } from "../lifecycle/project-list.js";
 import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveProjectIdentity } from "../lifecycle/identity.js";
@@ -22,6 +22,12 @@ import { structureOnlyLines, TURN_AGENTS_ON } from "./approve-agents-step.js";
 import { defaultAgent } from "../config/approved-agents.js";
 import { paint } from "./format.js";
 import { decide, log } from "../log.js";
+import {
+  fillPage, formatLevel, githubUnreachableLines, leadWithSearch, matchProjects, pageOf, pickerSettings,
+  rankProjects, resolvePickerInput, type LevelView, type LocalOrder, type PickerLevel,
+  type PickerRow, type PickerSettings,
+} from "./project-picker.js";
+import { lastUsedLabel, orderLocal, scanLocalProjects, type LocalProject } from "../lifecycle/local-projects.js";
 
 /**
  * The status of a board that has NO anchor issue: nobody has seeded it, anywhere, ever.
@@ -159,23 +165,22 @@ export interface WorkFlowOpts {
   readonly interactive?: boolean;
   /** `work.picker.pageSize` — how many projects a page shows. The person's preference; 15 when unset. */
   readonly pageSize?: number;
+  /** `work.picker.localFirst` — offer the projects already cloned here before any GitHub call. Default true. */
+  readonly localFirst?: boolean;
+  /** `work.picker.localOrder` — `last-used` (mtime, the default) or `number` (board order, like the GitHub lists). */
+  readonly localOrder?: LocalOrder;
+  /** `work.picker.searchThreshold` — past this many entries a level leads with search instead of a list. Default 30. */
+  readonly searchThreshold?: number;
   /** The project the person is STANDING IN (cwd under the work root), when no `--project` was given. The menu
    *  says "Continue the current project" in PROJECT context; the flow used to list every project anyway
    *  (a walk, 2026-09-22). With this set, Work goes straight to it. */
   readonly currentProject?: string;
 }
 
-/**
- * Projects whose id matches `pattern` — a regex, so `43` finds `PRJ-43-…` and a full id still matches
- * itself. An invalid regex is matched LITERALLY rather than throwing: someone typing `gov work
- * --project=portal(v2` wants a project, not a lecture about escaping.
- */
-export function matchProjects<T extends { readonly projectId: string }>(items: readonly T[], pattern: string): T[] {
-  let re: RegExp;
-  try { re = new RegExp(pattern, "i"); }
-  catch { /* an invalid regex is matched LITERALLY (see above) — someone typing `--project=portal(v2` wants a project, not a lecture */ return items.filter((i) => i.projectId.toLowerCase().includes(pattern.toLowerCase())); }
-  return items.filter((i) => re.test(i.projectId));
-}
+// `matchProjects` moved to `project-picker.ts` with the rest of the matching, and is re-exported here
+// because every caller and test already imports it from this module. The picker's `/text` search is a
+// strict superset of it, so the menu can never match less than `--project` does.
+export { matchProjects };
 
 /** The kickoff prompt that makes a speak-first CLI agent run the session-start protocol immediately, before
  *  the user types anything (ports the bash prj `agent_session_start_prompt`). Paths are workspace-relative
@@ -397,41 +402,93 @@ export function resolveAgent(
   return { ok: false, reason: `more than one agent is installed (${found.map((a) => a.cmd).join(", ")}) — say which: --agent <${found.map((a) => a.id).join("|")}>, or set $GOV_AGENT.` };
 }
 
-/** My projects = open boards whose anchor issue lists me as an assignee (owner). */
-export function myProjects(deps: WorkFlowDeps): WorkProject[] {
-  if (!deps.me) return [];
+/** A board, with the two facts the picker splits its levels on: is it seeded at all, and is it MINE? */
+export interface Candidate extends WorkProject {
+  /** An anchor issue exists → somebody has started this project. */
+  readonly anchored: boolean;
+  /** The anchor issue names me as an assignee. Being assigned IS the access (design §3.2). */
+  readonly mine: boolean;
+}
+
+/**
+ * EVERY OPEN BOARD, NEWEST FIRST — the board list and the anchors, and NOT ONE ACCESS CHECK.
+ *
+ * Two `gh` calls however many boards the org has: `gh project list` once, the anchor search once. That
+ * is the whole cost of knowing which projects exist, which are seeded, and which are yours.
+ *
+ * The expensive question — "may I write this board?" — is deliberately absent. It costs a call PER
+ * BOARD, it is only needed for boards nobody has started (being assigned already answers it for the
+ * rest), and on the org this design came from ~100 of ~100 boards were unstarted, so asking it up
+ * front was a 100-call preamble to showing a person the project they open every morning. It is asked
+ * in {@link unstartedPage}, for the page being shown, and by the write gate on the project actually
+ * picked — the two places where the answer changes what gov does.
+ */
+export function candidateProjects(deps: WorkFlowDeps): Candidate[] {
   const ownerField = deps.config.ownerField ?? "organization";
-  const out: WorkProject[] = [];
   // Fetch every anchor in ONE gh call when the port supports it (63 boards → 1 round-trip, not 63);
   // fall back to per-board find() for lightweight doubles that don't implement findAll.
   const allAnchors = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo);
+  const out: Candidate[] = [];
   for (const b of deps.projects.listBoards(deps.config.githubOrg)) {
     if (b.closed) continue;
     const a = allAnchors ? allAnchors.get(b.number) ?? null : deps.anchor.find({ owner: deps.config.githubOrg, ownerField, number: b.number }, deps.config.workspaceRepo);
-    if (!a || !a.assignees.includes(deps.me)) continue;
     const id = deriveProjectIdentity({ url: b.url, title: b.title });
-    out.push({ boardNumber: b.number, title: b.title, url: b.url, status: deriveStatus(!b.closed, a.labels), projectId: id.ok ? id.projectId : `PRJ-${b.number}` });
+    out.push({
+      boardNumber: b.number, title: b.title, url: b.url,
+      status: a ? deriveStatus(!b.closed, a.labels) : NOT_STARTED,
+      projectId: id.ok ? id.projectId : `PRJ-${b.number}`,
+      anchored: !!a,
+      mine: !!a && !!deps.me && a.assignees.includes(deps.me),
+    });
   }
-  return out;
+  return out.sort((x, y) => y.boardNumber - x.boardNumber);
+}
+
+/** My projects = open boards whose anchor issue lists me as an assignee (owner). Two calls, no access checks. */
+export function myProjects(deps: WorkFlowDeps): WorkProject[] {
+  if (!deps.me) return [];
+  return candidateProjects(deps).filter((c) => c.mine);
+}
+
+/**
+ * Open boards with NO anchor — nobody has seeded them, anywhere, ever. Not access-checked here.
+ *
+ * Kept separate from the check so a `/text` search can narrow the list BEFORE gov pays a call per
+ * board (design §3.4: a search must save calls, not just screen space).
+ */
+export function unstartedBoards(deps: WorkFlowDeps): WorkProject[] {
+  if (!deps.me) return [];      // seeding assigns somebody; with no login there is nobody to assign
+  return candidateProjects(deps).filter((c) => !c.anchored);
+}
+
+/**
+ * ONE FULL PAGE OF BOARDS YOU COULD START — `limit` of them, checking write access only as far as it
+ * takes to fill the page.
+ *
+ * Two mistakes are avoided at once here, and they pull against each other:
+ *
+ *   · checking every board is a ~100-call wait on a large org (design §3.3 → check per page);
+ *   · checking exactly `limit` boards and showing the survivors is how this list came to paginate
+ *     11, then 1, then 7 (a walk, 2026-09-22) — the page size belonged to what was SHOWN, and the
+ *     filter ran after it.
+ *
+ * So the scan stops at the first of "the page is full" and "there are no more boards", `nextOffset`
+ * is the board to resume from, and `more` says whether any remain. The arithmetic is `fillPage`'s,
+ * tested on its own with a list long enough to page three times.
+ */
+export function unstartedPage(deps: WorkFlowDeps, limit: number, offset: number): { items: WorkProject[]; nextOffset: number; more: boolean; total: number } {
+  const boards = unstartedBoards(deps);
+  const page = fillPage(boards, (b) => deps.canWriteBoard(b.boardNumber), limit, offset);
+  return { items: page.items, nextOffset: page.nextOffset, more: page.more, total: boards.length };
 }
 
 /** Seedable boards = open boards I can WRITE but that have NO anchor yet (never seeded). Offered in Work so a
  *  freshly-created GitHub board (e.g. #106) can be STARTED, not only picked once already seeded. Picking one
- *  runs the not-seeded → `seed` path. (Cost: `canWriteBoard` per un-anchored board — batch if it gets slow.) */
+ *  runs the not-seeded → `seed` path. (Cost: `canWriteBoard` per un-anchored board — the picker pays it a
+ *  page at a time; this whole-list form is for callers that need the count.) */
 export function seedableBoards(deps: WorkFlowDeps): WorkProject[] {
-  if (!deps.me) return [];
-  const ownerField = deps.config.ownerField ?? "organization";
-  const allAnchors = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo);
-  const out: WorkProject[] = [];
-  for (const b of deps.projects.listBoards(deps.config.githubOrg)) {
-    if (b.closed) continue;
-    const a = allAnchors ? allAnchors.get(b.number) ?? null : deps.anchor.find({ owner: deps.config.githubOrg, ownerField, number: b.number }, deps.config.workspaceRepo);
-    if (a) continue;                             // already seeded (has an anchor) → myProjects handles it
-    if (!deps.canWriteBoard(b.number)) continue; // only boards I can actually seed
-    const id = deriveProjectIdentity({ url: b.url, title: b.title });
-    out.push({ boardNumber: b.number, title: b.title, url: b.url, status: NOT_STARTED, projectId: id.ok ? id.projectId : `PRJ-${b.number}` });
-  }
-  return out;
+  const boards = unstartedBoards(deps);
+  return fillPage(boards, (b) => deps.canWriteBoard(b.boardNumber), Math.max(1, boards.length), 0).items;
 }
 
 export type WorkspaceState = "not-seeded" | "not-cloned" | "ready";
@@ -457,41 +514,16 @@ export function workspaceState(deps: WorkFlowDeps, p: WorkProject): WorkspaceSta
   return "ready";
 }
 
-/** One page of STARTABLE projects, NEWEST board first: assigned projects (I'm an anchor owner) + seedable
- *  boards (writable, un-anchored → "not started"). Paginates over BOARDS and resolves the expensive per-board
- *  `canWriteBoard` ONLY for the page (like manageList) — a large org never means a long wait. `totalBoards`
- *  is the full non-closed count (for the "more" affordance). */
-/**
- * ONE PAGE OF *YOUR* PROJECTS — `limit` of them, scanning boards from `offset` until the page is full.
- *
- * It used to page over BOARDS (15 at a time) and then drop the ones not yours, so a page showed whatever
- * survived: 11, then 1, then 7 on a walk (PRJ-121, 2026-09-22). Paging is now over what is SHOWN; `nextOffset`
- * is the board to resume from, and `more` whether any are left to scan.
- */
-export function startablePage(deps: WorkFlowDeps, limit: number, offset: number): { items: WorkProject[]; nextOffset: number; more: boolean; totalBoards: number } {
-  if (!deps.me) return { items: [], nextOffset: 0, more: false, totalBoards: 0 };
-  const ownerField = deps.config.ownerField ?? "organization";
-  const allAnchors = deps.anchor.findAll?.(deps.config.githubOrg, deps.config.workspaceRepo);
-  const boards = deps.projects.listBoards(deps.config.githubOrg).filter((b) => !b.closed).sort((a, b) => b.number - a.number);
-  const items: WorkProject[] = [];
-  let i = offset;
-  for (; i < boards.length && items.length < limit; i++) {
-    const b = boards[i]!;
-    const a = allAnchors ? allAnchors.get(b.number) ?? null : deps.anchor.find({ owner: deps.config.githubOrg, ownerField, number: b.number }, deps.config.workspaceRepo);
-    const id = deriveProjectIdentity({ url: b.url, title: b.title });
-    const projectId = id.ok ? id.projectId : `PRJ-${b.number}`;
-    if (a && a.assignees.includes(deps.me)) items.push({ boardNumber: b.number, title: b.title, url: b.url, status: deriveStatus(!b.closed, a.labels), projectId });
-    else if (!a && deps.canWriteBoard(b.number)) items.push({ boardNumber: b.number, title: b.title, url: b.url, status: NOT_STARTED, projectId });
-  }
-  return { items, nextOffset: i, more: i < boards.length, totalBoards: boards.length };
-}
-
 /**
  * The board list and the anchors, fetched ONCE per flow. Every page (and every `m`) re-ran `gh project list`
  * — 10–12 s on this org — and the org-wide anchor search. Nothing they return changes while a person reads a
  * page, so the flow asks once and pages over the answer.
+ *
+ * `cached` answers "has GitHub already been asked?" WITHOUT asking it. The local list needs that: a
+ * project whose board has since closed is marked `(closed on GitHub)` only once GitHub has been
+ * consulted for some other reason, and never by making a call of its own (design §3.1).
  */
-function withBoardCache(deps: WorkFlowDeps): WorkFlowDeps {
+function withBoardCache(deps: WorkFlowDeps): { deps: WorkFlowDeps; cached: () => ReturnType<Projects["listBoards"]> | null } {
   const boards = new Map<string, ReturnType<Projects["listBoards"]>>();
   const anchors = new Map<string, ReturnType<NonNullable<WorkFlowDeps["anchor"]["findAll"]>>>();
   const projects: Projects = {
@@ -514,26 +546,284 @@ function withBoardCache(deps: WorkFlowDeps): WorkFlowDeps {
         return anchors.get(k)!;
       } }
     : deps.anchor;
-  return { ...deps, projects, anchor } as WorkFlowDeps;
+  return {
+    deps: { ...deps, projects, anchor } as WorkFlowDeps,
+    cached: () => boards.get(deps.config.githubOrg) ?? null,
+  };
 }
 
 // `ensureRootProtocol` (imported above) lives in a leaf lifecycle module so BOTH `seed` and this Work flow use
 // it (no cli→lifecycle cycle). Re-exported so existing importers/tests keep resolving it here.
 export { ensureRootProtocol, mirrorWarnings };
 
-export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}): Promise<number> {
-  const deps = withBoardCache(rawDeps);
+/** A folder's row: the branch it is on and when it was last used — the two things that tell one apart. */
+export function localRow(l: LocalProject, nowMs: number, closedOnGitHub = false): PickerRow {
+  const bits = [l.branch, lastUsedLabel(l.lastUsedMs, nowMs)].filter(Boolean);
+  if (!l.cloned) bits.push("needs cloning");
+  if (closedOnGitHub) bits.push("closed on GitHub");
+  return { projectId: l.projectId, note: bits.length ? bits.join(" · ") : "on this machine" };
+}
+
+/** A board's row: its lifecycle status, or `not started` for one nobody has seeded. */
+export const boardRow = (p: WorkProject): PickerRow => ({ projectId: p.projectId, note: `(${p.status})` });
+
+/**
+ * Which local folders belong to a board that is closed (or gone) on GitHub — `null` boards means GOV HAS NOT
+ * ASKED, and then nothing is marked.
+ *
+ * The local list is the zero-call list, and a `(closed on GitHub)` mark it had to make a call to earn would
+ * quietly cost exactly what that list exists to avoid (design §3.1). So the mark appears only when the board
+ * list happens to be in hand already — the person pressed `g` earlier, or a pattern was resolved — and its
+ * absence means "not known", never "open".
+ */
+export function markClosedOnGitHub(local: readonly LocalProject[], boards: readonly BoardSummary[] | null): ReadonlySet<string> {
+  const out = new Set<string>();
+  if (!boards) return out;
+  for (const l of local) {
+    if (l.boardNumber === null) continue;
+    const b = boards.find((x) => x.number === l.boardNumber);
+    if (!b || b.closed) out.add(l.projectId);
+  }
+  return out;
+}
+
+type Picked = { readonly kind: "picked"; readonly project: WorkProject; readonly local: boolean };
+type Done = { readonly kind: "done"; readonly code: number };
+
+/**
+ * THE PICKER, DRIVEN — local first, then yours, then what you could start, with `/text` at every level.
+ *
+ * The shape of the levels, the ranking, the paging and the search-first decision are all in
+ * `project-picker.ts` and tested without a terminal. What is here is the IO: when to call GitHub (as late
+ * as possible, and never for the local list), what to do when it will not answer, and what a keystroke
+ * does to the level stack.
+ *
+ * `local: true` on the result means the pick came from a folder that is already cloned here: nothing
+ * org-visible follows, so the caller skips even the one write-access check (design §5 promises a project
+ * already on this machine opens for NO GitHub calls).
+ */
+async function pickProject(
+  deps: WorkFlowDeps, set: PickerSettings, cachedBoards: () => readonly BoardSummary[] | null, nowMs: number,
+): Promise<Picked | Done> {
   const { print } = deps;
-  const PAGE = opts.pageSize && opts.pageSize >= 5 ? opts.pageSize : 15;
+  const localAll = set.localFirst
+    ? orderLocal(scanLocalProjects(deps.fs, deps.config.agentWorkRoot, deps.config.workspaceRepo), set.localOrder)
+    : [];
+
+  // GITHUB IS ASKED WHEN A LEVEL NEEDS IT, AND ONCE. `withBoardCache` keeps the answer; this keeps the
+  // failure, so a rate limit is reported where it happened instead of being retried on every keystroke.
+  let candidates: Candidate[] | null = null;
+  const loadCandidates = (): Candidate[] | { readonly failure: string } => {
+    if (candidates) return candidates;
+    print("  ⏳ Asking GitHub for the org's boards and who is assigned…");
+    deps.projects.listBoards(deps.config.githubOrg);
+    const failure = deps.projects.lastFailure?.() ?? null;
+    if (failure) return { failure };
+    candidates = candidateProjects(deps);
+    return candidates;
+  };
+
+  /** Opening a folder that is already cloned costs nothing; one that is half-made needs `join`, and `join`
+   *  needs the BOARD URL (#206) — the one thing only GitHub can supply. */
+  const openLocal = async (l: LocalProject): Promise<Picked | null> => {
+    if (l.cloned) {
+      return { kind: "picked", local: true, project: { boardNumber: l.boardNumber ?? 0, title: l.projectId, url: "", status: "on this machine", projectId: l.projectId } };
+    }
+    const c = loadCandidates();
+    if ("failure" in c) {
+      for (const line of githubUnreachableLines(c.failure, localAll.length)) print(line);
+      print(`  So '${l.projectId}' cannot be finished right now — its folder has no workspace clone yet.`);
+      return null;
+    }
+    const board = c.find((x) => x.projectId === l.projectId || (l.boardNumber !== null && x.boardNumber === l.boardNumber));
+    if (!board) {
+      print(`  '${l.projectId}' has a folder here, but no open board on GitHub — nothing to clone into it.`);
+      print("  Ask an owner whether that project was closed, or remove the folder.");
+      return null;
+    }
+    return { kind: "picked", local: false, project: board };
+  };
+
+  // WHERE YOU ARE IS A STACK, as it is in the menu (`361fe04`): `g`/`s` push a level, `0` pops one, and
+  // popping the last one leaves Work. A filter belongs to the level it was typed at and nowhere else.
+  const stack: PickerLevel[] = [localAll.length ? "local" : "mine"];
+  let query: string | null = null;
+  let offset = 0;
+  /** `m` past the search-first prompt: "or m to page through them" — the list, on request. */
+  let listing = false;
+  const fresh = (): void => { query = null; offset = 0; listing = false; };
+  const go = (to: PickerLevel): void => { stack.push(to); fresh(); };
+  const pop = (): void => { stack.pop(); fresh(); };
+  const nothingForYou = (): Done => {
+    print(`  No active or startable projects for you${deps.me ? ` (${deps.me})` : ""}.`);
+    print("  Ask a project owner to assign you, or create a GitHub Project board for a new one, then retry.");
+    return { kind: "done", code: 0 };
+  };
+
+  for (;;) {
+    const level = stack[stack.length - 1]!;
+    // Every arm below assigns all four, and TypeScript enforces it — there is no default worth having: a
+    // level that forgot its rows, or its pick action, must not compile into one that quietly offers nothing.
+    let rows: PickerRow[];
+    /** Row `n` on screen — or, when the prompt led with search and listed nothing, the nth entry of the level. */
+    let pickAt: (n: number) => Promise<Picked | null>;
+    let view: LevelView;
+    let nextOffset: number;
+
+    if (level === "local") {
+      const filtered = query === null ? localAll : rankProjects(localAll, query);
+      const searchFirst = leadWithSearch(filtered.length, set.searchThreshold, query !== null) && !listing;
+      const page = pageOf(filtered, set.pageSize, offset);
+      const closed = markClosedOnGitHub(page.items, cachedBoards());
+      rows = searchFirst ? [] : page.items.map((l) => localRow(l, nowMs, closed.has(l.projectId)));
+      nextOffset = page.nextOffset;
+      pickAt = async (n) => {
+        const l = filtered[offset + n - 1];
+        return l ? await openLocal(l) : null;
+      };
+      view = {
+        level, rows, total: page.total, page: page.page, pages: page.pages,
+        more: searchFirst ? page.total > 0 : page.more, query, searchFirst,
+        keys: { more: searchFirst ? page.total > 0 : page.more, mine: true, startable: true },
+      };
+    } else {
+      const c = loadCandidates();
+      if ("failure" in c) {
+        // A THROTTLED OR UNREACHABLE GITHUB IS NOT "NO PROJECTS", AND MUST NOT BE A HANG OR A STACK TRACE.
+        // Say which it is, then fall back to the list that needs no calls at all — the folders already here.
+        // That fallback IS the feature: the design's motivation was "GitHub may throttle on a large number
+        // of requests", and the useful answer to a throttle is the work you already have on disk.
+        for (const line of githubUnreachableLines(c.failure, localAll.length)) print(line);
+        log("info", "GitHub would not list the org's boards", "gov-work:cli:work-flow", "pickProject",
+          { failure: c.failure, rateLimited: isRateLimited(c.failure), localProjects: localAll.length });
+        if (!localAll.length) return { kind: "done", code: 1 };
+        stack.length = 0; stack.push("local"); fresh();
+        continue;
+      }
+      const mineAll = c.filter((x) => x.mine);
+      const unstartedAll = deps.me ? c.filter((x) => !x.anchored) : [];
+
+      if (level === "mine" && !mineAll.length) {
+        // Being assigned to nothing is a joiner's ordinary state, not an error. Descend rather than print an
+        // empty list and ask for a keystroke with only one sensible value.
+        if (!unstartedAll.length) {
+          if (!localAll.length) return nothingForYou();
+          print(`  Nothing on GitHub is assigned to you${deps.me ? ` (${deps.me})` : ""}, and every open board already has a project.`);
+          pop();
+          if (!stack.length) return { kind: "done", code: 0 };
+          continue;
+        }
+        print(`  Nothing on GitHub is assigned to you yet${deps.me ? ` (${deps.me})` : ""} — these are the boards you could start.`);
+        stack[stack.length - 1] = "startable"; fresh();
+        continue;
+      }
+      if (level === "startable" && !unstartedAll.length) {
+        print("  Every open board already has a project — there is nothing to start.");
+        pop();
+        if (!stack.length) return mineAll.length || localAll.length ? { kind: "done", code: 0 } : nothingForYou();
+        continue;
+      }
+
+      if (level === "mine") {
+        const filtered = query === null ? mineAll : rankProjects(mineAll, query);
+        const searchFirst = leadWithSearch(filtered.length, set.searchThreshold, query !== null) && !listing;
+        const page = pageOf(filtered, set.pageSize, offset);
+        rows = searchFirst ? [] : page.items.map(boardRow);
+        nextOffset = page.nextOffset;
+        pickAt = async (n) => {
+          const p = filtered[offset + n - 1];
+          return p ? { kind: "picked", local: false, project: p } : null;
+        };
+        view = {
+          level, rows, total: page.total, page: page.page, pages: page.pages,
+          more: searchFirst ? page.total > 0 : page.more, query, searchFirst,
+          keys: { more: searchFirst ? page.total > 0 : page.more, startable: unstartedAll.length > 0 },
+        };
+      } else {
+        // YOU COULD START — the one list whose eligibility costs a `gh` call PER BOARD. So the filter runs
+        // first (design §3.4: a search must save calls, not just screen space), the check runs only as far as
+        // it takes to fill the page (§3.3), and while the prompt is leading with search it does not run at
+        // all — paying fifteen calls to render rows nobody has asked for is the cost this level exists to cap.
+        const filtered = query === null ? unstartedAll : rankProjects(unstartedAll, query);
+        const searchFirst = leadWithSearch(filtered.length, set.searchThreshold, query !== null) && !listing;
+        const writable = (b: WorkProject): boolean => deps.canWriteBoard(b.boardNumber);
+        const page = searchFirst ? { items: [] as WorkProject[], nextOffset: 0, more: filtered.length > 0, scanned: 0 } : fillPage(filtered, writable, set.pageSize, offset);
+        // NOTHING WRITABLE, AND NOTHING LEFT TO SCAN — a level with no rows and no `m` is not a place to
+        // stand. It used to be: the old loop printed "(nothing startable on this page)" and asked again, so a
+        // person (or a test double) answering the same thing twice was in a loop with no exit but ctrl-C.
+        if (!searchFirst && !page.items.length && !page.more && filtered.length > 0) {
+          print(`  ${filtered.length === 1 ? "The one board nobody has started is not one" : `None of the ${filtered.length} boards nobody has started are ones`} you can write.`);
+          print("  Ask an owner for write access on the board you need (`gov manage`), then retry.");
+          pop();
+          if (!stack.length) return mineAll.length || localAll.length ? { kind: "done", code: 0 } : nothingForYou();
+          continue;
+        }
+        rows = page.items.map(boardRow);
+        nextOffset = page.nextOffset;
+        pickAt = async (n) => {
+          // The nth board FROM THIS PAGE'S START that gov may write — the same sequence the rows came from,
+          // extended by one page's worth when nothing was listed.
+          const seq = page.items.length >= n ? page.items : fillPage(filtered, writable, Math.max(n, set.pageSize), offset).items;
+          const p = seq[n - 1];
+          return p ? { kind: "picked", local: false, project: p } : null;
+        };
+        // `pages` stays 1 on purpose: gov cannot know how many of these boards it may write without asking,
+        // so it prints no page count it would have to guess at. `more` is the honest half of the same fact.
+        view = { level, rows, total: filtered.length, page: 1, pages: 1, more: page.more, query, searchFirst, keys: { more: page.more } };
+      }
+    }
+
+    // THE PAGE, AS THE PERSON SEES IT. Pages of 11, then 1, then 7 were reported from a walk before anybody
+    // could say what the flow had done; this is that fact, on the record — now with the level and the filter.
+    log("info", "offered a page of projects", "gov-work:cli:work-flow", "pickProject",
+      { level, query, shown: rows.length, total: view.total, offset, nextOffset, more: view.more, searchFirst: view.searchFirst });
+
+    for (const line of formatLevel(view)) print(line);
+    const answer = resolvePickerInput(await deps.prompt("  Choose: "), view.keys);
+    if (answer.kind === "back") {
+      pop();
+      if (!stack.length) return { kind: "done", code: 0 };
+      continue;
+    }
+    if (answer.kind === "more") { if (view.searchFirst) listing = true; else offset = nextOffset; continue; }
+    if (answer.kind === "search") { query = answer.query; offset = 0; listing = false; continue; }
+    if (answer.kind === "clear") { fresh(); continue; }
+    if (answer.kind === "level") { go(answer.to); continue; }
+    if (answer.kind === "pick") {
+      const got = await pickAt(answer.n);
+      if (!got) { print("  unknown choice"); continue; }
+      // A NUMBER ALWAYS SELECTS — including at a level that led with search and listed nothing. What it must
+      // not do is commit UNSEEN to an act other people will see: seeding creates branches, an anchor issue and
+      // an assignment, and consent given to a row nobody has read is not consent. So an unlisted pick names
+      // what it resolved to, and asks when the answer is org-visible.
+      if (view.searchFirst) {
+        print(`  ${answer.n}) ${got.project.projectId}  (${got.project.status})`);
+        if (got.project.status === NOT_STARTED) {
+          const yes = (await deps.prompt("  Nobody has started that one — seeding creates branches, an anchor issue and assigns you. Go ahead? (y/N) ")).trim().toLowerCase();
+          if (!/^y(es)?$/.test(yes)) { print("  Left alone."); continue; }
+        }
+      }
+      return got;
+    }
+    print("  unknown choice");
+  }
+}
+
+export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}): Promise<number> {
+  const { deps, cached } = withBoardCache(rawDeps);
+  const { print } = deps;
+  const set = pickerSettings(opts);
   const interactive = opts.interactive ?? true;
   print("");
   print("  Work — start / continue a project");
 
   // ── project, by pattern ──────────────────────────────────────────────────────────────────────────
-  // Scans the same paginated source the menu uses, then filters. One match proceeds; several ask (or, with
-  // no TTY, list them and stop — a script must not be given a project it did not name); none is an error
-  // that shows what WAS available, because "no match" without the candidate list is a dead end.
+  // Resolved from the board list and the anchors — two calls, no per-board access checks. One match proceeds;
+  // several ask (or, with no TTY, list them and stop — a script must not be given a project it did not name);
+  // none is an error that shows what WAS available, because "no match" without the candidate list is a dead end.
   let picked: WorkProject | null = null;
+  /** Did the pick come from a folder already cloned here? Then nothing org-visible follows — see the write gate. */
+  let fromLocal = false;
   // ── the project you are standing in ──────────────────────────────────────────────────────────────
   // The menu promises "Continue the current project" in PROJECT context; the flow used to list every project
   // (a walk, 2026-09-22). Resolved from the board list gov fetches anyway — no extra call. If the board is
@@ -548,85 +838,108 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
       decide("project", opts.currentProject, "the project you are standing in", "gov-work:cli:work-flow", "runWorkFlow", { board: b.number });
       print(`  Continuing ${opts.currentProject} — the project you are in.`);
       print("  (Another one: `gov work --project=<pattern>`, or run gov from outside this project.)");
+    } else if (deps.projects.lastFailure?.() && deps.fs.pathExists(path.join(deps.config.agentWorkRoot, opts.currentProject, deps.config.workspaceRepo, ".git"))) {
+      // GITHUB WOULD NOT ANSWER, AND THE PROJECT IS RIGHT HERE. Continuing it needs no board — the folder is
+      // cloned and the branch is checked out — so a throttle must not push somebody out of the project they
+      // are standing in and into a list gov cannot fetch either. This is the design's motivation at its
+      // sharpest: the useful answer to "GitHub may throttle" is the work already on the disk.
+      const failure = deps.projects.lastFailure()!;
+      for (const line of githubUnreachableLines(failure, 1)) print(line);
+      picked = { boardNumber: boardNumberFromProjectId(opts.currentProject) ?? 0, title: opts.currentProject, url: "", status: "on this machine", projectId: opts.currentProject };
+      fromLocal = true;
+      decide("project", opts.currentProject, "standing in it, and GitHub would not answer", "gov-work:cli:work-flow", "runWorkFlow", { rateLimited: isRateLimited(failure) });
+      print(`  Continuing ${opts.currentProject} anyway — it is cloned here, so this needs no GitHub call.`);
     }
   }
   if (picked) {
     // resolved above — skip the pattern and the list
   } else if (opts.projectPattern) {
-    const all: WorkProject[] = [];
-    for (let off = 0; ;) {
-      const { items, nextOffset, more } = startablePage(deps, PAGE, off);
-      all.push(...items);
-      if (!more) break;
-      off = nextOffset;
+    // EVERY OPEN BOARD IS A CANDIDATE, AND NOT ONE ACCESS CHECK IS PAID TO FIND OUT (design §4).
+    //
+    // This used to page through `startablePage` to exhaustion, which resolved `canWriteBoard` for every
+    // un-anchored board in the org — ~100 calls on the org this design came from — to answer a question about
+    // ONE named project. The write gate below asks about the project actually chosen, which is the only board
+    // whose answer changes anything.
+    const all: WorkProject[] = candidateProjects(deps);
+    const failure = deps.projects.lastFailure?.() ?? null;
+    if (failure) {
+      // A pattern that matched nothing because GitHub said nothing is not "no such project" — the remedy for
+      // a rate limit is a minute, and for an empty org it is a board. A local folder the pattern names is
+      // still openable with no calls at all, so say so rather than stopping at a wall.
+      const localHits = matchProjects(orderLocal(scanLocalProjects(deps.fs, deps.config.agentWorkRoot, deps.config.workspaceRepo), set.localOrder), opts.projectPattern);
+      for (const line of githubUnreachableLines(failure, localHits.length)) print(line);
+      if (localHits.length === 1 && localHits[0]!.cloned) {
+        picked = { boardNumber: localHits[0]!.boardNumber ?? 0, title: localHits[0]!.projectId, url: "", status: "on this machine", projectId: localHits[0]!.projectId };
+        fromLocal = true;
+        decide("project", picked.projectId, `--project=${opts.projectPattern} matched one folder on this machine while GitHub was unreachable`, "gov-work:cli:work-flow", "runWorkFlow", { rateLimited: isRateLimited(failure) });
+        print(`  '${picked.projectId}' is already cloned here, so gov can open it without GitHub.`);
+      } else {
+        if (localHits.length > 1) print(`  On this machine: ${localHits.map((l) => l.projectId).join(", ")} — name one exactly.`);
+        return 1;
+      }
     }
-    const hits = matchProjects(all, opts.projectPattern);
-    if (hits.length === 0) {
-      print(`  No project matches '${opts.projectPattern}'.`);
-      if (all.length) print(`  Available: ${all.slice(0, 10).map((i) => i.projectId).join(", ")}${all.length > 10 ? ", …" : ""}`);
-      return 1;
-    }
-    if (hits.length === 1) { picked = hits[0]!; decide("project", picked.projectId, `--project=${opts.projectPattern} matched one`, "gov-work:cli:work-flow", "runWorkFlow", { candidates: all.length }); }
-    else if (!interactive) {
-      print(`  '${opts.projectPattern}' matches ${hits.length} projects: ${hits.map((i) => i.projectId).join(", ")}`);
-      print("  Narrow the pattern — with no terminal there is nobody to ask.");
-      return 2;
-    } else {
-      print("");
-      print(`  '${opts.projectPattern}' matches ${hits.length} projects:`);
-      hits.forEach((it, i) => print(`    ${String(i + 1).padStart(2)}) ${it.projectId}  (${it.status})`));
-      const sel = (await deps.prompt("  Choose: ")).trim();
-      const idx = Number(sel) - 1;
-      picked = Number.isInteger(idx) && idx >= 0 && idx < hits.length ? hits[idx]! : null;
-      if (!picked) { print("  unknown choice"); return 2; }
+    // `picked` is set only when GitHub was unreachable and the pattern named a folder that is here; then there
+    // is nothing to match against, and the work goes on with what the disk knows.
+    if (!picked) {
+      // The id regex first — that is what `--project` has always meant — and the picker's `/text` ranking as a
+      // FALLBACK, so the command line can match a board by its title too (design §3.4: one idea of "matches").
+      // Only ever additive: an invocation that resolved to one project before still resolves to that one.
+      const byId = matchProjects(all, opts.projectPattern);
+      const hits = byId.length ? byId : rankProjects(all, opts.projectPattern);
+      if (hits.length === 0) {
+        print(`  No project matches '${opts.projectPattern}'.`);
+        if (all.length) print(`  Available: ${all.slice(0, 10).map((i) => i.projectId).join(", ")}${all.length > 10 ? ", …" : ""}`);
+        return 1;
+      }
+      if (hits.length === 1) { picked = hits[0]!; decide("project", picked.projectId, `--project=${opts.projectPattern} matched one`, "gov-work:cli:work-flow", "runWorkFlow", { candidates: all.length }); }
+      else if (!interactive) {
+        print(`  '${opts.projectPattern}' matches ${hits.length} projects: ${hits.map((i) => i.projectId).join(", ")}`);
+        print("  Narrow the pattern — with no terminal there is nobody to ask.");
+        return 2;
+      } else {
+        print("");
+        print(`  '${opts.projectPattern}' matches ${hits.length} projects:`);
+        hits.forEach((it, i) => print(`    ${String(i + 1).padStart(2)}) ${it.projectId}  (${it.status})`));
+        const sel = (await deps.prompt("  Choose: ")).trim();
+        const idx = Number(sel) - 1;
+        picked = Number.isInteger(idx) && idx >= 0 && idx < hits.length ? hits[idx]! : null;
+        if (!picked) { print("  unknown choice"); return 2; }
+      }
     }
   } else if (!interactive) {
     print("  No --project=<pattern>, and no terminal to choose in.");
     print("  Name one:  gov work --project=<regex> --agent=<claude|cursor|cursor-gui|shell>");
     return 2;
   }
-  // Paginate over BOARDS (newest first), probing per-board access ONLY for the visible page → no long wait on
-  // a large org. Print a working indicator each page (synchronous gh blocks the loop).
+  // THE PICKER: on this machine, then yours on GitHub, then what you could start — with `/text` at each
+  // level and a number that always selects. Its lists, ranking and arithmetic are `project-picker.ts`'s.
   let p: WorkProject | null = picked;
-  let offset = 0;
-  while (!p) {
-    print("  ⏳ Finding your projects — assigned + boards you can start…");
-    const { items, nextOffset, more } = startablePage(deps, PAGE, offset);
-    // THE PAGE, as the person sees it. Pages of 11, then 1, then 7 were reported from a walk before anyone
-    // could say what the flow had done; this is that fact, on the record.
-    log("info", "offered a page of projects", "gov-work:cli:work-flow", "runWorkFlow",
-      { offset, shown: items.length, nextOffset, more, unreachable: !!deps.projects.lastFailure?.() });
-    if (items.length === 0 && offset === 0 && !more) {
-      // "GitHub did not answer" is not "you have no projects" (a walk, 2026-09-22: gh's `EOF` was reported as
-      // the second). Say which, and give the remedy for THAT one.
-      const failed = deps.projects.lastFailure?.();
-      if (failed) {
-        print("  Could not reach GitHub to list your projects — nothing is wrong with your projects.");
-        print("  Try again in a moment; if it keeps failing, check `gh auth status` and your network.");
-        return 1;
-      }
-      print(`  No active or startable projects for you${deps.me ? ` (${deps.me})` : ""}.`);
-      print("  Ask a project owner to assign you, or create a GitHub Project board for a new one, then retry.");
-      return 0;
-    }
-    print("");
-    print("  Select a project (assigned, or 'not started' = seed it now) — newest first:");
-    if (items.length === 0) print("     (nothing startable on this page)");
-    items.forEach((it, i) => print(`    ${String(i + 1).padStart(2)}) ${it.projectId}  (${it.status})`));
-    if (more) print("     m) more");
-    print("     0) back");
-    const sel = (await deps.prompt("  Choose: ")).trim().toLowerCase();
-    if (sel === "0" || sel === "") return 0;
-    if (sel === "m" && more) { offset = nextOffset; continue; }
-    const idx = Number(sel) - 1;
-    p = Number.isInteger(idx) && idx >= 0 && idx < items.length ? items[idx] : null;
-    if (!p) print("  unknown choice");
+  if (!p) {
+    const chosen = await pickProject(deps, set, cached, Date.now());
+    if (chosen.kind === "done") return chosen.code;
+    p = chosen.project;
+    fromLocal = chosen.local;
   }
 
-  if (!deps.canWriteBoard(p.boardNumber)) {
+  // THE WRITE GATE — asked for every project EXCEPT one that is already cloned on this machine.
+  //
+  // Write access to the board is the authorization (there is no `project.yaml`), and everything that needs it
+  // is org-visible: seeding branches and an anchor issue, joining, and later `gov task`/`gov merge`, each of
+  // which checks for itself. Opening a folder that is already here does none of that — it starts an agent in a
+  // directory — and the design's §5 promises that path costs ZERO GitHub calls. Spending one here to re-ask a
+  // question nothing acts on would break exactly the promise the local list exists to keep.
+  if (!fromLocal && !deps.canWriteBoard(p.boardNumber)) {
     print(`  You don't have write access to '${p.title}' (its GitHub Project board).`);
     print("  Ask an owner to grant access (`gov manage`), then retry.");
     return 1;
+  }
+  // SKIPPED IS NOT THE SAME AS PASSED, and the difference has to be visible (2026-09-28). The zero-call promise
+  // above is worth keeping, but authorization IS board write access (POL-047) and an access that was revoked
+  // since the clone would go unnoticed here. What catches it is the agent's own session-start check (POL-114) —
+  // which is agentic, so it persuades rather than proves. Saying so costs nothing, tells the developer which
+  // check is actually standing between them and unauthorized work, and stops a silent skip reading as a pass.
+  if (fromLocal) {
+    print("  (opened from this machine — gov did not re-check your board access; your agent verifies it at session start)");
   }
 
   const projectDir = path.join(deps.config.agentWorkRoot, p.projectId);   // <project> — all repos live under it

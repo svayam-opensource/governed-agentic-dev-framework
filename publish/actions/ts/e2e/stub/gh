@@ -82,6 +82,21 @@ case "$*" in
       printf '{"projects":[%s]}' "${out%,}" ;;
   "project item-list"*) echo '{"items":[]}' ;;
 
+  # THE ANCHOR SEARCH — which boards are SEEDED, and who is assigned to them (#198).
+  #
+  # `GH_STUB_ANCHORS` was documented here from the day this stub was written and never answered: the case fell
+  # through to `*) :`, gh printed nothing, and `findAll` parsed "" — an exception it catches, so every board in
+  # every scenario looked un-seeded. That is fine for a scenario about seeding and wrong for one about the
+  # picker, whose whole point is that "yours" and "could start" are DIFFERENT lists. Board numbers, comma- or
+  # semicolon-separated; the anchor body carries the board number, which is how gov maps issue → board.
+  "issue list"*)
+      out=""; IFS=',;' read -ra as <<< "${GH_STUB_ANCHORS:-}"
+      for n in "${as[@]}"; do
+        [ -n "$n" ] || continue
+        out="$out{\"url\":\"https://github.com/$GH_STUB_LOGIN/gov/issues/$n\",\"number\":$n,\"body\":\"Anchor issue for the project on GitHub Project #$n\",\"labels\":[],\"assignees\":[{\"login\":\"$GH_STUB_LOGIN\"}]},"
+      done
+      printf '[%s]' "${out%,}" ;;
+
   # THE PIVOT CLONES WITH `gh`, not git (#197): gh knows the protocol and carries the token,
   # so a private governance repo works on a machine whose only credential is `gh auth login`.
   # Serving it here is what proves gov took that route rather than guessing a URL.

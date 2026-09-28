@@ -66,9 +66,10 @@ import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
 import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } from "../maintain/upgrade-run.js";
 import { contentLayoutOf, staleArtifactsIn } from "../maintain/upgrade-sync.js";
 import { formatRuns, listRuns, selectRuns } from "../maintain/log-view.js";
-import { coerce, formatPreferences, numberPref, specFor, stringPref } from "../preferences.js";
+import { coerce, formatPreferences, specFor, stringPref } from "../preferences.js";
 import { didYouMean, helpFor, overview } from "./help-render.js";
 import { COMMAND_SPECS } from "./help-spec.js";
+import { pickerSettingsFromPreferences } from "./project-picker.js";
 import { loadPreferences, savePreference } from "./preferences-io.js";
 import { ensureLogin, runContext } from "./run-context.js";
 import { logsRoot } from "../state-paths.js";
@@ -1847,7 +1848,10 @@ export async function runWork(argv: readonly string[]): Promise<number> {
       ...(agent ? { agent: agent as AgentKind } : {}),
       // Standing in a project → continue it, unless a project was named (a walk, 2026-09-22).
       ...(!pattern && current ? { currentProject: current } : {}),
-      pageSize: numberPref(loadPreferences().prefs, "work.picker.pageSize"),
+      // ALL FOUR picker settings, not just the page size. Three of them (`localFirst`, `localOrder`,
+      // `searchThreshold`) landed with defaults that were correct and a reader that never looked at the person's
+      // file — a preference gov defines, documents and then ignores is worse than one it does not offer.
+      ...pickerSettingsFromPreferences(loadPreferences().prefs),
       seedOk: argv.includes("--seed"),
       printPromptOnly: argv.includes("--print-prompt"),
       interactive,
@@ -1919,7 +1923,7 @@ export async function runMainMenu(): Promise<number> {
       // `gov work` path happened to survive it. Whoever owns the terminal does the asking.
       // PROJECT context → Work continues THIS project, as the menu line says (a walk, 2026-09-22).
       return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print, ask: io.ask },
-        { ...(ctx.mode === "project" && ctx.project ? { currentProject: ctx.project } : {}), pageSize: numberPref(loadPreferences().prefs, "work.picker.pageSize") });
+        { ...(ctx.mode === "project" && ctx.project ? { currentProject: ctx.project } : {}), ...pickerSettingsFromPreferences(loadPreferences().prefs) });
     },
     switchOrg: (org) => runAny(["org", "use", org]),
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },

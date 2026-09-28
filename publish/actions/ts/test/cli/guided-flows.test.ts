@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { startablePage, myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { unstartedPage, myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
 import { AGENT_CATALOG } from "../../src/cli/agent-catalog.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
@@ -791,19 +791,24 @@ describe("Work — paging, the board cache, an honest failure, the current proje
   const mine = Object.fromEntries(many.filter((_, i) => i % 4 === 0).map((b) => [b.number, ["rk"]]));
   const others = Object.fromEntries(many.filter((_, i) => i % 4 !== 0).map((b) => [b.number, ["someone-else"]]));
 
-  it("a page is FULL — `limit` of my projects, scanning as many boards as that takes", () => {
-    const { deps: d } = deps({ projects: projects(many), anchor: anchorFor({ ...mine, ...others }) });
-    const first = startablePage(d, 5, 0);
+  // The same arithmetic, now on the ONE list whose eligibility costs a call per board: "you could start".
+  // 40 un-anchored boards, of which every 4th is writable — a board-sized page would show a quarter of its
+  // size, varying, which is precisely the 11-then-1-then-7 defect.
+  const writableEvery4th = (n: number): boolean => (100 - n) % 4 === 0;
+
+  it("a page is FULL — `limit` of the boards I can start, scanning as many as that takes", () => {
+    const { deps: d } = deps({ projects: projects(many), anchor: anchorFor({}), canWriteBoard: writableEvery4th });
+    const first = unstartedPage(d, 5, 0);
     expect(first.items).to.have.length(5);
     expect(first.more).to.equal(true);
-    const second = startablePage(d, 5, first.nextOffset);
+    const second = unstartedPage(d, 5, first.nextOffset);
     expect(second.items).to.have.length(5);
     expect(second.items[0]!.boardNumber, "no project skipped or repeated").to.be.lessThan(first.items[4]!.boardNumber);
   });
 
   it("the last page says there is no more", () => {
-    const { deps: d } = deps({ projects: projects(many), anchor: anchorFor({ ...mine, ...others }) });
-    const all = startablePage(d, 100, 0);
+    const { deps: d } = deps({ projects: projects(many), anchor: anchorFor({}), canWriteBoard: writableEvery4th });
+    const all = unstartedPage(d, 100, 0);
     expect(all.items).to.have.length(10);
     expect(all.more).to.equal(false);
   });

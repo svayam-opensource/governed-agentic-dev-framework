@@ -21,6 +21,15 @@ export interface Fs extends FsProbe {
   rm(target: string): void;
   /** List entry names in `dir` (empty array if it doesn't exist). */
   readdir(dir: string): string[];
+  /**
+   * When `p` was last modified, in ms — or null if it cannot be read.
+   *
+   * OPTIONAL, deliberately. It arrived with the project picker's "on this machine, last used first"
+   * list (PRJ-121), and every existing double of this port predates it; making it required would have
+   * turned a cosmetic ordering hint into a compile error in thirty tests. A caller that cannot get one
+   * must degrade visibly — `orderLocal` falls back to board order — never invent a timestamp.
+   */
+  mtimeMs?(p: string): number | null;
 }
 
 /** The real node:fs-backed writer. */
@@ -61,6 +70,13 @@ export function createNodeFs(): Fs {
         return fs.readdirSync(dir);
       } catch { /* absent or unreadable is the ordinary answer here, not a failure */
         return [];
+      }
+    },
+    mtimeMs: (p) => {
+      try {
+        return fs.statSync(p).mtimeMs;
+      } catch { /* a path that is gone has no mtime — the caller orders without it (see the port's note) */
+        return null;
       }
     },
   };

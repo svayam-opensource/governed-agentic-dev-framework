@@ -23,6 +23,22 @@ export interface Projects {
   lastFailure?(): string | null;
 }
 
+/**
+ * IS THIS FAILURE GITHUB SAYING "SLOW DOWN"? — read from a {@link Projects.lastFailure} message.
+ *
+ * `lastFailure` already separated "GitHub did not answer" from "you have no projects" (a walk,
+ * 2026-09-22). Throttling is the next distinction that matters, because the REMEDY differs: a bad
+ * token wants `gh auth status`, a dropped network wants a retry, and a rate limit wants a minute and a
+ * list that costs no calls at all. Telling a person to check their auth while GitHub is simply
+ * counting their requests sends them to fix something that is not broken.
+ *
+ * Primary limits say "API rate limit exceeded", secondary ones "You have exceeded a secondary rate
+ * limit" or "was submitted too quickly"; both can arrive as HTTP 403 or 429, and older gh builds say
+ * "abuse detection mechanism". Matched on the text because that is all `gh` gives a caller.
+ */
+const RATE_LIMITED = /rate[ -]?limit|secondary rate|too many requests|\b429\b|submitted too quickly|retry after|abuse detection/i;
+export const isRateLimited = (failure: string | null | undefined): boolean => !!failure && RATE_LIMITED.test(failure);
+
 export function createGhProjects(runGh: RunGh): Projects {
   let failure: string | null = null;
   return {
