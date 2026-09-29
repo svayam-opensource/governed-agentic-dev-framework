@@ -4,6 +4,7 @@
 export * from "./bump-version.js";
 export * from "./doctor.js";
 export * from "./protection-check.js";
+export * from "./repo-protect.js";
 export * from "./deps.js";
 export * from "./publish.js";
 export * from "./upgrade.js";

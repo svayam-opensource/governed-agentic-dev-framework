@@ -73,6 +73,42 @@ policy_effective_date: ""
 # Governance account (multi-tenant): the account this org operates under (service auth mints under it).
 gov_account: ""
 
+# HARD OR SOFT GOVERNANCE — the one posture decision, and gov implements both (Policy Owner, 2026-09-29).
+#
+#   hard     Install repository controls, so that work attempted OUTSIDE gov is stopped by the PLATFORM:
+#            a pull request required before merging, at least one approving review, no bypass (administrators
+#            included), and the approver-verifying status check as a required check. `gov repo protect plan`
+#            shows what is missing; `gov repo protect apply` installs it. framework-policy §3.3 / POL-040a.
+#
+#   soft     Deliberately leave room for direct work — clone, commit and push by hand. A real choice, not a
+#            lapse: an organization may adopt the framework for its structure, or be unable to configure the
+#            platform at all (§3.4: on GitHub Free, a PRIVATE repository has no branch protection and no
+#            rulesets, so NONE of the four settings can be configured there). Under soft, gov's own gates are
+#            the only enforcement — and they do not bind an agent a developer starts outside gov.
+#
+#   unset    NOBODY HAS CHOSEN, and gov treats that as its own state rather than guessing. `gov doctor` says
+#            so, and `gov repo protect apply` refuses: it will not install platform controls an organization
+#            has not asked for, and it will not excuse an organization that believes it is protected.
+#            Meanwhile POL-040a §3.3 is still CHECKED — not choosing is not a choice to skip it.
+#
+# Leave it "" until the organization has actually decided. Writing `hard` here does not configure anything on
+# GitHub; `gov repo protect apply` does, and reports honestly when the platform refuses.
+governance_posture: ""
+
+# WHO MAY APPROVE — GitHub logins, for the approver check the framework ships. OPTIONAL.
+#
+# `policies/authorized-representatives.md` is the list §3.2 governs, and it names people by EMAIL. The
+# approver-check workflow needs GitHub logins, so this is where an organization writes them. Left out, the
+# workflow falls back to the *_owner_github handles above — which on day one is the Policy Owner, and correct.
+#
+# A code repository cannot read this file (it lives in the governance repo, and a GITHUB_TOKEN cannot read
+# another private repo), so for those the same list is set as a variable — `gov repo protect` prints the
+# command. Changing who approves is a human decision recorded by a pull request (POL-251, POL-253).
+#
+#   authorized_approvers:
+#     - alice
+#     - bob
+
 # ── Service endpoints — ORG-LEVEL, GOVERNED ──────────────────────────────────────────────────────────
 # The shared infrastructure this org uses. Set ONCE by the gov-admin here; adopters INHERIT these (they are
 # never prompted per-user). Per-user *secrets/tokens* do NOT go here — those live in Vault via `gov creds`.

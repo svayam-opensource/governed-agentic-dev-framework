@@ -13,7 +13,7 @@ import { missingScopes, RECOMMENDED_SCOPES } from "./fix-env.js";
 import { unknownOrgConfigKeys } from "../config/org-config.js";
 import { agentsDiagnostic } from "../cli/approve-agents-step.js";
 import { rulesRows, type RulesFacts } from "./rules-health.js";
-import { assessProtection } from "./protection-check.js";
+import { assessProtection, postureDiagnostic, postureOf } from "./protection-check.js";
 import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
@@ -214,9 +214,19 @@ export function doctor(facts: DoctorFacts): DoctorReport {
             : { name: "org-config", status: "ok" as DiagnosticStatus, detail: "all keys recognised" };
         })()]
       : []),
+    // WHICH POSTURE THIS ORGANIZATION CHOSE (Policy Owner, 2026-09-29) — the row that says what the four rows
+    // below it are FOR. It comes first because it decides whether they are a finding: an organization that
+    // deliberately chose `soft` is not failing POL-040a §3.3, and one that never chose is not excused from it.
+    ...(() => { const p = postureDiagnostic(facts.orgConfigText); return p ? [p] : []; })(),
     // POL-040a §3.3 — the only enforcement that still holds for work done OUTSIDE gov, and until now the one
     // thing gov never looked at.
-    ...(facts.protection
+    //
+    // NOT UNDER `soft`. An organization that chose to leave room for direct work has not misconfigured
+    // anything, and four red crosses against a decision it made on purpose is the false alarm this file keeps
+    // arguing against — it would teach people to ignore the rows, which is fatal for the one rule that holds
+    // outside gov. UNSET still gets them: not choosing is not a choice to skip the policy, and the posture row
+    // says so in as many words.
+    ...(facts.protection && postureOf(facts.orgConfigText).posture !== "soft"
       ? assessProtection(facts.protection.facts, {
           repo: facts.protection.repo,
           branch: facts.protection.branch,

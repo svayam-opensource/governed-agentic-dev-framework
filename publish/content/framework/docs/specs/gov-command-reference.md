@@ -29,6 +29,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov preferences](#gov-preferences) — your settings for gov: the agent it launches, the picker, colour, how long logs are kept
 - [gov log](#gov-log) — what gov did — one log per run, on this machine
 - [gov agent](#gov-agent) — which AI agents your org approves, what is installed, and how to add one
+- [gov repo](#gov-repo) — install the repository controls POL-040a §3.3 requires — or say why the platform will not
 - [gov rules](#gov-rules) — compile the policies into what agents and checks actually use
 
 **[Your agent runs these (you can too)](#your-agent-runs-these-you-can-too)**
@@ -378,6 +379,51 @@ gov agent approve claude
 | `2` | usage: a missing or wrong argument |
 
 **See also.** [gov work](#gov-work) · [gov preferences](#gov-preferences)
+
+### gov repo
+
+install the repository controls POL-040a §3.3 requires — or say why the platform will not
+
+```text
+gov repo protect [plan|apply] [--repo <owner/name>] [--branch <name>] [--repo-dir <path>] [--check <name>]
+```
+
+**Where.** GOVERNED — it acts on a repository, and reads the posture from org-config.yaml
+
+**Arguments**
+
+| argument | what it is |
+| --- | --- |
+| `protect <plan|apply>` | plan (the default — prints what it WOULD change, per setting, and writes nothing) · apply (writes it) |
+
+**Flags**
+
+| flag | what it does |
+| --- | --- |
+| `--repo <owner/name>` | a participating CODE repository. Without it, this organization's governance repo |
+| `--branch <name>` | the branch to protect (default: `default_branch` for the governance repo, `default_code_branch` for a code repo) |
+| `--repo-dir <path>` | the clone to write `.github/workflows/approver-check.yml` into. Defaults to the governance repo; required for a code repo |
+| `--check <name>` | the approver-verifying check, if your organization renamed it (default `approver-check`) |
+
+**Examples**
+
+```bash
+gov repo protect
+gov repo protect apply
+gov repo protect plan --repo acme/billing
+```
+
+**Changes.** `plan` changes nothing at all. `apply` writes the branch-protection settings §3.3 requires (a pull request, at least one approving review, administrators included, and the approver check as a required check) through `gh api`, then RE-READS the branch and reports from the re-read — never from the write's exit code. It also copies the framework's `approver-check` workflow into the clone's `.github/workflows/`, and it will not make that check required until the workflow is on the branch, because a required check that has never run leaves every pull request pending for ever. It respects `governance_posture`: under `soft` it installs nothing, and with no posture chosen it refuses
+
+**Exit codes**
+
+| code | means |
+| --- | --- |
+| `0` | done, confirmed by a re-read — or already correct, or a soft posture, which install nothing |
+| `1` | NOT protected: the platform refused (GitHub Free + private — §3.4 names the three ways out), gov could not read the branch, no posture has been chosen, or the workflow must land first |
+| `2` | usage |
+
+**See also.** [gov doctor](#gov-doctor) · [gov rules](#gov-rules) · [gov upgrade](#gov-upgrade)
 
 ### gov rules
 

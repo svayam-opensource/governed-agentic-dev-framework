@@ -2661,6 +2661,14 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // organization's `when=verb:...` checks are never found, which reads exactly like a workspace that has none:
     // so it is wired here rather than left optional in practice.
     git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
+    // THE ONE PLACE gov WRITES A REPOSITORY RULE (POL-040a §3.3) — `gov repo protect`. Unlike `runGh`, it
+    // carries a BODY, because `PUT branches/<branch>/protection` needs nested objects and explicit nulls that
+    // no pile of `gh api -f` flags expresses without guessing. NOT retried: `retryTransient` re-runs a call,
+    // and re-running a write on a bare `EOF` — where gov cannot tell whether the first one landed — is how a
+    // rule gets applied twice or half. The verb re-reads the branch afterwards instead, which is a better
+    // answer than a retry: it finds out what actually happened.
+    ghApi: (args, body) =>
+      runProcess("gh", [...args], { pgm: "gov-work:cli:main", fn: "gh-api", ...(body === undefined ? {} : { input: body }) }),
     // THE STAMP THAT MAKES A MERGE RECONSTRUCTABLE (design §10.10). Read from the resolved workspace, because
     // the rendered harness there is what the agent had in context — not from the code repo the task touched.
     governanceStamp: () => {

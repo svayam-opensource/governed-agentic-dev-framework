@@ -192,6 +192,19 @@ policy_effective_date: "${v.policyEffectiveDate}"
 # Governance account (multi-tenant): the account this org operates under (empty = single-tenant).
 gov_account: "${v.govAccount}"
 
+# ── HARD OR SOFT GOVERNANCE — the one posture decision (Policy Owner, 2026-09-29).
+#
+#    hard    gov installs repository controls, so work attempted OUTSIDE gov is stopped by the PLATFORM
+#            (\`gov repo protect plan\` / \`apply\` — framework-policy §3.3, POL-040a).
+#    soft    direct clone/commit/push are deliberately left open. A real choice, not a lapse — and the only
+#            available one on GitHub Free for a private repo, where none of the four settings can be
+#            configured at all (§3.4).
+#
+#    LEFT EMPTY ON PURPOSE. Nobody has chosen yet, and gov will not choose for you: \`gov doctor\` says a
+#    posture was never chosen, and \`gov repo protect apply\` refuses until one is recorded here. POL-040a
+#    §3.3 is checked either way — not choosing is not a choice to skip it.
+governance_posture: ""
+
 # ── Service endpoints — ORG-LEVEL, GOVERNED. Set once here; adopters INHERIT (never prompted per-user).
 #    Per-user secrets/tokens go to Vault via \`gov-cicd creds\`, NOT here. gov-work itself needs NEITHER:
 #    it authenticates with your own git + gh. vault/oidc/jenkins/npm/docker are read by the deploy

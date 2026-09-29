@@ -3,6 +3,7 @@
 import { expect } from "chai";
 import { parseArgv, flagStr } from "../../src/cli/args.js";
 import { route, type CliContext } from "../../src/cli/dispatch.js";
+import { classifyPosture } from "../../src/config/org-config.js";
 import type { OrgConfig } from "../../src/config/org-config.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Board } from "../../src/lifecycle/board.js";
@@ -34,6 +35,8 @@ const CONFIG: OrgConfig = {
   githubOrg: "Svayamtech", workspaceRepo: "svm-prj-work", orgRepoUrl: "git@github.com:Svayamtech/svm-prj-work.git",
   defaultBranch: "main", defaultCodeBranch: "dev",
   agentWorkRoot: "/awr", govWorkspace: "/gov", policyOwnerEmail: "rk@x", orgTokens: {},
+  // No posture recorded — the state every organization is in before it decides, and the one `repo protect` refuses on.
+  governancePosture: classifyPosture(""),
 };
 
 /** A Vcs whose branch is a project branch so from-workspace commands resolve. */
@@ -143,5 +146,37 @@ describe("cli — verbs that MOVED to another client", () => {
     const out = lines("wibble");
     expect(out).to.match(/unknown command 'wibble'/);
     expect(out, "no client owns it, so none may be suggested").to.not.match(/gov-cicd|gov-infra/);
+  });
+});
+
+// Policy Owner, 2026-09-29 — `gov repo protect`. Routing only: what it PRINTS is repo-protect.test.ts's
+// business. What matters here is that `plan` is the default, that it is the sub-command doing the work, and
+// that with no way to call `gh` the verb says so rather than pretending it looked.
+describe("cli — route `repo protect`", () => {
+  it("`gov repo protect` defaults to plan, and plan makes no gh call it did not have to", () => {
+    const calls: string[][] = [];
+    const r = route(parseArgv(["repo", "protect"]) as never, ctx({ ghApi: (a) => { calls.push([...a]); return "{}"; } }));
+    // The fixture's org has chosen no posture, so it refuses before reading anything — which is the behaviour.
+    expect(r.code).to.equal(0);
+    expect(r.lines.join("\n")).to.contain("NO POSTURE HAS BEEN CHOSEN");
+    expect(calls).to.deep.equal([]);
+  });
+
+  it("`apply` on a posture nobody chose exits 1 — plan's message, apply's exit code", () => {
+    const r = route(parseArgv(["repo", "protect", "apply"]) as never, ctx({ ghApi: () => "{}" }));
+    expect(r.code).to.equal(1);
+  });
+
+  it("a sub-command gov does not have is usage (exit 2), and the usage names the flags", () => {
+    expect(route(parseArgv(["repo"]) as never, ctx()).code).to.equal(2);
+    const r = route(parseArgv(["repo", "protect", "install"]) as never, ctx());
+    expect(r.code).to.equal(2);
+    expect(r.lines.join("\n")).to.contain("--repo").and.contain("--branch");
+  });
+
+  it("with no way to call gh, it neither reads nor writes and says so", () => {
+    const r = route(parseArgv(["repo", "protect"]) as never, ctx());
+    expect(r.code).to.equal(1);
+    expect(r.lines.join("\n")).to.contain("no way to call `gh`").and.contain("neither read nor wrote");
   });
 });

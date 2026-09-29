@@ -28,8 +28,67 @@ const SCALARS = [
   "default_branch", "default_code_branch",
   "agent_work_root", "gov_workspace", "policy_owner_email",
   "vault_addr", "oidc_base", "gov_account",
+  "governance_posture",
 ] as const;
 export type OrgConfigScalarKey = (typeof SCALARS)[number];
+
+/**
+ * HARD OR SOFT GOVERNANCE — the posture an organization CHOOSES (Policy Owner, 2026-09-29).
+ *
+ * `hard`  install repository controls, so that work attempted OUTSIDE gov is stopped by the platform.
+ * `soft`  deliberately leave room for direct work — clone, commit and push by hand.
+ *
+ * WHY IT HAS TO BE WRITTEN DOWN. Until this key, the posture was whatever somebody had configured on GitHub by
+ * hand, and gov only READ it (`lifecycle/branch-protection.ts`). Two organizations with identical
+ * `org-config.yaml` files could be in opposite positions, neither of them on purpose, and gov had no way to
+ * tell a deliberate soft posture from a hard one nobody got round to installing. Those are the same facts and
+ * opposite findings.
+ */
+export type GovernancePosture = "hard" | "soft";
+
+/** Every posture gov understands — the list the messages quote, so they cannot drift from the type. */
+export const GOVERNANCE_POSTURES: readonly GovernancePosture[] = ["hard", "soft"];
+
+/**
+ * What the file says about the posture — and the THIRD state, which is the one that matters.
+ *
+ * `posture: null, unrecognised: false` is NOBODY HAS CHOSEN. It must never collapse into either posture:
+ * defaulting it to `hard` would have gov install controls an organization never asked for, and defaulting it
+ * to `soft` would quietly excuse an organization that believes it is protected. `gov doctor` says a posture
+ * was never chosen, the way it already does for `authorized_agents`, and `gov repo protect apply` refuses.
+ *
+ * `unrecognised` is a FOURTH state and deliberately not folded into unset either: `governance_posture: strict`
+ * is someone who chose and was not heard, which is the failure mode {@link unknownOrgConfigKeys} exists for,
+ * one level down — the key is known, the value is not.
+ */
+export interface PostureChoice {
+  readonly posture: GovernancePosture | null;
+  /** Exactly what the file said, lower-cased and trimmed. `""` when the key is absent or empty. */
+  readonly raw: string;
+  /** There IS a value and it is not a posture. Never the same fact as unset. */
+  readonly unrecognised: boolean;
+}
+
+/** Classify a raw `governance_posture` value. Pure. */
+export function classifyPosture(raw: string | null | undefined): PostureChoice {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (!value) return { posture: null, raw: "", unrecognised: false };
+  const known = GOVERNANCE_POSTURES.find((p) => p === value);
+  return known
+    ? { posture: known, raw: value, unrecognised: false }
+    : { posture: null, raw: value, unrecognised: true };
+}
+
+/**
+ * The posture, read straight from `org-config.yaml`'s text. Pure.
+ *
+ * A second spelling of one fact, and deliberately so: `parseOrgConfig` gives it to the commands, and `doctor`
+ * holds the TEXT (it reports on a workspace it may not have parsed) — one classifier under both, so the row
+ * and the command can never disagree about what the file said.
+ */
+export function readPosture(text: string | null | undefined): PostureChoice {
+  return classifyPosture(text ? readTopLevelScalar(text, "governance_posture") : null);
+}
 
 /** Endpoints copied out of the `services:` block into {@link OrgConfig.services}. */
 const SERVICE_ENDPOINTS = ["vault", "oidc", "oidc_client_id", "jenkins", "npm", "docker"] as const;
@@ -64,6 +123,12 @@ const READ_ELSEWHERE: readonly string[] = [
   "policy_owner_github",                    // config/codeowners.ts — the Policy Owner line
   ...DOMAIN_ROLES.map((r) => r.key),        // legal_ / infra_ / system_arch_ / data_arch_owner_github
   "policy_effective_date",                  // setup.ts round-trip + <POLICY_EFFECTIVE_DATE> substitution
+  // READ BY THE WORKFLOW THE FRAMEWORK SHIPS, not by this CLI (framework/templates/workflows/approver-check.yml).
+  // §3.2's list of authorized representatives lives in `policies/authorized-representatives.md`, which names
+  // PEOPLE by email and is seed-once — so the framework can never add machine-readable structure to it
+  // (MANIFEST.yaml states that limit outright). The approver check needs GitHub logins, and this is where an
+  // organization writes them. Optional: with no list, the workflow falls back to the role handles above.
+  "authorized_approvers",
 ];
 
 /** Every top-level key gov reads, from the one place each is declared. Exported for `gov doctor`. */
@@ -151,6 +216,11 @@ export interface OrgConfig {
   readonly services: Readonly<Record<string, string>>;
   /** Gov tenant/account (`gov_account`) — the account context service auth mints under; env `GOV_ACCOUNT` overrides. */
   readonly govAccount: string;
+  /**
+   * `governance_posture` — hard, soft, or nobody chose. See {@link PostureChoice}: the third state is not a
+   * default, and `gov repo protect` refuses to act on it.
+   */
+  readonly governancePosture: PostureChoice;
   /** Token → value for tool-file substitution (seed phase B.1). */
   readonly orgTokens: Readonly<Record<string, string>>;
 }
@@ -228,6 +298,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
   const vaultAddr = get("vault_addr") || services.vault || "";
   const oidcBase = get("oidc_base") || services.oidc || "";
   const govAccount = get("gov_account") || svc("gov_account") || "";
+  const governancePosture = classifyPosture(get("governance_posture"));
 
   const orgTokens: Record<string, string> = {
     ORG_NAME: orgName,
@@ -262,6 +333,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
     oidcBase,
     services,
     govAccount,
+    governancePosture,
     orgTokens,
   };
 }

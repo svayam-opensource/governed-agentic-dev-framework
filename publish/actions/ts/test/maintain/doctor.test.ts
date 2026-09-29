@@ -253,3 +253,68 @@ describe("branch protection — POL-040a, in the report", () => {
     expect(lines[lines.length - 1]).to.contain("doctor: FAILED");
   });
 });
+
+// Policy Owner, 2026-09-29 — HARD OR SOFT, and the third state. Two organizations with identical branch
+// protection are in opposite positions depending on which they chose, and until this row the report could not
+// tell them apart.
+describe("governance posture — the row that says what the protection rows are FOR", () => {
+  const row = (text: string | null | undefined) => doctor(facts({ orgConfigText: text })).diagnostics.find((d) => d.name === "governance posture");
+  const protection = {
+    repo: "Acme/acme-gov",
+    branch: "main",
+    facts: { pullRequestRequired: false, approvingReviews: 0, enforceAdmins: false, requiredStatusChecks: [] },
+  };
+
+  it("NEVER CHOSEN is its own state — a warning, naming both postures and the file", () => {
+    const r = row("org_name: \"Acme\"\n")!;
+    expect(r.status).to.equal("warn");
+    expect(r.detail).to.contain("never chosen").and.contain("governance_posture: hard").and.contain("governance_posture: soft");
+    expect(r.detail, "and says the policy is still checked meanwhile").to.contain("not choosing is not a choice to skip it");
+  });
+
+  it("an empty value is the same state as no key at all — nobody has chosen either way", () => {
+    expect(row('governance_posture: ""\n')!.status).to.equal("warn");
+    expect(row('governance_posture: ""\n')!.detail).to.contain("never chosen");
+  });
+
+  it("hard is a decision, and reports ok", () => {
+    const r = row("governance_posture: hard\n")!;
+    expect(r.status).to.equal("ok");
+    expect(r.detail).to.contain("hard").and.contain("outside gov");
+  });
+
+  it("soft is ALSO a decision — an org may adopt the framework for its structure alone", () => {
+    const r = row("governance_posture: soft\n")!;
+    expect(r.status).to.equal("ok");
+    expect(r.detail).to.contain("soft").and.contain("deliberately");
+  });
+
+  it("a value gov does not know warns, and is not read as either posture", () => {
+    const r = row("governance_posture: strict\n")!;
+    expect(r.status).to.equal("warn");
+    expect(r.detail).to.contain("`strict`").and.contain("not a posture gov knows");
+  });
+
+  it("no config examined → no row. A row about a fact nobody gathered is worse than no row", () => {
+    expect(row(null)).to.equal(undefined);
+    expect(row(undefined)).to.equal(undefined);
+  });
+
+  it("under SOFT the per-requirement rows are GONE — four crosses against a deliberate choice is a false alarm", () => {
+    const r = doctor(facts({ orgConfigText: "governance_posture: soft\n", protection }));
+    expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(0);
+    expect(r.ok, "and the report is not failed by a decision the organization made on purpose").to.equal(true);
+  });
+
+  it("under HARD they stay, and an open branch fails the report", () => {
+    const r = doctor(facts({ orgConfigText: "governance_posture: hard\n", protection }));
+    expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(4);
+    expect(r.ok).to.equal(false);
+  });
+
+  it("UNSET keeps them too — not choosing is not permission to leave the branch open", () => {
+    const r = doctor(facts({ orgConfigText: 'org_name: "Acme"\n', protection }));
+    expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(4);
+    expect(r.ok).to.equal(false);
+  });
+});

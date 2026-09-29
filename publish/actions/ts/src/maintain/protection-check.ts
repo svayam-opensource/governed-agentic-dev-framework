@@ -14,6 +14,7 @@
  */
 import type { Diagnostic, DiagnosticStatus } from "./doctor.js";
 import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
+import { GOVERNANCE_POSTURES, readPosture, type PostureChoice } from "../config/org-config.js";
 
 /**
  * The status check that verifies the approver (POL-040a.4 / POL-040b). Named here with a default because the
@@ -88,4 +89,160 @@ export function assessProtection(facts: ProtectionFacts | null, opts: Protection
     },
   ];
   return rows;
+}
+
+/**
+ * WHICH POSTURE THIS ORGANIZATION CHOSE — and that nobody chose, when nobody did (Policy Owner, 2026-09-29).
+ *
+ * Modelled on `agentsDiagnostic`, and for the same reason: a STATE, not a scolding. `soft` is a decision — an
+ * organization may adopt the framework for its structure and deliberately leave room for direct work — so it
+ * reports `ok`. What warns is the organization that never answered, because it is being governed by a posture
+ * it did not pick, and because the two postures are opposite findings about identical facts.
+ *
+ * `null` when no config was examined. Doctor's own rule: a row about a fact nobody gathered is worse than no row.
+ */
+export function postureDiagnostic(orgConfigText: string | null | undefined): Diagnostic | null {
+  if (orgConfigText === null || orgConfigText === undefined) return null;
+  const choice = readPosture(orgConfigText);
+  if (choice.unrecognised) {
+    return {
+      name: "governance posture",
+      status: "warn",
+      detail: `\`${choice.raw}\` is not a posture gov knows — use ${GOVERNANCE_POSTURES.map((p) => `\`${p}\``).join(" or ")}`
+        + ". gov is treating this organization as one that has not chosen, because guessing which was meant is"
+        + " the one thing a posture must never be",
+    };
+  }
+  if (choice.posture === null) {
+    return {
+      name: "governance posture",
+      status: "warn",
+      // UNSET IS NOT A POSTURE. Said here, because the rows below it are the visible consequence: gov goes on
+      // checking POL-040a §3.3, which is right (not choosing is not a choice to skip it) and is exactly the
+      // reading an organization should not be left to infer.
+      detail: "never chosen — record `governance_posture: hard` (gov installs repository controls, so work"
+        + " attempted OUTSIDE gov is stopped by the platform) or `governance_posture: soft` (direct clone,"
+        + " commit and push are deliberately left open) in org-config.yaml. Until then gov checks POL-040a §3.3"
+        + " anyway: not choosing is not a choice to skip it",
+    };
+  }
+  return choice.posture === "hard"
+    ? {
+        name: "governance posture",
+        status: "ok",
+        detail: "hard — the platform is meant to stop work attempted outside gov. `gov repo protect plan` shows"
+          + " what is missing; the rows below are the requirements themselves",
+      }
+    : {
+        name: "governance posture",
+        status: "ok",
+        detail: "soft — this organization deliberately leaves room for direct work, so POL-040a §3.3 is not"
+          + " checked. gov's own gates are the only enforcement, and they do not bind an agent started outside gov",
+      };
+}
+
+/** The posture, or the unset/unrecognised states, from `org-config.yaml`'s text. Re-exported so callers need one import. */
+export function postureOf(orgConfigText: string | null | undefined): PostureChoice {
+  return readPosture(orgConfigText ?? null);
+}
+
+/** POL-040a.2 — the minimum the policy states. One, not two: the policy says "at least one". */
+export const WANTED_APPROVING_REVIEWS = 1;
+
+/**
+ * ONE SETTING, WHAT IT IS NOW, WHAT POL-040a WANTS — the row `gov repo protect plan` prints.
+ *
+ * `current` and `wanted` are rendered as WORDS rather than as booleans because the reader is about to compare
+ * them with the GitHub settings page, which is also words. `changes` is separate from a string comparison so
+ * the caller never has to infer "does this need writing" from how it was spelled.
+ */
+export interface ProtectionChange {
+  /** The setting, in the words GitHub's own page uses where it has them. */
+  readonly setting: string;
+  readonly current: string;
+  readonly wanted: string;
+  /** `POL-040a.1` … `POL-040a.4` — so a plan line is traceable to the clause that asked for it. */
+  readonly pol: string;
+  /** Does applying change anything? False for every row is the "already correct" case. */
+  readonly changes: boolean;
+}
+
+/**
+ * The PURE assessment of what a hard posture still needs on this branch — every requirement, in policy order.
+ *
+ * EVERY row, not only the failing ones, because `plan` prints the current value beside the wanted one and a
+ * table that silently omits what is already right cannot be read as "this is the whole of POL-040a §3.3". The
+ * caller filters when it wants a count.
+ *
+ * TAKES `ProtectionFacts`, NEVER `null`. Unknowable is not a plan — it is a refusal, and it belongs to the
+ * caller that made the failed read (see `isPlanLimited`). A `null` folded in here would produce a plan to
+ * change four settings gov never actually looked at.
+ */
+export function protectionChanges(facts: ProtectionFacts, approverCheck: string = APPROVER_CHECK): readonly ProtectionChange[] {
+  const hasCheck = facts.requiredStatusChecks.includes(approverCheck);
+  return [
+    {
+      setting: "pull request required",
+      current: facts.pullRequestRequired ? "yes" : "no",
+      wanted: "yes",
+      pol: "POL-040a.1",
+      changes: !facts.pullRequestRequired,
+    },
+    {
+      setting: "approving reviews",
+      current: String(facts.approvingReviews),
+      wanted: `${WANTED_APPROVING_REVIEWS} or more`,
+      pol: "POL-040a.2",
+      changes: facts.approvingReviews < WANTED_APPROVING_REVIEWS,
+    },
+    {
+      setting: "bypass (administrators included)",
+      current: facts.enforceAdmins ? "not allowed" : "allowed",
+      wanted: "not allowed",
+      pol: "POL-040a.3",
+      changes: !facts.enforceAdmins,
+    },
+    {
+      setting: `required check \`${approverCheck}\``,
+      // WHAT ELSE THE BRANCH REQUIRES, always. A PUT to the protection endpoint REPLACES the check list, so a
+      // reader has to be able to see that gov is about to keep the checks that are already there.
+      current: hasCheck
+        ? "required"
+        : facts.requiredStatusChecks.length
+        ? `absent (it requires ${facts.requiredStatusChecks.join(", ")})`
+        : "absent (it requires no checks)",
+      wanted: facts.requiredStatusChecks.length && !hasCheck
+        ? `required, alongside ${facts.requiredStatusChecks.join(", ")}`
+        : "required",
+      pol: "POL-040a.4",
+      changes: !hasCheck,
+    },
+  ];
+}
+
+/**
+ * IS THIS THE PLAN REFUSING, rather than a permission or a network? Pure, over whatever gh said.
+ *
+ * `whyUnreadable` already recognises this message and puts it in a person's words. This answers the machine's
+ * question instead — "may gov go on?" — because the two callers need opposite things from the same string:
+ * `gov doctor` prints an explanation and carries on, `gov repo protect apply` must STOP and exit non-zero. A
+ * substring test at each call site is how one of them would come to disagree with the other.
+ */
+export function isPlanLimited(message: string): boolean {
+  return /upgrade to github pro|make this repository public/i.test(message);
+}
+
+/**
+ * The three ways out §3.4/POL-040d already states, named for THIS repository.
+ *
+ * Verbatim from the policy and in its order, because the value of this list is that an organization can point
+ * at the clause afterwards and show which of the three it took. A fourth suggestion invented here would be a
+ * fourth thing nobody ratified.
+ */
+export function planWaysOut(repo: string): readonly string[] {
+  return [
+    `1. make ${repo} public`,
+    "2. move this organization to a plan that provides branch protection (Pro, Team or Enterprise)",
+    "3. approve an exception that NAMES the gap — `framework/templates/exceptions/policy/TEMPLATE.md`",
+  ];
 }

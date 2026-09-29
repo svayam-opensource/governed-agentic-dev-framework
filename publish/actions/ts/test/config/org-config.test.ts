@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { parseOrgConfig } from "../../src/config/org-config.js";
+import { parseOrgConfig, unknownOrgConfigKeys } from "../../src/config/org-config.js";
 import { px } from "../helpers/paths.js";
 
 // A faithful excerpt of the real Svayamtech org-config.yaml.
@@ -104,5 +104,35 @@ describe("org_gov_repo — the new name, and the old one for one release", () =>
 
   it("the new key wins when both are there — which is what an upgrade leaves behind", () => {
     expect(cfg('org_gov_repo: "new-gov"\nworkspace_repo: "old-gov"\n').workspaceRepo).to.equal("new-gov");
+  });
+});
+
+// Policy Owner, 2026-09-29 — the ONE posture decision, and the state that is neither.
+describe("gov-work — governance_posture", () => {
+  const posture = (text: string) => parseOrgConfig(text, "/home/x").governancePosture;
+
+  it("reads the two postures gov implements", () => {
+    expect(posture("governance_posture: hard").posture).to.equal("hard");
+    expect(posture('governance_posture: "soft"   # decided 2026-09-29').posture).to.equal("soft");
+    expect(posture("governance_posture: HARD").posture, "GitHub-ish casing is not a different answer").to.equal("hard");
+  });
+
+  it("an absent or empty key is NOBODY CHOSE — never a default to either side", () => {
+    for (const text of ["org_name: Acme", 'governance_posture: ""', "governance_posture:   "]) {
+      const p = posture(text);
+      expect(p.posture, text).to.equal(null);
+      expect(p.unrecognised, `${text} — nobody wrote anything, so nothing was misread`).to.equal(false);
+    }
+  });
+
+  it("a word gov does not know is a FOURTH state: somebody chose and was not heard", () => {
+    const p = posture("governance_posture: strict");
+    expect(p.posture).to.equal(null);
+    expect(p.unrecognised).to.equal(true);
+    expect(p.raw, "kept verbatim, so the report can quote what they wrote").to.equal("strict");
+  });
+
+  it("is a key gov READS, so `unknownOrgConfigKeys` never reports it as ignored", () => {
+    expect(unknownOrgConfigKeys("governance_posture: hard\nauthorized_approvers:\n  - alice\n")).to.deep.equal([]);
   });
 });

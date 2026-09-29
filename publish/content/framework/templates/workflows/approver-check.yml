@@ -1,0 +1,177 @@
+# THE APPROVER CHECK — framework-policy §3.3 requirement 4 (POL-040a.4 / POL-040b).
+#
+# WHY IT EXISTS. An approving review does not prove the approver was authorized: any collaborator with write
+# access can leave one. On GitHub Free for a private repository, "restrict who can push/merge" and CODEOWNERS
+# enforcement are paid features, so nothing else closes that gap. This check reads the ORGANIZATION'S list of
+# authorized representatives and fails when the reviewer who approved is not on it — which is what turns
+# "a review happened" into "the right person approved".
+#
+# THE FRAMEWORK SHIPS THE WORKFLOW; THE LIST IS THE ORGANIZATION'S (§3.3). Nothing below names a person.
+#
+# INSTALLED BY `gov repo protect apply`, which also makes `approver-check` a required status check. Do not add
+# it to the required checks before this file is on the default branch: a required check that has never run
+# leaves every pull request pending for ever, including the one that would land this file. `gov repo protect`
+# refuses to do them in that order for exactly that reason.
+#
+# IT FAILS CLOSED. If the list cannot be read, the check FAILS. A check that passes when it could not find the
+# list proves nothing, and proving nothing while showing a green tick is worse than having no check at all.
+name: approver-check
+
+on:
+  # BOTH TRIGGERS ARE NEEDED, and they do different jobs.
+  #   pull_request        the check exists on the head commit from the moment the PR opens — which is what lets
+  #                       branch protection require it. It FAILS here, because no approval has happened yet.
+  #   pull_request_review the check runs again when somebody approves, and turns green if they were authorized.
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# ONE RUN PER PULL REQUEST. Without this, an approval landing while the opening run is still going can leave the
+# older (failing) result as the last word on the commit.
+concurrency:
+  group: approver-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  approver-check:
+    # The check's name on the branch-protection list is the JOB's name. `approver-check` is the name
+    # `gov repo protect` requires and `gov doctor` looks for; renaming it means telling gov
+    # (`gov repo protect --check <name>`), not just editing here.
+    name: approver-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out (for org-config.yaml, when this IS the governance repository)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify an authorized representative approved this pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          # THE ORGANIZATION'S LIST, when this repository is not the governance repository.
+          #
+          # A code repository does not hold org-config.yaml, and a GITHUB_TOKEN cannot read another private
+          # repository — so requiring a cross-repo read would mean requiring a personal access token in every
+          # code repository. A variable is the plainest thing an organization can set instead:
+          #
+          #   gh variable set GOV_APPROVERS --repo <owner>/<repo> --body "alice bob"
+          #   gh variable set GOV_APPROVERS --org  <owner>         --body "alice bob"   # once, for all of them
+          #
+          # `gov repo protect` prints that command with the org's own handles filled in.
+          GOV_APPROVERS: ${{ vars.GOV_APPROVERS }}
+        run: |
+          set -euo pipefail
+
+          # ── 1. THE LIST ──────────────────────────────────────────────────────────────────────────────────
+          # In order: the variable an organization set, then org-config.yaml if this repository has one (the
+          # governance repository does). `authorized_approvers:` is the explicit list; the role handles are the
+          # fallback, because every organization has those from `gov setup` and a list is optional.
+          #
+          # §3.2's own list lives in policies/authorized-representatives.md, which names people by EMAIL and is
+          # seed-once (the framework may never add structure to it). This needs GitHub logins, so org-config.yaml
+          # is where an organization writes them.
+          approvers=""
+
+          if [ -n "${GOV_APPROVERS:-}" ]; then
+            approvers="$GOV_APPROVERS"
+            source="the GOV_APPROVERS variable"
+          elif [ -f org-config.yaml ]; then
+            # The explicit list: a top-level `authorized_approvers:` block, its `- item` lines, stopping at the
+            # first line that is not indented (the next top-level key).
+            approvers="$(
+              awk '
+                /^authorized_approvers:[[:space:]]*$/ { inblock = 1; next }
+                inblock && /^[^[:space:]]/            { inblock = 0 }
+                inblock && /^[[:space:]]*-[[:space:]]*/ {
+                  line = $0
+                  sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+                  sub(/[[:space:]]*#.*$/, "", line)
+                  gsub(/["'"'"']/, "", line)
+                  gsub(/[[:space:]]/, "", line)
+                  if (line != "") print line
+                }
+              ' org-config.yaml | tr '\n' ' '
+            )"
+            source="authorized_approvers in org-config.yaml"
+            if [ -z "${approvers// /}" ]; then
+              # The role handles gov already writes and generates CODEOWNERS from. An organization that has
+              # appointed nobody has only the Policy Owner here, which is correct on day one.
+              approvers="$(
+                grep -E '^(policy_owner_github|legal_owner_github|infra_owner_github|system_arch_owner_github|data_arch_owner_github):' org-config.yaml \
+                  | sed -E 's/^[^:]+:[[:space:]]*//; s/[[:space:]]*#.*$//; s/["'"'"']//g; s/^@//' \
+                  | grep -v '^$' | sort -u | tr '\n' ' '
+              )"
+              source="the role handles in org-config.yaml"
+            fi
+          fi
+
+          # Normalise: commas or whitespace, a leading @ optional, case-insensitive (GitHub logins are).
+          approvers="$(printf '%s' "$approvers" | tr ',' ' ' | tr 'A-Z' 'a-z' | tr -s ' ' '\n' | sed -E 's/^@//' | grep -v '^$' | sort -u || true)"
+
+          if [ -z "$approvers" ]; then
+            # FAIL CLOSED, and say where the list was looked for. Passing here would mean this check certifies
+            # nothing while reporting success — the one outcome POL-040b exists to prevent.
+            echo "::error::approver-check cannot find this organization's list of authorized representatives, so it"
+            echo "::error::cannot verify anybody. Set the GOV_APPROVERS variable on this repository or organization,"
+            echo "::error::or add authorized_approvers / the *_owner_github handles to org-config.yaml in the"
+            echo "::error::governance repository. Failing closed: a check that passes without a list proves nothing."
+            exit 1
+          fi
+
+          echo "Authorized representatives (from $source):"
+          printf '  %s\n' $approvers
+
+          # ── 2. WHO APPROVED ─────────────────────────────────────────────────────────────────────────────
+          # The LATEST review per reviewer decides. An APPROVED review that was later changed to
+          # CHANGES_REQUESTED is not an approval, and counting every APPROVED event ever submitted would let a
+          # withdrawn approval keep satisfying the policy.
+          reviews_json="$(gh api --paginate "repos/$REPO/pulls/$PR/reviews")"
+          approving="$(
+            printf '%s' "$reviews_json" | jq -r '
+              [ .[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED") ]
+              | group_by(.user.login)
+              | map(sort_by(.submitted_at) | last)
+              | map(select(.state == "APPROVED") | .user.login | ascii_downcase)
+              | unique | .[]
+            '
+          )"
+
+          # NOBODY APPROVES THEIR OWN WORK (§3.1). GitHub already refuses an author's own approval, so this is
+          # belt and braces — and it is cheap, and it says the rule out loud where the check is read.
+          author="$(printf '%s' "${AUTHOR:-}" | tr 'A-Z' 'a-z')"
+          approving="$(printf '%s\n' $approving | grep -v "^${author}$" || true)"
+
+          if [ -z "${approving// /}" ]; then
+            echo "::error::No approving review yet. POL-040a.2 requires one, from somebody on the list above."
+            exit 1
+          fi
+
+          echo "Approving reviewers:"
+          printf '  %s\n' $approving
+
+          # ── 3. THE COMPARISON ───────────────────────────────────────────────────────────────────────────
+          authorized=""
+          for who in $approving; do
+            if printf '%s\n' "$approvers" | grep -qx "$who"; then
+              authorized="$who"
+              break
+            fi
+          done
+
+          if [ -z "$authorized" ]; then
+            echo "::error::$(printf '%s ' $approving)approved this pull request, and none of them is on"
+            echo "::error::this organization's list of authorized representatives (POL-040a.4). A review happened;"
+            echo "::error::the right person has not approved. Appointments are made by a pull request to"
+            echo "::error::policies/authorized-representatives.md and org-config.yaml — never by editing this check."
+            exit 1
+          fi
+
+          echo "✓ approved by $authorized, who is an authorized representative (POL-040a.4)."

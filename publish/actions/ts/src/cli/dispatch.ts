@@ -40,6 +40,7 @@ import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 import { policyGate } from "./policy-gate-io.js";
+import { approverLogins, protectRepo, type GhApi } from "../maintain/repo-protect.js";
 import { rules } from "./rules-verb.js";
 import { buildRulesAt } from "./rules-lifecycle.js";
 import { clearPending, isMutatingVerb, readPending, refuseForPendingRules } from "../rules-pending.js";
@@ -109,6 +110,15 @@ export interface CliContext {
    * found, which is the same behaviour as a workspace that has none.
    */
   readonly git?: (repo: string, args: readonly string[]) => string | null;
+  /**
+   * `gh <args>` → stdout, with an optional JSON body on stdin; throws on a non-zero exit. The door
+   * `gov repo protect` writes branch protection through (POL-040a §3.3).
+   *
+   * Absent → `gov repo protect` says it has no way to call `gh` and changes nothing. Deliberately optional and
+   * deliberately NOT one of the typed ports: a port would invite other verbs to reach the API their own way,
+   * and the reason this exists at all is that installing a rule needs a REQUEST BODY (see repo-protect.ts).
+   */
+  readonly ghApi?: GhApi;
   /**
    * The clock, for the `rules-pending` marker and the `gov rules reload` attestation. Absent → real time.
    *
@@ -597,6 +607,49 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       return r.ok ? { code: 0, lines: r.lines } : { code: r.code, lines: [r.message] };
     }
 
+    case "repo": {
+      // INSTALLING POL-040a §3.3, rather than only reporting on it (Policy Owner, 2026-09-29). `plan` is the
+      // default because the sub-command that changes a repository's rules should be the one you TYPE — the
+      // reverse default would make a bare `gov repo protect` reconfigure a branch for somebody who wanted to
+      // look.
+      const sub = positionals[0];
+      const USAGE = "repo protect [plan|apply] [--repo <owner/name>] [--branch <name>] [--repo-dir <path>] [--check <name>]";
+      if (sub !== "protect") return usage(USAGE);
+      const mode = positionals[1] ?? "plan";
+      if (mode !== "plan" && mode !== "apply") return usage(USAGE);
+      if (!ctx.ghApi) {
+        return { code: 1, lines: ["repo protect: gov has no way to call `gh` in this context, so it neither read nor wrote anything."] };
+      }
+      if (!c.githubOrg) return { code: 1, lines: ["repo protect: org-config.yaml does not name this organization's GitHub org (`github_org`) — run `gov setup`."] };
+      const named = flagStr(flags, "repo");
+      if (!named && !c.workspaceRepo) {
+        return { code: 1, lines: ["repo protect: org-config.yaml does not name this organization's governance repo (`org_gov_repo`) — run `gov setup`, or name a repo with --repo."] };
+      }
+      const repo = named ? (named.includes("/") ? named : `${c.githubOrg}/${named}`) : `${c.githubOrg}/${c.workspaceRepo}`;
+      // THE DEFAULT BRANCH OF THE REPOSITORY IN QUESTION, which is a different key for each kind (POL-067/068):
+      // the governance repo lands on `default_branch`, a code repo on `default_code_branch`. Getting this wrong
+      // would protect a branch nobody merges into and report success.
+      const branch = flagStr(flags, "branch") ?? (named ? (c.defaultCodeBranch || "main") : (c.defaultBranch || "main"));
+      // The governance repo IS `ctx.home` — that clone is where the workflow has to be written. For a code repo
+      // gov will not guess at a path: an `apply` that wrote .github/workflows into the wrong clone is worse than
+      // one that tells you where the template is.
+      const repoDir = flagStr(flags, "repo-dir") ?? (named ? undefined : ctx.home);
+      const check = flagStr(flags, "check");
+      const orgConfigText = ctx.fs.readFile(path.join(ctx.home, "org-config.yaml"));
+      const r = protectRepo(
+        { gh: ctx.ghApi, fs: ctx.fs },
+        {
+          repo, branch, home: ctx.home, posture: c.governancePosture,
+          approvers: approverLogins(orgConfigText),
+          isGovernanceRepo: !named,
+          ...(repoDir ? { repoDir } : {}),
+          ...(check ? { approverCheck: check } : {}),
+        },
+        mode,
+      );
+      return { code: r.code, lines: r.lines };
+    }
+
     case "rules": {
       // COMPILING THE POLICIES INTO WHAT AGENTS AND CHECKS USE. Reads the RATIFIED branch by default: a clause
       // on a project branch is a proposal (POL-086b), and compiling it would put an unratified rule into the one
@@ -739,7 +792,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           "bootstrap: setup org",
           "lifecycle: seed join task merge sync add-repo close pause resume cancel",
           "info+owners: list list-all status manage anchor validate",
-          "repo+knowledge+org: onboard knowledge org",
+          "repo+knowledge+org: onboard repo knowledge org",
           "maintain: bump-version doctor deps publish upgrade",
         ],
       };

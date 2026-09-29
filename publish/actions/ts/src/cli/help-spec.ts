@@ -249,6 +249,27 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     examples: ["gov cancel"], changes: "labels the anchor issue and closes the board. Branches and clones are left alone",
     exit: EXIT_USUAL, seeAlso: ["close", "pause"] },
   {
+    name: "repo", audience: "you",
+    summary: "install the repository controls POL-040a §3.3 requires — or say why the platform will not",
+    usage: "protect [plan|apply] [--repo <owner/name>] [--branch <name>] [--repo-dir <path>] [--check <name>]",
+    where: "GOVERNED — it acts on a repository, and reads the posture from org-config.yaml",
+    args: [{ name: "protect <plan|apply>", what: "plan (the default — prints what it WOULD change, per setting, and writes nothing) · apply (writes it)" }],
+    flags: [
+      { name: "--repo <owner/name>", what: "a participating CODE repository. Without it, this organization's governance repo" },
+      { name: "--branch <name>", what: "the branch to protect (default: `default_branch` for the governance repo, `default_code_branch` for a code repo)" },
+      { name: "--repo-dir <path>", what: "the clone to write `.github/workflows/approver-check.yml` into. Defaults to the governance repo; required for a code repo" },
+      { name: "--check <name>", what: "the approver-verifying check, if your organization renamed it (default `approver-check`)" },
+    ],
+    examples: ["gov repo protect", "gov repo protect apply", "gov repo protect plan --repo acme/billing"],
+    changes: "`plan` changes nothing at all. `apply` writes the branch-protection settings §3.3 requires (a pull request, at least one approving review, administrators included, and the approver check as a required check) through `gh api`, then RE-READS the branch and reports from the re-read — never from the write's exit code. It also copies the framework's `approver-check` workflow into the clone's `.github/workflows/`, and it will not make that check required until the workflow is on the branch, because a required check that has never run leaves every pull request pending for ever. It respects `governance_posture`: under `soft` it installs nothing, and with no posture chosen it refuses",
+    exit: [
+      { code: 0, means: "done, confirmed by a re-read — or already correct, or a soft posture, which install nothing" },
+      { code: 1, means: "NOT protected: the platform refused (GitHub Free + private — §3.4 names the three ways out), gov could not read the branch, no posture has been chosen, or the workflow must land first" },
+      { code: 2, means: "usage" },
+    ],
+    seeAlso: ["doctor", "rules", "upgrade"],
+  },
+  {
     name: "rules", audience: "you",
     summary: "compile the policies into what agents and checks actually use",
     usage: "<build|check|report|reload> [--working-tree]",
