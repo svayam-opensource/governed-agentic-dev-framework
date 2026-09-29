@@ -250,7 +250,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     exit: EXIT_USUAL, seeAlso: ["close", "pause"] },
   {
     name: "repo", audience: "you",
-    summary: "install the repository controls POL-040a §3.3 requires — or say why the platform will not",
+    summary: "install the repository controls framework-policy §3.3 requires — or say why the platform will not",
     usage: "protect [plan|apply] [--repo <owner/name>] [--branch <name>] [--repo-dir <path>] [--check <name>]",
     where: "GOVERNED — it acts on a repository, and reads the posture from org-config.yaml",
     args: [{ name: "protect <plan|apply>", what: "plan (the default — prints what it WOULD change, per setting, and writes nothing) · apply (writes it)" }],

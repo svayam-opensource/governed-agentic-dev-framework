@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * `join` (SDD Part B, join.sh, POL-047) — set up an authorized teammate's OWN
+ * `join` (SDD Part B, join.sh; authorization = board write access, gov-behaviour.md §4) — set up an authorized teammate's OWN
  * per-project workspace on an ALREADY-seeded project. No new id, no anchor, no
  * scaffold — just materialize worktrees on the EXISTING project branch. Model A
  * (SDD-012): identity + repos derived from the board; nothing read from a state

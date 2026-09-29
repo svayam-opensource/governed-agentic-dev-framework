@@ -934,7 +934,7 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
     return 1;
   }
   // SKIPPED IS NOT THE SAME AS PASSED, and the difference has to be visible (2026-09-28). The zero-call promise
-  // above is worth keeping, but authorization IS board write access (POL-047) and an access that was revoked
+  // above is worth keeping, but authorization IS board write access (gov-behaviour.md §4) and an access that was revoked
   // since the clone would go unnoticed here. What catches it is the agent's own session-start check (POL-114) —
   // which is agentic, so it persuades rather than proves. Saying so costs nothing, tells the developer which
   // check is actually standing between them and unauthorized work, and stops a silent skip reading as a pass.

@@ -3,7 +3,7 @@
 /**
  * The `Board` port + C01 validation gates (SDD Part B, seed). GitHub is the
  * source of truth; seed reads the board to derive identity and to gate on
- * (POL-056…075). The gh-backed adapter lives in gh-board.ts.
+ * (the PMS contract, gov-behaviour.md §4). The gh-backed adapter lives in gh-board.ts.
  */
 import type { BoardRef } from "./identity.js";
 

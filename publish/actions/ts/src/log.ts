@@ -135,7 +135,7 @@ export const runDir = (): string => run?.dir ?? "";
  * THE GATE (PRJ-121, 2026-09-23).
  *
  * The shared logger passes `error` and `warn` always; below them its default gate is `node:util.debuglog`
- * (`NODE_DEBUG=gov-work:*`, POL-425). gov CANNOT switch that on for itself — Node compiles NODE_DEBUG into a
+ * (`NODE_DEBUG=gov-work:*`). gov CANNOT switch that on for itself — Node compiles NODE_DEBUG into a
  * matcher at bootstrap, so setting the variable from inside the process, even on the first line, does nothing.
  * The result: gov's log calls had never written a single line, and a log folder held only the transport's
  * bookkeeping file. Found 2026-09-22, the day after four defects were diagnosed from pasted screens.

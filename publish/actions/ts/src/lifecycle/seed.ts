@@ -364,8 +364,19 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     // `knowledge/guidance/`, and now at `framework/templates/`. So the read returned null, the
     // guard skipped it silently, and NO project has ever been given a `knowledge/todo.md` —
     // while the session-start protocol tells every agent to read one and surface its `## Open`
-    // items, and POL-168/169 require it to exist. A missing file behind a null-check is the
-    // quietest way to lose a C01 obligation.
+    // items. A missing file behind a null-check is the quietest way to lose an obligation.
+    //
+    // THIS COMMENT USED TO SAY "POL-168/169 require it to exist". THEY DO NOT EXIST (2026-09-30).
+    // Neither number appears in any policy document in this repository and neither ever has —
+    // `grep -rl POL-168 publish/content` finds nothing. So the refusal below was justified by a
+    // citation to a rule nobody wrote, which is worse than an uncited refusal: a reader goes
+    // looking for the clause, cannot find it, and cannot tell whether the requirement is real.
+    //
+    // The requirement itself is defensible on its own terms and is stated that way now: the
+    // session-start protocol tells every agent to read `knowledge/todo.md` and surface its open
+    // items, so seeding a project without one hands every agent an instruction it cannot follow.
+    // Whether that should be a POLICY CLAUSE an organization can see, or specified behaviour, is
+    // an open question for the Policy Owner — see `undocumented-fixed-logic.md`.
     //
     // Not optional any more: without the template the project has no todo list, so say so.
     const todoTemplate = deps.fs.readFile(
@@ -374,7 +385,8 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     if (todoTemplate === null) {
       throw new Error(
         "seed: framework/templates/todo-template.md is missing from the governance repo — a "
-        + "project cannot be seeded without a todo list (POL-168). Run `gov upgrade`.",
+        + "project cannot be seeded without a todo list, because the session-start protocol tells "
+        + "every agent to read one. Run `gov upgrade`.",
       );
     }
     deps.fs.writeFile(path.join(projectDir, "knowledge", "todo.md"), renderTodoMd(todoTemplate, projectId));

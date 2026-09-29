@@ -2181,7 +2181,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     })();
     const ghScopes = ghAuthed && ghStatus ? parseGrantedScopes(ghStatus) : null;
     // The workspace's org-config, read ONCE: doctor reports the keys gov ignores in it, and the protection
-    // probe needs it to know which repo and branch POL-040a is about.
+    // probe needs it to know which repo and branch framework-policy §3.3 is about.
     const doctorCfgText = (!!doctorHomeOverride || resolve.ok) ? fs.readFile(path.join(home, "org-config.yaml")) : null;
     const doctorCfg = doctorCfgText ? parseOrgConfig(doctorCfgText) : null;
     // POL-040a §3.3, checked instead of assumed (PRJ-121, 2026-09-27). Only when gh can be asked and the org
@@ -2631,7 +2631,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
 
     /**
      * `approve` raises a pull request. It does not edit the policy: the approved
-     * list is C01 (POL-136) and belongs to the Infrastructure Owner, not to whoever
+     * list is C01 (gov-behaviour.md §8) and belongs to the Infrastructure Owner, not to whoever
      * typed the command — the same reason `gov knowledge` exists.
      */
     proposeAgentApproval: (id) => [

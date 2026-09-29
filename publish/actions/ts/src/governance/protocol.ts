@@ -43,7 +43,7 @@ const MANDATE_ANCHORS = ["context manifest", "refuse meaningful work", "before a
 // gov no longer ships any of those files. They never fired anyway: every launch uses the
 // project directory as cwd and the harness mirror never carried them, so they sat in the
 // governance worktree where no agent looks. Two of nine approved agents having a gate the rest
-// cannot have would bias agent choice (POL-430).
+// cannot have would bias agent choice (gov-behaviour.md §8, "One mechanism for every approved agent").
 //
 // Keeping the check would be worse than useless: a developer's OWN .claude/settings.json is
 // theirs, and gov reporting their hooks as "missing/empty" is gov policing a file it has no

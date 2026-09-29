@@ -112,7 +112,8 @@ export interface CliContext {
   readonly git?: (repo: string, args: readonly string[]) => string | null;
   /**
    * `gh <args>` → stdout, with an optional JSON body on stdin; throws on a non-zero exit. The door
-   * `gov repo protect` writes branch protection through (POL-040a §3.3).
+   * `gov repo protect` writes branch protection through (framework-policy §3.3; the controls
+   * themselves are specified in `framework/docs/specs/gov-behaviour.md` §7).
    *
    * Absent → `gov repo protect` says it has no way to call `gh` and changes nothing. Deliberately optional and
    * deliberately NOT one of the typed ports: a port would invite other verbs to reach the API their own way,
@@ -294,7 +295,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       if (sub === "approve") {
         const id = positionals[1];
         if (!id) return usage("agent approve <id>");
-        // A pull request, never an edit: the approved list is C01 (POL-136) and
+        // A pull request, never an edit: the approved list is C01 (gov-behaviour.md §8) and
         // belongs to the Infrastructure Owner, not to whoever typed the command.
         return ctx.proposeAgentApproval
           ? { code: 0, lines: ctx.proposeAgentApproval(id) }
@@ -626,7 +627,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         return { code: 1, lines: ["repo protect: org-config.yaml does not name this organization's governance repo (`org_gov_repo`) — run `gov setup`, or name a repo with --repo."] };
       }
       const repo = named ? (named.includes("/") ? named : `${c.githubOrg}/${named}`) : `${c.githubOrg}/${c.workspaceRepo}`;
-      // THE DEFAULT BRANCH OF THE REPOSITORY IN QUESTION, which is a different key for each kind (POL-067/068):
+      // THE DEFAULT BRANCH OF THE REPOSITORY IN QUESTION, which is a different key for each kind (gov-behaviour.md §3):
       // the governance repo lands on `default_branch`, a code repo on `default_code_branch`. Getting this wrong
       // would protect a branch nobody merges into and report success.
       const branch = flagStr(flags, "branch") ?? (named ? (c.defaultCodeBranch || "main") : (c.defaultBranch || "main"));

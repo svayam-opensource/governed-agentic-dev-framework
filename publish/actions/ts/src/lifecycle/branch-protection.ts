@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * The `BranchProtection` port (read-only) — POL-040a, THE LAYER NOBODY WAS CHECKING (PRJ-121, 2026-09-27).
+ * The `BranchProtection` port (read-only) — framework-policy §3.3, THE LAYER NOBODY WAS CHECKING (PRJ-121, 2026-09-27).
  *
  * framework-policy §3.3 requires four settings on the default branch of the governance repo and of every
  * participating code repo: a pull request before merging, at least one approving review, no bypass (admins
@@ -21,7 +21,7 @@
  * AND ON GITHUB FREE, FOR A PRIVATE REPO, THERE IS NOTHING TO READ. Both this endpoint and the newer
  * `…/rules/branches/…` answer 403 `Upgrade to GitHub Pro or make this repository public to enable this
  * feature.` — verified against Svayamtech/svm-prj-work, this framework's own governance repo, on 2026-09-27.
- * That is worth stating plainly because it is stronger than POL-040b assumes: required status checks are
+ * That is worth stating plainly because it is stronger than §3.4 assumes: required status checks are
  * THEMSELVES a branch-protection feature, so on a free private repo none of POL-040a's four settings can be
  * configured — not even the approver check that §3.3 offers as the plan-independent answer. Enforcement there
  * is gov's own gates and nothing else, until the repo is public or the plan is Pro/Team.

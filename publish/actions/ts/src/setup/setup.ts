@@ -195,13 +195,13 @@ gov_account: "${v.govAccount}"
 # ── HARD OR SOFT GOVERNANCE — the one posture decision (Policy Owner, 2026-09-29).
 #
 #    hard    gov installs repository controls, so work attempted OUTSIDE gov is stopped by the PLATFORM
-#            (\`gov repo protect plan\` / \`apply\` — framework-policy §3.3, POL-040a).
+#            (\`gov repo protect plan\` / \`apply\` — framework-policy §3.3).
 #    soft    direct clone/commit/push are deliberately left open. A real choice, not a lapse — and the only
 #            available one on GitHub Free for a private repo, where none of the four settings can be
 #            configured at all (§3.4).
 #
 #    LEFT EMPTY ON PURPOSE. Nobody has chosen yet, and gov will not choose for you: \`gov doctor\` says a
-#    posture was never chosen, and \`gov repo protect apply\` refuses until one is recorded here. POL-040a
+#    posture was never chosen, and \`gov repo protect apply\` refuses until one is recorded here. POL-040d
 #    §3.3 is checked either way — not choosing is not a choice to skip it.
 governance_posture: ""
 

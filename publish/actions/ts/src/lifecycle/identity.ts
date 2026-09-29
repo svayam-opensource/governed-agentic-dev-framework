@@ -3,7 +3,7 @@
 /**
  * Project identity derivation (SDD Part B, `seed`) — pure string logic, no I/O.
  *
- * Board-number scheme (POL-069): both the project id and its branch are keyed on
+ * Board-number scheme (gov-behaviour.md §2): both the project id and its branch are keyed on
  * the GitHub Project BOARD NUMBER (no leading zero); they differ only by a
  * constant prefix. The board number IS the allocator — no `last_issued` counter,
  * no registry write (registry-elimination). id/branch are fully derived from the

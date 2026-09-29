@@ -33,7 +33,14 @@ be told, or because a check enforces it — the policy carries the number and th
 **Every literal below is anchored by a test.** Where a sentence names a concrete string — a branch pattern, a file
 name, a verb, an exit code — `test/content/spec-anchors.test.ts` asserts that string exists in the code. That is
 the mechanism which replaces "this document is updated when the code changes", which is a discipline, and which
-POL-071 demonstrates does not hold on its own.
+POL-071 demonstrates does not hold on its own. `test/content/pol-citations.test.ts` runs the same idea the other
+way: every POL number cited in gov's source must resolve to a clause that still exists.
+
+**What the anchors cannot do, stated because the first draft of this document leaned on them too hard.** They
+catch a literal drifting away from the code. They cannot catch a sentence that was **wrong when it was written**,
+and they cannot catch an **omission** — and five days after this document was written, a sweep found five of the
+first and a great many of the second. Their coverage is bounded by this document's own completeness, so the
+anchors are a floor under the prose and not a substitute for reading it.
 
 ---
 
@@ -109,24 +116,53 @@ change rather than a policy one. What gov requires of any such system:
 **Write access to the board is the authorization.** There is no separate authorization file, and gov will not
 introduce one.
 
-Before `gov seed` will run: the board must have a name and at least one linked issue or pull request. It warns,
-rather than refusing, when a linked issue belongs to no identifiable repository, when the board has no
-description, or when nothing marks the project's scope.
+Before `gov seed` will run: the board must have a name and at least one linked issue or pull request. Those two
+are the whole gate. It emits **one** warning — when the board has no description. (Earlier drafts of this
+document claimed three; `validateBoard` has only ever produced the one, and the other two were requirements
+someone intended rather than code anyone wrote.)
 
 ## 5. What gov writes, and where
 
 ```
-$AGENT_WORK_ROOT/<org>/projects/PRJ-<board#>-<slug>/     the project directory
+$AGENT_WORK_ROOT/PRJ-<board#>-<slug>/     the project directory
   <governance-repo>/            a worktree on the project branch
   <each code repo>/             a worktree on the project branch
-  .gov/governance/              a read-only snapshot of the ratified org-config + policy
+  .bases/<repo>/                a shared clone the worktrees are cut from
+  .gov/governance/              a read-only snapshot: org-config.yaml + framework-policy.md
   CLAUDE.md · AGENTS.md · …     the agent harness, one file per approved agent
 ```
 
+`$AGENT_WORK_ROOT` itself defaults to `~/.gov/<slug>/projects`, so the org appears in the root rather than as a
+segment beneath it. Sibling directories under `~/.gov/<slug>/` hold `preferences/`, `state/` and the logs.
+
+**The snapshot holds exactly two files** — `org-config.yaml` and `framework/policies/framework-policy.md`. Your
+own `policies/` are **not** snapshotted, so an agent reading that directory sees the framework's rules and none of
+yours. Its cues reach the agent through the harness instead.
+
 **The harness is written on launch, and only when its bytes change.** Nine files at the project root and, since
 2026-09-28, the same nine inside every cloned code repository — because an IDE opened at a code repo governs the
-agent only if that vendor searches parent directories, which one of nine does. In a code repo gov owns a fenced
-region and the team's own file survives below it; at the project root gov owns the whole file.
+agent only if that vendor searches parent directories, which one of nine does.
+
+**At the project root gov owns the whole file. In a code repo it depends on the path, and four of the nine are
+not fenced:** `.cursor/rules/agent.mdc`, `.clinerules/agent.md`, `.continue/rules/agent.md` and
+`.windsurf/rules/agent.md` are written **whole**, so a team's own file at one of those paths is replaced on every
+launch. The Cursor path cannot be fenced — its YAML front matter carrying `alwaysApply: true` must be the first
+bytes of the file, and an HTML comment above it makes Cursor read the file as advisory. The other five carry
+gov's region above the team's, which survives.
+
+The nine paths, because counting them is not enough to predict what appears in your repository:
+
+| Path | Agent |
+|---|---|
+| `CLAUDE.md` | claude-code |
+| `AGENTS.md` | openai-codex, ibm-bob |
+| `CONVENTIONS.md` | aider |
+| `GEMINI.md` | gemini-code-assist |
+| `.github/copilot-instructions.md` | github-copilot |
+| `.clinerules/agent.md` | cline |
+| `.continue/rules/agent.md` | continue |
+| `.windsurf/rules/agent.md` | windsurf |
+| `.cursor/rules/agent.mdc` | cursor |
 
 Those files are **untracked and visible**. gov does not commit them: putting them under version control is an
 ordinary commit made by a developer or their agent during project work, and a team that wants every clone
@@ -169,6 +205,7 @@ recorded in `governance_posture`:
 | `governance_posture` | Means |
 |---|---|
 | `hard` | `gov repo protect apply` installs the controls: a pull request required, an approving review required, no bypass for administrators, and a required check verifying the approver is authorized |
+| | **⚠ and `gov close` then overrides them.** It merges its own pull requests with `gh pr merge --admin`, the administrator bypass of the review it just required, and it pushes directly to `default_code_branch` and to every middle `env_branches` rung without opening one at all. `gov seed` likewise pushes the project stub straight to the governance repo's default branch — so `hard` and `gov seed` cannot both be satisfied. Recorded here because it is true, not because it is intended; it is under review as of 2026-09-30. |
 | `soft` | direct work is deliberately possible. gov's gates and the agent's cues remain, and neither binds a hand-run `git push` |
 | unset | nobody has chosen. `gov doctor` says so, and does not treat it as either |
 
@@ -205,6 +242,10 @@ to its merits, and would bias the choice an organization makes when it approves 
 | `knowledge search\|show\|list` | read the knowledge on this machine — no service, no network |
 | `knowledge propose\|submit\|archive` | propose a change to org-wide knowledge |
 | `repo protect plan\|apply` | install the platform controls, per the posture |
+| `sync` | merge the ratified default branch into the project branch — **mutating**, and it pushes |
+| `issue` | create a work item on the board, or mirror an upstream one — **mutating** |
+| `list` · `list-all` · `status` · `anchor` | what is active here; across workspaces; this project; its anchor record |
+| `agent` | install or inspect an approved agent |
 | `validate` · `doctor` | run the checks; report this machine and this workspace |
 | `org` · `manage` · `preferences` · `log` | workspaces; ownership; your settings; this run's history |
 

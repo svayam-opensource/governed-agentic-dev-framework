@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * `sync` (SDD Part B, sync.sh, POL-122) — merge the latest default/base into the
+ * `sync` (SDD Part B, sync.sh) — merge the latest default/base into the
  * active project branch across all repos, mid-project, without pausing. Model A
  * (SDD-012): project + repos derived from the workspace + GitHub. Forward-
  * idempotent (re-merging an up-to-date branch is a no-op); a conflict pauses for

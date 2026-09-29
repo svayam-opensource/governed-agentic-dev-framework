@@ -193,7 +193,7 @@ export function planAgentInstall(
     };
   }
   // Approval is the gate, and the only one. An unapproved agent is Prohibited by
-  // default (C01, POL-136) — gov installing it would put the tool in breach of the
+  // default (C01; gov enforces the list — gov-behaviour.md §8) — gov installing it would put the tool in breach of the
   // policy it exists to enforce.
   const list = approved ?? AGENT_CATALOG.map((a) => ({ id: a.id }));
   if (!list.some((a) => a.id === id)) {

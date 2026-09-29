@@ -95,7 +95,7 @@ export function withApprovedAgents(policyText: string, agents: readonly Approved
     "",
     "<!-- gov reads the block below. The table above is for people; keep them in step.",
     "     Add or remove an agent with `gov agent approve <id>`, which raises a pull",
-    "     request to the owner CODEOWNERS names — this list is C01 (POL-136). -->",
+    "     request to the owner CODEOWNERS names — this list is C01. -->",
     "",
     block,
     "",

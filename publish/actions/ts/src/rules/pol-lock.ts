@@ -72,7 +72,7 @@ export interface PolLock {
   readonly entries: readonly PolEntry[];
 }
 
-/** The framework's own clauses start at 1 (POL-001…). A default for the CALLER to pass, not a rule in here. */
+/** The framework's own clauses start at 1. A default for the CALLER to pass, not a rule in here. */
 export const FRAMEWORK_POL_START = 1;
 /** An adopting organization's clauses start at 200, leaving the low numbers to the framework. */
 export const ORG_POL_START = 200;
