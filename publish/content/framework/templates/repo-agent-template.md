@@ -61,4 +61,4 @@ During an active project:
 ## Data Classification Reminder
 
 - Never commit credentials, secrets, API keys, or PII to this repository (C01)
-- See `<ORG_GOV_REPO>/framework/policies/framework-policy.md` §7.6 for full classification rules
+- See `<ORG_GOV_REPO>/policies/data-classification.md` for your organization's full classification rules

@@ -1397,6 +1397,14 @@
       "ordinal": 1,
       "clauseSha": "978d1ba",
       "level": "C01"
+    },
+    {
+      "doc": "framework/policies/framework-policy.md",
+      "section": "5.6",
+      "ordinal": 2,
+      "clauseSha": "0aa5d6d",
+      "pol": "POL-443",
+      "level": "C01"
     }
   ]
 }

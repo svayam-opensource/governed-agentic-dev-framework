@@ -8,46 +8,21 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 
 | POL | document | § | level | class | actor | clause |
 |---|---|---|---|---|---|---|
-| POL-001 | framework/policies/framework-policy.md | §1.1 | — | ungoverned | unknown | This document is the **framework's** governance instrument for agentic development. It … |
-| — | framework/policies/framework-policy.md | §1.1 | — | ungoverned | gov | It is not your organization's policy, and it does not try to be. It ships with no organ… |
-| POL-002 | framework/policies/framework-policy.md | §1.1 | — | ungoverned | unknown | The goal every rule here serves is that agentic work be **traceable, safe, compliant an… |
-| POL-003 | framework/policies/framework-policy.md | §1.2 | — | ungoverned | agent | This policy applies to all agentic development work performed in an organization that h… |
-| — | framework/policies/framework-policy.md | §1.2 | — | ungoverned | unknown | It covers: |
-| POL-004 | framework/policies/framework-policy.md | §1.2 | — | ungoverned | agent | **AI coding agents** — any assistant operating with write access to an organizational r… |
-| POL-005 | framework/policies/framework-policy.md | §1.2 | — | ungoverned | agent | **Fully autonomous agents** — agents executing multi-step plans, calling APIs, writing … |
+| — | framework/policies/framework-policy.md | §1.1 | — | ungoverned | gov | This is the **framework's** governance instrument for agentic development: the rules th… |
+| — | framework/policies/framework-policy.md | §1.1 | — | ungoverned | unknown | Every rule here serves one goal: that agentic work be **traceable, safe, compliant and … |
+| — | framework/policies/framework-policy.md | §1.2 | — | ungoverned | gov | This policy applies to all agentic development work in an organization that has adopted… |
+| — | framework/policies/framework-policy.md | §1.2 | — | ungoverned | unknown | One clause, because delegating the work does not delegate the accountability: |
 | POL-006 | framework/policies/framework-policy.md | §1.2 | C01 | advisory | person | **Humans using AI tools** — when an AI tool assists a task, the human MUST ensure the o… |
-| POL-007 | framework/policies/framework-policy.md | §1.2 | C02 | advisory | agent | Agents MAY be custom-built, vendor-provided or hybrid, and MAY call any LLM provider th… |
-| POL-008 | framework/policies/framework-policy.md | §1.2 | — | ungoverned | gov | No agent is exempt. Agents are expected to internalize and self-enforce these rules — a… |
 | — | framework/policies/framework-policy.md | §1.3 | — | ungoverned | unknown | **This is normative, and it deliberately differs from RFC 2119.** Read `MAY` as *"alway… |
-| — | framework/policies/framework-policy.md | §1.3 | — | ungoverned | unknown | Rules of the notation, applied by `gov rules build` to this document and to yours: |
-| — | framework/policies/framework-policy.md | §1.3 | — | ungoverned | unknown | **ALL CAPS only.** A lowercase "must" in ordinary prose creates no rule, so explanatory… |
-| — | framework/policies/framework-policy.md | §1.3 | C01 | advisory | unknown | **One clause, one level.** Two modals at the same level are one rule — "the id MUST be … |
-| — | framework/policies/framework-policy.md | §1.3 | — | ungoverned | unknown | **Negation keeps the level.** `MUST NOT` and `SHALL NOT` are C01. |
-| — | framework/policies/framework-policy.md | §1.3 | C01 | advisory | unknown | **`MAY NOT` is rejected.** In English it usually means prohibition rather than C02 perm… |
-| — | framework/policies/framework-policy.md | §1.3 | — | ungoverned | unknown | **`SHOULD` is rejected.** It is not a level here. Use `MAY` (C02) or `CAN` (C03). |
-| — | framework/policies/framework-policy.md | §1.3 | — | ungoverned | unknown | **A clause with no modal is not a rule.** It generates nothing and is reported as *ungo… |
-| — | framework/policies/framework-policy.md | §1.4 | — | ungoverned | unknown | Every clause in this document and in your `policies/` compiles into two artifacts: |
-| — | framework/policies/framework-policy.md | §1.4 | — | ungoverned | agent | a **cue** — a short trigger inlined into every agent's own instructions file, present o… |
-| — | framework/policies/framework-policy.md | §1.4 | — | ungoverned | agent | a **check** — a deterministic test run by `gov validate` and in CI, which does not depe… |
-| POL-009 | framework/policies/framework-policy.md | §1.4 | — | ungoverned | unknown | The cue names the moment a rule applies, the stop condition, and the command that fetch… |
-| — | framework/policies/framework-policy.md | §1.4 | — | ungoverned | agent | Cue blocks in this file are **generated and approved**, and marked as such. Editing a c… |
-| — | framework/policies/framework-policy.md | §1.5 | — | ungoverned | unknown | Three things enforce this policy, and they are not interchangeable. An organization rea… |
-| — | framework/policies/framework-policy.md | §1.5 | — | ungoverned | gov | **FIXED behaviour — a program does it.** gov, `gov-cicd` and `gov-infra` carry it out t… |
-| — | framework/policies/framework-policy.md | §1.5 | — | ungoverned | agent | **AGENTIC behaviour — an agent does it, because a rule reached its context.** Two deliv… |
-| — | framework/policies/framework-policy.md | §1.5 | — | ungoverned | gov | **PLATFORM-ENFORCED — the version control system does it, and gov cannot.** Branch prot… |
-| POL-009c | framework/policies/framework-policy.md | §1.5 | C01 | implemented | gov | The framework MUST state which of the three applies **per clause**, rather than leaving… |
-| — | framework/policies/framework-policy.md | §1.6 | — | ungoverned | agent | **A clause about an agent applies when your organization uses agents.** Roughly two fif… |
-| POL-009d | framework/policies/framework-policy.md | §1.6 | C01 | implemented | gov | The framework MUST NOT hold an organization that runs no agent to a clause addressed to… |
-| — | framework/policies/framework-policy.md | §1.6 | — | ungoverned | unknown | That is not a loophole; it is the design: fixed behaviour is complete on its own, and a… |
-| POL-009e | framework/policies/framework-policy.md | §1.6 | C01 | implemented | gov | gov MUST be fully usable with no agent approved (`authorized_agents: none`) and nothing… |
-| — | framework/policies/framework-policy.md | §1.6 | — | ungoverned | unknown | `gov doctor` says which mode a workspace is in, so nobody has to infer it from a policy. |
-| POL-009a | framework/policies/framework-policy.md | §1.7 | — | ungoverned | gov | This policy takes effect for an organization when that organization adopts the framewor… |
+| — | framework/policies/framework-policy.md | §1.3 | — | ungoverned | gov | A lowercase "must" in ordinary prose creates no rule, which is why the explanatory text… |
+| — | framework/policies/framework-policy.md | §1.6 | — | ungoverned | gov | **A clause addressed to an agent applies when your organization uses agents.** An organ… |
+| — | framework/policies/framework-policy.md | §1.7 | — | ungoverned | gov | This policy takes effect for an organization when that organization adopts the framewor… |
 | — | framework/policies/framework-policy.md | §1.7 | — | ungoverned | unknown | --- |
-| POL-010 | framework/policies/framework-policy.md | §2 | — | ungoverned | agent | Every rule carries exactly one of three levels, declared by its modal verb (§1.3). The … |
+| — | framework/policies/framework-policy.md | §2 | — | ungoverned | agent | Every rule carries exactly one of three levels, declared by its modal verb (§1.3). The … |
 | POL-011 | framework/policies/framework-policy.md | §2.1 | — | ungoverned | unknown | **A C01 rule admits no exception, under any circumstance.** |
-| POL-012 | framework/policies/framework-policy.md | §2.1 | C01 | advisory | agent | An agent that detects a C01 rule violated, or about to be violated, MUST hard stop all … |
-| POL-013 | framework/policies/framework-policy.md | §2.1 | C01 | advisory | unknown | It MUST commit nothing, to any branch. |
-| POL-014 | framework/policies/framework-policy.md | §2.1 | C01 | advisory | unknown | It MUST surface the violation to the responsible human and wait for explicit human reso… |
+| POL-012 | framework/policies/framework-policy.md | §2.1 | C01 | cued | agent | An agent that detects a C01 rule violated, or about to be violated, MUST hard stop all … |
+| POL-013 | framework/policies/framework-policy.md | §2.1 | C01 | cued | unknown | It MUST commit nothing, to any branch. |
+| POL-014 | framework/policies/framework-policy.md | §2.1 | C01 | cued | unknown | It MUST surface the violation to the responsible human and wait for explicit human reso… |
 | POL-015 | framework/policies/framework-policy.md | §2.1 | C01 | cued | person | A C01 rule SHALL NOT be waived, overridden or deferred by any role, including the Polic… |
 | POL-016 | framework/policies/framework-policy.md | §2.2 | — | ungoverned | unknown | **A C02 rule applies in all normal circumstances.** |
 | — | framework/policies/framework-policy.md | §2.2 | C02 | advisory | unknown | A deviation from a C02 rule MAY proceed only when all of the following hold: |
@@ -57,9 +32,9 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | POL-020 | framework/policies/framework-policy.md | §2.2 | C01 | cued | agent | An agent facing a C02 situation that needs an exception MUST block the dependent work u… |
 | POL-021 | framework/policies/framework-policy.md | §2.3 | — | ungoverned | unknown | **A C03 rule is a strong default that applies unless specific context makes an adaptati… |
 | — | framework/policies/framework-policy.md | §2.3 | — | ungoverned | unknown | Adapting a C03 rule needs no exception PR. However: |
-| POL-022 | framework/policies/framework-policy.md | §2.3 | C02 | advisory | unknown | The decision to deviate MAY be deliberate — never casual or convenience-driven. |
-| POL-023 | framework/policies/framework-policy.md | §2.3 | C02 | advisory | unknown | The reasoning MAY be recorded at the time the deviation occurs, in the project's knowle… |
-| POL-024 | framework/policies/framework-policy.md | §2.3 | C02 | advisory | unknown | The rule's intent MAY be honoured even where its specific implementation is adapted. |
+| POL-022 | framework/policies/framework-policy.md | §2.3 | C02 | cued | unknown | The decision to deviate MAY be deliberate — never casual or convenience-driven. |
+| POL-023 | framework/policies/framework-policy.md | §2.3 | C02 | cued | unknown | The reasoning MAY be recorded at the time the deviation occurs, in the project's knowle… |
+| POL-024 | framework/policies/framework-policy.md | §2.3 | C02 | cued | unknown | The rule's intent MAY be honoured even where its specific implementation is adapted. |
 | POL-025 | framework/policies/framework-policy.md | §2.3 | — | ungoverned | agent | "Apply intelligently" is not licence to ignore. An agent that ignores a C03 rule withou… |
 | — | framework/policies/framework-policy.md | §2.3 | — | ungoverned | unknown | --- |
 | — | framework/policies/framework-policy.md | §3.1 | — | ungoverned | gov | The framework defines exactly **one** role, because exactly one is needed for it to ope… |
@@ -67,138 +42,61 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | POL-033 | framework/policies/framework-policy.md | §3.1 | C01 | advisory | unknown | Every role MUST have a current, named holder at all times. |
 | POL-034 | framework/policies/framework-policy.md | §3.1 | — | ungoverned | person | A role that falls vacant escalates to the Policy Owner until a new holder is named. |
 | POL-026 | framework/policies/framework-policy.md | §3.2 | — | ungoverned | gov | Who owns which domain, whether the organization distinguishes owners from managers, who… |
-| POL-040a | framework/policies/framework-policy.md | §3.3 | C01 | advisory | unknown | A named approver is worth nothing if anybody can merge. Enforcement belongs at the vers… |
-| — | framework/policies/framework-policy.md | §3.3 | — | ungoverned | unknown | A pull request required before merging. |
-| — | framework/policies/framework-policy.md | §3.3 | — | ungoverned | unknown | At least one approving review required. |
-| — | framework/policies/framework-policy.md | §3.3 | — | ungoverned | unknown | Bypassing disallowed — including for administrators and the repository owner. |
-| — | framework/policies/framework-policy.md | §3.3 | — | ungoverned | gov | A required status check verifying that an approving reviewer is on the organization's l… |
-| — | framework/policies/framework-policy.md | §3.3 | — | ungoverned | person | **The fourth exists because an approving review does not prove the approver was authori… |
-| — | framework/policies/framework-policy.md | §3.4 | — | ungoverned | unknown | **This is not hypothetical, and an earlier version of this section was wrong about it.*… |
-| POL-040b | framework/policies/framework-policy.md | §3.4 | — | ungoverned | gov | None of the four can be configured there. **On such a repository there is no platform-e… |
+| — | framework/policies/framework-policy.md | §3.3 | — | ungoverned | gov | **A named approver is worth nothing if anybody can merge**, so enforcement belongs at t… |
+| — | framework/policies/framework-policy.md | §3.3 | — | ungoverned | person | The fourth control exists because **an approving review does not prove the approver was… |
+| — | framework/policies/framework-policy.md | §3.4 | — | ungoverned | gov | On some plans none of it can be installed. On a **private repository on the GitHub Free… |
 | POL-040d | framework/policies/framework-policy.md | §3.4 | C01 | advisory | unknown | An organization whose governance repository is in that position MUST do one of three th… |
-| POL-040e | framework/policies/framework-policy.md | §3.4 | — | ungoverned | gov | **gov reports which case you are in; it does not assume.** `gov doctor` reads the platf… |
-| POL-083 | framework/policies/framework-policy.md | §3.4 | C01 | cued | unknown | `CODEOWNERS` remains required as the **routing** mechanism — it is what assigns the rig… |
+| POL-083 | framework/policies/framework-policy.md | §3.4 | C01 | advisory | unknown | `CODEOWNERS` remains required as the **routing** mechanism — it is what assigns the rig… |
 | — | framework/policies/framework-policy.md | §3.4 | — | ungoverned | unknown | --- |
-| — | framework/policies/framework-policy.md | §4 | — | ungoverned | unknown | The rules in this section are about the *unit of work*, not about any product. They hol… |
+| — | framework/policies/framework-policy.md | §4 | — | ungoverned | gov | The identifiers, the lifecycle states and how each is derived are [specified](../docs/s… |
 | POL-041 | framework/policies/framework-policy.md | §4.1 | C01 | advisory | unknown | All work MUST be performed inside a uniquely identifiable unit of work called a **proje… |
-| POL-042 | framework/policies/framework-policy.md | §4.2 | C01 | advisory | unknown | A project's identifier MUST be derived from the record the project management system al… |
-| POL-044 | framework/policies/framework-policy.md | §4.3 | C01 | advisory | unknown | A project's state MUST be derived from the project management system at the time it is … |
-| POL-044a | framework/policies/framework-policy.md | §4.3 | — | ungoverned | unknown | **Rationale — why derived, not cached.** A cache of the PMS's facts can disagree with t… |
-| POL-045 | framework/policies/framework-policy.md | §4.4 | — | ungoverned | unknown | Ownership of a project is recorded by the assignees of its anchor record. |
-| POL-046 | framework/policies/framework-policy.md | §4.4 | — | ungoverned | unknown | Whoever initialized the project is an audit record, not an authorization gate. |
-| POL-047 | framework/policies/framework-policy.md | §4.4 | C01 | advisory | unknown | Authorization to work a project MUST derive from write access to that project's record … |
-| — | framework/policies/framework-policy.md | §4.5 | — | ungoverned | unknown | A project is in exactly one of these states, each derived (§4.3) rather than stored: |
-| POL-048 | framework/policies/framework-policy.md | §4.5 | — | ungoverned | unknown | **proposed** — the record exists in the PMS; the workspace has not been created. |
-| POL-049 | framework/policies/framework-policy.md | §4.5 | — | ungoverned | unknown | **active** — the workspace exists, the record is open, work is in progress. |
-| POL-050 | framework/policies/framework-policy.md | §4.5 | C03 | advisory | unknown | **paused** — work is temporarily halted; ownership unchanged. Any authorized worker CAN… |
-| POL-051 | framework/policies/framework-policy.md | §4.5 | — | ungoverned | unknown | **completed** — work is done, knowledge is recorded, project branches are merged. |
-| POL-052 | framework/policies/framework-policy.md | §4.5 | — | ungoverned | unknown | **cancelled** — abandoned; branches archived; no knowledge close is performed. |
-| POL-053 | framework/policies/framework-policy.md | §4.6 | C02 | advisory | unknown | A project that is active or paused MAY be reassigned only by an approved exception. |
-| POL-054 | framework/policies/framework-policy.md | §4.6 | C02 | advisory | unknown | An approved reassignment MAY record its reason, date and approving authority in the exc… |
-| POL-055 | framework/policies/framework-policy.md | §4.6 | C02 | advisory | unknown | After a reassignment, the new assignee MAY run `gov resume` before beginning work. |
-| — | framework/policies/framework-policy.md | §4.6 | — | ungoverned | unknown | --- |
-| POL-056a | framework/policies/framework-policy.md | §5 | — | ungoverned | gov | **Binding: GitHub.** The framework is bound to GitHub as its version control system, an… |
-| POL-056 | framework/policies/framework-policy.md | §5.1 | — | ungoverned | person | `<ORG_GOV_REPO>` is the organization-wide governance repository. It is not a code repos… |
-| POL-057 | framework/policies/framework-policy.md | §5.1 | C01 | advisory | unknown | `<ORG_GOV_REPO>` is an implicit participant in every project. It MUST NOT be listed amo… |
-| POL-058 | framework/policies/framework-policy.md | §5.2 | C01 | advisory | agent | An agent MUST NOT create files or folders outside this structure in `<ORG_GOV_REPO>`. |
-| POL-067 | framework/policies/framework-policy.md | §5.3 | C01 | advisory | unknown | Project work in `<ORG_GOV_REPO>` MUST branch from `<DEFAULT_BRANCH>` and merge back to it. |
-| POL-068 | framework/policies/framework-policy.md | §5.3 | C03 | advisory | unknown | The default base branch for a code repository is `<DEFAULT_CODE_BRANCH>`. A project CAN… |
-| POL-069 | framework/policies/framework-policy.md | §5.3 | C01 | advisory | unknown | A project branch MUST be named `BRNCH-<board#>-<slug>` in every repository. |
-| POL-070 | framework/policies/framework-policy.md | §5.3 | C01 | advisory | unknown | Parallel work MUST use task sub-branches named `BRNCH-<board#>-<slug>.ISSUE-<n>`. |
-| POL-071 | framework/policies/framework-policy.md | §5.3 | C01 | advisory | unknown | The knowledge close process MUST use a branch named `BRNCH-<board#>-<slug>-knowledge`. |
-| POL-072 | framework/policies/framework-policy.md | §5.3 | C02 | advisory | unknown | On completion or cancellation, project branches MAY be tagged for archival (`archive/BR… |
-| POL-073 | framework/policies/framework-policy.md | §5.3 | C01 | cued | unknown | A sub-branch MUST merge back to its parent project branch only, and SHALL NOT be merged… |
-| POL-074 | framework/policies/framework-policy.md | §5.4 | C01 | advisory | unknown | Each sub-branch MUST have exactly one responsible agent or developer. Multiple assignee… |
-| POL-075 | framework/policies/framework-policy.md | §5.4 | C01 | advisory | unknown | Each task corresponds to one record in the PMS plus its sub-branch; task state lives in… |
-| POL-040c | framework/policies/framework-policy.md | §5.5 | C01 | advisory | unknown | Every change — to code, to knowledge, to policy — MUST land by pull request, approved a… |
-| — | framework/policies/framework-policy.md | §5.5 | — | ungoverned | unknown | The outcomes of a knowledge pull request, and their meanings, are in §8.5. |
-| — | framework/policies/framework-policy.md | §5.5 | — | ungoverned | unknown | --- |
-| — | framework/policies/framework-policy.md | §6 | — | ungoverned | unknown | Unlike §5, this section is written as a **capability contract** first and a binding sec… |
-| — | framework/policies/framework-policy.md | §6.1 | C01 | advisory | unknown | A conforming system MUST provide: |
-| POL-047a | framework/policies/framework-policy.md | §6.1 | C01 | advisory | unknown | **Write access to the board is the authorization of record.** There is no separate auth… |
-| POL-042a | framework/policies/framework-policy.md | §6.2 | — | ungoverned | unknown | A project's identifier is `PRJ-<board#>-<slug>`, where `<board#>` is the GitHub Project… |
-| POL-043 | framework/policies/framework-policy.md | §6.2 | C01 | advisory | unknown | The identifier MUST be issued by `gov seed` from the linked board, and MUST NOT be assi… |
-| POL-044b | framework/policies/framework-policy.md | §6.2 | — | ungoverned | unknown | GitHub is the single authoritative source for project identifiers and status: the activ… |
-| POL-059 | framework/policies/framework-policy.md | §6.2 | — | ungoverned | unknown | The linked board together with the project's anchor issue constitute the authoritative … |
-| POL-060 | framework/policies/framework-policy.md | §6.3 | C01 | advisory | unknown | For every active project, these MUST be resolvable without reading any state file: |
-| — | framework/policies/framework-policy.md | §6.3 | — | ungoverned | unknown | **id / slug** — from the board's number and name |
-| — | framework/policies/framework-policy.md | §6.3 | — | ungoverned | unknown | **description and goals** — from the board and its anchor or scope issues |
-| — | framework/policies/framework-policy.md | §6.3 | — | ungoverned | unknown | **linked repositories and their base branches** — the repositories the board's issues t… |
-| — | framework/policies/framework-policy.md | §6.3 | — | ungoverned | unknown | **ownership** — the anchor issue's assignees |
-| — | framework/policies/framework-policy.md | §6.3 | — | ungoverned | unknown | **authorization** — write access to the board |
-| — | framework/policies/framework-policy.md | §6.3 | — | ungoverned | unknown | **status** — the board being open or closed |
-| — | framework/policies/framework-policy.md | §6.3 | — | ungoverned | unknown | **knowledge-close status** — the state of the knowledge-close pull request |
-| POL-061 | framework/policies/framework-policy.md | §6.3 | C01 | advisory | unknown | A project whose derived state is inconsistent with this policy — a missing anchor issue… |
-| — | framework/policies/framework-policy.md | §6.4 | — | ungoverned | unknown | C01 requirements: |
-| POL-062 | framework/policies/framework-policy.md | §6.4 | C01 | advisory | unknown | The board MUST have a name. |
-| POL-063 | framework/policies/framework-policy.md | §6.4 | C01 | advisory | unknown | The board MUST have at least one linked issue or pull request. |
-| — | framework/policies/framework-policy.md | §6.4 | — | ungoverned | unknown | C02 requirements: |
-| POL-064 | framework/policies/framework-policy.md | §6.4 | C02 | advisory | unknown | Each linked issue or pull request MAY belong to an identifiable repository — excepted o… |
-| POL-065 | framework/policies/framework-policy.md | §6.4 | C02 | advisory | unknown | The board MAY have a description. |
-| POL-066 | framework/policies/framework-policy.md | §6.4 | C02 | advisory | unknown | At least one linked issue MAY mark the project's scope or goals. |
+| — | framework/policies/framework-policy.md | §4.3 | — | ungoverned | unknown | **Why this is a rule and not merely an architecture.** A cache of the board's facts can… |
+| POL-044 | framework/policies/framework-policy.md | §4.3 | C01 | cued | unknown | A project's state MUST be derived from the project management system at the time it is … |
+| — | framework/policies/framework-policy.md | §4.3 | — | ungoverned | unknown | --- |
+| — | framework/policies/framework-policy.md | §5 | — | ungoverned | gov | The framework is bound to GitHub, and no alternative is contemplated. The governance re… |
+| POL-040c | framework/policies/framework-policy.md | §5.5 | C01 | cued | unknown | Every change — to code, to knowledge, to policy — MUST land by pull request, approved a… |
+| — | framework/policies/framework-policy.md | §5.6 | — | ungoverned | gov | This is the one thing about §5 an agent has to carry, and it is deliberately not a rest… |
+| POL-443 | framework/policies/framework-policy.md | §5.6 | C01 | cued | agent | An agent MUST use only the project identifier and the branches that `gov` issued, and M… |
+| — | framework/policies/framework-policy.md | §5.6 | — | ungoverned | unknown | --- |
+| — | framework/policies/framework-policy.md | §6 | — | ungoverned | gov | The capability contract, the binding to GitHub Projects, which facts must be resolvable… |
+| — | framework/policies/framework-policy.md | §6.5 | — | ungoverned | gov | gov checks board access when it launches a session; this clause exists because the agen… |
 | POL-114 | framework/policies/framework-policy.md | §6.5 | C01 | cued | agent | An agent MUST confirm, before any work, that it has write access to this project's boar… |
 | — | framework/policies/framework-policy.md | §6.5 | — | ungoverned | unknown | --- |
-| POL-125 | framework/policies/framework-policy.md | §7.1 | C01 | implemented | gov | Each developer or agent MUST have an `AGENT_WORK_ROOT` directory — set in the environme… |
-| POL-126 | framework/policies/framework-policy.md | §7.1 | C01 | advisory | unknown | Per project, the governance clone and the code repositories MUST be placed under `$AGEN… |
+| — | framework/policies/framework-policy.md | §7 | — | ungoverned | gov | Where gov places a project's clones is [specified](../docs/specs/gov-behaviour.md#5-wha… |
+| — | framework/policies/framework-policy.md | §7.1 | — | ungoverned | unknown | `$AGENT_WORK_ROOT` holds every project's clones, every developer's preferences and the … |
 | POL-128 | framework/policies/framework-policy.md | §7.1 | C01 | advisory | unknown | `$AGENT_WORK_ROOT` and its contents MUST NOT be committed to any repository. |
 | — | framework/policies/framework-policy.md | §7.2 | C02 | advisory | agent | An agent MAY write to: |
 | — | framework/policies/framework-policy.md | §7.2 | — | ungoverned | unknown | `projects/PRJ-<board#>-<slug>/` in the governance repository — the project's own metada… |
 | — | framework/policies/framework-policy.md | §7.2 | — | ungoverned | unknown | the cloned code repositories, on the project branch. |
-| POL-172 | framework/policies/framework-policy.md | §7.2 | C01 | advisory | agent | An agent MUST NOT write, during an active project, to `knowledge/`, `policies/`, `frame… |
+| POL-172 | framework/policies/framework-policy.md | §7.2 | C01 | cued | agent | An agent MUST NOT write, during an active project, to `knowledge/`, `policies/`, `frame… |
 | POL-173 | framework/policies/framework-policy.md | §7.2 | C01 | cued | unknown | Code MUST NOT be placed in the governance repository, and governance MUST NOT be placed… |
-| POL-076 | framework/policies/framework-policy.md | §7.3 | C01 | advisory | unknown | Knowledge is organized in four layers, and a conflict between layers MUST be resolved i… |
+| — | framework/policies/framework-policy.md | §7.3 | — | ungoverned | unknown | **No machine can see a read**, which is why this section is entirely cued and not check… |
+| POL-076 | framework/policies/framework-policy.md | §7.3 | C01 | cued | unknown | Knowledge is organized in four layers, and a conflict between layers MUST be resolved i… |
 | POL-077 | framework/policies/framework-policy.md | §7.3 | — | ungoverned | unknown | **Org-wide knowledge** — `<ORG_GOV_REPO>/knowledge/` and `policies/` — highest authority. |
 | POL-078 | framework/policies/framework-policy.md | §7.3 | — | ungoverned | unknown | **Project knowledge** — `projects/PRJ-<board#>-<slug>/knowledge/`. |
 | POL-079 | framework/policies/framework-policy.md | §7.3 | — | ungoverned | unknown | **Repo-local knowledge** — `<repo>/knowledge/`. |
-| POL-080 | framework/policies/framework-policy.md | §7.3 | C01 | advisory | agent | **Developer preferences** — `$AGENT_WORK_ROOT/<org>/projects/preferences/<gh-login>/` —… |
-| POL-081 | framework/policies/framework-policy.md | §7.3 | C01 | advisory | unknown | Preferences SHALL NOT override repo-local knowledge; repo-local knowledge SHALL NOT ove… |
-| POL-116 | framework/policies/framework-policy.md | §7.3 | C01 | cued | unknown | Layers MUST be loaded fresh each session and SHALL NOT be carried across a session boun… |
-| POL-129 | framework/policies/framework-policy.md | §7.4 | — | ungoverned | unknown | Preferences are **C03** instruments: they customize how an individual works within the … |
-| POL-130 | framework/policies/framework-policy.md | §7.4 | C03 | advisory | unknown | A preferences file CAN carry personal coding style, preferred tools and models, local p… |
+| POL-080 | framework/policies/framework-policy.md | §7.3 | C01 | cued | agent | **Developer preferences** — `$AGENT_WORK_ROOT/<org>/projects/preferences/<gh-login>/` —… |
+| POL-081 | framework/policies/framework-policy.md | §7.3 | C01 | cued | unknown | Preferences SHALL NOT override repo-local knowledge; repo-local knowledge SHALL NOT ove… |
+| POL-116 | framework/policies/framework-policy.md | §7.3 | C01 | advisory | unknown | Layers MUST be loaded fresh each session and SHALL NOT be carried across a session boun… |
+| — | framework/policies/framework-policy.md | §7.4 | — | ungoverned | gov | What a preferences file may carry, and the C03 bound it operates within, are [specified… |
 | POL-131 | framework/policies/framework-policy.md | §7.4 | C01 | advisory | unknown | A preferences file MUST NOT carry organizational policy, security mandates, compliance-… |
 | POL-131a | framework/policies/framework-policy.md | §7.4 | C01 | advisory | unknown | Credentials — including agent API keys — MUST be stored only in the credentials directo… |
-| POL-132 | framework/policies/framework-policy.md | §7.4 | C02 | advisory | unknown | A preferences file MAY open with a line declaring what it is — `# Developer Preferences… |
 | POL-133 | framework/policies/framework-policy.md | §7.4 | C01 | advisory | agent | An agent that finds a preferences file attempting to override policy, security mandates… |
 | — | framework/policies/framework-policy.md | §7.4 | — | ungoverned | unknown | --- |
 | POL-082 | framework/policies/framework-policy.md | §8.1 | — | ungoverned | gov | `knowledge/` **ships empty**. The framework creates no domains, because a domain exists… |
 | POL-083a | framework/policies/framework-policy.md | §8.1 | C01 | advisory | unknown | `CODEOWNERS` MUST map each folder of `knowledge/` and `policies/` to its owner, so that… |
-| POL-084 | framework/policies/framework-policy.md | §8.2 | C01 | advisory | unknown | A code repository participating in projects MUST contain a `knowledge/` folder holding … |
-| POL-085 | framework/policies/framework-policy.md | §8.2 | C02 | advisory | unknown | This structure is initialized by `gov onboard`. A repository that has not been onboarde… |
-| POL-086a | framework/policies/framework-policy.md | §8.3 | C01 | advisory | unknown | **(a)** Governance MUST be sourced from `<DEFAULT_BRANCH>` of `<ORG_GOV_REPO>`. Session… |
-| POL-086b | framework/policies/framework-policy.md | §8.3 | C01 | advisory | agent | **(b)** Project work is committed to the project branch and may touch any path, includi… |
+| — | framework/policies/framework-policy.md | §8.3 | — | ungoverned | agent | **This is the most load-bearing clause in the document.** Integrity during concurrent p… |
+| POL-086a | framework/policies/framework-policy.md | §8.3 | C01 | cued | unknown | **(a)** Governance MUST be sourced from `<DEFAULT_BRANCH>` of `<ORG_GOV_REPO>`. Session… |
+| POL-086b | framework/policies/framework-policy.md | §8.3 | C01 | cued | agent | **(b)** Project work is committed to the project branch and may touch any path, includi… |
 | POL-086c | framework/policies/framework-policy.md | §8.3 | — | ungoverned | person | **(c)** A proposal becomes organizational standard only when merged to `<DEFAULT_BRANCH… |
 | POL-086d | framework/policies/framework-policy.md | §8.3 | — | ungoverned | unknown | **(d)** POL-086 governs *proposing a change to* governance. It is distinct from, and co… |
-| — | framework/policies/framework-policy.md | §8.3 | — | ungoverned | agent | **Rationale.** Integrity during concurrent project work comes from (a): because authori… |
-| POL-088 | framework/policies/framework-policy.md | §8.3 | — | ungoverned | unknown | Project knowledge is intentionally free-form; no structural coupling to the org tree is… |
-| — | framework/policies/framework-policy.md | §8.4 | — | ungoverned | unknown | At project completion, project knowledge is proposed for inclusion in org-wide knowledge: |
-| POL-089 | framework/policies/framework-policy.md | §8.4 | C02 | advisory | person | The developer or agent MAY consolidate the project's learnings, decisions and artifacts… |
-| POL-090 | framework/policies/framework-policy.md | §8.4 | — | ungoverned | unknown | The knowledge-close step of `gov close` gates on that knowledge being complete, then pr… |
-| POL-091 | framework/policies/framework-policy.md | §8.4 | — | ungoverned | unknown | It creates `BRNCH-<board#>-<slug>-knowledge` from `<DEFAULT_BRANCH>`. |
-| POL-092 | framework/policies/framework-policy.md | §8.4 | — | ungoverned | unknown | It raises a pull request; `CODEOWNERS` routes it to the accountable owners. |
-| POL-093 | framework/policies/framework-policy.md | §8.4 | — | ungoverned | person | The Policy Owner and those owners merge, reject, request revision, or allow abandonment. |
-| POL-094 | framework/policies/framework-policy.md | §8.5 | — | ungoverned | unknown | **Merged** — accepted; the branch is tagged `archive/…` and deleted. |
-| POL-095 | framework/policies/framework-policy.md | §8.5 | — | ungoverned | person | **Rejected** — not accepted; the branch is deleted or retained at the owner's discretion. |
-| POL-096 | framework/policies/framework-policy.md | §8.5 | — | ungoverned | unknown | **Under revision** — changes requested; revised on the same branch. |
-| POL-097 | framework/policies/framework-policy.md | §8.5 | — | ungoverned | unknown | **Abandoned** — the author closes the pull request and deletes the branch. |
-| POL-112 | framework/policies/framework-policy.md | §8.5 | — | ungoverned | unknown | The knowledge-close pull request is the formal, auditable proposal record. A merged pro… |
-| POL-098 | framework/policies/framework-policy.md | §8.5 | — | ungoverned | unknown | The code state of a completed project is immutable regardless of the outcome: a complet… |
-| POL-099 | framework/policies/framework-policy.md | §8.5 | C01 | advisory | unknown | A defect found after close MUST be addressed by raising new issues and creating a new p… |
-| POL-402 | framework/policies/framework-policy.md | §8.6 | C01 | advisory | unknown | A fact MUST live in exactly one document. Restating a rule that already exists elsewher… |
+| POL-402 | framework/policies/framework-policy.md | §8.6 | C01 | cued | unknown | A fact MUST live in exactly one document. Restating a rule that already exists elsewher… |
 | — | framework/policies/framework-policy.md | §8.6 | — | ungoverned | agent | This applies to an agent's context as much as to the repository: an agent that reads tw… |
-| POL-105 | framework/policies/framework-policy.md | §8.7 | — | ungoverned | unknown | **`gov knowledge propose\|submit\|archive`** — proposes an ad-hoc change to org-wide know… |
-| POL-105a | framework/policies/framework-policy.md | §8.7 | — | ungoverned | agent | **`gov knowledge search\|show\|list`** — reads the knowledge already cloned on this machi… |
-| POL-106 | framework/policies/framework-policy.md | §8.7 | — | ungoverned | unknown | **`gov onboard`** — initializes `knowledge/` in a code repository, raising a pull request. |
 | — | framework/policies/framework-policy.md | §8.8 | C03 | advisory | unknown | An organization CAN publish its knowledge; if it does, every form is generated from the… |
 | — | framework/policies/framework-policy.md | §8.8 | — | ungoverned | unknown | --- |
-| POL-009b | framework/policies/framework-policy.md | §9.1 | — | ungoverned | agent | The cue blocks throughout this document, plus those in your `policies/`, are compiled b… |
-| — | framework/policies/framework-policy.md | §9.1 | — | ungoverned | gov | The framework's cues are emitted first, the organization's after them. Order does **not… |
-| — | framework/policies/framework-policy.md | §9.2 | — | ungoverned | gov | **gov guarantees that the governance requirements are in the agent's context at launch … |
-| POL-428 | framework/policies/framework-policy.md | §9.2 | — | ungoverned | gov | **The guarantee applies to sessions gov starts.** gov launches an agent with the projec… |
-| POL-429 | framework/policies/framework-policy.md | §9.2 | C01 | implemented | gov | **Verification is part of the guarantee, not a courtesy.** gov MUST refuse to launch an… |
-| POL-430 | framework/policies/framework-policy.md | §9.2 | C01 | advisory | agent | **One mechanism, for every approved agent.** No agent SHALL be governed by a means anot… |
-| POL-431 | framework/policies/framework-policy.md | §9.2 | — | ungoverned | gov | **A changed rule stops work until the session restarts.** Governance changes are picked… |
+| — | framework/policies/framework-policy.md | §9 | — | ungoverned | gov | How a rule reaches an agent, what gov guarantees about an agent's context and where tha… |
 | POL-432 | framework/policies/framework-policy.md | §9.3 | C01 | implemented | gov | An agent that spawns a subagent, a sub-session or a worker MUST give it this same proto… |
-| POL-113 | framework/policies/framework-policy.md | §9.4 | C01 | advisory | agent | Before performing any work, an agent MUST complete all of the following, in order: |
+| POL-113 | framework/policies/framework-policy.md | §9.4 | C01 | cued | agent | Before performing any work, an agent MUST complete all of the following, in order: |
 | — | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Read `org-config.yaml`, which every other step's values come from. |
 | — | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Verify authorization and task ownership — §6.5, POL-114. |
 | POL-115 | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Verify the project is active — the board open. Any other state means refuse and surface. |
@@ -206,15 +104,11 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | POL-117 | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Pull the latest project branch in every participating repository. |
 | — | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Post a context manifest naming what it loaded, and then wait. |
 | POL-118 | framework/policies/framework-policy.md | §9.4 | — | ungoverned | unknown | Only when all six are complete may work begin. |
-| POL-119 | framework/policies/framework-policy.md | §9.5 | C02 | advisory | agent | At the conclusion of every work session, an agent MAY complete the following. |
-| POL-120 | framework/policies/framework-policy.md | §9.5 | — | ungoverned | unknown | Commit its changes to the project branch. |
-| POL-121 | framework/policies/framework-policy.md | §9.5 | — | ungoverned | unknown | Update the project's knowledge with what was learned and decided. |
-| POL-122 | framework/policies/framework-policy.md | §9.5 | — | ungoverned | unknown | Update `compliance.md` if any compliance event occurred. |
-| POL-123 | framework/policies/framework-policy.md | §9.5 | — | ungoverned | unknown | Push. |
-| POL-414 | framework/policies/framework-policy.md | §9.5 | C02 | advisory | agent | Decisions MAY be recorded as they are made rather than at session end, and anything str… |
-| POL-414a | framework/policies/framework-policy.md | §9.5 | C01 | cued | agent | An image SHALL NOT be used for structure that could be text: a picture is unreadable to… |
+| — | framework/policies/framework-policy.md | §9.5 | — | ungoverned | unknown | What used to be here was a checklist for the END of a session — commit, update knowledg… |
+| POL-414 | framework/policies/framework-policy.md | §9.5 | C02 | cued | agent | Decisions MAY be recorded as they are made rather than at session end, and anything str… |
+| POL-414a | framework/policies/framework-policy.md | §9.5 | C01 | advisory | agent | An image SHALL NOT be used for structure that could be text: a picture is unreadable to… |
 | POL-124 | framework/policies/framework-policy.md | §9.6 | C01 | advisory | agent | On detecting a C01 violation at any point, an agent MUST immediately stop all work, com… |
-| POL-136 | framework/policies/framework-policy.md | §9.7 | C01 | advisory | agent | An agent MUST be one the organization has authorized, listed in `org-config.yaml` under… |
+| — | framework/policies/framework-policy.md | §9.7 | — | ungoverned | gov | gov enforces the authorized list: a session cannot be launched with an agent that is no… |
 | POL-134 | framework/policies/framework-policy.md | §9.7 | C02 | advisory | agent | An agent MAY declare the model and provider it runs with before beginning work. **(POL-… |
 | POL-137 | framework/policies/framework-policy.md | §9.7 | C01 | advisory | unknown | Confidential or restricted data MUST NOT be sent to any LLM provider, whether or not th… |
 | POL-423 | framework/policies/framework-policy.md | §9.8 | C01 | advisory | agent | An agent and every tool MUST log through the organization's designated shared logging u… |
@@ -223,7 +117,7 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | — | framework/policies/framework-policy.md | §9.8 | — | ungoverned | unknown | **any transport** — console, file, syslog, a hosted aggregator, a crash reporter, an AP… |
 | — | framework/policies/framework-policy.md | §9.8 | — | ungoverned | unknown | **structured fields too** — a redacted message with the credential in a structured fiel… |
 | POL-427 | framework/policies/framework-policy.md | §9.8 | — | ungoverned | unknown | POL-143 forbids restricted data in any repository; POL-137 forbids sending it to a prov… |
-| POL-143 | framework/policies/framework-policy.md | §9.9 | C01 | advisory | agent | A credential, key, token or password MUST NOT be written into a file, a log, a commit, … |
+| POL-143 | framework/policies/framework-policy.md | §9.9 | C01 | cued | agent | A credential, key, token or password MUST NOT be written into a file, a log, a commit, … |
 | POL-240 | framework/policies/framework-policy.md | §9.9 | — | ungoverned | unknown | What else your organization classifies, and how each tier is handled, is yours: `polici… |
 | — | framework/policies/framework-policy.md | §9.9 | — | ungoverned | unknown | --- |
 | — | framework/policies/framework-policy.md | §10.1 | — | ungoverned | gov | The framework's policies — this document and everything under `framework/` — are replac… |
@@ -231,26 +125,9 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | POL-145a | framework/policies/framework-policy.md | §10.1 | C02 | advisory | unknown | **An organization's policy MAY be stricter than this one.** A stricter rule needs no ex… |
 | POL-145c | framework/policies/framework-policy.md | §10.1 | C01 | advisory | unknown | **An organization's policy SHALL NOT be laxer than this one.** A clause that would rela… |
 | POL-145b | framework/policies/framework-policy.md | §10.1 | — | ungoverned | unknown | **Relaxing a C02 or C03 rule is only by an approved exception** in `policies/exceptions… |
-| — | framework/policies/framework-policy.md | §10.1 | — | ungoverned | unknown | Layering is enforced at three points, because none of them alone is sufficient: |
-| — | framework/policies/framework-policy.md | §10.2 | — | ungoverned | gov | Every clause in this document compiles to at most one cue and at most one check. Three … |
-| — | framework/policies/framework-policy.md | §10.2 | — | ungoverned | agent | **checked** — a deterministic test fails the pull request. This is the only category th… |
-| — | framework/policies/framework-policy.md | §10.2 | — | ungoverned | agent | **cued** — the rule is in every agent's context on every turn. This raises the odds sub… |
-| — | framework/policies/framework-policy.md | §10.2 | — | ungoverned | unknown | **advisory** — neither is possible. The clause says so, rather than reading like a mand… |
-| POL-146a | framework/policies/framework-policy.md | §10.2 | C03 | advisory | unknown | An organization CAN see the breakdown for its own policies with `gov doctor`, which rep… |
-| POL-146 | framework/policies/framework-policy.md | §10.3 | — | ungoverned | gov | **Layer 1 — the gate.** Branch protection, a required pull request, a required approvin… |
-| POL-147 | framework/policies/framework-policy.md | §10.3 | C01 | advisory | unknown | **Layer 2 — command gates.** The lifecycle commands validate their preconditions and ha… |
-| POL-148 | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | **Layer 3 — CI checks.** `gov validate` runs on every pull request to `<DEFAULT_BRANCH>… |
-| — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | front matter on every knowledge document (`domain`, `layer`, `owner`, `compliance`, `st… |
-| — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | link integrity across `knowledge/` and `policies/` |
-| — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | secrets and restricted-data scanning — POL-143 |
-| — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | **rules integrity** — the rendered agent files match the cue blocks in the policies, an… |
-| — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | gov | version sync between the CLI and the framework content |
-| — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | project workspace structure of every active project |
-| — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | `CODEOWNERS` coverage of `knowledge/` and `policies/` |
-| — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | unknown | identifier and branch-name consistency with the PMS |
-| POL-149 | framework/policies/framework-policy.md | §10.3 | C01 | advisory | unknown | A structural validation failure is a C01 event, and such a pull request MUST NOT be mer… |
-| — | framework/policies/framework-policy.md | §10.3 | — | ungoverned | agent | **Layer 4 — the agent's own self-check** at session start (§9.4). It is listed last del… |
+| — | framework/policies/framework-policy.md | §10.1 | — | ungoverned | gov | The three points at which layering is enforced — the compiler, the checks, and one resi… |
 | POL-150 | framework/policies/framework-policy.md | §10.4 | C02 | advisory | unknown | Every project MAY maintain `compliance.md` in its knowledge folder, recording C01 viola… |
+| — | framework/policies/framework-policy.md | §10.4 | — | ungoverned | gov | gov derives half of that file from its own run log — every refusal it issued, every gat… |
 | POL-151 | framework/policies/framework-policy.md | §10.4 | — | ungoverned | person | Org-wide compliance summaries live where the organization's own policy says, and are re… |
 | — | framework/policies/framework-policy.md | §10.4 | — | ungoverned | unknown | --- |
 | — | framework/policies/framework-policy.md | §11.1 | C01 | advisory | unknown | When a C02 rule cannot be applied, the exception MUST be requested and approved **befor… |
@@ -262,7 +139,7 @@ One row per clause. `POL` is the citation; `class` is what actually holds it up:
 | POL-156a | framework/policies/framework-policy.md | §11.2 | — | ungoverned | agent | An approved exception is compiled into that project's resident block, scoped to what it… |
 | POL-158a | framework/policies/framework-policy.md | §11.4 | C02 | implemented | gov | An exception MAY be raised against a C02 or C03 clause of an organization's own policy.… |
 | — | framework/policies/framework-policy.md | §11.4 | — | ungoverned | unknown | --- |
-| — | framework/policies/framework-policy.md | §12 | C01 | advisory | agent | `gov` is the only sanctioned way to perform a lifecycle action. An agent MUST NOT perfo… |
+| — | framework/policies/framework-policy.md | §12 | — | ungoverned | unknown | A retired clause keeps its number for ever, so a citation written last year still resol… |
 | — | framework/policies/framework-policy.md | §12 | — | ungoverned | agent | Generated by `gov rules build` into `agent/harness/rule-map.md`: every clause of every … |
 | — | policies/approved-technologies.md | §5 | C02 | advisory | unknown | An entry retired here MAY still be present in a repository that has not migrated; recor… |
 | POL-250 | policies/authorized-representatives.md | §1.1 | C01 | advisory | person | An exception request MUST be approved by the representative named for its domain in §1.… |

@@ -326,12 +326,79 @@ export function parseCueBlocks(doc: string, text: string): { blocks: CueBlock[];
 }
 
 /**
+ * The POL numbers a clause DECLARES for itself — the `**(POL-044)**` or `**(C01, POL-086a)**` at its end.
+ *
+ * Only the LAST bold parenthetical counts, because a clause's body cites other clauses freely: POL-113's
+ * numbered steps mention POL-114 and POL-116, and treating those as declarations would make one clause claim
+ * three numbers.
+ */
+export const declaredPols = (text: string): readonly string[] => {
+  const groups = [...text.matchAll(/\*\*\(([^)]*)\)\*\*/g)];
+  const last = groups[groups.length - 1];
+  return last ? [...last[1]!.matchAll(/POL-\d+[a-z]?/g)].map((m) => m[0]) : [];
+};
+
+/**
+ * Every POL number a cue's header covers — a list, a range, or one number.
+ *
+ * `POL-172, POL-173` is two; `POL-011…POL-015` is FIVE, not two, because a range in a citation means what it says
+ * and the cue's own text covers all of it: "on a C01 violation: stop, commit nothing, tell the human" is POL-012,
+ * POL-013 and POL-014 together.
+ *
+ * WHY THIS EXISTS: the classifier credited only the clause a cue anchored to, so §2.1's four other clauses read
+ * as `advisory` — "nothing enforces this" — while a C01 cue covering them sat in every agent's context on every
+ * turn. In the reduced framework policy that mislabelled 15 of 38 supposedly-advisory clauses. A report that
+ * understates enforcement is the same defect as a policy that overstates it, pointing the other way, and this one
+ * pointed at the number the whole exercise exists to drive down.
+ *
+ * Letter suffixes (`POL-086a`) are listed, never ranged over: there is no defensible successor to `POL-086a`, and
+ * guessing one would silently pull an unrelated clause into a cue's coverage.
+ */
+export const citedPols = (cite: string): readonly string[] => {
+  const out = new Set<string>();
+  // A range: `POL-011…POL-015`, or the same written with `...`, `-` or an en dash between two bare numbers.
+  const range = /POL-(\d+)\s*(?:…|\.\.\.|–|—|-)\s*POL-(\d+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = range.exec(cite)) !== null) {
+    const from = Number(m[1]);
+    const to = Number(m[2]);
+    // A descending or absurd range is an authoring error, not something to expand into thousands of numbers.
+    if (to >= from && to - from <= 50) {
+      for (let n = from; n <= to; n++) out.add(`POL-${String(n).padStart(3, "0")}`);
+    }
+  }
+  for (const one of cite.matchAll(/POL-\d+[a-z]?/g)) out.add(one[0]);
+  return [...out];
+};
+
+/**
+ * The clause a cue governs: THE ONE IT CITES, falling back to the one directly above it.
+ *
+ * The convention used to be "directly above", full stop, and that was wrong in a way nothing noticed for a
+ * fortnight. An author writes the rule, then a paragraph explaining why it is a rule, then the cue — because
+ * that is the order a reader wants. The cue then anchored to the RATIONALE. In the framework's own policy four
+ * of eleven cues were in that state: POL-143's cue was hashed against "what else your organization classifies,
+ * and how each tier is handled, is yours", so editing POL-143 itself would not have flagged its cue stale, while
+ * reflowing the paragraph below it would have. A staleness guard watching the wrong text is worse than none,
+ * because it reports green.
+ *
+ * A cue names its clause in its header — `POL-143` — so that is what it should be measured against. The
+ * positional rule is kept only as the fallback for a cue whose citation matches no clause in the document, which
+ * is itself worth reporting and is reported elsewhere.
+ */
+export function cueOwner(clauses: readonly Clause[], block: CueBlock): Clause | null {
+  const cited = clauses.find((c) => c.doc === block.doc && declaredPols(c.text).includes(block.pol));
+  if (cited) return cited;
+  return clauses
+    .filter((c) => c.doc === block.doc && c.line < block.line)
+    .reduce<Clause | null>((best, c) => (!best || c.line > best.line ? c : best), null);
+}
+
+/**
  * Cues whose clause has moved out from under them (§2.5).
  *
- * THE OWNING CLAUSE IS THE ONE DIRECTLY ABOVE — that is the whole convention, and it is why `parseClauses` skips
- * generated blocks rather than treating them as prose. A mismatch is reported as an ERROR: the alternative, a
- * warning, is a line in a build log that scrolls past while every agent in the organization keeps obeying text
- * that no longer matches ratified policy.
+ * A mismatch is reported as an ERROR: the alternative, a warning, is a line in a build log that scrolls past
+ * while every agent in the organization keeps obeying text that no longer matches ratified policy.
  *
  * A cue with NO `clause-sha` is reported too, with a different message. It is not "probably fine": it is a cue
  * whose drift cannot be detected at all, which is the state §2.5 exists to end.
@@ -339,9 +406,7 @@ export function parseCueBlocks(doc: string, text: string): { blocks: CueBlock[];
 export function staleCues(clauses: readonly Clause[], blocks: readonly CueBlock[]): Diagnostic[] {
   const out: Diagnostic[] = [];
   for (const block of blocks) {
-    const owner = clauses
-      .filter((c) => c.doc === block.doc && c.line < block.line)
-      .reduce<Clause | null>((best, c) => (!best || c.line > best.line ? c : best), null);
+    const owner = cueOwner(clauses, block);
     if (!owner) {
       out.push({
         kind: "orphan-cue", doc: block.doc, section: block.section, line: block.line,

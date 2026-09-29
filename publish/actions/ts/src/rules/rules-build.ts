@@ -19,7 +19,7 @@
  * inherits an approval it never had; allocate a new one and every existing citation points at a retired rule.
  */
 import { parseClauses, formatReport, type Clause, type Diagnostic, type Level } from "./notation.js";
-import { parseCueBlocks, staleCues, clauseSha, type CueBlock } from "./cue-block.js";
+import { parseCueBlocks, staleCues, clauseSha, cueOwner, citedPols, type CueBlock } from "./cue-block.js";
 import { standaloneChecks } from "./diff-check.js";
 import { allocate, confirmMatch, formatAsk, type PolLock } from "./pol-lock.js";
 
@@ -171,18 +171,31 @@ export function build(docs: readonly PolicyDoc[], locks: { framework: PolLock; o
   const map: MappedClause[] = [];
 
   for (const clause of clauses) {
-    // THE NEAREST PRECEDING CLAUSE OWNS THE CUE. Matching on the section instead attributed one cue to every
-    // clause under that heading: §2.1 has four clauses and one cue, and the first version reported four as
-    // "cued" — inflating the one column a reader would use to decide whether a policy has teeth.
-    const cue = [...cues]
-      .filter((b) => b.doc === clause.doc && b.line > clause.line)
-      .sort((a, b) => a.line - b.line)
-      .find((b) => !clauses.some((other) => other.doc === clause.doc && other.line > clause.line && other.line < b.line));
+    // A CUE BELONGS TO THE CLAUSE IT CITES — ONE rule, `cueOwner`, shared with the stamper and the staleness
+    // check. This was a third copy of "the nearest preceding clause owns the cue", and all three agreed on an
+    // answer that was wrong whenever an author put a rationale between the rule and its cue. Inverted here
+    // because this loop asks the question the other way round: not "which clause does this cue govern?" but
+    // "does any cue govern this clause?".
+    //
+    // (The earlier note on this line is still worth keeping: matching on the SECTION instead attributed one cue
+    // to every clause under that heading, so §2.1's four clauses and one cue reported four as "cued" — inflating
+    // the one column a reader uses to decide whether a policy has teeth.)
+    const cue = cues.find((b) => b.doc === clause.doc && cueOwner(clauses, b) === clause);
     // The marker in the clause's own text, when it has one. It is passed to `allocate` as the DECLARED number:
     // a clause that already says POL-009c keeps POL-009c, rather than being handed a fresh one.
     const marker = /\*\*\(?(?:C0\d,\s*)?POL-(\d{3}[a-z]?)/.exec(clause.text);
     const pol = marker ? `POL-${marker[1]}` : null;
-    const klass = classify(clause, cue, checkedSections.has(`${clause.doc}\u0000${clause.section}`));
+
+    // ANCHORING AND COVERAGE ARE DIFFERENT QUESTIONS, and conflating them UNDERCOUNTED enforcement.
+    //
+    // A cue ANCHORS to one clause — that is the text its hash is compared against. But its header cites a RANGE
+    // when one cue carries several rules, and §2.1's does: `POL-011…POL-015`. Those four other clauses came out
+    // `advisory` — the class whose definition is "nothing enforces this" — while a C01 cue covering them sat in
+    // every agent's context on every turn. Fifteen of the reduced policy's thirty-eight "advisory" clauses were
+    // that, which matters because `advisory` is the number a policy gets judged by.
+    const covering = cue
+      ?? (pol === null ? undefined : cues.find((b) => b.doc === clause.doc && citedPols(b.cite).includes(pol)));
+    const klass = classify(clause, covering, checkedSections.has(`${clause.doc}\u0000${clause.section}`));
 
     // A CLAUSE THAT CARRIES A NUMBER IS LOCKED, GOVERNED OR NOT. A POL number is a citation target: if a
     // document cites one, the lock must know where it lives. Locking only levelled clauses meant §1.7's

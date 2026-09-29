@@ -12,7 +12,10 @@
 import { expect } from "chai";
 import { stampCues, ownerOf } from "../../src/rules/cue-stamp.js";
 import { parseClauses } from "../../src/rules/notation.js";
-import { parseCueBlocks, clauseSha, staleCues } from "../../src/rules/cue-block.js";
+import { parseCueBlocks, clauseSha, staleCues, declaredPols } from "../../src/rules/cue-block.js";
+import { readFileSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DOC = `### 4.2 Approved technologies
 
@@ -74,19 +77,67 @@ describe("cue stamping — filling in the hash the guard compares", () => {
     expect(r.text).to.match(/gov:cue generated clause-sha=[0-9a-f]{7}/);
   });
 
-  it("the owner of a cue is the nearest clause ABOVE it, not the section's first", () => {
-    const two = `### 2.1 Levels
+  /**
+   * OWNERSHIP IS BY CITATION, NOT BY POSITION (changed 2026-09-29, and the change found ten live defects).
+   *
+   * It used to be "the nearest clause above", which reads sensible and is wrong for the way people write policy:
+   * the rule, then a paragraph explaining why it is a rule, then the cue. The cue anchored to the RATIONALE. In
+   * the framework's own policy TEN OF TEN cues were in that state — POL-143's was hashed against "what else your
+   * organization classifies … is yours" — so editing POL-143 itself left its cue reporting fresh, while reflowing
+   * the paragraph below it reported stale. A guard watching the wrong text is worse than no guard, because it
+   * reports green.
+   */
+  it("anchors a cue to the clause it CITES, even with a rationale paragraph in between", () => {
+    const withRationale = `### 2.1 Levels
 
-An agent MUST stop. **(POL-011)**
+A rule SHALL NOT be waived. **(POL-015)**
+
+**Why this is absolute.** A level that can be waived is a level nobody plans around, which is the failure this
+clause exists to prevent.
+
+<!-- gov:cue generated clause-sha=TBD -->
+> **Always in the agent's context** · POL-015 · C01
+> C01 MEANS STOP.
+`;
+    const { clauses } = parseClauses("d.md", withRationale);
+    const { blocks } = parseCueBlocks("d.md", withRationale);
+    expect(
+      ownerOf(clauses, blocks[0]!)!.text,
+      "the clause it names, not the paragraph that happens to sit above it",
+    ).to.contain("SHALL NOT be waived");
+  });
+
+  it("falls back to the nearest clause above when the citation matches no clause", () => {
+    // A cue citing a number no clause declares is itself a defect, reported elsewhere. Anchoring it to something
+    // is still better than anchoring it to nothing: a hash that exists can at least be compared.
+    const uncited = `### 2.1 Levels
 
 A rule SHALL NOT be waived. **(POL-015)**
 
 <!-- gov:cue generated clause-sha=TBD -->
-> **Always in the agent's context** · POL-011…POL-015 · C01
+> **Always in the agent's context** · POL-999 · C01
 > C01 MEANS STOP.
 `;
-    const { clauses } = parseClauses("d.md", two);
-    const { blocks } = parseCueBlocks("d.md", two);
+    const { clauses } = parseClauses("d.md", uncited);
+    const { blocks } = parseCueBlocks("d.md", uncited);
+    expect(ownerOf(clauses, blocks[0]!)!.text).to.contain("SHALL NOT be waived");
+  });
+
+  it("reads only the clause's OWN declaration, not the numbers its body cites", () => {
+    // POL-113's steps name POL-114 and POL-116. Treating those as declarations would let one clause answer for
+    // three cues, and the first cue to ask would win.
+    const citesOthers = `### 9.4 Session start
+
+An agent MUST complete these in order — authorization (POL-114), then the layers (POL-116). **(POL-113)**
+
+A rule SHALL NOT be waived. **(POL-116)**
+
+<!-- gov:cue generated clause-sha=TBD -->
+> **Always in the agent's context** · POL-116 · C01
+> LOAD THEM FRESH.
+`;
+    const { clauses } = parseClauses("d.md", citesOthers);
+    const { blocks } = parseCueBlocks("d.md", citesOthers);
     expect(ownerOf(clauses, blocks[0]!)!.text).to.contain("SHALL NOT be waived");
   });
 
@@ -97,4 +148,53 @@ A rule SHALL NOT be waived. **(POL-015)**
 `;
     expect(stampCues("d.md", orphan).stamped).to.deep.equal([]);
   });
+});
+
+/**
+ * THE SHIPPED POLICIES' OWN CUES. Two properties, and they catch different things — which I know because I ran
+ * each against the pre-2026-09-29 policy to see which one fired.
+ *
+ * `no cue is stale` is the regression on the ownership defect: against the old document it reports ten stale
+ * cues, one per cue in the file, because every one of them was hashed against the explanatory paragraph between
+ * the rule and the cue rather than against the rule.
+ *
+ * `cites a number a clause declares` is NOT that regression, and it would be dishonest to name it as one: since
+ * ownership resolves by citation, the owner is correct by construction and the assertion passes on the broken
+ * document too. It earns its place for a different reason — it fails when a cue cites a POL number that no clause
+ * in the document declares, which is how a cue survives the deletion of its clause and goes on telling every
+ * agent about a rule that is no longer there.
+ */
+describe("the framework's shipped cues", () => {
+  const CONTENT = (() => {
+    let d = fileURLToPath(new URL(".", import.meta.url));
+    for (let i = 0; i < 8; i++) {
+      if (existsSync(join(d, "publish", "content", "MANIFEST.yaml"))) return join(d, "publish", "content");
+      d = dirname(d);
+    }
+    throw new Error("could not locate publish/content");
+  })();
+
+  for (const rel of ["framework/policies/framework-policy.md", "policies/org-policy.md"]) {
+    it(`${rel}: every cue cites a POL number some clause in the document declares`, () => {
+      const text = readFileSync(join(CONTENT, rel), "utf8");
+      const { clauses } = parseClauses(rel, text);
+      const { blocks } = parseCueBlocks(rel, text);
+      expect(blocks.length, "a policy with no cues would pass this vacuously").to.be.greaterThan(0);
+      const dangling = blocks
+        .filter((b) => !declaredPols(ownerOf(clauses, b)?.text ?? "").includes(b.pol))
+        .map((b) => `${b.pol} @line ${b.line}`);
+      expect(
+        dangling,
+        "a cue citing a number no clause declares is resident text in every agent's context for a rule that is "
+          + "not in the document — which is what deleting a clause and leaving its cue behind produces.",
+      ).to.deep.equal([]);
+    });
+
+    it(`${rel}: no cue is stale — the regression on the anchoring defect`, () => {
+      const text = readFileSync(join(CONTENT, rel), "utf8");
+      const { clauses } = parseClauses(rel, text);
+      const { blocks } = parseCueBlocks(rel, text);
+      expect(staleCues(clauses, blocks).map((d) => d.message)).to.deep.equal([]);
+    });
+  }
 });

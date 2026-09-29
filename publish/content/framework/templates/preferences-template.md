@@ -7,7 +7,7 @@
 #
 # Created automatically by `gov setup` from this template. Edit freely.
 #
-# See: <ORG_GOV_REPO>/framework/policies/framework-policy.md (POL-131 to POL-136)
+# See: <ORG_GOV_REPO>/framework/policies/framework-policy.md §7.4 (POL-131, POL-131a, POL-133)
 
 ---
 

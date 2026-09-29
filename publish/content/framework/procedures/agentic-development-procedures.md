@@ -392,7 +392,10 @@ When the developer with write access (the anchor-issue assignee) becomes unavail
 ### Steps
 1. Policy Owner identifies need for policy update (from compliance review, domain owner input, etc.)
 2. Run `gov knowledge` to create a `knowledge-<slug>` branch
-3. Edit `framework/policies/framework-policy.md` and/or `framework/policies/roles.md`
+3. Edit the file that owns the rule: `policies/<the relevant policy>.md` for your organization's own rules, or
+   `policies/authorized-representatives.md` for who holds which role. **Not** `framework/policies/` — `gov
+   upgrade` replaces that wholesale, so an edit there is lost without a merge conflict to warn you. A change the
+   framework itself needs is reported upstream (framework-policy §11.4).
 4. Raise PR — CODEOWNERS routes to Policy Owner
 5. Policy Owner reviews and merges
 6. On merge: new policy version is the commit SHA; CI/CD regenerates PDFs, site, vectors

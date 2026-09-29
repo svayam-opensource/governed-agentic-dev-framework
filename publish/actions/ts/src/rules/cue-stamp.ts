@@ -19,7 +19,7 @@
  * detected, so filling it in for an unreviewed edit would defeat the whole mechanism. See `stampMode`.
  */
 import { parseClauses, type Clause } from "./notation.js";
-import { parseCueBlocks, clauseSha, type CueBlock } from "./cue-block.js";
+import { parseCueBlocks, clauseSha, cueOwner, type CueBlock } from "./cue-block.js";
 
 /**
  * When may a hash be written?
@@ -41,9 +41,15 @@ export interface StampResult {
   readonly kept: readonly string[];
 }
 
-/** The clause a cue block belongs to: the nearest one ABOVE it. Same ownership rule `staleCues` uses. */
+/**
+ * The clause a cue block belongs to. ONE ownership rule, shared with `staleCues` — see `cueOwner`.
+ *
+ * This used to be its own copy of "the nearest clause above", and the two copies were the reason a cue could be
+ * stamped against one clause and checked against another. Delegating is the fix: a stamp that disagrees with the
+ * check it exists to satisfy is a guard that reports green on drift.
+ */
 export function ownerOf(clauses: readonly Clause[], block: CueBlock): Clause | undefined {
-  return [...clauses].filter((c) => c.line < block.line).pop();
+  return cueOwner(clauses, block) ?? undefined;
 }
 
 /**

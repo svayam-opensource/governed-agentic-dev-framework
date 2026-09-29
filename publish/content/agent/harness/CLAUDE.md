@@ -32,29 +32,25 @@ clause is the authority — read it with `gov knowledge show <the document named
 > C03 MEANS ADAPT AND SAY SO. Deviating is allowed; deviating silently is not. Record what you did and why,
 > in the project's knowledge, as you do it.
 
-> **POL-040a · C01**
-> YOU DO NOT APPROVE YOUR OWN WORK, and you never merge without one. Every change lands by pull request,
-> approved by someone on the organization's authorized list. Use `gov merge` — never merge by hand, never
-> push to the default branch, never force-push a shared branch.
-
 > **POL-044 · C01**
 > PROJECT AND TASK STATE LIVE IN THE BOARD, never in a file. Open means active; closed means done. There is
 > no `registry.yaml` and no `project.yaml` — do not create one, and never hand-edit task state. Create with
 > `gov task`, land with `gov merge`.
 
-> **POL-069, POL-070 · C01**
-> BRANCHES: project work on `BRNCH-<board#>-<slug>`; one task on `BRNCH-<board#>-<slug>.ISSUE-<n>`; a
-> sub-branch merges only to its parent. Nothing else.
+> **POL-040c · C01**
+> YOU DO NOT APPROVE YOUR OWN WORK, and you never merge without a review. Every change lands by pull request,
+> approved by someone on the organization's authorized list. Use `gov merge` — never merge by hand, never push
+> to the default branch, never force-push a shared branch.
 
-> **POL-042a · C02**
-> PROJECT ID: `PRJ-<board#>-<slug>`, the board's number with no leading zero. The branch is
-> `BRNCH-<board#>-<slug>`. Never invent an id — `gov seed` issues it.
+> **POL-443 · C01**
+> NEVER INVENT AN ID OR A BRANCH. `gov seed` issues the project id, `gov task` issues the task branch, `gov
+> merge` lands it. Do not create, rename or merge a branch by hand — if you think you need one, say so instead.
 
 > **POL-114 · C01**
 > YOU ARE AUTHORIZED ONLY IF you have write access to this project's board — and on a task sub-branch, only
 > if it is assigned to you. Cannot verify it? Stop, tell the human, commit nothing.
 
-> **POL-120 · C01**
+> **POL-172, POL-173 · C01**
 > WRITE ONLY: `projects/<PROJECT_ID>/` in the governance repo, and code in the cloned repos on the project
 > branch. Code never goes in the governance repo. Anything you write under `knowledge/`, `policies/` or
 > `framework/` is a PROPOSAL, not a rule — see the next cue.

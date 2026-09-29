@@ -23,6 +23,30 @@ version: <FRAMEWORK_VERSION>
 > Your policies MAY add rules and MAY make these rules stricter. They MUST NOT relax, disable or replace
 > them (§10.1).
 
+> ## What this document is not
+>
+> **It no longer describes how gov works.** That moved to
+> [`framework/docs/specs/gov-behaviour.md`](../docs/specs/gov-behaviour.md) on 2026-09-29, and roughly half of
+> this document went with it. A sentence describing what a program does is not a rule anybody can comply with,
+> and while the two kinds of content shared a document a reader could not tell which sentences they were able to
+> break. One of them — a C01 clause describing a branch that no code ever created — was simply false for as long
+> as anybody had been reading it.
+>
+> **What is left is what governs**, and every clause that describes gov's own behaviour is gone. Where the
+> reasoning was worth keeping it is now prose, without a number, because a POL number is a promise of enforcement
+> and not a way to emphasise a paragraph.
+>
+> **The honest count, which `gov doctor` will print for you: 51 rules — 23 cued, 2 implemented, 26 advisory.**
+> That last number is the one worth arguing about. "Advisory" means nothing in gov holds the clause up: it is a
+> written obligation on a person or an organization, and reading it is all that makes it bind. Some of the 26
+> belong in a check that has not been written yet (§8.1's `CODEOWNERS` coverage and §11.2's exception fields are
+> both things gov already verifies without the clause saying so); some can never be checked by anything, like
+> §9.8's "log through the designated utility". The goal is that the number keeps falling and that nobody has to
+> guess which clauses make it up — `agent/harness/rule-map.md` names every one.
+>
+> Section numbers are unchanged, so a review or a citation of §7.3 still finds §7.3. Appendix B says where each
+> departed section went.
+
 ---
 
 ## Table of Contents
@@ -30,9 +54,9 @@ version: <FRAMEWORK_VERSION>
 1. [Purpose, Scope & Notation](#1-purpose-scope--notation)
 2. [Compliance Levels](#2-compliance-levels)
 3. [The Policy Owner, and how approval is enforced](#3-the-policy-owner-and-how-approval-is-enforced)
-4. [Units of Work — stated platform-neutrally](#4-units-of-work--stated-platform-neutrally)
+4. [Units of Work](#4-units-of-work)
 5. [VCS — GitHub](#5-vcs--github)
-6. [PMS — the capability contract, bound to GitHub Projects](#6-pms--the-capability-contract-bound-to-github-projects)
+6. [PMS — GitHub Projects](#6-pms--github-projects)
 7. [Workspace & Boundaries](#7-workspace--boundaries)
 8. [Knowledge Management](#8-knowledge-management)
 9. [Agent Operating Standards](#9-agent-operating-standards)
@@ -46,37 +70,27 @@ version: <FRAMEWORK_VERSION>
 
 ### 1.1 What this document is
 
-This document is the **framework's** governance instrument for agentic development. It states the rules the
-framework itself requires in order to operate as designed: how work is identified, where it happens, what an
-agent may read and write, how change is approved, and what may never happen at all. **(POL-001)**
+This is the **framework's** governance instrument for agentic development: the rules the framework requires in
+order to operate as designed. It is not your organization's policy and does not try to be. It ships with no
+organization-specific values — every organizational fact it needs is a token resolved from `org-config.yaml` at
+runtime — and it says nothing about what data your organization holds, which technologies it approves, who owns
+which domain, or how often it reviews compliance. Those belong in `policies/`.
 
-It is not your organization's policy, and it does not try to be. It ships with no organization-specific
-values: every organizational fact it needs is a token resolved from `org-config.yaml` at runtime. Your
-organization's decisions — what data it holds, which technologies it approves, who owns which domain, how
-often it reviews compliance — belong in `policies/`, and the framework deliberately says nothing about them.
-
-The goal every rule here serves is that agentic work be **traceable, safe, compliant and recoverable** at
-every stage. A rule that stops serving that goal is a defect in this document. **(POL-002)**
+Every rule here serves one goal: that agentic work be **traceable, safe, compliant and recoverable** at every
+stage. A rule that stops serving that goal is a defect in this document, and should be reported as one.
 
 ### 1.2 Scope
 
-This policy applies to all agentic development work performed in an organization that has adopted the
-framework, whatever the autonomy level of the agent performing it. **(POL-003)**
+This policy applies to all agentic development work in an organization that has adopted the framework, whatever
+the autonomy level of the agent performing it — an assistant with write access to a repository, a fully
+autonomous agent executing multi-step plans, or a person using an AI tool. Agents may be custom-built,
+vendor-provided or hybrid, and may call any LLM provider the organization has authorized; every one of them
+conforms to the same contract, and no agent is exempt.
 
-It covers:
+One clause, because delegating the work does not delegate the accountability:
 
-- **AI coding agents** — any assistant operating with write access to an organizational repository. **(POL-004)**
-- **Fully autonomous agents** — agents executing multi-step plans, calling APIs, writing code and committing
-  without continuous supervision. **(POL-005)**
 - **Humans using AI tools** — when an AI tool assists a task, the human MUST ensure the output complies with
   this policy. **(POL-006)**
-
-Agents MAY be custom-built, vendor-provided or hybrid, and MAY call any LLM provider the organization has
-authorized; every one of them conforms to the same workspace contract. **(POL-007)**
-
-No agent is exempt. Agents are expected to internalize and self-enforce these rules — and, because
-self-enforcement is persuasion rather than proof, the framework also enforces them at the version-control
-gate (§10). **(POL-008)**
 
 ### 1.3 Notation — the modal verb declares the compliance level
 
@@ -89,92 +103,32 @@ needs an approved exception"*, **not** as *"optional"*.
 | `MAY` | **C02** | always applies; a deviation requires an approved exception first |
 | `CAN` | **C03** | a strong default; adapt deliberately and record why |
 
-Rules of the notation, applied by `gov rules build` to this document and to yours:
-
-1. **ALL CAPS only.** A lowercase "must" in ordinary prose creates no rule, so explanatory text is free to
-   read naturally.
-2. **One clause, one level.** Two modals at the same level are one rule — "the id MUST be issued by seed and
-   MUST NOT be assigned by hand" is a single clause, and a prohibition qualifying its own obligation belongs
-   with it. Two *levels* in one clause is rejected: one POL number and one cue cannot say which half they mean.
-3. **Negation keeps the level.** `MUST NOT` and `SHALL NOT` are C01.
-4. **`MAY NOT` is rejected.** In English it usually means prohibition rather than C02 permission, and the
-   compiler MUST NOT guess which was meant. Write `MUST NOT`, or "is not required to".
-5. **`SHOULD` is rejected.** It is not a level here. Use `MAY` (C02) or `CAN` (C03).
-6. **A clause with no modal is not a rule.** It generates nothing and is reported as *ungoverned*, so that a
-   policy which forgot to say how strict it is can be seen to have forgotten.
-
-### 1.4 How a rule reaches an agent
-
-Every clause in this document and in your `policies/` compiles into two artifacts:
-
-- a **cue** — a short trigger inlined into every agent's own instructions file, present on **every turn** of
-  every session;
-- a **check** — a deterministic test run by `gov validate` and in CI, which does not depend on an agent
-  reading anything.
-
-The cue names the moment a rule applies, the stop condition, and the command that fetches the detail. It is
-never the rule's full text: only the resident block survives a long session, and a resident block that grows
-into a policy document dilutes the rules that matter. The detail is retrieved with
-`gov knowledge search|show`. **(POL-009)**
-
-Cue blocks in this file are **generated and approved**, and marked as such. Editing a clause without
-re-approving its cue is a policy error that `gov rules build --check` fails on, because a cue that no longer
-matches its clause is false authority in the one place an agent is guaranteed to read.
-
-### 1.5 Fixed behaviour, agentic behaviour, and what the platform enforces
-
-Three things enforce this policy, and they are not interchangeable. An organization reading a clause is entitled
-to know which one holds it up.
-
-**FIXED behaviour — a program does it.** gov, `gov-cicd` and `gov-infra` carry it out the same way every time.
-Its parameters come from one of three places: nothing (it is hardcoded, like the branch naming grammar), your
-settings (`org-config.yaml`), or **your policy** — a clause's `gov:check` supplies the predicate and its
-arguments. That last one is why policy and configuration feel similar here: a check is policy-authored and
-program-executed.
-
-**AGENTIC behaviour — an agent does it, because a rule reached its context.** Two deliveries, and the words
-matter: **resident** (compiled into the agent's own instructions file, present on every turn) and **retrieved**
-(fetched when a resident cue tells the agent to go and read the detail). A resident cue raises the odds
-substantially and guarantees nothing, because context is persuasion.
-
-**PLATFORM-ENFORCED — the version control system does it, and gov cannot.** Branch protection, a required
-review, "no bypass". gov can configure and verify these; it cannot perform them. §3.4 states what follows when
-the platform will not provide them.
-
-The framework MUST state which of the three applies **per clause**, rather than leaving a reader to assume they
-are all equally binding; §10.2 defines the classes and `gov doctor` counts them. **(POL-009c)**
+A lowercase "must" in ordinary prose creates no rule, which is why the explanatory text throughout this document
+reads naturally and governs nothing. The rules the compiler applies when it reads your clauses — and what it does
+with a clause that declares no level at all — are in
+[the specification](../docs/specs/gov-behaviour.md#6-rules-from-your-prose-to-what-an-agent-carries).
 
 ### 1.6 Which clauses apply to you
 
-**A clause about an agent applies when your organization uses agents.** Roughly two fifths of the rules here are
-instructions to an agent: what it does at session start, what it may write, when it must stop.
-
-The framework MUST NOT hold an organization that runs no agent to a clause addressed to one. An organization
-that adopts the framework for the STRUCTURE — projects, tasks, branches, knowledge, a reviewed way to change
-policy — is fully compliant while every one of those clauses sits idle. **(POL-009d)**
-
-That is not a loophole; it is the design: fixed behaviour is complete on its own, and agentic behaviour is
-additive.
-
-gov MUST be fully usable with no agent approved (`authorized_agents: none`) and nothing about agents in the way.
-A framework that could not be adopted for structure alone would be asking an organization to take on AI
-governance in order to get a branch naming convention. **(POL-009e)**
-
-`gov doctor` says which mode a workspace is in, so nobody has to infer it from a policy.
+**A clause addressed to an agent applies when your organization uses agents.** An organization that adopts the
+framework for the STRUCTURE — projects, tasks, branches, knowledge, a reviewed way to change policy — is fully
+compliant while every one of those clauses sits idle. That is not a loophole; it is the design. gov is fully
+usable with no agent approved (`authorized_agents: none`), because a framework that could not be adopted for
+structure alone would be asking an organization to take on AI governance in order to get a branch naming
+convention. `gov doctor` says which mode a workspace is in, so nobody has to infer it from a policy.
 
 ### 1.7 Effective date
 
-This policy takes effect for an organization when that organization adopts the framework, at the version
-recorded in `<FRAMEWORK_VERSION>`. There is no organization-specific effective date here; if your
-organization needs one, it belongs in `policies/`. **(POL-009a)**
+This policy takes effect for an organization when that organization adopts the framework, at the version recorded
+in `<FRAMEWORK_VERSION>`. There is no organization-specific effective date here; if your organization needs one,
+it belongs in `policies/`.
 
 ---
 
 ## 2. Compliance Levels
 
-Every rule carries exactly one of three levels, declared by its modal verb (§1.3). The levels define how
-strictly the rule binds, when a deviation is permissible, and what an agent does when the rule is
-implicated. Understanding and applying them correctly is itself non-negotiable. **(POL-010)**
+Every rule carries exactly one of three levels, declared by its modal verb (§1.3). The levels define how strictly
+a rule binds, when a deviation is permissible, and what an agent does when the rule is implicated.
 
 ### 2.1 C01 — Non-Negotiable
 
@@ -190,7 +144,7 @@ It MUST surface the violation to the responsible human and wait for explicit hum
 A C01 rule SHALL NOT be waived, overridden or deferred by any role, including the Policy Owner. C01 is the
 absolute floor of organizational safety and integrity. **(POL-015)**
 
-<!-- gov:cue generated clause-sha=9f85097 -->
+<!-- gov:cue generated clause-sha=fd6205b -->
 > **Always in the agent's context** · POL-011…POL-015 · C01
 > C01 MEANS STOP. No exception exists, and nobody can grant one. On a C01 violation: stop, commit nothing,
 > tell the human. A hard stop surfaced to a person is the correct outcome, not a failure.
@@ -210,7 +164,7 @@ An agent facing a C02 situation that needs an exception MUST block the dependent
 pull request exists. It SHALL NOT assume approval is forthcoming, and SHALL NOT proceed on verbal or
 informal confirmation. **(POL-020)**
 
-<!-- gov:cue generated clause-sha=104c604 -->
+<!-- gov:cue generated clause-sha=cc91774 -->
 > **Always in the agent's context** · POL-016…POL-020 · C02
 > C02 MEANS NOT WITHOUT AN APPROVED EXCEPTION — a merged PR under `policies/exceptions/`, existing before
 > you act. "It was agreed verbally" is not an exception. Blocked and waiting is the correct state.
@@ -229,7 +183,7 @@ Adapting a C03 rule needs no exception PR. However:
 "Apply intelligently" is not licence to ignore. An agent that ignores a C03 rule without recording a
 reasoned adaptation violates this policy. **(POL-025)**
 
-<!-- gov:cue generated clause-sha=b0a1d93 -->
+<!-- gov:cue generated clause-sha=14006b3 -->
 > **Always in the agent's context** · POL-021…POL-025 · C03
 > C03 MEANS ADAPT AND SAY SO. Deviating is allowed; deviating silently is not. Record what you did and why,
 > in the project's knowledge, as you do it.
@@ -262,61 +216,39 @@ requires only that the answers be **written down and named**, so that an approva
 list rather than against an assumption. **(POL-026, POL-027, POL-029 … POL-032, POL-035 … POL-040 — see
 `policies/authorized-representatives.md`)**
 
-### 3.3 How approval is actually enforced
+### 3.3 How approval is enforced
 
-A named approver is worth nothing if anybody can merge. Enforcement belongs at the version-control gate, and
-**where the platform can enforce these, they MUST be configured** on the default branch of the governance
-repository and of every participating code repository. **(POL-040a)**
+**A named approver is worth nothing if anybody can merge**, so enforcement belongs at the version-control gate:
+a pull request required, an approving review required, no bypass for administrators, and a check verifying the
+approver is on your organization's list. The framework ships the workflow, `gov repo protect` installs the
+controls, and `gov doctor` reports which are actually in place. What each one is and how it is configured is
+[specified](../docs/specs/gov-behaviour.md#7-what-holds-when-gov-is-not-in-the-loop), not policed here.
 
-1. A pull request required before merging.
-2. At least one approving review required.
-3. Bypassing disallowed — including for administrators and the repository owner.
-4. A required status check verifying that an approving reviewer is on the organization's list of authorized
-   representatives (§3.2). The framework ships the workflow; the list is the organization's.
-
-**The fourth exists because an approving review does not prove the approver was authorized.** Any collaborator
-with write access can leave one. A status check can read the organization's own list and fail when the approver
-is not on it — which is what turns "a review happened" into "the right person approved".
+The fourth control exists because **an approving review does not prove the approver was authorized** — any
+collaborator with write access can leave one. A status check reads the organization's own list and fails when the
+approver is not on it, which is what turns "a review happened" into "the right person approved".
 
 ### 3.4 When the platform cannot enforce any of it
 
-**This is not hypothetical, and an earlier version of this section was wrong about it.** It claimed the status
-check closed the gap "on every plan". Required status checks are *themselves* a branch-protection feature, so
-they do not. Verified 2026-09-27 against this framework's own governance repository — a private repository on a
-Free plan — where both `branches/<branch>/protection` and `rules/branches/<branch>` answer:
-
-```
-403  Upgrade to GitHub Pro or make this repository public to enable this feature.
-```
-
-None of the four can be configured there. **On such a repository there is no platform-enforced control at all**,
-and the honest consequence has to be stated rather than glossed: gov's own gates and review discipline are the
-only enforcement, and **neither binds an agent a developer starts outside gov**. **(POL-040b)**
+On some plans none of it can be installed. On a **private repository on the GitHub Free plan** both branch
+protection and rulesets answer `403 Upgrade to GitHub Pro or make this repository public` — verified 2026-09-27
+against this framework's own governance repository. There, gov's gates and review discipline are the only
+enforcement, and **neither binds an agent or a `git push` a developer runs outside gov**.
 
 An organization whose governance repository is in that position MUST do one of three things, and record which:
 make the repository public, move to a plan that provides branch protection, or approve an exception that names
 the gap. **(POL-040d)**
 
-**gov reports which case you are in; it does not assume.** `gov doctor` reads the platform's answer and prints
-one row per requirement — and distinguishes *unprotected* (GitHub says the branch has no rule) from *unknowable*
-(gov could not read it, and says why). Those are different facts and only one of them is a finding. **(POL-040e)**
-
 `CODEOWNERS` remains required as the **routing** mechanism — it is what assigns the right reviewers to a
 pull request — and MUST NOT be relied on as the enforcement mechanism where the plan does not enforce
 it. **(POL-083)**
 
-<!-- gov:cue generated clause-sha=ec4f6fd -->
-> **Always in the agent's context** · POL-040a · C01
-> YOU DO NOT APPROVE YOUR OWN WORK, and you never merge without one. Every change lands by pull request,
-> approved by someone on the organization's authorized list. Use `gov merge` — never merge by hand, never
-> push to the default branch, never force-push a shared branch.
-
 ---
 
-## 4. Units of Work — stated platform-neutrally
+## 4. Units of Work
 
-The rules in this section are about the *unit of work*, not about any product. They hold whichever version
-control system and project management system an organization is bound to (§5, §6).
+The identifiers, the lifecycle states and how each is derived are
+[specified](../docs/specs/gov-behaviour.md#2-units-of-work). What remains here is what an actor has to observe.
 
 ### 4.1 Everything happens inside a project
 
@@ -324,207 +256,70 @@ All work MUST be performed inside a uniquely identifiable unit of work called a 
 committed, no knowledge updated and no organizational resource modified outside an active
 project. **(POL-041)**
 
-### 4.2 A project's identity is issued, never invented
-
-A project's identifier MUST be derived from the record the project management system already holds for it,
-and MUST NOT be assigned by hand. The binding — what that record is and how the identifier is formed — is
-in §6.2. **(POL-042)**
-
 ### 4.3 State is derived, never cached
+
+**Why this is a rule and not merely an architecture.** A cache of the board's facts can disagree with the board,
+and when it does, the C01 gates written against the cache fire against correctly-formed projects. That is not
+hypothetical: while `registry.yaml` / `project.yaml` and the derived model were both live, lifecycle commands
+hard-stopped with `project.yaml not found` on projects that were valid under the model the tooling had already
+adopted. The clause below is addressed to whoever next finds a state file convenient.
 
 A project's state MUST be derived from the project management system at the time it is needed, and SHALL NOT
 be stored in a file in any repository. **(POL-044)**
 
-**Rationale — why derived, not cached.** A cache of the PMS's facts can disagree with the PMS, and when it
-does, the C01 gates written against the cache fire against correctly-formed projects. That is not
-hypothetical: while `registry.yaml` / `project.yaml` and the derived model were both live, lifecycle
-commands hard-stopped with `project.yaml not found` on projects that were valid under the model the tooling
-had already adopted. Deriving removes the class of failure instead of re-synchronising the cache. Do not
-reintroduce a per-project state file, however convenient it looks. **(POL-044a)**
-
-<!-- gov:cue generated clause-sha=1d60dad -->
+<!-- gov:cue generated clause-sha=3a50ada -->
 > **Always in the agent's context** · POL-044 · C01
 > PROJECT AND TASK STATE LIVE IN THE BOARD, never in a file. Open means active; closed means done. There is
 > no `registry.yaml` and no `project.yaml` — do not create one, and never hand-edit task state. Create with
 > `gov task`, land with `gov merge`.
 
-### 4.4 Ownership and authorization
-
-Ownership of a project is recorded by the assignees of its anchor record. **(POL-045)**
-
-Whoever initialized the project is an audit record, not an authorization gate. **(POL-046)**
-
-Authorization to work a project MUST derive from write access to that project's record in the project
-management system, granted by an owner. There is no project-level lock: ownership of in-progress work is
-**per task**, each task having exactly one assignee, and the session-start check confirms the worker owns the
-task they are on. **(POL-047)**
-
-### 4.5 Lifecycle states
-
-A project is in exactly one of these states, each derived (§4.3) rather than stored:
-
-- **proposed** — the record exists in the PMS; the workspace has not been created. **(POL-048)**
-- **active** — the workspace exists, the record is open, work is in progress. **(POL-049)**
-- **paused** — work is temporarily halted; ownership unchanged. Any authorized worker CAN resume
-  it. **(POL-050)**
-- **completed** — work is done, knowledge is recorded, project branches are merged. **(POL-051)**
-- **cancelled** — abandoned; branches archived; no knowledge close is performed. **(POL-052)**
-
-### 4.6 Reassignment
-
-A project that is active or paused MAY be reassigned only by an approved exception. **(POL-053)**
-
-An approved reassignment MAY record its reason, date and approving authority in the exception PR; the change
-is then reflected in the PMS. There is no state file to edit. **(POL-054)**
-
-After a reassignment, the new assignee MAY run `gov resume` before beginning work. **(POL-055)**
-
 ---
 
 ## 5. VCS — GitHub
 
-**Binding: GitHub.** The framework is bound to GitHub as its version control system, and no alternative is
-contemplated. Unlike §6, this is not an abstraction with a current implementation; it is a fixed
-dependency. **(POL-056a)**
-
-### 5.1 The governance repository
-
-`<ORG_GOV_REPO>` is the organization-wide governance repository. It is not a code repository: it holds
-organizational knowledge and a workspace folder per project. **(POL-056)**
-
-`<ORG_GOV_REPO>` is an implicit participant in every project. It MUST NOT be listed among a project's linked
-code repositories. **(POL-057)**
-
-### 5.2 Structure of the governance repository
-
-```
-<ORG_GOV_REPO>/
-├── CODEOWNERS                  # routes knowledge/ and policies/ to their owners
-├── org-config.yaml             # this organization's identity and defaults
-├── agent/                      # the session protocol + the rendered agent harness
-├── framework/                  # THE FRAMEWORK'S — replaced on every upgrade
-├── policies/                   # YOUR organization's — seeded once, yours thereafter
-├── knowledge/                  # your organization's knowledge (§8)
-└── projects/
-    └── PRJ-<board#>-<slug>/
-        ├── knowledge/          # accumulated project knowledge
-        └── agent.md            # the project's agent entry point
-```
-
-An agent MUST NOT create files or folders outside this structure in `<ORG_GOV_REPO>`. **(POL-058)**
-
-### 5.3 Branching
-
-Project work in `<ORG_GOV_REPO>` MUST branch from `<DEFAULT_BRANCH>` and merge back to it. **(POL-067)**
-
-The default base branch for a code repository is `<DEFAULT_CODE_BRANCH>`. A project CAN override it at seed
-time — for example to target a hotfix branch. **(POL-068)**
-
-A project branch MUST be named `BRNCH-<board#>-<slug>` in every repository. **(POL-069)**
-
-Parallel work MUST use task sub-branches named `BRNCH-<board#>-<slug>.ISSUE-<n>`. **(POL-070)**
-
-The knowledge close process MUST use a branch named `BRNCH-<board#>-<slug>-knowledge`. **(POL-071)**
-
-On completion or cancellation, project branches MAY be tagged for archival
-(`archive/BRNCH-<board#>-<slug>`) and then deleted. **(POL-072)**
-
-A sub-branch MUST merge back to its parent project branch only, and SHALL NOT be merged directly to
-`<DEFAULT_BRANCH>` or to any base branch. **(POL-073)**
-
-<!-- gov:cue generated clause-sha=a8cda2f -->
-> **Always in the agent's context** · POL-069, POL-070 · C01
-> BRANCHES: project work on `BRNCH-<board#>-<slug>`; one task on `BRNCH-<board#>-<slug>.ISSUE-<n>`; a
-> sub-branch merges only to its parent. Nothing else.
-
-### 5.4 Multi-agent coordination
-
-Each sub-branch MUST have exactly one responsible agent or developer. Multiple assignees on one sub-branch
-are not permitted. **(POL-074)**
-
-Each task corresponds to one record in the PMS plus its sub-branch; task state lives in that record and
-SHALL NOT be duplicated in any file. **(POL-075)**
+The framework is bound to GitHub, and no alternative is contemplated. The governance repository's structure, the
+branch grammar and what each verb does to a branch are
+[specified](../docs/specs/gov-behaviour.md#3-branching).
 
 ### 5.5 How a change is approved and landed
 
 Every change — to code, to knowledge, to policy — MUST land by pull request, approved as §3.3
 requires. **(POL-040c)**
 
-The outcomes of a knowledge pull request, and their meanings, are in §8.5.
+<!-- gov:cue generated clause-sha=5c1a8a5 -->
+> **Always in the agent's context** · POL-040c · C01
+> YOU DO NOT APPROVE YOUR OWN WORK, and you never merge without a review. Every change lands by pull request,
+> approved by someone on the organization's authorized list. Use `gov merge` — never merge by hand, never push
+> to the default branch, never force-push a shared branch.
+
+### 5.6 Identifiers and branches are issued, not composed
+
+This is the one thing about §5 an agent has to carry, and it is deliberately not a restatement of the grammar.
+Knowing that a project branch is `BRNCH-<board#>-<slug>` is of no use to an agent that should not be creating one;
+knowing that composing it itself is the error, is. A branch an agent invented looks exactly like a branch gov
+issued, right up to the merge that goes somewhere nobody intended.
+
+An agent MUST use only the project identifier and the branches that `gov` issued, and MUST NOT compose an
+identifier, or create, rename or merge a branch, by hand. **(POL-443)**
+
+<!-- gov:cue generated clause-sha=0aa5d6d -->
+> **Always in the agent's context** · POL-443 · C01
+> NEVER INVENT AN ID OR A BRANCH. `gov seed` issues the project id, `gov task` issues the task branch, `gov
+> merge` lands it. Do not create, rename or merge a branch by hand — if you think you need one, say so instead.
 
 ---
 
-## 6. PMS — the capability contract, bound to GitHub Projects
+## 6. PMS — GitHub Projects
 
-Unlike §5, this section is written as a **capability contract** first and a binding second. An organization
-that one day runs on a different project management system changes the *binding*; the rules above it do not
-change. Today's binding is GitHub Projects.
-
-### 6.1 What the framework requires of any project management system
-
-A conforming system MUST provide:
-
-| Capability | Used for |
-|---|---|
-| a **work item** with an id, a status, an assignee and links to repositories | task identity, ownership, scope |
-| a **board** with an open/closed state and membership | project identity and lifecycle (§4.5) |
-| **write access as authorization** — a checkable permission on the board | the authorization of record (§4.4) |
-
-**Write access to the board is the authorization of record.** There is no separate authorization file, and
-one SHALL NOT be introduced. **(POL-047a)**
-
-### 6.2 Binding: GitHub Projects
-
-A project's identifier is `PRJ-<board#>-<slug>`, where `<board#>` is the GitHub Project board number — the
-integer in the board's URL, with no leading zero — and `<slug>` is a lowercase hyphenated identifier derived
-from the board's name at seed time. **(POL-042a)**
-
-The identifier MUST be issued by `gov seed` from the linked board, and MUST NOT be assigned by hand. The
-project branch mirrors it as `BRNCH-<board#>-<slug>`; task sub-branches append `.ISSUE-<n>`. Projects seeded
-under the earlier zero-padded scheme keep their original names. **(POL-043)**
-
-GitHub is the single authoritative source for project identifiers and status: the active project is derived
-from the current branch and its linked board, and status from whether that board is open or closed. A
-project does not exist until its board and anchor issue exist. **(POL-044b)**
-
-The linked board together with the project's anchor issue constitute the authoritative manifest for the
-project. Nothing else is. **(POL-059)**
-
-<!-- gov:cue generated clause-sha=0c9dbc3 -->
-> **Always in the agent's context** · POL-042a · C02
-> PROJECT ID: `PRJ-<board#>-<slug>`, the board's number with no leading zero. The branch is
-> `BRNCH-<board#>-<slug>`. Never invent an id — `gov seed` issues it.
-
-### 6.3 Facts that MUST be resolvable from the PMS
-
-For every active project, these MUST be resolvable without reading any state file: **(POL-060)**
-
-- **id / slug** — from the board's number and name
-- **description and goals** — from the board and its anchor or scope issues
-- **linked repositories and their base branches** — the repositories the board's issues touch
-- **ownership** — the anchor issue's assignees
-- **authorization** — write access to the board
-- **status** — the board being open or closed
-- **knowledge-close status** — the state of the knowledge-close pull request
-
-A project whose derived state is inconsistent with this policy — a missing anchor issue, a malformed branch
-name, an unresolvable repository — MUST fail validation, and that failure is a C01 event. **(POL-061)**
-
-### 6.4 Before a project can be seeded
-
-C01 requirements:
-
-- The board MUST have a name. **(POL-062)**
-- The board MUST have at least one linked issue or pull request. **(POL-063)**
-
-C02 requirements:
-
-- Each linked issue or pull request MAY belong to an identifiable repository — excepted only when a project
-  targets `<ORG_GOV_REPO>` exclusively. **(POL-064)**
-- The board MAY have a description. **(POL-065)**
-- At least one linked issue MAY mark the project's scope or goals. **(POL-066)**
+The capability contract, the binding to GitHub Projects, which facts must be resolvable from the board and what
+`gov seed` requires before it will run are
+[specified](../docs/specs/gov-behaviour.md#4-the-project-management-system).
 
 ### 6.5 Authorization, at session start
+
+gov checks board access when it launches a session; this clause exists because the agent has to check it too. gov
+cannot confirm ownership of the task an agent is *about to work on* — that is a fact about intent, not about
+permissions.
 
 An agent MUST confirm, before any work, that it has write access to this project's board — and, on a task
 sub-branch, that the sub-branch is assigned to it. An agent that cannot verify either MUST stop and surface
@@ -539,15 +334,13 @@ it to the human, and MUST NOT commit. **(POL-114)**
 
 ## 7. Workspace & Boundaries
 
-### 7.1 Where work happens
+Where gov places a project's clones is [specified](../docs/specs/gov-behaviour.md#5-what-gov-writes-and-where).
 
-Each developer or agent MUST have an `AGENT_WORK_ROOT` directory — set in the environment, or the framework
-default `~/.gov`. It is the local root for the management clone, per-project clones, and developer
-preferences. **(POL-125)**
+### 7.1 What must never be committed
 
-Per project, the governance clone and the code repositories MUST be placed under
-`$AGENT_WORK_ROOT/<org>/projects/PRJ-<board#>-<slug>/`, the governance clone beside the code repositories so
-that a single agent session can see both. **(POL-126)**
+`$AGENT_WORK_ROOT` holds every project's clones, every developer's preferences and the credentials directory.
+Committing it would put another person's preferences, and possibly their keys, into a repository — from a
+directory nobody thinks of as content.
 
 `$AGENT_WORK_ROOT` and its contents MUST NOT be committed to any repository. **(POL-128)**
 
@@ -564,13 +357,16 @@ An agent MUST NOT write, during an active project, to `knowledge/`, `policies/`,
 Code MUST NOT be placed in the governance repository, and governance MUST NOT be placed in a code
 repository. **(POL-173)**
 
-<!-- gov:cue generated clause-sha=8e705ea -->
-> **Always in the agent's context** · POL-120 · C01
+<!-- gov:cue generated clause-sha=cb67b4f -->
+> **Always in the agent's context** · POL-172, POL-173 · C01
 > WRITE ONLY: `projects/<PROJECT_ID>/` in the governance repo, and code in the cloned repos on the project
 > branch. Code never goes in the governance repo. Anything you write under `knowledge/`, `policies/` or
 > `framework/` is a PROPOSAL, not a rule — see the next cue.
 
 ### 7.3 What is read, and in what order
+
+**No machine can see a read**, which is why this section is entirely cued and not checked at all. A validator can
+prove a file was written; nothing proves a file was consulted.
 
 Knowledge is organized in four layers, and a conflict between layers MUST be resolved in favour of the
 higher layer. **(POL-076)**
@@ -587,7 +383,7 @@ knowledge. **(POL-081)**
 Layers MUST be loaded fresh each session and SHALL NOT be carried across a session boundary from a
 cache. **(POL-116)**
 
-<!-- gov:cue generated clause-sha=2c551d0 -->
+<!-- gov:cue generated clause-sha=645164b -->
 > **Always in the agent's context** · POL-076…POL-081 · C02
 > READ IN THIS ORDER, fresh every session: org knowledge and policies → this project's knowledge → each
 > repo's knowledge → your own preferences (yours only, never another person's). Higher layers win.
@@ -595,21 +391,15 @@ cache. **(POL-116)**
 
 ### 7.4 Developer and agent preferences
 
-Preferences are **C03** instruments: they customize how an individual works within the bounds of
-policy. **(POL-129)**
-
-A preferences file CAN carry personal coding style, preferred tools and models, local paths, personal
-shortcuts, and communication style. **(POL-130)**
+What a preferences file may carry, and the C03 bound it operates within, are
+[specified](../docs/specs/gov-behaviour.md#1-where-the-organizations-choices-live). What it may never carry is a
+rule:
 
 A preferences file MUST NOT carry organizational policy, security mandates, compliance-level definitions,
 assignment or locking rules, or knowledge-layer priority. **(POL-131)**
 
 Credentials — including agent API keys — MUST be stored only in the credentials directory under the person's
 own preferences directory, never in a repository and never in a shared file. **(POL-131a)**
-
-A preferences file MAY open with a line declaring what it is — `# Developer Preferences — C03 only. Org and
-repo knowledge always take precedence.` — so that a reader, human or agent, cannot mistake it for
-policy. **(POL-132)**
 
 An agent that finds a preferences file attempting to override policy, security mandates, compliance levels
 or layer priority MUST disregard the override and surface it to the human. **(POL-133)**
@@ -631,16 +421,13 @@ you to someone else's taxonomy. **(POL-082 — see `policies/knowledge-organizat
 `CODEOWNERS` MUST map each folder of `knowledge/` and `policies/` to its owner, so that a pull request is
 routed to the people accountable for what it touches (§3.3 for why routing is not enforcement). **(POL-083a)**
 
-### 8.2 Repo-local knowledge
-
-A code repository participating in projects MUST contain a `knowledge/` folder holding its entry point, its
-repo documentation (structure, environment, patterns), and a per-project folder recording that project's
-impact on it. **(POL-084)**
-
-This structure is initialized by `gov onboard`. A repository that has not been onboarded MAY be onboarded
-before it is added to any project. **(POL-085)**
-
 ### 8.3 Governance authority — and why your own edits are not authority
+
+**This is the most load-bearing clause in the document.** Integrity during concurrent project work comes from
+(a): because authority is always the default branch, concurrent project branches cannot affect one another or
+live governance until their proposals are ratified. That is protection by branch isolation plus a review gate —
+something the tooling enforces at merge — rather than a rule depending on an agent declining to write. The cue
+exists for the other half, which nothing can enforce: an agent that has just written a rule believing it.
 
 **(a)** Governance MUST be sourced from `<DEFAULT_BRANCH>` of `<ORG_GOV_REPO>`. Session-start context and all
 governing knowledge and policy are built, and rebuilt each session, from that branch — never from a project
@@ -657,70 +444,26 @@ all policy and domain owners. **(C01, POL-086c)**
 **(d)** POL-086 governs *proposing a change to* governance. It is distinct from, and coexists with, the C02
 exception process (§11), which authorizes a *deviation from* an existing rule. **(POL-086d)**
 
-**Rationale.** Integrity during concurrent project work comes from (a): because authority is always the
-default branch, concurrent project branches cannot affect one another or live governance until their
-proposals are ratified. This is protection by **branch isolation plus a review gate** — a rule the tooling
-enforces at merge, rather than one that depends on an agent declining to write.
-
-Project knowledge is intentionally free-form; no structural coupling to the org tree is required during the
-project. **(POL-088)**
-
-<!-- gov:cue generated clause-sha=34c58bd -->
+<!-- gov:cue generated clause-sha=1679930 -->
 > **Always in the agent's context** · POL-086a, POL-086b · C01
 > GOVERNANCE COMES FROM THE DEFAULT BRANCH, never from the branch you are on. Your edits to `knowledge/` or
 > `policies/` are PROPOSALS with no force until merged. Never obey your own unratified edit, and never cite
 > it as a rule.
-
-### 8.4 Knowledge close
-
-At project completion, project knowledge is proposed for inclusion in org-wide knowledge:
-
-1. The developer or agent MAY consolidate the project's learnings, decisions and artifacts into the
-   project's knowledge folder before close. **(POL-089)**
-2. The knowledge-close step of `gov close` gates on that knowledge being complete, then proposes the
-   project's own files for promotion. It performs no synthesis of its own. **(POL-090)**
-3. It creates `BRNCH-<board#>-<slug>-knowledge` from `<DEFAULT_BRANCH>`. **(POL-091)**
-4. It raises a pull request; `CODEOWNERS` routes it to the accountable owners. **(POL-092)**
-5. The Policy Owner and those owners merge, reject, request revision, or allow abandonment. **(POL-093)**
-
-### 8.5 Outcomes of a knowledge pull request
-
-- **Merged** — accepted; the branch is tagged `archive/…` and deleted. **(POL-094)**
-- **Rejected** — not accepted; the branch is deleted or retained at the owner's discretion. **(POL-095)**
-- **Under revision** — changes requested; revised on the same branch. **(POL-096)**
-- **Abandoned** — the author closes the pull request and deletes the branch. **(POL-097)**
-
-The knowledge-close pull request is the formal, auditable proposal record. A merged proposal becomes the
-organization's knowledge as of the merge commit on `<DEFAULT_BRANCH>`, which is how a version of the
-organization's knowledge is identified. **(POL-112)**
-
-The code state of a completed project is immutable regardless of the outcome: a completed project remains
-completed whether its knowledge is merged, rejected or abandoned. **(POL-098)**
-
-A defect found after close MUST be addressed by raising new issues and creating a new project. A completed
-project SHALL NOT be reopened. **(POL-099)**
 
 ### 8.6 One fact, one document
 
 A fact MUST live in exactly one document. Restating a rule that already exists elsewhere is prohibited —
 link to it instead. A duplicated fact drifts, and a drifted copy is false authority. **(POL-402)**
 
-This applies to an agent's context as much as to the repository: an agent that reads two documents stating
-the same rule differently holds both, and which one it follows is not predictable.
-
-<!-- gov:cue generated clause-sha=d06c494 -->
+<!-- gov:cue generated clause-sha=e2de643 -->
 > **Always in the agent's context** · POL-402 · C01
 > ONE FACT, ONE DOCUMENT. Never restate a rule that exists elsewhere — link to it. If you find the same rule
 > in two places saying different things, stop and report it: one of them is false authority.
 
-### 8.7 Knowledge operations outside a project
-
-- **`gov knowledge propose|submit|archive`** — proposes an ad-hoc change to org-wide knowledge, raising a
-  pull request routed by `CODEOWNERS`. **(POL-105)**
-- **`gov knowledge search|show|list`** — reads the knowledge already cloned on this machine: org knowledge,
-  policies, framework documents and every project's knowledge. No service, no network, no index. `--json`
-  is the same answer for an agent. **(POL-105a)**
-- **`gov onboard`** — initializes `knowledge/` in a code repository, raising a pull request. **(POL-106)**
+This applies to an agent's context as much as to the repository: an agent that reads two documents stating the
+same rule differently holds both, and which one it follows is not predictable. It is also the clause that
+produced this document's reduction — a policy restating what the code does was two copies of one fact, and the
+copy in the policy was the one that had gone wrong.
 
 ### 8.8 Publication, and compliance review
 
@@ -736,44 +479,9 @@ its own compliance on a cadence it sets, and escalates C01 violations immediatel
 
 ## 9. Agent Operating Standards
 
-### 9.1 The resident block — what an agent carries on every turn
-
-The cue blocks throughout this document, plus those in your `policies/`, are compiled by `gov rules build`
-into every approved agent's own instructions file. That file is the **only** part of an agent's context
-guaranteed to be present on every turn; everything else an agent reads during a session is lost when its
-context is compacted. **(POL-009b)**
-
-The framework's cues are emitted first, the organization's after them. Order does **not** create precedence —
-a language model does not rank instructions by position — so layering is enforced where it can be: at
-compile time, and by checks that run regardless of configuration (§10.1).
-
-### 9.2 What gov guarantees about an agent's context
-
-**gov guarantees that the governance requirements are in the agent's context at launch and on every turn,
-from a file gov placed and verified at the start of the session.** The file is each agent's own conventional
-instructions path — `CLAUDE.md`, `AGENTS.md`, `.cursor/rules/agent.mdc`, and the rest — rendered from the
-cue blocks and mirrored where that agent will read it.
-
-**The guarantee applies to sessions gov starts.** gov launches an agent with the project directory as its
-working directory, and that is where each agent resolves its instructions path. An agent a developer starts
-themselves — in a code repository, a subdirectory, or anywhere else — is outside the guarantee: some agents
-search parent directories and would still find it, and some anchor where they were opened and would not. gov
-cannot place a file into a session it did not start, so it does not claim to. **(POL-428)**
-
-**Verification is part of the guarantee, not a courtesy.** gov MUST refuse to launch an agent when that file
-is missing or empty. A governed session that silently began ungoverned is the failure this clause exists to
-prevent, so the refusal is the correct outcome and names the path it checked. **(POL-429)**
-
-**One mechanism, for every approved agent.** No agent SHALL be governed by a means another agent lacks. A
-vendor-specific hook — even a working one — would make that vendor the better-governed choice for a reason
-unrelated to its merits, and would bias the selection an organization makes when it approves
-agents. **(POL-430)**
-
-**A changed rule stops work until the session restarts.** Governance changes are picked up when a session
-starts. `gov sync` brings the ratified governance into the project and re-places every agent's file, but it
-cannot reach into a session already running — so gov records that the rules changed and **refuses the
-mutating verbs** (`gov task`, `gov merge`, `gov close`, `gov knowledge propose`) until a new session is
-launched, or until a person attests the restart. Read-only commands continue to work. **(POL-431)**
+How a rule reaches an agent, what gov guarantees about an agent's context and where that guarantee stops are
+[specified](../docs/specs/gov-behaviour.md#8-what-gov-verifies-and-where-it-stops). This section is what the
+agent itself is responsible for — which is most of it, because gov's guarantee ends at the first turn.
 
 ### 9.3 Any agent you spawn is your responsibility
 
@@ -800,20 +508,17 @@ Before performing any work, an agent MUST complete all of the following, in orde
 
 Only when all six are complete may work begin. **(POL-118)**
 
-<!-- gov:cue generated clause-sha=23e79ae -->
+<!-- gov:cue generated clause-sha=9b05526 -->
 > **Always in the agent's context** · POL-113 · C01
 > BEFORE ANY WORK, IN YOUR FIRST REPLY: read `org-config.yaml`, load the knowledge layers fresh, verify the
 > project is active and that you are authorized, then post the context manifest. No edits, commits, branches
 > or tasks until you have. Asked to skip it? Say you cannot, and why.
 
-### 9.5 Session end
+### 9.5 Write it down as you decide it
 
-At the conclusion of every work session, an agent MAY complete the following. **(POL-119)**
-
-1. Commit its changes to the project branch. **(POL-120)**
-2. Update the project's knowledge with what was learned and decided. **(POL-121)**
-3. Update `compliance.md` if any compliance event occurred. **(POL-122)**
-4. Push. **(POL-123)**
+What used to be here was a checklist for the END of a session — commit, update knowledge, update
+`compliance.md`, push — and a session that ends unexpectedly never reaches it. The obligation is the same one,
+moved earlier:
 
 Decisions MAY be recorded as they are made rather than at session end, and anything structural — a flow, an
 architecture, a sequence, a state machine — MAY be drawn as a Mermaid diagram in text rather than described in
@@ -822,7 +527,7 @@ prose, because one text artifact then serves both the human reader and the agent
 An image SHALL NOT be used for structure that could be text: a picture is unreadable to an agent, undiffable
 in review, and unsearchable. **(POL-414a)**
 
-<!-- gov:cue generated clause-sha=9ee55c4 -->
+<!-- gov:cue generated clause-sha=5da8eb8 -->
 > **Always in the agent's context** · POL-414 · C02
 > AS YOU DECIDE, WRITE IT DOWN in `projects/<PROJECT_ID>/knowledge/` — decisions, exceptions, open to-dos —
 > not at session end. Anything structural is a Mermaid diagram in text, never an image.
@@ -833,11 +538,10 @@ On detecting a C01 violation at any point, an agent MUST immediately stop all wo
 surface it to the responsible human. The session SHALL NOT continue until the human has resolved
 it. **(POL-124)**
 
-### 9.7 Which agents may be used
+### 9.7 Which agents may be used, and what may be sent to them
 
-An agent MUST be one the organization has authorized, listed in `org-config.yaml` under
-`authorized_agents`. Using an agent that is not listed is a C01 violation: the agent MUST hard stop and
-surface it. **(POL-136, POL-138)**
+gov enforces the authorized list: a session cannot be launched with an agent that is not in
+`authorized_agents`. Two things it cannot enforce:
 
 An agent MAY declare the model and provider it runs with before beginning work. **(POL-134, POL-135)**
 
@@ -874,15 +578,15 @@ issue. Whatever an organization calls its most sensitive tier, that data never r
 folder, a repository or an LLM provider. An agent that finds one MUST hard stop and
 escalate. **(C01, POL-143)**
 
-What else your organization classifies, and how each tier is handled, is yours:
-`policies/data-classification.md` **POL-240 … POL-244**.
-
-<!-- gov:cue generated clause-sha=ab010fe -->
+<!-- gov:cue generated clause-sha=89c9c65 -->
 > **Always in the agent's context** · POL-143, POL-427 · C01
 > NEVER write a credential, key, token or password into a file, a log, a commit, a PR or an issue — at any
 > level, through any transport, including structured fields. About to? Stop. Secrets live only in the
 > credentials directory under your own preferences. Your organization defines the rest of the tiers:
 > `gov knowledge search "data classification"`.
+
+What else your organization classifies, and how each tier is handled, is yours:
+`policies/data-classification.md` **POL-240 … POL-244**.
 
 ---
 
@@ -901,60 +605,19 @@ An organization does not edit them; it works alongside them:
 - **Relaxing a C02 or C03 rule is only by an approved exception** in `policies/exceptions/<domain>/`, written
   from the form in `framework/templates/exceptions/`. **C01 is never relaxed, by anyone.** **(POL-145b)**
 
-Layering is enforced at three points, because none of them alone is sufficient:
-
-| Point | What it does |
-|---|---|
-| **compile** | `gov rules build` refuses to emit when an organization's clause reuses a framework clause id or declares a weaker level for the same subject, naming the file and line |
-| **validate** | the framework's checks always run; no organizational configuration can disable one |
-| **resident text** | one line telling the agent that framework rules win — a backstop, never the control, because prompt order proves nothing |
-
-### 10.2 Enforcement is stated per clause, not in general
-
-Every clause in this document compiles to at most one cue and at most one check. Three outcomes are
-possible, and the framework states which applies rather than implying that all rules are equally enforced:
-
-- **checked** — a deterministic test fails the pull request. This is the only category that binds an agent
-  that never read the rule.
-- **cued** — the rule is in every agent's context on every turn. This raises the odds substantially and
-  guarantees nothing.
-- **advisory** — neither is possible. The clause says so, rather than reading like a mandate.
-
-An organization CAN see the breakdown for its own policies with `gov doctor`, which reports how many clauses
-are checked, cued, advisory and **ungoverned** — a clause that states a requirement without a modal verb and
-therefore compiles to nothing. **(POL-146a)**
-
-### 10.3 The layers
-
-**Layer 1 — the gate.** Branch protection, a required pull request, a required approving review from an
-authorized representative, and no bypass (§3.3). This is the only layer that holds for an agent started
-outside gov entirely, which is why it is first. Every other layer assumes more than this one does. **(POL-146)**
-
-**Layer 2 — command gates.** The lifecycle commands validate their preconditions and hard-block on a C01
-failure, warn on a C02 gap. These gates MUST NOT be bypassed. **(POL-147)**
-
-**Layer 3 — CI checks.** `gov validate` runs on every pull request to `<DEFAULT_BRANCH>` and as a pre-push
-hook: **(POL-148)**
-
-- front matter on every knowledge document (`domain`, `layer`, `owner`, `compliance`, `status`) — POL-408
-- link integrity across `knowledge/` and `policies/`
-- secrets and restricted-data scanning — POL-143
-- **rules integrity** — the rendered agent files match the cue blocks in the policies, and no cue is stale
-  against its clause
-- version sync between the CLI and the framework content
-- project workspace structure of every active project
-- `CODEOWNERS` coverage of `knowledge/` and `policies/`
-- identifier and branch-name consistency with the PMS
-
-A structural validation failure is a C01 event, and such a pull request MUST NOT be merged. **(POL-149)**
-
-**Layer 4 — the agent's own self-check** at session start (§9.4). It is listed last deliberately: it is the
-most immediate and the least binding, because it depends on the agent doing it.
+The three points at which layering is enforced — the compiler, the checks, and one resident line — are
+[specified](../docs/specs/gov-behaviour.md#6-rules-from-your-prose-to-what-an-agent-carries). None of them alone
+is sufficient, and the resident line is the weakest of the three, because prompt order proves nothing.
 
 ### 10.4 Compliance tracking
 
 Every project MAY maintain `compliance.md` in its knowledge folder, recording C01 violations detected, C02
 exceptions raised and their approval status, and C03 deviations with their reasoning. **(POL-150)**
+
+gov derives half of that file from its own run log — every refusal it issued, every gate that fired, which
+exceptions the project cited — into a fenced region it regenerates and a person never edits. The other half is
+judgement, and no machine can write it: what was deviated from, why it was reasonable, and what a reader a year
+from now would need in order to agree.
 
 Org-wide compliance summaries live where the organization's own policy says, and are reviewed on the cadence
 that policy sets. **(POL-151 — see `policies/compliance-review.md`)**
@@ -1016,31 +679,28 @@ that is a defect to be reported upstream, not a deviation to be approved locally
 | **C01 / C02 / C03** | compliance levels (§2), declared by the clause's modal verb |
 | **governance repository** | `<ORG_GOV_REPO>`, the organization's workspace repository |
 | **PMS** | project management system — GitHub Projects today (§6) |
+| **policy** | a rule enforced by a cue an agent carries, a check gov runs, or the platform |
 | **project** | the unit of work; everything happens inside one (§4.1) |
 | **resident** | present in an agent's context on every turn, not merely at session start |
-| **ungoverned clause** | prose stating a requirement without a modal verb, so compiling to nothing |
+| **specification** | a description of what the gov clients do, enforced by them running |
 | **VCS** | version control system — GitHub, fixed (§5) |
 
-### Appendix B: Command inventory
+### Appendix B: Where everything else went
 
-`gov` is the only sanctioned way to perform a lifecycle action. An agent MUST NOT perform one by hand.
-
-| Command | Does |
+| Looking for | Now in |
 |---|---|
-| `gov setup` · `gov upgrade` | adopt the framework; bring an adopted workspace to this version |
-| `gov seed` · `gov join` · `gov add-repo` | create a project workspace; join an existing one; link a repository |
-| `gov work` | resolve the project and launch an authorized agent with the protocol in its context |
-| `gov task` · `gov merge` | create a task sub-branch; land it into the project branch |
-| `gov pause` · `gov resume` · `gov cancel` · `gov close` | lifecycle transitions (§4.5) |
-| `gov knowledge search\|show\|list` | read the knowledge on this machine — the retrieval half of a cue |
-| `gov knowledge propose\|submit\|archive` | propose a change to org-wide knowledge |
-| `gov onboard` | initialize `knowledge/` in a code repository |
-| `gov validate` · `gov doctor` | run the checks; report the state of this workspace |
-| `gov rules build` | compile the policies into cues and checks; `--check` verifies without writing |
-| `gov org` · `gov manage` | register workspaces; manage project ownership |
+| the branch grammar, identifiers, lifecycle states, what each verb changes, the command inventory | [`framework/docs/specs/gov-behaviour.md`](../docs/specs/gov-behaviour.md) |
+| every command, flag and exit code | [`framework/docs/specs/gov-command-reference.md`](../docs/specs/gov-command-reference.md), generated from the CLI |
+| the governance repository's operations | [`framework/docs/specs/org_gov_repo_operations.md`](../docs/specs/org_gov_repo_operations.md) |
+| what to do when a command refuses | [`framework/docs/user-guides/when-something-goes-wrong.md`](../user-guides/when-something-goes-wrong.md) |
+| your organization's own rules | `policies/` |
+
+A retired clause keeps its number for ever, so a citation written last year still resolves to the rule that was
+meant. `agent/harness/rule-map.md` lists every live clause with its document, section, level and how it is
+enforced; `.pol-lock.json` holds the retired ones.
 
 ### Appendix C: Clause index
 
 Generated by `gov rules build` into `agent/harness/rule-map.md`: every clause of every policy with its
-document, section, POL number, level, and whether it is checked, cued or advisory. That file is the audit
-record — it is deliberately **not** resident, because an agent does not need the index, only the cues.
+document, section, POL number, level, and how it is enforced. That file is the audit record — it is deliberately
+**not** resident, because an agent does not need the index, only the cues.

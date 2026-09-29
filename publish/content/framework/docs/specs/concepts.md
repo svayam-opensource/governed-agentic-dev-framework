@@ -80,6 +80,6 @@ Two role types: **Owners** (accountable, approve PRs) and **Managers** (delegate
 
 CODEOWNERS in this repo enforces the routing automatically — domain owners are auto-assigned as PR reviewers based on which folders the PR touches.
 
-Current role holders are listed in `framework/policies/framework-policy.md` §3.2. By default at adoption, the Policy Owner holds all roles until they're delegated.
+Current role holders are listed in `policies/authorized-representatives.md`, which is your organization's file. The framework's policy names exactly one role — the Policy Owner, from `org-config.yaml` — and §3.2 points at yours for the rest. By default at adoption the Policy Owner holds all of them until they are delegated.
 
 ---

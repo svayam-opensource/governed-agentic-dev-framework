@@ -13,7 +13,7 @@
 import { expect } from "chai";
 import { build, classify, classSummary, orphanCues, renderRuleMap, frameworkFirst, type PolicyDoc } from "../../src/rules/rules-build.js";
 import { parseClauses } from "../../src/rules/notation.js";
-import { clauseSha, parseCueBlocks } from "../../src/rules/cue-block.js";
+import { clauseSha, parseCueBlocks, cueOwner } from "../../src/rules/cue-block.js";
 import { emptyLock, FRAMEWORK_POL_START, type PolLock } from "../../src/rules/pol-lock.js";
 import { parseLock, renderLock, writeLock, parseLegacyYamlLock, LOCK_FILE } from "../../src/rules/pol-lock-io.js";
 
@@ -23,7 +23,15 @@ const doc = (path: string, text: string): PolicyDoc => ({ path, text });
 const twoLocks = (framework = emptyLock(FRAMEWORK_POL_START), org = emptyLock(200)): { framework: PolLock; org: PolLock } => ({ framework, org });
 
 
-const FOUR_IN_ONE_SECTION = `### 2.1 Levels
+/**
+ * FOUR CLAUSES A CUE CITES, AND A FIFTH IT DOES NOT — in one section, on purpose.
+ *
+ * The fifth is what makes the test discriminating. Matching on the SECTION would credit all five as cued, which
+ * is the defect this fixture was built for. Crediting only the cue's ANCHOR would report one, which is the
+ * opposite defect and the one that was live until 2026-09-29: a range in the header means what it says, so the
+ * cue's own text ("stop, commit nothing, tell the human") genuinely covers POL-011 through POL-014.
+ */
+const FOUR_CITED_ONE_NOT = `### 2.1 Levels
 
 An agent MUST hard stop. **(POL-011)**
 
@@ -36,24 +44,33 @@ A C01 rule SHALL NOT be waived. **(POL-014)**
 <!-- gov:cue generated clause-sha=PLACEHOLDER -->
 > **Always in the agent's context** · POL-011…POL-014 · C01
 > C01 MEANS STOP.
+
+An agent MUST also file a report afterwards. **(POL-019)**
 `;
 
-/** The cue's hash has to be right or every assertion below is about a stale-cue diagnostic instead. */
+/**
+ * The cue's hash has to be right or every assertion below is about a stale-cue diagnostic instead.
+ *
+ * It resolves the owner with `cueOwner`, the SAME function `build` and `staleCues` use, rather than re-deriving
+ * "the nearest clause above" here. It did re-derive it, and when ownership changed to by-citation on 2026-09-29
+ * this helper kept computing the old answer — so the fixture it built was stale by construction and the test it
+ * supported asserted against a diagnostic it had manufactured itself.
+ */
 function withRealSha(text: string): string {
   const { clauses } = parseClauses("d.md", text);
   const { blocks } = parseCueBlocks("d.md", text);
-  const owner = [...clauses].filter((c) => c.line < blocks[0]!.line).pop()!;
-  return text.replace("PLACEHOLDER", clauseSha(owner.text));
+  return text.replace("PLACEHOLDER", clauseSha(cueOwner(clauses, blocks[0]!)!.text));
 }
 
 describe("rules build — enforcement classes, counted honestly", () => {
-  const docs = [doc("framework/policies/framework-policy.md", withRealSha(FOUR_IN_ONE_SECTION))];
+  const docs = [doc("framework/policies/framework-policy.md", withRealSha(FOUR_CITED_ONE_NOT))];
 
-  it("attributes a cue to the clause it SITS UNDER, not to every clause in the section", () => {
+  it("counts a clause as cued when the cue CITES it, and not merely for sharing its section", () => {
     const r = build(docs, twoLocks(emptyLock(FRAMEWORK_POL_START)));
-    const cued = r.map.filter((m) => m.klass === "cued");
-    expect(cued, "one cue, one cued clause — this reported four before").to.have.length(1);
-    expect(cued[0]!.gist).to.contain("SHALL NOT be waived");
+    const cued = r.map.filter((m) => m.klass === "cued").map((m) => m.pol);
+    expect(cued, "the four in the range, and nothing else").to.have.members(["POL-011", "POL-012", "POL-013", "POL-014"]);
+    expect(cued, "POL-019 sits in §2.1 and is not cited — section-matching reported five").to.not.include("POL-019");
+    expect(r.map.find((m) => m.pol === "POL-019")!.klass, "so it is honestly advisory").to.equal("advisory");
   });
 
   it("never calls unlevelled prose 'advisory' — it is not a rule at all", () => {
@@ -80,12 +97,12 @@ describe("rules build — enforcement classes, counted honestly", () => {
 });
 
 describe("rules build — numbering converges", () => {
-  const docs = [doc("framework/policies/framework-policy.md", withRealSha(FOUR_IN_ONE_SECTION))];
+  const docs = [doc("framework/policies/framework-policy.md", withRealSha(FOUR_CITED_ONE_NOT))];
 
   it("a first build over an empty lock allocates every clause and asks nothing", () => {
     const r = build(docs, twoLocks(emptyLock(FRAMEWORK_POL_START)));
     expect(r.asks).to.deep.equal([]);
-    expect(r.locks.framework.entries).to.have.length(4);
+    expect(r.locks.framework.entries, "one entry per clause in the fixture, cited or not").to.have.length(5);
   });
 
   it("a SECOND build over the lock it produced asks nothing and changes nothing", () => {
@@ -95,11 +112,11 @@ describe("rules build — numbering converges", () => {
     expect(renderLock(second.locks.framework)).to.equal(renderLock(first.locks.framework));
   });
 
-  it("four clauses in ONE section get four distinct numbers — none mistaken for a rewording of another", () => {
+  it("five clauses in ONE section get five distinct numbers — none mistaken for a rewording of another", () => {
     const r = build(docs, twoLocks(emptyLock(FRAMEWORK_POL_START)));
     const pols = r.locks.framework.entries.map((e) => e.pol);
-    expect(new Set(pols).size).to.equal(4);
-    expect(r.locks.framework.entries.map((e) => e.ordinal).sort()).to.deep.equal([1, 2, 3, 4]);
+    expect(new Set(pols).size).to.equal(5);
+    expect(r.locks.framework.entries.map((e) => e.ordinal).sort()).to.deep.equal([1, 2, 3, 4, 5]);
   });
 
   it("an EDITED clause asks, and carries the candidate so the caller can offer the command that answers it", () => {

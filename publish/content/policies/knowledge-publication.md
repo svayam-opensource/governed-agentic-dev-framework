@@ -101,7 +101,7 @@ None of the seven predicates (`naming`, `path-scope`, `list-membership`, `conten
 `content-required`, `file-required`, `frontmatter-required`) can see a published site, a PDF or a vector index:
 they read a changeset and a workspace. So the clauses here are **advisory** — written because they matter, with
 nothing in gov enforcing them. The place to enforce them is the publishing pipeline's own CI, and
-`framework-policy.md` §1.5 is the distinction being drawn. `gov doctor` counts them as advisory, which is the
+`framework/docs/specs/gov-behaviour.md` draws the distinction being relied on here. `gov doctor` counts them as advisory, which is the
 honest number.
 
 ### 3.4 Why it carries no cue either

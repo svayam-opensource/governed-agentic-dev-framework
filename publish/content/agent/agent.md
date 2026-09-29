@@ -57,7 +57,7 @@ governing force**. Never self-govern by your own unratified edits. Project-speci
 A `knowledge/` change becomes organizational standard only when merged to `<DEFAULT_BRANCH>` via a PR
 approved by the Policy Owner **and** the CODEOWNERS domain owner(s) whose folders it touches — all
 owners for `policies/`/`mandates/` (POL-086c). See
-`framework/policies/framework-policy.md` §6.4.
+`framework/policies/framework-policy.md` §8.3.
 
 ## Data Classification — Hard Rules
 

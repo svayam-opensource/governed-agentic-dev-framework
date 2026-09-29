@@ -10,7 +10,8 @@
  */
 import { expect } from "chai";
 import {
-  CHECK_KINDS, CUE_HEADER, clauseSha, identityOf, parseCheck, parseCueBlocks, renderCueBlock, staleCues,
+  CHECK_KINDS, CUE_HEADER, citedPols, clauseSha, identityOf, parseCheck, parseCueBlocks,
+  renderCueBlock, staleCues,
   type Check,
 } from "../../src/rules/cue-block.js";
 import { parseClauses } from "../../src/rules/notation.js";
@@ -291,5 +292,45 @@ describe("cue blocks — renderCueBlock emits ONE canonical form", () => {
     const r = renderCueBlock({ ...block, check: { kind: "naming", trigger: { on: "files", globs: [] }, attrs: { pattern: "two words" }, onMiss: "warn" } });
     expect(r).to.contain('pattern="two words" on_miss=warn');
     expect(parseCueBlocks("d.md", `### 1.1 S\n\n${CLAUSE}\n\n${r}\n`).blocks[0]!.check!.attrs["pattern"]).to.equal("two words");
+  });
+});
+
+/**
+ * WHAT A CUE'S CITATION COVERS — the input to "is this clause enforced?".
+ *
+ * A cue anchors to one clause but its header may cite several, and the classifier used to credit only the anchor.
+ * §2.1's cue reads `POL-011…POL-015` and its text carries three separate obligations; POL-012, POL-013 and
+ * POL-014 were reported `advisory` — "nothing enforces this" — with a C01 cue about them resident in every
+ * agent's context. Fifteen clauses in the framework's own policy were mislabelled that way.
+ */
+describe("citedPols — what a cue's header actually covers", () => {
+  it("expands a range, because a range means what it says", () => {
+    expect(citedPols("POL-011…POL-015")).to.deep.equal(["POL-011", "POL-012", "POL-013", "POL-014", "POL-015"]);
+  });
+
+  it("reads the other ways a person writes a range", () => {
+    for (const sep of ["...", "–", "—", "-"]) {
+      expect(citedPols(`POL-011${sep}POL-013`), sep).to.have.members(["POL-011", "POL-012", "POL-013"]);
+    }
+  });
+
+  it("reads a comma list as exactly its members", () => {
+    expect(citedPols("POL-172, POL-173")).to.deep.equal(["POL-172", "POL-173"]);
+  });
+
+  it("is one number for one number", () => {
+    expect(citedPols("POL-443")).to.deep.equal(["POL-443"]);
+  });
+
+  it("LISTS a lettered clause and never ranges over it", () => {
+    // There is no defensible successor to POL-086a, and inventing one would pull an unrelated clause into a
+    // cue's coverage — silently marking it enforced.
+    expect(citedPols("POL-086a, POL-086b")).to.deep.equal(["POL-086a", "POL-086b"]);
+  });
+
+  it("refuses a descending or absurd range rather than expanding it", () => {
+    // An authoring slip must not turn into thousands of numbers, every one of them claiming to be enforced.
+    expect(citedPols("POL-015…POL-011"), "descending").to.deep.equal(["POL-015", "POL-011"]);
+    expect(citedPols("POL-001…POL-900"), "absurd").to.deep.equal(["POL-001", "POL-900"]);
   });
 });
