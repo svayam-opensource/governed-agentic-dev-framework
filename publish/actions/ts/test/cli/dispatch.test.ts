@@ -62,7 +62,10 @@ const pulls: Pulls = { create: () => "pr", state: () => null };
 function ctx(over: Partial<CliContext> = {}): CliContext {
   return {
     config: CONFIG, home: "/awr/PRJ-43-governance-common-project/svm-prj-work", today: "2026-07-03",
-    seededBy: "svayam-rkant", board, vcs: fakeVcs(), fs, issues, anchor, pulls, projects: { listBoards: () => [] }, cloneRepo: () => {}, authorize: () => true, gate: () => ({ ok: true, failures: [] }), ...over,
+    // `login` is half the key the rules-pending marker is stored under. Without it `route` now REFUSES every
+    // mutating verb rather than skipping the gate (Policy Owner, 2026-09-30) — so a fixture that omits it is
+    // testing the refusal, not the verb. Tests for the refusal itself live in `rules-gate.test.ts`.
+    seededBy: "svayam-rkant", login: "svayam-rkant", board, vcs: fakeVcs(), fs, issues, anchor, pulls, projects: { listBoards: () => [] }, cloneRepo: () => {}, authorize: () => true, gate: () => ({ ok: true, failures: [] }), ...over,
   };
 }
 

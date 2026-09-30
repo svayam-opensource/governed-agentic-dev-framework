@@ -140,11 +140,54 @@ describe("rules-pending at the router — no marker, no refusal", () => {
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.match(/^Task BRNCH-43/);
   });
+});
 
-  it("an unknown login finds no marker — the writer keys it the same way, so this is consistent not lax", () => {
+/**
+ * NO KEY IS NOT NO MARKER (Policy Owner, 2026-09-30).
+ *
+ * The test replaced here asserted the opposite, and its own name argued for it: *"an unknown login finds no
+ * marker — the writer keys it the same way, so this is consistent not lax"*. The consistency was real and the
+ * conclusion was wrong. `readPending` returning null means NOTHING IS PENDING; `markerKey` returning null means
+ * NO ANSWER. Sharing an outcome between them meant a lapsed `gh` token silently disabled the gate the
+ * specification describes as unconditional — and a marker sitting on disk, as in the second case below, was
+ * stepped straight over.
+ *
+ * It is the same distinction `gov doctor` insists on between a branch that is unprotected and one it could not
+ * read. A test can be internally consistent and still be defending a defect.
+ */
+describe("rules-pending at the router — gov cannot tell", () => {
+  it("no login → REFUSES a mutating verb, and names what it could not determine", () => {
+    const r = route(parseArgv(["task", "https://github.com/Svayamtech/x/issues/9"]) as never, ctx({ login: undefined }, false));
+    expect(r.code).to.equal(1);
+    const out = r.lines.join("\n");
+    expect(out).to.contain("cannot tell whether the rules changed");
+    expect(out, "the cause, not just the symptom").to.contain("who you are");
+    expect(out, "and the way out").to.contain("gh auth login");
+  });
+
+  it("a marker that EXISTS is no longer stepped over when the login is unknown", () => {
+    // The sharpest form of the old defect: the rules had changed, gov had written the marker, and the verb ran
+    // anyway because it could not work out whose marker to look for.
     const fs = memFs({ [pendingPath("/awr", "rkant")]: `${JSON.stringify(PENDING)}\n` });
     const r = route(parseArgv(["task", "https://github.com/Svayamtech/x/issues/9"]) as never, ctx({ fs, login: undefined }, false));
-    expect(r.code).to.equal(0);
+    expect(r.code).to.equal(1);
+  });
+
+  it("no agent_work_root → refuses, and says THAT rather than blaming gh", () => {
+    const r = route(parseArgv(["merge"]) as never, ctx({ config: { ...CONFIG, agentWorkRoot: "" } }, false));
+    expect(r.code).to.equal(1);
+    const out = r.lines.join("\n");
+    expect(out).to.contain("agent_work_root");
+    expect(out, "no login problem to report here").to.not.contain("gh auth login");
+  });
+
+  it("READ-ONLY verbs are never refused for this reason — refusing everything would trap the workspace", () => {
+    // Asserted on the MESSAGE, not the exit code. Some of these legitimately exit 1 in this fixture for their own
+    // reasons; what must never happen is that they exit 1 because gov could not work out who is running them.
+    for (const v of [["status"], ["validate"], ["rules", "report"], ["list"]]) {
+      const out = route(parseArgv(v) as never, ctx({ login: undefined }, false)).lines.join("\n");
+      expect(out, v.join(" ")).to.not.contain("cannot tell whether the rules changed");
+    }
   });
 });
 

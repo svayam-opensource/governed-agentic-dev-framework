@@ -94,7 +94,9 @@ const pulls: Pulls = { create: () => "pr", state: () => null };
 function ctx(over: Partial<CliContext> = {}): CliContext {
   return {
     config: CONFIG, home: GOV_CLONE, today: "2026-07-03",
-    seededBy: "svayam-rkant", board: okBoard, vcs: fakeVcs(), fs, issues, anchor, pulls,
+    // See dispatch.test.ts: without `login` every mutating verb refuses, because gov cannot tell whether the
+    // rules changed. These tests are about the verbs, so the fixture knows who it is.
+    seededBy: "svayam-rkant", login: "svayam-rkant", board: okBoard, vcs: fakeVcs(), fs, issues, anchor, pulls,
     projects: { listBoards: () => [] }, cloneRepo: () => {}, authorize: () => true, gate: () => ({ ok: true, failures: [] }), ...over,
   };
 }
@@ -150,9 +152,27 @@ describe("lifecycle coverage — seed", () => {
     expect(px(r.lines[0])).to.equal(`Project ${PID} seeded on ${PBRANCH}`);
   });
 
-  it("--login absent → anchor assigneeLogin is null (no ctx.login)", () => {
+  it("--login absent → anchor assigneeLogin falls back to ctx.login", () => {
+    // The shared fixture now carries a login, because without one `route` refuses every mutating verb — gov
+    // cannot tell whether the rules changed (Policy Owner, 2026-09-30). So "no --login flag" no longer means
+    // "no login at all", and this asserts the fallback rather than the null.
     const s = spyAnchor();
     const r = run(["seed", BOARD_URL], { vcs: seedVcs(), anchor: s.anchor });
+    expect(r.code).to.equal(0);
+    expect(s.calls).to.deep.equal(["svayam-rkant"]);
+  });
+
+  it("no login at all → seed still runs, because `seed` is NOT a gated verb", () => {
+    // I wrote this expecting a refusal, and it is worth keeping as the correction. The rules-pending gate covers a
+    // DENY-LIST — `task`, `merge`, `close`, `knowledge propose|submit|archive` — and `seed` is not on it. So a
+    // project can be STARTED while the rules are pending, and the anchor records a null assignee because there is
+    // no login to record.
+    //
+    // Whether that deny-list membership is right is a separate open question: `seed`, `join`, `add-repo`, `issue`,
+    // `onboard`, `cancel` and `sync` all mutate and none of them refuse, while the specification's wording
+    // ("read-only verbs keep working") implies they are read-only. See `fixed-logic-sweep-findings.md`.
+    const s = spyAnchor();
+    const r = run(["seed", BOARD_URL], { vcs: seedVcs(), anchor: s.anchor, login: undefined });
     expect(r.code).to.equal(0);
     expect(s.calls).to.deep.equal([null]);
   });

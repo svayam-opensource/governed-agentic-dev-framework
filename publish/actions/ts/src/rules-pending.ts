@@ -190,3 +190,39 @@ export function writePending(fs: Pick<Fs, "writeFile">, workRoot: string, login:
 export function clearPending(fs: Pick<Fs, "rm">, workRoot: string, login: string): void {
   fs.rm(pendingPath(workRoot, login));
 }
+
+/**
+ * REFUSED BECAUSE gov COULD NOT TELL — the third state, added 2026-09-30.
+ *
+ * The marker is keyed on (work root, login). Either half can be missing: `agent_work_root` is unset in a
+ * workspace nobody finished configuring, and the login came from a live `gh api user` with no fallback, so being
+ * offline, signed out or rate-limited was enough. A missing key meant `readPending` was never called, which meant
+ * every mutating verb PROCEEDED — while the specification said flatly that they refuse.
+ *
+ * That is the same conflation `gov doctor` refuses to make between a branch that is unprotected and one it could
+ * not read: "no marker" and "no answer" lead to opposite actions and must not share a code path. A lapsed `gh`
+ * token is not evidence that the rules are unchanged.
+ *
+ * The login now falls back to the cache first, so the common cases never reach here. What reaches here is a
+ * machine that has never resolved a login, or a workspace with no work root — and for those, refusing is right:
+ * gov cannot say whether the rules moved, and the honest answer to "may this work land?" is "I cannot tell".
+ */
+export function refuseForUnknownRulesState(command: string, missing: { workRoot: boolean; login: boolean }): string[] {
+  const what: string[] = [];
+  if (missing.login) what.push("who you are (`gh api user` failed and no login is cached)");
+  if (missing.workRoot) what.push("where your state lives (`agent_work_root` is unset in org-config.yaml)");
+  return [
+    `gov ${command}: refused — gov cannot tell whether the rules changed since your session started.`,
+    "",
+    `  It could not determine ${what.join(", nor ")}.`,
+    "",
+    "  This is NOT the same as 'the rules are unchanged'. The marker that records a rules change is kept per",
+    "  person, per work root; without both, gov has no answer rather than a clean one — and letting work land on",
+    "  no answer is how a change comes to be recorded as reviewed under rules nobody read.",
+    "",
+    ...(missing.login ? ["    gh auth login       then re-run"] : []),
+    ...(missing.workRoot ? ["    gov doctor          says what this workspace is missing"] : []),
+    "",
+    "  Read-only commands — `gov status`, `gov knowledge`, `gov rules report`, `gov validate` — keep working.",
+  ];
+}

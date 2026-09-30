@@ -43,7 +43,7 @@ import { policyGate } from "./policy-gate-io.js";
 import { approverLogins, protectRepo, type GhApi } from "../maintain/repo-protect.js";
 import { rules } from "./rules-verb.js";
 import { buildRulesAt } from "./rules-lifecycle.js";
-import { clearPending, isMutatingVerb, readPending, refuseForPendingRules } from "../rules-pending.js";
+import { clearPending, isMutatingVerb, readPending, refuseForPendingRules, refuseForUnknownRulesState } from "../rules-pending.js";
 import type { MergeStamp, StampOutcome } from "../lifecycle/merge.js";
 import { stampFacts } from "../lifecycle/governance-stamp.js";
 import { log } from "../log.js";
@@ -258,7 +258,18 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
   // the refusal worse than the thing it prevents.
   {
     const key = markerKey(ctx);
-    const pending = key && isMutatingVerb(command, positionals[0]) ? readPending(ctx.fs, key.workRoot, key.login) : null;
+    const mutating = isMutatingVerb(command, positionals[0]);
+    // NO KEY IS NOT NO MARKER (Policy Owner, 2026-09-30). It used to be: a key gov could not compute skipped the
+    // read entirely and the verb proceeded, so a lapsed `gh` token silently disabled the gate the specification
+    // describes as unconditional. `readPending` returning null means "nothing pending"; `markerKey` returning
+    // null means "no answer", and the two must not share an outcome.
+    if (mutating && !key) {
+      const missing = { workRoot: !ctx.config.agentWorkRoot, login: !ctx.login };
+      log("warn", "refused a mutating verb — gov cannot tell whether the rules changed", "gov-work:cli:dispatch", "route",
+        { command, ...missing });
+      return { code: 1, lines: refuseForUnknownRulesState(command, missing) };
+    }
+    const pending = key && mutating ? readPending(ctx.fs, key.workRoot, key.login) : null;
     if (pending) {
       log("warn", "refused a mutating verb — the rules changed since the session started", "gov-work:cli:dispatch", "route",
         { command, hash: pending.hash, clauses: pending.clauses.length });

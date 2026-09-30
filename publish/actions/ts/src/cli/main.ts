@@ -18,7 +18,7 @@ import { spawn } from "node:child_process";
 import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive } from "../run-process.js";
 import { runSetup } from "../setup/setup-run.js";
 import type { SetupPreAnswers } from "../setup/interview.js";
-import { log, closeLog, cacheLogin } from "../log.js";
+import { log, closeLog, cacheLogin, cachedLogin } from "../log.js";
 import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
 import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
@@ -2601,7 +2601,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   const vcs = createGitVcs();
   const seededBy = tryRun("git", ["-C", home, "config", "user.email"]) ?? "";
   const name = tryRun("git", ["-C", home, "config", "user.name"]);
-  const login = tryRun("gh", ["api", "user", "--jq", ".login"]);
+  // THE CACHE IS A FALLBACK, NOT AN OPTIMISATION (2026-09-30). `ctx.login` was a live `gh api user` with nothing
+  // behind it, and it is half the key the rules-pending marker is stored under — so being offline, signed out or
+  // rate-limited silently disabled that gate. A login already gets cached for the log path; reading it here costs
+  // nothing and turns the common failures into non-events. When both miss, `route` refuses rather than proceeds.
+  const login = tryRun("gh", ["api", "user", "--jq", ".login"]) ?? cachedLogin(config.orgSlugLower) ?? undefined;
 
   const ctx: CliContext = {
     config,

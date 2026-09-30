@@ -214,9 +214,21 @@ is reworded, gov stops and asks rather than deciding whether it is the same rule
 source code, so a renumbering would silently re-point real citations.
 
 **A changed rule stops work.** gov cannot replace the rules inside a running session, so when a build changes the
-rendered bytes it records a marker and the mutating verbs (`task`, `merge`, `close`, `knowledge propose|submit|archive`)
-refuse until a new session is launched or a person attests the restart with `gov rules reload`. Read-only verbs
-keep working.
+rendered bytes it records a marker and the mutating verbs refuse until a new session is launched or a person
+attests the restart with `gov rules reload`.
+
+**The gated set is a deny-list, and it is not everything that mutates:** `task`, `merge`, `close`, and
+`knowledge propose|submit|archive`. `seed`, `join`, `add-repo`, `issue`, `onboard`, `cancel`, `pause`, `resume`,
+`sync` and `repo protect apply` all change something and none of them refuse — so a project can be started, or a
+branch synced, while the rules are pending. Whether that is the right membership is open; what is not open is that
+an earlier version of this document said "read-only verbs keep working", which told a reader that `cancel` and
+`sync` were read-only.
+
+**And gov refuses when it cannot tell.** The marker is kept per person, per work root, so both have to be known.
+The login comes from `gh api user`, falling back to a cached one; `agent_work_root` comes from `org-config.yaml`.
+If either is unknowable, a mutating verb refuses and says which — because "no marker" and "no answer" lead to
+opposite actions, and until 2026-09-30 they shared a code path: a lapsed `gh` token silently disabled this gate
+entirely, including where a marker was sitting on disk.
 
 ## 7. What holds when gov is not in the loop
 
