@@ -72,7 +72,7 @@ import { COMMAND_SPECS } from "./help-spec.js";
 import { pickerSettingsFromPreferences } from "./project-picker.js";
 import { loadPreferences, savePreference } from "./preferences-io.js";
 import { ensureLogin, runContext } from "./run-context.js";
-import { logsRoot } from "../state-paths.js";
+import { logsRoot, redactArgv } from "../state-paths.js";
 import { gatherGovernanceFacts, stampLines, withStamp } from "../lifecycle/governance-stamp.js";
 import { buildRulesAt } from "./rules-lifecycle.js";
 import { clearPending, readPending } from "../rules-pending.js";
@@ -1643,8 +1643,12 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       // A LATER SESSION GETS THE KEY TOO. It used to start without it whenever the person had not exported it
       // themselves — so a key pasted once was gone the moment gov exited (walk, 2026-09-21).
       if (credEnv) loadStoredKey(agent, AGENT_CATALOG.find((a) => a.id === agent)?.tool ?? agent, credEnv, config.agentWorkRoot, me ?? "", process.stderr);
+      // `args` WENT IN UNREDACTED while every other logged invocation passed through `redactArgv`
+      // (run-process.ts). For eight of ten agents `args` is the whole session-start prompt, so anything a prompt
+      // carries went to the log with it — and the inconsistency was invisible, because this is the one place that
+      // logs an invocation without going through `runProcess`.
       log("info", "launching the agent", "gov-work:cli:main", "launch", {
-        agent, cmd: s.cmd, args: s.args, cwd, detached: s.detached === true,
+        agent, cmd: s.cmd, args: redactArgv(s.args), cwd, detached: s.detached === true,
         promptDelivery: s.promptToPaste ? "paste" : "argv",
         ...(credEnv ? { credentialEnv: credEnv, credentialPresent: Boolean(process.env[credEnv]) } : {}),
       });

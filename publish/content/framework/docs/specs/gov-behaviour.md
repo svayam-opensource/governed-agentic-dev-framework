@@ -286,6 +286,25 @@ to its merits, and would bias the choice an organization makes when it approves 
 ## 10. Logging
 
 Every run writes one log, under the person's own state directory, named for the day, the time, the project and the
-command. Writes are logged; reads are not. Restricted data is never written to it at any level or through any
-transport — that one is also a policy clause, because a person and an agent both have to observe it in code they
-write, not only in code gov ships.
+command. Writes are logged; reads are not.
+
+**What gov redacts, stated precisely, because POL-427 is C01 and a vague promise is worse than a narrow one:**
+
+| Redacted | How |
+|---|---|
+| a secret-shaped flag's value | `--token x`, `--api_key=x`, `--auth`, `--bearer`, `--cookie`, `--credential`, `-H`, `-u` — the name survives, the value becomes `***` |
+| a credential embedded in a URL | `https://user:tok@host` → `https://user:***@host`, including in a bare positional argument |
+| a credential shape in free text | private-key blocks, GitHub tokens and fine-grained PATs, AWS key ids, Slack tokens — the same shapes `gov validate` scans files for |
+| **a failed process's stderr** | redacted before it is logged. `git` and `gh` echo the remote URL in an error, carrying the token they were handed; until 2026-09-30 that tail was written verbatim |
+| a hidden prompt's answer | only its length is recorded |
+
+**One known gap, kept knowingly:** a secret value that begins with `-` and is passed as a separate argument
+(`--token -abc`) is not redacted. Treating it as a value meant redacting the next real flag in every ordinary
+command, which destroys the thing the log is read for. `--token=-abc` is covered.
+
+**An ordinary prompt's answer IS logged, in full.** That is deliberate — "what was asked, and what did the person
+say" was once unanswerable without a screen recording — and it is why a prompt that asks for a credential must use
+the hidden path. A test reads every call site's question and fails if a credential-shaped one uses the plain path.
+
+Restricted data never reaching a log is also a **policy** clause, because a person and an agent both have to
+observe it in code they write, not only in code gov ships.

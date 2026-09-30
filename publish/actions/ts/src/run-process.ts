@@ -19,11 +19,18 @@
  */
 import { execFileSync, spawnSync, type SpawnSyncOptions } from "node:child_process";
 import { log } from "./log.js";
-import { redactArgv } from "./state-paths.js";
+import { redactArgv, redactText } from "./state-paths.js";
 
-/** The tail of a failed process's stderr — enough to recognise the failure, short enough to keep a log readable. */
+/**
+ * The tail of a failed process's stderr — enough to recognise the failure, short enough to keep a log readable.
+ *
+ * REDACTED FIRST (POL-427, 2026-09-30). This wrote whatever the process printed, verbatim, at `warn`, for every
+ * `git`, `gh`, `npm` and vendor installer gov runs — and `git` and `gh` echo the remote URL in an error, carrying
+ * the token they were handed. The file's header claimed "arguments with secret values redacted" and said nothing
+ * about output, so the one unredacted channel was the one nobody had thought about.
+ */
 const tail = (s: string | undefined, lines = 3): string | undefined =>
-  s ? s.split(/\r?\n/).filter(Boolean).slice(-lines).join(" · ").slice(0, 500) : undefined;
+  s ? redactText(s.split(/\r?\n/).filter(Boolean).slice(-lines).join(" · ")).slice(0, 500) : undefined;
 
 export interface RunOptions {
   readonly cwd?: string;

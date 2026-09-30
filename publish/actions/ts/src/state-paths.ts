@@ -87,15 +87,69 @@ export function commandOf(argv: readonly string[]): string {
  * though it was typed in the clear: `--token abc` and `--token=abc` both become `--token ***`. The VALUE goes;
  * the flag stays, because which flags were passed is exactly what a diagnosis needs.
  */
-const SECRET_FLAG = /^(--?)([A-Za-z0-9-]*(token|key|secret|password|pass|pat)[A-Za-z0-9-]*)$/i;
+/**
+ * WHAT COUNTS AS A SECRET-SHAPED FLAG. Widened 2026-09-30 after an audit against POL-427 found four ways past it.
+ *
+ * `_` was not in the character class, so `--api_key=abc` — the commonest spelling there is — went through in the
+ * clear while `--api-key=abc` was redacted. The name list also missed every flag that carries a credential
+ * without saying so: `--auth`, `--bearer`, `--cookie`, `--credential`, and the two short forms that matter
+ * (`-H` for a header, `-u` for `user:password`).
+ */
+const SECRET_FLAG =
+  /^(--?)([A-Za-z0-9_-]*(token|key|secret|password|passwd|pass|pat|auth|bearer|cookie|credential)[A-Za-z0-9_-]*)$/i;
+/** `-H` and `-u` carry credentials and name nothing: no substring can catch them, so they are listed. */
+const SECRET_SHORT = /^-[Hu]$/;
+const isSecretFlag = (s: string): boolean => SECRET_FLAG.test(s) || SECRET_SHORT.test(s);
+
+/**
+ * A credential embedded in a URL — `https://user:ghp_xxxx@github.com/o/r`.
+ *
+ * POSITIONALS WERE NEVER REDACTED AT ALL, and this is the shape that made that matter: it is how `git` and `gh`
+ * are handed a token, so it appears as an ordinary argument with no flag in front of it.
+ */
+const URL_CREDENTIAL = /(\b[a-z][a-z0-9+.-]*:\/\/)([^/@\s:]+):([^/@\s]+)@/gi;
+const maskUrlCredential = (s: string): string => s.replace(URL_CREDENTIAL, (_m, scheme, user) => `${scheme}${user}:***@`);
+
 export function redactArgv(argv: readonly string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     const eq = a.indexOf("=");
-    if (eq > 0 && SECRET_FLAG.test(a.slice(0, eq))) { out.push(`${a.slice(0, eq)}=***`); continue; }
-    out.push(a);
-    if (SECRET_FLAG.test(a) && i + 1 < argv.length && !argv[i + 1]!.startsWith("-")) { out.push("***"); i++; }
+    if (eq > 0 && isSecretFlag(a.slice(0, eq))) { out.push(`${a.slice(0, eq)}=***`); continue; }
+    out.push(maskUrlCredential(a));
+    // A VALUE IS THE NEXT ARGUMENT UNLESS IT LOOKS LIKE A FLAG, and `startsWith("-")` is the test.
+    //
+    // I tried tightening this to "unless it is a RECOGNISED secret flag", so that `--token -abc` would redact a
+    // value that happens to begin with a dash. It redacted `--verbose` in `--token --verbose` instead, which an
+    // existing test caught. The residual gap — a secret value beginning with `-` and no `=` — stays, knowingly:
+    // it is rare, and the alternative mangles every ordinary flag list in the log, which is the thing the log is
+    // read for. `--token=-abc` IS covered, by the `=` branch above.
+    if (isSecretFlag(a) && i + 1 < argv.length && !argv[i + 1]!.startsWith("-")) { out.push("***"); i++; }
   }
+  return out;
+}
+
+/**
+ * Redact free TEXT before it reaches a log — a process's stderr, an error message.
+ *
+ * `redactArgv` cannot help here: this is not a list of arguments, it is whatever a third-party program printed.
+ * `git` and `gh` routinely echo the remote URL in an error, and that URL carries the token they were handed. Until
+ * 2026-09-30 every failed process wrote the tail of its stderr to the log verbatim — the clearest POL-427 breach
+ * in the tree, and the one that looked most like diligence, because the run log is exactly where you would look.
+ *
+ * The credential SHAPES are deliberately the same ones `governance/secrets.ts` scans files for: one vocabulary for
+ * "this looks like a credential", so improving the scanner improves the logger. Kept in sync by a test.
+ */
+export const CREDENTIAL_SHAPES: ReadonlyArray<RegExp> = [
+  /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[\s\S]*?(?:-----END[^-]*-----|$)/g,
+  /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{60,}\b/g,
+  /\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA)[0-9A-Z]{16}\b/g,
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
+];
+
+export function redactText(text: string): string {
+  let out = maskUrlCredential(text);
+  for (const re of CREDENTIAL_SHAPES) out = out.replace(re, "***");
   return out;
 }
