@@ -116,21 +116,6 @@ export type SeedResult =
       readonly suggestOverrides?: readonly { readonly from: string; readonly to: string }[];
     };
 
-function gitkeepStub(i: {
-  projectId: string;
-  branch: string;
-  boardNumber: number;
-  defaultBranch: string;
-}): string {
-  return `# Active project — full content lives on branch '${i.branch}'.
-#
-# This folder is a stub on ${i.defaultBranch}. The project is registered on GitHub
-# (Project #${i.boardNumber} + its 'anchor' issue) — GitHub is the SOLE source of
-# truth (no project.yaml / registry.yaml, SDD-012). The authored content
-# (agent.md, knowledge/) lives on branch '${i.branch}'.
-`;
-}
-
 /**
  * What a previous failed seed left behind for this board, and what gov may do about it (#230).
  *
@@ -298,33 +283,28 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
   const orgConfigWasThere = deps.fs.pathExists(orgConfigPath);
 
   try {
-    // ── Phase A: home stub commit (local; pushed in D) ────────────────────────
-    log(`Phase A: home stub projects/${projectId}/`);
-    const preSha = deps.vcs.headSha(config.govHome);
-    // UNDO WITHOUT `reset --hard`, and without `clean` (#191).
+    // ── Phase A IS GONE: seed no longer writes to the default branch ───────────
     //
-    // Both were pointed at `config.govHome` — the resolved workspace itself, not a
-    // scratch copy — and they are the two git commands that destroy work rather
-    // than move pointers. A seed that failed in Phase C therefore left an adopter
-    // with a workspace that no longer resolved: `org-config.yaml` is written by
-    // `gov setup` and committed by the human, so between those two moments it is an
-    // untracked file sitting in the blast radius.
+    // It used to commit `projects/<id>/.gitkeep` to the gov home and push it straight to the default branch. Two
+    // things were wrong with that (Policy Owner, 2026-09-30):
     //
-    // The invariant: undoing a PROJECT may touch `projects/<id>/` and that project's
-    // worktrees. It may not touch anything that makes the workspace resolvable.
+    //   1. IT CANNOT WORK UNDER `governance_posture: hard`. That posture exists to make the default branch
+    //      require a pull request, and GitHub then rejects the push — whoever is entitled to make it. So the
+    //      posture the framework offers was incompatible with the verb that starts every project, and the only
+    //      record of that was a comment in `cleanup.ts`.
+    //   2. THE STUB HELD NOTHING. Its entire content was a comment saying the real content lives on the project
+    //      branch and that "GitHub is the SOLE source of truth (no project.yaml / registry.yaml)". Every fact in
+    //      it is derivable from the board, and nothing ever read it for information — `leftover.ts` and
+    //      `cleanup.ts` only ever tested that the PATH existed. A file whose own text says it is not the source
+    //      of truth, written to the one branch that must not be written to, for the benefit of no reader.
     //
-    // `reset --mixed` un-commits and unstages while leaving every file on disk; the
-    // one path this phase created is then removed by name. Nothing else is reachable.
-    tx.onRollback("reset home", () => {
-      deps.vcs.resetKeepingFiles(config.govHome, preSha);
-      deps.fs.rm(paths.homeStub);
-    });
-    deps.fs.writeFile(
-      path.join(paths.homeStub, ".gitkeep"),
-      gitkeepStub({ projectId, branch, boardNumber: ref.number, defaultBranch: config.defaultBranch }),
-    );
-    deps.vcs.addPath(config.govHome, `projects/${projectId}/.gitkeep`);
-    deps.vcs.commit(config.govHome, `seed: scaffold project folder for ${projectId} (GitHub #${ref.number})`);
+    // `detectLeftovers` still LOOKS for a home stub, and must: adopters who seeded before today have one on their
+    // default branch, and `gov seed --clean` is how they remove it. Detection of a legacy artifact outlives its
+    // creation — deleting the check would orphan every stub already out there.
+    //
+    // The rollback that undid this phase is gone with it. It was the delicate one: `reset --mixed` rather than
+    // `--hard`, because `--hard` was pointed at the resolved workspace and an uncommitted `org-config.yaml` sat
+    // in the blast radius (#191). Nothing to undo is better than undoing carefully.
 
     // ── Phase B: gov worktree on the project branch ───────────────────────────
     log("Phase B: gov worktree");
@@ -428,9 +408,6 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
       () => deps.vcs.push(orgGovClone, remote, branch, { setUpstream: true }),
       () => deps.vcs.pushDelete(orgGovClone, remote, branch),
     );
-    // The home default-branch push (the stub commit) is not compensated — the
-    // default branch cannot be deleted, and it is shared.
-    deps.vcs.push(config.govHome, remote, config.defaultBranch);
 
     // ── Anchor issue (best-effort; not transactional) ─────────────────────────
     // RECORD THE BASE BRANCH, because close cannot work it out later (merge-chain.ts explains why).

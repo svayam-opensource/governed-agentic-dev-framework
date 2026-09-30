@@ -155,6 +155,12 @@ segment beneath it. Sibling directories under `~/.gov/<slug>/` hold `preferences
 own `policies/` are **not** snapshotted, so an agent reading that directory sees the framework's rules and none of
 yours. Its cues reach the agent through the harness instead.
 
+**Nothing gov does writes to the governance repo's default branch.** `gov seed` creates the project branch and
+nothing else; it used to commit a `projects/<id>/.gitkeep` stub to the default branch and push it, which
+`governance_posture: hard` blocks outright. The stub held no information — its text said the real content was on
+the project branch and that the board is the source of truth — and nothing ever read it for content. Adopters who
+seeded before 2026-09-30 still have stubs, and `gov seed --clean` removes them.
+
 **The harness is written on launch, and only when its bytes change.** Nine files at the project root and, since
 2026-09-28, the same nine inside every cloned code repository — because an IDE opened at a code repo governs the
 agent only if that vendor searches parent directories, which one of nine does.
@@ -221,7 +227,7 @@ recorded in `governance_posture`:
 | `governance_posture` | Means |
 |---|---|
 | `hard` | `gov repo protect apply` installs the controls: a pull request required, an approving review required, no bypass for administrators, and a required check verifying the approver is authorized |
-| | **⚠ `gov seed` still writes past them.** It pushes the project stub straight to the governance repo's default branch, so `hard` and `gov seed` cannot both be satisfied today. Recorded because it is true, not because it is intended; under review as of 2026-09-30. (`gov close` no longer does this — see §3.) |
+| | Under `hard`, **no gov verb writes to a protected branch.** That was not true until 2026-09-30: `gov close` merged its own pull requests with the administrator override, and `gov seed` pushed a project stub straight to the default branch — so the posture was incompatible with the verb that starts every project. Both are fixed; §3 and §5 say what each does instead. |
 | `soft` | direct work is deliberately possible. gov's gates and the agent's cues remain, and neither binds a hand-run `git push` |
 | unset | nobody has chosen. `gov doctor` says so, and does not treat it as either |
 

@@ -157,9 +157,14 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     expect(writes.some((w) => w.endsWith("/.claude/settings.json")), "NO Claude-only hook").to.equal(false);
     // base clone was missing → cloned
     expect(pxAll(cloned)).to.deep.equal(["/awr/.bases/911-SVM-LIB-SVC"]);
-    // gov worktree created before the code-repo push; home default pushed
+    // gov worktree created before the code-repo push
     expect(log).to.include(`worktreeAdd ${ORG_GOV_CLONE} BRNCH-43-governance-common-project`);
-    expect(log).to.include("push /gov main");
+    // AND SEED NEVER TOUCHES THE DEFAULT BRANCH (Policy Owner, 2026-09-30). It used to commit a
+    // `projects/<id>/.gitkeep` stub and push it here — which `governance_posture: hard` blocks outright, making
+    // the posture incompatible with the verb that starts every project. The stub's own text said GitHub was the
+    // sole source of truth and nothing ever read it for information.
+    expect(log, "no push to the default branch").to.not.include("push /gov main");
+    expect(log.filter((l) => l.startsWith("commit /gov")), "and nothing committed there").to.deep.equal([]);
     // no compensations ran
     expect(log.some((l) => l.startsWith("resetHard") || l.startsWith("worktreeRemove"))).to.equal(false);
   });
@@ -175,13 +180,14 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
     expect(r.ok).to.equal(false);
     if (r.ok) return;
     expect(r.reason).to.equal("seed-failed");
-    // compensations ran: home un-committed + gov worktree removed + code-repo branch cleanup.
-    // `resetKeepingFiles`, NOT `resetHard`: the undo runs inside the RESOLVED workspace,
-    // where `reset --hard` and `clean` can destroy files this seed never created — which
-    // is how a failed seed once removed org-config.yaml and left gov unable to resolve
-    // the workspace at all (#191).
-    expect(log).to.include("resetKeepingFiles /gov presha");
-    expect(log, "never --hard inside the workspace").to.not.include("resetHard /gov presha");
+    // Compensations ran: gov worktree removed + code-repo branch cleanup.
+    //
+    // THERE IS NO `resetKeepingFiles` ANY MORE, and its absence is the improvement. It undid the home-stub
+    // commit, and it had to be `--mixed` rather than `--hard` because the undo ran inside the RESOLVED workspace
+    // where an uncommitted org-config.yaml sat in the blast radius (#191). Seed no longer commits to the default
+    // branch at all, so there is nothing delicate left to undo — which is a better answer than undoing carefully.
+    expect(log, "nothing to reset, because nothing was committed").to.not.include("resetKeepingFiles /gov presha");
+    expect(log, "and certainly never --hard inside the workspace").to.not.include("resetHard /gov presha");
     expect(log).to.include(`worktreeRemove ${ORG_GOV_CLONE}`);
     expect(log.some((l) => l.startsWith("pushDelete"))).to.equal(true);
   });
