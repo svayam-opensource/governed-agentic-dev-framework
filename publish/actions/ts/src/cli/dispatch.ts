@@ -456,9 +456,20 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo, defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch, envBranches: c.envBranches },
         { govClone: ctx.home, projectWorkRoot, today: ctx.today },
       );
-      return r.ok
-        ? { code: 0, lines: [`Project ${r.projectId} closed`, `  PR: ${r.prUrl ?? "(merged)"}`] }
-        : { code: r.code, lines: [r.message, ...(r.failures ?? [])] };
+      // `(merged)` used to stand in for a null PR url, and it is no longer a state close can report: gov opens
+      // the proposal and a person merges it (Policy Owner, 2026-09-30). Saying "merged" when nobody had merged
+      // anything was the output half of the same defect as the `--admin` call that produced it.
+      if (!r.ok) return { code: r.code, lines: [r.message, ...(r.failures ?? [])] };
+      if (r.archivedOnly) return { code: 0, lines: [`Project ${r.projectId} closed — '${r.projectBranch}' merged and archived.`] };
+      return {
+        code: 0,
+        lines: [
+          `Project ${r.projectId} closed`,
+          r.prUrl
+            ? `  PR: ${r.prUrl} — a human merges this; re-run \`gov close\` afterwards to archive the branch`
+            : `  the close PR could not be opened — open one for '${r.projectBranch}' → ${c.defaultBranch}, then re-run \`gov close\``,
+        ],
+      };
     }
 
     case "sync": {

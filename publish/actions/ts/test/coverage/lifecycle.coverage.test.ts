@@ -89,7 +89,7 @@ const anchor: AnchorCreator = {
   find: () => ({ url: "https://github.com/O/r/issues/1", number: 1, labels: [], assignees: [], baseBranch: null }),
   setAssignee: () => true,
 } as unknown as AnchorCreator;
-const pulls: Pulls = { create: () => "pr", merge: () => "merged" };
+const pulls: Pulls = { create: () => "pr", state: () => null };
 
 function ctx(over: Partial<CliContext> = {}): CliContext {
   return {
@@ -700,14 +700,17 @@ describe("lifecycle coverage — close", () => {
     expect(r.code).to.equal(0);
     expect(pxDeep(r.lines)).to.deep.equal([
       `Project ${PID} closed`,
-      "  PR: pr",
+      "  PR: pr — a human merges this; re-run `gov close` afterwards to archive the branch",
     ]);
   });
 
-  it("happy path with a null PR url → reports (merged)", () => {
-    const r = run(["close"], { fs: closeFs(), pulls: { create: () => null, merge: () => "merged" } });
+  it("a PR that could not be OPENED says so, and never claims a merge", () => {
+    // This used to print "PR: (merged)" for a null url — asserting a merge that nobody had performed, which was
+    // the output half of the `--admin` defect. The project IS closed; the proposal simply is not open yet.
+    const r = run(["close"], { fs: closeFs(), pulls: { create: () => null, state: () => null } });
     expect(r.code).to.equal(0);
-    expect(r.lines[1]).to.equal("  PR: (merged)");
+    expect(r.lines.join(" ")).to.not.contain("merged");
+    expect(r.lines[1]).to.contain("could not be opened");
   });
 
   // ── WHERE close LANDS THE BRANCH, and where it learned that from ─────────────
@@ -810,9 +813,16 @@ expect(r.lines.join(" "), "the message names the directory and how to get one").
     expect(r.lines).to.include("validator X failed");
   });
 
-  it("error: the close PR cannot be merged → exit 1 (pr-merge-failed)", () => {
-    const r = run(["close"], { fs: closeFs(), pulls: { create: () => "pr", merge: () => "failed" } });
+  it("a close PR still OPEN → exit 1, and nothing is touched", () => {
+    const r = run(["close"], { fs: closeFs(), pulls: { create: () => "pr", state: () => "open" } });
     expect(r.code).to.equal(1);
-    expect(px(r.lines[0])).to.equal("Could not merge the close PR (pr). Merge it manually, then re-run.");
+    expect(px(r.lines[0])).to.contain("still open");
+    expect(px(r.lines[0]), "and it says the board is done, so nobody hunts for more work").to.contain("board is already closed");
+  });
+
+  it("a close PR a person MERGED → exit 0, archived, and it says so", () => {
+    const r = run(["close"], { fs: closeFs(), pulls: { create: () => "pr", state: () => "merged" } });
+    expect(r.code).to.equal(0);
+    expect(px(r.lines[0])).to.contain("merged and archived");
   });
 });

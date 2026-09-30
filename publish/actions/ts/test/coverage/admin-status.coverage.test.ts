@@ -61,7 +61,7 @@ const vcsWith = (over: Partial<Vcs> = {}): Vcs => ({ ...baseVcs(), ...over });
 const board: Board = { fetchProject: () => ({ id: "P", title: "@Governance Common Project", shortDescription: null, linkedItemCount: 1, repoUrls: [] }) };
 const baseFs: Fs = { pathExists: () => false, readFile: () => null, mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [] };
 const issues: Issues = { state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {}, resolveIssueUrl: () => null, closeBoard: () => {} };
-const pulls: Pulls = { create: () => "pr", merge: () => "merged" };
+const pulls: Pulls = { create: () => "pr", state: () => null };
 
 /** Projects port over an explicit board list. */
 const projectsOf = (boards: readonly BoardSummary[]): Projects => ({ listBoards: () => [...boards] });
@@ -239,7 +239,7 @@ describe("coverage: gov knowledge", () => {
 
   it("knowledge submit <slug> <desc…> → exit 0, opened PR (desc joined)", () => {
     const created: string[] = [];
-    const p: Pulls = { create: (_repo, _base, _head, _title, body) => { created.push(body); return "https://pr/1"; }, merge: () => "m" };
+    const p: Pulls = { create: (_repo, _base, _head, _title, body) => { created.push(body); return "https://pr/1"; }, state: () => null };
     const r = run(["knowledge", "submit", "my-slug", "--description", "a longer desc"], { pulls: p });
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("Opened knowledge PR: https://pr/1");
@@ -248,7 +248,7 @@ describe("coverage: gov knowledge", () => {
 
   it("knowledge submit <slug> (no description) → exit 0, default description used", () => {
     const created: string[] = [];
-    const p: Pulls = { create: (_r, _b, _h, _t, body) => { created.push(body); return "https://pr/2"; }, merge: () => "m" };
+    const p: Pulls = { create: (_r, _b, _h, _t, body) => { created.push(body); return "https://pr/2"; }, state: () => null };
     const r = run(["knowledge", "submit", "solo"], { pulls: p });
     expect(r.code).to.equal(0);
     expect(r.lines[0]).to.equal("Opened knowledge PR: https://pr/2");
@@ -262,7 +262,7 @@ describe("coverage: gov knowledge", () => {
   });
 
   it("knowledge submit <slug> when PR cannot be opened → exit 1", () => {
-    const r = run(["knowledge", "submit", "my-slug"], { pulls: { create: () => "", merge: () => "m" } });
+    const r = run(["knowledge", "submit", "my-slug"], { pulls: { create: () => "", state: () => null } });
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.equal("Could not open a PR for 'knowledge-my-slug'.");
   });
@@ -440,7 +440,7 @@ describe("coverage: gov onboard", () => {
 
   it("onboard multi-word description → joined into one description", () => {
     const bodies: string[] = [];
-    const p: Pulls = { create: (_r, _b, _h, _t, body) => { bodies.push(body); return "pr"; }, merge: () => "m" };
+    const p: Pulls = { create: (_r, _b, _h, _t, body) => { bodies.push(body); return "pr"; }, state: () => null };
     const r = run(["onboard", URL, "--owner", "rkant", "--description", "one two three"], { vcs: freshVcs(), pulls: p });
     expect(r.code).to.equal(0); // description slice(2).join(" ") — 'one two three'
     expect(r.lines[0]).to.equal("Onboarded acme (branch onboard-knowledge pushed).");
@@ -478,7 +478,7 @@ describe("coverage: gov onboard", () => {
   });
 
   it("onboard when no PR could be opened → exit 0 with manual-PR guidance", () => {
-    const r = run(["onboard", URL, "--owner", "rkant", "--description", "desc"], { vcs: freshVcs(), pulls: { create: () => "", merge: () => "m" } });
+    const r = run(["onboard", URL, "--owner", "rkant", "--description", "desc"], { vcs: freshVcs(), pulls: { create: () => "", state: () => null } });
     expect(r.code).to.equal(0);
     expect(r.lines[1]).to.equal("  branch pushed — open a PR for onboard-knowledge manually.");
   });

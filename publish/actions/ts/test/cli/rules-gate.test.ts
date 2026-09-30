@@ -66,7 +66,7 @@ function fakeVcs(): Vcs {
 const board: Board = { fetchProject: () => ({ id: "P", title: "@Governance Common Project", shortDescription: null, linkedItemCount: 1, repoUrls: [] }) };
 const issues: Issues = { state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {}, resolveIssueUrl: () => null, closeBoard: () => {} };
 const anchor: AnchorCreator = { createAnchorIssue: () => "r#1", setState: () => true };
-const pulls: Pulls = { create: () => "pr", merge: () => "merged" };
+const pulls: Pulls = { create: () => "pr", state: () => null };
 
 /** A context whose disk holds the marker, and whose login is known — the state §8 is about. */
 function ctx(over: Partial<CliContext> = {}, marked = true): CliContext {

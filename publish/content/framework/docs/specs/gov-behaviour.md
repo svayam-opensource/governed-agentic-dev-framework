@@ -93,7 +93,23 @@ does, the gates written against the cache fire on correct work.
 - A code repository's project branch is cut from `default_code_branch`, which `gov seed` can override for a
   hotfix line.
 - A task sub-branch merges back to its parent project branch. `gov merge` will not merge one anywhere else.
-- On close or cancel, each branch is tagged `archive/<branch>` and then deleted.
+- On cancel, each branch is tagged `archive/<branch>` and then deleted.
+
+**Close is two-phase, because its two jobs carry different authority.**
+
+| Target | What close does | Why |
+|---|---|---|
+| a **code** repo | merges the project branch back into the branch it was cut from, locally with git, and pushes. Then tags `archive/<branch>` and deletes it. | gov completing work gov started. An authorized automatic merge: no pull request, nothing to review, no override. |
+| the **governance** repo | opens a pull request and **leaves it** | that branch proposes org-wide knowledge, and §8.3 says a proposal becomes standard only when a person with the authority merges it |
+
+The board closes on the first run, without waiting: a completed project stays completed whether its knowledge
+proposal is merged, rejected or abandoned. The governance branch is **not** archived on that run, because it is
+the open pull request's head and deleting it would close the request unmerged. Re-running `gov close` after
+someone merges tags and deletes it; while the request is still open, the re-run says so and changes nothing.
+
+**gov never merges a pull request.** It used to merge this one with `gh pr merge --admin` — the administrator
+override of the approving review that `gov repo protect` installs — seconds after opening it, in a file whose own
+header called that request "the governance review point". Removed 2026-09-30.
 
 **What is NOT specified here, because no code does it:** no branch is derived from a project branch by suffixing
 it. `gov close` creates no branch at all. The two knowledge branches that do exist are fixed names belonging to
@@ -205,7 +221,7 @@ recorded in `governance_posture`:
 | `governance_posture` | Means |
 |---|---|
 | `hard` | `gov repo protect apply` installs the controls: a pull request required, an approving review required, no bypass for administrators, and a required check verifying the approver is authorized |
-| | **⚠ and `gov close` then overrides them.** It merges its own pull requests with `gh pr merge --admin`, the administrator bypass of the review it just required, and it pushes directly to `default_code_branch` and to every middle `env_branches` rung without opening one at all. `gov seed` likewise pushes the project stub straight to the governance repo's default branch — so `hard` and `gov seed` cannot both be satisfied. Recorded here because it is true, not because it is intended; it is under review as of 2026-09-30. |
+| | **⚠ `gov seed` still writes past them.** It pushes the project stub straight to the governance repo's default branch, so `hard` and `gov seed` cannot both be satisfied today. Recorded because it is true, not because it is intended; under review as of 2026-09-30. (`gov close` no longer does this — see §3.) |
 | `soft` | direct work is deliberately possible. gov's gates and the agent's cues remain, and neither binds a hand-run `git push` |
 | unset | nobody has chosen. `gov doctor` says so, and does not treat it as either |
 

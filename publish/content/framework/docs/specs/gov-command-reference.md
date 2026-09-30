@@ -679,14 +679,14 @@ gov close
 gov close
 ```
 
-**Changes.** runs the knowledge gate, merges the project branch to its base in every repo, opens the knowledge pull request, and closes the board
+**Changes.** TWO PHASES, because the two things it does carry different authority. In a CODE repo the project branch merges back into the branch it was cut from — an authorized automatic merge, no pull request, done locally with git. In the GOVERNANCE repo it opens a pull request and leaves it: that branch proposes org-wide knowledge and a PERSON merges it. So the first run runs the gate, merges and pushes every code repo, archives their project branches, opens the close pull request and closes the board — the project is complete at that point whether the proposal is later merged, rejected or abandoned. It deliberately does NOT archive the governance branch, because that branch is the open pull request's head and deleting it would close the request unmerged. Re-run `gov close` after someone merges, and it tags and deletes that branch
 
 **Exit codes**
 
 | code | means |
 | --- | --- |
 | `0` | done |
-| `1` | failed — nothing half-applied that gov could undo; the knowledge gate refused — what is missing is named, and nothing was merged |
+| `1` | failed — nothing half-applied that gov could undo; the knowledge gate refused — what is missing is named, and nothing was merged; the close pull request is still open — a person merges it, then re-run to archive the branch |
 | `2` | usage: a missing or wrong argument |
 
 **See also.** [gov merge](#gov-merge) · [gov knowledge](#gov-knowledge)

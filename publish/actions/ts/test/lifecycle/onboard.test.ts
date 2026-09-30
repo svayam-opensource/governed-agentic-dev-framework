@@ -29,7 +29,7 @@ function world(opts: { hasKnowledge?: boolean; remoteBranch?: boolean } = {}) {
     writeFile: (f: string) => writes.push(px(f)),   // record normalised: the assertions below are POSIX literals
     mkdirp: () => {}, readFile: () => null, rm: () => {}, readdir: () => [],
   } as Fs;
-  const pulls: Pulls = { create: () => "https://github.com/Svayamtech/new-svc/pull/1", merge: () => "merged" };
+  const pulls: Pulls = { create: () => "https://github.com/Svayamtech/new-svc/pull/1", state: () => null };
   return { deps: { vcs, fs, pulls, cloneRepo: (u: string, d: string) => cloned.push(px(`${u}->${d}`)), log: (m: string) => log.push(m) }, log, writes, cloned };
 }
 
