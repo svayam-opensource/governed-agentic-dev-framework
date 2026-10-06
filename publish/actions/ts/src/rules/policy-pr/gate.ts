@@ -9,8 +9,9 @@
  *                  store only grew (a row is closed, never edited or deleted; a retired id is never reused) —
  *                  save the one in-place edit Q17 allows: an open row's `source.sha` refreshed, nothing else;
  *   its VERSION    `policies/VERSION` bumped exactly as the change needs — minor when rows were added, revised or
- *                  retired, patch when only prose did (a sha refresh included), major whenever the org chooses —
- *                  and not at all when `policies/` is untouched;
+ *                  retired, or who-owns-what changed (`policies/ownership.yaml`: a row added, removed or re-pointed);
+ *                  patch when only prose did (a rule's or an ownership row's sha refresh included); major whenever
+ *                  the org chooses — and not at all when `policies/` is untouched;
  *   its SNAPSHOT   `policies/version/<prev>/` is the base's `policies/` byte for byte (minus `version/` and
  *                  `actions/`), and nothing already frozen there was edited or deleted;
  *   its CHANGELOG  an entry for the new version naming every rule added, revised or retired.
@@ -25,6 +26,7 @@ import { loadRuleStores, NO_ORG_VERSION, RULE_STORE_PATHS } from "../model/store
 import { inForce, parseRuleStore, type RuleRow } from "../model/rule-row.js";
 import { sectionShas } from "../checks/sections.js";
 import { treeAsGit, type TreeReader } from "./tree.js";
+import { OWNERSHIP_PATH, ownershipDiffers, parseOwnership } from "../checks/ownership.js";
 
 export const POLICY_PR_PATHS = {
   root: "policies",
@@ -65,6 +67,8 @@ export interface PolicyPrPlan {
   readonly baseVersion: string;
   readonly headVersion: string;
   readonly changes: RuleChanges;
+  /** Did who-owns-what change (a row added, removed, or its doc/section/role)? A sha alone is not. → minor. */
+  readonly ownershipChanged: boolean;
 }
 
 export interface PolicyPrJudgement extends PolicyPrPlan {
@@ -218,8 +222,12 @@ export function planPolicyPr(base: TreeReader, head: TreeReader): PolicyPrPlan |
   if (typeof baseRows === "string") return { unreadable: `base: ${baseRows}` };
   if (typeof headRows === "string") return { unreadable: `head: ${headRows}` };
   const changes = ruleChanges(baseRows, headRows);
-  const required: RequiredBump = !contentChanged ? "none" : changes.rowsChanged ? "minor" : "patch";
-  return { touched, required, baseVersion: readVersion(base), headVersion: readVersion(head), changes };
+  const baseOwn = parseOwnership(b.get(OWNERSHIP_PATH) ?? "[]"), headOwn = parseOwnership(h.get(OWNERSHIP_PATH) ?? "[]");
+  if ("error" in baseOwn) return { unreadable: `base: ${OWNERSHIP_PATH} ${baseOwn.error}` };
+  if ("error" in headOwn) return { unreadable: `head: ${OWNERSHIP_PATH} ${headOwn.error}` };
+  const ownershipChanged = ownershipDiffers(baseOwn, headOwn);
+  const required: RequiredBump = !contentChanged ? "none" : changes.rowsChanged || ownershipChanged ? "minor" : "patch";
+  return { touched, required, baseVersion: readVersion(base), headVersion: readVersion(head), changes, ownershipChanged };
 }
 
 // ── the CHANGELOG's entries ──────────────────────────────────────────────────────────────────────────────────
@@ -248,7 +256,7 @@ export function judgePolicyPr(input: PolicyPrInput): PolicyPrJudgement {
     return {
       verdict: "cannot-tell", findings: [{ check: "unreadable", message: `${plan.unreadable}, so nothing was checked.` }],
       touched: false, required: "none", baseVersion: NO_ORG_VERSION, headVersion: NO_ORG_VERSION,
-      changes: { added: [], revised: [], retired: [], refreshed: [], rowsChanged: false },
+      changes: { added: [], revised: [], retired: [], refreshed: [], rowsChanged: false }, ownershipChanged: false,
     };
   }
   // (a) Nothing under policies/ changed: nothing to carry, nothing to bump.
@@ -340,7 +348,7 @@ function checkVersion(base: string, head: string, required: RequiredBump, f: Emi
   }
   const [want, major] = allowedVersions(base, required);
   if (head === want || head === major) return;
-  const why = required === "minor" ? "rules changed" : "only prose changed";
+  const why = required === "minor" ? "rules or section ownership changed" : "only prose changed";
   f("version", `${POLICY_PR_PATHS.version} is ${head}; ${why}, so it must be ${want} (or ${major} if the organization chooses a major version)`);
 }
 

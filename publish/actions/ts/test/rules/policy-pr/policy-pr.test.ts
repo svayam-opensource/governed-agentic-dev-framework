@@ -265,6 +265,36 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
     });
   });
 
+  describe("(e) an ownership change is MINOR; an ownership sha refresh is a patch (Policy Owner, 2026-10-06)", () => {
+    const OWN = "policies/ownership.yaml";
+    const ROW = (over = "") => `- { doc: ${DOC}, section: "3", role: Data Owner, sha: "${sha(POLICY, "3")}"${over} }\n`;
+    const plan = (baseOwn: string | null, headOwn: string | null) => {
+      const b = baseFiles(), h = baseFiles();
+      if (baseOwn !== null) b[OWN] = baseOwn;
+      if (headOwn !== null) h[OWN] = headOwn;
+      const p = planPolicyPr(memTree(b), memTree(h));
+      if ("unreadable" in p) throw new Error(p.unreadable);
+      return p;
+    };
+    it("a row added, removed, or re-pointed → minor", () => {
+      expect(plan(null, ROW()).required).to.equal("minor");
+      expect(plan("[]\n", ROW()).required).to.equal("minor");
+      expect(plan(ROW(), "[]\n").required).to.equal("minor");
+      expect(plan(ROW(), ROW().replace("Data Owner", "Engineering Owner")).required).to.equal("minor");
+      expect(plan(ROW(), ROW().replace('section: "3"', 'section: "3.1"')).required).to.equal("minor");
+      expect(plan(ROW(), ROW()).ownershipChanged).to.equal(false);
+    });
+    it("only a row's sha moved → patch", () => {
+      const p = plan(ROW(), ROW().replace(/sha: "[0-9a-f]+"/, 'sha: "9999999"'));
+      expect(p).to.deep.include({ required: "patch", ownershipChanged: false });
+    });
+    it("an ownership file that does not parse is unreadable — never guessed at", () => {
+      const h = baseFiles();
+      h[OWN] = "{ not: a list";
+      expect("unreadable" in planPolicyPr(memTree(baseFiles()), memTree(h))).to.equal(true);
+    });
+  });
+
   describe("(e) the version bump", () => {
     it("rows changed: minor or major pass, patch fails", () => {
       for (const [v, ok] of [["1.5.0", true], ["2.0.0", true], ["1.4.1", false], ["1.4.0", false], ["1.6.0", false]] as const) {

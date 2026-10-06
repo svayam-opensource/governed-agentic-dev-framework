@@ -161,6 +161,8 @@ describe("check engine slice 2 — gov-builtin/section-owner-approval", () => {
   const BASE = "## 3 Technology\n\nUse approved tech.\n\n### 3.1 Libraries\n\nOnly listed.\n\n## 4 Data\n\nKeep it safe.\n\n## 6 Other\n\nx\n";
   const ownership = [{ doc: DOC, section: "4", role: "Data Owner", sha: "0000004" }, { doc: DOC, section: "3", role: "Engineering Owner", sha: "0000003" }];
   const rules = ruleset([], { ownership });
+  const OWN = "policies/ownership.yaml";
+  const OWN_BASE = '- { doc: policies/org-policy.md, section: "4", role: Data Owner, sha: "0000004" }\n';
   const pr = (changed: ChangedFile[], extra: Record<string, unknown> = {}): EventContext =>
     ({ resource: "vcs.gov-repo", event: "pull_request", payload: { changed, baseTexts: { [DOC]: BASE }, ...extra } as EventContext["payload"] });
   const run = (ctx: EventContext, rs: RuleSet = rules) =>
@@ -184,9 +186,40 @@ describe("check engine slice 2 — gov-builtin/section-owner-approval", () => {
 
   it("an unowned section, ownership.yaml, and policies/actions/** route to the Policy Owner and Check Owner", () => {
     const head = BASE.replace("x\n", "y\n");
-    const r = run(pr([file(DOC, head), file("policies/ownership.yaml", "[]"), file("policies/actions/lint/run.sh", "echo")], { approvals: [] }));
+    const r = run(pr([file(DOC, head), file(OWN, "[]"), file("policies/actions/lint/run.sh", "echo")], { approvals: [], baseTexts: { [DOC]: BASE, [OWN]: OWN_BASE } }));
     expect(r.requestReview).to.deep.equal(["chuck", "polly"]);
     expect(r.findings.join()).to.contain("§6").and.contain("policies/ownership.yaml").and.contain("policies/actions/lint/run.sh");
+  });
+
+  describe("policies/ownership.yaml: the Policy Owner approves a change to WHO owns WHAT, not a sha refresh", () => {
+    const head = (rows: string) => run(pr([file(OWN, rows)], { approvals: [], baseTexts: { [DOC]: BASE, [OWN]: OWN_BASE } }));
+    it("only a row's sha moved → nobody extra (the section's owner approves its prose)", () => {
+      const r = head(OWN_BASE.replace('sha: "0000004"', 'sha: "9999999"'));
+      expect(r).to.deep.include({ verdict: "pass" });
+    });
+    for (const [what, rows] of [
+      ["a row added", OWN_BASE + '- { doc: policies/org-policy.md, section: "6", role: Data Owner, sha: "0000006" }\n'],
+      ["a row removed", "[]\n"],
+      ["a role changed", OWN_BASE.replace("role: Data Owner", "role: Engineering Owner")],
+      ["a section changed", OWN_BASE.replace('section: "4"', 'section: "4.1"')],
+      ["a doc changed", OWN_BASE.replace("doc: policies/org-policy.md", "doc: policies/other.md")],
+      ["the file no longer parses", "{ not: a list"],
+    ] as const) {
+      it(`${what} → the Policy Owner`, () => {
+        const r = head(rows);
+        expect(r.verdict).to.equal("miss");
+        expect(r.requestReview).to.deep.equal(["polly"]);
+        expect(r.findings.join()).to.contain("policies/ownership.yaml");
+      });
+    }
+    it("the base's ownership.yaml not given → cannot-tell", () => {
+      expect(run(pr([file(OWN, OWN_BASE)], { approvals: [] })).verdict).to.equal("cannot-tell");
+    });
+    it("a new ownership.yaml with rows → the Policy Owner; a new empty one → nobody", () => {
+      const added = (t: string) => run(pr([file(OWN, t, "added")], { approvals: [], baseTexts: { [DOC]: BASE, [OWN]: null } }));
+      expect(added(OWN_BASE).requestReview).to.deep.equal(["polly"]);
+      expect(added("[]\n").verdict).to.equal("pass");
+    });
   });
 
   it("a snapshot under policies/version/** and a non-policy file need nobody", () => {

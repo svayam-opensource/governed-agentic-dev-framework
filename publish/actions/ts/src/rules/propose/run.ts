@@ -11,7 +11,8 @@
  *     changed, or new, or rows stale ............ interview (interview.ts)
  *     gone from the document .................... its rules retire (no model: there is no prose left to read)
  *   all settled → applyVerdicts with gov's IdIssuer (ids NEVER from the model) → rows, ownership, changelog draft,
- *   and the version bump the P1 ruling sets: a rule added/revised/retired → minor; prose only → patch.
+ *   and the version bump the P1 ruling sets: a rule added/revised/retired, or who-owns-what changed → minor;
+ *   prose only (sha refreshes included) → patch.
  *   any answer pending → BLOCKED, nothing produced (in CI the PR stays blocked until the owner replies).
  *
  * W5 owns the files (VERSION, snapshot, CHANGELOG.md); this returns their content.
@@ -23,6 +24,7 @@ import { inForce, type RuleRow, type Stamp } from "../model/rule-row.js";
 import type { IdIssuer, Proposer, RuleSet, SectionOwnership, SectionVerdict } from "../model/contracts.js";
 import { applyVerdicts } from "../model/revise.js";
 import { policySections, sectionShas } from "../checks/sections.js";
+import { ownershipDiffers } from "../checks/ownership.js";
 import type { ModelPort } from "./model-port.js";
 import type { ProposedRow, ProposalQuestion } from "./parse.js";
 import { interviewSection, type InterviewChannel, type QA, type SectionOutcome } from "./interview.js";
@@ -191,7 +193,8 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
     for (const o of w.outcome.ownership) ownership.set(ownKey({ doc: w.doc, section: o.section }), { doc: w.doc, section: o.section, role: o.role, sha: w.sha });
   }
   // Who owns what changed — a row added, dropped, or handed to another role. A sha moving alone is prose.
-  const ownershipChanged = before.size !== ownership.size || [...ownership].some(([k, o]) => before.get(k)?.role !== o.role);
+  // The one comparison the gate and section-owner-approval use too (checks/ownership.ts) → minor (Policy Owner).
+  const ownershipChanged = ownershipDiffers([...before.values()], [...ownership.values()]);
 
   const applied = applyVerdicts(set.org, verdicts, deps.at, deps.issuer, set.orgScope);
   if (!applied.ok) {

@@ -159,6 +159,14 @@ describe("rule model — W4 propose engine", () => {
       expect(r.status === "ready" && r.bump).to.equal("patch");
     });
 
+    it("a new ownership row (prose otherwise unchanged in meaning) is an ownership change → minor (the gate plans the same: see policy-pr.test.ts)", async () => {
+      const base = POLICY("Tech.");
+      const head = base.replace("Section 4 is owned by the Data Owner.", "Section 4 is owned by the Data Owner. Section 3 is owned by the Data Owner.");
+      const model = fakeModel([{ verdicts: [], ownership: [{ section: "4", role: "Data Owner" }, { section: "3", role: "Data Owner" }], questions: [] }]);
+      const r = await runPropose({ docs: [{ doc: DOC, head, base }], set: setWith([], { roles, ownership: [owned(shaOf(base, "4"))] }), model, channel: scripted([]), issuer: createIdIssuer([]), at: AT });
+      expect(r.status === "ready" && r.bump).to.equal("minor");
+    });
+
     it("an unchanged granting section keeps its row as it was", async () => {
       const base = POLICY("Tech.");
       const head = POLICY("Tech, reworded.");
