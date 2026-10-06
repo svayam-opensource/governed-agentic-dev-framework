@@ -355,7 +355,7 @@ ${observe(event) ? "    permissions:\n      contents: read\n      issues: write\
       - name: Install the gov CLI
         run: npm install -g @svayam-opensource/gov
       - name: gov check run ${id}
-${observe(event) ? "        env:\n          GH_TOKEN: ${{ github.token }}\n" : ""}        run: gov check run ${id} --resource ${resource} --event ${event}
+${observe(event) ? "        env:\n          GH_TOKEN: ${{ github.token }}\n" : ""}        run: gov check run ${id} --resource ${resource} --event ${event} --gov-home .
 `;
 const EXPECTED_CODE_REPO = `${HEADER}
 on:

@@ -27,6 +27,12 @@ export interface GithubRendererOptions {
   readonly govPackage?: string;
   /** The repository's default branch, for `$default` push filters. Unknown → those pushes are not filtered. */
   readonly defaultBranch?: string;
+  /**
+   * A CODE repository's workflow: the governance repository to check out beside it, because the rules live there
+   * (read at ITS default branch). The token must read that repository — `GITHUB_TOKEN` cannot read another
+   * private repository, so a secret is named. Absent → this IS the governance repository (`--gov-home .`).
+   */
+  readonly govCheckout?: { readonly repository: string; readonly tokenSecret?: string };
 }
 
 type Binding = { readonly id: string; readonly check: CheckBinding };
@@ -161,6 +167,16 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       "      - uses: actions/checkout@v4",
       "        with:",
       "          fetch-depth: 0",
+      ...(opts.govCheckout
+        ? [
+            "      - uses: actions/checkout@v4",
+            "        with:",
+            `          repository: ${opts.govCheckout.repository}`,
+            "          path: .gov",
+            "          fetch-depth: 0",
+            `          token: \${{ secrets.${opts.govCheckout.tokenSecret ?? "GOV_REPO_TOKEN"} }}`,
+          ]
+        : []),
       "      - uses: actions/setup-node@v4",
       "        with:",
       '          node-version: "24"',
@@ -169,7 +185,7 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       `      - name: gov check run ${j.id}`,
       // The token only where the job was granted more than reading the repository.
       ...(keys.length ? ["        env:", "          GH_TOKEN: ${{ github.token }}"] : []),
-      `        run: gov check run ${j.id} --resource ${j.resource} --event ${j.event}`,
+      `        run: gov check run ${j.id} --resource ${j.resource} --event ${j.event} ${opts.govCheckout ? "--gov-home .gov --repo-dir ." : "--gov-home ."}`,
     );
   }
   return [{ path: WORKFLOW_PATH, text: lines.join("\n") + "\n" }];

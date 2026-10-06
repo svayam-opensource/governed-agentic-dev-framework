@@ -53,7 +53,7 @@ async function dispatch(): Promise<number> {
   // repo clone URL before being told anything. They do not have one; that is what they were trying to
   // find out. A command whose whole purpose is to answer "what state am I in?" must never be replaced by
   // a question that presumes the answer.
-  const NO_FIRST_RUN = new Set(["setup", "org", "doctor", "deps", "validate", "help", "--help", "-h", "--version", "-v"]);
+  const NO_FIRST_RUN = new Set(["setup", "org", "doctor", "deps", "validate", "check", "help", "--help", "-h", "--version", "-v"]);
   if (process.stdin.isTTY && !NO_FIRST_RUN.has(argv[0] ?? "")) {
     const first = await runFirstRunIfNeeded();
     if (first !== null) return first;   // null = already set up; anything else is this invocation's answer

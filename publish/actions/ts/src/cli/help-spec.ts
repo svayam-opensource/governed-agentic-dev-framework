@@ -266,10 +266,34 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     changes: "`plan` changes nothing at all. `apply` writes the branch-protection settings §3.3 requires (a pull request, at least one approving review, administrators included, and the approver check as a required check) through `gh api`, then RE-READS the branch and reports from the re-read — never from the write's exit code. It also copies the framework's `approver-check` workflow into the clone's `.github/workflows/`, and it will not make that check required until the workflow is on the branch, because a required check that has never run leaves every pull request pending for ever. It respects `governance_posture`: under `soft` — the default when none is recorded — it installs nothing, and with a value it does not recognise it refuses",
     exit: [
       { code: 0, means: "done, confirmed by a re-read — or already correct, or a soft posture, which install nothing" },
-      { code: 1, means: "NOT protected: the platform refused (GitHub Free + private — §3.4 names the three ways out), gov could not read the branch, no posture has been chosen, or the workflow must land first" },
+      { code: 1, means: "NOT protected: the platform refused (GitHub Free + private — §3.4 names the three ways out), gov could not read the branch, the posture value is not one gov knows, or the workflow must land first" },
       { code: 2, means: "usage" },
     ],
     seeAlso: ["doctor", "rules", "upgrade"],
+  },
+  {
+    name: "check", audience: "you",
+    summary: "run one rule's checks for the event that fired, or install the workflow that runs them",
+    usage: "<run <GOV-ID> --resource <r> --event <e> | install [--repo <path>]>",
+    where: "GOVERNED — `run` is what the rendered `gov-checks` workflow calls in GitHub Actions; `install` writes that workflow",
+    args: [
+      { name: "run <GOV-ID>", what: "run the rule's checks bound to --resource · --event. Rules are read from the governance repo's DEFAULT branch; the event from GITHUB_EVENT_PATH / GITHUB_EVENT_NAME / GITHUB_REPOSITORY" },
+      { name: "install", what: "render every in-force binding for one repository into `.github/workflows/gov-checks.yml` — the governance repo gets vcs.gov-repo and pms.issue, a code repo vcs.code-repo" },
+    ],
+    flags: [
+      { name: "--resource <r>", what: "run: the catalog resource the event came from (`vcs.gov-repo`, `vcs.code-repo`, `pms.issue`, …)" },
+      { name: "--event <e>", what: "run: the event (`pull_request`, `push`, `closed`, …)" },
+      { name: "--repo-dir <path>", what: "run: the checked-out repository the changeset is read from (default: the governance repo)" },
+      { name: "--repo <path>", what: "install: the working tree to write into (default: the governance repo); any other path is a linked code repo" },
+    ],
+    examples: ["gov check run GOV-FRM-086 --resource vcs.gov-repo --event pull_request", "gov check install", "gov check install --repo ~/.gov/acme/projects/PRJ-7/billing"],
+    changes: "`run` changes nothing in the repository. On a failed check of an event that already happened (a push, an issue closed) it opens a `gov-violation` issue for the Policy Owner and runs the catalog's undo, if one is declared; on a gate it may request reviews from section owners. `install` writes the workflow file into the working tree and stops — it never commits, pushes, or changes repository settings; under hard posture it prints the settings to apply",
+    exit: [
+      { code: 0, means: "run: passed; or failed on an event that already happened (a violation record was opened); or could not tell under SOFT posture (a warning says so). install: written, or nothing to write" },
+      { code: 1, means: "run: failed on a gate event; or could not tell under HARD posture. install: the rules could not be read, so nothing was written" },
+      { code: 2, means: "usage" },
+    ],
+    seeAlso: ["repo", "rules", "validate"],
   },
   {
     name: "rules", audience: "you",

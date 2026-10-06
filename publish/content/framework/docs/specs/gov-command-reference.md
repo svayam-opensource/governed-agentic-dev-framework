@@ -30,6 +30,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov log](#gov-log) — what gov did — one log per run, on this machine
 - [gov agent](#gov-agent) — which AI agents your org approves, what is installed, and how to add one
 - [gov repo](#gov-repo) — install the repository controls framework-policy §3.3 requires — or say why the platform will not
+- [gov check](#gov-check) — run one rule's checks for the event that fired, or install the workflow that runs them
 - [gov rules](#gov-rules) — compile the policies into what agents and checks actually use
 
 **[Your agent runs these (you can too)](#your-agent-runs-these-you-can-too)**
@@ -420,10 +421,56 @@ gov repo protect plan --repo acme/billing
 | code | means |
 | --- | --- |
 | `0` | done, confirmed by a re-read — or already correct, or a soft posture, which install nothing |
-| `1` | NOT protected: the platform refused (GitHub Free + private — §3.4 names the three ways out), gov could not read the branch, no posture has been chosen, or the workflow must land first |
+| `1` | NOT protected: the platform refused (GitHub Free + private — §3.4 names the three ways out), gov could not read the branch, the posture value is not one gov knows, or the workflow must land first |
 | `2` | usage |
 
 **See also.** [gov doctor](#gov-doctor) · [gov rules](#gov-rules) · [gov upgrade](#gov-upgrade)
+
+### gov check
+
+run one rule's checks for the event that fired, or install the workflow that runs them
+
+```text
+gov check <run <GOV-ID> --resource <r> --event <e> | install [--repo <path>]>
+```
+
+**Where.** GOVERNED — `run` is what the rendered `gov-checks` workflow calls in GitHub Actions; `install` writes that workflow
+
+**Arguments**
+
+| argument | what it is |
+| --- | --- |
+| `run <GOV-ID>` | run the rule's checks bound to --resource · --event. Rules are read from the governance repo's DEFAULT branch; the event from GITHUB_EVENT_PATH / GITHUB_EVENT_NAME / GITHUB_REPOSITORY |
+| `install` | render every in-force binding for one repository into `.github/workflows/gov-checks.yml` — the governance repo gets vcs.gov-repo and pms.issue, a code repo vcs.code-repo |
+
+**Flags**
+
+| flag | what it does |
+| --- | --- |
+| `--resource <r>` | run: the catalog resource the event came from (`vcs.gov-repo`, `vcs.code-repo`, `pms.issue`, …) |
+| `--event <e>` | run: the event (`pull_request`, `push`, `closed`, …) |
+| `--repo-dir <path>` | run: the checked-out repository the changeset is read from (default: the governance repo) |
+| `--repo <path>` | install: the working tree to write into (default: the governance repo); any other path is a linked code repo |
+
+**Examples**
+
+```bash
+gov check run GOV-FRM-086 --resource vcs.gov-repo --event pull_request
+gov check install
+gov check install --repo ~/.gov/acme/projects/PRJ-7/billing
+```
+
+**Changes.** `run` changes nothing in the repository. On a failed check of an event that already happened (a push, an issue closed) it opens a `gov-violation` issue for the Policy Owner and runs the catalog's undo, if one is declared; on a gate it may request reviews from section owners. `install` writes the workflow file into the working tree and stops — it never commits, pushes, or changes repository settings; under hard posture it prints the settings to apply
+
+**Exit codes**
+
+| code | means |
+| --- | --- |
+| `0` | run: passed; or failed on an event that already happened (a violation record was opened); or could not tell under SOFT posture (a warning says so). install: written, or nothing to write |
+| `1` | run: failed on a gate event; or could not tell under HARD posture. install: the rules could not be read, so nothing was written |
+| `2` | usage |
+
+**See also.** [gov repo](#gov-repo) · [gov rules](#gov-rules) · [gov validate](#gov-validate)
 
 ### gov rules
 
