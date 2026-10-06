@@ -6,8 +6,8 @@
  * FROM THE DEFAULT BRANCH, NEVER THE WORKTREE, and that is the whole reason this module is not three lines of
  * `fs.readFile`. A check that gates `gov close` is read from the branch the developer is standing on if we are
  * careless — and then deleting the clause on your own branch removes the gate that was meant to hold you, while
- * adding one binds a colleague who never agreed to it. Governance is what the default branch says (POL-086a);
- * a project branch's edits are proposals with no force (POL-086b).
+ * adding one binds a colleague who never agreed to it. Governance is what the default branch says (GOV-FRM-456);
+ * a project branch's edits are proposals with no force (GOV-FRM-086).
  *
  * The mechanism is the one the governance snapshot already uses: the project's worktree and the governance clone
  * are one repository, so `git show <default>:<path>` reads the ratified version from inside the project folder,
@@ -57,7 +57,7 @@ export function policyDocsAt(git: GitRead, repo: string, ref: string): Record<st
  *
  * TWO SOURCES, because a check does not need a cue. `parseCueBlocks` finds one only as the tail of a stored cue
  * block, and "check only, no cue" is a first-class pattern the seeded org policy both documents (§6.3 — a rule a
- * machine can see in a diff should not also cost context on every turn) and USES: POL-203, *"every source file
+ * machine can see in a diff should not also cost context on every turn) and USES: §2.3, *"every source file
  * MUST carry the SPDX licence identifier"*, `on_miss=fail`, was read by nothing at all. The starter policy's most
  * emphatic clause was its least enforced one, and the same hole existed here on the verb side.
  */

@@ -36,7 +36,7 @@ export const REFERENCE_DOC_CANDIDATES: readonly string[] = [
 ];
 
 /**
- * The front matter the Knowledge Organization Standard requires of a shipped framework doc (POL-416): domain,
+ * The front matter the Knowledge Organization Standard requires of a shipped framework doc: domain,
  * layer agreeing with the folder, owner, compliance, status. Part of the rendered output on purpose — if the
  * generator wrote only the body, regenerating would strip it and `gov validate` would fail on content we ship.
  */

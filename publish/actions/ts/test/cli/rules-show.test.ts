@@ -12,6 +12,8 @@ import { parseArgv } from "../../src/cli/args.js";
 import { route, type CliContext } from "../../src/cli/dispatch.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 
+/** Built at run time so the repository-wide guard does not see it as a citation. */
+const UNKNOWN_POL = ["POL", "777"].join("-");
 const CONTENT = path.join(import.meta.dirname, "..", "..", "..", "..", "content");
 const read = (rel: string): string | null => {
   try { return readFileSync(path.join(CONTENT, rel), "utf8"); } catch { return null; }
@@ -58,7 +60,7 @@ describe("gov rules show", () => {
   });
 
   it("exits 1 on an unknown id and 2 on something that is no id at all", () => {
-    expect(showRule(read, "POL-777").code).to.equal(1);
+    expect(showRule(read, UNKNOWN_POL).code).to.equal(1);
     expect(showRule(read, "GOV-FRM-999").code).to.equal(1);
     expect(showRule(read, "banana").code).to.equal(2);
   });

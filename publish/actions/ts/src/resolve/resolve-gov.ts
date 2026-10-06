@@ -44,8 +44,8 @@ export function prjResolveGov(env: ResolveEnv, opClass: OperationClass = "REPORT
 
   // [R2] GOVERNANCE resolves from the REGISTRY and must not vary by cwd. Standing inside a project
   // workspace previously changed which repository a governance read used — so `deploy` could print
-  // "catalog: main — ratified knowledge (POL-086a)" while reading an in-flight project branch whose
-  // edits are, by POL-086b, proposals with no governing force. Falls through to the registry below.
+  // "catalog: main — ratified knowledge (GOV-FRM-456)" while reading an in-flight project branch whose
+  // edits are, by GOV-FRM-086, proposals with no governing force. Falls through to the registry below.
   if (cwdHit && (opClass === "PROJECT" || opClass === "REPORT")) {
     // Same org: operate on the cwd workspace (project clone or the home itself).
     // Identity is already confirmed — org was read straight from its org-config.

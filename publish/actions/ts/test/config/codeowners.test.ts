@@ -40,7 +40,7 @@ describe("CODEOWNERS generation", () => {
   });
 
   it("a domain line appears only when the role is HELD", () => {
-    // POL-403: a top-level domain exists if and only if a named Owner role exists for it. The
+    // Knowledge Organization Standard §2: a top-level domain exists if and only if a named Owner role exists for it. The
     // framework no longer ships eight domains with owners TBD, so an unheld role adds no line.
     const none = renderCodeowners({ policy_owner_github: "rkant" })!;
     for (const r of DOMAIN_ROLES) for (const p of r.paths) expect(none.text).to.not.contain(p);
@@ -63,7 +63,7 @@ describe("CODEOWNERS generation", () => {
     expect(r.escalated).to.deep.equal([]);
   });
 
-  it("a VACANT Check Owner escalates to the Policy Owner (POL-034) — the line is never dropped", () => {
+  it("a VACANT Check Owner escalates to the Policy Owner (GOV-FRM-033) — the line is never dropped", () => {
     // Unlike a domain role, whose paths do not exist until the role is held, `policies/actions/` exists the moment
     // an org authors a check. An ungated actions directory is code anyone with write access can make CI run.
     for (const vacant of [{}, { check_owner_github: "" }, { check_owner_github: "  " }]) {
@@ -155,7 +155,7 @@ describe("CODEOWNERS generation", () => {
     // the pre-2026-09-11 protocol — no version marker — while every rendered harness file came
     // from agent/session-protocol.md at the repo root. So adopters were seeded with a stale
     // source alongside current renders: two copies, and the one shipped as authoritative was
-    // the out-of-date one (POL-402).
+    // the out-of-date one (GOV-FRM-402).
     const shipped = fs.readFileSync(path.join(repoRoot, "publish", "content", "agent", "session-protocol.md"), "utf8");
     const source = fs.readFileSync(path.join(repoRoot, "agent", "session-protocol.md"), "utf8");
     expect(shipped, "publish/content's copy has drifted from the render source").to.equal(source);

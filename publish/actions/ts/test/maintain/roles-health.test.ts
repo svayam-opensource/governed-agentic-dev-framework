@@ -37,7 +37,7 @@ describe("gov-work — doctor, the Check Owner", () => {
       const d = checkOwnerDiagnostic(text)!;
       expect(d.status).to.equal("warn");
       expect(d.detail).to.match(/vacant/);
-      expect(d.detail).to.contain("POL-034");
+      expect(d.detail).to.contain("GOV-FRM-033");
       expect(d.detail).to.contain("check_owner_github");
     }
   });

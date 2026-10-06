@@ -108,7 +108,7 @@ describe("rule model — W1 store reader", () => {
     expect(r.set.catalog.resources.map((x) => x.id)).to.deep.equal(["vcs.code-repo", "pms.issue"]);
     expect(r.set.catalog.actions.map((x) => x.id)).to.deep.equal(["gov-builtin/list-membership", "bash/spdx-header"]);
     expect(r.diagnostics, "a valid pair of stores has nothing to say").to.deep.equal([]);
-    // Every read names the ref — never the worktree (POL-086a: governance is what the default branch says).
+    // Every read names the ref — never the worktree (GOV-FRM-456: governance is what the default branch says).
     for (const c of calls.filter((x) => x[0] === "show")) expect(c[1]).to.match(/^origin\/main:/);
     expect(calls.some((c) => c[0] === "ls-tree" && c.includes("origin/main"))).to.equal(true);
   });

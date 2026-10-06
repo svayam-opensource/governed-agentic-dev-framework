@@ -34,7 +34,7 @@ export interface ProtectionExpectations {
 }
 
 /**
- * One row per requirement of POL-040a §3.3, or a single `warn` row when the facts are unknowable.
+ * One row per requirement of GOV-FRM-447, or a single `warn` row when the facts are unknowable.
  *
  * Deliberately ROWS, not a verdict: "branch protection: 3 of 4" tells a reader to go and find out which,
  * which is the work the report exists to have done already.
@@ -48,9 +48,9 @@ export function assessProtection(facts: ProtectionFacts | null, opts: Protection
       name: "branch protection",
       status: "warn",
       // UNKNOWN IS NOT UNPROTECTED, said in the row itself. A reader who takes this as a pass, or as a
-      // failure, is wrong in a way that matters: POL-040a is the only rule that holds for an agent running
+      // failure, is wrong in a way that matters: GOV-FRM-447 is the only rule that holds for an agent running
       // outside gov, and gov has just said it cannot see it.
-      detail: `could not read ${at}${opts.why ? ` — ${opts.why}` : ""}. UNKNOWN IS NOT UNPROTECTED: gov has no answer here, not a clean one — check github.com/${opts.repo}/settings/branches (POL-040a)`,
+      detail: `could not read ${at}${opts.why ? ` — ${opts.why}` : ""}. UNKNOWN IS NOT UNPROTECTED: gov has no answer here, not a clean one — check github.com/${opts.repo}/settings/branches (GOV-FRM-447)`,
     }];
   }
 
@@ -60,32 +60,32 @@ export function assessProtection(facts: ProtectionFacts | null, opts: Protection
       status: (facts.pullRequestRequired ? "ok" : "fail") as DiagnosticStatus,
       detail: facts.pullRequestRequired
         ? `required before merging on ${at}`
-        : `not required on ${at} — POL-040a.1: require a pull request before merging`,
+        : `not required on ${at} — GOV-FRM-447.1: require a pull request before merging`,
     },
     {
       name: "protection · approving review",
       status: (facts.approvingReviews >= 1 ? "ok" : "fail") as DiagnosticStatus,
       detail: facts.approvingReviews >= 1
         ? `${facts.approvingReviews} required on ${at}`
-        : `none required on ${at} — POL-040a.2: require at least one approving review`,
+        : `none required on ${at} — GOV-FRM-447.2: require at least one approving review`,
     },
     {
       name: "protection · no bypass",
       status: (facts.enforceAdmins ? "ok" : "fail") as DiagnosticStatus,
       detail: facts.enforceAdmins
         ? `administrators included on ${at}`
-        : `administrators and the owner can bypass on ${at} — POL-040a.3: turn on "Do not allow bypassing the above settings"`,
+        : `administrators and the owner can bypass on ${at} — GOV-FRM-447.3: turn on "Do not allow bypassing the above settings"`,
     },
     {
       name: "protection · approver check",
       status: (facts.requiredStatusChecks.includes(expected) ? "ok" : "fail") as DiagnosticStatus,
       // NOT NEGLIGENCE — A GAP THE PLAN LEAVES (framework-policy §3.4). On GitHub Free for private repos, "restrict who
       // can push/merge" and CODEOWNERS enforcement are paid features, so ANY collaborator with write access
-      // can leave the approving review that satisfies POL-040a.2. The status check is what closes that on
+      // can leave the approving review that satisfies GOV-FRM-447.2. The status check is what closes that on
       // every plan. So the row names the thing to add rather than implying somebody was careless.
       detail: facts.requiredStatusChecks.includes(expected)
         ? `\`${expected}\` is a required check on ${at}`
-        : `no \`${expected}\` among the required checks on ${at}${facts.requiredStatusChecks.length ? ` (it requires ${facts.requiredStatusChecks.join(", ")})` : " (it requires none)"} — POL-040a.4/POL-040b: an approving review alone cannot prove the approver is authorised, because restricting who may merge and enforcing CODEOWNERS are paid features on GitHub Free for private repos. Add the framework's \`${expected}\` workflow and make it a required check`,
+        : `no \`${expected}\` among the required checks on ${at}${facts.requiredStatusChecks.length ? ` (it requires ${facts.requiredStatusChecks.join(", ")})` : " (it requires none)"} — GOV-FRM-447.4: an approving review alone cannot prove the approver is authorised, because restricting who may merge and enforcing CODEOWNERS are paid features on GitHub Free for private repos. Add the framework's \`${expected}\` workflow and make it a required check`,
     },
   ];
   return rows;
@@ -108,7 +108,7 @@ export function postureDiagnostic(orgConfigText: string | null | undefined): Dia
       name: "governance posture",
       status: "warn",
       detail: `\`${choice.raw}\` is not a posture gov knows — use ${GOVERNANCE_POSTURES.map((p) => `\`${p}\``).join(" or ")}`
-        + ". gov checks POL-040a §3.3 meanwhile, because guessing which was meant is the one thing a posture must"
+        + ". gov checks GOV-FRM-447 meanwhile, because guessing which was meant is the one thing a posture must"
         + " never be",
     };
   }
@@ -126,7 +126,7 @@ export function postureDiagnostic(orgConfigText: string | null | undefined): Dia
     detail: (choice.raw === ""
       ? "soft (the default — `governance_posture: hard` in org-config.yaml chooses hard) — this organization leaves"
       : "soft — this organization deliberately leaves")
-      + " room for direct work, so POL-040a §3.3 is not checked; a violation opens a"
+      + " room for direct work, so GOV-FRM-447 is not checked; a violation opens a"
       + " record for the Policy Owner instead of stopping the action. gov's own gates do not bind an agent started"
       + " outside gov",
   };
@@ -137,11 +137,11 @@ export function postureOf(orgConfigText: string | null | undefined): PostureChoi
   return readPosture(orgConfigText ?? null);
 }
 
-/** POL-040a.2 — the minimum the policy states. One, not two: the policy says "at least one". */
+/** GOV-FRM-447.2 — the minimum the policy states. One, not two: the policy says "at least one". */
 export const WANTED_APPROVING_REVIEWS = 1;
 
 /**
- * ONE SETTING, WHAT IT IS NOW, WHAT POL-040a WANTS — the row `gov repo protect plan` prints.
+ * ONE SETTING, WHAT IT IS NOW, WHAT GOV-FRM-447 WANTS — the row `gov repo protect plan` prints.
  *
  * `current` and `wanted` are rendered as WORDS rather than as booleans because the reader is about to compare
  * them with the GitHub settings page, which is also words. `changes` is separate from a string comparison so
@@ -152,8 +152,8 @@ export interface ProtectionChange {
   readonly setting: string;
   readonly current: string;
   readonly wanted: string;
-  /** `POL-040a.1` … `POL-040a.4` — so a plan line is traceable to the clause that asked for it. */
-  readonly pol: string;
+  /** `GOV-FRM-447.1` … `GOV-FRM-447.4` — so a plan line is traceable to the clause that asked for it. */
+  readonly rule: string;
   /** Does applying change anything? False for every row is the "already correct" case. */
   readonly changes: boolean;
 }
@@ -162,7 +162,7 @@ export interface ProtectionChange {
  * The PURE assessment of what a hard posture still needs on this branch — every requirement, in policy order.
  *
  * EVERY row, not only the failing ones, because `plan` prints the current value beside the wanted one and a
- * table that silently omits what is already right cannot be read as "this is the whole of POL-040a §3.3". The
+ * table that silently omits what is already right cannot be read as "this is the whole of GOV-FRM-447". The
  * caller filters when it wants a count.
  *
  * TAKES `ProtectionFacts`, NEVER `null`. Unknowable is not a plan — it is a refusal, and it belongs to the
@@ -176,21 +176,21 @@ export function protectionChanges(facts: ProtectionFacts, approverCheck: string 
       setting: "pull request required",
       current: facts.pullRequestRequired ? "yes" : "no",
       wanted: "yes",
-      pol: "POL-040a.1",
+      rule: "GOV-FRM-447.1",
       changes: !facts.pullRequestRequired,
     },
     {
       setting: "approving reviews",
       current: String(facts.approvingReviews),
       wanted: `${WANTED_APPROVING_REVIEWS} or more`,
-      pol: "POL-040a.2",
+      rule: "GOV-FRM-447.2",
       changes: facts.approvingReviews < WANTED_APPROVING_REVIEWS,
     },
     {
       setting: "bypass (administrators included)",
       current: facts.enforceAdmins ? "not allowed" : "allowed",
       wanted: "not allowed",
-      pol: "POL-040a.3",
+      rule: "GOV-FRM-447.3",
       changes: !facts.enforceAdmins,
     },
     {
@@ -205,7 +205,7 @@ export function protectionChanges(facts: ProtectionFacts, approverCheck: string 
       wanted: facts.requiredStatusChecks.length && !hasCheck
         ? `required, alongside ${facts.requiredStatusChecks.join(", ")}`
         : "required",
-      pol: "POL-040a.4",
+      rule: "GOV-FRM-447.4",
       changes: !hasCheck,
     },
   ];
@@ -224,7 +224,7 @@ export function isPlanLimited(message: string): boolean {
 }
 
 /**
- * The three ways out §3.4/POL-040d already states, named for THIS repository.
+ * The three ways out GOV-FRM-449 names, named for THIS repository.
  *
  * Verbatim from the policy and in its order, because the value of this list is that an organization can point
  * at the clause afterwards and show which of the three it took. A fourth suggestion invented here would be a

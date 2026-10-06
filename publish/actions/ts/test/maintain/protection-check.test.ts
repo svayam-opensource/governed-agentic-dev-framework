@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * POL-040a §3.3 AS ROWS — one per requirement, testable without GitHub (PRJ-121, 2026-09-27).
+ * GOV-FRM-447 AS ROWS — one per requirement, testable without GitHub (PRJ-121, 2026-09-27).
  *
  * The rows are the product here: their status decides whether `gov doctor` fails, and their wording is the
  * whole remedy a reader gets. So each requirement is asserted in both directions, and the unknowable case is
@@ -29,27 +29,27 @@ describe("gov-work — assessProtection", () => {
     expect(rows.every((r) => r.detail.includes("Acme/acme-gov@main"))).to.equal(true);
   });
 
-  it("POL-040a.1 — a pull request must be required", () => {
+  it("GOV-FRM-447.1 — a pull request must be required", () => {
     expect(row(compliant, "protection · pull request").status).to.equal("ok");
     const bad = row({ ...compliant, pullRequestRequired: false }, "protection · pull request");
     expect(bad.status).to.equal("fail");
-    expect(bad.detail).to.contain("POL-040a.1").and.contain("require a pull request");
+    expect(bad.detail).to.contain("GOV-FRM-447.1").and.contain("require a pull request");
   });
 
-  it("POL-040a.2 — at least one approving review, and the count is reported", () => {
+  it("GOV-FRM-447.2 — at least one approving review, and the count is reported", () => {
     expect(row({ ...compliant, approvingReviews: 2 }, "protection · approving review").detail).to.contain("2 required");
     const bad = row({ ...compliant, approvingReviews: 0 }, "protection · approving review");
     expect(bad.status).to.equal("fail");
-    expect(bad.detail).to.contain("POL-040a.2");
+    expect(bad.detail).to.contain("GOV-FRM-447.2");
   });
 
-  it("POL-040a.3 — administrators may not bypass, and the row names the GitHub setting", () => {
+  it("GOV-FRM-447.3 — administrators may not bypass, and the row names the GitHub setting", () => {
     const bad = row({ ...compliant, enforceAdmins: false }, "protection · no bypass");
     expect(bad.status).to.equal("fail");
-    expect(bad.detail).to.contain("POL-040a.3").and.contain("Do not allow bypassing");
+    expect(bad.detail).to.contain("GOV-FRM-447.3").and.contain("Do not allow bypassing");
   });
 
-  it("POL-040a.4 — the approver check, missing, reads as a GAP IN THE PLAN and says what to add", () => {
+  it("GOV-FRM-447.4 — the approver check, missing, reads as a GAP IN THE PLAN and says what to add", () => {
     const bad = row({ ...compliant, requiredStatusChecks: ["build"] }, "protection · approver check");
     expect(bad.status).to.equal("fail");
     // The wording matters: on GitHub Free for private repos the alternatives are paid features, so this is

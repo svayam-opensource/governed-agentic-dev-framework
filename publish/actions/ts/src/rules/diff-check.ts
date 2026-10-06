@@ -5,11 +5,11 @@
  *
  * A `gov:check` has had two triggers since the verb gate landed: a VERB (`when=verb:close`), evaluated by
  * {@link ./verb-gate.js}, and a set of FILE GLOBS (`when=**\/package.json`). The second was parsed, validated,
- * and rendered byte-stably into every harness — and evaluated by NOTHING. So the seeded org policy's POL-210
+ * and rendered byte-stably into every harness — and evaluated by NOTHING. So the seeded org policy's technology clause
  * ("a library not listed in `approved-technologies.md` MAY be introduced only with an approved exception") never
  * ran on a single pull request, and 92 of the framework's 107 rules were advisory while reading as checked.
  *
- * That is POL-402's false authority in the worst possible place: a rule that reads as enforced and is not. Worse
+ * That is GOV-FRM-402's false authority in the worst possible place: a rule that reads as enforced and is not. Worse
  * than an absent check, because an absent check is visible in `gov doctor`'s advisory column, while this one sat
  * in the CHECKED column and in the agent's resident cue, telling everybody it had teeth.
  *
@@ -20,7 +20,7 @@
  *     most expensive to get wrong — and the fixtures in `test/rules/diff-check.fixtures.test.ts` are the only
  *     evidence any of these predicates does anything at all;
  *   - the clauses and the referenced list MUST come from the RATIFIED branch, never from the branch under review
- *     (POL-086a/b — otherwise a pull request can weaken the rule that judges it). That decision belongs in
+ *     (GOV-FRM-456 and GOV-FRM-086 — otherwise a pull request can weaken the rule that judges it). That decision belongs in
  *     `src/cli/diff-check-io.ts` where it is visible; reading a path from disk in here would hide it.
  *
  * Findings are verb-gate's {@link GateFinding}, unchanged: one reporting shape, one message style, one formatter.
@@ -96,7 +96,7 @@ const POL_MARKER = /\*\*\(\s*(POL-\d+[a-z]?)/;
  *
  * `parseCueBlocks` finds a check only as the tail of a stored cue block, because that is the form `gov rules
  * build` writes. But "check only, no cue" is a FIRST-CLASS pattern the seeded org policy both documents (§6.3: *a
- * rule a machine can see in a diff → check only, no cue*) and uses: POL-203, *every source file MUST carry the
+ * rule a machine can see in a diff → check only, no cue*) and uses: §2.3, *every source file MUST carry the
  * SPDX licence identifier*, `on_miss=fail`, with an explicit note saying the cue was left out on purpose. That
  * check was parsed by nothing at all — not even into a `Check` object — so it was the most emphatic rule in the
  * starter policy and the least enforced one.
@@ -191,7 +191,7 @@ const POM_ARTIFACT = /<artifactId>\s*([^<\s]+)\s*<\/artifactId>/g;
 /**
  * The artifactIds that sit INSIDE a `<dependency>` element, from the whole file.
  *
- * Without this, a newly added `pom.xml` fails its own POL-210 check on the project's own `<artifactId>` — the
+ * Without this, a newly added `pom.xml` fails its own technology check on the project's own `<artifactId>` — the
  * module is not in the approved list and never will be. A `-U0` hunk cannot show the enclosing element, so the
  * scope comes from the whole text and the added lines say which of those names are NEW.
  */
@@ -220,7 +220,7 @@ function manifestKind(path: string): "npm" | "go" | "maven" | "pip" | null {
  * The dependency names ADDED to `file`, in whichever of the four manifest formats it is.
  *
  * Exported because it is the part most likely to be wrong on a manifest nobody here has seen, and a reader
- * deciding whether to trust POL-210 should be able to read this one function and the fixtures beside it.
+ * deciding whether to trust the technology check should be able to read this one function and the fixtures beside it.
  */
 export function addedDependencies(file: ChangedFile): string[] {
   const kind = manifestKind(file.path);

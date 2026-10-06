@@ -1481,7 +1481,7 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       return /^\s*preferred_agent:\s*(\S+)/m.exec(md ?? "")?.[1] ?? null;
     },
     applyRepoOverrides,
-    // govHome is the default-branch clone — POL-086a requires governance be read from there,
+    // govHome is the default-branch clone — GOV-FRM-456 requires governance be read from there,
     // never from the project-branch worktree. See sessionStartPrompt.
     config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot, govHome: resolved.home },
     me,
@@ -1641,7 +1641,7 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       // THE LAUNCH, AND WHETHER THE KEY WENT WITH IT. #213's last wrong fix stored the key
       // correctly and then launched the agent without it — and gov's output is identical
       // either way, because storing and passing are different acts and only one of them shows.
-      // The env var's PRESENCE is recorded, never its value (POL-427 is C01).
+      // The env var's PRESENCE is recorded, never its value (no secret in a log).
       const credEnv = AGENT_CATALOG.find((a) => a.id === agent)?.credentialEnv;
       // A LATER SESSION GETS THE KEY TOO. It used to start without it whenever the person had not exported it
       // themselves — so a key pasted once was gone the moment gov exited (walk, 2026-09-21).
@@ -2191,7 +2191,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // probe needs it to know which repo and branch framework-policy §3.3 is about.
     const doctorCfgText = (!!doctorHomeOverride || resolve.ok) ? fs.readFile(path.join(home, "org-config.yaml")) : null;
     const doctorCfg = doctorCfgText ? parseOrgConfig(doctorCfgText) : null;
-    // POL-040a §3.3, checked instead of assumed (PRJ-121, 2026-09-27). Only when gh can be asked and the org
+    // GOV-FRM-448, checked instead of assumed (PRJ-121, 2026-09-27). Only when gh can be asked and the org
     // names its governance repo — otherwise there is no question, and a row about a fact nobody gathered is
     // worse than no row. The read itself distinguishes "no protection" from "gh could not tell me".
     const protection = ghAuthed && doctorCfg?.githubOrg && doctorCfg.workspaceRepo
@@ -2540,7 +2540,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   // `gov validate` — run the governance validate suite on the resolved workspace.
   if (parsed.command === "validate") {
     const files = (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean);
-    // THE CHANGED SCOPE — what this branch touches, so POL-408 is enforced on docs you WROTE without
+    // THE CHANGED SCOPE — what this branch touches, so the front-matter rule is enforced on docs you WROTE without
     // failing on the 205 historical ones (governance/project-knowledge.ts explains why that matters).
     // Uncommitted work counts: the point is to catch a broken doc BEFORE it is pushed. `--base` overrides
     // the comparison point; the merge-base with the default branch is the sensible default on a project
@@ -2559,7 +2559,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // THE ORGANIZATION'S OWN FILE-TRIGGERED CHECKS — the second group (PRJ-121, 2026-09-28).
     //
     // Until this line, a `gov:check` whose trigger was a set of file globs was parsed, validated and rendered
-    // into every harness, and then evaluated by NOTHING: the seeded POL-210 ("no unapproved dependency") ran on
+    // into every harness, and then evaluated by NOTHING: the seeded technology clause ("no unapproved dependency") ran on
     // no pull request at all, while `gov doctor` counted it as checked. The clauses are read from the DEFAULT
     // branch and the changeset from `base…HEAD`, so a branch cannot weaken the rule that judges it — see
     // diff-check-io.ts. COMMITTED work only: `git show <ref>:<path>` needs a ref, and what a pull request
@@ -2672,7 +2672,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // organization's `when=verb:...` checks are never found, which reads exactly like a workspace that has none:
     // so it is wired here rather than left optional in practice.
     git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
-    // THE ONE PLACE gov WRITES A REPOSITORY RULE (POL-040a §3.3) — `gov repo protect`. Unlike `runGh`, it
+    // THE ONE PLACE gov WRITES A REPOSITORY RULE (GOV-FRM-447) — `gov repo protect`. Unlike `runGh`, it
     // carries a BODY, because `PUT branches/<branch>/protection` needs nested objects and explicit nulls that
     // no pile of `gh api -f` flags expresses without guessing. NOT retried: `retryTransient` re-runs a call,
     // and re-running a write on a bare `EOF` — where gov cannot tell whether the first one landed — is how a

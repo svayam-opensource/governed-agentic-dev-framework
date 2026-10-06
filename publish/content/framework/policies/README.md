@@ -42,5 +42,5 @@ It is navigation. `gov rules build` reporting **0 clauses** here is the correct 
 Every rule this page could state is already stated where it belongs: that the folder is the framework's and not
 yours is `framework-policy.md` §10.1, and the banner at the top of that document. Restating either here would
 create a second copy of a fact, free to drift from the first, in a file nobody re-reads — which is what
-`policies/knowledge-organization-standard.md` §1 (POL-402) exists to prevent. An index that numbered its own
+`policies/knowledge-organization-standard.md` §1 (GOV-FRM-402) exists to prevent. An index that numbered its own
 bullets so they could compile to rules would be governing the act of listing files.

@@ -23,7 +23,7 @@ export const CORE_VALIDATORS: readonly Validator[] = [
   checkSecrets,
   checkProtocol,
   checkKnowledge,
-  // POL-408 for PROJECT knowledge, scoped to what the current change touches. Silent when the caller
+  // The front-matter rule for PROJECT knowledge, scoped to what the current change touches. Silent when the caller
   // declares no scope — it never guesses one (project-knowledge.ts explains why).
   checkProjectKnowledge,
 ];

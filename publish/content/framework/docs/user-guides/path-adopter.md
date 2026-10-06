@@ -11,7 +11,7 @@ status: current
 You are bringing this framework into an organization for the first time. Nobody here has used
 it yet, and the decisions you make in the next hour are the ones everyone else inherits.
 
-**A journey document is a consultation order, links only — never content (POL-410).** Follow it
+**A journey document is a consultation order, links only — never content (Knowledge Organization Standard §5).** Follow it
 in sequence; each destination is the single home of what it covers.
 
 ## 1. Get the tooling on your machine

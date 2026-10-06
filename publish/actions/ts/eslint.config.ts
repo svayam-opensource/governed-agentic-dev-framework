@@ -28,10 +28,10 @@ export default defineConfig(
     rules: {
       "no-restricted-imports": ["error", { paths: [{
         name: "node:child_process",
-        message: "run a process through src/run-process.ts (run · tryRun · runResult · ok · runInteractive) so it is logged — POL-423.",
+        message: "run a process through src/run-process.ts (run · tryRun · runResult · ok · runInteractive) so it is logged — GOV-FRM-423.",
       }, {
         name: "child_process",
-        message: "run a process through src/run-process.ts so it is logged — POL-423.",
+        message: "run a process through src/run-process.ts so it is logged — GOV-FRM-423.",
       }] }],
       "gov/catch-must-account": "error",
     },

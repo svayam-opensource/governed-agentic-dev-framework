@@ -45,7 +45,7 @@ export function askFns(rl: readline.Interface, prompt: (q: string) => Promise<st
   return {
     // EVERY QUESTION AND ITS ANSWER (PRJ-121, 2026-09-23). "What was it asked, and what did the person say?"
     // was unanswerable after the fact, which is why #213 needed a screen recording. A secret's VALUE never
-    // goes near a log (POL-427) — the `secret` path below records its length and nothing else.
+    // goes near a log — the `secret` path below records its length and nothing else.
     line: async (question: string): Promise<string> => {
       const answer = await prompt(question);
       log("info", "asked", "gov-work:cli:ask", "line", { question: question.trim(), answer: answer.trim() });
@@ -94,7 +94,7 @@ export function askFns(rl: readline.Interface, prompt: (q: string) => Promise<st
         };
         rl.question(question, (answer) => {
           iface._writeToOutput = original;
-          // LENGTH, NEVER THE VALUE (POL-427 is C01). "did anything arrive, and roughly how
+          // LENGTH, NEVER THE VALUE (no secret in a log, ever). "did anything arrive, and roughly how
           // much" is the whole diagnostic value of a secret prompt; the secret itself has none.
           log("info", "asked (hidden)", "gov-work:cli:ask", "secret", { question: question.trim(), chars: answer.trim().length });
           // The typed newline was swallowed with the rest, so the next line starts on its own.

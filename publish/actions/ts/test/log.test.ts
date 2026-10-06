@@ -6,7 +6,7 @@
  * Only the pure half is here: whether winston writes a file is winston's business, and `svm-util-log`'s own
  * tests prove the published artifact loads. What is gov's is the DECISION — which folder, given an org that may
  * not exist yet and a login that may not be known; what a run folder is named; what is kept; and what must
- * never be written down (POL-427).
+ * never be written down.
  */
 import { expect } from "chai";
 import * as path from "node:path";
@@ -87,7 +87,7 @@ describe("retention — whole day folders, and only ones gov named", () => {
   });
 });
 
-// POL-427 — a token typed on the command line is still a secret.
+// No secret in a log — a token typed on the command line is still a secret.
 describe("redactArgv — the flag stays, the value goes", () => {
   it("redacts --token=x and --token x, in either spelling", () => {
     expect(redactArgv(["auth", "--token=sk-live-123"])).to.deep.equal(["auth", "--token=***"]);

@@ -160,7 +160,7 @@ describe("rules at sync and upgrade — a changed rule records the marker", () =
 });
 
 describe("rules at a lifecycle moment — reading the DEFAULT BRANCH, never the project branch", () => {
-  it("compiles what git shows at the ratified ref, not what is in the worktree (POL-086b)", () => {
+  it("compiles what git shows at the ratified ref, not what is in the worktree (GOV-FRM-086)", () => {
     // The worktree holds a clause nobody ratified; the default branch holds the real one. A compile that
     // preferred the worktree would deliver the unratified cue into every agent's context.
     const fs = memFs({

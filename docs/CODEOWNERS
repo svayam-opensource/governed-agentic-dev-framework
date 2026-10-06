@@ -1,13 +1,13 @@
-# CODEOWNERS — maps knowledge domains to their Owner roles (POL-083).
+# CODEOWNERS — maps knowledge domains to their Owner roles (GOV-FRM-083).
 # One line per domain so handles can change per-role as owners are appointed.
 # All roles currently held by the Policy Owner (svayam-rkant); see
 # knowledge/policies/roles.md for the authoritative role registry.
 
-# Navigation (dashboard + journeys) — Policy Owner (POL-409/410)
+# Navigation (dashboard + journeys) — Policy Owner
 /knowledge/README.md            @svayam-rkant
 /knowledge/paths/               @svayam-rkant
 
-# Domains (POL-082, POL-401..407)
+# Domains (GOV-FRM-082; the Knowledge Organization Standard §1–§3)
 /knowledge/policies/            @svayam-rkant
 /knowledge/legal/               @svayam-rkant
 /knowledge/architecture/system/ @svayam-rkant

@@ -17,7 +17,7 @@ const ctx: ValidateContext = { fs: noFs, repoRoot: "/repo", files: [] };
 
 describe("prj-work Phase 3 — validate suite", () => {
   it("CORE_VALIDATORS is the 5 test-merge checks (privacy is publish-only)", () => {
-    // 5 since 2026-08-07: project-knowledge joined — POL-408 front matter for projects/<id>/knowledge/**,
+    // 5 since 2026-08-07: project-knowledge joined — the front-matter rule for projects/<id>/knowledge/**,
     // which nothing validated until a formatter broke a doc and `gov validate` said PASS.
     expect(CORE_VALIDATORS).to.have.lengthOf(5);
   });

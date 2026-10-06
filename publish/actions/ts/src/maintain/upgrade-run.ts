@@ -236,7 +236,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   //
   // FROM THE WORKING TREE, and this is the one place that word needs defending. The new clauses are on this
   // branch and nowhere else — the default branch still holds the OLD ones — so a default-branch read would
-  // render the previous rules into the commit that ships the new ones. This is not POL-086b self-governance:
+  // render the previous rules into the commit that ships the new ones. This is not the self-governance GOV-FRM-086 forbids:
   // the documents are the FRAMEWORK'S, arriving from published content, and the render is reviewed and ratified
   // in the same pull request as the clauses it came from. `rules()` prints "from the WORKING TREE (unratified)"
   // so the diff never claims otherwise.

@@ -11,7 +11,7 @@ status: current
 Your organization already uses this framework. You need a working machine, a clone of the
 governance repo, and an agent that starts under the protocol — in that order.
 
-**Links only, never content (POL-410).**
+**Links only, never content (Knowledge Organization Standard §5).**
 
 ## 1. Your machine
 

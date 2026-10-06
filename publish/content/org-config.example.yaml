@@ -64,7 +64,7 @@ policy_owner_github: ""
 # org's check actions (policies/actions/), where the Policy Owner approves the
 # rules themselves. Assigned at `gov setup` (default: the Policy Owner). Left
 # empty, the role is vacant and the Policy Owner approves that code too
-# (POL-034) — and `gov doctor` says so. One person holding both roles turns the
+# (GOV-FRM-033) — and `gov doctor` says so. One person holding both roles turns the
 # two-key review off; doctor warns about that as well.
 check_owner_github: ""
 
@@ -85,7 +85,7 @@ gov_account: ""
 #   hard     Install repository controls, so that work attempted OUTSIDE gov is stopped by the PLATFORM:
 #            a pull request required before merging, at least one approving review, no bypass (administrators
 #            included), and the approver-verifying status check as a required check. `gov repo protect plan`
-#            shows what is missing; `gov repo protect apply` installs it. framework-policy §3.3 / POL-040a.
+#            shows what is missing; `gov repo protect apply` installs it. GOV-FRM-447.
 #
 #   soft     Deliberately leave room for direct work — clone, commit and push by hand. A real choice, not a
 #            lapse: an organization may adopt the framework for its structure, or be unable to configure the
@@ -96,7 +96,7 @@ gov_account: ""
 #   unset    NOBODY HAS CHOSEN, and gov treats that as its own state rather than guessing. `gov doctor` says
 #            so, and `gov repo protect apply` refuses: it will not install platform controls an organization
 #            has not asked for, and it will not excuse an organization that believes it is protected.
-#            Meanwhile POL-040a §3.3 is still CHECKED — not choosing is not a choice to skip it.
+#            Meanwhile GOV-FRM-447 is still CHECKED — not choosing is not a choice to skip it.
 #
 # Leave it "" until the organization has actually decided. Writing `hard` here does not configure anything on
 # GitHub; `gov repo protect apply` does, and reports honestly when the platform refuses.
@@ -110,7 +110,7 @@ governance_posture: ""
 #
 # A code repository cannot read this file (it lives in the governance repo, and a GITHUB_TOKEN cannot read
 # another private repo), so for those the same list is set as a variable — `gov repo protect` prints the
-# command. Changing who approves is a human decision recorded by a pull request (POL-251, POL-253).
+# command. Changing who approves is a human decision recorded by a pull request (policies/authorized-representatives.md).
 #
 #   authorized_approvers:
 #     - alice

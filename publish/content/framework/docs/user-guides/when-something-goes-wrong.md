@@ -24,7 +24,7 @@ exist, because close promotes that directory and proposing a directory that is n
 request. Whether it is *full* is not gov's business.
 
 **"Blocked by N policy checks on `gov close`."** This is **your organization's** rule, not the framework's, and
-the message names the clause (`POL-263`, say), the document, the section, and the file to create. Read the clause:
+the message names the clause, the document, the section, and the file to create. Read the clause:
 `gov knowledge show <the document it named>`. If you disagree with the rule, that is a policy conversation — the
 gate is doing what your organization asked.
 
@@ -51,7 +51,7 @@ can transition, and the pull request can be closed without merging. Nothing is l
 
 *(Corrected: this entry used to attribute the empty PR to "no LLM/agent synthesis running". `gov close` performs
 no synthesis — it proposes the project's own files, and if there are none to propose, there is nothing to review.
-POL-090 was corrected to match on 2026-09-23.)*
+The clause that said so was corrected to match on 2026-09-23.)*
 
 ## Lost track of where you are
 

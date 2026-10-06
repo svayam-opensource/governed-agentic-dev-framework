@@ -83,12 +83,12 @@ export function commandOf(argv: readonly string[]): string {
 }
 
 /**
- * ARGUMENTS AS THEY MAY BE WRITTEN DOWN (POL-427). A token or key passed on the command line is a secret even
+ * ARGUMENTS AS THEY MAY BE WRITTEN DOWN (no secret in a log). A token or key passed on the command line is a secret even
  * though it was typed in the clear: `--token abc` and `--token=abc` both become `--token ***`. The VALUE goes;
  * the flag stays, because which flags were passed is exactly what a diagnosis needs.
  */
 /**
- * WHAT COUNTS AS A SECRET-SHAPED FLAG. Widened 2026-09-30 after an audit against POL-427 found four ways past it.
+ * WHAT COUNTS AS A SECRET-SHAPED FLAG. Widened 2026-09-30 after an audit against the no-secret-in-a-log rule found four ways past it.
  *
  * `_` was not in the character class, so `--api_key=abc` — the commonest spelling there is — went through in the
  * clear while `--api-key=abc` was redacted. The name list also missed every flag that carries a credential
@@ -134,7 +134,7 @@ export function redactArgv(argv: readonly string[]): string[] {
  *
  * `redactArgv` cannot help here: this is not a list of arguments, it is whatever a third-party program printed.
  * `git` and `gh` routinely echo the remote URL in an error, and that URL carries the token they were handed. Until
- * 2026-09-30 every failed process wrote the tail of its stderr to the log verbatim — the clearest POL-427 breach
+ * 2026-09-30 every failed process wrote the tail of its stderr to the log verbatim — the clearest no-secret-in-a-log breach
  * in the tree, and the one that looked most like diligence, because the run log is exactly where you would look.
  *
  * The credential SHAPES are deliberately the same ones `governance/secrets.ts` scans files for: one vocabulary for

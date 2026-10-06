@@ -1,37 +1,31 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * EVERY POL NUMBER CITED IN GOV'S SOURCE MUST RESOLVE TO A LIVE CLAUSE.
+ * NO NEW POL CITATIONS (rule-model-design.md Q21; W3, 2026-10-06).
  *
- * This is `spec-anchors.test.ts` pointed the other way. That one asks "does the document still describe the
- * code?"; this one asks "does the code still cite a rule that exists?".
+ * POL numbers are retired. A rule is cited by its GOV id, and a POL number anybody still meets — in an old commit,
+ * a review, a knowledge file — resolves through `framework/rules/pol-aliases.yaml` (`gov rules show POL-…`).
  *
- * It exists because of a failure I caused. The reduction of 2026-09-29 moved roughly half of `framework-policy.md`
- * into the specification, and before committing I grepped the shipped `.md` files for references to the sections
- * that departed — found eight, fixed eight. I never grepped `.ts`. Seventeen POL numbers cited in source resolved
- * to no clause afterwards, FOURTEEN of them because of that commit: a reader of `identity.ts` was pointed at
- * POL-069 for the branch grammar, `join.ts` at POL-047 for authorization, `seed.ts` at POL-168 for a refusal it
- * still issues. The reduction existed to stop documents asserting things that are not true, and it left fourteen
- * comments citing rules nobody can read.
+ * So this test pins WHICH FILES may still contain a POL number, and why. Membership is asserted EXACTLY, in both
+ * directions:
  *
- * WHY A CITATION MATTERS MORE THAN IT LOOKS. The POL lock is append-only, so each number still resolves *there* —
- * you can look up POL-069 in `.pol-lock.json` and learn which clause it once was. What you cannot do is read the
- * clause, because it left the document. So a stale citation is a dead link rather than a wrong one, and it is
- * worse than a plain comment: it tells a maintainer that a ratified rule backs this code, and invites them to
- * treat the code as fixed by governance when nothing governs it at all.
+ *   · a file not on the list gains a POL number   → fail: cite the GOV id instead
+ *   · a file on the list no longer has one        → fail: take it off the list
  *
- * THE HARD PART, and the reason this test has an allow-list. Some citations are HISTORICAL by design — a comment
- * explaining a past defect necessarily names the numbers involved in it, and those numbers are retired precisely
- * because the defect was fixed. `pol-lock.ts` explains that the document once said POL-009c while the lock
- * recorded POL-185 for the same sentence; both numbers must appear, and neither will ever resolve again. A test
- * that failed on those would be wrong, would be argued with, and would be deleted. So historical citations are
- * listed explicitly, each with the reason it is one. Adding to that list requires writing the reason down, which
- * is the point: it is cheap to do honestly and conspicuous to abuse.
+ * The second direction is what makes the list shrink-only: an entry cannot outlive its reason, so it cannot sit
+ * there waiting for the next citation to creep in under it. Adding an entry means writing down why the POL number
+ * is DATA there (the old compiler's input, a fixture) or HISTORY (not ours to rewrite) — never "it was easier".
+ *
+ * This replaces the test that lived here before the rule model, which asked "does every POL number cited in src
+ * resolve to a live clause?". Its successor question is the last test below: every GOV-FRM id cited in src is a
+ * row of `framework/rules/rules.yaml`.
  */
 import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { parseRuleStore } from "../../src/rules/model/rule-row.js";
 
 function repoRoot(): string {
   let d = fileURLToPath(new URL(".", import.meta.url));
@@ -46,119 +40,166 @@ function repoRoot(): string {
 
 const ROOT = repoRoot();
 const SRC = path.join(ROOT, "publish", "actions", "ts", "src");
-const POLICY_DIRS = [
-  path.join(ROOT, "publish", "content", "framework", "policies"),
-  path.join(ROOT, "publish", "content", "policies"),
-];
 
-/**
- * Citations that name a RETIRED number on purpose. Each entry says why, and the reason has to be the comment's
- * own subject — "it explains a past defect" — never "it was inconvenient to fix".
- */
-const HISTORICAL: Readonly<Record<string, string>> = {
-  "POL-009a": "rules-build.ts explains how a clause with a number but no modal verb went invisible and the lock "
-    + "kept pointing at its old section. The clause is the example; retiring it does not unmake the lesson.",
-  "POL-009c": "the pair POL-009c/POL-185 IS the defect pol-lock.ts documents — the document declared one number "
-    + "while the lock allocated another for the same sentence. Both must be named for the story to parse.",
-  "POL-185": "the other half of the POL-009c/POL-185 pair above — the number the lock allocated while the "
-    + "document declared POL-009c. Naming only one of the two would leave the comment describing a mismatch "
-    + "between a number and nothing.",
-  "POL-168": "seed.ts's comment records that this number was cited by a refusal and exists in NO policy "
-    + "document, and never has. The comment has to name it to say so; that is the whole point of the comment.",
+// ── why a file may still hold a POL number ──────────────────────────────────────────────────────────────────
+const OLD_COMPILER = "the old POL compiler (notation, lock, cue blocks, rules build, harness render) and its tests: "
+  + "the POL number is its DATA, and P3 deletes it with the compiler";
+const OLD_COMPILER_INPUT = "input the old compiler still reads until P3: clause markers **(POL-…)**, cue headers "
+  + "`· POL-… · C0x`, and citations INSIDE a numbered clause, whose text the lock hashes (editing one makes "
+  + "`gov rules build` stop and ask, and confirming would rewrite .pol-lock.json). Every other prose citation was removed";
+const OLD_COMPILER_OUTPUT = "rendered by the old compiler from its input (render-harness / gov rules build own it); "
+  + "it changes when P3 moves the harness to GOV rows";
+const DATA_FIXTURE = "a test fixture whose POL number is data fed to old-compiler code (exceptions, diff checks, "
+  + "verb gate, rules-pending, compliance record, the GOV-id parser's refusal of a POL id)";
+const ALIASES = "the POL → GOV resolution itself: the alias file, its loader, `gov rules show` and their tests";
+const HISTORY = "history, not rewritten (Q21): a changelog, design records and working papers of their time";
+const OUT_OF_SCOPE = "outside the gov CLI and its shipped content: a separate package or the deprecated bash CLI, "
+  + "citing the publication-era org numbers; retire or rewrite with that code";
+const PROCEDURES = "the legacy procedures document: its \"Governs:\" lines cite pre-reduction numbers that are "
+  + "mostly retired; rewrite or retire it in P3 rather than alias forty stale citations";
+
+/** Frozen. It may only SHRINK. */
+const ALLOWED: Readonly<Record<string, string>> = {
+  "CHANGELOG.md": HISTORY,
+  "docs/design/agent-context-assembly-spec.md": HISTORY,
+  "docs/design/option-2-sequence-diagrams.md": HISTORY,
+  "publish/content/framework/rules/W2-classification.md": HISTORY,
+  "publish/content/framework/policies/framework-policy.md": OLD_COMPILER_INPUT,
+  "publish/content/framework/policies/.pol-lock.json": OLD_COMPILER,
+  "publish/content/policies/.pol-lock.json": OLD_COMPILER,
+  "publish/content/policies/approved-technologies.md": OLD_COMPILER_INPUT,
+  "publish/content/policies/authorized-representatives.md": OLD_COMPILER_INPUT,
+  "publish/content/policies/compliance-review.md": OLD_COMPILER_INPUT,
+  "publish/content/policies/data-classification.md": OLD_COMPILER_INPUT,
+  "publish/content/policies/knowledge-organization-standard.md": OLD_COMPILER_INPUT,
+  "publish/content/policies/knowledge-publication.md": OLD_COMPILER_INPUT,
+  "publish/content/policies/org-policy.md": OLD_COMPILER_INPUT,
+  "publish/content/policies/policy-domains.md": OLD_COMPILER_INPUT,
+  "publish/content/agent/harness/.clinerules/agent.md": OLD_COMPILER_OUTPUT,
+  "publish/content/agent/harness/.continue/rules/agent.md": OLD_COMPILER_OUTPUT,
+  "publish/content/agent/harness/.cursor/rules/agent.mdc": OLD_COMPILER_OUTPUT,
+  "publish/content/agent/harness/.github/copilot-instructions.md": OLD_COMPILER_OUTPUT,
+  "publish/content/agent/harness/.windsurf/rules/agent.md": OLD_COMPILER_OUTPUT,
+  "publish/content/agent/harness/AGENTS.md": OLD_COMPILER_OUTPUT,
+  "publish/content/agent/harness/CLAUDE.md": OLD_COMPILER_OUTPUT,
+  "publish/content/agent/harness/CONVENTIONS.md": OLD_COMPILER_OUTPUT,
+  "publish/content/agent/harness/GEMINI.md": OLD_COMPILER_OUTPUT,
+  "publish/content/agent/harness/rule-map.md": OLD_COMPILER_OUTPUT,
+  "publish/content/framework/procedures/agentic-development-procedures.md": PROCEDURES,
+  "publish/content/framework/rules/pol-aliases.yaml": ALIASES,
+  "publish/content/framework/docs/specs/gov-command-reference.md": ALIASES
+    + " (generated from help-spec.ts, whose `gov rules show` example resolves a POL number)",
+  "publish/actions/ts/src/cli/help-spec.ts": ALIASES + " (the `gov rules show` example)",
+  "publish/actions/ts/src/cli/rules-show.ts": ALIASES,
+  "publish/actions/ts/src/rules/model/pol-aliases.ts": ALIASES,
+  "publish/actions/ts/test/cli/rules-show.test.ts": ALIASES,
+  "publish/actions/ts/test/rules/model/pol-aliases.test.ts": ALIASES,
+  "publish/actions/ts/src/rules/cue-block.ts": OLD_COMPILER,
+  "publish/actions/ts/src/rules/cue-stamp.ts": OLD_COMPILER,
+  "publish/actions/ts/src/rules/pol-lock-io.ts": OLD_COMPILER,
+  "publish/actions/ts/src/rules/pol-lock.ts": OLD_COMPILER,
+  "publish/actions/ts/src/rules/rules-build.ts": OLD_COMPILER,
+  "publish/actions/ts/src/rules/diff-check.ts": OLD_COMPILER + " (the clause-marker regex's doc comment)",
+  "publish/actions/ts/src/rules-pending.ts": OLD_COMPILER + " (the resident-block header it parses)",
+  "publish/actions/ts/test/rules/cue-block.test.ts": OLD_COMPILER,
+  "publish/actions/ts/test/rules/cue-stamp.test.ts": OLD_COMPILER,
+  "publish/actions/ts/test/rules/notation.test.ts": OLD_COMPILER,
+  "publish/actions/ts/test/rules/pol-integrity.test.ts": OLD_COMPILER,
+  "publish/actions/ts/test/rules/pol-lock.test.ts": OLD_COMPILER,
+  "publish/actions/ts/test/rules/rules-build.test.ts": OLD_COMPILER,
+  "publish/actions/ts/test/cli/rules-lifecycle.test.ts": OLD_COMPILER,
+  "publish/actions/ts/test/cli/rules-gate.test.ts": DATA_FIXTURE,
+  "publish/actions/ts/test/cli/diff-check-io.test.ts": DATA_FIXTURE,
+  "publish/actions/ts/test/lifecycle/governance-stamp.test.ts": DATA_FIXTURE,
+  "publish/actions/ts/test/maintain/rules-health.test.ts": DATA_FIXTURE,
+  "publish/actions/ts/test/rules/compliance-record.test.ts": DATA_FIXTURE,
+  "publish/actions/ts/test/rules/diff-check.fixtures.test.ts": DATA_FIXTURE,
+  "publish/actions/ts/test/rules/exceptions.test.ts": DATA_FIXTURE,
+  "publish/actions/ts/test/rules/model/model.test.ts": DATA_FIXTURE,
+  "publish/actions/ts/test/rules/rules-pending.test.ts": DATA_FIXTURE,
+  "publish/actions/ts/test/rules/verb-gate.test.ts": DATA_FIXTURE,
+  "packages/knowledge-site/.gitignore": OUT_OF_SCOPE,
+  "packages/knowledge-site/README.md": OUT_OF_SCOPE,
+  "packages/knowledge-site/quartz.config.ts": OUT_OF_SCOPE,
+  "packages/knowledge-site/quartz/plugins/svayam/domainIndex.ts": OUT_OF_SCOPE,
+  "packages/knowledge-site/quartz/plugins/svayam/readmeAsIndex.ts": OUT_OF_SCOPE,
+  "packages/knowledge-site/quartz/plugins/svayam/roleBrowse.ts": OUT_OF_SCOPE,
+  "packages/knowledge-site/scripts/prepare-content.mjs": OUT_OF_SCOPE,
+  "packages/svm-rag/README.md": OUT_OF_SCOPE,
+  "packages/svm-rag/docs/svm-util-harness-waiver.md": OUT_OF_SCOPE,
+  "packages/svm-rag/src/api/rest.ts": OUT_OF_SCOPE,
+  "packages/svm-rag/src/chunk/chunker.ts": OUT_OF_SCOPE,
+  "packages/svm-rag/src/chunk/exclude.ts": OUT_OF_SCOPE,
+  "packages/svm-rag/src/meta/metadata.ts": OUT_OF_SCOPE,
+  "packages/svm-rag/test/chunker.test.ts": OUT_OF_SCOPE,
+  "packages/svm-rag/test/exclude.test.ts": OUT_OF_SCOPE,
+  "publish/actions/deprecated/prj": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/add-repo.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/cancel.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/close-knowledge.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/close-project.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/create-task.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/creds.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/join.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/lib.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/merge-task.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/onboard-repo.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/pause.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/propose-knowledge.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/resume.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/seed.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/sync.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/validate/check_knowledge.py": OUT_OF_SCOPE,
+  "publish/actions/deprecated/scripts/validate/check_secrets.py": OUT_OF_SCOPE,
+  "publish/actions/deprecated/setup.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/tests/e2e_smoke.sh": OUT_OF_SCOPE,
+  "publish/actions/deprecated/tests/test_secret_scanner.sh": OUT_OF_SCOPE,
 };
 
-/**
- * A DECISION THE POLICY OWNER HAS NOT MADE YET — not an exemption, a tracked backlog.
- *
- * Kept apart from `HISTORICAL` on purpose. A historical citation is permanently fine; one of these is a citation
- * that is wrong today and stays wrong until somebody rules on it. Mixing the two would let the second hide inside
- * the first, and the count below is what stops this list becoming the way the test is worked around.
- */
-const PENDING_DECISION: Readonly<Record<string, string>> = {
-  "POL-040a": "§3.3's four branch-protection controls. The reduction of 2026-09-29 moved them to the "
-    + "specification because gov configures them — but by the (a)/(b)/(c) taxonomy they are (b) FIXED WITH "
-    + "SETTINGS (gov installs them; the organization chooses `governance_posture`), and (b) belongs in policy "
-    + "prose. So the reduction probably got this one wrong. ~45 sites depend on it, including the user-visible "
-    + "`POL-040a.1`…`.4` labels `gov repo protect plan` prints per control, so restoring or renaming is a "
-    + "governance decision and not a comment sweep.",
-  "POL-040b": "the same decision. It stated the consequence when the platform can enforce nothing, which §3.4 "
-    + "now carries as prose; whether that consequence needs a citable number follows from POL-040a's answer.",
-};
-
-/** Every `.ts` under src/, recursively. */
-function sources(dir: string, out: string[] = []): string[] {
-  for (const n of fs.readdirSync(dir)) {
-    const p = path.join(dir, n);
-    if (fs.statSync(p).isDirectory()) sources(p, out);
-    else if (n.endsWith(".ts")) out.push(p);
+/** Every tracked or untracked (not ignored) file in the repository that contains a POL number. */
+function filesCitingPol(): string[] | null {
+  try {
+    const out = execFileSync("git", ["-C", ROOT, "grep", "--untracked", "-lE", "POL-[0-9]"], { encoding: "utf8" });
+    return out.split("\n").filter(Boolean).sort();
+  } catch (e) {
+    // `git grep` exits 1 when nothing matches — a real answer. Anything else (no git, not a repository) is not.
+    if ((e as { status?: number }).status === 1) return [];
+    return null;
   }
-  return out;
 }
 
-/** Every POL number any shipped policy document declares or discusses. */
-function liveNumbers(): Set<string> {
-  const live = new Set<string>();
-  for (const dir of POLICY_DIRS) {
-    if (!fs.existsSync(dir)) continue;
-    for (const n of fs.readdirSync(dir)) {
-      if (!n.endsWith(".md")) continue;
-      for (const m of fs.readFileSync(path.join(dir, n), "utf8").matchAll(/POL-\d{3}[a-z]?/g)) live.add(m[0]);
-    }
-  }
-  return live;
-}
-
-describe("POL citations in gov's source resolve to a live clause", () => {
-  const live = liveNumbers();
-  const files = sources(SRC);
-
-  it("the corpus is big enough for the assertion to mean something", () => {
-    // A guard against the shape that made `shipped-knowledge.test.ts` pass while examining zero documents: if the
-    // discovery ever returns nothing, this test would report green on a repository in any state at all.
-    expect(files.length, "source files discovered").to.be.greaterThan(100);
-    expect(live.size, "POL numbers found in the shipped policies").to.be.greaterThan(50);
+describe("no new POL citations — POL numbers are retired (rule-model Q21)", () => {
+  it("exactly the allow-listed files hold a POL number — the list may only shrink", function () {
+    const found = filesCitingPol();
+    if (found === null) this.skip();
+    const allowed = Object.keys(ALLOWED).sort();
+    const added = found!.filter((f) => !(f in ALLOWED));
+    const gone = allowed.filter((f) => !found!.includes(f));
+    expect(added, "these files now cite a POL number. Cite the GOV id instead — `gov rules show POL-…` names it, "
+      + "and framework/rules/pol-aliases.yaml says what became of every old number").to.deep.equal([]);
+    expect(gone, "these allow-listed files no longer hold a POL number. Take them off ALLOWED: the list only shrinks")
+      .to.deep.equal([]);
   });
 
-  it("every cited number is either live or listed as historical, with a reason", () => {
+  it("the allow-list's size is pinned, so a change to it is a visible diff", () => {
+    expect(Object.keys(ALLOWED)).to.have.lengthOf(93);
+  });
+
+  it("every GOV-FRM id cited in gov's source is a row of framework/rules/rules.yaml", () => {
+    const rows = new Set(parseRuleStore(fs.readFileSync(path.join(ROOT, "publish", "content", "framework", "rules", "rules.yaml"), "utf8")).map((r) => r.id));
     const dangling: string[] = [];
-    for (const file of files) {
-      const rel = path.relative(SRC, file);
-      const text = fs.readFileSync(file, "utf8");
-      const cited = new Set([...text.matchAll(/POL-\d{3}[a-z]?/g)].map((m) => m[0]));
-      for (const pol of cited) {
-        if (live.has(pol) || pol in HISTORICAL || pol in PENDING_DECISION) continue;
-        const line = text.split("\n").findIndex((l) => l.includes(pol)) + 1;
-        dangling.push(`${pol} at ${rel}:${line}`);
+    const walk = (dir: string): void => {
+      for (const n of fs.readdirSync(dir)) {
+        const p = path.join(dir, n);
+        if (fs.statSync(p).isDirectory()) walk(p);
+        else if (n.endsWith(".ts")) {
+          for (const m of fs.readFileSync(p, "utf8").matchAll(/GOV-FRM-(\d{3,})/g)) {
+            if (!rows.has(`GOV-FRM-${m[1]}`)) dangling.push(`GOV-FRM-${m[1]} in ${path.relative(SRC, p)}`);
+          }
+        }
       }
-    }
-    expect(
-      dangling,
-      "each of these tells a maintainer that a ratified rule backs the code, and points at a clause that is in no "
-        + "document. Either cite the clause that survived, cite `framework/docs/specs/gov-behaviour.md` where the "
-        + "rule became specification, or add it to HISTORICAL with the reason it names a retired number.",
-    ).to.deep.equal([]);
-  });
-
-  it("the historical list stays small and every entry carries its reason", () => {
-    // Not a style rule. This list is the only way to make the test above pass without fixing anything, so its
-    // size is the measure of how much the mechanism is being worked around.
-    expect(Object.keys(HISTORICAL).length, "historical exemptions").to.be.at.most(6);
-    for (const [pol, why] of Object.entries(HISTORICAL)) {
-      expect(why.length, `${pol}'s reason is too short to be a reason`).to.be.greaterThan(60);
-    }
-  });
-
-  it("the pending-decision backlog only shrinks", () => {
-    // Pinned, like the anchor count in spec-anchors.test.ts. Two numbers await one ruling; when it lands, both
-    // leave together and this number goes to 0. It must never go up without the same commit explaining why a NEW
-    // citation was allowed to dangle.
-    expect(Object.keys(PENDING_DECISION)).to.deep.equal(["POL-040a", "POL-040b"]);
-  });
-
-  it("every historical entry is actually still cited — a stale exemption hides the next real one", () => {
-    const allText = files.map((f) => fs.readFileSync(f, "utf8")).join("\n");
-    for (const pol of [...Object.keys(HISTORICAL), ...Object.keys(PENDING_DECISION)]) {
-      expect(allText, `${pol} is exempted but no longer cited anywhere — remove the exemption`).to.contain(pol);
-    }
+    };
+    walk(SRC);
+    expect([...new Set(dangling)], "a GOV id that names no rule is a dead citation").to.deep.equal([]);
   });
 });

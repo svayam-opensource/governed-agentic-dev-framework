@@ -346,9 +346,9 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     // while the session-start protocol tells every agent to read one and surface its `## Open`
     // items. A missing file behind a null-check is the quietest way to lose an obligation.
     //
-    // THIS COMMENT USED TO SAY "POL-168/169 require it to exist". THEY DO NOT EXIST (2026-09-30).
-    // Neither number appears in any policy document in this repository and neither ever has —
-    // `grep -rl POL-168 publish/content` finds nothing. So the refusal below was justified by a
+    // THIS COMMENT USED TO CITE TWO POLICY NUMBERS AS REQUIRING IT. THEY DID NOT EXIST (2026-09-30):
+    // neither appeared in any policy document in this repository, ever (framework/rules/pol-aliases.yaml
+    // records the one that was cited, and why it resolves to nothing). So the refusal below was justified by a
     // citation to a rule nobody wrote, which is worse than an uncited refusal: a reader goes
     // looking for the clause, cannot find it, and cannot tell whether the requirement is real.
     //

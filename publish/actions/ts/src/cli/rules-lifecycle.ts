@@ -16,7 +16,7 @@
  *
  * WHICH SOURCE EACH ONE READS, and the one place this deviates from "always the default branch":
  *
- *   sync    → the DEFAULT BRANCH. This is the case POL-086b is about: a clause edited on the project branch is
+ *   sync    → the DEFAULT BRANCH. This is the case GOV-FRM-086 is about: a clause edited on the project branch is
  *             a proposal, and compiling it would deliver a rule nobody ratified into the one block an agent is
  *             guaranteed to read — self-governance, straight into context.
  *   setup   → the WORKING TREE, necessarily. At setup the policies have just been seeded from `publish/content`

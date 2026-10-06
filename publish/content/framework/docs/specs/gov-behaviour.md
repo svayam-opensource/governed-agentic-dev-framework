@@ -15,7 +15,7 @@ coded to do, parameterised by your settings.
 That distinction was ruled on 2026-09-29, and it exists because the policy used to contain both. A sentence like
 *"a project branch MUST be named `BRNCH-<board#>-<slug>`"* read as a rule somebody could break, when in fact
 `identity.ts` composes that string — there is no version of running gov where the branch is named otherwise.
-Mixing the two taught readers that the prose had a bearing on the behaviour, and one clause (POL-071, describing
+Mixing the two taught readers that the prose had a bearing on the behaviour, and one clause (describing
 a knowledge-close branch that no code ever created) was simply false for as long as anybody had been reading it.
 
 ## What is described here, and what is not
@@ -33,8 +33,9 @@ be told, or because a check enforces it — the policy carries the number and th
 **Every literal below is anchored by a test.** Where a sentence names a concrete string — a branch pattern, a file
 name, a verb, an exit code — `test/content/spec-anchors.test.ts` asserts that string exists in the code. That is
 the mechanism which replaces "this document is updated when the code changes", which is a discipline, and which
-POL-071 demonstrates does not hold on its own. `test/content/pol-citations.test.ts` runs the same idea the other
-way: every POL number cited in gov's source must resolve to a clause that still exists.
+that clause demonstrates does not hold on its own. `test/content/pol-citations.test.ts` runs the same idea the other
+way: every GOV-FRM id cited in gov's source must be a row of `framework/rules/rules.yaml`, and no new POL
+number may be cited anywhere (`framework/rules/pol-aliases.yaml` resolves the old ones).
 
 **What the anchors cannot do, stated because the first draft of this document leaned on them too hard.** They
 catch a literal drifting away from the code. They cannot catch a sentence that was **wrong when it was written**,
@@ -210,8 +211,8 @@ exceptions and they are exceptions for a reason: at setup the substituted polici
 upgrade the default branch still holds the clauses being replaced.
 
 **A number is allocated once.** Where a clause already cites a POL number, that number is recorded; where a clause
-is reworded, gov stops and asks rather than deciding whether it is the same rule. `POL-427` is cited in gov's own
-source code, so a renumbering would silently re-point real citations.
+is reworded, gov stops and asks rather than deciding whether it is the same rule. A rule id such as `GOV-FRM-423` is
+cited in gov's own source code, so a renumbering would silently re-point real citations.
 
 **A changed rule stops work.** gov cannot replace the rules inside a running session, so when a build changes the
 rendered bytes it records a marker and the mutating verbs refuse until a new session is launched or a person
@@ -288,7 +289,7 @@ to its merits, and would bias the choice an organization makes when it approves 
 Every run writes one log, under the person's own state directory, named for the day, the time, the project and the
 command. Writes are logged; reads are not.
 
-**What gov redacts, stated precisely, because POL-427 is C01 and a vague promise is worse than a narrow one:**
+**What gov redacts, stated precisely, because no secret may ever reach a log, and a vague promise is worse than a narrow one:**
 
 | Redacted | How |
 |---|---|

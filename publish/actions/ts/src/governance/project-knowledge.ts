@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * POL-408 front matter for PROJECT knowledge — `projects/<id>/knowledge/**.md`.
+ * The Knowledge Organization Standard's front matter (§4) for PROJECT knowledge — `projects/<id>/knowledge/**.md`.
  *
  * `checkKnowledge` validates the ORG tree (`knowledge/**`) and always has. Project knowledge was never
  * scanned by anything, which surfaced on 2026-08-07 in the plainest possible way: a markdown formatter
@@ -25,7 +25,7 @@
  */
 import type { ValidateContext, ValidationResult } from "./validate.js";
 
-/** The POL-408 taxonomy, identical to the org-tree checker's — one policy, one set of valid values. */
+/** The front-matter taxonomy, identical to the org-tree checker's — one policy, one set of valid values. */
 const DOMAINS = new Set([
   "policies", "legal", "architecture/system", "architecture/data", "development",
   "testing", "deployment", "infrastructure", "support", "compliance", "navigation",
@@ -35,8 +35,8 @@ const COMPLIANCE = new Set(["C01", "C02", "C03", "instructional", "descriptive",
 const STATUSES = new Set(["current", "draft", "superseded"]);
 
 /**
- * The ADR lifecycle words, and what POL-408 calls them instead (Policy Owner, 2026-08-07: ADRs use the
- * POL-408 taxonomy; the taxonomy does not grow to meet them). Four docs in this repo said `accepted` or
+ * The ADR lifecycle words, and what the taxonomy calls them instead (Policy Owner, 2026-08-07: ADRs use the
+ * front-matter taxonomy; the taxonomy does not grow to meet them). Four docs in this repo said `accepted` or
  * `proposed`, so the mapping is named IN THE ERROR rather than left for the author to guess — the same
  * mistake would otherwise be made once per ADR, forever.
  */
@@ -72,23 +72,23 @@ export function isProjectDoc(rel: string): boolean {
   return base !== "TEMPLATE.md" && !/-template\.md$/.test(base) && !rel.includes("/templates/");
 }
 
-/** The POL-408 errors in one doc's text, `[]` when it is valid. Pure — the file list and the reading are
+/** The front-matter errors in one doc's text, `[]` when it is valid. Pure — the file list and the reading are
  *  the caller's, so this is testable on a string. */
 export function pol408Errors(rel: string, text: string): string[] {
   const fm = frontMatter(text);
   if (fm === null) {
-    return [`${rel}: missing or unparseable front-matter (POL-408) — it must open with a '---' block and close with '---'`];
+    return [`${rel}: missing or unparseable front-matter (Knowledge Organization Standard §4) — it must open with a '---' block and close with '---'`];
   }
   const errors: string[] = [];
   for (const [key, allowed] of [["domain", DOMAINS], ["layer", LAYERS], ["compliance", COMPLIANCE], ["status", STATUSES]] as const) {
     if (!allowed.has(fm[key] ?? "")) {
       const got = fm[key] ?? "";
       const adr = key === "status" ? ADR_STATUS_HINT[got.toLowerCase()] : undefined;
-      errors.push(`${rel}: front-matter ${key}='${got}' invalid (POL-408) — one of: ${[...allowed].join(", ")}`
-        + (adr ? `. ADRs use the POL-408 taxonomy: '${got}' → '${adr}'` : ""));
+      errors.push(`${rel}: front-matter ${key}='${got}' invalid (Knowledge Organization Standard §4) — one of: ${[...allowed].join(", ")}`
+        + (adr ? `. ADRs use the front-matter taxonomy: '${got}' → '${adr}'` : ""));
     }
   }
-  if (!fm.owner) errors.push(`${rel}: front-matter owner missing (POL-408)`);
+  if (!fm.owner) errors.push(`${rel}: front-matter owner missing (Knowledge Organization Standard §4)`);
   return errors;
 }
 

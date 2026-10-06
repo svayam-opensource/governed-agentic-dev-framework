@@ -63,7 +63,7 @@ files:
   #
   # Framework-owned and RENDERED from agent/session-protocol.md, so scaffold-auto throughout:
   # Part A of every one of these is the C01 digest, copied verbatim by the renderer. An org
-  # editing a render would lose it at the next re-render anyway, and POL-428's guarantee is
+  # editing a render would lose it at the next re-render anyway, and the harness guarantee is
   # that every agent carries the same rules.
   #
   # gov copies these to the root of whatever directory an agent runs in. They are NOT at the
@@ -92,7 +92,7 @@ files:
   # .cursor/rules/session-start-gate.mdc. They never fired: every launch uses the project
   # directory as cwd, and the harness mirror never carried them, so they sat in the governance
   # worktree where no agent looks. Enforcement in appearance only — and giving two of nine
-  # approved agents a gate the rest cannot have would bias agent choice (POL-430).
+  # approved agents a gate the rest cannot have would bias agent choice.
 
   # ── framework/ — THE FRAMEWORK'S, OVERWRITTEN ON EVERY UPGRADE (Policy Owner, 2026-09-23) ───────────────
   #
@@ -142,7 +142,7 @@ files:
   # THE ORGANIZATION'S OWN DEVELOPMENT POLICY, with worked example clauses (PRJ-121, 2026-09-26). An adopter
   # learns the notation from a policy that uses it, not from a specification of it — so this ships with real
   # clauses (comments, tests, licence header, approved technologies) at levels they are expected to change or
-  # delete. `approved-technologies.md` is the LIST the POL-210 check reads, so it ships too: a check pointing
+  # delete. `approved-technologies.md` is the LIST the approved-technology check reads, so it ships too: a check pointing
   # at a file that does not exist fails every pull request on day one.
   - { src: policies/org-policy.md,                      dst: policies/org-policy.md,                      mode: seed-once }
   - { src: policies/approved-technologies.md,           dst: policies/approved-technologies.md,           mode: seed-once }
@@ -160,7 +160,7 @@ files:
 
   # ── knowledge/ — the ADOPTER's, shipped EMPTY (Decision 10) ─────────────────────────────
   #
-  # No domains, no READMEs. POL-403 says a top-level domain exists IF AND ONLY IF a named Owner
+  # No domains, no READMEs. The Knowledge Organization Standard says a top-level domain exists IF AND ONLY IF a named Owner
   # role exists for it, and that the tree changes only when a domain and its owner role are
   # created — so the framework pre-creating eight domains, several with owners TBD, ran the
   # invariant backwards. It also committed every adopter to one taxonomy: an org organising by

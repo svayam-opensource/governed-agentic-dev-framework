@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * POL-427 IS C01: restricted data never reaches a log, at any level, through any transport, structured fields too.
+ * NO SECRET IN A LOG, C01: restricted data never reaches a log, at any level, through any transport, structured fields too.
  *
  * An audit on 2026-09-30 found four ways past it. Three are fixed here and asserted below; the fourth is a
  * deliberate trade-off with a guard. Each test names the concrete thing that leaked, because "redaction works" is
@@ -15,7 +15,7 @@ import { redactArgv, redactText, CREDENTIAL_SHAPES } from "../../src/state-paths
 
 const GH_TOKEN = `ghp_${"a".repeat(36)}`;
 
-describe("POL-427 — a credential in free TEXT never reaches a log", () => {
+describe("no secret in a log — a credential in free TEXT never reaches a log", () => {
   /**
    * THE LEAK THAT WAS REAL. Every failed process wrote the tail of its stderr to the log verbatim, at `warn`, and
    * `git`/`gh` echo the remote URL in an error — carrying the token they were handed.
@@ -65,7 +65,7 @@ describe("POL-427 — a credential in free TEXT never reaches a log", () => {
   });
 });
 
-describe("POL-427 — secret-shaped FLAGS", () => {
+describe("no secret in a log — secret-shaped FLAGS", () => {
   it("redacts an UNDERSCORED name, the commonest spelling there is", () => {
     // `[A-Za-z0-9-]` had no underscore, so `--api-key` was redacted and `--api_key` was not.
     expect(redactArgv(["--api_key=abc123"])).to.deep.equal(["--api_key=***"]);
@@ -95,7 +95,7 @@ describe("POL-427 — secret-shaped FLAGS", () => {
   });
 });
 
-describe("POL-427 — every prompt answer that could be a secret uses the hidden path", () => {
+describe("no secret in a log — every prompt answer that could be a secret uses the hidden path", () => {
   /**
    * THE FOURTH PATH, AND THE TRADE-OFF. `ask.line()` logs the question AND the answer verbatim at `info`, and its
    * comment defends that: "what was it asked, and what did the person say?" was unanswerable after the fact, which

@@ -12,7 +12,7 @@ status: seed
 # Data classification — <ORG_NAME>'s tiers
 
 **Document:** Data Classification
-**Governed by:** `policies/org-policy.md` §4 (POL-220)
+**Governed by:** `policies/org-policy.md` §4
 **Policy Owner:** <POLICY_OWNER_EMAIL>
 **Status:** seed — written once by `gov setup`, and **yours to change**
 
@@ -92,7 +92,7 @@ and escalate to the Policy Owner. **(POL-244)**
 
 *(No cue. The framework's own C01 cue — "C01 MEANS STOP. No exception exists, and nobody can grant one" — is
 already resident in every agent's context on every turn. A second copy of it would make both weaker, which is
-POL-402 applied to the resident block.)*
+one fact, one document, applied to the resident block.)*
 
 ## 4. Secrets, and where data may go
 

@@ -8,14 +8,14 @@ status: draft
 
 # <ORG_NAME> — Approved Technologies
 
-**Governed by:** `policies/org-policy.md` §3.1 (POL-210)
+**Governed by:** `policies/org-policy.md` §3.1
 **Policy Owner:** <POLICY_OWNER_EMAIL>
 **Status:** draft — seeded by `gov setup`, and **yours to curate**
 
 > ## This list is the check
 >
 > `gov validate` reads this file. A dependency added in a pull request that does not appear here **fails the
-> check** (POL-210). So this is not documentation about your stack — it *is* your stack, as far as the gate is
+> check**. So this is not documentation about your stack — it *is* your stack, as far as the gate is
 > concerned.
 >
 > The list below is a starter holding what the framework itself needs. **Replace it with yours.** Approving a

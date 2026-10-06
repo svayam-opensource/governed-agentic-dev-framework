@@ -41,6 +41,11 @@ describe("exceptions — reading one", () => {
     expect(exception!.scope).to.deep.equal(["910-GOV-CICD"]);
   });
 
+  it("reads a GOV id as the clause (W2 contradiction 4: the regex accepted only POL numbers)", () => {
+    const { exception } = parseException(doc(GOOD.replace(/^clause: .*$/m, "clause: GOV-SVM-012")));
+    expect(exception!.clause).to.equal("GOV-SVM-012");
+  });
+
   it("falls back to the file name for an id, because a citable name matters more than a field", () => {
     const { exception } = parseException(doc(GOOD.replace("id: EX-14\n", "")));
     expect(exception!.id).to.equal("EX-14");

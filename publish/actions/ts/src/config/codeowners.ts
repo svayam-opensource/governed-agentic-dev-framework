@@ -32,14 +32,14 @@
  *
  * Decision 13's intent is preserved in full — one definition of roles, CODEOWNERS generated,
  * no unresolved tokens — and `roles.md` is still deleted, because it was a SECOND definition of
- * the roles the policy already defines (POL-402).
+ * the roles the policy already defines (GOV-FRM-402).
  *
  * THE POLICY OWNER IS THE FLOOR. Every generated file protects the paths that decide who may
  * change anything: `org-config.yaml` (the handle registry itself — an ungated one is a path to
  * naming yourself the approver of every gated file), `governance/` (the doctrine), `agent/`
  * (the harness that carries the C01 digest), and `projects/`.
  *
- * DOMAIN LINES APPEAR ONLY WHEN A ROLE IS HELD. `POL-403` says a top-level domain exists if and
+ * DOMAIN LINES APPEAR ONLY WHEN A ROLE IS HELD. The Knowledge Organization Standard says a top-level domain exists if and
  * only if a named Owner role exists for it. The framework no longer ships eight domains with
  * owners TBD (Decision 10 — `knowledge/` ships empty), so an unheld role contributes no line.
  */
@@ -71,7 +71,7 @@ export const POLICY_OWNER_PATHS: readonly string[] = [
  * Domain roles beyond the Policy Owner.
  *
  * Their paths sit under `knowledge/`, which ships EMPTY (Decision 10) — so these lines appear
- * only once an organization has both created the domain and named a holder, which is `POL-403`
+ * only once an organization has both created the domain and named a holder, which is the Knowledge Organization Standard's rule
  * working as written rather than as an inherited tree.
  */
 export const DOMAIN_ROLES: readonly OwnerRole[] = [
@@ -90,9 +90,9 @@ export const DOMAIN_ROLES: readonly OwnerRole[] = [
  * code — which a Policy Owner need not be.
  *
  * NOT A DOMAIN ROLE, and the difference is the vacancy rule. A domain's paths do not exist until somebody holds
- * the role (POL-403), so an unheld domain role adds no line. `policies/actions/` exists the moment an org writes a
+ * the role (Knowledge Organization Standard §2), so an unheld domain role adds no line. `policies/actions/` exists the moment an org writes a
  * check, and an ungated actions directory is code anyone with write access can make CI run — so a VACANT Check
- * Owner escalates to the Policy Owner (POL-034), and the line is always written.
+ * Owner escalates to the Policy Owner (GOV-FRM-033), and the line is always written.
  */
 export const CHECK_OWNER: OwnerRole = { key: "check_owner_github", role: "Check Owner", paths: ["/policies/actions/"] };
 
@@ -106,7 +106,7 @@ export interface CodeownersResult {
   readonly text: string;
   /** Domain roles named in org-config but with no holder — reported, never guessed at. They add no line. */
   readonly unheld: readonly string[];
-  /** Built-in roles with no holder, whose paths the Policy Owner approves instead (POL-034). */
+  /** Built-in roles with no holder, whose paths the Policy Owner approves instead (GOV-FRM-033). */
   readonly escalated: readonly string[];
 }
 
@@ -130,7 +130,7 @@ export function renderCodeowners(
     "# Roles and what each approves are defined by the framework; WHO holds them comes from",
     "# org-config.yaml. Change a holder there and re-run `gov upgrade` to regenerate this file.",
     "#",
-    "# A domain line appears only when its role has a holder (POL-403: a domain exists if and",
+    "# A domain line appears only when its role has a holder (Knowledge Organization Standard §2: a domain exists if and",
     "# only if a named Owner role exists for it).",
     "",
     "# Policy Owner — the floor. org-config.yaml is listed first because it holds every other",
@@ -145,7 +145,7 @@ export function renderCodeowners(
   const checker = normalizeHandle(handles[CHECK_OWNER.key]);
   if (checker === null) escalated.push(CHECK_OWNER.role);
   lines.push("", checker === null
-    ? `# ${CHECK_OWNER.role} — vacant (${CHECK_OWNER.key} is empty), so the Policy Owner approves this code (POL-034).`
+    ? `# ${CHECK_OWNER.role} — vacant (${CHECK_OWNER.key} is empty), so the Policy Owner approves this code (GOV-FRM-033).`
     : `# ${CHECK_OWNER.role} — approves the code of the org's check actions; the Policy Owner approves the rules.`);
   const cw = Math.max(...CHECK_OWNER.paths.map((p) => p.length)) + 2;
   for (const p of CHECK_OWNER.paths) lines.push(`${p.padEnd(cw)}${checker ?? owner}`);

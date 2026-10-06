@@ -12,7 +12,7 @@ status: seed
 # Authorized representatives — who approves an exception
 
 **Document:** Authorized Representatives
-**Governed by:** `policies/org-policy.md` §5 (POL-230)
+**Governed by:** `policies/org-policy.md` §5
 **Policy Owner:** <POLICY_OWNER_EMAIL>
 **Status:** seed — written once by `gov setup`, and **yours to change**
 

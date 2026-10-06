@@ -3,7 +3,7 @@
 /**
  * THE GOVERNING FILES, PUT WHERE THE AGENT CAN READ THEM (PRJ-121, 2026-09-22).
  *
- * The session-start protocol sends the agent to two files that must come from the DEFAULT branch (POL-086a):
+ * The session-start protocol sends the agent to two files that must come from the DEFAULT branch (GOV-FRM-456):
  * `org-config.yaml` and the governance policy. It used to point at the default-branch clone,
  * `~/.gov/<slug>/gov_repo` — which is OUTSIDE the project folder the agent is started in and, for an agent
  * that sandboxes its reads to that folder, off limits. On a walk, IBM Bob's `read_file` on
@@ -73,7 +73,7 @@ export function snapshotGovernance(
     `${source}`,
     `copied ${ports.now().toISOString()} by gov, at the start of this session`,
     `read with: git -C ${worktree} show ${ref}:<file>`,
-    "the DEFAULT branch — the only branch that governs (POL-086a). Read-only: a change to governance is",
+    "the DEFAULT branch — the only branch that governs (GOV-FRM-086). Read-only: a change to governance is",
     "proposed with `gov knowledge propose`, never made here.",
     "",
   ].join("\n"), 0o444);

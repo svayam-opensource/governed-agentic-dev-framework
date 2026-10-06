@@ -402,7 +402,7 @@ describe("gov-work — gov verifies the context before it launches (the guarante
     // adopter's own and gov should not govern through it. But `ensureRootProtocol` OVERWRITES
     // this path from `<workspace>/<rel>` on every launch, so what is read here is always a copy
     // of the organization's own governed repository. If they edited it, that edit is their
-    // ratified choice (POL-086) and gov has no standing to refuse it.
+    // ratified choice (GOV-FRM-086) and gov has no standing to refuse it.
     //
     // Refusing also kept bricking real installs: first every org predating the version marker,
     // then Claude specifically, because `main` still ships CLAUDE.md as an @-import stub with

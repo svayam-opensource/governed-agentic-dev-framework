@@ -82,7 +82,7 @@ The organization CAN re-embed only the files a merge changed, rather than re-ind
 
 Choice of static-site generator, PDF toolchain and vector store; the ingestion pipeline; uptime; and the
 internal API that agents and `gov close` read the index through. None of it is prescribed here: these are
-renderers over the same files, and `policies/knowledge-organization-standard.md` §6 (POL-415) keeps the write
+renderers over the same files, and `policies/knowledge-organization-standard.md` §6 keeps the write
 path — git, markdown, pull-request approval — the only authoring system, precisely so that a renderer can be
 swapped without a policy change.
 

@@ -70,7 +70,7 @@ describe("upgrade — a workspace on the old layout keeps everything that is the
 
   it("the org's PUBLICATION RULES come across — into the one file that now holds them", () => {
     // `knowledge-publication-spec.md` folded into `knowledge-publication.md` when the clauses moved: the
-    // decision and the arrangement that carries it out are one document, not two (POL-402).
+    // decision and the arrangement that carries it out are one document, not two (GOV-FRM-402).
     expect(read("policies/knowledge-publication.md")).to.equal("# our publication rules\n");
   });
 

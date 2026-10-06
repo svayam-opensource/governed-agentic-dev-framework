@@ -63,7 +63,7 @@ policy says they live. Nothing in the framework requires it.
 
 > **The publication pipeline that used to be specified here is gone.** It described a static knowledge site, PDF
 > exports of every policy, and re-embedding changed files into a vector store — infrastructure the framework
-> never shipped, so every adopter was non-compliant with it on the day they adopted. POL-100…POL-104 were
+> never shipped, so every adopter was non-compliant with it on the day they adopted. Those clauses (§8.8 of the old policy) were
 > withdrawn on 2026-09-23 and publication became an organization's own decision, recorded as
 > `knowledge_publication` in `org-config.yaml` (`none` by default). `gov knowledge search|show|list` reads the
 > markdown already on the machine, which is what the portal was for.
