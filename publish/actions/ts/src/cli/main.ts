@@ -42,6 +42,16 @@ import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
 import { checkCommand } from "./check-verb.js";
+import { checkCommandAsync } from "./check-verb.js";
+import { rulesPropose, settingsAt, PROPOSE_USAGE } from "./rules-propose.js";
+import { proposeOnPullRequest } from "./rules-propose-ci.js";
+import { openPrBranch, botIdentity } from "./pr-branch-io.js";
+import { terminalChannel } from "../rules/propose/interview.js";
+import { chooseModel, lazyModel } from "../rules/propose/providers/index.js";
+import { ANTHROPIC_KEY_ENV } from "../rules/propose/providers/anthropic.js";
+import { defaultRef } from "../rules/checks/ruleset-io.js";
+import { fsTree } from "../rules/policy-pr/tree.js";
+import type { ModelSettings } from "../rules/propose/model-settings.js";
 import type { Gh } from "../rules/checks/github-adapters.js";
 import { withRepoOverrides } from "../config/repo-overrides.js";
 import { assembleNeeds } from "../security/needs.js";
@@ -87,7 +97,7 @@ import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../confi
 import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
 import { planAgentInstall } from "./agent-verb.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
-import { parseArgv, flagStr } from "./args.js";
+import { parseArgv, flagStr, flagBool } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 import { orgAdd, orgUse } from "../resolve/org.js";
 import { PACKAGE_NAME } from "../index.js";
@@ -1827,6 +1837,121 @@ export async function runAgentInstall(argv: readonly string[]): Promise<number> 
  */
 function rememberLogin(login: string | null | undefined): void {
   try { const slug = runContext().orgSlug; if (login && slug) cacheLogin(slug, login); } catch { /* next time */ }
+}
+
+/** The gov home and its org-config, resolved the way {@link main} resolves them — for the async verbs. */
+function resolveHomeConfig(flags: Record<string, string | boolean>): { home: string; config: ReturnType<typeof parseOrgConfig> } | number {
+  const override = flagStr(flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
+  let home: string;
+  if (override) home = path.resolve(expandTilde(override));
+  else {
+    const resolved = prjResolveGov(createNodeEnv());
+    if (!resolved.ok) { process.stderr.write(`${resolveFailureMessage(resolved)}\n`); return resolved.code; }
+    home = resolved.home;
+  }
+  const text = createNodeFs().readFile(path.join(home, "org-config.yaml"));
+  if (text === null) { process.stderr.write(`gov: no org-config.yaml at ${home}\n`); return 1; }
+  return { home, config: parseOrgConfig(text) };
+}
+
+/**
+ * The Anthropic key for `gov rules propose`: the environment first, then the person's credentials store (the file
+ * `gov agent install claude-code` writes, loaded only when nobody else can read it). Never printed, never logged.
+ */
+function anthropicKey(): string | null {
+  const fromEnv = process.env[ANTHROPIC_KEY_ENV]?.trim();
+  if (fromEnv) return fromEnv;
+  const ctx = runContext();
+  if (!ctx.workRoot || !ctx.login) return null;
+  const at = credentialsPathFor(expandHome(ctx.workRoot), ctx.login);
+  try {
+    if (!storeIsPrivate(fsSync.statSync(at).mode, process.platform)) {
+      process.stderr.write(`  ! gov will not load ${at} — other users on this machine can read it (chmod 600 ${at}).\n`);
+      return null;
+    }
+    return storedCredential(fsSync.readFileSync(at, "utf8"), ANTHROPIC_KEY_ENV, "claude-code");
+  } catch { return null; /* no store yet — the ordinary case */ }
+}
+
+/** `models.command`, run with the request on stdin, through the run-process chokepoint. Ten minutes at most. */
+const runModelCommand = (cmd: string, args: readonly string[], input: string): string =>
+  runProcess(cmd, args, { pgm: "gov-work:rules:propose:command", fn: "complete", input, timeoutMs: 600_000 });
+
+const modelChoiceFor = (s: ModelSettings, ci: boolean) => chooseModel(s, { ci, anthropicKey, runCommand: runModelCommand });
+
+/**
+ * `gov rules propose [--all] [--pr <n>]` — ASKS at the terminal, so it is routed here and not through `route()`
+ * (which neither prompts nor waits). One readline, borrowed by the interview through {@link askFns}.
+ */
+export async function runRulesPropose(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const prFlag = flagStr(parsed.flags, "pr");
+  if (prFlag !== undefined && !/^\d+$/.test(prFlag)) { process.stderr.write(`usage: gov ${PROPOSE_USAGE}\n`); return 2; }
+  const at = resolveHomeConfig(parsed.flags);
+  if (typeof at === "number") return at;
+  const git = (repo: string, args: readonly string[]) => tryRun("git", ["-C", repo, ...args]) ?? null;
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const prompt = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
+  try {
+    const ask = askFns(rl, prompt);
+    const r = await rulesPropose({
+      git,
+      head: fsTree(at.home),
+      channel: terminalChannel(ask.line),
+      model: (s) => lazyModel(() => modelChoiceFor(s, false), (d) => process.stderr.write(`  reading with ${d}\n`)),
+      currentPr: () => {
+        const n = tryRunProcess("gh", ["pr", "view", "--json", "number", "--jq", ".number"], { pgm: "gov-work:cli:main", fn: "propose-pr", cwd: at.home });
+        return n && /^\d+$/.test(n) ? Number(n) : undefined;
+      },
+    }, {
+      home: at.home, defaultBranch: at.config.defaultBranch, all: flagBool(parsed.flags, "all"),
+      ...(prFlag !== undefined ? { pr: Number(prFlag) } : {}),
+      today: localDate(new Date()),
+      author: ensureLogin(runContext()) ?? "unknown",
+    });
+    for (const line of r.lines) process.stdout.write(`${line}\n`);
+    return r.code;
+  } finally { rl.close(); }
+}
+
+const localDate = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/**
+ * `gov check run|install` with the proposer wired in: a rule binding `gov-builtin/rules-propose` runs it first
+ * (asynchronously — a model, the pull request's comments, a push). Called from bin.ts; `main()` keeps the
+ * synchronous path for everything else.
+ */
+export async function runCheck(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const at = resolveHomeConfig(parsed.flags);
+  if (typeof at === "number") return at;
+  const { home, config } = at;
+  const fs = createNodeFs();
+  const git = (repo: string, args: readonly string[]) => tryRun("git", ["-C", repo, ...args]) ?? null;
+  const gh: Gh = (args, input) => tryRunProcess("gh", args, { pgm: "gov-work:cli:check", fn: "gh", ...(input === undefined ? {} : { input }) }) ?? null;
+  const bot = botIdentity(process.env);
+  const r = await checkCommandAsync(parsed.positionals, parsed.flags, {
+    git, gh, env: process.env,
+    readFile: (f) => fs.readFile(f),
+    writeFile: (f, t) => fs.writeFile(f, t),
+    proposeOnPr: (tag, eventName, event, repoDir) => proposeOnPullRequest(tag, eventName, event, {
+      git, gh, repoDir,
+      repository: process.env.GITHUB_REPOSITORY ?? "",
+      // The org's model setting from the DEFAULT branch: a pull request cannot approve its own model.
+      settings: settingsAt(git, home, defaultRef(git, home, config.defaultBranch)),
+      model: (s) => modelChoiceFor(s, true),
+      openBranch: (sha, ref) => openPrBranch(repoDir, sha, ref, bot),
+      self: process.env.GOV_BOT_LOGIN || bot.name,
+      today: new Date().toISOString().slice(0, 10),
+    }),
+  }, {
+    home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch,
+    githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: config.governancePosture.posture,
+  });
+  for (const line of r.lines) process.stdout.write(`${line}\n`);
+  return r.code;
 }
 
 export async function runWork(argv: readonly string[]): Promise<number> {

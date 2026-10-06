@@ -41,6 +41,8 @@ import { githubActionsRenderer, GOV_APP_SECRETS } from "../rules/checks/render-g
 import { humanGateMessage } from "../rules/cues/human-message.js";
 import { gitTree } from "../rules/policy-pr/tree.js";
 import type { PolicyPrInput } from "../rules/policy-pr/gate.js";
+import type { BuiltinOutcome } from "../rules/checks/builtin.js";
+import { PROPOSE_ACTION } from "../rules/checks/builtin.js";
 
 export interface CheckVerbDeps {
   readonly git: GitRead;
@@ -50,7 +52,15 @@ export interface CheckVerbDeps {
   readonly readFile: (file: string) => string | null;
   /** Absolute path, parent directories created. */
   readonly writeFile: (file: string, text: string) => void;
+  /** `gov-builtin/rules-propose`'s outcome, run beforehand by {@link checkCommandAsync}. */
+  readonly rulesPropose?: BuiltinOutcome;
 }
+
+/**
+ * The proposer on a pull request (cli/rules-propose-ci.ts), as `gov check run` calls it: the rule's tag, the
+ * event, and the checkout it runs in. Injected so this file stays free of the model and the forge.
+ */
+export type ProposeOnPr = (tag: string, eventName: string, event: unknown, repoDir: string) => Promise<BuiltinOutcome>;
 
 export interface CheckVerbConfig {
   /** The governance repository's working tree. */
@@ -72,6 +82,33 @@ export function checkCommand(positionals: readonly string[], flags: Readonly<Rec
   if (sub === "run") return checkRun(positionals[1], flags, deps, cfg);
   if (sub === "install") return checkInstall(flags, deps, cfg);
   return { code: 2, lines: [`usage: gov ${RUN_USAGE}`, `       gov ${INSTALL_USAGE}`] };
+}
+
+/**
+ * `gov check run` with the one action that cannot run synchronously: when the rule in force binds
+ * `gov-builtin/rules-propose` on this resource and event, the proposer runs first (a model, the pull request's
+ * comments, a push to its branch) and its outcome joins the verdict like any other action's. Everything else is
+ * {@link checkCommand} unchanged.
+ */
+export async function checkCommandAsync(
+  positionals: readonly string[], flags: Readonly<Record<string, string | boolean>>,
+  deps: CheckVerbDeps & { readonly proposeOnPr?: ProposeOnPr }, cfg: CheckVerbConfig,
+): Promise<CommandResult> {
+  const id = positionals[1], resource = flagStr(flags, "resource"), event = flagStr(flags, "event");
+  if (positionals[0] !== "run" || !id || !resource || !event || !deps.proposeOnPr) return checkCommand(positionals, flags, deps, cfg);
+  const loaded = loadCheckRuleSet(deps.git, cfg.home, defaultRef(deps.git, cfg.home, cfg.defaultBranch));
+  const row = loaded.ok ? inForce([...loaded.set.framework, ...loaded.set.org]).find((r) => r.id === id) : undefined;
+  const binds = (row?.checks ?? []).some((b) => b.action === PROPOSE_ACTION && b.on.resource === resource && b.on.event === event);
+  if (!binds) return checkCommand(positionals, flags, deps, cfg);
+
+  const eventPath = deps.env.GITHUB_EVENT_PATH;
+  const text = eventPath ? deps.readFile(eventPath) : null;
+  let eventJson: unknown = {};
+  try { eventJson = text === null ? {} : JSON.parse(text); } catch { /* checkCommand reports the unreadable event itself */ }
+  const repoDirFlag = flagStr(flags, "repo-dir");
+  const repoDir = repoDirFlag === undefined ? path.resolve(cfg.home) : path.resolve(repoDirFlag);
+  const outcome = await deps.proposeOnPr(`${id} [${PROPOSE_ACTION}]`, deps.env.GITHUB_EVENT_NAME ?? "", eventJson, repoDir);
+  return checkCommand(positionals, flags, { ...deps, rulesPropose: outcome }, cfg);
 }
 
 function checkRun(id: string | undefined, flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg: CheckVerbConfig): CommandResult {
@@ -128,6 +165,7 @@ function checkRun(id: string | undefined, flags: Readonly<Record<string, string 
     rules,
     readDefault: (p) => deps.git(cfg.home, ["show", `${ref}:${p}`]),
     ...(policyPr ? { policyPr } : {}),
+    ...(deps.rulesPropose ? { propose: deps.rulesPropose } : {}),
     ...(repository ? { github: { pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository) } } : {}),
   });
   const verdict = runner.run(id, ctx);

@@ -195,7 +195,7 @@ describe("check engine — gov-builtin actions", () => {
     expect(run("test-suite", {}, ctx(undefined)).verdict).to.equal("cannot-tell");
   });
 
-  it("rules-propose is a stub: cannot-tell", () => {
+  it("rules-propose with no outcome run beforehand: cannot-tell", () => {
     expect(run("rules-propose", {}, pr([])).verdict).to.equal("cannot-tell");
   });
 

@@ -67,6 +67,8 @@ export function approvalsFrom(reviewsJson: string, headSha: string): string[] | 
     const who = str(obj(rv.user).login);
     const state = str(rv.state);
     if (!who || !state || state === "COMMENTED" || state === "PENDING") continue;
+    // A bot never approves (Q17): gov's own commits and comments are its work, not a person's consent.
+    if (str(obj(rv.user).type) === "Bot" || who.endsWith("[bot]")) continue;
     latest.set(who, rv); // GitHub lists reviews oldest first
   }
   return [...latest.entries()]

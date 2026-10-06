@@ -29,6 +29,9 @@ import { asList } from "./payload.js";
 import { forbidForcedPush, sectionOwnerApproval } from "./policy-actions.js";
 import { judgePolicyPr, type PolicyPrInput } from "../policy-pr/gate.js";
 
+/** The proposer's action id (P3): run by the CLI before the dispatch, its outcome injected. */
+export const PROPOSE_ACTION = "gov-builtin/rules-propose";
+
 /** The names after `gov-builtin/`. */
 export const BUILTIN_ACTIONS: readonly string[] = [...CHECK_KINDS, "test-suite", "rules-propose", "forbid-forced-push", "section-owner-approval", "policy-pr-gate"];
 
@@ -48,6 +51,11 @@ export interface BuiltinInput {
    * Absent → `cannot-tell`. Wired by the CLI (P3); the event payload has no place for trees.
    */
   readonly policyPr?: PolicyPrInput;
+  /**
+   * rules-propose (P3): the proposer's outcome, already run by the CLI on this pull request — it is asynchronous
+   * (a model, the pull request's comments, a push) and this dispatch is not. Absent → `cannot-tell`.
+   */
+  readonly propose?: BuiltinOutcome;
 }
 
 /** `miss` = the predicate did not hold; the runner turns it into fail or warn by the binding's `on_miss`. */
@@ -78,7 +86,7 @@ export function runBuiltin(input: BuiltinInput): BuiltinOutcome {
     if (name === "forbid-forced-push") return forbidForcedPush(tag, input.params, ctx);
     if (name === "section-owner-approval") return sectionOwnerApproval(tag, input.params, ctx, input.rules);
     if (name === "policy-pr-gate") return policyPrGate(tag, input.policyPr);
-    if (name === "rules-propose") return cannot([`${tag}: the proposer is not runnable as a check yet, so nothing was checked.`]);
+    if (name === "rules-propose") return input.propose ?? cannot([`${tag}: the proposer was not run for this event (only \`gov check run\` on the gov repo's pull request runs it), so nothing was checked.`]);
     return cannot([`${tag}: no such gov-builtin action, so nothing was checked.`]);
   } catch (e) {
     // A predicate that throws (a bad regex at a verb, a malformed payload) checked nothing. Said, never fatal.

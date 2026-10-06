@@ -17,7 +17,7 @@ the rule up.
 - **advisory** — no check and no cue; nothing enforces it
 - **cannot-tell** — it claims a check, but no bound resource can listen yet, so nothing runs
 
-In force: 54 rules — prevented 21 · detected 2 · judged 0 · cued 18 · advisory 13 · cannot-tell 0.
+In force: 55 rules — prevented 22 · detected 2 · judged 0 · cued 18 · advisory 13 · cannot-tell 0.
 
 ## Rules
 
@@ -77,3 +77,4 @@ In force: 54 rules — prevented 21 · detected 2 · judged 0 · cued 18 · advi
 | GOV-FRM-465 | framework/docs/specs/framework-specification.md | Specification | §10.5 | framework | C01 | gov refuses an exception that names a framework rule. | gov-client |  | vcs.framework-repo·pull_request → gov-builtin/test-suite | prevented | 1.2.3 (2026-10-06) |  |
 | GOV-FRM-466 | framework/docs/specs/framework-specification.md | Specification | §7.6 | framework | C01 | gov, agents and people never force-push a branch other people work on. | gov-client, everyone | resident: NEVER FORCE-PUSH a branch other people work on. | vcs.gov-repo·push → gov-builtin/forbid-forced-push<br>vcs.code-repo·push → gov-builtin/forbid-forced-push | detected | 1.2.3 (2026-10-06) |  |
 | GOV-FRM-467 | framework/docs/specs/framework-specification.md | Specification | §9.2 | framework | C01 | A change to the organization's policy carries its rules, version, snapshot and changelog. | gov-client |  | vcs.gov-repo·pull_request → gov-builtin/policy-pr-gate<br>vcs.framework-repo·pull_request → gov-builtin/test-suite | prevented | 1.2.3 (2026-10-06) |  |
+| GOV-FRM-468 | framework/docs/specs/framework-specification.md | Specification | §9.3 | framework | C01 | gov proposes rules on a policy pull request only when its rows are out of date and only with a model the organization allowed in CI, issues every new id itself, and never counts its own commit as an approval. | gov-client |  | vcs.gov-repo·pull_request → gov-builtin/rules-propose<br>vcs.framework-repo·pull_request → gov-builtin/test-suite | prevented | 1.2.3 (2026-10-06) |  |

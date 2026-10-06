@@ -5,7 +5,7 @@
 // Development Framework. It manages projects, workspaces and org registration, and shows the context
 // banner. It hosts NOTHING: `gov-cicd` (deploy) and `gov-infra` (infrastructure) are independent clients
 // invoked directly, not verbs of this one (adr-three-clients, PRJ-43).
-import { main, runSetupCommand, runWork, runAgentInstall, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines, isKnownCommand } from "./main.js";
+import { main, runSetupCommand, runWork, runAgentInstall, runRulesPropose, runCheck, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines, isKnownCommand } from "./main.js";
 import { confirmContextOrBail } from "./context-gate.js";
 import { helpRequest } from "./help-request.js";
 import { helpJson, topicOf } from "./help-render.js";
@@ -68,6 +68,10 @@ async function dispatch(): Promise<number> {
   // dispatch.ts says it plainly: "neither prompting nor spawning belongs in a pure router".
   // It also needs a reader of its own, and having exactly one owner is the whole of #213.
   if (argv[0] === "agent" && argv[1] === "install") return runAgentInstall(argv);
+  // `rules propose` ASKS (the interview) and waits on a model; `check` may run the proposer on a pull request.
+  // Both are asynchronous, which `main()` is not — routed here for the same reason `work` is.
+  if (argv[0] === "rules" && argv[1] === "propose") return runRulesPropose(argv);
+  if (argv[0] === "check") return runCheck(argv);
   return main(argv);
 }
 
