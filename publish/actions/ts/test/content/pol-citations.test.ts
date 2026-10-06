@@ -60,7 +60,6 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "docs/design/agent-context-assembly-spec.md": HISTORY,
   "docs/design/option-2-sequence-diagrams.md": HISTORY,
   "publish/content/framework/rules/W2-classification.md": HISTORY,
-  "publish/content/framework/policies/framework-policy.md": OLD_COMPILER_INPUT,
   "publish/content/policies/approved-technologies.md": OLD_COMPILER_INPUT,
   "publish/content/policies/authorized-representatives.md": OLD_COMPILER_INPUT,
   "publish/content/policies/compliance-review.md": OLD_COMPILER_INPUT,
@@ -145,7 +144,7 @@ describe("no new POL citations — POL numbers are retired (rule-model Q21)", ()
   });
 
   it("the allow-list's size is pinned, so a change to it is a visible diff", () => {
-    expect(Object.keys(ALLOWED)).to.have.lengthOf(60);
+    expect(Object.keys(ALLOWED)).to.have.lengthOf(59);
   });
 
   it("every GOV-FRM id cited in gov's source is a row of framework/rules/rules.yaml", () => {

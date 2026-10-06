@@ -33,7 +33,7 @@ describe("governance snapshot — the rules, where the agent can read them", () 
     };
     return { ports, written };
   };
-  const both = { "org-config.yaml": "org: x\n", "framework/policies/framework-policy.md": "# policy\n" };
+  const both = { "org-config.yaml": "org: x\n", "framework/docs/specs/framework-specification.md": "# policy\n" };
 
   it("copies both files into <project>/.gov/governance, read-only, stamped with where they came from", () => {
     const { ports, written } = fake(both);
@@ -41,7 +41,7 @@ describe("governance snapshot — the rules, where the agent can read them", () 
     expect(snap.dir).to.equal("/p/PRJ-28/.gov/governance");
     expect(snap.source).to.equal("main@3f2a1c9");
     expect(written["/p/PRJ-28/.gov/governance/org-config.yaml"]).to.deep.equal({ content: "org: x\n", mode: 0o444 });
-    expect(written["/p/PRJ-28/.gov/governance/framework-policy.md"]!.mode).to.equal(0o444);
+    expect(written["/p/PRJ-28/.gov/governance/framework-specification.md"]!.mode).to.equal(0o444);
     expect(written["/p/PRJ-28/.gov/governance/SOURCE"]!.content).to.contain("main@3f2a1c9").and.to.contain("GOV-FRM-086");
   });
 
@@ -63,11 +63,11 @@ describe("governance snapshot — the rules, where the agent can read them", () 
 });
 
 describe("the session-start prompt points at the snapshot when there is one", () => {
-  const snap = { dir: "/p/PRJ-28/.gov/governance", files: ["org-config.yaml", "framework-policy.md"], source: "main@3f2a1c9" };
+  const snap = { dir: "/p/PRJ-28/.gov/governance", files: ["org-config.yaml", "framework-specification.md"], source: "main@3f2a1c9" };
   it("sends the agent INSIDE the project, and names the commit it is reading", () => {
     const p = sessionStartPrompt("PRJ-28", "acme-gov", "/home/t/.gov/acme/gov_repo", snap);
     expect(p).to.contain("/p/PRJ-28/.gov/governance/org-config.yaml");
-    expect(p).to.contain("/p/PRJ-28/.gov/governance/framework-policy.md");
+    expect(p).to.contain("/p/PRJ-28/.gov/governance/framework-specification.md");
     expect(p).to.contain("main@3f2a1c9").and.to.contain("GOV-FRM-086");
     expect(p, "not outside the project any more").to.not.contain("/home/t/.gov/acme/gov_repo/org-config.yaml");
   });
@@ -106,7 +106,7 @@ describe("governance snapshot — a real worktree on a project branch with an un
 
   it("copies MAIN's policy — never the project branch's unratified edit", () => {
     const snap = snapshotGovernance(realPorts(), project, "acme-gov", "main")!;
-    expect(fs.readFileSync(path.join(snap.dir, "framework-policy.md"), "utf8")).to.equal("# RATIFIED policy\n");
+    expect(fs.readFileSync(path.join(snap.dir, "framework-specification.md"), "utf8")).to.equal("# RATIFIED policy\n");
     expect(fs.readFileSync(path.join(snap.dir, "org-config.yaml"), "utf8")).to.equal("org_name: RATIFIED\n");
   });
 

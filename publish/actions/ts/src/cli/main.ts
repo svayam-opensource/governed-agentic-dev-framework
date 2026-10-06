@@ -1067,7 +1067,7 @@ export async function runSetupCommand(
       manifest.push({ what: "Committed", detail: committed ? (pushed ? "and pushed to the default branch" : "locally — push failed, run: git push") : "nothing to commit" });
 
       for (const line of renderManifest(manifest, [
-        "framework/policies/ — the framework's, replaced on upgrade   ·   policies/ — yours",
+        "framework/ — the framework's, replaced on upgrade   ·   policies/ — yours",
         "agent/session-protocol.md                          — what your agents read at session start",
         "gov                                                — the interactive front door",
         ...(activeNote ? [activeNote] : []),
@@ -2191,7 +2191,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     })();
     const ghScopes = ghAuthed && ghStatus ? parseGrantedScopes(ghStatus) : null;
     // The workspace's org-config, read ONCE: doctor reports the keys gov ignores in it, and the protection
-    // probe needs it to know which repo and branch framework-policy §3.3 is about.
+    // probe needs it to know which repo and branch framework-specification.md §7.3 is about.
     const doctorCfgText = (!!doctorHomeOverride || resolve.ok) ? fs.readFile(path.join(home, "org-config.yaml")) : null;
     const doctorCfg = doctorCfgText ? parseOrgConfig(doctorCfgText) : null;
     // GOV-FRM-448, checked instead of assumed (PRJ-121, 2026-09-27). Only when gh can be asked and the org
@@ -2667,7 +2667,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
 
     /**
      * `approve` raises a pull request. It does not edit the policy: the approved
-     * list is C01 (gov-behaviour.md §8) and belongs to the Infrastructure Owner, not to whoever
+     * list is C01 (framework-specification.md §6.1) and belongs to the Infrastructure Owner, not to whoever
      * typed the command — the same reason `gov knowledge` exists.
      */
     proposeAgentApproval: (id) => [

@@ -142,7 +142,7 @@ harness_files() {
 
 make_gov_repo() {
   local dir="$1" org="$2" slug="$3"
-  mkdir -p "$dir/framework/policies" "$dir/framework/templates" "$dir/policies" "$dir/agent" "$dir/knowledge"
+  mkdir -p "$dir/framework/docs/specs" "$dir/framework/rules" "$dir/framework/templates" "$dir/policies" "$dir/agent" "$dir/knowledge"
   cat > "$dir/org-config.yaml" <<YAML
 org_name: "$org Ltd"
 org_short_name: "$org"
@@ -157,8 +157,9 @@ agent_work_root: "$HOME/.gov/$(echo "$slug" | tr '[:upper:]' '[:lower:]')/projec
 policy_owner_email: "owner@example.test"
 YAML
   cp "$CONTENT_DIR/agent/session-protocol.md" "$dir/agent/" 2>/dev/null || echo "# protocol" > "$dir/agent/session-protocol.md"
-  cp "$CONTENT_DIR/framework/policies/framework-policy.md" "$dir/framework/policies/" 2>/dev/null \
-    || echo "# framework policy" > "$dir/framework/policies/framework-policy.md"
+  cp "$CONTENT_DIR/framework/docs/specs/framework-specification.md" "$dir/framework/docs/specs/" 2>/dev/null \
+    || echo "# framework specification" > "$dir/framework/docs/specs/framework-specification.md"
+  cp "$CONTENT_DIR"/framework/rules/*.yaml "$dir/framework/rules/" 2>/dev/null || true
 
   # THE RENDERED HARNESS — what makes this a GOVERNED workspace rather than one that says it is.
   #

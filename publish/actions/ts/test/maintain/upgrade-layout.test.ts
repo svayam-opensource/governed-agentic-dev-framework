@@ -55,7 +55,7 @@ describe("upgrade — a workspace on the old layout keeps everything that is the
   it("succeeds, and lands the new layout", () => {
     expect(result.code, result.lines.join("\n")).to.equal(0);
     expect(contentLayoutOf((rel) => fs.existsSync(path.join(dir, rel)))).to.equal("framework");
-    expect(read("framework/policies/framework-policy.md"), "the framework's doctrine, at its new path").to.not.equal(null);
+    expect(read("framework/docs/specs/framework-specification.md"), "the framework's specification, at its new path").to.not.equal(null);
   });
 
   it("the org's APPROVED EXCEPTIONS come across, byte for byte, folder by folder", () => {

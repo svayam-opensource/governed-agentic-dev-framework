@@ -10,7 +10,7 @@ owner: <POLICY_OWNER_EMAIL>
 
 > **This is a specification, not a policy.** It describes what the pipeline DOES; it states no rule anybody can
 > comply with or deviate from, which is why its front matter says `layer: spec` and `compliance: descriptive`.
-> It moved out of `framework/policies/` on 2026-09-28 because a document under that folder teaches a reader that
+> It moved out of the framework's policy folder on 2026-09-28 because a document under that folder teaches a reader that
 > everything there governs — and `gov rules build` found 21 clauses here and 0 rules, which is the signature of a
 > spec in a policy folder.
 

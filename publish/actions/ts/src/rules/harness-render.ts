@@ -11,7 +11,7 @@
  * Nine files, one text: the session protocol with the resident rules in place of `{{render.always_rules}}`. Every approved agent reads its own conventional path — `CLAUDE.md`, `AGENTS.md`,
  * `.cursor/rules/agent.mdc`, and the rest — and none of them can follow a pointer, so the content is INLINED
  * rather than imported. `@`-imports were retired for exactly this reason: they worked for one vendor and made
- * that vendor the better-governed choice for a reason unrelated to its merits (gov-behaviour.md §8).
+ * that vendor the better-governed choice for a reason unrelated to its merits (framework-specification.md §6.1).
  *
  * Pure: text in, files out. No disk, no clock, no randomness — `--check` compares bytes, so a renderer whose
  * output varied would make the check meaningless and the guarantee unverifiable.

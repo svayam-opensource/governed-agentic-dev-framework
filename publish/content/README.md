@@ -18,8 +18,9 @@ links in sequence, no content of its own.
 | working on a project today | [`framework/docs/user-guides/path-developer.md`](framework/docs/user-guides/path-developer.md) |
 | looking something up | [`framework/docs/user-guides/path-reference.md`](framework/docs/user-guides/path-reference.md) |
 
-New to the vocabulary? [`framework/docs/specs/concepts.md`](framework/docs/specs/concepts.md) is the
-shortest path to reading the policy without stopping.
+New to the vocabulary? The glossary at the end of
+[`framework/docs/specs/framework-specification.md`](framework/docs/specs/framework-specification.md#glossary)
+is the shortest path to reading the policy without stopping.
 
 ## What is where, and who owns it
 

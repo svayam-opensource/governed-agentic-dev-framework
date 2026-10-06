@@ -84,7 +84,7 @@ export interface DoctorFacts {
   readonly rules?: RulesFacts;
   /**
    * What the branch-protection read found for the ONE branch gov can name without a board: the governance
-   * repo's default branch (framework-policy §3.3). Absent = not probed (gh missing, not signed in, no org config).
+   * repo's default branch (framework-specification.md §7.3). Absent = not probed (gh missing, not signed in, no org config).
    *
    * Participating CODE repos are equally in scope for the policy and are deliberately not here: their list
    * comes from a project's board, which `gov doctor` does not have — it is a machine/workspace check, not a

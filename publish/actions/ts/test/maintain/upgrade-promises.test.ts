@@ -62,4 +62,29 @@ describe("setup and upgrade — what the shipped content promises about the tree
     expect(again.code, again.lines.join("\n")).to.equal(0);
     for (const [rel, text] of theirs) expect(fs.readFileSync(path.join(dir, rel), "utf8"), rel).to.equal(text);
   });
+
+  // Tier 0 #7: RETIRE_PATHS listed `framework/` for the OLD world's vendored copy — and the new layout lives there.
+  // A second upgrade saw `framework/…` in the workspace and removed the whole tree it had just written.
+  it("a second upgrade keeps the framework/ tree it ships — RETIRE_PATHS' `framework/` is the old world only", () => {
+    const again = runUpgradeSync(contentDir, dir, { apply: true });
+    expect(again.code, again.lines.join("\n")).to.equal(0);
+    expect(again.lines.join("\n")).to.not.match(/retire[^\n]*framework\/(\s|$|`|,)/);
+    for (const rel of ["framework/docs/specs/framework-specification.md", "framework/procedures/knowledge-harvest.md", "framework/templates/todo-template.md"]) {
+      expect(fs.existsSync(path.join(dir, rel)), rel).to.equal(true);
+    }
+  });
+
+  it("an upgrade removes the documents the release merged away, by the MANIFEST's retire list", () => {
+    const manifest = parseManifest(fs.readFileSync(path.join(contentDir, "MANIFEST.yaml"), "utf8"));
+    expect(manifest.retire.length, "the MANIFEST names what it retires").to.be.greaterThan(0);
+    const files = manifest.retire.filter((r) => !r.endsWith("/"));
+    for (const rel of files) {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), "the old release's copy\n");
+    }
+    const again = runUpgradeSync(contentDir, dir, { apply: true });
+    expect(again.code, again.lines.join("\n")).to.equal(0);
+    expect(files.filter((rel) => fs.existsSync(path.join(dir, rel))), "still there after the upgrade").to.deep.equal([]);
+  });
 });
+

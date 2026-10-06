@@ -28,7 +28,7 @@ touching org-specific values.
 
 ### How upgrades work (Direction A)
 
-Framework files (`framework/policies/`, `CLAUDE.md`, `AGENTS.md`,
+Framework files (`framework/`, `CLAUDE.md`, `AGENTS.md`,
 the per-tool rule files, etc.) contain **no org-specific values**. They use
 angle-bracketed tokens like `<ORG_NAME>` and `<DEFAULT_BRANCH>` that the agent
 resolves at runtime from `org-config.yaml`. After `gov setup`, the ONLY file

@@ -138,8 +138,9 @@ If any of these can't be verified, hard-stop and surface to the human. Do not co
 The token map (`<ORG_NAME>` → `org_name` and the rest) and the full policy text are not
 reproduced here, to keep what you carry every turn short:
 
-- **`framework/policies/framework-policy.md`** — the full policy. Part A above is its
-  C01 digest, copied verbatim by the renderer; this is the source.
+- **`framework/docs/specs/framework-specification.md`** — how the framework works. Part A above
+  is the resident cue of each rule that binds you every turn; the rule rows in `framework/rules/rules.yaml`
+  and `policies/rules.yaml` are the source, and `agent/harness/rule-map.md` lists every rule.
 - **`docs/DEVELOPER_GUIDE.md`** — the human walkthrough, with example prompts.
 - **`projects/<PROJECT_ID>/agent.md`** — your project-specific entrypoint, once seeded.
 - **`org-config.yaml`** — every org token's value, at the workspace root.

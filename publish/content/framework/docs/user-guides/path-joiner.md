@@ -19,12 +19,12 @@ governance repo, and an agent that starts under the protocol — in that order.
 
 ## 2. What the words mean
 
-- [Concepts](../docs/specs/concepts.md) — enough to read the policy without stopping
+- [The glossary](../specs/framework-specification.md#glossary) — enough to read the policy without stopping
 
 ## 3. What governs you
 
-- [Organization AI agent governance policy](../../policies/framework-policy.md) —
-  Part A of your agent's context is the C01 digest from this document
+- [How the framework works](../specs/framework-specification.md) — and your organization's `policies/`;
+  Part A of your agent's context is the resident cue of each rule that binds it every turn
 - [LLM governance](../policies/../../org-config.yaml) — which agents you may use here
 
 ## 4. Start working

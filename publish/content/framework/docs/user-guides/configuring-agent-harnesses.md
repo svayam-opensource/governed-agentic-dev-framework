@@ -45,7 +45,7 @@ Per-project copies under `projects/<PID>/` are composed at seed time (protocol +
 
 Harness delivery covers **protocol only**. The agent must read these each session:
 
-- Full `framework/policies/` text
+- Full `framework/docs/specs/framework-specification.md` text
 - `projects/<PID>/knowledge/*`
 - Code repo `knowledge/`
 - `$AGENT_WORK_ROOT/preferences/<gh-login>.md`

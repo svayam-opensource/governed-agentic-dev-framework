@@ -29,7 +29,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov preferences](#gov-preferences) — your settings for gov: the agent it launches, the picker, colour, how long logs are kept
 - [gov log](#gov-log) — what gov did — one log per run, on this machine
 - [gov agent](#gov-agent) — which AI agents your org approves, what is installed, and how to add one
-- [gov repo](#gov-repo) — install the repository controls framework-policy §3.3 requires — or say why the platform will not
+- [gov repo](#gov-repo) — install the repository controls framework-specification.md §7.3 requires — or say why the platform will not
 - [gov check](#gov-check) — run one rule's checks for the event that fired, or install the workflow that runs them
 - [gov rules](#gov-rules) — render the rule stores into what agents read, and report on the rules
 
@@ -383,7 +383,7 @@ gov agent approve claude
 
 ### gov repo
 
-install the repository controls framework-policy §3.3 requires — or say why the platform will not
+install the repository controls framework-specification.md §7.3 requires — or say why the platform will not
 
 ```text
 gov repo protect [plan|apply] [--repo <owner/name>] [--branch <name>] [--repo-dir <path>] [--check <name>]
@@ -854,7 +854,7 @@ gov knowledge search <text> [--json] | show <path> | list [<prefix>] | <propose|
 
 ```bash
 gov knowledge search "data classification"
-gov knowledge show framework-policy.md
+gov knowledge show framework-specification.md
 gov knowledge list policies/
 gov knowledge propose deploy-policy
 ```

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * The `BranchProtection` port (read-only) — framework-policy §3.3, THE LAYER NOBODY WAS CHECKING (PRJ-121, 2026-09-27).
+ * The `BranchProtection` port (read-only) — framework-specification.md §7.3, THE LAYER NOBODY WAS CHECKING (PRJ-121, 2026-09-27).
  *
- * framework-policy §3.3 requires four settings on the default branch of the governance repo and of every
+ * framework-specification.md §7.3 requires four settings on the default branch of the governance repo and of every
  * participating code repo: a pull request before merging, at least one approving review, no bypass (admins
  * included), and a required status check that verifies the approver is on the org's authorized list. Until
  * this file, nothing in `src/` mentioned branch protection at all — the policy was taken on trust.
