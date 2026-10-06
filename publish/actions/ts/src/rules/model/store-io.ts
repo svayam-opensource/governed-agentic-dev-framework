@@ -159,8 +159,10 @@ export function loadRuleStoresFrom(src: RuleStoreSource): RuleStoreLoad {
   });
   // WHO HOLDS EACH ROLE, at the same ref: the Policy Owner and Check Owner from policies/governance.yaml, every other
   // role from the org's role list.
-  const roles = roleHandles(frameworkOwners(parseGovernance(texts.governance ?? null)), resolveRoles(texts.roleList).roles);
-  return { ok: true, set: { framework, org, orgScope, catalog, orgVersion, roles }, diagnostics };
+  const gov = parseGovernance(texts.governance ?? null);
+  const roles = roleHandles(frameworkOwners(gov), resolveRoles(texts.roleList).roles);
+  const posture = gov.posture.posture === "hard" ? "hard" : "soft";
+  return { ok: true, set: { framework, org, orgScope, catalog, orgVersion, roles, posture }, diagnostics };
 }
 
 /** The three notes that describe a layout, not a fault in a row: they never stop a build. */

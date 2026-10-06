@@ -112,9 +112,15 @@ export function validateBindings(row: RuleRow, c: Catalog): BindingDiagnostic[] 
  * also has. A check on a resource nothing can listen to does not count — if that leaves no live check, the rule is
  * `cannot-tell` rather than quietly `cued` or `advisory`, because it CLAIMS a check that does not run.
  */
-export function classifyRow(row: RuleRow, c: Catalog): RuleClass {
+export function classifyRow(row: RuleRow, c: Catalog, posture: "hard" | "soft" = "soft"): RuleClass {
   const live = (row.checks ?? []).map((b) => ({ b, ...eventOf(c, b), tool: toolOf(c, b.action) })).filter((x) => x.res?.renderer && x.ev);
-  if (live.some((x) => x.ev!.mode === "gate" && x.tool !== "llm")) return "prevented";
+  // A gate only PREVENTS where something can refuse. gov refuses its own verbs, and the framework's CI is protected
+  // before every release; a pull request in the ORGANIZATION's repos blocks only under hard posture (branch
+  // protection). Under soft — the default (W2-Q6) — the same check runs and reports: detected, not prevented.
+  const blocks = (x: { res?: Resource }): boolean =>
+    x.res!.renderer !== "github-actions" || x.res!.id === "vcs.framework-repo" || posture === "hard";
+  if (live.some((x) => x.ev!.mode === "gate" && x.tool !== "llm" && blocks(x))) return "prevented";
+  if (live.some((x) => x.ev!.mode === "gate" && x.tool !== "llm")) return "detected";
   if (live.some((x) => x.ev!.mode === "observe" && x.tool !== "llm")) return "detected";
   if (live.some((x) => x.tool === "llm")) return "judged";
   if ((row.checks ?? []).length > 0) return "cannot-tell";

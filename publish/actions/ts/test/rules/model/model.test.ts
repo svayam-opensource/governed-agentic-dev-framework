@@ -137,6 +137,35 @@ actions:
 `);
 const check = (resource: string, event: string, action: string) => ({ on: { resource, event }, action, on_miss: "fail" as const });
 
+// Orchestrator, 2026-10-06 (PROTECT's gap): a pull-request gate blocks only where branch protection is installed —
+// hard posture. Under soft (the default, W2-Q6) the same check runs and reports, so the honest class is `detected`.
+// A gov-verb gate is gov refusing, and a framework-repo gate runs in the framework's own protected CI: both prevent
+// whatever the organization's posture.
+describe("rule model — the class follows the posture", () => {
+  const CAT: Catalog = parseCatalog(`
+resources:
+  - { id: vcs.gov-repo, renderer: github-actions, events: [{ name: pull_request, mode: gate }] }
+  - { id: vcs.framework-repo, renderer: github-actions, events: [{ name: pull_request, mode: gate }] }
+  - { id: gov.verb, renderer: gov-verb, events: [{ name: close, mode: gate }] }
+tools: [{ id: gov-builtin }]
+actions: [{ id: gov-builtin/x, tool: gov-builtin }]
+`);
+  const on = (resource: string, event: string) => row({ checks: [{ on: { resource, event }, action: "gov-builtin/x", on_miss: "fail" }] });
+
+  it("a pull-request gate is prevented under hard, detected under soft, and soft when no posture is given", () => {
+    expect(classifyRow(on("vcs.gov-repo", "pull_request"), CAT, "hard")).to.equal("prevented");
+    expect(classifyRow(on("vcs.gov-repo", "pull_request"), CAT, "soft")).to.equal("detected");
+    expect(classifyRow(on("vcs.gov-repo", "pull_request"), CAT)).to.equal("detected");
+  });
+
+  it("a gov-verb gate and a framework-repo gate prevent under either posture", () => {
+    for (const p of ["hard", "soft"] as const) {
+      expect(classifyRow(on("gov.verb", "close"), CAT, p)).to.equal("prevented");
+      expect(classifyRow(on("vcs.framework-repo", "pull_request"), CAT, p)).to.equal("prevented");
+    }
+  });
+});
+
 describe("rule model — catalog, bindings and class", () => {
   it("a binding must name a resource, an event of it, and an action the catalog has", () => {
     const r = row({ checks: [check("vcs.nope", "pull_request", "gov-builtin/list-membership"), check("vcs.code-repo", "merge", "x/y")] });
@@ -148,7 +177,7 @@ describe("rule model — catalog, bindings and class", () => {
   });
 
   it("class: prevented > detected > judged > cued > advisory, and cannot-tell when nothing can listen", () => {
-    expect(classifyRow(row({ checks: [check("vcs.code-repo", "pull_request", "gov-builtin/list-membership")] }), CATALOG)).to.equal("prevented");
+    expect(classifyRow(row({ checks: [check("vcs.code-repo", "pull_request", "gov-builtin/list-membership")] }), CATALOG, "hard")).to.equal("prevented");
     expect(classifyRow(row({ checks: [check("vcs.code-repo", "push", "gov-builtin/list-membership")] }), CATALOG)).to.equal("detected");
     expect(classifyRow(row({ checks: [check("vcs.code-repo", "push", "llm/judge")] }), CATALOG)).to.equal("judged");
     expect(classifyRow(row({ cue: { tier: "on-demand", text: "x" } }), CATALOG)).to.equal("cued");

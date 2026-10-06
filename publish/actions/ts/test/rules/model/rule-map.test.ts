@@ -38,7 +38,8 @@ const row = (id: string, over: Partial<RuleRow> = {}): RuleRow => ({
   ...over,
 });
 
-const set = (framework: RuleRow[], org: RuleRow[]): RuleSet => ({ framework, org, orgScope: "SVM", catalog, orgVersion: "1.4.0" });
+// Hard posture, so a pull-request gate classes as `prevented`; the soft case is pinned in model.test.ts.
+const set = (framework: RuleRow[], org: RuleRow[]): RuleSet => ({ framework, org, orgScope: "SVM", catalog, orgVersion: "1.4.0", posture: "hard" });
 const tableRows = (md: string): string[] => md.split("\n").filter((l) => l.startsWith("| GOV-"));
 const cells = (line: string): string[] => line.slice(2, -2).split(/ (?<!\\)\| /);
 
@@ -162,3 +163,12 @@ describe("rule map — legend and counts", () => {
     expect(tableRows(md)).to.have.lengthOf(4);
   });
 });
+
+describe("rule map — says which posture its classes assume", () => {
+  it("names hard or soft in the header, soft when the rule set does not say", () => {
+    expect(renderRuleMap({ ...set([], []), posture: "hard" })).to.contain("Governance posture: **hard**");
+    const { posture: _drop, ...noPosture } = set([], []);
+    expect(renderRuleMap(noPosture as RuleSet)).to.contain("Governance posture: **soft**");
+  });
+});
+

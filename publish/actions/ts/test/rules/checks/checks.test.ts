@@ -84,10 +84,11 @@ describe("check engine — the framework catalog", () => {
     expect(classifyRow(r, CATALOG)).to.equal("cannot-tell");
   });
 
-  it("the design's own example row binds cleanly and classes as prevented", () => {
+  it("the design's own example row binds cleanly and classes as prevented (under hard posture)", () => {
     const r = row("GOV-SVM-012", [bind("vcs.code-repo", "pull_request", "gov-builtin/list-membership", { when: ["**/package.json"], list: "policies/approved-technologies.md" })]);
     expect(validateBindings(r, CATALOG)).to.deep.equal([]);
-    expect(classifyRow(r, CATALOG)).to.equal("prevented");
+    expect(classifyRow(r, CATALOG, "hard")).to.equal("prevented");
+    expect(classifyRow(r, CATALOG, "soft"), "soft: the check reports, it does not block").to.equal("detected");
   });
 
   it("lintCatalog reports what is wrong", () => {

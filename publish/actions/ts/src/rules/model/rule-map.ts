@@ -33,7 +33,7 @@ const CUE_CHARS = 60;
 /** Per-class counts over the rows IN FORCE in both stores; closed revisions and retired rules do not count. */
 export function summariseRuleSet(rs: RuleSet): Record<RuleClass, number> {
   const counts = Object.fromEntries(CLASSES.map((k) => [k, 0])) as Record<RuleClass, number>;
-  for (const r of inForce([...rs.framework, ...rs.org])) counts[classifyRow(r, rs.catalog)]++;
+  for (const r of inForce([...rs.framework, ...rs.org])) counts[classifyRow(r, rs.catalog, rs.posture)]++;
   return counts;
 }
 
@@ -81,7 +81,7 @@ function line(r: RuleRow, rs: RuleSet): string {
     r.actor.join(", "),
     cue(r),
     checks(r),
-    classifyRow(r, rs.catalog),
+    classifyRow(r, rs.catalog, rs.posture),
     stamp(r.start),
     stamp(r.end),
   ].map((c, i) => (i === 9 ? c : cell(c))).join(" | ")} |`;
@@ -108,6 +108,10 @@ export function renderRuleMap(rs: RuleSet): string {
     ...CLASSES.map((k) => `- **${k}** — ${RULE_CLASS_LEGEND[k]}`),
     "",
     `In force: ${total} rules — ${CLASSES.map((k) => `${k} ${counts[k]}`).join(" · ")}.`,
+    "",
+    (rs.posture ?? "soft") === "hard"
+      ? "Governance posture: **hard** — a pull request's required checks block the merge, so its gate checks are `prevented`."
+      : "Governance posture: **soft** — a pull request's checks run and report but cannot block the merge, so they are `detected`. Choosing hard (framework specification §11) makes them `prevented`.",
     "",
     "## Rules",
     "",

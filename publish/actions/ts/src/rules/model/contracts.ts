@@ -51,6 +51,8 @@ export interface RuleSet {
   readonly ownership?: readonly SectionOwnership[];
   /** Role → GitHub handle, from the org's role list and org-config (Policy Owner, Check Owner always present). */
   readonly roles?: Readonly<Record<string, string>>;
+  /** `governance_posture` from policies/governance.yaml; absent → soft (W2-Q6). Decides prevented vs detected. */
+  readonly posture?: "hard" | "soft";
 }
 
 /** W1. Reads the stores at a git ref; `null` means it could not tell, which is never the same as "no rules". */

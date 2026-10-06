@@ -17,7 +17,9 @@ the rule up.
 - **advisory** — no check and no cue; nothing enforces it
 - **cannot-tell** — it claims a check, but no bound resource can listen yet, so nothing runs
 
-In force: 55 rules — prevented 22 · detected 2 · judged 0 · cued 18 · advisory 13 · cannot-tell 0.
+In force: 55 rules — prevented 21 · detected 3 · judged 0 · cued 18 · advisory 13 · cannot-tell 0.
+
+Governance posture: **soft** — a pull request's checks run and report but cannot block the merge, so they are `detected`. Choosing hard (framework specification §11) makes them `prevented`.
 
 ## Rules
 
@@ -67,7 +69,7 @@ In force: 55 rules — prevented 22 · detected 2 · judged 0 · cued 18 · advi
 | GOV-FRM-451 | framework/docs/specs/framework-specification.md | Specification | §4.4 | framework | C01 | gov reads project and task state from the board and writes it to no file in any repository. | gov-client |  | vcs.framework-repo·pull_request → gov-builtin/test-suite | prevented | 1.2.3 (2026-10-06) |  |
 | GOV-FRM-453 | framework/docs/specs/framework-specification.md | Specification | §4.3 | framework | C01 | gov seed composes the project identifier and project branch from the board number, and gov task composes the task sub-branch. | gov-client |  | vcs.framework-repo·pull_request → gov-builtin/test-suite | prevented | 1.2.3 (2026-10-06) |  |
 | GOV-FRM-454 | framework/docs/specs/framework-specification.md | Specification | §4.5 | framework | C01 | gov refuses a command that changes a project when GitHub does not confirm the person's write access to the project's board. | gov-client |  | vcs.framework-repo·pull_request → gov-builtin/test-suite | prevented | 1.2.3 (2026-10-06) |  |
-| GOV-FRM-455 | framework/docs/specs/framework-specification.md | Specification | §7.2 | framework | C01 | The owner of every changed policy section approves a policy pull request before it merges; the Policy Owner approves unowned sections and ownership changes, and the Check Owner approves executable actions. | human |  | vcs.gov-repo·pull_request → gov-builtin/section-owner-approval | prevented | 1.2.3 (2026-10-06) |  |
+| GOV-FRM-455 | framework/docs/specs/framework-specification.md | Specification | §7.2 | framework | C01 | The owner of every changed policy section approves a policy pull request before it merges; the Policy Owner approves unowned sections and ownership changes, and the Check Owner approves executable actions. | human |  | vcs.gov-repo·pull_request → gov-builtin/section-owner-approval | detected | 1.2.3 (2026-10-06) |  |
 | GOV-FRM-456 | framework/docs/specs/framework-specification.md | Specification | §7.4 | framework | C01 | gov builds the agent harness and the governance snapshot from the governance repository's default branch, never from a project branch. | gov-client |  | vcs.framework-repo·pull_request → gov-builtin/test-suite | prevented | 1.2.3 (2026-10-06) |  |
 | GOV-FRM-460 | framework/docs/specs/framework-specification.md | Specification | §8.4 | framework | C01 | Everyone draws structure as Mermaid text and never as an image. | everyone | resident: STRUCTURE IS MERMAID TEXT, never an image: a flow, architect… |  | cued | 1.2.3 (2026-10-06) |  |
 | GOV-FRM-461 | framework/docs/specs/framework-specification.md | Specification | §6.1 | framework | C01 | gov work launches only an agent listed in authorized_agents. | gov-client |  | vcs.framework-repo·pull_request → gov-builtin/test-suite | prevented | 1.2.3 (2026-10-06) |  |
