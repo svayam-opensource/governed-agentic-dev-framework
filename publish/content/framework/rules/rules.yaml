@@ -581,3 +581,19 @@
       on_miss: fail
   start: { version: "1.2.3", date: "2026-10-06" }
   end: null
+
+# W5 (P1 "Org version"): the policy pull request gate
+- id: GOV-FRM-467
+  source: { doc: framework/docs/specs/framework-specification.md, section: "9.2", sha: "162907f" }
+  expectation: "A change to the organization's policy carries its rules, version, snapshot and changelog."
+  actor: [gov-client]
+  level: C01
+  checks:   # the gate is deterministic (Q16); the tagged tests prove gov keeps the promise
+    - on: { resource: vcs.gov-repo, event: pull_request }
+      action: gov-builtin/policy-pr-gate
+      on_miss: fail
+    - on: { resource: vcs.framework-repo, event: pull_request }
+      action: gov-builtin/test-suite
+      on_miss: fail
+  start: { version: "1.2.3", date: "2026-10-06" }
+  end: null

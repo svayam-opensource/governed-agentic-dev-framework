@@ -27,9 +27,10 @@ import { gateVerb, type GateResult, type WorkspaceView } from "../verb-gate.js";
 import type { EventContext, RuleSet, TestResult } from "../model/contracts.js";
 import { asList } from "./payload.js";
 import { forbidForcedPush, sectionOwnerApproval } from "./policy-actions.js";
+import { judgePolicyPr, type PolicyPrInput } from "../policy-pr/gate.js";
 
 /** The names after `gov-builtin/`. */
-export const BUILTIN_ACTIONS: readonly string[] = [...CHECK_KINDS, "test-suite", "rules-propose", "forbid-forced-push", "section-owner-approval"];
+export const BUILTIN_ACTIONS: readonly string[] = [...CHECK_KINDS, "test-suite", "rules-propose", "forbid-forced-push", "section-owner-approval", "policy-pr-gate"];
 
 export interface BuiltinInput {
   /** The rule being checked — every finding names it. */
@@ -42,6 +43,11 @@ export interface BuiltinInput {
   readonly readDefault: ReadDoc;
   /** The rule set, for actions that route by role (section-owner-approval). */
   readonly rules?: RuleSet;
+  /**
+   * policy-pr-gate (W5): the gov repo's tree at the pull request's base and head, its number and today's date.
+   * Absent → `cannot-tell`. Wired by the CLI (P3); the event payload has no place for trees.
+   */
+  readonly policyPr?: PolicyPrInput;
 }
 
 /** `miss` = the predicate did not hold; the runner turns it into fail or warn by the binding's `on_miss`. */
@@ -71,12 +77,22 @@ export function runBuiltin(input: BuiltinInput): BuiltinOutcome {
     if (name === "test-suite") return testSuite(ruleId, ctx, tag);
     if (name === "forbid-forced-push") return forbidForcedPush(tag, input.params, ctx);
     if (name === "section-owner-approval") return sectionOwnerApproval(tag, input.params, ctx, input.rules);
+    if (name === "policy-pr-gate") return policyPrGate(tag, input.policyPr);
     if (name === "rules-propose") return cannot([`${tag}: the proposer is not runnable as a check yet, so nothing was checked.`]);
     return cannot([`${tag}: no such gov-builtin action, so nothing was checked.`]);
   } catch (e) {
     // A predicate that throws (a bad regex at a verb, a malformed payload) checked nothing. Said, never fatal.
     return cannot([`${tag}: the check could not run (${e instanceof Error ? e.message : String(e)}), so nothing was checked.`]);
   }
+}
+
+/** GOV-FRM-467: a policy change carries its rules, version, snapshot and changelog (policy-pr/gate.ts). */
+function policyPrGate(tag: string, input: PolicyPrInput | undefined): BuiltinOutcome {
+  if (!input) return cannot([`${tag}: the pull request's base and head trees were not given, so nothing was checked.`]);
+  const j = judgePolicyPr(input);
+  const findings = j.findings.map((f) => `${tag}: ${f.message}`);
+  if (j.verdict === "pass") return { verdict: "pass", findings: [] };
+  return j.verdict === "fail" ? { verdict: "miss", findings } : cannot(findings);
 }
 
 function predicate(kind: CheckKind, input: BuiltinInput, tag: string): BuiltinOutcome {
