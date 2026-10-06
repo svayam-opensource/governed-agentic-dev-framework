@@ -16,7 +16,7 @@ import { lintCatalog, validateParams } from "../../../src/rules/checks/params.js
 import { runBuiltin, BUILTIN_ACTIONS } from "../../../src/rules/checks/builtin.js";
 import { createCheckRunner } from "../../../src/rules/checks/runner.js";
 import { githubActionsRenderer, renderWorkflow, WORKFLOW_PATH } from "../../../src/rules/checks/render-github.js";
-import { CHECK_KINDS } from "../../../src/rules/cue-block.js";
+import { CHECK_KINDS } from "../../../src/rules/checks/predicates.js";
 import type { ChangedFile } from "../../../src/rules/diff-check.js";
 import type { WorkspaceView } from "../../../src/rules/verb-gate.js";
 

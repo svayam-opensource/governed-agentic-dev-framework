@@ -7,13 +7,13 @@ owner: <POLICY_OWNER_EMAIL>
 version: pending-first-commit
 effective_date: 2026-05-05
 policy_owner: <POLICY_OWNER_EMAIL>
-parent_policy: framework/policies/framework-policy.md
+parent_policy: framework/docs/specs/framework-specification.md
 ---
 
 # <ORG_NAME> — Agentic Development Procedures
 
 This document defines the operational procedures for all agentic development work at <ORG_NAME>
-Every procedure references the governing policy clause(s) from `framework-policy.md`.
+Every procedure references the governing rule(s); `framework/docs/specs/framework-specification.md` explains them.
 
 Agents must read this document as part of the knowledge layer stack during every work session.
 See `agent.md` for layer loading order.
@@ -334,7 +334,7 @@ Cancellation does NOT trigger a knowledge close. Code changes are archived but n
 
 ### When to Use
 - Initial bootstrap of `knowledge/` before first project
-- Policy Owner updating `framework/policies/` directly
+- Policy Owner updating `policies/` directly
 - Ad-hoc knowledge that arises outside any project
 
 ### Steps
@@ -393,9 +393,9 @@ When the developer with write access (the anchor-issue assignee) becomes unavail
 1. Policy Owner identifies need for policy update (from compliance review, domain owner input, etc.)
 2. Run `gov knowledge` to create a `knowledge-<slug>` branch
 3. Edit the file that owns the rule: `policies/<the relevant policy>.md` for your organization's own rules, or
-   `policies/authorized-representatives.md` for who holds which role. **Not** `framework/policies/` — `gov
+   `policies/authorized-representatives.md` for who holds which role. **Not** `framework/` — `gov
    upgrade` replaces that wholesale, so an edit there is lost without a merge conflict to warn you. A change the
-   framework itself needs is reported upstream (framework-policy §11.4).
+   framework itself needs is reported upstream (framework-specification.md §10.5).
 4. Raise PR — CODEOWNERS routes to Policy Owner
 5. Policy Owner reviews and merges
 6. On merge: new policy version is the commit SHA; CI/CD regenerates PDFs, site, vectors

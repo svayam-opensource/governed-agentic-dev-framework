@@ -19,7 +19,7 @@ This file represents the **repo-local knowledge layer** — third priority in th
 
 **This file cannot override org-wide knowledge or policy.**
 In case of conflict, org-wide knowledge always wins.
-See `<ORG_GOV_REPO>/framework/policies/framework-policy.md` for the governing policy.
+See `<ORG_GOV_REPO>/framework/docs/specs/framework-specification.md` for how the framework works, and `<ORG_GOV_REPO>/policies/` for the governing policy.
 
 ---
 

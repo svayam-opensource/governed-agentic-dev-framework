@@ -21,36 +21,37 @@ status: draft
 > Changing it is a normal policy change: edit, open a pull request, have it approved (§1.3), merge. The rules
 > reach your agents from `<DEFAULT_BRANCH>` — never from a working branch.
 >
-> The framework's own policy is `framework/policies/framework-policy.md`. It is **not** yours: it is replaced
-> on every upgrade. Your policy here MAY be stricter than it. It MUST NOT be laxer.
+> The framework's own rules are in `framework/rules/rules.yaml`, explained in
+> `framework/docs/specs/framework-specification.md`. They are **not** yours: they are replaced on every upgrade.
+> Your policy here may be stricter than them. It may not be laxer.
 
 ---
 
 ## 1. About this policy
 
-### 1.1 Notation
+### 1.1 Plain English
 
-This policy uses the framework's notation: **the modal verb declares the compliance level**, ALL CAPS only.
-`MUST`/`SHALL` = C01, `MAY` = C02, `CAN` = C03. The full table, and the six rules that go with it, are in
-`framework/policies/framework-policy.md` §1.3 — deliberately not repeated here, because a fact restated in
-two documents is a fact that will eventually disagree with itself.
+Write this policy in plain English. Nothing here needs a special notation, a number or a marker: gov never
+edits this file. How strict each rule is — C01 (stop), C02 (not without an approved exception) or C03 (adapt,
+and say so) — is decided per rule when the rules are extracted, and you approve it there. Words such as "must",
+"never" and "unless approved" are what the extraction reads as your intent.
 
-Run `gov knowledge show framework-policy.md` to read it.
+`framework/docs/specs/framework-specification.md` chapter 3 explains the three levels, and chapter 9 how a
+section becomes rules. Run `gov knowledge show framework-specification.md` to read it.
 
-### 1.2 What happens to a clause you write
+### 1.2 What happens to a section you write
 
-`gov rules build` compiles each clause into a **cue** — a short trigger placed in every agent's context, on
-every turn — and, where possible, a **check** that fails a pull request. `gov doctor` tells you how many of
-your clauses are checked, cued, advisory, and **ungoverned** (prose that states a requirement but forgot a
-modal verb, so it compiles to nothing).
-
-You write the prose. An agent drafts the cue inside the pull request; you approve it there, so what your
-agents are told is part of what you reviewed.
+`gov rules propose` reads each changed section and proposes its rules into `policies/rules.yaml`: who each
+binds, how strict it is, a **cue** (a short trigger an agent carries, every turn or at the moment it applies)
+and, where possible, a **check** that fails a pull request. You approve the rows in the same pull request as
+the prose, so what your agents are told is part of what you reviewed. `gov rules build` renders the rows into
+your agents' context and `agent/harness/rule-map.md`; `gov doctor` counts how many are prevented, detected,
+cued or advisory.
 
 ### 1.3 Who approves a change to this policy
 
 Approval is by the representatives named in `policies/authorized-representatives.md`, enforced at the
-pull-request gate. A change to this file MAY be approved by the Policy Owner. **(POL-200)**
+pull-request gate. A change to this file is approved by the Policy Owner.
 
 ---
 
@@ -60,42 +61,25 @@ pull-request gate. A change to this file MAY be approved by the Policy Owner. **
 
 ### 2.1 Code explains itself
 
-Every source file MAY open with a comment that states what the file is for and why it exists — not what the
-code does line by line, which the code already says. **(POL-201)**
-
-<!-- gov:cue generated clause-sha=172b09b -->
-> **Always in the agent's context** · POL-201 · C02
-> A NEW SOURCE FILE OPENS WITH A COMMENT saying what it is for and why it exists — the reason, not a
-> restatement of the code. No comment is a review finding, not a style preference.
-
-<!-- gov:check kind=content-required when=**/*.ts,**/*.js,**/*.py,**/*.go
-     pattern=^\s*(//|#|/\*) within_lines=5 on_miss=warn -->
+Every source file opens with a comment that states what the file is for and why it exists — not what the
+code does line by line, which the code already says. A file without one needs an approved exception.
 
 ### 2.2 A behaviour change comes with a test
 
-A change to application behaviour MAY be accompanied by a test that would fail without it. **(POL-202)**
-
-<!-- gov:cue generated clause-sha=16751fa -->
-> **Always in the agent's context** · POL-202 · C02
-> CHANGING BEHAVIOUR? BRING A TEST that fails without your change. "Tested manually" is not a test, and a
-> test written to pass is not evidence.
-
-<!-- gov:check kind=file-required when=src/**,lib/**,app/** require=test/**,tests/**,**/*.test.* on_miss=warn -->
+A change to application behaviour comes with a test that would fail without it, unless an exception is
+approved.
 
 ### 2.3 Every source file carries the licence header
 
-Every source file MUST carry the organization's SPDX licence identifier. **(POL-203)**
+Every source file must carry the organization's SPDX licence identifier. No exception.
 
-<!-- gov:check kind=content-required when=**/*.ts,**/*.js,**/*.py,**/*.go
-     pattern=SPDX-License-Identifier on_miss=fail -->
-
-*(No cue: a machine sees this in a diff perfectly well, and an agent does not need to be told on every turn.
-That is a deliberate choice — see §6.3.)*
+*(A rule a machine can see in a diff wants a check, not a cue: an agent does not need to be told it on every
+turn — see §6.3.)*
 
 ### 2.4 Formatting is the formatter's job
 
-Formatting CAN be left to the configured formatter. Hand-formatting, or arguing about it in review, is
-waste. **(POL-204)**
+Formatting is left to the configured formatter. Hand-formatting, or arguing about it in review, is
+waste.
 
 ---
 
@@ -104,22 +88,12 @@ waste. **(POL-204)**
 ### 3.1 Only approved technologies
 
 A language, framework, library, datastore, queue, test runner or CI service that is not listed in
-`policies/approved-technologies.md` MAY be introduced only with an approved exception. **(POL-210)**
-
-<!-- gov:cue generated clause-sha=fa2f24d -->
-> **Always in the agent's context** · POL-210 · C02
-> TECHNOLOGY CHOICES ARE NOT YOURS. Before adding a dependency or choosing a language, framework, library,
-> datastore, queue, test runner or CI step — or editing package.json · go.mod · pom.xml · requirements.txt ·
-> Dockerfile · CI config — run: `gov knowledge search "approved <thing>"`.
-> Named there? Use it. Not named? STOP and ask. Never pick one yourself.
-
-<!-- gov:check kind=list-membership when=**/package.json,**/go.mod,**/pom.xml,**/requirements.txt
-     list=policies/approved-technologies.md on_miss=fail -->
+`policies/approved-technologies.md` is introduced only with an approved exception.
 
 ### 3.2 Removing a technology
 
-Retiring an approved technology MAY be recorded in `policies/approved-technologies.md` with the date and the
-reason, so that a repository still using it can be found. **(POL-211)**
+Retiring an approved technology is recorded in `policies/approved-technologies.md` with the date and the
+reason, so that a repository still using it can be found.
 
 ---
 
@@ -127,27 +101,27 @@ reason, so that a repository still using it can be found. **(POL-211)**
 
 What data this organization holds, what its tiers are called, and how each is handled are in
 `policies/data-classification.md`. The framework's own absolute rule — no credential, key, token or password
-in a file, a log, a commit, a pull request or an issue — is in `framework-policy.md` §9.9 and applies
-whatever this organization decides. **(POL-220 — see `policies/data-classification.md`)**
+in a file, a log, a commit, a pull request or an issue — applies whatever this organization decides (see
+`policies/data-classification.md`).
 
 ---
 
 ## 5. Roles
 
 Who owns which domain, and who may approve what, are in `policies/authorized-representatives.md`. Until
-owners are appointed, every approval falls to the Policy Owner. **(POL-230 — see that policy)**
+owners are appointed, every approval falls to the Policy Owner.
 
 ---
 
 ## 6. How to write a clause that works
 
-> This section is a guide, not a set of rules. It has no modal verbs on purpose — so `gov doctor` will not
-> report it as ungoverned, and so you can see what unnumbered guidance looks like beside real clauses.
+> This section is a guide, not a set of rules — so you can see what guidance looks like beside real clauses.
 
 ### 6.1 One clause, one level
 
-Two modals at the same level are fine — *"MUST be reviewed and MUST NOT be self-merged"* is one rule. Two
-**levels** in one clause is rejected, because one POL number and one cue cannot say which half they mean.
+Two requirements at the same strength are fine — *"must be reviewed and must not be self-merged"* is one rule.
+Two **strengths** in one sentence become two rules, because one rule row and one cue cannot say which half they
+mean.
 
 ### 6.2 Three properties of a cue that actually fires
 
@@ -167,8 +141,8 @@ weaker. So:
   because no check will catch the decision before it is made;
 - a rule with neither → advisory. Write it anyway if it matters, but know that nothing enforces it.
 
-`gov doctor` prints the resident cost of your cues. If it is growing, something that belongs in the policy
-has been put in the resident block.
+`gov doctor` prints the resident cost of your cues. If it is growing, something that belongs in a check has
+been put in the resident block.
 
 ### 6.4 Where clauses come from
 

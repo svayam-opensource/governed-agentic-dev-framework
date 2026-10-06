@@ -21,7 +21,7 @@
  * Rules and the documents they cite (`list=`) come from the DEFAULT branch: `readDefault` is injected, and is the
  * only way a predicate reads a document.
  */
-import { CHECK_KINDS, type Check, type CheckKind, type GateableVerb } from "../cue-block.js";
+import { CHECK_KINDS, type Check, type CheckKind, type GateableVerb } from "./predicates.js";
 import { runDiffChecks, type ChangedFile, type ReadDoc } from "../diff-check.js";
 import { gateVerb, type GateResult, type WorkspaceView } from "../verb-gate.js";
 import type { EventContext, RuleSet, TestResult } from "../model/contracts.js";

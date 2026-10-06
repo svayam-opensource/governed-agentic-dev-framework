@@ -3,7 +3,7 @@
 /**
  * THE EVIDENCE THAT THE GATE DOES ANYTHING — one failing changeset and one near-miss per predicate.
  *
- * A file-triggered `gov:check` used to be parsed, validated, rendered byte-stably into every harness, counted in
+ * A file-triggered check used to be parsed, validated, rendered byte-stably into every harness, counted in
  * `gov doctor`'s CHECKED column — and evaluated by nothing. Nothing in the test suite noticed, because nothing
  * asserted that a bad changeset FAILS. That is the shape of the defect: a check with a typo in its attributes
  * reads as enforced and is not, and the only thing that can tell the two apart is a fixture that must fail.
@@ -13,19 +13,15 @@
  * only the first half is a predicate that could be `() => false` and still be green.
  */
 import { expect } from "chai";
-import { parseCheck, parseCueBlocks } from "../../src/rules/cue-block.js";
 import {
-  addedDependencies, checksForFiles, formatDiffChecks, listedIn, runDiffChecks, selectFileChecks, standaloneChecks,
-  type ChangedFile,
+  addedDependencies, formatDiffChecks, listedIn, runDiffChecks, selectFileChecks, type ChangedFile,
 } from "../../src/rules/diff-check.js";
 import type { AttachedCheck } from "../../src/rules/verb-gate.js";
+import { checkFrom } from "../helpers/check.js";
 
-/** A check, parsed from exactly the text a policy author writes — so a typo in the fixture fails loudly here. */
-const attached = (attrs: string, pol = "POL-210", section = "3.1"): AttachedCheck[] => {
-  const { check, problems } = parseCheck(attrs);
-  expect(problems, `the check itself must parse: ${problems.map((p) => p.message).join("; ")}`).to.deep.equal([]);
-  return [{ pol, doc: "policies/org-policy.md", section, check: check! }];
-};
+/** A check from its parameters — a fixture shorthand; a kind typo throws here. */
+const attached = (attrs: string, pol = "GOV-SVM-210", section = "3.1"): AttachedCheck[] =>
+  [{ pol, doc: "policies/org-policy.md", section, check: checkFrom(attrs) }];
 
 /** A file the change ADDED: every line of `text` is an added line. The common case for a new manifest or module. */
 const added = (path: string, text: string): ChangedFile =>
@@ -71,7 +67,7 @@ describe("list-membership — an unapproved dependency, in each of the four mani
     expect(r.ok).to.equal(false);
     expect(messages(r)).to.contain("package.json");
     expect(messages(r)).to.contain("left-pad");
-    expect(messages(r), "and it cites the clause, never 'a check failed'").to.contain("POL-210 (policies/org-policy.md §3.1)");
+    expect(messages(r), "and it cites the clause, never 'a check failed'").to.contain("GOV-SVM-210 (policies/org-policy.md §3.1)");
   });
 
   it("npm near-miss: an APPROVED dependency, and the non-dependency keys beside it, pass", () => {
@@ -186,7 +182,7 @@ describe("content-forbidden — a planted API key in the ADDED lines, and not in
   // policy author types — a test that had to double its own backslashes would prove something else.
   const check = attached(
     String.raw`kind=content-forbidden when=**/*.ts pattern="(?:apiKey|api_key|api-key|secret)\s*[:=]\s*['\x22][^'\x22]{8,}" on_miss=fail`,
-    "POL-220", "4");
+    "GOV-SVM-220", "4");
   const run = (changed: readonly ChangedFile[]) => runDiffChecks(check, changed, noDocs);
 
   it("an added line carrying a key FAILS, and the message does NOT echo the secret", () => {
@@ -224,11 +220,11 @@ describe("content-forbidden — a planted API key in the ADDED lines, and not in
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-// content-required — the SPDX header (POL-203, verbatim from the seeded policy)
+// content-required — the SPDX header (GOV-SVM-203, verbatim from the seeded policy)
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("content-required — a source file missing the SPDX header", () => {
   const spdx = attached("kind=content-required when=**/*.ts,**/*.js,**/*.py,**/*.go pattern=SPDX-License-Identifier on_miss=fail",
-    "POL-203", "2.3");
+    "GOV-SVM-203", "2.3");
   const run = (changed: readonly ChangedFile[], c = spdx) => runDiffChecks(c, changed, noDocs);
 
   it("a new source file with no header FAILS and says what to add", () => {
@@ -264,11 +260,11 @@ describe("content-required — a source file missing the SPDX header", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-// file-required — the behaviour change that brings no test (POL-202, verbatim)
+// file-required — the behaviour change that brings no test (GOV-SVM-202, verbatim)
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("file-required — a src/ change with no test change", () => {
   const check = attached("kind=file-required when=src/**,lib/**,app/** require=test/**,tests/**,**/*.test.* on_miss=fail",
-    "POL-202", "2.2");
+    "GOV-SVM-202", "2.2");
   const run = (changed: readonly ChangedFile[]) => runDiffChecks(check, changed, noDocs);
 
   it("a change under src/ alone FAILS and names the file that triggered it", () => {
@@ -298,7 +294,7 @@ describe("file-required — a src/ change with no test change", () => {
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("frontmatter-required — a knowledge document missing front matter", () => {
   const check = attached("kind=frontmatter-required when=knowledge/**/*.md keys=domain,layer,owner,compliance,status on_miss=fail",
-    "POL-408", "7.2");
+    "GOV-SVM-408", "7.2");
   const run = (changed: readonly ChangedFile[]) => runDiffChecks(check, changed, noDocs);
 
   it("a doc with no front matter at all FAILS, naming every missing key", () => {
@@ -337,7 +333,7 @@ describe("frontmatter-required — a knowledge document missing front matter", (
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("naming — a bad branch name, and a bad path", () => {
   const branchCheck = attached("kind=naming when=** subject=branch pattern=^BRNCH-[0-9]+-[a-z0-9-]+$ on_miss=fail",
-    "POL-120", "3.4");
+    "GOV-SVM-120", "3.4");
 
   it("a branch that does not match FAILS and says to rename it", () => {
     const r = runDiffChecks(branchCheck, [modified("src/a.ts", ["x"], "x")], noDocs, { branch: "feature/my-thing" });
@@ -370,7 +366,7 @@ describe("naming — a bad branch name, and a bad path", () => {
 // path-scope — the write outside the permitted scope
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("path-scope — a write outside the permitted scope", () => {
-  const check = attached("kind=path-scope when=** writable=projects/**,docs/** on_miss=fail", "POL-115", "4.1");
+  const check = attached("kind=path-scope when=** writable=projects/**,docs/** on_miss=fail", "GOV-SVM-115", "4.1");
   const run = (changed: readonly ChangedFile[]) => runDiffChecks(check, changed, noDocs);
 
   it("a change to a read-only tree FAILS, counts the paths and names one", () => {
@@ -399,59 +395,11 @@ describe("path-scope — a write outside the permitted scope", () => {
 // selection, severity, and what the developer reads
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("selecting the checks a changeset fires", () => {
-  const doc = `### 3.1 Only approved technologies
-
-A library not listed MAY be introduced only with an approved exception. **(POL-210)**
-
-<!-- gov:cue generated clause-sha=fa2f24d -->
-> **Always in the agent's context** · POL-210 · C02
-> TECHNOLOGY CHOICES ARE NOT YOURS.
-
-<!-- gov:check kind=list-membership when=**/package.json list=policies/approved-technologies.md on_miss=fail -->
-
-### 4.1 Closing
-
-A project MAY be closed only once its learnings are written up. **(POL-240)**
-
-<!-- gov:cue generated clause-sha=abc1234 -->
-> **Always in the agent's context** · POL-240 · C02
-> WRITE UP WHAT YOU LEARNED.
-
-<!-- gov:check kind=file-required when=verb:close require=knowledge/learnings.md on_miss=fail -->
-`;
-
   it("picks the file-triggered checks whose globs match, and leaves the verb-triggered ones to the verb gate", () => {
-    const { blocks } = parseCueBlocks("policies/org-policy.md", doc);
-    expect(checksForFiles(blocks, [added("package.json", "{}")]).map((c) => c.pol)).to.deep.equal(["POL-210"]);
-    expect(checksForFiles(blocks, [added("README.md", "x")]), "nothing matches these globs").to.deep.equal([]);
-  });
-
-  it("a check with NO CUE is found too — POL-203 in the shipped policy is exactly that, and ran on nothing", () => {
-    // §6.3 of the seeded policy says a rule a machine can see in a diff should be *check only, no cue*, and POL-203
-    // (`on_miss=fail`) takes it at its word. Read only as the tail of a cue block, the starter policy's most
-    // emphatic clause was the least enforced one.
-    const cueless = `### 2.3 Every source file carries the licence header
-
-Every source file MUST carry the organization's SPDX licence identifier. **(POL-203)**
-
-<!-- gov:check kind=content-required when=**/*.ts,**/*.go
-     pattern=SPDX-License-Identifier on_miss=fail -->
-
-*(No cue: a machine sees this in a diff perfectly well.)*
-`;
-    const found = standaloneChecks("policies/org-policy.md", cueless);
-    expect(found.map((c) => `${c.pol} §${c.section} ${c.check.kind}`)).to.deep.equal(["POL-203 §2.3 content-required"]);
-    const r = runDiffChecks(selectFileChecks(found, [added("src/a.ts", "const x = 1;")]), [added("src/a.ts", "const x = 1;")], noDocs);
-    expect(r.ok).to.equal(false);
-    expect(messages(r)).to.contain("POL-203 (policies/org-policy.md §2.3)");
-  });
-
-  it("a check that DOES belong to a cue is not collected twice — one clause, one finding", () => {
-    const { blocks } = parseCueBlocks("policies/org-policy.md", doc);
-    const changed = [added("package.json", "{}")];
-    expect(checksForFiles(blocks, changed).map((c) => c.pol)).to.deep.equal(["POL-210"]);
-    expect(selectFileChecks(standaloneChecks("policies/org-policy.md", doc), changed),
-      "the blockquote above it says it is already owned").to.deep.equal([]);
+    const checks = [...attached("kind=list-membership when=**/package.json list=policies/approved-technologies.md on_miss=fail"),
+      ...attached("kind=file-required when=verb:close require=knowledge/learnings.md on_miss=fail", "GOV-SVM-240", "4.1")];
+    expect(selectFileChecks(checks, [added("package.json", "{}")]).map((c) => c.pol)).to.deep.equal(["GOV-SVM-210"]);
+    expect(selectFileChecks(checks, [added("README.md", "x")]), "nothing matches these globs").to.deep.equal([]);
   });
 
   it("a changeset with no checks attached reports nothing at all", () => {
@@ -466,11 +414,11 @@ Every source file MUST carry the organization's SPDX licence identifier. **(POL-
   });
 
   it("a kind with no evaluator over a changeset WARNS rather than passing silently", () => {
-    // The hand-written or newer-content case: the next predicate added to cue-block.ts must not be parsed,
+    // The hand-written or newer-content case: the next predicate added to checks/predicates.ts must not be bound,
     // rendered, counted as CHECKED and then evaluated by nothing — which is the defect this module fixes.
     const r = runDiffChecks(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a kind cue-block.ts does not have yet
-      [{ pol: "POL-9", doc: "d.md", section: "1", check: { kind: "future-kind" as any, trigger: { on: "files", globs: ["**"] }, attrs: {}, onMiss: "fail" } }],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a kind predicates.ts does not have yet
+      [{ pol: "GOV-SVM-9", doc: "d.md", section: "1", check: { kind: "future-kind" as any, trigger: { on: "files", globs: ["**"] }, attrs: {}, onMiss: "fail" } }],
       [added("a.ts", "x")], noDocs,
     );
     expect(r.ok).to.equal(true);
@@ -480,8 +428,8 @@ Every source file MUST carry the organization's SPDX licence identifier. **(POL-
   it("every finding cites the clause and the document section, so the rule can be read", () => {
     const r = runDiffChecks(attached("kind=content-required when=**/*.ts pattern=SPDX on_miss=fail"),
       [added("src/a.ts", "const x = 1;")], noDocs);
-    expect(r.failures[0]!.pol).to.equal("POL-210");
-    expect(r.failures[0]!.message).to.contain("POL-210 (policies/org-policy.md §3.1)");
+    expect(r.failures[0]!.pol).to.equal("GOV-SVM-210");
+    expect(r.failures[0]!.message).to.contain("GOV-SVM-210 (policies/org-policy.md §3.1)");
   });
 
   it("the report marks failures and warnings differently, and is empty when there is nothing to say", () => {

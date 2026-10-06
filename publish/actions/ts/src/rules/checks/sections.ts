@@ -21,8 +21,26 @@
  *
  * Pure.
  */
-import { headingSection } from "../notation.js";
-import { clauseSha } from "../cue-block.js";
+import { createHash } from "node:crypto";
+
+/**
+ * The section number a heading declares, or null. `### 4.2 Approved technologies` → `4.2`; `## 7. Data` → `7`
+ * (the trailing dot is typography, not part of the number a person cites).
+ */
+export function headingSection(line: string): string | null {
+  const h = /^(#{1,6})\s+(.*\S)\s*$/.exec(line);
+  if (!h) return null;
+  const num = /^(\d+(?:\.\d+)*)\.?(?=\s|$)/.exec(h[2]!);
+  return num ? num[1]! : null;
+}
+
+/**
+ * A short hash of NORMALISED text: whitespace collapsed, ends trimmed — so re-wrapping a paragraph, or an editor
+ * stripping a trailing space, changes the bytes and changes nothing about the rule. Seven hex characters of
+ * sha256, like a short git sha: enough for a document's worth of sections, short enough to compare by eye.
+ */
+export const clauseSha = (text: string): string =>
+  createHash("sha256").update(text.replace(/\s+/g, " ").trim()).digest("hex").slice(0, 7);
 
 /** One section of a policy document: its number, its text (heading included) and that text's sha. */
 export interface PolicySection {

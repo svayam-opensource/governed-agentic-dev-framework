@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * framework-policy §3.3, AS DIAGNOSTIC ROWS — pure, so the rule is testable without GitHub (PRJ-121, 2026-09-27).
+ * framework-specification.md §7.3, AS DIAGNOSTIC ROWS — pure, so the rule is testable without GitHub (PRJ-121, 2026-09-27).
  *
  * Four requirements, one row each, in the order the policy states them. Pure over
  * {@link ProtectionFacts} — `null` included, which is its own row: gh shows branch protection to repository
@@ -17,7 +17,7 @@ import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
 import { GOVERNANCE_POSTURES, readPosture, type PostureChoice } from "../config/org-config.js";
 
 /**
- * The status check that verifies the approver (framework-policy §3.3's fourth control). Named here with a default because the
+ * The status check that verifies the approver (framework-specification.md §7.3's fourth control). Named here with a default because the
  * NAME is a convention between the policy and the workflow the framework ships — an org that renamed the
  * workflow has not stopped complying, and doctor should compare against what that org actually requires.
  */
@@ -79,7 +79,7 @@ export function assessProtection(facts: ProtectionFacts | null, opts: Protection
     {
       name: "protection · approver check",
       status: (facts.requiredStatusChecks.includes(expected) ? "ok" : "fail") as DiagnosticStatus,
-      // NOT NEGLIGENCE — A GAP THE PLAN LEAVES (framework-policy §3.4). On GitHub Free for private repos, "restrict who
+      // NOT NEGLIGENCE — A GAP THE PLAN LEAVES (framework-specification.md §11.2). On GitHub Free for private repos, "restrict who
       // can push/merge" and CODEOWNERS enforcement are paid features, so ANY collaborator with write access
       // can leave the approving review that satisfies GOV-FRM-447.2. The status check is what closes that on
       // every plan. So the row names the thing to add rather than implying somebody was careless.

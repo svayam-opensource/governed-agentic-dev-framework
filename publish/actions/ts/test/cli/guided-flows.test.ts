@@ -365,7 +365,7 @@ describe("work — non-TTY session start", () => {
     // the prompt must name the four files the session-start protocol requires
     expect(s?.prompt).to.contain("gov_repo/org-config.yaml");
     expect(s?.prompt).to.contain("gov_repo/projects/PRJ-43-gov/agent.md");
-    expect(s?.prompt).to.contain("framework-policy.md");
+    expect(s?.prompt).to.contain("framework-specification.md");
     expect(s?.prompt).to.contain("todo.md");
   });
 
@@ -753,9 +753,9 @@ describe("gov-work — the session prompt reads governance from the default bran
   it("governance comes from the default-branch clone, not the worktree", () => {
     const p = sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV);
     expect(p, "org-config from the default branch").to.contain(`${GOV}/org-config.yaml`);
-    expect(p, "and the policy too").to.contain(`${GOV}/framework/policies/framework-policy.md`);
+    expect(p, "and the policy too").to.contain(`${GOV}/framework/docs/specs/framework-specification.md`);
     expect(p, "never the worktree copy of the policy")
-      .to.not.contain("acme-gov/framework/policies/framework-policy.md");
+      .to.not.contain("acme-gov/framework/docs/specs/framework-specification.md");
   });
 
   it("project paths still come from the project branch", () => {

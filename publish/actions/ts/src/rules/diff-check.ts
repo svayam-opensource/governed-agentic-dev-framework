@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * THE CHECKS THAT NOTHING EVALUATED (PRJ-121, 2026-09-28).
+ THE CHECKS THAT NOTHING EVALUATED (PRJ-121, 2026-09-28) — now the changeset half of the `gov-builtin` predicates.
  *
- * A `gov:check` has had two triggers since the verb gate landed: a VERB (`when=verb:close`), evaluated by
- * {@link ./verb-gate.js}, and a set of FILE GLOBS (`when=**\/package.json`). The second was parsed, validated,
- * and rendered byte-stably into every harness — and evaluated by NOTHING. So the seeded org policy's technology clause
+ * A check has two triggers: a VERB (`gov.verb · close`), evaluated by {@link ./verb-gate.js}, and a CHANGESET
+ * (`vcs.* · pull_request`, narrowed by `when:` globs). The second was once parsed, validated, and rendered
+ * byte-stably into every harness — and evaluated by NOTHING. So the seeded org policy's technology clause
  * ("a library not listed in `approved-technologies.md` MAY be introduced only with an approved exception") never
  * ran on a single pull request, and 92 of the framework's 107 rules were advisory while reading as checked.
  *
@@ -26,8 +26,7 @@
  * Findings are verb-gate's {@link GateFinding}, unchanged: one reporting shape, one message style, one formatter.
  */
 import { filterByGlobs, matchesAny } from "./glob.js";
-import { parseCheck, type Check, type CueBlock } from "./cue-block.js";
-import { headingSection } from "./notation.js";
+import type { Check } from "./checks/predicates.js";
 import type { AttachedCheck, GateFinding, GateResult } from "./verb-gate.js";
 
 /** What happened to a file in the changeset. A rename arrives as a deletion of the old path plus an added new one. */
@@ -77,68 +76,6 @@ export type ReadDoc = (path: string) => string | null;
 export function selectFileChecks(checks: readonly AttachedCheck[], changed: readonly ChangedFile[]): AttachedCheck[] {
   const paths = changed.map((c) => c.path);
   return checks.filter((a) => a.check.trigger.on === "files" && filterByGlobs(paths, a.check.trigger.globs).length > 0);
-}
-
-/** The file-triggered checks carried by a document's CUE BLOCKS whose globs match this change. */
-export function checksForFiles(blocks: readonly CueBlock[], changed: readonly ChangedFile[]): AttachedCheck[] {
-  const attachedToCues = blocks
-    .filter((b): b is CueBlock & { check: Check } => Boolean(b.check))
-    .map((b) => ({ pol: b.pol, doc: b.doc, section: b.section, check: b.check }));
-  return selectFileChecks(attachedToCues, changed);
-}
-
-const CHECK_OPEN = /^\s*<!--\s*gov:check\b/;
-/** `**(POL-203)**`, and the range form `**(POL-011…POL-015)**` — the first number is the one that is cited. */
-const POL_MARKER = /\*\*\(\s*(POL-\d+[a-z]?)/;
-
-/**
- * THE CHECKS WITH NO CUE — a second hole in the same wall, found by running this evaluator on the shipped policy.
- *
- * `parseCueBlocks` finds a check only as the tail of a stored cue block, because that is the form `gov rules
- * build` writes. But "check only, no cue" is a FIRST-CLASS pattern the seeded org policy both documents (§6.3: *a
- * rule a machine can see in a diff → check only, no cue*) and uses: §2.3, *every source file MUST carry the
- * SPDX licence identifier*, `on_miss=fail`, with an explicit note saying the cue was left out on purpose. That
- * check was parsed by nothing at all — not even into a `Check` object — so it was the most emphatic rule in the
- * starter policy and the least enforced one.
- *
- * Ownership is the same convention `staleCues` uses: the clause the check belongs to is the one ABOVE it, which
- * here means the last `**(POL-nnn)**` marker seen. A check comment whose previous non-blank line is a blockquote
- * belongs to that cue and is skipped, so nothing is evaluated twice.
- *
- * Every trigger is returned, verb ones included: the verb side has the identical gap, and a second copy of this
- * scan is the last thing that argument needs.
- */
-export function standaloneChecks(doc: string, text: string): AttachedCheck[] {
-  const lines = text.split(/\r?\n/);
-  const out: AttachedCheck[] = [];
-  let section = "";
-  let pol = "";
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const heading = headingSection(line);
-    if (heading) { section = heading; continue; }
-    const marker = POL_MARKER.exec(line);
-    if (marker) pol = marker[1]!;
-    if (!CHECK_OPEN.test(line)) continue;
-
-    // Cue-owned? The stored form is: cue comment · blank lines · blockquote · blank lines · check. So a check
-    // whose nearest non-blank predecessor is a `>` line has already been read by `parseCueBlocks`.
-    let above = i - 1;
-    while (above >= 0 && !lines[above]!.trim()) above--;
-    if (above >= 0 && lines[above]!.trimStart().startsWith(">")) continue;
-
-    let end = i;
-    while (end < lines.length && !lines[end]!.includes("-->")) end++;
-    const inner = lines.slice(i, Math.min(end + 1, lines.length)).join(" ")
-      .replace(/^\s*<!--\s*/, "").replace(/-->.*$/, "").replace(/^gov:check\s*/, "").trim();
-    const { check } = parseCheck(inner);
-    // A malformed check is `gov rules build`'s diagnostic to report, not this evaluator's: reporting it twice,
-    // in a place that judges pull requests, would blame a developer for a policy author's typo.
-    if (check) out.push({ pol: pol || "(unnumbered)", doc, section, check });
-    i = Math.min(end, lines.length - 1);
-  }
-  return out;
 }
 
 const attr = (c: Check, key: string): string => c.attrs[key] ?? "";
@@ -461,7 +398,7 @@ export function runDiffChecks(
 
       default:
         // Unreachable while `CHECK_KINDS` has seven members — and here anyway, because the next kind added to
-        // cue-block.ts would otherwise be parsed, rendered, counted as CHECKED, and evaluated by nothing. That
+        // checks/predicates.ts would otherwise be bound, counted as CHECKED, and evaluated by nothing. That
         // is the exact defect this module was written to fix; it must not be reintroduced silently.
         note(`${where}: \`${(check as Check).kind}\` has no evaluator over a changeset, so this clause checked nothing.`);
     }

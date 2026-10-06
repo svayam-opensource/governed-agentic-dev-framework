@@ -151,7 +151,7 @@ Open the workspace at **`projects/<PID>/`** (recommended) or gov repo root on th
 | **Agent** | Read knowledge layers (required) | Read tool → `knowledge/`, project, repos, prefs | Same | Same |
 | **You** | Verify | `/memory` lists imports | Settings → Rules → `agent.mdc` = **Always** | Ask agent to summarize write restrictions |
 
-**Not automatic for any tool:** full `framework/policies/`, `projects/<PID>/knowledge/*`, code repo `knowledge/`, or preferences — the agent must read these each session.
+**Not automatic for any tool:** full `framework/docs/specs/framework-specification.md`, `projects/<PID>/knowledge/*`, code repo `knowledge/`, or preferences — the agent must read these each session.
 
 Detailed step tables and timeline: [`docs/design/agent-context-assembly-spec.md`](design/agent-context-assembly-spec.md) Appendix D.
 

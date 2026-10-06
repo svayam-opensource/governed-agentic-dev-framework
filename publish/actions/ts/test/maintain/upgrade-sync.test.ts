@@ -4,7 +4,7 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseManifest, expandEntries, planUpgrade, mergeOrgConfig, orgConfigLoss, applyUpgrade, formatPlan, type PlanReaders } from "../../src/maintain/upgrade-sync.js";
+import { contentLayoutOf, staleArtifactsIn, parseManifest, expandEntries, planUpgrade, mergeOrgConfig, orgConfigLoss, applyUpgrade, formatPlan, type PlanReaders } from "../../src/maintain/upgrade-sync.js";
 
 const MANIFEST = `
 version: "1.0.0"
@@ -284,5 +284,67 @@ describe("org-config overlay — a rename carries the value; a merge that would 
     expect(store["org-config.yaml"]).to.equal(before);
     expect(res.refused).to.deep.equal(["org-config.yaml"]);
     expect(res.applied).to.not.include("org-config.yaml");
+  });
+
+  // Tier 0 #7 — the new layout lives under a path RETIRE_PATHS names for the old world.
+  it("never retires a RETIRE_PATHS directory the manifest ships into — `framework/` is the new layout", () => {
+    const shipped = [{ src: "framework/rules/rules.yaml", dst: "framework/rules/rules.yaml", mode: "scaffold-auto" as const }];
+    const plan = planUpgrade(shipped, {
+      readContent: () => "rows\n",
+      readAdopter: (p) => (p === "framework/rules/rules.yaml" ? "rows\n" : "x"),
+      adopterPaths: () => ["framework/rules/rules.yaml", "framework/docs/specs/framework-specification.md", "registry.yaml"],
+    });
+    const retired = plan.actions.filter((a) => a.kind === "retire").map((a) => a.dst);
+    expect(retired).to.not.include("framework/");
+    expect(retired, "the other old-world paths are still retired").to.include("registry.yaml");
+  });
+
+  it("parses the MANIFEST's retire list, and retires exactly the listed paths the workspace has", () => {
+    const m = parseManifest(`
+files:
+  - { src: VERSION, dst: VERSION, mode: scaffold-auto }
+retire:
+  - framework/policies/framework-policy.md
+  - framework/policies/        # the folder
+  - framework/docs/specs/concepts.md
+`);
+    expect(m.retire).to.deep.equal(["framework/policies/framework-policy.md", "framework/policies/", "framework/docs/specs/concepts.md"]);
+    const plan = planUpgrade([], {
+      readContent: () => null, readAdopter: () => "x",
+      adopterPaths: () => ["framework/policies/framework-policy.md", "framework/policies/README.md", "framework/docs/specs/x.md"],
+    }, [], m.retire);
+    const retired = plan.actions.filter((a) => a.kind === "retire").map((a) => a.dst);
+    expect(retired).to.include.members(["framework/policies/framework-policy.md", "framework/policies/"]);
+    expect(retired, "an unlisted file is not retired by the list").to.not.include("framework/docs/specs/concepts.md");
+  });
+
+  it("a retire entry never removes a file the manifest ships — shipping wins, and the entry is reported", () => {
+    const shipped = [{ src: "VERSION", dst: "VERSION", mode: "scaffold-auto" as const }];
+    const plan = planUpgrade(shipped, { readContent: () => "1\n", readAdopter: () => "1\n", adopterPaths: () => ["VERSION"] }, [], ["VERSION"]);
+    expect(plan.actions.filter((a) => a.kind === "retire")).to.deep.equal([]);
+  });
+
+  it("the shipped MANIFEST retires nothing it also ships", () => {
+    const content = path.join(repoRoot, "publish", "content");
+    const m = parseManifest(fs.readFileSync(path.join(content, "MANIFEST.yaml"), "utf8"));
+    const walk = (rel: string): string[] => fs.readdirSync(path.join(content, rel)).flatMap((n) => {
+      const r = rel ? `${rel}/${n}` : n;
+      return fs.statSync(path.join(content, r)).isDirectory() ? walk(r) : [r];
+    });
+    const dsts = expandEntries(m, walk("")).map((e) => e.dst);
+    const clash = m.retire.filter((r) => (r.endsWith("/") ? dsts.some((d) => d.startsWith(r)) : dsts.includes(r)));
+    expect(clash).to.deep.equal([]);
+  });
+
+  it("doctor does not call the new framework/ tree an old-world artifact", () => {
+    const has = (...p: string[]) => (rel: string) => p.includes(rel);
+    expect(staleArtifactsIn(true, has("org-config.yaml", "framework", "framework/rules"))).to.not.include("framework/");
+    expect(staleArtifactsIn(true, has("org-config.yaml", "framework", "framework/docs"))).to.not.include("framework/");
+    expect(staleArtifactsIn(true, has("org-config.yaml", "framework")), "a framework/ with none of the new layout is the old world").to.include("framework/");
+  });
+
+  it("a workspace with the rule store but no framework/policies/ is on the current layout", () => {
+    expect(contentLayoutOf((r) => r === "framework/rules")).to.equal("framework");
+    expect(contentLayoutOf((r) => r === "framework/docs/specs")).to.equal("framework");
   });
 });

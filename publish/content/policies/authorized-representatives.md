@@ -25,7 +25,8 @@ status: seed
 > This file names **real people**, and it is the list an exception is checked against. Keeping it true is
 > therefore not documentation work — a stale row here is an approval nobody actually gave.
 >
-> The notation is the framework's: the ALL-CAPS modal verb declares the level (`framework-policy.md` §1.3).
+> Write it in plain English. How strict each rule is gets decided per rule when `gov rules propose` extracts it,
+> and you approve it there (`framework/docs/specs/framework-specification.md` chapter 9).
 
 ---
 
@@ -34,7 +35,7 @@ status: seed
 ### 1.1 Every exception has a named approver
 
 An exception request MUST be approved by the representative named for its domain in §1.2, and until a domain
-owner is appointed the Policy Owner MUST be that representative. **(POL-250)**
+owner is appointed the Policy Owner MUST be that representative.
 
 ### 1.2 The representatives (starter)
 
@@ -46,35 +47,28 @@ owner is appointed the Policy Owner MUST be that representative. **(POL-250)**
 | Policy | Policy Owner | <POLICY_OWNER_EMAIL> |
 
 The Policy Owner MAY appoint a representative, or change one, by a pull request to this file. An appointment
-announced anywhere else does not reach the gate, because the gate reads this file. **(POL-251)**
+announced anywhere else does not reach the gate, because the gate reads this file.
 
 ### 1.3 Nobody approves their own exception
 
 The requester MUST NOT approve their own exception request, in any domain, including when the requester is the
-Policy Owner. **(POL-252)**
+Policy Owner.
 
 *(Advisory, and honestly so: none of the seven predicates can see who authored a change and who approved it —
 that is the version-control platform's job, configured as a required review by somebody other than the author.
-`framework-policy.md` §3.4 says what follows when a platform will not provide it.)*
+`framework/docs/specs/framework-specification.md` §11.2 says what follows when a platform will not provide it.)*
 
 ## 2. Keeping this file true
 
 ### 2.1 An agent does not appoint anybody
 
 An agent MUST NOT add, remove or change a representative in this file: an appointment is a human decision,
-recorded by the human who made it. **(POL-253)**
-
-<!-- gov:cue generated clause-sha=2148543 -->
-> **Always in the agent's context** · POL-253 · C01
-> ASKED TO CHANGE WHO APPROVES THINGS? IT IS NOT YOURS TO CHANGE.
-> `policies/authorized-representatives.md` names real people and is the list an exception is checked against.
-> Draft the wording if you are asked to, and STOP: a human opens the pull request and a human approves it.
-> Never edit it in passing, as part of another task.
+recorded by the human who made it.
 
 ### 2.2 A departure is recorded when access changes
 
 The Policy Owner MAY update this file in the same pull request that changes a named holder's access, so that
-the list and the access cannot disagree. **(POL-254)**
+the list and the access cannot disagree.
 
 ## 3. Every role has a holder
 

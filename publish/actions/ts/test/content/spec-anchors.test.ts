@@ -3,7 +3,8 @@
 /**
  * THE SPECIFICATION IS HAND-WRITTEN. THIS IS WHAT MAKES THAT SAFE.
  *
- * `framework/docs/specs/gov-behaviour.md` describes what the gov clients do. It is written rather than generated
+ * `framework/docs/specs/framework-specification.md` describes what the gov clients do (it absorbed gov-behaviour.md
+ * and concepts.md, rule-model Q23). It is written rather than generated
  * because a specification has to explain WHY, and no generator does that. The cost of hand-writing it is that it
  * can drift from the code, and "we update the document when the code changes" is a discipline, not a mechanism.
  *
@@ -49,7 +50,7 @@ function repoRoot(): string {
 }
 
 const ROOT = repoRoot();
-const SPEC_REL = "publish/content/framework/docs/specs/gov-behaviour.md";
+const SPEC_REL = "publish/content/framework/docs/specs/framework-specification.md";
 const SRC = path.join(ROOT, "publish", "actions", "ts", "src");
 
 const spec = fs.readFileSync(path.join(ROOT, SPEC_REL), "utf8");
@@ -86,27 +87,23 @@ const ANCHORS: readonly Anchor[] = [
   { what: "the archive tag", inSpec: "archive/<branch>", inCode: "`archive/${branch}`", file: "lifecycle/merge.ts" },
   { what: "the knowledge proposal branch", inSpec: "knowledge-<slug>", inCode: "`knowledge-${slug}`", file: "lifecycle/knowledge.ts" },
 
-  // §2 — the lifecycle states the spec says are derived. If the union gains or loses a member, the list is wrong.
-  { what: "the derived lifecycle states", inSpec: "`paused`, `completed`, `cancelled`", inCode: '"active" | "paused" | "completed" | "cancelled"', file: "lifecycle/state.ts" },
-
-  // §3 — the base branch a code repo is cut from, which the spec says `gov seed` can override.
-  { what: "the code repos' base branch setting", inSpec: "`default_code_branch`", inCode: "default_code_branch", file: "config/org-config.ts" },
+  // RETIRED with gov-behaviour.md (P3 cutover): the derived lifecycle states, `default_code_branch`,
+  // `verifyAgentContext` and the GOV-FRM-423 citation. The specification describes those in words, not by the
+  // literal, and the behaviours are spec rules with tagged tests (spec-rule-coverage.test.ts).
 
   // §5 — the read-only snapshot, and the harness.
   { what: "the ratified-governance snapshot directory", inSpec: ".gov/governance/", inCode: "`${projectDir}/.gov/governance`", file: "lifecycle/governance-snapshot.ts" },
-  { what: "the file that must be in an agent's context before launch", inSpec: "`verifyAgentContext`", inCode: "export function verifyAgentContext", file: "lifecycle/root-protocol.ts" },
 
   // §6 — what `gov rules build` writes.
-  { what: "the POL lock", inSpec: "`.pol-lock.json`", inCode: 'LOCK_FILE = ".pol-lock.json"', file: "rules/pol-lock-io.ts" },
-  { what: "the rule map", inSpec: "`agent/harness/rule-map.md`", inCode: 'path.join("agent", "harness", "rule-map.md")', file: "cli/rules-verb.ts" },
-  { what: "the rule id cited in gov's own source", inSpec: "`GOV-FRM-423`", inCode: "GOV-FRM-423", file: "log.ts" },
+  // The POL lock anchor was RETIRED with the old compiler (P3 cutover): there is no lock to name.
+  { what: "the rule map", inSpec: "`agent/harness/rule-map.md`", inCode: "RULE_MAP_PATH = `${HARNESS_DIR}/rule-map.md`", file: "rules/rules-build.ts" },
 
   // §7 — the posture, and the limit the platform imposes.
   { what: "the governance posture setting", inSpec: "`governance_posture`", inCode: "governance_posture", file: "config/org-config.ts" },
-  { what: "GitHub's refusal on a private repo on the Free plan", inSpec: "Upgrade to GitHub\nPro or make this repository public", inCode: "Upgrade to GitHub Pro or make this repository public", file: "lifecycle/branch-protection.ts" },
+  { what: "GitHub's refusal on a private repo on the Free plan", inSpec: "Upgrade to GitHub Pro or make this repository public", inCode: "Upgrade to GitHub Pro or make this repository public", file: "lifecycle/branch-protection.ts" },
 ];
 
-describe("gov-behaviour.md — every literal it names is anchored in the code", () => {
+describe("framework-specification.md — every literal it names is anchored in the code", () => {
   for (const a of ANCHORS) {
     it(`${a.what}: the spec and ${a.file} agree`, () => {
       expect(
@@ -125,11 +122,11 @@ describe("gov-behaviour.md — every literal it names is anchored in the code", 
   it("names as many literals as it has anchors — a shrinking anchor set is how a spec stops being checked", () => {
     // Not a coverage assertion, a tripwire. If somebody deletes anchors to make a build pass, the count moves and
     // the diff shows it. Update the number deliberately, in the same commit as the reason.
-    expect(ANCHORS.length).to.equal(11);
+    expect(ANCHORS.length).to.equal(6);
   });
 });
 
-describe("gov-behaviour.md — the negative anchor (the false knowledge-close clause)", () => {
+describe("framework-specification.md — the negative anchor (the false knowledge-close clause)", () => {
   /**
    * The clause that justified this whole test file. It said knowledge close used a branch named
    * `BRNCH-<board#>-<slug>-knowledge` — a name DERIVED from the project's identity. That is the shape to look
@@ -167,9 +164,9 @@ describe("gov-behaviour.md — the negative anchor (the false knowledge-close cl
   });
 
   it("the spec says so, in as many words, and names the two fixed branches that DO exist", () => {
-    expect(spec).to.contain("no branch is derived from a project branch by suffixing");
+    expect(spec).to.contain("Neither is built from the project's identity.");
     // Naming them is the part that keeps the claim honest: "there is no -knowledge branch" was itself too strong.
-    expect(spec).to.contain("`onboard-knowledge` from `gov onboard`");
+    expect(spec).to.contain("`onboard-knowledge`, from `gov onboard`");
   });
 
   it("`onboard-knowledge` is a fixed name, which is why it does not contradict the spec", () => {
@@ -177,7 +174,7 @@ describe("gov-behaviour.md — the negative anchor (the false knowledge-close cl
   });
 });
 
-describe("gov-behaviour.md — it is a specification, not a policy", () => {
+describe("framework-specification.md — it is a specification, not a policy", () => {
   /**
    * THE ONE RULE ABOUT THIS DOCUMENT'S FORM. A POL number is citable, and a citable number invites an exception
    * request — you cannot be excepted from how a program behaves. The split (2026-09-29) exists because the policy
@@ -196,14 +193,15 @@ describe("gov-behaviour.md — it is a specification, not a policy", () => {
     ).to.deep.equal([]);
   });
 
-  it("says plainly which of the two it is, in its first line of prose", () => {
+  it("says plainly, first, that it is the framework's and not to be edited", () => {
     // A reader who opens the file in the middle of a review must not have to infer this.
-    expect(spec).to.contain("**This is a specification, not a policy.**");
+    expect(spec.indexOf("### 1.1 Do not edit this document")).to.be.greaterThan(-1);
+    expect(spec.indexOf("### 1.1 Do not edit this document")).to.be.lessThan(spec.indexOf("### 1.2"));
   });
 
   it("is not compiled into what an agent carries", () => {
-    // The resident block is built from `framework/policies/` and `policies/`. A spec under `framework/docs/`
-    // cannot reach it — which is the point: an agent carries rules, not documentation.
+    // The resident block is built from the rule rows, never from prose. A spec under `framework/docs/` cannot
+    // reach it — which is the point: an agent carries rules, not documentation.
     expect(SPEC_REL).to.contain("framework/docs/specs/");
     expect(SPEC_REL, "a document under policies/ WOULD compile into the harness").to.not.contain("/policies/");
   });

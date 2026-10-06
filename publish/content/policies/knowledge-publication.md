@@ -24,7 +24,8 @@ status: seed
 > Everything below is a **starter** describing the arrangement Svayam runs. Keep it, cut it down to one form,
 > or delete the document — that is the expected first act, not a deviation.
 >
-> The notation is the framework's: the ALL-CAPS modal verb declares the level (`framework-policy.md` §1.3).
+> Write it in plain English. How strict each rule is gets decided per rule when `gov rules propose` extracts it,
+> and you approve it there (`framework/docs/specs/framework-specification.md` chapter 9).
 > Note how few clauses this document has: it governs a pipeline **you** build, so most of it is a
 > specification for whoever builds it rather than a rule anybody can be held to.
 
@@ -35,17 +36,17 @@ status: seed
 ### 1.1 The decision is a setting, not a paragraph
 
 The Policy Owner MAY record this organization's choice in `knowledge_publication` in `org-config.yaml`. An
-arrangement described in this document but not set there is a plan, not a policy, and nothing reads it. **(POL-270)**
+arrangement described in this document but not set there is a plan, not a policy, and nothing reads it.
 
 ### 1.2 One source, several renderings
 
 The organization MAY generate every published form from the markdown in this repository, and edit no published
-artifact directly, so that no published copy can disagree with the source it came from. **(POL-271)**
+artifact directly, so that no published copy can disagree with the source it came from.
 
 ### 1.3 Nothing confidential reaches an unauthenticated reader
 
 The organization MUST NOT publish a document holding confidential or restricted data (see
-`policies/data-classification.md`) to any form reachable without authentication. **(POL-272)**
+`policies/data-classification.md`) to any form reachable without authentication.
 
 ## 2. The three forms (starter)
 
@@ -56,17 +57,17 @@ The primary reading surface for developers, governance and audit: every document
 reflecting `<DEFAULT_BRANCH>` within an hour of a merge.
 
 The organization MAY place the static site behind authentication that only its own authorized users pass — SSO,
-or the version-control platform's own identity. **(POL-273)**
+or the version-control platform's own identity.
 
 ### 2.2 Form 2 — PDF exports, for people outside
 
-One PDF per top-level policy document, regenerated when `framework/policies/` or `policies/` changes, linked
+One PDF per top-level policy document, regenerated when `framework/` or `policies/` changes, linked
 from the corresponding page on the static site. These are the copies that reach a regulator or an external
 auditor.
 
 The organization MAY carry, on every generated PDF, the document's title, the commit it was generated from, its
 effective date and the Policy Owner's name, so that a copy in someone else's hands can be traced back to a
-source. **(POL-274)**
+source.
 
 ### 2.3 Form 3 — vector embeddings, for retrieval
 
@@ -74,7 +75,7 @@ An index over `knowledge/` that lets an agent find the relevant few documents wi
 One chunk per `##` section, each carrying its file path, section heading, source commit and domain owner, so
 that a retrieved fragment says what it is and how binding it is.
 
-The organization CAN re-embed only the files a merge changed, rather than re-indexing the whole tree. **(POL-275)**
+The organization CAN re-embed only the files a merge changed, rather than re-indexing the whole tree.
 
 ## 3. For whoever builds it
 
@@ -101,7 +102,7 @@ None of the seven predicates (`naming`, `path-scope`, `list-membership`, `conten
 `content-required`, `file-required`, `frontmatter-required`) can see a published site, a PDF or a vector index:
 they read a changeset and a workspace. So the clauses here are **advisory** — written because they matter, with
 nothing in gov enforcing them. The place to enforce them is the publishing pipeline's own CI, and
-`framework/docs/specs/gov-behaviour.md` draws the distinction being relied on here. `gov doctor` counts them as advisory, which is the
+`framework/docs/specs/framework-specification.md` §11.3 draws the distinction being relied on here. `gov doctor` counts them as advisory, which is the
 honest number.
 
 ### 3.4 Why it carries no cue either

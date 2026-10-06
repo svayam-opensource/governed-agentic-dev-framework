@@ -40,7 +40,17 @@ import { parseOrgConfig } from "../config/org-config.js";
 
 export type EntryMode = "scaffold-auto" | "seed-once" | "scaffold-prompt" | "overlay-schema";
 export interface ManifestEntry { readonly src: string; readonly dst: string; readonly mode: EntryMode; }
-export interface Manifest { readonly files: readonly ManifestEntry[]; readonly owned: readonly string[]; readonly moves: readonly ManifestMove[]; }
+export interface Manifest {
+  readonly files: readonly ManifestEntry[];
+  readonly owned: readonly string[];
+  readonly moves: readonly ManifestMove[];
+  /**
+   * What THIS release removes from a workspace (P3 cutover, 2026-10-06): an exact file, or a directory ending `/`.
+   * The framework's own files that a release merged away or stopped shipping — never an organization's. A path the
+   * manifest also ships is never retired: shipping wins.
+   */
+  readonly retire: readonly string[];
+}
 
 /**
  * A RELOCATION, for the day the shipped layout changes (PRJ-121, 2026-09-23, policy-split design §9).
@@ -74,12 +84,21 @@ export interface ManifestMove {
 export type ContentLayout = "framework" | "governance" | "none";
 
 export function contentLayoutOf(exists: (rel: string) => boolean): ContentLayout {
-  if (exists("framework/policies")) return "framework";
+  // `framework/policies/` was the layout's first marker; it is retired (its documents merged into the
+  // specification), so the rule store and the specification mark the layout too.
+  if (exists("framework/policies") || exists("framework/rules") || exists("framework/docs/specs")) return "framework";
   if (exists("governance/policies")) return "governance";
   return "none";
 }
 
-/** Paths (prefixes / exact) the new layout retires from an adopter repo. */
+/**
+ * Paths (prefixes / exact) the new layout retires from an adopter repo — the OLD WORLD's artifacts.
+ *
+ * `framework/` here is the old world's vendored copy of the framework. The current layout ALSO lives under
+ * `framework/` (rules, docs, procedures, templates), so a directory entry is never retired while the manifest ships
+ * anything under it (Tier 0 #7: a second upgrade used to remove the whole tree it had just written). Specific files
+ * a release stops shipping are retired by the MANIFEST's own `retire:` list instead.
+ */
 export const RETIRE_PATHS = ["framework/", "registry.yaml", ".framework-version", "bin/", "scripts/", "setup.sh", "install.sh", "prj"] as const;
 
 /**
@@ -122,23 +141,29 @@ export function staleArtifactsIn(isWorkspace: boolean, exists: (rel: string) => 
   // skipped exactly where the leftovers were (svm-geneva-gov, 2026-09-22).
   if (exists("publish/content/MANIFEST.yaml") && !exists("org-config.yaml")) return [];
   return [
-    ...RETIRE_PATHS.filter((rp) => exists(rp.replace(/\/$/, ""))),
+    ...RETIRE_PATHS.filter((rp) => exists(rp.replace(/\/$/, "")) && !(rp === "framework/" && isNewFrameworkLayout(exists))),
     ...TEMPLATE_LEFTOVERS.filter((t) => exists(t.fingerprint)).map((t) => t.path),
   ];
 }
+
+/** The current layout's own folders under `framework/` — any of them means `framework/` is not the old world. */
+const NEW_FRAMEWORK_DIRS = ["framework/rules", "framework/docs", "framework/policies", "framework/procedures", "framework/templates"] as const;
+const isNewFrameworkLayout = (exists: (rel: string) => boolean): boolean => NEW_FRAMEWORK_DIRS.some((d) => exists(d));
 
 /** Parse the flow-style MANIFEST (files[] of {src,dst,mode} + owned[]). */
 export function parseManifest(text: string): Manifest {
   const files: ManifestEntry[] = [];
   const owned: string[] = [];
   const moves: ManifestMove[] = [];
-  let section: "files" | "owned" | "moves" | null = null;
+  const retire: string[] = [];
+  let section: "files" | "owned" | "moves" | "retire" | null = null;
   for (const raw of text.split(/\r?\n/)) {
     const t = raw.trim();
     if (!t || t.startsWith("#")) continue;
     if (t === "files:") { section = "files"; continue; }
     if (t === "owned:") { section = "owned"; continue; }
     if (t === "moves:") { section = "moves"; continue; }
+    if (t === "retire:") { section = "retire"; continue; }
     if (/^[a-z_]+:/.test(t) && section === null) continue; // top-level scalars (version:)
     if (section === "files") {
       const m = t.match(/^-\s*\{\s*src:\s*([^,]+?)\s*,\s*dst:\s*([^,]+?)\s*,\s*mode:\s*([a-z-]+)\s*\}/);
@@ -146,12 +171,15 @@ export function parseManifest(text: string): Manifest {
     } else if (section === "moves") {
       const m = t.match(/^-\s*\{\s*from:\s*([^,]+?)\s*,\s*to:\s*([^,]+?)\s*,\s*mode:\s*([a-z]+)\s*(?:,\s*how:\s*([^,}]+?)\s*)?\}/);
       if (m) moves.push({ from: m[1].trim(), to: m[2].trim(), mode: m[3].trim() as ManifestMove["mode"], ...(m[4] ? { how: m[4].trim() } : {}) });
+    } else if (section === "retire") {
+      const m = t.match(/^-\s*(.+?)(?:\s+#.*)?$/);
+      if (m) retire.push(m[1]!.trim().replace(/^["']|["']$/g, ""));
     } else if (section === "owned") {
       const m = t.match(/^-\s*(.+?)(?:\s+#.*)?$/);
       if (m) owned.push(m[1].trim().replace(/^["']|["']$/g, ""));
     }
   }
-  return { files, owned, moves };
+  return { files, owned, moves, retire };
 }
 
 /** Expand directory entries (src/dst ending in `/`) to one entry per content file. */
@@ -198,7 +226,7 @@ export interface PlanReaders {
 export const moveId = (m: { from: string; to: string }): string => `${m.from} → ${m.to}`;
 
 /** Compute the migration plan (no writes). */
-export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, moves: readonly ManifestMove[] = []): UpgradePlan {
+export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, moves: readonly ManifestMove[] = [], retire: readonly string[] = []): UpgradePlan {
   const actions: PlanAction[] = [];
   const shippedDst = new Set<string>();
 
@@ -262,16 +290,29 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
     for (const h of here) movedAway.add(h);
   }
 
-  // Retire old-world artifacts present in the adopter.
+  // Retire old-world artifacts present in the adopter — never a directory the manifest ships into (Tier 0 #7).
+  const shipsUnder = (dir: string): boolean => [...shippedDst].some((d) => d.startsWith(dir));
   const seenRetire = new Set<string>();
   for (const p of r.adopterPaths()) {
     for (const rp of RETIRE_PATHS) {
+      if (rp.endsWith("/") && shipsUnder(rp)) continue;
       const hit = rp.endsWith("/") ? p.startsWith(rp) : p === rp;
       // RETIRE ONLY AFTER VERIFY (design §9.3): a path something is moving out of is not retired in the same
       // run — the move is the account of it, and retiring it as well would race the copy.
       if (hit && !seenRetire.has(rp) && ![...movedAway].some((mp) => mp === p || mp.startsWith(rp))) {
         seenRetire.add(rp); actions.push({ kind: "retire", dst: rp, detail: "removed under the new layout" });
       }
+    }
+  }
+  // What THIS release stopped shipping (the MANIFEST's `retire:`). Shipping wins: a listed path the manifest also
+  // ships — or a listed directory it ships into — is left alone, so a bad entry can never delete a live file.
+  for (const rp of retire) {
+    if (seenRetire.has(rp)) continue;
+    if (rp.endsWith("/") ? shipsUnder(rp) : shippedDst.has(rp)) continue;
+    const hit = rp.endsWith("/") ? [...present].some((p) => p.startsWith(rp)) : present.has(rp);
+    if (hit && !movedAway.has(rp)) {
+      seenRetire.add(rp);
+      actions.push({ kind: "retire", dst: rp, detail: "no longer shipped by this release" });
     }
   }
   // The framework's own files left by the template copy — fingerprinted, and only in an adopter repo.

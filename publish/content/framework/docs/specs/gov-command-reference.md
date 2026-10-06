@@ -29,9 +29,9 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov preferences](#gov-preferences) — your settings for gov: the agent it launches, the picker, colour, how long logs are kept
 - [gov log](#gov-log) — what gov did — one log per run, on this machine
 - [gov agent](#gov-agent) — which AI agents your org approves, what is installed, and how to add one
-- [gov repo](#gov-repo) — install the repository controls framework-policy §3.3 requires — or say why the platform will not
+- [gov repo](#gov-repo) — install the repository controls framework-specification.md §7.3 requires — or say why the platform will not
 - [gov check](#gov-check) — run one rule's checks for the event that fired, or install the workflow that runs them
-- [gov rules](#gov-rules) — compile the policies into what agents and checks actually use
+- [gov rules](#gov-rules) — render the rule stores into what agents read, and report on the rules
 
 **[Your agent runs these (you can too)](#your-agent-runs-these-you-can-too)**
 
@@ -383,7 +383,7 @@ gov agent approve claude
 
 ### gov repo
 
-install the repository controls framework-policy §3.3 requires — or say why the platform will not
+install the repository controls framework-specification.md §7.3 requires — or say why the platform will not
 
 ```text
 gov repo protect [plan|apply] [--repo <owner/name>] [--branch <name>] [--repo-dir <path>] [--check <name>]
@@ -474,7 +474,7 @@ gov check install --repo ~/.gov/acme/projects/PRJ-7/billing
 
 ### gov rules
 
-compile the policies into what agents and checks actually use
+render the rule stores into what agents read, and report on the rules
 
 ```text
 gov rules <build|check|report|reload> [--working-tree] | show <id>
@@ -486,14 +486,14 @@ gov rules <build|check|report|reload> [--working-tree] | show <id>
 
 | argument | what it is |
 | --- | --- |
-| `<mode>` | build (write) · check (verify, write nothing) · report (the numbers only) · reload (attest that you restarted your session, after the rules changed) · show (print one rule) |
+| `<mode>` | build (write) · check (verify, write nothing; fails on a stale file or a stale rule row) · report (the numbers only) · reload (attest that you restarted your session, after the rules changed) · show (print one rule) |
 | `<id>` | a GOV id (GOV-FRM-012), or a retired POL number, which resolves to the rule that carries it now or to why none does |
 
 **Flags**
 
 | flag | what it does |
 | --- | --- |
-| `--working-tree` | compile what is on disk instead of the ratified branch — for drafting; an agent is still governed by the default branch |
+| `--working-tree` | read the rule stores from disk instead of the ratified branch — for drafting; an agent is still governed by the default branch |
 
 **Examples**
 
@@ -504,14 +504,14 @@ gov rules reload
 gov rules show POL-086b
 ```
 
-**Changes.** `build` writes the nine agent instruction files, `agent/harness/rule-map.md` and the POL lock; `check` writes nothing and fails when any of them is stale; `report` and `show` write nothing at all. A clause that cannot be numbered without a decision STOPS the build — nothing is written and the question is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had
+**Changes.** `build` renders `framework/rules/rules.yaml` and `policies/rules.yaml` into the nine agent instruction files (the resident tier in Part A) and `agent/harness/rule-map.md`; policy prose is never touched. `check` writes nothing and fails when a generated file is stale, or when a rule row is pending re-review because its source section changed since it was approved (`gov rules propose` re-reads it). `report` and `show` write nothing at all. A rule-store error, or a resident tier over its cap, STOPS the build — nothing is written and the reason is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had
 
 **Exit codes**
 
 | code | means |
 | --- | --- |
 | `0` | done |
-| `1` | a notation error, a stale file, or a question only a person can answer |
+| `1` | a rule-store error, a resident tier over its cap, a stale file, or a stale rule row |
 | `2` | usage |
 
 **See also.** [gov knowledge](#gov-knowledge) · [gov doctor](#gov-doctor) · [gov validate](#gov-validate)
@@ -854,7 +854,7 @@ gov knowledge search <text> [--json] | show <path> | list [<prefix>] | <propose|
 
 ```bash
 gov knowledge search "data classification"
-gov knowledge show framework-policy.md
+gov knowledge show framework-specification.md
 gov knowledge list policies/
 gov knowledge propose deploy-policy
 ```

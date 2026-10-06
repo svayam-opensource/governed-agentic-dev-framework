@@ -1,0 +1,10 @@
+# YOUR ORGANIZATION'S CATALOG ADDITIONS — optional (framework-specification.md §9.5).
+#
+# The framework's catalog (framework/rules/catalog.yaml) declares the resources, events, tools and actions a rule's
+# check can bind to. Add your own here — a resource the framework does not know, or an action under
+# policies/actions/ that the Check Owner has reviewed. An id the framework already defines stays the framework's.
+#
+# Empty as seeded.
+resources: []
+tools: []
+actions: []

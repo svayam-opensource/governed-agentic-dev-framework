@@ -336,7 +336,7 @@ function cannotLines(repo: string, mode: ProtectMode, message: string): readonly
     "",
     `  NOTHING WAS WRITTEN, and nothing can be: ${repo} is a PRIVATE repository on a plan without branch`,
     "  protection. None of GOV-FRM-447's four settings can be configured here — not even the approver check,",
-    "  because required status checks are themselves a branch-protection feature (framework-policy §3.4).",
+    "  because required status checks are themselves a branch-protection feature (framework-specification.md §11.2).",
     "  Until this changes, gov's own gates are the only enforcement, and they do not bind an agent a developer",
     "  starts outside gov.",
     "",

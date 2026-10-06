@@ -77,6 +77,6 @@ The following must NEVER be placed in developer preferences (C01 violations):
 - Compliance level definitions or overrides
 - Assignment or locking rule overrides
 - Knowledge layer priority order changes
-- Anything that contradicts <ORG_GOV_REPO>/framework/policies/
+- Anything that contradicts <ORG_GOV_REPO>/framework/ or <ORG_GOV_REPO>/policies/
 
 If you need to change org policy, use `gov knowledge`.

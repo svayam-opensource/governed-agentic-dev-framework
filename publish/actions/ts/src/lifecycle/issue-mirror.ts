@@ -7,7 +7,7 @@
  * upstream issue. That works, and it leaves one thing crooked: the board item is
  * an issue in a repository your organization does not own, so assigning it, closing
  * it, or holding anyone to it are all things you cannot do. Under this model a
- * board item is a unit of work with an accountable owner (task identity, gov-behaviour.md §2) — and
+ * board item is a unit of work with an accountable owner (task identity, framework-specification.md §4.3) — and
  * an upstream issue can be a REASON for work without being able to be that.
  *
  * So: create your own issue, quoting theirs, and put that on the board. The

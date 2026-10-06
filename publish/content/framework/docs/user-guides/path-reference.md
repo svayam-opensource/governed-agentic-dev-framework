@@ -15,12 +15,12 @@ Consulted, not read through. Use this when you know what you want and need the e
 ## The tool
 
 - [gov command reference](../docs/specs/gov-command-reference.md) — every verb, and who runs it
-- [Concepts](../docs/specs/concepts.md) — the vocabulary
+- [The glossary](../specs/framework-specification.md#glossary) — the vocabulary
 
 ## The rules
 
-- [Organization AI agent governance policy](../../policies/framework-policy.md) —
-  including the clause index at the end, which is the fastest way to find a POL-number
+- [How the framework works](../specs/framework-specification.md) — and `agent/harness/rule-map.md`, every rule by GOV id;
+  `gov rules show <id>` prints one (a retired POL number resolves to the rule that carries it now)
 - [Agentic development procedures](../policies/agentic-development-procedures.md)
 - [Knowledge organization standard](../policies/knowledge-organization-standard.md)
 

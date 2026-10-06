@@ -23,27 +23,27 @@ point at where you keep them.
 **Status:** Pending — Infrastructure Owner to populate via `gov knowledge`.
 **Owner:** TBD (Infrastructure Owner). Until filled, Policy Owner holds authority.
 
-The Infrastructure Policy will govern CI/CD pipeline standards, hosting platform requirements, vector store configuration, authentication and authorization requirements, and LLM provider governance. Once published, it will be the authoritative reference for all infrastructure decisions. **(POL-159)**
+The Infrastructure Policy will govern CI/CD pipeline standards, hosting platform requirements, vector store configuration, authentication and authorization requirements, and LLM provider governance. Once published, it will be the authoritative reference for all infrastructure decisions.
 
 ### 10.2 System Architecture Policy
 
 **Status:** Pending — System Architecture Owner to populate via `gov knowledge`.
 **Owner:** TBD (System Architecture Owner). Until filled, Policy Owner holds authority.
 
-The System Architecture Policy will govern system design standards, API contract requirements, inter-service communication patterns, and architectural decision-making processes. **(POL-160)**
+The System Architecture Policy will govern system design standards, API contract requirements, inter-service communication patterns, and architectural decision-making processes.
 
 ### 10.3 Data Architecture Policy
 
 **Status:** Pending — Data Architecture Owner to populate via `gov knowledge`.
 **Owner:** TBD (Data Architecture Owner). Until filled, Policy Owner holds authority.
 
-The Data Architecture Policy will govern data modeling standards, data pipeline architecture, data residency and sovereignty requirements, and data governance processes. **(POL-161)**
+The Data Architecture Policy will govern data modeling standards, data pipeline architecture, data residency and sovereignty requirements, and data governance processes.
 
 ### 10.4 Legal & Compliance Policy
 
 **Status:** Pending — Legal Owner to populate via `gov knowledge`.
 **Owner:** TBD (Legal Owner). Until filled, Policy Owner holds authority.
 
-The Legal & Compliance Policy will govern legal compliance requirements applicable to software development, contractual obligations with third-party tool providers, intellectual property policies, and jurisdictional compliance requirements. **(POL-162)**
+The Legal & Compliance Policy will govern legal compliance requirements applicable to software development, contractual obligations with third-party tool providers, intellectual property policies, and jurisdictional compliance requirements.
 
 ---

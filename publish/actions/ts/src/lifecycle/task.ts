@@ -7,7 +7,7 @@
  * repos, board updates) lands in a follow-up slice once project.yaml reading is
  * wired.
  *
- * Scheme B (gov-behaviour.md §2): the sub-branch is keyed on the issue NUMBER(s):
+ * Scheme B (framework-specification.md §4.3): the sub-branch is keyed on the issue NUMBER(s):
  *   <project-branch>.ISSUE-<n>            (single)
  *   <project-branch>.ISSUE-<n1>-<n2>-...  (combined, sorted + de-duped)
  * The `.` separator (not `/`) is deliberate: git can't hold both `refs/heads/<x>`

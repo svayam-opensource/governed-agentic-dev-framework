@@ -81,9 +81,9 @@ Two likely causes, in order:
    gov refuses mutating verbs while the rules on disk are newer than the session that loaded them, and says so.
 
 If the rule is advisory, nothing enforces it. That is a property of the clause, not a fault of the agent.
-`gov doctor` prints the breakdown — how many clauses are checked, cued, implemented and advisory — and
-`agent/harness/rule-map.md` says which class each one is in.
+`gov doctor` prints the breakdown — how many rules are prevented, detected, judged, cued, advisory or
+cannot-tell — and `agent/harness/rule-map.md` says which class each one is in.
 
-*(Corrected 2026-09-29: this used to point at `framework-policy.md` §10.2, which described four enforcement
+*(Corrected 2026-09-29: this used to point at the framework policy's §10.2, which described four enforcement
 classes. The specification/policy split removed that section — a clause in the policy is now enforced by
 construction — so the counts moved to `gov doctor` and the per-clause answer to the rule map.)*

@@ -113,8 +113,8 @@ export interface CliContext {
   readonly git?: (repo: string, args: readonly string[]) => string | null;
   /**
    * `gh <args>` → stdout, with an optional JSON body on stdin; throws on a non-zero exit. The door
-   * `gov repo protect` writes branch protection through (framework-policy §3.3; the controls
-   * themselves are specified in `framework/docs/specs/gov-behaviour.md` §7).
+   * `gov repo protect` writes branch protection through (framework-specification.md §7.3; the controls
+   * themselves are specified in `framework/docs/specs/framework-specification.md` §7.3).
    *
    * Absent → `gov repo protect` says it has no way to call `gh` and changes nothing. Deliberately optional and
    * deliberately NOT one of the typed ports: a port would invite other verbs to reach the API their own way,
@@ -307,7 +307,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       if (sub === "approve") {
         const id = positionals[1];
         if (!id) return usage("agent approve <id>");
-        // A pull request, never an edit: the approved list is C01 (gov-behaviour.md §8) and
+        // A pull request, never an edit: the approved list is C01 (framework-specification.md §6.1) and
         // belongs to the Infrastructure Owner, not to whoever typed the command.
         return ctx.proposeAgentApproval
           ? { code: 0, lines: ctx.proposeAgentApproval(id) }
@@ -523,7 +523,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       );
       const mirror = ensureRootProtocol(ctx.fs, projectWorkRoot, c.workspaceRepo);
       return {
-        // A SYNC IS NOT FAILED BY A QUESTION ABOUT CLAUSE NUMBERING. Every branch is merged and pushed by the
+        // A SYNC IS NOT FAILED BY A RULES PROBLEM. Every branch is merged and pushed by the
         // time this line runs; a non-zero exit would report failure for work that landed, and an agent reading
         // the code would re-run a sync that has nothing left to do.
         code: 0,
@@ -650,7 +650,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         return { code: 1, lines: ["repo protect: org-config.yaml does not name this organization's governance repo (`org_gov_repo`) — run `gov setup`, or name a repo with --repo."] };
       }
       const repo = named ? (named.includes("/") ? named : `${c.githubOrg}/${named}`) : `${c.githubOrg}/${c.workspaceRepo}`;
-      // THE DEFAULT BRANCH OF THE REPOSITORY IN QUESTION, which is a different key for each kind (gov-behaviour.md §3):
+      // THE DEFAULT BRANCH OF THE REPOSITORY IN QUESTION, which is a different key for each kind (framework-specification.md §5.2):
       // the governance repo lands on `default_branch`, a code repo on `default_code_branch`. Getting this wrong
       // would protect a branch nobody merges into and report success.
       const branch = flagStr(flags, "branch") ?? (named ? (c.defaultCodeBranch || "main") : (c.defaultBranch || "main"));
@@ -675,8 +675,8 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     }
 
     case "rules": {
-      // COMPILING THE POLICIES INTO WHAT AGENTS AND CHECKS USE. Reads the RATIFIED branch by default: a clause
-      // on a project branch is a proposal (GOV-FRM-086), and compiling it would put an unratified rule into the one
+      // RENDERING THE RULE STORES INTO WHAT AGENTS READ. Reads the RATIFIED branch by default: a rule row on a
+      // project branch is a proposal (GOV-FRM-086), and rendering it would put an unratified rule into the one
       // place an agent is guaranteed to read. `--working-tree` is for an author mid-draft and says so in the output.
       const mode = positionals[0] ?? "report";
 
@@ -737,8 +737,6 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         { fs: ctx.fs, ...(ctx.git ? { git: ctx.git } : {}) },
         {
           home: ctx.home, defaultBranch: c.defaultBranch, workingTree: flagBool(flags, "working-tree"),
-          confirm: (flagStr(flags, "confirm") ?? "").split(",").map((p) => p.trim()).filter(Boolean),
-          restamp: flagBool(flags, "restamp"),
         },
         mode as "build" | "check" | "report",
       );

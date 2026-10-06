@@ -20,7 +20,7 @@ import type { Issues } from "../../src/lifecycle/issues.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
 import { pendingPath, type RulesPending } from "../../src/rules-pending.js";
-import { clauseSha } from "../../src/rules/cue-block.js";
+import { storeTree, treeGit } from "../helpers/rule-store.js";
 import { px } from "../helpers/paths.js";
 
 const CONFIG: OrgConfig = {
@@ -32,7 +32,7 @@ const CONFIG: OrgConfig = {
 
 const PENDING: RulesPending = {
   hash: "aaaabbbbccccdddd", previous: "1111222233334444",
-  clauses: ["POL-086b · C01", "POL-427 · C01"],
+  clauses: ["GOV-FRM-086", "GOV-FRM-432"],
   at: "2026-09-28T10:12:44.000Z", by: "sync",
 };
 
@@ -91,7 +91,7 @@ describe("rules-pending at the router — the mutating verbs fail closed", () =>
       const r = route(parseArgv(argv) as never, ctx());
       expect(r.code).to.equal(1);
       expect(r.lines[0]).to.match(/^gov \S+: refused — the rules changed after your session started\./);
-      expect(r.lines.join("\n")).to.contain("POL-086b · C01");
+      expect(r.lines.join("\n")).to.contain("GOV-FRM-086");
       expect(r.lines.join("\n")).to.contain("gov rules reload");
     });
   }
@@ -197,7 +197,7 @@ describe("gov rules reload — the attestation that clears it", () => {
     expect(r.code).to.equal(0);
     const out = r.lines.join("\n");
     expect(out).to.contain("2 rule(s) changed at 2026-09-28T10:12:44.000Z (`gov sync`)");
-    expect(out).to.contain("POL-427 · C01");
+    expect(out).to.contain("GOV-FRM-432");
     expect(out).to.contain("aaaabbbbccccdddd");
     expect(out).to.contain("attested by rkant");
   });
@@ -283,29 +283,31 @@ describe("gov merge — the stamp reaches the output (design §10.10)", () => {
  * the verb left it. The ordering assertion matters as much as the render — `ensureRootProtocol` mirrors
  * `agent/harness/*` into the project, so a mirror that runs first faithfully copies the stale bytes.
  */
-describe("gov sync — compiles the ratified rules, then mirrors them", () => {
+describe("gov sync — renders the ratified rules, then mirrors them", () => {
   const PROTOCOL_BODY = "# Agent protocol\n\n<!-- gov-protocol-version: 3 -->\n\n{{render.always_rules}}\n";
-  /** The clause-sha has to be the REAL one, or every assertion below is about a stale-cue diagnostic instead. */
-  const ratified = (cue: string): string => {
-    const clause = "An agent MUST hard stop on a C01 breach.";
-    return `### 1.1 Levels\n\n${clause} **(POL-011)**\n\n<!-- gov:cue generated clause-sha=${clauseSha(clause + " **(POL-011)**")} -->\n> **Always in the agent's context** · POL-011 · C01\n> ${cue}\n`;
-  };
+  /** The framework store on the DEFAULT branch, with one resident rule whose cue is `cue`. */
+  const ratified = (cue: string): string => `- id: GOV-FRM-012
+  source: { doc: framework/docs/specs/framework-specification.md, section: "10.1", sha: "4a0422d" }
+  expectation: "The agent stops all work when a C01 rule is broken."
+  actor: [agent]
+  level: C01
+  cue: { tier: resident, text: "${cue}" }
+  start: { version: "1.2.3", date: "2026-10-06" }
+  end: null
+`;
 
-  /** A project clone with the protocol body on disk and the org's policy on the DEFAULT branch only. */
+  /** A project clone with the protocol body on disk and the rule stores on the DEFAULT branch only. */
   function syncCtx(cue: string, seed: Record<string, string> = {}): CliContext {
     const home = "/awr/PRJ-43-governance-common-project/svm-prj-work";
     const fs = memFs({ [`${home}/agent/session-protocol.md`]: PROTOCOL_BODY, ...seed });
-    return ctx({
-      fs, home,
-      git: (_repo, args) => (args[0] === "ls-tree" ? "policies/org-policy.md" : args[0] === "show" ? ratified(cue) : null),
-    }, false);
+    return ctx({ fs, home, git: treeGit({ main: storeTree("[]\n", { "framework/rules/rules.yaml": ratified(cue) }) }) }, false);
   }
 
   it("renders the harness from the default branch as part of the sync", () => {
     const c = syncCtx("C01 MEANS STOP.");
     const r = route(parseArgv(["sync"]) as never, c);
     expect(r.code).to.equal(0);
-    expect(r.lines.join("\n")).to.contain("rules: compiled");
+    expect(r.lines.join("\n")).to.contain("rules: rendered");
     expect(c.fs.readFile("/awr/PRJ-43-governance-common-project/svm-prj-work/agent/harness/CLAUDE.md")).to.contain("C01 MEANS STOP.");
   });
 
@@ -329,7 +331,7 @@ describe("gov sync — compiles the ratified rules, then mirrors them", () => {
     expect(out).to.contain("Paste this into your running session");
   });
 
-  it("says nothing about rules in a workspace that has no policy documents", () => {
+  it("says nothing about rules in a workspace that has no rule store", () => {
     const out = route(parseArgv(["sync"]) as never, ctx({ git: () => null }, false)).lines.join("\n");
     expect(out).to.not.contain("rules:");
     expect(out).to.contain("Paste this into your running session");

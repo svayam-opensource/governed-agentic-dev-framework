@@ -207,7 +207,7 @@ gov_account: "${v.govAccount}"
 # ── HARD OR SOFT GOVERNANCE — the one posture decision (Policy Owner, 2026-09-29).
 #
 #    hard    gov installs repository controls, so work attempted OUTSIDE gov is stopped by the PLATFORM
-#            (\`gov repo protect plan\` / \`apply\` — framework-policy §3.3).
+#            (\`gov repo protect plan\` / \`apply\` — framework-specification.md §7.3).
 #    soft    direct clone/commit/push are deliberately left open. A real choice, not a lapse — and the only
 #            available one on GitHub Free for a private repo, where none of the four settings can be
 #            configured at all (§3.4).
