@@ -41,6 +41,8 @@ import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js"
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { parseOrgConfig } from "../config/org-config.js";
+import { checkCommand } from "./check-verb.js";
+import type { Gh } from "../rules/checks/github-adapters.js";
 import { withRepoOverrides } from "../config/repo-overrides.js";
 import { assembleNeeds } from "../security/needs.js";
 import { preflight, renderGap } from "../security/preflight.js";
@@ -2536,6 +2538,23 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     return 1;
   }
   const config = parseOrgConfig(cfgText);
+
+  // `gov check run|install` — the rule model's check engine (W6). `run` is what the rendered workflow calls in CI.
+  if (parsed.command === "check") {
+    const gh: Gh = (args, input) => tryRunProcess("gh", args, { pgm: "gov-work:cli:check", fn: "gh", ...(input === undefined ? {} : { input }) }) ?? null;
+    const r = checkCommand(parsed.positionals, parsed.flags, {
+      git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
+      gh,
+      env: process.env,
+      readFile: (f) => fs.readFile(f),
+      writeFile: (f, t) => fs.writeFile(f, t),
+    }, {
+      home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch,
+      githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: config.governancePosture.posture,
+    });
+    for (const line of r.lines) process.stdout.write(`${line}\n`);
+    return r.code;
+  }
 
   // `gov validate` — run the governance validate suite on the resolved workspace.
   if (parsed.command === "validate") {
