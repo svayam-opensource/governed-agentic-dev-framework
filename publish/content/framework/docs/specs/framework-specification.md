@@ -685,7 +685,9 @@ framework's. The rule map (§9.7) shows both sets together.
 
 Each row is a dated revision. A changed rule closes its current row and opens a new one, so the history of
 every rule stays readable. Your rows are stamped with your organization's own policy version
-(`policies/VERSION`). That version goes up only when `policies/` changes. `policies/CHANGELOG.md` records:
+(`policies/VERSION`). That version goes up only when `policies/` changes. Each time it goes up, a copy of
+your policies as they were is kept in `policies/version/<x.y.z>/`, and nobody may change that copy afterwards.
+`policies/CHANGELOG.md` records:
 
 - what changed
 - who changed it
