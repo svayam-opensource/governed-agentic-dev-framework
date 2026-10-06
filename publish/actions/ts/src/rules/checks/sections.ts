@@ -13,8 +13,15 @@
 import { headingSection } from "../notation.js";
 import { clauseSha } from "../cue-block.js";
 
-/** Section number → sha, in document order. */
-export function sectionShas(text: string): Map<string, string> {
+/** One section of a policy document: its number, its text (heading included) and that text's sha. */
+export interface PolicySection {
+  readonly section: string;
+  readonly text: string;
+  readonly sha: string;
+}
+
+/** Every section, in document order — the text the proposer reads and the sha a rule row records (Q9). */
+export function policySections(text: string): PolicySection[] {
   const bodies = new Map<string, string[]>();
   let current = "";
   for (const line of text.split(/\r?\n/)) {
@@ -24,13 +31,18 @@ export function sectionShas(text: string): Map<string, string> {
     list.push(line);
     bodies.set(current, list);
   }
-  const out = new Map<string, string>();
+  const out: PolicySection[] = [];
   for (const [section, lines] of bodies) {
     const body = lines.join("\n");
     if (section === "" && !body.trim()) continue; // no preamble at all
-    out.set(section, clauseSha(body));
+    out.push({ section, text: body, sha: clauseSha(body) });
   }
   return out;
+}
+
+/** Section number → sha, in document order. */
+export function sectionShas(text: string): Map<string, string> {
+  return new Map(policySections(text).map((s) => [s.section, s.sha]));
 }
 
 /**
