@@ -91,6 +91,23 @@ export function sectionOwnerApproval(tag: string, params: Readonly<Record<string
     }
   }
 
+  // THE AUTHOR IS NEVER AN APPROVER (Policy Owner, 2026-10-06). GitHub refuses an author's review of their own PR, so
+  // listing them would make the check unpassable. If leaving them off leaves nobody, someone else must still review —
+  // the Policy Owner, or the Check Owner when the author IS the Policy Owner — because nothing merges unreviewed.
+  const author = payloadString(ctx, "author");
+  if (author !== undefined && need.has(handleKey(author))) {
+    const own = need.get(handleKey(author))!;
+    need.delete(handleKey(author));
+    if (!need.size) {
+      const fallbacks = [policyOwner, roles[CHECK_OWNER]].filter((h): h is string => !!h && !!handleKey(h) && handleKey(h) !== handleKey(author));
+      if (!fallbacks.length) {
+        return { verdict: "miss", findings: [`${tag}: ${own.handle} changed ${own.why.sort(byWhy).join(", ")} and no one other than the author holds a role that can approve it. Name a second person as Policy Owner or Check Owner; until then this change is self-approved.`] };
+      }
+      const key = handleKey(fallbacks[0]);
+      need.set(key, { handle: `@${key}`, why: own.why.map((w) => `${w} — its owner is the author, so the ${key === handleKey(policyOwner) ? POLICY_OWNER : CHECK_OWNER} approves instead`) });
+    }
+  }
+
   const requestReview = [...need.keys()].sort();
   if (notes.length) return cannot(notes, requestReview);
   if (!need.size) return { verdict: "pass", findings: [] };

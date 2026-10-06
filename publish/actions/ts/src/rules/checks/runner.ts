@@ -23,7 +23,8 @@ import { landedByPr, type GithubPorts } from "./gh-actions.js";
 import { validateParams } from "./params.js";
 
 /** A verdict, plus the reviews a gate asks the workflow to request (section-owner-approval). */
-export type RunVerdict = CheckVerdict & { readonly requestReview?: readonly string[] };
+/** Kept as an alias: requestReview is now on CheckVerdict itself (pinned 2026-10-06). */
+export type RunVerdict = CheckVerdict;
 
 export interface CheckRunnerDeps {
   /** Both stores and the merged catalog from the DEFAULT branch; null = could not be read (never "no rules"). */

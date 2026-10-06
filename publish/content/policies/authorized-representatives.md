@@ -75,3 +75,13 @@ recorded by the human who made it. **(POL-253)**
 
 The Policy Owner MAY update this file in the same pull request that changes a named holder's access, so that
 the list and the access cannot disagree. **(POL-254)**
+
+## 3. Every role has a holder
+
+Every role this organization defines, in §1.2 or anywhere else in `policies/`, has a named person holding it
+at all times. When a role falls vacant, the Policy Owner holds it until someone new is named, and records the
+vacancy here in the same pull request that removes the departing holder. A role with nobody in it is a
+question nobody is answering, and an approval nobody can give.
+
+The framework holds its own two roles, the Policy Owner and the Check Owner, to the same standard: `gov setup`
+will not finish without both, and `gov doctor` reports either one when it falls empty.

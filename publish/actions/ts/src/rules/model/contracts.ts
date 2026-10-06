@@ -88,6 +88,19 @@ export interface EventPayload {
   readonly workspace?: WorkspaceView;
   /** A test run, for `gov-builtin/test-suite`. */
   readonly tests?: readonly TestResult[];
+  // ── pinned after W6 slice 2 (2026-10-06) ──
+  /** push: was it forced? (`gov-builtin/forbid-forced-push`) */
+  readonly forced?: boolean;
+  /** push: the pushed commit shas (`gh-action/landed-by-pr`). */
+  readonly commits?: readonly string[];
+  /** The repository's default branch, resolving `$default` in a binding's branch patterns. */
+  readonly defaultBranch?: string;
+  /** pull_request: each changed file's text at the BASE, null when absent there (section-owner-approval). */
+  readonly baseTexts?: Readonly<Record<string, string | null>>;
+  /** pull_request: handles with an APPROVED review on the head (section-owner-approval). */
+  readonly approvals?: readonly string[];
+  /** pull_request: the author's handle — never an approver of their own change (section-owner-approval). */
+  readonly author?: string;
 }
 
 /** W6. What one event looked like when it fired. */
@@ -101,6 +114,8 @@ export interface CheckVerdict {
   /** `cannot-tell` is reported, never read as a pass. */
   readonly verdict: "pass" | "fail" | "cannot-tell";
   readonly findings: readonly string[];
+  /** Bare handles the workflow should request a review from (section-owner-approval). */
+  readonly requestReview?: readonly string[];
 }
 
 /**
