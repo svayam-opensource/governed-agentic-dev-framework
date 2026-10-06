@@ -42,11 +42,8 @@ const ROOT = repoRoot();
 const SRC = path.join(ROOT, "publish", "actions", "ts", "src");
 
 // ── why a file may still hold a POL number ──────────────────────────────────────────────────────────────────
-const OLD_COMPILER_INPUT = "input the old compiler still reads until P3: clause markers **(POL-…)**, cue headers "
-  + "`· POL-… · C0x`, and citations INSIDE a numbered clause, whose text the lock hashes (editing one makes "
-  + "`gov rules build` stop and ask, and confirming would rewrite .pol-lock.json). Every other prose citation was removed";
-const DATA_FIXTURE = "a test fixture whose POL number is data fed to old-compiler code (exceptions, diff checks, "
-  + "verb gate, rules-pending, compliance record, the GOV-id parser's refusal of a POL id)";
+const DATA_FIXTURE = "a test fixture whose POL number is data: an old exception file citing one, the compliance "
+  + "record's legacy column, the GOV-id parser's refusal of a POL id";
 const ALIASES = "the POL → GOV resolution itself: the alias file, its loader, `gov rules show` and their tests";
 const HISTORY = "history, not rewritten (Q21): a changelog, design records and working papers of their time";
 const OUT_OF_SCOPE = "outside the gov CLI and its shipped content: a separate package or the deprecated bash CLI, "
@@ -60,14 +57,6 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "docs/design/agent-context-assembly-spec.md": HISTORY,
   "docs/design/option-2-sequence-diagrams.md": HISTORY,
   "publish/content/framework/rules/W2-classification.md": HISTORY,
-  "publish/content/policies/approved-technologies.md": OLD_COMPILER_INPUT,
-  "publish/content/policies/authorized-representatives.md": OLD_COMPILER_INPUT,
-  "publish/content/policies/compliance-review.md": OLD_COMPILER_INPUT,
-  "publish/content/policies/data-classification.md": OLD_COMPILER_INPUT,
-  "publish/content/policies/knowledge-organization-standard.md": OLD_COMPILER_INPUT,
-  "publish/content/policies/knowledge-publication.md": OLD_COMPILER_INPUT,
-  "publish/content/policies/org-policy.md": OLD_COMPILER_INPUT,
-  "publish/content/policies/policy-domains.md": OLD_COMPILER_INPUT,
   "publish/content/framework/procedures/agentic-development-procedures.md": PROCEDURES,
   "publish/content/framework/rules/pol-aliases.yaml": ALIASES,
   "publish/content/framework/docs/specs/gov-command-reference.md": ALIASES
@@ -144,7 +133,7 @@ describe("no new POL citations — POL numbers are retired (rule-model Q21)", ()
   });
 
   it("the allow-list's size is pinned, so a change to it is a visible diff", () => {
-    expect(Object.keys(ALLOWED)).to.have.lengthOf(59);
+    expect(Object.keys(ALLOWED)).to.have.lengthOf(51);
   });
 
   it("every GOV-FRM id cited in gov's source is a row of framework/rules/rules.yaml", () => {

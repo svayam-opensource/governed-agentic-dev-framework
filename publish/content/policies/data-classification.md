@@ -22,14 +22,12 @@ status: seed
 > organizations recognise, and a handful of clauses written so you can see the shape of a good one. Renaming a
 > tier, merging two of them, or deleting a clause you do not want is the expected first act, not a deviation.
 >
-> One thing is not yours to relax. `framework/policies/framework-policy.md` §9.9 forbids a credential, key,
-> token or password in any file, log, commit, pull request or issue — at C01, for every adopter — and points
-> here for everything else. Your tiers MAY be stricter than that. They MUST NOT be laxer (framework-policy
-> §10.1).
+> One thing is not yours to relax: no credential, key, token or password goes into any file, log, commit, pull
+> request or issue — at C01. Your tiers may be stricter than that. They may not be laxer
+> (`framework/docs/specs/framework-specification.md` §9.4).
 >
-> The notation is the framework's: the ALL-CAPS modal verb declares the level. `MUST`/`SHALL` = C01, `MAY` =
-> C02, `CAN` = C03. The table and the rules that go with it — one clause one level, and a clause names its
-> actor — are in `framework-policy.md` §1.3, and deliberately not repeated here.
+> Write it in plain English. How strict each rule is gets decided per rule when `gov rules propose` extracts it,
+> and you approve it there (`framework-specification.md` chapter 9).
 
 ---
 
@@ -38,7 +36,7 @@ status: seed
 ### 1.1 Four tiers, and the names are yours
 
 The Policy Owner MAY rename these four tiers, merge two of them, or add a fifth, provided the most sensitive
-tier keeps the rule in §2.1. **(POL-240)**
+tier keeps the rule in §2.1.
 
 | Tier | What it covers | May be written into `knowledge/` |
 |---|---|---|
@@ -53,26 +51,16 @@ tier keeps the rule in §2.1. **(POL-240)**
 
 An agent MUST decide which tier a piece of data belongs to **before** writing it anywhere, and MUST NOT write
 restricted data into a file, a log, a commit message, a pull request, an issue, or a prompt sent to an LLM
-provider. **(POL-241)**
+provider.
 
-<!-- gov:cue generated clause-sha=66b371b -->
-> **Always in the agent's context** · POL-241 · C01
-> BEFORE YOU WRITE DATA DOWN, NAME ITS TIER — Public · Internal · Confidential · Restricted. Unsure which?
-> Run `gov knowledge search "data classification"`.
-> A credential, key, token, password or personal datum is RESTRICTED: it goes into no file, no log, no commit,
-> no pull request, no issue and no prompt. Still unsure? STOP and ask. Redacting it in a later commit does not
-> undo it — it is already in the history.
-
-<!-- gov:check kind=content-forbidden when=** pattern=(?:secret|token|password|passwd|api[_-]?key|SECRET|TOKEN|PASSWORD|API[_-]?KEY)[A-Za-z_]*["']?\s*[:=]\s*["']?[A-Za-z0-9/+=_-]{16,} on_miss=fail -->
-
-*(The pattern above is a starter and it is deliberately crude — it catches the shape `password: <16+ characters>`
-and nothing cleverer. Tighten it, or point `when=` at the file types you actually ship, once you have seen what
-it says about your own repositories.)*
+*(A starter check for this rule is `gov-builtin/content-forbidden` on every changed file, with a pattern for the
+shape `password: <16+ characters>`. It is deliberately crude — tighten it, or narrow `when` to the file types
+you actually ship, once you have seen what it says about your own repositories.)*
 
 ### 2.2 Confidential data needs an approved exception first
 
 An agent MAY write confidential data into `knowledge/` or a project's knowledge folder only with an exception
-already approved and recorded under `policies/exceptions/`. **(POL-242)**
+already approved and recorded under `policies/exceptions/`.
 
 *(No cue. The moment this rule applies is the moment someone writes a document, and the thing it asks for is a
 pull request a person approves — not a judgement an agent makes mid-task. See `policies/org-policy.md` §6.3 for
@@ -81,14 +69,14 @@ the test.)*
 ### 2.3 Public and internal data
 
 An agent CAN write public and internal data into any knowledge folder without an exception; that is what those
-two tiers are for. **(POL-243)**
+two tiers are for.
 
 ## 3. When restricted data is already there
 
 ### 3.1 Stop, and escalate
 
 An agent that finds restricted data already committed to a repository MUST stop work, commit nothing further,
-and escalate to the Policy Owner. **(POL-244)**
+and escalate to the Policy Owner.
 
 *(No cue. The framework's own C01 cue — "C01 MEANS STOP. No exception exists, and nobody can grant one" — is
 already resident in every agent's context on every turn. A second copy of it would make both weaker, which is

@@ -57,7 +57,7 @@ status: draft
 
 | Technology | Approved for | Notes |
 |---|---|---|
-| `@svayam-opensource/svm-util-log` | all logging | required by POL-423 |
+| `@svayam-opensource/svm-util-log` | all logging | required for every gov client (GOV-FRM-423 is the framework's; yours may say the same) |
 | `js-yaml` | reading YAML config | |
 
 ## 5. Retired
@@ -67,4 +67,4 @@ status: draft
 | *(none yet)* | | |
 
 An entry retired here MAY still be present in a repository that has not migrated; record the migration as a
-task rather than leaving the repository silently non-compliant (POL-211).
+task rather than leaving the repository silently non-compliant (`org-policy.md` §3.2).

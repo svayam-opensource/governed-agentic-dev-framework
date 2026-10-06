@@ -22,7 +22,7 @@ referenced by it.
 
 ## 1. Two systems, never conflated
 
-**Storage follows accountability; navigation follows journeys.** **(POL-401, C01)**
+**Storage follows accountability; navigation follows journeys.** **(C01)**
 
 - The physical tree exists so that every document has exactly one owner who
   approves changes to it (CODEOWNERS → PR review). It is organized by
@@ -30,13 +30,13 @@ referenced by it.
 - Reader/agent journeys are served by a navigation layer (Section 5) of
   documents that contain **links in consultation order, never content**.
 - Every fact lives in exactly one document. Duplicating a fact so it appears
-  "on a path" is prohibited — a drifted copy is false authority. **(POL-402, C01)**
+  "on a path" is prohibited — a drifted copy is false authority. **(C01)**
 
 ## 2. Domains — the ownership tree
 
 **Invariant: a top-level domain under `knowledge/` exists if and only if a named Owner role
-exists for it in this organization's policy §3.2 (POL-033). The tree changes only when an
-accountability domain and its owner role are created or retired.** **(POL-403, C02)**
+exists for it in `policies/authorized-representatives.md`. The tree changes only when an
+accountability domain and its owner role are created or retired.** **(C02)**
 
 **`knowledge/` therefore ships EMPTY.** The framework creates no domains for you. It used to
 ship eight — `accumulated/ architecture/ compliance/ legal/ patterns/ policies/ guidance/
@@ -65,7 +65,7 @@ a file an upgrade replaces claims an authority they do not have — the false au
 | `support/` | Support Owner | **internal tooling the org runs for itself**: registry, CI server, webmail, ticketing, IdP-as-a-service |
 | `compliance/` | Policy Owner | **org rollup only** — aggregates per-domain compliance records |
 
-**Boundary rules** **(POL-404, C03 — apply intelligently, document deviations):**
+**Boundary rules** **(C03 — apply intelligently, document deviations):**
 
 - *URL + users ⇒ support; IP + uptime ⇒ infrastructure.*
 - Edge proxies are network edge ⇒ infrastructure, even though they are software.
@@ -85,7 +85,7 @@ a file an upgrade replaces claims an authority they do not have — the false au
 
 Every domain contains exactly these six subfolders. **Names are standardized
 org-wide; no domain may rename, omit, or add layers.** Empty layers carry a
-stub index. **(POL-405, C02)**
+stub index. **(C02)**
 
 | Layer | Force | Default compliance | Holds |
 |---|---|---|---|
@@ -97,16 +97,16 @@ stub index. **(POL-405, C02)**
 | `compliance/` | evidence | evidence | per-domain review/audit records; feeds the org rollup |
 
 A document's layer states its **default** compliance level; a clause inside it
-may declare a stricter level explicitly. **(POL-406, C03)**
+may declare a stricter level explicitly. **(C03)**
 
 `policies/exceptions/` gains one subfolder per domain (the existing
 `legal/ infrastructure/ architecture/ policy/` set extends with
-`development/ testing/ deployment/ support/`). **(POL-407, C02)**
+`development/ testing/ deployment/ support/`). **(C02)**
 
 ## 4. Front-matter — every knowledge document is self-describing
 
 Every `*.md` under `knowledge/` (except generated indexes) opens with:
-**(POL-408, C02)**
+**(C02)**
 
 ```yaml
 ---
@@ -128,20 +128,20 @@ becomes trivial (Section 7).
 - `knowledge/README.md` is the **single entry point** with two faces:
   *write-side* (this tree, the layer table, the boundary rules, how to
   propose) and *read-side* (the journey index + per-domain inventory links).
-  It is the home page of the published knowledge site (POL-101). **(POL-409, C02)**
+  It is the home page of the published knowledge site (`policies/knowledge-publication.md`). **(C02)**
 - Journeys live in `framework/docs/user-guides/path-<journey>.md` when they traverse framework doctrine and
   in `knowledge/paths/<journey>.md` when they traverse the organization's own domains. Both
   are owned by the Policy Owner. Two roots, because framework doctrine and org knowledge have
   different accountable parties (§2); a journey is links only in either.
   A journey doc is a **consultation order across domains — links only, never
-  content** (mandates → procedures/use-cases → specs → repo-local). **(POL-410, C02)**
-- Anyone may add or extend a journey by PR. **(POL-411, C03)**
+  content** (mandates → procedures/use-cases → specs → repo-local). **(C02)**
+- Anyone may add or extend a journey by PR. **(C03)**
 - **Every project knowledge-close must answer: "what journey did this project
   traverse that is not documented?"** — undocumented journeys discovered by
-  real work are proposed at close (extends POL-089). **(POL-412, C01)**
+  real work are proposed at close. **(C01)**
 - **Whether knowledge harvest gates a close is this organization's choice.** A project MAY be closed only once
-  this organization's own policy says it may be — expressed as a clause with a `gov:check … when=verb:close`, not
-  assumed by the framework.
+  this organization's own policy says it may be — expressed as a rule whose check is bound to `gov close`
+  (`gov.verb · close`), not assumed by the framework.
 
   **CORRECTED 2026-09-28.** Two clauses here described a close gate the framework no longer has: it required a
   `knowledge-close.md` carrying five exact sections, free of `TBD`, alongside `compliance.md`, and `gov close`
@@ -150,32 +150,29 @@ becomes trivial (Section 7).
   removed it on 2026-09-27: knowledge curation is this organization's decision, and `gov close` now asserts only
   that `knowledge/` exists, because it promotes that directory.
 
-  An organization that wants a curation requirement back MAY write it as a clause with a
-  `gov:check … when=verb:close`, and gets exactly the artifacts and sections it asked for — named in the refusal,
-  with the clause cited. **(POL-231, C02)**
-
-  Those two clauses also shared their numbers with §6's authoring conventions: four clauses, two numbers,
-  two different levels. §6 keeps them; this one is newly numbered in the organization's own range.
+  An organization that wants a curation requirement back MAY write it as a rule whose check is bound to
+  `gov close`, and gets exactly the artifacts and sections it asked for — named in the refusal, with the rule
+  cited. **(C02)**
 
 ## 6. Authoring conventions
 
 - **Standard relative markdown links only — no `[[wikilinks]]`.** Keeps
   GitHub, site generators, CI link-checking, local tools (Obsidian/LogSeq),
-  and agents interoperable. **(POL-413, C02)**
+  and agents interoperable. **(C02)**
 - **Diagrams as Mermaid text only — no binary images for diagrams** in
   `knowledge/`. One artifact serves both consumers: rendered picture for
   humans, ~tens of structured lines for agents. (Screenshots of external UIs
-  are exempt.) **(POL-414, C02)**
+  are exempt.) **(C02)**
 - Nothing new in the **write path**: git + markdown + PR approval is the only
-  authoring/storage system (reaffirms POL-104). Read-side tools — static site
+  authoring/storage system. Read-side tools — static site
   generator, RAG, graph viewers, local editors — are renderers over the same
-  files and may be swapped freely. **(POL-415, C01 for the write path)**
+  files and may be swapped freely. **(C01 for the write path)**
 - Glossary/acronym linking follows the documentation standard (first-use
   expansion + glossary hover-links) where adopted.
 
 ## 7. Enforcement (mechanized, by a CI gate)
 
-CI on every PR touching `knowledge/` **(POL-416, C02; implementation per
+CI on every PR touching `knowledge/` **(C02; implementation per
 phase P4 of the migration plan):**
 
 1. **Front-matter lint** — schema valid; `domain`/`layer` agree with the
@@ -192,9 +189,9 @@ phase P4 of the migration plan):**
 Organizations adopting the framework template adapt the **domain set** to
 their own role registry (merge or split domains as their named-owner roles
 dictate — e.g. one Architecture Owner ⇒ one `architecture/` domain). The
-invariant (POL-403), the six layers (POL-405), the front-matter (POL-408) and
-the navigation rules (POL-409–412) are the stable contract; the domain *list*
-is the adaptation point. **(POL-417, C03)**
+invariant (§2), the six layers, the front-matter and
+the navigation rules (§5) are the stable contract; the domain *list*
+is the adaptation point. **(C03)**
 
 ## 9. Migration
 
