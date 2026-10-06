@@ -61,8 +61,15 @@ Your organization's own governance policy lives in the **`policies/`** folder.
 - Your policies may be **stricter** than the framework, by adding rules of their own. They cannot relax,
   disable or replace a framework rule. §9.4 explains how that is held.
 
-An upgrade never touches `policies/`. That is what lets an organization write its own decisions down without
-fearing that the next release will quietly undo them.
+An upgrade never changes what you wrote in `policies/`. When a release ships a new file there, the upgrade adds
+it once, empty, and leaves it to you from then on. That is what lets an organization write its own decisions
+down without fearing that the next release will quietly undo them.
+
+One upgrade does a little more, once. When your organization moves to the split described in §1.6, `gov
+upgrade` carries the governance values you had already written in `org-config.yaml` into
+`policies/governance.yaml` and your role list. It fills only blanks the framework itself shipped. If any value
+would end up different from what you wrote, it stops and changes nothing, and tells you which value to
+reconcile.
 
 ### 1.3 What the framework is for
 
@@ -80,15 +87,16 @@ That includes:
 An agent may be custom-built, vendor-supplied or a mix of both. It may call any model provider your
 organization has authorized. Every agent works under the same contract, and none is exempt.
 
-The framework carries no facts about your organization. Each value it needs, such as your name, your branches
-or who your Policy Owner is, comes from `org-config.yaml`. What data you hold, which technologies you approve
-and who owns which part of your knowledge are your decisions, and they live in `policies/`.
+The framework carries no facts about your organization. Who your organization is, such as your name and your
+branches, comes from `org-config.yaml`. How it governs, such as who your Policy Owner is, comes from
+`policies/governance.yaml` (§1.6). What data you hold, which technologies you approve and who owns which part of
+your knowledge are your decisions, and they live in `policies/` too.
 
 ### 1.4 Using gov without agents
 
 An organization can adopt the framework for its **structure** alone: projects, tasks, branches, knowledge and
 a reviewed way to change policy. It may authorize no AI agent at all (`authorized_agents: none` in
-`org-config.yaml`). That is a supported way to run, not a loophole. A framework that could not be adopted for
+`policies/governance.yaml`). That is a supported way to run, not a loophole. A framework that could not be adopted for
 structure alone would ask an organization to take on AI governance just to get a branch naming convention.
 
 In that mode, every rule addressed to an agent simply sits idle. Every command that does not launch an agent
@@ -100,6 +108,21 @@ policy.
 The framework takes effect for your organization when you adopt it, at the version recorded in the
 governance repository's `VERSION` file. Each upgrade brings the rules of the new version. If your organization needs its own
 effective date, it belongs in `policies/`.
+
+### 1.6 Your settings, and where each one lives
+
+Your organization's settings are in three places, grouped by who may change them:
+
+| File | What it holds | Who approves a change |
+|---|---|---|
+| `org-config.yaml` | who your organization is: its name, its slug, its repositories and branches, and the addresses of the services it uses | anyone who may merge to the governance repository |
+| `policies/governance.yaml` | how your organization governs: its posture (§11.1), its Policy Owner and Check Owner, the AI agents it authorizes, whether it publishes its knowledge, and the model it approves for `gov rules propose` | the Policy Owner |
+| `~/.gov/work-roots`, on your own machine | where your own project folders live, if not in `~/.gov/<slug>/projects` | you |
+
+`gov setup` writes the first two. The framework decides which keys `org-config.yaml` may hold and what each one
+means, and publishes that list as `framework/config/org-config.schema.yaml`, which `gov upgrade` keeps current.
+`gov doctor` checks your `org-config.yaml` against it. It names a key that is missing, a key gov does not read,
+and a key that has moved to another file.
 
 *Rules for this chapter: rule map, filter `framework-specification.md §1`.*
 
@@ -116,7 +139,8 @@ when nothing else settles a question. That person is the **Policy Owner**:
 - They decide questions that cross domains.
 - They settle disputes between the owners of different domains.
 
-`org-config.yaml` names them (`policy_owner_email`, `policy_owner_github`).
+`policies/governance.yaml` names them, under `policy_owner` (an email address and a GitHub handle). A change to
+that file needs the Policy Owner's approval.
 
 ### 2.2 The Check Owner
 
@@ -124,7 +148,7 @@ Some of your rules will be enforced by small programs, called **actions**, that 
 a repository. An action is code, and code needs a reviewer who can read it. The **Check Owner** reviews every
 executable action your organization adds under `policies/actions/`.
 
-`org-config.yaml` names them (`check_owner_github`). By default the Policy Owner holds this role too. That
+`policies/governance.yaml` names them, under `check_owner`. By default the Policy Owner holds this role too. That
 works, but it removes the second pair of eyes, so `gov doctor` warns you when one person holds both roles.
 
 The split exists because the two approvals answer different questions. The Policy Owner approves the
@@ -418,7 +442,7 @@ preferences, and possibly their keys, into version control, from a directory nob
 
 When you run `gov work`, gov takes four steps before the agent reads a word:
 
-1. It launches only an agent your organization authorized in `authorized_agents`.
+1. It launches only an agent your organization authorized in `authorized_agents` in `policies/governance.yaml`.
 2. It writes the harness (§5.1) and checks that the file is there and not empty. It refuses to launch
    otherwise.
 3. It builds the harness from the governance repository's **default branch**, never from a project branch
@@ -439,7 +463,7 @@ with its merits. It would also bias which agents an organization approves.
 gov's guarantee ends at the first turn. From then on the agent is responsible for itself. Before it does any
 work, in its first reply, an agent completes these steps:
 
-1. Read `org-config.yaml`. Every later step takes its values from it.
+1. Read `org-config.yaml` and `policies/governance.yaml`. Every later step takes its values from them.
 2. Confirm that it is authorized. It needs write access to this project's board, and on a task sub-branch,
    the sub-branch must be assigned to it.
 3. Confirm the project is active, meaning the board is open. In any other state it refuses and says why.
@@ -866,7 +890,7 @@ cannot do, that is a defect to report upstream, not a deviation to approve local
 
 A developer who clones a repository and pushes by hand runs none of gov's code, so none of gov's gates apply.
 **Only the platform can stop that.** Whether it does is your choice, recorded as `governance_posture` in
-`org-config.yaml`:
+`policies/governance.yaml`:
 
 | Posture | What happens on a violation |
 |---|---|

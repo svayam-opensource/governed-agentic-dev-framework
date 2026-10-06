@@ -33,9 +33,10 @@ describe("prj-work — parseOrgConfig", () => {
       orgRepoUrl: "git@github.com:Svayamtech/svm-prj-work.git",
       defaultBranch: "main",
       defaultCodeBranch: "dev",
-      agentWorkRoot: "/home/rk/.svm/projects",
+      // agent_work_root left org-config in the split: the file's value is NOT read — the default is
+      // ~/.gov/<slug>/projects, and a person's own choice comes in from ~/.gov/work-roots (config/work-root.ts).
+      agentWorkRoot: "/home/rk/.gov/svm/projects",
       govWorkspace: "/home/rk/.svm/gov_repo",
-      policyOwnerEmail: "rkant@svayam.ai",
     });
   });
 
@@ -48,8 +49,9 @@ describe("prj-work — parseOrgConfig", () => {
       GITHUB_ORG: "Svayamtech",
       WORKSPACE_REPO: "svm-prj-work",
       DEFAULT_CODE_BRANCH: "dev",
-      AGENT_WORK_ROOT: "/home/rk/.svm/projects",
+      AGENT_WORK_ROOT: "/home/rk/.gov/svm/projects",
     });
+    expect(orgTokens, "the Policy Owner's email is governance.yaml's now (governanceTokens)").to.not.have.property("POLICY_OWNER_EMAIL");
   });
 
   it("env_branches: block form, order preserved — the ladder is an ORDER, not a set", () => {
@@ -107,33 +109,24 @@ describe("org_gov_repo — the new name, and the old one for one release", () =>
   });
 });
 
-// Policy Owner, 2026-09-29 — the ONE posture decision, and the state that is neither.
-describe("gov-work — governance_posture", () => {
-  const posture = (text: string) => parseOrgConfig(text, "/home/x").governancePosture;
-
-  it("reads the two postures gov implements", () => {
-    expect(posture("governance_posture: hard").posture).to.equal("hard");
-    expect(posture('governance_posture: "soft"   # decided 2026-09-29').posture).to.equal("soft");
-    expect(posture("governance_posture: HARD").posture, "GitHub-ish casing is not a different answer").to.equal("hard");
+// The org-config split (Policy Owner, 2026-10-06): identity and infrastructure stay; the rest has moved.
+describe("gov-work — org-config after the split", () => {
+  it("derives org_slug_lower and never reads it", () => {
+    expect(parseOrgConfig('org_slug: "ACME"\norg_slug_lower: "zzz"\n', "/h").orgSlugLower).to.equal("acme");
   });
 
-  it("an absent or empty key is SOFT — the default (W2-Q6); there is no \"nobody chose\" state", () => {
-    for (const text of ["org_name: Acme", 'governance_posture: ""', "governance_posture:   "]) {
-      const p = posture(text);
-      expect(p.posture, text).to.equal("soft");
-      expect(p.raw, `${text} — kept empty, so a report can say soft is the default`).to.equal("");
-      expect(p.unrecognised, `${text} — nobody wrote anything, so nothing was misread`).to.equal(false);
-    }
+  it("the work root: the default beside the gov repo, or the person's own — never the file's", () => {
+    expect(parseOrgConfig('org_slug: "ACME"\nagent_work_root: "/elsewhere"\n', "/h").agentWorkRoot).to.equal("/h/.gov/acme/projects");
+    expect(parseOrgConfig('org_slug: "ACME"\n', "/h", { workRoot: "~/work" }).agentWorkRoot).to.equal("/h/work");
+    expect(parseOrgConfig("org_name: x\n", "/h").agentWorkRoot, "no slug, no default").to.equal("");
   });
 
-  it("a word gov does not know is a FOURTH state: somebody chose and was not heard", () => {
-    const p = posture("governance_posture: strict");
-    expect(p.posture).to.equal(null);
-    expect(p.unrecognised).to.equal(true);
-    expect(p.raw, "kept verbatim, so the report can quote what they wrote").to.equal("strict");
-  });
-
-  it("is a key gov READS, so `unknownOrgConfigKeys` never reports it as ignored", () => {
-    expect(unknownOrgConfigKeys("governance_posture: hard\nauthorized_approvers:\n  - alice\n")).to.deep.equal([]);
+  it("does not read the governance keys any more — they are reported as retired, with where they went", () => {
+    const c = parseOrgConfig("org_name: Acme\ngovernance_posture: hard\npolicy_owner_github: po\n", "/h");
+    expect(c).to.not.have.property("governancePosture");
+    expect(c).to.not.have.property("policyOwnerEmail");
+    expect(c.keyReport.retired.map((r) => r.key)).to.deep.equal(["governance_posture", "policy_owner_github"]);
+    expect(c.keyReport.retired[0]!.movedTo).to.match(/policies\/governance\.yaml/);
+    expect(unknownOrgConfigKeys("governance_posture: hard\n"), "retired is not unknown").to.deep.equal([]);
   });
 });

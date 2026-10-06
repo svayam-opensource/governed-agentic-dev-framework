@@ -10,7 +10,8 @@ import type { ResolveResult } from "../resolve/types.js";
 import { workspaceStateMessage } from "../resolve/resolve-gov.js";
 import { checkVersionCompat } from "./version-compat.js";
 import { missingScopes, RECOMMENDED_SCOPES } from "./fix-env.js";
-import { unknownOrgConfigKeys } from "../config/org-config.js";
+import { parseOrgConfigSchema, validateOrgConfig, BUILT_IN_ORG_CONFIG_SCHEMA } from "../config/org-config.js";
+import { GOVERNANCE_PATH, parseGovernance } from "../config/governance.js";
 import { agentsDiagnostic } from "../cli/approve-agents-step.js";
 import { rulesRows, type RulesFacts } from "./rules-health.js";
 import { assessProtection, postureDiagnostic, postureOf } from "./protection-check.js";
@@ -77,6 +78,16 @@ export interface DoctorFacts {
    * file and this stays testable from a string.
    */
   readonly orgConfigText?: string | null;
+  /**
+   * The workspace's `framework/config/org-config.schema.yaml` — what org-config.yaml is checked against. `null` or
+   * absent: the schema gov was built with.
+   */
+  readonly orgConfigSchemaText?: string | null;
+  /**
+   * `policies/governance.yaml` (the org's governance choices): text, `null` absent, undefined = not read. Read where
+   * org-config.yaml is — only in a workspace that was examined.
+   */
+  readonly governanceText?: string | null;
   /** `policies/authorized-representatives.md` (the org's role list): text, `null` absent, undefined = not read. */
   readonly roleListText?: string | null;
   /** The workspace's root `CODEOWNERS`: text, `null` absent, undefined = not read. */
@@ -203,35 +214,28 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // WHICH AGENTS THIS ORGANIZATION AUTHORIZED, as a STATE and not a scolding. `none` is a decision — an
     // organization may adopt the framework for the structure alone — so it reports `ok`. What warns is an org
     // that never answered, because it is being governed by a list it did not choose.
-    ...(() => { const a = agentsDiagnostic(facts.orgConfigText); return a ? [a] : []; })(),
+    ...(() => { const a = facts.governanceText === undefined ? null : agentsDiagnostic(facts.governanceText); return a ? [a] : []; })(),
     // HOW MUCH OF THE POLICY IS ACTUALLY ENFORCED — the numbers a Policy Owner cannot get by reading. In this
     // framework's own policy, 92 of 107 rules are advisory; nobody could have known that from the document.
     ...rulesRows(facts.rules),
-    ...(facts.orgConfigText
-      ? [((): Diagnostic => {
-          const unknown = unknownOrgConfigKeys(facts.orgConfigText!);
-          return unknown.length
-            ? {
-                name: "org-config",
-                status: "warn" as DiagnosticStatus,
-                detail: `${unknown.length} ${unknown.length === 1 ? "key" : "keys"} gov does not read — ${unknown.join(", ")} (ignored)`,
-              }
-            : { name: "org-config", status: "ok" as DiagnosticStatus, detail: "all keys recognised" };
-        })()]
-      : []),
+    // CHECKED AGAINST THE SCHEMA (org-config split, 2026-10-06): the framework owns the shape of org-config.yaml
+    // (framework/config/org-config.schema.yaml), the org owns the values. Missing required keys FAIL — gov cannot
+    // work for the org without them; unknown, retired and renamed keys WARN, each saying what to do.
+    ...(facts.orgConfigText ? [orgConfigRow(facts.orgConfigText, facts.orgConfigSchemaText ?? null)] : []),
+    ...(facts.governanceText !== undefined ? [governanceRow(facts.governanceText)] : []),
     // THE TWO-KEY REVIEW (rule-model P1 rulings, 2026-10-06): the Check Owner approves the code of the org's check
     // actions, the Policy Owner the rules. Vacant, or both roles on one handle, and there is only one key.
     // WHO HOLDS EACH ROLE (GOV-FRM-033, W2-Q5) and whether CODEOWNERS still routes to them (GOV-FRM-083).
     ...[
-      policyOwnerDiagnostic(facts.orgConfigText),
-      checkOwnerDiagnostic(facts.orgConfigText),
-      roleListDiagnostic(facts.orgConfigText, facts.roleListText),
-      codeownersDiagnostic(facts.orgConfigText, facts.roleListText, facts.codeownersText),
+      policyOwnerDiagnostic(facts.governanceText),
+      checkOwnerDiagnostic(facts.governanceText),
+      roleListDiagnostic(facts.roleListText),
+      codeownersDiagnostic(facts.governanceText, facts.roleListText, facts.codeownersText),
     ].filter((d): d is Diagnostic => d !== null),
     // WHICH POSTURE THIS ORGANIZATION CHOSE (Policy Owner, 2026-09-29) — the row that says what the four rows
     // below it are FOR. It comes first because it decides whether they are a finding: an organization that
     // deliberately chose `soft` is not failing GOV-FRM-447, and one that never chose is not excused from it.
-    ...(() => { const p = postureDiagnostic(facts.orgConfigText); return p ? [p] : []; })(),
+    ...(() => { const p = postureDiagnostic(facts.governanceText); return p ? [p] : []; })(),
     // GOV-FRM-447 — the only enforcement that still holds for work done OUTSIDE gov, and until now the one
     // thing gov never looked at.
     //
@@ -241,7 +245,7 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // outside gov. UNSET is soft (W2-Q6), so it gets none either; an unrecognised value still does, because gov
     // will not guess which posture was meant.
     // No config examined is not soft: the posture is then unknown, and the rows stay.
-    ...(facts.protection && (facts.orgConfigText == null || postureOf(facts.orgConfigText).posture !== "soft")
+    ...(facts.protection && (facts.governanceText === undefined || postureOf(facts.governanceText).posture !== "soft")
       ? assessProtection(facts.protection.facts, {
           repo: facts.protection.repo,
           branch: facts.protection.branch,
@@ -251,6 +255,28 @@ export function doctor(facts: DoctorFacts): DoctorReport {
       : []),
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
+}
+
+/** org-config.yaml against the schema: one row, the worst finding deciding its status. */
+function orgConfigRow(text: string, schemaText: string | null): Diagnostic {
+  const r = validateOrgConfig(text, parseOrgConfigSchema(schemaText) ?? BUILT_IN_ORG_CONFIG_SCHEMA);
+  const parts = [
+    ...(r.missing.length ? [`missing ${r.missing.join(", ")} (required — \`gov setup\` writes them)`] : []),
+    ...(r.retired.length ? [`moved out of this file: ${r.retired.map((x) => `${x.key} → ${x.movedTo}`).join("; ")} — \`gov upgrade\` carries them`] : []),
+    ...(r.replaced.length ? [`renamed: ${r.replaced.map((x) => `${x.key} → ${x.by}`).join(", ")}`] : []),
+    ...(r.unknown.length ? [`${r.unknown.length} ${r.unknown.length === 1 ? "key" : "keys"} gov does not read — ${r.unknown.join(", ")} (ignored)`] : []),
+  ];
+  if (!parts.length) return { name: "org-config", status: "ok", detail: "matches the schema — all keys recognised" };
+  return { name: "org-config", status: r.missing.length ? "fail" : "warn", detail: parts.join("; ") };
+}
+
+/** policies/governance.yaml: present and readable, or what is wrong with it. */
+function governanceRow(text: string | null): Diagnostic {
+  if (text === null) return { name: "governance", status: "warn", detail: `no ${GOVERNANCE_PATH} — run \`gov upgrade\`, which moves your governance choices there from org-config.yaml` };
+  const g = parseGovernance(text);
+  return g.problems.length
+    ? { name: "governance", status: "warn", detail: `${GOVERNANCE_PATH}: ${g.problems.join("; ")}` }
+    : { name: "governance", status: "ok", detail: `${GOVERNANCE_PATH} read` };
 }
 
 const MARK: Record<DiagnosticStatus, string> = { ok: "\u2713", warn: "!", fail: "\u2717" };

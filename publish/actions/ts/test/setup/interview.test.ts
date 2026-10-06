@@ -5,7 +5,7 @@
 // the role must be assigned at setup, and the interview is the adopter path's only chance to ask.
 import { expect } from "chai";
 import { askOrgInterview } from "../../src/setup/interview.js";
-import { deriveOrgConfig, renderOrgConfig, readExistingOrgConfig } from "../../src/setup/setup.js";
+import { deriveOrgConfig, renderOrgConfig, renderSetupGovernance, readExistingOrgConfig } from "../../src/setup/setup.js";
 import { HARD_POSTURE_CONFIRMATION } from "../../src/setup/posture-question.js";
 
 const CTX = { originUrl: "", ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-07-04" };
@@ -23,11 +23,11 @@ async function run(reply: (q: string) => string) {
 describe("gov-work — the adopter interview, Check Owner", () => {
   const base = (q: string): string => (/^Q1 /.test(q) ? "Acme Inc" : /^Q3 /.test(q) ? "acme" : /^Q8 /.test(q) ? "rk@acme.io" : "");
 
-  it("asks Q10 for the Check Owner, defaulting to the Policy Owner, and keeps the answer", async () => {
-    const { r, asked } = await run((q) => (/^Q10 /.test(q) ? "@dave" : base(q)));
-    const q10 = asked.find((q) => /^Q10 /.test(q));
-    expect(q10).to.match(/Check Owner/);
-    expect(q10).to.contain("[@rk]");
+  it("asks Q9 for the Check Owner, defaulting to the Policy Owner, and keeps the answer", async () => {
+    const { r, asked } = await run((q) => (/^Q9 /.test(q) ? "@dave" : base(q)));
+    const q9 = asked.find((q) => /^Q9 /.test(q));
+    expect(q9).to.match(/Check Owner/);
+    expect(q9).to.contain("[@rk]");
     expect(r!.answers.checkOwnerGithub).to.equal("@dave");
   });
 
@@ -47,22 +47,22 @@ describe("gov-work — the adopter interview, Check Owner", () => {
 describe("gov-work — the adopter interview, governance posture", () => {
   const base = (q: string): string => (/^Q1 /.test(q) ? "Acme Inc" : /^Q3 /.test(q) ? "acme" : /^Q8 /.test(q) ? "rk@acme.io" : "");
 
-  it("GOV-FRM-450 asks Q11 for the posture; Enter is soft and asks nothing more", async () => {
+  it("GOV-FRM-450 asks Q10 for the posture; Enter is soft and asks nothing more", async () => {
     const { r, asked } = await run(base);
-    expect(asked.find((q) => /^Q11 /.test(q))).to.match(/governance posture/).and.contain("Choose [1/2]");
+    expect(asked.find((q) => /^Q10 /.test(q))).to.match(/governance posture/).and.contain("Choose [1/2]");
     expect(asked.some((q) => q.startsWith(HARD_POSTURE_CONFIRMATION))).to.equal(false);
     expect(r!.answers.governancePosture).to.equal("soft");
   });
 
   it("GOV-FRM-450 hard shows the confirmation VERBATIM; y keeps hard", async () => {
-    const { r, asked } = await run((q) => (/^Q11 /.test(q) ? "2" : q.startsWith("Choosing") ? "y" : base(q)));
+    const { r, asked } = await run((q) => (/^Q10 /.test(q) ? "2" : q.startsWith("Choosing") ? "y" : base(q)));
     expect(asked.some((q) => q.startsWith(HARD_POSTURE_CONFIRMATION))).to.equal(true);
     expect(r!.answers.governancePosture).to.equal("hard");
   });
 
   it("GOV-FRM-450 the confirmation defaults to N — Enter (or anything but yes) is soft", async () => {
     for (const reply of ["", "n", "maybe"]) {
-      const { r } = await run((q) => (/^Q11 /.test(q) ? "hard" : q.startsWith("Choosing") ? reply : base(q)));
+      const { r } = await run((q) => (/^Q10 /.test(q) ? "hard" : q.startsWith("Choosing") ? reply : base(q)));
       expect(r!.answers.governancePosture, JSON.stringify(reply)).to.equal("soft");
     }
   });
@@ -76,11 +76,17 @@ describe("gov-work — the adopter interview, governance posture", () => {
     ].join("\n"));
   });
 
-  it("GOV-FRM-450 org-config.yaml records the posture, and a re-run reads it back", () => {
+  it("GOV-FRM-450 policies/governance.yaml records the posture (org-config.yaml no longer does), and a re-run reads it back", () => {
     const v = deriveOrgConfig({ orgName: "Acme", orgSlug: "ACME", governancePosture: "hard" }, CTX);
-    const text = renderOrgConfig(v);
-    expect(text).to.match(/^governance_posture: "hard"$/m);
-    expect(readExistingOrgConfig(text).governancePosture).to.equal("hard");
-    expect(renderOrgConfig(deriveOrgConfig({ orgName: "Acme", orgSlug: "ACME" }, CTX))).to.match(/^governance_posture: "soft"$/m);
+    const gov = renderSetupGovernance(v);
+    expect(gov).to.match(/^governance_posture: "hard"$/m);
+    expect(renderOrgConfig(v)).to.not.match(/governance_posture/);
+    expect(readExistingOrgConfig(renderOrgConfig(v), gov).governancePosture).to.equal("hard");
+    expect(renderSetupGovernance(deriveOrgConfig({ orgName: "Acme", orgSlug: "ACME" }, CTX))).to.match(/^governance_posture: "soft"$/m);
+  });
+
+  it("no longer asks for a policy effective date — the key is retired", async () => {
+    const { asked } = await run(base);
+    expect(asked.join("\n")).to.not.match(/effective date/i);
   });
 });

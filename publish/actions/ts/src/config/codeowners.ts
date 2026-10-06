@@ -16,18 +16,18 @@
  * WHERE EACH HALF COMES FROM (rule-model P3, W2-Q5 / W2-Q7, 2026-10-06).
  *
  *   the framework's two roles (Policy Owner, Check Owner) and what they approve → this module; holders in
- *                                                                                  org-config.yaml
+ *                                                                                  policies/governance.yaml
  *   every other role, its holder, and the knowledge/ folders it owns            → the ORG's role list, a table in
  *                                                                                  policies/authorized-representatives.md
  *                                                                                  (config/role-list.ts)
  *
  * The four domain roles this module used to hard-code (Legal, Infrastructure, System / Data Architecture) were the
- * framework deciding which roles an organization has. They now arrive as the org's role list; an org whose copy of
- * the seed-once document predates the table keeps its old `*_owner_github` keys for one release
- * (role-list.ts `resolveRoles`), and `gov doctor` says so.
+ * framework deciding which roles an organization has. They now arrive as the org's role list; the `org-config-split`
+ * upgrade migration carried an older org's `*_owner_github` handles into it.
  *
  * THE POLICY OWNER IS THE FLOOR, AND THE FALLBACK (GOV-FRM-083). Every generated file routes the paths that decide
- * who may change anything to the Policy Owner — `org-config.yaml` (the handle registry), `CODEOWNERS` itself,
+ * who may change anything to the Policy Owner — `org-config.yaml`, `policies/governance.yaml` (the handles and the
+ * governance choices — any change to it needs the Policy Owner), `CODEOWNERS` itself,
  * `agent/`, `framework/`, `projects/` — and both trees an org writes, `knowledge/` and `policies/`, so no folder in
  * either is left without a named owner. A role's own `knowledge/` folders follow, routed to its holder or, while
  * the role is vacant, to the Policy Owner (GOV-SVM-033). `policies/` is routed by FILE here; who approves which
@@ -36,11 +36,11 @@
  * ORDER IS ROUTING. CODEOWNERS applies the LAST matching pattern, so the broad Policy Owner lines come first, the
  * role folders after them, and the Check Owner's `policies/actions/` last of all.
  */
-import { LEGACY_DOMAIN_ROLES, type RoleHolder } from "./role-list.js";
+import type { RoleHolder } from "./role-list.js";
 
 /** A role the framework defines, and the paths it approves. */
 export interface OwnerRole {
-  /** The org-config key holding the GitHub handle. */
+  /** Where its GitHub handle is set, as a person would look for it (policies/governance.yaml). */
   readonly key: string;
   /** Human name, for the generated comment. */
   readonly role: string;
@@ -51,11 +51,13 @@ export interface OwnerRole {
 /**
  * The paths the Policy Owner always approves, whoever else exists.
  *
- * `org-config.yaml` is first deliberately: it holds every other handle, so leaving it ungated
- * would let anyone with write access make themselves the approver of all the rest.
+ * `org-config.yaml` and `policies/governance.yaml` come first deliberately: governance.yaml holds the framework roles'
+ * handles and every governance choice, so leaving it ungated would let anyone with write access make themselves the
+ * approver of all the rest. It is listed although `/policies/` covers it, so the floor is visible by name.
  */
 export const POLICY_OWNER_PATHS: readonly string[] = [
   "/org-config.yaml",
+  "/policies/governance.yaml",
   "/CODEOWNERS",
   "/agent/",
   "/framework/",
@@ -76,7 +78,7 @@ export const POLICY_OWNER_PATHS: readonly string[] = [
  * `policies/actions/` exists the moment an org writes a check, and an ungated actions directory is code anyone with
  * write access can make CI run.
  */
-export const CHECK_OWNER: OwnerRole = { key: "check_owner_github", role: "Check Owner", paths: ["/policies/actions/"] };
+export const CHECK_OWNER: OwnerRole = { key: "check_owner.github", role: "Check Owner", paths: ["/policies/actions/"] };
 
 /** `rkant` / `@rkant` / `` → a usable `@handle`, or null when there is nobody. */
 export function normalizeHandle(raw: string | null | undefined): string | null {
@@ -92,34 +94,34 @@ export interface CodeownersResult {
   readonly escalated: readonly string[];
 }
 
+/** The framework's two roles' holders, as governance.yaml gives them (config/governance.ts `frameworkOwners`). */
+export interface FrameworkOwners {
+  readonly policyOwner?: string | null;
+  readonly checkOwner?: string | null;
+}
+
 /**
- * Render CODEOWNERS from the org's handles and its role list.
- *
- * `handles` carries the framework roles' org-config keys (`policy_owner_github`, `check_owner_github`). `roles` is
- * the org's role list; left out, it is read from the legacy `*_owner_github` keys in `handles` (one release).
+ * Render CODEOWNERS from the framework roles' holders and the org's role list.
  *
  * Returns null — never a partial file — when there is no Policy Owner: every path in `POLICY_OWNER_PATHS`, and every
  * vacant role's folder, would otherwise be left unprotected, which is exactly the state the shipped template produced.
  */
-export function renderCodeowners(
-  handles: Readonly<Record<string, string | undefined>>,
-  roles: readonly RoleHolder[] = legacyRolesFrom(handles),
-): CodeownersResult | null {
-  const owner = normalizeHandle(handles.policy_owner_github);
+export function renderCodeowners(owners: FrameworkOwners, roles: readonly RoleHolder[]): CodeownersResult | null {
+  const owner = normalizeHandle(owners.policyOwner);
   if (owner === null) return null;
 
   const lines: string[] = [
     "# GENERATED by gov — do not edit by hand.",
     "#",
-    "# The Policy Owner and Check Owner come from org-config.yaml; every other role, its holder and the",
+    "# The Policy Owner and Check Owner come from policies/governance.yaml; every other role, its holder and the",
     "# knowledge/ folders it owns come from the role list in policies/authorized-representatives.md.",
     "# Change a holder there and run `gov upgrade` to regenerate this file; `gov doctor` reports a copy",
     "# that no longer matches.",
     "#",
     "# Order is routing: GitHub applies the LAST pattern that matches a file.",
     "",
-    "# Policy Owner — the floor, and the owner of every folder no role owns. org-config.yaml is listed",
-    "# first because it holds every other handle: an ungated copy is a route to approving everything else.",
+    "# Policy Owner — the floor, and the owner of every folder no role owns. org-config.yaml and",
+    "# policies/governance.yaml are listed first: an ungated copy is a route to approving everything else.",
   ];
   const pad = (paths: readonly string[]) => Math.max(...paths.map((p) => p.length)) + 2;
   const width = pad(POLICY_OWNER_PATHS);
@@ -138,21 +140,15 @@ export function renderCodeowners(
 
   // The Check Owner, LAST: CODEOWNERS applies the last matching pattern, so it must follow `/policies/`.
   const escalated: string[] = [];
-  const checker = normalizeHandle(handles[CHECK_OWNER.key]);
+  const checker = normalizeHandle(owners.checkOwner);
   if (checker === null) escalated.push(CHECK_OWNER.role);
   lines.push("", checker === null
-    ? `# ${CHECK_OWNER.role} — vacant (${CHECK_OWNER.key} is empty), so the Policy Owner approves this code (GOV-FRM-033).`
+    ? `# ${CHECK_OWNER.role} — vacant (${CHECK_OWNER.key} is empty in policies/governance.yaml), so the Policy Owner approves this code (GOV-FRM-033).`
     : `# ${CHECK_OWNER.role} — approves the code of the org's check actions; the Policy Owner approves the rules.`);
   const cw = pad(CHECK_OWNER.paths);
   for (const p of CHECK_OWNER.paths) lines.push(`${p.padEnd(cw)}${checker ?? owner}`);
 
   return { text: `${lines.join("\n")}\n`, vacant, escalated };
-}
-
-/** The legacy domain roles, read from org-config keys (one release — see role-list.ts). */
-function legacyRolesFrom(handles: Readonly<Record<string, string | undefined>>): RoleHolder[] {
-  return LEGACY_DOMAIN_ROLES.filter((r) => handles[r.key] !== undefined)
-    .map((r) => ({ role: r.role, holder: normalizeHandle(handles[r.key]), owns: r.owns }));
 }
 
 /** A CODEOWNERS file's routes: `pattern owner…` per rule line, whitespace collapsed; comments and blanks dropped. */

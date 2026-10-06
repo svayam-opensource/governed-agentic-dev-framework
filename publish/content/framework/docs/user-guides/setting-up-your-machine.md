@@ -22,16 +22,16 @@ git config --global user.email   # must be set
 gh api user --jq .login          # should print your GitHub handle
 ```
 
-The framework reads `agent_work_root` from `org-config.yaml` (set when the
-Policy Owner ran `gov setup`). The default is `~/.<org_slug_lower>/projects`
-(e.g. `~/.acme/projects/`). To inspect:
+Your project folders live in your **work root**. It is your own setting, not the
+organization's, so it is not in `org-config.yaml`. The default is
+`~/.gov/<slug>/projects`, where `<slug>` is your organization's `org_slug` in
+lower case (e.g. `~/.gov/acme/projects/`), beside the governance repository in
+`~/.gov/<slug>/gov_repo`. To keep your project folders somewhere else, add one
+line to `~/.gov/work-roots`: your GitHub organization, a tab, and the path:
 
 ```bash
-yq '.agent_work_root' org-config.yaml
+printf 'acme\t%s\n' "$HOME/src/acme" >> ~/.gov/work-roots
 ```
-
-To override for a single command (e.g. in a CI sandbox), export `AGENT_WORK_ROOT`
-in the shell — env wins over the org-config value.
 
 ### Confirm you have access to the GitHub Project
 

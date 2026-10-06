@@ -29,7 +29,7 @@ import { confirmPosture, parsePostureAnswer, postureRule, POSTURE_QUESTION } fro
 import type { OrgConfigValues } from "./setup.js";
 
 import {
-  nonEmpty, orgSlug as orgSlugRule, githubHandle, emailShape, isoDate,
+  nonEmpty, orgSlug as orgSlugRule, githubHandle, emailShape,
   branchChoice, parseBranchChoice, branchName, type Validator,
 } from "./answers.js";
 import { renderOrgChoices, resolveOrgChoice, defaultOrg } from "./org-choice.js";
@@ -259,21 +259,21 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   a.policyOwnerEmail = await ask(io, 8,
     "What is policy owner email?", io.derive(a).policyOwnerEmail, emailShape);
 
-  a.policyEffectiveDate = await ask(io, 9,
-    "What should be the policy effective date ?", io.derive(a).policyEffectiveDate, isoDate);
+  // NO EFFECTIVE-DATE QUESTION (org-config split, 2026-10-06): `policy_effective_date` is retired — a policy's
+  // history is its version and its CHANGELOG, and the date setup ran fills the documents' <POLICY_EFFECTIVE_DATE>.
 
-  // Q10 — WHO REVIEWS THE CODE OF A CHECK (rule-model P1 rulings, 2026-10-06). The Check Owner is the framework's
+  // Q9 — WHO REVIEWS THE CODE OF A CHECK (rule-model P1 rulings, 2026-10-06). The Check Owner is the framework's
   // second built-in role and must be assigned here; the Policy Owner is offered because a one-person org is the
   // common first case, and `gov doctor` says plainly when one person holds both keys.
-  a.checkOwnerGithub = await ask(io, 10,
+  a.checkOwnerGithub = await ask(io, 9,
     "Who is the Check Owner — the GitHub handle that reviews the code of your check actions (policies/actions/)?",
     io.derive(a).checkOwnerGithub, githubHandle);
 
-  // Q11 — THE GOVERNANCE POSTURE (W2-Q6). Soft by default; hard only past the Policy Owner's confirmation.
+  // Q10 — THE GOVERNANCE POSTURE (W2-Q6). Soft by default; hard only past the Policy Owner's confirmation.
   a.governancePosture = await confirmPosture(
-    parsePostureAnswer(await ask(io, 11, POSTURE_QUESTION, "1", postureRule, [], ["1", "2"])) ?? "soft", io.prompt);
+    parsePostureAnswer(await ask(io, 10, POSTURE_QUESTION, "1", postureRule, [], ["1", "2"])) ?? "soft", io.prompt);
 
-  // Q12 — WHICH AGENTS THIS ORGANIZATION ALLOWS.
+  // Q11 — WHICH AGENTS THIS ORGANIZATION ALLOWS.
   //
   // Last, because it is the only answer that is a POLICY rather than a fact about the
   // organization, and because it is the one an adopter most needs the preceding context to
@@ -283,13 +283,13 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   let agents: readonly ApprovedAgent[] | undefined;
   if (io.selectAgents) {
     io.print("");
-    io.print("Q12 - Which AI agents may be used in this organization?");
+    io.print("Q11 - Which AI agents may be used in this organization?");
     const picked = await askAgentSelection({
       prompt: io.prompt,
       print: io.print,
       ...(io.color === undefined ? {} : { color: io.color }),
     });
-    if (picked === null) throw new InterviewRefused("Q12: no usable AI agent selection.");
+    if (picked === null) throw new InterviewRefused("Q11: no usable AI agent selection.");
     agents = picked;
   }
 

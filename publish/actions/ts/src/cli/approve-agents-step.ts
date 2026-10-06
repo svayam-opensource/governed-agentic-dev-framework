@@ -125,7 +125,7 @@ export const TURN_AGENTS_ON = "gov agent approve <id>";
 export function structureOnlyLines(): readonly string[] {
   return [
     "  AI agents are OFF for this organization — recorded as",
-    `  \`authorized_agents: ${NO_AGENTS}\` in org-config.yaml.`,
+    `  \`authorized_agents: ${NO_AGENTS}\` in policies/governance.yaml.`,
     "",
     "  Everything else is unchanged: projects, tasks, branches, knowledge, review,",
     "  and the pull-request path. gov installs no agent, renders no agent harness,",
@@ -155,7 +155,7 @@ export function approvalSummary(agents: readonly ApprovedAgent[]): readonly stri
     `  Approved for this organization: ${agents.map((a) => name(a.id)).join(", ")}`,
     `  Default for people who join:    ${name(agents.find((a) => a.default)!.id)}`,
     "",
-    "  Recorded in org-config.yaml (authorized_agents). Changing it later goes",
+    "  Recorded in policies/governance.yaml (authorized_agents). Changing it later goes",
     "  through a pull request — `gov agent approve <id>`.",
   ];
 }
@@ -171,7 +171,7 @@ export function approvalSummary(agents: readonly ApprovedAgent[]): readonly stri
  * Shaped to be assignable to doctor's own `Diagnostic` without this module importing it — cli
  * does not depend on maintain, and a row is three fields.
  *
- * Null when no `org-config.yaml` was examined, which is the rule doctor.ts states for itself: a
+ * Null when no `policies/governance.yaml` was looked for, which is the rule doctor.ts states for itself: a
  * row about a fact nobody gathered is worse than no row.
  */
 export interface AgentsDiagnostic {
@@ -180,9 +180,9 @@ export interface AgentsDiagnostic {
   readonly detail: string;
 }
 
-export function agentsDiagnostic(orgConfigText: string | null | undefined): AgentsDiagnostic | null {
-  if (orgConfigText === null || orgConfigText === undefined) return null;
-  const r = readAuthorizedAgents(orgConfigText);
+export function agentsDiagnostic(governanceText: string | null | undefined): AgentsDiagnostic | null {
+  if (governanceText === undefined) return null;
+  const r = readAuthorizedAgents(governanceText);
   if (r.kind === "none") return { name: "agents", status: "ok", detail: `${NO_AGENTS} authorized (structure-only)` };
   if (r.kind === "unset") {
     return {

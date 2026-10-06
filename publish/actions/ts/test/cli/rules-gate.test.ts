@@ -173,11 +173,11 @@ describe("rules-pending at the router — gov cannot tell", () => {
     expect(r.code).to.equal(1);
   });
 
-  it("no agent_work_root → refuses, and says THAT rather than blaming gh", () => {
+  it("no work root → refuses, and says THAT rather than blaming gh", () => {
     const r = route(parseArgv(["merge"]) as never, ctx({ config: { ...CONFIG, agentWorkRoot: "" } }, false));
     expect(r.code).to.equal(1);
     const out = r.lines.join("\n");
-    expect(out).to.contain("agent_work_root");
+    expect(out).to.contain("your work root is unknown");
     expect(out, "no login problem to report here").to.not.contain("gh auth login");
   });
 

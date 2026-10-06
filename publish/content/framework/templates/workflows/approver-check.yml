@@ -45,7 +45,7 @@ jobs:
     name: approver-check
     runs-on: ubuntu-latest
     steps:
-      - name: Check out (for org-config.yaml, when this IS the governance repository)
+      - name: Check out (for policies/, when this IS the governance repository)
         uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -58,7 +58,7 @@ jobs:
           AUTHOR: ${{ github.event.pull_request.user.login }}
           # THE ORGANIZATION'S LIST, when this repository is not the governance repository.
           #
-          # A code repository does not hold org-config.yaml, and a GITHUB_TOKEN cannot read another private
+          # A code repository does not hold policies/governance.yaml, and a GITHUB_TOKEN cannot read another private
           # repository — so requiring a cross-repo read would mean requiring a personal access token in every
           # code repository. A variable is the plainest thing an organization can set instead:
           #
@@ -71,46 +71,56 @@ jobs:
           set -euo pipefail
 
           # ── 1. THE LIST ──────────────────────────────────────────────────────────────────────────────────
-          # In order: the variable an organization set, then org-config.yaml if this repository has one (the
-          # governance repository does). `authorized_approvers:` is the explicit list; the role handles are the
-          # fallback, because every organization has those from `gov setup` and a list is optional.
-          #
-          # §3.2's own list lives in policies/authorized-representatives.md, which names people by EMAIL and is
-          # seed-once (the framework may never add structure to it). This needs GitHub logins, so org-config.yaml
-          # is where an organization writes them.
+          # In order: the variable an organization set, then — in the governance repository, which holds them —
+          # the people who hold a role: the Policy Owner and the Check Owner (policies/governance.yaml) and every
+          # holder in the role list (the `| Role | GitHub handle | Owns |` table in
+          # policies/authorized-representatives.md). `gov repo protect` computes the same list the same way.
           approvers=""
 
           if [ -n "${GOV_APPROVERS:-}" ]; then
             approvers="$GOV_APPROVERS"
             source="the GOV_APPROVERS variable"
-          elif [ -f org-config.yaml ]; then
-            # The explicit list: a top-level `authorized_approvers:` block, its `- item` lines, stopping at the
-            # first line that is not indented (the next top-level key).
-            approvers="$(
+          elif [ -f policies/governance.yaml ]; then
+            # `github:` under the top-level policy_owner: and check_owner: blocks (or their flow form).
+            owners="$(
               awk '
-                /^authorized_approvers:[[:space:]]*$/ { inblock = 1; next }
-                inblock && /^[^[:space:]]/            { inblock = 0 }
-                inblock && /^[[:space:]]*-[[:space:]]*/ {
+                /^(policy_owner|check_owner):[[:space:]]*\{/ {
                   line = $0
-                  sub(/^[[:space:]]*-[[:space:]]*/, "", line)
-                  sub(/[[:space:]]*#.*$/, "", line)
-                  gsub(/["'"'"']/, "", line)
-                  gsub(/[[:space:]]/, "", line)
-                  if (line != "") print line
+                  if (match(line, /github:[[:space:]]*["'"'"']?[^,"'"'"'}[:space:]]*/)) {
+                    v = substr(line, RSTART, RLENGTH); sub(/github:[[:space:]]*["'"'"']?/, "", v); if (v != "") print v
+                  }
+                  next
                 }
-              ' org-config.yaml | tr '\n' ' '
+                /^(policy_owner|check_owner):[[:space:]]*(#.*)?$/ { inblock = 1; next }
+                inblock && /^[^[:space:]]/ { inblock = 0 }
+                inblock && /^[[:space:]]+github:/ {
+                  v = $0
+                  sub(/^[[:space:]]+github:[[:space:]]*/, "", v)
+                  sub(/[[:space:]]*#.*$/, "", v)
+                  gsub(/["'"'"']/, "", v)
+                  if (v != "") print v
+                }
+              ' policies/governance.yaml
             )"
-            source="authorized_approvers in org-config.yaml"
-            if [ -z "${approvers// /}" ]; then
-              # The role handles gov already writes and generates CODEOWNERS from. An organization that has
-              # appointed nobody has only the Policy Owner here, which is correct on day one.
-              approvers="$(
-                grep -E '^(policy_owner_github|check_owner_github|legal_owner_github|infra_owner_github|system_arch_owner_github|data_arch_owner_github):' org-config.yaml \
-                  | sed -E 's/^[^:]+:[[:space:]]*//; s/[[:space:]]*#.*$//; s/["'"'"']//g; s/^@//' \
-                  | grep -v '^$' | sort -u | tr '\n' ' '
+            # The role list's handle column: rows of the table whose header is Role | GitHub handle | Owns.
+            holders=""
+            if [ -f policies/authorized-representatives.md ]; then
+              holders="$(
+                awk -F'|' '
+                  /^[[:space:]]*(```|~~~)/ { fenced = !fenced; next }
+                  fenced { next }
+                  /^[[:space:]]*\|/ {
+                    role = $2; handle = $3; gsub(/[[:space:]`*_]/, "", role); gsub(/[[:space:]`]/, "", handle)
+                    if (tolower(role) == "role" && tolower(handle) ~ /^github/) { intable = 1; next }
+                    if (intable && handle ~ /^-+$/) next
+                    if (intable) { if (handle ~ /^@?[A-Za-z0-9][A-Za-z0-9-]*$/) print handle; next }
+                  }
+                  { intable = 0 }
+                ' policies/authorized-representatives.md
               )"
-              source="the role handles in org-config.yaml"
             fi
+            approvers="$(printf '%s\n%s\n' "$owners" "$holders")"
+            source="policies/governance.yaml and the role list in policies/authorized-representatives.md"
           fi
 
           # Normalise: commas or whitespace, a leading @ optional, case-insensitive (GitHub logins are).
@@ -121,7 +131,7 @@ jobs:
             # nothing while reporting success — the one outcome GOV-FRM-447 exists to prevent.
             echo "::error::approver-check cannot find this organization's list of authorized representatives, so it"
             echo "::error::cannot verify anybody. Set the GOV_APPROVERS variable on this repository or organization,"
-            echo "::error::or add authorized_approvers / the *_owner_github handles to org-config.yaml in the"
+            echo "::error::or name the Policy Owner in policies/governance.yaml (and role holders in the role list) in the"
             echo "::error::governance repository. Failing closed: a check that passes without a list proves nothing."
             exit 1
           fi
@@ -170,7 +180,7 @@ jobs:
             echo "::error::$(printf '%s ' $approving)approved this pull request, and none of them is on"
             echo "::error::this organization's list of authorized representatives (GOV-FRM-447.4). A review happened;"
             echo "::error::the right person has not approved. Appointments are made by a pull request to"
-            echo "::error::policies/authorized-representatives.md and org-config.yaml — never by editing this check."
+            echo "::error::policies/authorized-representatives.md and policies/governance.yaml — never by editing this check."
             exit 1
           fi
 

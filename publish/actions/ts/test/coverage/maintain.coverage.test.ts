@@ -19,7 +19,7 @@ import { checkDeps, formatDepsReport } from "../../src/maintain/deps.js";
 import { publishGate, formatPublishGate } from "../../src/maintain/publish.js";
 import { bumpVersion } from "../../src/maintain/bump-version.js";
 import {
-  parseManifest, expandEntries, planUpgrade, mergeOrgConfig, applyUpgrade, formatPlan,
+  parseManifest, expandEntries, planUpgrade, applyUpgrade, formatPlan,
   RETIRE_PATHS, type PlanReaders, type UpgradePlan, type ManifestEntry,
 } from "../../src/maintain/upgrade-sync.js";
 import { runUpgradeSync, runUpgradePr, fetchTemplateContent } from "../../src/maintain/upgrade-run.js";
@@ -363,7 +363,7 @@ files:
   - { src: VERSION, dst: VERSION, mode: scaffold-auto }
   - { src: CLAUDE.md, dst: CLAUDE.md, mode: scaffold-prompt }
   - { src: knowledge/guidance/, dst: knowledge/guidance/, mode: scaffold-prompt }
-  - { src: org-config.example.yaml, dst: org-config.yaml, mode: overlay-schema }
+  - { src: org-config.example.yaml, dst: org-config.yaml, mode: seed-once }
 owned:
   - org-config.yaml
   - "projects/PRJ-*/"   # trailing comment
@@ -373,7 +373,7 @@ owned:
     const m = parseManifest(MANIFEST);
     expect(m.files).to.have.lengthOf(4);
     expect(m.files[0]).to.deep.equal({ src: "VERSION", dst: "VERSION", mode: "scaffold-auto" });
-    expect(m.files[3]).to.deep.equal({ src: "org-config.example.yaml", dst: "org-config.yaml", mode: "overlay-schema" });
+    expect(m.files[3]).to.deep.equal({ src: "org-config.example.yaml", dst: "org-config.yaml", mode: "seed-once" });
     expect(m.owned).to.deep.equal(["org-config.yaml", "projects/PRJ-*/"]);
   });
 
@@ -418,13 +418,11 @@ owned:
     expect(planUpgrade(entries, { ...base, readAdopter: () => "CUSTOM" }).actions[0].kind).to.equal("conflict");
   });
 
-  it("planUpgrade overlay-schema: null→create(seed), present→overlay(merge)", () => {
-    const entries: ManifestEntry[] = [{ src: "org-config.example.yaml", dst: "org-config.yaml", mode: "overlay-schema" }];
+  it("planUpgrade seed-once org-config: null→create, present→same (the template merge is gone)", () => {
+    const entries: ManifestEntry[] = [{ src: "org-config.example.yaml", dst: "org-config.yaml", mode: "seed-once" }];
     const rc = () => 'org_name: ""\n';
-    expect(planUpgrade(entries, { readContent: rc, readAdopter: () => null, adopterPaths: () => [] }).actions[0])
-      .to.deep.include({ kind: "create", detail: "seed from template" });
-    expect(planUpgrade(entries, { readContent: rc, readAdopter: () => 'org_name: "Acme"\n', adopterPaths: () => [] }).actions[0])
-      .to.deep.include({ kind: "overlay", detail: "add new keys · carry renamed keys · comment removed · keep values" });
+    expect(planUpgrade(entries, { readContent: rc, readAdopter: () => null, adopterPaths: () => [] }).actions[0]).to.deep.include({ kind: "create" });
+    expect(planUpgrade(entries, { readContent: rc, readAdopter: () => 'org_name: "Acme"\n', adopterPaths: () => [] }).actions[0]).to.deep.include({ kind: "same" });
   });
 
   it("planUpgrade: a shipped file missing from the content source produces no action", () => {
@@ -444,26 +442,6 @@ owned:
     expect(retired).to.have.members([...RETIRE_PATHS]); // every retire path hit, exactly once
     expect(retired).to.have.lengthOf(RETIRE_PATHS.length);
     expect(retired).to.not.include("src/keep.ts");
-  });
-
-  // mergeOrgConfig — add / comment / keep
-  it("mergeOrgConfig: keeps org values, adds template keys, comments dropped keys, preserves comments/order", () => {
-    const template = "# header comment\norg_name: \"\"\norg_short_name: \"\"\ndefault_branch: \"main\"\n";
-    const org = "org_name: \"Acme\"\ndefault_branch: \"trunk\"\nlegacy_field: \"old\"\n";
-    const merged = mergeOrgConfig(template, org);
-    expect(merged).to.match(/# header comment/);              // template comment preserved
-    expect(merged).to.match(/org_name: "Acme"/);              // org value kept
-    expect(merged).to.match(/org_short_name: ""/);            // new template key added
-    expect(merged).to.match(/default_branch: "trunk"/);       // org value wins over template default
-    expect(merged).to.match(/# Removed from the framework template/); // dropped-key banner
-    expect(merged).to.match(/# legacy_field: "old"/);         // dropped key commented
-    expect(merged.endsWith("\n")).to.equal(true);             // single trailing newline
-  });
-
-  it("mergeOrgConfig: when org keys are a subset of template, no 'Removed' banner is emitted", () => {
-    const merged = mergeOrgConfig("org_name: \"\"\norg_slug: \"\"\n", "org_name: \"Acme\"\n");
-    expect(merged).to.match(/org_name: "Acme"/);
-    expect(merged).to.not.match(/Removed from the framework template/);
   });
 
   // applyUpgrade — with / without includeConflicts, every action kind
@@ -486,23 +464,21 @@ owned:
       { kind: "update", dst: "d-update", src: "vsrc" },
       { kind: "same", dst: "d-same", src: "vsrc" },
       { kind: "conflict", dst: "d-conflict", src: "vsrc" },
-      { kind: "overlay", dst: "org-config.yaml", src: "ovsrc" },
       { kind: "retire", dst: "framework/" },
       { kind: "create", dst: "d-nullsrc", src: "nullsrc" },
     ],
   };
 
-  it("applyUpgrade WITHOUT includeConflicts: writes create/update, merges overlay, retires, SKIPS conflict + same + null-src", () => {
+  it("applyUpgrade WITHOUT includeConflicts: writes create/update, retires, SKIPS conflict + same + null-src", () => {
     const { res, store, removed } = applyHarness(fullPlan, {});
     expect(store["d-create"]).to.equal("V-NEW");
     expect(store["d-update"]).to.equal("V-NEW");
-    expect(store["org-config.yaml"]).to.match(/org_name: "Acme"/); // value kept
-    expect(store["org-config.yaml"]).to.match(/new_key: ""/);      // new key added
+    expect(store["org-config.yaml"]).to.equal('org_name: "Acme"\n'); // never touched
     expect(removed).to.deep.equal(["framework/"]);
     expect(store["d-conflict"]).to.equal(undefined);               // skipped
     expect(store["d-nullsrc"]).to.equal(undefined);                // src content null → no write
     expect(res.skipped).to.deep.equal(["d-conflict"]);
-    expect(res.applied).to.have.members(["d-create", "d-update", "org-config.yaml", "framework/"]);
+    expect(res.applied).to.have.members(["d-create", "d-update", "framework/"]);
   });
 
   it("applyUpgrade WITH includeConflicts: the conflict is written too and not skipped", () => {
@@ -510,15 +486,6 @@ owned:
     expect(store["d-conflict"]).to.equal("V-NEW");
     expect(res.skipped).to.deep.equal([]);
     expect(res.applied).to.include("d-conflict");
-  });
-
-  it("applyUpgrade overlay with no existing adopter file → seeds the raw template", () => {
-    const store: Record<string, string> = {};
-    applyUpgrade({ actions: [{ kind: "overlay", dst: "org-config.yaml", src: "t" }] }, {
-      readContent: () => 'org_name: ""\n', readAdopter: () => null,
-      writeAdopter: (p, t) => { store[p] = t; }, removeAdopter: () => {},
-    });
-    expect(store["org-config.yaml"]).to.equal('org_name: ""\n');
   });
 
   it("formatPlan: hides 'same', renders a summary; empty (all-same) plan shows the matched-content notice", () => {
@@ -648,13 +615,11 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     expect(parseOriginOwnerRepo("not-a-url")).to.equal(null);
   });
 
-  it("deriveOrgConfig: owners default to the policy owner; slug_lower + canonical paths derived", () => {
+  it("deriveOrgConfig: the Check Owner defaults to the policy owner; canonical gov_repo path derived", () => {
     const v = deriveOrgConfig({ orgName: "Acme Inc", orgSlug: "ACME" }, CTX);
     expect(v).to.include({
-      orgSlugLower: "acme", githubOrg: "Acme", workspaceRepo: "acme-gov",
-      agentWorkRoot: "~/.gov/acme/projects", govWorkspace: "~/.gov/acme/gov_repo",
-      policyOwnerGithub: "@rk", legalOwnerGithub: "@rk", infraOwnerGithub: "@rk",
-      systemArchOwnerGithub: "@rk", dataArchOwnerGithub: "@rk",
+      githubOrg: "Acme", workspaceRepo: "acme-gov", govWorkspace: "~/.gov/acme/gov_repo",
+      policyOwnerGithub: "@rk", checkOwnerGithub: "@rk",
     });
   });
 

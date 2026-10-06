@@ -40,7 +40,7 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 
 ## Session Start Checklist (C01 — complete before any work)
 
-1. Read `org-config.yaml` at workspace root — org identity, branches, owners, `agent_work_root`. Every other step references its values.
+1. Read `org-config.yaml` at workspace root — org identity and branches — and `policies/governance.yaml` — the Policy and Check Owners, the posture, the authorized agents. Every other step references their values.
 2. Verify you are authorized via **write access to the project's GitHub Project** (or you own the current task sub-branch)
 3. Verify the project's GitHub board is **open** (active)
 4. Load all four knowledge layers fresh (never use cached layers from a prior session)

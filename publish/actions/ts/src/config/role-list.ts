@@ -4,7 +4,7 @@
  * THE ORG'S ROLE LIST (W2-Q5, rule-model P3, 2026-10-06).
  *
  * The framework defines TWO roles — the Policy Owner and the Check Owner — and their holders live in
- * `org-config.yaml`. Every other role is the organization's: it decides which roles exist, who holds each, and which
+ * `policies/governance.yaml`. Every other role is the organization's: it decides which roles exist, who holds each, and which
  * `knowledge/` folders each one owns. Until now four of them (Legal, Infrastructure, System Architecture, Data
  * Architecture) were hard-coded in `codeowners.ts` with their holders in `*_owner_github` keys — the framework
  * deciding something the policy says is the org's.
@@ -25,18 +25,16 @@
  *   a row gov cannot route (bad handle, unresolved token, folder outside `knowledge/`) → a problem, said row by
  *                     row; the rest of the table still loads, and the unroutable part reads as vacant.
  *
- * THE FALLBACK, FOR ONE RELEASE. An org set up before this table existed has its holders in the old
- * `*_owner_github` keys, and its copy of the seed-once document has no table. {@link resolveRoles} reads the keys
- * then, with the folders the framework used to hard-code ({@link LEGACY_DOMAIN_ROLES}); `gov doctor` says so.
+ * NO FALLBACK (org-config split, 2026-10-06). The old `*_owner_github` keys in org-config.yaml are retired; the
+ * `org-config-split` upgrade migration carries their handles into this table, once. With no table, the org defines
+ * no roles of its own and the Policy Owner owns every folder — and `gov doctor` says so.
  *
  * Pure: text in, values out. The callers (store-io at a git ref, doctor from the worktree, setup) do the reading.
  */
-import { readTopLevelScalar } from "../resolve/node-env.js";
-
 /** Where the role list lives, repo-relative. */
 export const ROLE_LIST_PATH = "policies/authorized-representatives.md";
 
-/** The framework's own two roles. Never in the org's table — their holders are in org-config.yaml. */
+/** The framework's own two roles. Never in the org's table — their holders are in policies/governance.yaml. */
 export const POLICY_OWNER_ROLE = "Policy Owner";
 export const CHECK_OWNER_ROLE = "Check Owner";
 const FRAMEWORK_ROLES = new Set([POLICY_OWNER_ROLE.toLowerCase(), CHECK_OWNER_ROLE.toLowerCase()]);
@@ -53,14 +51,6 @@ export interface RoleHolder {
 export type RoleListParse =
   | { readonly found: false }
   | { readonly found: true; readonly roles: readonly RoleHolder[]; readonly problems: readonly string[] };
-
-/** The four domain roles the framework hard-coded before the role list — read from org-config for one release. */
-export const LEGACY_DOMAIN_ROLES: readonly { readonly key: string; readonly role: string; readonly owns: readonly string[] }[] = [
-  { key: "legal_owner_github", role: "Legal Owner", owns: ["knowledge/legal/"] },
-  { key: "infra_owner_github", role: "Infrastructure Owner", owns: ["knowledge/infrastructure/"] },
-  { key: "system_arch_owner_github", role: "System Architecture Owner", owns: ["knowledge/architecture/system/"] },
-  { key: "data_arch_owner_github", role: "Data Architecture Owner", owns: ["knowledge/architecture/data/"] },
-];
 
 /** GitHub's login shape (1–39, alnum and single hyphens), or `org/team`. */
 const HANDLE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\/[A-Za-z0-9._-]+)?$/;
@@ -110,7 +100,7 @@ function readRows(rows: readonly string[][]): { roles: RoleHolder[]; problems: s
     const role = unquote(c[0] ?? "");
     if (!role) { problems.push("a row with no role name was skipped"); continue; }
     if (FRAMEWORK_ROLES.has(role.toLowerCase())) {
-      problems.push(`${role} is a framework role — its holder is set in org-config.yaml, so this row is ignored`);
+      problems.push(`${role} is a framework role — its holder is set in policies/governance.yaml, so this row is ignored`);
       continue;
     }
     if (seenRole.has(role.toLowerCase())) { problems.push(`${role} is listed twice — the first row is used`); continue; }
@@ -139,40 +129,26 @@ function readRows(rows: readonly string[][]): { roles: RoleHolder[]; problems: s
 }
 
 export interface ResolvedRoles {
-  /** Where the roles came from: the org's table, or (for one release) the old org-config keys. */
-  readonly source: "role-list" | "org-config";
+  /** The document has a role table. Without one the org defines no roles of its own. */
+  readonly found: boolean;
   readonly roles: readonly RoleHolder[];
   readonly problems: readonly string[];
 }
 
-/** The org's roles: from the table when there is one, else from the legacy `*_owner_github` keys. */
-export function resolveRoles(orgConfigText: string | null | undefined, roleListText: string | null | undefined): ResolvedRoles {
+/** The org's roles, from the table in the role list. No table (or no document) → none. */
+export function resolveRoles(roleListText: string | null | undefined): ResolvedRoles {
   const parsed = roleListText ? parseRoleList(roleListText) : ({ found: false } as const);
-  if (parsed.found) return { source: "role-list", roles: parsed.roles, problems: parsed.problems };
-  const cfg = orgConfigText ?? "";
-  return {
-    source: "org-config",
-    problems: [],
-    // Only the keys the config actually carries: a config that never had them defines none of these roles.
-    roles: LEGACY_DOMAIN_ROLES.flatMap((r) => {
-      const raw = readTopLevelScalar(cfg, r.key);
-      if (raw === null) return [];
-      const h = parseHolder(raw);
-      return [{ role: r.role, holder: typeof h === "string" ? h : null, owns: r.owns }];
-    }),
-  };
+  return parsed.found ? { found: true, roles: parsed.roles, problems: parsed.problems } : { found: false, roles: [], problems: [] };
 }
 
 /**
- * Role → handle, the shape `RuleSet.roles` carries. The Policy Owner and Check Owner ALWAYS come from org-config (a
- * vacant Check Owner reads as the Policy Owner, GOV-FRM-033); every org role is present by name, a vacant one as
+ * Role → handle, the shape `RuleSet.roles` carries. The Policy Owner and Check Owner ALWAYS come from governance.yaml
+ * (a vacant Check Owner reads as the Policy Owner, GOV-FRM-033); every org role is present by name, a vacant one as
  * `""` — so a check routes it to the Policy Owner, and propose still knows the role exists.
  */
-export function roleHandles(orgConfigText: string | null | undefined, roles: readonly RoleHolder[]): Record<string, string> {
-  const cfg = orgConfigText ?? "";
-  const handle = (key: string): string => (readTopLevelScalar(cfg, key) ?? "").trim();
-  const policyOwner = handle("policy_owner_github");
-  const checkOwner = handle("check_owner_github") || policyOwner;
+export function roleHandles(owners: { readonly policyOwner?: string | null; readonly checkOwner?: string | null }, roles: readonly RoleHolder[]): Record<string, string> {
+  const policyOwner = (owners.policyOwner ?? "").trim();
+  const checkOwner = (owners.checkOwner ?? "").trim() || policyOwner;
   const out: Record<string, string> = {};
   if (policyOwner) out[POLICY_OWNER_ROLE] = policyOwner;
   if (checkOwner) out[CHECK_OWNER_ROLE] = checkOwner;

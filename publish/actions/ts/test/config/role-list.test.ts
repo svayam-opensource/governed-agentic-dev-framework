@@ -3,15 +3,22 @@
 //
 // THE ORG'S ROLE LIST (W2-Q5, rule-model P3). The roles beyond the framework's two — and who holds them, and which
 // knowledge/ folders they own — are the ORG's, written as a small table in `policies/authorized-representatives.md`.
-// These tests pin the table's format, the parser's refusals, and the one-release fallback to the old
-// `*_owner_github` keys in org-config.yaml.
+// These tests pin the table's format and the parser's refusals. There is no fallback to the old `*_owner_github`
+// keys any more: the org-config split's upgrade migration carries them into the table (org-config-split.test.ts).
 import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  parseRoleList, resolveRoles, roleHandles, LEGACY_DOMAIN_ROLES, ROLE_LIST_PATH,
+  parseRoleList, resolveRoles, roleHandles, ROLE_LIST_PATH,
 } from "../../src/config/role-list.js";
-import { substituteTokens, tokenValuesFromOrgConfig } from "../../src/setup/create.js";
+import { substituteTokens, setupTokenValues } from "../../src/setup/create.js";
+
+const STARTER_ROLES = [
+  { role: "Legal Owner", owns: ["knowledge/legal/"] },
+  { role: "Infrastructure Owner", owns: ["knowledge/infrastructure/"] },
+  { role: "System Architecture Owner", owns: ["knowledge/architecture/system/"] },
+  { role: "Data Architecture Owner", owns: ["knowledge/architecture/data/"] },
+];
 
 const CONTENT = path.join(import.meta.dirname, "..", "..", "..", "..", "content");
 
@@ -69,7 +76,7 @@ describe("the org's role list — parseRoleList", () => {
     expect(r.found).to.equal(true);
     if (!r.found) return;
     const p = r.problems.join("\n");
-    expect(p).to.match(/Policy Owner.*org-config\.yaml/);
+    expect(p).to.match(/Policy Owner.*policies\/governance\.yaml/);
     expect(p).to.match(/Data Owner.*<DATA_OWNER_GITHUB>/);
     expect(p).to.match(/Ops Owner.*not a GitHub handle/);
     expect(p).to.match(/site\/.*not under knowledge\//);
@@ -84,32 +91,26 @@ describe("the org's role list — parseRoleList", () => {
   });
 });
 
-describe("the org's role list — resolveRoles (and the one-release fallback)", () => {
-  const CFG = 'policy_owner_github: "@polly"\ncheck_owner_github: "chuck"\nlegal_owner_github: "@lex"\ndata_arch_owner_github: ""\n';
-
-  it("the table wins when it is there — the old keys are not read at all", () => {
-    const r = resolveRoles(CFG, table("| Data Owner | @dana | `knowledge/data/` |"));
-    expect(r.source).to.equal("role-list");
+describe("the org's role list — resolveRoles (no fallback since the org-config split)", () => {
+  it("the table is the list", () => {
+    const r = resolveRoles(table("| Data Owner | @dana | `knowledge/data/` |"));
+    expect(r.found).to.equal(true);
     expect(r.roles.map((x) => x.role)).to.deep.equal(["Data Owner"]);
   });
 
-  it("no table → the legacy *_owner_github keys, with the folders the framework used to hard-code", () => {
+  it("no table → no roles of the org's own (the Policy Owner owns every folder)", () => {
     for (const text of [null, undefined, "# no table here\n"]) {
-      const r = resolveRoles(CFG, text);
-      expect(r.source).to.equal("org-config");
-      expect(r.roles.map((x) => x.role), "only the keys the config carries").to.deep.equal(["Legal Owner", "Data Architecture Owner"]);
-      expect(r.roles.find((x) => x.role === "Legal Owner")).to.deep.equal({ role: "Legal Owner", holder: "@lex", owns: ["knowledge/legal/"] });
-      expect(r.roles.find((x) => x.role === "Data Architecture Owner")!.holder).to.equal(null);
+      expect(resolveRoles(text)).to.deep.equal({ found: false, roles: [], problems: [] });
     }
   });
 
-  it("roleHandles: the two framework roles from org-config, every org role by name (vacant → empty)", () => {
-    const r = resolveRoles(CFG, table("| Data Owner | @dana | `knowledge/data/` |", "| Legal Owner | | |"));
-    expect(roleHandles(CFG, r.roles)).to.deep.equal({
+  it("roleHandles: the two framework roles from governance.yaml, every org role by name (vacant → empty)", () => {
+    const r = resolveRoles(table("| Data Owner | @dana | `knowledge/data/` |", "| Legal Owner | | |"));
+    expect(roleHandles({ policyOwner: "@polly", checkOwner: "chuck" }, r.roles)).to.deep.equal({
       "Policy Owner": "@polly", "Check Owner": "chuck", "Data Owner": "@dana", "Legal Owner": "",
     });
-    expect(roleHandles('policy_owner_github: "@polly"\n', [])["Check Owner"], "vacant Check Owner → the Policy Owner").to.equal("@polly");
-    expect(roleHandles("", []), "no Policy Owner → no framework roles at all").to.deep.equal({});
+    expect(roleHandles({ policyOwner: "@polly" }, [])["Check Owner"], "vacant Check Owner → the Policy Owner").to.equal("@polly");
+    expect(roleHandles({}, []), "no Policy Owner → no framework roles at all").to.deep.equal({});
   });
 });
 
@@ -120,19 +121,18 @@ describe("the seeded role list", () => {
     const r = parseRoleList(seeded);
     expect(r.found).to.equal(true);
     if (!r.found) return;
-    expect(r.roles.map((x) => x.role)).to.deep.equal(LEGACY_DOMAIN_ROLES.map((x) => x.role));
-    for (const legacy of LEGACY_DOMAIN_ROLES) {
+    expect(r.roles.map((x) => x.role)).to.deep.equal(STARTER_ROLES.map((x) => x.role));
+    for (const legacy of STARTER_ROLES) {
       expect(r.roles.find((x) => x.role === legacy.role)!.owns).to.deep.equal(legacy.owns);
     }
   });
 
-  it("setup's token sweep fills the handles from the org-config it just wrote (each defaults to the Policy Owner)", () => {
-    const cfg = 'policy_owner_email: "p@acme.io"\nlegal_owner_github: "@lex"\ninfra_owner_github: "@rk"\n'
-      + 'system_arch_owner_github: "@sys"\ndata_arch_owner_github: "@dana"\n';
-    const r = parseRoleList(substituteTokens(seeded, tokenValuesFromOrgConfig(cfg)));
+  it("setup's token sweep fills every starter role with the Policy Owner — setup no longer asks for them", () => {
+    const gov = 'policy_owner:\n  email: "p@acme.io"\n  github: "@polly"\n';
+    const r = parseRoleList(substituteTokens(seeded, setupTokenValues('org_slug: "ACM"\n', gov, "2026-10-06")));
     expect(r.found && r.problems).to.deep.equal([]);
     expect(r.found && Object.fromEntries(r.roles.map((x) => [x.role, x.holder]))).to.deep.equal({
-      "Legal Owner": "@lex", "Infrastructure Owner": "@rk", "System Architecture Owner": "@sys", "Data Architecture Owner": "@dana",
+      "Legal Owner": "@polly", "Infrastructure Owner": "@polly", "System Architecture Owner": "@polly", "Data Architecture Owner": "@polly",
     });
   });
 });

@@ -89,7 +89,7 @@ function issueFor(input: ViolationInput, undo: string | null, state: UndoState |
     `**Where:** ${ctx.resource} · ${ctx.event}`,
     `**Run:** ${runUrl ?? "(no run link)"}`,
     `**Undo:** ${undoLine(undo, state)}`,
-    ...(assignee ? [] : ["", `**The ${POLICY_OWNER} role is vacant**, so this record is unassigned. Name a holder in org-config.yaml.`]),
+    ...(assignee ? [] : ["", `**The ${POLICY_OWNER} role is vacant**, so this record is unassigned. Name a holder in policies/governance.yaml (policy_owner.github).`]),
     "",
     "### Findings",
     ...(verdict.findings.length ? verdict.findings.map((f) => `- ${f}`) : ["- (the check reported no detail)"]),

@@ -12,7 +12,7 @@
 import { expect } from "chai";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { ORG_CONFIG_KEYS, ORG_CONFIG_SERVICE_KEYS, unknownOrgConfigKeys } from "../../src/config/org-config.js";
+import { ORG_CONFIG_KEYS, ORG_CONFIG_SERVICE_KEYS, RETIRED_ORG_CONFIG_KEYS, unknownOrgConfigKeys } from "../../src/config/org-config.js";
 import { renderOrgConfig, deriveOrgConfig } from "../../src/setup/setup.js";
 
 const READER_SRC = fs.readFileSync(fileURLToPath(new URL("../../src/config/org-config.ts", import.meta.url)), "utf8");
@@ -56,8 +56,6 @@ describe("gov-work — org-config unknown keys", () => {
       "env_branches:",
       "  - uat",
       "  - sit",
-      "authorized_agents:",
-      '  default: "claude-code"',
       "session:",
       "  access_ttl_sec: 300",
     ].join("\n");
@@ -108,10 +106,12 @@ describe("gov-work — the key list cannot drift from the reader", () => {
     expect(READER_SRC).to.match(/function readServiceScalar\(text: string, key: OrgConfigServiceKey\)/);
   });
 
-  it("names the role handles other parts of gov read, so an org is not told they are ignored", () => {
-    for (const k of ["policy_owner_github", "legal_owner_github", "infra_owner_github",
-      "system_arch_owner_github", "data_arch_owner_github", "policy_effective_date"]) {
-      expect(ORG_CONFIG_KEYS).to.include(k);
+  it("names none of the keys that left in the split — those are on the retired list, with where each went", () => {
+    for (const k of ["policy_owner_github", "policy_owner_email", "check_owner_github", "governance_posture", "authorized_agents",
+      "knowledge_publication", "legal_owner_github", "infra_owner_github", "system_arch_owner_github", "data_arch_owner_github",
+      "policy_effective_date", "agent_work_root", "org_slug_lower", "authorized_approvers"]) {
+      expect(ORG_CONFIG_KEYS, k).to.not.include(k);
+      expect(RETIRED_ORG_CONFIG_KEYS, k).to.have.property(k);
     }
   });
 });

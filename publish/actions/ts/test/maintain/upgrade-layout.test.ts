@@ -74,8 +74,8 @@ describe("upgrade — a workspace on the old layout keeps everything that is the
     expect(read("policies/knowledge-publication.md")).to.equal("# our publication rules\n");
   });
 
-  it("the org's AUTHORIZED AGENTS are carried into org-config.yaml, default and all", () => {
-    const agents = parseAuthorizedAgents(read("org-config.yaml"));
+  it("the org's AUTHORIZED AGENTS are carried into policies/governance.yaml, default and all", () => {
+    const agents = parseAuthorizedAgents(read("policies/governance.yaml"));
     expect(agents?.map((a) => a.id)).to.have.members(["ibm-bob", "claude"]);
     expect(agents?.find((a) => a.default)?.id, "the org's default survives").to.equal("ibm-bob");
     expect(read("governance/policies/llm-governance.md"), "and the retired file is gone").to.equal(null);

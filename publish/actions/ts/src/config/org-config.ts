@@ -8,9 +8,8 @@
  * uses for tool-file substitution.
  */
 import * as os from "node:os";
+import yaml from "js-yaml";
 import { parseRepoOverrides } from "./repo-overrides.js";
-import { CHECK_OWNER } from "./codeowners.js";
-import { LEGACY_DOMAIN_ROLES } from "./role-list.js";
 import { readTopLevelScalar, expandTilde } from "../resolve/node-env.js";
 
 /**
@@ -19,78 +18,55 @@ import { readTopLevelScalar, expandTilde } from "../resolve/node-env.js";
  * `get()` below takes a {@link OrgConfigScalarKey}, so a key read without being declared here is a TYPE
  * error rather than a thing someone remembers to do, and `test/config/org-config-keys.test.ts` re-reads this
  * file's text to catch a reader that goes around `get()` entirely. The list exists because gov OWNS the
- * schema of this channel: an org that writes `require_two_approvals: true`, has it reviewed and merged, and
- * is told nothing has configured nothing — and only a list gov publishes can say so (see
- * {@link unknownOrgConfigKeys}).
+ * schema of this channel — published as `framework/config/org-config.schema.yaml`, which a test holds to
+ * these lists (org-config split, Policy Owner 2026-10-06).
+ *
+ * IDENTITY AND INFRASTRUCTURE ONLY. How the organization governs (posture, Policy and Check Owner, agents,
+ * knowledge publication, models) is in `policies/governance.yaml` (config/governance.ts); where a person's
+ * project folders live is theirs ({@link defaultWorkRoot}, `~/.gov/work-roots`).
  */
 const SCALARS = [
-  "org_name", "org_short_name", "org_slug", "org_slug_lower", "github_org",
+  "org_name", "org_short_name", "org_slug", "github_org",
   "org_gov_repo", "workspace_repo", "org_repo_url",
   "default_branch", "default_code_branch",
-  "agent_work_root", "gov_workspace", "policy_owner_email",
+  "gov_workspace",
   "vault_addr", "oidc_base", "gov_account",
-  "governance_posture",
 ] as const;
 export type OrgConfigScalarKey = (typeof SCALARS)[number];
 
-/**
- * HARD OR SOFT GOVERNANCE — the posture an organization CHOOSES (Policy Owner, 2026-09-29).
- *
- * `hard`  install repository controls, so that work attempted OUTSIDE gov is stopped by the platform.
- * `soft`  deliberately leave room for direct work — clone, commit and push by hand.
- *
- * WHY IT HAS TO BE WRITTEN DOWN. Until this key, the posture was whatever somebody had configured on GitHub by
- * hand, and gov only READ it (`lifecycle/branch-protection.ts`). Two organizations with identical
- * `org-config.yaml` files could be in opposite positions, neither of them on purpose, and gov had no way to
- * tell a deliberate soft posture from a hard one nobody got round to installing. Those are the same facts and
- * opposite findings.
- */
-export type GovernancePosture = "hard" | "soft";
+/** The keys an org-config.yaml must carry — gov cannot work for the organization without them. */
+export const REQUIRED_ORG_CONFIG_KEYS: readonly string[] = [
+  "org_name", "org_short_name", "org_slug", "org_repo_url", "github_org", "org_gov_repo", "default_branch", "default_code_branch",
+];
 
-/** Every posture gov understands — the list the messages quote, so they cannot drift from the type. */
-export const GOVERNANCE_POSTURES: readonly GovernancePosture[] = ["hard", "soft"];
+/** Keys still read under an old name, old → new. `gov upgrade` renames them (the `org-config-split` migration). */
+export const REPLACED_ORG_CONFIG_KEYS: Readonly<Record<string, string>> = {
+  workspace_repo: "org_gov_repo",
+  vault_addr: "services.vault",
+  oidc_base: "services.oidc",
+};
 
 /**
- * What the file says about the posture.
- *
- * ABSENT OR EMPTY IS `soft` (Policy Owner, W2-Q6, 2026-10-06). The "nobody chose" third state is gone: `hard`
- * needs public repositories or a paid GitHub plan, so it is the one an organization opts into — at setup, past a
- * confirmation that says what it costs. `raw` stays `""` so a report can say soft is the DEFAULT rather than a
- * recorded choice.
- *
- * `unrecognised` is the one state that is neither: `governance_posture: strict` is someone who chose and was not
- * heard, which is the failure mode {@link unknownOrgConfigKeys} exists for, one level down — the key is known, the
- * value is not. `posture` is null only then.
+ * KEYS THAT HAVE LEFT org-config.yaml, and where each went (org-config split, Policy Owner 2026-10-06). gov no
+ * longer reads any of them here; `gov upgrade` carries their values once (upgrade-run.ts `org-config-split`) and
+ * `gov doctor` names any still present.
  */
-export interface PostureChoice {
-  /** Null only when {@link unrecognised}. */
-  readonly posture: GovernancePosture | null;
-  /** Exactly what the file said, lower-cased and trimmed. `""` when the key is absent or empty. */
-  readonly raw: string;
-  /** There IS a value and it is not a posture. Never the same fact as unset. */
-  readonly unrecognised: boolean;
-}
-
-/** Classify a raw `governance_posture` value. Pure. */
-export function classifyPosture(raw: string | null | undefined): PostureChoice {
-  const value = (raw ?? "").trim().toLowerCase();
-  if (!value) return { posture: "soft", raw: "", unrecognised: false };
-  const known = GOVERNANCE_POSTURES.find((p) => p === value);
-  return known
-    ? { posture: known, raw: value, unrecognised: false }
-    : { posture: null, raw: value, unrecognised: true };
-}
-
-/**
- * The posture, read straight from `org-config.yaml`'s text. Pure.
- *
- * A second spelling of one fact, and deliberately so: `parseOrgConfig` gives it to the commands, and `doctor`
- * holds the TEXT (it reports on a workspace it may not have parsed) — one classifier under both, so the row
- * and the command can never disagree about what the file said.
- */
-export function readPosture(text: string | null | undefined): PostureChoice {
-  return classifyPosture(text ? readTopLevelScalar(text, "governance_posture") : null);
-}
+export const RETIRED_ORG_CONFIG_KEYS: Readonly<Record<string, string>> = {
+  governance_posture: "policies/governance.yaml (governance_posture)",
+  policy_owner_email: "policies/governance.yaml (policy_owner.email)",
+  policy_owner_github: "policies/governance.yaml (policy_owner.github)",
+  check_owner_github: "policies/governance.yaml (check_owner.github)",
+  authorized_agents: "policies/governance.yaml (authorized_agents)",
+  knowledge_publication: "policies/governance.yaml (knowledge_publication)",
+  legal_owner_github: "the role list in policies/authorized-representatives.md",
+  infra_owner_github: "the role list in policies/authorized-representatives.md",
+  system_arch_owner_github: "the role list in policies/authorized-representatives.md",
+  data_arch_owner_github: "the role list in policies/authorized-representatives.md",
+  authorized_approvers: "nowhere — approvers are the Policy Owner, the Check Owner and the role list's holders",
+  agent_work_root: "your own machine (~/.gov/work-roots); the default is ~/.gov/<slug>/projects",
+  org_slug_lower: "nowhere — it is org_slug in lower case",
+  policy_effective_date: "nowhere — a policy's history is its version and CHANGELOG",
+};
 
 /** Endpoints copied out of the `services:` block into {@link OrgConfig.services}. */
 const SERVICE_ENDPOINTS = ["vault", "oidc", "oidc_client_id", "jenkins", "npm", "docker"] as const;
@@ -111,50 +87,14 @@ const BLOCKS = [
   "services",           // readServiceScalar, below
   "repo_overrides",     // config/repo-overrides.ts
   "env_branches",       // readTopLevelList, below
-  "authorized_agents",  // config/approved-agents.ts — which agents this org authorizes
   "session",            // written by setup; `access_ttl_sec` is read by the DEPLOY clients (gov-cicd/gov-infra)
 ] as const;
 
-/**
- * Keys gov reads SOMEWHERE ELSE than this file. They belong on the list for one reason: the list answers
- * "does gov read this key", and an org told `legal_owner_github` is ignored would be told a falsehood — the
- * false-alarm failure mode `maintain/doctor.ts` keeps arguing against. Each names its reader; the role
- * handles come from CODEOWNERS' own table, so adding a role cannot drift from this.
- */
-const READ_ELSEWHERE: readonly string[] = [
-  "policy_owner_github",                    // config/codeowners.ts — the Policy Owner line
-  CHECK_OWNER.key,                          // check_owner_github — config/codeowners.ts, the policies/actions/ line
-  ...LEGACY_DOMAIN_ROLES.map((r) => r.key), // legal_ / infra_ / system_arch_ / data_arch_owner_github — read only when the role list is absent (role-list.ts, one release)
-  "policy_effective_date",                  // setup.ts round-trip + <POLICY_EFFECTIVE_DATE> substitution
-  // READ BY THE WORKFLOW THE FRAMEWORK SHIPS, not by this CLI (framework/templates/workflows/approver-check.yml).
-  // §3.2's list of authorized representatives lives in `policies/authorized-representatives.md`, which names
-  // PEOPLE by email and is seed-once — so the framework can never add machine-readable structure to it
-  // (MANIFEST.yaml states that limit outright). The approver check needs GitHub logins, and this is where an
-  // organization writes them. Optional: with no list, the workflow falls back to the role handles above.
-  "authorized_approvers",
-];
-
 /** Every top-level key gov reads, from the one place each is declared. Exported for `gov doctor`. */
-export const ORG_CONFIG_KEYS: readonly string[] = [...SCALARS, ...BLOCKS, ...READ_ELSEWHERE];
+export const ORG_CONFIG_KEYS: readonly string[] = [...SCALARS, ...BLOCKS];
 
-/**
- * Top-level keys present in the text that gov does not read — pure, and never a reason to stop.
- *
- * WHY THIS EXISTS. `preferences.ts` has said "gov does not know this setting — ignored" since it was
- * written, and `org-config.yaml` — the governed channel, the one reviewed and merged — said nothing at all.
- * A typed channel that silently drops what it does not understand cannot be trusted by the person filling
- * it in: a misspelling (`defualt_branch`) and an invention (`require_two_approvals`) both read as success.
- *
- * NEVER FATAL, NEVER A REASON TO STOP PARSING. An unknown key changes nothing about the keys gov did read,
- * and a config gov refuses to load is a gov that cannot tell you why.
- *
- * ONE CAVEAT, SAID OUT LOUD: `setup/create.ts`'s token sweep turns EVERY top-level scalar into a
- * `<UPPERCASE>` token for content substitution, so a key on nobody's list may still reach an adopter's
- * documents that way. "gov does not read this" is a statement about gov's typed readers, which is what the
- * person writing a governance value is relying on.
- */
-export function unknownOrgConfigKeys(text: string): string[] {
-  const known = new Set(ORG_CONFIG_KEYS);
+/** The top-level `key:` names in the text, in order, once each. Comments, list items and nested keys are skipped. */
+function topLevelKeys(text: string): string[] {
   const out: string[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/\r$/, "");
@@ -165,17 +105,123 @@ export function unknownOrgConfigKeys(text: string): string[] {
     if (/^(---|\.\.\.)\s*$/.test(line)) continue;     // document markers
     const m = /^([A-Za-z_][A-Za-z0-9_.-]*)\s*:/.exec(line);
     if (!m) continue;                                 // not a `key:` line at all
-    const key = m[1]!;
-    if (known.has(key) || out.includes(key)) continue;
-    out.push(key);
+    if (!out.includes(m[1]!)) out.push(m[1]!);
   }
   return out;
+}
+
+/**
+ * Top-level keys present in the text that gov does not read — pure, and never a reason to stop.
+ *
+ * WHY THIS EXISTS. A typed channel that silently drops what it does not understand cannot be trusted by the
+ * person filling it in: a misspelling (`defualt_branch`) and an invention (`require_two_approvals`) both read
+ * as success. A RETIRED key is not unknown — it is reported by {@link validateOrgConfig} with where it went.
+ *
+ * NEVER FATAL, NEVER A REASON TO STOP PARSING. An unknown key changes nothing about the keys gov did read,
+ * and a config gov refuses to load is a gov that cannot tell you why.
+ */
+export function unknownOrgConfigKeys(text: string, known: readonly string[] = ORG_CONFIG_KEYS): string[] {
+  const k = new Set(known);
+  return topLevelKeys(text).filter((key) => !k.has(key) && !(key in RETIRED_ORG_CONFIG_KEYS));
+}
+
+/** What a check of org-config.yaml against the schema found. Every list empty = the file matches. */
+export interface OrgConfigKeyReport {
+  /** Keys neither the schema nor the retired list names. */
+  readonly unknown: readonly string[];
+  /** Required keys absent or empty. */
+  readonly missing: readonly string[];
+  /** Keys that have left the file, with where each went. */
+  readonly retired: readonly { readonly key: string; readonly movedTo: string }[];
+  /** Keys still read under an old name, with the new one. */
+  readonly replaced: readonly { readonly key: string; readonly by: string }[];
+}
+
+/** Where the framework ships the schema in a workspace (scaffold-auto: `gov upgrade` writes it). */
+export const ORG_CONFIG_SCHEMA_PATH = "framework/config/org-config.schema.yaml";
+
+/** The parts of `framework/config/org-config.schema.yaml` a check needs. */
+export interface OrgConfigSchema {
+  readonly keys: readonly string[];
+  readonly required: readonly string[];
+  readonly replaced: Readonly<Record<string, string>>;
+  readonly retired: Readonly<Record<string, string>>;
+}
+
+/** The schema gov was built with — what `parseOrgConfig` reads. A test holds the shipped schema file to it. */
+export const BUILT_IN_ORG_CONFIG_SCHEMA: OrgConfigSchema = {
+  keys: ORG_CONFIG_KEYS, required: REQUIRED_ORG_CONFIG_KEYS, replaced: REPLACED_ORG_CONFIG_KEYS, retired: RETIRED_ORG_CONFIG_KEYS,
+};
+
+/**
+ * Parse the schema file's text. Null when it cannot be read as one — the caller then uses the built-in schema,
+ * because a broken schema file must not stop `gov doctor` from checking anything.
+ */
+export function parseOrgConfigSchema(text: string | null | undefined): OrgConfigSchema | null {
+  if (!text) return null;
+  let doc: unknown;
+  try { doc = yaml.load(text); } catch { return null; /* unreadable: the built-in schema applies */ }
+  const isMap = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+  if (!isMap(doc) || !isMap(doc.keys)) return null;
+  const keys = Object.keys(doc.keys);
+  const required = keys.filter((k) => isMap((doc.keys as Record<string, unknown>)[k]) && ((doc.keys as Record<string, Record<string, unknown>>)[k]!.required === true));
+  const replaced: Record<string, string> = {};
+  for (const k of keys) {
+    const e = (doc.keys as Record<string, unknown>)[k];
+    if (isMap(e) && typeof e.replaced === "string") replaced[k] = e.replaced;
+  }
+  const retired: Record<string, string> = {};
+  if (isMap(doc.retired)) for (const [k, v] of Object.entries(doc.retired)) retired[k] = String(v);
+  return { keys, required, replaced, retired };
+}
+
+/**
+ * Check org-config.yaml's text against the schema (the workspace's `framework/config/org-config.schema.yaml` when
+ * there is one, else the one gov was built with). Pure; never throws.
+ */
+export function validateOrgConfig(text: string, schema: OrgConfigSchema = BUILT_IN_ORG_CONFIG_SCHEMA): OrgConfigKeyReport {
+  const present = topLevelKeys(text);
+  const known = new Set(schema.keys);
+  return {
+    unknown: present.filter((k) => !known.has(k) && !(k in schema.retired)),
+    missing: schema.required.filter((k) => {
+      if ((readTopLevelScalar(text, k) ?? "").trim()) return false;
+      // A required key still under its old name is not missing — it is reported as replaced.
+      return !Object.entries(schema.replaced).some(([old, now]) => now === k && (readTopLevelScalar(text, old) ?? "").trim());
+    }),
+    retired: present.filter((k) => k in schema.retired).map((key) => ({ key, movedTo: schema.retired[key]! })),
+    replaced: present.filter((k) => k in schema.replaced).map((key) => ({ key, by: schema.replaced[key]! })),
+  };
+}
+
+/** The lines a command prints when org-config.yaml does not match the schema — none when it does. */
+export function orgConfigLoadNotes(r: OrgConfigKeyReport): string[] {
+  const out: string[] = [];
+  if (r.retired.length) out.push(`gov: org-config.yaml still holds ${r.retired.map((x) => x.key).join(", ")}, which moved out of it — run \`gov upgrade\` to carry them (\`gov doctor\` says where each went).`);
+  if (r.missing.length) out.push(`gov: org-config.yaml is missing ${r.missing.join(", ")} — run \`gov setup\`.`);
+  if (r.unknown.length) out.push(`gov: org-config.yaml has ${r.unknown.join(", ")}, which gov does not read (ignored).`);
+  return out;
+}
+
+/**
+ * WHERE A PERSON'S PROJECT FOLDERS LIVE, when they have not said otherwise: `~/.gov/<slug>/projects`, beside the
+ * governance repository's own `~/.gov/<slug>/gov_repo` (the workspace-resolution contract, R9/R10). Empty while
+ * the org has no slug (a template not yet set up).
+ *
+ * It left org-config.yaml in the split: it is a fact about ONE person's machine, and one org-wide value either
+ * fits everybody's disk or quietly does not. A person who wants it elsewhere records it in `~/.gov/work-roots`
+ * (`<github_org>\t<path>`, the same shape as the workspace registry beside it).
+ */
+export function defaultWorkRoot(orgSlug: string): string {
+  const s = orgSlug.trim().toLowerCase();
+  return s ? `~/.gov/${s}/projects` : "";
 }
 
 export interface OrgConfig {
   readonly orgName: string;
   readonly orgShortName: string;
   readonly orgSlug: string;
+  /** `org_slug` in lower case — derived, never written (the `org_slug_lower` key is retired). */
   readonly orgSlugLower: string;
   readonly githubOrg: string;
   readonly workspaceRepo: string;
@@ -204,11 +250,13 @@ export interface OrgConfig {
    * can write on the right. Empty for every org that does not work from forks.
    */
   readonly repoOverrides: Readonly<Record<string, string>>;
-  /** `agent_work_root`, expanded to an absolute path. */
+  /**
+   * Where this person's project folders live, expanded: their own choice (`~/.gov/work-roots`) when the caller
+   * passes one, else {@link defaultWorkRoot}. No longer an org-config key.
+   */
   readonly agentWorkRoot: string;
   /** `gov_workspace`, expanded to an absolute path. */
   readonly govWorkspace: string;
-  readonly policyOwnerEmail: string;
   /** OpenBao/Vault address (`vault_addr` or `services.vault`) — read by the DEPLOY clients (gov-cicd/gov-infra);
    *  gov-work stores no secrets. env `GOV_BAO_ADDR` overrides. */
   readonly vaultAddr: string;
@@ -219,10 +267,8 @@ export interface OrgConfig {
   readonly services: Readonly<Record<string, string>>;
   /** Gov tenant/account (`gov_account`) — the account context service auth mints under; env `GOV_ACCOUNT` overrides. */
   readonly govAccount: string;
-  /**
-   * `governance_posture` — hard or soft; absent or empty is soft (W2-Q6). See {@link PostureChoice}.
-   */
-  readonly governancePosture: PostureChoice;
+  /** The file checked against the schema gov was built with: unknown, missing, retired and renamed keys. */
+  readonly keyReport: OrgConfigKeyReport;
   /** Token → value for tool-file substitution (seed phase B.1). */
   readonly orgTokens: Readonly<Record<string, string>>;
 }
@@ -269,7 +315,12 @@ function readServiceScalar(text: string, key: OrgConfigServiceKey): string | und
   return undefined;
 }
 
-export function parseOrgConfig(text: string, home: string = os.homedir()): OrgConfig {
+/** What the caller knows that the file does not: this person's own work root, when they recorded one. */
+export interface OrgConfigExtras {
+  readonly workRoot?: string | null;
+}
+
+export function parseOrgConfig(text: string, home: string = os.homedir(), extras: OrgConfigExtras = {}): OrgConfig {
   // TYPED, so the reader cannot read a key the published list does not name (see SCALARS above).
   const get = (key: OrgConfigScalarKey): string => readTopLevelScalar(text, key) ?? "";
   const svc = (key: OrgConfigServiceKey): string | undefined => readServiceScalar(text, key);
@@ -281,7 +332,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
   const orgName = get("org_name");
   const orgShortName = get("org_short_name");
   const orgSlug = get("org_slug");
-  const orgSlugLower = get("org_slug_lower");
+  const orgSlugLower = orgSlug.toLowerCase();
   const githubOrg = get("github_org");
   // `org_gov_repo`, with `workspace_repo` still read (Policy Owner, 2026-09-23). The name says what the
   // repository IS — the organization's governance repo — where "workspace" named where it happened to sit.
@@ -293,14 +344,12 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
   const defaultCodeBranch = get("default_code_branch");
   const envBranches = readTopLevelList(text, "env_branches");
   const repoOverrides = parseRepoOverrides(text);
-  const agentWorkRoot = expandTilde(get("agent_work_root"), home);
+  const agentWorkRoot = expandTilde((extras.workRoot ?? "").trim() || defaultWorkRoot(orgSlug), home);
   const govWorkspace = expandTilde(get("gov_workspace"), home);
-  const policyOwnerEmail = get("policy_owner_email");
   // vault_addr (legacy top-level) OR services.vault; oidc + account likewise. Endpoints are org-level.
   const vaultAddr = get("vault_addr") || services.vault || "";
   const oidcBase = get("oidc_base") || services.oidc || "";
   const govAccount = get("gov_account") || svc("gov_account") || "";
-  const governancePosture = classifyPosture(get("governance_posture"));
 
   const orgTokens: Record<string, string> = {
     ORG_NAME: orgName,
@@ -313,7 +362,6 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
     DEFAULT_BRANCH: defaultBranch,
     DEFAULT_CODE_BRANCH: defaultCodeBranch,
     AGENT_WORK_ROOT: agentWorkRoot,
-    POLICY_OWNER_EMAIL: policyOwnerEmail,
   };
 
   return {
@@ -330,12 +378,11 @@ export function parseOrgConfig(text: string, home: string = os.homedir()): OrgCo
     repoOverrides,
     agentWorkRoot,
     govWorkspace,
-    policyOwnerEmail,
     vaultAddr,
     oidcBase,
     services,
     govAccount,
-    governancePosture,
+    keyReport: validateOrgConfig(text),
     orgTokens,
   };
 }

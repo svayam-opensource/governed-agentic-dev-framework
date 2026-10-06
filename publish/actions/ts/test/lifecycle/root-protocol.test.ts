@@ -138,7 +138,7 @@ describe("root-protocol — defect 1: a source gov cannot read is REPORTED, neve
   });
 
   it("an org that runs no agents reports nothing at all — there is no guarantee to keep", () => {
-    const fs = memFs({ [`${PROJECT}/${WS}/org-config.yaml`]: "authorized_agents: none\n" });
+    const fs = memFs({ [`${PROJECT}/${WS}/policies/governance.yaml`]: "authorized_agents: none\n" });
     const r = ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
     expect(r.structureOnly).to.equal(true);
     expect(mirrorWarnings(r), "structure-only is a decision, not a defect").to.deep.equal([]);

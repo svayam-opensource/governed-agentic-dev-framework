@@ -15,11 +15,12 @@
 #                      install. Not a conflict: there is nothing to decide, so reporting one
 #                      every upgrade would only train people to ignore conflict output.
 #                      ACCEPTED LIMIT: the framework can never add required STRUCTURE to a
-#                      seed-once file. If it must, the file belongs in overlay-schema
-#                      (structured data) or should ship as a reference the org copies from.
-#   overlay-schema   — MERGE. Framework owns the shape, org owns the values: add keys the
-#                      template introduces, comment out keys it removes, never modify a value
-#                      the organization provided.
+#                      seed-once file. If it must, it ships a SCHEMA beside it (scaffold-auto)
+#                      that gov checks the org's file against — org-config.yaml and
+#                      framework/config/org-config.schema.yaml — or a reference the org copies from.
+#   (overlay-schema, the key-by-key MERGE org-config.yaml used to get, is gone — org-config split,
+#    Policy Owner 2026-10-06. Two writers of one file emptied an org's values once (Tier 0 #5); the
+#    framework now writes only the schema, and the org only the values.)
 #   scaffold-prompt  — CONFLICT: flag it, skip it, let a human merge. Only for files where
 #                      BOTH sides genuinely evolve. Requires a baseline to be meaningful.
 #
@@ -47,9 +48,11 @@ files:
   # ── meta ────────────────────────────────────────────────────────────────────────────────
   - { src: VERSION, dst: VERSION, mode: scaffold-auto }
 
-  # org-config: the ONE precedent for "framework owns the shape, org owns the values".
-  # Owner handles left this file under Decision 13 — roles live in the policy only.
-  - { src: org-config.example.yaml, dst: org-config.yaml, mode: overlay-schema }
+  # org-config: who the organization IS — identity and infrastructure only. Seeded once and then the
+  # org's; the framework owns its SHAPE, published as framework/config/org-config.schema.yaml (below),
+  # which `gov doctor` checks it against. How the org GOVERNS left it for policies/governance.yaml.
+  - { src: org-config.example.yaml, dst: org-config.yaml, mode: seed-once }
+  - { src: framework/config/org-config.schema.yaml, dst: framework/config/org-config.schema.yaml, mode: scaffold-auto }
 
   # CODEOWNERS is GENERATED from the policy's roles block (Decision 13), not copied. It is
   # deliberately absent from this manifest: a shipped template carried 7 unresolved tokens
@@ -154,6 +157,10 @@ files:
   - { src: policies/data-classification.md,             dst: policies/data-classification.md,             mode: seed-once }
   - { src: policies/authorized-representatives.md,      dst: policies/authorized-representatives.md,      mode: seed-once }
   - { src: policies/policy-domains.md,                  dst: policies/policy-domains.md,                  mode: seed-once }
+  # THE ORGANIZATION'S GOVERNANCE CHOICES (org-config split, 2026-10-06): posture, Policy and Check Owner,
+  # authorized agents, knowledge publication, the model approved for `gov rules propose`. A change needs the
+  # Policy Owner. An older org's values arrive here from org-config.yaml by the `org-config-split` move below.
+  - { src: policies/governance.yaml,                    dst: policies/governance.yaml,                    mode: seed-once }
   # Who approves a change to each policy section (W2-Q8). Seeded empty — every section is the Policy Owner's —
   # and from then on written by `gov rules propose` from the policies' own ownership sentences.
   - { src: policies/ownership.yaml,                     dst: policies/ownership.yaml,                     mode: seed-once }
@@ -221,8 +228,14 @@ moves:
   - { from: framework/policies/org_gov_repo_operations.md, to: framework/docs/specs/org_gov_repo_operations.md, mode: move }
   - { from: governance/policies/knowledge-organization-standard.md, to: policies/knowledge-organization-standard.md, mode: move }
   - { from: governance/infrastructure/knowledge-publication-spec.md, to: policies/knowledge-publication.md, mode: move }
-  # The approved agents leave llm-governance.md for org-config.yaml — the one thing a move cannot express.
-  - { from: governance/policies/llm-governance.md, to: org-config.yaml, mode: migrate, how: approved-agents-to-org-config }
+  # The approved agents leave llm-governance.md — the one thing a move cannot express. They land in
+  # policies/governance.yaml, where the org-config split put them (the migration's name is its history).
+  - { from: governance/policies/llm-governance.md, to: policies/governance.yaml, mode: migrate, how: approved-agents-to-org-config }
+  # THE ORG-CONFIG SPLIT (Policy Owner, 2026-10-06), once and recorded: the governance choices leave
+  # org-config.yaml for policies/governance.yaml, the domain owners for the role list, your work root for
+  # your own machine; workspace_repo is renamed org_gov_repo. Refused — nothing written — if any value gov
+  # reads would be lost.
+  - { from: org-config.yaml, to: policies/governance.yaml, mode: migrate, how: org-config-split }
 
 # ── retire: WHAT THIS RELEASE STOPPED SHIPPING (P3 cutover, 2026-10-06) ──────────────────────────────────────
 #

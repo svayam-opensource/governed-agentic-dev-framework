@@ -147,14 +147,19 @@ make_gov_repo() {
 org_name: "$org Ltd"
 org_short_name: "$org"
 org_slug: "$slug"
-org_slug_lower: "$(echo "$slug" | tr '[:upper:]' '[:lower:]')"
 org_repo_url: "git@github.com:$org/$org-gov.git"
 github_org: "$org"
-workspace_repo: "$org-gov"
+org_gov_repo: "$org-gov"
 default_branch: "main"
 default_code_branch: "dev"
-agent_work_root: "$HOME/.gov/$(echo "$slug" | tr '[:upper:]' '[:lower:]')/projects"
-policy_owner_email: "owner@example.test"
+YAML
+  # The governance choices, in their own file since the org-config split. The work root is the default,
+  # ~/.gov/<slug>/projects — a person's own, never a key in either file.
+  cat > "$dir/policies/governance.yaml" <<YAML
+governance_posture: "soft"
+policy_owner:
+  email: "owner@example.test"
+  github: ""
 YAML
   cp "$CONTENT_DIR/agent/session-protocol.md" "$dir/agent/" 2>/dev/null || echo "# protocol" > "$dir/agent/session-protocol.md"
   cp "$CONTENT_DIR/framework/docs/specs/framework-specification.md" "$dir/framework/docs/specs/" 2>/dev/null \
@@ -211,10 +216,10 @@ fake_joined_project() {
   done
 }
 
-# Record the org's authorized agents the way `gov agent approve` would — in org-config.yaml since the
-# 2026-09-23 split: the framework publishes the master list, the org records which of them are ours.
+# Record the org's authorized agents the way `gov agent approve` would — in policies/governance.yaml since the
+# org-config split (2026-10-06): the framework publishes the master list, the org records which of them are ours.
 approve_agents() {
-  local file="$1/org-config.yaml"; shift
+  local file="$1/policies/governance.yaml"; shift
   { printf '\nauthorized_agents:\n'
     local first=1 n=0
     for id in "$@"; do
@@ -225,12 +230,12 @@ approve_agents() {
 
 # THE OTHER ANSWER TO THE SAME QUESTION: this organization runs NO AI agents (structure-only).
 #
-# Written the way gov writes it — a SCALAR. Not an empty block: `org-config.example.yaml` ships
+# Written the way gov writes it — a SCALAR. Not an empty block: `policies/governance.yaml` ships
 # `authorized_agents:` with `default: ""` under it, so an empty block is what an unanswered setup
 # looks like, and a fixture spelled that way would be testing "nobody has decided" while claiming
 # to test a decision.
 authorize_no_agents() {
-  printf '\nauthorized_agents: none\n' >> "$1/org-config.yaml"
+  printf '\nauthorized_agents: none\n' >> "$1/policies/governance.yaml"
 }
 
 # ── driving ───────────────────────────────────────────────────────────────────

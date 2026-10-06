@@ -8,8 +8,11 @@
 import { confirmPosture, parsePostureAnswer, postureRule, POSTURE_QUESTION } from "./posture-question.js";
 import * as path from "node:path";
 import type { Fs } from "../lifecycle/fs-io.js";
-import { deriveOrgConfig, renderOrgConfig, type OrgConfigValues, type SetupContext } from "./setup.js";
-import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, emailShape, isoDate, branchChoice, parseBranchChoice, branchName, type Validator } from "./answers.js";
+import { deriveOrgConfig, renderOrgConfig, renderSetupGovernance, type OrgConfigValues, type SetupContext } from "./setup.js";
+import { defaultWorkRoot } from "../config/org-config.js";
+import { parseAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
+import { GOVERNANCE_PATH } from "../config/governance.js";
+import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, emailShape, branchChoice, parseBranchChoice, branchName, type Validator } from "./answers.js";
 
 export interface SetupIo {
   readonly fs: Fs;
@@ -71,6 +74,14 @@ async function askValid(io: SetupIo, question: string, def: string, rule: Valida
     io.print(`  ✗ ${problem}`);
   }
   throw new AnswerRefused(`${question}: no usable answer after ${MAX_ATTEMPTS} attempts.`);
+}
+
+/**
+ * A re-run must not drop agents the org already authorized: the `authorized_agents` block from governance.yaml, else
+ * from an org-config.yaml that predates the split. Null when neither has one.
+ */
+function existingAgents(governanceText: string | null, orgConfigText: string | null): ReturnType<typeof parseAuthorizedAgents> {
+  return parseAuthorizedAgents(governanceText) ?? parseAuthorizedAgents(orgConfigText);
 }
 
 export async function runSetup(io: SetupIo, interactive: boolean): Promise<number> {
@@ -147,7 +158,7 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
     // produces a layout nothing else in the tool expects — the three-way
     // disagreement fixed in #186 came from exactly this value being settable in one
     // place and derived in another. Told, not asked.
-    if (!interviewed) io.print(`  Project workspaces will live in  ${d1.agentWorkRoot}`);
+    if (!interviewed) io.print(`  Project workspaces will live in  ${defaultWorkRoot(d1.orgSlug)}  (yours to change: ~/.gov/work-roots)`);
     answers.policyOwnerEmail = known("policyOwnerEmail")
       ?? await askValid(io, "Policy Owner email", d1.policyOwnerEmail, emailShape);
     // NOT ASKED either. The email above identifies a GitHub account; the handle is
@@ -163,8 +174,6 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
     // W2-Q6: soft unless hard is chosen past the confirmation.
     answers.governancePosture = known("governancePosture") ?? await confirmPosture(
       parsePostureAnswer(await askValid(io, POSTURE_QUESTION, "1", postureRule)) ?? "soft", io.prompt);
-    answers.policyEffectiveDate = known("policyEffectiveDate")
-      ?? await askValid(io, "Policy effective date (YYYY-MM-DD)", d1.policyEffectiveDate, isoDate);
     // NOT MENTIONED HERE (#192). Service endpoints are org-level values the deploy
     // clients read (gov-cicd, gov-infra); gov-work needs none of them. Announcing a
     // heading for a section that then asks nothing left an adopter waiting for a
@@ -185,21 +194,29 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
   // key arrives empty and CODEOWNERS escalates to the Policy Owner — but an org set up now is asked, and leaves
   // with somebody named.
   if (!v.checkOwnerGithub.replace(/^@+/, "").trim()) {
-    io.print("setup: check_owner_github is empty — name who reviews the code of your check actions (policies/actions/).");
-    io.print("  It defaults to the Policy Owner; with no Policy Owner handle either, run interactively or pre-fill org-config.yaml.");
+    io.print(`setup: check_owner.github is empty — name who reviews the code of your check actions (policies/actions/).`);
+    io.print(`  It defaults to the Policy Owner; with no Policy Owner handle either, run interactively or pre-fill ${GOVERNANCE_PATH}.`);
     return 1;
   }
   // THE POLICY OWNER MUST BE ASSIGNED (GOV-FRM-033). Every approval, every vacant role and CODEOWNERS itself fall
   // back to this one handle; an org set up without it has nobody to approve anything.
   if (!v.policyOwnerGithub.replace(/^@+/, "").trim()) {
-    io.print("setup: policy_owner_github is empty — name the Policy Owner, who approves your policies and holds every vacant role.");
-    io.print("  It is derived from your GitHub login; with none signed in, run interactively or pre-fill org-config.yaml.");
+    io.print("setup: policy_owner.github is empty — name the Policy Owner, who approves your policies and holds every vacant role.");
+    io.print(`  It is derived from your GitHub login; with none signed in, run interactively or pre-fill ${GOVERNANCE_PATH}.`);
     return 1;
   }
 
   const configPath = path.join(io.cwd, "org-config.yaml");
+  const governancePath = path.join(io.cwd, GOVERNANCE_PATH);
+  // Read BEFORE either file is rewritten: an org-config that predates the split still holds the agents.
+  const keptAgents = existingAgents(io.fs.readFile(governancePath), io.fs.readFile(configPath));
   io.fs.writeFile(configPath, renderOrgConfig(v));
   io.print(`Wrote ${configPath}`);
+  // THE GOVERNANCE CHOICES, beside the policy they configure (org-config split, 2026-10-06). The agents are added
+  // afterwards by whoever asked for them (the adopter path records Q11's answer just before the commit).
+  const fresh = renderSetupGovernance(v);
+  io.fs.writeFile(governancePath, keptAgents === null ? fresh : withAuthorizedAgents(fresh, keptAgents) ?? fresh);
+  io.print(`Wrote ${governancePath}`);
   if (io.setOriginRemote && v.orgRepoUrl) {
     io.setOriginRemote(v.orgRepoUrl);
     io.print(`Set origin → ${v.orgRepoUrl}`);

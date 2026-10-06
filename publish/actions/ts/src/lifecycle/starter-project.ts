@@ -43,7 +43,7 @@ export function starterProject(githubOrg: string, workspaceRepo: string): Starte
       "- `framework/docs/specs/framework-specification.md` — how the framework works.",
       "  Read chapter 3 (how strict a rule is) and chapter 6 (what an agent does at",
       "  session start) before changing anything; most of the document rests on those two.",
-      "- `org-config.yaml` (authorized_agents) — which agents are authorized, and what may",
+      "- `policies/governance.yaml` (authorized_agents) — which agents are authorized, and what may",
       "  be sent to a model and which models are allowed. These carry your strictest",
       "  rules and are the likeliest to need your own wording rather than ours.",
       "- `CODEOWNERS` — maps each knowledge area to whoever approves changes to it.",

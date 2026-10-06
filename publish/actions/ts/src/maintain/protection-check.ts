@@ -14,7 +14,7 @@
  */
 import type { Diagnostic, DiagnosticStatus } from "./doctor.js";
 import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
-import { GOVERNANCE_POSTURES, readPosture, type PostureChoice } from "../config/org-config.js";
+import { GOVERNANCE_POSTURES, readPosture, type PostureChoice } from "../config/governance.js";
 
 /**
  * The status check that verifies the approver (framework-specification.md §7.3's fourth control). Named here with a default because the
@@ -98,11 +98,12 @@ export function assessProtection(facts: ProtectionFacts | null, opts: Protection
  * DEFAULT — so an organization that never thought about it learns what it is in and how to choose hard. What warns
  * is a value gov does not know, because guessing which posture was meant is the one thing a posture must never be.
  *
- * `null` when no config was examined. Doctor's own rule: a row about a fact nobody gathered is worse than no row.
+ * Read from `policies/governance.yaml`'s text (org-config split): `null` = the file is absent (soft, the default);
+ * `undefined` = nobody looked, and then no row — doctor's own rule: a row about a fact nobody gathered is worse than none.
  */
-export function postureDiagnostic(orgConfigText: string | null | undefined): Diagnostic | null {
-  if (orgConfigText === null || orgConfigText === undefined) return null;
-  const choice = readPosture(orgConfigText);
+export function postureDiagnostic(governanceText: string | null | undefined): Diagnostic | null {
+  if (governanceText === undefined) return null;
+  const choice = readPosture(governanceText);
   if (choice.unrecognised || choice.posture === null) {
     return {
       name: "governance posture",
@@ -124,7 +125,7 @@ export function postureDiagnostic(orgConfigText: string | null | undefined): Dia
     name: "governance posture",
     status: "ok",
     detail: (choice.raw === ""
-      ? "soft (the default — `governance_posture: hard` in org-config.yaml chooses hard) — this organization leaves"
+      ? "soft (the default — `governance_posture: hard` in policies/governance.yaml chooses hard) — this organization leaves"
       : "soft — this organization deliberately leaves")
       + " room for direct work, so GOV-FRM-447 is not checked; a violation opens a"
       + " record for the Policy Owner instead of stopping the action. gov's own gates do not bind an agent started"
@@ -132,9 +133,9 @@ export function postureDiagnostic(orgConfigText: string | null | undefined): Dia
   };
 }
 
-/** The posture (absent = soft), or the unrecognised state, from `org-config.yaml`'s text. Re-exported so callers need one import. */
-export function postureOf(orgConfigText: string | null | undefined): PostureChoice {
-  return readPosture(orgConfigText ?? null);
+/** The posture (absent = soft), or the unrecognised state, from `policies/governance.yaml`'s text. Re-exported so callers need one import. */
+export function postureOf(governanceText: string | null | undefined): PostureChoice {
+  return readPosture(governanceText ?? null);
 }
 
 /** GOV-FRM-447.2 — the minimum the policy states. One, not two: the policy says "at least one". */

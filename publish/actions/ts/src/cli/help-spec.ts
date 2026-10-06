@@ -125,7 +125,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
       { name: "--from <dir>", what: "take the content from a local directory instead of the template remote" },
     ],
     examples: ["gov upgrade", "gov upgrade --pr", "gov upgrade --apply"],
-    changes: "with `--apply`: rewrites framework-owned files, leaves the org's own alone, merges org-config key by key, and removes what the new layout retires. With `--pr`: the same, on a branch, as a pull request",
+    changes: "with `--apply`: rewrites framework-owned files, leaves the org's own alone (org-config.yaml and policies/governance.yaml included), runs each recorded one-time migration — the org-config split among them — and removes what the new layout retires. With `--pr`: the same, on a branch, as a pull request",
     exit: EXIT_USUAL,
     seeAlso: ["doctor", "validate"],
   },
@@ -254,7 +254,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     name: "repo", audience: "you",
     summary: "install the repository controls framework-specification.md §7.3 requires — or say why the platform will not",
     usage: "protect [plan|apply] [--repo <owner/name>] [--branch <name>] [--repo-dir <path>] [--check <name>]",
-    where: "GOVERNED — it acts on a repository, and reads the posture from org-config.yaml",
+    where: "GOVERNED — it acts on a repository, and reads the posture from policies/governance.yaml",
     args: [{ name: "protect <plan|apply>", what: "plan (the default — prints what it WOULD change, per setting, and writes nothing) · apply (writes it)" }],
     flags: [
       { name: "--repo <owner/name>", what: "a participating CODE repository. Without it, this organization's governance repo" },

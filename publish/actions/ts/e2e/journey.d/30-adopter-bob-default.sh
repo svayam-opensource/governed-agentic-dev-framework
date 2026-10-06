@@ -51,17 +51,15 @@ drive "$(conv <<'C'
 # Enter — which in a pty driver is a hang, not a failure.
 > Q8 - What is policy owner email
 < adopter@acme.test
-> Q9 - What should be the policy effective date
-<
-# Q10 — THE CHECK OWNER (rule-model, 2026-10-06): who reviews the code of the org's check actions. Answered,
+# Q9 — THE CHECK OWNER (rule-model, 2026-10-06): who reviews the code of the org's check actions. Answered,
 # not defaulted: the default is the Policy Owner's gh login, which the container may not have.
-> Q10 - Who is the Check Owner
+> Q9 - Who is the Check Owner
 < adopter
-# Q11 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
-> Q11 - What governance posture
+# Q10 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
+> Q10 - What governance posture
 <
 ~ 240
-# Q12 — THE AGENT POLICY, NOW INSIDE THE INTERVIEW AND BEFORE THE CLONE. It used to be asked
+# Q11 — THE AGENT POLICY, NOW INSIDE THE INTERVIEW AND BEFORE THE CLONE. It used to be asked
 # after the repository existed, which put the one genuine policy decision in adoption on the
 # far side of the irreversible step. One agent at a time now: the old shape was a
 # space-separated list, where a typo silently changed the organization's default.
@@ -113,7 +111,7 @@ never "the old space-separated shape is gone" "separated by spaces"
 info "founding"
 saw "it creates the repository from the framework template" "creating acme/acme-gov"
 gh_ran "and does so through gh, with --template" "repo create acme/acme-gov --template"
-exists "the workspace lands where every tool looks" "$HOME/.gov/acme/gov_repo/org-config.yaml"
+exists "the workspace lands where every tool looks" "$HOME/.gov/acme/gov_repo/policies/governance.yaml"
 
 # THE MANIFEST IS THE ONLY DOOR (PRJ-121, 2026-09-22). svm-geneva-gov was created with ~450 of the framework's
 # own files — publish/ (436), site/, install.ps1 — because a hand-kept delete list had gone stale. The stub's
@@ -133,7 +131,7 @@ saw "and names the command that changes it" "gov preferences"
 info "#196 — the org decides which agents it allows, during adoption"
 says "the question is asked" "Which AI agents may be used in this organization"
 saw_re "and the answer is written down, not remembered" "authorized_agents|IBM Bob"
-runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/org-config.yaml" \
+runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
   && pass "ibm-bob is in org-config.yaml — the authorized list is a file, not a memory" \
   || fail "ibm-bob was not written to org-config.yaml"
 

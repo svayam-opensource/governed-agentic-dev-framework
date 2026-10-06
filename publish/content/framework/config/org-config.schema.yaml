@@ -1,0 +1,118 @@
+# The shape of org-config.yaml — the framework's, replaced on every `gov upgrade`. Do not edit.
+#
+# org-config.yaml says who your organization IS and what infrastructure it uses. The values are yours; the
+# list of keys, what each one means and which are required is the framework's, and lives here. `gov doctor`
+# checks your org-config.yaml against this file and names any key that is missing, unknown, or has moved.
+#
+# How your organization GOVERNS — its posture, its Policy Owner and Check Owner, the agents it authorizes,
+# whether it publishes its knowledge, the model it approves for `gov rules propose` — is policy, and lives in
+# policies/governance.yaml, where a change needs the Policy Owner. Your own settings, such as where your
+# project folders live on your machine, are yours alone and live on your machine (see `retired:` below).
+#
+#   type       string · list · map
+#   required   gov cannot work for this organization without it
+#   about      what the key means, in a sentence or two
+#   keys       for a map, the keys gov reads inside it; `open: true` means any key is allowed there
+#   replaced   still read for now, but renamed — `gov upgrade` moves the value to the new name
+
+version: 1
+
+keys:
+  org_name:
+    type: string
+    required: true
+    about: The full legal name of your organization.
+  org_short_name:
+    type: string
+    required: true
+    about: A short display name, used in headings and prose.
+  org_slug:
+    type: string
+    required: true
+    about: >-
+      Two to six capital letters naming your organization, for example ACME. It numbers your organization's
+      own rules (GOV-ACME-001) and names its folders. FRM is the framework's and cannot be used.
+  org_repo_url:
+    type: string
+    required: true
+    about: The clone URL of this governance repository.
+  github_org:
+    type: string
+    required: true
+    about: The GitHub organization (or user) that owns your repositories.
+  org_gov_repo:
+    type: string
+    required: true
+    about: The name of this governance repository on GitHub.
+  default_branch:
+    type: string
+    required: true
+    about: The default branch of every repository, usually main.
+  default_code_branch:
+    type: string
+    required: true
+    about: The branch in your code repositories that development starts from, usually dev.
+  env_branches:
+    type: list
+    about: >-
+      The environment branches between default_branch and default_code_branch, highest first (for example
+      [uat]). Leave it out while you have none. `gov close` lands a project in its base branch and every branch
+      below it.
+  repo_overrides:
+    type: map
+    open: true
+    about: >-
+      Where the work happens when that is not where the issue lives — upstream/repo: your/fork. gov branches,
+      pushes and merges in the repository on the right.
+  gov_account:
+    type: string
+    about: The governance account this organization operates under, on a shared (multi-tenant) service. Empty for a single tenant.
+  gov_workspace:
+    type: string
+    about: Where this repository is cloned on every machine, when that is not ~/.gov/<slug>/gov_repo.
+  services:
+    type: map
+    about: The addresses of the shared services your organization uses. Read by the deploy tools (gov-cicd, gov-infra); gov itself needs none of them.
+    keys:
+      vault: { type: string, about: "The OpenBao or Vault address that stores each person's tokens." }
+      oidc: { type: string, about: "The identity provider's OIDC address, for signing in." }
+      oidc_client_id: { type: string, about: "The OIDC client id of the command-line tools, usually gov." }
+      jenkins: { type: string, about: "The Jenkins address a deploy starts jobs on." }
+      npm: { type: string, about: "The npm registry packages are published to." }
+      docker: { type: string, about: "The container registry images are published to." }
+      gov_account: { type: string, about: "The same as the top-level gov_account; either place is read." }
+  session:
+    type: map
+    about: Session settings the identity provider is told to honour.
+    keys:
+      access_ttl_sec: { type: string, about: "How long an access token lives, in seconds — the organization's standard (300 unless amended)." }
+  workspace_repo:
+    type: string
+    replaced: org_gov_repo
+    about: The old name of org_gov_repo.
+  vault_addr:
+    type: string
+    replaced: services.vault
+    about: The old place for the Vault address.
+  oidc_base:
+    type: string
+    replaced: services.oidc
+    about: The old place for the OIDC address.
+
+# Keys that have left org-config.yaml, and where each went. `gov upgrade` moves their values for you, once,
+# and records that it did; `gov doctor` names any still here.
+retired:
+  governance_posture: policies/governance.yaml (governance_posture)
+  policy_owner_email: policies/governance.yaml (policy_owner.email)
+  policy_owner_github: policies/governance.yaml (policy_owner.github)
+  check_owner_github: policies/governance.yaml (check_owner.github)
+  authorized_agents: policies/governance.yaml (authorized_agents)
+  knowledge_publication: policies/governance.yaml (knowledge_publication)
+  legal_owner_github: the role list in policies/authorized-representatives.md
+  infra_owner_github: the role list in policies/authorized-representatives.md
+  system_arch_owner_github: the role list in policies/authorized-representatives.md
+  data_arch_owner_github: the role list in policies/authorized-representatives.md
+  authorized_approvers: nowhere — approvers are the Policy Owner, the Check Owner and the role list's holders
+  agent_work_root: your own machine (~/.gov/work-roots); the default is ~/.gov/<slug>/projects
+  org_slug_lower: nowhere — it is org_slug in lower case
+  policy_effective_date: nowhere — a policy's history is its version and CHANGELOG

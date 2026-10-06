@@ -69,7 +69,7 @@ describe("gov-work — approving agents during adoption (#196)", () => {
     const text = approvalSummary(r.agents).join("\n");
     expect(text).to.contain("Approved for this organization");
     expect(text).to.contain("Default for people who join");
-    expect(text, "and says where the decision is recorded").to.contain("org-config.yaml");
+    expect(text, "and says where the decision is recorded").to.contain("policies/governance.yaml");
     expect(text).to.contain("gov agent approve");
   });
 });
@@ -116,7 +116,7 @@ describe("gov-work — choosing NO agents (structure-only)", () => {
   it("every screen that says agents are off also says where it is recorded and how to change it", () => {
     const text = structureOnlyLines().join("\n");
     expect(text).to.contain("authorized_agents: none");
-    expect(text).to.contain("org-config.yaml");
+    expect(text).to.contain("policies/governance.yaml");
     expect(text).to.contain("gov agent approve <id>");
     expect(text, "and that gov is still doing its job").to.contain("projects, tasks, branches");
   });
@@ -142,7 +142,8 @@ describe("gov-work — the agents row in gov doctor", () => {
   });
 
   it("no row at all when no org-config was examined — doctor's own rule", () => {
-    expect(agentsDiagnostic(null)).to.equal(null);
     expect(agentsDiagnostic(undefined)).to.equal(null);
+    // An examined workspace with no governance.yaml has chosen nothing: that is the unset row, not no row.
+    expect(agentsDiagnostic(null)!.status).to.equal("warn");
   });
 });
