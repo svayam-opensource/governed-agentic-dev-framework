@@ -11,13 +11,15 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { generateKeyPairSync } from "node:crypto";
 import {
-  appCheck, appCommand, appDiagnostic, appManifest, appSetup, ghRunner, manifestPage, readGithubApp, withGithubApp,
-  type AppConfig, type AppSetupDeps, type GhOutcome, type GhRun,
+  appCheck, appCommand, appDiagnostic, appManifest, appRotate, appSetup, ghRunner, keyFingerprint, manifestPage, readGithubApp,
+  secretsDiagnostic, withGithubApp, type AppConfig, type AppSetupDeps, type GhOutcome, type GhRun,
 } from "../../src/cli/app-verb.js";
 import { startLoopback, type StartLoopback } from "../../src/cli/app-loopback.js";
 import { doctor } from "../../src/maintain/doctor.js";
 import { endRun, startRun } from "../../src/log.js";
+import { chooseModel } from "../../src/rules/propose/providers/index.js";
 
 const PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIEsecretKEYmaterialDO-NOT-LEAK\n-----END RSA PRIVATE KEY-----\n";
 const CFG: AppConfig = { home: "/gov", githubOrg: "acme", orgSlugLower: "acme", workspaceRepo: "acme-gov", defaultBranch: "main" };
@@ -65,6 +67,8 @@ function setupDeps(gh: GhRun, opts: { code?: string | Error; files?: Record<stri
 
 const happyRoutes = (): [RegExp, GhOutcome][] => [
   [/^api \/apps\//, err("gh: Not Found (HTTP 404)")],
+  [/^api \/orgs\/acme --jq \.plan\.name$/, ok("team")],
+  [/^api \/repos\/[^ ]+ --jq \.visibility$/, ok("private")],
   [/^api -X POST \/app-manifests\/code123\/conversions$/, ok(CONVERSION)],
   [/^secret set /, ok()],
 ];
@@ -327,6 +331,218 @@ describe("gov doctor — one GitHub App row, and it never says ok when it cannot
   });
 });
 
+// ── SECRETS ON FREE + PRIVATE (sandbox finding, svayam-e2e, 2026-10-07; Policy Owner ruling: per-repo secrets +
+// detection). On GitHub Free an org secret is not given to a private repository — the job sees it empty.
+const REAL_KEY = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+const REAL_KEY_2 = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+const keyBits = (pem: string): string => pem.split("\n")[5]!;
+const freeRoutes = (over: [RegExp, GhOutcome][] = []): [RegExp, GhOutcome][] => [
+  ...over,
+  [/^api \/apps\//, err("gh: Not Found (HTTP 404)")],
+  [/^api \/orgs\/acme --jq \.plan\.name$/, ok("free")],
+  [/^api \/repos\/acme\/site --jq \.visibility$/, ok("public")],
+  [/^api \/repos\/[^ ]+ --jq \.visibility$/, ok("private")],
+  [/^api -X POST \/app-manifests\/code123\/conversions$/, ok(CONVERSION)],
+  [/^secret set /, ok()],
+];
+
+describe("gov app setup — secrets where they reach (Free + private)", () => {
+  it("Free plan, private gov repo + private code repo: NO org secret, repository secrets on both, the key on stdin only", async () => {
+    const calls: Call[] = [];
+    const { deps, said, writes } = setupDeps(fakeGh(freeRoutes(), calls));
+    const r = await appSetup({ ...deps, codeRepos: () => ({ ok: true, names: ["app"] }) }, CFG);
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    const sets = calls.filter((c) => c.args[0] === "secret").map((c) => c.args.join(" "));
+    expect(sets).to.deep.equal([
+      "secret set GOV_APP_CLIENT_ID -R acme/acme-gov", "secret set GOV_APP_PRIVATE_KEY -R acme/acme-gov",
+      "secret set GOV_APP_CLIENT_ID -R acme/app", "secret set GOV_APP_PRIVATE_KEY -R acme/app",
+    ]);
+    expect(calls.filter((c) => c.input === PEM).map((c) => c.args.join(" "))).to.deep.equal([
+      "secret set GOV_APP_PRIVATE_KEY -R acme/acme-gov", "secret set GOV_APP_PRIVATE_KEY -R acme/app",
+    ]);
+    const text = [...r.lines, ...said].join("\n");
+    expect(text).to.contain("Free plan").and.contain("acme/app");
+    for (const bit of ["MIIEsecretKEY", "PRIVATE KEY"]) {
+      expect(calls.flatMap((c) => c.args).join(" ")).to.not.contain(bit);
+      expect(text).to.not.contain(bit);
+      expect(writes.map((w) => w.text).join("\n")).to.not.contain(bit);
+    }
+  });
+
+  it("a public code repo on Free gets the org secret; the private gov repo gets repository secrets", async () => {
+    const calls: Call[] = [];
+    const { deps } = setupDeps(fakeGh(freeRoutes(), calls));
+    await appSetup({ ...deps, codeRepos: () => ({ ok: true, names: ["site"] }) }, CFG);
+    const sets = calls.filter((c) => c.args[0] === "secret").map((c) => c.args.join(" "));
+    expect(sets).to.include("secret set GOV_APP_PRIVATE_KEY --org acme --visibility all").and.include("secret set GOV_APP_PRIVATE_KEY -R acme/acme-gov");
+    expect(sets).to.not.include("secret set GOV_APP_PRIVATE_KEY -R acme/site");
+  });
+
+  it("the board unreadable: the gov repo is still covered, and a repo added later is told to `gov app rotate`", async () => {
+    const { deps } = setupDeps(fakeGh(freeRoutes(), []));
+    const r = await appSetup({ ...deps, codeRepos: () => ({ ok: false, reason: "no project branch" }) }, CFG);
+    expect(r.code).to.equal(0);
+    expect(r.lines.join("\n")).to.contain("no project branch").and.contain("gov app rotate");
+  });
+
+  it("a repository that refuses its secret: exit 1, the repo named, the fix is `gov app rotate`", async () => {
+    const { deps } = setupDeps(fakeGh(freeRoutes([[/-R acme\/app$/, err("HTTP 403: Must have admin rights")]]), []));
+    const r = await appSetup({ ...deps, codeRepos: () => ({ ok: true, names: ["app"] }) }, CFG);
+    expect(r.code).to.equal(1);
+    expect(r.lines.join("\n")).to.contain("acme/app").and.contain("gov app rotate").and.not.contain("MIIEsecretKEY");
+  });
+
+  it("records the key's public fingerprint (never the key) so a later rotate can name the key to delete", async () => {
+    const conv = JSON.stringify({ id: 42, slug: "gov-acme", client_id: "Iv23abc", pem: REAL_KEY });
+    const { deps, files } = setupDeps(fakeGh(freeRoutes([[/conversions$/, ok(conv)]]), []));
+    await appSetup(deps, CFG);
+    const id = readGithubApp(files["/gov/org-config.yaml"])!;
+    expect(id.keyFingerprint).to.equal(keyFingerprint(REAL_KEY));
+    expect(id.keyFingerprint).to.match(/^SHA256:[A-Za-z0-9+/]+=*$/);
+    expect(files["/gov/org-config.yaml"]).to.not.contain(keyBits(REAL_KEY));
+  });
+});
+
+describe("gov app rotate — a new key onto every repo that needs it; gov never keeps a key", () => {
+  const recorded = { "/gov/org-config.yaml": withGithubApp(ORG_CONFIG, { clientId: "Iv1", slug: "gov-acme", keyFingerprint: "SHA256:oldOLDold=" }) };
+  const rotateDeps = (gh: GhRun, over: Partial<AppSetupDeps> = {}, files: Record<string, string> = {}) => {
+    const s = setupDeps(gh, { files: { ...recorded, ...files } });
+    const removed: string[] = [];
+    const deps: AppSetupDeps = { ...s.deps, codeRepos: () => ({ ok: true, names: ["app"] }), removeFile: (f) => { removed.push(f); delete s.files[f]; }, ...over };
+    return { ...s, deps, removed };
+  };
+
+  it("without a key: the App's settings URL (GitHub has no API to make a key) and how to hand it over; nothing set", async () => {
+    const calls: Call[] = [];
+    const { deps } = rotateDeps(fakeGh(freeRoutes(), calls));
+    const r = await appRotate(deps, CFG, {});
+    expect(r.code).to.equal(1);
+    const text = r.lines.join("\n");
+    expect(text).to.contain("https://github.com/organizations/acme/settings/apps/gov-acme").and.contain("--key-from-stdin").and.contain("--key-file");
+    expect(calls.some((c) => c.args[0] === "secret")).to.equal(false);
+  });
+
+  it("--key-from-stdin: repository secrets on every repo that needs them, the old key named for deletion, the new fingerprint recorded", async () => {
+    const calls: Call[] = [];
+    const { deps, files, writes } = rotateDeps(fakeGh(freeRoutes(), calls), { readStdin: () => REAL_KEY });
+    const r = await appRotate(deps, CFG, { "key-from-stdin": true });
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    expect(calls.filter((c) => c.input === REAL_KEY).map((c) => c.args.join(" "))).to.deep.equal([
+      "secret set GOV_APP_PRIVATE_KEY -R acme/acme-gov", "secret set GOV_APP_PRIVATE_KEY -R acme/app",
+    ]);
+    expect(calls.filter((c) => c.args[2] === "GOV_APP_CLIENT_ID").every((c) => c.input === "Iv1")).to.equal(true);
+    const text = r.lines.join("\n");
+    expect(text).to.contain("SHA256:oldOLDold=").and.contain("delete").and.contain("https://github.com/organizations/acme/settings/apps/gov-acme");
+    expect(text).to.contain(keyFingerprint(REAL_KEY)!);
+    expect(readGithubApp(files["/gov/org-config.yaml"])!.keyFingerprint).to.equal(keyFingerprint(REAL_KEY));
+    for (const t of [text, calls.flatMap((c) => c.args).join(" "), writes.map((w) => w.text).join("\n")]) expect(t).to.not.contain(keyBits(REAL_KEY));
+  });
+
+  it("--key-file: reads the file, DELETES it after use, and says so", async () => {
+    const { deps, removed } = rotateDeps(fakeGh(freeRoutes(), []), {}, { "/dl/gov-acme.pem": REAL_KEY_2 });
+    const r = await appRotate(deps, CFG, { "key-file": "/dl/gov-acme.pem" });
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    expect(removed).to.deep.equal(["/dl/gov-acme.pem"]);
+    expect(r.lines.join("\n")).to.contain("Deleted /dl/gov-acme.pem");
+  });
+
+  it("--key-file deleted even when a repo refuses the secret — gov never leaves a key behind", async () => {
+    const { deps, removed } = rotateDeps(fakeGh(freeRoutes([[/-R acme\/app$/, err("HTTP 403")]]), []), {}, { "/dl/k.pem": REAL_KEY_2 });
+    const r = await appRotate(deps, CFG, { "key-file": "/dl/k.pem" });
+    expect(r.code).to.equal(1);
+    expect(removed).to.deep.equal(["/dl/k.pem"]);
+  });
+
+  it("a file that is not a private key: refused, nothing set, the file left alone", async () => {
+    const calls: Call[] = [];
+    const { deps, removed } = rotateDeps(fakeGh(freeRoutes(), calls), {}, { "/dl/notes.txt": "hello" });
+    const r = await appRotate(deps, CFG, { "key-file": "/dl/notes.txt" });
+    expect(r.code).to.equal(1);
+    expect(r.lines.join("\n")).to.contain("not a private key");
+    expect(removed).to.deep.equal([]);
+    expect(calls.some((c) => c.args[0] === "secret")).to.equal(false);
+  });
+
+  it("no App recorded: refused — run `gov app setup`; both flags at once: usage", async () => {
+    const s = setupDeps(fakeGh(freeRoutes(), []));
+    expect((await appRotate({ ...s.deps, readStdin: () => REAL_KEY }, CFG, { "key-from-stdin": true })).lines.join("\n")).to.contain("gov app setup");
+    const { deps } = rotateDeps(fakeGh(freeRoutes(), []));
+    expect((await appRotate(deps, CFG, { "key-from-stdin": true, "key-file": "x" })).code).to.equal(2);
+  });
+
+  it("is reachable as `gov app rotate`", async () => {
+    const { deps } = rotateDeps(fakeGh(freeRoutes(), []), { readStdin: () => REAL_KEY });
+    expect((await appCommand(["rotate"], { "key-from-stdin": true }, deps, CFG)).code).to.equal(0);
+  });
+});
+
+describe("gov app check / gov doctor — each repo that will not receive a needed secret, with the fix", () => {
+  const INSTALLED = ok(JSON.stringify({ installations: [{ id: 7, app_slug: "gov-acme", client_id: "Iv1", suspended_at: null, repository_selection: "all", permissions: { contents: "read" } }] }));
+  const base = (over: [RegExp, GhOutcome][] = []): [RegExp, GhOutcome][] => [
+    ...over,
+    [/^api \/orgs\/acme\/installations/, INSTALLED],
+    [/^api \/repos\/acme\/acme-gov\/branches\/main/, ok("main")],
+    [/^secret list --org acme --json name,visibility$/, ok("[]")],
+    [/^api \/orgs\/acme --jq \.plan\.name$/, ok("free")],
+    [/^api \/repos\/[^ ]+ --jq \.visibility$/, ok("private")],
+    [/^secret list -R acme\/acme-gov --json name$/, ok('[{"name":"GOV_APP_CLIENT_ID"},{"name":"GOV_APP_PRIVATE_KEY"}]')],
+    [/^secret list -R acme\/app --json name$/, ok("[]")],
+  ];
+
+  it("Free + private code repo without the App secrets: ✗ naming the repo and `gov app rotate`; the org secrets are not demanded", () => {
+    const r = appCheck(fakeGh(base(), []), CFG, null, { codeRepos: { ok: true, names: ["app"] } });
+    expect(r.verdict, r.lines.join("\n")).to.equal("fail");
+    const text = r.lines.join("\n");
+    expect(text).to.contain("acme/app will not receive GOV_APP_PRIVATE_KEY").and.contain("gov app rotate");
+    expect(text, "org secrets reach nothing here, so their absence is no failure").to.not.contain("org secret GOV_APP_PRIVATE_KEY is not set");
+  });
+
+  it("all repository secrets in place on Free + private: ok", () => {
+    const r = appCheck(fakeGh(base([[/^secret list -R acme\/app --json name$/, ok('[{"name":"GOV_APP_CLIENT_ID"},{"name":"GOV_APP_PRIVATE_KEY"}]')]]), []), CFG, null, { codeRepos: { ok: true, names: ["app"] } });
+    expect(r.verdict, r.lines.join("\n")).to.equal("ok");
+  });
+
+  it("the approved model's key, when CI may use it: the gov repo without it is ✗ with `gh secret set <NAME> -R <repo>`", () => {
+    const r = appCheck(fakeGh(base(), []), CFG, null, { codeRepos: { ok: true, names: [] }, modelKey: "GEMINI_API_KEY" });
+    expect(r.verdict).to.equal("fail");
+    expect(r.lines.join("\n")).to.contain("acme/acme-gov will not receive GEMINI_API_KEY").and.contain("gh secret set GEMINI_API_KEY -R acme/acme-gov");
+  });
+
+  it("the plan unreadable (not an owner): cannot tell, never ok", () => {
+    const r = appCheck(fakeGh(base([[/^api \/orgs\/acme --jq/, ok("")], [/^secret list -R acme\/acme-gov --json name$/, ok("[]")]]), []), CFG, null, { codeRepos: { ok: true, names: [] } });
+    expect(r.verdict).to.not.equal("ok");
+  });
+
+  it("doctor: one Secrets row listing EVERY repo that will not receive one", () => {
+    const r = appCheck(fakeGh(base(), []), CFG, null, { codeRepos: { ok: true, names: ["app"] }, modelKey: "GEMINI_API_KEY" });
+    const row = secretsDiagnostic(r)!;
+    expect(row.status).to.equal("warn");
+    expect(row.detail).to.contain("acme/app").and.contain("acme/acme-gov").and.contain("GEMINI_API_KEY");
+    const d = doctor({ gitPresent: true, ghPresent: true, resolve: { ok: false, code: 1 } as never, activeOrg: null, cliVersion: "1", githubApp: r });
+    expect(d.diagnostics.find((x) => x.name === "Secrets reach")?.detail).to.contain("acme/app");
+    expect(secretsDiagnostic({ verdict: "ok", summary: "", lines: [] })).to.equal(null);
+  });
+});
+
+describe("gov rules propose in CI — a missing key names the Free-plan cause and the fix", () => {
+  it("adds one line: org secrets do not reach private repos on Free; gh secret set <NAME> -R <repo>", () => {
+    const c = chooseModel({ provider: "gemini", model: "g", command: "", ciAllowed: true },
+      { ci: true, anthropicKey: () => null, geminiKey: () => null, runCommand: () => ({ status: 0, stdout: "", stderr: "" }) as never, repository: "acme/acme-gov" });
+    expect(c.ok).to.equal(false);
+    const text = !c.ok ? c.lines.join("\n") : "";
+    expect(text).to.contain("Free plan").and.contain("gh secret set GEMINI_API_KEY -R acme/acme-gov");
+    const a = chooseModel({ provider: "anthropic", model: "m", command: "", ciAllowed: true },
+      { ci: true, anthropicKey: () => null, geminiKey: () => null, runCommand: () => ({ status: 0, stdout: "", stderr: "" }) as never, repository: "acme/acme-gov" });
+    expect(!a.ok && a.lines.join("\n")).to.contain("gh secret set ANTHROPIC_API_KEY -R acme/acme-gov");
+  });
+
+  it("locally, no such line", () => {
+    const c = chooseModel({ provider: "gemini", model: "g", command: "", ciAllowed: true },
+      { ci: false, anthropicKey: () => null, geminiKey: () => null, runCommand: () => ({ status: 0, stdout: "", stderr: "" }) as never });
+    expect(!c.ok && c.lines.join("\n")).to.not.contain("Free plan");
+  });
+});
+
 describe("the loopback listener — real, on 127.0.0.1", function () {
   this.timeout(5000);
 
@@ -400,13 +616,15 @@ describe("the private key never reaches the run's log — a real run, a real gh 
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* gone */ }
   });
 
-  it("gh received the key on stdin", () => {
-    expect(stdinSeen).to.contain("key-on-stdin");
+  it("gh received the key on stdin — for the org secret and for the repository secret", () => {
+    expect(stdinSeen.match(/key-on-stdin/g)).to.have.length(2);
   });
 
   it("the log recorded the gh calls — and not a byte of the key", () => {
     expect(logText, "the run's log was written").to.contain("run finished");
     expect(logText).to.contain("conversions").and.contain("GOV_APP_PRIVATE_KEY");
+    // The plan is unreadable to this stand-in, so gov could not tell: it wrote the REPOSITORY secret too — still on stdin.
+    expect(logText).to.contain("'GOV_APP_PRIVATE_KEY', '-R', 'acme/acme-gov'");
     expect(logText).to.not.contain("MIIEsecretKEY");
     expect(logText).to.not.contain("PRIVATE KEY-----");
   });

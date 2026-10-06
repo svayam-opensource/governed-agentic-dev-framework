@@ -16,7 +16,7 @@ import { agentsDiagnostic } from "../cli/approve-agents-step.js";
 import { rulesRows, type RulesFacts } from "./rules-health.js";
 import { assessProtection, postureDiagnostic, postureOf } from "./protection-check.js";
 import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
-import { appDiagnostic, type AppCheckResult } from "../cli/app-verb.js";
+import { appDiagnostic, secretsDiagnostic, type AppCheckResult } from "../cli/app-verb.js";
 import { checkOwnerDiagnostic, codeownersDiagnostic, policyOwnerDiagnostic, roleListDiagnostic } from "./roles-health.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
@@ -268,6 +268,9 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // THE ORG'S GITHUB APP — how a code repo's checks read the governance rules. A warning at worst: an org that has
     // not run `gov app setup` yet has checks that cannot read the rules, which is a next step, not a broken machine.
     ...(facts.githubApp ? [appDiagnostic(facts.githubApp)] : []),
+    // WHERE THE SECRETS REACH — every repo that will not receive a secret it needs (on GitHub Free an org secret
+    // never reaches a private repository), each with its fix.
+    ...(facts.githubApp && secretsDiagnostic(facts.githubApp) ? [secretsDiagnostic(facts.githubApp)!] : []),
     ...(facts.checksInstall ? [facts.checksInstall] : []),
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
