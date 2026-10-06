@@ -36,7 +36,26 @@ export interface UpgradeSyncResult { readonly code: number; readonly lines: read
  * back deliberately — and the org, not the framework, decides where its own content sits after the layout
  * change. Kept beside the content version, in the workspace, because it is a fact about THAT workspace.
  */
-const MOVES_FILE = ".gov-upgrade-moves.json";
+/**
+ * Move one of the org's files, byte for byte, and take away the folders the move left EMPTY, up to the workspace.
+ * An emptied folder is not harmless: `policies/version/` left behind, empty, is still the name `policies/VERSION`
+ * on a case-insensitive disk, and the file could not be written beside it (Policy Owner, 2026-10-07).
+ */
+function moveInWorkspace(adopterDir: string): (from: string, to: string) => void {
+  return (from, to) => {
+    const src = path.join(adopterDir, from), dst = path.join(adopterDir, to);
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.renameSync(src, dst);                       // byte for byte: a move, never a rewrite
+    log("info", "moved a file for the new layout", "gov-work:maintain:upgrade-run", "moveAdopter", { from, to });
+    const root = path.resolve(adopterDir);
+    for (let d = path.dirname(path.resolve(src)); d.startsWith(`${root}${path.sep}`); d = path.dirname(d)) {
+      try { if (fs.readdirSync(d).length) break; fs.rmdirSync(d); }
+      catch { break; /* not there, or not ours to remove — an empty folder left is the old behaviour, not a failure */ }
+    }
+  };
+}
+
+export const MOVES_FILE = ".gov-upgrade-moves.json";
 
 export function doneMoves(adopterDir: string): string[] {
   try { return JSON.parse(fs.readFileSync(path.join(adopterDir, MOVES_FILE), "utf8")) as string[]; }
@@ -184,12 +203,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       fs.writeFileSync(p, text);
     },
     removeAdopter: (rel) => fs.rmSync(path.join(adopterDir, rel.replace(/\/$/, "")), { recursive: true, force: true }),
-    moveAdopter: (from, to) => {
-      const src = path.join(adopterDir, from), dst = path.join(adopterDir, to);
-      fs.mkdirSync(path.dirname(dst), { recursive: true });
-      fs.renameSync(src, dst);                       // byte for byte: a move, never a rewrite
-      log("info", "moved a file for the new layout", "gov-work:maintain:upgrade-run", "moveAdopter", { from, to });
-    },
+    moveAdopter: moveInWorkspace(adopterDir),
     migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir }),
     recordMove: (id) => recordMove(adopterDir, id),
   });
@@ -300,12 +314,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     readContent, readAdopter,
     writeAdopter: (rel, t) => { const p = path.join(adopterDir, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, t); },
     removeAdopter: (rel) => fs.rmSync(path.join(adopterDir, rel.replace(/\/$/, "")), { recursive: true, force: true }),
-    moveAdopter: (from, to) => {
-      const src = path.join(adopterDir, from), dst = path.join(adopterDir, to);
-      fs.mkdirSync(path.dirname(dst), { recursive: true });
-      fs.renameSync(src, dst);                       // byte for byte: a move, never a rewrite
-      log("info", "moved a file for the new layout", "gov-work:maintain:upgrade-run", "moveAdopter", { from, to });
-    },
+    moveAdopter: moveInWorkspace(adopterDir),
     migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir }),
     recordMove: (id) => recordMove(adopterDir, id),
   }, { includeConflicts: true }); // the PR diff IS the review — apply everything

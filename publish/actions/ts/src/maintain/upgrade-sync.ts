@@ -371,8 +371,15 @@ export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { include
   const skipped: string[] = [];
   const refused: string[] = [];
   const why: string[] = [];
-  for (const a of plan.actions) {
+  // MOVES FIRST, then everything else in plan order. The org's own file must be at its new path before gov
+  // writes anything near it: a folder still at its old name can block a file that shares that name on a
+  // case-insensitive disk (`policies/version/` and `policies/VERSION`, Policy Owner, 2026-10-07). A file a move
+  // put in place is the org's, so a starter planned for the same path (it was absent when planned) is not written.
+  const filled = new Set<string>();
+  const ordered = [...plan.actions.filter((a) => a.kind === "move"), ...plan.actions.filter((a) => a.kind !== "move")];
+  for (const a of ordered) {
     if (a.kind === "same") continue;
+    if (a.kind === "create" && filled.has(a.dst)) continue;
     // NEVER written, whatever the options: includeConflicts means "the PR diff is the review", and a value
     // silently gone from org-config.yaml is exactly what a reviewer skims past.
     if (a.kind === "refuse") { refused.push(a.dst); continue; }
@@ -389,6 +396,7 @@ export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { include
         deps.removeAdopter(a.from);
       }
       deps.recordMove?.(moveId({ from: a.from, to: a.dst }));
+      filled.add(a.dst);
       applied.push(a.dst);
       continue;
     }

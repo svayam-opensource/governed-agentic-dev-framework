@@ -584,7 +584,7 @@
 
 # W5 (P1 "Org version"): the policy pull request gate
 - id: GOV-FRM-467
-  source: { doc: framework/docs/specs/framework-specification.md, section: "9.2", sha: "b9f6beb" }
+  source: { doc: framework/docs/specs/framework-specification.md, section: "9.2", sha: "f92a92f" }
   expectation: "A change to the organization's policy carries its rules, version, snapshot and changelog."
   actor: [gov-client]
   level: C01

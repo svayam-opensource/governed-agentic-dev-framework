@@ -32,14 +32,32 @@ const cannot = (findings: string[], requestReview?: string[]): ActionOutcome =>
   ({ verdict: "cannot-tell", findings, ...(requestReview ? { requestReview } : {}) });
 
 /**
+ * WHERE THE FROZEN SNAPSHOTS OF EARLIER POLICY VERSIONS LIVE: `policies/history/<x.y.z>/` — one per version.
+ * The one name every writer and reader of the snapshots uses.
+ *
+ * It was `policies/version/` until the Policy Owner's ruling of 2026-10-07: beside the file `policies/VERSION`, that
+ * folder is the SAME name on a case-insensitive disk (macOS APFS, Windows NTFS). A checkout can make only one of the
+ * two, the other silently vanishes, and `git commit -a` then records it deleted.
+ */
+export const POLICY_HISTORY_DIR = "policies/history";
+
+/**
+ * Where the snapshots lived before 2026-10-07. Never written; read only so that the move to
+ * {@link POLICY_HISTORY_DIR} (a MANIFEST `moves:` entry, or a pull request) is a rename, not an edit — and so that
+ * a workspace not yet moved still keeps its snapshots out of the policy it judges.
+ */
+export const LEGACY_POLICY_HISTORY_DIR = "policies/version";
+
+/**
  * THE FILES gov WRITES ON A POLICY PR — never a policy section, never an owner's approval (sandbox finding, PRJ-121,
  * 2026-10-07: `policies/CHANGELOG.md §1.0.1` was asked for an owner's approval as if a version heading were a
  * clause). `gov rules propose` writes all four; the policy-pr gate (GOV-FRM-467) judges them — rules.yaml's rows,
- * VERSION's bump, the changelog entry and the frozen snapshot. An organization's own `ignore` list adds to these;
- * it never replaces them.
+ * VERSION's bump, the changelog entry and the frozen snapshot. The snapshots' old folder is here too, so the pull
+ * request that moves them to the new one asks nobody. An organization's own `ignore` list adds to these; it never
+ * replaces them.
  */
 export const MACHINE_WRITTEN_POLICY_PATHS = [
-  "policies/CHANGELOG.md", "policies/VERSION", "policies/rules.yaml", "policies/version/**",
+  "policies/CHANGELOG.md", "policies/VERSION", "policies/rules.yaml", `${POLICY_HISTORY_DIR}/**`, `${LEGACY_POLICY_HISTORY_DIR}/**`,
 ] as const;
 
 export const POLICY_OWNER = "Policy Owner";

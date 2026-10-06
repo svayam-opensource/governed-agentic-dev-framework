@@ -13,8 +13,9 @@
  *                  or a governance choice changed (`policies/governance.yaml` — GOVERNANCE_CHANGE_BUMP);
  *                  patch when only prose did (a rule's or an ownership row's sha refresh included); major whenever
  *                  the org chooses — and not at all when `policies/` is untouched;
- *   its SNAPSHOT   `policies/version/<prev>/` is the base's `policies/` byte for byte (minus `version/` and
- *                  `actions/`), and nothing already frozen there was edited or deleted;
+ *   its SNAPSHOT   `policies/history/<prev>/` is the base's `policies/` byte for byte (minus `history/` and
+ *                  `actions/`), and nothing already frozen there was edited or deleted — moving the snapshots
+ *                  byte for byte from their old folder, `policies/version/`, is a rename, not an edit;
  *   its CHANGELOG  an entry for the new version naming every rule added, revised or retired — and, under
  *                  "Sections reviewed", every policy section the change ADDED or CHANGED, at its new sha, with what
  *                  propose settled for it (reviewed.ts). THE GATE STARTS FROM THE PROSE (Policy Owner, 2026-10-07):
@@ -30,7 +31,7 @@
 import { loadRuleStores, NO_ORG_VERSION, RULE_STORE_PATHS } from "../model/store-io.js";
 import { inForce, parseRuleStore, type RuleRow } from "../model/rule-row.js";
 import { changedSections, sectionShas } from "../checks/sections.js";
-import { MACHINE_WRITTEN_POLICY_PATHS } from "../checks/policy-actions.js";
+import { LEGACY_POLICY_HISTORY_DIR, MACHINE_WRITTEN_POLICY_PATHS, POLICY_HISTORY_DIR } from "../checks/policy-actions.js";
 import { matchesAny } from "../glob.js";
 import { parseReviewedLines, reviewKey } from "./reviewed.js";
 import { treeAsGit, type TreeReader } from "./tree.js";
@@ -49,7 +50,7 @@ export const POLICY_PR_PATHS = {
   version: RULE_STORE_PATHS.orgVersion,
   changelog: "policies/CHANGELOG.md",
   rules: RULE_STORE_PATHS.orgRules,
-  snapshots: "policies/version",
+  snapshots: POLICY_HISTORY_DIR,
   actions: "policies/actions",
 } as const;
 
@@ -114,7 +115,7 @@ export function policyDocPaths(tree: TreeReader): string[] | null {
   const files = tree.files(POLICY_PR_PATHS.root);
   if (files === null) return null;
   return files.filter((f) => f.endsWith(".md") && !matchesAny(f, MACHINE_WRITTEN_POLICY_PATHS)
-    && !f.startsWith(`${POLICY_PR_PATHS.snapshots}/`) && !f.startsWith(`${POLICY_PR_PATHS.actions}/`)).sort();
+    && !isHistory(f) && !isUnder(f, POLICY_PR_PATHS.actions)).sort();
 }
 
 /**
@@ -159,10 +160,12 @@ export const readVersion = (t: TreeReader): string => t.read(POLICY_PR_PATHS.ver
 // ── what is in a tree ────────────────────────────────────────────────────────────────────────────────────────
 
 const isUnder = (f: string, dir: string): boolean => f.startsWith(`${dir}/`);
+/** Under the snapshots' folder — or their old one, which a workspace not yet moved still has. */
+const isHistory = (f: string): boolean => isUnder(f, POLICY_HISTORY_DIR) || isUnder(f, LEGACY_POLICY_HISTORY_DIR);
 
 /**
- * The files a snapshot freezes: `policies/` minus `version/` (earlier snapshots) and `actions/` (executable code,
- * which is the Check Owner's and versioned by its own review). Keyed by path relative to `policies/`.
+ * The files a snapshot freezes: `policies/` minus `history/` (earlier snapshots — and their old folder, `version/`)
+ * and `actions/` (executable code, the Check Owner's, versioned by its own review). Keyed by path under `policies/`.
  * Null when the tree could not be listed.
  */
 export function snapshotFiles(tree: TreeReader): Map<string, string> | null {
@@ -170,7 +173,7 @@ export function snapshotFiles(tree: TreeReader): Map<string, string> | null {
   if (files === null) return null;
   const out = new Map<string, string>();
   for (const f of files) {
-    if (isUnder(f, POLICY_PR_PATHS.snapshots) || isUnder(f, POLICY_PR_PATHS.actions)) continue;
+    if (isHistory(f) || isUnder(f, POLICY_PR_PATHS.actions)) continue;
     const text = tree.read(f);
     if (text === null) return null;
     out.set(f.slice(POLICY_PR_PATHS.root.length + 1), text);
@@ -256,7 +259,7 @@ function readRows(tree: TreeReader): RuleRow[] | string {
 
 /** Is `f` a file whose change needs a version bump? Not VERSION, the changelog or a snapshot: those ARE the bump. */
 const isContent = (f: string): boolean =>
-  f !== POLICY_PR_PATHS.version && f !== POLICY_PR_PATHS.changelog && !isUnder(f, POLICY_PR_PATHS.snapshots);
+  f !== POLICY_PR_PATHS.version && f !== POLICY_PR_PATHS.changelog && !isHistory(f);
 
 /**
  * What the change is and what it therefore needs — shared by the gate and by propose's writers, so the two can
@@ -436,7 +439,7 @@ function checkReviewed(base: TreeReader, head: TreeReader, baseVersion: string, 
   }
 }
 
-/** (g) `policies/version/<prev>/` is the base's `policies/` byte for byte. */
+/** (g) `policies/history/<prev>/` is the base's `policies/` byte for byte. */
 function checkSnapshot(base: TreeReader, head: TreeReader, prev: string, f: Emit): string | null {
   const want = snapshotFiles(base);
   if (want === null) return "the base's policies/ could not be read, so the snapshot was not checked.";
@@ -454,22 +457,39 @@ function checkSnapshot(base: TreeReader, head: TreeReader, prev: string, f: Emit
   return null;
 }
 
-/** (h) Nothing already under `policies/version/` was edited or deleted, and no snapshot appeared but `prev`'s. */
+/**
+ * Every frozen snapshot in a tree, keyed by where it belongs now — under {@link POLICY_HISTORY_DIR} — with the path
+ * it was actually found at. A file still in the old folder is keyed as if moved, so moving it byte for byte changes
+ * nothing here (Policy Owner, 2026-10-07). A file in both folders under one name is keyed once: the new folder's.
+ */
+function frozenIn(tree: TreeReader): Map<string, { at: string; text: string }> | null {
+  const now = textsUnder(tree, POLICY_HISTORY_DIR), old = textsUnder(tree, LEGACY_POLICY_HISTORY_DIR);
+  if (now === null || old === null) return null;
+  const out = new Map<string, { at: string; text: string }>();
+  for (const [at, text] of old) out.set(`${POLICY_HISTORY_DIR}${at.slice(LEGACY_POLICY_HISTORY_DIR.length)}`, { at, text });
+  for (const [at, text] of now) out.set(at, { at, text });
+  return out;
+}
+
+/**
+ * (h) Nothing already frozen was edited or deleted, and no snapshot appeared but `prev`'s. Moving the snapshots
+ * from `policies/version/` to `policies/history/` unchanged is allowed: it is a rename, not an edit.
+ */
 function checkFrozen(base: TreeReader, head: TreeReader, prev: string | null, f: Emit): string | null {
-  const b = textsUnder(base, POLICY_PR_PATHS.snapshots), h = textsUnder(head, POLICY_PR_PATHS.snapshots);
+  const b = frozenIn(base), h = frozenIn(head);
   if (b === null || h === null) return `${POLICY_PR_PATHS.snapshots}/ could not be read, so the frozen snapshots were not checked.`;
-  for (const [p, text] of b) {
+  for (const [p, was] of b) {
     const now = h.get(p);
-    if (now === undefined) f("snapshot-immutable", `${p} was deleted — a snapshot is frozen`);
-    else if (now !== text) f("snapshot-immutable", `${p} was edited — a snapshot is frozen`);
+    if (now === undefined) f("snapshot-immutable", `${was.at} was deleted — a snapshot is frozen`);
+    else if (now.text !== was.text) f("snapshot-immutable", `${now.at} was edited — a snapshot is frozen`);
   }
   const dirOf = (p: string): string => p.slice(POLICY_PR_PATHS.snapshots.length + 1).split("/")[0]!;
   const baseDirs = new Set([...b.keys()].map(dirOf));
   const reported = new Set<string>();
-  for (const p of h.keys()) {
+  for (const [p, now] of h) {
     if (b.has(p)) continue;
     const d = dirOf(p);
-    if (baseDirs.has(d)) f("snapshot-immutable", `${p} was added to the frozen snapshot of ${d}`);
+    if (baseDirs.has(d)) f("snapshot-immutable", `${now.at} was added to the frozen snapshot of ${d}`);
     else if (d !== prev && !reported.has(d)) {
       reported.add(d);
       f("snapshot-immutable", `${POLICY_PR_PATHS.snapshots}/${d}/ is a new snapshot, but this change ${prev === null ? "bumps no version" : `freezes only ${prev}`}`);

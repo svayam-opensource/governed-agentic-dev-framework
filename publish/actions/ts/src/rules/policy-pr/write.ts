@@ -8,7 +8,7 @@
  * fallback. ONE IMPLEMENTATION, TWO TRIGGERS, so every writer SKIPS WHEN ITS WORK IS ALREADY DONE: run by hand
  * and then again in CI, the second run writes nothing.
  *
- * A snapshot is never overwritten: if `policies/version/<prev>/` exists, it is frozen, and a wrong one is the
+ * A snapshot is never overwritten: if `policies/history/<prev>/` exists, it is frozen, and a wrong one is the
  * gate's to report, not this code's to "fix".
  *
  * Pure over the injected trees: `base` is read only; `head` is the branch being prepared.
@@ -114,7 +114,7 @@ export function policyPrWriter(trees: { readonly base: TreeReader; readonly head
       return { wrote: true, version: target, detail: `${POLICY_PR_PATHS.version} → ${target}` };
     },
 
-    /** `policies/version/<prev>/` ← the base's `policies/` minus `version/` and `actions/`. Never overwrites. */
+    /** `policies/history/<prev>/` ← the base's `policies/` minus `history/` and `actions/`. Never overwrites. */
     writeSnapshot(prev: string): WriteResult {
       const dir = `${POLICY_PR_PATHS.snapshots}/${prev}`;
       const existing = head.files(dir);
