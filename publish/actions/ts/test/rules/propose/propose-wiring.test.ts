@@ -196,7 +196,7 @@ describe("gov rules propose — the terminal trigger", () => {
     expect(rows[0]!.source.sha).to.equal(sectionShas(NEW).get("3"));
     expect(files["policies/rules.yaml"]!.startsWith(RULES_HEADER), "the header comment is kept").to.equal(true);
     expect(files["policies/VERSION"]).to.equal("1.1.0\n");
-    expect(files["policies/version/1.0.0/org-policy.md"]).to.equal(OLD);
+    expect(files["policies/history/1.0.0/org-policy.md"]).to.equal(OLD);
     expect(files["policies/CHANGELOG.md"]).to.contain("## 1.1.0 — 2026-10-07").and.contain("| #12 | @alice | _pending_ |").and.contain("GOV-SVM-001");
     expect(files["policies/CHANGELOG.md"], "the section propose settled, and what it came to").to.contain(`- ${DOC} §3 (${sectionShas(NEW).get("3")}) → GOV-SVM-001 added`);
 

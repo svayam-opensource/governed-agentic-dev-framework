@@ -191,8 +191,8 @@ actions:
   # base; its owner comes from `policies/ownership.yaml` (most specific section wins), else the Policy Owner.
   # A change to `policies/ownership.yaml` needs the Policy Owner; `policies/actions/**` needs the Check Owner.
   # `docs` = which files are policy (default `policies/**/*.md`); `ignore` = never judged, ADDED to the files gov
-  # writes itself, which are never judged (policies/CHANGELOG.md, VERSION, rules.yaml, version/** — the policy-pr
-  # gate judges those).
+  # writes itself, which are never judged (policies/CHANGELOG.md, VERSION, rules.yaml, history/** — and the old
+  # snapshot folder version/**, so the pull request that moves it asks nobody; the policy-pr gate judges those).
   - id: gov-builtin/section-owner-approval
     tool: gov-builtin
     params:
@@ -208,8 +208,9 @@ actions:
   # (rows closed at the new version, never edited or deleted; a retired id never reused); `policies/VERSION` moved
   # minor (rows, ownership or a governance choice changed) or patch (prose only), or major; `policies/CHANGELOG.md`
   # has an entry for the new version naming every added, revised or retired id and every governance choice changed;
-  # `policies/version/<prev>/` is the base's `policies/` byte for byte
-  # (minus `version/` and `actions/`); nothing already frozen under `policies/version/` changed; and new and closed
+  # `policies/history/<prev>/` is the base's `policies/` byte for byte
+  # (minus `history/` and `actions/`); nothing already frozen under `policies/history/` changed — moving the
+  # snapshots unchanged from their old folder, `policies/version/`, is a rename, not a change; and new and closed
   # rows carry the new version, the date and the PR number. Untouched `policies/` → passes, no bump expected.
   - id: gov-builtin/policy-pr-gate
     tool: gov-builtin

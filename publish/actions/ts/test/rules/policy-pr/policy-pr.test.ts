@@ -60,7 +60,7 @@ function baseFiles(): Record<string, string> {
     [DOC]: POLICY,
     "policies/rules.yaml": dump(BASE_ROWS),
     "policies/actions/check-x/run.sh": "#!/bin/sh\nexit 0\n",
-    "policies/version/1.3.0/org-policy.md": "# Org policy, as it was\n",
+    "policies/history/1.3.0/org-policy.md": "# Org policy, as it was\n",
   };
 }
 
@@ -363,29 +363,29 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
   });
 
   describe("(g) the snapshot of the previous version", () => {
-    it("GOV-FRM-467 fails when policies/version/<prev>/ is missing", () => {
+    it("GOV-FRM-467 fails when policies/history/<prev>/ is missing", () => {
       const { base, head, files } = goodPr();
-      for (const k of Object.keys(files)) if (k.startsWith("policies/version/1.4.0/")) delete files[k];
+      for (const k of Object.keys(files)) if (k.startsWith("policies/history/1.4.0/")) delete files[k];
       expect(judge(base, head).findings.map((x) => x.message)).to.include(
-        "no snapshot of 1.4.0: policies/version/1.4.0/ must hold the base's policies/ — run gov rules propose");
+        "no snapshot of 1.4.0: policies/history/1.4.0/ must hold the base's policies/ — run gov rules propose");
     });
     it("fails a snapshot that differs from the base by one byte, lacks a file, or has an extra one", () => {
       const { base, head, files } = goodPr();
-      files["policies/version/1.4.0/org-policy.md"] += " ";
-      delete files["policies/version/1.4.0/VERSION"];
-      files["policies/version/1.4.0/extra.md"] = "x";
+      files["policies/history/1.4.0/org-policy.md"] += " ";
+      delete files["policies/history/1.4.0/VERSION"];
+      files["policies/history/1.4.0/extra.md"] = "x";
       expect(judge(base, head).findings.filter((x) => x.check === "snapshot").map((x) => x.message)).to.deep.equal([
-        "policies/version/1.4.0/VERSION is missing from the snapshot of 1.4.0",
-        "policies/version/1.4.0/org-policy.md differs from the base's policies/org-policy.md",
-        "policies/version/1.4.0/extra.md is in the snapshot of 1.4.0 but not in the base's policies/",
+        "policies/history/1.4.0/VERSION is missing from the snapshot of 1.4.0",
+        "policies/history/1.4.0/org-policy.md differs from the base's policies/org-policy.md",
+        "policies/history/1.4.0/extra.md is in the snapshot of 1.4.0 but not in the base's policies/",
       ]);
     });
-    it("a snapshot excludes version/ and actions/", () => {
+    it("a snapshot excludes history/ and actions/", () => {
       const { files } = goodPr();
-      const snap = Object.keys(files).filter((k) => k.startsWith("policies/version/1.4.0/")).sort();
+      const snap = Object.keys(files).filter((k) => k.startsWith("policies/history/1.4.0/")).sort();
       expect(snap).to.deep.equal([
-        "policies/version/1.4.0/CHANGELOG.md", "policies/version/1.4.0/VERSION",
-        "policies/version/1.4.0/org-policy.md", "policies/version/1.4.0/rules.yaml",
+        "policies/history/1.4.0/CHANGELOG.md", "policies/history/1.4.0/VERSION",
+        "policies/history/1.4.0/org-policy.md", "policies/history/1.4.0/rules.yaml",
       ]);
     });
   });
@@ -393,24 +393,63 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
   describe("(h) frozen snapshots", () => {
     it("fails an edit to a frozen file", () => {
       const { base, head, files } = goodPr();
-      files["policies/version/1.3.0/org-policy.md"] = "rewritten";
-      expect(judge(base, head).findings.map((x) => x.message)).to.include("policies/version/1.3.0/org-policy.md was edited — a snapshot is frozen");
+      files["policies/history/1.3.0/org-policy.md"] = "rewritten";
+      expect(judge(base, head).findings.map((x) => x.message)).to.include("policies/history/1.3.0/org-policy.md was edited — a snapshot is frozen");
     });
     it("fails a deleted frozen file, even when nothing else changed", () => {
       const files = baseFiles();
-      delete files["policies/version/1.3.0/org-policy.md"];
+      delete files["policies/history/1.3.0/org-policy.md"];
       const j = judge(memTree(baseFiles()), memTree(files));
       expect(j.required).to.equal("none");
-      expect(j.findings.map((x) => x.message)).to.deep.equal(["policies/version/1.3.0/org-policy.md was deleted — a snapshot is frozen"]);
+      expect(j.findings.map((x) => x.message)).to.deep.equal(["policies/history/1.3.0/org-policy.md was deleted — a snapshot is frozen"]);
     });
     it("fails a file added to a frozen snapshot, and a snapshot of a version this change does not freeze", () => {
       const { base, head, files } = goodPr();
-      files["policies/version/1.3.0/new.md"] = "x";
-      files["policies/version/9.9.9/a.md"] = "x";
+      files["policies/history/1.3.0/new.md"] = "x";
+      files["policies/history/9.9.9/a.md"] = "x";
       expect(judge(base, head).findings.filter((x) => x.check === "snapshot-immutable").map((x) => x.message)).to.deep.equal([
-        "policies/version/1.3.0/new.md was added to the frozen snapshot of 1.3.0",
-        "policies/version/9.9.9/ is a new snapshot, but this change freezes only 1.4.0",
+        "policies/history/1.3.0/new.md was added to the frozen snapshot of 1.3.0",
+        "policies/history/9.9.9/ is a new snapshot, but this change freezes only 1.4.0",
       ]);
+    });
+  });
+
+  // Policy Owner, 2026-10-07: snapshots moved from policies/version/ to policies/history/ — `policies/VERSION` and
+  // `policies/version/` are ONE name on a case-insensitive disk (macOS, Windows), so a checkout kept only one of them.
+  describe("(h) the move from policies/version/ to policies/history/", () => {
+    const legacy = (): Record<string, string> => {
+      const files = baseFiles();
+      files["policies/version/1.3.0/org-policy.md"] = files["policies/history/1.3.0/org-policy.md"]!;
+      delete files["policies/history/1.3.0/org-policy.md"];
+      return files;
+    };
+    it("passes a pull request that only moves the snapshots, byte for byte, and needs no bump", () => {
+      const j = judge(memTree(legacy()), memTree(baseFiles()));
+      expect(j.findings).to.deep.equal([]);
+      expect(j).to.deep.include({ verdict: "pass", required: "none" });
+    });
+    it("passes the move made inside an ordinary policy change", () => {
+      const { files } = goodPr();
+      expect(judge(memTree(legacy()), memTree(files)).findings).to.deep.equal([]);
+    });
+    it("fails a move that also edits what it moves", () => {
+      const files = baseFiles();
+      files["policies/history/1.3.0/org-policy.md"] = "rewritten";
+      expect(judge(memTree(legacy()), memTree(files)).findings.map((x) => x.message)).to.deep.equal([
+        "policies/history/1.3.0/org-policy.md was edited — a snapshot is frozen"]);
+    });
+    it("fails a move that drops a file", () => {
+      const files = baseFiles();
+      delete files["policies/history/1.3.0/org-policy.md"];
+      expect(judge(memTree(legacy()), memTree(files)).findings.map((x) => x.message)).to.deep.equal([
+        "policies/version/1.3.0/org-policy.md was deleted — a snapshot is frozen"]);
+    });
+    it("a base still on policies/version/ is never copied into the new snapshot", () => {
+      const files = legacy();
+      files[DOC] = POLICY.replace("Everyone uses", "Everyone always uses");
+      const w = policyPrWriter({ base: memTree(legacy()), head: memTree(files) });
+      expect(w.writeSnapshot("1.4.0").wrote).to.equal(true);
+      expect(Object.keys(files).filter((k) => k.startsWith("policies/history/1.4.0/version"))).to.deep.equal([]);
     });
   });
 
@@ -451,15 +490,15 @@ describe("policy PR writers — each idempotent, each skipping work already done
     expect(w.bumpVersion("major")).to.deep.include({ wrote: true, version: "2.0.0" });
   });
 
-  it("writeSnapshot copies base policies/ minus version/ and actions/, and never overwrites a snapshot", () => {
+  it("writeSnapshot copies base policies/ minus history/ and actions/, and never overwrites a snapshot", () => {
     const { base, head, files } = fresh();
     const w = policyPrWriter({ base, head });
     expect(w.writeSnapshot("1.4.0").wrote).to.equal(true);
-    expect(files["policies/version/1.4.0/org-policy.md"]).to.equal(POLICY, "the BASE's text, not the head's");
-    expect(Object.keys(files).filter((k) => k.startsWith("policies/version/1.4.0/actions") || k.startsWith("policies/version/1.4.0/version"))).to.deep.equal([]);
-    files["policies/version/1.4.0/org-policy.md"] = "hand-edited";
+    expect(files["policies/history/1.4.0/org-policy.md"]).to.equal(POLICY, "the BASE's text, not the head's");
+    expect(Object.keys(files).filter((k) => k.startsWith("policies/history/1.4.0/actions") || k.startsWith("policies/history/1.4.0/history"))).to.deep.equal([]);
+    files["policies/history/1.4.0/org-policy.md"] = "hand-edited";
     expect(w.writeSnapshot("1.4.0").wrote).to.equal(false);
-    expect(files["policies/version/1.4.0/org-policy.md"]).to.equal("hand-edited");
+    expect(files["policies/history/1.4.0/org-policy.md"]).to.equal("hand-edited");
   });
 
   it("writeChangelogEntry puts the newest entry first, and writes it once", () => {

@@ -237,6 +237,10 @@ moves:
   # your own machine; workspace_repo is renamed org_gov_repo. Refused — nothing written — if any value gov
   # reads would be lost.
   - { from: org-config.yaml, to: policies/governance.yaml, mode: migrate, how: org-config-split }
+  # THE FROZEN POLICY SNAPSHOTS (Policy Owner, 2026-10-07): policies/version/ becomes policies/history/. Beside the
+  # file policies/VERSION, a folder policies/version/ is the SAME name on a case-insensitive disk (macOS, Windows):
+  # a checkout keeps only one of the two, and `git commit -a` records the other as deleted. VERSION keeps its name.
+  - { from: policies/version/, to: policies/history/, mode: move }
 
 # ── retire: WHAT THIS RELEASE STOPPED SHIPPING (P3 cutover, 2026-10-06) ──────────────────────────────────────
 #
