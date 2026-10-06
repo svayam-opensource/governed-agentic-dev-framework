@@ -4,7 +4,8 @@ import { expect } from "chai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { contentLayoutOf, staleArtifactsIn, parseManifest, expandEntries, planUpgrade, mergeOrgConfig, orgConfigLoss, applyUpgrade, formatPlan, type PlanReaders } from "../../src/maintain/upgrade-sync.js";
+import { contentLayoutOf, staleArtifactsIn, parseManifest, expandEntries, planUpgrade, applyUpgrade, formatPlan, type PlanReaders } from "../../src/maintain/upgrade-sync.js";
+import { splitOrgConfig, splitLoss } from "../../src/maintain/org-config-split.js";
 
 const MANIFEST = `
 version: "1.0.0"
@@ -12,7 +13,7 @@ files:
   - { src: VERSION, dst: VERSION, mode: scaffold-auto }
   - { src: CLAUDE.md, dst: CLAUDE.md, mode: scaffold-prompt }
   - { src: knowledge/guidance/, dst: knowledge/guidance/, mode: scaffold-prompt }
-  - { src: org-config.example.yaml, dst: org-config.yaml, mode: overlay-schema }
+  - { src: org-config.example.yaml, dst: org-config.yaml, mode: seed-once }
 owned:
   - org-config.yaml
   - projects/PRJ-*/
@@ -52,22 +53,12 @@ describe("gov-work — upgrade overlay-sync engine", () => {
     expect(by("retire")).to.have.members(["registry.yaml", ".framework-version", "framework/"]);
   });
 
-  it("org-config overlay-schema: adds template keys, comments removed, keeps org values", () => {
-    const template = 'org_name: ""\norg_short_name: ""\ndefault_branch: "main"\n';
-    const org = 'org_name: "Acme"\ndefault_branch: "trunk"\nlegacy_field: "keep-as-comment"\n';
-    const merged = mergeOrgConfig(template, org);
-    expect(merged).to.match(/org_name: "Acme"/);          // value preserved
-    expect(merged).to.match(/org_short_name: ""/);         // new key added from template
-    expect(merged).to.match(/default_branch: "trunk"/);    // org value preserved (not template's "main")
-    expect(merged).to.match(/# legacy_field: "keep-as-comment"/); // removed key commented
-  });
-
-  it("applyUpgrade writes creates/updates, merges overlay, removes retires; skips conflicts", () => {
+  it("org-config.yaml is SEED-ONCE: created when absent, never rewritten — the template merge is gone", () => {
     const content: Record<string, string> = { "VERSION": "1.0.0\n", "org-config.example.yaml": 'org_name: ""\nnew_key: ""\n' };
     const store: Record<string, string> = { "VERSION": "0.9.0\n", "org-config.yaml": 'org_name: "Acme"\n', "registry.yaml": "x" };
     const removed: string[] = [];
     const plan = planUpgrade(
-      [{ src: "VERSION", dst: "VERSION", mode: "scaffold-auto" }, { src: "org-config.example.yaml", dst: "org-config.yaml", mode: "overlay-schema" }],
+      [{ src: "VERSION", dst: "VERSION", mode: "scaffold-auto" }, { src: "org-config.example.yaml", dst: "org-config.yaml", mode: "seed-once" }],
       { readContent: (p) => content[p] ?? null, readAdopter: (p) => store[p] ?? null, adopterPaths: () => Object.keys(store) },
     );
     const res = applyUpgrade(plan, {
@@ -77,11 +68,16 @@ describe("gov-work — upgrade overlay-sync engine", () => {
       removeAdopter: (p) => { removed.push(p); },
     });
     expect(store["VERSION"]).to.equal("1.0.0\n");                 // updated
-    expect(store["org-config.yaml"]).to.match(/org_name: "Acme"/); // value kept
-    expect(store["org-config.yaml"]).to.match(/new_key: ""/);      // new key added
+    expect(store["org-config.yaml"]).to.equal('org_name: "Acme"\n'); // the org's, untouched — no template key added
     expect(removed).to.include("registry.yaml");                   // retired
     expect(res.applied).to.include("VERSION");
     expect(formatPlan(plan).join("\n")).to.match(/plan:/);
+  });
+
+  it("the shipped MANIFEST has no overlay-schema entry any more", () => {
+    const m = parseManifest(fs.readFileSync(path.join(repoRoot, "publish", "content", "MANIFEST.yaml"), "utf8"));
+    expect(m.files.find((f) => f.dst === "org-config.yaml")?.mode).to.equal("seed-once");
+    expect(m.files.map((f) => f.mode as string)).to.not.include("overlay-schema");
   });
 });
 
@@ -216,74 +212,81 @@ moves:
   });
 });
 
-// PRJ-121 Tier 0 #5, 2026-10-06 — `gov upgrade` emptied an organization's governance repo name. `setup` wrote
-// `workspace_repo:`, the template had renamed it `org_gov_repo:`, and the merge matched by name only: the new key
-// went in EMPTY and the org's value was commented out. Ruled: carry renames, AND refuse any merge that empties a
-// value gov reads — so the next rename nobody mapped is a refusal, not data loss.
-describe("org-config overlay — a rename carries the value; a merge that would lose one is refused", () => {
-  const TEMPLATE = 'org_name: ""\n# The governance repo.\norg_gov_repo: ""\ndefault_branch: "main"\n';
+// PRJ-121 Tier 0 #5, 2026-10-06 — `gov upgrade` emptied an organization's governance repo name: a name-only merge of
+// the template put `org_gov_repo:` in EMPTY and commented the org's `workspace_repo:` out. The org-config split removed
+// the merge (two writers of one file); the rename now travels in the one recorded migration, and a migration that
+// would lose a value gov reads is REFUSED — planned as a refusal, and never written.
+describe("the org-config split — a rename carries the value; a migration that would lose one is refused", () => {
   const ORG = 'org_name: "Acme"\nworkspace_repo: "acme-gov"\ndefault_branch: "trunk"\n';
-  const overlay = [{ src: "org-config.example.yaml", dst: "org-config.yaml", mode: "overlay-schema" as const }];
 
-  it("workspace_repo's value lands under org_gov_repo, and is not left behind as a removed key", () => {
-    const merged = mergeOrgConfig(TEMPLATE, ORG);
-    expect(merged).to.match(/^org_gov_repo: "acme-gov"$/m);
-    expect(merged).to.not.match(/workspace_repo/);
+  it("workspace_repo's value lands under org_gov_repo, in place, and is not left behind", () => {
+    const out = splitOrgConfig({ orgConfig: ORG, governance: null, roleList: null }).orgConfig;
+    expect(out).to.equal('org_name: "Acme"\norg_gov_repo: "acme-gov"\ndefault_branch: "trunk"\n');
   });
 
-  it("an org that already has org_gov_repo keeps it, and a stale workspace_repo beside it is not carried over it", () => {
-    const merged = mergeOrgConfig(TEMPLATE, 'org_gov_repo: "new-gov"\nworkspace_repo: "old-gov"\n');
-    expect(merged).to.match(/^org_gov_repo: "new-gov"$/m);
+  it("an org that already has org_gov_repo keeps it, and a stale workspace_repo beside it goes", () => {
+    const out = splitOrgConfig({ orgConfig: 'org_gov_repo: "new-gov"\nworkspace_repo: "old-gov"\n', governance: null, roleList: null }).orgConfig;
+    expect(out).to.equal('org_gov_repo: "new-gov"\n');
   });
 
-  it("orgConfigLoss names every value gov reads that a merge would empty", () => {
-    expect(orgConfigLoss(ORG, 'org_name: "Acme"\norg_gov_repo: ""\ndefault_branch: "trunk"\n')).to.deep.equal(["workspaceRepo"]);
-    expect(orgConfigLoss(ORG, mergeOrgConfig(TEMPLATE, ORG))).to.deep.equal([]);
+  it("splitLoss names every value gov reads that would not survive", () => {
+    const input = { orgConfig: ORG, governance: null, roleList: null };
+    expect(splitLoss(input, splitOrgConfig(input))).to.deep.equal([]);
+    expect(splitLoss(input, { ...splitOrgConfig(input), orgConfig: 'org_name: "Acme"\norg_gov_repo: ""\ndefault_branch: "trunk"\n' }))
+      .to.deep.equal(['workspaceRepo ("acme-gov")']);
   });
 
-  // THE CHECK OWNER ARRIVES EMPTY (rule-model P1 rulings, 2026-10-06). An org set up before the role existed gets
-  // `check_owner_github: ""` from the template on upgrade — vacant, escalating to the Policy Owner. Adding an empty
-  // key empties nothing, so the loss guard must not refuse the merge; and an org that has named one keeps it.
-  it("adding check_owner_github empty does not trip the loss guard, and a named Check Owner survives the merge", () => {
-    const shipped = fs.readFileSync(path.join(repoRoot, "publish", "content", "org-config.example.yaml"), "utf8");
-    expect(shipped).to.match(/^check_owner_github: ""$/m);
-    const before = 'org_name: "Acme"\norg_gov_repo: "acme-gov"\npolicy_owner_github: "@carol"\n';
-    const merged = mergeOrgConfig(shipped, before);
-    expect(merged).to.match(/^check_owner_github: ""$/m);
-    expect(merged).to.match(/^policy_owner_github: "@carol"$/m);
-    expect(orgConfigLoss(before, merged)).to.deep.equal([]);
-    const plan = planUpgrade(overlay, { readContent: () => shipped, readAdopter: () => before, adopterPaths: () => ["org-config.yaml"] });
-    expect(plan.actions.map((a) => a.kind)).to.deep.equal(["overlay"]);
-
-    const named = `${before}check_owner_github: "@dave"\n`;
-    expect(mergeOrgConfig(shipped, named)).to.match(/^check_owner_github: "@dave"$/m);
+  // THE CHECK OWNER may arrive vacant (rule-model P1 rulings): an org that never named one moves with check_owner
+  // empty — that empties nothing, so the guard must not refuse; an org that named one keeps it.
+  it("a vacant Check Owner does not trip the loss guard, and a named one is carried", () => {
+    const before = 'org_name: "Acme"\norg_gov_repo: "acme-gov"\npolicy_owner_github: "@carol"\ncheck_owner_github: ""\n';
+    const input = { orgConfig: before, governance: null, roleList: null };
+    expect(splitLoss(input, splitOrgConfig(input))).to.deep.equal([]);
+    const named = { ...input, orgConfig: `${before.replace('check_owner_github: ""\n', "")}check_owner_github: "@dave"\n` };
+    expect(splitLoss(named, splitOrgConfig(named))).to.deep.equal([]);
+    expect(splitOrgConfig(named).governance).to.match(/github: "@dave"/);
   });
 
   const lossy = () => {
-    // A rename nobody mapped: the template renamed default_branch, and the org's value would be commented out.
-    const content: Record<string, string> = { "org-config.example.yaml": 'org_name: ""\nbase_branch: ""\n' };
-    const store: Record<string, string> = { "org-config.yaml": 'org_name: "Acme"\ndefault_branch: "trunk"\n' };
-    const r = { readContent: (p: string) => content[p] ?? null, readAdopter: (p: string) => store[p] ?? null, adopterPaths: () => Object.keys(store) };
-    return { content, store, plan: planUpgrade(overlay, r) };
+    const moves = [{ from: "org-config.yaml", to: "policies/governance.yaml", mode: "migrate" as const, how: "org-config-split" }];
+    const store: Record<string, string> = { "org-config.yaml": 'org_name: "Acme"\npolicy_owner_github: "po"\n' };
+    const r = {
+      readContent: () => null, readAdopter: (p: string) => store[p] ?? null, adopterPaths: () => Object.keys(store),
+      checkMigration: () => ['policy_owner_github ("po")'],
+    };
+    return { store, plan: planUpgrade([], r, moves) };
   };
 
-  it("planUpgrade marks such a merge `refuse`, naming what it would lose", () => {
+  it("planUpgrade marks such a migration `refuse`, naming what it would lose", () => {
     const [a] = lossy().plan.actions;
-    expect(a.kind).to.equal("refuse");
-    expect(a.detail).to.match(/defaultBranch/);
+    expect(a!.kind).to.equal("refuse");
+    expect(a!.detail).to.match(/policy_owner_github/);
     expect(formatPlan(lossy().plan).join("\n")).to.match(/refuse/);
   });
 
-  it("applyUpgrade never writes a refused merge — not even with includeConflicts, which `--pr` passes", () => {
-    const { content, store, plan } = lossy();
-    const before = store["org-config.yaml"];
+  it("applyUpgrade never runs a refused migration — not even with includeConflicts, which `--pr` passes", () => {
+    const { store, plan } = lossy();
+    let ran = false;
     const res = applyUpgrade(plan, {
-      readContent: (p) => content[p] ?? null, readAdopter: (p) => store[p] ?? null,
+      readContent: () => null, readAdopter: (p) => store[p] ?? null,
       writeAdopter: (p, t) => { store[p] = t; }, removeAdopter: () => {},
+      migrate: () => { ran = true; return true; },
     }, { includeConflicts: true });
-    expect(store["org-config.yaml"]).to.equal(before);
-    expect(res.refused).to.deep.equal(["org-config.yaml"]);
-    expect(res.applied).to.not.include("org-config.yaml");
+    expect(ran).to.equal(false);
+    expect(res.refused).to.deep.equal(["policies/governance.yaml"]);
+  });
+
+  it("a migration that refuses while running writes nothing and is not recorded", () => {
+    const moves = [{ from: "org-config.yaml", to: "policies/governance.yaml", mode: "migrate" as const, how: "org-config-split" }];
+    const plan = planUpgrade([], { readContent: () => null, readAdopter: () => "x", adopterPaths: () => ["org-config.yaml"] }, moves);
+    const recorded: string[] = [];
+    const res = applyUpgrade(plan, {
+      readContent: () => null, readAdopter: () => "x", writeAdopter: () => {}, removeAdopter: () => {},
+      migrate: () => "it would lose something", recordMove: (id) => recorded.push(id),
+    });
+    expect(recorded).to.deep.equal([]);
+    expect(res.refused).to.deep.equal(["policies/governance.yaml"]);
+    expect(res.why.join("\n")).to.match(/would lose something/);
   });
 
   // Tier 0 #7 — the new layout lives under a path RETIRE_PATHS names for the old world.

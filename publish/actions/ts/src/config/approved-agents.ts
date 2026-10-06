@@ -112,15 +112,16 @@ export function withApprovedAgents(policyText: string, agents: readonly Approved
 
 
 /**
- * THE ORG'S CHOICE, IN `org-config.yaml` (Policy Owner, 2026-09-23):
+ * THE ORG'S CHOICE, IN `policies/governance.yaml` (Policy Owner, 2026-09-23; moved out of `org-config.yaml` by the
+ * org-config split, 2026-10-06 — the `org-config-split` upgrade migration carries it across):
  *
  *   authorized_agents:
  *     default: "ibm-bob"
  *     agent1: "claude-code"
  *     agent2: "openai-codex"
  *
- * Numbered keys rather than a YAML list, because that file is merged key by key on upgrade (`mergeOrgConfig`):
- * every entry an org wrote survives, and a value gov did not write is never modified.
+ * Numbered keys rather than a YAML list, kept from the days that file was merged key by key on upgrade. The flow
+ * form `authorized_agents: { default: "x" }` reads the same.
  */
 /**
  * The key line, WITH whatever scalar follows it — because one of the two answers to this
@@ -181,23 +182,38 @@ const scalarOf = (raw: string): string => raw.replace(/\s+#.*$/, "").trim().repl
  * they did not mean is reported where every other bad id is — `gov agent` names it as "approved
  * but unknown to this version of gov", which is the complaint the person can act on.
  */
-export function readAuthorizedAgents(orgConfigText: string | null): AuthorizedAgents {
-  if (!orgConfigText) return { kind: "unset" };
-  const m = AUTHORIZED_BLOCK.exec(orgConfigText);
+export function readAuthorizedAgents(governanceText: string | null): AuthorizedAgents {
+  if (!governanceText) return { kind: "unset" };
+  const m = AUTHORIZED_BLOCK.exec(governanceText);
   if (!m || m.index === undefined) return { kind: "unset" };
 
-  const scalar = scalarOf(m[1] ?? "");
+  let scalar = scalarOf(m[1] ?? "");
   if (scalar.toLowerCase() === NO_AGENTS) return { kind: "none" };
+
+  // The entries, from the block form or the flow form (`authorized_agents: { default: "x" }`, the shape the
+  // governance.yaml contract is written in). Both say the same thing; neither is preferred.
+  const entries: [string, string][] = [];
+  const flow = /^\{(.*)\}$/.exec(scalar);
+  if (flow) {
+    for (const part of (flow[1] ?? "").split(",")) {
+      const kv = /^\s*([a-z_][a-z0-9_]*)\s*:\s*["']?([^"'\s]*)["']?\s*$/i.exec(part);
+      if (kv) entries.push([kv[1]!, kv[2]!]);
+    }
+    scalar = "";
+  } else {
+    for (const raw of governanceText.slice(m.index + m[0].length).split(/\r?\n/).slice(1)) {
+      if (/^\S/.test(raw) && raw.trim() !== "") break;                       // the block ended
+      const kv = /^\s+([a-z_][a-z0-9_]*):\s*"?([^"#\s]+)"?/i.exec(raw);
+      if (kv) entries.push([kv[1]!, kv[2]!]);
+    }
+  }
 
   const out: ApprovedAgent[] = [];
   let seenDefault: string | null = null;
-  for (const raw of orgConfigText.slice(m.index + m[0].length).split(/\r?\n/).slice(1)) {
-    if (/^\S/.test(raw) && raw.trim() !== "") break;                       // the block ended
-    const kv = /^\s+([a-z_][a-z0-9_]*):\s*"?([^"#\s]+)"?/i.exec(raw);
-    if (!kv) continue;
-    const [, key, value] = kv;
-    if (key!.toLowerCase() === "default") { seenDefault = value!; continue; }
-    out.push({ id: value! });
+  for (const [key, value] of entries) {
+    if (!value) continue;
+    if (key.toLowerCase() === "default") { seenDefault = value; continue; }
+    out.push({ id: value });
   }
   // `default: none` INSIDE THE BLOCK IS ALSO THE DECISION. gov writes the scalar form, but
   // `mergeOrgConfig` walks the TEMPLATE's keys and can re-introduce the template's
@@ -214,8 +230,8 @@ export function readAuthorizedAgents(orgConfigText: string | null): AuthorizedAg
 }
 
 /** Did this organization decide to run no AI agents at all? The one question every agent-shaped step asks. */
-export function isStructureOnly(orgConfigText: string | null): boolean {
-  return readAuthorizedAgents(orgConfigText).kind === "none";
+export function isStructureOnly(governanceText: string | null): boolean {
+  return readAuthorizedAgents(governanceText).kind === "none";
 }
 
 /**
@@ -231,8 +247,8 @@ export function isStructureOnly(orgConfigText: string | null): boolean {
  * every unanswered shape is `null`. Callers that must distinguish the three read
  * {@link readAuthorizedAgents} instead.
  */
-export function parseAuthorizedAgents(orgConfigText: string | null): readonly ApprovedAgent[] | null {
-  const r = readAuthorizedAgents(orgConfigText);
+export function parseAuthorizedAgents(governanceText: string | null): readonly ApprovedAgent[] | null {
+  const r = readAuthorizedAgents(governanceText);
   if (r.kind === "unset") return null;
   return r.kind === "none" ? [] : r.agents;
 }
@@ -243,7 +259,7 @@ export function parseAuthorizedAgents(orgConfigText: string | null): readonly Ap
  * An EMPTY list is not an empty block: it is the structure-only decision, and it is written as
  * `authorized_agents: none` so that reading it back cannot be mistaken for an unanswered setup.
  */
-export function withAuthorizedAgents(orgConfigText: string, agents: readonly ApprovedAgent[]): string | null {
+export function withAuthorizedAgents(governanceText: string, agents: readonly ApprovedAgent[]): string | null {
   const def = agents.find((a) => a.default)?.id ?? agents[0]?.id ?? null;
   const lines = agents.length === 0
     ? [`authorized_agents: ${NO_AGENTS}`]
@@ -254,15 +270,15 @@ export function withAuthorizedAgents(orgConfigText: string, agents: readonly App
       ];
   const block = lines.join("\n");
 
-  const m = AUTHORIZED_BLOCK.exec(orgConfigText);
+  const m = AUTHORIZED_BLOCK.exec(governanceText);
   if (m && m.index !== undefined) {
-    const after = orgConfigText.slice(m.index + m[0].length);
+    const after = governanceText.slice(m.index + m[0].length);
     const rest = after.split(/\r?\n/);
     let i = 1;
     while (i < rest.length && (rest[i] === "" || /^\s/.test(rest[i]!))) i++;
-    const replaced = orgConfigText.slice(0, m.index) + block + "\n" + rest.slice(i).join("\n");
-    return replaced === orgConfigText ? null : replaced;
+    const replaced = governanceText.slice(0, m.index) + block + "\n" + rest.slice(i).join("\n");
+    return replaced === governanceText ? null : replaced;
   }
-  const head = orgConfigText.endsWith("\n") ? orgConfigText : `${orgConfigText}\n`;
+  const head = governanceText.endsWith("\n") ? governanceText : `${governanceText}\n`;
   return `${head}\n# Which agents this organization authorizes, and which gov launches by default.\n# The framework publishes the master list (\`gov agent list\`); this says which of them are ours.\n# \`${NO_AGENTS}\` is a real answer: this organization uses gov for its process and runs no AI agents.\n# Turn them on later with \`gov agent approve <id>\`, which raises a pull request.\n${block}\n`;
 }

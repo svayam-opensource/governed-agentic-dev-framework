@@ -10,11 +10,16 @@
 import * as path from "node:path";
 import type { ValidateContext, ValidationResult, Validator } from "./validate.js";
 import { readTopLevelScalar } from "../resolve/node-env.js";
+import { parseGovernance } from "../config/governance.js";
 
-/** Keys whose values are scanned for leaks. */
+/**
+ * Keys whose values are scanned for leaks. The governance keys left org-config.yaml in the split (2026-10-06) and are
+ * read from policies/governance.yaml below; they stay on this list so an org-config that predates the split is
+ * still scanned for them.
+ */
 const PRIVATE_KEYS = [
   "org_name", "org_short_name", "org_slug", "org_slug_lower", "github_org",
-  "workspace_repo", "policy_owner_email", "policy_owner_github", "check_owner_github", "legal_owner_github",
+  "org_gov_repo", "workspace_repo", "policy_owner_email", "policy_owner_github", "check_owner_github", "legal_owner_github",
   "infra_owner_github", "system_arch_owner_github", "data_arch_owner_github",
 ];
 
@@ -28,7 +33,7 @@ const PLACEHOLDER_VALUE_PATTERNS = [/^@[a-z-]*-tbd$/, /^\{\{[A-Za-z_]+\}\}$/, /^
 
 const SCAN_SUFFIXES = new Set([".md", ".yaml", ".yml", ".sh", ".py"]);
 const SCAN_NAMES = new Set(["CODEOWNERS", "prj"]);
-const ALLOWED_FILES = new Set(["setup.sh", "org-config.yaml"]);
+const ALLOWED_FILES = new Set(["setup.sh", "org-config.yaml", "governance.yaml"]);
 /** Legitimate framework-author attribution: these keys in these files aren't leaks. */
 const ATTRIBUTION_KEYS = new Set(["org_name", "org_short_name"]);
 const ATTRIBUTION_FILES = new Set(["LICENSE", "README.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md"]);
@@ -58,9 +63,18 @@ function scannable(rel: string): boolean {
   return SCAN_SUFFIXES.has(suffix) || SCAN_NAMES.has(name);
 }
 
-/** Build a privacy Validator that scans for leaks of main's org-config values. */
-export function makePrivacyValidator(mainConfigText: string): Validator {
-  const values = privateValuesFromOrgConfig(mainConfigText);
+/** Non-generic values from main's policies/governance.yaml: the Policy Owner and the Check Owner. */
+export function privateValuesFromGovernance(governanceText: string | null | undefined): Array<{ key: string; value: string }> {
+  const g = parseGovernance(governanceText ?? null);
+  return ([["policy_owner.email", g.policyOwner.email], ["policy_owner.github", g.policyOwner.github], ["check_owner.github", g.checkOwner.github]] as const)
+    .filter(([, v]) => v && !isGeneric(v)).map(([key, value]) => ({ key, value }));
+}
+
+/** Build a privacy Validator that scans for leaks of main's org-config and governance values. */
+export function makePrivacyValidator(mainConfigText: string, mainGovernanceText?: string | null): Validator {
+  const seen = new Set<string>();
+  const values = [...privateValuesFromOrgConfig(mainConfigText), ...privateValuesFromGovernance(mainGovernanceText)]
+    .filter((v) => (seen.has(v.value) ? false : (seen.add(v.value), true)));
   return (ctx: ValidateContext): ValidationResult => {
     const errors: string[] = [];
     if (values.length === 0) return { name: "privacy", ok: true, errors };

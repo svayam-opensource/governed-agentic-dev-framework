@@ -192,11 +192,14 @@ describe("check engine slice 3 — the GitHub adapters (fake runner)", () => {
 });
 
 // ── a governance repository at origin/main, as `git` would show it ───────────────────────────────────────
-const ORG_CONFIG = 'org_slug: "ACME"\npolicy_owner_github: "@polly"\ncheck_owner_github: "chuck"\n';
+const ORG_CONFIG = 'org_slug: "ACME"\n';
+// The two framework roles' holders live in policies/governance.yaml since the org-config split.
+const GOVERNANCE = 'policy_owner:\n  github: "@polly"\ncheck_owner:\n  github: "chuck"\n';
 const POLICY = "## 4 Data\n\nKeep it safe.\n\n## 5 Other\n\nx\n";
 function govRepo(files: Record<string, string> = {}): Record<string, string> {
   return {
     "org-config.yaml": ORG_CONFIG,
+    "policies/governance.yaml": GOVERNANCE,
     "framework/rules/rules.yaml": read("framework/rules/rules.yaml"),
     "framework/rules/catalog.yaml": read("framework/rules/catalog.yaml"),
     "policies/org-policy.md": POLICY,

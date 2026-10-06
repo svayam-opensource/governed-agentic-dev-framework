@@ -3,7 +3,7 @@
 import { expect } from "chai";
 import { parseArgv, flagStr } from "../../src/cli/args.js";
 import { route, type CliContext } from "../../src/cli/dispatch.js";
-import { classifyPosture } from "../../src/config/org-config.js";
+import { classifyPosture } from "../../src/config/governance.js";
 import type { OrgConfig } from "../../src/config/org-config.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Board } from "../../src/lifecycle/board.js";

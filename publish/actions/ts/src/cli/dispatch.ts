@@ -41,6 +41,8 @@ import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 import { policyGate } from "./policy-gate-io.js";
 import { approverLogins, protectRepo, type GhApi } from "../maintain/repo-protect.js";
+import { GOVERNANCE_PATH, readPosture, readGovernance, governanceTokens } from "../config/governance.js";
+import { ROLE_LIST_PATH } from "../config/role-list.js";
 import { rules } from "./rules-verb.js";
 import { showRule } from "./rules-show.js";
 import { buildRulesAt } from "./rules-lifecycle.js";
@@ -209,7 +211,7 @@ export function routeOrg(positionals: readonly string[], flags: ParsedArgs["flag
 /**
  * Where the person's `state/` lives, when gov knows enough to say.
  *
- * Both halves are needed and either may be missing — `agent_work_root` is unset in a workspace nobody has
+ * Both halves are needed and either may be missing — the work root is empty in a workspace nobody has
  * finished configuring, and the login is absent whenever `gh` cannot answer. Returning null means "no marker
  * can be read", which is the same answer `rules-lifecycle.ts` gives for "no marker can be written": one keying
  * rule, used by the writer and the reader, so the two can never disagree about where to look.
@@ -362,7 +364,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         const seedCfg = {
           govHome: ctx.home, workspaceRepo: c.workspaceRepo, agentWorkRoot: c.agentWorkRoot,
           defaultBranch: c.defaultBranch, defaultCodeBranch: c.defaultCodeBranch,
-          githubOrg: c.githubOrg, repoOverrides: c.repoOverrides, orgTokens: c.orgTokens,
+          githubOrg: c.githubOrg, repoOverrides: c.repoOverrides, orgTokens: { ...c.orgTokens, ...governanceTokens(readGovernance(ctx.home, (p) => ctx.fs.readFile(p))) },
         };
         const seedDeps = { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding };
         const found = inspectLeftovers(seedDeps, seedCfg, { boardUrl: positionals[0] });
@@ -398,7 +400,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           defaultCodeBranch: c.defaultCodeBranch,
           githubOrg: c.githubOrg,
           repoOverrides: c.repoOverrides,
-          orgTokens: c.orgTokens,
+          orgTokens: { ...c.orgTokens, ...governanceTokens(readGovernance(ctx.home, (p) => ctx.fs.readFile(p))) },
         },
         {
           boardUrl: positionals[0],
@@ -659,12 +661,12 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       // one that tells you where the template is.
       const repoDir = flagStr(flags, "repo-dir") ?? (named ? undefined : ctx.home);
       const check = flagStr(flags, "check");
-      const orgConfigText = ctx.fs.readFile(path.join(ctx.home, "org-config.yaml"));
+      const governanceText = ctx.fs.readFile(path.join(ctx.home, GOVERNANCE_PATH));
       const r = protectRepo(
         { gh: ctx.ghApi, fs: ctx.fs },
         {
-          repo, branch, home: ctx.home, posture: c.governancePosture,
-          approvers: approverLogins(orgConfigText),
+          repo, branch, home: ctx.home, posture: readPosture(governanceText),
+          approvers: approverLogins(governanceText, ctx.fs.readFile(path.join(ctx.home, ROLE_LIST_PATH))),
           isGovernanceRepo: !named,
           ...(repoDir ? { repoDir } : {}),
           ...(check ? { approverCheck: check } : {}),
@@ -703,7 +705,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         if (!key) {
           return { code: 1, lines: [
             "gov rules reload: gov does not know whose session this is, so there is no marker to clear.",
-            "  it is keyed by your GitHub login and your org's agent_work_root — check `gh auth status` and org-config.yaml.",
+            "  it is keyed by your GitHub login and your work root (~/.gov/work-roots, else ~/.gov/<slug>/projects) — check `gh auth status`.",
           ] };
         }
         const pending = readPending(ctx.fs, key.workRoot, key.login);

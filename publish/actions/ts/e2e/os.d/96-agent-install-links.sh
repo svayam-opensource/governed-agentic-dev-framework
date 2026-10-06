@@ -59,7 +59,8 @@ export GH_STUB_LOGIN=acme GH_STUB_LOG=/work/gh.log
 
 # A governance workspace with ibm-bob approved, registered the way a joiner's would be.
 WS="$HOME/.gov/acme/gov_repo"; mkdir -p "$WS/governance/policies" "$WS/agent"
-printf 'org_name: "Acme Ltd"\norg_short_name: "Acme"\norg_slug: "ACME"\norg_slug_lower: "acme"\ngithub_org: "acme"\nworkspace_repo: "acme-gov"\ndefault_branch: "main"\ndefault_code_branch: "dev"\nagent_work_root: "%s/.gov/acme/projects"\npolicy_owner_email: "owner@example.test"\n' "$HOME" > "$WS/org-config.yaml"
+printf 'org_name: "Acme Ltd"\norg_short_name: "Acme"\norg_slug: "ACME"\ngithub_org: "acme"\norg_gov_repo: "acme-gov"\ndefault_branch: "main"\ndefault_code_branch: "dev"\n' > "$WS/org-config.yaml"
+mkdir -p "$WS/policies" && printf 'policy_owner:\n  email: "owner@example.test"\n' > "$WS/policies/governance.yaml"
 printf '# llm governance\n\n```yaml\napproved_agents:\n  - id: ibm-bob\n    default: true\n```\n' > "$WS/governance/policies/llm-governance.md"
 printf '# protocol\n' > "$WS/agent/session-protocol.md"
 printf '[user]\n\tname = Adopter Bot\n\temail = adopter@example.test\n' > "$HOME/.gitconfig"

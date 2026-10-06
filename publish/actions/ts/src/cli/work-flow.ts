@@ -371,7 +371,7 @@ export const AGENT_FLAG_ALIASES: Readonly<Record<string, AgentKind>> = {
  * GOV-FRM-461: gov launches only an agent the organization authorized. The lines refusing `agent`, or null when it
  * may be launched.
  *
- * `authorized` is org-config's `authorized_agents` as {@link ../config/approved-agents.js} reads it: `null` when the
+ * `authorized` is governance.yaml's `authorized_agents` as {@link ../config/approved-agents.js} reads it: `null` when the
  * org has not decided (the framework's own list then stands in, as it does for the menu — and the refusal says so),
  * `[]` for structure-only (refused before this is asked). A shell is never an agent. `cursor-gui` is Cursor run as
  * an IDE: one approval, two ways to run it.
@@ -389,8 +389,8 @@ export function unauthorizedAgentLines(agent: string, authorized: readonly { rea
   return [
     `  \`--agent=${agent}\` names an agent your organization has not authorized, so gov will not launch it.`,
     approved.usingDefaults
-      ? `  Your organization has not chosen its agents yet (authorized_agents in org-config.yaml), so the framework's list applies: ${list}.`
-      : `  authorized_agents in org-config.yaml lists: ${list}.`,
+      ? `  Your organization has not chosen its agents yet (authorized_agents in policies/governance.yaml), so the framework's list applies: ${list}.`
+      : `  authorized_agents in policies/governance.yaml lists: ${list}.`,
     `  Launch one of those with \`--agent=<id>\` (or \`--agent=shell\`), or ask your Policy Owner to authorize it: \`gov agent approve ${id}\`.`,
   ];
 }

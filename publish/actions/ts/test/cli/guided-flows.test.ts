@@ -981,7 +981,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
     const writes: string[] = [];
     const fs = {
       ...fsWith([]),
-      readFile: (f: string) => (px(f).endsWith("/acme-gov/org-config.yaml")
+      readFile: (f: string) => (px(f).endsWith("/acme-gov/policies/governance.yaml")
         ? "authorized_agents: none\n"
         : "# rendered protocol"),                            // everything IS rendered — and still not mirrored
       writeFile: (p: string) => writes.push(px(p)),
@@ -997,7 +997,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
     const writes: string[] = [];
     const fs = {
       ...fsWith([]),
-      readFile: (f: string) => (px(f).endsWith("/acme-gov/org-config.yaml")
+      readFile: (f: string) => (px(f).endsWith("/acme-gov/policies/governance.yaml")
         ? 'authorized_agents:\n  default: "claude-code"\n'
         : px(f).includes("/agent/harness/") ? "# rendered protocol" : null),
       writeFile: (p: string) => writes.push(px(p)),
@@ -1013,7 +1013,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
     const writes: string[] = [];
     const fs = {
       ...fsWith([]),
-      readFile: (f: string) => (px(f).endsWith("/acme-gov/org-config.yaml")
+      readFile: (f: string) => (px(f).endsWith("/acme-gov/policies/governance.yaml")
         ? 'org_name: "Acme"\nauthorized_agents:\n  default: ""\n'                // the shipped template
         : px(f).includes("/agent/harness/") ? "# rendered protocol" : null),
       writeFile: (p: string) => writes.push(px(p)),

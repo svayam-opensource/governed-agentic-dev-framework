@@ -1,0 +1,46 @@
+# Governance choices — how this organization governs (policies/governance.yaml).
+#
+# These are POLICY: a change to this file needs the Policy Owner's approval (CODEOWNERS routes it to them, and
+# the section-owner-approval check requires it). The framework ships this file once, `gov setup` fills it in,
+# and from then on it is yours — `gov upgrade` never rewrites it. Who the organization IS (its name, its
+# repositories, its service endpoints) is in org-config.yaml.
+
+# HARD OR SOFT GOVERNANCE.
+#   soft   a violation opens a record so the Policy Owner can review it later. The default.
+#   hard   the action (for example a merge) is stopped when a policy violation is detected. Needs public
+#          repositories or a paid GitHub plan: on a private repository on GitHub Free, checks run but cannot block.
+governance_posture: "soft"
+
+# THE POLICY OWNER — approves your policies, and holds every role nobody else holds.
+policy_owner:
+  email: ""
+  github: ""
+
+# THE CHECK OWNER — reviews the CODE of your check actions (policies/actions/); the Policy Owner approves the rules.
+# Left empty, the role is vacant and the Policy Owner approves that code too. One person in both roles turns the
+# two-key review off; `gov doctor` says so.
+check_owner:
+  github: ""
+
+# WHICH AI AGENTS THIS ORGANIZATION AUTHORIZES, and which gov launches by default. Every id comes from the
+# framework's list (`gov agent list`); `gov agent approve <id>` raises the pull request that adds one.
+# `authorized_agents: none` is a real answer: this organization uses gov for its process and runs no AI agents.
+# Left empty, gov uses the framework's defaults and says so.
+authorized_agents:
+  default: ""
+
+# WHETHER THIS ORGANIZATION PUBLISHES ITS KNOWLEDGE: none · site · site+pdf · site+pdf+rag.
+# See policies/knowledge-publication.md.
+knowledge_publication: "none"
+
+# WHICH MODEL THE ORGANIZATION APPROVES FOR `gov rules propose` (framework specification §9.7).
+#   propose.provider   anthropic · command — empty means no model is approved, and propose asks you instead.
+#   propose.model      the model id, for the anthropic provider.
+#   command            provider=command: a CLI that reads the request on stdin and writes the reply on stdout.
+#   ci_allowed         true lets CI run propose as the fallback on a policy pull request.
+models:
+  propose:
+    provider: ""
+    model: ""
+  command: ""
+  ci_allowed: false

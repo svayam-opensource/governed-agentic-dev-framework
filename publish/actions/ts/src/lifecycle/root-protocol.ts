@@ -14,6 +14,7 @@ import path from "node:path";
 import type { Fs } from "./fs-io.js";
 import type { GitRead } from "../cli/policy-gate-io.js";
 import { isStructureOnly } from "../config/approved-agents.js";
+import { GOVERNANCE_PATH } from "../config/governance.js";
 
 /**
  * Every agent's own path, mirrored into the project — ALL of them.
@@ -275,7 +276,7 @@ export function mirrorWarnings(result: MirrorResult): readonly string[] {
  * flow and `sync` — and one of them is in a module this change may not touch. A parameter would
  * therefore have been honoured on two paths out of three, which is worse than not having it: the
  * one that forgot would keep writing the nine files and nothing would say so. The answer is in
- * `<project>/<workspace-repo>/org-config.yaml`, which is the same clone the harness is read from,
+ * `<project>/<workspace-repo>/policies/governance.yaml`, which is the same clone the harness is read from,
  * so every caller gets the same behaviour for free.
  *
  * ABSENT OR UNANSWERED CONFIG MIRRORS AS BEFORE. `isStructureOnly` is false unless the org
@@ -284,7 +285,7 @@ export function mirrorWarnings(result: MirrorResult): readonly string[] {
  */
 export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: string, source: HarnessSource): MirrorResult {
   const ws = workspaceRepo;
-  if (isStructureOnly(fs.readFile(path.join(projectDir, ws, "org-config.yaml")))) {
+  if (isStructureOnly(fs.readFile(path.join(projectDir, ws, GOVERNANCE_PATH)))) {
     return { structureOnly: true, placed: [], targets: [], skipped: [], written: 0, unreadable: null };
   }
   // FROM THE DEFAULT BRANCH, NEVER THE PROJECT BRANCH (GOV-FRM-456). The worktree at `<project>/<ws>` is on the

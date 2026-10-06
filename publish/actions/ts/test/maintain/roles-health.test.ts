@@ -10,13 +10,14 @@ import {
 } from "../../src/maintain/roles-health.js";
 import { doctor, type DoctorFacts } from "../../src/maintain/doctor.js";
 
+// policies/governance.yaml since the org-config split — the two framework roles' holders live there.
 const cfg = (policy: string, check?: string) =>
-  `org_name: "Acme"\npolicy_owner_github: "${policy}"\n${check === undefined ? "" : `check_owner_github: "${check}"\n`}`;
+  `policy_owner:\n  github: "${policy}"\n${check === undefined ? "" : `check_owner:\n  github: "${check}"\n`}`;
 
 describe("gov-work — doctor, the Check Owner", () => {
-  it("no row when no config was examined — a row about a fact nobody gathered is worse than none", () => {
-    expect(checkOwnerDiagnostic(null)).to.equal(null);
+  it("no row when governance.yaml was not looked for — a row about a fact nobody gathered is worse than none", () => {
     expect(checkOwnerDiagnostic(undefined)).to.equal(null);
+    expect(checkOwnerDiagnostic(null)!.status, "absent: nobody named — vacant").to.equal("warn");
   });
 
   it("ok when a different person holds it", () => {
@@ -40,15 +41,15 @@ describe("gov-work — doctor, the Check Owner", () => {
       expect(d.status).to.equal("warn");
       expect(d.detail).to.match(/vacant/);
       expect(d.detail).to.contain("GOV-FRM-033");
-      expect(d.detail).to.contain("check_owner_github");
+      expect(d.detail).to.contain("check_owner.github");
     }
   });
 
-  it("appears in doctor's report when doctor has the org-config text", () => {
+  it("appears in doctor's report when doctor has the governance.yaml text", () => {
     const facts: DoctorFacts = {
       gitPresent: true, ghPresent: true, activeOrg: "Acme", cliVersion: "1.0.0",
       resolve: { ok: true, home: "/gov", org: "Acme", via: "active-org" },
-      orgConfigText: cfg("@carol", "@carol"),
+      governanceText: cfg("@carol", "@carol"),
     };
     const row = doctor(facts).diagnostics.find((d) => d.name === "check owner");
     expect(row?.status).to.equal("warn");
@@ -59,16 +60,16 @@ describe("gov-work — doctor, the Check Owner", () => {
 // GOV-FRM-033: the framework's two roles each have a named holder, and doctor reports either one when it is vacant.
 describe("gov-work — doctor, the Policy Owner", () => {
   it("GOV-FRM-033 doctor reports a vacant Policy Owner — a failure: nobody can approve anything", () => {
-    for (const text of [cfg(""), cfg("   "), 'org_name: "Acme"\n']) {
+    for (const text of [cfg(""), cfg("   "), "governance_posture: soft\n", null]) {
       const d = policyOwnerDiagnostic(text)!;
       expect(d).to.include({ name: "policy owner", status: "fail" });
       expect(d.detail).to.match(/vacant/);
-      expect(d.detail).to.contain("policy_owner_github");
+      expect(d.detail).to.contain("policy_owner.github");
       expect(d.detail).to.contain("GOV-FRM-033");
     }
     const facts: DoctorFacts = {
       gitPresent: true, ghPresent: true, activeOrg: "Acme", cliVersion: "1.0.0",
-      resolve: { ok: true, home: "/gov", org: "Acme", via: "active-org" }, orgConfigText: cfg(""),
+      resolve: { ok: true, home: "/gov", org: "Acme", via: "active-org" }, governanceText: cfg(""),
     };
     expect(doctor(facts).diagnostics.find((d) => d.name === "policy owner")?.status).to.equal("fail");
     expect(doctor(facts).ok).to.equal(false);
@@ -77,41 +78,40 @@ describe("gov-work — doctor, the Policy Owner", () => {
   it("ok, naming the holder, when there is one; no row when no config was examined", () => {
     expect(policyOwnerDiagnostic(cfg("carol"))).to.deep.include({ name: "policy owner", status: "ok" });
     expect(policyOwnerDiagnostic(cfg("carol"))!.detail).to.contain("@carol");
-    expect(policyOwnerDiagnostic(null)).to.equal(null);
+    expect(policyOwnerDiagnostic(undefined)).to.equal(null);
+    expect(policyOwnerDiagnostic(null)!.detail, "absent: says which command writes it").to.contain("gov upgrade");
   });
 });
 
-// W2-Q5: the org's roles come from its role list; an org whose copy of the document predates the table falls back
-// to the old *_owner_github keys for one release — and doctor says so.
+// W2-Q5: the org's roles come from its role list — no fallback to the retired *_owner_github keys since the split.
 describe("gov-work — doctor, the org's role list", () => {
   const LIST = "# Reps\n\n| Role | GitHub handle | Owns |\n|---|---|---|\n| Data Owner | @dana | `knowledge/data/` |\n| Legal Owner | | `knowledge/legal/` |\n";
 
   it("ok with the table: how many roles, and which are vacant (the Policy Owner holds them)", () => {
-    const d = roleListDiagnostic(cfg("@carol"), LIST)!;
+    const d = roleListDiagnostic(LIST)!;
     expect(d).to.include({ name: "role list", status: "ok" });
     expect(d.detail).to.contain("2 role(s)");
     expect(d.detail).to.match(/vacant.*Legal Owner/);
   });
 
-  it("warns on the fallback: no table, so the legacy *_owner_github keys are read — for one release", () => {
+  it("warns with no table: the org defines no roles, and the Policy Owner owns every folder", () => {
     for (const text of [null, "# Reps\n\nNo table yet.\n"]) {
-      const d = roleListDiagnostic(cfg("@carol"), text)!;
+      const d = roleListDiagnostic(text)!;
       expect(d.status).to.equal("warn");
       expect(d.detail).to.match(/no role table/);
-      expect(d.detail).to.contain("_owner_github");
-      expect(d.detail).to.match(/one release/);
+      expect(d.detail).to.match(/Policy Owner owns/);
+      expect(d.detail).to.not.contain("_owner_github");
     }
   });
 
   it("warns on a row gov cannot route, and says which", () => {
-    const d = roleListDiagnostic(cfg("@carol"), `${LIST}| Web Owner | @web | \`site/\` |\n`)!;
+    const d = roleListDiagnostic(`${LIST}| Web Owner | @web | \`site/\` |\n`)!;
     expect(d.status).to.equal("warn");
     expect(d.detail).to.match(/site\/.*not under knowledge\//);
   });
 
   it("no row when the document was not read", () => {
-    expect(roleListDiagnostic(cfg("@carol"), undefined)).to.equal(null);
-    expect(roleListDiagnostic(null, LIST)).to.equal(null);
+    expect(roleListDiagnostic(undefined)).to.equal(null);
   });
 });
 
@@ -151,7 +151,7 @@ describe("gov-work — doctor, CODEOWNERS", () => {
     const rows = doctor({
       gitPresent: true, ghPresent: true, activeOrg: "Acme", cliVersion: "1.0.0",
       resolve: { ok: true, home: "/gov", org: "Acme", via: "active-org" },
-      orgConfigText: CFG, roleListText: LIST, codeownersText: generated,
+      governanceText: CFG, roleListText: LIST, codeownersText: generated,
     }).diagnostics.map((d) => d.name);
     expect(rows).to.include.members(["policy owner", "check owner", "role list", "codeowners"]);
   });

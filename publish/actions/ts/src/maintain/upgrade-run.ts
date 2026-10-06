@@ -54,9 +54,60 @@ function recordMove(adopterDir: string, id: string): void {
  * cannot express. Each is versioned by its name: a manifest naming one an older CLI lacks is left undone, for
  * the upgrade that knows it, rather than half-applied.
  */
-const MIGRATIONS: Record<string, (adopterDir: string, from: string, to: string) => boolean> = {
+/** What a migration may need beyond the workspace: the person's own home, for a setting that is theirs. */
+interface MigrationContext { readonly userHome: string; readonly contentDir?: string }
+
+/** true = ran · false = gov does not know it · a string = REFUSED, nothing written, and why. */
+type Migration = (adopterDir: string, from: string, to: string, ctx: MigrationContext) => boolean | string;
+
+const readIf = (p: string): string | null => (fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null);
+
+/** The split's inputs, as the workspace will have them when the migration runs: a file the upgrade creates first is the template. */
+function splitInputs(adopterDir: string, contentDir?: string): SplitInput | null {
+  const cfg = readIf(path.join(adopterDir, "org-config.yaml"));
+  if (cfg === null) return null;
+  const either = (rel: string): string | null => readIf(path.join(adopterDir, rel)) ?? (contentDir ? readIf(path.join(contentDir, rel)) : null);
+  return { orgConfig: cfg, governance: either(GOVERNANCE_PATH), roleList: either(ROLE_LIST_PATH) };
+}
+
+/** What the split would lose here — empty when every value is carried. Used by the plan, before anything is written. */
+export function checkOrgConfigSplit(adopterDir: string, contentDir?: string): string[] {
+  const input = splitInputs(adopterDir, contentDir);
+  return input ? splitLoss(input, splitOrgConfig(input)) : [];
+}
+
+const MIGRATIONS: Record<string, Migration> = {
   /**
-   * THE ORG'S AGENTS LEAVE llm-governance.md FOR org-config.yaml (Policy Owner, 2026-09-23).
+   * THE ORG-CONFIG SPLIT (Policy Owner, 2026-10-06) — see maintain/org-config-split.ts. Writes nothing unless every
+   * value gov reads is carried; then governance.yaml, the role list and org-config.yaml, and this person's work root
+   * when the org's was not the default.
+   */
+  "org-config-split": (adopterDir, _from, _to, ctx) => {
+    const input = splitInputs(adopterDir, ctx.contentDir);
+    if (input === null) return true;                                   // no org-config: nothing to split
+    const out = splitOrgConfig(input);
+    const lost = splitLoss(input, out);
+    if (lost.length) {
+      log("warn", "org-config split refused — it would lose values", "gov-work:maintain:upgrade-run", "migrate", { lost });
+      return `it would lose ${lost.join(", ")} — reconcile org-config.yaml and ${GOVERNANCE_PATH} by hand`;
+    }
+    if (out.workRoot !== null && !recordWorkRoot(readTopLevelScalar(input.orgConfig, "github_org") ?? "", out.workRoot, ctx.userHome)) {
+      return `could not record your work root (${out.workRoot}) in ~/.gov/work-roots — nothing moved`;
+    }
+    const write = (rel: string, text: string | null, was: string | null): void => {
+      if (text === null || text === was) return;
+      fs.mkdirSync(path.dirname(path.join(adopterDir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(adopterDir, rel), text, "utf8");
+    };
+    write(GOVERNANCE_PATH, out.governance, readIf(path.join(adopterDir, GOVERNANCE_PATH)));
+    write(ROLE_LIST_PATH, out.roleList, readIf(path.join(adopterDir, ROLE_LIST_PATH)));
+    write("org-config.yaml", out.orgConfig, input.orgConfig);
+    log("info", "split org-config.yaml: governance choices to policies/governance.yaml", "gov-work:maintain:upgrade-run", "migrate", { workRoot: out.workRoot });
+    return true;
+  },
+  /**
+   * THE ORG'S AGENTS LEAVE llm-governance.md (Policy Owner, 2026-09-23) — for policies/governance.yaml since the
+   * org-config split; the name is the migration's history.
    *
    * The only relocation a straight move cannot express: a VALUE moves between two files of different shapes.
    * The list is what a joiner is governed by, so losing it silently would send every joiner to gov's own
@@ -76,19 +127,35 @@ const MIGRATIONS: Record<string, (adopterDir: string, from: string, to: string) 
       return true;
     }
     const cfg = fs.existsSync(toPath) ? fs.readFileSync(toPath, "utf8") : null;
-    if (cfg === null) return false;                         // no org-config to write into: leave everything alone
+    if (cfg === null) return false;                         // no file to write into: leave everything alone
     const next = withAuthorizedAgents(cfg, agents);
     if (next === null) { fs.rmSync(fromPath, { force: true }); return true; }   // already there
     fs.writeFileSync(toPath, next, "utf8");
     fs.rmSync(fromPath, { force: true });
-    log("info", "carried the org's agents into org-config.yaml", "gov-work:maintain:upgrade-run", "migrate", { agents: agents.map((a) => a.id) });
+    log("info", `carried the org's agents into ${to}`, "gov-work:maintain:upgrade-run", "migrate", { agents: agents.map((a) => a.id) });
     return true;
   },
 };
 
 export function migrationNames(): string[] { return Object.keys(MIGRATIONS); }
 
-export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { apply: boolean }): UpgradeSyncResult {
+/** The plan's view of a migration's losses (upgrade-sync `checkMigration`). */
+function checkMigration(adopterDir: string, contentDir: string): (how: string) => readonly string[] {
+  return (how) => (how === "org-config-split" ? checkOrgConfigSplit(adopterDir, contentDir) : []);
+}
+
+function runMigration(adopterDir: string, ctx: MigrationContext): (how: string, from: string, to: string) => boolean | string {
+  return (how, from, to) => {
+    const run = MIGRATIONS[how];
+    if (!run) {
+      log("warn", "a migration this gov does not know — left undone", "gov-work:maintain:upgrade-run", "migrate", { how, from, to });
+      return false;
+    }
+    return run(adopterDir, from, to, ctx);
+  };
+}
+
+export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { apply: boolean; userHome?: string }): UpgradeSyncResult {
   const manifestPath = path.join(contentDir, "MANIFEST.yaml");
   if (!fs.existsSync(manifestPath)) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
 
@@ -102,7 +169,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
     const p = path.join(adopterDir, rel);
     return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null;
   };
-  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir) }, manifest.moves, manifest.retire);
+  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire);
 
   if (!opts.apply) {
     return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), "", "Re-run with --apply to write these changes."] };
@@ -123,14 +190,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       fs.renameSync(src, dst);                       // byte for byte: a move, never a rewrite
       log("info", "moved a file for the new layout", "gov-work:maintain:upgrade-run", "moveAdopter", { from, to });
     },
-    migrate: (how, from, to) => {
-      const run = MIGRATIONS[how];
-      if (!run) {
-        log("warn", "a migration this gov does not know — left undone", "gov-work:maintain:upgrade-run", "migrate", { how, from, to });
-        return false;
-      }
-      return run(adopterDir, from, to);
-    },
+    migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir }),
     recordMove: (id) => recordMove(adopterDir, id),
   });
   return {
@@ -139,13 +199,14 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       `gov upgrade — applied ${res.applied.length} change(s)${res.skipped.length ? `, skipped ${res.skipped.length} conflict(s) for review:` : "."}`,
       ...res.skipped.map((s) => `  ! ${s} (org-customized — reconcile by hand)`),
       ...refusedLines(plan),
+      ...res.why,
       ...refreshCodeowners(adopterDir),
     ],
   };
 }
 
 /**
- * CODEOWNERS FOLLOWS THE ROLE LIST (GOV-FRM-083). gov generates CODEOWNERS from org-config.yaml (the Policy and Check
+ * CODEOWNERS FOLLOWS THE ROLE LIST (GOV-FRM-083). gov generates CODEOWNERS from policies/governance.yaml (the Policy and Check
  * Owners) and the org's role list (policies/authorized-representatives.md); a holder changes by a pull request to
  * those, and the file is regenerated here — the command `gov doctor`'s drift row names. Written only when it would
  * change, so an upgrade with nothing to route says nothing. No Policy Owner → untouched, and said: a file without
@@ -156,14 +217,13 @@ export function refreshCodeowners(adopterDir: string): string[] {
     const p = path.join(adopterDir, rel);
     return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null;
   };
-  const cfg = read("org-config.yaml");
-  if (cfg === null) return [];
-  const want = expectedCodeowners(cfg, read(ROLE_LIST_PATH));
-  if (want === null) return ["  CODEOWNERS not regenerated: org-config.yaml names no policy_owner_github."];
+  if (read("org-config.yaml") === null) return [];
+  const want = expectedCodeowners(read(GOVERNANCE_PATH), read(ROLE_LIST_PATH));
+  if (want === null) return [`  CODEOWNERS not regenerated: ${GOVERNANCE_PATH} names no Policy Owner (policy_owner.github).`];
   if (read("CODEOWNERS") === want) return [];
   fs.writeFileSync(path.join(adopterDir, "CODEOWNERS"), want, "utf8");
   log("info", "regenerated CODEOWNERS from the role list", "gov-work:maintain:upgrade-run", "refreshCodeowners", {});
-  return [`  regenerated CODEOWNERS from org-config.yaml and ${ROLE_LIST_PATH}`];
+  return [`  regenerated CODEOWNERS from ${GOVERNANCE_PATH} and ${ROLE_LIST_PATH}`];
 }
 
 import { run as runProcess } from "../run-process.js";
@@ -171,6 +231,10 @@ import { expectedCodeowners } from "./roles-health.js";
 import { ROLE_LIST_PATH } from "../config/role-list.js";
 import { log } from "../log.js";
 import { parseApprovedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
+import { GOVERNANCE_PATH } from "../config/governance.js";
+import { recordWorkRoot } from "../config/work-root.js";
+import { readTopLevelScalar } from "../resolve/node-env.js";
+import { splitLoss, splitOrgConfig, type SplitInput } from "./org-config-split.js";
 
 /** Each refused merge, with what it would have lost. A refusal is the one outcome the summary must never hide. */
 function refusedLines(plan: ReturnType<typeof planUpgrade>): string[] {
@@ -212,7 +276,7 @@ function upgradePrBody(version: string, appliedCount: number, plan: ReturnType<t
 export type CompileRules = (adopterDir: string) => readonly string[];
 
 /** Create a gov-upgrade branch with the full plan applied, push it, open a PR. */
-export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string; compileRules?: CompileRules } = {}): UpgradeSyncResult {
+export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string; compileRules?: CompileRules; userHome?: string } = {}): UpgradeSyncResult {
   if (!fs.existsSync(path.join(contentDir, "MANIFEST.yaml"))) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
   try { git(adopterDir, ["rev-parse", "--git-dir"]); } catch { /* not a git repository: the message below is the account of it */ return { code: 1, lines: ["gov upgrade --pr: not a git repository (or no remote). Use --apply for an in-place migration instead."] }; }
   if (git(adopterDir, ["status", "--porcelain"])) return { code: 1, lines: ["gov upgrade --pr: working tree has uncommitted changes — commit or stash first."] };
@@ -225,10 +289,11 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const entries = expandEntries(manifest, walk(contentDir));
   const readContent = (rel: string): string | null => { const p = path.join(contentDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
   const readAdopter = (rel: string): string | null => { const p = path.join(adopterDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
-  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir) }, manifest.moves, manifest.retire);
+  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire);
   if (plan.actions.every((a) => a.kind === "same")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
   // Before the branch exists: a PR that silently lacks the org-config merge would read as a complete upgrade.
   if (plan.actions.some((a) => a.kind === "refuse")) return { code: 1, lines: ["gov upgrade --pr: refused — nothing was written.", ...refusedLines(plan)] };
+  // A refusal can only be found once the migration runs, if the workspace changed under the plan; the PR then stops.
 
   try { git(adopterDir, ["checkout", "-b", branch]); } catch { /* the branch already exists — the runner logged the git failure; the message below says what to do */ return { code: 1, lines: [`gov upgrade --pr: branch '${branch}' already exists — delete it or pass --branch <name>.`] }; }
   const res = applyUpgrade(plan, {
@@ -241,14 +306,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
       fs.renameSync(src, dst);                       // byte for byte: a move, never a rewrite
       log("info", "moved a file for the new layout", "gov-work:maintain:upgrade-run", "moveAdopter", { from, to });
     },
-    migrate: (how, from, to) => {
-      const run = MIGRATIONS[how];
-      if (!run) {
-        log("warn", "a migration this gov does not know — left undone", "gov-work:maintain:upgrade-run", "migrate", { how, from, to });
-        return false;
-      }
-      return run(adopterDir, from, to);
-    },
+    migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir }),
     recordMove: (id) => recordMove(adopterDir, id),
   }, { includeConflicts: true }); // the PR diff IS the review — apply everything
 

@@ -27,7 +27,7 @@ import path from "node:path";
 import type { GitRead } from "./policy-gate-io.js";
 import { flagStr } from "./args.js";
 import type { CommandResult } from "./dispatch.js";
-import type { GovernancePosture } from "../config/org-config.js";
+import type { GovernancePosture } from "../config/governance.js";
 import { inForce, type RuleRow } from "../rules/model/rule-row.js";
 import type { CheckBinding } from "../rules/model/catalog.js";
 import type { EventContext } from "../rules/model/contracts.js";

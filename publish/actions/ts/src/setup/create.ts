@@ -25,6 +25,8 @@
  * the registry either way, so R2 is unaffected.
  */
 
+import { parseGovernance, governanceTokens } from "../config/governance.js";
+import { defaultWorkRoot } from "../config/org-config.js";
 import { isReservedSlug } from "./answers.js";
 
 /** The GitHub coordinates of the repo to create. */
@@ -370,6 +372,32 @@ export function tokenValuesFromOrgConfig(text: string): Record<string, string> {
     if (!value || value === "|" || value === ">") continue;
     values[m[1]!.toUpperCase()] = value;
   }
+  return values;
+}
+
+/**
+ * EVERY TOKEN SETUP FILLS, after the org-config split (2026-10-06): org-config.yaml's own values, the governance
+ * choices from policies/governance.yaml (the Policy Owner's email and handle, the Check Owner), and the values that
+ * are no longer keys anywhere but that the framework's documents still name:
+ *
+ *   ORG_SLUG_LOWER / <org_slug>   org_slug in lower case (org_slug_lower is retired — it is derived)
+ *   AGENT_WORK_ROOT               the default work root, ~/.gov/<slug>/projects (a person's own is theirs)
+ *   POLICY_EFFECTIVE_DATE         the day setup ran — the date the organization's policies took effect
+ *   *_OWNER_GITHUB                the role list's starting holders: the Policy Owner, until the org names others
+ */
+export function setupTokenValues(orgConfigText: string, governanceText: string | null, today: string): Record<string, string> {
+  const values = tokenValuesFromOrgConfig(orgConfigText);
+  const g = parseGovernance(governanceText);
+  Object.assign(values, governanceTokens(g));
+  const slug = values.ORG_SLUG ?? "";
+  if (slug) {
+    values.ORG_SLUG_LOWER = slug.toLowerCase();
+    values.org_slug = slug.toLowerCase();
+    values.AGENT_WORK_ROOT = defaultWorkRoot(slug);
+  }
+  values.POLICY_EFFECTIVE_DATE = today;
+  const po = g.policyOwner.github;
+  if (po) for (const k of ["LEGAL_OWNER_GITHUB", "INFRA_OWNER_GITHUB", "SYSTEM_ARCH_OWNER_GITHUB", "DATA_ARCH_OWNER_GITHUB"]) values[k] = po;
   return values;
 }
 

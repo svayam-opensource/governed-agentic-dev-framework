@@ -186,7 +186,7 @@ export function clearPending(fs: Pick<Fs, "rm">, workRoot: string, login: string
 /**
  * REFUSED BECAUSE gov COULD NOT TELL — the third state, added 2026-09-30.
  *
- * The marker is keyed on (work root, login). Either half can be missing: `agent_work_root` is unset in a
+ * The marker is keyed on (work root, login). Either half can be missing: the work root is unknown in a
  * workspace nobody finished configuring, and the login came from a live `gh api user` with no fallback, so being
  * offline, signed out or rate-limited was enough. A missing key meant `readPending` was never called, which meant
  * every mutating verb PROCEEDED — while the specification said flatly that they refuse.
@@ -202,7 +202,7 @@ export function clearPending(fs: Pick<Fs, "rm">, workRoot: string, login: string
 export function refuseForUnknownRulesState(command: string, missing: { workRoot: boolean; login: boolean }): string[] {
   const what: string[] = [];
   if (missing.login) what.push("who you are (`gh api user` failed and no login is cached)");
-  if (missing.workRoot) what.push("where your state lives (`agent_work_root` is unset in org-config.yaml)");
+  if (missing.workRoot) what.push("where your state lives (your work root is unknown: org-config.yaml names no org_slug)");
   return [
     `gov ${command}: refused — gov cannot tell whether the rules changed since your session started.`,
     "",

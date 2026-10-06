@@ -421,7 +421,7 @@ export function nothingInstalledLines(missing: readonly AgentStatus[], usingDefa
     "",
     ...(usingDefaults
       ? ["  Your organization has not approved any agents yet, so these are the framework's",
-         "  defaults. Narrow them in org-config.yaml (authorized_agents) when you decide.",
+         "  defaults. Narrow them in policies/governance.yaml (authorized_agents) when you decide.",
          ""]
       : []),
     "  Approved and available to install:",
@@ -437,7 +437,7 @@ export function nothingInstalledLines(missing: readonly AgentStatus[], usingDefa
 }
 
 /**
- * The agent ids an org has authorized, read from its own `org-config.yaml` (authorized_agents).
+ * The agent ids an org has authorized, read from its own `policies/governance.yaml` (authorized_agents).
  *
  * Deliberately forgiving: the file is prose with a table in it, maintained by a
  * human, and a parse failure must not empty the menu. Null means "could not tell",

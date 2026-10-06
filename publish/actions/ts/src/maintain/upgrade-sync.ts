@@ -21,24 +21,24 @@
  *                     the org's copy always differs from the shipped one by design. Under
  *                     scaffold-prompt that was a permanent false conflict, and
  *                     --include-conflicts would have replaced the org's approved-agent list
- *                     with an empty template. Any file gov writes into must be seed-once or
- *                     overlay-schema.
+ *                     with an empty template. Any file gov writes into must be seed-once
+ *                     (governance.yaml's authorized_agents is the same case today).
  *
  *                     ACCEPTED LIMIT: the framework can never add required STRUCTURE to a
- *                     seed-once file. If it must, that file belongs in overlay-schema
- *                     (structured data) or should ship as a reference the org copies from.
+ *                     seed-once file. If it must, it ships a SCHEMA beside it that gov checks
+ *                     the org's file against (org-config.yaml ↔ framework/config/
+ *                     org-config.schema.yaml), or a reference the org copies from.
  *   scaffold-prompt — org may extend; create if missing, update if it still
  *                     matches the shipped baseline, else flag as a conflict to
  *                     review (a full 3-way merge is a later refinement).
- *   overlay-schema  — org owns the VALUES (org-config.yaml): add template keys,
- *                     comment keys the template dropped, never touch values.
+ *   (overlay-schema — the key-by-key merge of org-config.yaml — is gone: org-config split,
+ *    Policy Owner 2026-10-06. Two writers of one file is how an upgrade emptied an org's
+ *    governance repo name (Tier 0 #5); the framework now writes the schema, the org the values.)
  * Plus RETIRE: old-world artifacts (framework/ subdir, registry.yaml,
  * .framework-version, vendored bash) that the new layout removes.
  */
 
-import { parseOrgConfig } from "../config/org-config.js";
-
-export type EntryMode = "scaffold-auto" | "seed-once" | "scaffold-prompt" | "overlay-schema";
+export type EntryMode = "scaffold-auto" | "seed-once" | "scaffold-prompt";
 export interface ManifestEntry { readonly src: string; readonly dst: string; readonly mode: EntryMode; }
 export interface Manifest {
   readonly files: readonly ManifestEntry[];
@@ -197,7 +197,7 @@ export function expandEntries(manifest: Manifest, contentFiles: readonly string[
   return out;
 }
 
-export type ActionKind = "create" | "same" | "update" | "conflict" | "overlay" | "refuse" | "retire" | "move" | "migrate";
+export type ActionKind = "create" | "same" | "update" | "conflict" | "refuse" | "retire" | "move" | "migrate";
 export interface PlanAction {
   readonly kind: ActionKind;
   readonly dst: string;
@@ -220,6 +220,11 @@ export interface PlanReaders {
   readonly readBaseline?: (rel: string) => string | null;
   /** Relocations already carried out in this workspace, by `<from> → <to>` — so each runs ONCE. */
   readonly doneMoves?: () => readonly string[];
+  /**
+   * Would this migration lose anything? The reasons, or empty when it carries every value. A migration that would
+   * lose a value is planned as a REFUSAL, so a dry run says so and `--pr` stops before it makes a branch.
+   */
+  readonly checkMigration?: (how: string, from: string, to: string) => readonly string[];
 }
 
 /** The record of a relocation, as the workspace keeps it. */
@@ -236,14 +241,6 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
     if (content === null) continue; // shipped file missing from the content source
     const current = r.readAdopter(e.dst);
 
-    if (e.mode === "overlay-schema") {
-      if (current === null) { actions.push({ kind: "create", dst: e.dst, src: e.src, detail: "seed from template" }); continue; }
-      const lost = orgConfigLoss(current, mergeOrgConfig(content, current));
-      actions.push(lost.length
-        ? { kind: "refuse", dst: e.dst, src: e.src, detail: `the merge would empty ${lost.join(", ")} — left untouched; reconcile by hand` }
-        : { kind: "overlay", dst: e.dst, src: e.src, detail: "add new keys · carry renamed keys · comment removed · keep values" });
-      continue;
-    }
     if (current === null) { actions.push({ kind: "create", dst: e.dst, src: e.src }); continue; }
     if (current === content) { actions.push({ kind: "same", dst: e.dst, src: e.src }); continue; }
     if (e.mode === "seed-once") { actions.push({ kind: "same", dst: e.dst, src: e.src, detail: "yours since the first install" }); continue; }
@@ -280,7 +277,10 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
       : present.has(m.from) ? [m.from] : [];
     if (!here.length) continue;
     if (m.mode === "migrate") {
-      actions.push({ kind: "migrate", dst: m.to, from: m.from, ...(m.how ? { how: m.how } : {}), detail: `carries the org's values into ${m.to}` });
+      const lost = m.how ? r.checkMigration?.(m.how, m.from, m.to) ?? [] : [];
+      actions.push(lost.length
+        ? { kind: "refuse", dst: m.to, from: m.from, ...(m.how ? { how: m.how } : {}), detail: `${m.how} would lose ${lost.join(", ")} — nothing moved; reconcile by hand` }
+        : { kind: "migrate", dst: m.to, from: m.from, ...(m.how ? { how: m.how } : {}), detail: `carries the org's values into ${m.to}` });
     } else {
       for (const from of here) {
         const to = m.from.endsWith("/") ? `${m.to.replace(/\/$/, "")}/${from.slice(m.from.length)}` : m.to;
@@ -328,75 +328,8 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
   return { actions };
 }
 
-/**
- * Keys the TEMPLATE renamed, old → new. A name-only merge cannot see a rename: it inserts the new key EMPTY and
- * comments the org's value out — which is how `gov upgrade` emptied an organization's governance repo name
- * (Tier 0 #5, 2026-10-06). A value under the old name is carried to the new one when the org has no new one.
- */
-export const RENAMED_ORG_KEYS: Readonly<Record<string, string>> = { workspace_repo: "org_gov_repo" };
-
-/**
- * Every value gov READS that a merge would empty, by its `OrgConfig` field name.
- *
- * The rename map fixes the renames somebody remembered; this catches the one nobody did. Judged on what
- * `parseOrgConfig` returns rather than on keys, because a key the template legitimately dropped is commented out
- * on purpose — what must never happen is gov losing a value it still uses.
- */
-export function orgConfigLoss(before: string, after: string): string[] {
-  const nonEmpty = (v: unknown): boolean =>
-    typeof v === "string" ? v !== "" : Array.isArray(v) ? v.length > 0 : v !== null && typeof v === "object" ? Object.keys(v).length > 0 : false;
-  const b = parseOrgConfig(before, "/") as unknown as Record<string, unknown>;
-  const a = parseOrgConfig(after, "/") as unknown as Record<string, unknown>;
-  const lost: string[] = [];
-  for (const [k, v] of Object.entries(b)) {
-    if (k === "orgTokens" || !nonEmpty(v)) continue; // derived from the fields above: a loss there is reported once, by name
-    if (!nonEmpty(a[k])) { lost.push(k); continue; }
-    // A map (services) loses an ENTRY without becoming empty.
-    if (v && typeof v === "object" && !Array.isArray(v)) {
-      for (const [sk, sv] of Object.entries(v as Record<string, unknown>)) {
-        if (nonEmpty(sv) && !nonEmpty((a[k] as Record<string, unknown>)[sk])) lost.push(`${k}.${sk}`);
-      }
-    }
-  }
-  return lost;
-}
-
-/** org-config overlay-schema merge: template schema, org values (rkant's spec). */
-export function mergeOrgConfig(templateText: string, orgText: string): string {
-  // Indentation-aware key: `<indent-depth>:<key>` so NESTED keys (the `services:` block) are matched +
-  // preserved too — else an upgrade would clobber the org's real endpoints with the template placeholders.
-  const keyOf = (line: string): string | null => {
-    const m = line.match(/^(\s*)([a-z_][a-z0-9_-]*):/i);
-    return m ? `${m[1].length}:${m[2]}` : null;
-  };
-  const orgValues = new Map<string, string>();
-  for (const line of orgText.split(/\r?\n/)) { const k = keyOf(line); if (k) orgValues.set(k, line); }
-  // Carry each renamed top-level key to its new name, unless the org already has the new one.
-  for (const [from, to] of Object.entries(RENAMED_ORG_KEYS)) {
-    const old = orgValues.get(`0:${from}`);
-    if (old === undefined) continue;
-    orgValues.delete(`0:${from}`);
-    if (!orgValues.has(`0:${to}`)) orgValues.set(`0:${to}`, old.replace(new RegExp(`^${from}:`), `${to}:`));
-  }
-  const templateKeys = new Set<string>();
-  const out: string[] = [];
-  // Walk the TEMPLATE (canonical order + comments); fill org values where present.
-  for (const line of templateText.split(/\r?\n/)) {
-    const k = keyOf(line);
-    if (k) { templateKeys.add(k); out.push(orgValues.has(k) ? orgValues.get(k)! : line); }
-    else out.push(line);
-  }
-  // Append org keys the template dropped, commented out.
-  const removed = [...orgValues.keys()].filter((k) => !templateKeys.has(k));
-  if (removed.length) {
-    out.push("", "# Removed from the framework template (kept for reference — delete when ready):");
-    for (const k of removed) out.push(`# ${orgValues.get(k)}`);
-  }
-  return out.join("\n").replace(/\n+$/, "") + "\n";
-}
-
 export function formatPlan(plan: UpgradePlan): string[] {
-  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", update: "~ update ", conflict: "! review ", overlay: "~ overlay", refuse: "✗ refuse ", retire: "- retire ", move: "→ move   ", migrate: "→ migrate" };
+  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", update: "~ update ", conflict: "! review ", refuse: "✗ refuse ", retire: "- retire ", move: "→ move   ", migrate: "→ migrate" };
   const shown = plan.actions.filter((a) => a.kind !== "same");
   const lines = shown.map((a) => `  ${mark[a.kind]} ${a.from ? `${a.from} → ${a.dst}` : a.dst}${a.detail ? `   (${a.detail})` : ""}`);
   const counts = plan.actions.reduce<Record<string, number>>((m, a) => ((m[a.kind] = (m[a.kind] ?? 0) + 1), m), {});
@@ -411,17 +344,21 @@ export interface ApplyDeps {
   readonly removeAdopter: (rel: string) => void;
   /** Move the org's file, byte for byte. Defaults to read + write + remove when not supplied. */
   readonly moveAdopter?: (from: string, to: string) => void;
-  /** Run the named migration; returns false when gov does not know it (then nothing is recorded). */
-  readonly migrate?: (how: string, from: string, to: string) => boolean;
+  /**
+   * Run the named migration: true when it ran, false when gov does not know it (then nothing is recorded), or the
+   * reason it REFUSED — a value it would lose — in which case it wrote nothing.
+   */
+  readonly migrate?: (how: string, from: string, to: string) => boolean | string;
   /** Record that a relocation has happened, so the next run skips it. */
   readonly recordMove?: (id: string) => void;
 }
 
 /** Apply the plan. Conflicts are skipped unless includeConflicts. */
-export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { includeConflicts?: boolean } = {}): { applied: string[]; skipped: string[]; refused: string[] } {
+export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { includeConflicts?: boolean } = {}): { applied: string[]; skipped: string[]; refused: string[]; why: string[] } {
   const applied: string[] = [];
   const skipped: string[] = [];
   const refused: string[] = [];
+  const why: string[] = [];
   for (const a of plan.actions) {
     if (a.kind === "same") continue;
     // NEVER written, whatever the options: includeConflicts means "the PR diff is the review", and a value
@@ -447,23 +384,14 @@ export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { include
       // A migration gov does not know is NOT an error to stop on, and NOT something to record: a newer content
       // manifest naming a migration an older CLI lacks must leave the file where it is, for the upgrade that
       // does know it.
-      const ran = a.how ? deps.migrate?.(a.how, a.from, a.dst) === true : false;
-      if (ran) { deps.recordMove?.(moveId({ from: a.from, to: a.dst })); applied.push(a.dst); }
+      const ran = a.how ? deps.migrate?.(a.how, a.from, a.dst) ?? false : false;
+      if (ran === true) { deps.recordMove?.(moveId({ from: a.from, to: a.dst })); applied.push(a.dst); }
+      else if (typeof ran === "string") { refused.push(a.dst); why.push(`  ✗ ${a.from} → ${a.dst} NOT migrated: ${ran}`); }
       else skipped.push(a.dst);
-      continue;
-    }
-    if (a.kind === "overlay") {
-      const tmpl = a.src ? deps.readContent(a.src) : null;
-      const org = deps.readAdopter(a.dst);
-      if (tmpl === null) continue;
-      const merged = org === null ? tmpl : mergeOrgConfig(tmpl, org);
-      // Re-judged here: the plan may be stale by the time it is applied.
-      if (org !== null && orgConfigLoss(org, merged).length) { refused.push(a.dst); continue; }
-      deps.writeAdopter(a.dst, merged); applied.push(a.dst);
       continue;
     }
     const c = a.src ? deps.readContent(a.src) : null;
     if (c !== null) { deps.writeAdopter(a.dst, c); applied.push(a.dst); }
   }
-  return { applied, skipped, refused };
+  return { applied, skipped, refused, why };
 }

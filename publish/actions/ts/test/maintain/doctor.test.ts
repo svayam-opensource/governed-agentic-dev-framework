@@ -182,11 +182,17 @@ describe("contentLayoutOf — derived from the tree, never stored", () => {
 // An org can add `require_two_approvals: true`, have it reviewed and merged, and believe it configured
 // something. `preferences.ts` has always said "gov does not know this setting"; this channel said nothing.
 describe("org-config — what gov ignored, said out loud", () => {
+  // Every required key (framework/config/org-config.schema.yaml), so a row is about what the test adds.
+  const FULL = [
+    'org_name: "Acme"', 'org_short_name: "Acme"', 'org_slug: "ACM"', 'org_repo_url: "git@github.com:acme/gov.git"',
+    'github_org: "acme"', 'org_gov_repo: "gov"', 'default_branch: "main"', 'default_code_branch: "dev"', "",
+  ].join("\n");
+
   it("names the keys gov does not read, and counts them", () => {
     const r = doctor(facts({
       workspaceChecked: true,
       contentVersion: "1.0.0",
-      orgConfigText: 'org_name: "Acme"\npolicy_owner_github: "@polly"\nrequire_two_approvals: true\nfoo: bar\n',
+      orgConfigText: `${FULL}require_two_approvals: true\nfoo: bar\n`,
     }));
     const row = r.diagnostics.find((d) => d.name === "org-config")!;
     expect(row.status, "an unknown key is a warning, never a failure").to.equal("warn");
@@ -195,19 +201,50 @@ describe("org-config — what gov ignored, said out loud", () => {
   });
 
   it("singular reads as singular", () => {
-    const row = doctor(facts({ orgConfigText: "require_two_approvals: true\n" })).diagnostics.find((d) => d.name === "org-config")!;
+    const row = doctor(facts({ orgConfigText: `${FULL}require_two_approvals: true\n` })).diagnostics.find((d) => d.name === "org-config")!;
     expect(row.detail).to.equal("1 key gov does not read — require_two_approvals (ignored)");
   });
 
-  it("says so when everything is recognised", () => {
-    const row = doctor(facts({ orgConfigText: 'org_name: "Acme"\ndefault_branch: "main"\n' })).diagnostics.find((d) => d.name === "org-config")!;
+  it("says so when the file matches the schema", () => {
+    const row = doctor(facts({ orgConfigText: FULL })).diagnostics.find((d) => d.name === "org-config")!;
     expect(row.status).to.equal("ok");
-    expect(row.detail).to.equal("all keys recognised");
+    expect(row.detail).to.equal("matches the schema — all keys recognised");
+  });
+
+  it("a missing REQUIRED key fails — gov cannot work for the org without it", () => {
+    const row = doctor(facts({ orgConfigText: FULL.replace(/^org_slug: .*\n/m, "") })).diagnostics.find((d) => d.name === "org-config")!;
+    expect(row.status).to.equal("fail");
+    expect(row.detail).to.match(/^missing org_slug/);
+  });
+
+  it("a key that MOVED out in the split warns, and says where it went and what carries it", () => {
+    const row = doctor(facts({ orgConfigText: `${FULL}policy_owner_github: "@polly"\n` })).diagnostics.find((d) => d.name === "org-config")!;
+    expect(row.status).to.equal("warn");
+    expect(row.detail).to.contain("policy_owner_github → policies/governance.yaml (policy_owner.github)").and.contain("gov upgrade");
+  });
+
+  it("checks against the workspace's own schema file when there is one", () => {
+    const schema = "keys:\n  org_name: { type: string, required: true }\n  brand_new: { type: string }\n";
+    const row = doctor(facts({ orgConfigText: 'org_name: "Acme"\nbrand_new: x\n', orgConfigSchemaText: schema })).diagnostics.find((d) => d.name === "org-config")!;
+    expect(row.status).to.equal("ok");
   });
 
   it("no config examined → no row (a row about a fact nobody gathered is worse than no row)", () => {
     expect(doctor(facts()).diagnostics.find((d) => d.name === "org-config")).to.equal(undefined);
     expect(doctor(facts({ orgConfigText: null })).diagnostics.find((d) => d.name === "org-config")).to.equal(undefined);
+  });
+});
+
+describe("policies/governance.yaml — the governance row", () => {
+  const row = (t: string | null | undefined) => doctor(facts({ governanceText: t })).diagnostics.find((d) => d.name === "governance");
+  it("absent warns and names the upgrade that writes it", () => {
+    expect(row(null)!.status).to.equal("warn");
+    expect(row(null)!.detail).to.contain("gov upgrade");
+  });
+  it("a problem in it is said; a clean file is ok; not looked at → no row", () => {
+    expect(row("foo: 1\n")!.detail).to.contain("foo");
+    expect(row("governance_posture: soft\n")!.status).to.equal("ok");
+    expect(row(undefined)).to.equal(undefined);
   });
 });
 
@@ -258,7 +295,9 @@ describe("branch protection — GOV-FRM-448, in the report", () => {
 // protection are in opposite positions depending on which they chose, and until this row the report could not
 // tell them apart.
 describe("governance posture — the row that says what the protection rows are FOR", () => {
-  const row = (text: string | null | undefined) => doctor(facts({ orgConfigText: text })).diagnostics.find((d) => d.name === "governance posture");
+  // Read from policies/governance.yaml since the org-config split: null = the file is absent (soft by default),
+  // undefined = nobody looked.
+  const row = (text: string | null | undefined) => doctor(facts({ governanceText: text })).diagnostics.find((d) => d.name === "governance posture");
   const protection = {
     repo: "Acme/acme-gov",
     branch: "main",
@@ -294,25 +333,25 @@ describe("governance posture — the row that says what the protection rows are 
     expect(r.detail).to.contain("`strict`").and.contain("not a posture gov knows");
   });
 
-  it("no config examined → no row. A row about a fact nobody gathered is worse than no row", () => {
-    expect(row(null)).to.equal(undefined);
+  it("nothing looked at → no row; an ABSENT governance.yaml is soft, by default", () => {
     expect(row(undefined)).to.equal(undefined);
+    expect(row(null)!.detail).to.contain("the default");
   });
 
   it("under SOFT the per-requirement rows are GONE — four crosses against a deliberate choice is a false alarm", () => {
-    const r = doctor(facts({ orgConfigText: 'governance_posture: soft\npolicy_owner_github: "@polly"\n', protection }));
+    const r = doctor(facts({ governanceText: 'governance_posture: soft\npolicy_owner:\n  github: "@polly"\n', protection }));
     expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(0);
     expect(r.ok, "and the report is not failed by a decision the organization made on purpose").to.equal(true);
   });
 
   it("under HARD they stay, and an open branch fails the report", () => {
-    const r = doctor(facts({ orgConfigText: "governance_posture: hard\n", protection }));
+    const r = doctor(facts({ governanceText: "governance_posture: hard\n", protection }));
     expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(4);
     expect(r.ok).to.equal(false);
   });
 
   it("UNSET is soft by default (W2-Q6), so the rows go too", () => {
-    const r = doctor(facts({ orgConfigText: 'org_name: "Acme"\npolicy_owner_github: "@polly"\n', protection }));
+    const r = doctor(facts({ governanceText: 'policy_owner:\n  github: "@polly"\n', protection }));
     expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(0);
     expect(r.ok).to.equal(true);
   });

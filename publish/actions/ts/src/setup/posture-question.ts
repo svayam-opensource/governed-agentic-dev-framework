@@ -8,7 +8,7 @@
  *
  * Pure apart from the injected prompt; shared by the adopter interview and bare `gov setup`.
  */
-import type { GovernancePosture } from "../config/org-config.js";
+import type { GovernancePosture } from "../config/governance.js";
 
 export const HARD_POSTURE_CONFIRMATION = [
   'Choosing "hard" requires your repositories to be public, or a paid GitHub plan.',

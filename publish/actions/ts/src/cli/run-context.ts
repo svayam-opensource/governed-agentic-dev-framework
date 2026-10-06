@@ -14,7 +14,7 @@
 import * as fsSync from "node:fs";
 import * as path from "node:path";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
-import { parseOrgConfig } from "../config/org-config.js";
+import { loadOrgConfigText } from "../config/work-root.js";
 import { cacheLogin, cachedLogin } from "../log.js";
 import { tryRun } from "../run-process.js";
 import { projectFromPath } from "./work-flow.js";
@@ -38,7 +38,7 @@ export function runContext(cwd: string = process.cwd()): RunContext {
     const active = store.readActiveOrg();
     const home = active ? store.readHomes().find((h) => h.org === active)?.home ?? null : null;
     if (home) {
-      const cfg = parseOrgConfig(fsSync.readFileSync(path.join(home, "org-config.yaml"), "utf8"));
+      const cfg = loadOrgConfigText(fsSync.readFileSync(path.join(home, "org-config.yaml"), "utf8"));
       workRoot = cfg.agentWorkRoot || null;
       orgSlug = cfg.orgSlug || null;
     }

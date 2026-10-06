@@ -87,7 +87,7 @@ export function formatAgentReport(r: AgentReport): readonly string[] {
   // one, and telling an organization to undo a decision it had just made. The row that belongs
   // here says what IS true, and names the way forward for whoever does want an agent.
   if (r.structureOnly) {
-    out.push(`  AI agents: ${NO_AGENTS} authorized (structure-only)  —  org-config.yaml: authorized_agents`);
+    out.push(`  AI agents: ${NO_AGENTS} authorized (structure-only)  —  policies/governance.yaml: authorized_agents`);
     out.push("");
     out.push("  This organization uses gov for its development process and runs no AI agents.");
     out.push("  gov installs none, renders no agent instructions into your projects, launches none.");
@@ -97,7 +97,7 @@ export function formatAgentReport(r: AgentReport): readonly string[] {
   }
   out.push(r.usingDefaults
     ? "  Your organization has not approved any agents yet — showing the framework's list."
-    : "  Approved by your organization  (org-config.yaml: authorized_agents)");
+    : "  Approved by your organization  (policies/governance.yaml: authorized_agents)");
   out.push("");
 
   if (!r.rows.length && !r.unknownIds.length) {
@@ -186,10 +186,10 @@ export function planAgentInstall(
   if (approved !== null && approved.length === 0) {
     return {
       ok: false,
-      message: `This organization authorizes no AI agents (org-config.yaml: authorized_agents: ${NO_AGENTS}),\n`
+      message: `This organization authorizes no AI agents (policies/governance.yaml: authorized_agents: ${NO_AGENTS}),\n`
         + `  so gov will not install ${agent.tool}.\n`
         + `  To start using agents:  gov agent approve ${id}\n`
-        + "  That raises a pull request to whoever owns org-config.yaml.",
+        + "  That raises a pull request to the Policy Owner, who owns policies/governance.yaml.",
     };
   }
   // Approval is the gate, and the only one. An unapproved agent is Prohibited by
@@ -201,7 +201,7 @@ export function planAgentInstall(
       ok: false,
       message: `${agent.tool} is not approved by your organization, so gov will not install it.\n` +
         `  Propose it with:  gov agent approve ${id}\n` +
-        "  That raises a pull request to whoever owns org-config.yaml.",
+        "  That raises a pull request to the Policy Owner, who owns policies/governance.yaml.",
     };
   }
 

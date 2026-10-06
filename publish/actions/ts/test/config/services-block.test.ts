@@ -3,7 +3,7 @@
 // The org-level `services:` block: parsed into typed fields + a map, and PRESERVED (not clobbered) by upgrade.
 import { expect } from "chai";
 import { parseOrgConfig } from "../../src/config/org-config.js";
-import { mergeOrgConfig } from "../../src/maintain/upgrade-sync.js";
+import { splitOrgConfig } from "../../src/maintain/org-config-split.js";
 
 const cfg = `org_name: "Acme"
 agent_work_root: "~/work"
@@ -29,23 +29,11 @@ describe("org-config services block + upgrade merge", () => {
     expect(parseOrgConfig(`vault_addr: "https://legacy.vault"\n`).vaultAddr).to.equal("https://legacy.vault");
   });
 
-  // DEFENSE CASE — an upgrade must NOT overwrite the org's NESTED endpoints with the template's placeholders.
-  it("mergeOrgConfig preserves the org's nested services values over the template schema", () => {
-    const template = `org_name: ""
-agent_work_root: ""
-gov_account: ""
-services:
-  vault: ""
-  oidc: ""
-  jenkins: ""
-  npm: ""
-  docker: ""
-`;
-    const merged = mergeOrgConfig(template, cfg);
-    expect(merged, merged).to.match(/vault: "https:\/\/vault\.acme\.com"/);
-    expect(merged).to.match(/oidc: "https:\/\/oidc\.acme\.com"/);
-    expect(merged).to.match(/jenkins: "https:\/\/ci\.acme\.com"/);
-    expect(merged).to.match(/gov_account: "1000"/);          // top-level org value preserved
-    expect(merged).to.match(/docker: ""/);                    // NEW template key added (org didn't have it)
+  // DEFENSE CASE — an upgrade must NOT touch the org's NESTED endpoints. The template merge that once risked it is
+  // gone (org-config split); the one migration that still edits org-config.yaml leaves services: byte for byte.
+  it("the org-config split leaves the org's nested services values exactly as they were", () => {
+    const out = splitOrgConfig({ orgConfig: `${cfg}policy_owner_github: "po"\n`, governance: null, roleList: null });
+    for (const line of cfg.split("\n").filter((l) => l && !l.startsWith("agent_work_root"))) expect(out.orgConfig.split("\n"), line).to.include(line);
+    expect(out.orgConfig).to.not.match(/policy_owner_github/);
   });
 });

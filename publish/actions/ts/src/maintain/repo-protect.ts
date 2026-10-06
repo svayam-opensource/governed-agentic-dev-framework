@@ -11,7 +11,7 @@
  *
  * TWO POSTURES, BOTH IMPLEMENTED. `hard` means the PLATFORM stops work attempted outside gov; `soft` means an
  * organization deliberately leaves room for direct work. Under `soft` this command installs nothing and says
- * so — a refusal, not a failure. No posture recorded IS soft (W2-Q6): see `config/org-config.ts`.
+ * so — a refusal, not a failure. No posture recorded IS soft (W2-Q6): see `config/governance.ts`.
  *
  * ── THE THREE ANSWERS THIS FILE KEEPS APART ──────────────────────────────────────────────────────────────
  *
@@ -44,7 +44,8 @@ import {
   APPROVER_CHECK, isPlanLimited, planWaysOut, protectionChanges, WANTED_APPROVING_REVIEWS,
   type ProtectionChange,
 } from "./protection-check.js";
-import type { PostureChoice } from "../config/org-config.js";
+import { frameworkOwners, parseGovernance, type PostureChoice } from "../config/governance.js";
+import { resolveRoles } from "../config/role-list.js";
 
 /**
  * Runs `gh <args>`, with an optional JSON body on stdin, and returns stdout. Throws on a non-zero exit.
@@ -74,7 +75,7 @@ export interface RepoProtectInput {
   readonly repo: string;
   /** The branch it protects: the repository's default branch. */
   readonly branch: string;
-  /** What `org-config.yaml` says the organization chose. Unset and unrecognised both refuse. */
+  /** What `policies/governance.yaml` says the organization chose. Absent is soft; unrecognised refuses. */
   readonly posture: PostureChoice;
   /** The check this organization requires, when it renamed the framework's. */
   readonly approverCheck?: string;
@@ -87,7 +88,7 @@ export interface RepoProtectInput {
   readonly repoDir?: string;
   /** The organization's approver logins, for the `gh variable set` line a CODE repository needs. */
   readonly approvers?: readonly string[];
-  /** True when `repo` is the governance repository, which holds `org-config.yaml` and needs no variable. */
+  /** True when `repo` is the governance repository, which holds the approver list's sources and needs no variable. */
   readonly isGovernanceRepo?: boolean;
 }
 
@@ -104,39 +105,22 @@ export const WORKFLOW_TEMPLATE = path.join("framework", "templates", "workflows"
 export const WORKFLOW_DEST = path.posix.join(".github", "workflows", "approver-check.yml");
 
 /**
- * THE ORGANIZATION'S APPROVER LOGINS, as the shipped workflow reads them — PURE, over `org-config.yaml`'s text.
+ * THE ORGANIZATION'S APPROVER LOGINS (org-config split, Policy Owner 2026-10-06) — PURE, over the text of
+ * `policies/governance.yaml` (the Policy Owner and the Check Owner) and the role list in
+ * `policies/authorized-representatives.md` (every role's holder). A vacant role adds nobody: its approvals fall to
+ * the Policy Owner, who is already on the list.
  *
- * The explicit `authorized_approvers:` list, else the role handles `gov setup` writes and CODEOWNERS is
- * generated from. §3.2's own list lives in `policies/authorized-representatives.md`, which names people by
- * EMAIL and is seed-once — so the framework may never add machine-readable structure to it, and GitHub logins
- * have to live here.
+ * The explicit `authorized_approvers:` list in org-config.yaml is retired: who may approve IS who holds a role, and
+ * a second list of the same people was a second place for them to disagree.
  *
- * gov uses this for ONE thing: printing the `gh variable set GOV_APPROVERS` line a CODE repository needs,
- * because a code repo cannot read this file. The workflow does its own reading, in the same order, so that the
- * two cannot silently disagree about who may approve.
+ * gov uses this for ONE thing: printing the `gh variable set GOV_APPROVERS` line a CODE repository needs, because a
+ * code repo cannot read the governance repo. The workflow does its own reading of the same two files, so the two
+ * cannot silently disagree about who may approve.
  */
-export function approverLogins(orgConfigText: string | null | undefined): readonly string[] {
-  if (!orgConfigText) return [];
-  const clean = (s: string): string => s.trim().replace(/\s+#.*$/, "").replace(/^["']|["']$/g, "").replace(/^@+/, "").trim();
-  const lines = orgConfigText.split(/\r?\n/);
-  const at = lines.findIndex((l) => /^authorized_approvers:\s*(#.*)?$/.test(l));
-  const listed: string[] = [];
-  if (at !== -1) {
-    for (const line of lines.slice(at + 1)) {
-      if (/^\S/.test(line)) break;                     // dedent → the next top-level key
-      const m = /^\s+-\s*(.+)$/.exec(line);
-      if (m) { const v = clean(m[1]!); if (v) listed.push(v); }
-      else if (line.trim()) break;                     // something that is not an item → not our list
-    }
-  }
-  if (listed.length) return [...new Set(listed)];
-  const roles = ["policy_owner_github", "check_owner_github", "legal_owner_github", "infra_owner_github",
-    "system_arch_owner_github", "data_arch_owner_github"];
-  const handles: string[] = [];
-  for (const line of lines) {
-    const m = /^([a-z_]+):\s*(.+)$/.exec(line);
-    if (m && roles.includes(m[1]!)) { const v = clean(m[2]!); if (v) handles.push(v); }
-  }
+export function approverLogins(governanceText: string | null | undefined, roleListText: string | null | undefined): readonly string[] {
+  const owners = frameworkOwners(parseGovernance(governanceText ?? null));
+  const handles = [owners.policyOwner, owners.checkOwner, ...resolveRoles(roleListText).roles.map((r) => r.holder ?? "")]
+    .map((h) => h.trim().replace(/^@+/, "")).filter(Boolean);
   return [...new Set(handles)];
 }
 
@@ -381,7 +365,7 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
       "  room a soft posture deliberately leaves. gov's own gates remain, and they do not bind an agent a",
       "  developer starts outside gov.",
       "",
-      "  To change that: `governance_posture: hard` in org-config.yaml, by pull request, then run this again.",
+      "  To change that: `governance_posture: hard` in policies/governance.yaml, by pull request, then run this again.",
     ] };
   }
 
@@ -475,12 +459,12 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
     if (!input.isGovernanceRepo) {
       lines.push(
         "",
-        "  A CODE REPOSITORY CANNOT READ org-config.yaml — it lives in the governance repo, and a GITHUB_TOKEN",
+        "  A CODE REPOSITORY CANNOT READ policies/governance.yaml — it lives in the governance repo, and a GITHUB_TOKEN",
         "  cannot read another private repository. Give the check this organization's list as a variable:",
         input.approvers?.length
           ? `    gh variable set GOV_APPROVERS --repo ${input.repo} --body "${input.approvers.join(" ")}"`
           : "    gh variable set GOV_APPROVERS --repo " + input.repo + ' --body "<login> <login> …"'
-            + "   (org-config.yaml names nobody yet)",
+            + "   (policies/governance.yaml names nobody yet)",
       );
     }
     return { code: 1, lines: [

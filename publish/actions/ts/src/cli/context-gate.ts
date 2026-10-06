@@ -19,7 +19,7 @@ import { log } from "../log.js";
 import { runContext } from "./run-context.js";
 import { stateDir } from "../state-paths.js";
 import { createNodeEnv } from "../resolve/node-env.js";
-import { parseOrgConfig } from "../config/org-config.js";
+import { loadOrgConfigText } from "../config/work-root.js";
 import { readCliVersion } from "./main.js";
 import {
   type ContextInfo, type Ack, contextFingerprint, hashText, renderBanner, isAcked, recordAck,
@@ -48,7 +48,7 @@ function buildContextInfo(): ContextInfo {
       try {
         const text = fsSync.readFileSync(p, "utf8");
         orgConfigPath = p; orgConfigHash = hashText(text);
-        const c = parseOrgConfig(text);
+        const c = loadOrgConfigText(text);
         agentWorkRoot = c.agentWorkRoot || undefined;
         if (c.vaultAddr) services.vault = c.vaultAddr;
         Object.assign(services, c.services);   // oidc/jenkins/npm/docker from the now-typed `services:` block

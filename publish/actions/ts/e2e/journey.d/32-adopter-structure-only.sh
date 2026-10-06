@@ -42,17 +42,15 @@ drive "$(conv <<'C'
 <
 > Q8 - What is policy owner email
 < adopter@acme.test
-> Q9 - What should be the policy effective date
-<
-# Q10 — THE CHECK OWNER (rule-model, 2026-10-06): who reviews the code of the org's check actions. Answered,
+# Q9 — THE CHECK OWNER (rule-model, 2026-10-06): who reviews the code of the org's check actions. Answered,
 # not defaulted: the default is the Policy Owner's gh login, which the container may not have.
-> Q10 - Who is the Check Owner
+> Q9 - Who is the Check Owner
 < adopter
-# Q11 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
-> Q11 - What governance posture
+# Q10 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
+> Q10 - What governance posture
 <
 ~ 240
-# Q12 — ANSWERED WITH THE WORD, not the number. The numbered option is asserted on the screen
+# Q11 — ANSWERED WITH THE WORD, not the number. The numbered option is asserted on the screen
 # below; typing `none` is the answer someone gives who read the list rather than counting it, and
 # it must work for the same reason `ibm-bob` does.
 > default for your organization
@@ -69,7 +67,7 @@ drive "$(conv <<'C'
 C
 )" gov
 
-info "Q12 offers 'none' as an ANSWER, not as a way past the question"
+info "Q11 offers 'none' as an ANSWER, not as a way past the question"
 saw "the option is on the menu, numbered like the rest" "none — this organization does not use AI agents"
 says "and it says what gov still does, which is everything else" "projects, tasks, branches, knowledge, review"
 never "it is never presented as skipping the question" "skip this"
@@ -78,13 +76,13 @@ never "and the additions question is not asked at all" "add any other AI agent t
 
 info "the decision is written down, not remembered"
 saw "gov says where it landed" "authorized_agents: none"
-runs grep -q "^authorized_agents: none" "$HOME/.gov/acme/gov_repo/org-config.yaml" \
-  && pass "org-config.yaml carries the decision as a scalar — an answer, not an empty block" \
-  || fail "authorized_agents: none was not written to org-config.yaml"
+runs grep -q "^authorized_agents: none" "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
+  && pass "policies/governance.yaml carries the decision as a scalar — an answer, not an empty block" \
+  || fail "authorized_agents: none was not written to policies/governance.yaml"
 # THE DISTINCTION THE WHOLE CHANGE RESTS ON. An empty block is what the shipped template ships, so
 # a fixture — or a writer — that spelled the decision that way would be recording "nobody has
 # answered" while the adopter had just answered.
-runs grep -qE '^authorized_agents:[[:space:]]*$' "$HOME/.gov/acme/gov_repo/org-config.yaml" \
+runs grep -qE '^authorized_agents:[[:space:]]*$' "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
   && fail "the decision was written as an EMPTY BLOCK, which reads as 'unanswered'" \
   || pass "and not as an empty block, which is the unanswered state"
 

@@ -23,7 +23,7 @@ import {
 } from "../../src/maintain/repo-protect.js";
 import { protectionChanges, APPROVER_CHECK } from "../../src/maintain/protection-check.js";
 import { UNPROTECTED } from "../../src/lifecycle/branch-protection.js";
-import { classifyPosture } from "../../src/config/org-config.js";
+import { classifyPosture } from "../../src/config/governance.js";
 
 const HOME = "/gov/acme";
 const REPO = "Acme/acme-gov";
@@ -316,23 +316,30 @@ describe("gov-work — the body gov PUTs", () => {
   });
 });
 
-describe("gov-work — the organization's approver logins", () => {
-  it("prefers the explicit list", () => {
-    expect(approverLogins(["authorized_approvers:", "  - alice", "  - '@bob'", "policy_owner_github: carol"].join("\n")))
-      .to.deep.equal(["alice", "bob"]);
+describe("gov-work — the organization's approver logins (governance.yaml + the role list)", () => {
+  const GOV = 'policy_owner:\n  github: "@carol"\ncheck_owner:\n  github: "@dave"\n';
+  const LIST = "| Role | GitHub handle | Owns |\n|---|---|---|\n| Data Owner | @dana | `knowledge/data/` |\n| Legal Owner | | `knowledge/legal/` |\n";
+
+  it("the Policy Owner, the Check Owner and every role holder — a vacant role adds nobody", () => {
+    expect(approverLogins(GOV, LIST)).to.deep.equal(["carol", "dave", "dana"]);
   });
 
-  it("falls back to the role handles, which on day one is the Policy Owner alone", () => {
-    expect(approverLogins(['policy_owner_github: "@carol"', 'legal_owner_github: ""'].join("\n"))).to.deep.equal(["carol"]);
+  it("on day one that is the Policy Owner alone", () => {
+    expect(approverLogins('policy_owner:\n  github: "@carol"\n', null)).to.deep.equal(["carol"]);
   });
 
-  it("the Check Owner approves too — the second built-in role reviews action code, so its approval must count", () => {
-    expect(approverLogins(['policy_owner_github: "@carol"', 'check_owner_github: "@dave"'].join("\n"))).to.deep.equal(["carol", "dave"]);
+  it("one person in several roles is listed once", () => {
+    expect(approverLogins('policy_owner:\n  github: "carol"\ncheck_owner:\n  github: "@carol"\n', "| Role | GitHub handle | Owns |\n|---|---|---|\n| X | @carol | |\n"))
+      .to.deep.equal(["carol"]);
   });
 
-  it("has nothing to say about a config that names nobody", () => {
-    expect(approverLogins(null)).to.deep.equal([]);
-    expect(approverLogins("org_name: Acme")).to.deep.equal([]);
+  it("the retired authorized_approvers list is not read — who may approve IS who holds a role", () => {
+    expect(approverLogins("authorized_approvers:\n  - mallory\n", null)).to.deep.equal([]);
+  });
+
+  it("has nothing to say when nobody is named", () => {
+    expect(approverLogins(null, null)).to.deep.equal([]);
+    expect(approverLogins("governance_posture: soft\n", "# no table\n")).to.deep.equal([]);
   });
 
   it("a code repo's apply prints the variable command with the org's own handles", () => {

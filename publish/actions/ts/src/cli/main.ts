@@ -21,7 +21,7 @@ import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog, cacheLogin, cachedLogin } from "../log.js";
 import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
-import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, tokenValuesFromOrgConfig, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, setupTokenValues, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, projectFromPath, type AgentKind } from "./work-flow.js";
 import { verifyAgentContext } from "../lifecycle/root-protocol.js";
@@ -40,7 +40,9 @@ import { AGENT_CATALOG, harnessFileFor, type AgentCandidate } from "./agent-cata
 import { prjResolveGov, resolveFailureMessage } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { createNodeRegistryStore } from "../resolve/registry-store.js";
-import { parseOrgConfig } from "../config/org-config.js";
+import { loadOrgConfigText } from "../config/work-root.js";
+import { ORG_CONFIG_SCHEMA_PATH, orgConfigLoadNotes, defaultWorkRoot } from "../config/org-config.js";
+import { GOVERNANCE_PATH, readPosture, readGovernance, frameworkOwners } from "../config/governance.js";
 import { checkCommand } from "./check-verb.js";
 import type { Gh } from "../rules/checks/github-adapters.js";
 import { withRepoOverrides } from "../config/repo-overrides.js";
@@ -328,7 +330,7 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
   const r = prjResolveGov(createNodeEnv());
   const cfgText = r.ok && fsSync.existsSync(path.join(r.home, "org-config.yaml"))
     ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
-  const workRoot = cfgText ? parseOrgConfig(cfgText).agentWorkRoot : "";
+  const workRoot = cfgText ? loadOrgConfigText(cfgText).agentWorkRoot : "";
   // No work root and no login means nowhere to keep the backup — say so rather than inventing a path.
   const prefsDir = workRoot && me ? path.join(expandHome(workRoot), "preferences", me) : null;
   // A key already in the store is used, not asked for again (Policy Owner, 2026-09-22).
@@ -843,7 +845,7 @@ export async function runSetupCommand(
         ghUser: tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null,
         gitEmail: tryRun("git", ["-C", cwd, "config", "user.email"]) ?? null,
         today: now.slice(0, 10),
-        existing: { ...(existingText ? readExistingOrgConfig(existingText) : {}), ...(pre ?? {}), ...(createdSlug ? { orgSlug: createdSlug } : {}) },
+        existing: { ...(existingText ? readExistingOrgConfig(existingText, fs.readFile(path.join(cwd, GOVERNANCE_PATH))) : {}), ...(pre ?? {}), ...(createdSlug ? { orgSlug: createdSlug } : {}) },
         interviewed: pre !== undefined,
         prompt: ask,
         print: (l) => process.stdout.write(`${l}\n`),
@@ -904,10 +906,12 @@ export async function runSetupCommand(
       // replaces it on upgrade. Leftovers are reported, not tolerated: a policy the adopter opens and
       // finds <ORG_NAME> in is the first impression this whole change exists to fix.
       const cfgText = fsSync.readFileSync(path.join(createdHome, "org-config.yaml"), "utf8");
-      // From the FILE, not from parseOrgConfig: that interface carries only the keys
-      // gov-work reads, so the owner handles and the effective date had no values and
-      // survived into the adopter's policy documents (#193).
-      const values = tokenValuesFromOrgConfig(cfgText);
+      const govPath = path.join(createdHome, GOVERNANCE_PATH);
+      const govText = fsSync.existsSync(govPath) ? fsSync.readFileSync(govPath, "utf8") : null;
+      // From the FILES, not from parseOrgConfig: that interface carries only the keys gov-work reads, so the owner
+      // handles and the effective date had no values and survived into the adopter's policy documents (#193). Since
+      // the org-config split the governance values come from policies/governance.yaml (setupTokenValues).
+      const values = setupTokenValues(cfgText, govText, now.slice(0, 10));
       const leftovers = new Map<string, string>();     // token → first file it survived in
       let swept = 0;
       const sweepDir = (dir: string): void => {
@@ -958,17 +962,13 @@ export async function runSetupCommand(
       manifest.push({ what: "Swept", detail: `${swept} file(s) — org tokens resolved in ${SWEEP_DIRS.join("/ ")}/ and the root files (publish/ untouched)` });
 
       // CODEOWNERS, GENERATED (Decision 13, 2026-09-14) — see src/config/codeowners.ts. The Policy and Check
-      // Owners come from org-config; every other role from the role list the sweep above just filled in
-      // (policies/authorized-representatives.md), or — for a seed without one — the legacy *_owner_github keys.
-      // `tokenValuesFromOrgConfig` keys by TOKEN (`POLICY_OWNER_GITHUB`), not by config key —
-      // passing it straight in made every handle undefined, so `renderCodeowners` returned null
-      // and setup aborted with "names no policy_owner_github" on a config that named one.
-      const handles = Object.fromEntries(Object.entries(values).map(([k, v]) => [k.toLowerCase(), v]));
+      // Owners come from policies/governance.yaml; every other role from the role list the sweep above just filled
+      // in (policies/authorized-representatives.md).
       const roleListFile = path.join(createdHome, ROLE_LIST_PATH);
-      const orgRoles = resolveRoles(cfgText, fsSync.existsSync(roleListFile) ? fsSync.readFileSync(roleListFile, "utf8") : null);
-      const owners = renderCodeowners(handles, orgRoles.roles);
+      const orgRoles = resolveRoles(fsSync.existsSync(roleListFile) ? fsSync.readFileSync(roleListFile, "utf8") : null);
+      const owners = renderCodeowners(frameworkOwners(readGovernance(createdHome)), orgRoles.roles);
       if (owners === null) {
-        process.stderr.write("gov setup: org-config.yaml names no policy_owner_github, so CODEOWNERS\n");
+        process.stderr.write(`gov setup: ${GOVERNANCE_PATH} names no Policy Owner (policy_owner.github), so CODEOWNERS\n`);
         process.stderr.write("  cannot be generated and nothing would route to an approver. Set it, then re-run.\n");
         return 1;
       }
@@ -1008,9 +1008,9 @@ export async function runSetupCommand(
       if (dropped.length) manifest.push({ what: "Removed", detail: `the framework's own files from the template copy: ${dropped.join(" ")}` });
 
       const git = (...a: string[]): boolean => okProcess("git", ["-C", createdHome, ...a], { pgm: "gov-work:cli:main" });
-      // THE ORG'S AUTHORIZED AGENTS, in org-config.yaml, once the file is FINAL (Policy Owner, 2026-09-23).
-      // This is the last point before the commit, which is what makes it the right one: the configure step
-      // has written org-config.yaml, and nothing else will.
+      // THE ORG'S AUTHORIZED AGENTS, in policies/governance.yaml, once the file is FINAL (Policy Owner, 2026-09-23;
+      // governance.yaml since the org-config split). This is the last point before the commit, which is what makes it
+      // the right one: the configure step has written governance.yaml, and nothing else will.
       //
       // `agents: []` IS AN ANSWER AND MUST BE WRITTEN (Policy Owner, 2026-09-28). This read
       // `pre?.agents?.length`, so an organization that chose "none" at Q11 had its decision
@@ -1019,21 +1019,21 @@ export async function runSetupCommand(
       // exists to remove, reached by answering it. `withAuthorizedAgents` writes
       // `authorized_agents: none` for an empty list, so the decision survives the commit.
       if (pre?.agents) {
-        const cfgPath = path.join(createdHome, "org-config.yaml");
+        const cfgPath = path.join(createdHome, GOVERNANCE_PATH);
         const before = fsSync.existsSync(cfgPath) ? fsSync.readFileSync(cfgPath, "utf8") : null;
         const after = before === null ? null : withAuthorizedAgents(before, pre.agents);
         if (after === null) {
           // LOUD: a silent failure here is a governance hole — every joiner would fall back to gov's own list
           // and nobody would know the org's choice had not been recorded.
-          process.stderr.write("gov setup: could not record the authorized agents in org-config.yaml.\n");
+          process.stderr.write(`gov setup: could not record the authorized agents in ${GOVERNANCE_PATH}.\n`);
           process.stderr.write("  The repo exists. Add them with `gov agent approve <id>` before inviting anyone.\n");
         } else {
           fsSync.writeFileSync(cfgPath, after, "utf8");
           manifest.push({
             what: "Agents",
             detail: pre.agents.length
-              ? `recorded ${pre.agents.length} authorized agent(s) in org-config.yaml`
-              : "recorded `authorized_agents: none` in org-config.yaml — this organization runs no AI agents",
+              ? `recorded ${pre.agents.length} authorized agent(s) in ${GOVERNANCE_PATH}`
+              : `recorded \`authorized_agents: none\` in ${GOVERNANCE_PATH} — this organization runs no AI agents`,
           });
         }
       }
@@ -1092,7 +1092,7 @@ export async function runSetupCommand(
           // A REAL URL, not the `#org-config.yaml` fragment the design sketch used:
           // a fragment on a repo page scrolls nowhere. This one opens the file.
           configUrl: `${base}/blob/${written.defaultBranch || "main"}/org-config.yaml`,
-          projectsPath: written.agentWorkRoot || path.join(os.homedir(), ".gov"),
+          projectsPath: defaultWorkRoot(written.orgSlug ?? "") || path.join(os.homedir(), ".gov"),
         })) process.stdout.write(`${line}\n`);
       }
     }
@@ -1150,7 +1150,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     const cfg = env.govConfigAt(repoDir);
     if (!cfg) return null;
     const text = fsSync.readFileSync(path.join(repoDir, "org-config.yaml"), "utf8");
-    const slug = parseOrgConfig(text).orgSlug;
+    const slug = loadOrgConfigText(text).orgSlug;
     return slug ? { org: cfg.org, orgSlug: slug } : null;
   };
   const io: FirstRunIo = {
@@ -1187,11 +1187,11 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     // already know the name of.
     finalStatus: (role) => {
       const r = prjResolveGov(createNodeEnv());
-      const policyPath = r.ok ? path.join(r.home, "org-config.yaml") : null;
+      const policyPath = r.ok ? path.join(r.home, GOVERNANCE_PATH) : null;
       const policy = policyPath && fsSync.existsSync(policyPath) ? fsSync.readFileSync(policyPath, "utf8") : null;
       const cfgText = r.ok && fsSync.existsSync(path.join(r.home, "org-config.yaml"))
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
-      const c = cfgText ? parseOrgConfig(cfgText) : null;
+      const c = cfgText ? loadOrgConfigText(cfgText) : null;
       const gitCfg2 = (k: string): string | null => tryRun("git", ["config", "--global", "--get", k]) ?? null;
       return finalStatus(checklist({
         gitPresent: tryRun("git", ["--version"]) !== undefined,
@@ -1218,7 +1218,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
       if (!text) return [];
-      const c = parseOrgConfig(text);
+      const c = loadOrgConfigText(text);
       return adopterNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
     },
     joinerNextSteps: () => {
@@ -1227,7 +1227,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
       if (!text) return [];
-      const c = parseOrgConfig(text);
+      const c = loadOrgConfigText(text);
       return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
     },
     // The list is recorded inside `createWorkspace` (see #196 above), which is the only place
@@ -1272,7 +1272,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
         const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
           ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
         if (!text) return null;
-        const c = parseOrgConfig(text);
+        const c = loadOrgConfigText(text);
         return { org: c.githubOrg, repo: c.workspaceRepo, home: r.home };
       })();
       if (!cfg) return ["  (no workspace resolved yet — skipping the starter project)"];
@@ -1383,7 +1383,7 @@ export async function gatherMenuContext(): Promise<MenuContext> {
     mode = "governed";
     const cfg = fs.readFile(path.join(resolve.home, "org-config.yaml"));
     if (cfg) {
-      const c = parseOrgConfig(cfg);
+      const c = loadOrgConfigText(cfg);
       orgName = c.orgName || undefined;
       githubOrg = c.githubOrg || undefined;
       branch = c.defaultBranch || undefined;
@@ -1433,7 +1433,7 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
   const cfgPath = path.join(resolved.home, "org-config.yaml");
   const cfgText = fs.readFile(cfgPath);
   if (!cfgText) return null;
-  const config = parseOrgConfig(cfgText);
+  const config = loadOrgConfigText(cfgText);
   // The fork question's two halves: what seed proposed, and how to record it. The
   // ASKING belongs to runWorkFlow, which owns the terminal (#194).
   const pendingRepoOverridesFn = (): readonly { readonly from: string; readonly to: string }[] => pendingRepoOverrides;
@@ -1455,13 +1455,13 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     // set (presence only — never the value), and what this org has approved.
     hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
     env: process.env,
-    approvedAgents: () => parseAuthorizedAgents(fs.readFile(path.join(resolved.home, "org-config.yaml"))),
+    approvedAgents: () => parseAuthorizedAgents(fs.readFile(path.join(resolved.home, GOVERNANCE_PATH))),
     // The person's own choice, from the lowest knowledge layer (C03). Read every
     // time, and validated against the org's list at launch — not at write time.
     // The joiner's ordinary case: nothing installed, and the org already chose what
     // should be. Same plan and same performer as `gov agent install` — one path.
     installAgent: async (id: string, ask: AskFns) => {
-      const policy = fs.readFile(path.join(resolved.home, "org-config.yaml"));
+      const policy = fs.readFile(path.join(resolved.home, GOVERNANCE_PATH));
       const plan = planAgentInstall(id, parseAuthorizedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
       if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return false; }
       return await performAgentInstallReal(plan, ask);
@@ -1807,7 +1807,7 @@ export async function runAgentInstall(argv: readonly string[]): Promise<number> 
   const r = prjResolveGov(createNodeEnv());
   if (!r.ok) { process.stderr.write("  No governance workspace resolved. Run `gov setup`, then `gov org add/use`.\n"); return 1; }
   const fs = createNodeFs();
-  const policy = fs.readFile(path.join(r.home, "org-config.yaml"));
+  const policy = fs.readFile(path.join(r.home, GOVERNANCE_PATH));
   const plan = planAgentInstall(id, parseAuthorizedAgents(policy), (cmd: string) => tryRun(cmd, ["--version"]) !== undefined);
   if (!plan.ok) { process.stdout.write(`  ${plan.message}\n`); return 1; }
 
@@ -2119,7 +2119,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         // workspace somebody is working in, whose session read the old ones. `--pr` ratifies nothing yet.
         const compileRules = (withMarker: boolean) => (dir: string): readonly string[] => {
           const who = withMarker ? ensureLogin(runContext()) : null;
-          const cfg = parseOrgConfig(fs.readFile(path.join(dir, "org-config.yaml")) ?? "");
+          const cfg = loadOrgConfigText(fs.readFile(path.join(dir, "org-config.yaml")) ?? "");
           const built = buildRulesAt(
             { fs, ...(who && cfg.agentWorkRoot ? { marker: { workRoot: cfg.agentWorkRoot, login: who, now: () => new Date() } } : {}) },
             { home: dir, defaultBranch: cfg.defaultBranch || "main", workingTree: true },
@@ -2200,7 +2200,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // The workspace's org-config, read ONCE: doctor reports the keys gov ignores in it, and the protection
     // probe needs it to know which repo and branch framework-specification.md §7.3 is about.
     const doctorCfgText = (!!doctorHomeOverride || resolve.ok) ? fs.readFile(path.join(home, "org-config.yaml")) : null;
-    const doctorCfg = doctorCfgText ? parseOrgConfig(doctorCfgText) : null;
+    const doctorCfg = doctorCfgText ? loadOrgConfigText(doctorCfgText) : null;
     // GOV-FRM-448, checked instead of assumed (PRJ-121, 2026-09-27). Only when gh can be asked and the org
     // names its governance repo — otherwise there is no question, and a row about a fact nobody gathered is
     // worse than no row. The read itself distinguishes "no protection" from "gh could not tell me".
@@ -2235,6 +2235,12 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       contentLayout: contentLayoutOf((rel) => fs.pathExists(path.join(home, rel))),
       staleArtifacts: staleArtifactsIn(!!doctorHomeOverride || resolve.ok, (rel) => fs.pathExists(path.join(home, rel))),
       orgConfigText: doctorCfgText,
+      // The governance choices and the schema org-config is checked against — only beside an org-config, so a
+      // directory that is not a workspace gets no rows about files it was never meant to have.
+      ...(doctorCfgText !== null ? {
+        governanceText: fs.readFile(path.join(home, GOVERNANCE_PATH)),
+        orgConfigSchemaText: fs.readFile(path.join(home, ORG_CONFIG_SCHEMA_PATH)),
+      } : {}),
       // The role list and CODEOWNERS, read only where a workspace was examined (as org-config is).
       ...((!!doctorHomeOverride || resolve.ok) ? {
         roleListText: fs.readFile(path.join(home, ROLE_LIST_PATH)),
@@ -2556,7 +2562,10 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     process.stderr.write(`prj: no org-config.yaml at ${home}\n`);
     return 1;
   }
-  const config = parseOrgConfig(cfgText);
+  const config = loadOrgConfigText(cfgText);
+  // CHECKED AT LOAD against the schema gov was built with (org-config split, 2026-10-06): one line, on stderr, and
+  // never a reason to stop — the keys gov did read are unaffected. `gov doctor` gives the detail.
+  for (const line of orgConfigLoadNotes(config.keyReport)) process.stderr.write(`${line}\n`);
 
   // `gov check run|install` — the rule model's check engine (W6). `run` is what the rendered workflow calls in CI.
   if (parsed.command === "check") {
@@ -2569,7 +2578,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       writeFile: (f, t) => fs.writeFile(f, t),
     }, {
       home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch,
-      githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: config.governancePosture.posture,
+      githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(fs.readFile(path.join(home, GOVERNANCE_PATH))).posture,
     });
     for (const line of r.lines) process.stdout.write(`${line}\n`);
     return r.code;
@@ -2668,7 +2677,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     cloneRepo: makeCloneRepo(vcs, { rmDir: (d) => fs.rm(d) }),
     repoStanding,
     hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
-    approvedAgents: () => parseAuthorizedAgents(fs.readFile(path.join(home, "org-config.yaml"))),
+    approvedAgents: () => parseAuthorizedAgents(fs.readFile(path.join(home, GOVERNANCE_PATH))),
     /**
      * Install, then offer the sign-in (#196, Q5). gov orchestrates; the vendor
      * authenticates — the `gh auth login` shape, including its browser fallback.

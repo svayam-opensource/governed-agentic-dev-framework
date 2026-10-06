@@ -128,8 +128,11 @@ SEED_OUT=$(gov seed "$PROJ_URL" "$(gh api user --jq .login)" 2>&1) || { echo "$S
 assert_contains "$SEED_OUT" "BRNCH-${PROJ_NUM}" "seed created the project branch"
 
 # task/merge/close run from the seeded WORKSPACE WORKTREE (on the project branch),
-# not the original clone (which is on main). seed put it under agent_work_root.
-AWR="$(grep -E '^agent_work_root:' org-config.yaml | sed -E 's/^agent_work_root:[[:space:]]*"?([^"#[:space:]]+).*/\1/')"
+# not the original clone (which is on main). seed put it under the work root: this person's own
+# (~/.gov/work-roots), else ~/.gov/<slug>/projects — no longer an org-config key (org-config split).
+SLUG_LC="$(grep -E '^org_slug:' org-config.yaml | sed -E 's/^org_slug:[[:space:]]*"?([^"#[:space:]]+).*/\1/' | tr '[:upper:]' '[:lower:]')"
+AWR="$(awk -F'\t' -v o="$(grep -E '^github_org:' org-config.yaml | sed -E 's/^github_org:[[:space:]]*"?([^"#[:space:]]+).*/\1/')" '$1==o {print $2}' "$HOME/.gov/work-roots" 2>/dev/null | tail -1)"
+[ -n "$AWR" ] || AWR="$HOME/.gov/$SLUG_LC/projects"
 AWR="${AWR/#\~/$HOME}"
 PID="PRJ-${PROJ_NUM}-${SLUG}"
 WS_WT="$AWR/$PID/$WS_REPO"

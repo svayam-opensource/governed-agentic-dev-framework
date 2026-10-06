@@ -260,7 +260,7 @@ gov upgrade --pr
 gov upgrade --apply
 ```
 
-**Changes.** with `--apply`: rewrites framework-owned files, leaves the org's own alone, merges org-config key by key, and removes what the new layout retires. With `--pr`: the same, on a branch, as a pull request
+**Changes.** with `--apply`: rewrites framework-owned files, leaves the org's own alone (org-config.yaml and policies/governance.yaml included), runs each recorded one-time migration — the org-config split among them — and removes what the new layout retires. With `--pr`: the same, on a branch, as a pull request
 
 **Exit codes**
 
@@ -389,7 +389,7 @@ install the repository controls framework-specification.md §7.3 requires — or
 gov repo protect [plan|apply] [--repo <owner/name>] [--branch <name>] [--repo-dir <path>] [--check <name>]
 ```
 
-**Where.** GOVERNED — it acts on a repository, and reads the posture from org-config.yaml
+**Where.** GOVERNED — it acts on a repository, and reads the posture from policies/governance.yaml
 
 **Arguments**
 

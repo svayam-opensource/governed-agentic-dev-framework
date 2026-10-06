@@ -32,6 +32,7 @@ import { parseRuleStore, validateRuleStore, inForce, type RuleRow, type RowDiagn
 import { parseCatalog, mergeCatalogs, validateBindings, type Catalog, type BindingDiagnosticKind } from "./catalog.js";
 import type { RuleSet, RuleStoreReader, IdIssuer } from "./contracts.js";
 import { resolveRoles, roleHandles, ROLE_LIST_PATH } from "../../config/role-list.js";
+import { GOVERNANCE_PATH, frameworkOwners, parseGovernance } from "../../config/governance.js";
 
 /** Where each piece lives, repo-relative. One table, so a layout change is one edit. */
 export const RULE_STORE_PATHS = {
@@ -41,6 +42,8 @@ export const RULE_STORE_PATHS = {
   orgCatalog: "policies/catalog.yaml",
   orgVersion: "policies/VERSION",
   orgConfig: "org-config.yaml",
+  /** The org's governance choices — the Policy Owner and Check Owner among them (org-config split). */
+  governance: GOVERNANCE_PATH,
   /** The org's role list (W2-Q5): role → holder → knowledge/ folders, a table in this seed-once document. */
   roleList: ROLE_LIST_PATH,
 } as const;
@@ -154,9 +157,9 @@ export function loadRuleStoresFrom(src: RuleStoreSource): RuleStoreLoad {
   log("debug", "rule stores loaded", "gov-work:rules:store-io", "loadRuleStores", {
     ref, framework: framework.length, org: org.length, orgScope, orgVersion, diagnostics: diagnostics.length,
   });
-  // WHO HOLDS EACH ROLE, at the same ref: the Policy Owner and Check Owner from org-config, every other role from the
-  // org's role list — or, while an org's copy of the document has no table, the legacy *_owner_github keys.
-  const roles = roleHandles(texts.orgConfig, resolveRoles(texts.orgConfig, texts.roleList).roles);
+  // WHO HOLDS EACH ROLE, at the same ref: the Policy Owner and Check Owner from policies/governance.yaml, every other
+  // role from the org's role list.
+  const roles = roleHandles(frameworkOwners(parseGovernance(texts.governance ?? null)), resolveRoles(texts.roleList).roles);
   return { ok: true, set: { framework, org, orgScope, catalog, orgVersion, roles }, diagnostics };
 }
 

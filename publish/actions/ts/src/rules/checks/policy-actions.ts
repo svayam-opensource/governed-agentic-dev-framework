@@ -5,7 +5,8 @@
  *
  *   forbid-forced-push       GOV-FRM-466: no one force-pushes a branch others work on (default `BRNCH-*`).
  *   section-owner-approval   GOV-FRM-086c: a policy change merges only when the owner of every changed section
- *                            approves; unowned sections and ownership changes need the Policy Owner; executable
+ *                            approves; unowned sections, ownership changes and policies/governance.yaml need the
+ *                            Policy Owner; executable
  *                            actions (`policies/actions/**`) need the Check Owner. An ownership change is a row
  *                            added, removed, or re-pointed (doc, section, role) — a row's sha refreshed alone is
  *                            not one: the granting section's owner already approves that prose (ownership.ts).
@@ -18,6 +19,7 @@ import type { EventContext, RuleSet } from "../model/contracts.js";
 import { asList, branchInScope, handleKey, payloadBoolean, payloadString, payloadStrings, payloadTextMap } from "./payload.js";
 import { changedSections, compareSections } from "./sections.js";
 import { OWNERSHIP_PATH, ownershipDiffers, parseOwnership } from "./ownership.js";
+import { GOVERNANCE_PATH } from "../../config/governance.js";
 
 export interface ActionOutcome {
   readonly verdict: "pass" | "miss" | "cannot-tell";
@@ -90,6 +92,9 @@ export function sectionOwnerApproval(tag: string, params: Readonly<Record<string
       if ("error" in was || "error" in now || ownershipDiffers(was, now)) require(POLICY_OWNER, `\`${f.path}\` (who owns what)`);
       continue;
     }
+    // THE GOVERNANCE CHOICES (org-config split): posture, the two owners, agents, publication, models. Any change
+    // needs the Policy Owner — it is how anyone would otherwise make themselves an approver.
+    if (f.path === GOVERNANCE_PATH) { require(POLICY_OWNER, `\`${f.path}\` (governance choices)`); continue; }
     if (matchesAny(f.path, ["policies/actions/**"])) { require(CHECK_OWNER, `\`${f.path}\` (executable action)`); continue; }
     if (!matchesAny(f.path, docs)) continue;
     if (!baseTexts || !(f.path in baseTexts)) { notes.push(`${tag}: \`${f.path}\` at the base was not given, so its changed sections are unknown.`); continue; }
