@@ -64,9 +64,10 @@ function baseFiles(): Record<string, string> {
   };
 }
 
-const ENTRY = (version: string, rules: ChangelogEntry["rules"]): ChangelogEntry => ({
+const ENTRY = (version: string, rules: ChangelogEntry["rules"], reviewed: ChangelogEntry["reviewed"] = []): ChangelogEntry => ({
   version, date: TODAY, pr: PR, author: "alice", approver: "bob", rules,
   qa: [{ q: "Is §3.1 a C02 rule?", a: "Yes — an exception may be approved." }],
+  reviewed,
 });
 
 /** Base + a prose edit to §3.1 + the row for §3.1 revised — then the writers, as propose would run them. */
@@ -86,7 +87,8 @@ function goodPr(): { base: TreeReader; head: ReturnType<typeof memTree>; files: 
   const { version } = w.bumpVersion(plan.required === "none" ? "patch" : plan.required);
   w.writeSnapshot(plan.baseVersion);
   w.stampRows(version, TODAY, PR);
-  w.writeChangelogEntry(ENTRY(version, [{ id: "GOV-SVM-001", change: "revised", expectation: "Everyone obeys 3.1." }]));
+  w.writeChangelogEntry(ENTRY(version, [{ id: "GOV-SVM-001", change: "revised", expectation: "Everyone obeys 3.1." }],
+    [{ doc: DOC, section: "3.1", sha: sha(prose, "3.1"), outcome: { kind: "rules", rules: [{ id: "GOV-SVM-001", change: "revised" }] } }]));
   return { base, head, files };
 }
 
@@ -220,7 +222,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
       const { version } = w.bumpVersion(plan.required === "none" ? "patch" : plan.required);
       w.writeSnapshot(plan.baseVersion);
       w.stampRows(version, TODAY, PR);
-      w.writeChangelogEntry(ENTRY(version, []));
+      w.writeChangelogEntry(ENTRY(version, [], [{ doc: DOC, section: "3.2", sha: sha(prose, "3.2"), outcome: { kind: "rules", rules: [{ id: "GOV-SVM-002", change: "kept" }] } }]));
       return { base, head, files };
     }
 
@@ -344,7 +346,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
     it("an id named only in an OLDER entry does not count", () => {
       const { base, head, files } = goodPr();
       const text = files["policies/CHANGELOG.md"]!;
-      files["policies/CHANGELOG.md"] = text.replace(/\| GOV-SVM-001 \|/, "| (see below) |").replace("Older entry.", "Older entry. GOV-SVM-001");
+      files["policies/CHANGELOG.md"] = text.replace(/GOV-SVM-001/g, "(see below)").replace("Older entry.", "Older entry. GOV-SVM-001");
       expect(checksOf(judge(base, head))).to.include("changelog");
     });
     it("names added and retired ids too", () => {

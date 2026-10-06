@@ -8,14 +8,15 @@
  * questions put as review comments on the pull request instead of at a terminal:
  *
  *   policies/ untouched ............................... pass
- *   rows stale (the W5 gate's sha findings)
+ *   stale: the W5 gate's `sha` findings (rows behind their text) or `unreviewed` findings (a section added or
+ *   changed that the changelog does not list as reviewed — the gate starts from the prose, Policy Owner 2026-10-07)
  *     the org has not allowed a model in CI ........... miss: the gate's message — run gov rules propose locally
  *     a fork, which gov cannot push to ................ miss: the same
  *     already run at these shas, no new answer ......... miss: waiting for answers (no second model run — Q16)
  *     run → questions open ............................. miss: the PR stays blocked until each is answered
  *     run → did not settle ............................. miss: run gov rules propose locally
  *     run → settled .................................... committed to the PR branch as the gov bot → pass
- *   rows fresh, but version/snapshot/stamps/changelog missing
+ *   nothing stale, but version/snapshot/stamps/changelog missing
  *                                                      the deterministic writers, committed → pass (no model)
  *
  * The model is the organization's, read from the DEFAULT branch's `policies/governance.yaml`, and is used only when
@@ -69,6 +70,9 @@ const o = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ?
 const cannot = (f: string[]): BuiltinOutcome => ({ verdict: "cannot-tell", findings: f });
 const miss = (f: string[]): BuiltinOutcome => ({ verdict: "miss", findings: f });
 
+/** The gate's findings that mean the model must read something: rows behind their text, or prose nobody reviewed. */
+export const STALE: ReadonlySet<string> = new Set(["sha", "unreviewed"]);
+
 export const LOCAL_FIX = "run gov rules propose locally, answer its questions, and push the result";
 
 /**
@@ -103,7 +107,9 @@ export async function proposeOnPullRequest(tag: string, eventName: string, event
   const author = String(o(pr.user).login ?? "");
   const fork = !headRef || (headRepo !== "" && headRepo !== deps.repository);
   const ref = { repo: deps.repository, pr: input.pr, headSha, self: deps.self };
-  const stale = judged.findings.filter((f) => f.check === "sha").map((f) => `${tag}: ${f.message}`);
+  // Either kind is stale and runs propose with the model; finishOnly runs only when NOTHING is stale (PR #5 in the
+  // sandbox: a changed section with no rows went to finishOnly, and the model never read the new sentence).
+  const stale = judged.findings.filter((f) => STALE.has(f.check)).map((f) => `${tag}: ${f.message}`);
 
   if (!stale.length) return finishOnly(tag, input, judged.findings.map((f) => f.check), { fork, author, headSha, headRef }, deps);
 
@@ -114,8 +120,9 @@ export async function proposeOnPullRequest(tag: string, eventName: string, event
   const choice = deps.model(deps.settings);
   if (!choice.ok) return miss([...stale, ...choice.lines.map((l) => `${tag}: ${l.trim()}`)]);
 
-  // ONE RUN PER SECTION SHA (Q16): keyed by what is stale and every answer given so far. Same key → the model has
-  // already read exactly this, and nothing new has been said; asking it again would only cost.
+  // ONE RUN PER SECTION SHA (Q16): keyed by what is stale — the stale rows AND the unreviewed sections, each by its
+  // sha — and every answer given so far. Same key → the model has already read exactly this, and nothing new has
+  // been said; asking it again would only cost.
   const port = ghPrComments(deps.gh, ref);
   const records = runRecords(deps.gh, ref);
   let replies: string[];
@@ -163,7 +170,7 @@ export async function proposeOnPullRequest(tag: string, eventName: string, event
   }
 }
 
-/** Rows fresh: only the deterministic writers (no model, so `ci_allowed` does not apply). */
+/** Nothing stale: only the deterministic writers (no model, so `ci_allowed` does not apply). */
 function finishOnly(
   tag: string, input: NonNullable<ReturnType<typeof policyPrFromEvent>>, checks: readonly string[],
   h: { readonly fork: boolean; readonly author: string; readonly headSha: string; readonly headRef: string }, deps: ProposeCiDeps,

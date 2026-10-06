@@ -204,9 +204,11 @@ files:
   # Resolved with the pattern seed-once's own limit already names: when the framework must keep
   # evolving a file's structure, ship it as a REFERENCE the org copies from rather than a file
   # the org edits in place. The workflow is the org's outright; the framework's current version
-  # ships beside it under framework/docs/specs/ and is always up to date to diff against.
+  # ships beside it under framework/templates/ and is always up to date to diff against. (This row
+  # once named framework/docs/specs/gov-validate.reference.yml, a file that never existed, so it
+  # shipped nothing; a test now checks every src here exists.)
   - { src: .github/workflows/gov-validate.yml,       dst: .github/workflows/gov-validate.yml,       mode: seed-once }
-  - { src: framework/docs/specs/gov-validate.reference.yml, dst: framework/docs/specs/gov-validate.reference.yml, mode: scaffold-auto }
+  - { src: framework/templates/gov-validate.reference.yml, dst: framework/templates/gov-validate.reference.yml, mode: scaffold-auto }
 
   # .gitignore: the org's, after the first install — they add their own build artefacts.
   - { src: .gitignore, dst: .gitignore, mode: seed-once }

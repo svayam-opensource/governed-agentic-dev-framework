@@ -79,6 +79,13 @@ describe("gov-work — upgrade overlay-sync engine", () => {
     expect(m.files.find((f) => f.dst === "org-config.yaml")?.mode).to.equal("seed-once");
     expect(m.files.map((f) => f.mode as string)).to.not.include("overlay-schema");
   });
+
+  it("every source the shipped MANIFEST names exists in publish/content (a missing one ships nothing, silently)", () => {
+    const content = path.join(repoRoot, "publish", "content");
+    const m = parseManifest(fs.readFileSync(path.join(content, "MANIFEST.yaml"), "utf8"));
+    const missing = m.files.map((f) => f.src).filter((src) => !fs.existsSync(path.join(content, src)));
+    expect(missing).to.deep.equal([]);
+  });
 });
 
 

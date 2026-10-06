@@ -17,6 +17,7 @@ import yaml from "js-yaml";
 import { parseRuleStore, compareVersions, type RuleRow, type Stamp } from "../model/rule-row.js";
 import { POLICY_PR_PATHS, changelogEntry, isShaRefresh, nextVersion, readVersion, snapshotFiles, type BumpKind } from "./gate.js";
 import type { TreeReader, TreeWriter } from "./tree.js";
+import { REVIEWED_HEADING, renderReviewLine, type SectionReview } from "./reviewed.js";
 
 export interface WriteResult {
   readonly wrote: boolean;
@@ -37,12 +38,15 @@ export interface ChangelogEntry {
   readonly qa: readonly { readonly q: string; readonly a: string }[];
   /** The governance choices this change made, in plain words (describeGovernanceChanges). */
   readonly governance?: readonly string[];
+  /** Every section propose settled in this pull request, and what it came to — the gate demands one per changed section. */
+  readonly reviewed?: readonly SectionReview[];
 }
 
 const CHANGELOG_TITLE = "# Policy changelog";
 const CHANGELOG_INTRO =
   "Newest first. Each entry is written by the pull request that changes `policies/`: the version it made, when, " +
-  "who wrote and approved it, the rules it added, revised or retired, and the questions its interview settled.";
+  "who wrote and approved it, the rules it added, revised or retired, every policy section it reviewed and what " +
+  "that came to, and the questions its interview settled.";
 
 const at = (h: string): string => (h.startsWith("@") ? h : `@${h}`);
 const cell = (s: string): string => s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
@@ -66,6 +70,11 @@ export function renderChangelogEntry(e: ChangelogEntry): string {
     out.push("");
   } else if (!governance.length) {
     out.push("_No rule changed — prose only._", "");
+  }
+  if (e.reviewed?.length) {
+    out.push(REVIEWED_HEADING, "");
+    for (const r of e.reviewed) out.push(renderReviewLine(r));
+    out.push("");
   }
   if (e.qa.length) {
     out.push("**Interview**", "");
