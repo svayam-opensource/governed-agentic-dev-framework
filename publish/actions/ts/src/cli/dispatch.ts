@@ -389,7 +389,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       }
 
       const r = seed(
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding },
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, anchor: ctx.anchor, cloneRepo: ctx.cloneRepo, log: ctx.log, repoStanding: ctx.repoStanding, ...(ctx.git ? { git: ctx.git } : {}) },
         {
           govHome: ctx.home,
           workspaceRepo: c.workspaceRepo,
@@ -521,7 +521,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         { home: ctx.home, defaultBranch: c.defaultBranch },
         "sync",
       );
-      const mirror = ensureRootProtocol(ctx.fs, projectWorkRoot, c.workspaceRepo);
+      const mirror = ensureRootProtocol(ctx.fs, projectWorkRoot, c.workspaceRepo, { git: ctx.git ?? (() => null), defaultBranch: c.defaultBranch });
       return {
         // A SYNC IS NOT FAILED BY A RULES PROBLEM. Every branch is merged and pushed by the
         // time this line runs; a non-zero exit would report failure for work that landed, and an agent reading

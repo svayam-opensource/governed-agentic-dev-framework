@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { unstartedPage, myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { harnessAtDefault } from "../helpers/harness-at-default.js";
+import { unstartedPage, myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, unauthorizedAgentLines, type WorkFlowDeps } from "../../src/cli/work-flow.js";
 import { AGENT_CATALOG } from "../../src/cli/agent-catalog.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
@@ -282,7 +283,7 @@ describe("gov-work — guided Work flow", () => {
       writeFile: (p: string, c: string) => writes.push([p, c]),
       mkdirp: () => {},
     };
-    ensureRootProtocol(fs, "/work/PRJ-9-infra", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9-infra", "acme-gov", harnessAtDefault(fs));
     const byPath = Object.fromEntries(writes.map(([f, c]) => [px(f), c]));
     expect(byPath["/work/PRJ-9-infra/CLAUDE.md"], "no stub written from thin air").to.equal(undefined);
     expect(byPath["/work/PRJ-9-infra/.claude/settings.json"], "no hook gov owns").to.equal(undefined);
@@ -300,7 +301,7 @@ describe("gov-work — guided Work flow", () => {
       writeFile: (p: string, c: string) => writes.push([p, c]),
       mkdirp: (dir: string) => dirs.push(dir),
     };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     const written = writes.map(([p]) => p);
     expect(pxAll(written)).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude — copied, like the rest
     expect(pxAll(written)).to.include("/work/PRJ-9/AGENTS.md");                 // Codex/Cursor — copied
@@ -316,13 +317,13 @@ describe("gov-work — guided Work flow", () => {
     const w: Array<[string, string]> = []; const dirs: string[] = [];
     const fs = {
       ...fsWith([]),
-      readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("CLAUDE.md") ? "# rendered protocol" : null),
+      readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("CLAUDE.md") ? "# rendered protocol\n" : null),
       writeFile: (p: string, c: string) => w.push([p, c]),
       mkdirp: (d: string) => dirs.push(d),
     };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     const byPath = Object.fromEntries(w.map(([f, c]) => [px(f), c]));
-    expect(byPath["/work/PRJ-9/CLAUDE.md"], "the rendered protocol, mirrored").to.equal("# rendered protocol");
+    expect(byPath["/work/PRJ-9/CLAUDE.md"], "the rendered protocol, mirrored").to.equal("# rendered protocol\n");
     expect(byPath["/work/PRJ-9/.claude/settings.json"], "and no hook").to.equal(undefined);
     expect(agentLaunchSpec("claude-code", "/work/PRJ-9", "KICK")!.args, "handed over as argv")
       .to.deep.equal(["KICK"]);
@@ -331,7 +332,7 @@ describe("gov-work — guided Work flow", () => {
   it("session-start FIRES for cursor (CLI) — injected kickoff + alwaysApply rule mirrored to root", () => {
     const w: Array<[string, string]> = [];
     const fs = { ...fsWith([]), readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("agent.mdc") ? "---\nalwaysApply: true\n---\n<protocol>" : null), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"], "always-on rule at root").to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor", "/work/PRJ-9", "KICK")!.args, "speak-first").to.deep.equal(["KICK"]);
   });
@@ -339,7 +340,7 @@ describe("gov-work — guided Work flow", () => {
   it("session-start FIRES for cursor GUI — alwaysApply rule mirrored to <project> (auto-applies; GUI opens the dir)", () => {
     const w: Array<[string, string]> = [];
     const fs = { ...fsWith([]), readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("agent.mdc") ? "---\nalwaysApply: true\nglobs: [\"**/*\"]\n---\n<protocol>" : null), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"]).to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK"))
       .to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true, promptToPaste: "KICK", promptText: "KICK" });   // cwd verbatim, prompt carried
@@ -859,6 +860,54 @@ describe("Work — paging, the board cache, an honest failure, the current proje
  * empty list, that was read as "has not decided", and the whole framework catalogue was offered for
  * install. The decision had been made; gov argued with it.
  */
+/**
+ * GOV-FRM-461 — `--agent=<id>` IS CHECKED AGAINST authorized_agents, like the menu.
+ *
+ * The menu offered approved agents only, but the flag (and `$GOV_AGENT`, which resolves into it) went straight to
+ * the launch: the one path a script takes skipped the organization's decision.
+ */
+describe("gov-work — --agent must be an authorized agent (GOV-FRM-461)", () => {
+  const seeded = "/work/PRJ-7-alpha";
+  const ready = [seeded, `${seeded}/acme-gov/.git`];
+  const onlyBob = () => [{ id: "ibm-bob", default: true }];
+
+  it("GOV-FRM-461: refuses to launch an agent the organization did not authorize, and says what to do", async () => {
+    const { deps: d, out, launched } = deps({ fs: fsWith(ready), approvedAgents: onlyBob, prompt: async () => { throw new Error("must not ask"); } });
+    const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "claude", interactive: false });
+    const text = out.join("\n");
+    expect(code).to.equal(2);
+    expect(launched, "nothing started").to.deep.equal([]);
+    expect(text).to.contain("`--agent=claude` names an agent your organization has not authorized");
+    expect(text, "what IS authorized").to.contain("lists: ibm-bob");
+    expect(text, "and both ways forward").to.contain("--agent=<id>").and.contain("gov agent approve claude-code");
+  });
+
+  it("GOV-FRM-461: launches an authorized agent named by flag, alias or catalog id", async () => {
+    for (const agent of ["ibm-bob"]) {
+      const { deps: d, launched } = deps({ fs: fsWith(ready), approvedAgents: onlyBob });
+      expect(await runWorkFlow(d, { projectPattern: "PRJ-7", agent, interactive: false })).to.equal(0);
+      expect(pxDeep(launched)).to.deep.equal([[agent, seeded]]);
+    }
+    const { deps: d, launched } = deps({ fs: fsWith(ready), approvedAgents: () => [{ id: "claude-code" }] });
+    expect(await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "claude", interactive: false })).to.equal(0);
+    expect(launched.length).to.equal(1);
+  });
+
+  it("GOV-FRM-461: cursor-gui is Cursor — authorized exactly when cursor is", () => {
+    expect(unauthorizedAgentLines("cursor-gui", [{ id: "cursor" }])).to.equal(null);
+    expect(unauthorizedAgentLines("cursor-gui", [{ id: "claude-code" }])).to.not.equal(null);
+  });
+
+  it("GOV-FRM-461: an org that has not decided falls back to the framework's list, and the refusal says so", () => {
+    expect(unauthorizedAgentLines("claude-code", null), "on the framework's list").to.equal(null);
+    expect(unauthorizedAgentLines("windsurf", null)!.join("\n"), "deferred, so not on it").to.contain("has not chosen its agents yet");
+  });
+
+  it("a shell is never an agent, so it is never refused", () => {
+    expect(unauthorizedAgentLines("shell", [{ id: "ibm-bob" }])).to.equal(null);
+  });
+});
+
 describe("gov-work — structure-only: agents off, process intact", () => {
   const seeded = "/work/PRJ-7-alpha";
   const ready = [seeded, `${seeded}/acme-gov/.git`];
@@ -938,7 +987,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
       writeFile: (p: string) => writes.push(px(p)),
       mkdirp: () => {},
     };
-    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     expect(r.structureOnly).to.equal(true);
     expect(r.placed).to.deep.equal([]);
     expect(writes, "not one vendor file").to.deep.equal([]);
@@ -954,7 +1003,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
       writeFile: (p: string) => writes.push(px(p)),
       mkdirp: () => {},
     };
-    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     expect(r.structureOnly).to.equal(false);
     expect(writes).to.include("/work/PRJ-9/CLAUDE.md");
     expect(r.placed.length, "every rendered file").to.be.greaterThan(1);
@@ -970,7 +1019,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
       writeFile: (p: string) => writes.push(px(p)),
       mkdirp: () => {},
     };
-    expect(ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov").structureOnly).to.equal(false);
+    expect(ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs)).structureOnly).to.equal(false);
     expect(writes).to.include("/work/PRJ-9/CLAUDE.md");
   });
 });

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
+import { harnessAtDefault } from "../helpers/harness-at-default.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -133,6 +134,8 @@ describe("prj-work Phase 2 — seed orchestrator", () => {
       fs: fsPort,
       anchor: fakeAnchor(),
       cloneRepo: (_u, d) => cloned.push(d),
+      // The rendered harness, as the default branch holds it — the only place the mirror reads (GOV-FRM-456).
+      git: harnessAtDefault(fsPort, CONFIG.defaultBranch).git,
     };
     const r = seed(deps, CONFIG, INPUT);
     expect(r.ok).to.equal(true);

@@ -12,7 +12,8 @@
  * rather than read as "not yet expired".
  */
 import { expect } from "chai";
-import { parseException, applies, exceptionLines, lapsed, type Exception } from "../../src/rules/exceptions.js";
+import { parseException, applies, exceptionLines, lapsed, exceptionRefusal, type Exception, type ExceptionRules } from "../../src/rules/exceptions.js";
+import type { RuleRow, Level } from "../../src/rules/model/rule-row.js";
 
 const doc = (fm: string, path = "policies/exceptions/policy/EX-14.md") =>
   ({ path, text: `---\n${fm}\n---\n\n# Exception\n\nprose\n` });
@@ -110,5 +111,62 @@ describe("exceptions — what the agent is told", () => {
   it("explains that a lapse needs no action, which is the part people get wrong", () => {
     const out = exceptionLines([ex()], "2026-06-01").join("\n");
     expect(out).to.contain("the rule speaks again");
+  });
+});
+
+// ── what cannot be excepted (spec §10.5) ───────────────────────────────────────────────────────────────────────
+
+const orgRow = (id: string, level: Level, end: RuleRow["end"] = null): RuleRow => ({
+  id, source: { doc: "policies/org-policy.md", section: "2.1", sha: "abc1234" },
+  expectation: `Everyone does what ${id} asks.`, actor: ["everyone"], level,
+  start: { version: "0.1.0", date: "2026-10-06" }, end,
+});
+const RULES: ExceptionRules = {
+  framework: [{ ...orgRow("GOV-FRM-040", "C01"), source: { doc: "framework/docs/specs/framework-specification.md", section: "7.1", sha: "abc1234" } }],
+  org: [
+    orgRow("GOV-SVM-210", "C02"),
+    orgRow("GOV-SVM-011", "C01"),
+    orgRow("GOV-SVM-300", "C03"),
+    orgRow("GOV-SVM-400", "C02", { version: "0.2.0", date: "2026-10-07" }),   // retired
+  ],
+};
+const naming = (clause: string) => doc(GOOD.replace(/^clause: .*$/m, `clause: ${clause}`));
+
+describe("exceptions — what cannot be excepted (spec §10.5)", () => {
+  it("GOV-FRM-465: refuses an exception that names a framework rule, and says to report it upstream instead", () => {
+    // With no rule set too: the id alone says it is the framework's, so no caller can skip the refusal.
+    for (const rules of [undefined, RULES]) {
+      const { exception, problem } = parseException(naming("GOV-FRM-040"), rules);
+      expect(exception, "never compiled into the resident rules").to.equal(undefined);
+      expect(problem!.why).to.contain("framework rule").and.contain("admit no exception").and.contain("upstream");
+    }
+  });
+
+  it("GOV-FRM-465: the refusal holds for a framework rule the store does not even carry", () => {
+    expect(exceptionRefusal("GOV-FRM-999", RULES)).to.contain("framework rule");
+  });
+
+  it("GOV-FRM-011: refuses an exception that names a C01 organization rule — nobody, the Policy Owner included, can grant one", () => {
+    const { exception, problem } = parseException(naming("GOV-SVM-011"), RULES);
+    expect(exception).to.equal(undefined);
+    expect(problem!.why).to.contain("C01 rule").and.contain("not even the Policy Owner").and.contain("policy pull request");
+  });
+
+  it("accepts an exception that names an in-force C02 organization rule", () => {
+    const { exception, problem } = parseException(naming("GOV-SVM-210"), RULES);
+    expect(problem).to.equal(undefined);
+    expect(exception!.clause).to.equal("GOV-SVM-210");
+  });
+
+  it("refuses one naming a C03 rule, a retired rule, a rule nobody wrote, or an old POL number it cannot judge", () => {
+    expect(exceptionRefusal("GOV-SVM-300", RULES)).to.contain("Only C02 rules have an exception route");
+    expect(exceptionRefusal("GOV-SVM-400", RULES), "retired").to.contain("not a rule in force");
+    expect(exceptionRefusal("GOV-SVM-777", RULES)).to.contain("not a rule in force");
+    expect(exceptionRefusal("POL-210", RULES)).to.contain("gov rules show POL-210");
+  });
+
+  it("without the rules, an org id cannot be judged and is read as before", () => {
+    expect(exceptionRefusal("GOV-SVM-011")).to.equal(null);
+    expect(exceptionRefusal("POL-210")).to.equal(null);
   });
 });

@@ -12,6 +12,7 @@
  */
 import path from "node:path";
 import type { Fs } from "./fs-io.js";
+import type { GitRead } from "../cli/policy-gate-io.js";
 import { isStructureOnly } from "../config/approved-agents.js";
 
 /**
@@ -182,6 +183,21 @@ export interface MirrorResult {
    * test green. Reported per path, with what is sitting there instead.
    */
   readonly skipped: readonly SkippedHarness[];
+  /**
+   * Why gov could not read the harness at the default branch at all — the ref did not resolve, or git did not
+   * answer. Null when it could. A NOTED ABSENCE (GOV-FRM-456): every file is then in `skipped`, and nothing is
+   * read from the project-branch worktree in its place.
+   */
+  readonly unreadable?: string | null;
+}
+
+/**
+ * Where the harness is read from: the governance repo's DEFAULT branch, through the project's own worktree of it
+ * (GOV-FRM-456). `git` is `git -C <repo> <args>` → stdout, or null when git could not answer.
+ */
+export interface HarnessSource {
+  readonly git: GitRead;
+  readonly defaultBranch: string;
 }
 
 /** How a surviving destination should be described. Pure; reuses the shapes `verifyAgentContext` already knows. */
@@ -205,10 +221,16 @@ function classifyStale(text: string): StaleHolds {
  */
 export function mirrorWarnings(result: MirrorResult): readonly string[] {
   if (result.structureOnly || !result.skipped.length) return [];
-  const lines = [
-    `  ! ${result.skipped.length} harness file(s) could not be refreshed — this workspace has no rendered copy of them.`,
-    "    Run `gov upgrade` (or `gov rules build` in the governance repo) to render them.",
-  ];
+  const lines = result.unreadable
+    ? [
+      `  ! ${result.skipped.length} harness file(s) could not be refreshed — ${result.unreadable}.`,
+      "    The harness is read only from the default branch, never from this project's branch (GOV-FRM-456);",
+      "    fetch it (`git fetch`) or run `gov sync`, then start again.",
+    ]
+    : [
+      `  ! ${result.skipped.length} harness file(s) could not be refreshed — the default branch has no rendered copy of them.`,
+      "    Run `gov upgrade` (or `gov rules build` in the governance repo) to render them.",
+    ];
   // The stale ones first: an absent source is an un-upgraded workspace, but an absent source WITH a file at the
   // destination is an agent reading something gov can no longer vouch for, which is the one worth the eye.
   for (const s of result.skipped.filter((x) => x.stale !== null)) {
@@ -223,7 +245,7 @@ export function mirrorWarnings(result: MirrorResult): readonly string[] {
   const absent = result.skipped.filter((x) => x.stale === null);
   if (absent.length) {
     lines.push(`    ${absent.length} absent: ${absent.slice(0, 2).map((s) => s.at.split("/").pop()).join(", ")}`
-      + `${absent.length > 2 ? `, and ${absent.length - 2} more` : ""} — no rendered source in this workspace.`);
+      + `${absent.length > 2 ? `, and ${absent.length - 2} more` : ""} — no rendered source at the default branch.`);
   }
   return lines;
 }
@@ -260,11 +282,18 @@ export function mirrorWarnings(result: MirrorResult): readonly string[] {
  * explicitly recorded `none`, so a missing file, a stale clone or a setup mid-flight all keep the
  * behaviour they had. Only a decision turns the mirror off.
  */
-export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: string): MirrorResult {
+export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: string, source: HarnessSource): MirrorResult {
   const ws = workspaceRepo;
   if (isStructureOnly(fs.readFile(path.join(projectDir, ws, "org-config.yaml")))) {
-    return { structureOnly: true, placed: [], targets: [], skipped: [], written: 0 };
+    return { structureOnly: true, placed: [], targets: [], skipped: [], written: 0, unreadable: null };
   }
+  // FROM THE DEFAULT BRANCH, NEVER THE PROJECT BRANCH (GOV-FRM-456). The worktree at `<project>/<ws>` is on the
+  // project branch, and a harness file edited there is a proposal (GOV-FRM-086) — mirroring it would let a branch
+  // rewrite the rules its own agent is launched under. The worktree and gov_repo are one repository, so
+  // `git show <default>:agent/harness/<rel>` reads the ratified copy from inside the project, the same mechanism
+  // the governance snapshot and policy-gate-io.ts use. Git that cannot answer is a noted absence (`unreadable`),
+  // never a quiet read of the worktree instead.
+  const harness = readHarnessAtDefault(source, path.join(projectDir, ws));
   // CLAUDE.md IS NO LONGER SPECIAL (Policy Owner, 2026-09-11). It used to be written here as
   // two @-imports, and only when absent — so a damaged copy was never repaired, and a broken
   // workspace path gave Claude an empty context with no error. It is now mirrored verbatim with
@@ -300,8 +329,8 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
   let written = 0;
   const skipped: SkippedHarness[] = [];
   for (const rel of ROOT_HARNESS_FILES) {
-    const source = path.join(projectDir, ws, HARNESS_SRC_DIR, rel);
-    const src = fs.readFile(source);
+    const from = harness.from(rel);
+    const src = harness.read(rel);
     if (src == null) {
       // A SKIPPED SOURCE IS REPORTED, and a destination gov would have overwritten but could not is reported as
       // STALE. The bare `continue` that used to be here is defect 1: an un-upgraded workspace mirrored nothing
@@ -317,7 +346,7 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
         // call stale, and saying so would train people to ignore the warning.
         const wouldHaveReplaced = held !== null && held.trim() !== ""
           && (dir === projectDir || ownsWholeFile(rel) || held.includes(GOV_BLOCK_BEGIN));
-        skipped.push({ rel, source, at, stale: wouldHaveReplaced ? classifyStale(held) : null });
+        skipped.push({ rel, source: from, at, stale: wouldHaveReplaced ? classifyStale(held) : null });
       }
       continue;
     }
@@ -358,7 +387,36 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
   // The cleanup problem is fixed where it belongs, in `dirtyIgnoringGovsOwnFiles`: gov discounts its own harness
   // when judging whether deleting a directory would lose somebody's work. A team that would rather not see these
   // files can add them to their own `.gitignore`, which is their file and their decision.
-  return { structureOnly: false, placed, targets, skipped, written };
+  return { structureOnly: false, placed, targets, skipped, written, unreadable: harness.unreadable };
+}
+
+/**
+ * The rendered harness as the default branch has it. `read(rel)` is the file's text, or null when the branch has
+ * none (or git could not be asked — then `unreadable` says why). Local branch first, then the remote-tracking one,
+ * as `snapshotGovernance` resolves it.
+ */
+function readHarnessAtDefault(source: HarnessSource, worktree: string): {
+  readonly unreadable: string | null; readonly from: (rel: string) => string; readonly read: (rel: string) => string | null;
+} {
+  const dir = HARNESS_SRC_DIR.split(path.sep).join("/");
+  const b = source.defaultBranch;
+  const ref = [b, `origin/${b}`].find((r) => source.git(worktree, ["rev-parse", "--verify", "--quiet", `${r}^{commit}`]) !== null);
+  const from = (rel: string): string => `${ref ?? b}:${dir}/${rel}`;
+  if (!ref) return { unreadable: `gov could not read the default branch '${b}' in ${worktree}`, from, read: () => null };
+  // ONE LISTING, so "the branch has no such file" is a fact git stated, kept apart from git failing.
+  const listing = source.git(worktree, ["ls-tree", "-r", "--name-only", ref, "--", dir]);
+  if (listing === null) return { unreadable: `git could not list ${dir}/ at ${ref} in ${worktree}`, from, read: () => null };
+  const present = new Set(listing.split("\n").map((l) => l.trim()).filter(Boolean));
+  let unreadable: string | null = null;
+  const read = (rel: string): string | null => {
+    if (!present.has(`${dir}/${rel}`)) return null;
+    const text = source.git(worktree, ["show", from(rel)]);
+    if (text === null) { unreadable ??= `git could not read ${from(rel)}, though the branch has it`; return null; }
+    // EXACTLY ONE TRAILING NEWLINE, as the renderer writes every harness file. gov's git ports trim stdout, and a
+    // copy one byte short of the rendered file would be rewritten on every launch and never match a fresh render.
+    return text.replace(/\n*$/, "\n");
+  };
+  return { get unreadable() { return unreadable; }, from, read };
 }
 
 /**
