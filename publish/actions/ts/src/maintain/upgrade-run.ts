@@ -139,11 +139,36 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       `gov upgrade — applied ${res.applied.length} change(s)${res.skipped.length ? `, skipped ${res.skipped.length} conflict(s) for review:` : "."}`,
       ...res.skipped.map((s) => `  ! ${s} (org-customized — reconcile by hand)`),
       ...refusedLines(plan),
+      ...refreshCodeowners(adopterDir),
     ],
   };
 }
 
+/**
+ * CODEOWNERS FOLLOWS THE ROLE LIST (GOV-FRM-083). gov generates CODEOWNERS from org-config.yaml (the Policy and Check
+ * Owners) and the org's role list (policies/authorized-representatives.md); a holder changes by a pull request to
+ * those, and the file is regenerated here — the command `gov doctor`'s drift row names. Written only when it would
+ * change, so an upgrade with nothing to route says nothing. No Policy Owner → untouched, and said: a file without
+ * its floor protects nothing (config/codeowners.ts).
+ */
+export function refreshCodeowners(adopterDir: string): string[] {
+  const read = (rel: string): string | null => {
+    const p = path.join(adopterDir, rel);
+    return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null;
+  };
+  const cfg = read("org-config.yaml");
+  if (cfg === null) return [];
+  const want = expectedCodeowners(cfg, read(ROLE_LIST_PATH));
+  if (want === null) return ["  CODEOWNERS not regenerated: org-config.yaml names no policy_owner_github."];
+  if (read("CODEOWNERS") === want) return [];
+  fs.writeFileSync(path.join(adopterDir, "CODEOWNERS"), want, "utf8");
+  log("info", "regenerated CODEOWNERS from the role list", "gov-work:maintain:upgrade-run", "refreshCodeowners", {});
+  return [`  regenerated CODEOWNERS from org-config.yaml and ${ROLE_LIST_PATH}`];
+}
+
 import { run as runProcess } from "../run-process.js";
+import { expectedCodeowners } from "./roles-health.js";
+import { ROLE_LIST_PATH } from "../config/role-list.js";
 import { log } from "../log.js";
 import { parseApprovedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 
@@ -243,7 +268,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   //
   // NO MARKER: nothing is ratified yet, so no session is stale. The marker is recorded by `--apply`, which does
   // put the new rules into force, and by `gov sync`.
-  const compiledLines = opts.compileRules ? opts.compileRules(adopterDir) : [];
+  const compiledLines = [...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
 
   git(adopterDir, ["add", "-A"]);
   git(adopterDir, ["commit", "-m", `gov upgrade: sync framework content to ${version}`]);

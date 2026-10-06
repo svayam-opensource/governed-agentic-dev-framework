@@ -186,7 +186,7 @@ describe("org-config — what gov ignored, said out loud", () => {
     const r = doctor(facts({
       workspaceChecked: true,
       contentVersion: "1.0.0",
-      orgConfigText: 'org_name: "Acme"\nrequire_two_approvals: true\nfoo: bar\n',
+      orgConfigText: 'org_name: "Acme"\npolicy_owner_github: "@polly"\nrequire_two_approvals: true\nfoo: bar\n',
     }));
     const row = r.diagnostics.find((d) => d.name === "org-config")!;
     expect(row.status, "an unknown key is a warning, never a failure").to.equal("warn");
@@ -300,7 +300,7 @@ describe("governance posture — the row that says what the protection rows are 
   });
 
   it("under SOFT the per-requirement rows are GONE — four crosses against a deliberate choice is a false alarm", () => {
-    const r = doctor(facts({ orgConfigText: "governance_posture: soft\n", protection }));
+    const r = doctor(facts({ orgConfigText: 'governance_posture: soft\npolicy_owner_github: "@polly"\n', protection }));
     expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(0);
     expect(r.ok, "and the report is not failed by a decision the organization made on purpose").to.equal(true);
   });
@@ -312,7 +312,7 @@ describe("governance posture — the row that says what the protection rows are 
   });
 
   it("UNSET is soft by default (W2-Q6), so the rows go too", () => {
-    const r = doctor(facts({ orgConfigText: 'org_name: "Acme"\n', protection }));
+    const r = doctor(facts({ orgConfigText: 'org_name: "Acme"\npolicy_owner_github: "@polly"\n', protection }));
     expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(0);
     expect(r.ok).to.equal(true);
   });

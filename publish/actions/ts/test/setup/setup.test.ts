@@ -155,7 +155,7 @@ describe("gov-work — setup, the Check Owner", () => {
     expect(asked.filter((q) => /Check Owner/.test(q))).to.deep.equal([]);
   });
 
-  it("cannot finish with it empty — nothing is written", async () => {
+  it("GOV-FRM-033 setup cannot finish with the Check Owner empty — nothing is written", async () => {
     const writes: Record<string, string> = {};
     const printed: string[] = [];
     // Non-interactive, no gh user, no Policy Owner on file: there is no default to fall back on.
@@ -167,6 +167,20 @@ describe("gov-work — setup, the Check Owner", () => {
     expect(code).to.equal(1);
     expect(writes).to.deep.equal({});
     expect(printed.join("\n")).to.match(/check_owner_github/);
+  });
+
+  it("GOV-FRM-033 setup cannot finish with no Policy Owner, even when a Check Owner is named — nothing is written", async () => {
+    const writes: Record<string, string> = {};
+    const printed: string[] = [];
+    // No gh user to derive the handle from, nothing on file — but a Check Owner pre-filled, so that refusal is not it.
+    const code = await runSetup({
+      fs: noFs(writes), cwd: "/repo", originUrl: CTX.originUrl, ghUser: null, gitEmail: null, today: "2026-07-04",
+      existing: { orgName: "Acme Inc", orgSlug: "ACME", checkOwnerGithub: "@dave" },
+      prompt: async (_q, d) => d, print: (l) => printed.push(l),
+    }, false);
+    expect(code).to.equal(1);
+    expect(writes).to.deep.equal({});
+    expect(printed.join("\n")).to.match(/policy_owner_github/);
   });
 
   it("refuses an org slug of FRM even when it arrives pre-filled (rule-model Q7)", async () => {

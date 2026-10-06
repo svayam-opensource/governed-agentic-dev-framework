@@ -13,6 +13,8 @@ import { githubPullsForCommit } from "../../../src/rules/checks/gh-actions.js";
 import { loadCheckRuleSet, defaultRef } from "../../../src/rules/checks/ruleset-io.js";
 import { checkCommand, policyPrFromEvent, type CheckVerbDeps, type CheckVerbConfig } from "../../../src/cli/check-verb.js";
 import type { ViolationIssue } from "../../../src/rules/checks/violation.js";
+import { sectionOwnerApproval } from "../../../src/rules/checks/policy-actions.js";
+import type { EventContext } from "../../../src/rules/model/contracts.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CONTENT = resolve(here, "../../../../../content");
@@ -230,6 +232,30 @@ describe("check engine slice 3 — the rule set a check runs against", () => {
     expect(r.set.ownership).to.deep.equal([{ doc: "policies/org-policy.md", section: "4", role: "Check Owner", sha: "abc1234" }]);
     expect(r.set.roles).to.deep.equal({ "Policy Owner": "@polly", "Check Owner": "chuck" });
     expect(r.set.framework.length).to.be.greaterThan(10);
+  });
+
+  // W2-Q5 + W2-Q8: a section owned by a role from the ORG's list is routed to that role's holder — not, as before the
+  // role list was read, to the Policy Owner as if the role were vacant.
+  it("a Data Owner's section is routed to the Data Owner's holder from the org's role list", () => {
+    const files = govRepo({
+      "policies/authorized-representatives.md": "# Reps\n\n| Role | GitHub handle | Owns |\n|---|---|---|\n| Data Owner | @dana | `knowledge/data/` |\n",
+      "policies/ownership.yaml": '- { doc: policies/org-policy.md, section: "4", role: Data Owner, sha: "abc1234" }\n',
+    });
+    const r = loadCheckRuleSet(fakeGit(files), "/gov", "origin/main");
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(r.set.roles).to.include({ "Data Owner": "@dana" });
+    const base = "# Policy\n\n## 4. Data\n\nOld text.\n";
+    const head = "# Policy\n\n## 4. Data\n\nNew text.\n";
+    const ctx = { resource: "vcs.gov-repo", event: "pull_request", payload: {
+      changed: [{ path: "policies/org-policy.md", status: "modified", text: head }],
+      baseTexts: { "policies/org-policy.md": base }, author: "someone", approvals: [],
+    } } as unknown as EventContext;
+    const out = sectionOwnerApproval("t", {}, ctx, r.set);
+    expect(out.verdict).to.equal("miss");
+    expect(out.requestReview).to.deep.equal(["dana"]);
+    expect(out.findings.join("\n")).to.match(/@dana.*§4 \(Data Owner\)/);
+    expect(sectionOwnerApproval("t", {}, { ...ctx, payload: { ...ctx.payload, approvals: ["dana"] } }, r.set).verdict).to.equal("pass");
   });
 
   it("no ownership file is every section the Policy Owner's; a broken one is could-not-tell", () => {

@@ -3,21 +3,18 @@
 /**
  * THE RULE SET A CHECK RUNS AGAINST — W1's stores, plus who owns what (W2-Q8; W6 slice 3).
  *
- * {@link loadRuleStores} gives the rows and the catalog. A check that routes approval also needs the two things it
- * leaves out of the contract's optional fields: `ownership` (`policies/ownership.yaml`) and `roles` (role → handle).
- * Both are read at the SAME default-branch ref as the rules, never from the branch under review — a pull request
- * that handed its own section to its author would otherwise approve itself.
+ * {@link loadRuleStores} gives the rows, the catalog and `roles` (role → handle). A check that routes approval also
+ * needs `ownership` (`policies/ownership.yaml`), which it leaves out. Both are read at the SAME default-branch ref as
+ * the rules, never from the branch under review — a pull request that handed its own section to its author, or
+ * named its author a role's holder, would otherwise approve itself.
  *
- * Roles here are the two the framework fixes: the Policy Owner (`policy_owner_github`) and the Check Owner
- * (`check_owner_github`, vacant → the Policy Owner). The org's own role list (`authorized-representatives.md`) is
- * not parsed yet: a section owned by such a role reads as vacant, and section-owner-approval routes it to the
- * Policy Owner — the documented fallback, never a pass.
+ * Roles come with the stores (store-io.ts): the Policy Owner and Check Owner (vacant → the Policy Owner) from
+ * org-config, and every other role from the org's role list in `policies/authorized-representatives.md`. A section
+ * owned by a VACANT role — or by a role the list does not name — routes to the Policy Owner; never a pass.
  */
-import { readTopLevelScalar } from "../../resolve/node-env.js";
 import type { GitRead } from "../../cli/policy-gate-io.js";
-import { loadRuleStores, RULE_STORE_PATHS } from "../model/store-io.js";
+import { loadRuleStores } from "../model/store-io.js";
 import type { RuleSet, SectionOwnership } from "../model/contracts.js";
-import { CHECK_OWNER, POLICY_OWNER } from "./policy-actions.js";
 import { OWNERSHIP_PATH, parseOwnership } from "./ownership.js";
 
 export { OWNERSHIP_PATH };
@@ -32,14 +29,6 @@ export type CheckRuleSetLoad = { readonly ok: true; readonly set: RuleSet } | { 
 export function loadCheckRuleSet(git: GitRead, repo: string, ref: string): CheckRuleSetLoad {
   const r = loadRuleStores(git, repo, ref);
   if (!r.ok) return r;
-  const cfg = git(repo, ["show", `${ref}:${RULE_STORE_PATHS.orgConfig}`]) ?? "";
-  const handle = (key: string): string => (readTopLevelScalar(cfg, key) ?? "").trim();
-  const policyOwner = handle("policy_owner_github");
-  const checkOwner = handle("check_owner_github") || policyOwner;
-  const roles: Record<string, string> = {};
-  if (policyOwner) roles[POLICY_OWNER] = policyOwner;
-  if (checkOwner) roles[CHECK_OWNER] = checkOwner;
-
   // Listed first, so "absent" (every section is the Policy Owner's) is not confused with "unreadable".
   const listed = (git(repo, ["ls-tree", "--name-only", ref, "--", OWNERSHIP_PATH]) ?? "").trim() === OWNERSHIP_PATH;
   let ownership: SectionOwnership[] = [];
@@ -50,5 +39,5 @@ export function loadCheckRuleSet(git: GitRead, repo: string, ref: string): Check
     if ("error" in parsed) return { ok: false, reason: `${OWNERSHIP_PATH} at ${ref} ${parsed.error}` };
     ownership = parsed;
   }
-  return { ok: true, set: { ...r.set, ownership, roles } };
+  return { ok: true, set: { ...r.set, ownership } };
 }

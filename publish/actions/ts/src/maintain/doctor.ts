@@ -15,7 +15,7 @@ import { agentsDiagnostic } from "../cli/approve-agents-step.js";
 import { rulesRows, type RulesFacts } from "./rules-health.js";
 import { assessProtection, postureDiagnostic, postureOf } from "./protection-check.js";
 import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
-import { checkOwnerDiagnostic } from "./roles-health.js";
+import { checkOwnerDiagnostic, codeownersDiagnostic, policyOwnerDiagnostic, roleListDiagnostic } from "./roles-health.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
 
@@ -77,6 +77,10 @@ export interface DoctorFacts {
    * file and this stays testable from a string.
    */
   readonly orgConfigText?: string | null;
+  /** `policies/authorized-representatives.md` (the org's role list): text, `null` absent, undefined = not read. */
+  readonly roleListText?: string | null;
+  /** The workspace's root `CODEOWNERS`: text, `null` absent, undefined = not read. */
+  readonly codeownersText?: string | null;
   /**
    * What the rules compiler found. Absent when doctor could not run it (no workspace, no policies) — and then
    * there are no rows, because doctor does not report on a fact nobody gathered.
@@ -217,7 +221,13 @@ export function doctor(facts: DoctorFacts): DoctorReport {
       : []),
     // THE TWO-KEY REVIEW (rule-model P1 rulings, 2026-10-06): the Check Owner approves the code of the org's check
     // actions, the Policy Owner the rules. Vacant, or both roles on one handle, and there is only one key.
-    ...(() => { const c = checkOwnerDiagnostic(facts.orgConfigText); return c ? [c] : []; })(),
+    // WHO HOLDS EACH ROLE (GOV-FRM-033, W2-Q5) and whether CODEOWNERS still routes to them (GOV-FRM-083).
+    ...[
+      policyOwnerDiagnostic(facts.orgConfigText),
+      checkOwnerDiagnostic(facts.orgConfigText),
+      roleListDiagnostic(facts.orgConfigText, facts.roleListText),
+      codeownersDiagnostic(facts.orgConfigText, facts.roleListText, facts.codeownersText),
+    ].filter((d): d is Diagnostic => d !== null),
     // WHICH POSTURE THIS ORGANIZATION CHOSE (Policy Owner, 2026-09-29) — the row that says what the four rows
     // below it are FOR. It comes first because it decides whether they are a finding: an organization that
     // deliberately chose `soft` is not failing GOV-FRM-447, and one that never chose is not excused from it.

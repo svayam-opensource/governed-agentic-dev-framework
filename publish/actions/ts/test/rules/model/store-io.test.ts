@@ -113,6 +113,27 @@ describe("rule model — W1 store reader", () => {
     expect(calls.some((c) => c[0] === "ls-tree" && c.includes("origin/main"))).to.equal(true);
   });
 
+  // W2-Q5: RuleSet.roles carries the framework's two roles from org-config and every role in the org's role list,
+  // read at the SAME ref as the rules — a branch cannot name itself a role's holder.
+  it("loads the org's role list into RuleSet.roles, beside the Policy Owner and Check Owner from org-config", () => {
+    const files = full();
+    files[RULE_STORE_PATHS.orgConfig] = `${ORG_CONFIG}policy_owner_github: "@polly"\ncheck_owner_github: "chuck"\nlegal_owner_github: "@stale"\n`;
+    files[RULE_STORE_PATHS.roleList] = "# Reps\n\n| Role | GitHub handle | Owns |\n|---|---|---|\n| Data Owner | @dana | `knowledge/data/` |\n| Legal Owner | | |\n";
+    const calls: string[][] = [];
+    const r = loadRuleStores(fakeGit(files, calls), "/repo", "origin/main");
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(r.set.roles).to.deep.equal({ "Policy Owner": "@polly", "Check Owner": "chuck", "Data Owner": "@dana", "Legal Owner": "" });
+    expect(calls.some((c) => c[0] === "show" && c[1] === `origin/main:${RULE_STORE_PATHS.roleList}`)).to.equal(true);
+  });
+
+  it("no role table at the ref → the legacy *_owner_github keys, for one release", () => {
+    const files = full();
+    files[RULE_STORE_PATHS.orgConfig] = `${ORG_CONFIG}policy_owner_github: "@polly"\ndata_arch_owner_github: "@dana"\n`;
+    const r = loadRuleStores(fakeGit(files), "/repo", "main");
+    expect(r.ok && r.set.roles).to.deep.include({ "Policy Owner": "@polly", "Check Owner": "@polly", "Data Architecture Owner": "@dana" });
+  });
+
   it("an org with no rules yet is an EMPTY org store, not a failure — and its version defaults to 0.0.0", () => {
     const files = full();
     delete files[RULE_STORE_PATHS.orgRules];

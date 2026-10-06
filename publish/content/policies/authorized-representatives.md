@@ -79,3 +79,31 @@ question nobody is answering, and an approval nobody can give.
 
 The framework holds its own two roles, the Policy Owner and the Check Owner, to the same standard: `gov setup`
 will not finish without both, and `gov doctor` reports either one when it falls empty.
+
+## 4. The role list
+
+The roles this organization defines, who holds each one, and which folders of `knowledge/` each one owns. This
+is the list gov reads: it routes a change to a `knowledge/` folder to that folder's owner (gov writes
+`CODEOWNERS` from it), and it names the person behind a role when a policy says, in plain English, that a role
+owns one of its sections.
+
+| Role | GitHub handle | Owns |
+|---|---|---|
+| Legal Owner | <LEGAL_OWNER_GITHUB> | `knowledge/legal/` |
+| Infrastructure Owner | <INFRA_OWNER_GITHUB> | `knowledge/infrastructure/` |
+| System Architecture Owner | <SYSTEM_ARCH_OWNER_GITHUB> | `knowledge/architecture/system/` |
+| Data Architecture Owner | <DATA_ARCH_OWNER_GITHUB> | `knowledge/architecture/data/` |
+
+How to read and change it:
+
+- **Role** is a name you choose. Add a row for a new role, delete a row for a role you retire, rename freely —
+  but keep the name the same as the one your policies use when they say who owns a section.
+- **GitHub handle** is the person (or `org/team`) who holds the role. Leave it empty, or write `vacant`, when
+  nobody does: the Policy Owner then approves in that role's place (§3).
+- **Owns** lists the `knowledge/` folders the role approves, separated by commas, or `—` for none. A folder
+  nobody owns, and `knowledge/` as a whole, belong to the Policy Owner.
+- The Policy Owner and the Check Owner are not listed here. They are the framework's own two roles, and their
+  holders are set in `org-config.yaml`.
+
+After a change here merges, run `gov upgrade` to regenerate `CODEOWNERS`; `gov doctor` reports a `CODEOWNERS`
+that no longer matches this list.
