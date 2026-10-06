@@ -55,6 +55,7 @@ import { openPrBranch, botIdentity } from "./pr-branch-io.js";
 import { terminalChannel } from "../rules/propose/interview.js";
 import { chooseModel, lazyModel } from "../rules/propose/providers/index.js";
 import { ANTHROPIC_KEY_ENV } from "../rules/propose/providers/anthropic.js";
+import { GEMINI_KEY_ENV } from "../rules/propose/providers/gemini.js";
 import { defaultRef } from "../rules/checks/ruleset-io.js";
 import { fsTree } from "../rules/policy-pr/tree.js";
 import type { ModelSettings } from "../rules/propose/model-settings.js";
@@ -1891,11 +1892,11 @@ function resolveHomeConfig(flags: Record<string, string | boolean>): { home: str
 }
 
 /**
- * The Anthropic key for `gov rules propose`: the environment first, then the person's credentials store (the file
- * `gov agent install claude-code` writes, loaded only when nobody else can read it). Never printed, never logged.
+ * A model key for `gov rules propose`: the environment first, then the person's credentials store (the file
+ * `gov agent install <agent>` writes, loaded only when nobody else can read it). Never printed, never logged.
  */
-function anthropicKey(): string | null {
-  const fromEnv = process.env[ANTHROPIC_KEY_ENV]?.trim();
+function modelKey(envVar: string, agentId: string): string | null {
+  const fromEnv = process.env[envVar]?.trim();
   if (fromEnv) return fromEnv;
   const ctx = runContext();
   if (!ctx.workRoot || !ctx.login) return null;
@@ -1905,15 +1906,17 @@ function anthropicKey(): string | null {
       process.stderr.write(`  ! gov will not load ${at} — other users on this machine can read it (chmod 600 ${at}).\n`);
       return null;
     }
-    return storedCredential(fsSync.readFileSync(at, "utf8"), ANTHROPIC_KEY_ENV, "claude-code");
+    return storedCredential(fsSync.readFileSync(at, "utf8"), envVar, agentId);
   } catch { return null; /* no store yet — the ordinary case */ }
 }
+const anthropicKey = (): string | null => modelKey(ANTHROPIC_KEY_ENV, "claude-code");
+const geminiKey = (): string | null => modelKey(GEMINI_KEY_ENV, "gemini-code-assist");
 
 /** `models.command`, run with the request on stdin, through the run-process chokepoint. Ten minutes at most. */
 const runModelCommand = (cmd: string, args: readonly string[], input: string): string =>
   runProcess(cmd, args, { pgm: "gov-work:rules:propose:command", fn: "complete", input, timeoutMs: 600_000 });
 
-const modelChoiceFor = (s: ModelSettings, ci: boolean) => chooseModel(s, { ci, anthropicKey, runCommand: runModelCommand });
+const modelChoiceFor = (s: ModelSettings, ci: boolean) => chooseModel(s, { ci, anthropicKey, geminiKey, runCommand: runModelCommand });
 
 /**
  * `gov rules propose [--all] [--pr <n>]` — ASKS at the terminal, so it is routed here and not through `route()`

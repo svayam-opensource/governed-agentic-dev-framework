@@ -10,6 +10,7 @@ import type { ModelPort } from "../model-port.js";
 import { GOVERNANCE_PATH, type ModelSettings } from "../model-settings.js";
 import { anthropicModel, ANTHROPIC_KEY_ENV, type FetchLike } from "./anthropic.js";
 import { commandModel, type RunWithInput } from "./command.js";
+import { geminiModel, GEMINI_KEY_ENV } from "./gemini.js";
 
 export type ModelChoice =
   | { readonly ok: true; readonly model: ModelPort; readonly describe: string }
@@ -20,6 +21,8 @@ export interface ModelChoiceDeps {
   readonly ci: boolean;
   /** The Anthropic key — the environment first, then gov's credentials store. Called only for `anthropic`. */
   readonly anthropicKey: () => string | null;
+  /** The Gemini key — the environment first, then gov's credentials store. Called only for `gemini`. */
+  readonly geminiKey: () => string | null;
   readonly runCommand: RunWithInput;
   readonly fetch?: FetchLike;
 }
@@ -31,7 +34,7 @@ export const NO_APPROVED_MODEL = [
   "  the organization declares the model it allows, and CI may use only one it has also allowed for CI).",
   `  Approve one in ${GOVERNANCE_PATH}, under \`models:\` — the Policy Owner merges that change:`,
   "    models:",
-  "      propose: { provider: anthropic, model: <model id> }   # or provider: command",
+  "      propose: { provider: anthropic, model: <model id> }   # or provider: gemini, or provider: command",
   "      command: \"<a CLI that reads the prompt on stdin>\"     # for provider: command",
   "      ci_allowed: false                                      # true lets CI propose on a policy pull request",
 ];
@@ -45,7 +48,16 @@ export function chooseModel(s: ModelSettings, deps: ModelChoiceDeps): ModelChoic
     if (!s.command) return { ok: false, lines: [`gov rules propose: ${GOVERNANCE_PATH} chooses provider \`command\` but sets no models.command to run.`] };
     return { ok: true, model: commandModel({ command: s.command, run: deps.runCommand }), describe: `the approved command \`${s.command}\`` };
   }
-  if (!s.model) return { ok: false, lines: [`gov rules propose: ${GOVERNANCE_PATH} chooses provider \`anthropic\` but names no model (models.propose.model).`] };
+  if (!s.model) return { ok: false, lines: [`gov rules propose: ${GOVERNANCE_PATH} chooses provider \`${s.provider}\` but names no model (models.propose.model).`] };
+  if (s.provider === "gemini") {
+    const apiKey = deps.geminiKey();
+    if (!apiKey) {
+      return { ok: false, lines: [
+        `gov rules propose: no Gemini API key. Set ${GEMINI_KEY_ENV} in the environment${deps.ci ? ` (the org's Actions secret ${GEMINI_KEY_ENV})` : ", or store it in gov's credentials file (`gov agent install gemini-code-assist` stores it there)"}.`,
+      ] };
+    }
+    return { ok: true, model: geminiModel({ apiKey, model: s.model, ...(deps.fetch ? { fetch: deps.fetch } : {}) }), describe: `${s.model} (Google Gemini)` };
+  }
   const apiKey = deps.anthropicKey();
   if (!apiKey) {
     return { ok: false, lines: [

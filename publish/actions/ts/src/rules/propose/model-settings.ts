@@ -6,7 +6,7 @@
  * The setting lives in `policies/governance.yaml`, the governance choices the Policy Owner approves:
  *
  *   models:
- *     propose: { provider: anthropic, model: <the model the org approved> }   # or provider: command
+ *     propose: { provider: anthropic, model: <the model the org approved> }   # or provider: gemini · command
  *     command: "<a CLI that reads a prompt on stdin and writes the reply on stdout>"
  *     ci_allowed: false                                                        # may CI run it on a policy PR?
  *
@@ -22,7 +22,7 @@ export { GOVERNANCE_PATH };
 /** The shape `modelSettings(g)` in src/config/governance.ts returns. */
 export interface ModelSettings {
   /** null = no model approved: propose refuses. */
-  readonly provider: "anthropic" | "command" | null;
+  readonly provider: "anthropic" | "gemini" | "command" | null;
   readonly model: string;
   readonly command: string;
   readonly ciAllowed: boolean;

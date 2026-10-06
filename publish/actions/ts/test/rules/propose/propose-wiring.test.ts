@@ -54,7 +54,7 @@ describe("rules propose — the org's model setting (policies/governance.yaml)",
 });
 
 describe("rules propose — choosing the model", () => {
-  const deps = { ci: false, anthropicKey: () => KEY, runCommand: () => "" };
+  const deps = { ci: false, anthropicKey: () => KEY, geminiKey: () => null, runCommand: () => "" };
   it("no provider → refuses, naming governance.yaml and §9.3 in plain words", () => {
     const c = chooseModel(NO_MODEL, deps);
     expect(c.ok).to.equal(false);

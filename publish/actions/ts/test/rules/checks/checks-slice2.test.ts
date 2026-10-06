@@ -499,5 +499,23 @@ describe("the propose job's permissions", () => {
     expect(propose).to.contain("contents: write").and.contain("pull-requests: write");
     for (const j of jobs.filter((x) => !x.includes("GOV-FRM-468"))) expect(j).to.not.contain("contents: write");
   });
+  // Policy Owner, 2026-10-07: the model keys reach the job that calls the model, and no other job.
+  it("only the rules-propose job's gov step gets the model keys, ANTHROPIC_API_KEY and GEMINI_API_KEY", () => {
+    const [f] = renderWorkflow([
+      { id: "GOV-FRM-468", check: { on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/rules-propose", on_miss: "fail" } },
+      { id: "GOV-FRM-086", check: { on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/section-owner-approval", on_miss: "fail" } },
+      { id: "GOV-FRM-455", check: { on: { resource: "vcs.gov-repo", event: "push" }, action: "gov-builtin/forbid-forced-push", on_miss: "fail" } },
+    ]);
+    const jobs = f!.text.split(/\n {2}(?=\S)/);
+    const propose = jobs.find((j) => j.includes("GOV-FRM-468"))!;
+    expect(propose).to.contain([
+      "        env:",
+      "          GH_TOKEN: ${{ github.token }}",
+      "          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",
+      "          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}",
+      "        run: gov check run GOV-FRM-468",
+    ].join("\n"));
+    for (const j of jobs.filter((x) => !x.includes("GOV-FRM-468"))) expect(j).to.not.contain("API_KEY");
+  });
 });
 
