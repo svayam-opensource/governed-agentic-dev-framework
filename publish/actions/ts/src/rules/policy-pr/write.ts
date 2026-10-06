@@ -68,7 +68,7 @@ export function renderChangelogEntry(e: ChangelogEntry): string {
 }
 
 /** Rows to YAML, keeping the file's leading comment block (the org store is machine-written; its header is not). */
-function dumpStore(previous: string, rows: readonly RuleRow[]): string {
+export function dumpStore(previous: string, rows: readonly RuleRow[]): string {
   const header: string[] = [];
   for (const line of previous.split("\n")) {
     if (line.startsWith("#") || line.trim() === "") header.push(line);
@@ -110,11 +110,21 @@ export function policyPrWriter(trees: { readonly base: TreeReader; readonly head
       return { wrote: true, detail: `froze ${files.size} file(s) in ${dir}/` };
     },
 
-    /** The entry for `e.version`, newest first. Skipped when an entry for that version is already there. */
+    /**
+     * The entry for `e.version`, newest first. Skipped when an entry for that version is already there — except
+     * one THIS pull request wrote and nobody has approved yet, which is rewritten when the change has grown since
+     * (a second section proposed on the same branch must be named in the same entry, or the gate fails it).
+     */
     writeChangelogEntry(e: ChangelogEntry): WriteResult {
       const text = head.read(POLICY_PR_PATHS.changelog);
-      if (text !== null && changelogEntry(text, e.version) !== null) return { wrote: false, detail: `${POLICY_PR_PATHS.changelog} already has ${e.version}` };
       const entry = renderChangelogEntry(e);
+      const existing = text === null ? null : changelogEntry(text, e.version);
+      if (text !== null && existing !== null) {
+        const ours = existing.includes(`| #${e.pr} | `) && existing.includes("| _pending_ |");
+        if (!ours || existing.trimEnd() === entry.trimEnd()) return { wrote: false, detail: `${POLICY_PR_PATHS.changelog} already has ${e.version}` };
+        head.write(POLICY_PR_PATHS.changelog, text.replace(existing, entry.replace(/\n+$/, "\n")));
+        return { wrote: true, detail: `${POLICY_PR_PATHS.changelog} ${e.version} rewritten for #${e.pr}` };
+      }
       let next: string;
       if (text === null || !text.trim()) {
         next = `${CHANGELOG_TITLE}\n\n${CHANGELOG_INTRO}\n\n${entry}`;

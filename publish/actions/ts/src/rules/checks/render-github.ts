@@ -97,6 +97,9 @@ function permissionsFor(trigger: Trigger, actions: ReadonlySet<string>): Record<
   const p: Record<string, string> = {};
   if (trigger.on === "push" || trigger.on === "issues") p.issues = "write";
   if (actions.has("gov-builtin/section-owner-approval")) p["pull-requests"] = "write";
+  // The propose fallback commits its rows to the PR branch with the built-in token (the App stays read-only —
+  // Policy Owner, option B) and comments its questions: contents and pull requests, write, on THIS job only.
+  if (actions.has("gov-builtin/rules-propose")) { p.contents = "write"; p["pull-requests"] = "write"; }
   else if (actions.has("gh-action/landed-by-pr")) p["pull-requests"] = "read";
   return p;
 }
@@ -167,14 +170,14 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
     // A rule whose every push check is about force-pushes runs only on a forced push.
     if (j.trigger.on === "push" && [...j.actions].every((a) => a === "gov-builtin/forbid-forced-push")) cond += " && github.event.forced";
     const perms = permissionsFor(j.trigger, j.actions);
-    const keys = Object.keys(perms).sort(cmp);
+    const keys = Object.keys(perms).filter((k) => k !== "contents").sort(cmp);
     // Two resources of one repo bound on the same event name would share a job id; the resource keeps them apart.
     const sameName = sorted.filter((k) => k.id === j.id && k.event === j.event).length > 1;
     lines.push(
       `  ${jobId(sameName ? `${j.id}_${j.resource}_${j.event}` : `${j.id}_${j.event}`)}:`,
       `    name: ${j.id} · ${j.event}`,
       `    if: ${cond}`,
-      ...(keys.length ? ["    permissions:", "      contents: read", ...keys.map((k) => `      ${k}: ${perms[k]}`)] : []),
+      ...(keys.length || perms.contents ? ["    permissions:", `      contents: ${perms.contents ?? "read"}`, ...keys.map((k) => `      ${k}: ${perms[k]}`)] : []),
       "    runs-on: ubuntu-latest",
       "    timeout-minutes: 10",
       "    steps:",

@@ -277,7 +277,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     usage: "<run <GOV-ID> --resource <r> --event <e> | install [--repo <path>]>",
     where: "GOVERNED — `run` is what the rendered `gov-checks` workflow calls in GitHub Actions; `install` writes that workflow",
     args: [
-      { name: "run <GOV-ID>", what: "run the rule's checks bound to --resource · --event. Rules are read from the governance repo's DEFAULT branch; the event from GITHUB_EVENT_PATH / GITHUB_EVENT_NAME / GITHUB_REPOSITORY" },
+      { name: "run <GOV-ID>", what: "run the rule's checks bound to --resource · --event. Rules are read from the governance repo's DEFAULT branch; the event from GITHUB_EVENT_PATH / GITHUB_EVENT_NAME / GITHUB_REPOSITORY. A rule bound to gov-builtin/rules-propose runs the proposer on the policy pull request first" },
       { name: "install", what: "render every in-force binding for one repository into `.github/workflows/gov-checks.yml` — the governance repo gets vcs.gov-repo and pms.issue, a code repo vcs.code-repo" },
     ],
     flags: [
@@ -287,7 +287,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
       { name: "--repo <path>", what: "install: the working tree to write into (default: the governance repo); any other path is a linked code repo" },
     ],
     examples: ["gov check run GOV-FRM-086 --resource vcs.gov-repo --event pull_request", "gov check install", "gov check install --repo ~/.gov/acme/projects/PRJ-7/billing"],
-    changes: "`run` changes nothing in the repository. On a failed check of an event that already happened (a push, an issue closed) it opens a `gov-violation` issue for the Policy Owner and runs the catalog's undo, if one is declared; on a gate it may request reviews from section owners. `install` writes the workflow file into the working tree and stops — it never commits, pushes, or changes repository settings; under hard posture it prints the settings to apply",
+    changes: "`run` changes nothing in the repository, save the proposer below. On a failed check of an event that already happened (a push, an issue closed) it opens a `gov-violation` issue for the Policy Owner and runs the catalog's undo, if one is declared; on a gate it may request reviews from section owners. On a policy pull request whose rule rows are stale, `gov-builtin/rules-propose` reads the changed sections with the organization's model (only when `models.ci_allowed` is true on the default branch), asks its questions as review comments, and commits the settled rows, version, snapshot and changelog to the pull request's branch as the gov bot — a commit that is never an approval. `install` writes the workflow file into the working tree and stops — it never commits, pushes, or changes repository settings; under hard posture it prints the settings to apply",
     exit: [
       { code: 0, means: "run: passed; or failed on an event that already happened (a violation record was opened); or could not tell under SOFT posture (a warning says so). install: written, or nothing to write" },
       { code: 1, means: "run: failed on a gate event; or could not tell under HARD posture. install: the rules could not be read, so nothing was written" },
@@ -315,17 +315,21 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   {
     name: "rules", audience: "you",
-    summary: "render the rule stores into what agents read, and report on the rules",
-    usage: "<build|check|report|reload> [--working-tree] | show <id>",
+    summary: "propose rules from your policy prose, render the rule stores into what agents read, and report on them",
+    usage: "<build|check|report|reload> [--working-tree] | show <id> | propose [--all] [--pr <n>]",
     where: "GOVERNED",
     args: [
-      { name: "<mode>", what: "build (write) · check (verify, write nothing; fails on a stale file or a stale rule row) · report (the numbers only) · reload (attest that you restarted your session, after the rules changed) · show (print one rule)" },
+      { name: "<mode>", what: "build (write) · check (verify, write nothing; fails on a stale file or a stale rule row) · report (the numbers only) · reload (attest that you restarted your session, after the rules changed) · show (print one rule) · propose (read each changed policy section with your organization's approved model and propose its rules, asking you only where your intent is unclear)" },
       { name: "<id>", what: "a GOV id (GOV-FRM-012), or a retired POL number, which resolves to the rule that carries it now or to why none does" },
     ],
-    flags: [{ name: "--working-tree", what: "read the rule stores from disk instead of the ratified branch — for drafting; an agent is still governed by the default branch" }],
-    examples: ["gov rules report", "gov rules build", "gov rules reload", "gov rules show POL-086b"],
-    changes: "`build` renders `framework/rules/rules.yaml` and `policies/rules.yaml` into the nine agent instruction files (the resident tier in Part A) and `agent/harness/rule-map.md`; policy prose is never touched. `check` writes nothing and fails when a generated file is stale, or when a rule row is pending re-review because its source section changed since it was approved (`gov rules propose` re-reads it). `report` and `show` write nothing at all. A rule-store error, or a resident tier over its cap, STOPS the build — nothing is written and the reason is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had",
-    exit: [{ code: 0, means: "done" }, { code: 1, means: "a rule-store error, a resident tier over its cap, a stale file, or a stale rule row" }, { code: 2, means: "usage" }],
+    flags: [
+      { name: "--working-tree", what: "read the rule stores from disk instead of the ratified branch — for drafting; an agent is still governed by the default branch" },
+      { name: "--all", what: "propose: also read sections that have no rules yet, though unchanged — the first extraction of a seeded policy" },
+      { name: "--pr <n>", what: "propose: the pull request the change goes in (default: the one open for this branch). Without one, the rows' stamps and the CHANGELOG entry wait for it" },
+    ],
+    examples: ["gov rules report", "gov rules build", "gov rules propose", "gov rules propose --all --pr 12", "gov rules reload", "gov rules show POL-086b"],
+    changes: "`build` renders `framework/rules/rules.yaml` and `policies/rules.yaml` into the nine agent instruction files (the resident tier in Part A) and `agent/harness/rule-map.md`; policy prose is never touched. `check` writes nothing and fails when a generated file is stale, or when a rule row is pending re-review because its source section changed since it was approved (`gov rules propose` re-reads it). `report` and `show` write nothing at all. A rule-store error, or a resident tier over its cap, STOPS the build — nothing is written and the reason is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had. `propose` runs on the branch you are editing: it sends each changed section to the model your organization approved in `policies/governance.yaml` (on the default branch) — no approved model, no run — asks you at the terminal only where the intent is unclear, and writes `policies/rules.yaml`, `policies/ownership.yaml`, `policies/VERSION`, the frozen snapshot `policies/version/<previous>/`, the rows' stamps and the `policies/CHANGELOG.md` entry. gov issues every new id; the model never does. Each step skips when already done, so running it again writes nothing new. An unanswered question stops it with nothing written. It never commits; on a policy pull request the same proposer runs as a check when the rows are stale and the organization allows a model in CI",
+    exit: [{ code: 0, means: "done" }, { code: 1, means: "a rule-store error, a resident tier over its cap, a stale file, or a stale rule row; propose: a question left unanswered, no approved model, or sections that did not settle — nothing was written" }, { code: 2, means: "usage" }],
     seeAlso: ["knowledge", "doctor", "validate"],
   },
   {

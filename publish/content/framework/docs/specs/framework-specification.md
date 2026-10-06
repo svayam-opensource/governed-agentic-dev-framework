@@ -735,6 +735,13 @@ You can run it yourself, which is the normal way. It also runs on a policy pull 
 of date. gov issues every new id itself; a language model never does. A commit made by a bot never counts as
 an approval.
 
+Reading your policy and suggesting rows is done by a language model, so your policy text is sent to it. gov
+sends it only to a model your organization has approved. You approve one in `policies/governance.yaml`, under
+`models:`, and you decide there whether the pull request check may use it too. Until you approve one, propose
+refuses and tells you where to do it. When the check does use it, gov pushes its suggestion to the pull request
+with the repository's own token. GitHub does not re-run checks after such a push, so gov asks you to re-run
+them.
+
 ### 9.4 Stricter, never laxer
 
 Your organization can never change a framework row. You may **add** your own rules that are stricter than

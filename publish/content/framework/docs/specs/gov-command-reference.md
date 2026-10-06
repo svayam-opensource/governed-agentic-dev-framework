@@ -32,7 +32,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov repo](#gov-repo) — install the repository controls framework-specification.md §7.3 requires — or say why the platform will not
 - [gov check](#gov-check) — run one rule's checks for the event that fired, or install the workflow that runs them
 - [gov app](#gov-app) — create the org's GitHub App that lets code repos' checks read the governance rules, and check it
-- [gov rules](#gov-rules) — render the rule stores into what agents read, and report on the rules
+- [gov rules](#gov-rules) — propose rules from your policy prose, render the rule stores into what agents read, and report on them
 
 **[Your agent runs these (you can too)](#your-agent-runs-these-you-can-too)**
 
@@ -441,7 +441,7 @@ gov check <run <GOV-ID> --resource <r> --event <e> | install [--repo <path>]>
 
 | argument | what it is |
 | --- | --- |
-| `run <GOV-ID>` | run the rule's checks bound to --resource · --event. Rules are read from the governance repo's DEFAULT branch; the event from GITHUB_EVENT_PATH / GITHUB_EVENT_NAME / GITHUB_REPOSITORY |
+| `run <GOV-ID>` | run the rule's checks bound to --resource · --event. Rules are read from the governance repo's DEFAULT branch; the event from GITHUB_EVENT_PATH / GITHUB_EVENT_NAME / GITHUB_REPOSITORY. A rule bound to gov-builtin/rules-propose runs the proposer on the policy pull request first |
 | `install` | render every in-force binding for one repository into `.github/workflows/gov-checks.yml` — the governance repo gets vcs.gov-repo and pms.issue, a code repo vcs.code-repo |
 
 **Flags**
@@ -461,7 +461,7 @@ gov check install
 gov check install --repo ~/.gov/acme/projects/PRJ-7/billing
 ```
 
-**Changes.** `run` changes nothing in the repository. On a failed check of an event that already happened (a push, an issue closed) it opens a `gov-violation` issue for the Policy Owner and runs the catalog's undo, if one is declared; on a gate it may request reviews from section owners. `install` writes the workflow file into the working tree and stops — it never commits, pushes, or changes repository settings; under hard posture it prints the settings to apply
+**Changes.** `run` changes nothing in the repository, save the proposer below. On a failed check of an event that already happened (a push, an issue closed) it opens a `gov-violation` issue for the Policy Owner and runs the catalog's undo, if one is declared; on a gate it may request reviews from section owners. On a policy pull request whose rule rows are stale, `gov-builtin/rules-propose` reads the changed sections with the organization's model (only when `models.ci_allowed` is true on the default branch), asks its questions as review comments, and commits the settled rows, version, snapshot and changelog to the pull request's branch as the gov bot — a commit that is never an approval. `install` writes the workflow file into the working tree and stops — it never commits, pushes, or changes repository settings; under hard posture it prints the settings to apply
 
 **Exit codes**
 
@@ -511,10 +511,10 @@ gov app check
 
 ### gov rules
 
-render the rule stores into what agents read, and report on the rules
+propose rules from your policy prose, render the rule stores into what agents read, and report on them
 
 ```text
-gov rules <build|check|report|reload> [--working-tree] | show <id>
+gov rules <build|check|report|reload> [--working-tree] | show <id> | propose [--all] [--pr <n>]
 ```
 
 **Where.** GOVERNED
@@ -523,7 +523,7 @@ gov rules <build|check|report|reload> [--working-tree] | show <id>
 
 | argument | what it is |
 | --- | --- |
-| `<mode>` | build (write) · check (verify, write nothing; fails on a stale file or a stale rule row) · report (the numbers only) · reload (attest that you restarted your session, after the rules changed) · show (print one rule) |
+| `<mode>` | build (write) · check (verify, write nothing; fails on a stale file or a stale rule row) · report (the numbers only) · reload (attest that you restarted your session, after the rules changed) · show (print one rule) · propose (read each changed policy section with your organization's approved model and propose its rules, asking you only where your intent is unclear) |
 | `<id>` | a GOV id (GOV-FRM-012), or a retired POL number, which resolves to the rule that carries it now or to why none does |
 
 **Flags**
@@ -531,24 +531,28 @@ gov rules <build|check|report|reload> [--working-tree] | show <id>
 | flag | what it does |
 | --- | --- |
 | `--working-tree` | read the rule stores from disk instead of the ratified branch — for drafting; an agent is still governed by the default branch |
+| `--all` | propose: also read sections that have no rules yet, though unchanged — the first extraction of a seeded policy |
+| `--pr <n>` | propose: the pull request the change goes in (default: the one open for this branch). Without one, the rows' stamps and the CHANGELOG entry wait for it |
 
 **Examples**
 
 ```bash
 gov rules report
 gov rules build
+gov rules propose
+gov rules propose --all --pr 12
 gov rules reload
 gov rules show POL-086b
 ```
 
-**Changes.** `build` renders `framework/rules/rules.yaml` and `policies/rules.yaml` into the nine agent instruction files (the resident tier in Part A) and `agent/harness/rule-map.md`; policy prose is never touched. `check` writes nothing and fails when a generated file is stale, or when a rule row is pending re-review because its source section changed since it was approved (`gov rules propose` re-reads it). `report` and `show` write nothing at all. A rule-store error, or a resident tier over its cap, STOPS the build — nothing is written and the reason is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had
+**Changes.** `build` renders `framework/rules/rules.yaml` and `policies/rules.yaml` into the nine agent instruction files (the resident tier in Part A) and `agent/harness/rule-map.md`; policy prose is never touched. `check` writes nothing and fails when a generated file is stale, or when a rule row is pending re-review because its source section changed since it was approved (`gov rules propose` re-reads it). `report` and `show` write nothing at all. A rule-store error, or a resident tier over its cap, STOPS the build — nothing is written and the reason is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had. `propose` runs on the branch you are editing: it sends each changed section to the model your organization approved in `policies/governance.yaml` (on the default branch) — no approved model, no run — asks you at the terminal only where the intent is unclear, and writes `policies/rules.yaml`, `policies/ownership.yaml`, `policies/VERSION`, the frozen snapshot `policies/version/<previous>/`, the rows' stamps and the `policies/CHANGELOG.md` entry. gov issues every new id; the model never does. Each step skips when already done, so running it again writes nothing new. An unanswered question stops it with nothing written. It never commits; on a policy pull request the same proposer runs as a check when the rows are stale and the organization allows a model in CI
 
 **Exit codes**
 
 | code | means |
 | --- | --- |
 | `0` | done |
-| `1` | a rule-store error, a resident tier over its cap, a stale file, or a stale rule row |
+| `1` | a rule-store error, a resident tier over its cap, a stale file, or a stale rule row; propose: a question left unanswered, no approved model, or sections that did not settle — nothing was written |
 | `2` | usage |
 
 **See also.** [gov knowledge](#gov-knowledge) · [gov doctor](#gov-doctor) · [gov validate](#gov-validate)

@@ -597,3 +597,19 @@
       on_miss: fail
   start: { version: "1.2.3", date: "2026-10-06" }
   end: null
+
+# P3 wave 2 (P1 "Propose trigger"): the proposer, run on a policy pull request
+- id: GOV-FRM-468
+  source: { doc: framework/docs/specs/framework-specification.md, section: "9.3", sha: "5f1eac7" }
+  expectation: "gov proposes rules on a policy pull request only when its rows are out of date and only with a model the organization allowed in CI, issues every new id itself, and never counts its own commit as an approval."
+  actor: [gov-client]
+  level: C01
+  checks:   # one implementation, two triggers: `gov rules propose` by hand, this action on the pull request
+    - on: { resource: vcs.gov-repo, event: pull_request }
+      action: gov-builtin/rules-propose
+      on_miss: fail
+    - on: { resource: vcs.framework-repo, event: pull_request }
+      action: gov-builtin/test-suite
+      on_miss: fail
+  start: { version: "1.2.3", date: "2026-10-06" }
+  end: null

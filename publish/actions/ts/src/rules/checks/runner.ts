@@ -39,6 +39,8 @@ export interface CheckRunnerDeps {
    * date. Built by `gov check run` for the gov repo's pull_request; absent → that action is `cannot-tell`.
    */
   readonly policyPr?: PolicyPrInput;
+  /** `gov-builtin/rules-propose`: the proposer's outcome on this pull request, run by the CLI beforehand. */
+  readonly propose?: BuiltinOutcome;
 }
 
 type Outcome = "pass" | "fail" | "cannot-tell";
@@ -84,7 +86,7 @@ export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner & { run(id
 
         let out: BuiltinOutcome;
         if (action.tool === "gov-builtin") {
-          out = runBuiltin({ ruleId: id, action: b.action, params: b.with ?? {}, ctx, readDefault: deps.readDefault, rules, ...(deps.policyPr ? { policyPr: deps.policyPr } : {}) });
+          out = runBuiltin({ ruleId: id, action: b.action, params: b.with ?? {}, ctx, readDefault: deps.readDefault, rules, ...(deps.policyPr ? { policyPr: deps.policyPr } : {}), ...(deps.propose ? { propose: deps.propose } : {}) });
         } else if (!deps.github) {
           fold("cannot-tell", [`${tag}: GitHub is not reachable from here, so nothing was checked.`]);
           continue;

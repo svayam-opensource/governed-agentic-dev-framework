@@ -13,7 +13,7 @@
  *   check_owner            { github } — the second; vacant escalates to the Policy Owner (GOV-FRM-033)
  *   authorized_agents      which agents the org authorizes (config/approved-agents.ts reads the block)
  *   knowledge_publication  none | site | site+pdf | site+pdf+rag
- *   models                 which model the org approves for `gov rules propose` (framework §9.7)
+ *   models                 which model the org approves for `gov rules propose` (framework §9.3)
  *
  * SEED-ONCE. The framework ships it empty, `gov setup` fills it, and from then on it is the organization's: `gov
  * upgrade` never writes it again, except the one recorded `org-config-split` migration that carries an older org's
@@ -149,7 +149,7 @@ function defaultRead(abs: string): string | null {
 }
 
 /**
- * THE MODEL SETTINGS `gov rules propose` READS (framework §9.7). `provider` is null when no model is approved — an
+ * THE MODEL SETTINGS `gov rules propose` READS (framework §9.3). `provider` is null when no model is approved — an
  * empty provider, or one gov cannot call. `ciAllowed` is true only when the file says exactly `true`.
  */
 export function modelSettings(g: GovernanceConfig): { provider: ModelProvider | null; model: string; command: string; ciAllowed: boolean } {
@@ -227,7 +227,7 @@ authorized_agents:
 # See policies/knowledge-publication.md.
 knowledge_publication: "${v.knowledgePublication}"
 
-# WHICH MODEL THE ORGANIZATION APPROVES FOR \`gov rules propose\` (framework specification §9.7).
+# WHICH MODEL THE ORGANIZATION APPROVES FOR \`gov rules propose\` (framework specification §9.3).
 #   propose.provider   anthropic · command — empty means no model is approved, and propose asks you instead.
 #   propose.model      the model id, for the anthropic provider.
 #   command            provider=command: a CLI that reads the request on stdin and writes the reply on stdout.

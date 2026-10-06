@@ -734,7 +734,10 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         return showRule((rel) => ctx.fs.readFile(path.join(ctx.home, rel)), positionals[1]);
       }
 
-      if (!["build", "check", "report"].includes(mode)) return usage("rules <build|check|report|reload|show> [--working-tree]");
+      // `gov rules propose` asks questions and waits on a model, so bin.ts routes it (main.ts runRulesPropose);
+      // reaching it here means a caller without a terminal — say where it runs rather than "unknown".
+      if (mode === "propose") return { code: 2, lines: ["gov rules propose asks its questions at a terminal: run it as `gov rules propose [--all] [--pr <n>]`."] };
+      if (!["build", "check", "report"].includes(mode)) return usage("rules <build|check|report|reload|show|propose> [--working-tree]");
       const r = rules(
         { fs: ctx.fs, ...(ctx.git ? { git: ctx.git } : {}) },
         {

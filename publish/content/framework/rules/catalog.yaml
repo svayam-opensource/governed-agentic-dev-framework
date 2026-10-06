@@ -143,7 +143,12 @@ actions:
       type: object
       additionalProperties: false
       properties: {}
-  # The proposer (W4) as an action, bound to `vcs.gov-repo · pull_request`. Stub: not runnable in this slice.
+  # The proposer (W4) as an action, bound to `vcs.gov-repo · pull_request` (GOV-FRM-468). When the policy PR gate
+  # finds rows stale and policies/governance.yaml (default branch) sets `models.ci_allowed: true`, it runs
+  # `gov rules propose` once per section sha, asks its questions as review comments (the PR stays blocked until
+  # each is answered), and commits the result to the PR branch as the gov bot — never an approval. Not allowed in
+  # CI → it fails with "run gov rules propose locally". Rows fresh → it only writes a missing version, snapshot,
+  # stamp or changelog entry. The workflow job needs `contents: write` and `pull-requests: write`.
   - id: gov-builtin/rules-propose
     tool: gov-builtin
     params:

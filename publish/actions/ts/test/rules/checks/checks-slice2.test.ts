@@ -486,3 +486,18 @@ ${steps("GOV-FRM-086", "vcs.gov-repo", "pull_request", true)}  GOV-FRM-466_push:
       contents: read
       issues: write
 ${steps("GOV-FRM-466", "vcs.gov-repo", "push", true)}`;
+
+// Policy Owner, 2026-10-06 (option B): the App stays read-only; the propose job alone writes, with the built-in token.
+describe("the propose job's permissions", () => {
+  it("only the rules-propose job gets contents: write and pull-requests: write; every other job reads", () => {
+    const [f] = renderWorkflow([
+      { id: "GOV-FRM-468", check: { on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/rules-propose", on_miss: "fail" } },
+      { id: "GOV-FRM-455", check: { on: { resource: "vcs.gov-repo", event: "push" }, action: "gov-builtin/forbid-forced-push", on_miss: "fail" } },
+    ]);
+    const jobs = f!.text.split(/\n {2}(?=\S)/);
+    const propose = jobs.find((j) => j.includes("GOV-FRM-468"))!;
+    expect(propose).to.contain("contents: write").and.contain("pull-requests: write");
+    for (const j of jobs.filter((x) => !x.includes("GOV-FRM-468"))) expect(j).to.not.contain("contents: write");
+  });
+});
+

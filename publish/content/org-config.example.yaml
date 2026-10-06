@@ -54,12 +54,6 @@ services:
   jenkins: ""
   npm: ""
   docker: ""
-  # The org's GitHub App — how a code repo's checks read the governance repo (a short-lived read-only token per
-  # run). Written by `gov app setup`: the App's PUBLIC identity only. Its private key is an org Actions secret
-  # (GOV_APP_PRIVATE_KEY) and is never written here or anywhere else on disk.
-  github_app:
-    client_id: ""        # the App's client id (also the GOV_APP_CLIENT_ID org secret)
-    slug: ""             # the App's slug — https://github.com/apps/<slug>
 
 # ── Session policy. NOT a service endpoint: the block above lists URLs of things we talk to, this is a
 #    number the identity provider is told to honour.
