@@ -144,8 +144,9 @@ export interface CheckVerdict {
  *
  *   --gov-home  The governance repository's working tree, whose DEFAULT branch the rules are read from. Default:
  *               the current directory. A code repo's workflow checks the gov repo out beside its own and passes it.
- *   --repo-dir  The repository the event happened in, whose changeset is read — relative to `--gov-home`.
- *               Default: the governance repository itself.
+ *   --repo-dir  The repository the event happened in, whose changeset (and, on the gov repo's pull_request, the
+ *               policy PR gate's trees) is read. Resolved against the directory the job runs in, NOT against
+ *               `--gov-home`: a code repo's job passes `--gov-home .gov --repo-dir .`. Default: `--gov-home`.
  */
 export interface CheckRunner {
   run(id: string, ctx: EventContext): CheckVerdict;

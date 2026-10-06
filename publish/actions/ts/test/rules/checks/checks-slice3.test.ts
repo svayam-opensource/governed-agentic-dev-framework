@@ -11,7 +11,7 @@ import { buildPayload, approvalsFrom, type PayloadReaders } from "../../../src/r
 import { githubViolationPorts, requestReviews, type Gh } from "../../../src/rules/checks/github-adapters.js";
 import { githubPullsForCommit } from "../../../src/rules/checks/gh-actions.js";
 import { loadCheckRuleSet, defaultRef } from "../../../src/rules/checks/ruleset-io.js";
-import { checkCommand, type CheckVerbDeps, type CheckVerbConfig } from "../../../src/cli/check-verb.js";
+import { checkCommand, policyPrFromEvent, type CheckVerbDeps, type CheckVerbConfig } from "../../../src/cli/check-verb.js";
 import type { ViolationIssue } from "../../../src/rules/checks/violation.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -314,6 +314,65 @@ describe("gov check run", () => {
     const r = run(ARGS, deps({ git: () => null }), CFG("hard"));
     expect(r.code).to.equal(1);
     expect(r.lines.join("\n")).to.contain("the rules could not be read");
+  });
+
+  describe("the policy PR inputs (GOV-FRM-467's gate) for the gov repo's pull_request", () => {
+    // Two trees: the merge-base (MB) and the PR head (HEAD), each a whole repository.
+    const AT_MB = govRepo({ "policies/VERSION": "1.4.0\n" });
+    const AT_HEAD = { ...AT_MB, "README.md": "touched outside policies/\n" };
+    const byRef: Record<string, Record<string, string>> = { [MB]: AT_MB, [HEAD]: AT_HEAD, "origin/main": AT_MB };
+    const prGit2 = (calls: string[][] = []) => (repo: string, args: readonly string[]): string | null => {
+      calls.push([repo, ...args]);
+      const k = args.join(" ");
+      if (k === `merge-base ${BASE} ${HEAD}`) return `${MB}\n`;
+      if (k === `show -s --format=%cs ${HEAD}`) return "2026-09-30\n";
+      if (args[0] === "diff" && args[1] === "--name-status") return "M\tREADME.md";
+      if (args[0] === "diff") return "+touched outside policies/";
+      if (args[0] === "rev-parse") return args.includes("origin/main") ? "abc" : null;
+      if (args[0] === "ls-tree") {
+        const ref = args.find((a) => a in byRef);
+        if (!ref) return null;
+        const want = args.slice(args.indexOf("--") + 1);
+        return Object.keys(byRef[ref]!).filter((f) => want.some((p) => f === p || f.startsWith(`${p}/`))).join("\n");
+      }
+      if (args[0] === "show" && args[1]?.includes(":")) {
+        const [ref, file] = [args[1].slice(0, args[1].indexOf(":")), args[1].slice(args[1].indexOf(":") + 1)];
+        return byRef[ref]?.[file] ?? null;
+      }
+      return null;
+    };
+
+    it("trees at the merge-base and the head, the PR number from the event, the date of the HEAD COMMIT", () => {
+      const calls: string[][] = [];
+      const p = policyPrFromEvent((r, a) => prGit2(calls)(r, a), "/gov", "pull_request", PR_EVENT)!;
+      expect(p).to.not.equal(null);
+      expect(p.pr).to.equal(42);
+      expect(p.today, "deterministic: the head commit's committer date, never the run's").to.equal("2026-09-30");
+      expect(p.base.read("policies/VERSION")).to.equal("1.4.0\n");
+      expect(p.head.read("README.md")).to.equal("touched outside policies/\n");
+      expect(p.base.read("README.md")).to.equal(null);
+      expect(calls.every((c) => c[0] === "/gov")).to.equal(true);
+    });
+
+    it("not a pull_request, or no shas, or no commit date → no inputs (the gate then says cannot-tell)", () => {
+      expect(policyPrFromEvent(prGit2(), "/gov", "push", PUSH_EVENT)).to.equal(null);
+      expect(policyPrFromEvent(prGit2(), "/gov", "pull_request", { ...PR_EVENT, pull_request: { ...PR_EVENT.pull_request, head: {} } })).to.equal(null);
+      expect(policyPrFromEvent(() => null, "/gov", "pull_request", PR_EVENT)).to.equal(null);
+    });
+
+    it("end to end: a gov-repo PR that leaves policies/ alone PASSES GOV-FRM-467 under hard posture", () => {
+      const r = run(["run", "GOV-FRM-467", "--resource", "vcs.gov-repo", "--event", "pull_request"],
+        deps({ git: prGit2(), gh: () => "[]", event: PR_EVENT, env: { GITHUB_EVENT_NAME: "pull_request" } }), CFG("hard"));
+      expect(r.code, r.lines.join("\n")).to.equal(0);
+      expect(r.lines.join("\n")).to.contain("GOV-FRM-467 passed");
+    });
+  });
+
+  it("--repo-dir is the directory the job runs in, not a path under --gov-home", () => {
+    const repos = new Set<string>();
+    const git = (repo: string, args: readonly string[]) => { repos.add(repo); return fakeGit(govRepo())(repo, args); };
+    run(["run", "GOV-FRM-040", "--resource", "vcs.code-repo", "--event", "push", "--repo-dir", "."], deps({ git, event: PUSH_EVENT, env: { GITHUB_EVENT_NAME: "push" } }), { ...CFG(), home: "/work/billing/.gov" });
+    expect([...repos].sort()).to.deep.equal([process.cwd(), "/work/billing/.gov"].sort());
   });
 
   it("an OBSERVE fail opens a violation record and exits 0 — the push already happened", () => {

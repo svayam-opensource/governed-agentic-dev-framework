@@ -16,6 +16,8 @@ import { parseRuleStore, type RuleRow } from "../../../src/rules/model/rule-row.
 import { applyVerdicts } from "../../../src/rules/model/revise.js";
 import { createIdIssuer } from "../../../src/rules/model/store-io.js";
 import { runBuiltin } from "../../../src/rules/checks/builtin.js";
+import { createCheckRunner } from "../../../src/rules/checks/runner.js";
+import type { RuleSet } from "../../../src/rules/model/contracts.js";
 
 const DOC = "policies/org-policy.md";
 const TODAY = "2026-10-06";
@@ -531,5 +533,26 @@ describe("gov-builtin/policy-pr-gate — the dispatch", () => {
     expect(g("", ["ls-tree", "-r", "--name-only", "HEAD", "--", "a", "c.md"])).to.equal("a/b.md\nc.md");
     expect(g("", ["show", "HEAD:a/b.md"])).to.equal("x");
     expect(g("", ["rev-parse"])).to.equal(null);
+  });
+});
+
+describe("gov-builtin/policy-pr-gate — through the check runner", () => {
+  const rule: RuleRow = {
+    id: "GOV-FRM-467", source: { doc: "framework/docs/specs/framework-specification.md", section: "9.2", sha: "x" },
+    expectation: "A change to the organization's policy carries its rules, version, snapshot and changelog.", actor: ["gov-client"], level: "C01",
+    checks: [{ on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/policy-pr-gate", on_miss: "fail" }],
+    start: { version: "1.2.3", date: "2026-10-06" }, end: null,
+  };
+  const rules: RuleSet = {
+    framework: [rule], org: [], orgScope: "SVM", orgVersion: "1.4.0",
+    catalog: { resources: [{ id: "vcs.gov-repo", renderer: "github-actions", events: [{ name: "pull_request", mode: "gate" }] }], tools: [{ id: "gov-builtin" }], actions: [{ id: "gov-builtin/policy-pr-gate", tool: "gov-builtin" }] },
+  };
+  const ctx = { resource: "vcs.gov-repo", event: "pull_request", payload: {} };
+
+  it("the runner hands its policyPr to the action: given → judged; absent → cannot-tell", () => {
+    const { base, head } = goodPr();
+    expect(createCheckRunner({ rules, readDefault: () => null, policyPr: { base, head, pr: PR, today: TODAY } }).run("GOV-FRM-467", ctx).verdict).to.equal("pass");
+    expect(createCheckRunner({ rules, readDefault: () => null, policyPr: { base, head, pr: PR, today: "2026-10-07" } }).run("GOV-FRM-467", ctx).verdict).to.equal("fail");
+    expect(createCheckRunner({ rules, readDefault: () => null }).run("GOV-FRM-467", ctx).verdict).to.equal("cannot-tell");
   });
 });

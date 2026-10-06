@@ -21,6 +21,7 @@ import type { ReadDoc } from "../diff-check.js";
 import { runBuiltin, type BuiltinOutcome } from "./builtin.js";
 import { landedByPr, type GithubPorts } from "./gh-actions.js";
 import { validateParams } from "./params.js";
+import type { PolicyPrInput } from "../policy-pr/gate.js";
 
 /** A verdict, plus the reviews a gate asks the workflow to request (section-owner-approval). */
 /** Kept as an alias: requestReview is now on CheckVerdict itself (pinned 2026-10-06). */
@@ -33,6 +34,11 @@ export interface CheckRunnerDeps {
   readonly readDefault: ReadDoc;
   /** GitHub, for `gh-action/*` actions. Absent → those actions are `cannot-tell`. */
   readonly github?: GithubPorts;
+  /**
+   * `gov-builtin/policy-pr-gate` (W5): the gov repo's trees at the pull request's base and head, its number and its
+   * date. Built by `gov check run` for the gov repo's pull_request; absent → that action is `cannot-tell`.
+   */
+  readonly policyPr?: PolicyPrInput;
 }
 
 type Outcome = "pass" | "fail" | "cannot-tell";
@@ -78,7 +84,7 @@ export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner & { run(id
 
         let out: BuiltinOutcome;
         if (action.tool === "gov-builtin") {
-          out = runBuiltin({ ruleId: id, action: b.action, params: b.with ?? {}, ctx, readDefault: deps.readDefault, rules });
+          out = runBuiltin({ ruleId: id, action: b.action, params: b.with ?? {}, ctx, readDefault: deps.readDefault, rules, ...(deps.policyPr ? { policyPr: deps.policyPr } : {}) });
         } else if (!deps.github) {
           fold("cannot-tell", [`${tag}: GitHub is not reachable from here, so nothing was checked.`]);
           continue;

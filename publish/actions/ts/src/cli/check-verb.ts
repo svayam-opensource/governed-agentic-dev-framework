@@ -7,7 +7,8 @@
  *       The one entry point every rendered binding calls. Rules come from the DEFAULT branch of the governance
  *       repository (`--gov-home`); the event from the GitHub Actions environment (`GITHUB_EVENT_PATH`,
  *       `GITHUB_EVENT_NAME`, `GITHUB_REPOSITORY`); the changeset from the checked-out repository (`--repo-dir`,
- *       default the governance repository itself).
+ *       resolved against the directory the job runs in; default the governance repository itself). On a
+ *       pull_request, the policy PR gate's inputs too ({@link policyPrFromEvent}).
  *
  *       EXIT CODES — what each verdict can still do:
  *         pass                     0
@@ -38,6 +39,8 @@ import { recordViolation } from "../rules/checks/violation.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
 import { githubActionsRenderer, GOV_APP_SECRETS } from "../rules/checks/render-github.js";
 import { humanGateMessage } from "../rules/cues/human-message.js";
+import { gitTree } from "../rules/policy-pr/tree.js";
+import type { PolicyPrInput } from "../rules/policy-pr/gate.js";
 
 export interface CheckVerbDeps {
   readonly git: GitRead;
@@ -75,7 +78,10 @@ function checkRun(id: string | undefined, flags: Readonly<Record<string, string 
   const resource = flagStr(flags, "resource");
   const eventFlag = flagStr(flags, "event");
   if (!id || !resource || !eventFlag) return usage(RUN_USAGE);
-  const repoDir = path.resolve(cfg.home, flagStr(flags, "repo-dir") ?? ".");
+  // Against the directory the job runs in — the rendered code-repo job passes `--gov-home .gov --repo-dir .`, and
+  // `.` there is the code repository, not the governance repository checked out inside it.
+  const repoDirFlag = flagStr(flags, "repo-dir");
+  const repoDir = repoDirFlag === undefined ? path.resolve(cfg.home) : path.resolve(repoDirFlag);
   const hard = cfg.posture === "hard";
   const lines: string[] = [];
 
@@ -117,9 +123,11 @@ function checkRun(id: string | undefined, flags: Readonly<Record<string, string 
   }
   const ctx: EventContext = { resource, event: eventFlag, payload: built.payload };
 
+  const policyPr = policyPrFromEvent(deps.git, repoDir, deps.env.GITHUB_EVENT_NAME ?? "", eventJson);
   const runner = createCheckRunner({
     rules,
     readDefault: (p) => deps.git(cfg.home, ["show", `${ref}:${p}`]),
+    ...(policyPr ? { policyPr } : {}),
     ...(repository ? { github: { pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository) } } : {}),
   });
   const verdict = runner.run(id, ctx);
@@ -147,6 +155,25 @@ function checkRun(id: string | undefined, flags: Readonly<Record<string, string 
     return { code: 0, lines: [...lines, ...say(), ...out.lines, `${id}: the event had already happened, so this does not block (exit 0) — the record is the response.`] };
   }
   return { code: 1, lines: [...lines, ...say(), `${id}: refused (exit 1).`] };
+}
+
+/**
+ * The policy PR gate's inputs (GOV-FRM-467, W5) for a pull request in `repo`: the tree at the MERGE-BASE (what the
+ * pull request changes, as the changeset in event-payload.ts reads it — not what the base branch moved on to since)
+ * and at the head, the PR number from the event, and the HEAD COMMIT's committer date as "today" — deterministic,
+ * so a re-run judges the same inputs the same way, never by the day it happened to run. Null when this is not a pull
+ * request or any of those cannot be established; the gate then reports `cannot-tell`, never a pass.
+ */
+export function policyPrFromEvent(git: GitRead, repo: string, eventName: string, event: unknown): PolicyPrInput | null {
+  if (eventName !== "pull_request" && eventName !== "pull_request_target") return null;
+  const o = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
+  const pr = o(o(event).pull_request);
+  const base = o(pr.base).sha, head = o(pr.head).sha, number = pr.number;
+  if (typeof base !== "string" || typeof head !== "string" || !base || !head || typeof number !== "number") return null;
+  const mb = git(repo, ["merge-base", base, head])?.trim();
+  const today = git(repo, ["show", "-s", "--format=%cs", head])?.trim();
+  if (!mb || !today || !/^\d{4}-\d{2}-\d{2}$/.test(today)) return null;
+  return { base: gitTree(git, repo, mb), head: gitTree(git, repo, head), pr: number, today };
 }
 
 /**
