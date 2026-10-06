@@ -76,7 +76,15 @@
   actor: [everyone]
   level: C01
   cue: { tier: resident, text: "YOU DO NOT APPROVE YOUR OWN WORK, and nothing merges without a review. Every change lands by a pull request someone authorized approves; land task branches with gov merge." }
-  # TODO(W6): vcs.gov-repo + vcs.code-repo · push → gh-action/landed-by-pr (each pushed commit belongs to a merged PR; violation record to the Policy Owner; no undo) — W2-Q3. Bind it once the action is in the catalog.
+  checks:   # W2-Q3: a raw push to the default branch is caught; no undo (reverting main could destroy pulled work)
+    - on: { resource: vcs.gov-repo, event: push }
+      action: gh-action/landed-by-pr
+      with: { branches: ["$default"] }
+      on_miss: fail
+    - on: { resource: vcs.code-repo, event: push }
+      action: gh-action/landed-by-pr
+      with: { branches: ["$default"] }
+      on_miss: fail
   start: { version: "1.2.3", date: "2026-10-06" }
   end: null
 
@@ -485,7 +493,10 @@
   expectation: "The owner of every changed policy section approves a policy pull request before it merges; the Policy Owner approves unowned sections and ownership changes, and the Check Owner approves executable actions."
   actor: [human]
   level: C01
-  # TODO(W6): vcs.gov-repo · pull_request → the section-ownership approval action (changed sections by sha → request and require each owner's review) — W2-Q8. Bind it once the action is in the catalog.
+  checks:   # W2-Q8: each changed section's owner approves; ownership changes and unowned sections → Policy Owner
+    - on: { resource: vcs.gov-repo, event: pull_request }
+      action: gov-builtin/section-owner-approval
+      on_miss: fail
   start: { version: "1.2.3", date: "2026-10-06" }
   end: null
 
@@ -580,6 +591,14 @@
   actor: [gov-client, everyone]
   level: C01
   cue: { tier: resident, text: "NEVER FORCE-PUSH a branch other people work on." }
-  # TODO(W6): vcs.gov-repo + vcs.code-repo · push(forced, BRNCH-*) → gov-builtin/forbid-forced-push (violation record); hard posture also blocks force pushes on BRNCH-* — W2-Q10. Bind it once the action is in the catalog.
+  checks:   # W2-Q10: binds gov, agents and people alike; hard posture also blocks force pushes on BRNCH-*
+    - on: { resource: vcs.gov-repo, event: push }
+      action: gov-builtin/forbid-forced-push
+      with: { branches: ["BRNCH-*"] }
+      on_miss: fail
+    - on: { resource: vcs.code-repo, event: push }
+      action: gov-builtin/forbid-forced-push
+      with: { branches: ["BRNCH-*"] }
+      on_miss: fail
   start: { version: "1.2.3", date: "2026-10-06" }
   end: null
