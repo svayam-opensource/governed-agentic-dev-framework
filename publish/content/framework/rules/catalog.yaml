@@ -1,0 +1,152 @@
+# THE FRAMEWORK CATALOG — resources and their events, tools, actions (rule-model-design.md Q13–Q15, Q22).
+#
+# Written only by `gov upgrade`. An organization ADDS entries in its own `policies/catalog.yaml`; an id defined
+# in both is this file's (mergeCatalogs). A rule row binds a check to a RESOURCE · EVENT and names an ACTION from
+# here — never anything else.
+#
+# Every event is a GATE (it can refuse: a pull request's required check, a gov verb) or an OBSERVE (it already
+# happened). A failing check on a gate prevents; on an observe it detects, and — where `undo` is declared — the
+# catalog says how to reverse it.
+#
+# A resource with no `renderer` has nothing that can listen to it yet: a rule bound only there is `cannot-tell`.
+
+resources:
+  # ── version control ───────────────────────────────────────────────────────────────────────────────────────
+  - id: vcs.gov-repo
+    renderer: github-actions
+    events:
+      - { name: pull_request, mode: gate }
+      - { name: push, mode: observe }
+  - id: vcs.code-repo
+    renderer: github-actions
+    events:
+      - { name: pull_request, mode: gate }
+      - { name: push, mode: observe }
+  - id: vcs.framework-repo
+    renderer: github-actions
+    events:
+      - { name: pull_request, mode: gate }
+      - { name: push, mode: observe }
+
+  # ── project management ────────────────────────────────────────────────────────────────────────────────────
+  # Issues: GitHub Actions' `issues` trigger carries opened · closed · edited, so these render into a workflow.
+  # Every one is an OBSERVE: the issue has already changed by the time a workflow runs.
+  - id: pms.issue
+    renderer: github-actions
+    events:
+      - { name: opened, mode: observe }
+      - { name: closed, mode: observe, undo: reopen }
+      - { name: edited, mode: observe }
+  # Projects (v2) boards: NO RENDERER, deliberately. GitHub Actions has no workflow trigger for Projects v2
+  # activity — `projects_v2_item` is delivered only as an organization webhook or to a GitHub App, never to a
+  # workflow's `on:` (the classic `project_card` trigger covers only the retired classic projects). Nothing gov
+  # renders can listen here, so a rule bound only to this resource is `cannot-tell`, never `detected`.
+  - id: pms.project
+    events:
+      - { name: item_moved, mode: observe }
+
+  # ── gov's own verbs ───────────────────────────────────────────────────────────────────────────────────────
+  # One event per gateable verb (cue-block.ts GATEABLE_VERBS). gov runs the check in-process before acting, so
+  # every one is a GATE.
+  - id: gov.verb
+    renderer: gov-verb
+    events:
+      - { name: close, mode: gate }
+      - { name: merge, mode: gate }
+      - { name: task, mode: gate }
+      - { name: seed, mode: gate }
+      - { name: knowledge, mode: gate }
+
+tools:
+  - id: gov-builtin
+  - id: bash
+  - id: python
+  - id: gh-action
+  # An `llm` judge never blocks: bind it to an observe event only (Q22).
+  - id: llm
+
+# The seven predicates of the old `gov:check`, now actions. `when` narrows which changed files trigger the check
+# (default: every file); the rest are each predicate's own parameters. A string list may be written as a YAML
+# list or as one comma-separated string.
+actions:
+  - id: gov-builtin/naming
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      required: [pattern]
+      properties:
+        when: { type: [array, string] }
+        pattern: { type: string }
+        subject: { type: string, enum: [path, branch, project_id] }
+  - id: gov-builtin/path-scope
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      required: [writable]
+      properties:
+        when: { type: [array, string] }
+        writable: { type: [array, string] }
+  - id: gov-builtin/list-membership
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      required: [list]
+      properties:
+        when: { type: [array, string] }
+        list: { type: string }
+  - id: gov-builtin/content-forbidden
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      required: [pattern]
+      properties:
+        when: { type: [array, string] }
+        pattern: { type: string }
+  - id: gov-builtin/content-required
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      properties:
+        when: { type: [array, string] }
+        pattern: { type: string }
+        within_lines: { type: [number, string] }
+        file: { type: string }
+        sections: { type: [array, string] }
+  - id: gov-builtin/file-required
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      required: [require]
+      properties:
+        when: { type: [array, string] }
+        require: { type: [array, string] }
+  - id: gov-builtin/frontmatter-required
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      required: [keys]
+      properties:
+        when: { type: [array, string] }
+        keys: { type: [array, string] }
+        paths: { type: [array, string] }
+  # A spec rule's check: the test suite carries a test titled with the rule's GOV id, and it passed.
+  - id: gov-builtin/test-suite
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      properties: {}
+  # The proposer (W4) as an action, bound to `vcs.gov-repo · pull_request`. Stub: not runnable in this slice.
+  - id: gov-builtin/rules-propose
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      properties: {}
