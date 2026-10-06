@@ -17,6 +17,21 @@ import type { Catalog, CheckBinding } from "./catalog.js";
 import type { ChangedFile } from "../diff-check.js";
 import type { WorkspaceView } from "../verb-gate.js";
 
+/**
+ * Who approves a change to one SECTION of a policy (Policy Owner, W2-Q8, 2026-10-06). Written by the Policy Owner in
+ * plain English in the policy itself ("Section 4 is owned by the Data Owner"), extracted by propose into
+ * `policies/ownership.yaml`. Not a rule row: it routes approval, it binds no actor.
+ *
+ * A changed section with no row here falls back to the Policy Owner; a change to this file itself always needs the
+ * Policy Owner, so nobody can hand a section to themselves.
+ */
+export interface SectionOwnership {
+  readonly doc: string;
+  readonly section: string;
+  /** A role name from the org's role list (`policies/authorized-representatives.md`), e.g. "Data Owner". */
+  readonly role: string;
+}
+
 /** Both stores and the merged catalog, as the DEFAULT branch has them — never the branch under review. */
 export interface RuleSet {
   readonly framework: readonly RuleRow[];
@@ -26,6 +41,10 @@ export interface RuleSet {
   readonly catalog: Catalog;
   /** `policies/VERSION`. */
   readonly orgVersion: string;
+  /** `policies/ownership.yaml`. Absent or empty → every section is the Policy Owner's. */
+  readonly ownership?: readonly SectionOwnership[];
+  /** Role → GitHub handle, from the org's role list and org-config (Policy Owner, Check Owner always present). */
+  readonly roles?: Readonly<Record<string, string>>;
 }
 
 /** W1. Reads the stores at a git ref; `null` means it could not tell, which is never the same as "no rules". */
