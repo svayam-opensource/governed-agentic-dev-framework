@@ -114,7 +114,11 @@ export function validateRuleStore(rows: readonly RuleRow[], store: { readonly sc
     const d = (kind: RowDiagnosticKind, message: string) => out.push({ kind, id: String(r?.id ?? ""), index, message });
     const g = parseGovId(String(r?.id ?? ""));
     if (!g) { d("bad-id", `"${r?.id}" is not a GOV id (GOV-<scope>-NNN)`); return; }
-    if (g.scope !== store.scope) d("wrong-scope", `${r.id} does not belong in the ${store.scope} store`);
+    // The framework store holds only FRM. The org store holds any OTHER scope: an id is frozen when issued (Q7), so
+    // after the org renames its slug its older ids keep the old one. One org's rules are loaded at a time (`gov org`).
+    if (isOrg ? g.scope === FRAMEWORK_SCOPE : g.scope !== FRAMEWORK_SCOPE) {
+      d("wrong-scope", `${r.id} does not belong in the ${isOrg ? "organization's" : "framework's"} store`);
+    }
     if (!r.source || !r.source.doc || !r.source.section || !r.source.sha) d("bad-source", `${r.id}: source needs doc, section and sha`);
     if (typeof r.expectation !== "string" || r.expectation.trim() === "") d("bad-expectation", `${r.id}: the expectation is empty`);
     if (!LEVELS.includes(r.level)) d("bad-level", `${r.id}: level "${r.level}" is not C01, C02 or C03`);

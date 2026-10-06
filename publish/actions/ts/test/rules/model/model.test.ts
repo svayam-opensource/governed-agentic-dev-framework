@@ -65,6 +65,10 @@ describe("rule model — the store and its revision history", () => {
     expect(kinds([row()], { scope: FRAMEWORK_SCOPE })).to.include("wrong-scope");
   });
 
+  it("an org id issued under a FORMER slug stays valid after a rename — ids are frozen at issue (Q7)", () => {
+    expect(validateRuleStore([row({ id: "GOV-OLD-003" })], org)).to.deep.equal([]);
+  });
+
   it("a revision chain must hand over at one version: the old row ends where the new one starts", () => {
     const old = row({ end: { version: "1.4.0", date: "2026-10-06", pr: 87 }, start: { version: "1.2.0", date: "2026-08-01", pr: 40 } });
     expect(validateRuleStore([old, row()], org)).to.deep.equal([]);

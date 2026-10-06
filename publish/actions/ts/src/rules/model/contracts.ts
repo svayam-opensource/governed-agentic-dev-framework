@@ -14,6 +14,8 @@
  */
 import type { RuleRow } from "./rule-row.js";
 import type { Catalog, CheckBinding } from "./catalog.js";
+import type { ChangedFile } from "../diff-check.js";
+import type { WorkspaceView } from "../verb-gate.js";
 
 /** Both stores and the merged catalog, as the DEFAULT branch has them — never the branch under review. */
 export interface RuleSet {
@@ -48,11 +50,32 @@ export interface Proposer {
   propose(changedSections: readonly { doc: string; section: string; sha: string; text: string; rows: readonly RuleRow[] }[]): Promise<readonly SectionVerdict[]>;
 }
 
-/** W6. What one event looked like when it fired. Shape varies by resource; the runner reads only what its action needs. */
+/** One test's outcome, as a `test-suite` action reads it. */
+export interface TestResult {
+  readonly title: string;
+  readonly state: "passed" | "failed" | "pending";
+}
+
+/**
+ * What an event carried. Pinned after W6 (2026-10-06): each field belongs to one kind of event, and an action that
+ * finds none of the ones it needs reports `cannot-tell` — never a pass.
+ */
+export interface EventPayload {
+  /** A changeset (pull_request, push): the files, with the lines each ADDED. */
+  readonly changed?: readonly ChangedFile[];
+  /** The branch under review, for a naming check on it. */
+  readonly branch?: string;
+  /** A gov verb about to run: what the gate may look at (read-only by construction). */
+  readonly workspace?: WorkspaceView;
+  /** A test run, for `gov-builtin/test-suite`. */
+  readonly tests?: readonly TestResult[];
+}
+
+/** W6. What one event looked like when it fired. */
 export interface EventContext {
   readonly resource: string;
   readonly event: string;
-  readonly payload: Readonly<Record<string, unknown>>;
+  readonly payload: EventPayload;
 }
 
 export interface CheckVerdict {
@@ -61,13 +84,21 @@ export interface CheckVerdict {
   readonly findings: readonly string[];
 }
 
-/** W6. `gov check run <GOV-ID>` — the one entry point every rendered binding calls (Q14). */
+/**
+ * W6. `gov check run <GOV-ID> --resource <r> --event <e>` — the one entry point every rendered binding calls (Q14).
+ * `--resource` is needed because one repository hosts several resources (the gov repo is `vcs.gov-repo` and where
+ * `pms.issue` events fire).
+ */
 export interface CheckRunner {
   run(id: string, ctx: EventContext): CheckVerdict;
 }
 
-/** W6. Turns one resource's bindings into the files its native automation reads (a workflow, a Jenkins stage). */
+/**
+ * W6. Turns ONE REPOSITORY's bindings into the files its native automation reads (a workflow, a Jenkins stage).
+ * Per repository, not per resource (changed after W6, 2026-10-06): a repo hosts several resources and gets one file.
+ * The caller decides which bindings belong to which repository.
+ */
 export interface BindingRenderer {
   readonly renderer: string;
-  render(resource: string, bindings: readonly { readonly id: string; readonly check: CheckBinding }[]): readonly { readonly path: string; readonly text: string }[];
+  render(bindings: readonly { readonly id: string; readonly check: CheckBinding }[]): readonly { readonly path: string; readonly text: string }[];
 }

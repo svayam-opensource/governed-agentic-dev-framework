@@ -24,7 +24,7 @@
 import { CHECK_KINDS, type Check, type CheckKind, type GateableVerb } from "../cue-block.js";
 import { runDiffChecks, type ChangedFile, type ReadDoc } from "../diff-check.js";
 import { gateVerb, type GateResult, type WorkspaceView } from "../verb-gate.js";
-import type { EventContext } from "../model/contracts.js";
+import type { EventContext, TestResult } from "../model/contracts.js";
 
 /** The names after `gov-builtin/`. */
 export const BUILTIN_ACTIONS: readonly string[] = [...CHECK_KINDS, "test-suite", "rules-propose"];
@@ -49,10 +49,7 @@ export interface BuiltinOutcome {
 }
 
 /** One test result, as a test reporter gives it. */
-export interface TestResult {
-  readonly title: string;
-  readonly state: "passed" | "failed" | "pending";
-}
+export type { TestResult } from "../model/contracts.js";
 
 const cannot = (findings: string[]): BuiltinOutcome => ({ verdict: "cannot-tell", findings });
 
