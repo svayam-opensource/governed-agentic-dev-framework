@@ -14,7 +14,7 @@ Consulted, not read through. Use this when you know what you want and need the e
 
 ## The tool
 
-- [gov command reference](../docs/specs/gov-command-reference.md) — every verb, and who runs it
+- [gov command reference](../specs/gov-command-reference.md) — every verb, and who runs it
 - [The glossary](../specs/framework-specification.md#glossary) — the vocabulary
 
 ## The rules
@@ -22,15 +22,15 @@ Consulted, not read through. Use this when you know what you want and need the e
 - [How the framework works](../specs/framework-specification.md) — and `agent/harness/rule-map.md`, every rule by GOV id;
   `gov rules show <id>` prints one (a retired POL number resolves to the rule that carries it now)
 - [Working on a project](working-on-a-project.md) — and the other user guides beside it, for each thing you do
-- [Knowledge organization standard](../policies/knowledge-organization-standard.md)
+- [Knowledge organization standard](../../../policies/knowledge-organization-standard.md)
 
 ## Infrastructure
 
-- [CI/CD spec](org_gov_repo_operations.md)
-- [Knowledge publication spec](../../policies/knowledge-publication-spec.md)
-- [gov-validate workflow reference](../docs/specs/gov-validate.reference.yml) — the framework's
+- [CI/CD spec](../specs/org_gov_repo_operations.md)
+- [Knowledge publication spec](../../../policies/knowledge-publication.md)
+- [gov-validate workflow reference](../../templates/gov-validate.reference.yml) — the framework's
   current CI workflow, shipped to diff against your own
 
 ## Templates
 
-- [Guidance templates](../templates/) — todo, preferences, repo agent, compliance, project impact
+- [Guidance templates](../../templates/) — todo, preferences, repo agent, compliance, project impact

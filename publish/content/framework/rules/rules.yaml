@@ -419,7 +419,7 @@
 
 # W2-Q6
 - id: GOV-FRM-450
-  source: { doc: framework/docs/specs/framework-specification.md, section: "11.1", sha: "9e22868" }
+  source: { doc: framework/docs/specs/framework-specification.md, section: "11.1", sha: "0e2bdd3" }
   expectation: "gov setup records governance_posture as soft unless the Policy Owner confirms hard after being told that hard needs public repositories or a paid GitHub plan."
   actor: [gov-client]
   level: C01

@@ -12,7 +12,7 @@ any of it by hand.
 
 ## 9. Tool-specific notes
 
-The session-start protocol is **one canonical source**, delivered through each tool's conventional install path. Full design: [`docs/design/agent-context-assembly-spec.md`](design/agent-context-assembly-spec.md) §3.3–§3.4.
+The session-start protocol is **one canonical source**, delivered through each tool's conventional install path. Full design: [`docs/design/agent-context-assembly-spec.md`](https://github.com/svayam-opensource/governed-agentic-dev-framework/blob/main/docs/design/agent-context-assembly-spec.md) §3.3–§3.4.
 
 ### Canonical source (edit these)
 
@@ -25,7 +25,7 @@ The session-start protocol is **one canonical source**, delivered through each t
 
 ### How each tool gets protocol into system context
 
-Full matrix and Claude/Cursor/Gemini step-by-step: [`docs/design/agent-context-assembly-spec.md`](design/agent-context-assembly-spec.md) Appendix D. Registry: [`agent/harness-manifest.yaml`](../agent/harness-manifest.yaml).
+Full matrix and Claude/Cursor/Gemini step-by-step: [`docs/design/agent-context-assembly-spec.md`](https://github.com/svayam-opensource/governed-agentic-dev-framework/blob/main/docs/design/agent-context-assembly-spec.md) Appendix D. Registry: [`agent/harness-manifest.yaml`](https://github.com/svayam-opensource/governed-agentic-dev-framework/blob/main/agent/harness-manifest.yaml).
 
 | Tool | Install path | Tier | Auto? | Verify |
 |---|---|---|---|---|

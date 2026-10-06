@@ -15,7 +15,7 @@ governance repo, and an agent that starts under the protocol — in that order.
 
 ## 1. Your machine
 
-- [Setting up your machine](../docs/user-guides/setting-up-your-machine.md)
+- [Setting up your machine](setting-up-your-machine.md)
 
 ## 2. What the words mean
 
@@ -25,8 +25,8 @@ governance repo, and an agent that starts under the protocol — in that order.
 
 - [How the framework works](../specs/framework-specification.md) — and your organization's `policies/`;
   Part A of your agent's context is the resident cue of each rule that binds it every turn
-- [LLM governance](../policies/../../org-config.yaml) — which agents you may use here
+- [LLM governance](../../../policies/governance.yaml) — which agents you may use here
 
 ## 4. Start working
 
-- [Path — Developer](developer.md)
+- [Path — Developer](path-developer.md)

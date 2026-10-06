@@ -32,10 +32,10 @@ import { inForce, type RuleRow } from "../rules/model/rule-row.js";
 import type { CheckBinding } from "../rules/model/catalog.js";
 import type { EventContext } from "../rules/model/contracts.js";
 import { createCheckRunner } from "../rules/checks/runner.js";
-import { githubPullsForCommit } from "../rules/checks/gh-actions.js";
+import { githubCheckRunsForCommit, githubPullsForCommit, redMerges } from "../rules/checks/gh-actions.js";
 import { buildPayload } from "../rules/checks/event-payload.js";
-import { githubViolationPorts, requestReviews, type Gh } from "../rules/checks/github-adapters.js";
-import { recordViolation } from "../rules/checks/violation.js";
+import { githubOpenRedMergeRecord, githubViolationPorts, requestReviews, type Gh } from "../rules/checks/github-adapters.js";
+import { recordRedMerges, recordViolation } from "../rules/checks/violation.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
 import { githubActionsRenderer, GOV_APP_SECRETS } from "../rules/checks/render-github.js";
 import { humanGateMessage } from "../rules/cues/human-message.js";
@@ -184,6 +184,23 @@ function checkRun(id: string | undefined, flags: Readonly<Record<string, string 
     ...(repository ? { github: { pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository) } } : {}),
   });
   const verdict = runner.run(id, ctx);
+  const runUrl = deps.env.GITHUB_SERVER_URL && repository && deps.env.GITHUB_RUN_ID
+    ? `${deps.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${deps.env.GITHUB_RUN_ID}` : undefined;
+  // SOFT MERGE WITH RED CHECKS (Policy Owner, 2026-10-07). On the landed-by-pr binding, the push also reads the check
+  // runs of each PR it merged: a gov check red there opens one record per PR. Under hard posture those checks were
+  // required, so this cannot happen and gov does not look.
+  const landed = row?.checks?.find((b) => b.action === "gh-action/landed-by-pr" && b.on.resource === resource && b.on.event === eventFlag);
+  if (landed && cfg.posture !== "hard" && repository) {
+    const found = redMerges({ ruleId: id, params: landed.with ?? {}, ctx }, {
+      pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository),
+      checkRunsForCommit: githubCheckRunsForCommit((a) => deps.gh(a), repository),
+    });
+    const recorded = recordRedMerges(found.merges, rules, {
+      openIssue: (issue) => githubViolationPorts(deps.gh, repository).openIssue(issue),
+      findOpenRecord: githubOpenRedMergeRecord(deps.gh, repository),
+    }, runUrl);
+    lines.push(...found.notes.map((n) => `  ! ${n}`), ...recorded.lines);
+  }
   const say = (): string[] => (row ? humanGateMessage(row, verdict).split("\n") : [`${id} — ${verdict.verdict}`, ...verdict.findings.map((f) => `  - ${f}`)]);
 
   // Reviews first: a gate that is waiting on approvers should have asked them, whatever the verdict.
@@ -199,8 +216,6 @@ function checkRun(id: string | undefined, flags: Readonly<Record<string, string 
 
   const mode = rules.catalog.resources.find((r) => r.id === resource)?.events.find((e) => e.name === eventFlag)?.mode;
   if (mode === "observe" && row) {
-    const runUrl = deps.env.GITHUB_SERVER_URL && repository && deps.env.GITHUB_RUN_ID
-      ? `${deps.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${deps.env.GITHUB_RUN_ID}` : undefined;
     const out = recordViolation(
       { row, ctx, verdict, rules, ...(runUrl ? { runUrl } : {}) },
       githubViolationPorts(deps.gh, repository, built.issueNumber),

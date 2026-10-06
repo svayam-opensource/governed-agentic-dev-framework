@@ -36,26 +36,61 @@ function walk(root: string, rel = ""): string[] {
   return out;
 }
 
+/**
+ * THE SHIPPED TREES, PRESENTED AS AN ORG'S knowledge/ (sandbox audit, PRJ-121, 2026-10-07).
+ *
+ * This test used to pass without checking anything. checkKnowledge validates only paths under `knowledge/`, and
+ * returns early when the root has no `knowledge/` but has `framework/` — the framework SOURCE repo case. The
+ * shipped doctrine lives in framework/ and policies/, so every file was filtered out and `ok` was vacuous.
+ *
+ * So the test mounts each shipped tree under a virtual `knowledge/` (knowledge/framework/…, knowledge/policies/…)
+ * and maps reads back onto the real files. Relative links between the two trees resolve exactly as they do on
+ * disk, because both move by the same one level.
+ */
+const SHIPPED_TREES = ["framework", "policies"] as const;
+
+function mountedAsKnowledge(content: string): { ctx: ValidateContext; files: string[] } {
+  const files = SHIPPED_TREES.flatMap((t) => walk(path.join(content, t)).map((f) => `knowledge/${t}/${f}`));
+  const virtualRoot = path.join(content, "__mounted__");
+  const real = (p: string): string => {
+    const rel = path.relative(virtualRoot, p).replace(/\\/g, "/");
+    if (rel === "knowledge") return path.join(content, "__knowledge_root__");
+    if (rel.startsWith("knowledge/")) return path.join(content, rel.slice("knowledge/".length));
+    return path.join(content, rel);
+  };
+  const mountedFs: Fs = {
+    readFile: (p) => (fs.existsSync(real(p)) ? fs.readFileSync(real(p), "utf8") : null),
+    pathExists: (p) => path.relative(virtualRoot, p).replace(/\\/g, "/") === "knowledge" || fs.existsSync(real(p)),
+    mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
+  };
+  return { ctx: { fs: mountedFs, repoRoot: virtualRoot, files }, files };
+}
+
 describe("gov-work — shipped knowledge passes its own validator (publish gate)", () => {
-  it("publish/content/framework validates clean", () => {
-    const content = contentDir();
+  it("publish/content/framework and publish/content/policies validate clean", () => {
     // framework/ + policies/, not knowledge/ (Decision 10 of 2026-09-14, split again 2026-09-23). Framework
-    // doctrine moved out of knowledge/, which ships EMPTY and belongs to the adopter — so validating
-    // publish/content/knowledge would assert over nothing, which is how a publish gate quietly stops gating.
-    // Both shipped trees are validated: the framework's own, and the STARTER an org will curate.
-    const files = [
-      ...walk(path.join(content, "framework")).map((f) => `framework/${f}`),
-      ...walk(path.join(content, "policies")).map((f) => `policies/${f}`),
-    ];
-    const realFs: Fs = {
-      readFile: (p) => (fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null),
-      pathExists: (p) => fs.existsSync(p),
-      mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
-    };
-    const ctx: ValidateContext = { fs: realFs, repoRoot: content, files };
-    const r = checkKnowledge(ctx);
-    expect(r.ok, `shipped knowledge failed:\n  ${r.errors.join("\n  ")}`).to.equal(true);
+    // doctrine moved out of knowledge/, which ships EMPTY and belongs to the adopter. Both shipped trees are
+    // validated: the framework's own, and the STARTER an org will curate.
+    const { ctx, files } = mountedAsKnowledge(contentDir());
     expect(files.length).to.be.greaterThan(15); // sanity: we actually scanned the tree
+    // THE ONE RULE NOT APPLIED: orphans. §7's orphan check is how an ORG's knowledge/ stays navigable — every doc
+    // reachable from an index README. The shipped trees have no index READMEs: they are reached through the
+    // MANIFEST and the session protocol, which load them by path. Every other check applies in full.
+    const errors = checkKnowledge(ctx).errors.filter((e) => !/: orphan — /.test(e));
+    expect(errors, `shipped knowledge failed:\n  ${errors.join("\n  ")}`).to.deep.equal([]);
+  });
+
+  it("the mount is not vacuous: a defect planted in a shipped doc is reported", () => {
+    const { ctx, files } = mountedAsKnowledge(contentDir());
+    const victim = files.find((f) => f.startsWith("knowledge/framework/") && !f.endsWith("/README.md"))!;
+    const planted: Fs = {
+      ...ctx.fs,
+      readFile: (p) => (p === path.join(ctx.repoRoot, victim) ? `${ctx.fs.readFile(p) ?? ""}\nSee [[nowhere]] and [x](./no-such-file.md).\n` : ctx.fs.readFile(p)),
+    };
+    const r = checkKnowledge({ ...ctx, fs: planted });
+    expect(r.ok).to.equal(false);
+    expect(r.errors.join("\n")).to.include(`${victim}: [[wikilink]] found`);
+    expect(r.errors.join("\n")).to.include(`${victim}: broken link './no-such-file.md'`);
   });
 });
 

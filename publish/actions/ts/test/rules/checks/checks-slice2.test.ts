@@ -19,6 +19,7 @@ import { landedByPr, githubPullsForCommit, type PullRef } from "../../../src/rul
 import { sectionShas, changedSections, policySections } from "../../../src/rules/checks/sections.js";
 import { violationFor, recordViolation, type ViolationIssue } from "../../../src/rules/checks/violation.js";
 import { renderWorkflow } from "../../../src/rules/checks/render-github.js";
+import { MACHINE_WRITTEN_POLICY_PATHS } from "../../../src/rules/checks/policy-actions.js";
 import type { ChangedFile } from "../../../src/rules/diff-check.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -232,6 +233,25 @@ describe("check engine slice 2 — gov-builtin/section-owner-approval", () => {
 
   it("a snapshot under policies/version/** and a non-policy file need nobody", () => {
     expect(run(pr([file("policies/version/1.0.0/org-policy.md", "x"), file("README.md", "x")], { approvals: [] })).verdict).to.equal("pass");
+  });
+
+  // SANDBOX FINDING (PRJ-121, 2026-10-07): CHANGELOG.md was judged as a policy section ("§1.0.1") needing an owner.
+  // gov writes these files; the policy-pr gate judges them (rules.yaml, VERSION, CHANGELOG, snapshots).
+  it("MACHINE_WRITTEN_POLICY_PATHS is exactly the files gov writes on a policy PR", () => {
+    expect([...MACHINE_WRITTEN_POLICY_PATHS]).to.deep.equal([
+      "policies/CHANGELOG.md", "policies/VERSION", "policies/rules.yaml", "policies/version/**",
+    ]);
+  });
+
+  it("the changelog, VERSION, rules.yaml and a snapshot need nobody — not even with an org's own ignore list", () => {
+    const changelog = "# Changelog\n\n## 1.0.1\n\n- prose\n\n## 1.0.0\n\n- first\n";
+    const machine = pr(
+      [file("policies/CHANGELOG.md", changelog), file("policies/VERSION", "1.0.1\n"), file("policies/rules.yaml", "[]\n"), file("policies/version/1.0.0/org-policy.md", "x")],
+      { approvals: [], baseTexts: { [DOC]: BASE, "policies/CHANGELOG.md": "# Changelog\n\n## 1.0.0\n\n- first\n" } },
+    );
+    expect(run(machine)).to.deep.include({ verdict: "pass", findings: [] });
+    const own = runBuiltin({ ruleId: "GOV-FRM-086", action: "gov-builtin/section-owner-approval", params: { ignore: ["policies/drafts/**"] }, ctx: machine, readDefault: noRead, rules });
+    expect(own.verdict, "an org's ignore list adds to the machine-written files, never replaces them").to.equal("pass");
   });
 
   it("approvals compare case-insensitively and ignore @", () => {

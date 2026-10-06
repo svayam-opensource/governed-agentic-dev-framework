@@ -182,19 +182,31 @@ export function parseManifest(text: string): Manifest {
   return { files, owned, moves, retire };
 }
 
-/** Expand directory entries (src/dst ending in `/`) to one entry per content file. */
+/**
+ * Expand directory entries (src/dst ending in `/`) to one entry per content file — ONE entry per destination.
+ *
+ * "Individual file entries override directory defaults" (MANIFEST.yaml's header) was never implemented: a file
+ * row inside a directory row produced TWO entries, so the upgrade plan listed the same file twice (sandbox
+ * finding, PRJ-121, 2026-10-07 — framework/templates/workflows/approver-check.yml). Now a file row wins over any
+ * directory row, a more specific directory row wins over a broader one, and each destination keeps the position
+ * it first appeared at.
+ */
 export function expandEntries(manifest: Manifest, contentFiles: readonly string[]): ManifestEntry[] {
-  const out: ManifestEntry[] = [];
+  const out = new Map<string, { entry: ManifestEntry; rank: number }>();
+  const put = (entry: ManifestEntry, rank: number): void => {
+    const had = out.get(entry.dst);
+    if (!had || rank >= had.rank) out.set(entry.dst, { entry, rank });
+  };
   for (const e of manifest.files) {
     if (e.src.endsWith("/")) {
       for (const f of contentFiles) {
-        if (f.startsWith(e.src)) out.push({ src: f, dst: e.dst + f.slice(e.src.length), mode: e.mode });
+        if (f.startsWith(e.src)) put({ src: f, dst: e.dst + f.slice(e.src.length), mode: e.mode }, e.src.length);
       }
     } else {
-      out.push(e);
+      put(e, Number.MAX_SAFE_INTEGER);
     }
   }
-  return out;
+  return [...out.values()].map((v) => v.entry);
 }
 
 export type ActionKind = "create" | "same" | "update" | "conflict" | "refuse" | "retire" | "move" | "migrate";

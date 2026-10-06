@@ -339,6 +339,33 @@ retire:
     expect(clash).to.deep.equal([]);
   });
 
+  // SANDBOX FINDING (PRJ-121, 2026-10-07): the upgrade plan listed framework/templates/workflows/approver-check.yml
+  // twice — once from the framework/templates/ directory entry and once from its own row. One file, one action.
+  it("the shipped MANIFEST names each destination once, and its expanded plan has no duplicate destination", () => {
+    const content = path.join(repoRoot, "publish", "content");
+    const m = parseManifest(fs.readFileSync(path.join(content, "MANIFEST.yaml"), "utf8"));
+    const rows = m.files.map((e) => e.dst);
+    expect(rows.filter((d, i) => rows.indexOf(d) !== i), "a destination listed twice in files:").to.deep.equal([]);
+    const walk = (rel: string): string[] => fs.readdirSync(path.join(content, rel)).flatMap((n) => {
+      const r = rel ? `${rel}/${n}` : n;
+      return fs.statSync(path.join(content, r)).isDirectory() ? walk(r) : [r];
+    });
+    const dsts = expandEntries(m, walk("")).map((e) => e.dst);
+    expect(dsts.filter((d, i) => dsts.indexOf(d) !== i), "a destination planned twice").to.deep.equal([]);
+    expect(dsts.filter((d) => d === "framework/templates/workflows/approver-check.yml")).to.have.lengthOf(1);
+  });
+
+  it("a file row inside a directory row yields ONE entry, and the file row's mode wins", () => {
+    const m = parseManifest(`files:
+  - { src: t/, dst: t/, mode: scaffold-auto }
+  - { src: t/a.md, dst: t/a.md, mode: seed-once }
+`);
+    expect(expandEntries(m, ["t/a.md", "t/b.md"])).to.deep.equal([
+      { src: "t/a.md", dst: "t/a.md", mode: "seed-once" },
+      { src: "t/b.md", dst: "t/b.md", mode: "scaffold-auto" },
+    ]);
+  });
+
   it("doctor does not call the new framework/ tree an old-world artifact", () => {
     const has = (...p: string[]) => (rel: string) => p.includes(rel);
     expect(staleArtifactsIn(true, has("org-config.yaml", "framework", "framework/rules"))).to.not.include("framework/");

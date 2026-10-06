@@ -310,9 +310,14 @@ export function appCheck(gh: GhRun, cfg: AppConfig, recorded: AppIdentity | null
   const pass = (s: string): void => { lines.push(`  ✓ ${s}`); };
   const fail = (s: string): void => { lines.push(`  ✗ ${s}`); fails.push(s); };
   const unsure = (s: string): void => { lines.push(`  ? cannot tell: ${s}`); unknowns.push(s); };
+  /** Something this check does not verify, and says where it is verified instead. Not a ✓, not a failure. */
+  const note = (s: string): void => { lines.push(`  · not verified here: ${s}`); };
+  let selectedReach: string | null = null;
   const done = (): AppCheckResult => ({
     verdict: fails.length ? "fail" : unknowns.length ? "cannot-tell" : "ok",
-    summary: fails[0] ?? unknowns[0] ?? `${slug} is installed on ${org}, reads ${full}@${branch}, and both secrets are set`,
+    summary: fails[0] ?? unknowns[0] ?? (selectedReach
+      ? `${slug} is installed on ${org} (selected repositories), ${full}@${branch} exists, and both secrets are set; that it reaches ${full} is proven by the first code-repo check run`
+      : `${slug} is installed on ${org}, reads ${full}@${branch}, and both secrets are set`),
     lines,
   });
   /** No answer at all from GitHub (offline, a timeout): every later question would be the same guess. */
@@ -338,18 +343,21 @@ export function appCheck(gh: GhRun, cfg: AppConfig, recorded: AppIdentity | null
     } else {
       pass(`${slug} is installed on ${org} with read access to contents`);
       // 2 · CAN IT REACH THE GOVERNANCE REPO?
+      //
+      // WHAT AN OWNER'S TOKEN CAN READ (sandbox finding, PRJ-121, 2026-10-07). This asked
+      // /user/installations/{id}/repositories, which answers only a GitHub-App USER token — so with an ordinary
+      // `gh` login it said "cannot tell" every time. /orgs/{org}/installations gives the installation's
+      // repository_selection and nothing finer. "all" proves the reach. "selected" does not say WHICH, so gov
+      // says so and names where it is proven: the code repo's check run mints the App's token for the governance
+      // repo, and fails on that step if the App cannot reach it. Never a ✓ for something gov did not see.
+      const settings = `https://github.com/organizations/${org}/settings/installations/${inst.id}`;
       if (inst.repository_selection === "all") {
-        pass(`it reaches ${full} (it is installed on ALL of ${org}'s repositories; it needs only ${repo} — narrow it at https://github.com/organizations/${org}/settings/installations/${inst.id})`);
+        pass(`it reaches ${full} (it is installed on ALL of ${org}'s repositories; it needs only ${repo} — narrow it at ${settings})`);
       } else {
-        const rr = gh(["api", `/user/installations/${inst.id}/repositories?per_page=100`]);
-        if (rr.status !== 0) {
-          if (ghFailure(rr) === "unknown") return offline(`which repositories ${slug} can reach`, rr);
-          unsure(`which repositories ${slug} can reach (${firstLine(rr.stderr)}) — look at https://github.com/organizations/${org}/settings/installations/${inst.id}`);
-        } else {
-          const names = (json<{ repositories?: { full_name?: string }[] }>(rr.stdout)?.repositories ?? []).map((r) => (r.full_name ?? "").toLowerCase());
-          if (names.includes(full.toLowerCase())) pass(`it reaches ${full}`);
-          else fail(`${slug} cannot reach ${full} — add that repository at https://github.com/organizations/${org}/settings/installations/${inst.id}`);
-        }
+        selectedReach = `${slug} is installed on selected repositories, and GitHub does not show an owner which ones — `
+          + `that it reaches ${full} is proven by the first code-repo check run (its App-token step fails if not). `
+          + `To look now: ${settings}`;
+        note(selectedReach);
       }
       // 3 · THE DEFAULT BRANCH IT WILL READ
       if (!fails.length) {

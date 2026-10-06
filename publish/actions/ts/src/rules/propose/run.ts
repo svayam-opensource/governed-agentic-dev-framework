@@ -12,6 +12,7 @@
  *     gone from the document .................... its rules retire (no model: there is no prose left to read)
  *   all settled → applyVerdicts with gov's IdIssuer (ids NEVER from the model) → rows, ownership, changelog draft,
  *   and the version bump the P1 ruling sets: a rule added/revised/retired, or who-owns-what changed → minor;
+ *   a governance choice changed → GOVERNANCE_CHANGE_BUMP (minor, Policy Owner 2026-10-07);
  *   prose only (sha refreshes included) → patch.
  *   any answer pending → BLOCKED, nothing produced (in CI the PR stays blocked until the owner replies).
  *
@@ -25,6 +26,7 @@ import type { IdIssuer, Proposer, RuleSet, SectionOwnership, SectionVerdict } fr
 import { applyVerdicts } from "../model/revise.js";
 import { policySections, sectionShas } from "../checks/sections.js";
 import { ownershipDiffers } from "../checks/ownership.js";
+import { GOVERNANCE_CHANGE_BUMP } from "../policy-pr/gate.js";
 import type { ModelPort } from "./model-port.js";
 import type { ProposedRow, ProposalQuestion } from "./parse.js";
 import { interviewSection, type InterviewChannel, type QA, type SectionOutcome } from "./interview.js";
@@ -52,6 +54,8 @@ export interface ProposeDeps {
   readonly maxRounds?: number;
   /** Also interview unchanged sections that have no rules yet (first extraction of a seeded policy). */
   readonly all?: boolean;
+  /** Did a governance choice in policies/governance.yaml change? → GOVERNANCE_CHANGE_BUMP, as the gate requires. */
+  readonly governanceChanged?: boolean;
 }
 
 export type RuleChange = "added" | "revised" | "retired" | "kept";
@@ -207,7 +211,8 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
 
   const ruleChange = rules.some((r) => r.change !== "kept");
   const proseChange = deps.docs.some((d) => d.head !== d.base);
-  const bump: Bump = ruleChange || ownershipChanged ? "minor" : proseChange ? "patch" : "none";
+  const bump: Bump = ruleChange || ownershipChanged ? "minor"
+    : deps.governanceChanged ? GOVERNANCE_CHANGE_BUMP : proseChange ? "patch" : "none";
   log("info", "propose settled", PGM, "runPropose", {
     sections: work.length, added: rules.filter((r) => r.change === "added").length, revised: rules.filter((r) => r.change === "revised").length,
     retired: rules.filter((r) => r.change === "retired").length, bump,

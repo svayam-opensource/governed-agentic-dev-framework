@@ -160,9 +160,9 @@ Open the workspace at **`projects/<PID>/`** (recommended) or gov repo root on th
 
 **Not automatic for any tool:** full `framework/docs/specs/framework-specification.md`, `projects/<PID>/knowledge/*`, code repo `knowledge/`, or preferences — the agent must read these each session.
 
-Detailed step tables and timeline: [`docs/design/agent-context-assembly-spec.md`](design/agent-context-assembly-spec.md) Appendix D.
+Detailed step tables and timeline: [`docs/design/agent-context-assembly-spec.md`](https://github.com/svayam-opensource/governed-agentic-dev-framework/blob/main/docs/design/agent-context-assembly-spec.md) Appendix D.
 
-Harness registry (all tools): [`agent/harness-manifest.yaml`](../agent/harness-manifest.yaml).
+Harness registry (all tools): [`agent/harness-manifest.yaml`](https://github.com/svayam-opensource/governed-agentic-dev-framework/blob/main/agent/harness-manifest.yaml).
 
 ### Doing the actual work
 

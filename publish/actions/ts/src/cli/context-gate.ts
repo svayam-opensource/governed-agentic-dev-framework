@@ -22,7 +22,7 @@ import { createNodeEnv } from "../resolve/node-env.js";
 import { loadOrgConfigText } from "../config/work-root.js";
 import { readCliVersion } from "./main.js";
 import {
-  type ContextInfo, type Ack, contextFingerprint, hashText, renderBanner, isAcked, recordAck,
+  type ContextInfo, type Ack, contextFingerprint, hashText, renderBanner, isAcked, recordAck, shouldShowBanner,
 } from "./context-banner.js";
 
 function tryRun(cmd: string, args: string[]): string | undefined {
@@ -119,7 +119,8 @@ export async function confirmContextOrBail(argv: readonly string[]): Promise<boo
   if ("GOV_NO_BANNER" in process.env) return true;
   const info = buildContextInfo();
   const fp = contextFingerprint(info, undefined, readCliVersion());
-  for (const l of renderBanner(info)) process.stderr.write(l + "\n");
+  const show = shouldShowBanner(process.env, process.stdout.isTTY === true);
+  if (show) for (const l of renderBanner(info)) process.stderr.write(l + "\n");
   // NOTHING RESOLVED, NOTHING TO CONFIRM (PRJ-121, 2026-09-22). The gate exists so you cannot act on the wrong
   // org, repo or branch after they change. In `none` mode there is no org, repo or branch — so on a fresh machine
   // it asked a bare `Proceed? (y/N)` over "context: NONE", right after the installer promised to show each command
@@ -132,9 +133,15 @@ export async function confirmContextOrBail(argv: readonly string[]): Promise<boo
   if ("GOV_YES" in process.env || argv.includes("--yes") || argv.includes("-y")) { writeAcks(recordAck(acks, fp, now)); return true; }
   if (!process.stdin.isTTY) {
     const expect = process.env.GOV_EXPECT_CONTEXT;
-    if (expect && expect !== fp) { process.stderr.write(`context assertion FAILED — expected ${expect}, got ${fp} (see banner above)\n`); return false; }
+    if (expect && expect !== fp) {
+      // The assertion names the banner, so a failure prints it even where it was otherwise suppressed.
+      if (!show) for (const l of renderBanner(info)) process.stderr.write(l + "\n");
+      process.stderr.write(`context assertion FAILED — expected ${expect}, got ${fp} (see banner above)\n`); return false;
+    }
     return true;
   }
+  // A person is about to be asked to confirm; they must see what they are confirming.
+  if (!show) for (const l of renderBanner(info)) process.stderr.write(l + "\n");
   process.stderr.write(`  context changed (fp ${fp}). `);
   if (await promptYesNo("Proceed? (y/N) ")) { writeAcks(recordAck(acks, fp, now)); return true; }
   process.stderr.write("aborted — context not confirmed.\n");

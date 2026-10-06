@@ -25,6 +25,7 @@ import { runPropose, type OpenSection, type PolicyDoc, type RuleChange } from ".
 import { ModelRefused } from "./providers/index.js";
 import { ModelProviderError } from "./providers/anthropic.js";
 import { finishPolicyChange, writeProposal } from "./write-result.js";
+import { describeGovernanceChanges, GOVERNANCE_PATH } from "../../config/governance.js";
 
 export interface ApplyInput {
   readonly base: TreeReader;
@@ -72,7 +73,8 @@ export async function applyPropose(i: ApplyInput): Promise<ApplyResult> {
 
   let r;
   try {
-    r = await runPropose({ docs, set, model: i.model, channel: i.channel, issuer, at, ...(i.all ? { all: true } : {}) });
+    const governanceChanged = describeGovernanceChanges(i.base.read(GOVERNANCE_PATH), i.head.read(GOVERNANCE_PATH)).length > 0;
+    r = await runPropose({ docs, set, model: i.model, channel: i.channel, issuer, at, governanceChanged, ...(i.all ? { all: true } : {}) });
   } catch (e) {
     if (e instanceof ModelRefused) return { status: "failed", lines: e.lines };
     if (e instanceof ModelProviderError || e instanceof ProposeError) return { status: "failed", lines: [`the model could not be used: ${e.message}`] };

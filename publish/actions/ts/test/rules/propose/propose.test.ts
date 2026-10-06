@@ -469,3 +469,14 @@ describe("rule model — W4 propose engine", () => {
     expect(out.qa).to.deep.equal([{ section: "3", q: "C01 or C02?", a: "C02" }]);
   });
 });
+
+describe("propose's planner — a governance.yaml change bumps as the gate does", () => {
+  it("no section changed, governance choices did → GOVERNANCE_CHANGE_BUMP; neither → none", async () => {
+    const { GOVERNANCE_CHANGE_BUMP } = await import("../../../src/rules/policy-pr/gate.js");
+    const go = (governanceChanged: boolean) => runPropose({ docs: [], set: setWith([]), model: fakeModel([]), channel: scripted([]), issuer: createIdIssuer([]), at: AT, governanceChanged });
+    const r = await go(true);
+    expect(r.status === "ready" && r.bump).to.equal(GOVERNANCE_CHANGE_BUMP);
+    const n = await go(false);
+    expect(n.status === "ready" && n.bump).to.equal("none");
+  });
+});
