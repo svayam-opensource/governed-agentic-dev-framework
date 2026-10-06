@@ -783,6 +783,14 @@ credentials as organization secrets, and never keeps a copy of its private key. 
 governance repository only, and `gov app check` confirms that everything is in place. After that, each check
 gets a short-lived, read-only token every time it runs. Nobody's personal token is involved.
 
+A project usually spans several repositories, and each one needs its own copy of the workflow. `gov check install
+--all` writes it into the governance repository and into every code repository linked to the project's board, in
+your local clones. It only writes on the project's own branch or one of its task branches. A repository sitting on
+its default branch is skipped, with the reason. gov never commits or pushes. It tells you which repositories it
+changed and prints the commands to land them. Running it again changes nothing if the rules have not changed.
+`gov check status` tells you, for each repository, whether its workflow is current, out of date or missing, and
+`gov doctor` shows the same answer in one line. When gov cannot see a repository, it says it cannot tell.
+
 ### 9.6 Cues
 
 A **cue** is a one-line reminder an agent carries. Cues come in two tiers:
