@@ -39,7 +39,7 @@ export interface RulesPending {
   readonly hash: string;
   /** The hash that was there before, or null when nothing was rendered yet. */
   readonly previous: string | null;
-  /** The citations whose resident text changed, as the resident block names them (`POL-086b · C01`). */
+  /** The GOV ids whose resident cue changed (`GOV-FRM-012`). */
   readonly clauses: readonly string[];
   /** ISO 8601, so `gov log` and the marker agree about when. */
   readonly at: string;
@@ -66,35 +66,27 @@ export function rulesHash(files: readonly { readonly path: string; readonly cont
 }
 
 /**
- * The resident cues in a rendered harness file, keyed by the citation its heading names.
+ * The resident cues in a rendered harness file, keyed by the GOV id each line names.
  *
- * WHY PARSE THE RENDERED FILE rather than diff the policy documents. The question the refusal has to answer is
- * "which of the rules in your context changed", and the rules in an agent's context are exactly the resident
- * block — not every clause in the policy. A clause reworded without a cue changes nothing an agent reads, and
- * refusing work for it would train people to run `gov rules reload` reflexively, which is the one habit that
- * makes this whole mechanism worthless.
+ * WHY PARSE THE RENDERED FILE rather than diff the rule stores. The question the refusal has to answer is "which
+ * of the rules in your context changed", and the rules in an agent's context are exactly the resident block — not
+ * every row in the stores. A row revised without a resident cue changes nothing an agent reads, and refusing work
+ * for it would train people to run `gov rules reload` reflexively, which is the one habit that makes this whole
+ * mechanism worthless.
  *
- * The heading shape is `harness-render.ts`'s (`> **<cite> · <level>**`) and a test pins the two together, so a
- * change to the renderer that this parser cannot read is caught rather than silently reporting "nothing changed".
+ * The line shape is `cues/resident.ts`'s (`- <GOV id> · <cue>`) and a test pins the two together, so a change to
+ * the renderer that this parser cannot read is caught rather than silently reporting "nothing changed".
  */
 export function residentCues(content: string): Map<string, string> {
   const out = new Map<string, string>();
-  const lines = content.split("\n");
-  let cite: string | null = null;
-  let body: string[] = [];
-  const flush = (): void => { if (cite !== null) out.set(cite, body.join("\n").trim()); cite = null; body = []; };
-  for (const line of lines) {
-    const head = /^>\s\*\*(.+?)\s·\s(\S+)\*\*\s*$/.exec(line);
-    if (head) { flush(); cite = `${head[1]} · ${head[2]}`; continue; }
-    if (cite !== null && line.startsWith(">")) { body.push(line.slice(1).trim()); continue; }
-    if (cite !== null && line.trim() === "") continue;   // markdown needs the blank line between blockquotes
-    if (cite !== null) flush();
+  for (const line of content.split("\n")) {
+    const m = /^- (GOV-[A-Z][A-Z0-9]*-\d+) · (.*)$/.exec(line.trimEnd());
+    if (m) out.set(m[1]!, m[2]!.trim());
   }
-  flush();
   return out;
 }
 
-/** Citations whose resident text is new, gone, or different — sorted, so the refusal reads the same twice. */
+/** GOV ids whose resident cue is new, gone, or different — sorted, so the refusal reads the same twice. */
 export function changedCites(before: Map<string, string>, after: Map<string, string>): string[] {
   const changed = new Set<string>();
   for (const [cite, text] of after) if (before.get(cite) !== text) changed.add(cite);
@@ -109,7 +101,7 @@ const LIST_CAP = 12;
  * THE REFUSAL. One message, so `task`, `merge`, `close` and `knowledge propose` cannot drift apart in what
  * they tell the person — the whole point is that the instruction is the same everywhere it appears.
  *
- * It names the CHANGED CLAUSES, because "the rules changed" with no referent is indistinguishable from a bug,
+ * It names the CHANGED RULES, because "the rules changed" with no referent is indistinguishable from a bug,
  * and a person who cannot see what changed cannot judge whether their in-flight work is affected.
  */
 export function refuseForPendingRules(pending: RulesPending, command: string): string[] {
@@ -120,7 +112,7 @@ export function refuseForPendingRules(pending: RulesPending, command: string): s
     "",
     pending.clauses.length
       ? `  ${pending.clauses.length} rule(s) in your agent's context changed:`
-      : "  the rendered rules changed (no resident clause could be named — run `gov rules report`):",
+      : "  the rendered rules changed (no resident rule could be named — run `gov rules report`):",
     ...shown.map((c) => `    ${c}`),
     ...(rest > 0 ? [`    … and ${rest} more`] : []),
     "",

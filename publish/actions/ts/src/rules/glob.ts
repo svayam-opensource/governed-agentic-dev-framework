@@ -4,7 +4,7 @@
  * THE ONE GLOB MATCHER, because a check's `when=` and `require=` are globs and gov has no glob library.
  *
  * gov carries exactly one runtime dependency, so this is hand-rolled — and deliberately SMALL. The grammar is
- * what a policy author actually writes in a `gov:check`: `**` for any depth, `*` within a segment, `?` for one
+ * what a rule's check actually writes in `when:`: `**` for any depth, `*` within a segment, `?` for one
  * character, a literal `.`, and nothing else. No braces, no character classes, no negation.
  *
  * A LARGER GRAMMAR WOULD BE WORSE, not better. Every pattern feature is a way for an organization to write a

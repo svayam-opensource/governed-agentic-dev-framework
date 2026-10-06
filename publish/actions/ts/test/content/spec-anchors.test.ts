@@ -97,8 +97,8 @@ const ANCHORS: readonly Anchor[] = [
   { what: "the file that must be in an agent's context before launch", inSpec: "`verifyAgentContext`", inCode: "export function verifyAgentContext", file: "lifecycle/root-protocol.ts" },
 
   // §6 — what `gov rules build` writes.
-  { what: "the POL lock", inSpec: "`.pol-lock.json`", inCode: 'LOCK_FILE = ".pol-lock.json"', file: "rules/pol-lock-io.ts" },
-  { what: "the rule map", inSpec: "`agent/harness/rule-map.md`", inCode: 'path.join("agent", "harness", "rule-map.md")', file: "cli/rules-verb.ts" },
+  // The POL lock anchor was RETIRED with the old compiler (P3 cutover): there is no lock to name.
+  { what: "the rule map", inSpec: "`agent/harness/rule-map.md`", inCode: "RULE_MAP_PATH = `${HARNESS_DIR}/rule-map.md`", file: "rules/rules-build.ts" },
   { what: "the rule id cited in gov's own source", inSpec: "`GOV-FRM-423`", inCode: "GOV-FRM-423", file: "log.ts" },
 
   // §7 — the posture, and the limit the platform imposes.
@@ -125,7 +125,7 @@ describe("gov-behaviour.md — every literal it names is anchored in the code", 
   it("names as many literals as it has anchors — a shrinking anchor set is how a spec stops being checked", () => {
     // Not a coverage assertion, a tripwire. If somebody deletes anchors to make a build pass, the count moves and
     // the diff shows it. Update the number deliberately, in the same commit as the reason.
-    expect(ANCHORS.length).to.equal(11);
+    expect(ANCHORS.length).to.equal(10);
   });
 });
 

@@ -77,6 +77,7 @@ import { ensureLogin, runContext } from "./run-context.js";
 import { logsRoot, redactArgv } from "../state-paths.js";
 import { gatherGovernanceFacts, stampLines, withStamp } from "../lifecycle/governance-stamp.js";
 import { buildRulesAt } from "./rules-lifecycle.js";
+import { rulesFacts } from "./rules-verb.js";
 import { clearPending, readPending } from "../rules-pending.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
@@ -1035,7 +1036,7 @@ export async function runSetupCommand(
       // ── COMPILE THE POLICIES INTO THE HARNESS, BEFORE THE COMMIT (design §7, PRJ-121, 2026-09-28) ─────────
       //
       // THE ADOPTER'S FIRST COPY. Everything above this line put the organization's policy documents on disk;
-      // this is what turns them into the nine files every approved agent actually reads, plus the POL locks. An
+      // this is what turns the rule stores into the nine files every approved agent actually reads, plus the rule map. An
       // adopter must never have to know `gov rules build` exists for their own policy to reach their agents —
       // and until this ran here, they did: the verb was implemented and called by nothing.
       //
@@ -1052,12 +1053,12 @@ export async function runSetupCommand(
       // refuses would read as gov being broken on first contact.
       const compiled = buildRulesAt({ fs }, { home: createdHome, defaultBranch: "", workingTree: true }, "setup");
       manifest.push({
-        what: compiled.skipped ? "Rules" : compiled.failed || compiled.asked ? "⚠ Rules" : "Compiled",
+        what: compiled.skipped ? "Rules" : compiled.failed ? "⚠ Rules" : "Compiled",
         detail: compiled.skipped
-          ? "no policy documents to compile — your agents read the session protocol only, until you write one"
-          : compiled.failed || compiled.asked
-            ? `the harness was NOT compiled from your policies — every agent would read the framework's shipped copy. ${compiled.lines.join(" ").trim()}`
-            : `the nine agent files + the POL locks, from your policies (rules ${compiled.hash})`,
+          ? "no rule store to render — your agents read the session protocol only, until the framework's rules are installed"
+          : compiled.failed
+            ? `the harness was NOT rendered from your rules — every agent would read the framework's shipped copy. ${compiled.lines.join(" ").trim()}`
+            : `the nine agent files + the rule map, from the rule stores (rules ${compiled.hash})`,
       });
 
       git("add", "-A");
@@ -2117,8 +2118,8 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             { home: dir, defaultBranch: cfg.defaultBranch || "main", workingTree: true },
             "upgrade",
           );
-          return built.failed || built.asked
-            ? ["  ⚠ the harness was NOT re-compiled — the new clauses and the resident rules now disagree:", ...built.lines]
+          return built.failed
+            ? ["  ⚠ the harness was NOT re-rendered — the new rule rows and the resident rules now disagree:", ...built.lines]
             : built.lines;
         };
 
@@ -2204,6 +2205,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           return { repo, branch, facts: read.facts, ...(read.why ? { why: read.why } : {}) };
         })()
       : undefined;
+    // THE RULES, by the same plan `gov rules check` makes — counts from `summariseRuleSet`, read from the ratified
+    // branch. Only in a workspace with a rule store; a facts error is no rows rather than a guess.
+    const doctorRules = (!!doctorHomeOverride || resolve.ok) && gitPresent
+      ? rulesFacts({ fs, git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null }, { home, defaultBranch: doctorCfg?.defaultBranch || "main" })
+      : undefined;
     const report = doctor({
       gitPresent,
       ghPresent,
@@ -2223,6 +2229,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       staleArtifacts: staleArtifactsIn(!!doctorHomeOverride || resolve.ok, (rel) => fs.pathExists(path.join(home, rel))),
       orgConfigText: doctorCfgText,
       ...(protection ? { protection } : {}),
+      ...(doctorRules && !("error" in doctorRules) ? { rules: doctorRules } : {}),
     });
     for (const line of formatDoctorReport(report, stdoutColor())) process.stdout.write(`${line}\n`);
 
@@ -2575,12 +2582,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     const branchNow = tryRun("git", ["-C", home, "rev-parse", "--abbrev-ref", "HEAD"])?.trim();
     const r = runSuite({ fs, repoRoot: home, files, changedFiles });
 
-    // THE ORGANIZATION'S OWN FILE-TRIGGERED CHECKS — the second group (PRJ-121, 2026-09-28).
+    // THE RULES' CHANGESET CHECKS — the second group (PRJ-121, 2026-09-28; rule model 2026-10-06).
     //
-    // Until this line, a `gov:check` whose trigger was a set of file globs was parsed, validated and rendered
-    // into every harness, and then evaluated by NOTHING: the seeded technology clause ("no unapproved dependency") ran on
-    // no pull request at all, while `gov doctor` counted it as checked. The clauses are read from the DEFAULT
-    // branch and the changeset from `base…HEAD`, so a branch cannot weaken the rule that judges it — see
+    // The predicates the ratified rule rows bind to `vcs.gov-repo · pull_request`, previewed on this changeset —
+    // the same runner `gov check run` uses on the pull request itself. The rows are read from the DEFAULT branch
+    // and the changeset from `base…HEAD`, so a branch cannot weaken the rule that judges it — see
     // diff-check-io.ts. COMMITTED work only: `git show <ref>:<path>` needs a ref, and what a pull request
     // contains is commits. The validators above still see the working tree.
     const policy = policyChecks(

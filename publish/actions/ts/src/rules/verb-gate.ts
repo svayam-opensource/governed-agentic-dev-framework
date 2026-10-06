@@ -19,7 +19,7 @@
  * once, by hand, at the point where it is most expensive to get wrong.
  */
 import { filterByGlobs, matchesAny } from "./glob.js";
-import type { Check, CueBlock, GateableVerb } from "./cue-block.js";
+import type { Check } from "./checks/predicates.js";
 
 /**
  * What a gate may look at. Deliberately narrow: existence, contents, and the two identifiers.
@@ -70,14 +70,6 @@ export interface AttachedCheck {
   readonly check: Check;
 }
 
-/** The verb-triggered checks among a document set's cue blocks. */
-export function checksForVerb(blocks: readonly CueBlock[], verb: GateableVerb): AttachedCheck[] {
-  return blocks
-    .filter((b): b is CueBlock & { check: Check } => Boolean(b.check))
-    .filter((b) => b.check.trigger.on === "verb" && b.check.trigger.verb === verb)
-    .map((b) => ({ pol: b.pol, doc: b.doc, section: b.section, check: b.check }));
-}
-
 const attr = (c: Check, key: string): string => c.attrs[key] ?? "";
 const list = (c: Check, key: string): string[] => attr(c, key).split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -95,7 +87,7 @@ const list = (c: Check, key: string): string[] => attr(c, key).split(",").map((s
  *   list-membership      REFUSED at parse time: "every ADDED entry" has no meaning without a changeset
  *   content-forbidden    REFUSED at parse time: "the CHANGED content" likewise
  *
- * The last two are rejected by `parseCheck`, so they should never arrive. If one does — a hand-written block, an
+ * The last two have no meaning without a changeset, so a binding should never carry them here. If one does — an
  * older CLI — it becomes a WARNING that says so, because a check that silently does nothing is the defect this
  * whole design keeps tripping over.
  */

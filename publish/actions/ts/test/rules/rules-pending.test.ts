@@ -13,7 +13,9 @@ import {
   PENDING_FILE, changedCites, clearPending, isMutatingVerb, pendingPath, readPending, refuseForPendingRules,
   residentCues, rulesHash, writePending, type RulesPending,
 } from "../../src/rules-pending.js";
-import { assembleResidentBlock } from "../../src/rules/harness-render.js";
+import { renderResidentBlock } from "../../src/rules/cues/resident.js";
+import { parseRuleStore } from "../../src/rules/model/rule-row.js";
+import { parseCatalog } from "../../src/rules/model/catalog.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import { px } from "../helpers/paths.js";
 
@@ -33,7 +35,7 @@ function memFs(seed: Record<string, string> = {}): Fs & { readonly files: Map<st
 
 const PENDING: RulesPending = {
   hash: "aaaabbbbccccdddd", previous: "1111222233334444",
-  clauses: ["POL-086b · C01", "POL-427 · C01"],
+  clauses: ["GOV-FRM-086", "GOV-FRM-432"],
   at: "2026-09-28T10:12:44.000Z", by: "sync",
 };
 
@@ -48,31 +50,40 @@ describe("rules-pending — where the marker lives", () => {
 });
 
 describe("rules-pending — what counts as a changed rule", () => {
-  const block = (cues: readonly { cite: string; level: string; cue: string }[]): string =>
-    assembleResidentBlock([{ path: "policies/p.md", text: cues.map((c) =>
-      `### 1.1 S\n\nA rule. **(${c.cite})**\n\n<!-- gov:cue generated clause-sha=x -->\n> **Always in the agent's context** · ${c.cite} · ${c.level}\n> ${c.cue}\n`,
-    ).join("\n") }]) as string;
+  /** The resident block the renderer writes for these rows — the shape `residentCues` must read back. */
+  const block = (cues: readonly { id: string; cue: string }[]): string => {
+    const rows = parseRuleStore(cues.map((c) => `- id: ${c.id}
+  source: { doc: framework/docs/specs/framework-specification.md, section: "1", sha: "abc1234" }
+  expectation: "The agent keeps ${c.id}."
+  actor: [agent]
+  level: C01
+  cue: { tier: resident, text: "${c.cue}" }
+  start: { version: "1.0.0", date: "2026-10-06" }
+  end: null
+`).join(""));
+    return renderResidentBlock({ framework: rows, org: [], orgScope: "SVM", catalog: parseCatalog(""), orgVersion: "0.0.0" }) as string;
+  };
 
-  it("reads back the citations the renderer wrote — the two modules agree on one heading shape", () => {
-    const cues = residentCues(block([{ cite: "POL-086b", level: "C01", cue: "A BRANCH EDIT IS A PROPOSAL." }]));
-    expect([...cues.keys()]).to.deep.equal(["POL-086b · C01"]);
-    expect(cues.get("POL-086b · C01")).to.equal("A BRANCH EDIT IS A PROPOSAL.");
+  it("reads back the GOV ids the renderer wrote — the two modules agree on one line shape", () => {
+    const cues = residentCues(block([{ id: "GOV-FRM-086", cue: "A BRANCH EDIT IS A PROPOSAL." }]));
+    expect([...cues.keys()]).to.deep.equal(["GOV-FRM-086"]);
+    expect(cues.get("GOV-FRM-086")).to.equal("A BRANCH EDIT IS A PROPOSAL.");
   });
 
   it("reports a cue whose TEXT changed", () => {
-    const before = residentCues(block([{ cite: "POL-001", level: "C01", cue: "STOP." }]));
-    const after = residentCues(block([{ cite: "POL-001", level: "C01", cue: "STOP, AND SAY WHY." }]));
-    expect(changedCites(before, after)).to.deep.equal(["POL-001 · C01"]);
+    const before = residentCues(block([{ id: "GOV-FRM-001", cue: "STOP." }]));
+    const after = residentCues(block([{ id: "GOV-FRM-001", cue: "STOP, AND SAY WHY." }]));
+    expect(changedCites(before, after)).to.deep.equal(["GOV-FRM-001"]);
   });
 
   it("reports a cue that APPEARED and one that was REMOVED, told apart", () => {
-    const before = residentCues(block([{ cite: "POL-001", level: "C01", cue: "STOP." }]));
-    const after = residentCues(block([{ cite: "POL-002", level: "C02", cue: "GO." }]));
-    expect(changedCites(before, after)).to.deep.equal(["POL-001 · C01 (removed)", "POL-002 · C02"]);
+    const before = residentCues(block([{ id: "GOV-FRM-001", cue: "STOP." }]));
+    const after = residentCues(block([{ id: "GOV-FRM-002", cue: "GO." }]));
+    expect(changedCites(before, after)).to.deep.equal(["GOV-FRM-001 (removed)", "GOV-FRM-002"]);
   });
 
   it("reports NOTHING when the rules are the same — the property that keeps the refusal meaningful", () => {
-    const same = block([{ cite: "POL-001", level: "C01", cue: "STOP." }, { cite: "POL-002", level: "C02", cue: "GO." }]);
+    const same = block([{ id: "GOV-FRM-001", cue: "STOP." }, { id: "GOV-FRM-002", cue: "GO." }]);
     expect(changedCites(residentCues(same), residentCues(same))).to.deep.equal([]);
   });
 
@@ -92,8 +103,8 @@ describe("rules-pending — the refusal", () => {
   it("names the changed clauses, because 'the rules changed' with no referent reads as a bug", () => {
     const lines = refuseForPendingRules(PENDING, "merge").join("\n");
     expect(lines).to.contain("gov merge: refused");
-    expect(lines).to.contain("POL-086b · C01");
-    expect(lines).to.contain("POL-427 · C01");
+    expect(lines).to.contain("GOV-FRM-086");
+    expect(lines).to.contain("GOV-FRM-432");
   });
 
   it("says which command recorded it, when, and which hash — so it can be reconciled with the log", () => {
@@ -111,9 +122,9 @@ describe("rules-pending — the refusal", () => {
   });
 
   it("caps the list rather than printing a wall of citations nobody reads", () => {
-    const many = { ...PENDING, clauses: Array.from({ length: 30 }, (_, i) => `POL-${100 + i} · C02`) };
+    const many = { ...PENDING, clauses: Array.from({ length: 30 }, (_, i) => `GOV-SVM-${100 + i}`) };
     const lines = refuseForPendingRules(many, "task");
-    expect(lines.filter((l) => /^ {4}POL-/.test(l))).to.have.length(12);
+    expect(lines.filter((l) => /^ {4}GOV-/.test(l))).to.have.length(12);
     expect(lines.join("\n")).to.contain("… and 18 more");
   });
 

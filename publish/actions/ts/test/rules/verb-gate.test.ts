@@ -10,8 +10,8 @@
  * the developer is told the file and the heading — never a protocol.
  */
 import { expect } from "chai";
-import { parseCheck, parseCueBlocks, GATEABLE_VERBS, type CueBlock } from "../../src/rules/cue-block.js";
-import { checksForVerb, gateVerb, formatGate, type WorkspaceView } from "../../src/rules/verb-gate.js";
+import { gateVerb, formatGate, type WorkspaceView } from "../../src/rules/verb-gate.js";
+import { checkFrom } from "../helpers/check.js";
 import { globToRegExp, matchesGlob, filterByGlobs } from "../../src/rules/glob.js";
 
 /** A workspace as a plain map of path → contents. */
@@ -24,11 +24,8 @@ function ws(files: Record<string, string>, over: Partial<WorkspaceView> = {}): W
   };
 }
 
-const attached = (attrs: string, pol = "POL-240", section = "4.1") => {
-  const { check, problems } = parseCheck(attrs);
-  expect(problems, `the check itself must parse: ${problems.map((p) => p.message).join("; ")}`).to.deep.equal([]);
-  return [{ pol, doc: "policies/org-policy.md", section, check: check! }];
-};
+const attached = (attrs: string, pol = "GOV-SVM-240", section = "4.1") =>
+  [{ pol, doc: "policies/org-policy.md", section, check: checkFrom(attrs) }];
 
 describe("glob — the small grammar, and the two orderings that were wrong", () => {
   it("`**/` matches zero directories as well as many", () => {
@@ -51,64 +48,6 @@ describe("glob — the small grammar, and the two orderings that were wrong", ()
     // The friendly reading ("no globs means all files") is the dangerous one: a check whose `when=` was
     // forgotten would apply to the whole repository, or pass vacuously.
     expect(filterByGlobs(["a.ts", "b.ts"], [])).to.deep.equal([]);
-  });
-});
-
-describe("verb triggers — parsing", () => {
-  it("reads `when=verb:close` as a verb trigger", () => {
-    const { check, problems } = parseCheck("kind=content-required when=verb:close file=k/close.md pattern=x");
-    expect(problems).to.deep.equal([]);
-    expect(check!.trigger).to.deep.equal({ on: "verb", verb: "close" });
-  });
-
-  it("refuses a verb gov has no gate on, rather than accepting a check that never fires", () => {
-    const { problems } = parseCheck("kind=file-required when=verb:deploy require=x");
-    expect(problems[0]!.message).to.contain("gov has no gate on 'deploy'");
-    expect(problems[0]!.message, "and it says which verbs exist").to.contain(GATEABLE_VERBS[0]);
-  });
-
-  it("refuses a MIXED trigger — one check, one moment", () => {
-    const { problems } = parseCheck("kind=file-required when=verb:close,**/x.md require=y");
-    expect(problems[0]!.message).to.contain("mixes a verb trigger with file globs");
-  });
-
-  it("refuses the two diff-only predicates on a verb, because 'added' has no meaning without a changeset", () => {
-    for (const kind of ["list-membership", "content-forbidden"]) {
-      const { problems } = parseCheck(`kind=${kind} when=verb:close list=x`);
-      expect(problems.map((p) => p.message).join(" "), kind).to.contain("defined over a changeset");
-    }
-  });
-
-  it("reports an absent when= instead of matching nothing quietly", () => {
-    expect(parseCheck("kind=file-required require=x").problems[0]!.message).to.contain("no when=");
-  });
-});
-
-describe("verb gate — selecting the checks that apply", () => {
-  const doc = `### 4.1 Closing
-
-A project MAY be closed only once its learnings are written up. **(POL-240)**
-
-<!-- gov:cue generated clause-sha=abc1234 -->
-> **Always in the agent's context** · POL-240 · C02
-> WRITE UP WHAT YOU LEARNED before closing.
-
-<!-- gov:check kind=file-required when=verb:close require=knowledge/learnings.md on_miss=fail -->
-
-### 4.2 Dependencies
-
-A dependency MAY be approved first. **(POL-241)**
-
-<!-- gov:cue generated clause-sha=def5678 -->
-> **Always in the agent's context** · POL-241 · C02
-> CHECK THE LIST FIRST.
-
-<!-- gov:check kind=list-membership when=**/package.json list=policies/approved.md on_miss=fail -->
-`;
-  it("picks only the checks attached to this verb", () => {
-    const { blocks } = parseCueBlocks("policies/org-policy.md", doc);
-    expect(checksForVerb(blocks, "close").map((c) => c.pol)).to.deep.equal(["POL-240"]);
-    expect(checksForVerb(blocks, "merge"), "nothing is attached to merge").to.deep.equal([]);
   });
 });
 
@@ -138,7 +77,7 @@ describe("verb gate — the five headings, asked for by an ORGANIZATION this tim
 
   it("every finding cites the clause, so a developer can read the rule they hit", () => {
     const r = gateVerb(attached(check), ws({}));
-    expect(r.failures[0]!.message).to.contain("POL-240");
+    expect(r.failures[0]!.message).to.contain("GOV-SVM-240");
     expect(r.failures[0]!.message).to.contain("policies/org-policy.md §4.1");
   });
 });
@@ -176,10 +115,10 @@ describe("verb gate — the other predicates, and what they mean with no diff", 
   });
 
   it("a diff-only predicate that somehow reaches the gate WARNS rather than passing silently", () => {
-    // parseCheck refuses it, so this is the hand-written or older-CLI case. A check that silently does nothing
+    // A binding should never carry one to a verb, so this is the malformed-row or older-CLI case. A check that silently does nothing
     // is the defect this design keeps finding; saying so is the minimum.
     const r = gateVerb(
-      [{ pol: "POL-9", doc: "d.md", section: "1", check: { kind: "content-forbidden", trigger: { on: "verb", verb: "close" }, attrs: {}, onMiss: "fail" } }],
+      [{ pol: "GOV-SVM-9", doc: "d.md", section: "1", check: { kind: "content-forbidden", trigger: { on: "verb", verb: "close" }, attrs: {}, onMiss: "fail" } }],
       ws({}),
     );
     expect(r.ok).to.equal(true);
@@ -192,7 +131,7 @@ describe("verb gate — what the developer reads", () => {
     const c = attached("kind=file-required when=verb:close require=a.md,b.md on_miss=fail");
     const out = formatGate(gateVerb(c, ws({})), "close").join("\n");
     expect(out).to.contain("gov close is blocked by 2 policy checks");
-    expect(out).to.contain("POL-240");
+    expect(out).to.contain("GOV-SVM-240");
     expect(out).to.contain("a.md");
   });
 
@@ -200,6 +139,3 @@ describe("verb gate — what the developer reads", () => {
     expect(formatGate(gateVerb([], ws({})), "close")).to.deep.equal([]);
   });
 });
-
-/** A cue block with a check, for the selection test above. Kept last so the fixture reads after the behaviour. */
-export type _Unused = CueBlock;

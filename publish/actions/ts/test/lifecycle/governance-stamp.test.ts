@@ -8,7 +8,6 @@
  * or fail a merge that has already landed.
  */
 import { expect } from "chai";
-import * as path from "node:path";
 import {
   STAMP_BEGIN, STAMP_END, gatherGovernanceFacts, stampFacts, stampLines, withStamp,
 } from "../../src/lifecycle/governance-stamp.js";
@@ -30,21 +29,20 @@ function memFs(seed: Record<string, string>): Fs {
   };
 }
 
-/** A workspace that has been through `gov rules build`: nine rendered files and two locks. */
+/** A workspace that has been through `gov rules build`: nine rendered files and an org policy version. */
 const built = (over: Record<string, string> = {}): Record<string, string> => ({
   ...Object.fromEntries(HARNESS_TARGETS.map((t) => [`${HOME}/agent/harness/${t.path}`, `rendered ${t.path}`])),
-  [`${HOME}/framework/policies/.pol-lock.json`]: JSON.stringify({ version: 1, start: 1, entries: [{ pol: "POL-011" }, { pol: "POL-012" }] }),
-  [`${HOME}/policies/.pol-lock.json`]: JSON.stringify({ version: 1, start: 200, entries: [{ pol: "POL-201" }] }),
+  [`${HOME}/policies/VERSION`]: "1.4.0\n",
   ...over,
 });
 
 describe("governance stamp — the three facts", () => {
-  it("states the rules hash, both locks and the gov version, one greppable line each", () => {
+  it("states the rules hash, the org policy version and the gov version, one greppable line each", () => {
     const got = gatherGovernanceFacts(memFs(built()), HOME, "1.2.3");
     expect(got.error).to.equal(undefined);
     const text = stampLines(got.facts!).join("\n");
     expect(text).to.match(/`gov-rules-hash: [0-9a-f]{16}`/);
-    expect(text).to.contain("`gov-pol-lock: framework=v1/2 org=v1/1`");
+    expect(text).to.contain("`gov-policy-version: 1.4.0`");
     expect(text).to.contain("`gov-version: 1.2.3`");
   });
 
@@ -66,17 +64,10 @@ describe("governance stamp — the three facts", () => {
     expect(got.error).to.contain("never run `gov rules build`");
   });
 
-  it("a tree with no lock states no numbers for it — an absent lock has issued none", () => {
+  it("an org with no policy history states 0.0.0, the version it stands at before its first rule", () => {
     const seed = built();
-    delete seed[`${HOME}/policies/.pol-lock.json`];
-    const facts = gatherGovernanceFacts(memFs(seed), HOME, "1.2.3").facts!;
-    expect(facts.locks.map((l) => l.which)).to.deep.equal(["framework"]);
-  });
-
-  it("an unparseable lock is reported, not silently counted as zero entries", () => {
-    const got = gatherGovernanceFacts(memFs(built({ [`${HOME}/policies/.pol-lock.json`]: "{ oops" })), HOME, "1.2.3");
-    expect(got.facts).to.equal(undefined);
-    expect(got.error).to.contain(path.join("policies", ".pol-lock.json"));
+    delete seed[`${HOME}/policies/VERSION`];
+    expect(gatherGovernanceFacts(memFs(seed), HOME, "1.2.3").facts!.policyVersion).to.equal("0.0.0");
   });
 });
 
@@ -104,7 +95,7 @@ describe("governance stamp — putting it in a pull request body", () => {
   });
 
   it("leaves the markers findable, so a year of pull requests can be grepped in one pass", () => {
-    const out = withStamp("Body.", stampLines({ rulesHash: "f".repeat(16), locks: [], govVersion: "1.2.3" }));
+    const out = withStamp("Body.", stampLines({ rulesHash: "f".repeat(16), policyVersion: "0.0.0", govVersion: "1.2.3" }));
     expect(out).to.contain(STAMP_BEGIN);
     expect(out).to.contain(STAMP_END);
     expect(out).to.contain("gov-rules-hash: ffffffffffffffff");
@@ -113,10 +104,10 @@ describe("governance stamp — putting it in a pull request body", () => {
 
 describe("governance stamp — reading the facts back out for a terminal line", () => {
   it("picks the key: value lines and drops the markup, so the printed line and the block agree", () => {
-    const lines = stampLines({ rulesHash: "a".repeat(16), locks: [{ which: "org", version: 1, entries: 7 }], govVersion: "1.2.3" });
+    const lines = stampLines({ rulesHash: "a".repeat(16), policyVersion: "1.4.0", govVersion: "1.2.3" });
     expect(stampFacts(lines)).to.deep.equal([
       "gov-rules-hash: aaaaaaaaaaaaaaaa",
-      "gov-pol-lock: org=v1/7",
+      "gov-policy-version: 1.4.0",
       "gov-version: 1.2.3",
     ]);
   });

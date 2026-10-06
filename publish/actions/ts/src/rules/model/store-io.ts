@@ -66,27 +66,53 @@ export type RuleStoreLoad =
  * Pure over `git`. `repo` is the governance repository (or any worktree of it — they share the object store).
  */
 export function loadRuleStores(git: GitRead, repo: string, ref: string): RuleStoreLoad {
-  const P = RULE_STORE_PATHS;
   // ONE LISTING, so "absent" is a fact git stated rather than an inference from a failed `show`. A `show` that
   // fails on a path the listing named is git failing, and is reported as such.
-  const listing = git(repo, ["ls-tree", "-r", "--name-only", ref, "--", "framework/rules", "policies", P.orgConfig]);
+  const listing = git(repo, ["ls-tree", "-r", "--name-only", ref, "--", "framework/rules", "policies", RULE_STORE_PATHS.orgConfig]);
   if (listing === null) return refuse(`could not list the rule stores at ${ref} (git did not answer)`, ref);
   const present = new Set(listing.split("\n").map((l) => l.trim()).filter(Boolean));
+  return loadRuleStoresFrom({ where: ref, read: (rel) => (present.has(rel) ? git(repo, ["show", `${ref}:${rel}`]) : undefined) });
+}
 
-  /** The file's text; `undefined` when the ref has no such file; `null` when git could not read one it listed. */
-  const read = (rel: string): string | undefined | null => (present.has(rel) ? git(repo, ["show", `${ref}:${rel}`]) : undefined);
+/**
+ * Where the store files come from, for {@link loadRuleStoresFrom}: a git ref, a working tree, the publisher's
+ * content tree. `read` answers `undefined` when the file is not there and `null` when it is there but unreadable —
+ * the same two answers {@link loadRuleStores} keeps apart.
+ */
+export interface RuleStoreSource {
+  /** Named in every message: a ref, or "the working tree". */
+  readonly where: string;
+  readonly read: (rel: string) => string | undefined | null;
+  /**
+   * The org scope, when the source has no org-config.yaml to read it from — the framework's own content tree,
+   * whose org-config is a template with an empty slug. An adopter never passes it.
+   */
+  readonly orgScope?: string;
+}
 
+/**
+ * THE ONE LOADER, over any source (P3 cutover, 2026-10-06). `gov rules build` reads the default branch through
+ * {@link loadRuleStores}, `--working-tree` and `gov setup`/`gov upgrade` read the disk, and the publisher's
+ * `render-harness.mjs` reads `publish/content/` — all three through this, so they cannot disagree about a row.
+ */
+export function loadRuleStoresFrom(src: RuleStoreSource): RuleStoreLoad {
+  const P = RULE_STORE_PATHS;
+  const ref = src.where;
   const texts: Partial<Record<keyof typeof P, string | undefined>> = {};
   for (const [k, rel] of Object.entries(P) as [keyof typeof P, string][]) {
-    const t = read(rel);
-    if (t === null) return refuse(`${rel} is at ${ref} but git could not read it`, ref);
+    const t = src.read(rel);
+    if (t === null) return refuse(`${rel} is at ${ref} but could not be read`, ref);
     texts[k] = t;
   }
 
-  if (texts.orgConfig === undefined) return refuse(`no ${P.orgConfig} at ${ref}, so the org store has no scope`, ref);
-  // Uppercased: setup has accepted a lowercase slug, and an id's scope is written in capitals (gov-id.ts).
-  const orgScope = (readTopLevelScalar(texts.orgConfig, "org_slug") ?? "").trim().toUpperCase();
-  if (!orgScope) return refuse(`${P.orgConfig} at ${ref} has no org_slug, so the org store has no scope`, ref);
+  let orgScope: string;
+  if (src.orgScope !== undefined) orgScope = src.orgScope.trim().toUpperCase();
+  else {
+    if (texts.orgConfig === undefined) return refuse(`no ${P.orgConfig} at ${ref}, so the org store has no scope`, ref);
+    // Uppercased: setup has accepted a lowercase slug, and an id's scope is written in capitals (gov-id.ts).
+    orgScope = (readTopLevelScalar(texts.orgConfig, "org_slug") ?? "").trim().toUpperCase();
+    if (!orgScope) return refuse(`${P.orgConfig} at ${ref} has no org_slug, so the org store has no scope`, ref);
+  }
   if (orgScope === FRAMEWORK_SCOPE) return refuse(`org_slug "${orgScope}" is reserved for the framework's own rules`, ref);
   if (!isScope(orgScope)) return refuse(`org_slug "${orgScope}" is not a usable rule scope (2–6 letters/digits, starting with a letter)`, ref);
 
@@ -127,6 +153,10 @@ export function loadRuleStores(git: GitRead, repo: string, ref: string): RuleSto
   });
   return { ok: true, set: { framework, org, orgScope, catalog, orgVersion }, diagnostics };
 }
+
+/** The three notes that describe a layout, not a fault in a row: they never stop a build. */
+export const isStoreNote = (d: StoreDiagnostic): boolean =>
+  d.kind === "missing-framework-store" || d.kind === "missing-framework-catalog" || d.kind === "missing-version";
 
 class StoreParseError extends Error {}
 

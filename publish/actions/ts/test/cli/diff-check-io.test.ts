@@ -12,59 +12,25 @@
  * `git` is one injected function, so all of it runs with no repository.
  */
 import { expect } from "chai";
-import { changedFiles, fileChecksAt, policyChecks } from "../../src/cli/diff-check-io.js";
+import { changedFiles, policyChecks } from "../../src/cli/diff-check-io.js";
 import type { GitRead } from "../../src/cli/policy-gate-io.js";
+import { storeTree, boundRow, treeGit, type Tree } from "../helpers/rule-store.js";
 
-const POLICY_WITH_CHECK = `## 3. Technology choices
+/** The rule that judges a dependency: list-membership on the gov repo's pull requests. */
+const RULE_WITH_CHECK = boundRow("GOV-SVM-210", { resource: "vcs.gov-repo", event: "pull_request" },
+  "gov-builtin/list-membership", { when: ["**/package.json"], list: "policies/approved-technologies.md" });
 
-### 3.1 Only approved technologies
-
-A library not listed in \`policies/approved-technologies.md\` MAY be introduced only with an approved
-exception. **(POL-210)**
-
-<!-- gov:cue generated clause-sha=fa2f24d -->
-> **Always in the agent's context** · POL-210 · C02
-> TECHNOLOGY CHOICES ARE NOT YOURS.
-
-<!-- gov:check kind=list-membership when=**/package.json list=policies/approved-technologies.md on_miss=fail -->
-`;
-
-const POLICY_WITHOUT_CHECK = `## 3. Technology choices
-
-### 3.1 Only approved technologies
-
-Pick whatever you like. **(POL-210)**
-`;
-
-/** One ref's tree: every path the ref holds, and its text. */
-type Tree = Readonly<Record<string, string>>;
-
-/**
- * A git that answers from in-memory trees. It records every invocation, so a test can assert not only what the
- * code concluded but WHICH REF it asked about — the only way to prove the ratified-branch rule from the outside.
- */
+/** A git over trees that also answers the changeset calls. */
 function fakeGit(
   trees: Readonly<Record<string, Tree>>,
   nameStatus: string,
   hunks: Readonly<Record<string, string>> = {},
 ): GitRead & { calls: string[][] } {
-  const calls: string[][] = [];
-  const git = ((_repo: string, args: readonly string[]): string | null => {
-    calls.push([...args]);
-    if (args[0] === "ls-tree") {
-      const ref = args[3]!;
-      return Object.keys(trees[ref] ?? {}).filter((p) => p.startsWith("policies/") || p.startsWith("framework/policies/")).join("\n");
-    }
-    if (args[0] === "show") {
-      const [ref, rel] = args[1]!.split(/:(.*)/s) as [string, string];
-      return trees[ref]?.[rel] ?? null;
-    }
+  return treeGit(trees, (args) => {
     if (args[0] === "diff" && args[1] === "--name-status") return nameStatus;
     if (args[0] === "diff" && args[1] === "-U0") return hunks[args[5]!] ?? "";
     return null;
-  }) as GitRead & { calls: string[][] };
-  git.calls = calls;
-  return git;
+  });
 }
 
 const APPROVED_ON_MAIN = "| mocha · chai | tests |\n";
@@ -105,27 +71,28 @@ describe("reading the changeset", () => {
   });
 });
 
-describe("where the rule comes from", () => {
+describe("where the rule comes from — the rule rows at the ratified ref", () => {
   const nameStatus = "M\tpackage.json\n";
   const hunks = { "package.json": '+++ b/package.json\n+    "left-pad": "^1.3.0",\n' };
 
-  it("the check still fires when the branch under review has DELETED the clause", () => {
+  it("the check still fires when the branch under review has DELETED the rule row", () => {
     const git = fakeGit({
-      main: { "policies/org-policy.md": POLICY_WITH_CHECK, "policies/approved-technologies.md": APPROVED_ON_MAIN },
-      HEAD: { "policies/org-policy.md": POLICY_WITHOUT_CHECK, "package.json": "{}" },
+      main: storeTree(RULE_WITH_CHECK, { "policies/approved-technologies.md": APPROVED_ON_MAIN }),
+      HEAD: storeTree("[]\n", { "package.json": "{}" }),
     }, nameStatus, hunks);
 
     const r = policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" });
-    expect(r.ok, "a branch that edits the policy must not be judged by its own edit (GOV-FRM-456, GOV-FRM-086)").to.equal(false);
+    expect(r.ok, "a branch that edits the rules must not be judged by its own edit (GOV-FRM-456, GOV-FRM-086)").to.equal(false);
     expect(r.failures[0]!.message).to.contain("left-pad");
-    expect(git.calls.some((c) => c[0] === "ls-tree" && c[3] === "main"), "the clauses are listed at the ratified ref").to.equal(true);
-    expect(git.calls.some((c) => c[0] === "show" && c[1] === "HEAD:policies/org-policy.md"),
-      "and the branch's own copy of the policy is never read").to.equal(false);
+    expect(r.failures[0]!.pol).to.equal("GOV-SVM-210");
+    expect(git.calls.some((c) => c[0] === "ls-tree" && c[3] === "main"), "the stores are listed at the ratified ref").to.equal(true);
+    expect(git.calls.some((c) => c[0] === "show" && c[1]!.startsWith("HEAD:policies/")),
+      "and the branch's own copy of the rules is never read").to.equal(false);
   });
 
   it("the list= document is read from the ratified ref too — a branch cannot approve its own dependency", () => {
     const git = fakeGit({
-      main: { "policies/org-policy.md": POLICY_WITH_CHECK, "policies/approved-technologies.md": APPROVED_ON_MAIN },
+      main: storeTree(RULE_WITH_CHECK, { "policies/approved-technologies.md": APPROVED_ON_MAIN }),
       HEAD: { "policies/approved-technologies.md": APPROVED_ON_BRANCH, "package.json": "{}" },
     }, nameStatus, hunks);
 
@@ -136,38 +103,46 @@ describe("where the rule comes from", () => {
 
   it("the same change passes once the ratified list holds the dependency", () => {
     const git = fakeGit({
-      main: { "policies/org-policy.md": POLICY_WITH_CHECK, "policies/approved-technologies.md": APPROVED_ON_BRANCH },
+      main: storeTree(RULE_WITH_CHECK, { "policies/approved-technologies.md": APPROVED_ON_BRANCH }),
       HEAD: { "package.json": "{}" },
     }, nameStatus, hunks);
     expect(policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" }).failures).to.deep.equal([]);
   });
 
-  it("only the checks whose globs match the change are selected", () => {
-    const git = fakeGit({ main: { "policies/org-policy.md": POLICY_WITH_CHECK } }, nameStatus, hunks);
-    const changed = changedFiles(git, { repo: "/w", ref: "main", base: "base", head: "HEAD" });
-    expect(fileChecksAt(git, "/w", "main", changed).map((c) => c.pol)).to.deep.equal(["POL-210"]);
-    expect(fileChecksAt(git, "/w", "main", [{ path: "README.md", status: "modified", addedLines: [], text: "" }]))
-      .to.deep.equal([]);
-  });
-
-  it("a workspace whose policy carries no file check reports nothing — adopters who wrote no clause are not blocked", () => {
-    const git = fakeGit({ main: { "policies/org-policy.md": POLICY_WITHOUT_CHECK } }, nameStatus, hunks);
+  it("only the bindings whose `when` globs match the change judge it", () => {
+    const git = fakeGit({ main: storeTree(RULE_WITH_CHECK, { "policies/approved-technologies.md": APPROVED_ON_MAIN }) }, "M\tREADME.md\n", { "README.md": "+++ b/README.md\n+hello\n" });
     expect(policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" }))
       .to.deep.equal({ ok: true, failures: [], warnings: [] });
   });
 
-  it("an empty changeset short-circuits: nothing changed, nothing to judge", () => {
-    const git = fakeGit({ main: { "policies/org-policy.md": POLICY_WITH_CHECK } }, "");
-    expect(policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" }).ok).to.equal(true);
-    expect(git.calls.some((c) => c[0] === "ls-tree"), "and the policy is not even read").to.equal(false);
+  it("only the changeset predicates run locally — an approval check is the pull request's business", () => {
+    const approval = boundRow("GOV-SVM-300", { resource: "vcs.gov-repo", event: "pull_request" }, "gov-builtin/section-owner-approval", {});
+    const git = fakeGit({ main: storeTree(approval) }, nameStatus, hunks);
+    expect(policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" }))
+      .to.deep.equal({ ok: true, failures: [], warnings: [] });
   });
 
-  it("the branch is passed through, so a `subject=branch` clause can be judged on a pull request", () => {
-    const policy = POLICY_WITH_CHECK.replace(
-      /<!-- gov:check.*-->/,
-      "<!-- gov:check kind=naming when=** subject=branch pattern=^BRNCH- on_miss=fail -->",
-    );
-    const git = fakeGit({ main: { "policies/org-policy.md": policy }, HEAD: { "package.json": "{}" } }, nameStatus, hunks);
+  it("a workspace whose rules bind no changeset check reports nothing — adopters who wrote no rule are not blocked", () => {
+    const git = fakeGit({ main: storeTree("[]\n") }, nameStatus, hunks);
+    expect(policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" }))
+      .to.deep.equal({ ok: true, failures: [], warnings: [] });
+  });
+
+  it("rule stores that cannot be read are a warning, never a silent pass", () => {
+    const git = fakeGit({ main: { "policies/rules.yaml": "[]\n" } }, nameStatus, hunks);   // no org-config → no scope
+    const r = policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" });
+    expect(r.warnings.map((w) => w.message).join("\n")).to.contain("could not be read");
+  });
+
+  it("an empty changeset short-circuits: nothing changed, nothing to judge", () => {
+    const git = fakeGit({ main: storeTree(RULE_WITH_CHECK) }, "");
+    expect(policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" }).ok).to.equal(true);
+    expect(git.calls.some((c) => c[0] === "ls-tree"), "and the rules are not even read").to.equal(false);
+  });
+
+  it("the branch is passed through, so a `subject: branch` naming check can be judged on a pull request", () => {
+    const naming = boundRow("GOV-SVM-220", { resource: "vcs.gov-repo", event: "pull_request" }, "gov-builtin/naming", { subject: "branch", pattern: "^BRNCH-" });
+    const git = fakeGit({ main: storeTree(naming), HEAD: { "package.json": "{}" } }, nameStatus, hunks);
     const bad = policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD", branch: "feature/x" });
     expect(bad.failures[0]!.message).to.contain("feature/x");
     const good = policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD", branch: "BRNCH-121-x" });

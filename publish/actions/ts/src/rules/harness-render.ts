@@ -8,7 +8,7 @@
  * agent instructions, because we ran the script by hand, and **an organization's own cues could not, ever**.
  * "Write a policy and your agents will follow it" was true for us and false for every customer.
  *
- * Nine files, one text. Every approved agent reads its own conventional path — `CLAUDE.md`, `AGENTS.md`,
+ * Nine files, one text: the session protocol with the resident rules in place of `{{render.always_rules}}`. Every approved agent reads its own conventional path — `CLAUDE.md`, `AGENTS.md`,
  * `.cursor/rules/agent.mdc`, and the rest — and none of them can follow a pointer, so the content is INLINED
  * rather than imported. `@`-imports were retired for exactly this reason: they worked for one vendor and made
  * that vendor the better-governed choice for a reason unrelated to its merits (gov-behaviour.md §8).
@@ -16,8 +16,8 @@
  * Pure: text in, files out. No disk, no clock, no randomness — `--check` compares bytes, so a renderer whose
  * output varied would make the check meaningless and the guarantee unverifiable.
  */
-import { parseCueBlocks, CUE_HEADER } from "./cue-block.js";
-import type { PolicyDoc } from "./rules-build.js";
+import { renderResidentBlock } from "./cues/resident.js";
+import type { RuleSet } from "./model/contracts.js";
 
 /** The marker `verifyAgentContext` looks for before it will launch an agent. */
 export const PROTOCOL_MARKER = "gov-protocol-version";
@@ -61,42 +61,6 @@ const CURSOR_FRONT_MATTER = [
 /** A failure the caller must surface, never throw past. */
 export interface RenderFailure { readonly error: string }
 
-/**
- * Assemble the resident block from every document's cue blocks.
- *
- * FRAMEWORK FIRST, then the organization — a reading convenience only. Position creates no precedence: a model
- * does not rank instructions by where they appear, so "framework rules win" is enforced at compile time and by
- * checks that run regardless of configuration, never by ordering (framework-policy.md §9.1, §10.1).
- */
-export function assembleResidentBlock(docs: readonly PolicyDoc[]): string | RenderFailure {
-  const cues: string[] = [];
-  for (const doc of docs) {
-    for (const block of parseCueBlocks(doc.path, doc.text).blocks) {
-      // The `**Always in the agent's context**` label earns its place in the POLICY, where it tells a reader
-      // which clauses are resident. Here it would be one copy per cue of a fact the file itself is — so the
-      // clause's own citation becomes the heading, which is what a reader needs in order to look the rule up.
-      const heading = `> **${block.cite} · ${block.level}**`;
-      const body = block.cue.split("\n").map((l) => `> ${l}`.trimEnd()).join("\n");
-      cues.push(`${heading}\n${body}`);
-    }
-  }
-  if (!cues.length) {
-    return {
-      error: "no `gov:cue` blocks found in any policy document — the resident block would render EMPTY, and a "
-        + "harness file with an empty resident block looks governed and governs nothing. Every resident rule is a "
-        + "cue block beside its clause; see framework-policy.md §1.4.",
-    };
-  }
-  return [
-    "**These rules bind every turn, not just the first. Each is compiled from the clause it names, and the",
-    "clause is the authority — read it with `gov knowledge show <the document named>`.**",
-    "",
-    // BLANK LINES BETWEEN THEM. Markdown fuses adjacent blockquotes into one block, so without this the rules
-    // arrive as a single wall of text — which is how a resident block stops being read.
-    cues.join("\n\n"),
-  ].join("\n");
-}
-
 /** One file's content: the banner, then the body in this target's template. */
 export function renderHarnessFile(target: (typeof HARNESS_TARGETS)[number], body: string): string {
   const head = target.template === "cursor" ? `${CURSOR_FRONT_MATTER}${GENERATED_BANNER}` : GENERATED_BANNER;
@@ -104,21 +68,28 @@ export function renderHarnessFile(target: (typeof HARNESS_TARGETS)[number], body
 }
 
 /**
- * Every file, from the protocol body and the policies.
+ * Every file, from the protocol body and the rule rows (P3 cutover, 2026-10-06).
+ *
+ * The resident block is `renderResidentBlock`'s (cues/resident.ts, W7): the cue of every in-force rule whose row
+ * says `cue.tier: resident`, framework first. It used to be assembled here from inline `gov:cue` blocks in the
+ * policy prose; that notation is retired — policy prose is never modified by gov, and a cue lives in its rule row.
+ * A resident tier over its cap is a failure the caller surfaces, never a truncation.
  *
  * Fatal when the protocol carries no version marker: `verifyAgentContext` refuses to launch an agent whose
  * instructions file lacks it, so rendering without it would turn every agent unlaunchable in a way whose cause
  * is nowhere near its effect.
  */
-export function renderAll(protocolBody: string, docs: readonly PolicyDoc[]): { readonly files: readonly { path: string; content: string }[] } | RenderFailure {
+export function renderAll(protocolBody: string, rules: RuleSet): { readonly files: readonly { path: string; content: string }[] } | RenderFailure {
   if (!protocolBody.includes(PROTOCOL_MARKER)) {
     return {
       error: `the session protocol carries no '${PROTOCOL_MARKER}' line. gov verifies that marker before launching `
         + "any agent, so every rendered file would be rejected as 'not the protocol gov renders'.",
     };
   }
-  const block = assembleResidentBlock(docs);
-  if (typeof block !== "string") return block;
+  // P3C MERGE POINT (GOV-FRM-464): the ONE call site of the resident tier. In-force exceptions are passed here
+  // as `renderResidentBlock(rules, { exceptions, today, project })` once exceptions-io.ts is on this branch.
+  const block = renderResidentBlock(rules);
+  if (typeof block !== "string") return { error: block.error };
   const body = protocolBody.replace(/\n+$/, "").split(RESIDENT_PLACEHOLDER).join(block);
   return { files: HARNESS_TARGETS.map((t) => ({ path: t.path, content: renderHarnessFile(t, body) })) };
 }
@@ -126,6 +97,3 @@ export function renderAll(protocolBody: string, docs: readonly PolicyDoc[]): { r
 /** Did the assembled block actually make it in? A protocol missing the placeholder renders without the rules. */
 export const carriesResidentBlock = (content: string): boolean =>
   content.includes("These rules bind every turn") && !content.includes(RESIDENT_PLACEHOLDER);
-
-/** The cue header a policy uses, re-exported so a caller need not know which module defines it. */
-export { CUE_HEADER };

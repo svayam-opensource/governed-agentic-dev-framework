@@ -1,25 +1,27 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * `gov rules build | check | report` — the disk and terminal side of the compiler.
+ * `gov rules build | check | report` — the disk and terminal side of {@link ../rules/rules-build.js}.
  *
- * THREE MODES, ONE COMPUTATION. `check` must fail exactly when the committed artifacts differ from what `build`
- * would write, so both call the same `build()` and differ only in what they do with the answer. Two code paths
- * computing "what should be there" is how a freshness check comes to pass on a stale file — which is the state
- * `render-harness.mjs --check` was already in: implemented, and called by nothing.
+ * THREE MODES, ONE COMPUTATION. `check` must fail exactly when the committed files differ from what `build` would
+ * write, so both call the same `plan()` and differ only in what they do with the answer.
  *
- * READ FROM THE DEFAULT BRANCH by default. A policy edited on a project branch is a PROPOSAL (GOV-FRM-086); compile
- * it into the resident block and an agent starts obeying a rule nobody ratified — self-governance delivered into
- * the one place guaranteed to be read. `--working-tree` exists for the author who is drafting and wants to see
- * their own compile report, and it says so in the output every time.
+ * READ FROM THE DEFAULT BRANCH by default. A rule row edited on a project branch is a PROPOSAL (GOV-FRM-086);
+ * rendering it into the resident block would have an agent obeying a rule nobody ratified. `--working-tree` exists
+ * for an author drafting, for `gov setup` (nothing is committed yet) and for `gov upgrade` (the new framework rows
+ * are on disk, not yet on the branch), and it says so in the output every time.
+ *
+ * WHAT `check` ALSO FAILS ON: a STALE ROW — an in-force row whose source section's sha has moved on (Q9). The prose
+ * changed and nobody re-read the rule against it; `gov rules propose` is the way out.
  */
 import * as path from "node:path";
-import { build, renderRuleMap, isWarning, frameworkFirst, type PolicyDoc } from "../rules/rules-build.js";
-import { renderAll, type RenderFailure } from "../rules/harness-render.js";
-import { stampCues } from "../rules/cue-stamp.js";
-import { LOCK_FILE, parseLock, writeLock, parseLegacyYamlLock, nextFree } from "../rules/pol-lock-io.js";
-import { FRAMEWORK_POL_START, ORG_POL_START } from "../rules/pol-lock.js";
-import { POLICY_ROOTS, type GitRead } from "./policy-gate-io.js";
+import { buildArtifacts, staleRows, formatStaleRow, summaryLines, type BuiltFile, type StaleRow } from "../rules/rules-build.js";
+import { loadRuleStores, loadRuleStoresFrom, isStoreNote, RULE_STORE_PATHS, type StoreDiagnostic } from "../rules/model/store-io.js";
+import { residentRows } from "../rules/cues/resident.js";
+import { summariseRuleSet } from "../rules/model/rule-map.js";
+import type { RuleSet } from "../rules/model/contracts.js";
+import type { RuleClass } from "../rules/model/catalog.js";
+import type { GitRead } from "./policy-gate-io.js";
 import type { Fs } from "../lifecycle/fs-io.js";
 
 export interface RulesDeps {
@@ -32,18 +34,10 @@ export interface RulesInput {
   readonly home: string;
   /** The ratified branch. Ignored with `workingTree`. */
   readonly defaultBranch: string;
-  /** Compile what is on disk instead of what is ratified — for an author mid-draft. */
+  /** Read the rule stores from disk instead of from the ratified branch. */
   readonly workingTree?: boolean;
   /** Where the protocol body lives, relative to `home`. */
   readonly protocolPath?: string;
-  /** POL numbers whose rewording the owner has confirmed — the answer to a `build` that stopped and asked. */
-  readonly confirm?: readonly string[];
-  /**
-   * Re-stamp a cue whose clause changed but whose WORDING still holds — the "I re-read it and it is still right"
-   * action. Never implied: an automatic re-stamp would silently approve every edit the staleness guard exists to
-   * catch, so it has to be a thing a person types.
-   */
-  readonly restamp?: boolean;
 }
 
 export interface RulesResult {
@@ -52,125 +46,79 @@ export interface RulesResult {
 }
 
 const PROTOCOL = path.join("agent", "session-protocol.md");
-/** One lock per tree: the framework's numbers and an organization's are never mixed (POL ranges, design §3). */
-const LOCK_DIRS = { framework: path.join("framework", "policies"), org: "policies" } as const;
-const RULE_MAP = path.join("agent", "harness", "rule-map.md");
-const isFailure = (x: unknown): x is RenderFailure => typeof x === "object" && x !== null && "error" in x;
 
-/** Every policy document, from the ratified branch or from disk. */
-export function readPolicyDocs(deps: RulesDeps, input: RulesInput): PolicyDoc[] {
-  if (input.workingTree) {
-    const docs: PolicyDoc[] = [];
-    for (const root of POLICY_ROOTS) {
-      for (const name of deps.fs.readdir(path.join(input.home, root)).sort()) {
-        if (!name.endsWith(".md")) continue;
-        const text = deps.fs.readFile(path.join(input.home, root, name));
-        if (text !== null) docs.push({ path: `${root}/${name}`, text });
-      }
-    }
-    return docs;
-  }
+/** Every store file `loadRuleStoresFrom` may ask for. Absent from disk and from the ref alike → nothing to build. */
+const STORE_FILES = [RULE_STORE_PATHS.frameworkRules, RULE_STORE_PATHS.orgRules] as const;
+
+/** A reader for one document, from the same place the rows came from. */
+type ReadDoc = (rel: string) => string | null;
+
+/** Where the rows and their source documents are read: the ratified branch, or the disk. */
+function sourceOf(deps: RulesDeps, input: RulesInput): { readonly where: string; readonly readDoc: ReadDoc } | { readonly error: string } {
+  if (input.workingTree) return { where: "the working tree", readDoc: (rel) => deps.fs.readFile(path.join(input.home, rel)) };
   const git = deps.git;
-  if (!git) return [];
-  const listing = git(input.home, ["ls-tree", "-r", "--name-only", input.defaultBranch, "--", ...POLICY_ROOTS]);
-  if (listing === null) return [];
-  const docs: PolicyDoc[] = [];
-  for (const rel of listing.split("\n").map((l) => l.trim()).filter((l) => l.endsWith(".md"))) {
-    const text = git(input.home, ["show", `${input.defaultBranch}:${rel}`]);
-    if (text !== null) docs.push({ path: rel, text });
-  }
-  return docs;
+  if (!git) return { error: `git is not available, so the rules on ${input.defaultBranch} cannot be read` };
+  return { where: input.defaultBranch, readDoc: (rel) => git(input.home, ["show", `${input.defaultBranch}:${rel}`]) };
 }
 
-/**
- * Read the lock, migrating the interim YAML one if that is what is on disk.
- *
- * The framework already SHIPPED `.pol-lock.yaml`, so an adopter may hold one. Refusing to read it would discard
- * every number the framework had allocated — the one outcome the lock exists to prevent — so it is read once and
- * rewritten as JSON.
- */
-function readLock(deps: RulesDeps, home: string, dir: string, start: number): { lock?: ReturnType<typeof parseLock>["lock"]; error?: string; migrated?: boolean } {
-  const json = deps.fs.readFile(path.join(home, dir, LOCK_FILE));
-  if (json !== null) return parseLock(json, start);
-  const yaml = deps.fs.readFile(path.join(home, dir, ".pol-lock.yaml"));
-  if (yaml !== null) {
-    const legacy = parseLegacyYamlLock(yaml);
-    return legacy.lock ? { lock: legacy.lock, migrated: true } : { error: legacy.error! };
-  }
-  return parseLock(null, start);
+/** Is there any rule store to build from? A workspace on the pre-rule-model layout has neither file. */
+export function hasRuleStores(deps: RulesDeps, input: RulesInput): boolean {
+  const src = sourceOf(deps, input);
+  if ("error" in src) return false;
+  return STORE_FILES.some((rel) => src.readDoc(rel) !== null);
 }
+
+/** Load the RuleSet from wherever `input` says. */
+export function loadRules(deps: RulesDeps, input: RulesInput): { readonly set: RuleSet; readonly diagnostics: readonly StoreDiagnostic[]; readonly readDoc: ReadDoc } | { readonly error: string } {
+  const src = sourceOf(deps, input);
+  if ("error" in src) return src;
+  const loaded = input.workingTree
+    ? loadRuleStoresFrom({ where: src.where, read: (rel) => src.readDoc(rel) ?? undefined })
+    : loadRuleStores(deps.git!, input.home, input.defaultBranch);
+  if (!loaded.ok) return { error: loaded.reason };
+  return { set: loaded.set, diagnostics: loaded.diagnostics, readDoc: src.readDoc };
+}
+
+export interface RulesPlan {
+  readonly set: RuleSet;
+  /** What SHOULD be on disk. */
+  readonly files: readonly BuiltFile[];
+  /** Row and binding findings that stop a build. */
+  readonly errors: readonly string[];
+  /** Layout notes (no framework store yet, …) — reported, never blocking. */
+  readonly notes: readonly string[];
+  readonly stale: readonly StaleRow[];
+  readonly report: readonly string[];
+}
+
+const diag = (d: StoreDiagnostic): string => `  ${d.store}${d.id ? ` ${d.id}` : ""}  ${d.kind} — ${d.message}`;
 
 /** What `build`/`check` would write, and why it might refuse. */
-export function plan(deps: RulesDeps, input: RulesInput): {
-  readonly result?: { files: { path: string; content: string }[]; report: readonly string[]; asks: readonly { readonly message: string; readonly candidate?: string }[]; diagnostics: readonly string[]; locks: readonly { path: string; content: string }[]; stamps: readonly string[]; migrated?: boolean };
-  readonly error?: string;
-} {
-  let docs = readPolicyDocs(deps, input);
-  if (!docs.length) {
-    return {
-      error: input.workingTree
-        ? `no policy documents under ${POLICY_ROOTS.join(" or ")} in ${input.home}.`
-        : `no policy documents found on ${input.defaultBranch}. Is this a governance repository, and is that branch fetched?`,
-    };
-  }
-  const fw = readLock(deps, input.home, LOCK_DIRS.framework, FRAMEWORK_POL_START);
-  const org = readLock(deps, input.home, LOCK_DIRS.org, ORG_POL_START);
-  if (fw.error || !fw.lock) return { error: fw.error ?? "could not read the framework lock" };
-  if (org.error || !org.lock) return { error: org.error ?? "could not read the organization lock" };
-
-  // STAMP THE CUES BEFORE COMPILING. A cue carrying `clause-sha=TBD` is one an author wrote and nobody hashed,
-  // so `staleCues` reports every one of them and the real staleness — a clause edited without its cue being
-  // re-approved — is lost in the noise. Filling the missing hashes is mechanical; approving a cue's WORDING is
-  // not, and this does not do that (see `stampCues`: an existing hash is left alone).
-  const stampedDocs = docs.map((d) => {
-    const r = stampCues(d.path, d.text, input.restamp ? "restamp" : "fill-missing");
-    return { doc: d, text: r.text, stamped: r.stamped };
-  });
-  const stamps = stampedDocs.flatMap((s) => s.stamped);
-  const policyWrites = stampedDocs
-    .filter((s) => s.text !== s.doc.text)
-    .map((s) => ({ path: s.doc.path, content: s.text }));
-  docs = stampedDocs.map((s) => ({ path: s.doc.path, text: s.text }));
-
-  const built = build(docs, { framework: fw.lock, org: org.lock }, input.confirm ?? []);
+export function plan(deps: RulesDeps, input: RulesInput): { readonly result?: RulesPlan; readonly error?: string } {
+  const loaded = loadRules(deps, input);
+  if ("error" in loaded) return { error: loaded.error };
   const protocol = deps.fs.readFile(path.join(input.home, input.protocolPath ?? PROTOCOL));
   if (protocol === null) return { error: `${input.protocolPath ?? PROTOCOL} is missing — it is the body every agent file is rendered from.` };
 
-  // FRAMEWORK CUES FIRST, and `docs` is not in that order: `POLICY_ROOTS` lists `policies` before
-  // `framework/policies`, so passing it straight through emitted the ORGANIZATION'S cues above the framework's —
-  // the opposite of what §9.1 says, and a silent disagreement with `render-harness.mjs`, which ordered them
-  // correctly. `build` sorts for its own purposes; the renderer needs the same order or the two producers of the
-  // nine files differ by the one thing the wrapper exists to prevent.
-  const rendered = renderAll(protocol, frameworkFirst(docs));
-  if (isFailure(rendered)) return { error: rendered.error };
-
-  const files = [
-    // A stamped policy document is written back ONLY when the working tree was the source. The default read is
-    // `git show <default>:<path>`, and writing that content into the worktree would put a ratified document's
-    // bytes into somebody's branch as a side effect of a command they ran to LOOK at the rules.
-    ...(input.workingTree ? policyWrites : []),
-    ...rendered.files.map((f) => ({ path: path.join("agent", "harness", f.path), content: f.content })),
-    { path: RULE_MAP, content: renderRuleMap(built.map) },
-  ];
-  const writes: { path: string; content: string }[] = [];
-  for (const [which, dir] of Object.entries(LOCK_DIRS) as ["framework" | "org", string][]) {
-    const before = which === "framework" ? fw.lock! : org.lock!;
-    const w = writeLock(before, built.locks[which]);
-    if (w.error) return { error: w.error };
-    if (w.text) writes.push({ path: path.join(dir, LOCK_FILE), content: w.text });
-  }
-
+  const built = buildArtifacts(protocol, loaded.set);
+  if ("error" in built) return { error: built.error };
   return {
     result: {
-      files, report: built.report, asks: built.asks,
-      // Only ERRORS block. A warning is a backlog item, and a build that refuses until a 150-item backlog is
-      // cleared is a build nobody runs.
-      diagnostics: built.diagnostics.filter((d) => !isWarning(d)).map((d) => `  ${d.doc} §${d.section}:${d.line}  ${d.kind} — ${d.message}`),
-      locks: writes, stamps,
-      ...(fw.migrated || org.migrated ? { migrated: true } : {}),
+      set: loaded.set,
+      files: built.files,
+      errors: loaded.diagnostics.filter((d) => !isStoreNote(d)).map(diag),
+      notes: loaded.diagnostics.filter(isStoreNote).map(diag),
+      stale: staleRows(loaded.set, loaded.readDoc),
+      report: summaryLines(loaded.set),
     },
   };
 }
+
+const staleLines = (stale: readonly StaleRow[]): string[] => stale.length
+  ? ["", `${stale.length} rule row(s) are pending re-review — their source section changed since the row was approved:`,
+    ...stale.map((s) => `  ${formatStaleRow(s)}`),
+    "  Re-read each against its section with `gov rules propose`, and have the result approved."]
+  : [];
 
 /** `gov rules <mode>`. */
 export function rules(deps: RulesDeps, input: RulesInput, mode: "build" | "check" | "report"): RulesResult {
@@ -179,67 +127,75 @@ export function rules(deps: RulesDeps, input: RulesInput, mode: "build" | "check
 
   const source = input.workingTree ? "the WORKING TREE (unratified — an agent is governed by the default branch)" : input.defaultBranch;
   const head = [`gov rules ${mode} — from ${source}`, ""];
+  const notes = result.notes.length ? ["", "notes", ...result.notes] : [];
 
   if (mode === "report") {
-    return { code: result.diagnostics.length ? 1 : 0, lines: [...head, ...result.report, ...(result.diagnostics.length ? ["", `notation errors (${result.diagnostics.length})`, ...result.diagnostics] : [])] };
+    return {
+      code: result.errors.length ? 1 : 0,
+      lines: [...head, ...result.report, ...notes, ...staleLines(result.stale),
+        ...(result.errors.length ? ["", `rule store errors (${result.errors.length})`, ...result.errors] : [])],
+    };
   }
 
-  // A question must stop a write. Reusing a number would hand a reworded clause an approval it never had;
-  // allocating a fresh one would leave every existing citation pointing at a retired rule.
-  if (result.asks.length) {
-    const candidates = [...new Set(result.asks.map((a) => a.candidate).filter((c): c is string => Boolean(c)))];
+  if (result.errors.length) {
+    return { code: 1, lines: [...head, `${result.errors.length} error(s) in the rule stores — fix these first:`, "", ...result.errors, "", "Nothing was written."] };
+  }
+
+  const stale = result.files.filter((f) => deps.fs.readFile(path.join(input.home, f.path)) !== f.content).map((f) => f.path);
+
+  if (mode === "check") {
+    const ok = !stale.length && !result.stale.length;
     return {
-      code: 1,
+      code: ok ? 0 : 1,
       lines: [
         ...head,
-        `${result.asks.length} clause(s) cannot be numbered without a decision:`,
-        "",
-        ...result.asks.map((a) => `  ${a.message}`),
-        "",
-        "Read each clause. If it IS the reworded rule that number names, confirm it — the old text is kept in the",
-        "entry's history, so an audit can still say which wording the number was allocated for:",
-        "",
-        ...(candidates.length ? [`  gov rules build --confirm ${candidates.join(",")}`, ""] : []),
-        "If it is a NEW rule instead, give it its own number in the clause and run build again.",
-        "",
-        "Nothing was written.",
+        ...(stale.length
+          ? [`${stale.length} generated file(s) are stale:`, ...stale.map((s) => `  ${s}`), "", "Run `gov rules build` and commit the result."]
+          : ["every generated file matches the rule stores."]),
+        ...staleLines(result.stale),
+        ...(ok ? ["", ...result.report] : []),
       ],
     };
   }
-  if (result.diagnostics.length) {
-    return { code: 1, lines: [...head, `${result.diagnostics.length} notation error(s) — fix these first:`, "", ...result.diagnostics, "", "Nothing was written."] };
-  }
 
-  // Both locks are compared and written exactly like any other generated file, so there is one notion of "stale".
-  const all = [...result.files, ...result.locks];
-  const stale = all.filter((f) => deps.fs.readFile(path.join(input.home, f.path)) !== f.content).map((f) => f.path);
-
-  if (mode === "check") {
-    return stale.length
-      ? { code: 1, lines: [...head, `${stale.length} generated file(s) are stale:`, ...stale.map((s) => `  ${s}`), "", "Run `gov rules build` and commit the result."] }
-      : { code: 0, lines: [...head, "every generated file matches the policies.", ...result.report] };
-  }
-
-  for (const f of all) deps.fs.writeFile(path.join(input.home, f.path), f.content);
-  // The interim YAML lock is removed only once its JSON replacement is safely written — never before, or a
-  // failed write between the two would leave a workspace with no lock and every number unaccounted for.
-  if (result.migrated) {
-    for (const dir of Object.values(LOCK_DIRS)) deps.fs.rm(path.join(input.home, dir, ".pol-lock.yaml"));
-  }
-
-  const fwLock = result.locks.find((l) => l.path.startsWith(LOCK_DIRS.framework));
+  for (const f of result.files) deps.fs.writeFile(path.join(input.home, f.path), f.content);
   return {
     code: 0,
     lines: [
       ...head,
-      `wrote ${all.length} file(s)${result.migrated ? " (migrated .pol-lock.yaml → .pol-lock.json)" : ""}.`,
-      ...(result.stamps.length ? [`  stamped ${result.stamps.length} cue(s) with their clause's hash: ${result.stamps.join(", ")}`] : []),
+      `wrote ${result.files.length} file(s).`,
       ...(stale.length ? [] : ["  (nothing had changed)"]),
       "",
       ...result.report,
-      ...(fwLock ? ["", `next framework POL number: ${nextFree(parseLock(fwLock.content, FRAMEWORK_POL_START).lock!)}`] : []),
+      ...notes,
+      ...staleLines(result.stale),
       "",
       "Restart any running agent session: a session cannot pick up new rules in place.",
     ],
+  };
+}
+
+/** What `gov doctor` reports about the rules, from the same plan `gov rules check` makes. Absent ⇒ no rows. */
+export interface RulesFactsOut {
+  readonly counts: Record<RuleClass, number>;
+  readonly resident: number;
+  readonly residentChars: number;
+  readonly staleFiles: readonly string[];
+  readonly staleRows: readonly string[];
+  readonly errors: readonly string[];
+}
+
+export function rulesFacts(deps: RulesDeps, input: RulesInput): RulesFactsOut | { readonly error: string } | undefined {
+  if (!hasRuleStores(deps, input)) return undefined;
+  const { result, error } = plan(deps, input);
+  if (error || !result) return { error: error ?? "the rules could not be planned" };
+  const resident = residentRows(result.set);
+  return {
+    counts: summariseRuleSet(result.set),
+    resident: resident.length,
+    residentChars: resident.reduce((n, r) => n + (r.cue?.text.length ?? 0), 0),
+    staleFiles: result.files.filter((f) => deps.fs.readFile(path.join(input.home, f.path)) !== f.content).map((f) => f.path),
+    staleRows: result.stale.map((s) => s.id),
+    errors: result.errors,
   };
 }

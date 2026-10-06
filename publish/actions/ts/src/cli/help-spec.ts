@@ -297,17 +297,17 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   {
     name: "rules", audience: "you",
-    summary: "compile the policies into what agents and checks actually use",
+    summary: "render the rule stores into what agents read, and report on the rules",
     usage: "<build|check|report|reload> [--working-tree] | show <id>",
     where: "GOVERNED",
     args: [
-      { name: "<mode>", what: "build (write) · check (verify, write nothing) · report (the numbers only) · reload (attest that you restarted your session, after the rules changed) · show (print one rule)" },
+      { name: "<mode>", what: "build (write) · check (verify, write nothing; fails on a stale file or a stale rule row) · report (the numbers only) · reload (attest that you restarted your session, after the rules changed) · show (print one rule)" },
       { name: "<id>", what: "a GOV id (GOV-FRM-012), or a retired POL number, which resolves to the rule that carries it now or to why none does" },
     ],
-    flags: [{ name: "--working-tree", what: "compile what is on disk instead of the ratified branch — for drafting; an agent is still governed by the default branch" }],
+    flags: [{ name: "--working-tree", what: "read the rule stores from disk instead of the ratified branch — for drafting; an agent is still governed by the default branch" }],
     examples: ["gov rules report", "gov rules build", "gov rules reload", "gov rules show POL-086b"],
-    changes: "`build` writes the nine agent instruction files, `agent/harness/rule-map.md` and the POL lock; `check` writes nothing and fails when any of them is stale; `report` and `show` write nothing at all. A clause that cannot be numbered without a decision STOPS the build — nothing is written and the question is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had",
-    exit: [{ code: 0, means: "done" }, { code: 1, means: "a notation error, a stale file, or a question only a person can answer" }, { code: 2, means: "usage" }],
+    changes: "`build` renders `framework/rules/rules.yaml` and `policies/rules.yaml` into the nine agent instruction files (the resident tier in Part A) and `agent/harness/rule-map.md`; policy prose is never touched. `check` writes nothing and fails when a generated file is stale, or when a rule row is pending re-review because its source section changed since it was approved (`gov rules propose` re-reads it). `report` and `show` write nothing at all. A rule-store error, or a resident tier over its cap, STOPS the build — nothing is written and the reason is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had",
+    exit: [{ code: 0, means: "done" }, { code: 1, means: "a rule-store error, a resident tier over its cap, a stale file, or a stale rule row" }, { code: 2, means: "usage" }],
     seeAlso: ["knowledge", "doctor", "validate"],
   },
   {

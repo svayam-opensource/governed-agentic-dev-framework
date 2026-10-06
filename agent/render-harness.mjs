@@ -20,21 +20,28 @@
  *   node agent/render-harness.mjs --check    exit 1 if any generated file is stale
  *   node agent/render-harness.mjs --list     list every harness + its tier/path
  *
+ * It writes the nine files AND `agent/harness/rule-map.md`, so `--check` covers both (P3 cutover, 2026-10-06).
+ *
  * `--project <PID>` is gone: per-project entrypoints are `gov work`'s business (it mirrors the harness into the
  * project directory on every launch), and the flag rendered files nothing read.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { load as yamlLoad } from "js-yaml";
-import { renderAll, HARNESS_TARGETS } from "../publish/actions/ts/src/rules/harness-render.ts";
+import { HARNESS_TARGETS } from "../publish/actions/ts/src/rules/harness-render.ts";
+import { buildArtifacts } from "../publish/actions/ts/src/rules/rules-build.ts";
+import { loadRuleStoresFrom, isStoreNote } from "../publish/actions/ts/src/rules/model/store-io.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MANIFEST = join(REPO, "agent/harness-manifest.yaml");
 const PROTOCOL = join(REPO, "agent/session-protocol.md");
 const CONTENT = join(REPO, "publish", "content");
-/** Where a rendered file lands in the publisher's tree. gov writes the same names under the adopter's. */
-const OUT = join(CONTENT, "agent", "harness");
+/**
+ * The org scope the publisher's tree is read under. Its org-config is a template (empty slug), and the seeded
+ * `policies/rules.yaml` is empty, so the scope only has to be a valid one. An adopter's build reads its own slug.
+ */
+const TEMPLATE_SCOPE = "ORG";
 
 let mode = "render";
 for (const a of process.argv.slice(2)) {
@@ -60,20 +67,23 @@ if (mode === "list") {
   process.exit(0);
 }
 
-/** Every policy document the cues come from — the same two roots gov reads. */
-function policyDocs() {
-  const docs = [];
-  for (const root of ["framework/policies", "policies"]) {
-    const dir = join(CONTENT, root);
-    if (!existsSync(dir)) continue;
-    for (const name of readdirSync(dir).sort()) {
-      if (name.endsWith(".md")) docs.push({ path: `${root}/${name}`, text: readFileSync(join(dir, name), "utf8") });
-    }
-  }
-  return docs;
+// THE SAME LOADER AND THE SAME BUILD `gov rules build` RUNS (P3 cutover, 2026-10-06): the rule stores under
+// publish/content/ — framework/rules/ and the seeded policies/ — into the nine files and agent/harness/rule-map.md.
+const loaded = loadRuleStoresFrom({
+  where: "publish/content",
+  orgScope: TEMPLATE_SCOPE,
+  read: (rel) => (existsSync(join(CONTENT, rel)) ? readFileSync(join(CONTENT, rel), "utf8") : undefined),
+});
+if (!loaded.ok) {
+  process.stderr.write(`ERROR: ${loaded.reason}\n`);
+  process.exit(1);
 }
-
-const rendered = renderAll(readFileSync(PROTOCOL, "utf8"), policyDocs());
+const errors = loaded.diagnostics.filter((d) => !isStoreNote(d));
+if (errors.length) {
+  for (const d of errors) process.stderr.write(`ERROR: ${d.store} ${d.id} ${d.kind} — ${d.message}\n`);
+  process.exit(1);
+}
+const rendered = buildArtifacts(readFileSync(PROTOCOL, "utf8"), loaded.set);
 if ("error" in rendered) {
   process.stderr.write(`ERROR: ${rendered.error}\n`);
   process.exit(1);
@@ -81,12 +91,12 @@ if ("error" in rendered) {
 
 if (mode === "check") {
   const drift = rendered.files.filter((f) => {
-    const path = join(OUT, f.path);
+    const path = join(CONTENT, f.path);
     return (existsSync(path) ? readFileSync(path, "utf8") : null) !== f.content;
   });
   if (drift.length) {
-    process.stdout.write("DRIFT — these generated files are out of sync with the protocol and the policies:\n");
-    for (const d of drift) process.stdout.write(`  - agent/harness/${d.path}\n`);
+    process.stdout.write("DRIFT — these generated files are out of sync with the protocol and the rule stores:\n");
+    for (const d of drift) process.stdout.write(`  - ${d.path}\n`);
     process.stdout.write("\nRun: node agent/render-harness.mjs\n");
     process.exit(1);
   }
@@ -95,12 +105,12 @@ if (mode === "check") {
 }
 
 for (const f of rendered.files) {
-  const path = join(OUT, f.path);
+  const path = join(CONTENT, f.path);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, f.content);
   process.stdout.write(`rendered: ${f.path}\n`);
 }
 process.stdout.write(
-  `\n${rendered.files.length} files rendered from agent/session-protocol.md + the policies' cue blocks,\n`
+  `\n${rendered.files.length} files rendered from agent/session-protocol.md + the rule stores' resident cues,\n`
   + "through the same code an adopter's `gov rules build` runs.\n",
 );

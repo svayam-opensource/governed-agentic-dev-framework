@@ -42,13 +42,9 @@ const ROOT = repoRoot();
 const SRC = path.join(ROOT, "publish", "actions", "ts", "src");
 
 // ── why a file may still hold a POL number ──────────────────────────────────────────────────────────────────
-const OLD_COMPILER = "the old POL compiler (notation, lock, cue blocks, rules build, harness render) and its tests: "
-  + "the POL number is its DATA, and P3 deletes it with the compiler";
 const OLD_COMPILER_INPUT = "input the old compiler still reads until P3: clause markers **(POL-…)**, cue headers "
   + "`· POL-… · C0x`, and citations INSIDE a numbered clause, whose text the lock hashes (editing one makes "
   + "`gov rules build` stop and ask, and confirming would rewrite .pol-lock.json). Every other prose citation was removed";
-const OLD_COMPILER_OUTPUT = "rendered by the old compiler from its input (render-harness / gov rules build own it); "
-  + "it changes when P3 moves the harness to GOV rows";
 const DATA_FIXTURE = "a test fixture whose POL number is data fed to old-compiler code (exceptions, diff checks, "
   + "verb gate, rules-pending, compliance record, the GOV-id parser's refusal of a POL id)";
 const ALIASES = "the POL → GOV resolution itself: the alias file, its loader, `gov rules show` and their tests";
@@ -65,8 +61,6 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "docs/design/option-2-sequence-diagrams.md": HISTORY,
   "publish/content/framework/rules/W2-classification.md": HISTORY,
   "publish/content/framework/policies/framework-policy.md": OLD_COMPILER_INPUT,
-  "publish/content/framework/policies/.pol-lock.json": OLD_COMPILER,
-  "publish/content/policies/.pol-lock.json": OLD_COMPILER,
   "publish/content/policies/approved-technologies.md": OLD_COMPILER_INPUT,
   "publish/content/policies/authorized-representatives.md": OLD_COMPILER_INPUT,
   "publish/content/policies/compliance-review.md": OLD_COMPILER_INPUT,
@@ -75,16 +69,6 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "publish/content/policies/knowledge-publication.md": OLD_COMPILER_INPUT,
   "publish/content/policies/org-policy.md": OLD_COMPILER_INPUT,
   "publish/content/policies/policy-domains.md": OLD_COMPILER_INPUT,
-  "publish/content/agent/harness/.clinerules/agent.md": OLD_COMPILER_OUTPUT,
-  "publish/content/agent/harness/.continue/rules/agent.md": OLD_COMPILER_OUTPUT,
-  "publish/content/agent/harness/.cursor/rules/agent.mdc": OLD_COMPILER_OUTPUT,
-  "publish/content/agent/harness/.github/copilot-instructions.md": OLD_COMPILER_OUTPUT,
-  "publish/content/agent/harness/.windsurf/rules/agent.md": OLD_COMPILER_OUTPUT,
-  "publish/content/agent/harness/AGENTS.md": OLD_COMPILER_OUTPUT,
-  "publish/content/agent/harness/CLAUDE.md": OLD_COMPILER_OUTPUT,
-  "publish/content/agent/harness/CONVENTIONS.md": OLD_COMPILER_OUTPUT,
-  "publish/content/agent/harness/GEMINI.md": OLD_COMPILER_OUTPUT,
-  "publish/content/agent/harness/rule-map.md": OLD_COMPILER_OUTPUT,
   "publish/content/framework/procedures/agentic-development-procedures.md": PROCEDURES,
   "publish/content/framework/rules/pol-aliases.yaml": ALIASES,
   "publish/content/framework/docs/specs/gov-command-reference.md": ALIASES
@@ -94,30 +78,9 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "publish/actions/ts/src/rules/model/pol-aliases.ts": ALIASES,
   "publish/actions/ts/test/cli/rules-show.test.ts": ALIASES,
   "publish/actions/ts/test/rules/model/pol-aliases.test.ts": ALIASES,
-  "publish/actions/ts/src/rules/cue-block.ts": OLD_COMPILER,
-  "publish/actions/ts/src/rules/cue-stamp.ts": OLD_COMPILER,
-  "publish/actions/ts/src/rules/pol-lock-io.ts": OLD_COMPILER,
-  "publish/actions/ts/src/rules/pol-lock.ts": OLD_COMPILER,
-  "publish/actions/ts/src/rules/rules-build.ts": OLD_COMPILER,
-  "publish/actions/ts/src/rules/diff-check.ts": OLD_COMPILER + " (the clause-marker regex's doc comment)",
-  "publish/actions/ts/src/rules-pending.ts": OLD_COMPILER + " (the resident-block header it parses)",
-  "publish/actions/ts/test/rules/cue-block.test.ts": OLD_COMPILER,
-  "publish/actions/ts/test/rules/cue-stamp.test.ts": OLD_COMPILER,
-  "publish/actions/ts/test/rules/notation.test.ts": OLD_COMPILER,
-  "publish/actions/ts/test/rules/pol-integrity.test.ts": OLD_COMPILER,
-  "publish/actions/ts/test/rules/pol-lock.test.ts": OLD_COMPILER,
-  "publish/actions/ts/test/rules/rules-build.test.ts": OLD_COMPILER,
-  "publish/actions/ts/test/cli/rules-lifecycle.test.ts": OLD_COMPILER,
-  "publish/actions/ts/test/cli/rules-gate.test.ts": DATA_FIXTURE,
-  "publish/actions/ts/test/cli/diff-check-io.test.ts": DATA_FIXTURE,
-  "publish/actions/ts/test/lifecycle/governance-stamp.test.ts": DATA_FIXTURE,
-  "publish/actions/ts/test/maintain/rules-health.test.ts": DATA_FIXTURE,
   "publish/actions/ts/test/rules/compliance-record.test.ts": DATA_FIXTURE,
-  "publish/actions/ts/test/rules/diff-check.fixtures.test.ts": DATA_FIXTURE,
   "publish/actions/ts/test/rules/exceptions.test.ts": DATA_FIXTURE,
   "publish/actions/ts/test/rules/model/model.test.ts": DATA_FIXTURE,
-  "publish/actions/ts/test/rules/rules-pending.test.ts": DATA_FIXTURE,
-  "publish/actions/ts/test/rules/verb-gate.test.ts": DATA_FIXTURE,
   "packages/knowledge-site/.gitignore": OUT_OF_SCOPE,
   "packages/knowledge-site/README.md": OUT_OF_SCOPE,
   "packages/knowledge-site/quartz.config.ts": OUT_OF_SCOPE,
@@ -182,7 +145,7 @@ describe("no new POL citations — POL numbers are retired (rule-model Q21)", ()
   });
 
   it("the allow-list's size is pinned, so a change to it is a visible diff", () => {
-    expect(Object.keys(ALLOWED)).to.have.lengthOf(93);
+    expect(Object.keys(ALLOWED)).to.have.lengthOf(60);
   });
 
   it("every GOV-FRM id cited in gov's source is a row of framework/rules/rules.yaml", () => {
