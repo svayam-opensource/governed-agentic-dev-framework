@@ -126,15 +126,14 @@ files:
   # Templates gov READS (todo-template is rendered into every project) and templates a PERSON copies
   # (the exception forms, the validate workflow). `guidance/` was the old name.
   - { src: framework/templates/, dst: framework/templates/, mode: scaffold-auto }
-  # THE APPROVER CHECK — named explicitly although the directory entry above already covers it (2026-09-29).
+  # THE APPROVER CHECK — framework/templates/workflows/approver-check.yml — ships through the directory row above.
   #
   # framework-specification.md §7.3 says the framework ships the workflow and the list is the organization's; this
   # is the file that claim is about. `gov repo protect apply` READS it from here and installs it into a
-  # repository's `.github/workflows/`, so a manifest that only covered it by directory would leave the one
-  # shipped artifact an enforcement path depends on invisible to anybody reading this file. scaffold-auto:
-  # it is the framework's, and an organization that renames the check tells gov (`--check <name>`) rather
-  # than forking the workflow.
-  - { src: framework/templates/workflows/approver-check.yml,   dst: framework/templates/workflows/approver-check.yml,   mode: scaffold-auto }
+  # repository's `.github/workflows/`. It had its own row as well (2026-09-29), for visibility; that made the
+  # upgrade plan list it twice (sandbox finding, 2026-10-07). This comment keeps it visible; a test keeps each
+  # destination planned once. scaffold-auto: an organization that renames the check tells gov (`--check <name>`)
+  # rather than forking the workflow.
 
   # ── policies/ — THE ORGANIZATION'S, SEEDED ONCE AND THEN THEIRS ────────────────────────────────────────
   #
