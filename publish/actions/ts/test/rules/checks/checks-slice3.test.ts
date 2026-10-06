@@ -198,7 +198,7 @@ function govRepo(files: Record<string, string> = {}): Record<string, string> {
     "framework/rules/rules.yaml": read("framework/rules/rules.yaml"),
     "framework/rules/catalog.yaml": read("framework/rules/catalog.yaml"),
     "policies/org-policy.md": POLICY,
-    "policies/ownership.yaml": '- { doc: policies/org-policy.md, section: "4", role: Check Owner }\n',
+    "policies/ownership.yaml": '- { doc: policies/org-policy.md, section: "4", role: Check Owner, sha: "abc1234" }\n- { doc: policies/org-policy.md, section: "5", role: Check Owner }\n',
     ...files,
   };
 }
@@ -226,7 +226,8 @@ describe("check engine slice 3 — the rule set a check runs against", () => {
     const r = loadCheckRuleSet(git, "/gov", "origin/main");
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
-    expect(r.set.ownership).to.deep.equal([{ doc: "policies/org-policy.md", section: "4", role: "Check Owner" }]);
+    // The row with no `sha` (of the section that grants it) is not an ownership row: it is dropped.
+    expect(r.set.ownership).to.deep.equal([{ doc: "policies/org-policy.md", section: "4", role: "Check Owner", sha: "abc1234" }]);
     expect(r.set.roles).to.deep.equal({ "Policy Owner": "@polly", "Check Owner": "chuck" });
     expect(r.set.framework.length).to.be.greaterThan(10);
   });

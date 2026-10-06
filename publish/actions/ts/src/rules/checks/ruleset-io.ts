@@ -55,8 +55,9 @@ export function loadCheckRuleSet(git: GitRead, repo: string, ref: string): Check
     if (!Array.isArray(doc)) return { ok: false, reason: `${OWNERSHIP_PATH} at ${ref} is not a list` };
     ownership = doc
       .filter((o): o is Record<string, unknown> => !!o && typeof o === "object")
-      .map((o) => ({ doc: String(o.doc ?? ""), section: String(o.section ?? ""), role: String(o.role ?? "") }))
-      .filter((o) => o.doc && o.section && o.role);
+      .map((o) => ({ doc: String(o.doc ?? ""), section: String(o.section ?? ""), role: String(o.role ?? ""), sha: String(o.sha ?? "") }))
+      // `sha` is the sha of the section whose sentence grants the ownership; a row without it has no source.
+      .filter((o) => o.doc && o.section && o.role && o.sha);
   }
   return { ok: true, set: { ...r.set, ownership, roles } };
 }

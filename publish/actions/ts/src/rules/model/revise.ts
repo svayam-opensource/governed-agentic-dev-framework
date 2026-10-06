@@ -8,7 +8,9 @@
  *
  *   APPEND-ONLY. A change never edits a row. It closes the open one at version X and opens its successor at X,
  *                so the chain meets (validateRuleStore's `broken-chain`) and the history of what was in force
- *                when is still there to cite.
+ *                when is still there to cite. ONE exception (Q17, "keep — intent unchanged; only sha updated"):
+ *                a keep whose section's sha moved refreshes the open row's `source.sha` in place — same row,
+ *                same start — because nothing a reader cites changed. The CI gate allows exactly that edit.
  *   GOV ISSUES IDS. An added rule's id comes from the {@link IdIssuer}, never from the verdict — the proposer is
  *                an LLM, and a model asked twice may number twice.
  *
@@ -53,7 +55,11 @@ export function applyVerdicts(
   const close = (id: string) => { const i = openAt.get(id)!; out[i] = { ...out[i]!, end: at }; };
   for (const v of verdicts) {
     switch (v.kind) {
-      case "keep": break;
+      case "keep": {
+        const i = openAt.get(v.id)!, row = out[i]!;
+        if (v.sha !== undefined && v.sha !== row.source.sha) out[i] = { ...row, source: { ...row.source, sha: v.sha } };
+        break;
+      }
       case "retire": close(v.id); break;
       case "revise": close(v.id); out.push({ ...v.row, id: v.id, start: at, end: null }); break;
       case "add": {

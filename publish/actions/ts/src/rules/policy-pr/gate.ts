@@ -6,9 +6,11 @@
  * A change to `policies/` carries four things with it, and this gate checks that it does:
  *
  *   its RULES      every in-force row cites its section at the section's current sha; the store validates; the
- *                  store only grew (a row is closed, never edited or deleted; a retired id is never reused);
- *   its VERSION    `policies/VERSION` bumped exactly as the change needs — minor when rows changed, patch when
- *                  only prose did, major whenever the org chooses — and not at all when `policies/` is untouched;
+ *                  store only grew (a row is closed, never edited or deleted; a retired id is never reused) —
+ *                  save the one in-place edit Q17 allows: an open row's `source.sha` refreshed, nothing else;
+ *   its VERSION    `policies/VERSION` bumped exactly as the change needs — minor when rows were added, revised or
+ *                  retired, patch when only prose did (a sha refresh included), major whenever the org chooses —
+ *                  and not at all when `policies/` is untouched;
  *   its SNAPSHOT   `policies/version/<prev>/` is the base's `policies/` byte for byte (minus `version/` and
  *                  `actions/`), and nothing already frozen there was edited or deleted;
  *   its CHANGELOG  an entry for the new version naming every rule added, revised or retired.
@@ -50,7 +52,9 @@ export interface RuleChanges {
   readonly added: readonly string[];
   readonly revised: readonly string[];
   readonly retired: readonly string[];
-  /** Any row added, edited or removed — the bump is then at least minor. */
+  /** Rows kept with their section's new sha, refreshed in place (Q17) — prose changed, the rule did not. */
+  readonly refreshed: readonly string[];
+  /** Any row added, edited or removed, a sha refresh aside — the bump is then at least minor. */
   readonly rowsChanged: boolean;
 }
 
@@ -140,6 +144,16 @@ function canon(v: unknown): string {
   return `{${Object.keys(o).filter((k) => o[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(",")}}`;
 }
 const withoutEnd = (r: RuleRow): string => canon({ ...r, end: undefined });
+const withoutSha = (r: RuleRow): string => canon({ ...r, source: { ...r.source, sha: undefined } });
+
+/**
+ * Is `now` the open row `was` with ONLY its `source.sha` changed? The one in-place edit a store allows (Q17: "keep —
+ * intent unchanged; only sha updated"): expectation, actor, level, cue, checks, start and everything else are
+ * byte-identical, and both are still open. Shared by the gate's append-only check and the writers' stamping.
+ */
+export function isShaRefresh(was: RuleRow, now: RuleRow): boolean {
+  return was.end === null && now.end === null && was.source?.sha !== now.source?.sha && withoutSha(was) === withoutSha(now);
+}
 const rowKey = (r: RuleRow): string => `${r.id}@${r.start?.version}`;
 
 /**
@@ -165,6 +179,7 @@ export function ruleChanges(base: readonly RuleRow[], head: readonly RuleRow[]):
   const baseIds = new Set(base.map((r) => r.id));
   const added = [...new Set(fresh.map((h) => head[h]!.id).filter((id) => !baseIds.has(id)))];
   const revised: string[] = [], retired: string[] = [];
+  const refreshed = [...pairs].filter(([h, b]) => isShaRefresh(base[b]!, head[h]!)).map(([h]) => head[h]!.id);
   const headOpen = new Set(inForce(head).map((r) => r.id));
   for (const [h, b] of pairs) {
     if (base[b]!.end === null && head[h]!.end !== null) {
@@ -172,8 +187,9 @@ export function ruleChanges(base: readonly RuleRow[], head: readonly RuleRow[]):
       (successor ? revised : retired).push(base[b]!.id);
     }
   }
-  const rowsChanged = fresh.length > 0 || pairs.size !== base.length || [...pairs].some(([h, b]) => canon(head[h]) !== canon(base[b]));
-  return { added, revised: [...new Set(revised)], retired: [...new Set(retired)], rowsChanged };
+  const rowsChanged = fresh.length > 0 || pairs.size !== base.length
+    || [...pairs].some(([h, b]) => canon(head[h]) !== canon(base[b]) && !isShaRefresh(base[b]!, head[h]!));
+  return { added, revised: [...new Set(revised)], retired: [...new Set(retired)], refreshed, rowsChanged };
 }
 
 function readRows(tree: TreeReader): RuleRow[] | string {
@@ -232,7 +248,7 @@ export function judgePolicyPr(input: PolicyPrInput): PolicyPrJudgement {
     return {
       verdict: "cannot-tell", findings: [{ check: "unreadable", message: `${plan.unreadable}, so nothing was checked.` }],
       touched: false, required: "none", baseVersion: NO_ORG_VERSION, headVersion: NO_ORG_VERSION,
-      changes: { added: [], revised: [], retired: [], rowsChanged: false },
+      changes: { added: [], revised: [], retired: [], refreshed: [], rowsChanged: false },
     };
   }
   // (a) Nothing under policies/ changed: nothing to carry, nothing to bump.
@@ -291,7 +307,10 @@ function checkStores(head: TreeReader, f: Emit): string | null {
   return null;
 }
 
-/** (d) The org store only grew: no base row removed or edited; a row closes only at the new version; no id reused. */
+/**
+ * (d) The org store only grew: no base row removed or edited — save an open row's sha refreshed ({@link isShaRefresh});
+ * a row closes only at the new version; no id reused.
+ */
 function checkAppendOnly(base: readonly RuleRow[], head: readonly RuleRow[], version: string, f: Emit): void {
   const { pairs, fresh } = pairRows(base, head);
   const paired = new Set(pairs.values());
@@ -302,6 +321,7 @@ function checkAppendOnly(base: readonly RuleRow[], head: readonly RuleRow[], ver
     const was = base[b]!, now = head[h]!;
     if (canon(was) === canon(now)) continue;
     if (was.end !== null) { f("append-only", `${was.id} (from ${was.start.version}) is already closed and was edited — history is never rewritten`); continue; }
+    if (isShaRefresh(was, now)) continue;
     if (withoutEnd(was) !== withoutEnd(now)) { f("append-only", `${was.id} was edited in place — revise it instead: close it and open a successor`); continue; }
     if (now.end && now.end.version !== version) f("append-only", `${was.id} is closed at ${now.end.version}; it must close at the new version ${version}`);
   }

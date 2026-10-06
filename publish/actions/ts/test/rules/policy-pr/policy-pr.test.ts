@@ -192,6 +192,69 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
     });
   });
 
+  describe("(d) a sha refresh — the ONE in-place edit (Q17: keep, intent unchanged, only the sha updated)", () => {
+    /** Base + a reflowed-meaning prose edit to §3.2 whose rule is KEPT: its row's source.sha is refreshed in place. */
+    function refreshPr(): { base: TreeReader; head: ReturnType<typeof memTree>; files: Record<string, string> } {
+      const base = memTree(baseFiles());
+      const files = baseFiles();
+      const head = memTree(files);
+      const prose = POLICY.replace("Nobody commits a secret.", "Nobody ever commits a secret.");
+      files[DOC] = prose;
+      const applied = applyVerdicts(BASE_ROWS, [{ kind: "keep", id: "GOV-SVM-002", sha: sha(prose, "3.2") }],
+        { version: "0.0.0", date: "1999-01-01" }, createIdIssuer(BASE_ROWS.map((r) => r.id)), "SVM");
+      if (!applied.ok) throw new Error(applied.problems.join("; "));
+      files["policies/rules.yaml"] = dump(applied.rows);
+      const w = policyPrWriter({ base, head });
+      const plan = planPolicyPr(base, head);
+      if ("unreadable" in plan) throw new Error(plan.unreadable);
+      const { version } = w.bumpVersion(plan.required === "none" ? "patch" : plan.required);
+      w.writeSnapshot(plan.baseVersion);
+      w.stampRows(version, TODAY, PR);
+      w.writeChangelogEntry(ENTRY(version, []));
+      return { base, head, files };
+    }
+
+    it("passes, and is a PATCH: no rule was added, revised or retired", () => {
+      const { base, head } = refreshPr();
+      const j = judge(base, head);
+      expect(j.findings).to.deep.equal([]);
+      expect(j).to.deep.include({ verdict: "pass", required: "patch", headVersion: "1.4.1" });
+      expect(j.changes).to.deep.include({ added: [], revised: [], retired: [], rowsChanged: false, refreshed: ["GOV-SVM-002"] });
+    });
+
+    it("the writers leave a refreshed row's start alone — it is the same row", () => {
+      const { files } = refreshPr();
+      const r = parseRuleStore(files["policies/rules.yaml"]!).find((x) => x.id === "GOV-SVM-002")!;
+      expect(r.start).to.deep.equal(BASE_ROWS[1]!.start);
+      expect(r.source.sha).to.not.equal(BASE_ROWS[1]!.source.sha);
+    });
+
+    it("a minor bump is refused for a refresh alone", () => {
+      const { base, head, files } = refreshPr();
+      files["policies/VERSION"] = "1.5.0\n";
+      expect(checksOf(judge(base, head))).to.include("version");
+    });
+
+    for (const [what, edit] of [
+      ["the sha and the expectation", (r: RuleRow) => ({ ...r, expectation: "Changed." })],
+      ["the sha and the section", (r: RuleRow) => ({ ...r, source: { ...r.source, section: "3.1" } })],
+      ["the sha and the start", (r: RuleRow) => ({ ...r, start: { ...r.start, pr: 81 } })],
+      ["the sha and the level", (r: RuleRow) => ({ ...r, level: "C01" as const })],
+    ] as const) {
+      it(`refuses ${what} changed in place`, () => {
+        const { base, head, files } = refreshPr();
+        files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-002" ? edit(r) : r)));
+        expect(checksOf(judge(base, head))).to.include("append-only");
+      });
+    }
+
+    it("refuses a sha refresh on a CLOSED row — history is never rewritten", () => {
+      const { base, head, files } = refreshPr();
+      files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-003" ? { ...r, source: { ...r.source, sha: "0000000" } } : r)));
+      expect(judge(base, head).findings.map((x) => x.message)).to.include("GOV-SVM-003 (from 1.0.0) is already closed and was edited — history is never rewritten");
+    });
+  });
+
   describe("(e) the version bump", () => {
     it("rows changed: minor or major pass, patch fails", () => {
       for (const [v, ok] of [["1.5.0", true], ["2.0.0", true], ["1.4.1", false], ["1.4.0", false], ["1.6.0", false]] as const) {

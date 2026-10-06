@@ -150,7 +150,7 @@ describe("check engine slice 2 — sections and their shas", () => {
 describe("check engine slice 2 — gov-builtin/section-owner-approval", () => {
   const DOC = "policies/org-policy.md";
   const BASE = "## 3 Technology\n\nUse approved tech.\n\n### 3.1 Libraries\n\nOnly listed.\n\n## 4 Data\n\nKeep it safe.\n\n## 6 Other\n\nx\n";
-  const ownership = [{ doc: DOC, section: "4", role: "Data Owner" }, { doc: DOC, section: "3", role: "Engineering Owner" }];
+  const ownership = [{ doc: DOC, section: "4", role: "Data Owner", sha: "0000004" }, { doc: DOC, section: "3", role: "Engineering Owner", sha: "0000003" }];
   const rules = ruleset([], { ownership });
   const pr = (changed: ChangedFile[], extra: Record<string, unknown> = {}): EventContext =>
     ({ resource: "vcs.gov-repo", event: "pull_request", payload: { changed, baseTexts: { [DOC]: BASE }, ...extra } as EventContext["payload"] });

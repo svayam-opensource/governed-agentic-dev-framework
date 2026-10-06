@@ -84,10 +84,6 @@ type Body = Omit<RuleRow, "id" | "start" | "end">;
 const meaning = (r: Pick<RuleRow, "expectation" | "actor" | "level" | "cue" | "checks">): string =>
   JSON.stringify({ e: r.expectation, a: [...r.actor].sort(), l: r.level, c: r.cue ?? null, k: r.checks ?? [] });
 
-const bodyOf = (r: RuleRow): Body => {
-  const { id: _id, start: _s, end: _e, ...rest } = r;
-  return rest;
-};
 
 interface Work {
   readonly doc: string;
@@ -146,8 +142,14 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
   const verdicts: SectionVerdict[] = [];
   const changes: { change: RuleChange; id?: string; expectation: string }[] = [];
   const qaOut: { doc: string; section: string; q: string; a: string }[] = [];
-  const ownership = new Map((set.ownership ?? []).map((o) => [`${o.doc}\u0000${o.section}`, o]));
-  let ownershipChanged = false;
+
+  // OWNERSHIP lives as long as the sentence that grants it: a row whose statement-section sha is gone from its
+  // document's head (the sentence deleted or changed, its section deleted, the document deleted) is dropped. A
+  // changed section is always interviewed, so a sentence still there is extracted again below at the new sha.
+  const headShas = new Map(deps.docs.map((d) => [d.doc, new Set(d.head === null ? [] : policySections(d.head).map((s) => s.sha))]));
+  const ownKey = (o: Pick<SectionOwnership, "doc" | "section">) => `${o.doc}\u0000${o.section}`;
+  const before = new Map((set.ownership ?? []).map((o) => [ownKey(o), o]));
+  const ownership = new Map([...before].filter(([, o]) => headShas.get(o.doc)?.has(o.sha) ?? true));
 
   for (const w of work) {
     const byId = new Map(w.rows.map((r) => [r.id, r]));
@@ -170,12 +172,9 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
         case "keep":
         case "revise": {
           const old = byId.get(v.id)!;
-          const same = v.kind === "keep" || meaning(old) === meaning(v.row);
-          // A kept rule whose section changed is re-stamped with the new sha — otherwise the section stays stale and
-          // comes back on every run. applyVerdicts has no in-place re-stamp, so it is a revision with the same meaning.
-          if (same) {
-            if (old.source.sha !== w.sha) verdicts.push({ kind: "revise", id: v.id, row: { ...bodyOf(old), source } });
-            else verdicts.push({ kind: "keep", id: v.id });
+          // Same meaning → keep: applyVerdicts refreshes the row's sha in place (Q17), no new revision.
+          if (v.kind === "keep" || meaning(old) === meaning(v.row)) {
+            verdicts.push({ kind: "keep", id: v.id, sha: w.sha });
             changes.push({ change: "kept", id: v.id, expectation: old.expectation });
           } else {
             verdicts.push({ kind: "revise", id: v.id, row: fresh(v.row) });
@@ -189,12 +188,10 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
           break;
       }
     }
-    for (const o of w.outcome.ownership) {
-      const k = `${w.doc}\u0000${o.section}`;
-      if (ownership.get(k)?.role !== o.role) ownershipChanged = true;
-      ownership.set(k, { doc: w.doc, section: o.section, role: o.role });
-    }
+    for (const o of w.outcome.ownership) ownership.set(ownKey({ doc: w.doc, section: o.section }), { doc: w.doc, section: o.section, role: o.role, sha: w.sha });
   }
+  // Who owns what changed — a row added, dropped, or handed to another role. A sha moving alone is prose.
+  const ownershipChanged = before.size !== ownership.size || [...ownership].some(([k, o]) => before.get(k)?.role !== o.role);
 
   const applied = applyVerdicts(set.org, verdicts, deps.at, deps.issuer, set.orgScope);
   if (!applied.ok) {
@@ -223,13 +220,15 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
 }
 
 /**
- * The P1 {@link Proposer} contract over the same engine: verdicts only. It cannot carry ownership or the Q&A (see
- * the contract note in the W4 hand-back), and it refuses rather than return a partial answer.
+ * The P1 {@link Proposer} contract over the same engine: verdicts, ownership and Q&A. It refuses rather than return
+ * a partial answer.
  */
 export function createProposer(deps: { readonly set: RuleSet; readonly model: ModelPort; readonly channel: InterviewChannel; readonly maxRounds?: number }): Proposer {
   return {
     async propose(sections) {
       const out: SectionVerdict[] = [];
+      const ownership: SectionOwnership[] = [];
+      const qaOut: { section: string; q: string; a: string }[] = [];
       const fw = inForce(deps.set.framework);
       const roles = deps.set.roles ? Object.keys(deps.set.roles) : undefined;
       for (const s of sections) {
@@ -244,10 +243,13 @@ export function createProposer(deps: { readonly set: RuleSet; readonly model: Mo
         for (const v of o.verdicts) {
           if (v.kind === "add") out.push({ kind: "add", row: { source, ...v.row, ...qa } });
           else if (v.kind === "revise") out.push({ kind: "revise", id: v.id, row: { source, ...v.row, ...qa } });
+          else if (v.kind === "keep") out.push({ kind: "keep", id: v.id, sha: s.sha });
           else out.push(v);
         }
+        for (const x of o.ownership) ownership.push({ doc: s.doc, section: x.section, role: x.role, sha: s.sha });
+        for (const x of o.qa) qaOut.push({ section: s.section, q: x.q, a: x.a });
       }
-      return out;
+      return { verdicts: out, ownership, qa: qaOut };
     },
   };
 }

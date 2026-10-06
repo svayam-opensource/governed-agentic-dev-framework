@@ -30,6 +30,12 @@ export interface SectionOwnership {
   readonly section: string;
   /** A role name from the org's role list (`policies/authorized-representatives.md`), e.g. "Data Owner". */
   readonly role: string;
+  /**
+   * The sha of the section the ownership STATEMENT is written in (integration, 2026-10-06) — not of the section it
+   * owns, which may be another. When that sentence is deleted or changed, its section's sha moves and propose drops
+   * the row; if the sentence is still there, the re-run extracts it again at the new sha.
+   */
+  readonly sha: string;
 }
 
 /** Both stores and the merged catalog, as the DEFAULT branch has them — never the branch under review. */
@@ -59,14 +65,27 @@ export interface IdIssuer {
 
 /** W4. One section's verdicts from the interview (Q17): existing rows classified, new rows without ids. */
 export type SectionVerdict =
-  | { readonly kind: "keep"; readonly id: string }
+  /**
+   * Keep: intent unchanged (Q17). `sha` is the section's current sha; when it differs from the row's, the row's
+   * `source.sha` is refreshed IN PLACE — same row, same start, no new revision. The only in-place edit a store allows.
+   */
+  | { readonly kind: "keep"; readonly id: string; readonly sha?: string }
   | { readonly kind: "revise"; readonly id: string; readonly row: Omit<RuleRow, "id" | "start" | "end"> }
   | { readonly kind: "retire"; readonly id: string }
   | { readonly kind: "add"; readonly row: Omit<RuleRow, "id" | "start" | "end"> };
 
+/** W4's answer for a batch of sections (integration, 2026-10-06): nothing the interview settled is dropped. */
+export interface Proposal {
+  readonly verdicts: readonly SectionVerdict[];
+  /** Ownership sentences found in the sections, each carrying the sha of the section it is written in. */
+  readonly ownership: readonly SectionOwnership[];
+  /** The interview's questions and the owner's answers, by the section they were asked about (Q18). */
+  readonly qa: readonly { readonly section: string; readonly q: string; readonly a: string }[];
+}
+
 export interface Proposer {
   /** For each changed section (by sha), the verdicts — asking the owner only where intent is ambiguous (Q18). */
-  propose(changedSections: readonly { doc: string; section: string; sha: string; text: string; rows: readonly RuleRow[] }[]): Promise<readonly SectionVerdict[]>;
+  propose(changedSections: readonly { doc: string; section: string; sha: string; text: string; rows: readonly RuleRow[] }[]): Promise<Proposal>;
 }
 
 /** One test's outcome, as a `test-suite` action reads it. */
@@ -119,9 +138,14 @@ export interface CheckVerdict {
 }
 
 /**
- * W6. `gov check run <GOV-ID> --resource <r> --event <e>` — the one entry point every rendered binding calls (Q14).
- * `--resource` is needed because one repository hosts several resources (the gov repo is `vcs.gov-repo` and where
- * `pms.issue` events fire).
+ * W6. `gov check run <GOV-ID> --resource <r> --event <e> [--gov-home <path>] [--repo-dir <path>]` — the one entry
+ * point every rendered binding calls (Q14). `--resource` is needed because one repository hosts several resources
+ * (the gov repo is `vcs.gov-repo` and where `pms.issue` events fire).
+ *
+ *   --gov-home  The governance repository's working tree, whose DEFAULT branch the rules are read from. Default:
+ *               the current directory. A code repo's workflow checks the gov repo out beside its own and passes it.
+ *   --repo-dir  The repository the event happened in, whose changeset is read — relative to `--gov-home`.
+ *               Default: the governance repository itself.
  */
 export interface CheckRunner {
   run(id: string, ctx: EventContext): CheckVerdict;
