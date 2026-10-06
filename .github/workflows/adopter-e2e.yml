@@ -5,11 +5,12 @@ name: adopter-e2e
 #   • smoke — HERMETIC (stub gh, no token/org/network). Runs for everyone, every
 #     PR. Exercises the real gov binary + shipped content (setup · org · validate
 #     · doctor · --gov-home).
-#   • live  — the full journey against REAL GitHub in an ephemeral runner. Runs
-#     ONLY when a maintainer has configured a throwaway sandbox: secret
-#     GOV_E2E_TOKEN (scopes: repo, workflow, project, read:org, delete_repo) +
-#     var GOV_E2E_ORG. Self-cleaning. Skips (never fails) when unset, so forks /
-#     contributors without a sandbox aren't blocked.
+#   • live  — two journeys against REAL GitHub in an ephemeral runner: the adopter journey and the rule-model
+#     journey (e2e/rule-model-journey.sh). Runs ONLY when a maintainer has configured a throwaway sandbox: secret
+#     TESTBED_BOT_PAT (scopes: repo, workflow, project, read:org, delete_repo) + var TESTBED_SANDBOX_ORG. The
+#     sandbox App (secrets GOV_E2E_APP_CLIENT_ID / GOV_E2E_APP_PRIVATE_KEY) enables the rule-model journey's
+#     code-repo assertion. Self-cleaning. Skips (never fails) when unset, naming what is missing, so forks /
+#     contributors without a sandbox aren't blocked. One-time setup: publish/actions/ts/e2e/README.md.
 
 on:
   # PRs: NO path filter — so the hermetic `smoke` job always runs + reports,
@@ -33,7 +34,12 @@ on:
     paths:
       - "publish/**"
       - ".github/workflows/adopter-e2e.yml"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      real_model:
+        description: "rule-model journey: propose with the REAL model (gemini, GEMINI_API_KEY) instead of the stub — costs a call"
+        type: boolean
+        default: false
 
 # ONE RUN PER COMMIT — see the note in node-ci.yml. `github.ref` differs between the push and
 # pull_request events for the same commit, so a ref-keyed group never deduplicated them.
@@ -130,39 +136,80 @@ jobs:
         run: bash publish/actions/ts/e2e/os-tier.sh ${{ matrix.label }}
 
   live:
-    name: adopter-journey (live GitHub)
+    name: adopter + rule-model journeys (live GitHub)
+    # PRs into the long-lived branches only (the project branch's PR into dev is where the sandbox run gates —
+    # rule-model-design.md "sandbox CI"); a PR between feature branches does not spend half an hour in the sandbox.
+    if: github.event_name != 'pull_request' || github.base_ref == 'dev' || github.base_ref == 'main'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 50, not 20: the adopter journey takes ~10 minutes and the rule-model journey waits on ~10 workflow runs in
+    # the sandbox (each installs the packed gov), capped at E2E_DEADLINE_SECS=2100 (35 min) of waiting. The cap
+    # sits inside the timeout so the journey's own trap — not a killed runner — deletes its repos.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+      # THE NAMES THE REPO ACTUALLY HOLDS. This job read GOV_E2E_TOKEN / GOV_E2E_ORG while the repository holds
+      # TESTBED_BOT_PAT / TESTBED_SANDBOX_ORG, so it never ran and skipped green (rule-model-design.md, "sandbox CI").
+      # A skip now names each missing value, so the next mismatch is visible in the log.
       - name: Guard — is a sandbox org + token configured?
         id: guard
         env:
-          TOK: ${{ secrets.GOV_E2E_TOKEN }}
-          ORG: ${{ vars.GOV_E2E_ORG }}
+          TOK: ${{ secrets.TESTBED_BOT_PAT }}
+          ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          APP_ID: ${{ secrets.GOV_E2E_APP_CLIENT_ID }}
+          APP_KEY: ${{ secrets.GOV_E2E_APP_PRIVATE_KEY }}
+          GEMINI: ${{ secrets.GEMINI_API_KEY }}
+          REAL_MODEL: ${{ inputs.real_model && 'true' || 'false' }}
         run: |
-          if [ -n "$TOK" ] && [ -n "$ORG" ]; then
+          missing=""
+          [ -n "$TOK" ] || missing="$missing secret:TESTBED_BOT_PAT"
+          [ -n "$ORG" ] || missing="$missing var:TESTBED_SANDBOX_ORG"
+          if [ "$REAL_MODEL" = "true" ] && [ -z "$GEMINI" ]; then missing="$missing secret:GEMINI_API_KEY(real_model)"; fi
+          if [ -z "$missing" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::live adopter-journey skipped — set secret GOV_E2E_TOKEN + var GOV_E2E_ORG (a throwaway org you own) to enable."
+            echo "::notice::live journeys skipped — missing:$missing (see publish/actions/ts/e2e/README.md)."
+          fi
+          if [ -z "$APP_ID" ] || [ -z "$APP_KEY" ]; then
+            echo "::notice::sandbox App secrets missing (GOV_E2E_APP_CLIENT_ID / GOV_E2E_APP_PRIVATE_KEY) — the rule-model journey will skip assertion (f)."
           fi
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.run == 'true'
         with:
           node-version: "24"
+      # THE NAME npm pack PRINTS, not a glob: a tracked svayam-opensource-gov-1.2.2.tgz sits in the same folder, and
+      # `ls …-*.tgz | head -1` sorted it first — both journeys would have tested an old release, not this commit.
       - name: Build + pack gov (test the exact artifact)
+        id: pack
         if: steps.guard.outputs.run == 'true'
         working-directory: publish/actions/ts
-        run: npm ci && npm run build && npm pack
+        run: |
+          npm ci && npm run build
+          echo "tgz=$PWD/$(npm pack --silent | tail -1)" >> "$GITHUB_OUTPUT"
       - name: Run adopter journey (real GitHub, self-cleaning)
         if: steps.guard.outputs.run == 'true'
         env:
-          E2E_ORG: ${{ vars.GOV_E2E_ORG }}
-          GH_TOKEN: ${{ secrets.GOV_E2E_TOKEN }}
+          E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+          TGZ: ${{ steps.pack.outputs.tgz }}
         run: |
           # The ephemeral runner IS the clean slate — run the journey directly
           # (node 24 + gh are present); no container needed in CI.
-          TARBALL="$(ls publish/actions/ts/svayam-opensource-gov-*.tgz | head -1)"
-          GOV_TARBALL="$PWD/$TARBALL" CONTENT_DIR="$PWD/publish/content" \
+          GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" \
             bash publish/actions/ts/e2e/adopter-journey.sh
+      # Its own step, run even when the adopter journey failed: the two prove different things.
+      - name: Run rule-model journey (real GitHub, self-cleaning)
+        if: steps.guard.outputs.run == 'true' && !cancelled()
+        env:
+          E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+          TGZ: ${{ steps.pack.outputs.tgz }}
+          E2E_APP_CLIENT_ID: ${{ secrets.GOV_E2E_APP_CLIENT_ID }}
+          E2E_APP_PRIVATE_KEY: ${{ secrets.GOV_E2E_APP_PRIVATE_KEY }}
+          # The real model (and its key) only on a dispatch that asks for it; every other run uses the stub.
+          E2E_REAL_MODEL: ${{ inputs.real_model && '1' || '0' }}
+          GEMINI_API_KEY: ${{ inputs.real_model && secrets.GEMINI_API_KEY || '' }}
+          E2E_DEADLINE_SECS: "2100"
+        run: |
+          GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" \
+            bash publish/actions/ts/e2e/rule-model-journey.sh

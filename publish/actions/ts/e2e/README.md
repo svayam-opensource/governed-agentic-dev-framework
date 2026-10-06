@@ -46,7 +46,47 @@ creation enabled; SSO-authorize the token if the org enforces SSO).
 
 `.github/workflows/adopter-e2e.yml`:
 - **`smoke`** runs for everyone on every PR (no secrets).
-- **`live`** runs only when the repo has secret **`GOV_E2E_TOKEN`** + variable
-  **`GOV_E2E_ORG`** (a throwaway org); otherwise it **skips** (never fails), so
-  forks/contributors aren't blocked. The ephemeral runner is the clean slate — the
-  journey runs directly on it (no container in CI).
+- **`live`** runs only when the repo has secret **`TESTBED_BOT_PAT`** + variable
+  **`TESTBED_SANDBOX_ORG`** (a throwaway org); otherwise it **skips** (never fails)
+  and names what is missing, so forks/contributors aren't blocked. The ephemeral
+  runner is the clean slate — both journeys run directly on it (no container in CI).
+  On a PR it runs only when the base is `dev` or `main`.
+
+## Tier 3 — rule-model journey (`rule-model-journey.sh`)
+
+The 2026-10-07 sandbox run, scripted. Two ephemeral private repos `rmj-<run>-gov` /
+`rmj-<run>-app`; every workflow installs the **packed tarball** under test. Asserts:
+(a) a workflows-only PR passes GOV-FRM-455/467/468 · (b) a direct push opens a
+GOV-FRM-040 `gov-violation` issue for the Policy Owner · (c) a policy prose PR is
+`unreviewed` in GOV-FRM-467 and GOV-FRM-468 proposes · (d) the bot's follow-up run
+is approved through the API and GOV-FRM-467 passes · (e) a soft merge with a red
+check opens a violation record · (f) the code repo reads the gov repo's rules
+through the sandbox App. Propose uses a **stub `command` model** (fixed reply, no
+key); the real model runs only on `workflow_dispatch` with `real_model: true`.
+
+```bash
+bash e2e/rule-model-journey.sh --dry-run   # hermetic: prints every gh/git/gov call, makes none
+```
+
+### One-time human setup (the framework repo's settings)
+
+1. **The sandbox App** — once, by an owner of the sandbox org (`svayam-e2e`), in a
+   gov workspace for that org: `gov app setup`, then Create and Install on GitHub
+   (all repositories is simplest; otherwise the journey adds its repos to the
+   installation through the API). The App made in the 2026-10-07 manual run can be
+   reused — skip this step if it exists.
+2. **Give the framework repo its credentials** — `gov app setup` stores the key only
+   in the sandbox, so: on the App's settings page copy the **Client ID**, and click
+   **Generate a private key** (downloads a `.pem`). Then, from the framework repo:
+   ```bash
+   gh secret set GOV_E2E_APP_CLIENT_ID   --body <client-id>
+   gh secret set GOV_E2E_APP_PRIVATE_KEY < ~/Downloads/<app>.private-key.pem && rm ~/Downloads/<app>.private-key.pem
+   ```
+   The journey copies both as **repo** secrets onto its ephemeral repos (GitHub Free:
+   org secrets never reach private repos). Without them, (f) is skipped with a notice;
+   nothing fails.
+3. **`GEMINI_API_KEY`** in the framework repo's secrets — used only by a manual
+   run (Actions → adopter-e2e → Run workflow → `real_model`).
+4. Already present: `TESTBED_BOT_PAT` (classic: `repo`, `workflow`, `project`,
+   `read:org`, `delete_repo`; its owner is an org owner of the sandbox, so it can
+   add repos to the App installation) and the variable `TESTBED_SANDBOX_ORG`.
