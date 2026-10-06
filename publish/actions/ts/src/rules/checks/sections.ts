@@ -4,10 +4,16 @@
  * A POLICY DOCUMENT'S SECTIONS, BY SHA (rule-model-design.md Q9; W2-Q8).
  *
  * A section is a numbered heading (`## 4 Data`, `### 4.2 Retention` — {@link headingSection}) and the text up to
- * the NEXT NUMBERED HEADING, whatever its level — so §4's text stops where §4.2 starts, and an edit to §4.2 never
- * marks §4's rows stale. An unnumbered heading belongs to the section it sits in; a line inside a fenced code block
- * is never a heading. Text before the first numbered heading is the preamble, keyed `""`. Each section's sha is
- * {@link clauseSha} of its text — whitespace-normalised, so a reflow is not a change.
+ * the next heading that ENDS it:
+ *
+ *   - any NUMBERED heading, whatever its level — so §4's text stops where §4.2 starts, and an edit to §4.2 never
+ *     marks §4's rows stale;
+ *   - an UNNUMBERED heading at the same level or higher — so a closing `## Glossary` is not part of §12.3.
+ *
+ * A deeper unnumbered heading (`#### Why` under `### 4.2`) belongs to the section it sits in. A line inside a fenced
+ * code block is never a heading. Text outside every numbered section — the preamble, and anything under an
+ * unnumbered heading that ended one — is keyed `""`. Each section's sha is {@link clauseSha} of its text —
+ * whitespace-normalised, so a reflow is not a change.
  *
  * THE ONE DEFINITION (integration, 2026-10-06). Propose stamps `source.sha` with it, the policy PR gate checks it,
  * section-owner-approval finds changed sections with it, and the shipped framework store's test re-hashes with it.
@@ -29,13 +35,18 @@ export interface PolicySection {
 export function policySections(text: string): PolicySection[] {
   const bodies = new Map<string, string[]>();
   let current = "";
+  let depth = 0; // the heading level of the current numbered section; 0 outside one
   let fence: string | null = null; // the marker that opened the fenced block we are in
   for (const line of text.split(/\r?\n/)) {
     const m = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
     if (m && fence === null) fence = m[1]!;
     else if (m && m[1]![0] === fence?.[0] && m[1]!.length >= fence.length) fence = null;
-    const n = fence !== null || m ? null : headingSection(line);
-    if (n !== null) current = n;
+    const level = fence !== null || m ? 0 : (/^(#{1,6})\s+\S/.exec(line)?.[1]!.length ?? 0);
+    if (level) {
+      const n = headingSection(line);
+      if (n !== null) { current = n; depth = level; }
+      else if (current !== "" && level <= depth) { current = ""; depth = 0; }
+    }
     const list = bodies.get(current) ?? [];
     list.push(line);
     bodies.set(current, list);
@@ -43,7 +54,7 @@ export function policySections(text: string): PolicySection[] {
   const out: PolicySection[] = [];
   for (const [section, lines] of bodies) {
     const body = lines.join("\n");
-    if (section === "" && !body.trim()) continue; // no preamble at all
+    if (section === "" && !body.trim()) continue; // no text outside a numbered section at all
     out.push({ section, text: body, sha: clauseSha(body) });
   }
   return out;

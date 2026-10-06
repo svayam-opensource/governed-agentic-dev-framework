@@ -97,7 +97,7 @@ export function sectionOwnerApproval(tag: string, params: Readonly<Record<string
     if (f.status !== "deleted" && f.text === null) { notes.push(`${tag}: \`${f.path}\` could not be read at the head, so its changed sections are unknown.`); continue; }
     const head = f.status === "deleted" ? null : f.text;
     for (const s of changedSections(base, head)) {
-      require(ownerRole(rules, f.path, s) ?? POLICY_OWNER, s === "" ? `\`${f.path}\` preamble` : `\`${f.path}\` §${s}`);
+      require(ownerRole(rules, f.path, s) ?? POLICY_OWNER, s === "" ? `\`${f.path}\` text outside the numbered sections` : `\`${f.path}\` §${s}`);
     }
   }
 

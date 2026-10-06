@@ -16,7 +16,7 @@ import { lintCatalog, validateParams } from "../../../src/rules/checks/params.js
 import { runBuiltin } from "../../../src/rules/checks/builtin.js";
 import { createCheckRunner } from "../../../src/rules/checks/runner.js";
 import { landedByPr, githubPullsForCommit, type PullRef } from "../../../src/rules/checks/gh-actions.js";
-import { sectionShas, changedSections } from "../../../src/rules/checks/sections.js";
+import { sectionShas, changedSections, policySections } from "../../../src/rules/checks/sections.js";
 import { violationFor, recordViolation, type ViolationIssue } from "../../../src/rules/checks/violation.js";
 import { renderWorkflow } from "../../../src/rules/checks/render-github.js";
 import type { ChangedFile } from "../../../src/rules/diff-check.js";
@@ -149,6 +149,14 @@ describe("check engine slice 2 — sections and their shas", () => {
     const v2 = V1.replace("Only listed.", "Only the listed ones.");
     expect(sectionShas(v2).get("3")).to.equal(sectionShas(V1).get("3"));
     expect(changedSections(V1, v2)).to.deep.equal(["3.1"]);
+  });
+  it("ANY heading at the same or a higher level ends a section, numbered or not: a glossary is not §12.3", () => {
+    const md = "## 12 Records\n\n### 12.3 Logging\n\nOne utility.\n\n#### Why\n\nBecause.\n\n## Glossary\n\nTerm: meaning.\n";
+    const s = policySections(md);
+    expect(s.find((x) => x.section === "12.3")!.text).to.include("#### Why").and.include("Because.").and.not.include("Glossary");
+    const edited = md.replace("Term: meaning.", "Term: another meaning.");
+    expect(changedSections(md, edited), "a glossary edit is text outside every numbered section").to.deep.equal([""]);
+    expect(sectionShas(edited).get("12.3")).to.equal(sectionShas(md).get("12.3"));
   });
   it("a numbered heading inside a fenced block is text, not a section", () => {
     const fenced = "## 1 A\n\n```\n## 2 Not a heading\n```\n\n## 3 C\n\nz\n";
