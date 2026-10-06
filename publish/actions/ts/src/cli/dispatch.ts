@@ -42,6 +42,7 @@ import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycl
 import { policyGate } from "./policy-gate-io.js";
 import { approverLogins, protectRepo, type GhApi } from "../maintain/repo-protect.js";
 import { rules } from "./rules-verb.js";
+import { showRule } from "./rules-show.js";
 import { buildRulesAt } from "./rules-lifecycle.js";
 import { clearPending, isMutatingVerb, readPending, refuseForPendingRules, refuseForUnknownRulesState } from "../rules-pending.js";
 import type { MergeStamp, StampOutcome } from "../lifecycle/merge.js";
@@ -725,7 +726,13 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         ] };
       }
 
-      if (!["build", "check", "report"].includes(mode)) return usage("rules <build|check|report|reload> [--working-tree]");
+      // `gov rules show <id>` — one rule by GOV id, or a retired POL number through framework/rules/pol-aliases.yaml.
+      if (mode === "show") {
+        if (!positionals[1]) return usage("rules show <GOV-…|POL-…>");
+        return showRule((rel) => ctx.fs.readFile(path.join(ctx.home, rel)), positionals[1]);
+      }
+
+      if (!["build", "check", "report"].includes(mode)) return usage("rules <build|check|report|reload|show> [--working-tree]");
       const r = rules(
         { fs: ctx.fs, ...(ctx.git ? { git: ctx.git } : {}) },
         {
