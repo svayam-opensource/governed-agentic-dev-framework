@@ -126,8 +126,10 @@ export function validateRuleStore(rows: readonly RuleRow[], store: { readonly sc
     const actors = Array.isArray(r.actor) ? r.actor : [];
     if (actors.length === 0 || actors.some((a) => !ACTORS.includes(a)) || new Set(actors).size !== actors.length) {
       d("bad-actor", `${r.id}: actor must be a non-empty set of ${ACTORS.join(", ")}`);
-    } else if (actors.includes("everyone") && actors.length > 1) {
-      d("bad-actor", `${r.id}: "everyone" already means agent and human — it stands alone`);
+    } else if (actors.includes("everyone") && actors.some((a) => a === "agent" || a === "human")) {
+      // `everyone` already means agent and human; it combines only with gov-client, for a rule that binds all three
+      // (GOV-FRM-466, no force-push of a shared branch — W2-Q10).
+      d("bad-actor", `${r.id}: "everyone" already means agent and human — name it alone, or with gov-client`);
     }
     if (isOrg && actors.includes("gov-client")) d("gov-client-in-org", `${r.id}: only the framework makes promises about gov (actor gov-client)`);
     // C02 is the level WITH an exception route, and a framework rule has none (fixed; exceptions are for org policy).

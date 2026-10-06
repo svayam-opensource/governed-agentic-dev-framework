@@ -99,8 +99,9 @@ describe("rule model — the store and its revision history", () => {
     expect(kinds([row({ level: "C02" })])).to.not.include("c02-in-framework"); // an org rule may be C02
   });
 
-  it("`everyone` stands alone — it already means agent and human", () => {
+  it("`everyone` already means agent and human — it combines only with gov-client (W2-Q10)", () => {
     expect(kinds([row({ actor: ["everyone", "agent"] })])).to.include("bad-actor");
+    expect(validateRuleStore([row({ id: "GOV-FRM-466", actor: ["gov-client", "everyone"], level: "C01" })], { scope: FRAMEWORK_SCOPE })).to.deep.equal([]);
     expect(kinds([row({ actor: [] })])).to.include("bad-actor");
   });
 
