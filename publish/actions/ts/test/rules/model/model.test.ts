@@ -91,6 +91,14 @@ describe("rule model — the store and its revision history", () => {
     expect(validateRuleStore([row({ id: "GOV-FRM-061", actor: ["gov-client"], level: "C01" })], { scope: FRAMEWORK_SCOPE })).to.deep.equal([]);
   });
 
+  it("a framework rule is C01 or C03 — C02's exception route does not exist for it (W2-Q1)", () => {
+    const frm = (level: "C01" | "C02" | "C03") => validateRuleStore([row({ id: "GOV-FRM-117", actor: ["agent"], level })], { scope: FRAMEWORK_SCOPE }).map((d) => d.kind);
+    expect(frm("C02")).to.include("c02-in-framework");
+    expect(frm("C01")).to.deep.equal([]);
+    expect(frm("C03")).to.deep.equal([]);
+    expect(kinds([row({ level: "C02" })])).to.not.include("c02-in-framework"); // an org rule may be C02
+  });
+
   it("`everyone` stands alone — it already means agent and human", () => {
     expect(kinds([row({ actor: ["everyone", "agent"] })])).to.include("bad-actor");
     expect(kinds([row({ actor: [] })])).to.include("bad-actor");

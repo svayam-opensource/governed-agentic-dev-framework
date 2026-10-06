@@ -52,7 +52,7 @@ export interface RuleRow {
 
 export type RowDiagnosticKind =
   | "bad-id" | "wrong-scope" | "bad-source" | "bad-expectation" | "bad-actor" | "bad-level" | "bad-stamp"
-  | "gov-client-in-org" | "resident-cue-not-c01" | "resident-cue-no-agent"
+  | "gov-client-in-org" | "c02-in-framework" | "resident-cue-not-c01" | "resident-cue-no-agent"
   | "two-in-force" | "broken-chain" | "end-before-start";
 
 export interface RowDiagnostic {
@@ -130,6 +130,9 @@ export function validateRuleStore(rows: readonly RuleRow[], store: { readonly sc
       d("bad-actor", `${r.id}: "everyone" already means agent and human — it stands alone`);
     }
     if (isOrg && actors.includes("gov-client")) d("gov-client-in-org", `${r.id}: only the framework makes promises about gov (actor gov-client)`);
+    // C02 is the level WITH an exception route, and a framework rule has none (fixed; exceptions are for org policy).
+    // So a framework rule is C01 or C03 (Policy Owner, W2-Q1, 2026-10-06).
+    if (!isOrg && r.level === "C02") d("c02-in-framework", `${r.id}: a framework rule cannot be C02 — nothing can grant it an exception; make it C01 or C03`);
 
     if (r.cue?.tier === "resident") {
       if (r.level !== "C01") d("resident-cue-not-c01", `${r.id}: a resident cue is only for a C01 rule — use tier on-demand`);
