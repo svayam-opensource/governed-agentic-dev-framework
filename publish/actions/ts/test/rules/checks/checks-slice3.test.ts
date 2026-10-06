@@ -466,14 +466,15 @@ describe("gov check install", () => {
     expect(written["/gov/.github/workflows/gov-checks.yml"]).to.not.contain("create-github-app-token");
   });
 
-  it("hard posture prints the protect step, the required checks and the force-push ruleset — and calls nothing", () => {
+  it("hard posture points at `gov repo protect apply` for the required checks and the force-push ruleset — and calls nothing", () => {
     let ghCalled = false;
     const written: Record<string, string> = {};
     const d = { ...mk(written), gh: () => { ghCalled = true; return null; } };
     const text = checkCommand(["install"], {}, d, { ...CFG, posture: "hard" }).lines.join("\n");
     expect(text).to.contain("gov repo protect apply --repo acme/acme-gov");
     expect(text).to.contain("GOV-FRM-455 · pull_request");
-    expect(text).to.contain("refs/heads/BRNCH-*").and.contain("non_fast_forward");
+    expect(text).to.contain("blocks force pushes on BRNCH-*").and.contain("GOV-FRM-466");
+    expect(text, "the raw `gh api` ruleset command is gone: `gov repo protect apply` installs it").to.not.contain("gh api").and.not.contain("non_fast_forward");
     expect(ghCalled).to.equal(false);
   });
 

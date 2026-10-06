@@ -40,7 +40,9 @@ import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 import { policyGate } from "./policy-gate-io.js";
-import { approverLogins, protectRepo, type GhApi } from "../maintain/repo-protect.js";
+import { approverLogins, protectRepo, type GhApi, type RuleChecksRead } from "../maintain/repo-protect.js";
+import { requiredRuleChecks } from "../maintain/rule-checks.js";
+import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
 import { GOVERNANCE_PATH, readPosture, readGovernance, governanceTokens } from "../config/governance.js";
 import { ROLE_LIST_PATH } from "../config/role-list.js";
 import { rules } from "./rules-verb.js";
@@ -655,19 +657,35 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       // THE DEFAULT BRANCH OF THE REPOSITORY IN QUESTION, which is a different key for each kind (framework-specification.md §5.2):
       // the governance repo lands on `default_branch`, a code repo on `default_code_branch`. Getting this wrong
       // would protect a branch nobody merges into and report success.
-      const branch = flagStr(flags, "branch") ?? (named ? (c.defaultCodeBranch || "main") : (c.defaultBranch || "main"));
+      const namesGov = !!named && repo.toLowerCase() === `${c.githubOrg}/${c.workspaceRepo}`.toLowerCase();
+      const branch = flagStr(flags, "branch") ?? (named && !namesGov ? (c.defaultCodeBranch || "main") : (c.defaultBranch || "main"));
       // The governance repo IS `ctx.home` — that clone is where the workflow has to be written. For a code repo
       // gov will not guess at a path: an `apply` that wrote .github/workflows into the wrong clone is worse than
       // one that tells you where the template is.
-      const repoDir = flagStr(flags, "repo-dir") ?? (named ? undefined : ctx.home);
+      const repoDir = flagStr(flags, "repo-dir") ?? (named && !namesGov ? undefined : ctx.home);
       const check = flagStr(flags, "check");
       const governanceText = ctx.fs.readFile(path.join(ctx.home, GOVERNANCE_PATH));
+      // NAMING THE GOVERNANCE REPO WITH --repo IS STILL THE GOVERNANCE REPO: `gov check install` prints exactly that
+      // command, and reading it as a code repo would derive the wrong resource's checks.
+      const isGovernanceRepo = !named || namesGov;
+      // THE RULES' OWN GATES, read from the governance repo's DEFAULT branch — never the working tree, where an
+      // unmerged rule is a proposal (GOV-FRM-086). Each in-force gate binding on a pull request becomes a required check.
+      let ruleChecks: RuleChecksRead;
+      if (!ctx.git) {
+        ruleChecks = { ok: false, reason: "gov has no way to read git in this context" };
+      } else {
+        const ref = defaultRef(ctx.git, ctx.home, c.defaultBranch || "main");
+        const loaded = loadCheckRuleSet(ctx.git, ctx.home, ref);
+        ruleChecks = loaded.ok
+          ? { ok: true, ref, checks: requiredRuleChecks(loaded.set, isGovernanceRepo ? "governance" : "code") }
+          : { ok: false, reason: `the rules at ${ref} could not be read: ${loaded.reason}` };
+      }
       const r = protectRepo(
         { gh: ctx.ghApi, fs: ctx.fs },
         {
           repo, branch, home: ctx.home, posture: readPosture(governanceText),
           approvers: approverLogins(governanceText, ctx.fs.readFile(path.join(ctx.home, ROLE_LIST_PATH))),
-          isGovernanceRepo: !named,
+          isGovernanceRepo, ruleChecks,
           ...(repoDir ? { repoDir } : {}),
           ...(check ? { approverCheck: check } : {}),
         },

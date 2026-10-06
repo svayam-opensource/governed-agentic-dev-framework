@@ -55,6 +55,16 @@ type Trigger = { readonly on: string; readonly type?: string };
 
 const ISSUE_TYPES = new Set(["opened", "closed", "edited"]);
 
+/**
+ * THE CHECK-RUN NAME GitHub shows for a rendered job — the job's `name:`, which is what a branch protection lists as
+ * a required status check. ONE spelling, used by the renderer below and by `gov repo protect` (maintain/rule-checks.ts),
+ * so the check gov makes required is the check the workflow actually reports.
+ */
+export const checkRunName = (id: string, event: string): string => `${id} · ${event}`;
+
+/** Does a binding on this resource · event render to a GitHub `pull_request` job — one a branch can require? */
+export const rendersAsPullRequestJob = (resource: string, event: string): boolean => triggerFor(resource, event)?.on === "pull_request";
+
 function triggerFor(resource: string, event: string): Trigger | null {
   if (resource.startsWith("vcs.") && (event === "pull_request" || event === "push")) return { on: event };
   if (resource === "pms.issue" && ISSUE_TYPES.has(event)) return { on: "issues", type: event };
@@ -175,7 +185,7 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
     const sameName = sorted.filter((k) => k.id === j.id && k.event === j.event).length > 1;
     lines.push(
       `  ${jobId(sameName ? `${j.id}_${j.resource}_${j.event}` : `${j.id}_${j.event}`)}:`,
-      `    name: ${j.id} · ${j.event}`,
+      `    name: ${checkRunName(j.id, j.event)}`,
       `    if: ${cond}`,
       ...(keys.length || perms.contents ? ["    permissions:", `      contents: ${perms.contents ?? "read"}`, ...keys.map((k) => `      ${k}: ${perms[k]}`)] : []),
       "    runs-on: ubuntu-latest",

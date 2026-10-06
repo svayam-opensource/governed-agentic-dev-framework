@@ -46,6 +46,8 @@ import {
 } from "./protection-check.js";
 import { frameworkOwners, parseGovernance, type PostureChoice } from "../config/governance.js";
 import { resolveRoles } from "../config/role-list.js";
+import { WORKFLOW_PATH as GOV_CHECKS_WORKFLOW } from "../rules/checks/render-github.js";
+import type { RequiredRuleCheck } from "./rule-checks.js";
 
 /**
  * Runs `gh <args>`, with an optional JSON body on stdin, and returns stdout. Throws on a non-zero exit.
@@ -90,7 +92,17 @@ export interface RepoProtectInput {
   readonly approvers?: readonly string[];
   /** True when `repo` is the governance repository, which holds the approver list's sources and needs no variable. */
   readonly isGovernanceRepo?: boolean;
+  /** The status checks the rules in force make required on this repository under hard posture. */
+  readonly ruleChecks?: RuleChecksRead;
 }
+
+/**
+ * The rules' own required checks, as dispatch read them from the governance repo's DEFAULT branch
+ * (maintain/rule-checks.ts) — or why it could not. Absent: no rule checks are known, and none are planned.
+ */
+export type RuleChecksRead =
+  | { readonly ok: true; readonly checks: readonly RequiredRuleCheck[]; readonly ref: string }
+  | { readonly ok: false; readonly reason: string };
 
 export type ProtectMode = "plan" | "apply";
 
@@ -176,7 +188,7 @@ function parseRaw(stdout: string): RawProtection | null {
  * are KEPT and the approver check is added to them: a governance command that dropped an organization's build
  * gate in order to install its approval gate would be trading one enforcement for another.
  */
-export function buildProtectionBody(raw: RawProtection | null, approverCheck: string = APPROVER_CHECK): string {
+export function buildProtectionBody(raw: RawProtection | null, approverCheck: string = APPROVER_CHECK, ruleChecks: readonly string[] = []): string {
   const checks = raw?.required_status_checks ?? null;
   const existing = [
     ...(checks?.contexts ?? []),
@@ -193,7 +205,7 @@ export function buildProtectionBody(raw: RawProtection | null, approverCheck: st
       // found, defaulting to false, because turning it ON here would start failing merges for a reason the
       // policy never asked for.
       strict: checks?.strict ?? false,
-      contexts: [...new Set([...existing, approverCheck])],
+      contexts: [...new Set([...existing, approverCheck, ...ruleChecks])],
     },
     enforce_admins: true,                                        // GOV-FRM-447.3
     required_pull_request_reviews: {
@@ -264,9 +276,9 @@ function readState(deps: RepoProtectDeps, repo: string, branch: string): Protect
 }
 
 /** Is the workflow on the branch GitHub would run it from? `null` when gov could not find out. */
-function workflowOnBranch(deps: RepoProtectDeps, repo: string, branch: string): boolean | null {
+function workflowOnBranch(deps: RepoProtectDeps, repo: string, branch: string, file: string = WORKFLOW_DEST): boolean | null {
   try {
-    deps.gh(["api", `repos/${repo}/contents/${WORKFLOW_DEST}?ref=${branch}`]);
+    deps.gh(["api", `repos/${repo}/contents/${file}?ref=${branch}`]);
     return true;
   } catch (e) {
     const message = said(e);
@@ -275,6 +287,69 @@ function workflowOnBranch(deps: RepoProtectDeps, repo: string, branch: string): 
     if (/\b404\b|\bnot found\b/i.test(message)) return false;
     return null;
   }
+}
+
+/* ─────────────────────────── the force-push ruleset (GOV-FRM-466, W2-Q10) ─────────────────────────── */
+
+/**
+ * The branch ruleset that blocks force pushes on every project branch. A RULESET, not classic protection: classic
+ * protection is per branch name, and `BRNCH-*` is a pattern that grows a branch per project. gov finds its own by
+ * NAME, so a re-run updates it rather than adding a second.
+ */
+export const FORCE_PUSH_RULESET = {
+  name: "gov: no force-push on BRNCH-*",
+  target: "branch",
+  enforcement: "active",
+  conditions: { ref_name: { include: ["refs/heads/BRNCH-*"], exclude: [] as string[] } },
+  rules: [{ type: "non_fast_forward" }],
+} as const;
+
+/** What gov knows about its ruleset: right, missing, there but weakened, or not found out. */
+type RulesetState =
+  | { readonly kind: "present"; readonly id: number }
+  | { readonly kind: "absent" }
+  | { readonly kind: "differs"; readonly id: number; readonly what: string }
+  | { readonly kind: "unknown"; readonly why: string };
+
+/** Does a ruleset's detail do what GOV-FRM-466 asks? `null` when it does; otherwise what is off, in words. */
+function rulesetGap(detail: unknown): string | null {
+  const d = (detail ?? {}) as { target?: string; enforcement?: string; conditions?: { ref_name?: { include?: string[] } }; rules?: { type?: string }[] };
+  if (d.target !== "branch") return `targets ${d.target ?? "nothing"}, not branches`;
+  if (d.enforcement !== "active") return `enforcement is ${d.enforcement ?? "unset"}, not active`;
+  if (!(d.conditions?.ref_name?.include ?? []).includes("refs/heads/BRNCH-*")) return "does not cover refs/heads/BRNCH-*";
+  if (!(d.rules ?? []).some((r) => r?.type === "non_fast_forward")) return "has no block-force-pushes rule";
+  return null;
+}
+
+function readRuleset(deps: RepoProtectDeps, repo: string): RulesetState {
+  let list: unknown;
+  try {
+    list = JSON.parse(deps.gh(["api", `repos/${repo}/rulesets?per_page=100`]));
+  } catch (e) {
+    return { kind: "unknown", why: whyUnreadable(said(e)) ?? "gh failed" };
+  }
+  if (!Array.isArray(list)) return { kind: "unknown", why: "GitHub's answer was not a list of rulesets" };
+  const ours = (list as { id?: number; name?: string }[]).find((r) => r?.name === FORCE_PUSH_RULESET.name);
+  if (!ours || typeof ours.id !== "number") return { kind: "absent" };
+  let detail: unknown;
+  try {
+    detail = JSON.parse(deps.gh(["api", `repos/${repo}/rulesets/${ours.id}`]));
+  } catch (e) {
+    return { kind: "unknown", why: whyUnreadable(said(e)) ?? "gh failed" };
+  }
+  const gap = rulesetGap(detail);
+  return gap === null ? { kind: "present", id: ours.id } : { kind: "differs", id: ours.id, what: gap };
+}
+
+function rulesetRow(state: RulesetState): ProtectionChange {
+  return {
+    setting: "ruleset: block force pushes on BRNCH-*",
+    current: state.kind === "present" ? "active" : state.kind === "absent" ? "absent"
+      : state.kind === "differs" ? `present, but ${state.what}` : "could not find out",
+    wanted: "active",
+    rule: "GOV-FRM-466",
+    changes: state.kind !== "present",
+  };
 }
 
 /* ─────────────────────────────────────────── rendering ─────────────────────────────────────────── */
@@ -301,35 +376,58 @@ function table(changes: readonly ProtectionChange[]): readonly string[] {
  * The workflow, AS A ROW OF THE SAME TABLE. It is requirement 4's other half — the required check cannot pass
  * without it — so showing it in a separate paragraph invited a reader to plan the settings and forget the file.
  */
-function workflowRow(onBranch: boolean | null, branch: string): ProtectionChange {
+function workflowRow(onBranch: boolean | null, branch: string, file: string = WORKFLOW_DEST, rule: string = "GOV-FRM-447.4"): ProtectionChange {
   return {
-    setting: `workflow ${WORKFLOW_DEST}`,
+    setting: `workflow ${file}`,
     current: onBranch === null ? "could not find out" : onBranch ? "present" : "absent",
     wanted: `on ${branch}`,
-    rule: "GOV-FRM-447.4",
+    rule,
     changes: onBranch !== true,
   };
 }
 
-/** The refusal §3.4 describes, in full, every time. Never abbreviated: it is the answer, not an aside. */
-function cannotLines(repo: string, mode: ProtectMode, message: string): readonly string[] {
-  const first = message.split(/\r?\n/).map((l) => l.trim()).find((l) => /upgrade to github pro|make this repository public/i.test(l))
-    ?? "Upgrade to GitHub Pro or make this repository public to enable this feature.";
+/**
+ * The refusal framework-specification.md §11.2 describes, IN PLAIN WORDS (GOV-FRM-449, W2-Q6). Never GitHub's raw
+ * message: a person reading this needs to know what hard posture needs, what that means for their checks, and the
+ * three ways forward — not an HTTP status.
+ */
+function cannotLines(repo: string, mode: ProtectMode, rules: readonly RequiredRuleCheck[]): readonly string[] {
   return [
-    `  ✗ GitHub REFUSED: ${first}`,
+    "  Hard posture needs a public repository or a paid GitHub plan.",
+    `  ${repo} is private, and its GitHub plan offers no branch protection and no rulesets, so gov cannot`,
+    "  protect it — not the four GOV-FRM-447 settings, not a required check, not the force-push block.",
     "",
-    `  NOTHING WAS WRITTEN, and nothing can be: ${repo} is a PRIVATE repository on a plan without branch`,
-    "  protection. None of GOV-FRM-447's four settings can be configured here — not even the approver check,",
-    "  because required status checks are themselves a branch-protection feature (framework-specification.md §11.2).",
-    "  Until this changes, gov's own gates are the only enforcement, and they do not bind an agent a developer",
-    "  starts outside gov.",
+    "  Nothing was written. Every check on this repository stays `detected`: its job still runs and reports,",
+    "  but it cannot stop a merge.",
+    ...(rules.length
+      ? ["  These checks would be required here under hard posture:", ...rules.map((c) => `    ${c.name}   (${c.id})`)]
+      : []),
     "",
-    "  GOV-FRM-449: there are three ways out, and this organization MUST record which it took:",
+    "  GOV-FRM-449: three ways forward (framework-specification.md §11.2):",
     ...planWaysOut(repo).map((l) => `    ${l}`),
     "",
     mode === "apply"
-      ? "  gov repo protect: FAILED — this repository is NOT protected, and gov will not report that it is."
-      : "  gov repo protect plan: there is nothing to plan here. This is a platform limit, not a missing setting.",
+      ? `  gov repo protect: FAILED — ${repo} is NOT protected, and gov will not report that it is.`
+      : "  There is nothing gov can change here until one of these is done.",
+  ];
+}
+
+/** The rule checks that are known, or none. */
+const knownRules = (r: RuleChecksRead | undefined): readonly RequiredRuleCheck[] => (r?.ok ? r.checks : []);
+
+/** Under soft: what hard would require, said as a list and changing nothing. */
+function wouldUnderHard(input: RepoProtectInput): readonly string[] {
+  const r = input.ruleChecks;
+  if (r === undefined) return [];
+  if (!r.ok) return ["", `  (gov could not read the rules to list what hard would require: ${r.reason}.)`];
+  return [
+    "",
+    `  Under hard posture, ${input.repo}@${input.branch} would also get (rules read at ${r.ref}):`,
+    ...(r.checks.length
+      ? r.checks.map((c) => `    ${c.name}   would be required under hard   (${c.id})`)
+      : ["    no rule check — no rule in force binds a gate on this repository's pull requests"]),
+    "    force pushes on BRNCH-* blocked by a ruleset   (GOV-FRM-466)",
+    "  Here, each of those checks is `detected`: its job runs and reports, but it does not stop a merge.",
   ];
 }
 
@@ -346,6 +444,8 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
   const check = input.approverCheck ?? APPROVER_CHECK;
   const at = `${input.repo}@${input.branch}`;
   const head = `gov repo protect ${mode} — ${at}`;
+  const rules = knownRules(input.ruleChecks);
+  const ruleNames = rules.map((c) => c.name);
 
   // ── 0. THE POSTURE. gov installs platform controls only for an organization that ASKED for them. ────────
   if (input.posture.unrecognised || input.posture.posture === null) {
@@ -364,15 +464,30 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
       "  `gov repo protect` installs the controls that stop work attempted outside gov — which is exactly the",
       "  room a soft posture deliberately leaves. gov's own gates remain, and they do not bind an agent a",
       "  developer starts outside gov.",
+      ...wouldUnderHard(input),
       "",
       "  To change that: `governance_posture: hard` in policies/governance.yaml, by pull request, then run this again.",
     ] };
   }
 
+  // ── 0b. THE RULES. Under hard, apply makes their gates required — and will not guess which they are. ──────
+  if (input.ruleChecks && !input.ruleChecks.ok && mode === "apply") {
+    return { code: 1, lines: [
+      head,
+      `  ✗ gov could not read the rules in force — ${input.ruleChecks.reason}.`,
+      "  It will not guess which status checks to require, so nothing was written.",
+    ] };
+  }
+  const rulesNote = input.ruleChecks
+    ? input.ruleChecks.ok
+      ? `  rules read at ${input.ruleChecks.ref}: ${rules.length} gate check(s) on this repository's pull requests`
+      : `  ! the rules could not be read (${input.ruleChecks.reason}) — no rule check is planned, and \`apply\` will refuse`
+    : null;
+
   // ── 1. WHAT IS THERE NOW ────────────────────────────────────────────────────────────────────────────────
   const state = readState(deps, input.repo, input.branch);
   if (state.kind === "cannot") {
-    return { code: mode === "apply" ? 1 : 0, lines: [head, "", ...cannotLines(input.repo, mode, state.said)] };
+    return { code: mode === "apply" ? 1 : 0, lines: [head, "", ...cannotLines(input.repo, mode, rules)] };
   }
   if (state.kind === "unknown") {
     // DID NOT, not CANNOT. Something may well be configured; gov has not seen it. `apply` stops, because the
@@ -390,38 +505,65 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
     ] };
   }
 
-  const changes = protectionChanges(state.facts, check);
+  const changes = protectionChanges(state.facts, check, rules);
   const onBranch = workflowOnBranch(deps, input.repo, input.branch);
+  // The gov-checks workflow reports the rule checks. Asked only when there are some: without it, requiring them
+  // would leave every pull request pending for ever, exactly as the approver check would.
+  const govChecksOnBranch = rules.length ? workflowOnBranch(deps, input.repo, input.branch, GOV_CHECKS_WORKFLOW) : true;
+  const ruleset = readRuleset(deps, input.repo);
+  const rows = [
+    ...changes,
+    workflowRow(onBranch, input.branch),
+    ...(rules.length ? [workflowRow(govChecksOnBranch, input.branch, GOV_CHECKS_WORKFLOW, "gov check install")] : []),
+    rulesetRow(ruleset),
+  ];
 
   // ── 2. PLAN — prints, changes nothing ───────────────────────────────────────────────────────────────────
   if (mode === "plan") {
     const pending = changes.filter((c) => c.changes);
-    const allCorrect = pending.length === 0 && onBranch === true;
+    const allCorrect = pending.length === 0 && onBranch === true && govChecksOnBranch === true && ruleset.kind === "present";
     return { code: 0, lines: [
       head,
       "  posture: hard — the platform is meant to stop work attempted outside gov (GOV-FRM-447)",
+      ...(rulesNote ? [rulesNote] : []),
       "",
-      ...table([...changes, workflowRow(onBranch, input.branch)]),
+      ...table(rows),
       "",
       ...(allCorrect
-        ? ["  ALREADY CORRECT — every requirement of GOV-FRM-447 is configured on this branch and the approver",
-           "  workflow is on it. `apply` would write nothing."]
+        ? ["  ALREADY CORRECT — every requirement of GOV-FRM-447 is configured on this branch, the rules' checks are",
+           "  required, force pushes on BRNCH-* are blocked, and the workflows are on it. `apply` would write nothing."]
         : [
             `  ${pending.length} of ${changes.length} settings would change${onBranch === false ? `, and ${WORKFLOW_DEST} would be written` : ""}.`,
+            ...(ruleset.kind === "absent" ? ["  The force-push ruleset would be created (GOV-FRM-466)."] : []),
+            ...(ruleset.kind === "differs" ? [`  The force-push ruleset would be put right: it ${ruleset.what} (GOV-FRM-466).`] : []),
+            ...(ruleset.kind === "unknown" ? [`  ! gov could not read the rulesets — ${ruleset.why}. \`apply\` will not write until it can.`] : []),
             "  NOTHING HAS BEEN WRITTEN. `gov repo protect apply` writes it.",
             ...(onBranch === false
               ? ["", "  ORDER MATTERS, and `apply` enforces it: the workflow lands FIRST, by pull request. A required",
                  "  check that has never run leaves every pull request pending for ever — including the one that",
                  "  would land the workflow."]
               : []),
+            ...(govChecksOnBranch === false
+              ? ["", `  ${GOV_CHECKS_WORKFLOW} is not on ${input.branch}: \`gov check install\` renders it; land it by pull request first.`]
+              : []),
             ...(onBranch === null
               ? ["", `  gov could not tell whether ${WORKFLOW_DEST} is on ${input.branch}, so \`apply\` will not assume it is.`]
               : []),
           ]),
+      ...(input.isGovernanceRepo
+        ? ["", "  Each linked code repository is protected the same way: `gov repo protect plan --repo <name>`."]
+        : []),
     ] };
   }
 
-  // ── 3. APPLY, step one: THE WORKFLOW, BEFORE THE REQUIRED CHECK ─────────────────────────────────────────
+  // ── 3. APPLY, step one: THE WORKFLOWS, BEFORE THE REQUIRED CHECKS ───────────────────────────────────────
+  if (ruleset.kind === "unknown") {
+    return { code: 1, lines: [
+      head,
+      `  ✗ gov could not read the rulesets on ${input.repo} — ${ruleset.why}.`,
+      "  gov repo protect: FAILED — nothing was written. gov does not write onto rules it could not read.",
+    ] };
+  }
   if (onBranch !== true) {
     const template = deps.fs.readFile(path.join(input.home, WORKFLOW_TEMPLATE));
     if (template === null) {
@@ -467,6 +609,7 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
             + "   (policies/governance.yaml names nobody yet)",
       );
     }
+    if (govChecksOnBranch !== true) lines.push("", ...govChecksMissing(input));
     return { code: 1, lines: [
       ...lines,
       "",
@@ -478,66 +621,129 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
       "  — this repository is NOT yet protected.",
     ] };
   }
+  if (govChecksOnBranch !== true) {
+    return { code: 1, lines: [
+      head,
+      ...govChecksMissing(input),
+      "",
+      "  STOPPED BEFORE TOUCHING BRANCH PROTECTION, on purpose: a required check that nothing reports leaves every",
+      "  pull request pending for ever. gov repo protect: INCOMPLETE — this repository is NOT yet protected.",
+    ] };
+  }
 
   // ── 4. APPLY, step two: THE BRANCH PROTECTION ───────────────────────────────────────────────────────────
   const pending = changes.filter((c) => c.changes);
-  if (!pending.length) {
+  if (!pending.length && ruleset.kind === "present") {
     return { code: 0, lines: [
       head,
-      "  ALREADY CORRECT — every requirement of GOV-FRM-447 is configured on this branch and the approver",
-      `  workflow is on ${input.branch}. Nothing was written.`,
+      "  ALREADY CORRECT — every requirement of GOV-FRM-447 is configured on this branch, the rules' checks are",
+      `  required, force pushes on BRNCH-* are blocked, and the workflows are on ${input.branch}. Nothing was written.`,
       "",
-      ...table(changes),
+      ...table(rows),
     ] };
   }
 
-  const body = buildProtectionBody(state.raw, check);
-  try {
-    deps.gh(["api", "--method", "PUT", `repos/${input.repo}/branches/${input.branch}/protection`, "--input", "-"], body);
-  } catch (e) {
-    const message = said(e);
-    if (isPlanLimited(message)) {
-      return { code: 1, lines: [head, "", ...cannotLines(input.repo, "apply", message)] };
+  let confirmed = changes;
+  if (pending.length) {
+    const body = buildProtectionBody(state.raw, check, ruleNames);
+    try {
+      deps.gh(["api", "--method", "PUT", `repos/${input.repo}/branches/${input.branch}/protection`, "--input", "-"], body);
+    } catch (e) {
+      const message = said(e);
+      if (isPlanLimited(message)) {
+        return { code: 1, lines: [head, "", ...cannotLines(input.repo, "apply", rules)] };
+      }
+      return { code: 1, lines: [
+        head,
+        `  ✗ the write was refused — ${whyUnreadable(message) ?? "gh failed"}.`,
+        "  Writing branch protection needs ADMIN rights on the repository.",
+        "  gov repo protect: FAILED — this repository is NOT protected.",
+      ] };
     }
+
+    // ── 5. THE RE-READ. The report is built from THIS, never from the PUT's exit code. ─────────────────────
+    const after = readState(deps, input.repo, input.branch);
+    if (after.kind !== "facts") {
+      return { code: 1, lines: [
+        head,
+        "  ! the write was accepted, and gov could NOT re-read the branch to confirm what it did"
+          + `${after.kind === "unknown" ? ` — ${after.why}` : ""}.`,
+        "  So gov is not reporting success: an unconfirmed write is exactly the silent partial apply that leaves",
+        "  an organization believing it is protected. Check github.com/" + input.repo + "/settings/branches, or run",
+        "  `gov repo protect plan` again.",
+      ] };
+    }
+    confirmed = protectionChanges(after.facts, check, rules);
+    const remaining = confirmed.filter((c) => c.changes);
+    if (remaining.length) {
+      return { code: 1, lines: [
+        head,
+        "  ✗ PARTIALLY APPLIED — GitHub accepted the write, and the RE-READ says this is still not configured:",
+        ...remaining.map((c) => `     ${c.setting}: ${c.current} (wanted ${c.wanted})   ${c.rule}`),
+        "",
+        "  gov repo protect: FAILED. Reported from the re-read, not from the write — a command that trusted the",
+        "  exit code would have told you this branch was protected.",
+      ] };
+    }
+  }
+
+  // ── 6. THE FORCE-PUSH RULESET (GOV-FRM-466), written and RE-READ the same way ───────────────────────────
+  const rulesetLines = applyRuleset(deps, input.repo, ruleset);
+  if (!rulesetLines.ok) {
     return { code: 1, lines: [
       head,
-      `  ✗ the write was refused — ${whyUnreadable(message) ?? "gh failed"}.`,
-      "  Writing branch protection needs ADMIN rights on the repository.",
-      "  gov repo protect: FAILED — this repository is NOT protected.",
+      ...(pending.length ? ["  ✓ branch protection written and RE-READ — GOV-FRM-447 and the rules' checks hold."] : []),
+      ...rulesetLines.lines,
+      "  gov repo protect: FAILED — force pushes on BRNCH-* are NOT blocked.",
     ] };
   }
 
-  // ── 5. THE RE-READ. The report is built from THIS, never from the PUT's exit code. ───────────────────────
-  const after = readState(deps, input.repo, input.branch);
-  if (after.kind !== "facts") {
-    return { code: 1, lines: [
-      head,
-      "  ! the write was accepted, and gov could NOT re-read the branch to confirm what it did"
-        + `${after.kind === "unknown" ? ` — ${after.why}` : ""}.`,
-      "  So gov is not reporting success: an unconfirmed write is exactly the silent partial apply that leaves",
-      "  an organization believing it is protected. Check github.com/" + input.repo + "/settings/branches, or run",
-      "  `gov repo protect plan` again.",
-    ] };
-  }
-  const remaining = protectionChanges(after.facts, check).filter((c) => c.changes);
-  if (remaining.length) {
-    return { code: 1, lines: [
-      head,
-      "  ✗ PARTIALLY APPLIED — GitHub accepted the write, and the RE-READ says this is still not configured:",
-      ...remaining.map((c) => `     ${c.setting}: ${c.current} (wanted ${c.wanted})   ${c.rule}`),
-      "",
-      "  gov repo protect: FAILED. Reported from the re-read, not from the write — a command that trusted the",
-      "  exit code would have told you this branch was protected.",
-    ] };
-  }
   return { code: 0, lines: [
     head,
     "  ✓ written and RE-READ on GitHub — every requirement of GOV-FRM-447 now holds:",
-    ...table(protectionChanges(after.facts, check)),
+    ...table(confirmed),
     "",
     `  ✓ ${WORKFLOW_DEST} is on ${input.branch}, and \`${check}\` is a required check.`,
+    ...(rules.length
+      ? [`  ✓ the rules' gate checks are required, so they are \`prevented\` on ${input.branch}: ${ruleNames.join(", ")}`]
+      : []),
+    `  ✓ force pushes on BRNCH-* are blocked (ruleset "${FORCE_PUSH_RULESET.name}", GOV-FRM-466).`,
     "",
     "  Work attempted outside gov on this branch is now stopped by the platform. What gov CANNOT tell you is",
     "  whether every OTHER repository of this organization is in the same state — run this per repository.",
+  ] };
+}
+
+/** The gov-checks workflow is not on the branch: what to do, for this kind of repository. */
+function govChecksMissing(input: RepoProtectInput): readonly string[] {
+  return [
+    `  ${GOV_CHECKS_WORKFLOW} is not on ${input.branch}, and it is what reports the rules' checks.`,
+    input.isGovernanceRepo
+      ? "  Render it with `gov check install`, land it by pull request, then run `gov repo protect apply` again."
+      : "  Render it with `gov check install --repo <path to this repository's clone>`, land it by pull request,"
+        + " then run `gov repo protect apply` again.",
+  ];
+}
+
+/** Create or put right gov's force-push ruleset, then RE-READ it. Nothing to do when it is already right. */
+function applyRuleset(deps: RepoProtectDeps, repo: string, state: RulesetState): { ok: boolean; lines: readonly string[] } {
+  if (state.kind === "present") return { ok: true, lines: [] };
+  if (state.kind === "unknown") return { ok: false, lines: [`  ✗ gov could not read the rulesets — ${state.why}.`] };
+  const body = JSON.stringify(FORCE_PUSH_RULESET, null, 2);
+  try {
+    deps.gh(state.kind === "absent"
+      ? ["api", "--method", "POST", `repos/${repo}/rulesets`, "--input", "-"]
+      : ["api", "--method", "PUT", `repos/${repo}/rulesets/${state.id}`, "--input", "-"], body);
+  } catch (e) {
+    const message = said(e);
+    return { ok: false, lines: [isPlanLimited(message)
+      ? "  ✗ GitHub offers no rulesets on this repository's plan — hard posture needs a public repository or a paid plan."
+      : `  ✗ the ruleset write was refused — ${whyUnreadable(message) ?? "gh failed"}. Writing rulesets needs ADMIN rights.`] };
+  }
+  const after = readRuleset(deps, repo);
+  if (after.kind === "present") return { ok: true, lines: [] };
+  return { ok: false, lines: [
+    "  ✗ GitHub accepted the ruleset write, and the RE-READ does not show it in force"
+      + (after.kind === "differs" ? `: it ${after.what}` : after.kind === "unknown" ? ` — ${after.why}` : "") + ".",
   ] };
 }
