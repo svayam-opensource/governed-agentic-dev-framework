@@ -150,3 +150,42 @@ actions:
       type: object
       additionalProperties: false
       properties: {}
+
+  # ── W2-Q3: every change lands by pull request (GOV-FRM-040) ──────────────────────────────────────────────
+  # Bound to `vcs.*-repo · push` on the default branch: each pushed commit must belong to a pull request MERGED
+  # INTO the pushed branch (GitHub: GET /repos/{repo}/commits/{sha}/pulls). Undo: none — reverting the default
+  # branch could destroy work others have already pulled; the violation record is the response.
+  # `branches` scopes which pushes are judged; `$default` is the default branch.
+  - id: gh-action/landed-by-pr
+    tool: gh-action
+    params:
+      type: object
+      additionalProperties: false
+      properties:
+        branches: { type: [array, string] }
+
+  # ── W2-Q10: no one force-pushes a branch others work on (GOV-FRM-466) ─────────────────────────────────────
+  # Bound to `vcs.*-repo · push`: fails when the push was forced and the branch matches `branches`
+  # (default `BRNCH-*`). Hard posture also turns on GitHub's "block force pushes" for those branches.
+  - id: gov-builtin/forbid-forced-push
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      properties:
+        branches: { type: [array, string] }
+
+  # ── W2-Q8: a policy change merges only when the owner of every changed section approves (GOV-FRM-086c) ────
+  # Bound to `vcs.gov-repo · pull_request` (a gate). A section is changed when its text's sha differs from the
+  # base; its owner comes from `policies/ownership.yaml` (most specific section wins), else the Policy Owner.
+  # A change to `policies/ownership.yaml` needs the Policy Owner; `policies/actions/**` needs the Check Owner.
+  # `docs` = which files are policy (default `policies/**/*.md`); `ignore` = never judged (default the frozen
+  # snapshots, `policies/version/**`).
+  - id: gov-builtin/section-owner-approval
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      properties:
+        docs: { type: [array, string] }
+        ignore: { type: [array, string] }
