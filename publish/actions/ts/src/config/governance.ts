@@ -172,6 +172,38 @@ export function governanceTokens(g: GovernanceConfig): Record<string, string> {
   return out;
 }
 
+/* ─────────────────────────────── what a change changed ─────────────────────────────── */
+
+const handle = (h: string): string => (h ? `@${h.replace(/^@/, "")}` : "vacant");
+const agentsText = (a: AuthorizedAgents): string =>
+  a.kind === "unset" ? "the framework's defaults" : a.kind === "none" ? "none"
+    : a.agents.map((x) => (x.default ? `${x.id} (default)` : x.id)).join(", ") || "none";
+const modelText = (g: GovernanceConfig): string => {
+  const { provider, model, command, ciAllowed } = modelSettings(g);
+  const which = provider === null ? "none" : provider === "command" ? `command · ${command || "(no command)"}` : `${provider} · ${model || "(no model)"}`;
+  return `${which}; CI ${ciAllowed ? "may" : "may not"} use it`;
+};
+
+/**
+ * WHAT A CHANGE TO governance.yaml CHANGED, in plain words — one line per choice that differs (sandbox finding,
+ * PRJ-121, 2026-10-07: the changelog called a newly approved model "prose only"). Empty when no choice changed
+ * (a comment or layout edit). PURE; never throws — an unreadable side reads as every default, like gov does.
+ */
+export function describeGovernanceChanges(baseText: string | null, headText: string | null): string[] {
+  const b = parseGovernance(baseText), h = parseGovernance(headText);
+  const out: string[] = [];
+  const pair = (label: string, was: string, now: string) => { if (was !== now) out.push(`${label}: ${was} → ${now}`); };
+  const posture = (p: PostureChoice): string => p.posture ?? `"${p.raw}" (not a posture gov knows)`;
+  pair("Governance posture", posture(b.posture), posture(h.posture));
+  pair("Policy Owner", handle(b.policyOwner.github), handle(h.policyOwner.github));
+  pair("Policy Owner email", b.policyOwner.email || "none", h.policyOwner.email || "none");
+  pair("Check Owner", handle(b.checkOwner.github), handle(h.checkOwner.github));
+  pair("Authorized agents", agentsText(b.authorizedAgents), agentsText(h.authorizedAgents));
+  pair("Knowledge publication", b.knowledgePublication, h.knowledgePublication);
+  if (modelText(b) !== modelText(h)) out.push(`Approved model for propose: ${modelText(h)}`);
+  return out;
+}
+
 /* ─────────────────────────────── writing it ─────────────────────────────── */
 
 /** What setup writes. */

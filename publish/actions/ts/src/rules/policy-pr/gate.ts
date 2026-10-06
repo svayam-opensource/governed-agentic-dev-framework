@@ -9,7 +9,8 @@
  *                  store only grew (a row is closed, never edited or deleted; a retired id is never reused) —
  *                  save the one in-place edit Q17 allows: an open row's `source.sha` refreshed, nothing else;
  *   its VERSION    `policies/VERSION` bumped exactly as the change needs — minor when rows were added, revised or
- *                  retired, or who-owns-what changed (`policies/ownership.yaml`: a row added, removed or re-pointed);
+ *                  retired, or who-owns-what changed (`policies/ownership.yaml`: a row added, removed or re-pointed),
+ *                  or a governance choice changed (`policies/governance.yaml` — GOVERNANCE_CHANGE_BUMP);
  *                  patch when only prose did (a rule's or an ownership row's sha refresh included); major whenever
  *                  the org chooses — and not at all when `policies/` is untouched;
  *   its SNAPSHOT   `policies/version/<prev>/` is the base's `policies/` byte for byte (minus `version/` and
@@ -27,6 +28,14 @@ import { inForce, parseRuleStore, type RuleRow } from "../model/rule-row.js";
 import { sectionShas } from "../checks/sections.js";
 import { treeAsGit, type TreeReader } from "./tree.js";
 import { OWNERSHIP_PATH, ownershipDiffers, parseOwnership } from "../checks/ownership.js";
+import { GOVERNANCE_PATH, describeGovernanceChanges } from "../../config/governance.js";
+
+/**
+ * THE BUMP A CHANGE TO policies/governance.yaml NEEDS — read by planPolicyPr (and so by the gate and propose's
+ * writers) and by propose's planner (run.ts). A choice changing, not a comment: see describeGovernanceChanges.
+ */
+// Policy Owner, 2026-10-07: a governance choice changes how governance works — minor, like an ownership change.
+export const GOVERNANCE_CHANGE_BUMP: "minor" | "patch" = "minor";
 
 export const POLICY_PR_PATHS = {
   root: "policies",
@@ -69,6 +78,8 @@ export interface PolicyPrPlan {
   readonly changes: RuleChanges;
   /** Did who-owns-what change (a row added, removed, or its doc/section/role)? A sha alone is not. → minor. */
   readonly ownershipChanged: boolean;
+  /** Each governance choice this change made, in plain words (empty: none — a comment edit is prose). */
+  readonly governance: readonly string[];
 }
 
 export interface PolicyPrJudgement extends PolicyPrPlan {
@@ -226,8 +237,11 @@ export function planPolicyPr(base: TreeReader, head: TreeReader): PolicyPrPlan |
   if ("error" in baseOwn) return { unreadable: `base: ${OWNERSHIP_PATH} ${baseOwn.error}` };
   if ("error" in headOwn) return { unreadable: `head: ${OWNERSHIP_PATH} ${headOwn.error}` };
   const ownershipChanged = ownershipDiffers(baseOwn, headOwn);
-  const required: RequiredBump = !contentChanged ? "none" : changes.rowsChanged || ownershipChanged ? "minor" : "patch";
-  return { touched, required, baseVersion: readVersion(base), headVersion: readVersion(head), changes, ownershipChanged };
+  const governance = describeGovernanceChanges(b.get(GOVERNANCE_PATH) ?? null, h.get(GOVERNANCE_PATH) ?? null);
+  const required: RequiredBump = !contentChanged ? "none"
+    : changes.rowsChanged || ownershipChanged ? "minor"
+      : governance.length ? GOVERNANCE_CHANGE_BUMP : "patch";
+  return { touched, required, baseVersion: readVersion(base), headVersion: readVersion(head), changes, ownershipChanged, governance };
 }
 
 // ── the CHANGELOG's entries ──────────────────────────────────────────────────────────────────────────────────
@@ -256,7 +270,7 @@ export function judgePolicyPr(input: PolicyPrInput): PolicyPrJudgement {
     return {
       verdict: "cannot-tell", findings: [{ check: "unreadable", message: `${plan.unreadable}, so nothing was checked.` }],
       touched: false, required: "none", baseVersion: NO_ORG_VERSION, headVersion: NO_ORG_VERSION,
-      changes: { added: [], revised: [], retired: [], refreshed: [], rowsChanged: false }, ownershipChanged: false,
+      changes: { added: [], revised: [], retired: [], refreshed: [], rowsChanged: false }, ownershipChanged: false, governance: [],
     };
   }
   // (a) Nothing under policies/ changed: nothing to carry, nothing to bump.
@@ -273,9 +287,9 @@ export function judgePolicyPr(input: PolicyPrInput): PolicyPrJudgement {
     if (cannot) return { ...plan, verdict: "cannot-tell", findings: [{ check: "unreadable", message: cannot }, ...findings] };
     checkAppendOnly(baseRows, headRows, headVersion, f);
   }
-  checkVersion(baseVersion, headVersion, required, f);
+  checkVersion(baseVersion, headVersion, required, f, plan);
   if (required !== "none") {
-    checkChangelog(head, headVersion, plan.changes, f);
+    checkChangelog(head, headVersion, plan.changes, f, plan.governance);
     const cannot = checkSnapshot(base, head, baseVersion, f);
     if (cannot) return { ...plan, verdict: "cannot-tell", findings: [{ check: "unreadable", message: cannot }, ...findings] };
     checkStamps(baseRows, headRows, { version: headVersion, date: today, pr }, f);
@@ -340,7 +354,7 @@ function checkAppendOnly(base: readonly RuleRow[], head: readonly RuleRow[], ver
 }
 
 /** (e) VERSION moved exactly as the change needs. */
-function checkVersion(base: string, head: string, required: RequiredBump, f: Emit): void {
+function checkVersion(base: string, head: string, required: RequiredBump, f: Emit, plan: Pick<PolicyPrPlan, "changes" | "ownershipChanged" | "governance">): void {
   if (!VERSION_RE.test(head)) { f("version", `${POLICY_PR_PATHS.version} is "${head}", not a version x.y.z`); return; }
   if (required === "none") {
     if (head !== base) f("version", `${POLICY_PR_PATHS.version} went from ${base} to ${head}, but nothing in the policy changed — put it back to ${base}`);
@@ -348,18 +362,20 @@ function checkVersion(base: string, head: string, required: RequiredBump, f: Emi
   }
   const [want, major] = allowedVersions(base, required);
   if (head === want || head === major) return;
-  const why = required === "minor" ? "rules or section ownership changed" : "only prose changed";
+  const why = required === "patch" ? "only prose changed"
+    : plan.changes.rowsChanged || plan.ownershipChanged ? "rules or section ownership changed" : "the governance choices changed";
   f("version", `${POLICY_PR_PATHS.version} is ${head}; ${why}, so it must be ${want} (or ${major} if the organization chooses a major version)`);
 }
 
 /** (f) The CHANGELOG has an entry for the new version naming every rule added, revised or retired. */
-function checkChangelog(head: TreeReader, version: string, c: RuleChanges, f: Emit): void {
+function checkChangelog(head: TreeReader, version: string, c: RuleChanges, f: Emit, governance: readonly string[] = []): void {
   const text = head.read(POLICY_PR_PATHS.changelog);
   const entry = text === null ? null : changelogEntry(text, version);
   if (entry === null) { f("changelog", `${POLICY_PR_PATHS.changelog} has no entry for ${version}`); return; }
   for (const [ids, change] of [[c.added, "added"], [c.revised, "revised"], [c.retired, "retired"]] as const) {
     for (const id of ids) if (!mentions(entry, id)) f("changelog", `the ${POLICY_PR_PATHS.changelog} entry for ${version} does not name ${id} (${change})`);
   }
+  for (const g of governance) if (!entry.includes(g)) f("changelog", `the ${POLICY_PR_PATHS.changelog} entry for ${version} does not name the governance change: ${g}`);
 }
 
 /** (g) `policies/version/<prev>/` is the base's `policies/` byte for byte. */

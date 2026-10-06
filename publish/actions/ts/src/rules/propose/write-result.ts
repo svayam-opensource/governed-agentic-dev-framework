@@ -125,6 +125,7 @@ export function finishPolicyChange(i: FinishInput): FinishResult {
   }
   const qa: { q: string; a: string }[] = [];
   for (const r of rules) for (const x of open.get(r.id)?.qa ?? []) if (!qa.some((y) => y.q === x.q && y.a === x.a)) qa.push({ q: x.q, a: x.a });
-  say(w.writeChangelogEntry({ version: bump.version, date: i.today, pr: i.pr, author: i.author, approver: null, rules, qa }));
+  const governance = "unreadable" in after ? plan.governance : after.governance;
+  say(w.writeChangelogEntry({ version: bump.version, date: i.today, pr: i.pr, author: i.author, approver: null, rules, qa, ...(governance.length ? { governance } : {}) }));
   return { ok: true, lines, wrote: [...touched], plan, version: bump.version };
 }

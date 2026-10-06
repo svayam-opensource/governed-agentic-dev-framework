@@ -35,6 +35,8 @@ export interface ChangelogEntry {
   readonly rules: readonly { readonly id: string; readonly change: "added" | "revised" | "retired"; readonly expectation: string }[];
   /** The interview that settled the change (Q18). */
   readonly qa: readonly { readonly q: string; readonly a: string }[];
+  /** The governance choices this change made, in plain words (describeGovernanceChanges). */
+  readonly governance?: readonly string[];
 }
 
 const CHANGELOG_TITLE = "# Policy changelog";
@@ -52,13 +54,19 @@ export function renderChangelogEntry(e: ChangelogEntry): string {
     "| Pull request | Author | Approver |", "|---|---|---|",
     `| #${e.pr} | ${at(e.author)} | ${e.approver ? at(e.approver) : "_pending_"} |`, "",
   ];
+  const governance = e.governance ?? [];
+  if (governance.length) {
+    out.push("**Governance choices** (`policies/governance.yaml`)", "");
+    for (const g of governance) out.push(`- ${g.replace(/\r?\n/g, " ")}`);
+    out.push("");
+  }
   if (e.rules.length) {
     out.push("| Rule | Change | Expectation |", "|---|---|---|");
     for (const r of e.rules) out.push(`| ${r.id} | ${r.change} | ${cell(r.expectation)} |`);
-  } else {
-    out.push("_No rule changed — prose only._");
+    out.push("");
+  } else if (!governance.length) {
+    out.push("_No rule changed — prose only._", "");
   }
-  out.push("");
   if (e.qa.length) {
     out.push("**Interview**", "");
     for (const { q, a } of e.qa) out.push(`- **Q:** ${q.replace(/\r?\n/g, " ")}`, `  **A:** ${a.replace(/\r?\n/g, " ")}`);

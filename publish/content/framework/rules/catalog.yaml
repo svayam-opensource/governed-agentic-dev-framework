@@ -206,8 +206,9 @@ actions:
   # Bound to `vcs.gov-repo · pull_request` (a gate). Deterministic — no LLM (Q16): when `policies/` changed, every
   # in-force org row cites its section at the section's current sha; both stores validate; the org store only grew
   # (rows closed at the new version, never edited or deleted; a retired id never reused); `policies/VERSION` moved
-  # minor (rows changed) or patch (prose only), or major; `policies/CHANGELOG.md` has an entry for the new version
-  # naming every added, revised or retired id; `policies/version/<prev>/` is the base's `policies/` byte for byte
+  # minor (rows, ownership or a governance choice changed) or patch (prose only), or major; `policies/CHANGELOG.md`
+  # has an entry for the new version naming every added, revised or retired id and every governance choice changed;
+  # `policies/version/<prev>/` is the base's `policies/` byte for byte
   # (minus `version/` and `actions/`); nothing already frozen under `policies/version/` changed; and new and closed
   # rows carry the new version, the date and the PR number. Untouched `policies/` → passes, no bump expected.
   - id: gov-builtin/policy-pr-gate
