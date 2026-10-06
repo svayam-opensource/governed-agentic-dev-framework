@@ -170,3 +170,29 @@ describe("gov-work — `gov upgrade --apply` on a Svayam-shaped workspace (end t
     expect(doneMoves(ws)).to.not.include("org-config.yaml → policies/governance.yaml");
   });
 });
+
+// Policy Owner, 2026-10-06: gov never changes what the org WROTE under policies/ — it writes there only to seed a file
+// once, and once, in a recorded upgrade migration, to fill values that were empty.
+describe("GOV-FRM-445 — the migration fills only what is empty under policies/", () => {
+  it("GOV-FRM-445 a value the organization already wrote in governance.yaml is never replaced by org-config's", () => {
+    const written = TEMPLATE_GOV.replace(/(policy_owner:[\s\S]*?github:\s*)""/, '$1"@alice"').replace(/governance_posture:\s*\S+/, "governance_posture: hard");
+    const cfg = 'org_slug: "SVM"\npolicy_owner_github: "@bob"\ngovernance_posture: "soft"\n';
+    const out = splitOrgConfig({ orgConfig: cfg, governance: written, roleList: null });
+    const g = parseGovernance(out.governance);
+    expect(g.policyOwner.github.replace(/^@/, "")).to.equal("alice");
+    expect(g.posture.posture).to.equal("hard");
+  });
+
+  it("GOV-FRM-445 a role holder the organization already named in the role list is never replaced", () => {
+    const named = TEMPLATE_ROLES.replace("<LEGAL_OWNER_GITHUB>", "@lena");
+    const out = splitOrgConfig({ orgConfig: 'org_slug: "SVM"\nlegal_owner_github: "@larry"\n', governance: TEMPLATE_GOV, roleList: named });
+    const legal = parseRoleList(out.roleList ?? "").roles.find((r) => r.role === "Legal Owner");
+    expect(legal?.holder?.replace(/^@/, "")).to.equal("lena");
+  });
+
+  it("GOV-FRM-445 an empty placeholder IS filled from org-config — the one write the promise allows", () => {
+    const out = splitOrgConfig({ orgConfig: 'org_slug: "SVM"\npolicy_owner_github: "@bob"\n', governance: TEMPLATE_GOV, roleList: null });
+    expect(parseGovernance(out.governance).policyOwner.github.replace(/^@/, "")).to.equal("bob");
+  });
+});
+

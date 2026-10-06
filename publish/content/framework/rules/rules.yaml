@@ -355,7 +355,7 @@
 # new promise
 - id: GOV-FRM-445
   source: { doc: framework/docs/specs/framework-specification.md, section: "1.2", sha: "e32ca82" }
-  expectation: "gov seeds each file under policies/ once and never overwrites it afterwards."
+  expectation: "gov never changes what an organization wrote under policies/; it writes there only to seed a file once, and once, in a recorded upgrade migration, to fill values that were empty."
   actor: [gov-client]
   level: C01
   checks:
