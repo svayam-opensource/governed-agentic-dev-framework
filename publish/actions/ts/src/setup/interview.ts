@@ -25,6 +25,7 @@
  * alternative is opening with a GitHub org id, which is not how anyone describes
  * their own organization.
  */
+import { confirmPosture, parsePostureAnswer, postureRule, POSTURE_QUESTION } from "./posture-question.js";
 import type { OrgConfigValues } from "./setup.js";
 
 import {
@@ -189,7 +190,7 @@ async function ask(io: InterviewIo, n: number, question: string, def: string | u
 }
 
 /**
- * Run the ten questions in order. Returns null when `afterOrg` took over.
+ * Run the questions in order. Returns null when `afterOrg` took over.
  *
  * Each default is re-derived from the answers so far, so Q2 can suggest a short name
  * built from Q1's legal name and Q5 can suggest a slug built from Q3's organization.
@@ -268,7 +269,11 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
     "Who is the Check Owner — the GitHub handle that reviews the code of your check actions (policies/actions/)?",
     io.derive(a).checkOwnerGithub, githubHandle);
 
-  // Q11 — WHICH AGENTS THIS ORGANIZATION ALLOWS.
+  // Q11 — THE GOVERNANCE POSTURE (W2-Q6). Soft by default; hard only past the Policy Owner's confirmation.
+  a.governancePosture = await confirmPosture(
+    parsePostureAnswer(await ask(io, 11, POSTURE_QUESTION, "1", postureRule, [], ["1", "2"])) ?? "soft", io.prompt);
+
+  // Q12 — WHICH AGENTS THIS ORGANIZATION ALLOWS.
   //
   // Last, because it is the only answer that is a POLICY rather than a fact about the
   // organization, and because it is the one an adopter most needs the preceding context to
@@ -278,13 +283,13 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   let agents: readonly ApprovedAgent[] | undefined;
   if (io.selectAgents) {
     io.print("");
-    io.print("Q11 - Which AI agents may be used in this organization?");
+    io.print("Q12 - Which AI agents may be used in this organization?");
     const picked = await askAgentSelection({
       prompt: io.prompt,
       print: io.print,
       ...(io.color === undefined ? {} : { color: io.color }),
     });
-    if (picked === null) throw new InterviewRefused("Q11: no usable AI agent selection.");
+    if (picked === null) throw new InterviewRefused("Q12: no usable AI agent selection.");
     agents = picked;
   }
 

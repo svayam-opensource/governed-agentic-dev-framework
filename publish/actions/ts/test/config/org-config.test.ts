@@ -117,10 +117,11 @@ describe("gov-work — governance_posture", () => {
     expect(posture("governance_posture: HARD").posture, "GitHub-ish casing is not a different answer").to.equal("hard");
   });
 
-  it("an absent or empty key is NOBODY CHOSE — never a default to either side", () => {
+  it("an absent or empty key is SOFT — the default (W2-Q6); there is no \"nobody chose\" state", () => {
     for (const text of ["org_name: Acme", 'governance_posture: ""', "governance_posture:   "]) {
       const p = posture(text);
-      expect(p.posture, text).to.equal(null);
+      expect(p.posture, text).to.equal("soft");
+      expect(p.raw, `${text} — kept empty, so a report can say soft is the default`).to.equal("");
       expect(p.unrecognised, `${text} — nobody wrote anything, so nothing was misread`).to.equal(false);
     }
   });

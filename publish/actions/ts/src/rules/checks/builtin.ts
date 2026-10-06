@@ -24,10 +24,12 @@
 import { CHECK_KINDS, type Check, type CheckKind, type GateableVerb } from "../cue-block.js";
 import { runDiffChecks, type ChangedFile, type ReadDoc } from "../diff-check.js";
 import { gateVerb, type GateResult, type WorkspaceView } from "../verb-gate.js";
-import type { EventContext, TestResult } from "../model/contracts.js";
+import type { EventContext, RuleSet, TestResult } from "../model/contracts.js";
+import { asList } from "./payload.js";
+import { forbidForcedPush, sectionOwnerApproval } from "./policy-actions.js";
 
 /** The names after `gov-builtin/`. */
-export const BUILTIN_ACTIONS: readonly string[] = [...CHECK_KINDS, "test-suite", "rules-propose"];
+export const BUILTIN_ACTIONS: readonly string[] = [...CHECK_KINDS, "test-suite", "rules-propose", "forbid-forced-push", "section-owner-approval"];
 
 export interface BuiltinInput {
   /** The rule being checked — every finding names it. */
@@ -38,6 +40,8 @@ export interface BuiltinInput {
   readonly ctx: EventContext;
   /** A document from the DEFAULT branch, or null when unreadable. */
   readonly readDefault: ReadDoc;
+  /** The rule set, for actions that route by role (section-owner-approval). */
+  readonly rules?: RuleSet;
 }
 
 /** `miss` = the predicate did not hold; the runner turns it into fail or warn by the binding's `on_miss`. */
@@ -46,6 +50,8 @@ export interface BuiltinOutcome {
   readonly findings: readonly string[];
   /** On a `miss`: the parts of the check that could not run, kept apart so `on_miss: warn` cannot hide them. */
   readonly notes?: readonly string[];
+  /** Handles (no `@`) the pull request should request a review from — for the workflow to act on. */
+  readonly requestReview?: readonly string[];
 }
 
 /** One test result, as a test reporter gives it. */
@@ -55,8 +61,6 @@ const cannot = (findings: string[]): BuiltinOutcome => ({ verdict: "cannot-tell"
 
 /** A YAML list or a comma-separated string → the old attribute's comma form. */
 const asAttr = (v: unknown): string => (Array.isArray(v) ? v.map(String).join(",") : String(v));
-const asList = (v: unknown): string[] =>
-  v === undefined ? [] : (Array.isArray(v) ? v.map(String) : String(v).split(",")).map((s) => s.trim()).filter(Boolean);
 
 export function runBuiltin(input: BuiltinInput): BuiltinOutcome {
   const { ruleId, action, ctx } = input;
@@ -65,6 +69,8 @@ export function runBuiltin(input: BuiltinInput): BuiltinOutcome {
   try {
     if ((CHECK_KINDS as readonly string[]).includes(name)) return predicate(name as CheckKind, input, tag);
     if (name === "test-suite") return testSuite(ruleId, ctx, tag);
+    if (name === "forbid-forced-push") return forbidForcedPush(tag, input.params, ctx);
+    if (name === "section-owner-approval") return sectionOwnerApproval(tag, input.params, ctx, input.rules);
     if (name === "rules-propose") return cannot([`${tag}: the proposer is not runnable as a check yet, so nothing was checked.`]);
     return cannot([`${tag}: no such gov-builtin action, so nothing was checked.`]);
   } catch (e) {

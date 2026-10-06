@@ -265,16 +265,15 @@ describe("governance posture — the row that says what the protection rows are 
     facts: { pullRequestRequired: false, approvingReviews: 0, enforceAdmins: false, requiredStatusChecks: [] },
   };
 
-  it("NEVER CHOSEN is its own state — a warning, naming both postures and the file", () => {
+  it("no key is SOFT by default (W2-Q6) — ok, and it says it is the default and how to choose hard", () => {
     const r = row("org_name: \"Acme\"\n")!;
-    expect(r.status).to.equal("warn");
-    expect(r.detail).to.contain("never chosen").and.contain("governance_posture: hard").and.contain("governance_posture: soft");
-    expect(r.detail, "and says the policy is still checked meanwhile").to.contain("not choosing is not a choice to skip it");
+    expect(r.status).to.equal("ok");
+    expect(r.detail).to.contain("soft").and.contain("the default").and.contain("governance_posture: hard");
   });
 
-  it("an empty value is the same state as no key at all — nobody has chosen either way", () => {
-    expect(row('governance_posture: ""\n')!.status).to.equal("warn");
-    expect(row('governance_posture: ""\n')!.detail).to.contain("never chosen");
+  it("an empty value is the same as no key at all — soft, by default", () => {
+    expect(row('governance_posture: ""\n')!.status).to.equal("ok");
+    expect(row('governance_posture: ""\n')!.detail).to.contain("the default");
   });
 
   it("hard is a decision, and reports ok", () => {
@@ -312,9 +311,14 @@ describe("governance posture — the row that says what the protection rows are 
     expect(r.ok).to.equal(false);
   });
 
-  it("UNSET keeps them too — not choosing is not permission to leave the branch open", () => {
+  it("UNSET is soft by default (W2-Q6), so the rows go too", () => {
     const r = doctor(facts({ orgConfigText: 'org_name: "Acme"\n', protection }));
+    expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(0);
+    expect(r.ok).to.equal(true);
+  });
+
+  it("NO CONFIG EXAMINED is not soft — the posture is unknown, so the rows stay", () => {
+    const r = doctor(facts({ protection }));
     expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(4);
-    expect(r.ok).to.equal(false);
   });
 });

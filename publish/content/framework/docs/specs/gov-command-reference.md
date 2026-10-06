@@ -413,7 +413,7 @@ gov repo protect apply
 gov repo protect plan --repo acme/billing
 ```
 
-**Changes.** `plan` changes nothing at all. `apply` writes the branch-protection settings §3.3 requires (a pull request, at least one approving review, administrators included, and the approver check as a required check) through `gh api`, then RE-READS the branch and reports from the re-read — never from the write's exit code. It also copies the framework's `approver-check` workflow into the clone's `.github/workflows/`, and it will not make that check required until the workflow is on the branch, because a required check that has never run leaves every pull request pending for ever. It respects `governance_posture`: under `soft` it installs nothing, and with no posture chosen it refuses
+**Changes.** `plan` changes nothing at all. `apply` writes the branch-protection settings §3.3 requires (a pull request, at least one approving review, administrators included, and the approver check as a required check) through `gh api`, then RE-READS the branch and reports from the re-read — never from the write's exit code. It also copies the framework's `approver-check` workflow into the clone's `.github/workflows/`, and it will not make that check required until the workflow is on the branch, because a required check that has never run leaves every pull request pending for ever. It respects `governance_posture`: under `soft` — the default when none is recorded — it installs nothing, and with a value it does not recognise it refuses
 
 **Exit codes**
 

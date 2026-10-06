@@ -92,56 +92,47 @@ export function assessProtection(facts: ProtectionFacts | null, opts: Protection
 }
 
 /**
- * WHICH POSTURE THIS ORGANIZATION CHOSE — and that nobody chose, when nobody did (Policy Owner, 2026-09-29).
+ * WHICH POSTURE THIS ORGANIZATION IS IN (Policy Owner, 2026-09-29; default soft since W2-Q6, 2026-10-06).
  *
- * Modelled on `agentsDiagnostic`, and for the same reason: a STATE, not a scolding. `soft` is a decision — an
- * organization may adopt the framework for its structure and deliberately leave room for direct work — so it
- * reports `ok`. What warns is the organization that never answered, because it is being governed by a posture
- * it did not pick, and because the two postures are opposite findings about identical facts.
+ * A STATE, not a scolding: both postures report `ok`. Absent or empty is `soft`, and the row says it is the
+ * DEFAULT — so an organization that never thought about it learns what it is in and how to choose hard. What warns
+ * is a value gov does not know, because guessing which posture was meant is the one thing a posture must never be.
  *
  * `null` when no config was examined. Doctor's own rule: a row about a fact nobody gathered is worse than no row.
  */
 export function postureDiagnostic(orgConfigText: string | null | undefined): Diagnostic | null {
   if (orgConfigText === null || orgConfigText === undefined) return null;
   const choice = readPosture(orgConfigText);
-  if (choice.unrecognised) {
+  if (choice.unrecognised || choice.posture === null) {
     return {
       name: "governance posture",
       status: "warn",
       detail: `\`${choice.raw}\` is not a posture gov knows — use ${GOVERNANCE_POSTURES.map((p) => `\`${p}\``).join(" or ")}`
-        + ". gov is treating this organization as one that has not chosen, because guessing which was meant is"
-        + " the one thing a posture must never be",
+        + ". gov checks POL-040a §3.3 meanwhile, because guessing which was meant is the one thing a posture must"
+        + " never be",
     };
   }
-  if (choice.posture === null) {
+  if (choice.posture === "hard") {
     return {
       name: "governance posture",
-      status: "warn",
-      // UNSET IS NOT A POSTURE. Said here, because the rows below it are the visible consequence: gov goes on
-      // checking POL-040a §3.3, which is right (not choosing is not a choice to skip it) and is exactly the
-      // reading an organization should not be left to infer.
-      detail: "never chosen — record `governance_posture: hard` (gov installs repository controls, so work"
-        + " attempted OUTSIDE gov is stopped by the platform) or `governance_posture: soft` (direct clone,"
-        + " commit and push are deliberately left open) in org-config.yaml. Until then gov checks POL-040a §3.3"
-        + " anyway: not choosing is not a choice to skip it",
+      status: "ok",
+      detail: "hard — the platform is meant to stop work attempted outside gov. `gov repo protect plan` shows"
+        + " what is missing; the rows below are the requirements themselves",
     };
   }
-  return choice.posture === "hard"
-    ? {
-        name: "governance posture",
-        status: "ok",
-        detail: "hard — the platform is meant to stop work attempted outside gov. `gov repo protect plan` shows"
-          + " what is missing; the rows below are the requirements themselves",
-      }
-    : {
-        name: "governance posture",
-        status: "ok",
-        detail: "soft — this organization deliberately leaves room for direct work, so POL-040a §3.3 is not"
-          + " checked. gov's own gates are the only enforcement, and they do not bind an agent started outside gov",
-      };
+  return {
+    name: "governance posture",
+    status: "ok",
+    detail: (choice.raw === ""
+      ? "soft (the default — `governance_posture: hard` in org-config.yaml chooses hard) — this organization leaves"
+      : "soft — this organization deliberately leaves")
+      + " room for direct work, so POL-040a §3.3 is not checked; a violation opens a"
+      + " record for the Policy Owner instead of stopping the action. gov's own gates do not bind an agent started"
+      + " outside gov",
+  };
 }
 
-/** The posture, or the unset/unrecognised states, from `org-config.yaml`'s text. Re-exported so callers need one import. */
+/** The posture (absent = soft), or the unrecognised state, from `org-config.yaml`'s text. Re-exported so callers need one import. */
 export function postureOf(orgConfigText: string | null | undefined): PostureChoice {
   return readPosture(orgConfigText ?? null);
 }

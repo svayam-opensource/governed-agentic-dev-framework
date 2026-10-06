@@ -18,22 +18,28 @@
 import { inForce } from "../model/rule-row.js";
 import type { CheckRunner, CheckVerdict, EventContext, RuleSet } from "../model/contracts.js";
 import type { ReadDoc } from "../diff-check.js";
-import { runBuiltin } from "./builtin.js";
+import { runBuiltin, type BuiltinOutcome } from "./builtin.js";
+import { landedByPr, type GithubPorts } from "./gh-actions.js";
 import { validateParams } from "./params.js";
+
+/** A verdict, plus the reviews a gate asks the workflow to request (section-owner-approval). */
+export type RunVerdict = CheckVerdict & { readonly requestReview?: readonly string[] };
 
 export interface CheckRunnerDeps {
   /** Both stores and the merged catalog from the DEFAULT branch; null = could not be read (never "no rules"). */
   readonly rules: RuleSet | null;
   /** A document from the DEFAULT branch (what `list=` points at), or null. */
   readonly readDefault: ReadDoc;
+  /** GitHub, for `gh-action/*` actions. Absent → those actions are `cannot-tell`. */
+  readonly github?: GithubPorts;
 }
 
 type Outcome = "pass" | "fail" | "cannot-tell";
 const RANK: Record<Outcome, number> = { pass: 0, "cannot-tell": 1, fail: 2 };
 
-export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner {
+export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner & { run(id: string, ctx: EventContext): RunVerdict } {
   return {
-    run(id: string, ctx: EventContext): CheckVerdict {
+    run(id: string, ctx: EventContext): RunVerdict {
       const cannot = (finding: string): CheckVerdict => ({ verdict: "cannot-tell", findings: [finding] });
       const rules = deps.rules;
       if (!rules) return cannot(`${id}: the rule stores could not be read from the default branch, so nothing was checked.`);
@@ -46,6 +52,7 @@ export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner {
 
       let verdict: Outcome = "pass";
       const findings: string[] = [];
+      const review = new Set<string>();
       const fold = (o: Outcome, f: readonly string[]) => {
         if (RANK[o] > RANK[verdict]) verdict = o;
         findings.push(...f);
@@ -60,14 +67,24 @@ export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner {
           fold("cannot-tell", [`${tag}: LLM judge not implemented, so nothing was checked.`]);
           continue;
         }
-        if (action.tool !== "gov-builtin") {
+        const runnable = action.tool === "gov-builtin" || b.action === "gh-action/landed-by-pr";
+        if (!runnable) {
           fold("cannot-tell", [`${tag}: running a ${action.tool} action is not implemented yet, so nothing was checked.`]);
           continue;
         }
         const bad = validateParams(action.params, b.with);
         if (bad.length) { fold("cannot-tell", bad.map((m) => `${tag}: ${m}, so nothing was checked.`)); continue; }
 
-        const out = runBuiltin({ ruleId: id, action: b.action, params: b.with ?? {}, ctx, readDefault: deps.readDefault });
+        let out: BuiltinOutcome;
+        if (action.tool === "gov-builtin") {
+          out = runBuiltin({ ruleId: id, action: b.action, params: b.with ?? {}, ctx, readDefault: deps.readDefault, rules });
+        } else if (!deps.github) {
+          fold("cannot-tell", [`${tag}: GitHub is not reachable from here, so nothing was checked.`]);
+          continue;
+        } else {
+          out = landedByPr({ ruleId: id, params: b.with ?? {}, ctx }, deps.github);
+        }
+        for (const h of out.requestReview ?? []) review.add(h);
         if (out.verdict === "miss") {
           if (b.on_miss === "fail") fold("fail", out.findings);
           else fold("pass", out.findings.map((f) => `warn: ${f}`));
@@ -76,7 +93,7 @@ export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner {
           fold(out.verdict, out.findings);
         }
       }
-      return { verdict, findings };
+      return review.size ? { verdict, findings, requestReview: [...review].sort() } : { verdict, findings };
     },
   };
 }

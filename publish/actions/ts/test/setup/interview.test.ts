@@ -5,7 +5,8 @@
 // the role must be assigned at setup, and the interview is the adopter path's only chance to ask.
 import { expect } from "chai";
 import { askOrgInterview } from "../../src/setup/interview.js";
-import { deriveOrgConfig } from "../../src/setup/setup.js";
+import { deriveOrgConfig, renderOrgConfig, readExistingOrgConfig } from "../../src/setup/setup.js";
+import { HARD_POSTURE_CONFIRMATION } from "../../src/setup/posture-question.js";
 
 const CTX = { originUrl: "", ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-07-04" };
 
@@ -39,5 +40,47 @@ describe("gov-work — the adopter interview, Check Owner", () => {
     let n = 0;
     const { r } = await run((q) => (/^Q5 /.test(q) ? (n++ === 0 ? "FRM" : "ACME") : base(q)));
     expect(r!.answers.orgSlug).to.equal("ACME");
+  });
+});
+
+// W2-Q6 (Policy Owner, 2026-10-06): posture defaults to soft; hard is chosen past a confirmation, default N.
+describe("gov-work — the adopter interview, governance posture", () => {
+  const base = (q: string): string => (/^Q1 /.test(q) ? "Acme Inc" : /^Q3 /.test(q) ? "acme" : /^Q8 /.test(q) ? "rk@acme.io" : "");
+
+  it("asks Q11 for the posture; Enter is soft and asks nothing more", async () => {
+    const { r, asked } = await run(base);
+    expect(asked.find((q) => /^Q11 /.test(q))).to.match(/governance posture/).and.contain("Choose [1/2]");
+    expect(asked.some((q) => q.startsWith(HARD_POSTURE_CONFIRMATION))).to.equal(false);
+    expect(r!.answers.governancePosture).to.equal("soft");
+  });
+
+  it("hard shows the confirmation VERBATIM; y keeps hard", async () => {
+    const { r, asked } = await run((q) => (/^Q11 /.test(q) ? "2" : q.startsWith("Choosing") ? "y" : base(q)));
+    expect(asked.some((q) => q.startsWith(HARD_POSTURE_CONFIRMATION))).to.equal(true);
+    expect(r!.answers.governancePosture).to.equal("hard");
+  });
+
+  it("the confirmation defaults to N — Enter (or anything but yes) is soft", async () => {
+    for (const reply of ["", "n", "maybe"]) {
+      const { r } = await run((q) => (/^Q11 /.test(q) ? "hard" : q.startsWith("Choosing") ? reply : base(q)));
+      expect(r!.answers.governancePosture, JSON.stringify(reply)).to.equal("soft");
+    }
+  });
+
+  it("the confirmation text is the Policy Owner's, word for word", () => {
+    expect(HARD_POSTURE_CONFIRMATION).to.equal([
+      'Choosing "hard" requires your repositories to be public, or a paid GitHub plan.',
+      "hard — the action (for example a merge) is stopped when a policy violation is detected.",
+      "soft — a violation record is opened so the Policy Owner can review it later.",
+      'Do you still want the governance posture to be "hard"? [y/N]',
+    ].join("\n"));
+  });
+
+  it("org-config.yaml records the posture, and a re-run reads it back", () => {
+    const v = deriveOrgConfig({ orgName: "Acme", orgSlug: "ACME", governancePosture: "hard" }, CTX);
+    const text = renderOrgConfig(v);
+    expect(text).to.match(/^governance_posture: "hard"$/m);
+    expect(readExistingOrgConfig(text).governancePosture).to.equal("hard");
+    expect(renderOrgConfig(deriveOrgConfig({ orgName: "Acme", orgSlug: "ACME" }, CTX))).to.match(/^governance_posture: "soft"$/m);
   });
 });

@@ -5,6 +5,7 @@
  * testable), derives the full config, writes org-config.yaml, and points origin
  * at the org repo. The pure render/derive live in setup.ts.
  */
+import { confirmPosture, parsePostureAnswer, postureRule, POSTURE_QUESTION } from "./posture-question.js";
 import * as path from "node:path";
 import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveOrgConfig, renderOrgConfig, type OrgConfigValues, type SetupContext } from "./setup.js";
@@ -159,6 +160,9 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
     answers.checkOwnerGithub = known("checkOwnerGithub") ?? await askValid(io,
       "Check Owner GitHub handle (reviews the code of your check actions in policies/actions/)",
       deriveOrgConfig(answers, ctx).checkOwnerGithub, githubHandle);
+    // W2-Q6: soft unless hard is chosen past the confirmation.
+    answers.governancePosture = known("governancePosture") ?? await confirmPosture(
+      parsePostureAnswer(await askValid(io, POSTURE_QUESTION, "1", postureRule)) ?? "soft", io.prompt);
     answers.policyEffectiveDate = known("policyEffectiveDate")
       ?? await askValid(io, "Policy effective date (YYYY-MM-DD)", d1.policyEffectiveDate, isoDate);
     // NOT MENTIONED HERE (#192). Service endpoints are org-level values the deploy
