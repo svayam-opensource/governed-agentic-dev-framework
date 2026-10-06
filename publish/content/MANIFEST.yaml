@@ -248,6 +248,9 @@ retire:
   - framework/policies/README.md
   - framework/docs/specs/gov-behaviour.md
   - framework/docs/specs/concepts.md
+  # Retired in P3 wave 2: each procedure was already in framework-specification.md or moved, in plain English,
+  # into the matching user guide under framework/docs/user-guides/. Its "Governs:" lines cited retired numbers.
+  - framework/procedures/agentic-development-procedures.md
   # The POL numbering lock, retired with the old compiler: GOV ids are issued by gov and live in the rule rows.
   # policies/.pol-lock.json was gov-generated too (never hand-written), so it goes with it.
   - framework/policies/.pol-lock.json

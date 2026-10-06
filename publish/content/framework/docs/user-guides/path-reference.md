@@ -21,7 +21,7 @@ Consulted, not read through. Use this when you know what you want and need the e
 
 - [How the framework works](../specs/framework-specification.md) — and `agent/harness/rule-map.md`, every rule by GOV id;
   `gov rules show <id>` prints one (a retired POL number resolves to the rule that carries it now)
-- [Agentic development procedures](../policies/agentic-development-procedures.md)
+- [Working on a project](working-on-a-project.md) — and the other user guides beside it, for each thing you do
 - [Knowledge organization standard](../policies/knowledge-organization-standard.md)
 
 ## Infrastructure

@@ -11,192 +11,184 @@ effective_date: 2026-06-06
 
 **Document:** Knowledge Organization Standard
 **Policy Owner:** <POLICY_OWNER_EMAIL>
-**Compliance:** C02 unless a clause states otherwise
-**Decision record:** `projects/PRJ-005-oidc-step3-start-check-iam/knowledge/knowledge-reorg-decisions.md`
+**Status:** seeded by `gov setup`, and **yours to change**
 
-This standard governs how org-wide knowledge (`<ORG_GOV_REPO>/knowledge/`)
-is structured, typed, navigated, and consumed. It refines the framework's empty-`knowledge/` rule (GOV-FRM-082) and is
-referenced by it.
+> ## This file is yours
+>
+> gov created it once and **will never overwrite it**. It is a starting point for how your organization
+> structures, describes and finds its knowledge under `knowledge/`. The structure below is one that has worked;
+> the domain list in particular is meant to be replaced with yours (section 8). Changing or deleting a rule
+> you do not want is the expected first act, not a deviation.
+>
+> Two rules this standard leans on are the framework's, not yours, and are not restated here:
+> every fact lives in one document, and structure is drawn as text
+> (`framework/docs/specs/framework-specification.md` sections 8.2 and 8.4). `knowledge/` ships empty because
+> of the framework (section 8.1 there); what grows in it is decided here.
 
 ---
 
-## 1. Two systems, never conflated
+## 1. Storage and navigation are two different things
 
-**Storage follows accountability; navigation follows journeys.** **(C01)**
+**Storage follows accountability. Navigation follows the reader's journey.** Never mix the two; there is no
+exception to this.
 
-- The physical tree exists so that every document has exactly one owner who
-  approves changes to it (CODEOWNERS → PR review). It is organized by
-  accountability domain — never by reader journey, document kind, or org chart.
-- Reader/agent journeys are served by a navigation layer (Section 5) of
-  documents that contain **links in consultation order, never content**.
-- Every fact lives in exactly one document. Duplicating a fact so it appears
-  "on a path" is prohibited — a drifted copy is false authority. **(C01)**
+- The folder tree exists so that every document has exactly one owner who approves changes to it, through
+  `CODEOWNERS` and pull-request review. So the tree is organized by who is accountable, never by reader
+  journey, document kind or org chart.
+- Readers and agents are served by a separate navigation layer (section 5). A navigation document holds
+  **links in the order to consult them, never content**.
+- Putting a copy of a fact "on the path" where a reader will meet it breaks the framework's one-fact rule. Link
+  to the fact instead.
 
 ## 2. Domains — the ownership tree
 
-**Invariant: a top-level domain under `knowledge/` exists if and only if a named Owner role
-exists for it in `policies/authorized-representatives.md`. The tree changes only when an
-accountability domain and its owner role are created or retired.** **(C02)**
+A top-level domain under `knowledge/` exists **only while a named owner role exists for it** in
+`policies/authorized-representatives.md`. The tree changes only when an accountability domain and its owner
+role are created or retired. This always applies; a domain without an owner needs an approved exception.
 
-**`knowledge/` therefore ships EMPTY.** The framework creates no domains for you. It used to
-ship eight — `accumulated/ architecture/ compliance/ legal/ patterns/ policies/ guidance/
-infrastructure/` — several with owner roles whose holder was `TBD`, which ran this invariant
-backwards: the tree existed before the accountability did. It also committed every adopter to
-one taxonomy before they knew their own domains. An organization structuring knowledge by SDLC
-phase, by product line, or by anything else is doing what this standard asks, not working
-around it.
+That is why `knowledge/` ships empty. A framework that created domains in advance would run this rule
+backwards: the tree would exist before anyone was accountable for it, and every adopter would be committed to
+one taxonomy before knowing its own domains. An organization that structures knowledge by delivery phase, by
+product line, or by anything else is doing what this standard asks.
 
-**Framework doctrine lives under `governance/`, not `knowledge/`.** Storage follows
-accountability (§1), and the two have different accountable parties: the framework authors
-its policies, procedures, guidance and specs, and an upgrade overwrites them; the organization
-authors everything under `knowledge/`. Naming an organization's Policy Owner as the approver of
-a file an upgrade replaces claims an authority they do not have — the false authority §1 forbids.
+Framework material is not under `knowledge/`. The framework's specification, user guides and templates live
+under `framework/`, which the framework writes and `gov upgrade` replaces. Your organization writes everything
+under `knowledge/` and `policies/`. Naming your Policy Owner as the approver of a file an upgrade replaces
+would claim an authority nobody in your organization has.
+
+A starter set of domains, to adapt:
 
 | Domain | Owner role | Scope |
 |---|---|---|
-| `policies/` | Policy Owner | org-wide governance of work: the agentic development policy, llm-governance, data-classification, this standard, exceptions |
-| `legal/` | Legal Owner | legal compliance, contracts, IP, jurisdiction |
+| `legal/` | Legal Owner | legal compliance, contracts, intellectual property, jurisdiction |
 | `architecture/system/` | System Architecture Owner | system design standards; **specs of the products we build** |
-| `architecture/data/` | Data Architecture Owner | data standards, modeling, pipelines, residency |
-| `development/` | Development Owner | engineering craft: coding standards, toolchains, repo conventions, code review |
-| `testing/` | Testing/Quality Owner | test architecture, coverage/verification gates, quality practices |
-| `deployment/` | Deployment/Release Owner | the release **contract**: pipeline standards, environment promotion, versioning/dist-tags |
+| `architecture/data/` | Data Architecture Owner | data standards, modelling, pipelines, residency |
+| `development/` | Development Owner | engineering craft: coding standards, toolchains, repository conventions, code review |
+| `testing/` | Testing and Quality Owner | test architecture, coverage and verification gates, quality practices |
+| `deployment/` | Deployment and Release Owner | the release **contract**: pipeline standards, environment promotion, versioning |
 | `infrastructure/` | Infrastructure Owner | hosts, network, edge proxies, certificates, backups, vector store |
-| `support/` | Support Owner | **internal tooling the org runs for itself**: registry, CI server, webmail, ticketing, IdP-as-a-service |
-| `compliance/` | Policy Owner | **org rollup only** — aggregates per-domain compliance records |
+| `support/` | Support Owner | **internal tooling the organization runs for itself**: registry, CI server, mail, ticketing, identity provider |
+| `compliance/` | Policy Owner | **the organization-wide rollup only**: it gathers each domain's compliance records |
 
-**Boundary rules** **(C03 — apply intelligently, document deviations):**
+The organization's own policies are not a knowledge domain. They live in `policies/`, beside `knowledge/`.
 
-- *URL + users ⇒ support; IP + uptime ⇒ infrastructure.*
-- Edge proxies are network edge ⇒ infrastructure, even though they are software.
-- A running service (e.g. the IdP) is specced in support; *which* service is
-  mandated is a mandate in the appropriate domain.
-- Products the org builds are specced in `architecture/system/specs/` —
-  support covers internal tooling only.
-- **Deployment owns the contract; support operates the tools; infrastructure
-  hosts them.**
-- Activities (verbs) are not domains. A verb's normative content distributes
-  to its noun-owners; the verb itself gets a journey doc (Section 5).
-- Repo-specific operational detail (build/run/test/deploy of one repo) stays
-  in that repo's `knowledge/` and is **linked from** org specs —
-  never copied up.
+### 2.1 Where something belongs
 
-## 3. Layers — the normativity gradient inside every domain
+Use these as a strong default when it is not obvious which domain a document belongs to. Where a document
+fits better elsewhere, put it there and note why in the pull request.
 
-Every domain contains exactly these six subfolders. **Names are standardized
-org-wide; no domain may rename, omit, or add layers.** Empty layers carry a
-stub index. **(C02)**
+- *It has a URL and users: support. It has an IP address and uptime: infrastructure.*
+- Edge proxies are the network edge, so infrastructure, even though they are software.
+- A running service (for example the identity provider) is specified in support. *Which* service is required
+  is a rule in the domain that requires it.
+- Products the organization builds are specified in `architecture/system/specs/`. Support covers internal
+  tooling only.
+- **Deployment owns the contract; support operates the tools; infrastructure hosts them.**
+- An activity (a verb) is not a domain. What it requires is split among the domains that own the things it
+  touches; the activity itself gets a journey document (section 5).
+- How to build, run, test and deploy one repository stays in that repository's own `knowledge/`, and is
+  **linked from** organization documents, never copied up.
 
-| Layer | Force | Default compliance | Holds |
+## 3. Layers — how binding a document is, inside every domain
+
+Every domain has exactly these six subfolders. The names are the same everywhere. No domain renames, omits or
+adds a layer. An empty layer holds a stub index. This always applies, unless an exception is approved.
+
+| Layer | What it asks of the reader | Default level | Holds |
 |---|---|---|---|
-| `mandates/` | must | C01/C02 | enforceable rules; reviewed and audited |
-| `procedures/` | to be followed | C02 | required processes for policy compliance |
-| `patterns/` | to be aware of | C03 | best practices, strong defaults |
-| `use-cases/` | to learn and follow | instructional | actor/role × procedure × component guides, sequence diagrams |
-| `specs/` | descriptive | descriptive | current state: an inventory index + one doc per item |
-| `compliance/` | evidence | evidence | per-domain review/audit records; feeds the org rollup |
+| `mandates/` | must be followed | the strictest two | enforceable rules; reviewed and audited |
+| `procedures/` | is to be followed | always applies | required processes |
+| `patterns/` | is to be aware of | a strong default | good practice |
+| `use-cases/` | is to learn from | instructional | guides by actor, procedure and component, with sequence diagrams |
+| `specs/` | describes | descriptive | how things are now: an inventory index, then one document per item |
+| `compliance/` | records | evidence | the domain's review and audit records, which feed the organization rollup |
 
-A document's layer states its **default** compliance level; a clause inside it
-may declare a stricter level explicitly. **(C03)**
+A document's layer gives its **default** level. A rule inside a document may be stricter than that default;
+when it is, its wording says so plainly. This is a strong default.
 
-`policies/exceptions/` gains one subfolder per domain (the existing
-`legal/ infrastructure/ architecture/ policy/` set extends with
-`development/ testing/ deployment/ support/`). **(C02)**
+Exceptions are filed per domain, so `policies/exceptions/` has one subfolder for each domain your
+organization defines. This always applies, unless an exception is approved.
 
-## 4. Front-matter — every knowledge document is self-describing
+## 4. Front matter — every knowledge document describes itself
 
-Every `*.md` under `knowledge/` (except generated indexes) opens with:
-**(C02)**
+Every Markdown file under `knowledge/`, except generated indexes, opens with this front matter. This always
+applies, unless an exception is approved.
 
 ```yaml
 ---
-domain: support            # one of the 9 domains (or "navigation")
-layer: spec                # mandate|procedure|pattern|use-case|spec|compliance|path
-owner: support-owner       # role slug, never a person
-compliance: descriptive    # C01|C02|C03|instructional|descriptive|evidence
-status: current            # current|draft|superseded
+domain: support            # one of your domains (or "navigation")
+layer: spec                # mandate | procedure | pattern | use-case | spec | compliance | path
+owner: support-owner       # a role, never a person
+compliance: descriptive    # C01 | C02 | C03 | instructional | descriptive | evidence
+status: current            # current | draft | superseded
 ---
 ```
 
-Purpose: (a) per-domain indexes and the dashboard become generatable;
-(b) RAG/vector hits are self-describing — an agent landing mid-document knows
-whether it reads a C01 mandate or a descriptive observation; (c) CI lint
-becomes trivial (Section 7).
+Why: indexes and the dashboard can then be generated; a search or retrieval hit says what it is, so an agent
+landing in the middle of a document knows whether it is reading a binding rule or a description; and checking
+it in CI is simple (section 7).
 
 ## 5. Navigation — the dashboard and journeys
 
-- `knowledge/README.md` is the **single entry point** with two faces:
-  *write-side* (this tree, the layer table, the boundary rules, how to
-  propose) and *read-side* (the journey index + per-domain inventory links).
-  It is the home page of the published knowledge site (`policies/knowledge-publication.md`). **(C02)**
-- Journeys live in `framework/docs/user-guides/path-<journey>.md` when they traverse framework doctrine and
-  in `knowledge/paths/<journey>.md` when they traverse the organization's own domains. Both
-  are owned by the Policy Owner. Two roots, because framework doctrine and org knowledge have
-  different accountable parties (§2); a journey is links only in either.
-  A journey doc is a **consultation order across domains — links only, never
-  content** (mandates → procedures/use-cases → specs → repo-local). **(C02)**
-- Anyone may add or extend a journey by PR. **(C03)**
-- **Every project knowledge-close must answer: "what journey did this project
-  traverse that is not documented?"** — undocumented journeys discovered by
-  real work are proposed at close. **(C01)**
-- **Whether knowledge harvest gates a close is this organization's choice.** A project MAY be closed only once
-  this organization's own policy says it may be — expressed as a rule whose check is bound to `gov close`
-  (`gov.verb · close`), not assumed by the framework.
+These always apply, unless an exception is approved:
 
-  **CORRECTED 2026-09-28.** Two clauses here described a close gate the framework no longer has: it required a
-  `knowledge-close.md` carrying five exact sections, free of `TBD`, alongside `compliance.md`, and `gov close`
-  refused without them. That requirement was hardcoded, nothing scaffolded the files, and the failure told a
-  human to run an agent protocol — so a developer who hand-worked a project could not close it. The Policy Owner
-  removed it on 2026-09-27: knowledge curation is this organization's decision, and `gov close` now asserts only
-  that `knowledge/` exists, because it promotes that directory.
+- `knowledge/README.md` is the **single entry point**. It has two faces. For writers: this tree, the layer
+  table, where things belong, and how to propose a change. For readers: the journey index and a link to each
+  domain's inventory. It is the home page of the published knowledge site, if you publish one
+  (`policies/knowledge-publication.md`).
+- A journey is a **consultation order across domains: links only, never content**. Mandates first, then
+  procedures and use-cases, then specs, then repository-local knowledge. Journeys that cross your own domains
+  live in `knowledge/paths/<journey>.md` and are owned by the Policy Owner. Journeys through the framework's
+  own material are in `framework/docs/user-guides/path-<journey>.md`, which the framework maintains.
 
-  An organization that wants a curation requirement back MAY write it as a rule whose check is bound to
-  `gov close`, and gets exactly the artifacts and sections it asked for — named in the refusal, with the rule
-  cited. **(C02)**
+Anyone may add or extend a journey by pull request.
 
-## 6. Authoring conventions
+When a project closes, its knowledge proposal always answers one question: **"what journey did this project
+follow that is not yet written down?"** A journey found by real work is proposed then, not lost. There is no
+exception to this.
 
-- **Standard relative markdown links only — no `[[wikilinks]]`.** Keeps
-  GitHub, site generators, CI link-checking, local tools (Obsidian/LogSeq),
-  and agents interoperable. **(C02)**
-- **Diagrams as Mermaid text only — no binary images for diagrams** in
-  `knowledge/`. One artifact serves both consumers: rendered picture for
-  humans, ~tens of structured lines for agents. (Screenshots of external UIs
-  are exempt.) **(C02)**
-- Nothing new in the **write path**: git + markdown + PR approval is the only
-  authoring/storage system. Read-side tools — static site
-  generator, RAG, graph viewers, local editors — are renderers over the same
-  files and may be swapped freely. **(C01 for the write path)**
-- Glossary/acronym linking follows the documentation standard (first-use
-  expansion + glossary hover-links) where adopted.
+### 5.1 Whether harvesting knowledge gates a close is your choice
 
-## 7. Enforcement (mechanized, by a CI gate)
+The framework does not require any particular knowledge to exist before `gov close` will close a project. It
+checks only that the project's `knowledge/` folder exists, because that is what it promotes. Deciding what
+must be curated first is your organization's call.
 
-CI on every PR touching `knowledge/` **(C02; implementation per
-phase P4 of the migration plan):**
+If you want a requirement, write it here in plain words: for example, "a project is closed only once its
+knowledge folder holds a summary of what it learned". The rule that comes out of it can carry a check that
+runs when `gov close` runs, and the refusal names exactly what is missing. As seeded, there is no such
+requirement.
 
-1. **Front-matter lint** — schema valid; `domain`/`layer` agree with the
-   file's folder; owner is a known role.
-2. **Orphan check** — every document is reachable from its layer index or a
-   journey doc.
-3. **Journey purity** — `paths/*.md` contain links and ordering prose only.
-4. **Link check** — no broken relative links; no links to `status: superseded`
-   docs outside their replacement notice.
-5. Existing checks (CODEOWNERS paths exist, placeholder scan) continue.
+## 6. Writing conventions
 
-## 8. Template adopters
+These always apply, unless an exception is approved:
 
-Organizations adopting the framework template adapt the **domain set** to
-their own role registry (merge or split domains as their named-owner roles
-dictate — e.g. one Architecture Owner ⇒ one `architecture/` domain). The
-invariant (§2), the six layers, the front-matter and
-the navigation rules (§5) are the stable contract; the domain *list*
-is the adaptation point. **(C03)**
+- **Standard relative Markdown links only, no `[[wikilinks]]`.** That keeps GitHub, site generators, link
+  checkers, local editors and agents all able to follow them.
+- Screenshots of external user interfaces are images and are allowed. Diagrams are not: the framework's rule
+  that structure is drawn as text covers them.
 
-## 9. Migration
+Nothing is added to the **write path**, and this has no exception: git, Markdown and pull-request approval
+are the only way knowledge is written and stored. Read-side tools such as a static site generator, retrieval,
+graph viewers and local editors only render the same files, and may be swapped freely.
 
-Executed in phases (P2 scaffold + CODEOWNERS, P3 content moves with redirect
-stubs and link fixes, P4 enforcement CI + renderer selection), each via
-a `gov knowledge` PR. Old paths keep one-line redirect stubs for one
-quarter. The decision record and phase plan live in the PRJ-005 project
-knowledge.
+Where the organization has adopted a documentation standard, glossary and acronym linking follows it:
+spell out an acronym on first use, and link glossary terms.
+
+## 7. Checks on every knowledge pull request
+
+Every pull request that touches `knowledge/` is checked for the following. This always applies, unless an
+exception is approved:
+
+1. **Front matter** is valid, `domain` and `layer` agree with the file's folder, and `owner` is a known role.
+2. **No orphans:** every document can be reached from its layer index or a journey.
+3. **Journeys hold links only:** `paths/*.md` contain links and ordering prose, nothing else.
+4. **Links work:** no broken relative links, and no links to a `status: superseded` document except from its
+   replacement notice.
+5. **Ownership routing holds:** every path in `CODEOWNERS` exists.
+
+## 8. Adapting this standard
+
+Adapt the **domain list** to your own roles: merge or split domains as your named owners dictate. One
+Architecture Owner, for example, means one `architecture/` domain. Keep the rest stable: the rule that a
+domain exists only with an owner (section 2), the six layers, the front matter, and the navigation rules
+(section 5). This is a strong default; where your organization departs from it, record why.

@@ -8,23 +8,38 @@ status: draft
 
 # <ORG_NAME> — Approved Technologies
 
-**Governed by:** `policies/org-policy.md` §3.1
+**Document:** Approved Technologies
 **Policy Owner:** <POLICY_OWNER_EMAIL>
 **Status:** draft — seeded by `gov setup`, and **yours to curate**
 
-> ## This list is the check
+> ## This list is yours, and it is what the check reads
 >
-> `gov validate` reads this file. A dependency added in a pull request that does not appear here **fails the
-> check**. So this is not documentation about your stack — it *is* your stack, as far as the gate is
-> concerned.
+> gov created this file once and will never overwrite it. The entries below are a starter: the few
+> technologies the framework itself is built with. **Replace them with your own.** Removing an entry you do not
+> use is the expected first act, not a deviation.
 >
-> The list below is a starter holding what the framework itself needs. **Replace it with yours.** Approving a
-> new technology is an ordinary pull request to this file, approved by the owner of the domain it belongs to.
+> `policies/org-policy.md` section 3 says that a technology not on this list is introduced only with an
+> approved exception. A check can hold that rule up: when a pull request adds a dependency, the check looks for
+> the dependency's name in this file. So this file is not a description of your stack. As far as that check is
+> concerned, it *is* your stack.
 >
-> An entry is matched by the **name a dependency manifest would use** (the npm package name, the Go module
-> path, the Maven artifact). Add the name exactly as it appears there.
+> Approving a new technology is an ordinary pull request to this file, approved by the owner of the domain it
+> belongs to.
 
 ---
+
+## How to write an entry
+
+Write each technology under the **name its dependency manifest uses**: the npm package name, the Go module
+path, the Maven artifact, the name in a Python requirements file. Write it exactly as it appears there.
+
+The check matches a name **anywhere in this file**, as a whole word. Two things follow from that:
+
+- Do not mention a technology you have not approved, not even as an example of something to avoid. A name
+  written anywhere here reads as approved.
+- An entry moved to the "Retired" table below still appears in the file, so the check still accepts it. That
+  is what lets a repository keep building while it migrates away. When the migration is done everywhere,
+  delete the row.
 
 ## 1. Languages and runtimes
 
@@ -52,12 +67,13 @@ status: draft
 
 ## 4. Runtime dependencies
 
-> Deliberately short. Every dependency is a supply-chain surface and a thing that must be upgraded
-> forever — `CAN` be avoided is the default posture.
+Keep this section short on purpose. Every runtime dependency is something an attacker can reach through your
+supply chain, and something somebody has to keep upgrading for as long as the code lives. Avoiding a new one
+is the strong default; add one when the alternative is clearly worse, and say why in the pull request.
 
 | Technology | Approved for | Notes |
 |---|---|---|
-| `@svayam-opensource/svm-util-log` | all logging | required for every gov client (GOV-FRM-423 is the framework's; yours may say the same) |
+| `@svayam-opensource/svm-util-log` | all logging | the framework requires it of every gov client; your organization may require it of its own code too |
 | `js-yaml` | reading YAML config | |
 
 ## 5. Retired
@@ -66,5 +82,6 @@ status: draft
 |---|---|---|
 | *(none yet)* | | |
 
-An entry retired here MAY still be present in a repository that has not migrated; record the migration as a
-task rather than leaving the repository silently non-compliant (`org-policy.md` §3.2).
+A repository that still uses a retired technology always has a task recording its migration, so that the gap
+is visible and has an owner. Leaving a repository on a retired technology with no such task needs an approved
+exception (`policies/org-policy.md` section 3.2).
