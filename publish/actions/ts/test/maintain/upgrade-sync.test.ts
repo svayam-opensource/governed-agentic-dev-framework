@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseManifest, expandEntries, planUpgrade, mergeOrgConfig, orgConfigLoss, applyUpgrade, formatPlan, type PlanReaders } from "../../src/maintain/upgrade-sync.js";
 
 const MANIFEST = `
@@ -14,6 +17,8 @@ owned:
   - org-config.yaml
   - projects/PRJ-*/
 `;
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
 describe("gov-work — upgrade overlay-sync engine", () => {
   it("parses the MANIFEST (files + owned)", () => {
@@ -234,6 +239,24 @@ describe("org-config overlay — a rename carries the value; a merge that would 
   it("orgConfigLoss names every value gov reads that a merge would empty", () => {
     expect(orgConfigLoss(ORG, 'org_name: "Acme"\norg_gov_repo: ""\ndefault_branch: "trunk"\n')).to.deep.equal(["workspaceRepo"]);
     expect(orgConfigLoss(ORG, mergeOrgConfig(TEMPLATE, ORG))).to.deep.equal([]);
+  });
+
+  // THE CHECK OWNER ARRIVES EMPTY (rule-model P1 rulings, 2026-10-06). An org set up before the role existed gets
+  // `check_owner_github: ""` from the template on upgrade — vacant, escalating to the Policy Owner. Adding an empty
+  // key empties nothing, so the loss guard must not refuse the merge; and an org that has named one keeps it.
+  it("adding check_owner_github empty does not trip the loss guard, and a named Check Owner survives the merge", () => {
+    const shipped = fs.readFileSync(path.join(repoRoot, "publish", "content", "org-config.example.yaml"), "utf8");
+    expect(shipped).to.match(/^check_owner_github: ""$/m);
+    const before = 'org_name: "Acme"\norg_gov_repo: "acme-gov"\npolicy_owner_github: "@carol"\n';
+    const merged = mergeOrgConfig(shipped, before);
+    expect(merged).to.match(/^check_owner_github: ""$/m);
+    expect(merged).to.match(/^policy_owner_github: "@carol"$/m);
+    expect(orgConfigLoss(before, merged)).to.deep.equal([]);
+    const plan = planUpgrade(overlay, { readContent: () => shipped, readAdopter: () => before, adopterPaths: () => ["org-config.yaml"] });
+    expect(plan.actions.map((a) => a.kind)).to.deep.equal(["overlay"]);
+
+    const named = `${before}check_owner_github: "@dave"\n`;
+    expect(mergeOrgConfig(shipped, named)).to.match(/^check_owner_github: "@dave"$/m);
   });
 
   const lossy = () => {

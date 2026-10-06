@@ -24,11 +24,21 @@
  * what the field is; they just got it wrong.
  */
 
+import { FRAMEWORK_SCOPE } from "../rules/model/gov-id.js";
+
 /** null = accepted. A string = why not, phrased for the person who typed it. */
 export type Validator = (value: string) => string | null;
 
 export const nonEmpty = (what: string): Validator => (v) =>
   v.trim() ? null : `${what} cannot be empty.`;
+
+/**
+ * FRM IS THE FRAMEWORK'S (rule-model Q7, 2026-10-06). The slug is also the scope of the org's rule ids —
+ * `GOV-<slug>-NNN` — and `GOV-FRM-NNN` are the framework's own. An org slugged FRM would issue ids nobody could
+ * tell from the framework's, breaking the one promise two id issuers make each other. Case-insensitive, because
+ * the scope is read in capitals.
+ */
+export const isReservedSlug = (v: string): boolean => v.trim().toUpperCase() === FRAMEWORK_SCOPE;
 
 /**
  * 2–6 letters or digits. It decides `~/.gov/<slug>/`, so a character git or a
@@ -37,9 +47,20 @@ export const nonEmpty = (what: string): Validator => (v) =>
 export const orgSlug: Validator = (v) => {
   const t = v.trim();
   if (!t) return "An org slug cannot be empty — it decides where your workspace lives (~/.gov/<slug>/).";
+  if (isReservedSlug(t)) return `'${t}' is reserved for the framework — its own rules are numbered GOV-${FRAMEWORK_SCOPE}-NNN. Choose another identifier.`;
   if (!/^[A-Za-z0-9]+$/.test(t)) return `'${t}' has characters other than letters and digits. Use letters and digits only.`;
   if (t.length < 2 || t.length > 6) return `'${t}' is ${t.length} character(s). Use between 2 and 6.`;
   return null;
+};
+
+/**
+ * A GitHub login, `@` optional. Shape only — whether the account exists is GitHub's to say, and CODEOWNERS
+ * reports an unknown one on the first PR it should have gated.
+ */
+export const githubHandle: Validator = (v) => {
+  const t = v.trim().replace(/^@+/, "");
+  if (!t) return "A GitHub handle cannot be empty.";
+  return /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(t) ? null : `'${v.trim()}' is not a GitHub handle (letters, digits and single dashes).`;
 };
 
 /** Shape only. Whether the address can DO anything is a separate question. */

@@ -23,6 +23,11 @@ export interface OrgConfigValues {
   readonly govWorkspace: string;
   readonly policyOwnerEmail: string;
   readonly policyOwnerGithub: string;
+  /**
+   * The Check Owner — the framework's second built-in role, reviewing the code of the org's check actions
+   * (`policies/actions/`). Defaults to the Policy Owner; setup refuses to finish with it empty (rule-model P1).
+   */
+  readonly checkOwnerGithub: string;
   readonly legalOwnerGithub: string;
   readonly infraOwnerGithub: string;
   readonly systemArchOwnerGithub: string;
@@ -110,6 +115,7 @@ export function deriveOrgConfig(answers: Partial<OrgConfigValues>, ctx: SetupCon
     govWorkspace: pick("govWorkspace", `~/.gov/${orgSlugLower}/gov_repo`),
     policyOwnerEmail: pick("policyOwnerEmail", ctx.gitEmail ?? ""),
     policyOwnerGithub,
+    checkOwnerGithub: pick("checkOwnerGithub", policyOwnerGithub),
     legalOwnerGithub: pick("legalOwnerGithub", policyOwnerGithub),
     infraOwnerGithub: pick("infraOwnerGithub", policyOwnerGithub),
     systemArchOwnerGithub: pick("systemArchOwnerGithub", policyOwnerGithub),
@@ -179,6 +185,9 @@ agent_work_root: "${v.agentWorkRoot}"
 # Policy Owner details (initial holder of all policy roles at launch)
 policy_owner_email: "${v.policyOwnerEmail}"
 policy_owner_github: "${v.policyOwnerGithub}"
+# Check Owner — reviews the CODE of the org's check actions (policies/actions/); the Policy
+# Owner approves the rules. One person in both roles turns the two-key review off.
+check_owner_github: "${v.checkOwnerGithub}"
 
 # Other role GitHub handles (update as roles are formally assigned)
 legal_owner_github: "${v.legalOwnerGithub}"
@@ -250,7 +259,7 @@ export function readExistingOrgConfig(text: string): Partial<OrgConfigValues> {
     ["orgRepoUrl", "org_repo_url"], ["githubOrg", "github_org"], ["workspaceRepo", "org_gov_repo"], ["workspaceRepo", "workspace_repo"],
     ["defaultBranch", "default_branch"], ["defaultCodeBranch", "default_code_branch"],
     ["agentWorkRoot", "agent_work_root"], ["govWorkspace", "gov_workspace"],
-    ["policyOwnerEmail", "policy_owner_email"], ["policyOwnerGithub", "policy_owner_github"],
+    ["policyOwnerEmail", "policy_owner_email"], ["policyOwnerGithub", "policy_owner_github"], ["checkOwnerGithub", "check_owner_github"],
     ["policyEffectiveDate", "policy_effective_date"], ["govAccount", "gov_account"],
   ];
   const out: Partial<Record<keyof OrgConfigValues, string>> = {};

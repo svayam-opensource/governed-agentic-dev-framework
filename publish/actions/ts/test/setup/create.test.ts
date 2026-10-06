@@ -69,6 +69,17 @@ describe("derived locations (contract R9)", () => {
 });
 
 describe("preflight — nothing is created until all of this holds", () => {
+  it("refuses the slug FRM before touching GitHub — it is the framework's rule scope (rule-model Q7)", () => {
+    let calls = 0;
+    const r = preflight(okIo({ gh: () => { calls++; return "ok"; } }), "acme/acme-gov", "frm");
+    expect(r.ok).to.equal(false);
+    if (!r.ok) {
+      expect(r.failure).to.deep.equal({ why: "reserved-slug", slug: "frm" });
+      expect(explainFailure(r.failure).join("\n")).to.match(/reserved for the framework/);
+    }
+    expect(calls, "nothing asked of GitHub for an answer that can never work").to.equal(0);
+  });
+
   it("passes on a healthy machine and reports where the mirror will go", () => {
     const r = preflight(okIo(), "acme/acme-gov", "ACME");
     expect(r.ok).to.equal(true);

@@ -120,6 +120,6 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
 export function githubActionsRenderer(opts: GithubRendererOptions = {}): BindingRenderer {
   return {
     renderer: "github-actions",
-    render: (resource, bindings) => renderWorkflow(bindings.filter((b) => b.check.on.resource === resource), opts),
+    render: (bindings) => renderWorkflow(bindings, opts),
   };
 }

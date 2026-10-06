@@ -811,7 +811,7 @@ export async function runSetupCommand(
     // agents yet, so these are the framework's defaults" — the exact fallback #196 exists to
     // remove, reintroduced by an ordering mistake rather than by a decision.
     //
-    // Q10 collects the answer before anything is created, so it is available here, which is the
+    // Q11 collects the answer before anything is created, so it is available here, which is the
     // only place that is both after the seed and before the commit.
     // The org's authorized agents are recorded AFTER the workspace is configured — further down, just before
     // the commit. Writing them here put them in a file the configure step then rewrote: gov said "recorded"
@@ -974,9 +974,12 @@ export async function runSetupCommand(
       fsSync.writeFileSync(path.join(createdHome, "CODEOWNERS"), owners.text, "utf8");
       manifest.push({
         what: "Generated",
-        detail: owners.unheld.length
-          ? `CODEOWNERS — Policy Owner on ${POLICY_OWNER_PATHS.length} path(s); no holder yet for ${owners.unheld.join(", ")}`
-          : `CODEOWNERS — every role held`,
+        detail: [
+          owners.unheld.length
+            ? `CODEOWNERS — Policy Owner on ${POLICY_OWNER_PATHS.length} path(s); no holder yet for ${owners.unheld.join(", ")}`
+            : `CODEOWNERS — every role held`,
+          ...(owners.escalated.length ? [`vacant, so the Policy Owner approves instead: ${owners.escalated.join(", ")}`] : []),
+        ].join("; "),
       });
       // Name the file. "Unresolved: <FOO>" tells you a token survived; it does not
       // tell you where to look, which is the only part that lets anyone act.
@@ -1002,7 +1005,7 @@ export async function runSetupCommand(
       // has written org-config.yaml, and nothing else will.
       //
       // `agents: []` IS AN ANSWER AND MUST BE WRITTEN (Policy Owner, 2026-09-28). This read
-      // `pre?.agents?.length`, so an organization that chose "none" at Q10 had its decision
+      // `pre?.agents?.length`, so an organization that chose "none" at Q11 had its decision
       // silently dropped: the key never appeared, `readAuthorizedAgents` said "unset", and every
       // joiner was governed by gov's own list — which is precisely the unowned state the question
       // exists to remove, reached by answering it. `withAuthorizedAgents` writes
@@ -1221,7 +1224,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     },
     // The list is recorded inside `createWorkspace` (see #196 above), which is the only place
     // both after the content seed and before the commit. This says the environment CAN record
-    // one, which is what decides whether Q10 is asked; it is not a second writer.
+    // one, which is what decides whether Q11 is asked; it is not a second writer.
     recordsApprovals: true,
     createStarterProject: () => {
       // Reads the terminal directly rather than through `ask`, because this hook is

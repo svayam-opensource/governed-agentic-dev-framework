@@ -358,7 +358,7 @@ export interface FirstRunIo {
    */
   deriveOrgDefaults?: (partial: Partial<OrgConfigValues>) => OrgConfigValues;
   /**
-   * Can this environment record an approved-agent list? Gates whether Q10 is asked at all.
+   * Can this environment record an approved-agent list? Gates whether Q11 is asked at all.
    *
    * IT WAS A WRITER, AND THE WRITE WAS ALREADY DONE. This used to be
    * `approveAgents(agents) => boolean`, called after `createWorkspace` returned, and a walk on
@@ -523,7 +523,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   const code = await io.createWorkspace(target, { ...result.answers, ...(result.agents ? { agents: result.agents } : {}) });
   if (code !== 0) return code;
 
-  // WRITE DOWN WHAT Q10 DECIDED (#196).
+  // WRITE DOWN WHAT Q11 DECIDED (#196).
   //
   // The QUESTION moved into the interview, where every other answer is collected; only the
   // recording is left here, because the file it writes to did not exist until the clone above.
@@ -532,7 +532,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
   //
   // The fallback that #196 removed stays removed: an approved list is produced during adoption,
   // so "nobody has decided" still never persists past setup.
-  // READ BACK WHAT Q10 DECIDED. The recording happened inside `createWorkspace`, which is the
+  // READ BACK WHAT Q11 DECIDED. The recording happened inside `createWorkspace`, which is the
   // only place that is both after the content seed and before the commit — so if it had failed,
   // it would already have said so loudly on stderr, naming the file and the recovery command.
   // This is the summary, not a second attempt at the write.

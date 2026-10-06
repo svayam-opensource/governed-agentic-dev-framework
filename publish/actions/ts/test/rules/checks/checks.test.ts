@@ -290,16 +290,15 @@ describe("check engine — GitHub Actions renderer", () => {
   });
 
   it("renders nothing when nothing is bound", () => {
-    expect(r.render("vcs.code-repo", [])).to.deep.equal([]);
+    expect(r.render([])).to.deep.equal([]);
   });
 
   it("one workflow, triggers on the union of events, one job per rule·event, sorted", () => {
-    const files = r.render("vcs.code-repo", [
+    const files = r.render([
       b("GOV-SVM-012", "vcs.code-repo", "push"),
       b("GOV-FRM-061", "vcs.code-repo", "pull_request"),
       b("GOV-SVM-012", "vcs.code-repo", "pull_request"),
       { id: "GOV-SVM-012", check: bind("vcs.code-repo", "pull_request", "gov-builtin/path-scope", { writable: "**" }) }, // same rule·event: one job
-      b("GOV-SVM-099", "vcs.gov-repo", "pull_request"), // another resource: not this one's
     ]);
     expect(files).to.have.length(1);
     expect(files[0]!.path).to.equal(".github/workflows/gov-checks.yml");
@@ -308,11 +307,11 @@ describe("check engine — GitHub Actions renderer", () => {
 
   it("is byte-stable whatever order the bindings arrive in", () => {
     const list = [b("GOV-SVM-012", "vcs.code-repo", "push"), b("GOV-FRM-061", "vcs.code-repo", "pull_request"), b("GOV-SVM-012", "vcs.code-repo", "pull_request")];
-    expect(r.render("vcs.code-repo", [...list].reverse())).to.deep.equal(r.render("vcs.code-repo", list));
+    expect(r.render([...list].reverse())).to.deep.equal(r.render(list));
   });
 
   it("renders issue events as `issues` types, and names an event it cannot trigger on", () => {
-    const files = r.render("pms.issue", [b("GOV-SVM-040", "pms.issue", "closed"), b("GOV-SVM-041", "pms.issue", "opened"), b("GOV-SVM-042", "pms.issue", "transferred_to_mars")]);
+    const files = r.render([b("GOV-SVM-040", "pms.issue", "closed"), b("GOV-SVM-041", "pms.issue", "opened"), b("GOV-SVM-042", "pms.issue", "transferred_to_mars")]);
     expect(files[0]!.text).to.equal(EXPECTED_ISSUES);
   });
 
@@ -325,11 +324,11 @@ describe("check engine — GitHub Actions renderer", () => {
   });
 
   it("an event with no GitHub trigger alone renders no workflow", () => {
-    expect(r.render("pms.issue", [b("GOV-SVM-042", "pms.issue", "transferred_to_mars")])).to.deep.equal([]);
+    expect(r.render([b("GOV-SVM-042", "pms.issue", "transferred_to_mars")])).to.deep.equal([]);
   });
 
   it("a pinned gov package is honoured", () => {
-    const files = githubActionsRenderer({ govPackage: "@svayam-opensource/gov@1.2.3" }).render("vcs.code-repo", [b("GOV-SVM-001", "vcs.code-repo", "push")]);
+    const files = githubActionsRenderer({ govPackage: "@svayam-opensource/gov@1.2.3" }).render([b("GOV-SVM-001", "vcs.code-repo", "push")]);
     expect(files[0]!.text).to.contain("npm install -g @svayam-opensource/gov@1.2.3\n");
   });
 });

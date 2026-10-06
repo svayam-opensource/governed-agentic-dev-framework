@@ -9,7 +9,7 @@
  */
 import * as os from "node:os";
 import { parseRepoOverrides } from "./repo-overrides.js";
-import { DOMAIN_ROLES } from "./codeowners.js";
+import { DOMAIN_ROLES, CHECK_OWNER } from "./codeowners.js";
 import { readTopLevelScalar, expandTilde } from "../resolve/node-env.js";
 
 /**
@@ -121,6 +121,7 @@ const BLOCKS = [
  */
 const READ_ELSEWHERE: readonly string[] = [
   "policy_owner_github",                    // config/codeowners.ts — the Policy Owner line
+  CHECK_OWNER.key,                          // check_owner_github — config/codeowners.ts, the policies/actions/ line
   ...DOMAIN_ROLES.map((r) => r.key),        // legal_ / infra_ / system_arch_ / data_arch_owner_github
   "policy_effective_date",                  // setup.ts round-trip + <POLICY_EFFECTIVE_DATE> substitution
   // READ BY THE WORKFLOW THE FRAMEWORK SHIPS, not by this CLI (framework/templates/workflows/approver-check.yml).

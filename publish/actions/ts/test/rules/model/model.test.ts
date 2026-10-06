@@ -65,6 +65,10 @@ describe("rule model — the store and its revision history", () => {
     expect(kinds([row()], { scope: FRAMEWORK_SCOPE })).to.include("wrong-scope");
   });
 
+  it("an org id issued under a FORMER slug stays valid after a rename — ids are frozen at issue (Q7)", () => {
+    expect(validateRuleStore([row({ id: "GOV-OLD-003" })], org)).to.deep.equal([]);
+  });
+
   it("a revision chain must hand over at one version: the old row ends where the new one starts", () => {
     const old = row({ end: { version: "1.4.0", date: "2026-10-06", pr: 87 }, start: { version: "1.2.0", date: "2026-08-01", pr: 40 } });
     expect(validateRuleStore([old, row()], org)).to.deep.equal([]);
@@ -87,8 +91,17 @@ describe("rule model — the store and its revision history", () => {
     expect(validateRuleStore([row({ id: "GOV-FRM-061", actor: ["gov-client"], level: "C01" })], { scope: FRAMEWORK_SCOPE })).to.deep.equal([]);
   });
 
-  it("`everyone` stands alone — it already means agent and human", () => {
+  it("a framework rule is C01 or C03 — C02's exception route does not exist for it (W2-Q1)", () => {
+    const frm = (level: "C01" | "C02" | "C03") => validateRuleStore([row({ id: "GOV-FRM-117", actor: ["agent"], level })], { scope: FRAMEWORK_SCOPE }).map((d) => d.kind);
+    expect(frm("C02")).to.include("c02-in-framework");
+    expect(frm("C01")).to.deep.equal([]);
+    expect(frm("C03")).to.deep.equal([]);
+    expect(kinds([row({ level: "C02" })])).to.not.include("c02-in-framework"); // an org rule may be C02
+  });
+
+  it("`everyone` already means agent and human — it combines only with gov-client (W2-Q10)", () => {
     expect(kinds([row({ actor: ["everyone", "agent"] })])).to.include("bad-actor");
+    expect(validateRuleStore([row({ id: "GOV-FRM-466", actor: ["gov-client", "everyone"], level: "C01" })], { scope: FRAMEWORK_SCOPE })).to.deep.equal([]);
     expect(kinds([row({ actor: [] })])).to.include("bad-actor");
   });
 

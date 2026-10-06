@@ -8,7 +8,7 @@
 import * as path from "node:path";
 import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveOrgConfig, renderOrgConfig, type OrgConfigValues, type SetupContext } from "./setup.js";
-import { nonEmpty, orgSlug as orgSlugRule, emailShape, isoDate, branchChoice, parseBranchChoice, branchName, type Validator } from "./answers.js";
+import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, emailShape, isoDate, branchChoice, parseBranchChoice, branchName, type Validator } from "./answers.js";
 
 export interface SetupIo {
   readonly fs: Fs;
@@ -154,6 +154,11 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
     // email above it, and nothing downstream reconciled the two.
     const derivedHandle = deriveOrgConfig(answers, ctx).policyOwnerGithub;
     if (derivedHandle && !interviewed) io.print(`  Policy Owner GitHub handle       ${derivedHandle}`);
+    // ASKED, unlike the Policy Owner's handle: who reviews CODE is a decision, not a lookup. The Policy Owner is
+    // offered because a one-person org is the common first case — and doctor says so when it is accepted.
+    answers.checkOwnerGithub = known("checkOwnerGithub") ?? await askValid(io,
+      "Check Owner GitHub handle (reviews the code of your check actions in policies/actions/)",
+      deriveOrgConfig(answers, ctx).checkOwnerGithub, githubHandle);
     answers.policyEffectiveDate = known("policyEffectiveDate")
       ?? await askValid(io, "Policy effective date (YYYY-MM-DD)", d1.policyEffectiveDate, isoDate);
     // NOT MENTIONED HERE (#192). Service endpoints are org-level values the deploy
@@ -165,6 +170,19 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
   const v = deriveOrgConfig(answers, ctx);
   if (!v.orgName || !v.orgSlug) {
     io.print("setup: org_name and org_slug are required (run interactively, or pre-fill org-config.yaml).");
+    return 1;
+  }
+  // Checked here as well as at the prompt: a pre-filled org-config.yaml or a non-interactive run never meets it.
+  if (isReservedSlug(v.orgSlug)) {
+    io.print(`setup: org_slug '${v.orgSlug}' is reserved for the framework — its own rules are numbered GOV-FRM-NNN. Choose another.`);
+    return 1;
+  }
+  // THE CHECK OWNER MUST BE ASSIGNED (rule-model P1 rulings). Vacancy is a state an UPGRADED org may be in — the
+  // key arrives empty and CODEOWNERS escalates to the Policy Owner — but an org set up now is asked, and leaves
+  // with somebody named.
+  if (!v.checkOwnerGithub.replace(/^@+/, "").trim()) {
+    io.print("setup: check_owner_github is empty — name who reviews the code of your check actions (policies/actions/).");
+    io.print("  It defaults to the Policy Owner; with no Policy Owner handle either, run interactively or pre-fill org-config.yaml.");
     return 1;
   }
 

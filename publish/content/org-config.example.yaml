@@ -60,6 +60,13 @@ agent_work_root: ""
 # Policy Owner details (initial holder of all policy roles at launch)
 policy_owner_email: ""
 policy_owner_github: ""
+# Check Owner — the framework's second built-in role. Reviews the CODE of the
+# org's check actions (policies/actions/), where the Policy Owner approves the
+# rules themselves. Assigned at `gov setup` (default: the Policy Owner). Left
+# empty, the role is vacant and the Policy Owner approves that code too
+# (POL-034) — and `gov doctor` says so. One person holding both roles turns the
+# two-key review off; doctor warns about that as well.
+check_owner_github: ""
 
 # Other role GitHub handles (update as roles are formally assigned)
 legal_owner_github: ""

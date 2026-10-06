@@ -25,6 +25,8 @@
  * the registry either way, so R2 is unaffected.
  */
 
+import { isReservedSlug } from "./answers.js";
+
 /** The GitHub coordinates of the repo to create. */
 export interface CreateTarget {
   readonly org: string;
@@ -54,7 +56,9 @@ export type PreflightFailure =
   /** something is already at the derived (or --path) location. */
   | { readonly why: "path-occupied"; readonly path: string }
   /** the governance probe could not run — refusing rather than risking a duplicate. */
-  | { readonly why: "cannot-verify"; readonly org: string };
+  | { readonly why: "cannot-verify"; readonly org: string }
+  /** the slug is the framework's own rule scope (rule-model Q7). */
+  | { readonly why: "reserved-slug"; readonly slug: string };
 
 /** Non-fatal findings. The command proceeds; the adopter is told. */
 export interface PreflightWarning {
@@ -169,6 +173,8 @@ export function preflight(
 ): { readonly ok: false; readonly failure: PreflightFailure } | { readonly ok: true; readonly target: CreateTarget; readonly govRepo: string; readonly warnings: readonly PreflightWarning[] } {
   const target = parseTarget(rawTarget);
   if (!target) return { ok: false, failure: { why: "bad-target", got: rawTarget } };
+  // Before GitHub is asked anything: no answer from it could make this slug usable.
+  if (isReservedSlug(slug)) return { ok: false, failure: { why: "reserved-slug", slug } };
 
   if (io.gh(["auth", "status"]) === null) return { ok: false, failure: { why: "not-authenticated" } };
 
@@ -208,6 +214,10 @@ export function explainFailure(f: PreflightFailure): readonly string[] {
               "  to configure: gov setup            (inside an existing workspace)"];
     case "not-authenticated":
       return ["gov setup: not signed in to GitHub.", "  fix: gh auth login"];
+    case "reserved-slug":
+      return [`gov setup: '${f.slug}' is reserved for the framework — its own rules are numbered GOV-FRM-NNN, and an`,
+              "  organization's rule ids carry its identifier, so the two would collide.",
+              "  fix: re-run and choose another 2-6 character identifier."];
     case "cannot-create":
       return [`gov setup: cannot create a repository in '${f.org}' — the org does not exist, or your token cannot see it.`,
               "  fix: check the org name, then: gh auth refresh -s repo"];
