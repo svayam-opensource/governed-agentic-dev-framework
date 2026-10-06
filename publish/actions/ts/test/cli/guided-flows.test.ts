@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { unstartedPage, myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, type WorkFlowDeps } from "../../src/cli/work-flow.js";
+import { unstartedPage, myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, unauthorizedAgentLines, type WorkFlowDeps } from "../../src/cli/work-flow.js";
 import { AGENT_CATALOG } from "../../src/cli/agent-catalog.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
 import type { AnchorCreator, AnchorInfo } from "../../src/lifecycle/anchor.js";
@@ -859,6 +859,54 @@ describe("Work — paging, the board cache, an honest failure, the current proje
  * empty list, that was read as "has not decided", and the whole framework catalogue was offered for
  * install. The decision had been made; gov argued with it.
  */
+/**
+ * GOV-FRM-461 — `--agent=<id>` IS CHECKED AGAINST authorized_agents, like the menu.
+ *
+ * The menu offered approved agents only, but the flag (and `$GOV_AGENT`, which resolves into it) went straight to
+ * the launch: the one path a script takes skipped the organization's decision.
+ */
+describe("gov-work — --agent must be an authorized agent (GOV-FRM-461)", () => {
+  const seeded = "/work/PRJ-7-alpha";
+  const ready = [seeded, `${seeded}/acme-gov/.git`];
+  const onlyBob = () => [{ id: "ibm-bob", default: true }];
+
+  it("GOV-FRM-461: refuses to launch an agent the organization did not authorize, and says what to do", async () => {
+    const { deps: d, out, launched } = deps({ fs: fsWith(ready), approvedAgents: onlyBob, prompt: async () => { throw new Error("must not ask"); } });
+    const code = await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "claude", interactive: false });
+    const text = out.join("\n");
+    expect(code).to.equal(2);
+    expect(launched, "nothing started").to.deep.equal([]);
+    expect(text).to.contain("`--agent=claude` names an agent your organization has not authorized");
+    expect(text, "what IS authorized").to.contain("lists: ibm-bob");
+    expect(text, "and both ways forward").to.contain("--agent=<id>").and.contain("gov agent approve claude-code");
+  });
+
+  it("GOV-FRM-461: launches an authorized agent named by flag, alias or catalog id", async () => {
+    for (const agent of ["ibm-bob"]) {
+      const { deps: d, launched } = deps({ fs: fsWith(ready), approvedAgents: onlyBob });
+      expect(await runWorkFlow(d, { projectPattern: "PRJ-7", agent, interactive: false })).to.equal(0);
+      expect(pxDeep(launched)).to.deep.equal([[agent, seeded]]);
+    }
+    const { deps: d, launched } = deps({ fs: fsWith(ready), approvedAgents: () => [{ id: "claude-code" }] });
+    expect(await runWorkFlow(d, { projectPattern: "PRJ-7", agent: "claude", interactive: false })).to.equal(0);
+    expect(launched.length).to.equal(1);
+  });
+
+  it("GOV-FRM-461: cursor-gui is Cursor — authorized exactly when cursor is", () => {
+    expect(unauthorizedAgentLines("cursor-gui", [{ id: "cursor" }])).to.equal(null);
+    expect(unauthorizedAgentLines("cursor-gui", [{ id: "claude-code" }])).to.not.equal(null);
+  });
+
+  it("GOV-FRM-461: an org that has not decided falls back to the framework's list, and the refusal says so", () => {
+    expect(unauthorizedAgentLines("claude-code", null), "on the framework's list").to.equal(null);
+    expect(unauthorizedAgentLines("windsurf", null)!.join("\n"), "deferred, so not on it").to.contain("has not chosen its agents yet");
+  });
+
+  it("a shell is never an agent, so it is never refused", () => {
+    expect(unauthorizedAgentLines("shell", [{ id: "ibm-bob" }])).to.equal(null);
+  });
+});
+
 describe("gov-work — structure-only: agents off, process intact", () => {
   const seeded = "/work/PRJ-7-alpha";
   const ready = [seeded, `${seeded}/acme-gov/.git`];

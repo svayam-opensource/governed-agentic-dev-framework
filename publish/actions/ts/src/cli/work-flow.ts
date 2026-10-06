@@ -361,6 +361,34 @@ export const AGENT_FLAG_ALIASES: Readonly<Record<string, AgentKind>> = {
   shell: "shell",
 };
 
+/**
+ * GOV-FRM-461: gov launches only an agent the organization authorized. The lines refusing `agent`, or null when it
+ * may be launched.
+ *
+ * `authorized` is org-config's `authorized_agents` as {@link ../config/approved-agents.js} reads it: `null` when the
+ * org has not decided (the framework's own list then stands in, as it does for the menu — and the refusal says so),
+ * `[]` for structure-only (refused before this is asked). A shell is never an agent. `cursor-gui` is Cursor run as
+ * an IDE: one approval, two ways to run it.
+ *
+ * It existed only on the MENU path: the menu offers approved agents alone, but `--agent=<id>` (and `$GOV_AGENT`,
+ * which resolves into it) went straight to the launch, so the one path a script takes skipped the org's decision.
+ */
+export function unauthorizedAgentLines(agent: string, authorized: readonly { readonly id: string }[] | null): readonly string[] | null {
+  if (agent === "shell") return null;
+  const kind = AGENT_FLAG_ALIASES[agent] ?? agent;
+  const id = kind === "cursor-gui" ? "cursor" : kind;
+  const approved = approvedAgents(authorized ? authorized.map((a) => a.id) : null);
+  if (approved.ids.includes(id)) return null;
+  const list = approved.ids.length ? approved.ids.join(", ") : "none";
+  return [
+    `  \`--agent=${agent}\` names an agent your organization has not authorized, so gov will not launch it.`,
+    approved.usingDefaults
+      ? `  Your organization has not chosen its agents yet (authorized_agents in org-config.yaml), so the framework's list applies: ${list}.`
+      : `  authorized_agents in org-config.yaml lists: ${list}.`,
+    `  Launch one of those with \`--agent=<id>\` (or \`--agent=shell\`), or ask your Policy Owner to authorize it: \`gov agent approve ${id}\`.`,
+  ];
+}
+
 /** A flag or `$GOV_AGENT` value → the catalog id (or special) to launch, or null if it names nothing. */
 export function agentKindFromFlag(named: string, catalog: readonly AgentCandidate[] = AGENT_CATALOG): AgentKind | null {
   const alias = AGENT_FLAG_ALIASES[named];
@@ -1054,6 +1082,18 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
     print("");
     print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
     return await deps.launch("shell", projectDir, kickoff());
+  }
+
+  // An agent named on the command line is checked against the org's decision like one picked from the menu (GOV-FRM-461).
+  if (opts.agent) {
+    const refusal = unauthorizedAgentLines(opts.agent, authorized);
+    if (refusal) {
+      print("");
+      for (const line of refusal) print(line);
+      log("warn", "refused to launch an agent the organization has not authorized", "gov-work:cli:work-flow", "runWorkFlow",
+        { agent: opts.agent, authorized: authorized?.map((a) => a.id) ?? null });
+      return 2;
+    }
   }
 
   let agent: AgentKind | null = opts.agent ?? null;
