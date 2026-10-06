@@ -18,7 +18,7 @@ The session-start protocol is **one canonical source**, delivered through each t
 
 | File | Purpose |
 |---|---|
-| `agent/session-protocol.md` | C01 session protocol — layer load order, gates, write rules, capture (POL-113–117) |
+| `agent/session-protocol.md` | C01 session protocol — layer load order, gates, write rules, capture (GOV-FRM-113…117) |
 | `agent.md` | Org workspace entrypoint — policy pointers, repo identity |
 
 **Do not** hand-edit generated harness install paths (see below). Run `node agent/render-harness.mjs` after changing the canonical source.

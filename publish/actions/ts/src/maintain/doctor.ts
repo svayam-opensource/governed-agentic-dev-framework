@@ -220,9 +220,9 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     ...(() => { const c = checkOwnerDiagnostic(facts.orgConfigText); return c ? [c] : []; })(),
     // WHICH POSTURE THIS ORGANIZATION CHOSE (Policy Owner, 2026-09-29) — the row that says what the four rows
     // below it are FOR. It comes first because it decides whether they are a finding: an organization that
-    // deliberately chose `soft` is not failing POL-040a §3.3, and one that never chose is not excused from it.
+    // deliberately chose `soft` is not failing GOV-FRM-447, and one that never chose is not excused from it.
     ...(() => { const p = postureDiagnostic(facts.orgConfigText); return p ? [p] : []; })(),
-    // POL-040a §3.3 — the only enforcement that still holds for work done OUTSIDE gov, and until now the one
+    // GOV-FRM-447 — the only enforcement that still holds for work done OUTSIDE gov, and until now the one
     // thing gov never looked at.
     //
     // NOT UNDER `soft`. An organization that chose to leave room for direct work has not misconfigured

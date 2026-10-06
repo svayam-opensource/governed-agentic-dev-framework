@@ -13,7 +13,7 @@
  * here and being logged. The exceptions are this file and the two places that hand the TERMINAL over — an
  * interactive agent and a paged view — which need `stdio: "inherit"` and are logged by their own callers.
  *
- * WHAT IS LOGGED: the command, its arguments with secret values redacted (POL-427), the working directory, how
+ * WHAT IS LOGGED: the command, its arguments with secret values redacted, the working directory, how
  * long it took, the exit code, and the last lines of stderr when it failed. Never stdout: it is the answer, it
  * can be large, and it is often the thing that must not be written down (a token, a key, a private file).
  */
@@ -24,7 +24,7 @@ import { redactArgv, redactText } from "./state-paths.js";
 /**
  * The tail of a failed process's stderr — enough to recognise the failure, short enough to keep a log readable.
  *
- * REDACTED FIRST (POL-427, 2026-09-30). This wrote whatever the process printed, verbatim, at `warn`, for every
+ * REDACTED FIRST (2026-09-30). This wrote whatever the process printed, verbatim, at `warn`, for every
  * `git`, `gh`, `npm` and vendor installer gov runs — and `git` and `gh` echo the remote URL in an error, carrying
  * the token they were handed. The file's header claimed "arguments with secret values redacted" and said nothing
  * about output, so the one unredacted channel was the one nobody had thought about.

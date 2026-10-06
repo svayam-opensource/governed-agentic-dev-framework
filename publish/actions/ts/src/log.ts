@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * gov's logging — POL-423, through `@svayam-opensource/svm-util-log`.
+ * gov's logging — GOV-FRM-423, through `@svayam-opensource/svm-util-log`.
  *
  * ## What this is for
  *
@@ -28,7 +28,7 @@
  *    `debug` waits for `GOV_DEBUG=1`.
  * 2. **NEVER TAKES gov DOWN.** A logger that throws during the failure it was meant to record is worse than no
  *    logger. Every path is wrapped: an unwritable disk costs a line, never a command.
- * 3. **NEVER A SECRET** (POL-427). Values of secret-looking flags are redacted before they reach a line, and
+ * 3. **NEVER A SECRET** in a log. Values of secret-looking flags are redacted before they reach a line, and
  *    callers pass presence, never the secret itself.
  */
 import * as fs from "node:fs";

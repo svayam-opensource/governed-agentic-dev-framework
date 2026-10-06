@@ -51,7 +51,7 @@ actually runs — by SDLC phase, by product line, by business unit, by anything.
 
 One rule applies, and it is the rule rather than a suggestion: a top-level domain exists only
 once a named Owner role exists for it
-([`POL-403`](policies/knowledge-organization-standard.md)). Create the domain and
+([Knowledge Organization Standard §2](policies/knowledge-organization-standard.md)). Create the domain and
 name its owner together, add the owner to the policy, and `CODEOWNERS` will gate it on the next
 upgrade.
 

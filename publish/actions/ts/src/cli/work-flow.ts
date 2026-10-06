@@ -54,7 +54,7 @@ export interface WorkFlowDeps {
   /**
    * `govHome` is the governance clone held on the DEFAULT branch (`~/.gov/<slug>/gov_repo`).
    * Optional so a caller that cannot resolve it still works — the prompt then falls back to the
-   * project-branch worktree, which is a wrong-branch read (POL-086a) but not a dead path.
+   * project-branch worktree, which is a wrong-branch read (GOV-FRM-456) but not a dead path.
    */
   readonly config: { readonly githubOrg: string; readonly workspaceRepo: string; readonly agentWorkRoot: string; readonly govHome?: string; readonly ownerField?: "organization" | "user" };
   readonly me: string | null;
@@ -187,17 +187,17 @@ export { matchProjects };
  *  from the PROJECT ROOT (where the agent launches), so the agent reads the right files across repos. */
 export function sessionStartPrompt(projectId: string, workspaceRepo: string, govHome?: string, snapshot?: GovSnapshot | null): string {
   const w = workspaceRepo;
-  // GOVERNANCE FROM THE DEFAULT BRANCH, PROJECT PATHS FROM THE PROJECT BRANCH (POL-086a, C01).
+  // GOVERNANCE FROM THE DEFAULT BRANCH, PROJECT PATHS FROM THE PROJECT BRANCH (GOV-FRM-456, C01).
   //
   // This pointed every read at `<project>/<workspace-repo>/…`, which is a worktree on the
-  // PROJECT branch. POL-086a is explicit: org knowledge, the session protocol and policies
+  // PROJECT branch. GOV-FRM-456 is explicit: org knowledge, the session protocol and policies
   // "must be built, and rebuilt each session, from <DEFAULT_BRANCH>, never from a project
   // branch", while `projects/PRJ-…/` is read from the project branch.
   //
   // Reading the policy from the project branch is not pedantically wrong, it is the hole
-  // POL-086b warns about: a project branch MAY edit org knowledge, as a proposal with no
+  // GOV-FRM-086 warns about: a project branch MAY edit org knowledge, as a proposal with no
   // governing force. Point the agent at that same branch and an unratified edit becomes the
-  // thing it obeys — self-governing, which POL-086b prohibits in as many words.
+  // thing it obeys — self-governing, which GOV-FRM-086 prohibits in as many words.
   //
   // `govHome` is the clone held on the default branch (~/.gov/<slug>/gov_repo). When a caller
   // cannot supply it the prompt falls back to the worktree copy rather than naming a path that
@@ -211,7 +211,7 @@ export function sessionStartPrompt(projectId: string, workspaceRepo: string, gov
     return `Run the session-start protocol for ${projectId} now, before I send anything else: `
       + `read ${snapshot.files.map((f) => `${snapshot.dir}/${f}`).join(" and ")} — `
       + `a read-only snapshot of ${snapshot.source}, the default branch, which is the only branch that governs `
-      + `(POL-086a); gov copied it into this project so you can read it here — then `
+      + `(GOV-FRM-086); gov copied it into this project so you can read it here — then `
       + `${w}/projects/${projectId}/agent.md and any "## Open" items from `
       + `${w}/projects/${projectId}/knowledge/todo.md, which are the project branch's; `
       + `then post the context manifest, naming ${snapshot.source} as the governance you read, and wait for my direction.`;
@@ -220,7 +220,7 @@ export function sessionStartPrompt(projectId: string, workspaceRepo: string, gov
   return `Run the session-start protocol for ${projectId} now, before I send anything else: `
     + `read ${governance}/org-config.yaml and `
     + `${governance}/framework/policies/framework-policy.md — both from the `
-    + `default branch, which is the only branch that governs (POL-086a) — then `
+    + `default branch, which is the only branch that governs (GOV-FRM-086) — then `
     + `${w}/projects/${projectId}/agent.md and any "## Open" items from `
     + `${w}/projects/${projectId}/knowledge/todo.md, which are the project branch's; `
     + `then post the context manifest and wait for my direction.`;
@@ -935,7 +935,7 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
   }
   // SKIPPED IS NOT THE SAME AS PASSED, and the difference has to be visible (2026-09-28). The zero-call promise
   // above is worth keeping, but authorization IS board write access (gov-behaviour.md §4) and an access that was revoked
-  // since the clone would go unnoticed here. What catches it is the agent's own session-start check (POL-114) —
+  // since the clone would go unnoticed here. What catches it is the agent's own session-start check (GOV-FRM-114) —
   // which is agentic, so it persuades rather than proves. Saying so costs nothing, tells the developer which
   // check is actually standing between them and unauthorized work, and stops a silent skip reading as a pass.
   if (fromLocal) {

@@ -26,7 +26,7 @@ import { paint } from "../cli/format.js";
  *
  * `gh auth login` advertises "repo, read:org, admin:public_key" — gh's own minimum,
  * which knows nothing about what gov does with the token. The gap is not academic:
- * a GitHub Project board IS the project under this model (POL-044), and Projects
+ * a GitHub Project board IS the project under this model (GOV-FRM-451), and Projects
  * are behind their own `project` scope. A token that satisfies gh sails through the
  * sign-in and then fails at `gov seed`, several steps and some minutes later, on a
  * permission nobody mentioned.

@@ -29,7 +29,7 @@ const ghFailing = (stderr: string) => () => {
 };
 
 describe("gov-work — parseProtection", () => {
-  it("reads the four facts POL-040a asks about", () => {
+  it("reads the four facts GOV-FRM-447 asks about", () => {
     expect(parseProtection(payload())).to.deep.equal({
       pullRequestRequired: true,
       approvingReviews: 1,
@@ -51,7 +51,7 @@ describe("gov-work — parseProtection", () => {
     expect(facts.approvingReviews).to.equal(0);
   });
 
-  it("enforce_admins off is read as off — the bypass POL-040a.3 forbids", () => {
+  it("enforce_admins off is read as off — the bypass GOV-FRM-447.3 forbids", () => {
     expect(parseProtection(payload({ enforce_admins: { enabled: false } }))!.enforceAdmins).to.equal(false);
   });
 
@@ -72,7 +72,7 @@ describe("gov-work — whyUnreadable", () => {
   });
 
   // Verified against this framework's own governance repo on 2026-09-27: GitHub Free answers 403 with this
-  // message for a PRIVATE repo, on the protection endpoint AND on the rulesets one. So POL-040a is not
+  // message for a PRIVATE repo, on the protection endpoint AND on the rulesets one. So GOV-FRM-447 is not
   // unconfigured there, it is unconfigurable — and blaming the reader's permissions would send them hunting.
   it("names the PLAN, not the person, when GitHub Free has nothing to show", () => {
     const why = whyUnreadable("gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)")!;

@@ -10,7 +10,7 @@ status: current
 
 Consulted, not read through. Use this when you know what you want and need the exact form of it.
 
-**Links only, never content (POL-410).**
+**Links only, never content (Knowledge Organization Standard §5).**
 
 ## The tool
 

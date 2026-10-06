@@ -4,7 +4,7 @@
  * THE TWO RULE STORES, READ AT A GIT REF — and the one issuer of GOV ids (rule-model-design.md Q5, Q7, Q8, Q17;
  * W1, 2026-10-06). The disk side of {@link ./rule-row.js} and {@link ./catalog.js}.
  *
- * AT A REF, NEVER FROM THE WORKTREE. Rules are what the default branch says (POL-086a). A branch that deletes a
+ * AT A REF, NEVER FROM THE WORKTREE. Rules are what the default branch says (GOV-FRM-456). A branch that deletes a
  * row from its own `policies/rules.yaml` has proposed a change, not made one — and a reader that looked at the
  * worktree would let the branch under review unbind itself. The mechanism is the one `cli/policy-gate-io.ts`
  * already uses: `git ls-tree` to learn what EXISTS at the ref, `git show <ref>:<path>` to read it, with git

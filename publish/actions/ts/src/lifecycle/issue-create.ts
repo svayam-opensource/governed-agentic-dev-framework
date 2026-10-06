@@ -7,7 +7,7 @@
  * resume, close — except the first. Writing down a unit of work happened in the
  * GitHub web UI, which is where two rules went to be forgotten:
  *
- *   · POL-413 — every board issue is assigned to the actor who created it. Enforced
+ *   · every board issue is assigned to the actor who created it. Enforced
  *     by memory, and by an auto-assign workflow each adopter has to remember to
  *     install.
  *   · An issue that is not ON a board is invisible to gov. Adding it is a second
@@ -62,9 +62,9 @@ export function planIssue(
   fetchUpstream?: (repo: string, number: number) => UpstreamIssue | null,
 ): IssuePlanResult {
   if (!req.assignee) {
-    // POL-413 is the reason this verb exists. Creating an unassigned issue here
+    // An accountable assignee is the reason this verb exists. Creating an unassigned issue here
     // would reproduce by hand the thing the command was written to prevent.
-    return { ok: false, message: "Cannot create an issue without an assignee — every board item needs an accountable person (POL-413)." };
+    return { ok: false, message: "Cannot create an issue without an assignee — every board item needs an accountable person." };
   }
 
   if (req.from) {

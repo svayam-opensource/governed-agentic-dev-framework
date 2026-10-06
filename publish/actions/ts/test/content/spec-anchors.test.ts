@@ -7,7 +7,7 @@
  * because a specification has to explain WHY, and no generator does that. The cost of hand-writing it is that it
  * can drift from the code, and "we update the document when the code changes" is a discipline, not a mechanism.
  *
- * We know the discipline does not hold, because it already failed: POL-071 asserted that knowledge close used a
+ * We know the discipline does not hold, because it already failed: a C01 clause asserted that knowledge close used a
  * branch named `BRNCH-<board#>-<slug>-knowledge`. No code ever created it. The clause was C01 — the level that
  * admits no exception — and it was false for as long as anybody had been reading it. Nothing in the repository
  * noticed, because nothing was looking.
@@ -99,7 +99,7 @@ const ANCHORS: readonly Anchor[] = [
   // §6 — what `gov rules build` writes.
   { what: "the POL lock", inSpec: "`.pol-lock.json`", inCode: 'LOCK_FILE = ".pol-lock.json"', file: "rules/pol-lock-io.ts" },
   { what: "the rule map", inSpec: "`agent/harness/rule-map.md`", inCode: 'path.join("agent", "harness", "rule-map.md")', file: "cli/rules-verb.ts" },
-  { what: "the clause number cited in gov's own source", inSpec: "`POL-427`", inCode: "POL-427", file: "log.ts" },
+  { what: "the rule id cited in gov's own source", inSpec: "`GOV-FRM-423`", inCode: "GOV-FRM-423", file: "log.ts" },
 
   // §7 — the posture, and the limit the platform imposes.
   { what: "the governance posture setting", inSpec: "`governance_posture`", inCode: "governance_posture", file: "config/org-config.ts" },
@@ -117,7 +117,7 @@ describe("gov-behaviour.md — every literal it names is anchored in the code", 
       expect(
         source(a.file),
         `the spec says ${a.what} is ${JSON.stringify(a.inSpec)}, but ${a.file} no longer contains ` +
-          `${JSON.stringify(a.inCode)}. The code moved and the document did not — this is POL-071 happening again.`,
+          `${JSON.stringify(a.inCode)}. The code moved and the document did not — this is the false knowledge-close clause happening again.`,
       ).to.contain(a.inCode);
     });
   }
@@ -129,14 +129,14 @@ describe("gov-behaviour.md — every literal it names is anchored in the code", 
   });
 });
 
-describe("gov-behaviour.md — the negative anchor (POL-071)", () => {
+describe("gov-behaviour.md — the negative anchor (the false knowledge-close clause)", () => {
   /**
-   * The clause that justified this whole test file. POL-071 said knowledge close used a branch named
+   * The clause that justified this whole test file. It said knowledge close used a branch named
    * `BRNCH-<board#>-<slug>-knowledge` — a name DERIVED from the project's identity. That is the shape to look
    * for, and the first draft of this test looked for the bare suffix instead, which found two innocent things:
    * `project-knowledge` (a validator's name) and `onboard-knowledge` (a real branch, but a FIXED name belonging
    * to `gov onboard`, not derived from any project). The loose version would have failed for ever on code that
-   * was never what POL-071 described — and a test that fails for the wrong reason gets deleted, not fixed.
+   * was never what that clause described — and a test that fails for the wrong reason gets deleted, not fixed.
    *
    * So: a `-knowledge` suffix applied to a branch, id, slug or project expression. Nothing else.
    */
@@ -162,7 +162,7 @@ describe("gov-behaviour.md — the negative anchor (POL-071)", () => {
     expect(
       hits,
       "the specification states that no branch is derived from a project branch by suffixing it. If one now is, " +
-        "the spec is wrong and POL-071 was right after all — which would be a genuinely interesting discovery.",
+        "the spec is wrong and that clause was right after all — which would be a genuinely interesting discovery.",
     ).to.deep.equal([]);
   });
 
@@ -183,13 +183,12 @@ describe("gov-behaviour.md — it is a specification, not a policy", () => {
    * request — you cannot be excepted from how a program behaves. The split (2026-09-29) exists because the policy
    * used to contain both kinds of content, and a reader could not tell which sentences they were able to break.
    *
-   * Two mentions are allowed and expected: the document explains itself by pointing at POL-071 (the clause that
-   * was false) and POL-427 (the clause cited in code). Those are references to the policy, not clauses of its own.
+   * Since the rule model (W3) it names none at all: POL numbers are retired, and the two it once mentioned in
+   * explaining itself are now described in words.
    */
   it("declares no POL numbers of its own", () => {
     const cited = new Set((spec.match(/POL-\d+[a-z]?/g) ?? []));
-    const allowed = new Set(["POL-071", "POL-427"]);
-    const unexpected = [...cited].filter((c) => !allowed.has(c));
+    const unexpected = [...cited];
     expect(
       unexpected,
       "a POL number in the specification reads as a rule somebody may request an exception from. Either the " +

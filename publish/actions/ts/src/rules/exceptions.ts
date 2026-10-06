@@ -10,7 +10,7 @@
  *
  * So an approved, unexpired exception becomes a line in the project's resident block, scoped to what it names:
  *
- *     POL-210 · C02 — EXCEPTION EX-14 permits `redis` in 910-GOV-CICD until 2026-12-31 (approved: policy-owner).
+ *     GOV-SVM-210 · C02 — EXCEPTION EX-14 permits `redis` in 910-GOV-CICD until 2026-12-31 (approved: policy-owner).
  *
  * EXPIRY IS ENFORCED HERE, NOT TRUSTED. An expiry field nobody checks is a permanent exemption with a date
  * printed on it — which is how most of them end up. A lapsed exception simply stops being compiled, so the cue
@@ -20,7 +20,7 @@
  * DEFAULT branch, because an exception a developer wrote on their own branch is a request, not a permission.
  */
 
-/** The front matter the framework requires of an exception (POL-156). */
+/** The front matter the framework requires of an exception (GOV-FRM-156). */
 export interface ExceptionDoc {
   /** Workspace-relative path, for the message when something is wrong with it. */
   readonly path: string;
@@ -31,7 +31,7 @@ export interface Exception {
   readonly path: string;
   /** The identifier, from `id:` or the file name — what a person cites in a conversation. */
   readonly id: string;
-  /** The clause being excepted, e.g. `POL-210`. */
+  /** The rule being excepted, e.g. `GOV-SVM-210` (a POL number is still read until P3 retires the old compiler). */
   readonly clause: string;
   /** ISO date. An exception with none is not compiled; see `problems`. */
   readonly expires: string;
@@ -54,11 +54,11 @@ export function parseException(doc: ExceptionDoc): { exception?: Exception; prob
   const fm = /^---\n([\s\S]*?)\n---/.exec(doc.text)?.[1];
   if (!fm) return { problem: { path: doc.path, why: "no front matter — an exception is machine-read, so its terms cannot be prose" } };
 
-  const clause = /POL-\d{3}[a-z]?/.exec(field(fm, "clause"))?.[0] ?? "";
+  const clause = /GOV-[A-Z][A-Z0-9]{1,5}-\d{3,}|POL-\d{3}[a-z]?/.exec(field(fm, "clause"))?.[0] ?? "";
   const expires = field(fm, "expires");
   const approvedBy = field(fm, "approved_by");
   const missing = [
-    !clause && "clause (which POL number is being excepted)",
+    !clause && "clause (which rule is being excepted: its GOV id)",
     !expires && "expires",
     !approvedBy && "approved_by",
   ].filter(Boolean) as string[];

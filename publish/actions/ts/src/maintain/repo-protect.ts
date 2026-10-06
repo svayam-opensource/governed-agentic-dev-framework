@@ -4,7 +4,7 @@
  * `gov repo protect` — THE FIRST THING IN gov THAT INSTALLS AN ENFORCEMENT RATHER THAN READING ONE
  * (Policy Owner, 2026-09-29).
  *
- * WHAT WAS MISSING. `lifecycle/branch-protection.ts` reads POL-040a §3.3 and `maintain/protection-check.ts`
+ * WHAT WAS MISSING. `lifecycle/branch-protection.ts` reads GOV-FRM-447 and `maintain/protection-check.ts`
  * turns it into rows, so `gov doctor` has been able to say "this branch is open" for two days. Nothing could
  * close it. The posture of every adopting organization was therefore whatever somebody had clicked, and gov's
  * honest report of that fact was the end of the story rather than the start of it.
@@ -17,9 +17,9 @@
  *
  *   UNPROTECTED   GitHub answered: this branch has no rule. A plan with four changes, and `apply` writes them.
  *   CANNOT        The PLATFORM refuses — 403 "Upgrade to GitHub Pro or make this repository public". No
- *                 configuration exists that would satisfy POL-040a here, not even the approver check, because
+ *                 configuration exists that would satisfy GOV-FRM-447 here, not even the approver check, because
  *                 required status checks are themselves a branch-protection feature (§3.4). `apply` exits
- *                 NON-ZERO and names the three ways out POL-040d states.
+ *                 NON-ZERO and names the three ways out GOV-FRM-449 names.
  *   DID NOT       gov could not find out — not an admin, not signed in, the call failed in transit. Different
  *                 from CANNOT in the only way that matters: something might be there. `apply` refuses to write
  *                 blind and exits non-zero; it never reports having installed anything.
@@ -36,7 +36,7 @@
  * says to land it by pull request. Two commands rather than one, deliberately: the alternative is a repository
  * that can never merge anything again, installed by the command that was supposed to protect it.
  *
- * Everything reaches GitHub through `run-process.ts` (POL-423) — `node:child_process` is banned here by lint.
+ * Everything reaches GitHub through `run-process.ts` (GOV-FRM-423) — `node:child_process` is banned here by lint.
  */
 import * as path from "node:path";
 import { parseProtection, whyUnreadable, UNPROTECTED, type ProtectionFacts } from "../lifecycle/branch-protection.js";
@@ -70,7 +70,7 @@ export interface RepoProtectDeps {
 }
 
 export interface RepoProtectInput {
-  /** `owner/name` — the repository POL-040a §3.3 is about. */
+  /** `owner/name` — the repository GOV-FRM-447 is about. */
   readonly repo: string;
   /** The branch it protects: the repository's default branch. */
   readonly branch: string;
@@ -146,7 +146,7 @@ export function approverLogins(orgConfigText: string | null | undefined): readon
  * The classic protection payload, as much of it as a WRITE has to preserve.
  *
  * `PUT branches/<branch>/protection` REPLACES the whole rule: every key omitted from the body is reset to its
- * default. So a write that sent only POL-040a's four settings would silently turn off `dismiss_stale_reviews`,
+ * default. So a write that sent only GOV-FRM-447's four settings would silently turn off `dismiss_stale_reviews`,
  * `required_conversation_resolution` and anything else the organization had configured — a governance command
  * quietly undoing governance. gov reads the payload first and sends what was there, changed only where the
  * policy asks.
@@ -186,7 +186,7 @@ function parseRaw(stdout: string): RawProtection | null {
 }
 
 /**
- * The PUT body for a branch that must satisfy POL-040a §3.3 — PURE, over what is there now.
+ * The PUT body for a branch that must satisfy GOV-FRM-447 — PURE, over what is there now.
  *
  * The four settings are set; everything else the payload carried is carried back. The existing required checks
  * are KEPT and the approver check is added to them: a governance command that dropped an organization's build
@@ -205,15 +205,15 @@ export function buildProtectionBody(raw: RawProtection | null, approverCheck: st
 
   const body: Record<string, unknown> = {
     required_status_checks: {
-      // `strict` (require branches to be up to date) is the organization's business, not POL-040a's. Kept as
+      // `strict` (require branches to be up to date) is the organization's business, not GOV-FRM-447's. Kept as
       // found, defaulting to false, because turning it ON here would start failing merges for a reason the
       // policy never asked for.
       strict: checks?.strict ?? false,
       contexts: [...new Set([...existing, approverCheck])],
     },
-    enforce_admins: true,                                        // POL-040a.3
+    enforce_admins: true,                                        // GOV-FRM-447.3
     required_pull_request_reviews: {
-      // POL-040a.1 + .2: the presence of this object is what makes a pull request unavoidable, and the count is
+      // GOV-FRM-447.1 + .2: the presence of this object is what makes a pull request unavoidable, and the count is
       // what makes a review unavoidable. `Math.max` so an organization that already requires two keeps two —
       // the policy says "at least one", and lowering somebody's bar to meet a minimum is not compliance.
       required_approving_review_count: Math.max(WANTED_APPROVING_REVIEWS, reviews?.required_approving_review_count ?? 0),
@@ -301,7 +301,7 @@ const pad = (s: string, w: number): string => s + " ".repeat(Math.max(0, w - s.l
  * The plan table: one row per requirement, the current value beside the wanted one.
  *
  * `→` marks the rows that would change, and the rows that would not are STILL PRINTED — a table that showed
- * only the gaps could not be read as "this is the whole of POL-040a §3.3", which is the question a person runs
+ * only the gaps could not be read as "this is the whole of GOV-FRM-447", which is the question a person runs
  * `plan` to have answered.
  */
 function table(changes: readonly ProtectionChange[]): readonly string[] {
@@ -309,7 +309,7 @@ function table(changes: readonly ProtectionChange[]): readonly string[] {
   const w2 = Math.max(7, ...changes.map((c) => c.current.length));
   return [
     `    ${pad("setting", w1)}  ${pad("current", w2)}  wanted`,
-    ...changes.map((c) => `  ${c.changes ? "→ " : "  "}${pad(c.setting, w1)}  ${pad(c.current, w2)}  ${c.wanted}   (${c.pol})`),
+    ...changes.map((c) => `  ${c.changes ? "→ " : "  "}${pad(c.setting, w1)}  ${pad(c.current, w2)}  ${c.wanted}   (${c.rule})`),
   ];
 }
 
@@ -322,7 +322,7 @@ function workflowRow(onBranch: boolean | null, branch: string): ProtectionChange
     setting: `workflow ${WORKFLOW_DEST}`,
     current: onBranch === null ? "could not find out" : onBranch ? "present" : "absent",
     wanted: `on ${branch}`,
-    pol: "POL-040a.4",
+    rule: "GOV-FRM-447.4",
     changes: onBranch !== true,
   };
 }
@@ -335,12 +335,12 @@ function cannotLines(repo: string, mode: ProtectMode, message: string): readonly
     `  ✗ GitHub REFUSED: ${first}`,
     "",
     `  NOTHING WAS WRITTEN, and nothing can be: ${repo} is a PRIVATE repository on a plan without branch`,
-    "  protection. None of POL-040a §3.3's four settings can be configured here — not even the approver check,",
+    "  protection. None of GOV-FRM-447's four settings can be configured here — not even the approver check,",
     "  because required status checks are themselves a branch-protection feature (framework-policy §3.4).",
     "  Until this changes, gov's own gates are the only enforcement, and they do not bind an agent a developer",
     "  starts outside gov.",
     "",
-    "  POL-040d gives three ways out, and this organization MUST record which it took:",
+    "  GOV-FRM-449: there are three ways out, and this organization MUST record which it took:",
     ...planWaysOut(repo).map((l) => `    ${l}`),
     "",
     mode === "apply"
@@ -415,12 +415,12 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
     const allCorrect = pending.length === 0 && onBranch === true;
     return { code: 0, lines: [
       head,
-      "  posture: hard — the platform is meant to stop work attempted outside gov (POL-040a §3.3)",
+      "  posture: hard — the platform is meant to stop work attempted outside gov (GOV-FRM-447)",
       "",
       ...table([...changes, workflowRow(onBranch, input.branch)]),
       "",
       ...(allCorrect
-        ? ["  ALREADY CORRECT — every requirement of POL-040a §3.3 is configured on this branch and the approver",
+        ? ["  ALREADY CORRECT — every requirement of GOV-FRM-447 is configured on this branch and the approver",
            "  workflow is on it. `apply` would write nothing."]
         : [
             `  ${pending.length} of ${changes.length} settings would change${onBranch === false ? `, and ${WORKFLOW_DEST} would be written` : ""}.`,
@@ -500,7 +500,7 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
   if (!pending.length) {
     return { code: 0, lines: [
       head,
-      "  ALREADY CORRECT — every requirement of POL-040a §3.3 is configured on this branch and the approver",
+      "  ALREADY CORRECT — every requirement of GOV-FRM-447 is configured on this branch and the approver",
       `  workflow is on ${input.branch}. Nothing was written.`,
       "",
       ...table(changes),
@@ -540,7 +540,7 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
     return { code: 1, lines: [
       head,
       "  ✗ PARTIALLY APPLIED — GitHub accepted the write, and the RE-READ says this is still not configured:",
-      ...remaining.map((c) => `     ${c.setting}: ${c.current} (wanted ${c.wanted})   ${c.pol}`),
+      ...remaining.map((c) => `     ${c.setting}: ${c.current} (wanted ${c.wanted})   ${c.rule}`),
       "",
       "  gov repo protect: FAILED. Reported from the re-read, not from the write — a command that trusted the",
       "  exit code would have told you this branch was protected.",
@@ -548,7 +548,7 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
   }
   return { code: 0, lines: [
     head,
-    "  ✓ written and RE-READ on GitHub — every requirement of POL-040a §3.3 now holds:",
+    "  ✓ written and RE-READ on GitHub — every requirement of GOV-FRM-447 now holds:",
     ...table(protectionChanges(after.facts, check)),
     "",
     `  ✓ ${WORKFLOW_DEST} is on ${input.branch}, and \`${check}\` is a required check.`,

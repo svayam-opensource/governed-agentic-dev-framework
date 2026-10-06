@@ -137,7 +137,7 @@ The agent should respond with a short status summary, not a plan. You direct wha
 
 ### Session start by tool — Claude vs Cursor vs Gemini
 
-**Same policy (POL-113–118) for everyone.** Tools differ only in *how protocol text gets into the model* before the first read of `knowledge/`.
+**Same rules (GOV-FRM-113…117) for everyone.** Tools differ only in *how protocol text gets into the model* before the first read of `knowledge/`.
 
 Open the workspace at **`projects/<PID>/`** (recommended) or gov repo root on the project branch.
 
@@ -166,7 +166,7 @@ Harness registry (all tools): [`agent/harness-manifest.yaml`](../agent/harness-m
   - any other domain-specific files as needed (`security.md`, `migrations.md`, etc.).
 - **Intermediate to-dos** go in `projects/PRJ-001-feature-x/knowledge/todo.md` under `## Open`. Capture them as they arise, not at session end.
 - **NEVER** edit:
-  - The workspace repo's `knowledge/` (editable on the project branch, but only as a proposal — POL-086b).
+  - The workspace repo's `knowledge/` (editable on the project branch, but only as a proposal — GOV-FRM-086).
   - Task state by hand — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
   - GitHub Issues unilaterally — those represent business intent humans add to the board.
 
@@ -175,7 +175,7 @@ Harness registry (all tools): [`agent/harness-manifest.yaml`](../agent/harness-m
 - Drive the work by **direction**, not by **delegation**. The agent shouldn't autonomously decide what to implement.
 - When asking the agent to make a change, point at the file path under `$AGENT_WORK_ROOT/projects/...` so it doesn't get confused with the workspace repo's tree.
 - For non-obvious decisions, ask the agent to write the rationale into `projects/.../knowledge/notes.md` before the corresponding code change. That keeps the audit trail honest.
-- When a policy question comes up mid-session and an exception might be needed: stop, file an exception request in `policies/exceptions/<domain>/`, and `gov pause` until it's approved. Agents must hard-stop on unresolved C01 (POL-117).
+- When a policy question comes up mid-session and an exception might be needed: stop, file an exception request in `policies/exceptions/<domain>/`, and `gov pause` until it's approved. Agents must hard-stop on unresolved C01 (GOV-FRM-012).
 
 ### Session-end protocol
 
@@ -218,7 +218,7 @@ When you `git checkout xyz-002-other` to a different project's branch:
 2. Read the new project's `todo.md`. Do not carry over `## Open` items from the previous project — those stay on their own branch.
 3. The agent must drop in-memory state derived from the previous project's knowledge layers.
 
-This is POL-171 in the policy ledger.
+This is part of GOV-FRM-113.
 
 ---
 

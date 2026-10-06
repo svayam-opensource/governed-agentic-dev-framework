@@ -7,7 +7,7 @@ revisit, and follow-ups that surface while executing the goals.
 ## How this is used
 
 - **At session start**, the agent reads this file as part of project
-  context (POL-079). Open items here should be surfaced to the developer
+  context (GOV-FRM-076). Open items here should be surfaced to the developer
   before new work is planned.
 - **During work**, the agent (or developer) appends new items to
   `## Open` as they arise. Don't wait until session end — the value of

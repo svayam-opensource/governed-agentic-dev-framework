@@ -12,8 +12,8 @@
  *                                            — so the person can recover it
  *
  * The second copy is the owner's decision, and it is defensible: that path is
- * outside every repository (`agent_work_root` is never committed, POL-128), so
- * POL-143/144 still holds. But two copies of a secret drift, and a stale one is
+ * outside every repository (`agent_work_root` is never committed, GOV-FRM-128), so
+ * the no-credentials-in-files rule still holds. But two copies of a secret drift, and a stale one is
  * discovered during an outage. So:
  *
  *   the agent's config is the TRUTH
@@ -34,7 +34,7 @@
  * moment gov exited: every later session started without it, and a headless machine was sent to a browser
  * sign-in that cannot complete there.
  *
- * What still holds: never on screen, never in a log (presence only, POL-427), never in an agent's context; the
+ * What still holds: never on screen, never in a log (presence only), never in an agent's context; the
  * file is 0600 and gov will not load one that others can read. `storedCredential` is the one code path that
  * returns a key, and it returns it only to be placed in the environment of a process gov starts.
  */

@@ -4,7 +4,7 @@
  * Where the work happens, when that is not where the issue lives (#194).
  *
  * A board links an issue; `seed` takes that issue's repository as a participating
- * repo and cuts the project branch there (POL-044 — repos come from the board).
+ * repo and cuts the project branch there (GOV-FRM-451 — repos come from the board).
  * That is right until the issue is upstream of a fork:
  *
  *     genevaers/Workbench      the issue's home — readable, not writable

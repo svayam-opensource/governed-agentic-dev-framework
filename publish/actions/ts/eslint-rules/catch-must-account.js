@@ -23,7 +23,7 @@ export default {
     docs: { description: "a catch block must log, rethrow, or say in a comment why it is silent" },
     schema: [],
     messages: {
-      silent: "this catch is silent: log it, rethrow it, or write one comment saying why neither is needed (POL-423).",
+      silent: "this catch is silent: log it, rethrow it, or write one comment saying why neither is needed (GOV-FRM-423).",
     },
   },
   create(context) {

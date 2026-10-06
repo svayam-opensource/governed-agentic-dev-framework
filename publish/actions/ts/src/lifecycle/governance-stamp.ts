@@ -5,7 +5,7 @@
  *
  * A year after a change lands, that question has no answer anywhere. The policies moved on; the resident block
  * an agent actually read was re-rendered three times since; the POL numbers are stable but the TEXT behind them
- * was reworded twice, each time legitimately. So "the reviewer approved this under POL-086b" is a sentence
+ * was reworded twice, each time legitimately. So "the reviewer approved this under GOV-FRM-086" is a sentence
  * nobody can check — which is the part of an audit trail that costs the most to be missing, because it is the
  * part you only need once, under pressure, long after everyone has forgotten.
  *

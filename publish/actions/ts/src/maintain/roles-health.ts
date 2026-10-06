@@ -9,7 +9,7 @@
  *
  *   VACANT  `check_owner_github` empty. Every org that upgrades into the rule model starts here — `gov upgrade`
  *           adds the key empty, because gov will not pick a reviewer for an org. CODEOWNERS escalates the path to
- *           the Policy Owner (POL-034), which is safe but is one key.
+ *           the Policy Owner (GOV-FRM-033), which is safe but is one key.
  *   SAME    one handle in both roles. A real choice for a one-person org, and not a fault — but the org should
  *           know the second key is not there, rather than believe two people looked.
  *
@@ -35,7 +35,7 @@ export function checkOwnerDiagnostic(orgConfigText: string | null | undefined): 
     return {
       name, status: "warn",
       detail: `vacant — \`${CHECK_OWNER.key}\` is empty, so the Policy Owner${policy ? ` (${policy})` : ""} also approves the code of`
-        + ` the org's check actions (policies/actions/, POL-034). Name a reviewer of code there and re-run \`gov upgrade\`.`,
+        + ` the org's check actions (policies/actions/, GOV-FRM-033). Name a reviewer of code there and re-run \`gov upgrade\`.`,
     };
   }
   // GitHub logins are case-insensitive: `@Carol` and `carol` are one person.

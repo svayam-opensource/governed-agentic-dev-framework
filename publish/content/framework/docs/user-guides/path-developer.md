@@ -10,7 +10,7 @@ status: current
 
 The daily one. You have a machine, an organization, and a project to work on.
 
-**Links only, never content (POL-410).**
+**Links only, never content (Knowledge Organization Standard §5).**
 
 ## Every session
 

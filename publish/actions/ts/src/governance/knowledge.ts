@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * Knowledge Organization Standard (SDD-032, POL-416) — port of check_knowledge.py.
+ * Knowledge Organization Standard (SDD-032, §7) — port of check_knowledge.py.
  * Checks every knowledge/**.md (org tree; framework/ is the upstream template):
  *   1. front-matter present + schema-valid; layer agrees with the folder
  *   2. orphan check — every non-README doc is linked from another knowledge doc
@@ -91,12 +91,12 @@ export function checkKnowledge(ctx: ValidateContext): ValidationResult {
   for (const rel of docs) {
     const text = content.get(rel) ?? "";
     if (WIKILINK_RE.test(stripCode(text))) {
-      errors.push(`${rel}: [[wikilink]] found — use relative markdown links (POL-413)`);
+      errors.push(`${rel}: [[wikilink]] found — use relative markdown links (Knowledge Organization Standard §6)`);
     }
     for (const m of text.matchAll(IMG_RE_G)) {
       const t = m[1].toLowerCase();
       if (/\.(png|jpe?g|gif)$/.test(t) && !t.includes("screenshot")) {
-        errors.push(`${rel}: binary diagram embed '${m[1]}' — diagrams are Mermaid text (POL-414)`);
+        errors.push(`${rel}: binary diagram embed '${m[1]}' — diagrams are Mermaid text (GOV-FRM-460)`);
       }
     }
     for (const m of text.matchAll(LINK_RE_G)) {
@@ -118,36 +118,36 @@ export function checkKnowledge(ctx: ValidateContext): ValidationResult {
   // ── Pass 2: front-matter, folder agreement, orphan, journey purity ─────────
   for (const rel of docs) {
     // Index READMEs are link SOURCES (scanned in Pass 1); they don't carry the
-    // POL-408 taxonomy and are exempt from the orphan check by definition.
+    // front-matter taxonomy and are exempt from the orphan check by definition.
     if (rel.endsWith("/README.md")) continue;
     const text = content.get(rel) ?? "";
     const fm = frontMatter(text);
     if (fm === null) {
-      errors.push(`${rel}: missing front-matter (POL-408)`);
+      errors.push(`${rel}: missing front-matter (Knowledge Organization Standard §4)`);
       continue;
     }
     for (const [key, allowed] of [["domain", DOMAINS], ["layer", LAYERS], ["compliance", COMPLIANCE], ["status", STATUSES]] as const) {
-      if (!allowed.has(fm[key] ?? "")) errors.push(`${rel}: front-matter ${key}='${fm[key]}' invalid (POL-408)`);
+      if (!allowed.has(fm[key] ?? "")) errors.push(`${rel}: front-matter ${key}='${fm[key]}' invalid (Knowledge Organization Standard §4)`);
     }
-    if (!fm.owner) errors.push(`${rel}: front-matter owner missing (POL-408)`);
+    if (!fm.owner) errors.push(`${rel}: front-matter owner missing (Knowledge Organization Standard §4)`);
     if (fm.status === "superseded") continue; // redirect stubs: parse-only
 
     const parts = rel.split("/"); // knowledge / <domain..> / [layer] / file
     let folderLayer: string | undefined;
     for (const seg of parts.slice(1, -1)) if (LAYER_FOLDER[seg]) folderLayer = LAYER_FOLDER[seg];
     if (folderLayer && fm.layer !== folderLayer) {
-      errors.push(`${rel}: layer '${fm.layer}' disagrees with folder '${folderLayer}' (POL-408)`);
+      errors.push(`${rel}: layer '${fm.layer}' disagrees with folder '${folderLayer}' (Knowledge Organization Standard §4)`);
     }
 
     const base = parts[parts.length - 1];
     if (base !== "README.md" && !linked.has(rel)) {
-      errors.push(`${rel}: orphan — not linked from any index or journey (POL-416)`);
+      errors.push(`${rel}: orphan — not linked from any index or journey (Knowledge Organization Standard §7)`);
     }
 
     if (parts[1] === "paths" && base !== "README.md") {
-      if (text.includes("```")) errors.push(`${rel}: journey docs are links-only — code block found (POL-410)`);
-      if (IMG_RE_TEST.test(text)) errors.push(`${rel}: journey docs are links-only — image found (POL-410)`);
-      if ([...text.matchAll(LINK_RE_G)].length < 3) errors.push(`${rel}: journey doc has fewer than 3 links — is it a journey? (POL-410)`);
+      if (text.includes("```")) errors.push(`${rel}: journey docs are links-only — code block found (Knowledge Organization Standard §5)`);
+      if (IMG_RE_TEST.test(text)) errors.push(`${rel}: journey docs are links-only — image found (Knowledge Organization Standard §5)`);
+      if ([...text.matchAll(LINK_RE_G)].length < 3) errors.push(`${rel}: journey doc has fewer than 3 links — is it a journey? (Knowledge Organization Standard §5)`);
     }
   }
 

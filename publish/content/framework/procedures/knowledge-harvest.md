@@ -52,7 +52,7 @@ from recall.** Read the durable record first and treat it as the source of truth
    surprised us, what we'd warn the next person about.* These are the first
    learnings to be lost and the highest-value to keep (traps, precision bugs,
    tool quirks, dead-ends that looked promising).
-5. **JOURNEY REVIEW** (POL-089/412) — what *"how do I X"* paths did the work
+5. **JOURNEY REVIEW** — what *"how do I X"* paths did the work
    traverse that aren't documented? Create/update `paths/<journey>.md`
    (links-only). Answer the journey question explicitly.
 6. **COMPLETENESS CRITIC** — an adversarial pass against the evidence: which
@@ -84,7 +84,7 @@ from recall.** Read the durable record first and treat it as the source of truth
 ## Journeys created / updated
 | Journey (paths/…) | New or Updated | PR# |
 |---|---|---|
-**Journey question (POL-412):** <the path(s) this project traversed that were undocumented, now addressed — or "none">
+**Journey question:** <the path(s) this project traversed that were undocumented, now addressed — or "none">
 
 ## Completeness critic
 - Unverified claims handled: …

@@ -83,7 +83,7 @@ describe("a run's log — the chokepoints, read back from the file", function ()
     expect(logText).to.contain("ran").and.contain("echo").and.contain("exitCode: 0");
   });
 
-  // POL-427, C01 — the one rule that is not a preference.
+  // No secret in a log, C01 — the one rule that is not a preference.
   it("NEVER a secret: the token on the command line is redacted, the hidden answer is a count", () => {
     expect(logText, "the token typed in argv").to.not.contain("sk-live-secret");
     expect(logText).to.contain("'***'");

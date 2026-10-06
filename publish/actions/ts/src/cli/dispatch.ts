@@ -42,6 +42,7 @@ import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycl
 import { policyGate } from "./policy-gate-io.js";
 import { approverLogins, protectRepo, type GhApi } from "../maintain/repo-protect.js";
 import { rules } from "./rules-verb.js";
+import { showRule } from "./rules-show.js";
 import { buildRulesAt } from "./rules-lifecycle.js";
 import { clearPending, isMutatingVerb, readPending, refuseForPendingRules, refuseForUnknownRulesState } from "../rules-pending.js";
 import type { MergeStamp, StampOutcome } from "../lifecycle/merge.js";
@@ -328,7 +329,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           body: bodyFile ? (ctx.fs.readFile(bodyFile) ?? "") : flagStr(flags, "body"),
           from,
           board: boardFlag ? Number(boardFlag) : null,
-          // POL-413: the actor, not an option with a blank default.
+          // Every board item has an accountable assignee: the actor, not an option with a blank default.
           assignee: flagStr(flags, "assignee") ?? ctx.login ?? "",
           githubOrg: c.githubOrg,
           defaultRepo: `${c.githubOrg}/${c.workspaceRepo}`,
@@ -492,7 +493,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       if (!r.ok) return { code: r.code, lines: [r.message] };
       // RE-MIRROR AFTER SYNC, OR THE SYNC GOVERNS NOTHING (Policy Owner, 2026-09-11).
       //
-      // `sync` merges the default branch — which is where ratified governance lives (POL-086a)
+      // `sync` merges the default branch — which is where ratified governance lives (GOV-FRM-456)
       // — into the project branch. So a sync is exactly the moment the protocol can have
       // changed. It was also the moment nothing re-copied it: the rendered files moved forward
       // in the workspace repo while the mirrored copies at the project root, the ones every
@@ -505,7 +506,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       // "reports success, changes nothing an agent sees" failure the comment above warns about.
       // COMPILE BEFORE MIRRORING, OR THE MIRROR CARRIES THE OLD RULES (design §7, PRJ-121, 2026-09-28).
       //
-      // `sync` has just merged the default branch — where ratified governance lives (POL-086a) — into the
+      // `sync` has just merged the default branch — where ratified governance lives (GOV-FRM-456) — into the
       // project branch. So this is the one moment an ORG'S OWN ratified clause can reach a project already in
       // flight, and it was the moment nothing compiled it: the policy documents moved forward and the resident
       // block every agent reads stayed at whatever the last hand-run of the verb produced. `ensureRootProtocol`
@@ -513,7 +514,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       // mirrors the stale bytes and reports success.
       //
       // FROM THE DEFAULT BRANCH, never `ctx.home`'s worktree: `ctx.home` is on the PROJECT branch, and a clause
-      // edited there is a proposal (POL-086b). Compiling it would put a rule nobody ratified into the one block
+      // edited there is a proposal (GOV-FRM-086). Compiling it would put a rule nobody ratified into the one block
       // guaranteed to be read — by the agent whose session wrote it.
       const built = buildRulesAt(
         { fs: ctx.fs, ...(ctx.git ? { git: ctx.git } : {}), ...(markerKey(ctx) ? { marker: { ...markerKey(ctx)!, now: ctx.now ?? (() => new Date()) } } : {}) },
@@ -631,7 +632,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     }
 
     case "repo": {
-      // INSTALLING POL-040a §3.3, rather than only reporting on it (Policy Owner, 2026-09-29). `plan` is the
+      // INSTALLING GOV-FRM-447, rather than only reporting on it (Policy Owner, 2026-09-29). `plan` is the
       // default because the sub-command that changes a repository's rules should be the one you TYPE — the
       // reverse default would make a bare `gov repo protect` reconfigure a branch for somebody who wanted to
       // look.
@@ -675,7 +676,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
 
     case "rules": {
       // COMPILING THE POLICIES INTO WHAT AGENTS AND CHECKS USE. Reads the RATIFIED branch by default: a clause
-      // on a project branch is a proposal (POL-086b), and compiling it would put an unratified rule into the one
+      // on a project branch is a proposal (GOV-FRM-086), and compiling it would put an unratified rule into the one
       // place an agent is guaranteed to read. `--working-tree` is for an author mid-draft and says so in the output.
       const mode = positionals[0] ?? "report";
 
@@ -725,7 +726,13 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         ] };
       }
 
-      if (!["build", "check", "report"].includes(mode)) return usage("rules <build|check|report|reload> [--working-tree]");
+      // `gov rules show <id>` — one rule by GOV id, or a retired POL number through framework/rules/pol-aliases.yaml.
+      if (mode === "show") {
+        if (!positionals[1]) return usage("rules show <GOV-…|POL-…>");
+        return showRule((rel) => ctx.fs.readFile(path.join(ctx.home, rel)), positionals[1]);
+      }
+
+      if (!["build", "check", "report"].includes(mode)) return usage("rules <build|check|report|reload|show> [--working-tree]");
       const r = rules(
         { fs: ctx.fs, ...(ctx.git ? { git: ctx.git } : {}) },
         {

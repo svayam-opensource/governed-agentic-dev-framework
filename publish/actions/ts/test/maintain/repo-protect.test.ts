@@ -90,7 +90,7 @@ describe("gov-work — protectionChanges (the pure assessment of what needs chan
     const rows = protectionChanges(UNPROTECTED);
     expect(rows).to.have.length(4);
     expect(rows.every((r) => r.changes)).to.equal(true);
-    expect(rows.map((r) => r.pol)).to.deep.equal(["POL-040a.1", "POL-040a.2", "POL-040a.3", "POL-040a.4"]);
+    expect(rows.map((r) => r.rule)).to.deep.equal(["GOV-FRM-447.1", "GOV-FRM-447.2", "GOV-FRM-447.3", "GOV-FRM-447.4"]);
     expect(rows[0]!.current).to.equal("no");
     expect(rows[0]!.wanted).to.equal("yes");
     expect(rows[2]!.current).to.equal("allowed");
@@ -125,7 +125,7 @@ describe("gov-work — repo protect plan", () => {
     expect(text).to.contain(`gov repo protect plan — ${REPO}@${BRANCH}`);
     expect(text).to.contain("setting").and.contain("current").and.contain("wanted");
     expect(text).to.contain("pull request required").and.contain("approving reviews").and.contain("bypass");
-    expect(text).to.contain("POL-040a.1").and.contain("POL-040a.4");
+    expect(text).to.contain("GOV-FRM-447.1").and.contain("GOV-FRM-447.4");
     expect(text).to.contain("4 of 4 settings would change");
     expect(text).to.contain("NOTHING HAS BEEN WRITTEN");
     expect(wrote(calls), "plan writes nothing, ever").to.deep.equal([]);
@@ -227,7 +227,7 @@ describe("gov-work — repo protect and a repository the PLATFORM will not prote
     expect(text).to.contain(`1. make ${REPO} public`);
     expect(text).to.contain("2. move this organization to a plan that provides branch protection");
     expect(text).to.contain("3. approve an exception that NAMES the gap");
-    expect(text).to.contain("POL-040d");
+    expect(text).to.contain("GOV-FRM-449");
     expect(text).to.contain("is NOT protected, and gov will not report that it is");
     expect(wrote(calls)).to.deep.equal([]);
   });
@@ -287,7 +287,7 @@ describe("gov-work — the body gov PUTs", () => {
       required_status_checks: { strict: true, contexts: ["build"], checks: [{ context: "lint" }] },
     })) as never)) as { required_status_checks: { strict: boolean; contexts: string[] } };
     expect(body.required_status_checks.contexts).to.deep.equal(["build", "lint", APPROVER_CHECK]);
-    expect(body.required_status_checks.strict, "`strict` is the org's business, not POL-040a's").to.equal(true);
+    expect(body.required_status_checks.strict, "`strict` is the org's business, not GOV-FRM-447's").to.equal(true);
   });
 
   it("sets the four settings the policy asks for, and nothing it did not", () => {

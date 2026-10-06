@@ -116,7 +116,7 @@ describe("where the rule comes from", () => {
     }, nameStatus, hunks);
 
     const r = policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" });
-    expect(r.ok, "a branch that edits the policy must not be judged by its own edit (POL-086a/b)").to.equal(false);
+    expect(r.ok, "a branch that edits the policy must not be judged by its own edit (GOV-FRM-456, GOV-FRM-086)").to.equal(false);
     expect(r.failures[0]!.message).to.contain("left-pad");
     expect(git.calls.some((c) => c[0] === "ls-tree" && c[3] === "main"), "the clauses are listed at the ratified ref").to.equal(true);
     expect(git.calls.some((c) => c[0] === "show" && c[1] === "HEAD:policies/org-policy.md"),

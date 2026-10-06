@@ -15,7 +15,7 @@ effective_date: 2026-06-06
 **Decision record:** `projects/PRJ-005-oidc-step3-start-check-iam/knowledge/knowledge-reorg-decisions.md`
 
 This standard governs how org-wide knowledge (`<ORG_GOV_REPO>/knowledge/`)
-is structured, typed, navigated, and consumed. It refines POL-082 and is
+is structured, typed, navigated, and consumed. It refines the framework's empty-`knowledge/` rule (GOV-FRM-082) and is
 referenced by it.
 
 ---
@@ -47,10 +47,10 @@ phase, by product line, or by anything else is doing what this standard asks, no
 around it.
 
 **Framework doctrine lives under `governance/`, not `knowledge/`.** Storage follows
-accountability (POL-401), and the two have different accountable parties: the framework authors
+accountability (§1), and the two have different accountable parties: the framework authors
 its policies, procedures, guidance and specs, and an upgrade overwrites them; the organization
 authors everything under `knowledge/`. Naming an organization's Policy Owner as the approver of
-a file an upgrade replaces claims an authority they do not have — POL-402's false authority.
+a file an upgrade replaces claims an authority they do not have — the false authority §1 forbids.
 
 | Domain | Owner role | Scope |
 |---|---|---|
@@ -63,7 +63,7 @@ a file an upgrade replaces claims an authority they do not have — POL-402's fa
 | `deployment/` | Deployment/Release Owner | the release **contract**: pipeline standards, environment promotion, versioning/dist-tags |
 | `infrastructure/` | Infrastructure Owner | hosts, network, edge proxies, certificates, backups, vector store |
 | `support/` | Support Owner | **internal tooling the org runs for itself**: registry, CI server, webmail, ticketing, IdP-as-a-service |
-| `compliance/` | Policy Owner | **org rollup only** — aggregates per-domain compliance records (POL-107/108) |
+| `compliance/` | Policy Owner | **org rollup only** — aggregates per-domain compliance records |
 
 **Boundary rules** **(POL-404, C03 — apply intelligently, document deviations):**
 
@@ -78,7 +78,7 @@ a file an upgrade replaces claims an authority they do not have — POL-402's fa
 - Activities (verbs) are not domains. A verb's normative content distributes
   to its noun-owners; the verb itself gets a journey doc (Section 5).
 - Repo-specific operational detail (build/run/test/deploy of one repo) stays
-  in that repo's `knowledge/` (POL-079) and is **linked from** org specs —
+  in that repo's `knowledge/` and is **linked from** org specs —
   never copied up.
 
 ## 3. Layers — the normativity gradient inside every domain
@@ -154,7 +154,7 @@ becomes trivial (Section 7).
   `gov:check … when=verb:close`, and gets exactly the artifacts and sections it asked for — named in the refusal,
   with the clause cited. **(POL-231, C02)**
 
-  Those two clauses also shared POL-413 and POL-414 with §6's authoring conventions: four clauses, two numbers,
+  Those two clauses also shared their numbers with §6's authoring conventions: four clauses, two numbers,
   two different levels. §6 keeps them; this one is newly numbered in the organization's own range.
 
 ## 6. Authoring conventions
@@ -173,7 +173,7 @@ becomes trivial (Section 7).
 - Glossary/acronym linking follows the documentation standard (first-use
   expansion + glossary hover-links) where adopted.
 
-## 7. Enforcement (mechanized, like POL-301's CI gate)
+## 7. Enforcement (mechanized, by a CI gate)
 
 CI on every PR touching `knowledge/` **(POL-416, C02; implementation per
 phase P4 of the migration plan):**

@@ -40,7 +40,7 @@ export function createGhIssues(runGh: RunGh): Issues {
     create(repo, title, body, assignee) {
       try {
         // --assignee at CREATION, not after: an issue that exists unassigned, even
-        // for a moment, is the state POL-413 exists to prevent, and a failure
+        // for a moment, is the state an accountable assignee exists to prevent, and a failure
         // between the two calls would leave it that way permanently.
         const out = runGh(["issue", "create", "--repo", repo, "--title", title, "--body", body, "--assignee", assignee]);
         return out.trim().split(/\s+/).find((w) => w.startsWith("http")) ?? null;

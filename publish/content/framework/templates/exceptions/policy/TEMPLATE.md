@@ -16,7 +16,7 @@
 6. Do NOT proceed with the excepted action until the PR is merged
 
 Use this path for exceptions that do not fall under Legal, Infrastructure, or Architecture domains.
-Also use this path for project reassignment exceptions (POL-053).
+Also use this path for project reassignment exceptions.
 
 ---
 

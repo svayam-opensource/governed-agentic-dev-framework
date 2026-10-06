@@ -47,7 +47,7 @@ An agent or a developer that finds a C01 violation MUST escalate it to the Polic
 this document says about cadence. **(POL-262)**
 
 *(No cue. The framework's own C01 cue — "C01 MEANS STOP … tell the human" — is already resident in every
-agent's context on every turn, and a second copy of it would make both weaker: POL-402 applied to the resident
+agent's context on every turn, and a second copy of it would make both weaker: one fact, one document, applied to the resident
 block. See `policies/org-policy.md` §6.3.)*
 
 ## 2. What the review reads
@@ -66,7 +66,7 @@ closes. **(POL-263)**
 
 <!-- gov:check kind=file-required when=verb:close require=knowledge/compliance.md on_miss=warn -->
 
-The check above is the invitation in `policies/knowledge-organization-standard.md` §5 (POL-231) taken up: a
+The check above is the invitation in `policies/knowledge-organization-standard.md` §5 taken up: a
 `gov:check … when=verb:close` is how an organization asks `gov close` for the artifacts it wants, and the
 refusal names the file and cites the clause. It ships as `on_miss=warn` on purpose — the Policy Owner removed a
 hardcoded close gate on 2026-09-27 because it blocked a developer who had hand-worked a project, and a seeded

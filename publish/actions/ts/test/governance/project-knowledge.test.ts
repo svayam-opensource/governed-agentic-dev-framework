@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * POL-408 front matter for project knowledge — the check that did not exist.
+ * The Knowledge Organization Standard's front matter (§4) for project knowledge — the check that did not exist.
  *
  * On 2026-08-07 a markdown formatter destroyed a knowledge doc's front matter (`domain: development` became
  * an `##` heading; the closing `---` vanished) and `gov validate` reported **PASS**. `checkKnowledge` covers
@@ -42,7 +42,7 @@ const ctx = (files: Record<string, string>, changedFiles?: string[]): ValidateCo
   ...(changedFiles ? { changedFiles } : {}),
 });
 
-describe("POL-408 — project knowledge front matter", () => {
+describe("project knowledge front matter (Knowledge Organization Standard §4)", () => {
   const DOC = "projects/PRJ-43-gov/knowledge/vocabulary.md";
 
   it("catches the damage that passed: a front-matter block with no closing fence", () => {
@@ -64,7 +64,7 @@ describe("POL-408 — project knowledge front matter", () => {
     expect(errs).to.contain("superseded");
   });
 
-  // Policy Owner, 2026-08-07: ADRs conform to POL-408; the taxonomy does not grow to meet ADR vocabulary.
+  // Policy Owner, 2026-08-07: ADRs conform to the front-matter taxonomy; the taxonomy does not grow to meet ADR vocabulary.
   // Four docs here said `accepted` or `proposed`, so the message names the mapping — otherwise the same
   // mistake is made once per ADR, forever, and each author has to be told individually.
   it("translates ADR lifecycle words instead of just rejecting them", () => {

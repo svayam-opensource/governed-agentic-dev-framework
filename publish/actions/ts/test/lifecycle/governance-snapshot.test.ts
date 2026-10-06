@@ -5,7 +5,7 @@
  *
  * On a walk, IBM Bob's `read_file` on `~/.gov/<slug>/gov_repo/org-config.yaml` failed — outside the folder it
  * trusts — and it read the file with `cat` instead. The snapshot puts both files inside the project. The property
- * guarded hardest: an UNRATIFIED edit on the project branch must never be what the agent reads (POL-086a/b).
+ * guarded hardest: an UNRATIFIED edit on the project branch must never be what the agent reads (GOV-FRM-456, GOV-FRM-086).
  */
 import { expect } from "chai";
 import { execFileSync } from "node:child_process";
@@ -42,7 +42,7 @@ describe("governance snapshot — the rules, where the agent can read them", () 
     expect(snap.source).to.equal("main@3f2a1c9");
     expect(written["/p/PRJ-28/.gov/governance/org-config.yaml"]).to.deep.equal({ content: "org: x\n", mode: 0o444 });
     expect(written["/p/PRJ-28/.gov/governance/framework-policy.md"]!.mode).to.equal(0o444);
-    expect(written["/p/PRJ-28/.gov/governance/SOURCE"]!.content).to.contain("main@3f2a1c9").and.to.contain("POL-086a");
+    expect(written["/p/PRJ-28/.gov/governance/SOURCE"]!.content).to.contain("main@3f2a1c9").and.to.contain("GOV-FRM-086");
   });
 
   it("is ALL OR NOTHING — a missing file writes nothing, rather than mixing two sources", () => {
@@ -68,7 +68,7 @@ describe("the session-start prompt points at the snapshot when there is one", ()
     const p = sessionStartPrompt("PRJ-28", "acme-gov", "/home/t/.gov/acme/gov_repo", snap);
     expect(p).to.contain("/p/PRJ-28/.gov/governance/org-config.yaml");
     expect(p).to.contain("/p/PRJ-28/.gov/governance/framework-policy.md");
-    expect(p).to.contain("main@3f2a1c9").and.to.contain("POL-086a");
+    expect(p).to.contain("main@3f2a1c9").and.to.contain("GOV-FRM-086");
     expect(p, "not outside the project any more").to.not.contain("/home/t/.gov/acme/gov_repo/org-config.yaml");
   });
   it("without a snapshot, is exactly what it was", () => {

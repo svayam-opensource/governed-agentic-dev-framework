@@ -49,14 +49,14 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 
 Governance is sourced from **`<DEFAULT_BRANCH>`**: your session-start context and all governing
 knowledge/policy (`knowledge/`, `agent/session-protocol.md`, `policies/`) are built from
-`<DEFAULT_BRANCH>`, never from the project branch (POL-086a). Project work — **including edits to org
+`<DEFAULT_BRANCH>`, never from the project branch (GOV-FRM-086). Project work — **including edits to org
 `knowledge/`** — is committed to the **project branch**, where such edits are **proposals with no
 governing force**. Never self-govern by your own unratified edits. Project-specific context
-(`projects/PRJ-<board#>-<slug>/…`) is read from the project branch (POL-086b).
+(`projects/PRJ-<board#>-<slug>/…`) is read from the project branch (GOV-FRM-086).
 
 A `knowledge/` change becomes organizational standard only when merged to `<DEFAULT_BRANCH>` via a PR
 approved by the Policy Owner **and** the CODEOWNERS domain owner(s) whose folders it touches — all
-owners for `policies/`/`mandates/` (POL-086c). See
+owners for `policies/`/`mandates/` (GOV-FRM-455). See
 `framework/policies/framework-policy.md` §8.3.
 
 ## Data Classification — Hard Rules

@@ -3,7 +3,7 @@
 /**
  * `compliance.md` HAS TWO HALVES, AND ONLY ONE OF THEM NEEDS A PERSON (design §B14).
  *
- * POL-150 asks a project to record its C01 violations, its C02 exceptions and its C03 deviations. Today the whole
+ * GOV-FRM-150 asks a project to record its C01 violations, its C02 exceptions and its C03 deviations. Today the whole
  * file is hand-written, which is why it is unreliable: the half that is verifiable is also the half nobody enjoys
  * writing, so it is the half that gets left out.
  *
@@ -11,7 +11,7 @@
  *             checks failed and were fixed. gov already writes all of this to its own run log; it just never read
  *             it back. This module renders that half.
  *   JUDGED  — what was deviated from and why, the context a log cannot hold, a C01 someone caught and resolved.
- *             No machine can write this, and a resident cue asks for it as it happens (POL-150's cue).
+ *             No machine can write this, and a resident cue asks for it as it happens (GOV-FRM-150's cue).
  *
  * The two are kept in separately fenced regions so that regenerating the derived half can never touch what a
  * person wrote. That property is the whole reason this is safe to run on every close: if gov could overwrite the

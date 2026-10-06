@@ -51,9 +51,9 @@ describe("run-process — the one door every external process goes through", () 
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
-  // POL-427 — a token on a command line is still a secret. The redaction itself is tested in log.test.ts;
+  // No secret in a log — a token on a command line is still a secret. The redaction itself is tested in log.test.ts;
   // this is the guard that the runner asks for it at all.
-  it("the log line redacts secret flag values (POL-427)", async () => {
+  it("the log line redacts secret flag values (no secret in a log)", async () => {
     const { redactArgv } = await import("../src/state-paths.js");
     expect(redactArgv(["auth", "--token", "sk-live"])).to.deep.equal(["auth", "--token", "***"]);
   });

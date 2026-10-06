@@ -430,7 +430,7 @@ gov repo protect plan --repo acme/billing
 compile the policies into what agents and checks actually use
 
 ```text
-gov rules <build|check|report|reload> [--working-tree]
+gov rules <build|check|report|reload> [--working-tree] | show <id>
 ```
 
 **Where.** GOVERNED
@@ -439,7 +439,8 @@ gov rules <build|check|report|reload> [--working-tree]
 
 | argument | what it is |
 | --- | --- |
-| `<mode>` | build (write) · check (verify, write nothing) · report (the numbers only) · reload (attest that you restarted your session, after the rules changed) |
+| `<mode>` | build (write) · check (verify, write nothing) · report (the numbers only) · reload (attest that you restarted your session, after the rules changed) · show (print one rule) |
+| `<id>` | a GOV id (GOV-FRM-012), or a retired POL number, which resolves to the rule that carries it now or to why none does |
 
 **Flags**
 
@@ -453,9 +454,10 @@ gov rules <build|check|report|reload> [--working-tree]
 gov rules report
 gov rules build
 gov rules reload
+gov rules show POL-086b
 ```
 
-**Changes.** `build` writes the nine agent instruction files, `agent/harness/rule-map.md` and the POL lock; `check` writes nothing and fails when any of them is stale; `report` writes nothing at all. A clause that cannot be numbered without a decision STOPS the build — nothing is written and the question is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had
+**Changes.** `build` writes the nine agent instruction files, `agent/harness/rule-map.md` and the POL lock; `check` writes nothing and fails when any of them is stale; `report` and `show` write nothing at all. A clause that cannot be numbered without a decision STOPS the build — nothing is written and the question is printed. `reload` clears the `rules-pending` marker that `gov sync`/`gov upgrade` left when the rules changed, and records in the run log that YOU attested to restarting your agent session — who, when, which rules hash. It is not a way to avoid restarting: a session that did not restart is still reading superseded rules, and the log now names whoever said it had
 
 **Exit codes**
 

@@ -211,9 +211,9 @@ describe("org-config — what gov ignored, said out loud", () => {
   });
 });
 
-// PRJ-121, 2026-09-27 — POL-040a §3.3 was UNVERIFIED: nothing in src/ mentioned branch protection. It is the
+// PRJ-121, 2026-09-27 — GOV-FRM-447 was UNVERIFIED: nothing in src/ mentioned branch protection. It is the
 // only layer that holds when an agent runs from outside gov altogether.
-describe("branch protection — POL-040a, in the report", () => {
+describe("branch protection — GOV-FRM-448, in the report", () => {
   const protection = (over: Partial<NonNullable<DoctorFacts["protection"]>> = {}) => ({
     repo: "Acme/acme-gov",
     branch: "main",

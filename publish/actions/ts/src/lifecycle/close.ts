@@ -64,7 +64,7 @@ export interface CloseDeps {
    * OPTIONAL, and that is the contract that let the hardcoded knowledge gate go: a workspace whose policy says
    * nothing about closing has no checks, and close behaves exactly as it did before any of this existed. The
    * caller reads them from the DEFAULT branch (`cli/policy-gate-io.ts`) — never from the branch being closed,
-   * or deleting a clause on your own branch would remove the gate meant to hold you (POL-086b).
+   * or deleting a clause on your own branch would remove the gate meant to hold you (GOV-FRM-086).
    */
   readonly policyGate?: (projectDir: string) => { readonly ok: boolean; readonly failures: readonly { readonly message: string }[] };
   /** Best-effort workspace teardown (worktree detach + rm); deferred if absent. */
@@ -249,7 +249,7 @@ export function close(deps: CloseDeps, config: CloseConfig, input: CloseInput): 
     `close-project: ${projectId} → ${config.defaultBranch}`,
     `Automated project close for **${projectId}** (${input.today}). Promotes projects/${projectId}/ (knowledge + agent.md) to ${config.defaultBranch}. Status is GitHub-derived — the board is closed at close.`,
   );
-  // GOV DOES NOT MERGE THIS. It is a proposal about org-wide knowledge, and §8.3 (POL-086c) says a proposal
+  // GOV DOES NOT MERGE THIS. It is a proposal about org-wide knowledge, and GOV-FRM-455 says a proposal
   // becomes organizational standard only when a person with the authority merges it. close used to merge it
   // itself, with `--admin`, seconds after opening it.
   log(`Close PR opened${prUrl ? `: ${prUrl}` : ""} — a human merges it. Re-run \`gov close\` afterwards to archive '${projectBranch}'.`);

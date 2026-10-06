@@ -17,7 +17,7 @@ describe("gov-work — gov issue (#182)", () => {
     const r = planIssue({ ...BASE, assignee: "", repo: "svm-geneva/x", title: "t" });
     expect(r.ok).to.equal(false);
     if (r.ok) return;
-    expect(r.message).to.contain("POL-413");
+    expect(r.message).to.contain("accountable person");
   });
 
   it("plans a plain issue in the named repo", () => {

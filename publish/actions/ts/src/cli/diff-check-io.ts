@@ -7,7 +7,7 @@
  * module exists rather than a `readFile` at the call site. A check that judges a pull request must not be one the
  * pull request can edit: read carelessly from the worktree, deleting the clause on your own branch removes the
  * gate meant to hold you, and adding one binds a colleague who never agreed to it. Governance is what the default
- * branch says (POL-086a); a project branch's edits are proposals with no force (POL-086b). The same rule covers
+ * branch says (GOV-FRM-456); a project branch's edits are proposals with no force (GOV-FRM-086). The same rule covers
  * the document a check REFERS to — `list=policies/approved-technologies.md` is read from the ratified branch too,
  * or a pull request could approve its own dependency in the same commit that adds it.
  *
@@ -97,7 +97,7 @@ export function changedFiles(git: GitRead, scope: DiffScope): ChangedFile[] {
  * The file-triggered checks the organization (and the framework) attached to these paths, read from `ref`.
  *
  * BOTH FORMS a check is written in: the tail of a stored cue block, and a `gov:check` standing on its own under a
- * clause. The second is what the seeded policy's POL-203 (the SPDX header, `on_miss=fail`) uses — §6.3 says a rule
+ * clause. The second is what the seeded policy's SPDX-header clause (§2.3, `on_miss=fail`) uses — §6.3 says a rule
  * a machine can see in a diff should be *check only, no cue* — and reading only the first form would have left the
  * starter policy's most emphatic clause unenforced while this module claimed to have fixed exactly that.
  */

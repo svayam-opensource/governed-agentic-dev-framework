@@ -22,7 +22,7 @@
  * `…/rules/branches/…` answer 403 `Upgrade to GitHub Pro or make this repository public to enable this
  * feature.` — verified against Svayamtech/svm-prj-work, this framework's own governance repo, on 2026-09-27.
  * That is worth stating plainly because it is stronger than §3.4 assumes: required status checks are
- * THEMSELVES a branch-protection feature, so on a free private repo none of POL-040a's four settings can be
+ * THEMSELVES a branch-protection feature, so on a free private repo none of GOV-FRM-447's four settings can be
  * configured — not even the approver check that §3.3 offers as the plan-independent answer. Enforcement there
  * is gov's own gates and nothing else, until the repo is public or the plan is Pro/Team.
  *
@@ -35,7 +35,7 @@ import { run as runProcess } from "../run-process.js";
 // names, and `lifecycle/index.ts` re-exports both files.
 import type { RunGh } from "./gh-board.js";
 
-/** What POL-040a §3.3 asks about a branch, and nothing else. */
+/** What GOV-FRM-447 asks about a branch, and nothing else. */
 export interface ProtectionFacts {
   /**
    * A pull request is required before merging.
@@ -133,10 +133,10 @@ export function parseProtection(stdout: string): ProtectionFacts | null {
 export function whyUnreadable(message: string): string | null {
   if (/branch not protected/i.test(message)) return null;
   // THE PLAN, NOT THE PERSON. On GitHub Free a private repo has no branch protection and no rulesets to read
-  // — and none to set either, which makes POL-040a unconfigurable rather than unconfigured. Saying "you are
+  // — and none to set either, which makes GOV-FRM-447 unconfigurable rather than unconfigured. Saying "you are
   // not an admin" here would send someone hunting a permission that does not exist.
   if (/upgrade to github pro|make this repository public/i.test(message)) {
-    return "GitHub Free offers no branch protection (or rulesets) on a PRIVATE repo, so POL-040a cannot be configured here at all — required status checks are part of the same paid feature. Make the repo public, or move to Pro/Team; until then gov's own gates are the only enforcement";
+    return "GitHub Free offers no branch protection (or rulesets) on a PRIVATE repo, so GOV-FRM-447 cannot be satisfied here at all — required status checks are part of the same paid feature. Make the repo public, or move to Pro/Team; until then gov's own gates are the only enforcement";
   }
   if (/must have admin rights|admin rights to repository/i.test(message)) return "gh is signed in but not an admin of this repo, and GitHub shows branch protection to admins only";
   if (/bad credentials|not logged|gh auth login|401/i.test(message)) return "gh is not signed in (`gh auth login`)";
@@ -152,7 +152,7 @@ const defaultRunGh: RunGh = (args) => runProcess("gh", args, { pgm: "gov-work:li
 /**
  * Read one branch's protection through `gh`, keeping the reason when there is none.
  *
- * Everything goes through `run-process.ts` (POL-423), so the call, its duration and its exit code are in the
+ * Everything goes through `run-process.ts` (GOV-FRM-423), so the call, its duration and its exit code are in the
  * run log — which is how the next "why did doctor warn" gets answered from a file rather than a screenshot.
  */
 export function readProtection(repo: string, branch: string, runGh: RunGh = defaultRunGh): ProtectionRead {

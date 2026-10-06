@@ -76,7 +76,7 @@ export function codeRepoDirs(
  *
  * A code repo's `CLAUDE.md` or `AGENTS.md` is very often already there and already theirs — build notes, house
  * style, a test recipe. Overwriting it to install the protocol would delete content gov has no standing to delete
- * (the same POL-086 reasoning that stops `verifyAgentContext` refusing a file gov did not render); writing nothing
+ * (the same GOV-FRM-086 reasoning that stops `verifyAgentContext` refusing a file gov did not render); writing nothing
  * leaves the repo ungoverned, which is the defect. So gov owns a FENCED REGION and nothing else: replaced on every
  * launch, every byte outside it carried over.
  *
@@ -433,7 +433,7 @@ export const IMPORT_STUB = /^@[\w./-]*(?:agent|session-protocol)\.md\s*$/m;
  * WHAT MAKES THE NARROW RULE CORRECT. `ensureRootProtocol` overwrites this file from
  * `<workspace>/<rel>` on every launch, so what is read here is always a copy of the
  * organization's own governed repository. If an org edited it, that edit is their ratified
- * choice (POL-086) and gov has no standing to refuse it. The genuinely ungoverned cases are the
+ * choice (GOV-FRM-086) and gov has no standing to refuse it. The genuinely ungoverned cases are the
  * two where the agent would start with nothing in context at all: the file is absent, or it is
  * empty. Those are unambiguous, cannot be produced by any historical version, and are what the
  * guarantee was written to prevent.

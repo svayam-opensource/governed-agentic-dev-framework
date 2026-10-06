@@ -3,7 +3,7 @@
 /**
  * GOV IDS — ONE NAMESPACE, TWO ISSUERS (rule-model-design.md Q1, Q7, Q17; 2026-10-06).
  *
- * `GOV-FRM-061` is the framework's; `GOV-<org_slug>-213` is the organization's. The scope is in the id so a
+ * `GOV-FRM-012` is the framework's; `GOV-<org_slug>-213` is the organization's. The scope is in the id so a
  * reader sees whose rule it is without a lookup, and so the two issuers — the framework at release, each org when
  * its policy PR merges — can never hand out the same id.
  *

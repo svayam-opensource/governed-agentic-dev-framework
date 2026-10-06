@@ -1,4 +1,4 @@
-# THE APPROVER CHECK — framework-policy §3.3 requirement 4 (POL-040a.4 / POL-040b).
+# THE APPROVER CHECK — GOV-FRM-447, control 4.
 #
 # WHY IT EXISTS. An approving review does not prove the approver was authorized: any collaborator with write
 # access can leave one. On GitHub Free for a private repository, "restrict who can push/merge" and CODEOWNERS
@@ -118,7 +118,7 @@ jobs:
 
           if [ -z "$approvers" ]; then
             # FAIL CLOSED, and say where the list was looked for. Passing here would mean this check certifies
-            # nothing while reporting success — the one outcome POL-040b exists to prevent.
+            # nothing while reporting success — the one outcome GOV-FRM-447 exists to prevent.
             echo "::error::approver-check cannot find this organization's list of authorized representatives, so it"
             echo "::error::cannot verify anybody. Set the GOV_APPROVERS variable on this repository or organization,"
             echo "::error::or add authorized_approvers / the *_owner_github handles to org-config.yaml in the"
@@ -150,7 +150,7 @@ jobs:
           approving="$(printf '%s\n' $approving | grep -v "^${author}$" || true)"
 
           if [ -z "${approving// /}" ]; then
-            echo "::error::No approving review yet. POL-040a.2 requires one, from somebody on the list above."
+            echo "::error::No approving review yet. GOV-FRM-447.2 requires one, from somebody on the list above."
             exit 1
           fi
 
@@ -168,10 +168,10 @@ jobs:
 
           if [ -z "$authorized" ]; then
             echo "::error::$(printf '%s ' $approving)approved this pull request, and none of them is on"
-            echo "::error::this organization's list of authorized representatives (POL-040a.4). A review happened;"
+            echo "::error::this organization's list of authorized representatives (GOV-FRM-447.4). A review happened;"
             echo "::error::the right person has not approved. Appointments are made by a pull request to"
             echo "::error::policies/authorized-representatives.md and org-config.yaml — never by editing this check."
             exit 1
           fi
 
-          echo "✓ approved by $authorized, who is an authorized representative (POL-040a.4)."
+          echo "✓ approved by $authorized, who is an authorized representative (GOV-FRM-447.4)."

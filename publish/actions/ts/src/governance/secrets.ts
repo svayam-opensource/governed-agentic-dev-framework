@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * Secret / credential scanner (SDD-032, POL-143) — port of check_secrets.py.
+ * Secret / credential scanner (SDD-032; no credential in a file) — port of check_secrets.py.
  * HIGH signal, LOW false-positive: patterns match only structurally-distinctive
  * credential shapes. An inline `pragma: allowlist secret` on the line suppresses
  * a finding. Scans `ctx.files` (tracked text files); binary content is skipped.

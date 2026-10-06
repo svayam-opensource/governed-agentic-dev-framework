@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # FINDING A POLICY WITHOUT KNOWING WHERE IT LIVES (PRJ-121, 2026-09-23).
 #
-# POL-100–104 used to require a published portal: a site, PDF exports, a vector store. None of it shipped, so
+# The old framework policy (§8.8) used to require a published portal: a site, PDF exports, a vector store. None of it shipped, so
 # every adopter was non-compliant on the day they adopted. What replaces it is this: the knowledge is already
 # cloned, so gov reads it. The scenario walks the two questions a person actually has — "what do we say about
 # X?" and "show me that file" — and the one an agent has: the same answer as JSON.

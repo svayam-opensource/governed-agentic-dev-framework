@@ -8,7 +8,7 @@
  * computing "what should be there" is how a freshness check comes to pass on a stale file — which is the state
  * `render-harness.mjs --check` was already in: implemented, and called by nothing.
  *
- * READ FROM THE DEFAULT BRANCH by default. A policy edited on a project branch is a PROPOSAL (POL-086b); compile
+ * READ FROM THE DEFAULT BRANCH by default. A policy edited on a project branch is a PROPOSAL (GOV-FRM-086); compile
  * it into the resident block and an agent starts obeying a rule nobody ratified — self-governance delivered into
  * the one place guaranteed to be read. `--working-tree` exists for the author who is drafting and wants to see
  * their own compile report, and it says so in the output every time.

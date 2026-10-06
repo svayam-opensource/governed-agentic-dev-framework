@@ -33,7 +33,7 @@ status: draft
 This policy uses the framework's notation: **the modal verb declares the compliance level**, ALL CAPS only.
 `MUST`/`SHALL` = C01, `MAY` = C02, `CAN` = C03. The full table, and the six rules that go with it, are in
 `framework/policies/framework-policy.md` §1.3 — deliberately not repeated here, because a fact restated in
-two documents is a fact that will eventually disagree with itself (POL-402).
+two documents is a fact that will eventually disagree with itself.
 
 Run `gov knowledge show framework-policy.md` to read it.
 
