@@ -73,8 +73,10 @@ export type { TestResult } from "../model/contracts.js";
 
 const cannot = (findings: string[]): BuiltinOutcome => ({ verdict: "cannot-tell", findings });
 
-/** A YAML list or a comma-separated string → the old attribute's comma form. */
-const asAttr = (v: unknown): string => (Array.isArray(v) ? v.map(String).join(",") : String(v));
+/** A YAML list or a comma-separated string → the old attribute's comma form; a map (frontmatter-required's
+ *  `fields`) → JSON, which its predicate parses back — never `[object Object]`. */
+const asAttr = (v: unknown): string =>
+  Array.isArray(v) ? v.map(String).join(",") : v !== null && typeof v === "object" ? JSON.stringify(v) : String(v);
 
 export function runBuiltin(input: BuiltinInput): BuiltinOutcome {
   const { ruleId, action, ctx } = input;

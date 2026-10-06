@@ -1,11 +1,3 @@
----
-domain: policies
-layer: mandate
-owner: policy-owner
-compliance: C02
-status: draft
----
-
 # <ORG_NAME> — Development Policy
 
 **Document:** Development Policy

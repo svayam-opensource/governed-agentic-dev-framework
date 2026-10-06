@@ -1,11 +1,3 @@
----
-domain: policies
-layer: policy
-owner: <POLICY_OWNER_EMAIL>
-compliance: C02
-status: seed
----
-
 # Knowledge publication — <ORG_NAME>'s decision
 
 **Document:** Knowledge Publication

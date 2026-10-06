@@ -1,12 +1,3 @@
----
-domain: policies
-layer: mandate
-owner: policy-owner
-compliance: C02
-status: current
-effective_date: 2026-06-06
----
-
 # Knowledge Organization Standard
 
 **Document:** Knowledge Organization Standard
@@ -109,24 +100,38 @@ when it is, its wording says so plainly. This is a strong default.
 Exceptions are filed per domain, so `policies/exceptions/` has one subfolder for each domain your
 organization defines. This always applies, unless an exception is approved.
 
-## 4. Front matter — every knowledge document describes itself
+## 4. Front matter — whether knowledge documents describe themselves is your choice
 
-Every Markdown file under `knowledge/`, except generated indexes, opens with this front matter. This always
-applies, unless an exception is approved.
+**This section is your organization's choice. gov requires none of it.** Keep it, change the fields and values
+to your own, or delete the section. If you keep it, `gov rules propose` turns it into a rule, and from then on
+gov checks every knowledge pull request against exactly the fields and values written here. If you delete it,
+gov checks no front matter at all.
+
+As seeded: every Markdown file under `knowledge/`, except the `README.md` index files, opens with a front-matter
+block carrying these five fields. This always applies, unless an exception is approved.
+
+| Field | Allowed values |
+|---|---|
+| `domain` | one of your domains from section 2 (as seeded: `legal`, `architecture/system`, `architecture/data`, `development`, `testing`, `deployment`, `infrastructure`, `support`, `compliance`), or `navigation` |
+| `layer` | `mandate`, `procedure`, `pattern`, `use-case`, `spec`, `compliance` or `path` |
+| `owner` | any value: the owning role, never a person |
+| `compliance` | `C01`, `C02`, `C03`, `instructional`, `descriptive` or `evidence` |
+| `status` | `current`, `draft` or `superseded` |
+
+For example:
 
 ```yaml
 ---
-domain: support            # one of your domains (or "navigation")
-layer: spec                # mandate | procedure | pattern | use-case | spec | compliance | path
-owner: support-owner       # a role, never a person
-compliance: descriptive    # C01 | C02 | C03 | instructional | descriptive | evidence
-status: current            # current | draft | superseded
+domain: support
+layer: spec
+owner: support-owner
+compliance: descriptive
+status: current
 ---
 ```
 
 Why: indexes and the dashboard can then be generated; a search or retrieval hit says what it is, so an agent
-landing in the middle of a document knows whether it is reading a binding rule or a description; and checking
-it in CI is simple (section 7).
+landing in the middle of a document knows whether it is reading a binding rule or a description.
 
 ## 5. Navigation — the dashboard and journeys
 
@@ -179,7 +184,7 @@ spell out an acronym on first use, and link glossary terms.
 Every pull request that touches `knowledge/` is checked for the following. This always applies, unless an
 exception is approved:
 
-1. **Front matter** is valid, `domain` and `layer` agree with the file's folder, and `owner` is a known role.
+1. **Front matter**, if you kept section 4, carries the fields and values section 4 lists.
 2. **No orphans:** every document can be reached from its layer index or a journey.
 3. **Journeys hold links only:** `paths/*.md` contain links and ordering prose, nothing else.
 4. **Links work:** no broken relative links, and no links to a `status: superseded` document except from its
@@ -190,5 +195,6 @@ exception is approved:
 
 Adapt the **domain list** to your own roles: merge or split domains as your named owners dictate. One
 Architecture Owner, for example, means one `architecture/` domain. Keep the rest stable: the rule that a
-domain exists only with an owner (section 2), the six layers, the front matter, and the navigation rules
-(section 5). This is a strong default; where your organization departs from it, record why.
+domain exists only with an owner (section 2), the six layers, and the navigation rules (section 5). Section 4's
+front matter is yours to keep or drop. This is a strong default; where your organization departs from it, record
+why.

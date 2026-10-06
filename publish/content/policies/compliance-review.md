@@ -1,11 +1,3 @@
----
-domain: policies
-layer: policy
-owner: <POLICY_OWNER_EMAIL>
-compliance: C02
-status: seed
----
-
 # Compliance review — <ORG_NAME>'s cadence
 
 **Document:** Compliance Review

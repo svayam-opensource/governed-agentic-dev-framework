@@ -1,11 +1,3 @@
----
-domain: policies
-layer: policy
-owner: <POLICY_OWNER_EMAIL>
-compliance: C02
-status: seed
----
-
 # Authorized representatives — who approves what
 
 **Document:** Authorized Representatives

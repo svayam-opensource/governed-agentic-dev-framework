@@ -126,16 +126,22 @@ actions:
       properties:
         when: { type: [array, string] }
         require: { type: [array, string] }
+  # Knowledge front matter is the ORGANIZATION'S choice: the framework mandates no field and no value. An org that
+  # wants it checked says so in its own policy, and `gov rules propose` binds that clause here with the org's own
+  # fields and values. `fields` maps each field to its allowed values; an empty list (or null) means "present, any
+  # value". `keys` is the older form: present, any value. A field the org did not list is never judged. `paths`
+  # narrows the files judged, `exclude` removes some (generated indexes, say). Give `keys`, `fields` or both.
   - id: gov-builtin/frontmatter-required
     tool: gov-builtin
     params:
       type: object
       additionalProperties: false
-      required: [keys]
       properties:
         when: { type: [array, string] }
         keys: { type: [array, string] }
+        fields: { type: object }
         paths: { type: [array, string] }
+        exclude: { type: [array, string] }
   # A spec rule's check: the test suite carries a test titled with the rule's GOV id, and it passed.
   - id: gov-builtin/test-suite
     tool: gov-builtin

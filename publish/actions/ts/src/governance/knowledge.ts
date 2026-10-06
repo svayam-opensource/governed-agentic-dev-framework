@@ -3,49 +3,27 @@
 /**
  * Knowledge Organization Standard (SDD-032, §7) — port of check_knowledge.py.
  * Checks every knowledge/**.md (org tree; framework/ is the upstream template):
- *   1. front-matter present + schema-valid; layer agrees with the folder
- *   2. orphan check — every non-README doc is linked from another knowledge doc
- *   3. journey purity — paths/*.md: no code/images, ≥3 links
- *   4. link check — relative md links resolve; no [[wikilinks]]
- *   5. diagram rule — no binary diagram embeds (Mermaid text only)
- * Superseded redirect stubs are exempt from orphan + folder-agreement (parse-only).
+ *   1. orphan check — every non-README doc is linked from another knowledge doc
+ *   2. journey purity — paths/*.md: no code/images, ≥3 links
+ *   3. link check — relative md links resolve; no [[wikilinks]]
+ *   4. diagram rule — no binary diagram embeds (Mermaid text only)
+ * A doc whose front matter (if it has any) says `status: superseded` is a redirect stub, exempt from the orphan check.
+ *
+ * NO FRONT-MATTER MANDATE (Policy Owner, 2026-10-06). This validator used to require a domain / layer / compliance /
+ * status block from a hard-coded taxonomy, and a layer agreeing with its folder, on every adopter's tree. Knowledge
+ * front matter is the organization's choice: it is checked only when the org's own policy says so, by a rule
+ * `gov rules propose` binds to `gov-builtin/frontmatter-required` with the org's fields and values (frontmatter.ts).
  *
  * Scans `ctx.files` for the doc list; `ctx.fs.pathExists` resolves link targets.
  */
 import * as path from "node:path";
 import type { ValidateContext, ValidationResult } from "./validate.js";
+import { parseFrontMatter } from "../rules/frontmatter.js";
 
-const DOMAINS = new Set([
-  "policies", "legal", "architecture/system", "architecture/data", "development",
-  "testing", "deployment", "infrastructure", "support", "compliance", "navigation",
-]);
-const LAYERS = new Set(["mandate", "procedure", "pattern", "use-case", "spec", "compliance", "path"]);
-const COMPLIANCE = new Set(["C01", "C02", "C03", "instructional", "descriptive", "evidence"]);
-const STATUSES = new Set(["current", "draft", "superseded"]);
-const LAYER_FOLDER: Readonly<Record<string, string>> = {
-  mandates: "mandate", procedures: "procedure", patterns: "pattern",
-  "use-cases": "use-case", specs: "spec", compliance: "compliance", paths: "path",
-};
-
-const FM_RE = /^---\n([\s\S]*?)\n---\n/;
 const LINK_RE_G = /\[[^\]]*\]\(([^)\s]+)\)/g;
 const IMG_RE_G = /!\[[^\]]*\]\(([^)\s]+)\)/g;
 const IMG_RE_TEST = /!\[[^\]]*\]\([^)\s]+\)/;
 const WIKILINK_RE = /\[\[[^\]]+\]\]/;
-
-/** Parse a leading `---\n…\n---\n` front-matter block into a key→value map. */
-function frontMatter(text: string): Record<string, string> | null {
-  const m = FM_RE.exec(text);
-  if (!m) return null;
-  const fm: Record<string, string> = {};
-  for (const line of m[1].split(/\r?\n/)) {
-    if (line.includes(":") && !line.trimStart().startsWith("#")) {
-      const idx = line.indexOf(":");
-      fm[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-    }
-  }
-  return fm;
-}
 
 /** Strip fenced/inline/indented code so wikilink detection ignores examples. */
 function stripCode(text: string): string {
@@ -115,30 +93,14 @@ export function checkKnowledge(ctx: ValidateContext): ValidationResult {
     }
   }
 
-  // ── Pass 2: front-matter, folder agreement, orphan, journey purity ─────────
+  // ── Pass 2: orphan, journey purity ─────────────────────────────────────────
   for (const rel of docs) {
-    // Index READMEs are link SOURCES (scanned in Pass 1); they don't carry the
-    // front-matter taxonomy and are exempt from the orphan check by definition.
+    // Index READMEs are link SOURCES (scanned in Pass 1), exempt from the orphan check by definition.
     if (rel.endsWith("/README.md")) continue;
     const text = content.get(rel) ?? "";
-    const fm = frontMatter(text);
-    if (fm === null) {
-      errors.push(`${rel}: missing front-matter (Knowledge Organization Standard §4)`);
-      continue;
-    }
-    for (const [key, allowed] of [["domain", DOMAINS], ["layer", LAYERS], ["compliance", COMPLIANCE], ["status", STATUSES]] as const) {
-      if (!allowed.has(fm[key] ?? "")) errors.push(`${rel}: front-matter ${key}='${fm[key]}' invalid (Knowledge Organization Standard §4)`);
-    }
-    if (!fm.owner) errors.push(`${rel}: front-matter owner missing (Knowledge Organization Standard §4)`);
-    if (fm.status === "superseded") continue; // redirect stubs: parse-only
+    if (parseFrontMatter(text)?.status === "superseded") continue; // redirect stubs
 
-    const parts = rel.split("/"); // knowledge / <domain..> / [layer] / file
-    let folderLayer: string | undefined;
-    for (const seg of parts.slice(1, -1)) if (LAYER_FOLDER[seg]) folderLayer = LAYER_FOLDER[seg];
-    if (folderLayer && fm.layer !== folderLayer) {
-      errors.push(`${rel}: layer '${fm.layer}' disagrees with folder '${folderLayer}' (Knowledge Organization Standard §4)`);
-    }
-
+    const parts = rel.split("/"); // knowledge / <domain..> / file
     const base = parts[parts.length - 1];
     if (base !== "README.md" && !linked.has(rel)) {
       errors.push(`${rel}: orphan — not linked from any index or journey (Knowledge Organization Standard §7)`);

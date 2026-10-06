@@ -2758,21 +2758,14 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   // `gov validate` — run the governance validate suite on the resolved workspace.
   if (parsed.command === "validate") {
     const files = (tryRun("git", ["-C", home, "ls-files"]) ?? "").split("\n").filter(Boolean);
-    // THE CHANGED SCOPE — what this branch touches, so the front-matter rule is enforced on docs you WROTE without
-    // failing on the 205 historical ones (governance/project-knowledge.ts explains why that matters).
-    // Uncommitted work counts: the point is to catch a broken doc BEFORE it is pushed. `--base` overrides
-    // the comparison point; the merge-base with the default branch is the sensible default on a project
-    // branch. If git answers nothing, the scope is empty and the validator stays silent — it never guesses.
+    // The comparison point for the rules' changeset checks below. `--base` overrides it; the merge-base with the
+    // default branch is the sensible default on a project branch.
     const base = flagStr(parsed.flags, "base") ?? "main";
     const mergeBase = tryRun("git", ["-C", home, "merge-base", "HEAD", base]) ?? base;
-    const committed = (tryRun("git", ["-C", home, "diff", "--name-only", mergeBase]) ?? "").split("\n");
-    const working = (tryRun("git", ["-C", home, "status", "--porcelain"]) ?? "")
-      .split("\n").map((l) => l.slice(3).trim()).filter(Boolean);
-    const changedFiles = [...new Set([...committed, ...working])].filter(Boolean);
     // The branch, for a `kind=naming subject=branch` clause. Absent means unknowable, which the check reports as
     // a warning rather than treating as a violation.
     const branchNow = tryRun("git", ["-C", home, "rev-parse", "--abbrev-ref", "HEAD"])?.trim();
-    const r = runSuite({ fs, repoRoot: home, files, changedFiles });
+    const r = runSuite({ fs, repoRoot: home, files });
 
     // THE RULES' CHANGESET CHECKS — the second group (PRJ-121, 2026-09-28; rule model 2026-10-06).
     //
