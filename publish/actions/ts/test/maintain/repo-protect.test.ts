@@ -18,7 +18,7 @@
 import { expect } from "chai";
 import * as path from "node:path";
 import {
-  approverLogins, buildProtectionBody, protectRepo, WORKFLOW_DEST, WORKFLOW_TEMPLATE,
+  approverLogins, buildProtectionBody, FORCE_PUSH_RULESET, protectRepo, WORKFLOW_DEST, WORKFLOW_TEMPLATE,
   type GhApi, type ProtectFs,
 } from "../../src/maintain/repo-protect.js";
 import { protectionChanges, APPROVER_CHECK } from "../../src/maintain/protection-check.js";
@@ -53,16 +53,57 @@ function payload(over: Record<string, unknown> = {}): string {
 
 interface Call { readonly args: readonly string[]; readonly body?: string }
 
-/** A `gh` that answers the three calls this command makes, and remembers every one of them. */
-function fakeGh(h: { get?: () => string; put?: (body: string) => string; contents?: () => string }): { gh: GhApi; calls: Call[] } {
+/** The force-push ruleset as GitHub returns it once gov has created it (GOV-FRM-466). */
+const RULESET_ID = 42;
+const rulesetDetail = (over: Record<string, unknown> = {}): string => JSON.stringify({
+  id: RULESET_ID, name: FORCE_PUSH_RULESET.name, target: "branch", enforcement: "active",
+  conditions: { ref_name: { include: ["refs/heads/BRNCH-*"], exclude: [] } },
+  rules: [{ type: "non_fast_forward" }],
+  ...over,
+});
+
+/**
+ * The ruleset half of the fake. `list` answers `GET rulesets`, `detail` answers `GET rulesets/<id>`, `write`
+ * answers the POST or PUT. Default: gov's ruleset is already there and correct, so the cases about branch
+ * protection read exactly as they did before GOV-FRM-466 was installed by this command.
+ */
+interface RulesetFake { list?: () => string; detail?: () => string; write?: (body: string) => string }
+
+/** A `gh` that answers the calls this command makes, and remembers every one of them. */
+function fakeGh(h: {
+  get?: () => string; put?: (body: string) => string; contents?: () => string; govChecks?: () => string;
+  rulesets?: RulesetFake;
+}): { gh: GhApi; calls: Call[] } {
   const calls: Call[] = [];
+  const rs: RulesetFake = h.rulesets ?? {
+    list: () => JSON.stringify([{ id: RULESET_ID, name: FORCE_PUSH_RULESET.name }]),
+    detail: () => rulesetDetail(),
+  };
   const gh: GhApi = (args, body) => {
     calls.push({ args: [...args], ...(body === undefined ? {} : { body }) });
+    const joined = args.join(" ");
+    if (joined.includes("/rulesets")) {
+      if (args.includes("POST") || args.includes("PUT")) {
+        if (!rs.write) throw ghFailure(NOT_ADMIN);
+        return rs.write(body ?? "");
+      }
+      if (/\/rulesets\/\d+/.test(joined)) {
+        if (!rs.detail) throw ghFailure(NOT_FOUND);
+        return rs.detail();
+      }
+      if (!rs.list) throw ghFailure(NOT_ADMIN);
+      return rs.list();
+    }
     if (args.includes("PUT")) {
       if (!h.put) throw ghFailure(NOT_ADMIN);
       return h.put(body ?? "");
     }
-    if (args.join(" ").includes("/contents/")) {
+    if (joined.includes("gov-checks.yml")) {
+      const f = h.govChecks ?? h.contents;
+      if (!f) throw ghFailure(NOT_FOUND);
+      return f();
+    }
+    if (joined.includes("/contents/")) {
       if (!h.contents) throw ghFailure(NOT_FOUND);
       return h.contents();
     }
@@ -83,7 +124,13 @@ function fakeFs(files: Record<string, string> = {}): ProtectFs & { readonly file
 
 const withTemplate = (): Record<string, string> => ({ [path.join(HOME, WORKFLOW_TEMPLATE)]: "# the framework's workflow\n" });
 const base = { repo: REPO, branch: BRANCH, home: HOME, posture: HARD, isGovernanceRepo: true, repoDir: "/clones/acme-gov" };
-const wrote = (calls: readonly Call[]): readonly Call[] => calls.filter((c) => c.args.includes("PUT"));
+/** What dispatch derives from the governance repo's rules in force (maintain/rule-checks.ts). */
+const RULES_OK = {
+  ok: true as const, ref: "origin/main",
+  checks: [{ id: "GOV-FRM-455", name: "GOV-FRM-455 · pull_request" }, { id: "GOV-FRM-467", name: "GOV-FRM-467 · pull_request" }],
+};
+const RULE_NAMES = RULES_OK.checks.map((c) => c.name);
+const wrote = (calls: readonly Call[]): readonly Call[] => calls.filter((c) => c.args.includes("PUT") || c.args.includes("POST"));
 
 describe("gov-work — protectionChanges (the pure assessment of what needs changing)", () => {
   it("an unprotected branch: every requirement needs changing, with the current value beside the wanted one", () => {
@@ -186,7 +233,8 @@ describe("gov-work — repo protect apply", () => {
     expect(wrote(calls)).to.have.length(1);
     expect(r.lines.join("\n")).to.contain("written and RE-READ");
     // The re-read is a SECOND get after the PUT — not the one the plan was computed from.
-    const order = calls.map((c) => (c.args.includes("PUT") ? "put" : c.args.join(" ").includes("/contents/") ? "contents" : "get"));
+    const order = calls.filter((c) => !c.args.join(" ").includes("/rulesets"))
+      .map((c) => (c.args.includes("PUT") ? "put" : c.args.join(" ").includes("/contents/") ? "contents" : "get"));
     expect(order.filter((o) => o === "get"), "read, write, read").to.have.length(2);
     expect(order.indexOf("put")).to.be.lessThan(order.lastIndexOf("get"));
   });
@@ -218,25 +266,37 @@ describe("gov-work — repo protect apply", () => {
 });
 
 describe("gov-work — repo protect and a repository the PLATFORM will not protect (§3.4)", () => {
-  it("GOV-FRM-449 apply says exactly what GitHub said, names the three ways out, and EXITS NON-ZERO", () => {
+  it("GOV-FRM-449 apply says, in plain words, that hard needs a public repo or a paid plan, names the three ways forward, and EXITS NON-ZERO", () => {
     const { gh, calls } = fakeGh({ get: () => ghThrow(PLAN_403) });
     const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, base, "apply");
     expect(r.code, "a silent partial apply is the worst outcome available").to.equal(1);
     const text = r.lines.join("\n");
-    expect(text).to.contain("Upgrade to GitHub Pro or make this repository public");
+    expect(text).to.contain("Hard posture needs a public repository or a paid GitHub plan");
     expect(text).to.contain(`1. make ${REPO} public`);
-    expect(text).to.contain("2. move this organization to a plan that provides branch protection");
-    expect(text).to.contain("3. approve an exception that NAMES the gap");
+    expect(text).to.contain("2. move this organization to a paid GitHub plan");
+    expect(text).to.contain("3. stay soft");
+    expect(text, "W2-Q6: the exception way out is gone — framework rules have no exceptions").to.not.contain("exception");
     expect(text).to.contain("GOV-FRM-449");
     expect(text).to.contain("is NOT protected, and gov will not report that it is");
     expect(wrote(calls)).to.deep.equal([]);
   });
 
-  it("…and says it is a PLATFORM limit, not a missing setting — required checks are the same paid feature", () => {
+  it("GOV-FRM-449 never prints an error dump — no HTTP status, no gh output", () => {
     const { gh } = fakeGh({ get: () => ghThrow(PLAN_403) });
-    const text = protectRepo({ gh, fs: fakeFs(withTemplate()) }, base, "plan").lines.join("\n");
-    expect(text).to.contain("not even the approver check");
-    expect(text).to.contain("nothing to plan here. This is a platform limit, not a missing setting");
+    for (const mode of ["plan", "apply"] as const) {
+      const text = protectRepo({ gh, fs: fakeFs(withTemplate()) }, base, mode).lines.join("\n");
+      expect(text).to.not.contain("HTTP 403").and.not.contain("gh:").and.not.contain("Upgrade to GitHub Pro");
+    }
+  });
+
+  it("…plan says the checks stay `detected`, and lists the ones that would be required", () => {
+    const { gh } = fakeGh({ get: () => ghThrow(PLAN_403) });
+    const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, { ...base, ruleChecks: RULES_OK }, "plan");
+    expect(r.code, "plan reports; it does not fail").to.equal(0);
+    const text = r.lines.join("\n");
+    expect(text).to.contain("stays `detected`").and.contain("cannot stop a merge");
+    expect(text).to.contain("GOV-FRM-455 · pull_request").and.contain("GOV-FRM-467 · pull_request");
+    expect(text).to.contain("nothing gov can change here");
   });
 
   it("CANNOT and DID NOT are different answers: a non-admin read refuses WITHOUT the plan advice", () => {
@@ -348,6 +408,153 @@ describe("gov-work — the organization's approver logins (governance.yaml + the
       ...base, repo: "Acme/billing", isGovernanceRepo: false, approvers: ["alice", "bob"],
     }, "apply").lines.join("\n");
     expect(text).to.contain('gh variable set GOV_APPROVERS --repo Acme/billing --body "alice bob"');
+  });
+});
+
+describe("gov-work — repo protect and the rules' own required checks (hard posture)", () => {
+  /** A compliant GOV-FRM-447 payload that also requires the given checks. */
+  const requiring = (names: readonly string[]): string => payload({
+    required_status_checks: { strict: false, contexts: [APPROVER_CHECK, ...names] },
+  });
+
+  it("plan lists one row per rule check, the gov-checks workflow, and the force-push ruleset", () => {
+    const { gh, calls } = fakeGh({ get: () => payload(), contents: () => "{}", rulesets: { list: () => "[]" } });
+    const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, { ...base, ruleChecks: RULES_OK }, "plan");
+    expect(r.code).to.equal(0);
+    const text = r.lines.join("\n");
+    for (const n of RULE_NAMES) expect(text).to.contain(`required check \`${n}\``);
+    expect(text).to.contain("(GOV-FRM-455)").and.contain("(GOV-FRM-467)");
+    expect(text).to.contain(".github/workflows/gov-checks.yml");
+    expect(text).to.contain("block force pushes on BRNCH-*").and.contain("GOV-FRM-466");
+    expect(text).to.contain("2 of 6 settings would change");
+    expect(text).to.contain("rules read at origin/main");
+    expect(wrote(calls)).to.deep.equal([]);
+  });
+
+  it("apply PUTs the rule checks alongside the approver check, keeps the others, and confirms them from the re-read", () => {
+    let stored: string | null = null;
+    const { gh, calls } = fakeGh({
+      get: () => (stored === null ? payload({ required_status_checks: { strict: false, contexts: [APPROVER_CHECK, "build"] } }) : requiring([...RULE_NAMES, "build"])),
+      put: (body) => { stored = body; return "{}"; },
+      contents: () => "{}",
+    });
+    const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, { ...base, ruleChecks: RULES_OK }, "apply");
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    const body = JSON.parse(stored!) as { required_status_checks: { contexts: string[] } };
+    expect(body.required_status_checks.contexts).to.deep.equal([APPROVER_CHECK, "build", ...RULE_NAMES]);
+    expect(wrote(calls), "the ruleset was already right: one write").to.have.length(1);
+    const text = r.lines.join("\n");
+    expect(text).to.contain("`prevented`");
+    for (const n of RULE_NAMES) expect(text).to.contain(n);
+  });
+
+  it("a rule check the RE-READ does not show is a partial apply, not a success", () => {
+    const { gh } = fakeGh({
+      get: () => requiring([RULE_NAMES[0]!]),
+      put: () => "{}",
+      contents: () => "{}",
+    });
+    const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, { ...base, ruleChecks: RULES_OK }, "apply");
+    expect(r.code).to.equal(1);
+    expect(r.lines.join("\n")).to.contain("PARTIALLY APPLIED").and.contain(RULE_NAMES[1]!);
+  });
+
+  it("THE gov-checks WORKFLOW FIRST: a required check nothing reports would block every pull request", () => {
+    const { gh, calls } = fakeGh({ get: () => payload(), contents: () => "{}", govChecks: () => ghThrow(NOT_FOUND) });
+    const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, { ...base, ruleChecks: RULES_OK }, "apply");
+    expect(r.code).to.equal(1);
+    const text = r.lines.join("\n");
+    expect(text).to.contain("gov check install").and.contain("STOPPED BEFORE TOUCHING BRANCH PROTECTION");
+    expect(wrote(calls)).to.deep.equal([]);
+  });
+
+  it("rules gov could not read: apply refuses to guess which checks to require, and writes nothing", () => {
+    const { gh, calls } = fakeGh({ get: () => payload(), contents: () => "{}" });
+    const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, { ...base, ruleChecks: { ok: false, reason: "git did not answer" } }, "apply");
+    expect(r.code).to.equal(1);
+    expect(r.lines.join("\n")).to.contain("git did not answer").and.contain("nothing was written");
+    expect(wrote(calls)).to.deep.equal([]);
+  });
+
+  it("already correct includes the rule checks and the ruleset: nothing is written", () => {
+    const { gh, calls } = fakeGh({ get: () => requiring(RULE_NAMES), contents: () => "{}" });
+    const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, { ...base, ruleChecks: RULES_OK }, "apply");
+    expect(r.code).to.equal(0);
+    expect(r.lines.join("\n")).to.contain("ALREADY CORRECT");
+    expect(wrote(calls)).to.deep.equal([]);
+  });
+});
+
+describe("gov-work — repo protect blocks force pushes on BRNCH-* (GOV-FRM-466)", () => {
+  it("GOV-FRM-466 apply creates the ruleset when it is absent, and confirms it from a re-read", () => {
+    let created: string | null = null;
+    const { gh, calls } = fakeGh({
+      get: () => payload(), contents: () => "{}",
+      rulesets: {
+        list: () => (created === null ? "[]" : JSON.stringify([{ id: RULESET_ID, name: FORCE_PUSH_RULESET.name }])),
+        detail: () => rulesetDetail(),
+        write: (body) => { created = body; return rulesetDetail(); },
+      },
+    });
+    const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, base, "apply");
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    const post = calls.find((c) => c.args.includes("POST"))!;
+    expect(post.args.join(" ")).to.contain(`repos/${REPO}/rulesets`);
+    const body = JSON.parse(created!) as typeof FORCE_PUSH_RULESET;
+    expect(body.target).to.equal("branch");
+    expect(body.enforcement).to.equal("active");
+    expect(body.conditions.ref_name.include).to.deep.equal(["refs/heads/BRNCH-*"]);
+    expect(body.rules).to.deep.equal([{ type: "non_fast_forward" }]);
+    expect(r.lines.join("\n")).to.contain("force pushes on BRNCH-* are blocked");
+  });
+
+  it("GOV-FRM-466 a ruleset with gov's name that was weakened is PUT back, not duplicated", () => {
+    let fixed = false;
+    const { gh, calls } = fakeGh({
+      get: () => payload(), contents: () => "{}",
+      rulesets: {
+        list: () => JSON.stringify([{ id: RULESET_ID, name: FORCE_PUSH_RULESET.name }]),
+        detail: () => (fixed ? rulesetDetail() : rulesetDetail({ enforcement: "disabled" })),
+        write: () => { fixed = true; return rulesetDetail(); },
+      },
+    });
+    const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, base, "apply");
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    expect(calls.some((c) => c.args.includes("POST"))).to.equal(false);
+    expect(calls.find((c) => c.args.includes("PUT"))!.args.join(" ")).to.contain(`repos/${REPO}/rulesets/${RULESET_ID}`);
+  });
+
+  it("GOV-FRM-466 a ruleset write the re-read does not confirm is a failure", () => {
+    const { gh } = fakeGh({
+      get: () => payload(), contents: () => "{}",
+      rulesets: { list: () => "[]", write: () => "{}" },
+    });
+    const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, base, "apply");
+    expect(r.code).to.equal(1);
+    expect(r.lines.join("\n")).to.contain("force pushes on BRNCH-* are NOT blocked");
+  });
+
+  it("rulesets gov could not read: apply writes nothing", () => {
+    const { gh, calls } = fakeGh({ get: () => payload(), contents: () => "{}", rulesets: {} });
+    const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, base, "apply");
+    expect(r.code).to.equal(1);
+    expect(r.lines.join("\n")).to.contain("could not read the rulesets");
+    expect(wrote(calls)).to.deep.equal([]);
+  });
+});
+
+describe("gov-work — repo protect under SOFT lists what hard would require, and changes nothing", () => {
+  it("names each check as `would be required under hard`, and the force-push ruleset, with no call to GitHub", () => {
+    const { gh, calls } = fakeGh({});
+    for (const mode of ["plan", "apply"] as const) {
+      const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, { ...base, posture: classifyPosture("soft"), ruleChecks: RULES_OK }, mode);
+      expect(r.code).to.equal(0);
+      const text = r.lines.join("\n");
+      expect(text).to.contain("would be required under hard");
+      for (const n of RULE_NAMES) expect(text).to.contain(n);
+      expect(text).to.contain("BRNCH-*").and.contain("`detected`");
+    }
+    expect(calls).to.deep.equal([]);
   });
 });
 

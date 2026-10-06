@@ -11,6 +11,17 @@ import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
+import { RULE_STORE_PATHS } from "../../src/rules/model/store-io.js";
+
+/** The shipped framework rule stores, as `git show <default>:<path>` would serve them. */
+const CONTENT = path.join(import.meta.dirname, "..", "..", "..", "..", "content");
+const RULE_FILES: Record<string, string> = {
+  [RULE_STORE_PATHS.frameworkRules]: readFileSync(path.join(CONTENT, RULE_STORE_PATHS.frameworkRules), "utf8"),
+  [RULE_STORE_PATHS.frameworkCatalog]: readFileSync(path.join(CONTENT, RULE_STORE_PATHS.frameworkCatalog), "utf8"),
+  [RULE_STORE_PATHS.orgConfig]: 'org_slug: "SVM"\n',
+};
 
 describe("prj-work — parseArgv", () => {
   it("splits command, positionals, and flags", () => {
@@ -175,6 +186,40 @@ describe("cli — route `repo protect`", () => {
     const r = route(parseArgv(["repo", "protect", "install"]) as never, ctx());
     expect(r.code).to.equal(2);
     expect(r.lines.join("\n")).to.contain("--repo").and.contain("--branch");
+  });
+
+  it("derives the rules' required checks from the DEFAULT branch, and under soft lists them as `would be required under hard`", () => {
+    const seen: string[] = [];
+    const git = (_repo: string, args: readonly string[]): string | null => {
+      seen.push(args.join(" "));
+      if (args[0] === "rev-parse") return null;                     // no origin/main fetched: the local branch
+      if (args[0] === "ls-tree") {
+        const roots = args.slice(args.indexOf("--") + 1);
+        return Object.keys(RULE_FILES).filter((f) => roots.some((r) => f === r || f.startsWith(`${r}/`))).join("\n");
+      }
+      if (args[0] === "show") return RULE_FILES[args[1]!.slice(args[1]!.indexOf(":") + 1)] ?? null;
+      return null;
+    };
+    const r = route(parseArgv(["repo", "protect"]) as never, ctx({ ghApi: () => "{}", git }));
+    const text = r.lines.join("\n");
+    expect(r.code).to.equal(0);
+    expect(text).to.contain("GOV-FRM-455 · pull_request   would be required under hard");
+    expect(text).to.contain("rules read at main");
+    expect(seen.some((a) => a.startsWith("show main:")), "read at the default branch, never the working tree").to.equal(true);
+  });
+
+  it("a code repo (--repo) is read for vcs.code-repo gates — the framework binds none there", () => {
+    const git = (_repo: string, args: readonly string[]): string | null => {
+      if (args[0] === "ls-tree") {
+        const roots = args.slice(args.indexOf("--") + 1);
+        return Object.keys(RULE_FILES).filter((f) => roots.some((r) => f === r || f.startsWith(`${r}/`))).join("\n");
+      }
+      if (args[0] === "show") return RULE_FILES[args[1]!.slice(args[1]!.indexOf(":") + 1)] ?? null;
+      return null;
+    };
+    const text = route(parseArgv(["repo", "protect", "--repo", "billing"]) as never, ctx({ ghApi: () => "{}", git })).lines.join("\n");
+    expect(text).to.contain("Svayamtech/billing@dev");
+    expect(text).to.contain("no rule check").and.not.contain("GOV-FRM-455");
   });
 
   it("with no way to call gh, it neither reads nor writes and says so", () => {

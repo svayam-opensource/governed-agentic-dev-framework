@@ -308,11 +308,8 @@ function checkInstall(flags: Readonly<Record<string, string | boolean>>, deps: C
       "",
       "Hard posture — once this workflow is on the default branch, make the platform enforce it:",
       `  gov repo protect apply --repo ${repo}`,
-      ...(required.length ? ["  and make these status checks required on the default branch:", ...required.map((r) => `    ${r}`)] : []),
-      "  and block force pushes on BRNCH-* (a branch ruleset):",
-      `    gh api -X POST repos/${repo}/rulesets --input - <<'JSON'`,
-      '    {"name":"gov: no force-push on BRNCH-*","target":"branch","enforcement":"active","conditions":{"ref_name":{"include":["refs/heads/BRNCH-*"],"exclude":[]}},"rules":[{"type":"non_fast_forward"}]}',
-      "    JSON",
+      ...(required.length ? ["  It makes these status checks required on the default branch:", ...required.map((r) => `    ${r}`)] : []),
+      "  and blocks force pushes on BRNCH-* with a branch ruleset (GOV-FRM-466). `gov repo protect plan` shows it first.",
       "  gov does not change repository settings from here.",
     );
   }

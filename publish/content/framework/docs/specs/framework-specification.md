@@ -927,6 +927,11 @@ A developer who clones a repository and pushes by hand runs none of gov's code, 
 When you choose `hard` during setup, gov warns you first. Choosing "hard" requires your repositories to be
 public, or a paid GitHub plan. You are then asked to confirm, and the default answer is no.
 
+Under `hard`, `gov repo protect apply` also makes each rule's pull-request check a required check, on the
+governance repository and on each code repository. A failing check then stops the merge, so the rule is
+**prevented**. It also blocks force pushes on project branches (§7.6). Under `soft` the same checks run and
+report, but nothing waits for them, so they are **detected**.
+
 Under `hard`, no gov command writes to a protected branch. `gov seed` creates the project branch and nothing
 else. Closing a project leaves the governance pull request for a person to merge.
 

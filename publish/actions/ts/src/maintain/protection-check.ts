@@ -170,8 +170,18 @@ export interface ProtectionChange {
  * caller that made the failed read (see `isPlanLimited`). A `null` folded in here would produce a plan to
  * change four settings gov never actually looked at.
  */
-export function protectionChanges(facts: ProtectionFacts, approverCheck: string = APPROVER_CHECK): readonly ProtectionChange[] {
+export function protectionChanges(
+  facts: ProtectionFacts,
+  approverCheck: string = APPROVER_CHECK,
+  ruleChecks: readonly { readonly id: string; readonly name: string }[] = [],
+): readonly ProtectionChange[] {
   const hasCheck = facts.requiredStatusChecks.includes(approverCheck);
+  // THE RULES' OWN GATES (rule-model-design.md Q15): one row per in-force gate binding on a pull request, so a hard
+  // posture makes each one `prevented` rather than a red job somebody may notice afterwards.
+  const ruleRows: ProtectionChange[] = ruleChecks.map((c) => {
+    const has = facts.requiredStatusChecks.includes(c.name);
+    return { setting: `required check \`${c.name}\``, current: has ? "required" : "absent", wanted: "required", rule: c.id, changes: !has };
+  });
   return [
     {
       setting: "pull request required",
@@ -209,6 +219,7 @@ export function protectionChanges(facts: ProtectionFacts, approverCheck: string 
       rule: "GOV-FRM-447.4",
       changes: !hasCheck,
     },
+    ...ruleRows,
   ];
 }
 
@@ -225,16 +236,16 @@ export function isPlanLimited(message: string): boolean {
 }
 
 /**
- * The three ways out GOV-FRM-449 names, named for THIS repository.
+ * The three ways forward GOV-FRM-449 names (framework-specification.md §11.2; W2-Q6), named for THIS repository.
  *
- * Verbatim from the policy and in its order, because the value of this list is that an organization can point
- * at the clause afterwards and show which of the three it took. A fourth suggestion invented here would be a
- * fourth thing nobody ratified.
+ * In the spec's order, because the value of this list is that an organization can point at the section afterwards
+ * and show which of the three it took. There is no fourth: framework rules have no exceptions (W2-Q6 dropped the
+ * "approve an exception" way out).
  */
 export function planWaysOut(repo: string): readonly string[] {
   return [
     `1. make ${repo} public`,
-    "2. move this organization to a plan that provides branch protection (Pro, Team or Enterprise)",
-    "3. approve an exception that NAMES the gap — `framework/templates/exceptions/policy/TEMPLATE.md`",
+    "2. move this organization to a paid GitHub plan (Pro, Team or Enterprise) — the repository stays private",
+    "3. stay soft — `governance_posture: soft` in policies/governance.yaml; violations are recorded for the Policy Owner, not stopped",
   ];
 }
