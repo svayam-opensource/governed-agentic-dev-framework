@@ -17,8 +17,17 @@
  * it was suspending speaks again at the next build, and the check it was excusing fails again.
  *
  * Pure: front matter in, lines out. Reading `policies/exceptions/**` is the caller's, and it reads from the
- * DEFAULT branch, because an exception a developer wrote on their own branch is a request, not a permission.
+ * DEFAULT branch, because an exception a developer wrote on their own branch is a request, not a permission
+ * (see exceptions-io.ts).
+ *
+ * WHAT CANNOT BE EXCEPTED (spec §10.5; GOV-FRM-465, GOV-FRM-011). Only an organization's C02 rule has an exception
+ * route. A framework rule is fixed — an org that cannot follow one has a defect to report upstream, not a deviation
+ * to approve — and a C01 rule admits no exception from anybody, the Policy Owner included. Both are refused HERE, at
+ * the one door every exception comes through, rather than trusted to the reviewer of the exception's pull request.
  */
+import { FRAMEWORK_SCOPE } from "./model/gov-id.js";
+import { inForce } from "./model/rule-row.js";
+import type { RuleSet } from "./model/contracts.js";
 
 /** The front matter the framework requires of an exception (GOV-FRM-156). */
 export interface ExceptionDoc {
@@ -49,8 +58,49 @@ export interface ExceptionProblem {
 const field = (fm: string, key: string): string =>
   new RegExp(`^${key}:\\s*(.+)$`, "m").exec(fm)?.[1]?.trim().replace(/^["']|["']$/g, "") ?? "";
 
-/** Read one exception's front matter. */
-export function parseException(doc: ExceptionDoc): { exception?: Exception; problem?: ExceptionProblem } {
+/** The rules an exception is judged against: both stores, as the DEFAULT branch has them. */
+export type ExceptionRules = Pick<RuleSet, "framework" | "org">;
+
+/**
+ * Why `clause` cannot be excepted, in words the person who wrote the exception can act on — or null if it can.
+ *
+ * Without `rules` only the id can be judged, so only a framework rule is refused (its scope says what it is). With
+ * them, the clause must name an organization rule in force at C02: a C01 rule admits no exception, a C03 rule has
+ * nothing to except, an id no in-force row carries relaxes nothing, and a POL number cannot be judged at all.
+ */
+export function exceptionRefusal(clause: string, rules?: ExceptionRules): string | null {
+  if (clause.startsWith(`GOV-${FRAMEWORK_SCOPE}-`)) {
+    return `${clause} is a framework rule, and framework rules admit no exception (GOV-FRM-465): they are fixed, `
+      + "so no organization can relax one locally. If your organization cannot follow it, report that upstream as "
+      + "a defect in the framework.";
+  }
+  if (!rules) return null;
+  if (clause.startsWith("POL-")) {
+    return `${clause} is an old policy number, and gov cannot tell which rule it is. Name the rule by its GOV id `
+      + `(\`gov rules show ${clause}\` prints it).`;
+  }
+  const row = inForce(rules.org).find((r) => r.id === clause);
+  if (!row) {
+    return `${clause} is not a rule in force in your organization's policies/rules.yaml, so there is nothing for `
+      + "this exception to relax. Name the C02 rule it relaxes by its GOV id.";
+  }
+  if (row.level === "C01") {
+    return `${clause} is a C01 rule, and nobody can grant an exception to a C01 rule — not even the Policy Owner `
+      + "(GOV-FRM-011). Follow it, or change the rule itself through a policy pull request.";
+  }
+  if (row.level !== "C02") {
+    return `${clause} is a ${row.level} rule. Only C02 rules have an exception route; a ${row.level} rule needs none.`;
+  }
+  return null;
+}
+
+/**
+ * Read one exception's front matter.
+ *
+ * `rules`, when given, are the stores the clause is judged against (see {@link exceptionRefusal}); without them only
+ * a framework rule is refused, because that much is written in the id itself.
+ */
+export function parseException(doc: ExceptionDoc, rules?: ExceptionRules): { exception?: Exception; problem?: ExceptionProblem } {
   const fm = /^---\n([\s\S]*?)\n---/.exec(doc.text)?.[1];
   if (!fm) return { problem: { path: doc.path, why: "no front matter — an exception is machine-read, so its terms cannot be prose" } };
 
@@ -63,6 +113,9 @@ export function parseException(doc: ExceptionDoc): { exception?: Exception; prob
     !approvedBy && "approved_by",
   ].filter(Boolean) as string[];
   if (missing.length) return { problem: { path: doc.path, why: `missing ${missing.join(", ")}` } };
+
+  const refusal = exceptionRefusal(clause, rules);
+  if (refusal) return { problem: { path: doc.path, why: refusal } };
 
   // A DATE THAT IS NOT A DATE IS NOT AN EXPIRY. `new Date("soon")` is Invalid Date, and every comparison against
   // it is false — so an unparseable expiry would read as "not yet expired" and the exception would never lapse.
