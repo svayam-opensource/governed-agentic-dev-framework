@@ -69,6 +69,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/chai": "^4.3.16",
+    "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
     "@types/node": "^24.0.0",
     "chai": "^4.5.0",
@@ -79,7 +80,8 @@
     "typescript-eslint": "^8.56.0"
   },
   "dependencies": {
-    "@svayam-opensource/svm-util-log": "^1.1.0"
+    "@svayam-opensource/svm-util-log": "^1.1.0",
+    "js-yaml": "^4.3.2"
   },
   "homepage": "https://github.com/svayam-opensource/governed-agentic-dev-framework#readme",
   "bugs": {
