@@ -189,6 +189,13 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
     io.print("  It defaults to the Policy Owner; with no Policy Owner handle either, run interactively or pre-fill org-config.yaml.");
     return 1;
   }
+  // THE POLICY OWNER MUST BE ASSIGNED (GOV-FRM-033). Every approval, every vacant role and CODEOWNERS itself fall
+  // back to this one handle; an org set up without it has nobody to approve anything.
+  if (!v.policyOwnerGithub.replace(/^@+/, "").trim()) {
+    io.print("setup: policy_owner_github is empty — name the Policy Owner, who approves your policies and holds every vacant role.");
+    io.print("  It is derived from your GitHub login; with none signed in, run interactively or pre-fill org-config.yaml.");
+    return 1;
+  }
 
   const configPath = path.join(io.cwd, "org-config.yaml");
   io.fs.writeFile(configPath, renderOrgConfig(v));

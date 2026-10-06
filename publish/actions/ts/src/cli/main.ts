@@ -83,6 +83,7 @@ import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
+import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
 import { planAgentInstall } from "./agent-verb.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { parseArgv, flagStr } from "./args.js";
@@ -937,7 +938,9 @@ export async function runSetupCommand(
       //
       // Root FILES only, never a recursive root sweep: `publish/` must stay untouched — it is
       // the copy source — and the directories are handled just above.
-      const SWEEP_DIRS = [...INHERITED_DIRS, "governance"];
+      // `policies/` too: the org's seed-once documents carry org tokens — and the role list's handles
+      // (policies/authorized-representatives.md §4) are filled from the answers setup just wrote.
+      const SWEEP_DIRS = [...INHERITED_DIRS, "governance", "policies"];
       for (const d of SWEEP_DIRS) { const dir = path.join(createdHome, d); if (fsSync.existsSync(dir)) sweepDir(dir); }
       for (const e of fsSync.readdirSync(createdHome, { withFileTypes: true })) {
         if (e.isDirectory()) continue;
@@ -953,17 +956,19 @@ export async function runSetupCommand(
       }
       manifest.push({ what: "Swept", detail: `${swept} file(s) — org tokens resolved in ${SWEEP_DIRS.join("/ ")}/ and the root files (publish/ untouched)` });
 
-      // CODEOWNERS, GENERATED (Decision 13, 2026-09-14) — see src/config/codeowners.ts for why
-      // it is no longer shipped, and for the deviation from Decision 13's letter (handles must
-      // stay in org-config.yaml, because the policy is scaffold-auto and would overwrite them).
+      // CODEOWNERS, GENERATED (Decision 13, 2026-09-14) — see src/config/codeowners.ts. The Policy and Check
+      // Owners come from org-config; every other role from the role list the sweep above just filled in
+      // (policies/authorized-representatives.md), or — for a seed without one — the legacy *_owner_github keys.
       // `tokenValuesFromOrgConfig` keys by TOKEN (`POLICY_OWNER_GITHUB`), not by config key —
       // passing it straight in made every handle undefined, so `renderCodeowners` returned null
       // and setup aborted with "names no policy_owner_github" on a config that named one.
       const handles = Object.fromEntries(Object.entries(values).map(([k, v]) => [k.toLowerCase(), v]));
-      const owners = renderCodeowners(handles);
+      const roleListFile = path.join(createdHome, ROLE_LIST_PATH);
+      const orgRoles = resolveRoles(cfgText, fsSync.existsSync(roleListFile) ? fsSync.readFileSync(roleListFile, "utf8") : null);
+      const owners = renderCodeowners(handles, orgRoles.roles);
       if (owners === null) {
         process.stderr.write("gov setup: org-config.yaml names no policy_owner_github, so CODEOWNERS\n");
-        process.stderr.write("  cannot be generated and governance/ would be unprotected. Set it, then re-run.\n");
+        process.stderr.write("  cannot be generated and nothing would route to an approver. Set it, then re-run.\n");
         return 1;
       }
       const leftInOwners = unresolvedTokens(owners.text);
@@ -977,8 +982,8 @@ export async function runSetupCommand(
       manifest.push({
         what: "Generated",
         detail: [
-          owners.unheld.length
-            ? `CODEOWNERS — Policy Owner on ${POLICY_OWNER_PATHS.length} path(s); no holder yet for ${owners.unheld.join(", ")}`
+          owners.vacant.length
+            ? `CODEOWNERS — Policy Owner on ${POLICY_OWNER_PATHS.length} path(s); no holder yet for ${owners.vacant.join(", ")} (the Policy Owner approves their folders)`
             : `CODEOWNERS — every role held`,
           ...(owners.escalated.length ? [`vacant, so the Policy Owner approves instead: ${owners.escalated.join(", ")}`] : []),
         ].join("; "),
@@ -2222,6 +2227,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       contentLayout: contentLayoutOf((rel) => fs.pathExists(path.join(home, rel))),
       staleArtifacts: staleArtifactsIn(!!doctorHomeOverride || resolve.ok, (rel) => fs.pathExists(path.join(home, rel))),
       orgConfigText: doctorCfgText,
+      // The role list and CODEOWNERS, read only where a workspace was examined (as org-config is).
+      ...((!!doctorHomeOverride || resolve.ok) ? {
+        roleListText: fs.readFile(path.join(home, ROLE_LIST_PATH)),
+        codeownersText: fs.readFile(path.join(home, "CODEOWNERS")),
+      } : {}),
       ...(protection ? { protection } : {}),
     });
     for (const line of formatDoctorReport(report, stdoutColor())) process.stdout.write(`${line}\n`);
