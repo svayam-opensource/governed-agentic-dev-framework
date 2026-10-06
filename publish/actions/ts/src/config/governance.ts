@@ -72,8 +72,8 @@ export function readPosture(governanceText: string | null | undefined): PostureC
 /* ─────────────────────────────── the whole file ─────────────────────────────── */
 
 /** The providers `gov rules propose` can call. `command` runs a CLI that reads the request on stdin. */
-export type ModelProvider = "anthropic" | "command";
-const PROVIDERS: readonly ModelProvider[] = ["anthropic", "command"];
+export type ModelProvider = "anthropic" | "gemini" | "command";
+const PROVIDERS: readonly ModelProvider[] = ["anthropic", "gemini", "command"];
 
 export interface GovernanceConfig {
   /** The file existed (and was read). An absent file is every default — and not the same fact as a chosen default. */
@@ -228,8 +228,8 @@ authorized_agents:
 knowledge_publication: "${v.knowledgePublication}"
 
 # WHICH MODEL THE ORGANIZATION APPROVES FOR \`gov rules propose\` (framework specification §9.3).
-#   propose.provider   anthropic · command — empty means no model is approved, and propose asks you instead.
-#   propose.model      the model id, for the anthropic provider.
+#   propose.provider   anthropic · gemini · command — empty means no model is approved, and propose asks you instead.
+#   propose.model      the model id, for the anthropic and gemini providers.
 #   command            provider=command: a CLI that reads the request on stdin and writes the reply on stdout.
 #   ci_allowed         true lets CI run propose as the fallback on a policy pull request.
 models:

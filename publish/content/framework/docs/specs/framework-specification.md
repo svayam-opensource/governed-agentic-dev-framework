@@ -741,10 +741,11 @@ an approval.
 
 Reading your policy and suggesting rows is done by a language model, so your policy text is sent to it. gov
 sends it only to a model your organization has approved. You approve one in `policies/governance.yaml`, under
-`models:`, and you decide there whether the pull request check may use it too. Until you approve one, propose
-refuses and tells you where to do it. When the check does use it, gov pushes its suggestion to the pull request
-with the repository's own token. GitHub does not re-run checks after such a push, so gov asks you to re-run
-them.
+`models:`. gov can use a Claude model from Anthropic, a Gemini model from Google, or a command-line program you
+name that reads the request and prints the reply. You also decide there whether the pull request check may
+use it. Until you approve one, propose refuses and tells you where to do it. When the check does use it, gov
+pushes its suggestion to the pull request with the repository's own token. GitHub does not re-run checks after
+such a push, so gov asks you to re-run them.
 
 ### 9.4 Stricter, never laxer
 

@@ -86,6 +86,12 @@ describe("gov-work — policies/governance.yaml (the org's governance choices)",
     expect(modelSettings(odd).ciAllowed).to.equal(false);
     expect(odd.problems.join(" ")).to.match(/openai/);
   });
+  it("gemini is a provider gov can call (Policy Owner, 2026-10-07); the template comment lists it", () => {
+    const g = parseGovernance("models:\n  propose: { provider: gemini, model: gemini-org }\n");
+    expect(modelSettings(g)).to.deep.include({ provider: "gemini", model: "gemini-org" });
+    expect(g.problems).to.deep.equal([]);
+    expect(renderGovernance(EMPTY_GOVERNANCE_VALUES)).to.contain("anthropic · gemini · command");
+  });
 
   it("a posture it does not know is reported, never guessed", () => {
     const g = parseGovernance("governance_posture: strict\n");

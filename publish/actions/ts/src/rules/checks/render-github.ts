@@ -48,6 +48,13 @@ export interface GithubRendererOptions {
 export const CREATE_APP_TOKEN = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0";
 /** The org Actions secrets the App's token is minted from (`gov check install` prints how to set them). */
 export const GOV_APP_SECRETS = { clientId: "GOV_APP_CLIENT_ID", privateKey: "GOV_APP_PRIVATE_KEY" } as const;
+/**
+ * The org Actions secrets holding the model keys `gov rules propose` may use in CI (framework §9.3; the providers
+ * that take a key — Policy Owner, 2026-10-07). LEAST PRIVILEGE: only the job that runs the rules-propose action gets
+ * them; every other job runs without. A secret the org has not set renders as an empty variable, and propose then
+ * refuses in plain words, naming it.
+ */
+export const MODEL_KEY_SECRETS = ["ANTHROPIC_API_KEY", "GEMINI_API_KEY"] as const;
 
 type Binding = { readonly id: string; readonly check: CheckBinding };
 /** The GitHub trigger for a resource · event: the `on:` key, and for `issues` the activity type. */
@@ -203,6 +210,7 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       `      - name: gov check run ${j.id}`,
       // The token only where the job was granted more than reading the repository.
       ...(keys.length ? ["        env:", "          GH_TOKEN: ${{ github.token }}"] : []),
+      ...(j.actions.has("gov-builtin/rules-propose") ? MODEL_KEY_SECRETS.map((k) => `          ${k}: \${{ secrets.${k} }}`) : []),
       `        run: gov check run ${j.id} --resource ${j.resource} --event ${j.event} ${opts.govCheckout ? "--gov-home .gov --repo-dir ." : "--gov-home ."}`,
     );
   }

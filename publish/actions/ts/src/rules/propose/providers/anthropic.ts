@@ -14,17 +14,15 @@
  */
 import { log } from "../../../log.js";
 import type { ModelPort, ModelRequest } from "../model-port.js";
+import { postWithRetry, ModelProviderError, type FetchLike } from "./http.js";
+
+// Where the other modules (and the tests) have always found them.
+export { ModelProviderError, type FetchLike } from "./http.js";
 
 const PGM = "gov-work:rules:propose:anthropic";
 export const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 export const ANTHROPIC_VERSION = "2023-06-01";
 export const ANTHROPIC_KEY_ENV = "ANTHROPIC_API_KEY";
-
-export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<{
-  readonly status: number;
-  readonly headers: { get(name: string): string | null };
-  text(): Promise<string>;
-}>;
 
 export interface AnthropicOptions {
   readonly apiKey: string;
@@ -38,14 +36,7 @@ export interface AnthropicOptions {
   readonly url?: string;
 }
 
-export class ModelProviderError extends Error {}
-
-const RETRYABLE = (s: number): boolean => s === 408 || s === 409 || s === 429 || s >= 500;
-
 export function anthropicModel(o: AnthropicOptions): ModelPort {
-  const doFetch: FetchLike = o.fetch ?? ((url, init) => fetch(url, init));
-  const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const retries = o.retries ?? 2;
   return {
     async complete(req: ModelRequest): Promise<string> {
       const body = JSON.stringify({
@@ -54,28 +45,13 @@ export function anthropicModel(o: AnthropicOptions): ModelPort {
         system: req.system,
         messages: [{ role: "user", content: req.user }],
       });
-      const headers = { "content-type": "application/json", "anthropic-version": ANTHROPIC_VERSION, "x-api-key": o.apiKey };
-      for (let attempt = 0; ; attempt++) {
-        let status: number, text: string, retryAfter: string | null;
-        try {
-          const res = await doFetch(o.url ?? ANTHROPIC_URL, { method: "POST", headers, body });
-          status = res.status;
-          retryAfter = res.headers.get("retry-after");
-          text = await res.text();
-        } catch (e) {
-          log("warn", "model request failed to reach the provider", PGM, "complete", { attempt, error: (e as Error)?.message });
-          if (attempt < retries) { await sleep(1000 * 2 ** attempt); continue; }
-          throw new ModelProviderError(`could not reach the Anthropic API: ${(e as Error)?.message ?? String(e)}`);
-        }
-        if (status >= 200 && status < 300) return replyText(text, o.model);
-        log("warn", "model request refused by the provider", PGM, "complete", { attempt, status });
-        if (RETRYABLE(status) && attempt < retries) {
-          const s = Number(retryAfter);
-          await sleep(Number.isFinite(s) && s > 0 ? s * 1000 : 1000 * 2 ** attempt);
-          continue;
-        }
-        throw new ModelProviderError(`the Anthropic API answered ${status}: ${errorMessage(text)}`);
-      }
+      const text = await postWithRetry({
+        url: o.url ?? ANTHROPIC_URL,
+        headers: { "content-type": "application/json", "anthropic-version": ANTHROPIC_VERSION, "x-api-key": o.apiKey },
+        body, api: "the Anthropic API", secret: o.apiKey, pgm: PGM, errorMessage,
+        ...(o.fetch ? { fetch: o.fetch } : {}), ...(o.sleep ? { sleep: o.sleep } : {}), ...(o.retries !== undefined ? { retries: o.retries } : {}),
+      });
+      return replyText(text, o.model);
     },
   };
 }
