@@ -189,3 +189,18 @@ actions:
       properties:
         docs: { type: [array, string] }
         ignore: { type: [array, string] }
+
+  # ── GOV-FRM-467: a change to the organization's policy carries its rules, version, snapshot and changelog ────
+  # Bound to `vcs.gov-repo · pull_request` (a gate). Deterministic — no LLM (Q16): when `policies/` changed, every
+  # in-force org row cites its section at the section's current sha; both stores validate; the org store only grew
+  # (rows closed at the new version, never edited or deleted; a retired id never reused); `policies/VERSION` moved
+  # minor (rows changed) or patch (prose only), or major; `policies/CHANGELOG.md` has an entry for the new version
+  # naming every added, revised or retired id; `policies/version/<prev>/` is the base's `policies/` byte for byte
+  # (minus `version/` and `actions/`); nothing already frozen under `policies/version/` changed; and new and closed
+  # rows carry the new version, the date and the PR number. Untouched `policies/` → passes, no bump expected.
+  - id: gov-builtin/policy-pr-gate
+    tool: gov-builtin
+    params:
+      type: object
+      additionalProperties: false
+      properties: {}

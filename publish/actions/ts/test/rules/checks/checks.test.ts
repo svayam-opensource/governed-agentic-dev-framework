@@ -129,7 +129,7 @@ describe("check engine — gov-builtin actions", () => {
     runBuiltin({ ruleId: "GOV-SVM-012", action: `gov-builtin/${name}`, params, ctx, readDefault });
 
   it("exposes one action per predicate plus test-suite and rules-propose", () => {
-    expect([...BUILTIN_ACTIONS].sort()).to.deep.equal([...CHECK_KINDS, "test-suite", "rules-propose", "forbid-forced-push", "section-owner-approval"].sort());
+    expect([...BUILTIN_ACTIONS].sort()).to.deep.equal([...CHECK_KINDS, "test-suite", "rules-propose", "forbid-forced-push", "section-owner-approval", "policy-pr-gate"].sort());
   });
 
   it("list-membership: an unapproved added dependency misses; an approved one passes", () => {
