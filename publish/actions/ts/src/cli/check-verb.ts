@@ -76,14 +76,22 @@ export interface CheckVerbConfig {
   readonly posture: GovernancePosture | null;
   /** `<agent_work_root>` — where `--project <id>` finds `<id>/<repo>/` clones. Absent → `--project` cannot be resolved. */
   readonly agentWorkRoot?: string;
+  /**
+   * What the rendered workflow `npm install -g`s — `--gov-package <spec>`. Default: the published gov. A pre-release
+   * test (the sandbox journey, the live CI tier) points it at a packed tarball, so the runners run the commit under
+   * test rather than whatever npm last published.
+   */
+  readonly govPackage?: string;
 }
 
 const RUN_USAGE = "check run <GOV-ID> --resource <resource> --event <event> [--gov-home <path>] [--repo-dir <path>]";
-const INSTALL_USAGE = "check install [--repo <path> | --all [--project <id>] [--prune]]";
-const STATUS_USAGE = "check status [--project <id>]";
+const INSTALL_USAGE = "check install [--repo <path> | --all [--project <id>] [--prune]] [--gov-package <spec>]";
+const STATUS_USAGE = "check status [--project <id>] [--gov-package <spec>]";
 const usage = (u: string): CommandResult => ({ code: 2, lines: [`usage: gov ${u}`] });
 
-export function checkCommand(positionals: readonly string[], flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg: CheckVerbConfig): CommandResult {
+export function checkCommand(positionals: readonly string[], flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg0: CheckVerbConfig): CommandResult {
+  const pkg = flagStr(flags, "gov-package");
+  const cfg: CheckVerbConfig = pkg ? { ...cfg0, govPackage: pkg } : cfg0;
   const sub = positionals[0];
   if (sub === "run") return checkRun(positionals[1], flags, deps, cfg);
   if (sub === "install") return checkInstall(flags, deps, cfg);
@@ -268,6 +276,7 @@ export function renderForRepo(isGov: boolean, loaded: RuleSetLoad, cfg: CheckVer
   }
   const files = githubActionsRenderer({
     defaultBranch: isGov ? cfg.defaultBranch : cfg.defaultCodeBranch,
+    ...(cfg.govPackage ? { govPackage: cfg.govPackage } : {}),
     ...(isGov ? {} : { govCheckout: { repository: govRepo } }),
   }).render(bindings);
   return { ok: true, files, bindings };

@@ -124,6 +124,16 @@ describe("gov check install --all", () => {
     expect(r.text).to.not.contain("gov merge");
   });
 
+  it("--gov-package puts the commit under test on the runners — every repo's workflow installs it, not the published gov", () => {
+    const w = world({ branches: { [GOV]: "BRNCH-7-billing", [BILLING]: "BRNCH-7-billing", [LEDGER]: "BRNCH-7-billing" } });
+    const r = install(w, { "gov-package": "https://example.test/gov-1.2.3-abc1234.tgz" });
+    expect(r.code, r.text).to.equal(0);
+    for (const repo of [GOV, BILLING, LEDGER]) {
+      expect(w.disk[`${repo}/${WF}`]).to.contain("npm install -g https://example.test/gov-1.2.3-abc1234.tgz");
+      expect(w.disk[`${repo}/${WF}`]).to.not.contain("npm install -g @svayam-opensource/gov");
+    }
+  });
+
   it("idempotent: identical bytes are reported unchanged and not rewritten", () => {
     const w = world({ branches: { [GOV]: "BRNCH-7-billing", [BILLING]: "BRNCH-7-billing", [LEDGER]: "BRNCH-7-billing" } });
     install(w);
