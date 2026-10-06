@@ -61,8 +61,8 @@ upgrade.
 | Treatment | Meaning | Examples |
 |---|---|---|
 | framework-owned | overwritten, every upgrade | `governance/`, `agent/` |
-| yours after the first install | never touched again | `README.md` (this file), `.github/workflows/gov-validate.yml`, `org-config.yaml (authorized_agents)` |
-| merged | new keys added, your values kept | `org-config.yaml` |
+| yours after the first install | never touched again | `README.md` (this file), `.github/workflows/gov-validate.yml`, `org-config.yaml`, `policies/governance.yaml` |
+| framework-owned shape | the list of keys `org-config.yaml` may hold, checked by `gov doctor` | `framework/config/org-config.schema.yaml` |
 | never shipped | generated from the two above | `CODEOWNERS` |
 
 So this file is yours. Rewrite it for your organization — the section above is a starting point,

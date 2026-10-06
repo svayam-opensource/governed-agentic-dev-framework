@@ -159,7 +159,7 @@
   end: null
 
 - id: GOV-FRM-113
-  source: { doc: framework/docs/specs/framework-specification.md, section: "6.2", sha: "75dad7f" }
+  source: { doc: framework/docs/specs/framework-specification.md, section: "6.2", sha: "9d20fde" }
   expectation: "The agent completes the six session-start steps and posts a context manifest before its first edit, commit, branch or task."
   actor: [agent]
   level: C01
@@ -168,7 +168,7 @@
   end: null
 
 - id: GOV-FRM-114
-  source: { doc: framework/docs/specs/framework-specification.md, section: "6.2", sha: "75dad7f" }
+  source: { doc: framework/docs/specs/framework-specification.md, section: "6.2", sha: "9d20fde" }
   expectation: "The agent confirms, before any work, that it has write access to the project's board and, on a task sub-branch, that the sub-branch is assigned to it, and stops without committing when it cannot confirm either."
   actor: [agent]
   level: C01
@@ -177,7 +177,7 @@
   end: null
 
 - id: GOV-FRM-115
-  source: { doc: framework/docs/specs/framework-specification.md, section: "6.2", sha: "75dad7f" }
+  source: { doc: framework/docs/specs/framework-specification.md, section: "6.2", sha: "9d20fde" }
   expectation: "The agent refuses work and tells the human when the project's board is not open."
   actor: [agent]
   level: C01
@@ -194,7 +194,7 @@
 
 # W2-Q1: C01
 - id: GOV-FRM-117
-  source: { doc: framework/docs/specs/framework-specification.md, section: "6.2", sha: "75dad7f" }
+  source: { doc: framework/docs/specs/framework-specification.md, section: "6.2", sha: "9d20fde" }
   expectation: "The agent pulls the latest project branch in every participating repository before starting work."
   actor: [agent]
   level: C01
@@ -354,7 +354,7 @@
 
 # new promise
 - id: GOV-FRM-445
-  source: { doc: framework/docs/specs/framework-specification.md, section: "1.2", sha: "bbd6dea" }
+  source: { doc: framework/docs/specs/framework-specification.md, section: "1.2", sha: "e32ca82" }
   expectation: "gov seeds each file under policies/ once and never overwrites it afterwards."
   actor: [gov-client]
   level: C01
@@ -367,7 +367,7 @@
 
 # §1.6 of the old policy
 - id: GOV-FRM-446
-  source: { doc: framework/docs/specs/framework-specification.md, section: "1.4", sha: "77408e1" }
+  source: { doc: framework/docs/specs/framework-specification.md, section: "1.4", sha: "4901670" }
   expectation: "gov runs every command that launches no agent when authorized_agents is none, and gov doctor reports the workspace as structure-only."
   actor: [gov-client]
   level: C01
@@ -419,7 +419,7 @@
 
 # W2-Q6
 - id: GOV-FRM-450
-  source: { doc: framework/docs/specs/framework-specification.md, section: "11.1", sha: "889a5d1" }
+  source: { doc: framework/docs/specs/framework-specification.md, section: "11.1", sha: "7a1beff" }
   expectation: "gov setup records governance_posture as soft unless the Policy Owner confirms hard after being told that hard needs public repositories or a paid GitHub plan."
   actor: [gov-client]
   level: C01
@@ -506,7 +506,7 @@
 
 # §9.7 of the old policy
 - id: GOV-FRM-461
-  source: { doc: framework/docs/specs/framework-specification.md, section: "6.1", sha: "fb5b7bc" }
+  source: { doc: framework/docs/specs/framework-specification.md, section: "6.1", sha: "2f17332" }
   expectation: "gov work launches only an agent listed in authorized_agents."
   actor: [gov-client]
   level: C01
