@@ -145,6 +145,15 @@ describe("check engine slice 2 — sections and their shas", () => {
     expect(changedSections(null, "## 1 A\n\nx\n")).to.deep.equal(["1"]);
     expect(changedSections("## 1 A\n\nx\n", null)).to.deep.equal(["1"]);
   });
+  it("a section CUTS AT THE NEXT NUMBERED HEADING: an edit to §3.1 does not change §3's sha", () => {
+    const v2 = V1.replace("Only listed.", "Only the listed ones.");
+    expect(sectionShas(v2).get("3")).to.equal(sectionShas(V1).get("3"));
+    expect(changedSections(V1, v2)).to.deep.equal(["3.1"]);
+  });
+  it("a numbered heading inside a fenced block is text, not a section", () => {
+    const fenced = "## 1 A\n\n```\n## 2 Not a heading\n```\n\n## 3 C\n\nz\n";
+    expect([...sectionShas(fenced).keys()]).to.deep.equal(["1", "3"]);
+  });
 });
 
 describe("check engine slice 2 — gov-builtin/section-owner-approval", () => {

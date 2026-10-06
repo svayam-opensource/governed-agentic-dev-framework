@@ -4,9 +4,14 @@
  * A POLICY DOCUMENT'S SECTIONS, BY SHA (rule-model-design.md Q9; W2-Q8).
  *
  * A section is a numbered heading (`## 4 Data`, `### 4.2 Retention` — {@link headingSection}) and the text up to
- * the next numbered heading; an unnumbered heading belongs to the section it sits in. Text before the first numbered
- * heading is the preamble, keyed `""`. Each section's sha is {@link clauseSha} of its text — whitespace-normalised,
- * so a reflow is not a change, the same rule the rule rows' `source.sha` follows.
+ * the NEXT NUMBERED HEADING, whatever its level — so §4's text stops where §4.2 starts, and an edit to §4.2 never
+ * marks §4's rows stale. An unnumbered heading belongs to the section it sits in; a line inside a fenced code block
+ * is never a heading. Text before the first numbered heading is the preamble, keyed `""`. Each section's sha is
+ * {@link clauseSha} of its text — whitespace-normalised, so a reflow is not a change.
+ *
+ * THE ONE DEFINITION (integration, 2026-10-06). Propose stamps `source.sha` with it, the policy PR gate checks it,
+ * section-owner-approval finds changed sections with it, and the shipped framework store's test re-hashes with it.
+ * Nothing else hashes a section.
  *
  * Pure.
  */
@@ -24,8 +29,12 @@ export interface PolicySection {
 export function policySections(text: string): PolicySection[] {
   const bodies = new Map<string, string[]>();
   let current = "";
+  let fence: string | null = null; // the marker that opened the fenced block we are in
   for (const line of text.split(/\r?\n/)) {
-    const n = headingSection(line);
+    const m = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+    if (m && fence === null) fence = m[1]!;
+    else if (m && m[1]![0] === fence?.[0] && m[1]!.length >= fence.length) fence = null;
+    const n = fence !== null || m ? null : headingSection(line);
     if (n !== null) current = n;
     const list = bodies.get(current) ?? [];
     list.push(line);

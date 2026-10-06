@@ -132,6 +132,14 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
       expect(judge(memTree(baseFiles()), memTree(files)).findings.map((x) => x.message)).to.include(
         "GOV-SVM-002: policies/org-policy.md §3.2 no longer exists; run gov rules propose");
     });
+    it("a row cited at §3 stays fresh when only §3.1 changed — sections cut at the next numbered heading", () => {
+      const files = baseFiles();
+      files["policies/rules.yaml"] = dump([...BASE_ROWS, row("GOV-SVM-004", "3", POLICY)]);
+      const base = memTree({ ...files });
+      files[DOC] = POLICY.replace("only approved technologies.", "only listed technologies.");
+      const msgs = judge(base, memTree(files)).findings.filter((x) => x.check === "sha").map((x) => x.message);
+      expect(msgs).to.deep.equal(["GOV-SVM-001: policies/org-policy.md §3.1 changed; run gov rules propose"]);
+    });
     it("passes when every row in force is fresh", () => {
       const { base, head } = goodPr();
       expect(checksOf(judge(base, head))).to.not.include("sha");

@@ -14,31 +14,12 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { loadRuleStores, RULE_STORE_PATHS } from "../../src/rules/model/store-io.js";
 import { inForce, parseRuleStore } from "../../src/rules/model/rule-row.js";
-import { clauseSha } from "../../src/rules/cue-block.js";
+import { sectionShas } from "../../src/rules/checks/sections.js";
 import type { GitRead } from "../../src/cli/policy-gate-io.js";
 
 const CONTENT = path.join(import.meta.dirname, "..", "..", "..", "..", "content");
 const SPEC_DOC = "framework/docs/specs/framework-specification.md";
 const read = (rel: string): string => readFileSync(path.join(CONTENT, rel), "utf8");
-
-/**
- * The text of one numbered section (`### 6.2 …` or `## 6. …`): its heading line up to the next heading at its own
- * level or above. Fence-aware, so a `#` inside a code block is not a heading.
- */
-export function sectionText(markdown: string, section: string): string | null {
-  const lines = markdown.split("\n");
-  let start = -1, depth = 0, inFence = false;
-  const out: string[] = [];
-  for (const line of lines) {
-    if (/^```/.test(line)) inFence = !inFence;
-    const h = inFence ? null : /^(#{2,6})\s+(\d+(?:\.\d+)*)\.?\s/.exec(line);
-    const any = inFence ? null : /^(#{1,6})\s/.exec(line);
-    if (start >= 0 && any && any[1].length <= depth) break;
-    if (start < 0 && h && h[2] === section) { start = 1; depth = h[1].length; }
-    if (start >= 0) out.push(line);
-  }
-  return start >= 0 ? out.join("\n").trim() : null;
-}
 
 /** The repository at one ref, as `git ls-tree` / `git show` see it. */
 function gitOver(files: Record<string, string>): GitRead {
@@ -69,12 +50,14 @@ describe("framework rules — the shipped store", () => {
     expect(r.set.framework.length).to.be.greaterThan(40);
   });
 
+  // The ONE section definition propose stamps with and the policy PR gate checks (checks/sections.ts): a section
+  // runs to the next NUMBERED heading, so §4.2's text is not part of §4's and an edit to §4.2 leaves §4's rows alone.
   it("every row cites a section of framework-specification.md, at the sha of its current text", () => {
+    const shas = sectionShas(spec);
     const stale = rows.flatMap((r) => {
       if (r.source.doc !== SPEC_DOC) return [`${r.id}: source is ${r.source.doc}`];
-      const s = sectionText(spec, r.source.section);
-      if (s === null) return [`${r.id}: no section ${r.source.section}`];
-      const sha = clauseSha(s);
+      const sha = shas.get(r.source.section);
+      if (sha === undefined) return [`${r.id}: no section ${r.source.section}`];
       return sha === r.source.sha ? [] : [`${r.id}: §${r.source.section} is ${sha}, row says ${r.source.sha}`];
     });
     expect(stale).to.deep.equal([]);
@@ -99,18 +82,5 @@ describe("framework rules — the shipped store", () => {
 
   it("the specification's prose carries no GOV ids, levels-as-ids or POL numbers (ids live in rows)", () => {
     expect(spec.match(/\b(GOV|POL)-[A-Z0-9]+-?\d*/g) ?? []).to.deep.equal([]);
-  });
-});
-
-describe("sectionText", () => {
-  const md = "## 1. One\n\n### 1.1 A\n\na\n\n```\n# not a heading\n```\n\n### 1.2 B\n\nb\n\n## 2. Two\n";
-  it("cuts a subsection at the next heading of its level, ignoring fenced lines", () => {
-    expect(sectionText(md, "1.1")).to.equal("### 1.1 A\n\na\n\n```\n# not a heading\n```");
-  });
-  it("a chapter runs to the next chapter", () => {
-    expect(sectionText(md, "1")?.endsWith("b")).to.equal(true);
-  });
-  it("an absent section is null", () => {
-    expect(sectionText(md, "9.9")).to.equal(null);
   });
 });
