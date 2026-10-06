@@ -360,7 +360,20 @@ describe("gov check install", () => {
     expect(wf).to.contain("--resource vcs.code-repo").and.not.contain("vcs.gov-repo");
     expect(wf).to.contain("repository: acme/acme-gov").and.contain("--gov-home .gov --repo-dir .");
     expect(wf).to.contain('"dev"');
-    expect(r.lines.join("\n")).to.contain("GOV_REPO_TOKEN");
+    const text = r.lines.join("\n");
+    expect(wf).to.contain("actions/create-github-app-token@").and.not.contain("GOV_REPO_TOKEN");
+    expect(text).to.not.contain("GOV_REPO_TOKEN");
+    // The one-time App setup the org needs, said where the person installing the workflow will read it.
+    expect(text).to.contain("GitHub App").and.contain("Contents: Read-only").and.contain("acme/acme-gov");
+    expect(text).to.contain("Install it on the acme organization");
+    expect(text).to.contain("GOV_APP_ID").and.contain("GOV_APP_PRIVATE_KEY");
+  });
+
+  it("the governance repo itself: no App setup is printed — its workflow uses GITHUB_TOKEN", () => {
+    const written: Record<string, string> = {};
+    const text = checkCommand(["install"], {}, mk(written), CFG).lines.join("\n");
+    expect(text).to.not.contain("GOV_APP_ID");
+    expect(written["/gov/.github/workflows/gov-checks.yml"]).to.not.contain("create-github-app-token");
   });
 
   it("hard posture prints the protect step, the required checks and the force-push ruleset — and calls nothing", () => {

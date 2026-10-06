@@ -36,7 +36,7 @@ import { buildPayload } from "../rules/checks/event-payload.js";
 import { githubViolationPorts, requestReviews, type Gh } from "../rules/checks/github-adapters.js";
 import { recordViolation } from "../rules/checks/violation.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
-import { githubActionsRenderer } from "../rules/checks/render-github.js";
+import { githubActionsRenderer, GOV_APP_SECRETS } from "../rules/checks/render-github.js";
 import { humanGateMessage } from "../rules/cues/human-message.js";
 
 export interface CheckVerbDeps {
@@ -149,6 +149,25 @@ function checkRun(id: string | undefined, flags: Readonly<Record<string, string 
   return { code: 1, lines: [...lines, ...say(), `${id}: refused (exit 1).`] };
 }
 
+/**
+ * The one-time setup a code repository's workflow needs before it can read the governance repository: a GitHub App
+ * on the org (Policy Owner, 2026-10-06 — no personal token, no stopgap). Printed, never done: gov does not create
+ * apps or set secrets from here.
+ */
+export function githubAppSetup(org: string, govRepo: string): string[] {
+  const { appId, privateKey } = GOV_APP_SECRETS;
+  return [
+    `One-time, for the whole ${org} organization (skip it if it is already done): this workflow reads ${govRepo}`,
+    "through a GitHub App, which mints a short-lived, read-only token on every run. GitHub Apps are free on every plan.",
+    `  1. Create a GitHub App owned by ${org} (Organization settings → Developer settings → GitHub Apps → New).`,
+    "     No webhook. Repository permissions: Contents: Read-only, and nothing else.",
+    `  2. Install it on the ${org} organization, on the repository ${govRepo} only.`,
+    `  3. Store its App ID and a private key as organization Actions secrets, available to the code repositories:`,
+    `       gh secret set ${appId} --org ${org} --visibility all --body <app id>`,
+    `       gh secret set ${privateKey} --org ${org} --visibility all < <private-key>.pem`,
+  ];
+}
+
 /** Which resources a repository's workflow serves. */
 const GOV_REPO_RESOURCES = ["vcs.gov-repo", "pms.issue"];
 const CODE_REPO_RESOURCES = ["vcs.code-repo"];
@@ -188,7 +207,7 @@ function checkInstall(flags: Readonly<Record<string, string | boolean>>, deps: C
     `  ${bindings.length} binding(s) from ${ref}: ${jobs.join(", ")}`,
     "  NOT committed and NOT pushed — review it, then land it by pull request like any other change.",
   );
-  if (!isGov) lines.push(`  The workflow checks out ${govRepo} with the secret GOV_REPO_TOKEN — add a token that can read it.`);
+  if (!isGov) lines.push("", ...githubAppSetup(cfg.githubOrg, govRepo));
 
   if (cfg.posture === "hard") {
     const repo = isGov ? govRepo : `${cfg.githubOrg}/${path.basename(target)}`;
