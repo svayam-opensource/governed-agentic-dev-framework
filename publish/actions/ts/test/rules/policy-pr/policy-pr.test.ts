@@ -16,6 +16,8 @@ import { parseRuleStore, type RuleRow } from "../../../src/rules/model/rule-row.
 import { applyVerdicts } from "../../../src/rules/model/revise.js";
 import { createIdIssuer } from "../../../src/rules/model/store-io.js";
 import { runBuiltin } from "../../../src/rules/checks/builtin.js";
+import { createCheckRunner } from "../../../src/rules/checks/runner.js";
+import type { RuleSet } from "../../../src/rules/model/contracts.js";
 
 const DOC = "policies/org-policy.md";
 const TODAY = "2026-10-06";
@@ -132,6 +134,14 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
       expect(judge(memTree(baseFiles()), memTree(files)).findings.map((x) => x.message)).to.include(
         "GOV-SVM-002: policies/org-policy.md §3.2 no longer exists; run gov rules propose");
     });
+    it("a row cited at §3 stays fresh when only §3.1 changed — sections cut at the next numbered heading", () => {
+      const files = baseFiles();
+      files["policies/rules.yaml"] = dump([...BASE_ROWS, row("GOV-SVM-004", "3", POLICY)]);
+      const base = memTree({ ...files });
+      files[DOC] = POLICY.replace("only approved technologies.", "only listed technologies.");
+      const msgs = judge(base, memTree(files)).findings.filter((x) => x.check === "sha").map((x) => x.message);
+      expect(msgs).to.deep.equal(["GOV-SVM-001: policies/org-policy.md §3.1 changed; run gov rules propose"]);
+    });
     it("passes when every row in force is fresh", () => {
       const { base, head } = goodPr();
       expect(checksOf(judge(base, head))).to.not.include("sha");
@@ -189,6 +199,99 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
       rows.push({ ...row("GOV-SVM-003", "3.2", POLICY), start: { version: "1.5.0", date: TODAY, pr: PR } });
       files["policies/rules.yaml"] = dump(rows);
       expect(judge(base, head).findings.map((x) => x.message)).to.include("GOV-SVM-003 was retired before this change; a retired id is never reused — gov issues a new one");
+    });
+  });
+
+  describe("(d) a sha refresh — the ONE in-place edit (Q17: keep, intent unchanged, only the sha updated)", () => {
+    /** Base + a reflowed-meaning prose edit to §3.2 whose rule is KEPT: its row's source.sha is refreshed in place. */
+    function refreshPr(): { base: TreeReader; head: ReturnType<typeof memTree>; files: Record<string, string> } {
+      const base = memTree(baseFiles());
+      const files = baseFiles();
+      const head = memTree(files);
+      const prose = POLICY.replace("Nobody commits a secret.", "Nobody ever commits a secret.");
+      files[DOC] = prose;
+      const applied = applyVerdicts(BASE_ROWS, [{ kind: "keep", id: "GOV-SVM-002", sha: sha(prose, "3.2") }],
+        { version: "0.0.0", date: "1999-01-01" }, createIdIssuer(BASE_ROWS.map((r) => r.id)), "SVM");
+      if (!applied.ok) throw new Error(applied.problems.join("; "));
+      files["policies/rules.yaml"] = dump(applied.rows);
+      const w = policyPrWriter({ base, head });
+      const plan = planPolicyPr(base, head);
+      if ("unreadable" in plan) throw new Error(plan.unreadable);
+      const { version } = w.bumpVersion(plan.required === "none" ? "patch" : plan.required);
+      w.writeSnapshot(plan.baseVersion);
+      w.stampRows(version, TODAY, PR);
+      w.writeChangelogEntry(ENTRY(version, []));
+      return { base, head, files };
+    }
+
+    it("passes, and is a PATCH: no rule was added, revised or retired", () => {
+      const { base, head } = refreshPr();
+      const j = judge(base, head);
+      expect(j.findings).to.deep.equal([]);
+      expect(j).to.deep.include({ verdict: "pass", required: "patch", headVersion: "1.4.1" });
+      expect(j.changes).to.deep.include({ added: [], revised: [], retired: [], rowsChanged: false, refreshed: ["GOV-SVM-002"] });
+    });
+
+    it("the writers leave a refreshed row's start alone — it is the same row", () => {
+      const { files } = refreshPr();
+      const r = parseRuleStore(files["policies/rules.yaml"]!).find((x) => x.id === "GOV-SVM-002")!;
+      expect(r.start).to.deep.equal(BASE_ROWS[1]!.start);
+      expect(r.source.sha).to.not.equal(BASE_ROWS[1]!.source.sha);
+    });
+
+    it("a minor bump is refused for a refresh alone", () => {
+      const { base, head, files } = refreshPr();
+      files["policies/VERSION"] = "1.5.0\n";
+      expect(checksOf(judge(base, head))).to.include("version");
+    });
+
+    for (const [what, edit] of [
+      ["the sha and the expectation", (r: RuleRow) => ({ ...r, expectation: "Changed." })],
+      ["the sha and the section", (r: RuleRow) => ({ ...r, source: { ...r.source, section: "3.1" } })],
+      ["the sha and the start", (r: RuleRow) => ({ ...r, start: { ...r.start, pr: 81 } })],
+      ["the sha and the level", (r: RuleRow) => ({ ...r, level: "C01" as const })],
+    ] as const) {
+      it(`refuses ${what} changed in place`, () => {
+        const { base, head, files } = refreshPr();
+        files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-002" ? edit(r) : r)));
+        expect(checksOf(judge(base, head))).to.include("append-only");
+      });
+    }
+
+    it("refuses a sha refresh on a CLOSED row — history is never rewritten", () => {
+      const { base, head, files } = refreshPr();
+      files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-003" ? { ...r, source: { ...r.source, sha: "0000000" } } : r)));
+      expect(judge(base, head).findings.map((x) => x.message)).to.include("GOV-SVM-003 (from 1.0.0) is already closed and was edited — history is never rewritten");
+    });
+  });
+
+  describe("(e) an ownership change is MINOR; an ownership sha refresh is a patch (Policy Owner, 2026-10-06)", () => {
+    const OWN = "policies/ownership.yaml";
+    const ROW = (over = "") => `- { doc: ${DOC}, section: "3", role: Data Owner, sha: "${sha(POLICY, "3")}"${over} }\n`;
+    const plan = (baseOwn: string | null, headOwn: string | null) => {
+      const b = baseFiles(), h = baseFiles();
+      if (baseOwn !== null) b[OWN] = baseOwn;
+      if (headOwn !== null) h[OWN] = headOwn;
+      const p = planPolicyPr(memTree(b), memTree(h));
+      if ("unreadable" in p) throw new Error(p.unreadable);
+      return p;
+    };
+    it("a row added, removed, or re-pointed → minor", () => {
+      expect(plan(null, ROW()).required).to.equal("minor");
+      expect(plan("[]\n", ROW()).required).to.equal("minor");
+      expect(plan(ROW(), "[]\n").required).to.equal("minor");
+      expect(plan(ROW(), ROW().replace("Data Owner", "Engineering Owner")).required).to.equal("minor");
+      expect(plan(ROW(), ROW().replace('section: "3"', 'section: "3.1"')).required).to.equal("minor");
+      expect(plan(ROW(), ROW()).ownershipChanged).to.equal(false);
+    });
+    it("only a row's sha moved → patch", () => {
+      const p = plan(ROW(), ROW().replace(/sha: "[0-9a-f]+"/, 'sha: "9999999"'));
+      expect(p).to.deep.include({ required: "patch", ownershipChanged: false });
+    });
+    it("an ownership file that does not parse is unreadable — never guessed at", () => {
+      const h = baseFiles();
+      h[OWN] = "{ not: a list";
+      expect("unreadable" in planPolicyPr(memTree(baseFiles()), memTree(h))).to.equal(true);
     });
   });
 
@@ -460,5 +563,26 @@ describe("gov-builtin/policy-pr-gate — the dispatch", () => {
     expect(g("", ["ls-tree", "-r", "--name-only", "HEAD", "--", "a", "c.md"])).to.equal("a/b.md\nc.md");
     expect(g("", ["show", "HEAD:a/b.md"])).to.equal("x");
     expect(g("", ["rev-parse"])).to.equal(null);
+  });
+});
+
+describe("gov-builtin/policy-pr-gate — through the check runner", () => {
+  const rule: RuleRow = {
+    id: "GOV-FRM-467", source: { doc: "framework/docs/specs/framework-specification.md", section: "9.2", sha: "x" },
+    expectation: "A change to the organization's policy carries its rules, version, snapshot and changelog.", actor: ["gov-client"], level: "C01",
+    checks: [{ on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/policy-pr-gate", on_miss: "fail" }],
+    start: { version: "1.2.3", date: "2026-10-06" }, end: null,
+  };
+  const rules: RuleSet = {
+    framework: [rule], org: [], orgScope: "SVM", orgVersion: "1.4.0",
+    catalog: { resources: [{ id: "vcs.gov-repo", renderer: "github-actions", events: [{ name: "pull_request", mode: "gate" }] }], tools: [{ id: "gov-builtin" }], actions: [{ id: "gov-builtin/policy-pr-gate", tool: "gov-builtin" }] },
+  };
+  const ctx = { resource: "vcs.gov-repo", event: "pull_request", payload: {} };
+
+  it("the runner hands its policyPr to the action: given → judged; absent → cannot-tell", () => {
+    const { base, head } = goodPr();
+    expect(createCheckRunner({ rules, readDefault: () => null, policyPr: { base, head, pr: PR, today: TODAY } }).run("GOV-FRM-467", ctx).verdict).to.equal("pass");
+    expect(createCheckRunner({ rules, readDefault: () => null, policyPr: { base, head, pr: PR, today: "2026-10-07" } }).run("GOV-FRM-467", ctx).verdict).to.equal("fail");
+    expect(createCheckRunner({ rules, readDefault: () => null }).run("GOV-FRM-467", ctx).verdict).to.equal("cannot-tell");
   });
 });

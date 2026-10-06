@@ -13,14 +13,14 @@
  * not parsed yet: a section owned by such a role reads as vacant, and section-owner-approval routes it to the
  * Policy Owner — the documented fallback, never a pass.
  */
-import yaml from "js-yaml";
 import { readTopLevelScalar } from "../../resolve/node-env.js";
 import type { GitRead } from "../../cli/policy-gate-io.js";
 import { loadRuleStores, RULE_STORE_PATHS } from "../model/store-io.js";
 import type { RuleSet, SectionOwnership } from "../model/contracts.js";
 import { CHECK_OWNER, POLICY_OWNER } from "./policy-actions.js";
+import { OWNERSHIP_PATH, parseOwnership } from "./ownership.js";
 
-export const OWNERSHIP_PATH = "policies/ownership.yaml";
+export { OWNERSHIP_PATH };
 
 /** The default branch as this checkout has it: `origin/<b>` when fetched (CI), else `<b>`. */
 export function defaultRef(git: GitRead, repo: string, branch: string): string {
@@ -46,17 +46,9 @@ export function loadCheckRuleSet(git: GitRead, repo: string, ref: string): Check
   if (listed) {
     const text = git(repo, ["show", `${ref}:${OWNERSHIP_PATH}`]);
     if (text === null) return { ok: false, reason: `${OWNERSHIP_PATH} is at ${ref} but git could not read it` };
-    let doc: unknown;
-    try {
-      doc = yaml.load(text, { schema: yaml.JSON_SCHEMA }) ?? [];
-    } catch (e) {
-      return { ok: false, reason: `${OWNERSHIP_PATH} at ${ref} does not parse: ${(e as Error).message}` };
-    }
-    if (!Array.isArray(doc)) return { ok: false, reason: `${OWNERSHIP_PATH} at ${ref} is not a list` };
-    ownership = doc
-      .filter((o): o is Record<string, unknown> => !!o && typeof o === "object")
-      .map((o) => ({ doc: String(o.doc ?? ""), section: String(o.section ?? ""), role: String(o.role ?? "") }))
-      .filter((o) => o.doc && o.section && o.role);
+    const parsed = parseOwnership(text);
+    if ("error" in parsed) return { ok: false, reason: `${OWNERSHIP_PATH} at ${ref} ${parsed.error}` };
+    ownership = parsed;
   }
   return { ok: true, set: { ...r.set, ownership, roles } };
 }

@@ -327,6 +327,58 @@ describe("check engine — GitHub Actions renderer", () => {
     expect(r.render([b("GOV-SVM-042", "pms.issue", "transferred_to_mars")])).to.deep.equal([]);
   });
 
+  it("a CODE repo's workflow reads the governance repo through the org's GitHub App — no personal token, no stopgap", () => {
+    const files = githubActionsRenderer({ govCheckout: { repository: "acme/acme-gov" } }).render([b("GOV-FRM-061", "vcs.code-repo", "pull_request")]);
+    expect(files[0]!.text).to.equal(`${HEADER}
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  GOV-FRM-061_pull_request:
+    name: GOV-FRM-061 · pull_request
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Mint a read-only token for the governance repository
+        id: gov-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: \${{ secrets.GOV_APP_CLIENT_ID }}
+          private-key: \${{ secrets.GOV_APP_PRIVATE_KEY }}
+          owner: acme
+          repositories: acme-gov
+          permission-contents: read
+      - uses: actions/checkout@v4
+        with:
+          repository: acme/acme-gov
+          path: .gov
+          fetch-depth: 0
+          token: \${{ steps.gov-token.outputs.token }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install the gov CLI
+        run: npm install -g @svayam-opensource/gov
+      - name: gov check run GOV-FRM-061
+        run: gov check run GOV-FRM-061 --resource vcs.code-repo --event pull_request --gov-home .gov --repo-dir .
+`);
+    expect(files[0]!.text).to.not.contain("GOV_REPO_TOKEN").and.not.contain("app-id:");
+  });
+
+  it("the governance repo's own workflow mints nothing — GITHUB_TOKEN already reads the repository it runs in", () => {
+    const text = githubActionsRenderer().render([b("GOV-FRM-061", "vcs.gov-repo", "push")])[0]!.text;
+    expect(text).to.not.contain("create-github-app-token").and.not.contain("secrets.");
+    expect(text).to.contain("GH_TOKEN: ${{ github.token }}");
+  });
+
   it("a pinned gov package is honoured", () => {
     const files = githubActionsRenderer({ govPackage: "@svayam-opensource/gov@1.2.3" }).render([b("GOV-SVM-001", "vcs.code-repo", "push")]);
     expect(files[0]!.text).to.contain("npm install -g @svayam-opensource/gov@1.2.3\n");

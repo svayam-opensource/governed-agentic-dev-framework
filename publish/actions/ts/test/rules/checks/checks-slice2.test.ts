@@ -16,7 +16,7 @@ import { lintCatalog, validateParams } from "../../../src/rules/checks/params.js
 import { runBuiltin } from "../../../src/rules/checks/builtin.js";
 import { createCheckRunner } from "../../../src/rules/checks/runner.js";
 import { landedByPr, githubPullsForCommit, type PullRef } from "../../../src/rules/checks/gh-actions.js";
-import { sectionShas, changedSections } from "../../../src/rules/checks/sections.js";
+import { sectionShas, changedSections, policySections } from "../../../src/rules/checks/sections.js";
 import { violationFor, recordViolation, type ViolationIssue } from "../../../src/rules/checks/violation.js";
 import { renderWorkflow } from "../../../src/rules/checks/render-github.js";
 import type { ChangedFile } from "../../../src/rules/diff-check.js";
@@ -145,13 +145,32 @@ describe("check engine slice 2 — sections and their shas", () => {
     expect(changedSections(null, "## 1 A\n\nx\n")).to.deep.equal(["1"]);
     expect(changedSections("## 1 A\n\nx\n", null)).to.deep.equal(["1"]);
   });
+  it("a section CUTS AT THE NEXT NUMBERED HEADING: an edit to §3.1 does not change §3's sha", () => {
+    const v2 = V1.replace("Only listed.", "Only the listed ones.");
+    expect(sectionShas(v2).get("3")).to.equal(sectionShas(V1).get("3"));
+    expect(changedSections(V1, v2)).to.deep.equal(["3.1"]);
+  });
+  it("ANY heading at the same or a higher level ends a section, numbered or not: a glossary is not §12.3", () => {
+    const md = "## 12 Records\n\n### 12.3 Logging\n\nOne utility.\n\n#### Why\n\nBecause.\n\n## Glossary\n\nTerm: meaning.\n";
+    const s = policySections(md);
+    expect(s.find((x) => x.section === "12.3")!.text).to.include("#### Why").and.include("Because.").and.not.include("Glossary");
+    const edited = md.replace("Term: meaning.", "Term: another meaning.");
+    expect(changedSections(md, edited), "a glossary edit is text outside every numbered section").to.deep.equal([""]);
+    expect(sectionShas(edited).get("12.3")).to.equal(sectionShas(md).get("12.3"));
+  });
+  it("a numbered heading inside a fenced block is text, not a section", () => {
+    const fenced = "## 1 A\n\n```\n## 2 Not a heading\n```\n\n## 3 C\n\nz\n";
+    expect([...sectionShas(fenced).keys()]).to.deep.equal(["1", "3"]);
+  });
 });
 
 describe("check engine slice 2 — gov-builtin/section-owner-approval", () => {
   const DOC = "policies/org-policy.md";
   const BASE = "## 3 Technology\n\nUse approved tech.\n\n### 3.1 Libraries\n\nOnly listed.\n\n## 4 Data\n\nKeep it safe.\n\n## 6 Other\n\nx\n";
-  const ownership = [{ doc: DOC, section: "4", role: "Data Owner" }, { doc: DOC, section: "3", role: "Engineering Owner" }];
+  const ownership = [{ doc: DOC, section: "4", role: "Data Owner", sha: "0000004" }, { doc: DOC, section: "3", role: "Engineering Owner", sha: "0000003" }];
   const rules = ruleset([], { ownership });
+  const OWN = "policies/ownership.yaml";
+  const OWN_BASE = '- { doc: policies/org-policy.md, section: "4", role: Data Owner, sha: "0000004" }\n';
   const pr = (changed: ChangedFile[], extra: Record<string, unknown> = {}): EventContext =>
     ({ resource: "vcs.gov-repo", event: "pull_request", payload: { changed, baseTexts: { [DOC]: BASE }, ...extra } as EventContext["payload"] });
   const run = (ctx: EventContext, rs: RuleSet = rules) =>
@@ -175,9 +194,40 @@ describe("check engine slice 2 — gov-builtin/section-owner-approval", () => {
 
   it("an unowned section, ownership.yaml, and policies/actions/** route to the Policy Owner and Check Owner", () => {
     const head = BASE.replace("x\n", "y\n");
-    const r = run(pr([file(DOC, head), file("policies/ownership.yaml", "[]"), file("policies/actions/lint/run.sh", "echo")], { approvals: [] }));
+    const r = run(pr([file(DOC, head), file(OWN, "[]"), file("policies/actions/lint/run.sh", "echo")], { approvals: [], baseTexts: { [DOC]: BASE, [OWN]: OWN_BASE } }));
     expect(r.requestReview).to.deep.equal(["chuck", "polly"]);
     expect(r.findings.join()).to.contain("§6").and.contain("policies/ownership.yaml").and.contain("policies/actions/lint/run.sh");
+  });
+
+  describe("policies/ownership.yaml: the Policy Owner approves a change to WHO owns WHAT, not a sha refresh", () => {
+    const head = (rows: string) => run(pr([file(OWN, rows)], { approvals: [], baseTexts: { [DOC]: BASE, [OWN]: OWN_BASE } }));
+    it("only a row's sha moved → nobody extra (the section's owner approves its prose)", () => {
+      const r = head(OWN_BASE.replace('sha: "0000004"', 'sha: "9999999"'));
+      expect(r).to.deep.include({ verdict: "pass" });
+    });
+    for (const [what, rows] of [
+      ["a row added", OWN_BASE + '- { doc: policies/org-policy.md, section: "6", role: Data Owner, sha: "0000006" }\n'],
+      ["a row removed", "[]\n"],
+      ["a role changed", OWN_BASE.replace("role: Data Owner", "role: Engineering Owner")],
+      ["a section changed", OWN_BASE.replace('section: "4"', 'section: "4.1"')],
+      ["a doc changed", OWN_BASE.replace("doc: policies/org-policy.md", "doc: policies/other.md")],
+      ["the file no longer parses", "{ not: a list"],
+    ] as const) {
+      it(`${what} → the Policy Owner`, () => {
+        const r = head(rows);
+        expect(r.verdict).to.equal("miss");
+        expect(r.requestReview).to.deep.equal(["polly"]);
+        expect(r.findings.join()).to.contain("policies/ownership.yaml");
+      });
+    }
+    it("the base's ownership.yaml not given → cannot-tell", () => {
+      expect(run(pr([file(OWN, OWN_BASE)], { approvals: [] })).verdict).to.equal("cannot-tell");
+    });
+    it("a new ownership.yaml with rows → the Policy Owner; a new empty one → nobody", () => {
+      const added = (t: string) => run(pr([file(OWN, t, "added")], { approvals: [], baseTexts: { [DOC]: BASE, [OWN]: null } }));
+      expect(added(OWN_BASE).requestReview).to.deep.equal(["polly"]);
+      expect(added("[]\n").verdict).to.equal("pass");
+    });
   });
 
   it("a snapshot under policies/version/** and a non-policy file need nobody", () => {

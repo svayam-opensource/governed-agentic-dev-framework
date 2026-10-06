@@ -28,12 +28,26 @@ export interface GithubRendererOptions {
   /** The repository's default branch, for `$default` push filters. Unknown → those pushes are not filtered. */
   readonly defaultBranch?: string;
   /**
-   * A CODE repository's workflow: the governance repository to check out beside it, because the rules live there
-   * (read at ITS default branch). The token must read that repository — `GITHUB_TOKEN` cannot read another
-   * private repository, so a secret is named. Absent → this IS the governance repository (`--gov-home .`).
+   * A CODE repository's workflow: the governance repository (`owner/name`) to check out beside it, because the rules
+   * live there (read at ITS default branch). Absent → this IS the governance repository (`--gov-home .`), whose own
+   * `GITHUB_TOKEN` reads it.
+   *
+   * GOV-REPO ACCESS IS A GITHUB APP (Policy Owner, 2026-10-06 — no stopgap). `GITHUB_TOKEN` is scoped to the one
+   * repository running the workflow, by design, so a code repo's job mints a short-lived token per run with
+   * {@link CREATE_APP_TOKEN} from the org's App (`GOV_APP_CLIENT_ID`, `GOV_APP_PRIVATE_KEY` org secrets), limited to the
+   * governance repository and to reading its contents. No personal token, no long-lived secret that can write.
    */
-  readonly govCheckout?: { readonly repository: string; readonly tokenSecret?: string };
+  readonly govCheckout?: { readonly repository: string };
 }
+
+/**
+ * `actions/create-github-app-token`, pinned to a full commit sha — a tag can be moved, a sha cannot. v3.2.0 is the
+ * latest release (published 2026-05-12); the sha is its tag's commit, read from GitHub on 2026-10-06. Bump both
+ * together.
+ */
+export const CREATE_APP_TOKEN = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0";
+/** The org Actions secrets the App's token is minted from (`gov check install` prints how to set them). */
+export const GOV_APP_SECRETS = { clientId: "GOV_APP_CLIENT_ID", privateKey: "GOV_APP_PRIVATE_KEY" } as const;
 
 type Binding = { readonly id: string; readonly check: CheckBinding };
 /** The GitHub trigger for a resource · event: the `on:` key, and for `issues` the activity type. */
@@ -167,16 +181,7 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       "      - uses: actions/checkout@v4",
       "        with:",
       "          fetch-depth: 0",
-      ...(opts.govCheckout
-        ? [
-            "      - uses: actions/checkout@v4",
-            "        with:",
-            `          repository: ${opts.govCheckout.repository}`,
-            "          path: .gov",
-            "          fetch-depth: 0",
-            `          token: \${{ secrets.${opts.govCheckout.tokenSecret ?? "GOV_REPO_TOKEN"} }}`,
-          ]
-        : []),
+      ...(opts.govCheckout ? govCheckoutSteps(opts.govCheckout.repository) : []),
       "      - uses: actions/setup-node@v4",
       "        with:",
       '          node-version: "24"',
@@ -189,6 +194,30 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
     );
   }
   return [{ path: WORKFLOW_PATH, text: lines.join("\n") + "\n" }];
+}
+
+/** Mint the App's read-only token for the governance repository, then check that repository out with it. */
+function govCheckoutSteps(repository: string): string[] {
+  const [owner = "", name = ""] = repository.split("/");
+  return [
+    "      - name: Mint a read-only token for the governance repository",
+    "        id: gov-token",
+    `        uses: ${CREATE_APP_TOKEN}`,
+    "        with:",
+    // `client-id`, not `app-id`: v3 deprecates `app-id`, and every run would warn.
+    `          client-id: \${{ secrets.${GOV_APP_SECRETS.clientId} }}`,
+    `          private-key: \${{ secrets.${GOV_APP_SECRETS.privateKey} }}`,
+    `          owner: ${owner}`,
+    `          repositories: ${name}`,
+    "          permission-contents: read",
+    "      - uses: actions/checkout@v4",
+    "        with:",
+    `          repository: ${repository}`,
+    "          path: .gov",
+    "          fetch-depth: 0",
+    "          token: ${{ steps.gov-token.outputs.token }}",
+    "          persist-credentials: false",
+  ];
 }
 
 export function githubActionsRenderer(opts: GithubRendererOptions = {}): BindingRenderer {

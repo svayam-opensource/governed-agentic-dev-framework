@@ -112,7 +112,69 @@ describe("rule model — W4 propose engine", () => {
       { verdicts: [], ownership: [{ section: "4", role: "Data Owner" }], questions: [] },
     ]);
     const r = await runPropose({ docs, set: setWith([], { roles: { "Policy Owner": "po", "Data Owner": "do" } }), model, channel: scripted([]), issuer: createIdIssuer([]), at: AT });
-    expect(r.status === "ready" && r.ownership).to.deep.equal([{ doc: DOC, section: "4", role: "Data Owner" }]);
+    expect(r.status === "ready" && r.ownership).to.deep.equal([{ doc: DOC, section: "4", role: "Data Owner", sha: shaOf(text, "4") }]);
+  });
+
+  describe("ownership carries the sha of the section its SENTENCE is written in", () => {
+    const owned = (sha: string) => ({ doc: DOC, section: "4", role: "Data Owner", sha });
+    const roles = { "Policy Owner": "po", "Data Owner": "do" };
+
+    it("a sentence in §3 granting §4 records §3's sha, not §4's", async () => {
+      const head = POLICY("Everyone uses approved tech. Section 4 is owned by the Data Owner.").replace("Section 4 is owned by the Data Owner.\n", "");
+      const model = fakeModel([
+        { verdicts: [ADD("Everyone uses approved tech.")], ownership: [{ section: "4", role: "Data Owner" }], questions: [] },
+        { verdicts: [], ownership: [], questions: [] },
+      ]);
+      const r = await runPropose({ docs: [{ doc: DOC, head, base: null }], set: setWith([], { roles }), model, channel: scripted([]), issuer: createIdIssuer([]), at: AT });
+      expect(r.status === "ready" && r.ownership).to.deep.equal([owned(shaOf(head, "3"))]);
+    });
+
+    it("the granting sentence deleted → the ownership row is removed, and that is an ownership change (minor)", async () => {
+      const base = POLICY("Tech.");
+      const head = base.replace("Section 4 is owned by the Data Owner.", "Data is kept for a year.");
+      const model = fakeModel([{ verdicts: [], ownership: [], questions: [] }]);
+      const r = await runPropose({ docs: [{ doc: DOC, head, base }], set: setWith([], { roles, ownership: [owned(shaOf(base, "4"))] }), model, channel: scripted([]), issuer: createIdIssuer([]), at: AT });
+      expect(r.status).to.equal("ready");
+      if (r.status !== "ready") return;
+      expect(r.ownership).to.deep.equal([]);
+      expect(r.bump).to.equal("minor");
+    });
+
+    it("the granting section deleted outright → the row is removed without asking the model", async () => {
+      const base = POLICY("Tech.");
+      const head = base.replace(/## 4 Data[\s\S]*$/, "");
+      const set = setWith([row("GOV-SVM-001", { source: { doc: DOC, section: "3", sha: shaOf(head, "3") } })], { roles, ownership: [owned(shaOf(base, "4"))] });
+      const model = fakeModel([]);
+      const r = await runPropose({ docs: [{ doc: DOC, head, base }], set, model, channel: scripted([]), issuer: createIdIssuer([]), at: AT });
+      expect(model.requests).to.have.length(0);
+      expect(r.status === "ready" && r.ownership).to.deep.equal([]);
+    });
+
+    it("the granting section reworded, sentence kept → re-extracted at the new sha; not an ownership change (patch)", async () => {
+      const base = POLICY("Tech.");
+      const head = base.replace("Section 4 is owned by the Data Owner.", "Section 4 is owned by the Data Owner. Data is kept a year.");
+      const model = fakeModel([{ verdicts: [], ownership: [{ section: "4", role: "Data Owner" }], questions: [] }]);
+      const r = await runPropose({ docs: [{ doc: DOC, head, base }], set: setWith([], { roles, ownership: [owned(shaOf(base, "4"))] }), model, channel: scripted([]), issuer: createIdIssuer([]), at: AT });
+      expect(r.status === "ready" && r.ownership).to.deep.equal([owned(shaOf(head, "4"))]);
+      expect(r.status === "ready" && r.bump).to.equal("patch");
+    });
+
+    it("a new ownership row (prose otherwise unchanged in meaning) is an ownership change → minor (the gate plans the same: see policy-pr.test.ts)", async () => {
+      const base = POLICY("Tech.");
+      const head = base.replace("Section 4 is owned by the Data Owner.", "Section 4 is owned by the Data Owner. Section 3 is owned by the Data Owner.");
+      const model = fakeModel([{ verdicts: [], ownership: [{ section: "4", role: "Data Owner" }, { section: "3", role: "Data Owner" }], questions: [] }]);
+      const r = await runPropose({ docs: [{ doc: DOC, head, base }], set: setWith([], { roles, ownership: [owned(shaOf(base, "4"))] }), model, channel: scripted([]), issuer: createIdIssuer([]), at: AT });
+      expect(r.status === "ready" && r.bump).to.equal("minor");
+    });
+
+    it("an unchanged granting section keeps its row as it was", async () => {
+      const base = POLICY("Tech.");
+      const head = POLICY("Tech, reworded.");
+      const set = setWith([row("GOV-SVM-001")], { roles, ownership: [owned(shaOf(base, "4"))] });
+      const model = fakeModel([{ verdicts: [{ kind: "keep", id: "GOV-SVM-001" }], ownership: [], questions: [] }]);
+      const r = await runPropose({ docs: [{ doc: DOC, head, base }], set, model, channel: scripted([]), issuer: createIdIssuer(["GOV-SVM-001"]), at: AT });
+      expect(r.status === "ready" && r.ownership).to.deep.equal([owned(shaOf(base, "4"))]);
+    });
   });
 
   it("an ownership role the org does not have → gov asks which role", async () => {
@@ -210,6 +272,22 @@ describe("rule model — W4 propose engine", () => {
     expect(live.find((x) => x.id === "GOV-SVM-001")!.expectation).to.equal("Rule GOV-SVM-001.");
     expect(validateRuleStore(r.rows, { scope: "SVM" })).to.deep.equal([]);
     expect(r.bump).to.equal("minor");
+  });
+
+  it("a kept rule is refreshed IN PLACE (Q17): one row, its start unchanged — no same-meaning revision", async () => {
+    const head = POLICY("Changed technology prose.");
+    const org = [row("GOV-SVM-001"), row("GOV-SVM-002")];
+    const model = fakeModel([
+      { verdicts: [{ kind: "keep", id: "GOV-SVM-001" }, { kind: "revise", id: "GOV-SVM-002", row: { expectation: "Rule GOV-SVM-002.", actor: ["everyone"], level: "C02" } }], ownership: [], questions: [] },
+      { verdicts: [], ownership: [], questions: [] },
+    ]);
+    const r = await runPropose({ docs: [{ doc: DOC, head, base: POLICY("Old prose.") }], set: setWith(org), model, channel: scripted([]), issuer: createIdIssuer(["GOV-SVM-001", "GOV-SVM-002"]), at: AT });
+    expect(r.status).to.equal("ready");
+    if (r.status !== "ready") return;
+    const sha = shaOf(head, "3");
+    expect(r.rows, "same rows, only the sha moved").to.deep.equal(org.map((x) => ({ ...x, source: { ...x.source, sha } })));
+    expect(r.changelogDraft.rules.map((x) => x.change)).to.deep.equal(["kept", "kept"]);
+    expect(r.bump).to.equal("patch");
   });
 
   it("prose changed, every rule kept → bump patch", async () => {
@@ -374,8 +452,20 @@ describe("rule model — W4 propose engine", () => {
   it("the Proposer contract runs the same engine and returns verdicts without ids on adds", async () => {
     const model = fakeModel([{ verdicts: [{ kind: "keep", id: "GOV-SVM-001" }, ADD("New one.")], ownership: [], questions: [] }]);
     const p = createProposer({ set: setWith([row("GOV-SVM-001")]), model, channel: scripted([]) });
-    const v = await p.propose([{ doc: DOC, section: "3", sha: "abc1234", text: "x", rows: [row("GOV-SVM-001")] }]);
+    const { verdicts: v } = await p.propose([{ doc: DOC, section: "3", sha: "abc1234", text: "x", rows: [row("GOV-SVM-001")] }]);
     expect(v.map((x) => x.kind)).to.deep.equal(["keep", "add"]);
+    expect(v[0], "a keep carries the section's sha, so applyVerdicts can refresh in place").to.deep.equal({ kind: "keep", id: "GOV-SVM-001", sha: "abc1234" });
     expect(v[1]).to.not.have.property("id");
+  });
+
+  it("the Proposer contract returns the ownership and the Q&A too — nothing the interview settled is dropped", async () => {
+    const model = fakeModel([
+      { verdicts: [], ownership: [], questions: [{ id: "q1", kind: "level", text: "C01 or C02?", options: ["C01", "C02"] }] },
+      { verdicts: [ADD("Everyone uses approved tech.")], ownership: [{ section: "4", role: "Data Owner" }], questions: [] },
+    ]);
+    const p = createProposer({ set: setWith([], { roles: { "Policy Owner": "po", "Data Owner": "do" } }), model, channel: scripted(["C02"]) });
+    const out = await p.propose([{ doc: DOC, section: "3", sha: "abc1234", text: "x", rows: [] }]);
+    expect(out.ownership).to.deep.equal([{ doc: DOC, section: "4", role: "Data Owner", sha: "abc1234" }]);
+    expect(out.qa).to.deep.equal([{ section: "3", q: "C01 or C02?", a: "C02" }]);
   });
 });

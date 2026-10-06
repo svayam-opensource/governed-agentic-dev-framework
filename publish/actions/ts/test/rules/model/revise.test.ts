@@ -64,4 +64,18 @@ describe("rule model — W1 revisions", () => {
     const r = applyVerdicts(store, [{ kind: "keep", id: "GOV-SVM-001" }, { kind: "retire", id: "GOV-SVM-001" }], AT, createIdIssuer([]), "SVM");
     expect(r.ok).to.equal(false);
   });
+  it("keep with a new sha refreshes source.sha IN PLACE — same row, same start, no new revision (Q17)", () => {
+    const r = applyVerdicts(store, [{ kind: "keep", id: "GOV-SVM-001", sha: "f00ba12" }], AT, createIdIssuer([]), "SVM");
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(r.rows).to.have.length(3);
+    expect(r.rows[0]).to.deep.equal({ ...store[0]!, source: { ...store[0]!.source, sha: "f00ba12" } });
+    expect(r.issued).to.deep.equal([]);
+    expect(store[0]!.source.sha, "the input is not mutated").to.equal("a1b2c3");
+  });
+
+  it("keep with the row's own sha, or no sha, changes nothing", () => {
+    const r = applyVerdicts(store, [{ kind: "keep", id: "GOV-SVM-001", sha: "a1b2c3" }, { kind: "keep", id: "GOV-SVM-002" }], AT, createIdIssuer([]), "SVM");
+    expect(r.ok && r.rows).to.deep.equal(store);
+  });
 });

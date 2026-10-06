@@ -6,7 +6,9 @@
  *   forbid-forced-push       GOV-FRM-466: no one force-pushes a branch others work on (default `BRNCH-*`).
  *   section-owner-approval   GOV-FRM-086c: a policy change merges only when the owner of every changed section
  *                            approves; unowned sections and ownership changes need the Policy Owner; executable
- *                            actions (`policies/actions/**`) need the Check Owner.
+ *                            actions (`policies/actions/**`) need the Check Owner. An ownership change is a row
+ *                            added, removed, or re-pointed (doc, section, role) — a row's sha refreshed alone is
+ *                            not one: the granting section's owner already approves that prose (ownership.ts).
  *
  * Pure over the event payload (read defensively, see payload.ts) and the injected RuleSet. Anything they needed
  * and did not get is `cannot-tell`.
@@ -15,6 +17,7 @@ import { matchesAny } from "../glob.js";
 import type { EventContext, RuleSet } from "../model/contracts.js";
 import { asList, branchInScope, handleKey, payloadBoolean, payloadString, payloadStrings, payloadTextMap } from "./payload.js";
 import { changedSections, compareSections } from "./sections.js";
+import { OWNERSHIP_PATH, ownershipDiffers, parseOwnership } from "./ownership.js";
 
 export interface ActionOutcome {
   readonly verdict: "pass" | "miss" | "cannot-tell";
@@ -79,7 +82,14 @@ export function sectionOwnerApproval(tag: string, params: Readonly<Record<string
 
   for (const f of changed) {
     if (matchesAny(f.path, ignore)) continue;
-    if (f.path === "policies/ownership.yaml") { require(POLICY_OWNER, "`policies/ownership.yaml` (who owns what)"); continue; }
+    if (f.path === OWNERSHIP_PATH) {
+      if (!baseTexts || !(f.path in baseTexts)) { notes.push(`${tag}: \`${f.path}\` at the base was not given, so whether who-owns-what changed is unknown.`); continue; }
+      if (f.status !== "deleted" && f.text === null) { notes.push(`${tag}: \`${f.path}\` could not be read at the head, so whether who-owns-what changed is unknown.`); continue; }
+      const was = parseOwnership(baseTexts[f.path] ?? "[]"), now = parseOwnership(f.status === "deleted" ? "[]" : f.text ?? "[]");
+      // Unreadable on either side: nobody can tell what it hands to whom, so the Policy Owner looks.
+      if ("error" in was || "error" in now || ownershipDiffers(was, now)) require(POLICY_OWNER, `\`${f.path}\` (who owns what)`);
+      continue;
+    }
     if (matchesAny(f.path, ["policies/actions/**"])) { require(CHECK_OWNER, `\`${f.path}\` (executable action)`); continue; }
     if (!matchesAny(f.path, docs)) continue;
     if (!baseTexts || !(f.path in baseTexts)) { notes.push(`${tag}: \`${f.path}\` at the base was not given, so its changed sections are unknown.`); continue; }
@@ -87,7 +97,7 @@ export function sectionOwnerApproval(tag: string, params: Readonly<Record<string
     if (f.status !== "deleted" && f.text === null) { notes.push(`${tag}: \`${f.path}\` could not be read at the head, so its changed sections are unknown.`); continue; }
     const head = f.status === "deleted" ? null : f.text;
     for (const s of changedSections(base, head)) {
-      require(ownerRole(rules, f.path, s) ?? POLICY_OWNER, s === "" ? `\`${f.path}\` preamble` : `\`${f.path}\` §${s}`);
+      require(ownerRole(rules, f.path, s) ?? POLICY_OWNER, s === "" ? `\`${f.path}\` text outside the numbered sections` : `\`${f.path}\` §${s}`);
     }
   }
 
