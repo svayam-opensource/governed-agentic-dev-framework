@@ -31,6 +31,17 @@ export interface ActionOutcome {
 const cannot = (findings: string[], requestReview?: string[]): ActionOutcome =>
   ({ verdict: "cannot-tell", findings, ...(requestReview ? { requestReview } : {}) });
 
+/**
+ * THE FILES gov WRITES ON A POLICY PR — never a policy section, never an owner's approval (sandbox finding, PRJ-121,
+ * 2026-10-07: `policies/CHANGELOG.md §1.0.1` was asked for an owner's approval as if a version heading were a
+ * clause). `gov rules propose` writes all four; the policy-pr gate (GOV-FRM-467) judges them — rules.yaml's rows,
+ * VERSION's bump, the changelog entry and the frozen snapshot. An organization's own `ignore` list adds to these;
+ * it never replaces them.
+ */
+export const MACHINE_WRITTEN_POLICY_PATHS = [
+  "policies/CHANGELOG.md", "policies/VERSION", "policies/rules.yaml", "policies/version/**",
+] as const;
+
 export const POLICY_OWNER = "Policy Owner";
 export const CHECK_OWNER = "Check Owner";
 
@@ -66,7 +77,7 @@ export function sectionOwnerApproval(tag: string, params: Readonly<Record<string
   if (!Array.isArray(changed)) return cannot([`${tag}: the event carried no changeset, so nothing was checked.`]);
 
   const docs = asList(params.docs).length ? asList(params.docs) : ["policies/**/*.md"];
-  const ignore = asList(params.ignore).length ? asList(params.ignore) : ["policies/version/**"];
+  const ignore = [...MACHINE_WRITTEN_POLICY_PATHS, ...asList(params.ignore)];
   const baseTexts = payloadTextMap(ctx, "baseTexts");
 
   /** handle key → { shown handle, what it must approve } */

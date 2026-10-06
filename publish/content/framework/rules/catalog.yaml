@@ -190,8 +190,9 @@ actions:
   # Bound to `vcs.gov-repo · pull_request` (a gate). A section is changed when its text's sha differs from the
   # base; its owner comes from `policies/ownership.yaml` (most specific section wins), else the Policy Owner.
   # A change to `policies/ownership.yaml` needs the Policy Owner; `policies/actions/**` needs the Check Owner.
-  # `docs` = which files are policy (default `policies/**/*.md`); `ignore` = never judged (default the frozen
-  # snapshots, `policies/version/**`).
+  # `docs` = which files are policy (default `policies/**/*.md`); `ignore` = never judged, ADDED to the files gov
+  # writes itself, which are never judged (policies/CHANGELOG.md, VERSION, rules.yaml, version/** — the policy-pr
+  # gate judges those).
   - id: gov-builtin/section-owner-approval
     tool: gov-builtin
     params:
