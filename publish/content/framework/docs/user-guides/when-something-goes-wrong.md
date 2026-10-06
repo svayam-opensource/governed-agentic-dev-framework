@@ -71,6 +71,20 @@ and why, which is usually the answer.
 result is a repository state nobody can reason about afterwards. Seed a follow-up project instead. The closed
 project stays closed and honest about what it did.
 
+## The person working a project is no longer available
+
+Someone leaves, falls ill or changes role, and their project has to go on. No exception is needed; this is
+an access change, and it is made on GitHub, because the board is the project:
+
+1. An owner runs `gov manage assign <new-person's-login>` from the project. That assigns the new person on the
+   project's anchor issue, which is what gives them access. `gov manage unassign <login>` removes the person
+   who left.
+2. If the person who left held a role in `policies/authorized-representatives.md`, update that file in the
+   same change, so that nobody is named as an approver who can no longer approve.
+3. The new person runs `gov join <board-url | project-id>` to get the project on their machine, and starts a
+   fresh session before doing any work, so their agent loads the current rules and the project's open
+   to-dos.
+
 ## An agent is behaving as though a rule does not exist
 
 Two likely causes, in order:

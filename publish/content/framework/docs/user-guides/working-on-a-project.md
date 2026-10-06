@@ -51,6 +51,13 @@ never switches branches.
 To start a **new** project, run `gov seed`. To join an **existing** one, run
 `gov join`. This section walks through the `gov seed` flow.
 
+**First, the board.** A project starts as a GitHub Project board. Anyone with access can make one: give it a
+descriptive name (for example "Invoice API v2"), a short description, and at least one linked issue or pull
+request that says what the project is for. Issues from other repositories are how the board says which code
+repositories take part; the governance repository always takes part, so it needs no issue of its own.
+`gov seed` refuses a board with no name or no linked item, and warns about one with no description. The
+project id is issued by `gov seed`, not by you.
+
 Run from the **HOME workspace** repo root, **on the default branch**:
 
 ```bash
@@ -231,6 +238,11 @@ This is part of GOV-FRM-113.
 **"My agent doesn't have `gh` access."** — Most operations don't need it, but seeding a new project and closing one do (`gov seed`/`gov join` and `gov close` — Project queries, authorization check, PR creation). Give the agent a PAT scoped to `repo` + `project` for the run, or hand off those specific commands to a human-driven shell.
 
 **"I'm not sure if a change is C01, C02, or C03."** — Default to surfacing it as C02 (write to `compliance.md` and file an exception if needed). Only C01 hard-stops require pausing.
+
+**"The project now needs a repository it did not start with."** — Run `gov add-repo <repo-url>` from the
+project workspace. It clones the repository next to the others and cuts its project branch, from the
+organization's default code branch unless you pass `--base-branch <branch>`. Check that the new worktree is
+under `$AGENT_WORK_ROOT/PRJ-<board#>-<slug>/` before you start work in it.
 
 **"I want to know what's left."** — `gov list` shows projects + statuses. For an individual project, `gov status <PROJECT_ID>`. For carry-forward work, `projects/<PID>/knowledge/todo.md`.
 

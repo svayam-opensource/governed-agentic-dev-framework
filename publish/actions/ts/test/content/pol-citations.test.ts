@@ -48,8 +48,6 @@ const ALIASES = "the POL → GOV resolution itself: the alias file, its loader, 
 const HISTORY = "history, not rewritten (Q21): a changelog, design records and working papers of their time";
 const OUT_OF_SCOPE = "outside the gov CLI and its shipped content: a separate package or the deprecated bash CLI, "
   + "citing the publication-era org numbers; retire or rewrite with that code";
-const PROCEDURES = "the legacy procedures document: its \"Governs:\" lines cite pre-reduction numbers that are "
-  + "mostly retired; rewrite or retire it in P3 rather than alias forty stale citations";
 
 /** Frozen. It may only SHRINK. */
 const ALLOWED: Readonly<Record<string, string>> = {
@@ -57,7 +55,6 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "docs/design/agent-context-assembly-spec.md": HISTORY,
   "docs/design/option-2-sequence-diagrams.md": HISTORY,
   "publish/content/framework/rules/W2-classification.md": HISTORY,
-  "publish/content/framework/procedures/agentic-development-procedures.md": PROCEDURES,
   "publish/content/framework/rules/pol-aliases.yaml": ALIASES,
   "publish/content/framework/docs/specs/gov-command-reference.md": ALIASES
     + " (generated from help-spec.ts, whose `gov rules show` example resolves a POL number)",
@@ -133,7 +130,7 @@ describe("no new POL citations — POL numbers are retired (rule-model Q21)", ()
   });
 
   it("the allow-list's size is pinned, so a change to it is a visible diff", () => {
-    expect(Object.keys(ALLOWED)).to.have.lengthOf(51);
+    expect(Object.keys(ALLOWED)).to.have.lengthOf(50);
   });
 
   it("every GOV-FRM id cited in gov's source is a row of framework/rules/rules.yaml", () => {
