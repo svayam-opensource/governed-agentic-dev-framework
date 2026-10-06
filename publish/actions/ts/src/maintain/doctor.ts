@@ -15,6 +15,7 @@ import { agentsDiagnostic } from "../cli/approve-agents-step.js";
 import { rulesRows, type RulesFacts } from "./rules-health.js";
 import { assessProtection, postureDiagnostic, postureOf } from "./protection-check.js";
 import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
+import { checkOwnerDiagnostic } from "./roles-health.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
 
@@ -214,6 +215,9 @@ export function doctor(facts: DoctorFacts): DoctorReport {
             : { name: "org-config", status: "ok" as DiagnosticStatus, detail: "all keys recognised" };
         })()]
       : []),
+    // THE TWO-KEY REVIEW (rule-model P1 rulings, 2026-10-06): the Check Owner approves the code of the org's check
+    // actions, the Policy Owner the rules. Vacant, or both roles on one handle, and there is only one key.
+    ...(() => { const c = checkOwnerDiagnostic(facts.orgConfigText); return c ? [c] : []; })(),
     // WHICH POSTURE THIS ORGANIZATION CHOSE (Policy Owner, 2026-09-29) — the row that says what the four rows
     // below it are FOR. It comes first because it decides whether they are a finding: an organization that
     // deliberately chose `soft` is not failing POL-040a §3.3, and one that never chose is not excused from it.

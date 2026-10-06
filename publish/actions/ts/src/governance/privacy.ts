@@ -14,7 +14,7 @@ import { readTopLevelScalar } from "../resolve/node-env.js";
 /** Keys whose values are scanned for leaks. */
 const PRIVATE_KEYS = [
   "org_name", "org_short_name", "org_slug", "org_slug_lower", "github_org",
-  "workspace_repo", "policy_owner_email", "policy_owner_github", "legal_owner_github",
+  "workspace_repo", "policy_owner_email", "policy_owner_github", "check_owner_github", "legal_owner_github",
   "infra_owner_github", "system_arch_owner_github", "data_arch_owner_github",
 ];
 

@@ -15,8 +15,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  renderCodeowners, unresolvedTokens, normalizeHandle, POLICY_OWNER_PATHS, DOMAIN_ROLES,
+  renderCodeowners, unresolvedTokens, normalizeHandle, POLICY_OWNER_PATHS, DOMAIN_ROLES, CHECK_OWNER,
 } from "../../src/config/codeowners.js";
+import { ORG_CONFIG_KEYS } from "../../src/config/org-config.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -49,6 +50,42 @@ describe("CODEOWNERS generation", () => {
     expect(one.text).to.contain("/knowledge/legal/");
     expect(one.text).to.contain("@lawyer");
     expect(one.unheld, "and the rest are REPORTED, not silently dropped").to.not.include("Legal Owner");
+  });
+
+  // THE CHECK OWNER (rule-model P1 rulings, 2026-10-06): the framework's second built-in role. The Policy Owner
+  // approves what a rule MEANS; the Check Owner approves the CODE that enforces it — `policies/actions/` holds
+  // executable actions, and an action is code that runs in CI with the org's tokens.
+  it("policies/actions/ is the Check Owner's, on a line of its own", () => {
+    const r = renderCodeowners({ policy_owner_github: "rkant", check_owner_github: "@checker" })!;
+    expect(CHECK_OWNER.key).to.equal("check_owner_github");
+    expect(r.text).to.match(/^# Check Owner/m);
+    expect(r.text).to.match(/^\/policies\/actions\/\s+@checker$/m);
+    expect(r.escalated).to.deep.equal([]);
+  });
+
+  it("a VACANT Check Owner escalates to the Policy Owner (POL-034) — the line is never dropped", () => {
+    // Unlike a domain role, whose paths do not exist until the role is held, `policies/actions/` exists the moment
+    // an org authors a check. An ungated actions directory is code anyone with write access can make CI run.
+    for (const vacant of [{}, { check_owner_github: "" }, { check_owner_github: "  " }]) {
+      const r = renderCodeowners({ policy_owner_github: "rkant", ...vacant })!;
+      expect(r.text).to.match(/^\/policies\/actions\/\s+@rkant$/m);
+      expect(r.text).to.match(/vacant/);
+      expect(r.escalated).to.deep.equal(["Check Owner"]);
+      expect(r.unheld, "unheld stays the domain roles that add no line").to.not.include("Check Owner");
+    }
+  });
+
+  it("the Check Owner line comes after every Policy Owner path — CODEOWNERS' last match wins", () => {
+    const r = renderCodeowners({ policy_owner_github: "rkant", check_owner_github: "checker" })!;
+    const rules = r.text.split("\n").filter((l) => l.startsWith("/"));
+    const at = rules.findIndex((l) => l.startsWith("/policies/actions/"));
+    for (const p of POLICY_OWNER_PATHS) expect(rules.findIndex((l) => l.startsWith(p))).to.be.lessThan(at);
+  });
+
+  it("check_owner_github is a key gov reads, and the shipped org-config template carries it beside the Policy Owner", () => {
+    expect(ORG_CONFIG_KEYS).to.include("check_owner_github");
+    const tpl = fs.readFileSync(path.join(repoRoot, "publish", "content", "org-config.example.yaml"), "utf8");
+    expect(tpl).to.match(/^policy_owner_github: ""\n(#.*\n)*check_owner_github: ""$/m);
   });
 
   it("handles are normalised, so `@x` and `x` cannot produce `@@x`", () => {
