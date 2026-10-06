@@ -891,7 +891,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
     expect(text).to.not.contain("Claude Code");
   });
 
-  it("the project itself is still made ready — the process is what they came for", async () => {
+  it("GOV-FRM-446 the project itself is still made ready — the process is what they came for", async () => {
     const { deps: d, out, ran } = deps({ fs: fsWith([]), approvedAgents: none, prompt: async () => "y" });
     await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: true });
     expect(ran.map((a) => a[0]), "it still clones/seeds").to.include("join");

@@ -313,7 +313,7 @@ describe("lifecycle coverage — join", () => {
     expect(px(r.lines[0])).to.equal("Cannot derive project id (empty-slug).");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["join", BOARD_URL], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized to join GitHub Project #43.");
@@ -402,7 +402,7 @@ describe("lifecycle coverage — task", () => {
     expect(px(r.lines[0])).to.equal(`Issue ${ISSUE9} is closed — cannot start a task on it.`);
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["task", ISSUE9], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -465,7 +465,7 @@ describe("lifecycle coverage — merge", () => {
     expect(px(r.lines[0])).to.equal(`'random-branch' is neither an issue URL nor a '${PBRANCH}.ISSUE-…' branch.`);
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["merge", ISSUE9], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -524,7 +524,7 @@ describe("lifecycle coverage — sync", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["sync"], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -575,7 +575,7 @@ describe("lifecycle coverage — add-repo", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["add-repo", APP_URL], { vcs: addVcs("dev"), authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -633,7 +633,7 @@ describe("lifecycle coverage — pause", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["pause"], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -659,7 +659,7 @@ describe("lifecycle coverage — resume", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["resume"], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -687,7 +687,7 @@ describe("lifecycle coverage — cancel", () => {
     expect(px(r.lines[0])).to.equal("'main' is not a project branch.");
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["cancel"], { authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized on GitHub Project #43.");
@@ -796,7 +796,7 @@ expect(r.lines.join(" "), "the message names the directory and how to get one").
     expect(r.lines.join(" "), "and never points a human at an agent protocol").to.not.match(/Protocol/);
   });
 
-  it("error: unauthorized → exit 1", () => {
+  it("GOV-FRM-454 error: unauthorized → exit 1", () => {
     const r = run(["close"], { fs: closeFs(), authorize: () => false });
     expect(r.code).to.equal(1);
     expect(px(r.lines[0])).to.equal("Not authorized to close GitHub Project #43.");
@@ -844,5 +844,59 @@ expect(r.lines.join(" "), "the message names the directory and how to get one").
     const r = run(["close"], { fs: closeFs(), pulls: { create: () => "pr", state: () => "merged" } });
     expect(r.code).to.equal(0);
     expect(px(r.lines[0])).to.contain("merged and archived");
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Spec promises over the same fixture (W9, rule model): the verbs a structure-only organization still needs, and
+//  where a project's state is kept.
+// ════════════════════════════════════════════════════════════════════════════
+describe("lifecycle coverage — spec promises", () => {
+  const seedVcs = (): Vcs => ({ ...fakeVcs(), remoteBranchExists: () => false });
+  /** The happy path of every lifecycle verb that launches no agent. */
+  const verbs: ReadonlyArray<readonly [string, string[], Partial<CliContext>]> = [
+    ["seed", ["seed", BOARD_URL], { vcs: seedVcs() }],
+    ["join", ["join", BOARD_URL], {}],
+    ["task", ["task", ISSUE9], {}],
+    ["merge", ["merge", ISSUE9], {}],
+    ["sync", ["sync"], {}],
+    ["pause", ["pause"], {}],
+    ["resume", ["resume"], {}],
+    ["cancel", ["cancel"], {}],
+  ];
+  /** The fixture's fs, except that every org-config.yaml records the structure-only decision. */
+  const structureOnly: Fs = {
+    ...fs,
+    readFile: (p: string) => (p.endsWith("org-config.yaml") ? "authorized_agents: none\n" : fs.readFile(p)),
+  };
+
+  it("GOV-FRM-446 every lifecycle verb that launches no agent runs as normal when authorized_agents is none", () => {
+    const refused: string[] = [];
+    for (const [name, argv, over] of verbs) {
+      const normal = run(argv, over);
+      expect(normal.code, `${name} must pass on the plain fixture before it can say anything`).to.equal(0);
+      const r = run(argv, { ...over, fs: structureOnly });
+      if (r.code !== 0) refused.push(`${name} → exit ${r.code}: ${r.lines.join(" / ")}`);
+    }
+    expect(refused, "a structure-only organization adopted gov for exactly these verbs").to.deep.equal([]);
+  });
+
+  it("GOV-FRM-451 pause, resume and cancel change the project's state on the board alone — not one file written", () => {
+    for (const verb of ["pause", "resume", "cancel"]) {
+      const writes: string[] = [];
+      const r = run([verb], { fs: { ...fs, writeFile: (p: string) => { writes.push(px(p)); } } });
+      expect(r.code, verb).to.equal(0);
+      expect(writes, `${verb} wrote a file — state belongs on the board`).to.deep.equal([]);
+    }
+  });
+
+  it("GOV-FRM-451 seed, task and merge write no state file — no project.yaml, registry.yaml or status file", () => {
+    const STATE_FILE = /(^|\/)(project|registry|status|state)\.(ya?ml|json)$/;
+    for (const [name, argv, over] of verbs.filter(([n]) => ["seed", "task", "merge"].includes(n))) {
+      const writes: string[] = [];
+      const r = run(argv, { ...over, fs: { ...fs, writeFile: (p: string) => { writes.push(px(p)); } } });
+      expect(r.code, name).to.equal(0);
+      expect(writes.filter((w) => STATE_FILE.test(w)), `${name} wrote project state to a file`).to.deep.equal([]);
+    }
   });
 });

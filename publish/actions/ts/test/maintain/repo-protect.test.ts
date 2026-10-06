@@ -174,7 +174,7 @@ describe("gov-work — repo protect apply", () => {
     expect(text).to.contain("already correct in the working tree");
   });
 
-  it("writes the four settings, RE-READS, and reports from the re-read", () => {
+  it("GOV-FRM-447 writes the four settings, RE-READS, and reports from the re-read", () => {
     let stored: string | null = null;
     const { gh, calls } = fakeGh({
       get: () => (stored === null ? ghThrow(NO_PROTECTION) : payload()),
@@ -218,7 +218,7 @@ describe("gov-work — repo protect apply", () => {
 });
 
 describe("gov-work — repo protect and a repository the PLATFORM will not protect (§3.4)", () => {
-  it("apply says exactly what GitHub said, names the three ways out, and EXITS NON-ZERO", () => {
+  it("GOV-FRM-449 apply says exactly what GitHub said, names the three ways out, and EXITS NON-ZERO", () => {
     const { gh, calls } = fakeGh({ get: () => ghThrow(PLAN_403) });
     const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, base, "apply");
     expect(r.code, "a silent partial apply is the worst outcome available").to.equal(1);
@@ -282,7 +282,7 @@ describe("gov-work — repo protect and the posture", () => {
 });
 
 describe("gov-work — the body gov PUTs", () => {
-  it("keeps the checks the branch already requires and adds the approver check to them", () => {
+  it("GOV-FRM-447 keeps the checks the branch already requires and adds the approver check to them", () => {
     const body = JSON.parse(buildProtectionBody(JSON.parse(payload({
       required_status_checks: { strict: true, contexts: ["build"], checks: [{ context: "lint" }] },
     })) as never)) as { required_status_checks: { strict: boolean; contexts: string[] } };
@@ -290,7 +290,7 @@ describe("gov-work — the body gov PUTs", () => {
     expect(body.required_status_checks.strict, "`strict` is the org's business, not GOV-FRM-447's").to.equal(true);
   });
 
-  it("sets the four settings the policy asks for, and nothing it did not", () => {
+  it("GOV-FRM-447 sets the four settings the policy asks for, and nothing it did not", () => {
     const body = JSON.parse(buildProtectionBody(null)) as Record<string, unknown>;
     expect(body.enforce_admins).to.equal(true);
     expect((body.required_pull_request_reviews as { required_approving_review_count: number }).required_approving_review_count).to.equal(1);

@@ -63,7 +63,9 @@ describe("CODEOWNERS generation", () => {
     expect(r.escalated).to.deep.equal([]);
   });
 
-  it("a VACANT Check Owner escalates to the Policy Owner (GOV-FRM-033) — the line is never dropped", () => {
+  // The vacancy rule of GOV-FRM-033 / GOV-FRM-083, cited here but NOT in the title: a title carrying a GOV id
+  // claims the whole promise is proven (spec-rule-coverage.test.ts), and both promises are still only partly kept.
+  it("a VACANT Check Owner escalates to the Policy Owner — the line is never dropped", () => {
     // Unlike a domain role, whose paths do not exist until the role is held, `policies/actions/` exists the moment
     // an org authors a check. An ungated actions directory is code anyone with write access can make CI run.
     for (const vacant of [{}, { check_owner_github: "" }, { check_owner_github: "  " }]) {

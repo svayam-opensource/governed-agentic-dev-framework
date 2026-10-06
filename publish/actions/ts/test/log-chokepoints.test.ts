@@ -64,7 +64,7 @@ describe("a run's log — the chokepoints, read back from the file", function ()
     expect(logText).to.contain("run started").and.contain("run finished");
   });
 
-  it("records the file it wrote and the one it removed — the bytes, never the content", () => {
+  it("GOV-FRM-423 records the file it wrote and the one it removed — the bytes, never the content", () => {
     expect(logText).to.contain("wrote a file").and.contain("file.txt");
     expect(logText, "the content is not gov's to write down").to.not.contain("nobody should see");
     expect(logText).to.contain("removed");
@@ -79,7 +79,7 @@ describe("a run's log — the chokepoints, read back from the file", function ()
     expect(logText).to.contain("chose agent").and.contain("ibm-bob").and.contain("org default");
   });
 
-  it("records the processes it ran, with timing and exit code", () => {
+  it("GOV-FRM-423 records the processes it ran, with timing and exit code", () => {
     expect(logText).to.contain("ran").and.contain("echo").and.contain("exitCode: 0");
   });
 
@@ -102,5 +102,29 @@ describe("the context acknowledgement lives with the org it is about", () => {
     const { ackFileFor } = await import("../src/cli/context-gate.js");
     expect(ackFileFor(null, null, "/home/rk")).to.equal(path.join("/home/rk", ".gov-context-ack.json"));
     expect(ackFileFor("/w", null, "/home/rk"), "a work root without a login is not enough").to.contain(".gov-context-ack.json");
+  });
+});
+
+// §12.3 (W9, rule model): one logging utility, and nobody's own. The chokepoints above prove gov logs through it;
+// this proves nothing logs AROUND it — a `console.log` added anywhere in src/ is the ad-hoc output §12.3 forbids.
+describe("one logging utility — nothing logs around it", () => {
+  const SRC = path.join(import.meta.dirname, "..", "src");
+  const files = (dir: string): string[] => fs.readdirSync(dir).flatMap((n) => {
+    const p = path.join(dir, n);
+    return fs.statSync(p).isDirectory() ? files(p) : n.endsWith(".ts") ? [p] : [];
+  });
+
+  it("GOV-FRM-423 no source file writes ad-hoc log output, and only log.ts reaches the logging utility", () => {
+    const adHoc: string[] = [];
+    const ownLogger: string[] = [];
+    for (const f of files(SRC)) {
+      const rel = path.relative(SRC, f).split(path.sep).join("/");
+      const text = fs.readFileSync(f, "utf8");
+      if (/\bconsole\s*\.\s*(log|info|warn|error|debug|trace)\s*\(/.test(text)) adHoc.push(rel);
+      if (rel !== "log.ts" && /from\s+["']@svayam-opensource\/svm-util-log["']/.test(text)) ownLogger.push(rel);
+    }
+    expect(adHoc, "console.* bypasses the levels, the structure and the redaction — use log() from src/log.ts").to.deep.equal([]);
+    expect(ownLogger, "a second door to the utility is a logger written for one module").to.deep.equal([]);
+    expect(fs.readFileSync(path.join(SRC, "log.ts"), "utf8"), "and log.ts is that door").to.match(/from\s+["']@svayam-opensource\/svm-util-log["']/);
   });
 });
