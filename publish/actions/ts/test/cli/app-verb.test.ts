@@ -212,21 +212,36 @@ describe("gov app check — installed, reaching the governance repo, secrets set
   const INSTALLED = (over: Record<string, unknown> = {}): GhOutcome => ok(JSON.stringify({
     installations: [{ id: 7, app_slug: "gov-acme", client_id: "Iv1", suspended_at: null, repository_selection: "selected", permissions: { contents: "read", metadata: "read" }, ...over }],
   }));
-  const REPOS = ok(JSON.stringify({ repositories: [{ full_name: "acme/acme-gov" }] }));
   const SECRETS = ok(JSON.stringify([{ name: "GOV_APP_CLIENT_ID", visibility: "ALL" }, { name: "GOV_APP_PRIVATE_KEY", visibility: "ALL" }]));
   const routes = (over: [RegExp, GhOutcome][] = []): [RegExp, GhOutcome][] => [
     ...over,
     [/^api \/orgs\/acme\/installations/, INSTALLED()],
-    [/^api \/user\/installations\/7\/repositories/, REPOS],
     [/^api \/repos\/acme\/acme-gov\/branches\/main/, ok("main")],
     [/^secret list --org acme --json name,visibility$/, SECRETS],
   ];
   const run = (r: [RegExp, GhOutcome][], recorded = null as null | { clientId: string; slug: string }) => appCheck(fakeGh(r, []), CFG, recorded);
 
-  it("all good: ok, every line a ✓", () => {
-    const r = run(routes());
+  it("all good on ALL repositories: ok, every line a ✓, and it reaches the governance repo", () => {
+    const r = run(routes([[/^api \/orgs\/acme\/installations/, INSTALLED({ repository_selection: "all" })]]));
     expect(r.verdict, r.lines.join("\n")).to.equal("ok");
     expect(r.lines.every((l) => l.startsWith("  ✓"))).to.equal(true);
+    expect(r.lines.join("\n")).to.contain("it reaches acme/acme-gov");
+  });
+
+  // SANDBOX FINDING (PRJ-121, 2026-10-07): /user/installations/{id}/repositories needs a GitHub-App USER token, so with
+  // an ordinary `gh` login it always said "cannot tell". An owner's token reads the installation's repository_selection
+  // and nothing finer — so for "selected" gov says what it did NOT verify and where it will be proven.
+  it("SELECTED repositories: never asks the user-token endpoint, never claims the reach — names where it is proven", () => {
+    const calls: Call[] = [];
+    const r = appCheck(fakeGh(routes(), calls), CFG, null);
+    expect(calls.map((c) => c.args.join(" ")).some((a) => a.includes("/user/installations")), "no user-token endpoint").to.equal(false);
+    expect(r.verdict, r.lines.join("\n")).to.equal("ok");
+    const reach = r.lines.find((l) => l.includes("selected repositories"))!;
+    expect(reach, r.lines.join("\n")).to.match(/^ {2}· not verified here:/);
+    expect(reach).to.contain("first code-repo check run").and.contain("https://github.com/organizations/acme/settings/installations/7");
+    expect(r.lines.filter((l) => l.startsWith("  ✓")).join("\n")).to.not.contain("reaches");
+    expect(r.summary, "the ok summary must not claim the reach").to.not.contain("reads acme/acme-gov@main");
+    expect(r.summary).to.contain("first code-repo check run");
   });
 
   it("no such App: fail, and the next step is `gov app setup`", () => {
@@ -244,12 +259,6 @@ describe("gov app check — installed, reaching the governance repo, secrets set
   it("uses the slug recorded in org-config, and matches by client id too", () => {
     const r = run(routes([[/^api \/orgs\/acme\/installations/, INSTALLED({ app_slug: "gov-acme-2", client_id: "Iv9" })]]), { clientId: "Iv9", slug: "gov-acme-2" });
     expect(r.verdict, r.lines.join("\n")).to.equal("ok");
-  });
-
-  it("installed but not on the governance repo: fail, naming where to add it", () => {
-    const r = run(routes([[/^api \/user\/installations\/7\/repositories/, ok('{"repositories":[{"full_name":"acme/other"}]}')]]));
-    expect(r.verdict).to.equal("fail");
-    expect(r.summary).to.contain("cannot reach acme/acme-gov").and.contain("settings/installations/7");
   });
 
   it("suspended, or without contents access: fail", () => {
