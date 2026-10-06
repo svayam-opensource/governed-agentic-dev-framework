@@ -28,7 +28,7 @@ import { readTopLevelScalar } from "../../resolve/node-env.js";
 import type { GitRead } from "../../cli/policy-gate-io.js";
 import { log } from "../../log.js";
 import { FRAMEWORK_SCOPE, isScope, issueId } from "./gov-id.js";
-import { parseRuleStore, validateRuleStore, inForce, type RuleRow, type RowDiagnosticKind } from "./rule-row.js";
+import { parseRuleStore, validateRuleStore, inForce, ROW_WARNINGS, type RuleRow, type RowDiagnosticKind } from "./rule-row.js";
 import { parseCatalog, mergeCatalogs, validateBindings, type Catalog, type BindingDiagnosticKind } from "./catalog.js";
 import type { RuleSet, RuleStoreReader, IdIssuer } from "./contracts.js";
 import { resolveRoles, roleHandles, ROLE_LIST_PATH } from "../../config/role-list.js";
@@ -168,6 +168,12 @@ export function loadRuleStoresFrom(src: RuleStoreSource): RuleStoreLoad {
 /** The three notes that describe a layout, not a fault in a row: they never stop a build. */
 export const isStoreNote = (d: StoreDiagnostic): boolean =>
   d.kind === "missing-framework-store" || d.kind === "missing-framework-catalog" || d.kind === "missing-version";
+
+/** A row WARNING (ROW_WARNINGS): reported beside the errors, never stopping a build or failing a gate. */
+export const isStoreWarning = (d: StoreDiagnostic): boolean => ROW_WARNINGS.has(d.kind as RowDiagnosticKind);
+
+/** What stops a build: everything but the layout notes and the warnings. */
+export const isStoreError = (d: StoreDiagnostic): boolean => !isStoreNote(d) && !isStoreWarning(d);
 
 class StoreParseError extends Error {}
 

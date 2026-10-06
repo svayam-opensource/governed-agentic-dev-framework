@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 import { load as yamlLoad } from "js-yaml";
 import { HARNESS_TARGETS } from "../publish/actions/ts/src/rules/harness-render.ts";
 import { buildArtifacts } from "../publish/actions/ts/src/rules/rules-build.ts";
-import { loadRuleStoresFrom, isStoreNote } from "../publish/actions/ts/src/rules/model/store-io.ts";
+import { loadRuleStoresFrom, isStoreError, isStoreWarning } from "../publish/actions/ts/src/rules/model/store-io.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MANIFEST = join(REPO, "agent/harness-manifest.yaml");
@@ -78,7 +78,8 @@ if (!loaded.ok) {
   process.stderr.write(`ERROR: ${loaded.reason}\n`);
   process.exit(1);
 }
-const errors = loaded.diagnostics.filter((d) => !isStoreNote(d));
+for (const d of loaded.diagnostics.filter(isStoreWarning)) process.stderr.write(`WARNING: ${d.store} ${d.id} ${d.kind} — ${d.message}\n`);
+const errors = loaded.diagnostics.filter(isStoreError);
 if (errors.length) {
   for (const d of errors) process.stderr.write(`ERROR: ${d.store} ${d.id} ${d.kind} — ${d.message}\n`);
   process.exit(1);

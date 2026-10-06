@@ -16,7 +16,7 @@
  */
 import * as path from "node:path";
 import { buildArtifacts, staleRows, formatStaleRow, summaryLines, type BuiltFile, type StaleRow } from "../rules/rules-build.js";
-import { loadRuleStores, loadRuleStoresFrom, isStoreNote, RULE_STORE_PATHS, type StoreDiagnostic } from "../rules/model/store-io.js";
+import { loadRuleStores, loadRuleStoresFrom, isStoreNote, isStoreError, isStoreWarning, RULE_STORE_PATHS, type StoreDiagnostic } from "../rules/model/store-io.js";
 import { residentRows } from "../rules/cues/resident.js";
 import { loadExceptions } from "../rules/exceptions-io.js";
 import { summariseRuleSet } from "../rules/model/rule-map.js";
@@ -90,6 +90,8 @@ export interface RulesPlan {
   readonly errors: readonly string[];
   /** Layout notes (no framework store yet, …) — reported, never blocking. */
   readonly notes: readonly string[];
+  /** Row warnings (an on-demand cue no check can fire, …) — reported, never blocking. */
+  readonly warnings: readonly string[];
   readonly stale: readonly StaleRow[];
   readonly report: readonly string[];
 }
@@ -121,7 +123,8 @@ export function plan(deps: RulesDeps, input: RulesInput): { readonly result?: Ru
     result: {
       set: loaded.set,
       files: built.files,
-      errors: loaded.diagnostics.filter((d) => !isStoreNote(d)).map(diag),
+      errors: loaded.diagnostics.filter(isStoreError).map(diag),
+      warnings: loaded.diagnostics.filter(isStoreWarning).map(diag),
       // A refused or malformed exception is already left out of the block: reported, never blocking.
       notes: [...loaded.diagnostics.filter(isStoreNote).map(diag), ...exNotes],
       stale: staleRows(loaded.set, loaded.readDoc),
@@ -144,11 +147,12 @@ export function rules(deps: RulesDeps, input: RulesInput, mode: "build" | "check
   const source = input.workingTree ? "the WORKING TREE (unratified — an agent is governed by the default branch)" : input.defaultBranch;
   const head = [`gov rules ${mode} — from ${source}`, ""];
   const notes = result.notes.length ? ["", "notes", ...result.notes] : [];
+  const warnings = result.warnings.length ? ["", `warnings (${result.warnings.length})`, ...result.warnings] : [];
 
   if (mode === "report") {
     return {
       code: result.errors.length ? 1 : 0,
-      lines: [...head, ...result.report, ...notes, ...staleLines(result.stale),
+      lines: [...head, ...result.report, ...notes, ...warnings, ...staleLines(result.stale),
         ...(result.errors.length ? ["", `rule store errors (${result.errors.length})`, ...result.errors] : [])],
     };
   }
@@ -168,6 +172,7 @@ export function rules(deps: RulesDeps, input: RulesInput, mode: "build" | "check
         ...(stale.length
           ? [`${stale.length} generated file(s) are stale:`, ...stale.map((s) => `  ${s}`), "", "Run `gov rules build` and commit the result."]
           : ["every generated file matches the rule stores."]),
+        ...warnings,
         ...staleLines(result.stale),
         ...(ok ? ["", ...result.report] : []),
       ],
@@ -184,6 +189,7 @@ export function rules(deps: RulesDeps, input: RulesInput, mode: "build" | "check
       "",
       ...result.report,
       ...notes,
+      ...warnings,
       ...staleLines(result.stale),
       "",
       "Restart any running agent session: a session cannot pick up new rules in place.",
