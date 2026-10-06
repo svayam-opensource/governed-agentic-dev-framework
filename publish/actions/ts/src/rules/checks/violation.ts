@@ -19,6 +19,7 @@ import type { RuleRow } from "../model/rule-row.js";
 import type { CheckVerdict, EventContext, RuleSet } from "../model/contracts.js";
 import { handleKey } from "./payload.js";
 import { POLICY_OWNER } from "./policy-actions.js";
+import type { RedMerge } from "./gh-actions.js";
 
 export const VIOLATION_LABEL = "gov-violation";
 const TITLE_MAX = 100;
@@ -131,4 +132,64 @@ export function recordViolation(input: ViolationInput, ports: ViolationPorts): V
       `undo: ${undoLine(v.undo, state)}`,
     ],
   };
+}
+
+// ── SOFT MERGE WITH RED CHECKS (Policy Owner, 2026-10-07) ────────────────────────────────────────────────────
+//
+// Under soft posture gov's pull-request checks report but nothing waits for them, so a PR can merge with one red.
+// The push to the default branch finds it (gh-actions.ts redMerges) and opens ONE record per PR, naming the PR and
+// each failed rule. Never two for the same PR: the record carries a marker, and an open record with it is enough.
+// Under hard posture the checks are required and this cannot happen; gov does not look.
+
+/** The line every red-merge record carries, so a re-run finds it. */
+export const redMergeMarker = (pr: number): string => `<!-- gov-red-merge pr=${pr} -->`;
+
+/** The record for one red merge. Pure. */
+export function redMergeIssue(m: RedMerge, rules: RuleSet, runUrl?: string): ViolationIssue {
+  const owner = rules.roles?.[POLICY_OWNER];
+  const assignee = owner ? handleKey(owner) : "";
+  const ids = [...new Set(m.failed.map((f) => f.rule))];
+  let title = `gov-violation: PR #${m.pr} merged with failing gov checks (${ids.join(", ")})`;
+  if (title.length > TITLE_MAX) title = `gov-violation: PR #${m.pr} merged with ${ids.length} failing gov checks`;
+  const body = [
+    `Pull request #${m.pr} merged under soft posture with these checks failing. Soft posture lets a merge go ahead while a check is red; this record is how the merge is detected (Q15).`,
+    "",
+    `**Pull request:** #${m.pr} (head ${m.headSha.slice(0, 7)})`,
+    `**Run:** ${runUrl ?? "(no run link)"}`,
+    ...(assignee ? [] : ["", `**The ${POLICY_OWNER} role is vacant**, so this record is unassigned. Name a holder in policies/governance.yaml (policy_owner.github).`]),
+    "",
+    "### Failed checks",
+    ...m.failed.map((f) => `- ${f.rule} · ${f.event} — ${f.summary.trim() || "(the check run gave no summary; open the PR's checks to read it)"}`),
+    "",
+    `The ${POLICY_OWNER} reviews this record and closes it with the outcome: what the failed rules needed, and whether it has been put right.`,
+    "",
+    redMergeMarker(m.pr),
+  ].join("\n");
+  return { title, body, labels: [VIOLATION_LABEL], assignees: assignee ? [assignee] : [] };
+}
+
+export interface RedMergePorts {
+  openIssue(issue: ViolationIssue): { readonly number: number } | null;
+  /** The open record for this PR (`found`: its number, or null for none) — or null when the tracker could not be searched. */
+  findOpenRecord(pr: number): { readonly found: number | null } | null;
+}
+
+/** One record per red merge, unless one is already open for that PR. */
+export function recordRedMerges(merges: readonly RedMerge[], rules: RuleSet, ports: RedMergePorts, runUrl?: string): { readonly opened: readonly number[]; readonly lines: readonly string[] } {
+  const opened: number[] = [];
+  const lines: string[] = [];
+  for (const m of merges) {
+    const failed = m.failed.map((f) => f.rule).join(", ");
+    const existing = ports.findOpenRecord(m.pr);
+    if (existing === null) {
+      lines.push(`PR #${m.pr} merged with ${failed} failing, but gov could not search the open gov-violation records, so it opened none rather than risk a second — re-run this job.`);
+      continue;
+    }
+    if (existing.found !== null) { lines.push(`PR #${m.pr} merged with ${failed} failing — #${existing.found} already records PR #${m.pr}.`); continue; }
+    const issue = redMergeIssue(m, rules, runUrl);
+    const o = ports.openIssue(issue);
+    if (o) { opened.push(o.number); lines.push(`opened violation record #${o.number}: ${issue.title}`); }
+    else lines.push(`could not open the violation record: ${issue.title}`);
+  }
+  return { opened, lines };
 }

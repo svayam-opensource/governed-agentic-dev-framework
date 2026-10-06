@@ -8,7 +8,7 @@
  * policy-actions.ts and gh-actions.ts, where they are tested without a network.
  */
 import type { EventContext } from "../model/contracts.js";
-import { VIOLATION_LABEL, type ViolationIssue, type ViolationPorts } from "./violation.js";
+import { VIOLATION_LABEL, redMergeMarker, type ViolationIssue, type ViolationPorts } from "./violation.js";
 
 /** `gh <args>` with optional stdin → stdout, or null when gh failed. Never throws. */
 export type Gh = (args: readonly string[], input?: string) => string | null;
@@ -42,4 +42,21 @@ export function githubViolationPorts(gh: Gh, repo: string, issueNumber?: number)
 export function requestReviews(gh: Gh, repo: string, n: number, handles: readonly string[]): boolean {
   if (!handles.length) return true;
   return gh(["api", "-X", "POST", `repos/${repo}/pulls/${n}/requested_reviewers`, "--input", "-"], JSON.stringify({ reviewers: [...handles] })) !== null;
+}
+
+/**
+ * The open red-merge record for a PR: the OPEN `gov-violation` issues, read locally for the PR's marker — GitHub's
+ * search is not relied on to index an HTML comment. Null when gh could not list them.
+ */
+export function githubOpenRedMergeRecord(gh: Gh, repo: string): (pr: number) => { readonly found: number | null } | null {
+  return (pr) => {
+    const out = gh(["issue", "list", "--repo", repo, "--label", VIOLATION_LABEL, "--state", "open", "--limit", "1000", "--json", "number,body"]);
+    if (out === null) return null;
+    let doc: unknown;
+    try { doc = JSON.parse(out); } catch { return null; /* not the answer asked for */ }
+    if (!Array.isArray(doc)) return null;
+    const marker = redMergeMarker(pr);
+    const hit = doc.find((i: { number?: unknown; body?: unknown }) => typeof i.body === "string" && i.body.includes(marker));
+    return { found: hit ? Number((hit as { number: unknown }).number) : null };
+  };
 }
