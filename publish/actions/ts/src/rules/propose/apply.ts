@@ -14,7 +14,7 @@
  * Blocked or failed → NOTHING is written.
  */
 import { treeAsGit, type TreeReader, type TreeWriter } from "../policy-pr/tree.js";
-import { nextVersion, POLICY_PR_PATHS, readVersion } from "../policy-pr/gate.js";
+import { nextVersion, POLICY_PR_PATHS, policyDocPaths, readVersion } from "../policy-pr/gate.js";
 import { loadCheckRuleSet } from "../checks/ruleset-io.js";
 import { parseRuleStore, type RuleRow } from "../model/rule-row.js";
 import { createIdIssuer, everIssuedIds } from "../model/store-io.js";
@@ -45,13 +45,8 @@ export type ApplyResult =
   | { readonly status: "blocked"; readonly open: readonly OpenSection[] }
   | { readonly status: "failed"; readonly lines: readonly string[] };
 
-/** The policy documents: `policies/**.md`, minus the frozen snapshots, the actions and the changelog. */
-export function policyDocPaths(tree: TreeReader): string[] | null {
-  const files = tree.files(POLICY_PR_PATHS.root);
-  if (files === null) return null;
-  return files.filter((f) => f.endsWith(".md") && f !== POLICY_PR_PATHS.changelog
-    && !f.startsWith(`${POLICY_PR_PATHS.snapshots}/`) && !f.startsWith(`${POLICY_PR_PATHS.actions}/`));
-}
+/** The policy documents — the gate's own definition, so propose reads exactly what the gate demands reviewed. */
+export { policyDocPaths };
 
 function baseRows(base: TreeReader): RuleRow[] {
   const t = base.read(POLICY_PR_PATHS.rules);
@@ -88,7 +83,7 @@ export async function applyPropose(i: ApplyInput): Promise<ApplyResult> {
   const counts: Record<RuleChange, number> = { added: 0, revised: 0, retired: 0, kept: 0 };
   for (const x of r.changelogDraft.rules) counts[x.change]++;
   const wrote = writeProposal(i.head, r);
-  const fin = finishPolicyChange({ base: i.base, head: i.head, today: i.today, author: i.author, ...(i.pr !== undefined ? { pr: i.pr } : {}) });
+  const fin = finishPolicyChange({ base: i.base, head: i.head, today: i.today, author: i.author, reviewed: r.reviewed, ...(i.pr !== undefined ? { pr: i.pr } : {}) });
   const lines = [...wrote.map((w) => `  wrote ${w}`), ...fin.lines];
   const plan = fin.plan;
   if (!fin.ok || !plan) return { status: "failed", lines };

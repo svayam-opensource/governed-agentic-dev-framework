@@ -735,6 +735,13 @@ asks you only when your intent is unclear:
 
 You answer, the Policy Owner approves, and the result is locked.
 
+The policy pull request check starts from your policy text, not from the rules. It finds every section the pull
+request added or changed, and checks that each one was reviewed. A section with no rules counts too. The
+changelog entry for the new version shows the outcome, one line per section: no rule, or which rules were added,
+revised, retired or kept. A section the pull request removed is listed with the rules it retired. Editing a
+section again after it was reviewed means it must be reviewed again. Changing only spacing or line breaks is not
+a change.
+
 You can run it yourself, which is the normal way. It also runs on a policy pull request when the rows are out
 of date. gov issues every new id itself; a language model never does. A commit made by a bot never counts as
 an approval.

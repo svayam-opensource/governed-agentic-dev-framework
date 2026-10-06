@@ -15,7 +15,11 @@
  *                  the org chooses — and not at all when `policies/` is untouched;
  *   its SNAPSHOT   `policies/version/<prev>/` is the base's `policies/` byte for byte (minus `version/` and
  *                  `actions/`), and nothing already frozen there was edited or deleted;
- *   its CHANGELOG  an entry for the new version naming every rule added, revised or retired.
+ *   its CHANGELOG  an entry for the new version naming every rule added, revised or retired — and, under
+ *                  "Sections reviewed", every policy section the change ADDED or CHANGED, at its new sha, with what
+ *                  propose settled for it (reviewed.ts). THE GATE STARTS FROM THE PROSE (Policy Owner, 2026-10-07):
+ *                  a changed section with no rule rows is still a changed section, and someone — propose and its
+ *                  model — must have read it. A section missing there is `unreviewed`: stale, like a `sha` finding.
  *
  * DETERMINISTIC (Q16): no LLM, no network, no clock. Both trees, the PR number and "today" are injected; the same
  * inputs give the same findings. When rows are stale the gate says so and names the fix (`gov rules propose`) —
@@ -25,7 +29,10 @@
  */
 import { loadRuleStores, NO_ORG_VERSION, RULE_STORE_PATHS } from "../model/store-io.js";
 import { inForce, parseRuleStore, type RuleRow } from "../model/rule-row.js";
-import { sectionShas } from "../checks/sections.js";
+import { changedSections, sectionShas } from "../checks/sections.js";
+import { MACHINE_WRITTEN_POLICY_PATHS } from "../checks/policy-actions.js";
+import { matchesAny } from "../glob.js";
+import { parseReviewedLines, reviewKey } from "./reviewed.js";
 import { treeAsGit, type TreeReader } from "./tree.js";
 import { OWNERSHIP_PATH, ownershipDiffers, parseOwnership } from "../checks/ownership.js";
 import { GOVERNANCE_PATH, describeGovernanceChanges } from "../../config/governance.js";
@@ -51,7 +58,7 @@ export type RequiredBump = "none" | "patch" | "minor";
 export type BumpKind = "patch" | "minor" | "major";
 
 export type GateCheck =
-  | "unreadable" | "sha" | "store" | "append-only" | "version" | "changelog" | "snapshot" | "snapshot-immutable" | "stamp";
+  | "unreadable" | "sha" | "unreviewed" | "store" | "append-only" | "version" | "changelog" | "snapshot" | "snapshot-immutable" | "stamp";
 
 export interface GateFinding {
   readonly check: GateCheck;
@@ -95,6 +102,40 @@ export interface PolicyPrInput {
   readonly pr: number;
   /** YYYY-MM-DD: new and closed rows carry it. */
   readonly today: string;
+}
+
+/**
+ * THE POLICY DOCUMENTS: `policies/**.md`, minus everything gov writes itself (MACHINE_WRITTEN_POLICY_PATHS — the
+ * changelog, the frozen snapshots), minus `policies/actions/` (code, the Check Owner's). `policies/governance.yaml`
+ * is not one: it is not prose, and its changes are already named one by one in the changelog. Null when the tree
+ * could not be listed. Propose reads exactly these; the gate demands a review of exactly these.
+ */
+export function policyDocPaths(tree: TreeReader): string[] | null {
+  const files = tree.files(POLICY_PR_PATHS.root);
+  if (files === null) return null;
+  return files.filter((f) => f.endsWith(".md") && !matchesAny(f, MACHINE_WRITTEN_POLICY_PATHS)
+    && !f.startsWith(`${POLICY_PR_PATHS.snapshots}/`) && !f.startsWith(`${POLICY_PR_PATHS.actions}/`)).sort();
+}
+
+/**
+ * Every numbered section the change ADDED or CHANGED, with its head sha — by the one section helper, so a
+ * whitespace reflow is no change. Removed sections are not here (their rows' `sha` findings cover them), nor the
+ * text outside every numbered section (`""`: propose never reads it as a clause). Null when unreadable.
+ */
+export function changedPolicySections(base: TreeReader, head: TreeReader): { doc: string; section: string; sha: string }[] | null {
+  const b = policyDocPaths(base), h = policyDocPaths(head);
+  if (b === null || h === null) return null;
+  const out: { doc: string; section: string; sha: string }[] = [];
+  for (const doc of h) {
+    const text = head.read(doc);
+    if (text === null) return null;
+    const shas = sectionShas(text);
+    for (const section of changedSections(base.read(doc), text)) {
+      const sha = shas.get(section);
+      if (section !== "" && sha !== undefined) out.push({ doc, section, sha });
+    }
+  }
+  return out;
 }
 
 // ── version arithmetic ───────────────────────────────────────────────────────────────────────────────────────
@@ -290,6 +331,7 @@ export function judgePolicyPr(input: PolicyPrInput): PolicyPrJudgement {
   checkVersion(baseVersion, headVersion, required, f, plan);
   if (required !== "none") {
     checkChangelog(head, headVersion, plan.changes, f, plan.governance);
+    checkReviewed(base, head, baseVersion, headVersion, f);
     const cannot = checkSnapshot(base, head, baseVersion, f);
     if (cannot) return { ...plan, verdict: "cannot-tell", findings: [{ check: "unreadable", message: cannot }, ...findings] };
     checkStamps(baseRows, headRows, { version: headVersion, date: today, pr }, f);
@@ -376,6 +418,22 @@ function checkChangelog(head: TreeReader, version: string, c: RuleChanges, f: Em
     for (const id of ids) if (!mentions(entry, id)) f("changelog", `the ${POLICY_PR_PATHS.changelog} entry for ${version} does not name ${id} (${change})`);
   }
   for (const g of governance) if (!entry.includes(g)) f("changelog", `the ${POLICY_PR_PATHS.changelog} entry for ${version} does not name the governance change: ${g}`);
+}
+
+/**
+ * (f′) THE GATE STARTS FROM THE PROSE: every section added or changed is listed under "Sections reviewed" in the
+ * entry for the new version, at its head sha. Not listed → `unreviewed`, which CI treats as stale (propose runs).
+ */
+function checkReviewed(base: TreeReader, head: TreeReader, baseVersion: string, version: string, f: Emit): void {
+  const changed = changedPolicySections(base, head);
+  if (changed === null || !changed.length) return; // an unreadable tree was already reported by the plan
+  const text = version === baseVersion ? null : head.read(POLICY_PR_PATHS.changelog);
+  const entry = text === null ? null : changelogEntry(text, version);
+  const reviewed = new Set((entry === null ? [] : parseReviewedLines(entry)).filter((r) => r.sha !== null).map((r) => `${reviewKey(r)}\u0000${r.sha}`));
+  for (const c of changed) {
+    if (reviewed.has(`${reviewKey(c)}\u0000${c.sha}`)) continue;
+    f("unreviewed", `${c.doc} §${c.section} (${c.sha}) was added or changed, and the ${POLICY_PR_PATHS.changelog} entry for ${version} does not list it under "Sections reviewed"; run gov rules propose`);
+  }
 }
 
 /** (g) `policies/version/<prev>/` is the base's `policies/` byte for byte. */

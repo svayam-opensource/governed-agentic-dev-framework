@@ -19,8 +19,9 @@ import yaml from "js-yaml";
 import { inForce, parseRuleStore, type RuleRow } from "../model/rule-row.js";
 import type { SectionOwnership } from "../model/contracts.js";
 import { OWNERSHIP_PATH, parseOwnership } from "../checks/ownership.js";
-import { compareSections } from "../checks/sections.js";
-import { planPolicyPr, POLICY_PR_PATHS, type PolicyPrPlan } from "../policy-pr/gate.js";
+import { compareSections, sectionShas } from "../checks/sections.js";
+import { changedPolicySections, changelogEntry, planPolicyPr, policyDocPaths, POLICY_PR_PATHS, type PolicyPrPlan, type RuleChanges } from "../policy-pr/gate.js";
+import { parseReviewedLines, reviewKey, sortReviews, type ReviewedChange, type SectionReview } from "../policy-pr/reviewed.js";
 import { dumpStore, policyPrWriter, type ChangelogEntry } from "../policy-pr/write.js";
 import type { TreeReader, TreeWriter } from "../policy-pr/tree.js";
 
@@ -79,6 +80,8 @@ export interface FinishInput {
   readonly today: string;
   /** The pull request's author (GitHub handle). */
   readonly author: string;
+  /** What THIS run of propose settled, section by section (runPropose's `reviewed`). Absent: a run that read nothing. */
+  readonly reviewed?: readonly SectionReview[];
 }
 
 export interface FinishResult {
@@ -126,6 +129,60 @@ export function finishPolicyChange(i: FinishInput): FinishResult {
   const qa: { q: string; a: string }[] = [];
   for (const r of rules) for (const x of open.get(r.id)?.qa ?? []) if (!qa.some((y) => y.q === x.q && y.a === x.a)) qa.push({ q: x.q, a: x.a });
   const governance = "unreadable" in after ? plan.governance : after.governance;
-  say(w.writeChangelogEntry({ version: bump.version, date: i.today, pr: i.pr, author: i.author, approver: null, rules, qa, ...(governance.length ? { governance } : {}) }));
+  const reviewed = sectionsReviewed(i.base, tracking, bump.version, rows, changes, i.reviewed ?? []);
+  say(w.writeChangelogEntry({ version: bump.version, date: i.today, pr: i.pr, author: i.author, approver: null, rules, qa, ...(governance.length ? { governance } : {}), ...(reviewed.length ? { reviewed } : {}) }));
   return { ok: true, lines, wrote: [...touched], plan, version: bump.version };
+}
+
+/**
+ * THE ENTRY'S "Sections reviewed" — built from the TREES plus what this run settled, never from one run's memory alone:
+ *
+ *   this run's outcomes ......................... as settled (a section with no rule says so: only a run can know)
+ *   an earlier run of this PR, same section sha .. kept from the entry it wrote (a later run must not drop it)
+ *   a changed section whose head rows cite its new sha
+ *                                                 derived: each row added, revised or kept (propose wrote them)
+ *   a section the change removed ................ derived: removed, with the rules that retired
+ *
+ * A line for a section whose sha has moved since is dropped, so the gate demands that section again.
+ */
+function sectionsReviewed(
+  base: TreeReader, head: TreeReader, version: string, rows: readonly RuleRow[], changes: RuleChanges, run: readonly SectionReview[],
+): SectionReview[] {
+  const shaNow = new Map<string, Map<string, string>>();
+  const shaOf = (doc: string, section: string): string | undefined => {
+    if (!shaNow.has(doc)) { const t = head.read(doc); shaNow.set(doc, t === null ? new Map() : sectionShas(t)); }
+    return shaNow.get(doc)!.get(section);
+  };
+  const out = new Map<string, SectionReview>();
+  const current = (r: SectionReview): boolean => r.sha !== null && shaOf(r.doc, r.section) === r.sha;
+
+  const log = head.read(POLICY_PR_PATHS.changelog);
+  const earlier = log === null ? null : changelogEntry(log, version);
+  for (const r of earlier === null ? [] : parseReviewedLines(earlier)) if (current(r)) out.set(reviewKey(r), r);
+  for (const r of run) if (current(r)) out.set(reviewKey(r), r);
+
+  const change = (id: string): ReviewedChange =>
+    changes.added.includes(id) ? "added" : changes.revised.includes(id) ? "revised" : "kept";
+  const open = inForce(rows);
+  for (const c of changedPolicySections(base, head) ?? []) {
+    if (out.has(reviewKey(c))) continue;
+    const cite = [...new Set(open.filter((r) => r.source.doc === c.doc && r.source.section === c.section && r.source.sha === c.sha).map((r) => r.id))];
+    if (cite.length) out.set(reviewKey(c), { ...c, outcome: { kind: "rules", rules: cite.map((id) => ({ id, change: change(id) })) } });
+  }
+
+  const baseText = base.read(POLICY_PR_PATHS.rules);
+  let baseOpen: RuleRow[] = [];
+  try { baseOpen = baseText === null ? [] : inForce(parseRuleStore(baseText)); } catch { /* the gate reports an unparseable base store */ }
+  for (const doc of policyDocPaths(base) ?? []) {
+    const was = base.read(doc);
+    if (was === null) continue;
+    const now = head.read(doc);
+    const present = now === null ? new Set<string>() : new Set(sectionShas(now).keys());
+    for (const section of sectionShas(was).keys()) {
+      if (section === "" || present.has(section)) continue;
+      const retired = [...new Set(baseOpen.filter((r) => r.source.doc === doc && r.source.section === section && changes.retired.includes(r.id)).map((r) => r.id))];
+      out.set(reviewKey({ doc, section }), { doc, section, sha: null, outcome: { kind: "removed", retired } });
+    }
+  }
+  return sortReviews(out.values());
 }

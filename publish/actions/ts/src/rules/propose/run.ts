@@ -27,6 +27,7 @@ import { applyVerdicts } from "../model/revise.js";
 import { policySections, sectionShas } from "../checks/sections.js";
 import { ownershipDiffers } from "../checks/ownership.js";
 import { GOVERNANCE_CHANGE_BUMP } from "../policy-pr/gate.js";
+import type { SectionReview } from "../policy-pr/reviewed.js";
 import type { ModelPort } from "./model-port.js";
 import type { ProposedRow, ProposalQuestion } from "./parse.js";
 import { interviewSection, type InterviewChannel, type QA, type SectionOutcome } from "./interview.js";
@@ -80,6 +81,8 @@ export type ProposeResult =
     readonly bump: Bump;
     /** Sections interviewed (or retired), by sha. */
     readonly sections: readonly { readonly doc: string; readonly section: string; readonly sha: string }[];
+    /** What each of those sections came to — the changelog's "Sections reviewed" (the gate demands them). */
+    readonly reviewed: readonly SectionReview[];
   }
   | { readonly status: "blocked"; readonly open: readonly OpenSection[] }
   | { readonly status: "failed"; readonly open: readonly OpenSection[]; readonly problems: readonly string[] };
@@ -146,7 +149,7 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
 
   // ── settle: verdicts → rows, through gov's issuer ──
   const verdicts: SectionVerdict[] = [];
-  const changes: { change: RuleChange; id?: string; expectation: string }[] = [];
+  const changes: { change: RuleChange; id?: string; expectation: string; w: number }[] = [];
   const qaOut: { doc: string; section: string; q: string; a: string }[] = [];
 
   // OWNERSHIP lives as long as the sentence that grants it: a row whose statement-section sha is gone from its
@@ -157,10 +160,10 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
   const before = new Map((set.ownership ?? []).map((o) => [ownKey(o), o]));
   const ownership = new Map([...before].filter(([, o]) => headShas.get(o.doc)?.has(o.sha) ?? true));
 
-  for (const w of work) {
+  for (const [wi, w] of work.entries()) {
     const byId = new Map(w.rows.map((r) => [r.id, r]));
     if (w.outcome === "removed") {
-      for (const r of w.rows) { verdicts.push({ kind: "retire", id: r.id }); changes.push({ change: "retired", id: r.id, expectation: r.expectation }); }
+      for (const r of w.rows) { verdicts.push({ kind: "retire", id: r.id }); changes.push({ change: "retired", id: r.id, expectation: r.expectation, w: wi }); }
       continue;
     }
     if (w.outcome.status !== "done") continue; // unreachable: pending/failed returned above
@@ -173,7 +176,7 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
       switch (v.kind) {
         case "retire":
           verdicts.push(v);
-          changes.push({ change: "retired", id: v.id, expectation: byId.get(v.id)!.expectation });
+          changes.push({ change: "retired", id: v.id, expectation: byId.get(v.id)!.expectation, w: wi });
           break;
         case "keep":
         case "revise": {
@@ -181,16 +184,16 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
           // Same meaning → keep: applyVerdicts refreshes the row's sha in place (Q17), no new revision.
           if (v.kind === "keep" || meaning(old) === meaning(v.row)) {
             verdicts.push({ kind: "keep", id: v.id, sha: w.sha });
-            changes.push({ change: "kept", id: v.id, expectation: old.expectation });
+            changes.push({ change: "kept", id: v.id, expectation: old.expectation, w: wi });
           } else {
             verdicts.push({ kind: "revise", id: v.id, row: fresh(v.row) });
-            changes.push({ change: "revised", id: v.id, expectation: v.row.expectation });
+            changes.push({ change: "revised", id: v.id, expectation: v.row.expectation, w: wi });
           }
           break;
         }
         case "add":
           verdicts.push({ kind: "add", row: fresh(v.row) });
-          changes.push({ change: "added", expectation: v.row.expectation });
+          changes.push({ change: "added", expectation: v.row.expectation, w: wi });
           break;
       }
     }
@@ -207,7 +210,13 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
   }
   // Issued ids come back in the order the adds were applied — the order they appear in `changes`.
   let next = 0;
-  const rules = changes.map((c) => ({ id: c.id ?? applied.issued[next++]!, change: c.change, expectation: c.expectation }));
+  const settled = changes.map((c) => ({ id: c.id ?? applied.issued[next++]!, change: c.change, expectation: c.expectation, w: c.w }));
+  const rules = settled.map(({ id, change, expectation }) => ({ id, change, expectation }));
+  const reviewed: SectionReview[] = work.map((w, wi) => {
+    const mine = settled.filter((c) => c.w === wi);
+    if (w.outcome === "removed") return { doc: w.doc, section: w.section, sha: null, outcome: { kind: "removed", retired: mine.map((c) => c.id) } };
+    return { doc: w.doc, section: w.section, sha: w.sha, outcome: mine.length ? { kind: "rules", rules: mine.map(({ id, change }) => ({ id, change })) } : { kind: "no-rule" } };
+  });
 
   const ruleChange = rules.some((r) => r.change !== "kept");
   const proseChange = deps.docs.some((d) => d.head !== d.base);
@@ -224,6 +233,7 @@ export async function runPropose(deps: ProposeDeps): Promise<ProposeResult> {
     changelogDraft: { rules, qa: qaOut },
     bump,
     sections: work.map((w) => ({ doc: w.doc, section: w.section, sha: w.sha })),
+    reviewed,
   };
 }
 

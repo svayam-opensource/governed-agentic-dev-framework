@@ -16,6 +16,7 @@ import { proposeOnPullRequest, type PrBranch, type ProposeCiDeps } from "../../.
 import { checkCommandAsync } from "../../../src/cli/check-verb.js";
 import { memTree, treeAsGit, type TreeWriter } from "../../../src/rules/policy-pr/tree.js";
 import { policyPrWriter } from "../../../src/rules/policy-pr/write.js";
+import { judgePolicyPr } from "../../../src/rules/policy-pr/gate.js";
 import { approvalsFrom } from "../../../src/rules/checks/event-payload.js";
 import { runBuiltin } from "../../../src/rules/checks/builtin.js";
 import { parseRuleStore } from "../../../src/rules/model/rule-row.js";
@@ -197,6 +198,7 @@ describe("gov rules propose — the terminal trigger", () => {
     expect(files["policies/VERSION"]).to.equal("1.1.0\n");
     expect(files["policies/version/1.0.0/org-policy.md"]).to.equal(OLD);
     expect(files["policies/CHANGELOG.md"]).to.contain("## 1.1.0 — 2026-10-07").and.contain("| #12 | @alice | _pending_ |").and.contain("GOV-SVM-001");
+    expect(files["policies/CHANGELOG.md"], "the section propose settled, and what it came to").to.contain(`- ${DOC} §3 (${sectionShas(NEW).get("3")}) → GOV-SVM-001 added`);
 
     const before = JSON.stringify(files);
     const again = await run(head, model, answers([]), { pr: 12 });
@@ -471,5 +473,73 @@ describe("GOV-FRM-468 gov proposes rules on a policy pull request only when rows
     expect(seen).to.deep.equal(["GOV-FRM-468 [gov-builtin/rules-propose] pull_request"]);
     expect(r.code).to.equal(1);
     expect(r.lines.join("\n")).to.contain("question(s) are open");
+  });
+});
+
+// ── the gate starts from the prose (Policy Owner, 2026-10-07): PR #5 in the sandbox ──────────────────────────
+describe("GOV-FRM-468 a changed section with no rules is stale too — CI runs the model on it, and the changelog says so", () => {
+  // §4 changes; §4 has no rule rows. Before: the gate saw no `sha` finding, CI went to finishOnly, and the model
+  // never read the new sentence.
+  const S4 = POLICY("Use approved tools.").replace("Keep data safe.", "Keep data safe and encrypted at rest.");
+  const sha4 = sectionShas(S4).get("4")!;
+  const NO_RULE = { verdicts: [], ownership: [], questions: [] };
+
+  it("gate `unreviewed` → CI calls the (fake) model → `no rule` written to the entry → the gate passes on the next run, with no second model call", async () => {
+    const w = prWorld(baseFiles({ [DOC]: S4 }));
+    const before = judgePolicyPr({ base: memTree(baseFiles()), head: memTree(baseFiles({ [DOC]: S4 })), pr: 9, today: "2026-10-07" });
+    expect(before.findings.map((f) => f.check)).to.include("unreviewed").and.not.include("sha");
+
+    const model = scriptedModel([NO_RULE]);
+    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, fakeGh().gh, ALLOWED, model));
+    expect(r.verdict, r.findings.join("\n")).to.equal("pass");
+    expect(model.calls, "the model read the changed section").to.equal(1);
+    expect(w.commits).to.have.length(1);
+    expect(w.branchFiles["policies/CHANGELOG.md"]).to.contain("**Sections reviewed**").and.contain(`- ${DOC} §4 (${sha4}) → no rule`);
+    expect(w.branchFiles["policies/VERSION"], "prose only → patch").to.equal("1.0.1\n");
+    expect(judgePolicyPr({ base: memTree(baseFiles()), head: memTree(w.branchFiles), pr: 9, today: "2026-10-07" }).findings).to.deep.equal([]);
+
+    const next = prWorld(w.branchFiles);
+    const again = scriptedModel([]);
+    const r2 = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(next, fakeGh().gh, ALLOWED, again));
+    expect(r2.verdict).to.equal("pass");
+    expect(again.calls + next.commits.length).to.equal(0);
+  });
+
+  it("unreviewed with ci_allowed false → a miss naming the section and the local fix; finishOnly never papers over it", async () => {
+    const w = prWorld(baseFiles({ [DOC]: S4 }));
+    const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, fakeGh().gh, { ...ALLOWED, ciAllowed: false }, scriptedModel([])));
+    expect(r.verdict).to.equal("miss");
+    expect(r.findings.join("\n")).to.contain(`${DOC} §4`).and.contain("run gov rules propose locally");
+    expect(w.commits).to.deep.equal([]);
+  });
+
+  it("a question on an unreviewed section → recorded once; the same sections and answers never run the model twice", async () => {
+    const w = prWorld(baseFiles({ [DOC]: S4 }));
+    const g = fakeGh();
+    const model = scriptedModel([{ verdicts: [], ownership: [], questions: [{ id: "q1", kind: "uncheckable", text: "Can encryption at rest be checked?" }] }]);
+    expect((await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, g.gh, ALLOWED, model))).verdict).to.equal("miss");
+    const again = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, g.gh, ALLOWED, model));
+    expect(again.findings.join("\n")).to.contain("waiting for answers");
+    expect(model.calls).to.equal(1);
+    // The section changes again → a new key → the model reads the new text.
+    const w2 = prWorld(baseFiles({ [DOC]: S4.replace("at rest", "at rest and in transit") }));
+    const m2 = scriptedModel([NO_RULE]);
+    expect((await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w2, g.gh, ALLOWED, m2))).verdict).to.equal("pass");
+    expect(m2.calls).to.equal(1);
+  });
+
+  it("local `gov rules propose` writes the same line, so a PR prepared locally passes the gate without CI's model", async () => {
+    const files = baseFiles({ [DOC]: S4 });
+    const head = memTree(files);
+    const model = scriptedModel([NO_RULE]);
+    const r = await rulesPropose({ git: fakeGit(baseFiles()), head, channel: answers([]), model: () => model },
+      { home: "/gov", defaultBranch: "main", all: false, today: "2026-10-07", author: "alice", pr: 9 });
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    expect(files["policies/CHANGELOG.md"]).to.contain(`- ${DOC} §4 (${sha4}) → no rule`);
+    expect(judgePolicyPr({ base: memTree(baseFiles()), head: memTree(files), pr: 9, today: "2026-10-07" }).findings).to.deep.equal([]);
+    const w = prWorld(files);
+    const ci = scriptedModel([]);
+    expect((await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, fakeGh().gh, ALLOWED, ci))).verdict).to.equal("pass");
+    expect(ci.calls + w.commits.length).to.equal(0);
   });
 });
