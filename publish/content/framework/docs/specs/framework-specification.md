@@ -794,7 +794,8 @@ A check in a code repository has to read the rules, and they live in the governa
 workflow token can read only the repository the workflow runs in, so your organization needs a GitHub App to
 bridge the two. GitHub Apps are free on every plan. Once per organization, an owner runs `gov app setup`. It
 opens a page in your browser, where you confirm the new App on GitHub. gov then stores the App's two
-credentials as organization secrets, and never keeps a copy of its private key. You install the App on the
+credentials as Actions secrets wherever your repositories can receive them (§11.4), and never keeps a copy of
+its private key. You install the App on the
 governance repository only, and `gov app check` confirms that everything is in place. After that, each check
 gets a short-lived, read-only token every time it runs. Nobody's personal token is involved.
 
@@ -976,6 +977,33 @@ the platform reports. It cannot see:
 - a push made with the hooks turned off
 
 The rule map (§9.7) is honest about this: a rule held up only by a cue, or by nothing, is labelled that way.
+
+### 11.4 Where the secrets live, and why the plan matters
+
+Some checks need a secret: a code repository's check needs the GitHub App's two credentials to read the rules
+(§9.5), and the governance repository needs your approved model's key when CI may propose rules (§9.3). A
+secret can be stored once for the whole organization, or separately on each repository.
+
+**On the GitHub Free plan, an organization secret never reaches a private repository.** The workflow still
+runs, but the secret arrives empty, and GitHub gives no warning. Organization secrets reach a repository only
+when your plan is paid (Team or Enterprise) or the repository is public. Everywhere else, the repository needs
+its own copy.
+
+gov works this out for you. It reads your plan and each repository's visibility. Only an organization owner can
+see the plan, so when gov cannot read it, it says it cannot tell and never assumes.
+
+- `gov app setup` stores the App's credentials as organization secrets where they reach, and as repository
+  secrets on the governance repository and on each of the project's code repositories that needs its own copy.
+  It does this while it holds the private key, and keeps no copy afterwards.
+- `gov app rotate` is for a repository added later, or a key that may have leaked. GitHub cannot create an App
+  key through its API, so gov sends you to the App's page to generate one. You hand it to gov on standard input
+  or as a file, which gov deletes after use. gov stores it everywhere it is needed and tells you which old key
+  to delete on the App's page.
+- `gov app check` and `gov doctor` name each repository that will not receive a secret it needs, with the
+  fix: a repository secret, or `gov app rotate`.
+- When CI cannot propose rules because the model's key is missing, the message says that organization secrets
+  do not reach private repositories on the Free plan, and gives the command that sets the key on the
+  repository.
 
 *Rules for this chapter: rule map, filter `framework-specification.md §11`.*
 

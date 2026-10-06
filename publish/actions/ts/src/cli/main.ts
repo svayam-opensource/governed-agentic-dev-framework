@@ -48,7 +48,9 @@ import { appCheck, appCommand, ghRunner, readGithubApp } from "./app-verb.js";
 import { startLoopback } from "./app-loopback.js";
 import { randomBytes } from "node:crypto";
 import { checkCommandAsync } from "./check-verb.js";
-import { boardLinkedRepos, checkStatusReport, checksDiagnostic, type ScopeDeps } from "./check-scope.js";
+import { boardLinkedRepos, checkStatusReport, checksDiagnostic, type LinkedRepos, type ScopeDeps } from "./check-scope.js";
+import { keyNameFor } from "./secret-reach.js";
+import { boardNumberFromBranch, boardNumberFromProjectId } from "../lifecycle/task.js";
 import { rulesPropose, settingsAt, PROPOSE_USAGE } from "./rules-propose.js";
 import { proposeOnPullRequest } from "./rules-propose-ci.js";
 import { openPrBranch, botIdentity } from "./pr-branch-io.js";
@@ -1850,6 +1852,7 @@ export async function runApp(argv: readonly string[]): Promise<number> {
   const cfgText = fs.readFile(path.join(home, "org-config.yaml"));
   if (cfgText === null) { process.stderr.write(`gov app: no org-config.yaml at ${home}\n`); return 1; }
   const config = parseOrgConfig(cfgText);
+  const codeRepos = appCodeRepos(fs, home, config, flagStr(parsed.flags, "project"), "gov-work:cli:app");
   const res = await appCommand(parsed.positionals, parsed.flags, {
     gh: ghRunner("gov-work:cli:app"),
     loopback: startLoopback,
@@ -1857,12 +1860,40 @@ export async function runApp(argv: readonly string[]): Promise<number> {
     writeFile: (f, t) => fs.writeFile(f, t),
     say: (l) => process.stdout.write(`${l}\n`),
     newState: () => randomBytes(16).toString("hex"),
+    codeRepos,
+    // The key is read once and handed to gh's stdin; it is never logged (run-process logs neither stdin nor stdout).
+    readStdin: () => fsSync.readFileSync(0, "utf8"),
+    removeFile: (f) => fsSync.rmSync(f),
   }, {
     home, githubOrg: config.githubOrg, orgSlugLower: config.orgSlugLower,
     workspaceRepo: config.workspaceRepo, defaultBranch: config.defaultBranch,
-  });
+  }, parsed.positionals[0] === "check" ? { codeRepos: codeRepos(), modelKey: approvedModelKey(home, config.defaultBranch) } : undefined);
   for (const line of res.lines) process.stdout.write(`${line}\n`);
   return res.code;
+}
+
+/**
+ * The project's linked CODE repositories, which need the App's secrets: the board named by `--project`, or by the
+ * governance repo's project branch. Read lazily — `gov app setup` asks only once it holds the key.
+ */
+function appCodeRepos(fs: ReturnType<typeof createNodeFs>, home: string, config: { githubOrg: string; workspaceRepo: string },
+  project: string | undefined, pgm: string, timeoutMs?: number): () => LinkedRepos {
+  return () => {
+    const branch = tryRun("git", ["-C", home, "symbolic-ref", "--quiet", "--short", "HEAD"])?.trim() ?? "";
+    const n = project !== undefined ? boardNumberFromProjectId(project) : boardNumberFromBranch(branch);
+    if (n === null) {
+      return { ok: false, reason: project !== undefined
+        ? `'${project}' is not a project id`
+        : `the governance repo is on ${branch || "no branch"}, not a project branch — pass --project <id> to name one` };
+    }
+    return checkScopeDeps(fs, config, pgm, timeoutMs).linkedRepos(n);
+  };
+}
+
+/** The secret the org's approved model needs in the governance repo — from the DEFAULT branch, only when CI may use it. */
+function approvedModelKey(home: string, defaultBranch: string): string | null {
+  const git = (repo: string, args: readonly string[]): string | null => tryRun("git", ["-C", repo, ...args]) ?? null;
+  return keyNameFor(settingsAt(git, home, defaultRef(git, home, defaultBranch || "main")));
 }
 
 /**
@@ -1916,7 +1947,10 @@ const geminiKey = (): string | null => modelKey(GEMINI_KEY_ENV, "gemini-code-ass
 const runModelCommand = (cmd: string, args: readonly string[], input: string): string =>
   runProcess(cmd, args, { pgm: "gov-work:rules:propose:command", fn: "complete", input, timeoutMs: 600_000 });
 
-const modelChoiceFor = (s: ModelSettings, ci: boolean) => chooseModel(s, { ci, anthropicKey, geminiKey, runCommand: runModelCommand });
+const modelChoiceFor = (s: ModelSettings, ci: boolean) => chooseModel(s, {
+  ci, anthropicKey, geminiKey, runCommand: runModelCommand,
+  ...(ci && process.env.GITHUB_REPOSITORY ? { repository: process.env.GITHUB_REPOSITORY } : {}),
+});
 
 /**
  * `gov rules propose [--all] [--pr <n>]` — ASKS at the terminal, so it is routed here and not through `route()`
@@ -2403,7 +2437,10 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         ? appCheck(ghRunner("gov-work:cli:doctor", 15_000), {
             home, githubOrg: doctorCfg.githubOrg, orgSlugLower: doctorCfg.orgSlugLower,
             workspaceRepo: doctorCfg.workspaceRepo, defaultBranch: doctorCfg.defaultBranch,
-          }, readGithubApp(doctorCfgText))
+          }, readGithubApp(doctorCfgText), {
+            codeRepos: appCodeRepos(fs, home, doctorCfg, undefined, "gov-work:cli:doctor", 15_000)(),
+            modelKey: approvedModelKey(home, doctorCfg.defaultBranch),
+          })
         : { verdict: "cannot-tell" as const, summary: "gh is not signed in, so GitHub could not be asked", lines: [] }
       : undefined;
     // THE CHECK WORKFLOWS — `gov check status` as one row: the governance repo and, on a project branch, its linked

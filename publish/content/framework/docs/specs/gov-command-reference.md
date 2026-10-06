@@ -31,7 +31,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov agent](#gov-agent) — which AI agents your org approves, what is installed, and how to add one
 - [gov repo](#gov-repo) — install the repository controls framework-specification.md §7.3 requires — or say why the platform will not
 - [gov check](#gov-check) — run one rule's checks for the event that fired, install the workflow that runs them, or say whether it is current
-- [gov app](#gov-app) — create the org's GitHub App that lets code repos' checks read the governance rules, and check it
+- [gov app](#gov-app) — create the org's GitHub App that lets code repos' checks read the governance rules, check it, and rotate its key
 - [gov rules](#gov-rules) — propose rules from your policy prose, render the rule stores into what agents read, and report on them
 
 **[Your agent runs these (you can too)](#your-agent-runs-these-you-can-too)**
@@ -483,36 +483,46 @@ gov check status --project PRJ-7
 
 ### gov app
 
-create the org's GitHub App that lets code repos' checks read the governance rules, and check it
+create the org's GitHub App that lets code repos' checks read the governance rules, check it, and rotate its key
 
 ```text
-gov app <setup | check>
+gov app <setup | check | rotate> [--project <id>] [--key-from-stdin | --key-file <path>]
 ```
 
-**Where.** GOVERNED — run by an owner of the GitHub organization, once per organization
+**Where.** GOVERNED — run by an owner of the GitHub organization, once per organization (rotate: when a repo is added or a key leaks)
 
 **Arguments**
 
 | argument | what it is |
 | --- | --- |
-| `setup` | create the App gov-&lt;org_slug&gt; with GitHub's App-manifest flow: open the printed local page in a browser on this machine, confirm on GitHub, and gov stores the App's client id and private key as the org Actions secrets GOV_APP_CLIENT_ID and GOV_APP_PRIVATE_KEY, then prints the install URL |
-| `check` | verify the App exists, is installed on the org, can read the governance repo's default branch, and that both org secrets are set. Each failure names the next step |
+| `setup` | create the App gov-&lt;org_slug&gt; with GitHub's App-manifest flow: open the printed local page in a browser on this machine, confirm on GitHub, and gov stores the App's client id and private key as GOV_APP_CLIENT_ID and GOV_APP_PRIVATE_KEY wherever they reach — organization secrets where the plan is paid or the repo public, repository secrets on each private repo of the governance repo and the project's code repos on the Free plan — then prints the install URL |
+| `check` | verify the App exists, is installed on the org, can read the governance repo's default branch, and that its secrets — and the approved model's key, when models.ci_allowed is true — reach every repository that needs them. Each failure names the repo and the fix |
+| `rotate` | put a NEW private key on every repository that needs it (a repo added later, or a key that leaked). GitHub has no API that makes a key: without a key gov prints the App's page to generate one; then it reads the key, sets the secrets, and names the old key to delete there |
+
+**Flags**
+
+| flag | what it does |
+| --- | --- |
+| `--project <id>` | the project whose linked code repos need the secrets (default: the governance repo's project branch) |
+| `--key-from-stdin` | rotate: read the new private key from stdin |
+| `--key-file <path>` | rotate: read the new private key from this file, which gov DELETES after use |
 
 **Examples**
 
 ```bash
 gov app setup
 gov app check
+gov app rotate --key-file ~/Downloads/gov-acme.private-key.pem
 ```
 
-**Changes.** `setup` creates a private GitHub App owned by the organization (contents and metadata read-only, no webhook), sets the two organization Actions secrets through `gh secret set` (the private key on stdin — it is never written to disk, printed or logged), and records the App's public identity (client id, slug) under `services.github_app` in org-config.yaml, uncommitted. Installing the App on the governance repo is a step you take in the browser. `check` changes nothing
+**Changes.** `setup` creates a private GitHub App owned by the organization (contents and metadata read-only, no webhook), sets its two Actions secrets through `gh secret set` — on the organization where org secrets reach, and on each repository that needs its own copy (on GitHub Free, org secrets never reach a private repository) — and records the App's public identity (client id, slug, the key's fingerprint) under `services.github_app` in org-config.yaml, uncommitted. The private key goes on gh's stdin only: it is never written to disk, printed or logged. Installing the App on the governance repo is a step you take in the browser. `rotate` sets the same secrets from a new key, deletes a `--key-file` after use, and updates the recorded fingerprint, uncommitted; deleting the old key is a step you take on the App's page. `check` changes nothing
 
 **Exit codes**
 
 | code | means |
 | --- | --- |
-| `0` | setup: the App was created and its secrets stored (or it already existed). check: everything holds |
-| `1` | setup: nothing came back from GitHub, or a step failed — the output says which and what to do. check: something is missing, or gov could not tell (offline, or your login may not look) |
+| `0` | setup: the App was created and its secrets stored (or it already existed). check: everything holds. rotate: every secret was set |
+| `1` | setup/rotate: nothing came back from GitHub, no key was given, or a step failed — the output says which and what to do. check: something is missing, or gov could not tell (offline, or your login may not look) |
 | `2` | usage |
 
 **See also.** [gov check](#gov-check) · [gov doctor](#gov-doctor)
