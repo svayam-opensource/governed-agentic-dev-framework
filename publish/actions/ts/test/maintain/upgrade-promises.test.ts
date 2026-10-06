@@ -7,9 +7,8 @@
  * `gov upgrade` runs the same engine over an existing one. So both promises are tested here the way they are
  * kept: the REAL shipped content and MANIFEST, applied to a real temporary directory.
  *
- * GOV-FRM-444 (upgrade replaces every file under framework/) is deliberately NOT tested here: it is not kept —
- * `framework/rules/` has no MANIFEST entry, so no upgrade ships it. See KNOWN_UNKEPT in
- * test/content/spec-rule-coverage.test.ts.
+ * GOV-FRM-444 (upgrade replaces every file under framework/) is kept since P3: the MANIFEST ships framework/rules/
+ * and the specification its rows cite, and seeds the organization's empty rule store once.
  */
 import { expect } from "chai";
 import * as fs from "node:fs";
@@ -18,6 +17,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runUpgradeSync } from "../../src/maintain/upgrade-run.js";
 import { parseManifest } from "../../src/maintain/upgrade-sync.js";
+import { loadRuleStoresFrom } from "../../src/rules/model/store-io.js";
 
 const contentDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../content");
 
@@ -85,6 +85,44 @@ describe("setup and upgrade — what the shipped content promises about the tree
     const again = runUpgradeSync(contentDir, dir, { apply: true });
     expect(again.code, again.lines.join("\n")).to.equal(0);
     expect(files.filter((rel) => fs.existsSync(path.join(dir, rel))), "still there after the upgrade").to.deep.equal([]);
+  });
+
+  const FRAMEWORK_RULES = ["framework/rules/rules.yaml", "framework/rules/catalog.yaml", "framework/rules/pol-aliases.yaml", "framework/docs/specs/framework-specification.md"];
+  const ORG_SEEDS = ["policies/rules.yaml", "policies/catalog.yaml", "policies/ownership.yaml", "policies/VERSION", "policies/CHANGELOG.md"];
+  const read = (rel: string): string => fs.readFileSync(path.join(dir, rel), "utf8");
+  const shipped = (rel: string): string => fs.readFileSync(path.join(contentDir, rel), "utf8");
+
+  it("GOV-FRM-444 setup ships the framework's rules, its catalog, the POL aliases and the specification they cite", () => {
+    for (const rel of FRAMEWORK_RULES) expect(read(rel), rel).to.equal(shipped(rel));
+  });
+
+  it("GOV-FRM-444 upgrade replaces every file under framework/rules/ with the release's copy, edited or not", () => {
+    for (const rel of FRAMEWORK_RULES) fs.writeFileSync(path.join(dir, rel), "# edited by hand\n");
+    const again = runUpgradeSync(contentDir, dir, { apply: true });
+    expect(again.code, again.lines.join("\n")).to.equal(0);
+    for (const rel of FRAMEWORK_RULES) expect(read(rel), rel).to.equal(shipped(rel));
+  });
+
+  it("setup seeds the organization's rule store once: an empty rules list, catalog, ownership, VERSION 1.0.0, CHANGELOG", () => {
+    for (const rel of ORG_SEEDS) expect(fs.existsSync(path.join(dir, rel)), rel).to.equal(true);
+    expect(read("policies/VERSION").trim()).to.equal("1.0.0");
+    fs.writeFileSync(path.join(dir, "org-config.yaml"), read("org-config.yaml").replace(/^org_slug: .*$/m, "org_slug: \"ACME\""));
+    const loaded = loadRuleStoresFrom({ where: "the seeded workspace", read: (rel) => (fs.existsSync(path.join(dir, rel)) ? read(rel) : undefined) });
+    expect(loaded.ok, loaded.ok ? "" : loaded.reason).to.equal(true);
+    if (!loaded.ok) return;
+    expect(loaded.set.org, "the org store is seeded EMPTY — its rules come from its own prose").to.deep.equal([]);
+    expect(loaded.set.orgVersion).to.equal("1.0.0");
+    expect(loaded.set.framework.length, "and the framework's rows arrive with it").to.be.greaterThan(0);
+    expect(loaded.diagnostics.map((d) => `${d.kind} ${d.message}`), "a seeded workspace loads clean").to.deep.equal([]);
+  });
+
+  it("an upgrade never overwrites the organization's rule store", () => {
+    const theirs = "- id: GOV-ACME-001\n";
+    fs.writeFileSync(path.join(dir, "policies/rules.yaml"), theirs);
+    fs.writeFileSync(path.join(dir, "policies/VERSION"), "1.4.0\n");
+    runUpgradeSync(contentDir, dir, { apply: true });
+    expect(read("policies/rules.yaml")).to.equal(theirs);
+    expect(read("policies/VERSION")).to.equal("1.4.0\n");
   });
 });
 

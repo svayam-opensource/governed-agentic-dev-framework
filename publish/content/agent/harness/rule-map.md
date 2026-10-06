@@ -3,7 +3,7 @@
 # Rule map
 
 Every rule that governs this organization's agentic work — the framework's specification rules and the
-organization's policy rules (policy version 0.0.0) — merged into one view. There is one row per
+organization's policy rules (policy version 1.0.0) — merged into one view. There is one row per
 revision: a closed row shows when it stopped applying, the row with no End is in force, and a rule whose last
 row is closed has been retired. `Class` is derived from the row's checks and the catalog: what actually holds
 the rule up.
