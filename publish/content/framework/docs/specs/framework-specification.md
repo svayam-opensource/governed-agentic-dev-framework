@@ -744,6 +744,14 @@ by a language model never blocks anything. It only raises a finding, and a perso
 gov renders each check into the resource's own automation, for example a GitHub Actions workflow. Every
 rendered check calls `gov check run <rule id>`. There is no central service to run or keep alive.
 
+A check in a code repository has to read the rules, and they live in the governance repository. GitHub's own
+workflow token can read only the repository the workflow runs in, so your organization needs a GitHub App to
+bridge the two. GitHub Apps are free on every plan. Once per organization, an owner runs `gov app setup`. It
+opens a page in your browser, where you confirm the new App on GitHub. gov then stores the App's two
+credentials as organization secrets, and never keeps a copy of its private key. You install the App on the
+governance repository only, and `gov app check` confirms that everything is in place. After that, each check
+gets a short-lived, read-only token every time it runs. Nobody's personal token is involved.
+
 ### 9.6 Cues
 
 A **cue** is a one-line reminder an agent carries. Cues come in two tiers:

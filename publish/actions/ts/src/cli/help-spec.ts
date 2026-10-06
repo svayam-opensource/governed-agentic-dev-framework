@@ -293,7 +293,25 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
       { code: 1, means: "run: failed on a gate event; or could not tell under HARD posture. install: the rules could not be read, so nothing was written" },
       { code: 2, means: "usage" },
     ],
-    seeAlso: ["repo", "rules", "validate"],
+    seeAlso: ["app", "repo", "rules", "validate"],
+  },
+  {
+    name: "app", audience: "you",
+    summary: "create the org's GitHub App that lets code repos' checks read the governance rules, and check it",
+    usage: "<setup | check>",
+    where: "GOVERNED — run by an owner of the GitHub organization, once per organization",
+    args: [
+      { name: "setup", what: "create the App gov-<org_slug> with GitHub's App-manifest flow: open the printed local page in a browser on this machine, confirm on GitHub, and gov stores the App's client id and private key as the org Actions secrets GOV_APP_CLIENT_ID and GOV_APP_PRIVATE_KEY, then prints the install URL" },
+      { name: "check", what: "verify the App exists, is installed on the org, can read the governance repo's default branch, and that both org secrets are set. Each failure names the next step" },
+    ],
+    examples: ["gov app setup", "gov app check"],
+    changes: "`setup` creates a private GitHub App owned by the organization (contents and metadata read-only, no webhook), sets the two organization Actions secrets through `gh secret set` (the private key on stdin — it is never written to disk, printed or logged), and records the App's public identity (client id, slug) under `services.github_app` in org-config.yaml, uncommitted. Installing the App on the governance repo is a step you take in the browser. `check` changes nothing",
+    exit: [
+      { code: 0, means: "setup: the App was created and its secrets stored (or it already existed). check: everything holds" },
+      { code: 1, means: "setup: nothing came back from GitHub, or a step failed — the output says which and what to do. check: something is missing, or gov could not tell (offline, or your login may not look)" },
+      { code: 2, means: "usage" },
+    ],
+    seeAlso: ["check", "doctor"],
   },
   {
     name: "rules", audience: "you",
