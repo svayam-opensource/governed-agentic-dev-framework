@@ -48,8 +48,11 @@ drive "$(conv <<'C'
 # not defaulted: the default is the Policy Owner's gh login, which the container may not have.
 > Q10 - Who is the Check Owner
 < adopter
+# Q11 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
+> Q11 - What governance posture
+<
 ~ 240
-# Q11 — ANSWERED WITH THE WORD, not the number. The numbered option is asserted on the screen
+# Q12 — ANSWERED WITH THE WORD, not the number. The numbered option is asserted on the screen
 # below; typing `none` is the answer someone gives who read the list rather than counting it, and
 # it must work for the same reason `ibm-bob` does.
 > default for your organization
@@ -66,7 +69,7 @@ drive "$(conv <<'C'
 C
 )" gov
 
-info "Q11 offers 'none' as an ANSWER, not as a way past the question"
+info "Q12 offers 'none' as an ANSWER, not as a way past the question"
 saw "the option is on the menu, numbered like the rest" "none — this organization does not use AI agents"
 says "and it says what gov still does, which is everything else" "projects, tasks, branches, knowledge, review"
 never "it is never presented as skipping the question" "skip this"

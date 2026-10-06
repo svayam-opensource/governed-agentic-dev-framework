@@ -11,8 +11,7 @@
  *
  * TWO POSTURES, BOTH IMPLEMENTED. `hard` means the PLATFORM stops work attempted outside gov; `soft` means an
  * organization deliberately leaves room for direct work. Under `soft` this command installs nothing and says
- * so — a refusal, not a failure. Under neither (nobody chose) it also installs nothing, which is the whole
- * point of the third state: see `config/org-config.ts`.
+ * so — a refusal, not a failure. No posture recorded IS soft (W2-Q6): see `config/org-config.ts`.
  *
  * ── THE THREE ANSWERS THIS FILE KEEPS APART ──────────────────────────────────────────────────────────────
  *
@@ -365,29 +364,19 @@ export function protectRepo(deps: RepoProtectDeps, input: RepoProtectInput, mode
   const head = `gov repo protect ${mode} — ${at}`;
 
   // ── 0. THE POSTURE. gov installs platform controls only for an organization that ASKED for them. ────────
-  if (input.posture.unrecognised) {
+  if (input.posture.unrecognised || input.posture.posture === null) {
     return { code: mode === "apply" ? 1 : 0, lines: [
       head,
       `  governance_posture is \`${input.posture.raw}\`, which is not a posture gov knows — use \`hard\` or \`soft\`.`,
       "  gov will not guess which was meant: the two are opposite answers about the same repository.",
     ] };
   }
-  if (input.posture.posture === null) {
-    return { code: mode === "apply" ? 1 : 0, lines: [
-      head,
-      "  NO POSTURE HAS BEEN CHOSEN. `governance_posture` is empty in org-config.yaml, and gov will not install",
-      "  repository controls an organization has not asked for — nor pretend that leaving the question open is a",
-      "  decision to leave the repository open.",
-      "",
-      "  Record one, by pull request, and run this again:",
-      "    governance_posture: hard    the platform stops work attempted outside gov (§3.3)",
-      "    governance_posture: soft    direct clone, commit and push are deliberately left open (§3.4)",
-    ] };
-  }
   if (input.posture.posture === "soft") {
     return { code: 0, lines: [
       head,
-      "  This organization chose SOFT governance, so gov installs nothing.",
+      input.posture.raw === ""
+        ? "  This organization is in SOFT governance (the default — nothing chose hard), so gov installs nothing."
+        : "  This organization chose SOFT governance, so gov installs nothing.",
       "  `gov repo protect` installs the controls that stop work attempted outside gov — which is exactly the",
       "  room a soft posture deliberately leaves. gov's own gates remain, and they do not bind an agent a",
       "  developer starts outside gov.",

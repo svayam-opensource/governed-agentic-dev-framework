@@ -57,8 +57,11 @@ drive "$(conv <<'C'
 # not defaulted: the default is the Policy Owner's gh login, which the container may not have.
 > Q10 - Who is the Check Owner
 < adopter
+# Q11 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
+> Q11 - What governance posture
+<
 ~ 240
-# Q11 — THE AGENT POLICY, NOW INSIDE THE INTERVIEW AND BEFORE THE CLONE. It used to be asked
+# Q12 — THE AGENT POLICY, NOW INSIDE THE INTERVIEW AND BEFORE THE CLONE. It used to be asked
 # after the repository existed, which put the one genuine policy decision in adoption on the
 # far side of the irreversible step. One agent at a time now: the old shape was a
 # space-separated list, where a typo silently changed the organization's default.
@@ -93,8 +96,8 @@ q9="$(grep -n 'happy with your AI agent selection' "$PLAIN" | head -1 | cut -d: 
   || fail "the legal NAME is asked before the GitHub identifier"
 # The whole point of #215: nothing irreversible happens until the last answer is in.
 [ -n "$q9" ] && [ -n "$create" ] && [ "$q9" -lt "$create" ] \
-  && pass "nothing is created until the LAST question (Q11's confirmation) is answered" \
-  || fail "nothing is created until the LAST question (Q11's confirmation) is answered"
+  && pass "nothing is created until the LAST question (Q12's confirmation) is answered" \
+  || fail "nothing is created until the LAST question (Q12's confirmation) is answered"
 saw "and the closing block names the repository it made" "A new governance repo is created for your organization at"
 saw "with the local path, which is what the adopter needs next" "/.gov/acme/gov_repo"
 never "the mid-flow echoes are gone — they are in the closing block now" "(from origin)"

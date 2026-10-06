@@ -251,18 +251,16 @@ describe("gov-work — repo protect and a repository the PLATFORM will not prote
   });
 });
 
-describe("gov-work — repo protect and the posture nobody chose", () => {
-  it("UNSET: apply refuses, names both postures, and writes nothing", () => {
+describe("gov-work — repo protect and the posture", () => {
+  it("UNSET is SOFT by default (W2-Q6): installs nothing, writes nothing, succeeds", () => {
     const { gh, calls } = fakeGh({ get: () => payload(), contents: () => "{}" });
     const r = protectRepo({ gh, fs: fakeFs(withTemplate()) }, { ...base, posture: classifyPosture("") }, "apply");
-    expect(r.code).to.equal(1);
-    const text = r.lines.join("\n");
-    expect(text).to.contain("NO POSTURE HAS BEEN CHOSEN");
-    expect(text).to.contain("governance_posture: hard").and.contain("governance_posture: soft");
-    expect(calls, "it does not even read: there is nothing gov has been asked to do").to.deep.equal([]);
+    expect(r.code).to.equal(0);
+    expect(r.lines.join("\n")).to.contain("SOFT governance").and.contain("the default");
+    expect(calls).to.deep.equal([]);
   });
 
-  it("UNSET on plan is not a failure — plan changes nothing anyway, and the message is the answer", () => {
+  it("UNSET on plan is soft too", () => {
     const { gh } = fakeGh({});
     expect(protectRepo({ gh, fs: fakeFs() }, { ...base, posture: classifyPosture(undefined) }, "plan").code).to.equal(0);
   });

@@ -228,9 +228,10 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // NOT UNDER `soft`. An organization that chose to leave room for direct work has not misconfigured
     // anything, and four red crosses against a decision it made on purpose is the false alarm this file keeps
     // arguing against — it would teach people to ignore the rows, which is fatal for the one rule that holds
-    // outside gov. UNSET still gets them: not choosing is not a choice to skip the policy, and the posture row
-    // says so in as many words.
-    ...(facts.protection && postureOf(facts.orgConfigText).posture !== "soft"
+    // outside gov. UNSET is soft (W2-Q6), so it gets none either; an unrecognised value still does, because gov
+    // will not guess which posture was meant.
+    // No config examined is not soft: the posture is then unknown, and the rows stay.
+    ...(facts.protection && (facts.orgConfigText == null || postureOf(facts.orgConfigText).posture !== "soft")
       ? assessProtection(facts.protection.facts, {
           repo: facts.protection.repo,
           branch: facts.protection.branch,

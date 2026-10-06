@@ -159,15 +159,15 @@ describe("cli — route `repo protect`", () => {
   it("`gov repo protect` defaults to plan, and plan makes no gh call it did not have to", () => {
     const calls: string[][] = [];
     const r = route(parseArgv(["repo", "protect"]) as never, ctx({ ghApi: (a) => { calls.push([...a]); return "{}"; } }));
-    // The fixture's org has chosen no posture, so it refuses before reading anything — which is the behaviour.
+    // The fixture's org recorded no posture, which is soft (W2-Q6): it installs nothing, before reading anything.
     expect(r.code).to.equal(0);
-    expect(r.lines.join("\n")).to.contain("NO POSTURE HAS BEEN CHOSEN");
+    expect(r.lines.join("\n")).to.contain("SOFT governance");
     expect(calls).to.deep.equal([]);
   });
 
-  it("`apply` on a posture nobody chose exits 1 — plan's message, apply's exit code", () => {
+  it("`apply` with no posture recorded is soft — nothing to install, exit 0", () => {
     const r = route(parseArgv(["repo", "protect", "apply"]) as never, ctx({ ghApi: () => "{}" }));
-    expect(r.code).to.equal(1);
+    expect(r.code).to.equal(0);
   });
 
   it("a sub-command gov does not have is usage (exit 2), and the usage names the flags", () => {

@@ -50,18 +50,19 @@ export type GovernancePosture = "hard" | "soft";
 export const GOVERNANCE_POSTURES: readonly GovernancePosture[] = ["hard", "soft"];
 
 /**
- * What the file says about the posture — and the THIRD state, which is the one that matters.
+ * What the file says about the posture.
  *
- * `posture: null, unrecognised: false` is NOBODY HAS CHOSEN. It must never collapse into either posture:
- * defaulting it to `hard` would have gov install controls an organization never asked for, and defaulting it
- * to `soft` would quietly excuse an organization that believes it is protected. `gov doctor` says a posture
- * was never chosen, the way it already does for `authorized_agents`, and `gov repo protect apply` refuses.
+ * ABSENT OR EMPTY IS `soft` (Policy Owner, W2-Q6, 2026-10-06). The "nobody chose" third state is gone: `hard`
+ * needs public repositories or a paid GitHub plan, so it is the one an organization opts into — at setup, past a
+ * confirmation that says what it costs. `raw` stays `""` so a report can say soft is the DEFAULT rather than a
+ * recorded choice.
  *
- * `unrecognised` is a FOURTH state and deliberately not folded into unset either: `governance_posture: strict`
- * is someone who chose and was not heard, which is the failure mode {@link unknownOrgConfigKeys} exists for,
- * one level down — the key is known, the value is not.
+ * `unrecognised` is the one state that is neither: `governance_posture: strict` is someone who chose and was not
+ * heard, which is the failure mode {@link unknownOrgConfigKeys} exists for, one level down — the key is known, the
+ * value is not. `posture` is null only then.
  */
 export interface PostureChoice {
+  /** Null only when {@link unrecognised}. */
   readonly posture: GovernancePosture | null;
   /** Exactly what the file said, lower-cased and trimmed. `""` when the key is absent or empty. */
   readonly raw: string;
@@ -72,7 +73,7 @@ export interface PostureChoice {
 /** Classify a raw `governance_posture` value. Pure. */
 export function classifyPosture(raw: string | null | undefined): PostureChoice {
   const value = (raw ?? "").trim().toLowerCase();
-  if (!value) return { posture: null, raw: "", unrecognised: false };
+  if (!value) return { posture: "soft", raw: "", unrecognised: false };
   const known = GOVERNANCE_POSTURES.find((p) => p === value);
   return known
     ? { posture: known, raw: value, unrecognised: false }
@@ -218,8 +219,7 @@ export interface OrgConfig {
   /** Gov tenant/account (`gov_account`) — the account context service auth mints under; env `GOV_ACCOUNT` overrides. */
   readonly govAccount: string;
   /**
-   * `governance_posture` — hard, soft, or nobody chose. See {@link PostureChoice}: the third state is not a
-   * default, and `gov repo protect` refuses to act on it.
+   * `governance_posture` — hard or soft; absent or empty is soft (W2-Q6). See {@link PostureChoice}.
    */
   readonly governancePosture: PostureChoice;
   /** Token → value for tool-file substitution (seed phase B.1). */
