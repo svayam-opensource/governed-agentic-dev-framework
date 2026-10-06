@@ -68,7 +68,9 @@ policy_owner_github: ""
 # two-key review off; doctor warns about that as well.
 check_owner_github: ""
 
-# Other role GitHub handles (update as roles are formally assigned)
+# Other role GitHub handles — LEGACY. Your roles, their holders and the knowledge/ folders each owns now live
+# in the role list in policies/authorized-representatives.md (§4), which setup fills from these answers.
+# gov reads these keys only when that table is absent, for one release; `gov doctor` says when it does.
 legal_owner_github: ""
 infra_owner_github: ""
 system_arch_owner_github: ""

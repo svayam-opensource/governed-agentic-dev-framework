@@ -31,6 +31,7 @@ import { FRAMEWORK_SCOPE, isScope, issueId } from "./gov-id.js";
 import { parseRuleStore, validateRuleStore, inForce, type RuleRow, type RowDiagnosticKind } from "./rule-row.js";
 import { parseCatalog, mergeCatalogs, validateBindings, type Catalog, type BindingDiagnosticKind } from "./catalog.js";
 import type { RuleSet, RuleStoreReader, IdIssuer } from "./contracts.js";
+import { resolveRoles, roleHandles, ROLE_LIST_PATH } from "../../config/role-list.js";
 
 /** Where each piece lives, repo-relative. One table, so a layout change is one edit. */
 export const RULE_STORE_PATHS = {
@@ -40,6 +41,8 @@ export const RULE_STORE_PATHS = {
   orgCatalog: "policies/catalog.yaml",
   orgVersion: "policies/VERSION",
   orgConfig: "org-config.yaml",
+  /** The org's role list (W2-Q5): role → holder → knowledge/ folders, a table in this seed-once document. */
+  roleList: ROLE_LIST_PATH,
 } as const;
 
 /** The version an org with no policy history stands at. Its first rule-changing PR bumps it to 0.1.0. */
@@ -125,7 +128,10 @@ export function loadRuleStores(git: GitRead, repo: string, ref: string): RuleSto
   log("debug", "rule stores loaded", "gov-work:rules:store-io", "loadRuleStores", {
     ref, framework: framework.length, org: org.length, orgScope, orgVersion, diagnostics: diagnostics.length,
   });
-  return { ok: true, set: { framework, org, orgScope, catalog, orgVersion }, diagnostics };
+  // WHO HOLDS EACH ROLE, at the same ref: the Policy Owner and Check Owner from org-config, every other role from the
+  // org's role list — or, while an org's copy of the document has no table, the legacy *_owner_github keys.
+  const roles = roleHandles(texts.orgConfig, resolveRoles(texts.orgConfig, texts.roleList).roles);
+  return { ok: true, set: { framework, org, orgScope, catalog, orgVersion, roles }, diagnostics };
 }
 
 class StoreParseError extends Error {}
