@@ -42,7 +42,6 @@ const KNOWN_UNKEPT: Readonly<Record<string, string>> = {
   "GOV-FRM-444": "MANIFEST.yaml has no entry for framework/rules/, so gov upgrade never ships rules.yaml, catalog.yaml or pol-aliases.yaml.",
   "GOV-FRM-456": "the governance snapshot and session prompt read the default branch, but ensureRootProtocol mirrors agent/harness/ from the project-branch worktree.",
   "GOV-FRM-461": "gov work --agent=<id> launches the named agent without checking it against authorized_agents.",
-  "GOV-FRM-464": "rules/exceptions.ts compiles in-force exceptions, but nothing calls it — no build places them in the resident rules.",
 };
 
 // ── titles ──────────────────────────────────────────────────────────────────────────────────────────────────────
