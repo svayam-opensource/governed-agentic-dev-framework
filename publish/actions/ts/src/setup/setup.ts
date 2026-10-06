@@ -153,8 +153,8 @@ org_repo_url: "${v.orgRepoUrl}"
 # GitHub organization or username (derived from org_repo_url)
 github_org: "${v.githubOrg}"
 
-# Name of this workspace repository (derived from org_repo_url)
-workspace_repo: "${v.workspaceRepo}"
+# Name of this governance repository (derived from org_repo_url)
+org_gov_repo: "${v.workspaceRepo}"
 
 # Default branch name for this workspace repo
 default_branch: "${v.defaultBranch}"
@@ -247,7 +247,7 @@ export function readExistingOrgConfig(text: string): Partial<OrgConfigValues> {
   };
   const map: Array<[keyof OrgConfigValues, string]> = [
     ["orgName", "org_name"], ["orgShortName", "org_short_name"], ["orgSlug", "org_slug"],
-    ["orgRepoUrl", "org_repo_url"], ["githubOrg", "github_org"], ["workspaceRepo", "workspace_repo"],
+    ["orgRepoUrl", "org_repo_url"], ["githubOrg", "github_org"], ["workspaceRepo", "org_gov_repo"], ["workspaceRepo", "workspace_repo"],
     ["defaultBranch", "default_branch"], ["defaultCodeBranch", "default_code_branch"],
     ["agentWorkRoot", "agent_work_root"], ["govWorkspace", "gov_workspace"],
     ["policyOwnerEmail", "policy_owner_email"], ["policyOwnerGithub", "policy_owner_github"],
@@ -256,7 +256,8 @@ export function readExistingOrgConfig(text: string): Partial<OrgConfigValues> {
   const out: Partial<Record<keyof OrgConfigValues, string>> = {};
   for (const [k, y] of map) {
     const val = scalar(y);
-    if (val !== undefined && val !== "") out[k] = val;
+    // First name wins, so `org_gov_repo` is preferred over the `workspace_repo` it replaced (org-config.ts reads the same way).
+    if (val !== undefined && val !== "" && out[k] === undefined) out[k] = val;
   }
   // services: block (preferred) with vault_addr as a legacy fallback for vaultAddr.
   // `session:` is read with the same indented matcher as `services:` — it is a nested block, and the

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
-import { parseManifest, expandEntries, planUpgrade, mergeOrgConfig, applyUpgrade, formatPlan, type PlanReaders } from "../../src/maintain/upgrade-sync.js";
+import { parseManifest, expandEntries, planUpgrade, mergeOrgConfig, orgConfigLoss, applyUpgrade, formatPlan, type PlanReaders } from "../../src/maintain/upgrade-sync.js";
 
 const MANIFEST = `
 version: "1.0.0"
@@ -208,5 +208,58 @@ moves:
   it("the plan says what will happen to the org's files, by name", () => {
     const text = formatPlan(planUpgrade([], readers({ "governance/policies/exceptions/legal/x.md": "ours" }), manifest.moves)).join("\n");
     expect(text).to.contain("→ move").and.contain("governance/policies/exceptions/legal/x.md → policies/exceptions/legal/x.md");
+  });
+});
+
+// PRJ-121 Tier 0 #5, 2026-10-06 — `gov upgrade` emptied an organization's governance repo name. `setup` wrote
+// `workspace_repo:`, the template had renamed it `org_gov_repo:`, and the merge matched by name only: the new key
+// went in EMPTY and the org's value was commented out. Ruled: carry renames, AND refuse any merge that empties a
+// value gov reads — so the next rename nobody mapped is a refusal, not data loss.
+describe("org-config overlay — a rename carries the value; a merge that would lose one is refused", () => {
+  const TEMPLATE = 'org_name: ""\n# The governance repo.\norg_gov_repo: ""\ndefault_branch: "main"\n';
+  const ORG = 'org_name: "Acme"\nworkspace_repo: "acme-gov"\ndefault_branch: "trunk"\n';
+  const overlay = [{ src: "org-config.example.yaml", dst: "org-config.yaml", mode: "overlay-schema" as const }];
+
+  it("workspace_repo's value lands under org_gov_repo, and is not left behind as a removed key", () => {
+    const merged = mergeOrgConfig(TEMPLATE, ORG);
+    expect(merged).to.match(/^org_gov_repo: "acme-gov"$/m);
+    expect(merged).to.not.match(/workspace_repo/);
+  });
+
+  it("an org that already has org_gov_repo keeps it, and a stale workspace_repo beside it is not carried over it", () => {
+    const merged = mergeOrgConfig(TEMPLATE, 'org_gov_repo: "new-gov"\nworkspace_repo: "old-gov"\n');
+    expect(merged).to.match(/^org_gov_repo: "new-gov"$/m);
+  });
+
+  it("orgConfigLoss names every value gov reads that a merge would empty", () => {
+    expect(orgConfigLoss(ORG, 'org_name: "Acme"\norg_gov_repo: ""\ndefault_branch: "trunk"\n')).to.deep.equal(["workspaceRepo"]);
+    expect(orgConfigLoss(ORG, mergeOrgConfig(TEMPLATE, ORG))).to.deep.equal([]);
+  });
+
+  const lossy = () => {
+    // A rename nobody mapped: the template renamed default_branch, and the org's value would be commented out.
+    const content: Record<string, string> = { "org-config.example.yaml": 'org_name: ""\nbase_branch: ""\n' };
+    const store: Record<string, string> = { "org-config.yaml": 'org_name: "Acme"\ndefault_branch: "trunk"\n' };
+    const r = { readContent: (p: string) => content[p] ?? null, readAdopter: (p: string) => store[p] ?? null, adopterPaths: () => Object.keys(store) };
+    return { content, store, plan: planUpgrade(overlay, r) };
+  };
+
+  it("planUpgrade marks such a merge `refuse`, naming what it would lose", () => {
+    const [a] = lossy().plan.actions;
+    expect(a.kind).to.equal("refuse");
+    expect(a.detail).to.match(/defaultBranch/);
+    expect(formatPlan(lossy().plan).join("\n")).to.match(/refuse/);
+  });
+
+  it("applyUpgrade never writes a refused merge — not even with includeConflicts, which `--pr` passes", () => {
+    const { content, store, plan } = lossy();
+    const before = store["org-config.yaml"];
+    const res = applyUpgrade(plan, {
+      readContent: (p) => content[p] ?? null, readAdopter: (p) => store[p] ?? null,
+      writeAdopter: (p, t) => { store[p] = t; }, removeAdopter: () => {},
+    }, { includeConflicts: true });
+    expect(store["org-config.yaml"]).to.equal(before);
+    expect(res.refused).to.deep.equal(["org-config.yaml"]);
+    expect(res.applied).to.not.include("org-config.yaml");
   });
 });

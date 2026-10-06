@@ -130,7 +130,7 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
     // Re-derive so path/owner defaults reflect the just-entered slug + email.
     const d1 = deriveOrgConfig(answers, ctx);
     if (!interviewed) io.print(`  github_org:     ${d1.githubOrg}  (from origin)`);
-    if (!interviewed) io.print(`  workspace_repo: ${d1.workspaceRepo}  (from origin)`);
+    if (!interviewed) io.print(`  org_gov_repo:   ${d1.workspaceRepo}  (from origin)`);
     // A CHOICE, not free text (#192): only two answers mean anything here, and a
     // typo produces a branch the rest of the tool looks for and never finds.
     const branchDefault = parseBranchChoice(d1.defaultBranch) === "master" ? "2" : "1";

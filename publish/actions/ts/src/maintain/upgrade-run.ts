@@ -134,10 +134,11 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
     recordMove: (id) => recordMove(adopterDir, id),
   });
   return {
-    code: 0,
+    code: res.refused.length ? 1 : 0,
     lines: [
       `gov upgrade — applied ${res.applied.length} change(s)${res.skipped.length ? `, skipped ${res.skipped.length} conflict(s) for review:` : "."}`,
       ...res.skipped.map((s) => `  ! ${s} (org-customized — reconcile by hand)`),
+      ...refusedLines(plan),
     ],
   };
 }
@@ -145,6 +146,11 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
 import { run as runProcess } from "../run-process.js";
 import { log } from "../log.js";
 import { parseApprovedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
+
+/** Each refused merge, with what it would have lost. A refusal is the one outcome the summary must never hide. */
+function refusedLines(plan: ReturnType<typeof planUpgrade>): string[] {
+  return plan.actions.filter((a) => a.kind === "refuse").map((a) => `  ✗ ${a.dst} NOT updated: ${a.detail ?? "the merge would lose a value"}`);
+}
 
 function git(dir: string, args: string[]): string {
   return runProcess("git", ["-C", dir, ...args], { pgm: "gov-work:maintain:upgrade-run", fn: "git" }).trim();
@@ -196,6 +202,8 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const readAdopter = (rel: string): string | null => { const p = path.join(adopterDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
   const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir) }, manifest.moves);
   if (plan.actions.every((a) => a.kind === "same")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
+  // Before the branch exists: a PR that silently lacks the org-config merge would read as a complete upgrade.
+  if (plan.actions.some((a) => a.kind === "refuse")) return { code: 1, lines: ["gov upgrade --pr: refused — nothing was written.", ...refusedLines(plan)] };
 
   try { git(adopterDir, ["checkout", "-b", branch]); } catch { /* the branch already exists — the runner logged the git failure; the message below says what to do */ return { code: 1, lines: [`gov upgrade --pr: branch '${branch}' already exists — delete it or pass --branch <name>.`] }; }
   const res = applyUpgrade(plan, {

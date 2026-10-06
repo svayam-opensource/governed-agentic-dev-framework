@@ -424,7 +424,7 @@ owned:
     expect(planUpgrade(entries, { readContent: rc, readAdopter: () => null, adopterPaths: () => [] }).actions[0])
       .to.deep.include({ kind: "create", detail: "seed from template" });
     expect(planUpgrade(entries, { readContent: rc, readAdopter: () => 'org_name: "Acme"\n', adopterPaths: () => [] }).actions[0])
-      .to.deep.include({ kind: "overlay", detail: "add new keys · comment removed · keep values" });
+      .to.deep.include({ kind: "overlay", detail: "add new keys · carry renamed keys · comment removed · keep values" });
   });
 
   it("planUpgrade: a shipped file missing from the content source produces no action", () => {

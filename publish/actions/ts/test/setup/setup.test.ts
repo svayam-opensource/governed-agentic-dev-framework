@@ -45,6 +45,16 @@ describe("gov-work — setup (bootstrap)", () => {
       .to.include({ govWorkspace: "~/.legacy/gov_repo" });
   });
 
+  // Tier 0 #5 (2026-10-06): setup wrote the key the template had renamed away from, so the org's first
+  // `gov upgrade` lost it. setup writes the template's name; a re-run still reads a config written before.
+  it("renders org_gov_repo — the template's key — and re-reads either name", () => {
+    const yaml = renderOrgConfig(deriveOrgConfig({ orgName: "Acme Inc", orgSlug: "ACME" }, CTX));
+    expect(yaml).to.match(/^org_gov_repo: "acme-gov"$/m);
+    expect(yaml).to.not.match(/^workspace_repo:/m);
+    expect(readExistingOrgConfig(yaml)).to.include({ workspaceRepo: "acme-gov" });
+    expect(readExistingOrgConfig('workspace_repo: "old-gov"\n')).to.include({ workspaceRepo: "old-gov" });
+  });
+
   it("runSetup writes org-config.yaml + sets origin (scripted prompts)", async () => {
     const writes: Record<string, string> = {};
     const fs = { writeFile: (f: string, c: string) => { writes[f] = c; }, pathExists: () => false, readFile: () => null, mkdirp: () => {}, rm: () => {}, readdir: () => [] } as Fs;
