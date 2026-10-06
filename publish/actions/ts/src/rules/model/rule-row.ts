@@ -52,7 +52,7 @@ export interface RuleRow {
 
 export type RowDiagnosticKind =
   | "bad-id" | "wrong-scope" | "bad-source" | "bad-expectation" | "bad-actor" | "bad-level" | "bad-stamp"
-  | "gov-client-in-org" | "resident-cue-not-c01" | "resident-cue-no-agent"
+  | "gov-client-in-org" | "c02-in-framework" | "resident-cue-not-c01" | "resident-cue-no-agent"
   | "two-in-force" | "broken-chain" | "end-before-start";
 
 export interface RowDiagnostic {
@@ -114,7 +114,11 @@ export function validateRuleStore(rows: readonly RuleRow[], store: { readonly sc
     const d = (kind: RowDiagnosticKind, message: string) => out.push({ kind, id: String(r?.id ?? ""), index, message });
     const g = parseGovId(String(r?.id ?? ""));
     if (!g) { d("bad-id", `"${r?.id}" is not a GOV id (GOV-<scope>-NNN)`); return; }
-    if (g.scope !== store.scope) d("wrong-scope", `${r.id} does not belong in the ${store.scope} store`);
+    // The framework store holds only FRM. The org store holds any OTHER scope: an id is frozen when issued (Q7), so
+    // after the org renames its slug its older ids keep the old one. One org's rules are loaded at a time (`gov org`).
+    if (isOrg ? g.scope === FRAMEWORK_SCOPE : g.scope !== FRAMEWORK_SCOPE) {
+      d("wrong-scope", `${r.id} does not belong in the ${isOrg ? "organization's" : "framework's"} store`);
+    }
     if (!r.source || !r.source.doc || !r.source.section || !r.source.sha) d("bad-source", `${r.id}: source needs doc, section and sha`);
     if (typeof r.expectation !== "string" || r.expectation.trim() === "") d("bad-expectation", `${r.id}: the expectation is empty`);
     if (!LEVELS.includes(r.level)) d("bad-level", `${r.id}: level "${r.level}" is not C01, C02 or C03`);
@@ -122,10 +126,15 @@ export function validateRuleStore(rows: readonly RuleRow[], store: { readonly sc
     const actors = Array.isArray(r.actor) ? r.actor : [];
     if (actors.length === 0 || actors.some((a) => !ACTORS.includes(a)) || new Set(actors).size !== actors.length) {
       d("bad-actor", `${r.id}: actor must be a non-empty set of ${ACTORS.join(", ")}`);
-    } else if (actors.includes("everyone") && actors.length > 1) {
-      d("bad-actor", `${r.id}: "everyone" already means agent and human — it stands alone`);
+    } else if (actors.includes("everyone") && actors.some((a) => a === "agent" || a === "human")) {
+      // `everyone` already means agent and human; it combines only with gov-client, for a rule that binds all three
+      // (GOV-FRM-466, no force-push of a shared branch — W2-Q10).
+      d("bad-actor", `${r.id}: "everyone" already means agent and human — name it alone, or with gov-client`);
     }
     if (isOrg && actors.includes("gov-client")) d("gov-client-in-org", `${r.id}: only the framework makes promises about gov (actor gov-client)`);
+    // C02 is the level WITH an exception route, and a framework rule has none (fixed; exceptions are for org policy).
+    // So a framework rule is C01 or C03 (Policy Owner, W2-Q1, 2026-10-06).
+    if (!isOrg && r.level === "C02") d("c02-in-framework", `${r.id}: a framework rule cannot be C02 — nothing can grant it an exception; make it C01 or C03`);
 
     if (r.cue?.tier === "resident") {
       if (r.level !== "C01") d("resident-cue-not-c01", `${r.id}: a resident cue is only for a C01 rule — use tier on-demand`);

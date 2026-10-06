@@ -134,9 +134,11 @@ function io(over: Partial<FirstRunIo> = {}) {
 const INTERVIEW_ANSWERS: Record<string, string> = {
   Q1: "Acme Incorporated", Q2: "Acme", Q3: "svm-geneva", Q4: "svm-geneva-gov",
   Q5: "GENEVA", Q6: "1", Q7: "dev", Q8: "rk@acme.io", Q9: "2026-01-01",
+  // The Check Owner (rule-model, 2026-10-06): who reviews the code of the org's check actions.
+  Q10: "@rk",
 };
 const interviewAnswer = (q: string): string | undefined => {
-  const m = /^Q([1-9]) - /.exec(q);
+  const m = /^Q(\d+) - /.exec(q);
   return m ? INTERVIEW_ANSWERS[`Q${m[1]}`] : undefined;
 };
 

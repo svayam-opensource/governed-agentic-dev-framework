@@ -105,7 +105,7 @@ jobs:
               # The role handles gov already writes and generates CODEOWNERS from. An organization that has
               # appointed nobody has only the Policy Owner here, which is correct on day one.
               approvers="$(
-                grep -E '^(policy_owner_github|legal_owner_github|infra_owner_github|system_arch_owner_github|data_arch_owner_github):' org-config.yaml \
+                grep -E '^(policy_owner_github|check_owner_github|legal_owner_github|infra_owner_github|system_arch_owner_github|data_arch_owner_github):' org-config.yaml \
                   | sed -E 's/^[^:]+:[[:space:]]*//; s/[[:space:]]*#.*$//; s/["'"'"']//g; s/^@//' \
                   | grep -v '^$' | sort -u | tr '\n' ' '
               )"

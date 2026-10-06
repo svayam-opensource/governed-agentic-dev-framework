@@ -44,8 +44,12 @@ drive "$(conv <<'C'
 < adopter@acme.test
 > Q9 - What should be the policy effective date
 <
+# Q10 — THE CHECK OWNER (rule-model, 2026-10-06): who reviews the code of the org's check actions. Answered,
+# not defaulted: the default is the Policy Owner's gh login, which the container may not have.
+> Q10 - Who is the Check Owner
+< adopter
 ~ 240
-# Q10 — ANSWERED WITH THE WORD, not the number. The numbered option is asserted on the screen
+# Q11 — ANSWERED WITH THE WORD, not the number. The numbered option is asserted on the screen
 # below; typing `none` is the answer someone gives who read the list rather than counting it, and
 # it must work for the same reason `ibm-bob` does.
 > default for your organization
@@ -62,7 +66,7 @@ drive "$(conv <<'C'
 C
 )" gov
 
-info "Q10 offers 'none' as an ANSWER, not as a way past the question"
+info "Q11 offers 'none' as an ANSWER, not as a way past the question"
 saw "the option is on the menu, numbered like the rest" "none — this organization does not use AI agents"
 says "and it says what gov still does, which is everything else" "projects, tasks, branches, knowledge, review"
 never "it is never presented as skipping the question" "skip this"

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * Q10, as an adopter actually answers it — the one-agent-at-a-time selection (`agent-selection.ts`),
+ * Q11, as an adopter actually answers it — the one-agent-at-a-time selection (`agent-selection.ts`),
  * and in particular the answer that says "we do not use AI agents".
  *
  * THIS IS THE LIVE PROMPT. `approve-agents-step.ts` holds the same question in its older
@@ -25,7 +25,7 @@ function run(answers: readonly string[]): { promise: Promise<readonly { id: stri
   return { promise, out, asked };
 }
 
-describe("gov-work — Q10 offers 'none', and it is an answer (structure-only)", () => {
+describe("gov-work — Q11 offers 'none', and it is an answer (structure-only)", () => {
   it("numbers `none` one past the WHOLE catalog, so a chosen agent never renumbers it", () => {
     // The file's own lesson: a list that renumbers itself between prompts turns an answer the
     // reader has already composed into the wrong one.
