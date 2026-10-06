@@ -16,6 +16,7 @@ import { agentsDiagnostic } from "../cli/approve-agents-step.js";
 import { rulesRows, type RulesFacts } from "./rules-health.js";
 import { assessProtection, postureDiagnostic, postureOf } from "./protection-check.js";
 import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
+import { appDiagnostic, type AppCheckResult } from "../cli/app-verb.js";
 import { checkOwnerDiagnostic, codeownersDiagnostic, policyOwnerDiagnostic, roleListDiagnostic } from "./roles-health.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
@@ -114,6 +115,11 @@ export interface DoctorFacts {
     /** The approver-verifying check this org requires, when it is not the framework's default name. */
     readonly approverCheck?: string;
   };
+  /**
+   * What `gov app check` found for the org's GitHub App (rule-model-design.md, "gov-repo access"). Absent = not
+   * probed (no org config). Offline, or gh not signed in, is `cannot-tell` — and the row says so, never `ok`.
+   */
+  readonly githubApp?: AppCheckResult;
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -253,6 +259,9 @@ export function doctor(facts: DoctorFacts): DoctorReport {
           ...(facts.protection.why ? { why: facts.protection.why } : {}),
         })
       : []),
+    // THE ORG'S GITHUB APP — how a code repo's checks read the governance rules. A warning at worst: an org that has
+    // not run `gov app setup` yet has checks that cannot read the rules, which is a next step, not a broken machine.
+    ...(facts.githubApp ? [appDiagnostic(facts.githubApp)] : []),
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
 }

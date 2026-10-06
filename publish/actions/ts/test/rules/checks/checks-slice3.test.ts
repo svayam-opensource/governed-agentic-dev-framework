@@ -454,6 +454,7 @@ describe("gov check install", () => {
     // The one-time App setup the org needs, said where the person installing the workflow will read it.
     expect(text).to.contain("GitHub App").and.contain("Contents: Read-only").and.contain("acme/acme-gov");
     expect(text).to.contain("Install it on the acme organization");
+    expect(text).to.contain("`gov app setup`");
     expect(text).to.contain("GOV_APP_CLIENT_ID").and.contain("GOV_APP_PRIVATE_KEY").and.contain("Client ID");
     expect(text).to.not.contain("GOV_APP_ID ");
   });

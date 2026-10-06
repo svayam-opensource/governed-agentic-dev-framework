@@ -1,0 +1,402 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+/**
+ * `gov app setup` AND `gov app check` — the org's GitHub App, through which a code repository's check workflow
+ * reads the governance repository (rule-model-design.md, "gov-repo access": a GitHub App installed on the org,
+ * free on every plan; NO stopgap token).
+ *
+ *   setup   Creates the App with GitHub's App-MANIFEST flow: a one-shot loopback page auto-POSTs the manifest to
+ *           the org's "new App" page, GitHub redirects back with a single-use code, and `gh api` converts the
+ *           code into the App's credentials. The client id and the private key go straight into the two org
+ *           Actions secrets the rendered workflow reads (`GOV_APP_CLIENT_ID`, `GOV_APP_PRIVATE_KEY`), the key on
+ *           `gh`'s STDIN. Then it prints the install URL.
+ *   check   Is the App there, installed on the org, able to read the governance repo's default branch, and are
+ *           both secrets set? Each miss names the next step. `gov doctor` shows the same verdict as one row.
+ *
+ * THE PRIVATE KEY NEVER TOUCHES DISK OR A LOG. It arrives on `gh`'s stdout (run-process never logs stdout), lives
+ * in one local variable, and leaves on `gh secret set`'s stdin (run-process never logs input). It is never an
+ * argument, never a line printed, never written to a file — org-config.yaml records the App's PUBLIC identity
+ * (`services.github_app: { client_id, slug }`) and nothing else.
+ *
+ * Pure over injected ports (a `gh` runner, the loopback, file read/write, a line printer); main.ts wires them.
+ */
+import path from "node:path";
+import type { CommandResult } from "./dispatch.js";
+import { CODE_SHAPE, type StartLoopback } from "./app-loopback.js";
+import { GOV_APP_SECRETS } from "../rules/checks/render-github.js";
+import { runResult } from "../run-process.js";
+
+// ── ports ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+export interface GhOutcome { readonly status: number; readonly stdout: string; readonly stderr: string }
+/** Run `gh` with these arguments; `input`, when given, is its STDIN. Never throws. */
+export type GhRun = (args: readonly string[], input?: string) => GhOutcome;
+
+/** The real `gh`, through the run-process chokepoint (logged: command, redacted args, exit — never stdout or stdin). */
+export function ghRunner(pgm: string, timeoutMs?: number): GhRun {
+  return (args, input) => runResult("gh", args, { pgm, fn: "gh", ...(input === undefined ? {} : { input }), ...(timeoutMs ? { timeoutMs } : {}) });
+}
+
+export interface AppConfig {
+  /** The governance repository's working tree (where org-config.yaml lives). */
+  readonly home: string;
+  readonly githubOrg: string;
+  readonly orgSlugLower: string;
+  /** The governance repository's NAME (`org_gov_repo`). */
+  readonly workspaceRepo: string;
+  readonly defaultBranch: string;
+}
+
+export interface AppSetupDeps {
+  readonly gh: GhRun;
+  readonly loopback: StartLoopback;
+  readonly readFile: (file: string) => string | null;
+  readonly writeFile: (file: string, text: string) => void;
+  /** Print a line NOW — the person must see the URL before gov waits on the browser. */
+  readonly say: (line: string) => void;
+  /** An unguessable `state` value. */
+  readonly newState: () => string;
+  readonly timeoutMs?: number;
+}
+
+// ── the App's public identity in org-config.yaml ──────────────────────────────────────────────────────────
+
+export interface AppIdentity { readonly clientId: string; readonly slug: string }
+
+/** `services.github_app: { client_id, slug }`, or null when absent or empty. Pure. */
+export function readGithubApp(text: string | null | undefined): AppIdentity | null {
+  if (!text) return null;
+  const lines = text.split(/\r?\n/);
+  const s = lines.findIndex((l) => /^services:\s*(#.*)?$/.test(l));
+  if (s === -1) return null;
+  let inApp = false, appIndent = 0;
+  const got: Record<string, string> = {};
+  for (const line of lines.slice(s + 1)) {
+    if (/^\S/.test(line)) break;
+    const m = /^(\s+)([A-Za-z_]+):\s*(.*)$/.exec(line);
+    if (!m) continue;
+    const indent = m[1]!.length;
+    if (m[2] === "github_app") { inApp = true; appIndent = indent; continue; }
+    if (!inApp) continue;
+    if (indent <= appIndent) { inApp = false; continue; }
+    got[m[2]!] = m[3]!.replace(/\s+#.*$/, "").trim().replace(/^["']|["']$/g, "").trim();
+  }
+  return got.client_id && got.slug ? { clientId: got.client_id, slug: got.slug } : null;
+}
+
+/**
+ * `text` with `services.github_app` set to `id` — replacing any earlier block, adding `services:` if there is none.
+ * Everything else in the file is left byte-for-byte. Pure.
+ */
+export function withGithubApp(text: string, id: AppIdentity): string {
+  const block = ["  github_app:                # written by `gov app setup` — the App's public identity, never its key",
+    `    client_id: "${id.clientId}"`, `    slug: "${id.slug}"`];
+  const lines = text.split("\n");
+  const s = lines.findIndex((l) => /^services:\s*(#.*)?$/.test(l));
+  if (s === -1) {
+    const body = text.endsWith("\n") || text === "" ? text : `${text}\n`;
+    return `${body}services:\n${block.join("\n")}\n`;
+  }
+  // Drop an existing `github_app:` sub-block (its line and everything indented deeper beneath it).
+  const out = lines.slice(0, s + 1);
+  let i = s + 1, skipIndent = -1;
+  for (; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (/^\S/.test(line)) break;
+    const indent = /^(\s*)/.exec(line)![1]!.length;
+    if (skipIndent >= 0) {
+      if (line.trim() === "" || indent > skipIndent) continue;
+      skipIndent = -1;
+    }
+    if (/^\s+github_app:/.test(line)) { skipIndent = indent; continue; }
+    out.push(line);
+  }
+  // At the end of the services block, before any blank lines that separate it from what follows.
+  let at = out.length;
+  while (at > s + 1 && out[at - 1]!.trim() === "") at--;
+  out.splice(at, 0, ...block);
+  return [...out, ...lines.slice(i)].join("\n");
+}
+
+// ── the manifest ──────────────────────────────────────────────────────────────────────────────────────────
+
+export interface AppManifest {
+  readonly name: string;
+  readonly url: string;
+  readonly description: string;
+  readonly hook_attributes: { readonly url: string; readonly active: false };
+  readonly redirect_url: string;
+  readonly public: false;
+  readonly default_permissions: Readonly<Record<string, "read">>;
+  readonly default_events: readonly string[];
+}
+
+export const appName = (orgSlugLower: string): string => `gov-${orgSlugLower.toLowerCase()}`;
+
+/** The App gov asks GitHub for: read the governance repo's contents, nothing else; no webhook; private. Pure. */
+export function appManifest(cfg: AppConfig, redirectUrl: string): AppManifest {
+  const home = `https://github.com/${cfg.githubOrg}/${cfg.workspaceRepo}`;
+  return {
+    name: appName(cfg.orgSlugLower),
+    url: home,
+    description: `Lets gov's checks in ${cfg.githubOrg}'s code repositories read the governance rules in ${cfg.workspaceRepo} (read-only).`,
+    hook_attributes: { url: home, active: false },
+    redirect_url: redirectUrl,
+    public: false,
+    default_permissions: { contents: "read", metadata: "read" },
+    default_events: [],
+  };
+}
+
+const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[c]!);
+
+/** Where GitHub takes an org App manifest. */
+export const newAppUrl = (org: string, state: string): string =>
+  `https://github.com/organizations/${encodeURIComponent(org)}/settings/apps/new?state=${encodeURIComponent(state)}`;
+
+/** The one-shot page: a form that POSTs the manifest to GitHub, submitted on load. Pure. */
+export function manifestPage(manifest: AppManifest, org: string, state: string): string {
+  return [
+    "<!doctype html><meta charset=utf-8><title>gov app setup</title>",
+    `<form method="post" action="${esc(newAppUrl(org, state))}">`,
+    `<input type="hidden" name="manifest" value="${esc(JSON.stringify(manifest))}">`,
+    `<p>Taking you to GitHub to create <b>${esc(manifest.name)}</b> for ${esc(org)}…</p>`,
+    "<noscript><button type=submit>Continue to GitHub</button></noscript></form>",
+    "<script>document.forms[0].submit()</script>",
+  ].join("\n");
+}
+
+export const installUrl = (slug: string): string => `https://github.com/apps/${slug}/installations/new`;
+
+// ── gh's failures, sorted into what they mean ─────────────────────────────────────────────────────────────
+
+/** `missing` and `forbidden` are answers from GitHub; `unknown` (no network, a timeout, anything else) is not. */
+export function ghFailure(r: GhOutcome): "missing" | "forbidden" | "unknown" {
+  const t = `${r.stderr}\n${r.stdout}`;
+  if (/HTTP 404|Not Found/i.test(t)) return "missing";
+  if (/HTTP 40[13]|Resource not accessible|must have admin|Must be an organization owner|requires? (the )?(admin:org|read:org)|insufficient/i.test(t)) return "forbidden";
+  return "unknown";
+}
+
+const firstLine = (s: string): string => s.split(/\r?\n/).map((l) => l.trim()).find(Boolean)?.slice(0, 200) ?? "no output";
+
+function json<T>(s: string): T | null {
+  try { return JSON.parse(s) as T; } catch { /* not JSON — the caller treats it as no answer */ return null; }
+}
+
+// ── gov app setup ─────────────────────────────────────────────────────────────────────────────────────────
+
+interface Conversion { id?: number; slug?: string; client_id?: string; pem?: string }
+
+export async function appSetup(deps: AppSetupDeps, cfg: AppConfig): Promise<CommandResult> {
+  if (!cfg.githubOrg || !cfg.orgSlugLower || !cfg.workspaceRepo) {
+    return { code: 1, lines: ["app setup: org-config.yaml must name `github_org`, `org_slug_lower` and `org_gov_repo` — set them (gov setup), then run this again."] };
+  }
+  const org = cfg.githubOrg;
+  const cfgFile = path.join(cfg.home, "org-config.yaml");
+  const cfgText = deps.readFile(cfgFile);
+
+  // Already done? An App recorded here that GitHub still knows is not created twice.
+  const recorded = readGithubApp(cfgText);
+  if (recorded && deps.gh(["api", `/apps/${recorded.slug}`]).status === 0) {
+    return { code: 0, lines: [
+      `app setup: ${org} already has its App, ${recorded.slug} (recorded in org-config.yaml). Run \`gov app check\` to see whether it works.`,
+      `  To replace it: delete it at https://github.com/organizations/${org}/settings/apps/${recorded.slug}, remove services.github_app from org-config.yaml, and run this again.`,
+    ] };
+  }
+
+  const state = deps.newState();
+  let session;
+  try {
+    session = await deps.loopback({ page: (redirect) => manifestPage(appManifest(cfg, redirect), org, state), state, timeoutMs: deps.timeoutMs ?? 10 * 60_000 });
+  } catch (e) {
+    return { code: 1, lines: [`app setup: could not open a local listener for GitHub's redirect (${(e as Error).message}). Nothing was created.`] };
+  }
+  deps.say(`Open this page in a browser ON THIS MACHINE, signed in to GitHub as an owner of ${org}:`);
+  deps.say(`  ${session.url}`);
+  deps.say(`It takes you to GitHub to create the App ${appName(cfg.orgSlugLower)} (read-only access to repository contents, no webhook). Keep this terminal open.`);
+  let code: string;
+  try {
+    code = await session.code;
+  } catch (e) {
+    return { code: 1, lines: [`app setup: ${(e as Error).message} — nothing came back from GitHub, so nothing was stored. Run \`gov app setup\` again.`] };
+  } finally {
+    session.close();
+  }
+  if (!CODE_SHAPE.test(code)) return { code: 1, lines: ["app setup: GitHub's redirect carried no usable code. Nothing was stored. Run `gov app setup` again."] };
+
+  // THE EXCHANGE. Its answer holds the private key: only fields are read from it, and it is never printed.
+  const conv = deps.gh(["api", "-X", "POST", `/app-manifests/${code}/conversions`]);
+  const app = conv.status === 0 ? json<Conversion>(conv.stdout) : null;
+  if (!app || !app.slug || !app.client_id || !app.pem) {
+    return { code: 1, lines: [
+      `app setup: GitHub did not hand over the App's credentials (${conv.status === 0 ? "the answer was incomplete" : firstLine(conv.stderr)}).`,
+      `  The code is single-use and expires after an hour. If the App was created anyway, delete it at https://github.com/organizations/${org}/settings/apps and run \`gov app setup\` again.`,
+    ] };
+  }
+  const { slug, client_id: clientId } = app;
+  // The one reference to the key: the conversion object drops it, and this const goes out of scope on return.
+  const pem = app.pem;
+  delete app.pem;
+
+  const lines: string[] = [`Created the GitHub App ${slug} (client id ${clientId}) for ${org}.`];
+  const setSecret = (name: string, value: string): GhOutcome =>
+    deps.gh(["secret", "set", name, "--org", org, "--visibility", "all"], value);
+  const idSet = setSecret(GOV_APP_SECRETS.clientId, clientId);
+  const keySet = idSet.status === 0 ? setSecret(GOV_APP_SECRETS.privateKey, pem) : null;
+  if (idSet.status !== 0 || !keySet || keySet.status !== 0) {
+    const which = idSet.status !== 0 ? GOV_APP_SECRETS.clientId : GOV_APP_SECRETS.privateKey;
+    const why = firstLine((idSet.status !== 0 ? idSet : keySet!).stderr);
+    lines.push(
+      `app setup: the App exists, but the org secret ${which} could not be set (${why}).`,
+      "  Setting organization secrets needs an org owner and the admin:org scope: gh auth refresh -h github.com -s admin:org",
+      "  gov kept no copy of the private key. Generate a new one on the App's page, store both secrets, then delete the downloaded file:",
+      `    https://github.com/organizations/${org}/settings/apps/${slug}`,
+      `    gh secret set ${GOV_APP_SECRETS.clientId} --org ${org} --visibility all --body ${clientId}`,
+      `    gh secret set ${GOV_APP_SECRETS.privateKey} --org ${org} --visibility all < <downloaded>.pem`,
+    );
+    recordIdentity(deps, cfgFile, cfgText, { clientId, slug }, lines);
+    return { code: 1, lines };
+  }
+  lines.push(`Stored ${GOV_APP_SECRETS.clientId} and ${GOV_APP_SECRETS.privateKey} as ${org} organization Actions secrets (visible to all its repositories). gov kept no copy of the key.`);
+  recordIdentity(deps, cfgFile, cfgText, { clientId, slug }, lines);
+  lines.push(
+    "",
+    "Now install it — one step only an owner can do in the browser:",
+    `  ${installUrl(slug)}`,
+    `  Choose the ${org} organization, then "Only select repositories" → ${cfg.workspaceRepo}. The App needs no other repository.`,
+    "Then confirm it works:  gov app check",
+  );
+  return { code: 0, lines };
+}
+
+function recordIdentity(deps: AppSetupDeps, file: string, text: string | null, id: AppIdentity, lines: string[]): void {
+  if (text === null) {
+    lines.push(`  org-config.yaml was not found at ${file}; add this under services: to record the App:`,
+      "    github_app:", `      client_id: "${id.clientId}"`, `      slug: "${id.slug}"`);
+    return;
+  }
+  deps.writeFile(file, withGithubApp(text, id));
+  lines.push(`Recorded the App's public identity (client id, slug — never the key) in ${file} under services.github_app. NOT committed — land it by pull request.`);
+}
+
+// ── gov app check ─────────────────────────────────────────────────────────────────────────────────────────
+
+export type AppVerdict = "ok" | "fail" | "cannot-tell";
+
+export interface AppCheckResult {
+  readonly verdict: AppVerdict;
+  /** One line: what is true, or the first thing to fix. */
+  readonly summary: string;
+  readonly lines: readonly string[];
+}
+
+interface Installation {
+  id?: number; app_slug?: string; client_id?: string; suspended_at?: string | null;
+  repository_selection?: "all" | "selected"; permissions?: Record<string, string>;
+}
+
+/** Is the org's App there, installed, able to read the governance repo's default branch — and are both secrets set? */
+export function appCheck(gh: GhRun, cfg: AppConfig, recorded: AppIdentity | null): AppCheckResult {
+  if (!cfg.githubOrg || !cfg.workspaceRepo) {
+    const s = "org-config.yaml names no `github_org` / `org_gov_repo` — set them (gov setup)";
+    return { verdict: "fail", summary: s, lines: [`  ✗ ${s}`] };
+  }
+  const org = cfg.githubOrg, repo = cfg.workspaceRepo, full = `${org}/${repo}`;
+  const slug = recorded?.slug || appName(cfg.orgSlugLower);
+  const branch = cfg.defaultBranch || "main";
+  const lines: string[] = [];
+  const fails: string[] = [], unknowns: string[] = [];
+  const pass = (s: string): void => { lines.push(`  ✓ ${s}`); };
+  const fail = (s: string): void => { lines.push(`  ✗ ${s}`); fails.push(s); };
+  const unsure = (s: string): void => { lines.push(`  ? cannot tell: ${s}`); unknowns.push(s); };
+  const done = (): AppCheckResult => ({
+    verdict: fails.length ? "fail" : unknowns.length ? "cannot-tell" : "ok",
+    summary: fails[0] ?? unknowns[0] ?? `${slug} is installed on ${org}, reads ${full}@${branch}, and both secrets are set`,
+    lines,
+  });
+  /** No answer at all from GitHub (offline, a timeout): every later question would be the same guess. */
+  const offline = (what: string, r: GhOutcome): AppCheckResult => { unsure(`${what} — GitHub did not answer (${firstLine(r.stderr)}). Check the network and run \`gov app check\` again.`); return done(); };
+
+  // 1 · THE INSTALLATION
+  const ir = gh(["api", `/orgs/${org}/installations?per_page=100`]);
+  if (ir.status !== 0 && ghFailure(ir) === "unknown") return offline(`whether ${slug} is installed on ${org}`, ir);
+  if (ir.status !== 0) {
+    unsure(`your gh login cannot list ${org}'s App installations (${firstLine(ir.stderr)}). An owner of ${org} can: run \`gov app check\` as one.`);
+  } else {
+    const all = json<{ installations?: Installation[] }>(ir.stdout)?.installations ?? [];
+    const inst = all.find((i) => i.app_slug === slug || (!!recorded?.clientId && i.client_id === recorded.clientId));
+    if (!inst) {
+      const ar = gh(["api", `/apps/${slug}`]);
+      if (ar.status === 0) fail(`the App ${slug} exists but is not installed on ${org} — install it on ${repo} only: ${installUrl(slug)}`);
+      else if (ghFailure(ar) === "missing") fail(`${org} has no GitHub App ${slug} — run \`gov app setup\``);
+      else return offline(`whether the App ${slug} exists`, ar);
+    } else if (inst.suspended_at) {
+      fail(`${slug} is installed on ${org} but SUSPENDED — unsuspend it at https://github.com/organizations/${org}/settings/installations/${inst.id}`);
+    } else if (!["read", "write"].includes(inst.permissions?.contents ?? "")) {
+      fail(`${slug} cannot read repository contents — on https://github.com/organizations/${org}/settings/apps/${slug}/permissions set Contents: Read-only, then accept the change at https://github.com/organizations/${org}/settings/installations/${inst.id}`);
+    } else {
+      pass(`${slug} is installed on ${org} with read access to contents`);
+      // 2 · CAN IT REACH THE GOVERNANCE REPO?
+      if (inst.repository_selection === "all") {
+        pass(`it reaches ${full} (it is installed on ALL of ${org}'s repositories; it needs only ${repo} — narrow it at https://github.com/organizations/${org}/settings/installations/${inst.id})`);
+      } else {
+        const rr = gh(["api", `/user/installations/${inst.id}/repositories?per_page=100`]);
+        if (rr.status !== 0) {
+          if (ghFailure(rr) === "unknown") return offline(`which repositories ${slug} can reach`, rr);
+          unsure(`which repositories ${slug} can reach (${firstLine(rr.stderr)}) — look at https://github.com/organizations/${org}/settings/installations/${inst.id}`);
+        } else {
+          const names = (json<{ repositories?: { full_name?: string }[] }>(rr.stdout)?.repositories ?? []).map((r) => (r.full_name ?? "").toLowerCase());
+          if (names.includes(full.toLowerCase())) pass(`it reaches ${full}`);
+          else fail(`${slug} cannot reach ${full} — add that repository at https://github.com/organizations/${org}/settings/installations/${inst.id}`);
+        }
+      }
+      // 3 · THE DEFAULT BRANCH IT WILL READ
+      if (!fails.length) {
+        const br = gh(["api", `/repos/${full}/branches/${encodeURIComponent(branch)}`, "--jq", ".name"]);
+        if (br.status === 0) pass(`${full} has its default branch ${branch}, which the checks read`);
+        else if (ghFailure(br) === "missing") fail(`${full} has no branch ${branch} — the checks read the rules from there; fix \`default_branch\` in org-config.yaml or push the branch`);
+        else if (ghFailure(br) === "unknown") return offline(`whether ${full}@${branch} exists`, br);
+        else unsure(`whether ${full}@${branch} exists (${firstLine(br.stderr)})`);
+      }
+    }
+  }
+
+  // 4 · THE TWO ORG SECRETS — names and visibility only; gh never shows a value.
+  const sr = gh(["secret", "list", "--org", org, "--json", "name,visibility"]);
+  if (sr.status !== 0) {
+    if (ghFailure(sr) === "unknown") return offline(`whether ${org}'s secrets are set`, sr);
+    unsure(`whether ${org}'s Actions secrets are set (${firstLine(sr.stderr)}) — that needs an org owner with the admin:org scope: gh auth refresh -h github.com -s admin:org`);
+  } else {
+    const secrets = json<{ name?: string; visibility?: string }[]>(sr.stdout) ?? [];
+    for (const name of [GOV_APP_SECRETS.clientId, GOV_APP_SECRETS.privateKey]) {
+      const s = secrets.find((x) => x.name === name);
+      if (!s) fail(`the ${org} org secret ${name} is not set — run \`gov app setup\` again (or set it by hand: gh secret set ${name} --org ${org} --visibility all)`);
+      else if ((s.visibility ?? "").toLowerCase() === "private") fail(`the org secret ${name} is visible to private repositories only — reset it with --visibility all (re-run \`gov app setup\`, or gh secret set ${name} --org ${org} --visibility all)`);
+      else pass(`the org secret ${name} is set (${(s.visibility ?? "?").toLowerCase()})`);
+    }
+  }
+  return done();
+}
+
+/** `gov doctor`'s row — the same check, said in one line. `cannot-tell` is never `ok`. */
+export function appDiagnostic(r: AppCheckResult): { name: string; status: "ok" | "warn"; detail: string } {
+  if (r.verdict === "ok") return { name: "GitHub App", status: "ok", detail: r.summary };
+  if (r.verdict === "cannot-tell") return { name: "GitHub App", status: "warn", detail: `cannot tell — ${r.summary}` };
+  return { name: "GitHub App", status: "warn", detail: `${r.summary} (details: gov app check)` };
+}
+
+// ── the verb ─────────────────────────────────────────────────────────────────────────────────────────────
+
+const USAGE = "usage: gov app <setup|check>";
+
+export async function appCommand(positionals: readonly string[], _flags: Readonly<Record<string, string | boolean>>, deps: AppSetupDeps, cfg: AppConfig): Promise<CommandResult> {
+  const sub = positionals[0];
+  if (sub === "setup") return appSetup(deps, cfg);
+  if (sub === "check") {
+    const r = appCheck(deps.gh, cfg, readGithubApp(deps.readFile(path.join(cfg.home, "org-config.yaml"))));
+    const tail = r.verdict === "ok" ? "app check: ok" : r.verdict === "fail" ? "app check: FAILED — fix the ✗ items above" : "app check: COULD NOT TELL — see the ? items above";
+    return { code: r.verdict === "ok" ? 0 : 1, lines: [...r.lines, tail] };
+  }
+  return { code: 2, lines: [USAGE] };
+}

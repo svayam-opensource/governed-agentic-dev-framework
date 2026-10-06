@@ -72,7 +72,7 @@ keys:
     about: Where this repository is cloned on every machine, when that is not ~/.gov/<slug>/gov_repo.
   services:
     type: map
-    about: The addresses of the shared services your organization uses. Read by the deploy tools (gov-cicd, gov-infra); gov itself needs none of them.
+    about: The addresses of the shared services your organization uses. Read by the deploy tools (gov-cicd, gov-infra), and by gov for its GitHub App.
     keys:
       vault: { type: string, about: "The OpenBao or Vault address that stores each person's tokens." }
       oidc: { type: string, about: "The identity provider's OIDC address, for signing in." }
@@ -81,6 +81,12 @@ keys:
       npm: { type: string, about: "The npm registry packages are published to." }
       docker: { type: string, about: "The container registry images are published to." }
       gov_account: { type: string, about: "The same as the top-level gov_account; either place is read." }
+      github_app:
+        type: map
+        about: "The organization's GitHub App, written by gov app setup — its public identity only. Code repositories' checks use it to read the governance rules. Its private key is an organization secret and is never stored here."
+        keys:
+          client_id: { type: string, about: "The App's client id (also the GOV_APP_CLIENT_ID organization secret)." }
+          slug: { type: string, about: "The App's name in its address, https://github.com/apps/<slug>." }
   session:
     type: map
     about: Session settings the identity provider is told to honour.

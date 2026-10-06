@@ -44,6 +44,9 @@ import { loadOrgConfigText } from "../config/work-root.js";
 import { ORG_CONFIG_SCHEMA_PATH, orgConfigLoadNotes, defaultWorkRoot } from "../config/org-config.js";
 import { GOVERNANCE_PATH, readPosture, readGovernance, frameworkOwners } from "../config/governance.js";
 import { checkCommand } from "./check-verb.js";
+import { appCheck, appCommand, ghRunner, readGithubApp } from "./app-verb.js";
+import { startLoopback } from "./app-loopback.js";
+import { randomBytes } from "node:crypto";
 import type { Gh } from "../rules/checks/github-adapters.js";
 import { withRepoOverrides } from "../config/repo-overrides.js";
 import { assembleNeeds } from "../security/needs.js";
@@ -1096,6 +1099,7 @@ export async function runSetupCommand(
         })) process.stdout.write(`${line}\n`);
       }
     }
+    if (rc === 0) process.stdout.write("\nNext: run `gov app setup` so checks in your code repos can read the governance rules.\n");
     return rc;
   } finally {
     rl.close();
@@ -1819,6 +1823,37 @@ export async function runAgentInstall(argv: readonly string[]): Promise<number> 
 }
 
 /**
+ * `gov app setup|check` — the org's GitHub App, through which code repos' checks read the governance rules
+ * (app-verb.ts). Out of the synchronous router because `setup` waits on a browser: GitHub's redirect comes back to a
+ * loopback listener, which is an await.
+ */
+export async function runApp(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const override = flagStr(parsed.flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
+  const r = override ? null : prjResolveGov(createNodeEnv());
+  if (r && !r.ok) { process.stderr.write(`${resolveFailureMessage(r)}\n`); return r.code; }
+  const home = override ? path.resolve(expandTilde(override)) : (r as { home: string }).home;
+  const fs = createNodeFs();
+  const cfgText = fs.readFile(path.join(home, "org-config.yaml"));
+  if (cfgText === null) { process.stderr.write(`gov app: no org-config.yaml at ${home}\n`); return 1; }
+  const config = parseOrgConfig(cfgText);
+  const res = await appCommand(parsed.positionals, parsed.flags, {
+    gh: ghRunner("gov-work:cli:app"),
+    loopback: startLoopback,
+    readFile: (f) => fs.readFile(f),
+    writeFile: (f, t) => fs.writeFile(f, t),
+    say: (l) => process.stdout.write(`${l}\n`),
+    newState: () => randomBytes(16).toString("hex"),
+  }, {
+    home, githubOrg: config.githubOrg, orgSlugLower: config.orgSlugLower,
+    workspaceRepo: config.workspaceRepo, defaultBranch: config.defaultBranch,
+  });
+  for (const line of res.lines) process.stdout.write(`${line}\n`);
+  return res.code;
+}
+
+/**
  * REMEMBER WHO THIS IS, for the next run's log folder (PRJ-121, 2026-09-23).
  *
  * The folder is keyed by the GitHub login, and asking `gh` costs a process — so a log must never ask. Whoever
@@ -2217,7 +2252,18 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     const doctorRules = (!!doctorHomeOverride || resolve.ok) && gitPresent
       ? rulesFacts({ fs, git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null }, { home, defaultBranch: doctorCfg?.defaultBranch || "main" })
       : undefined;
+    // THE ORG'S GITHUB APP — the same check `gov app check` runs, bounded so an offline machine is told
+    // "cannot tell" in seconds rather than hanging. Not signed in is also cannot-tell: gov could not ask.
+    const githubApp = doctorCfg?.githubOrg && doctorCfg.workspaceRepo
+      ? ghAuthed
+        ? appCheck(ghRunner("gov-work:cli:doctor", 15_000), {
+            home, githubOrg: doctorCfg.githubOrg, orgSlugLower: doctorCfg.orgSlugLower,
+            workspaceRepo: doctorCfg.workspaceRepo, defaultBranch: doctorCfg.defaultBranch,
+          }, readGithubApp(doctorCfgText))
+        : { verdict: "cannot-tell" as const, summary: "gh is not signed in, so GitHub could not be asked", lines: [] }
+      : undefined;
     const report = doctor({
+      ...(githubApp ? { githubApp } : {}),
       gitPresent,
       ghPresent,
       ghAuthenticated: ghAuthed,

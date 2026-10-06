@@ -178,14 +178,15 @@ export function policyPrFromEvent(git: GitRead, repo: string, eventName: string,
 
 /**
  * The one-time setup a code repository's workflow needs before it can read the governance repository: a GitHub App
- * on the org (Policy Owner, 2026-10-06 — no personal token, no stopgap). Printed, never done: gov does not create
- * apps or set secrets from here.
+ * on the org (Policy Owner, 2026-10-06 — no personal token, no stopgap). Printed, never done from here: `gov app setup`
+ * is the verb that creates the App and sets its secrets; the manual steps stay for an org that prefers them.
  */
 export function githubAppSetup(org: string, govRepo: string): string[] {
   const { clientId, privateKey } = GOV_APP_SECRETS;
   return [
     `One-time, for the whole ${org} organization (skip it if it is already done): this workflow reads ${govRepo}`,
     "through a GitHub App, which mints a short-lived, read-only token on every run. GitHub Apps are free on every plan.",
+    "  gov does it for you — an org owner runs `gov app setup`, then `gov app check`. By hand instead:",
     `  1. Create a GitHub App owned by ${org} (Organization settings → Developer settings → GitHub Apps → New).`,
     "     No webhook. Repository permissions: Contents: Read-only, and nothing else.",
     `  2. Install it on the ${org} organization, on the repository ${govRepo} only.`,
