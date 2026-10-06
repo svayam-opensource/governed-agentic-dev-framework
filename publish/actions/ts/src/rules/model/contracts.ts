@@ -99,6 +99,8 @@ export interface EventPayload {
   readonly baseTexts?: Readonly<Record<string, string | null>>;
   /** pull_request: handles with an APPROVED review on the head (section-owner-approval). */
   readonly approvals?: readonly string[];
+  /** pull_request: the author's handle — never an approver of their own change (section-owner-approval). */
+  readonly author?: string;
 }
 
 /** W6. What one event looked like when it fired. */

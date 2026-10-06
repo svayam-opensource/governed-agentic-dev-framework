@@ -211,6 +211,41 @@ describe("check engine slice 2 — gov-builtin/section-owner-approval", () => {
     expect(d.requestReview).to.deep.equal(["dana", "polly"]);
   });
 
+  // Policy Owner, 2026-10-06: GitHub never lets an author approve their own PR, so the author is simply left off the
+  // approver list — and if that leaves nobody, someone else must still review (GOV-FRM-040: nothing merges unreviewed).
+  describe("the author is never asked to approve their own change", () => {
+    const ownSection = BASE.replace("Keep it safe.", "Keep it very safe.");                       // §4, Data Owner
+    const twoSections = ownSection.replace("x\n", "y\n");                                       // §4 + §6 (unowned → Policy Owner)
+
+    it("the author is left off; other owners still approve", () => {
+      const r = run(pr([file(DOC, twoSections)], { approvals: [], author: "dana" }));
+      expect(r.requestReview).to.deep.equal(["polly"]);
+      expect(run(pr([file(DOC, twoSections)], { approvals: ["polly"], author: "dana" })).verdict).to.equal("pass");
+    });
+
+    it("the author owns everything changed → the Policy Owner approves instead", () => {
+      const r = run(pr([file(DOC, ownSection)], { approvals: [], author: "@Dana" }));
+      expect(r.requestReview).to.deep.equal(["polly"]);
+      expect(r.findings.join()).to.contain("author");
+    });
+
+    it("the author is the Policy Owner and owns everything changed → the Check Owner approves", () => {
+      const r = run(pr([file(DOC, twoSections.replace("Keep it very safe.", "Keep it safe."))], { approvals: [], author: "polly" }));
+      expect(r.requestReview).to.deep.equal(["chuck"]);
+    });
+
+    it("one person holds every role → nobody else can approve: a miss that says so, never a silent pass", () => {
+      const solo = ruleset([], { ownership, roles: { "Policy Owner": "@solo", "Check Owner": "@solo", "Data Owner": "@solo" } });
+      const r = run(pr([file(DOC, ownSection)], { approvals: [], author: "solo" }), solo);
+      expect(r.verdict).to.equal("miss");
+      expect(r.findings.join()).to.match(/no one other than the author/i);
+    });
+
+    it("author not given → nobody is left off (today's behaviour)", () => {
+      expect(run(pr([file(DOC, ownSection)], { approvals: [] })).requestReview).to.deep.equal(["dana"]);
+    });
+  });
+
   it("through the runner, the review request rides on the verdict", () => {
     const rs = ruleset([row("GOV-FRM-086", [bind("vcs.gov-repo", "pull_request", "gov-builtin/section-owner-approval")])], { ownership });
     const v = createCheckRunner({ rules: rs, readDefault: noRead }).run("GOV-FRM-086", pr([file(DOC, BASE.replace("Keep it safe.", "Keep."))], { approvals: [] }));
