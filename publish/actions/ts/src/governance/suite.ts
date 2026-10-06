@@ -11,7 +11,6 @@ import { checkVersionSync } from "./version-sync.js";
 import { checkSecrets } from "./secrets.js";
 import { checkProtocol } from "./protocol.js";
 import { checkKnowledge } from "./knowledge.js";
-import { checkProjectKnowledge } from "./project-knowledge.js";
 
 /**
  * The core test-merge validators. `privacy` is publish-branch-only (it needs
@@ -22,10 +21,9 @@ export const CORE_VALIDATORS: readonly Validator[] = [
   checkVersionSync,
   checkSecrets,
   checkProtocol,
+  // No front-matter validator, for the org tree or for projects: knowledge front matter is the organization's
+  // choice (Policy Owner, 2026-10-06), checked only by a rule the org binds to gov-builtin/frontmatter-required.
   checkKnowledge,
-  // The front-matter rule for PROJECT knowledge, scoped to what the current change touches. Silent when the caller
-  // declares no scope — it never guesses one (project-knowledge.ts explains why).
-  checkProjectKnowledge,
 ];
 
 /** Run the suite; returns `{ ok, failures }` (close-gate compatible). */

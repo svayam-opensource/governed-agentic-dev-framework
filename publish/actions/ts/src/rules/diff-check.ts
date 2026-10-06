@@ -27,6 +27,7 @@
  */
 import { filterByGlobs, matchesAny } from "./glob.js";
 import type { Check } from "./checks/predicates.js";
+import { frontmatterProblems, parseFrontmatterSpec } from "./frontmatter.js";
 import type { AttachedCheck, GateFinding, GateResult } from "./verb-gate.js";
 
 /** What happened to a file in the changeset. A rename arrives as a deletion of the old path plus an added new one. */
@@ -246,7 +247,9 @@ export function listedIn(name: string, doc: string): boolean {
  *                        must not fail for not re-adding the header.
  *   file-required        a change matching `when=` requires a change ALSO matching `require=`, in the SAME
  *                        changeset — "a behaviour change brings a test".
- *   frontmatter-required every matching file carries every key in `keys=` in its `---` front matter.
+ *   frontmatter-required every matching file (narrowed by `paths=`, minus `exclude=`) carries every key in `keys=`
+ *                        and every field in `fields=` in its `---` front matter, each with one of the field's
+ *                        allowed values when the org listed them (frontmatter.ts).
  *   naming               every matching path must satisfy `pattern=`; with `subject=branch`, the branch does.
  *   path-scope           no changed path may fall outside `writable=`.
  *
@@ -349,19 +352,20 @@ export function runDiffChecks(
       }
 
       case "frontmatter-required": {
-        const keys = list(check, "keys");
-        if (!keys.length) { note(`${where}: frontmatter-required has no keys= — it requires nothing.`); break; }
+        const parsed = parseFrontmatterSpec(attr(check, "keys"), attr(check, "fields"));
+        if ("error" in parsed) { note(`${where}: frontmatter-required: ${parsed.error}, so nothing was checked.`); break; }
         // `paths=` is the verb gate's spelling of "which files". Honoured here as a FURTHER narrowing of the
         // trigger, never as a replacement: a check that fired on `when=` and then judged a different set would
-        // report findings about files the pull request never touched.
+        // report findings about files the pull request never touched. `exclude=` narrows it again.
         const narrow = list(check, "paths");
+        const exclude = list(check, "exclude");
         for (const file of liveMatches(changed, globs)) {
           if (narrow.length && !matchesAny(file.path, narrow)) continue;
+          if (exclude.length && matchesAny(file.path, exclude)) continue;
           if (file.text === null) { note(`${where}: \`${file.path}\` could not be read, so its front matter was not checked.`); continue; }
-          const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(file.text)?.[1] ?? "";
-          const missing = keys.filter((k) => !new RegExp(`^${escapeRe(k)}:`, "m").test(fm));
-          if (missing.length) {
-            push(`${where}: \`${file.path}\` is missing front matter ${missing.join(", ")} — add the key(s) to the \`---\` block at the top.`);
+          const problems = frontmatterProblems(file.text, parsed.spec);
+          if (problems.length) {
+            push(`${where}: \`${file.path}\` ${problems.join("; ")} — fix the \`---\` block at the top.`);
           }
         }
         break;

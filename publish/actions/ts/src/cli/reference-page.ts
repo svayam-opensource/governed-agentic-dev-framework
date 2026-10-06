@@ -36,9 +36,9 @@ export const REFERENCE_DOC_CANDIDATES: readonly string[] = [
 ];
 
 /**
- * The front matter the Knowledge Organization Standard requires of a shipped framework doc: domain,
- * layer agreeing with the folder, owner, compliance, status. Part of the rendered output on purpose — if the
- * generator wrote only the body, regenerating would strip it and `gov validate` would fail on content we ship.
+ * The front matter every framework spec doc carries (the framework's own convention for its own docs — nothing in
+ * gov requires it: knowledge front matter is the organization's choice, Policy Owner 2026-10-06). Part of the
+ * rendered output on purpose — if the generator wrote only the body, regenerating would strip it.
  */
 const FRONT_MATTER = [
   "---",

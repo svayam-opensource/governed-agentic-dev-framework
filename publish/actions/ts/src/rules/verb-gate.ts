@@ -20,6 +20,7 @@
  */
 import { filterByGlobs, matchesAny } from "./glob.js";
 import type { Check } from "./checks/predicates.js";
+import { frontmatterProblems, parseFrontmatterSpec } from "./frontmatter.js";
 
 /**
  * What a gate may look at. Deliberately narrow: existence, contents, and the two identifiers.
@@ -81,7 +82,8 @@ const list = (c: Check, key: string): string[] => attr(c, key).split(",").map((s
  *
  *   file-required        every glob in `require=` matches at least one existing path
  *   content-required     `file=` exists, contains `pattern=`, and contains every heading in `sections=`
- *   frontmatter-required every file matching `paths=` carries every key in `keys=`
+ *   frontmatter-required every file matching `paths=` (minus `exclude=`) carries every key in `keys=` and every
+ *                        field in `fields=`, with an allowed value where the org listed them (frontmatter.ts)
  *   naming               `subject=` (branch | project_id) matches `pattern=`
  *   path-scope           every existing path is inside `writable=` — the workspace as it stands
  *   list-membership      REFUSED at parse time: "every ADDED entry" has no meaning without a changeset
@@ -126,13 +128,13 @@ export function gateVerb(checks: readonly AttachedCheck[], ws: WorkspaceView): G
         break;
       }
       case "frontmatter-required": {
-        const paths = list(check, "paths");
-        const keys = list(check, "keys");
-        for (const p of filterByGlobs(ws.paths(), paths)) {
-          const text = ws.read(p) ?? "";
-          const fm = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
-          const missing = keys.filter((k) => !new RegExp(`^${k}:`, "m").test(fm));
-          if (missing.length) push(`${where}: \`${p}\` is missing front matter ${missing.join(", ")}.`);
+        const parsed = parseFrontmatterSpec(attr(check, "keys"), attr(check, "fields"));
+        if ("error" in parsed) { warnings.push({ pol, doc, section, severity: "warn", message: `${where}: frontmatter-required: ${parsed.error}, so nothing was checked.` }); break; }
+        const exclude = list(check, "exclude");
+        for (const p of filterByGlobs(ws.paths(), list(check, "paths"))) {
+          if (exclude.length && matchesAny(p, exclude)) continue;
+          const problems = frontmatterProblems(ws.read(p) ?? "", parsed.spec);
+          if (problems.length) push(`${where}: \`${p}\` ${problems.join("; ")}.`);
         }
         break;
       }

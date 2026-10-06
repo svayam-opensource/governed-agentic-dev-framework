@@ -1,11 +1,3 @@
----
-domain: policies
-layer: policy
-owner: <POLICY_OWNER_EMAIL>
-compliance: C02
-status: seed
----
-
 # Data classification — <ORG_NAME>'s tiers
 
 **Document:** Data Classification

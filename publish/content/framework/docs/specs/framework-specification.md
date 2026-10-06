@@ -633,6 +633,10 @@ organization has a named owner for it, and a tree made up in advance would tie y
 taxonomy before anyone was accountable for it. `policies/knowledge-organization-standard.md` is a starting
 point for your structure, and you can change it.
 
+Whether your knowledge documents open with front matter, and which fields and values it carries, is also your
+choice. gov checks front matter only when your own policy asks for it: keep section 4 of that standard, or write
+your own, and `gov rules propose` turns it into a rule that checks exactly the fields and values you listed.
+
 ### 8.2 One fact, one document
 
 Every fact lives in exactly **one** document. Do not restate a rule that exists somewhere else; link to it.

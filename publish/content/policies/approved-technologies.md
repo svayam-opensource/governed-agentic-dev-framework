@@ -1,11 +1,3 @@
----
-domain: policies
-layer: standard
-owner: policy-owner
-compliance: C02
-status: draft
----
-
 # <ORG_NAME> — Approved Technologies
 
 **Document:** Approved Technologies

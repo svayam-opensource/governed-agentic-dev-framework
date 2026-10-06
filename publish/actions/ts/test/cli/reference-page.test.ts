@@ -172,7 +172,7 @@ describe("cli reference — the committed file is the generated one (freshness)"
     }
   });
 
-  it("and still carries the front matter the knowledge validator requires", () => {
+  it("and still carries the front matter every framework spec doc carries", () => {
     expect(page.startsWith("---\n"), "front matter must survive regeneration").to.equal(true);
     for (const key of ["domain:", "layer: spec", "owner:", "compliance:", "status: current"]) {
       expect(page.slice(0, 200), key).to.contain(key);
