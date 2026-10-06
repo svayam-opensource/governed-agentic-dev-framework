@@ -6,44 +6,62 @@ compliance: C02
 status: seed
 ---
 
-<!-- YOURS AFTER THE FIRST INSTALL. gov seeds this file once and never touches it again (MANIFEST: seed-once),
-     so an upgrade cannot overwrite what your organization decides here. The clause numbers are kept: the
-     framework's policy points at this file for them, and everything that cites them still resolves. -->
-
 # Policy domains — <ORG_NAME>'s own policies
 
-**The policies this organization writes for itself**, in the domains the framework expects to exist.
-The framework defines the domains and who owns each; what goes in them is yours. Write them here, or
-point at where you keep them.
+**Document:** Policy Domains
+**Policy Owner:** <POLICY_OWNER_EMAIL>
+**Status:** seed — written once by `gov setup`, and **yours to change**
 
-## The domains (starter)
-
-### 10.1 Infrastructure Policy
-
-**Status:** Pending — Infrastructure Owner to populate via `gov knowledge`.
-**Owner:** TBD (Infrastructure Owner). Until filled, Policy Owner holds authority.
-
-The Infrastructure Policy will govern CI/CD pipeline standards, hosting platform requirements, vector store configuration, authentication and authorization requirements, and LLM provider governance. Once published, it will be the authoritative reference for all infrastructure decisions.
-
-### 10.2 System Architecture Policy
-
-**Status:** Pending — System Architecture Owner to populate via `gov knowledge`.
-**Owner:** TBD (System Architecture Owner). Until filled, Policy Owner holds authority.
-
-The System Architecture Policy will govern system design standards, API contract requirements, inter-service communication patterns, and architectural decision-making processes.
-
-### 10.3 Data Architecture Policy
-
-**Status:** Pending — Data Architecture Owner to populate via `gov knowledge`.
-**Owner:** TBD (Data Architecture Owner). Until filled, Policy Owner holds authority.
-
-The Data Architecture Policy will govern data modeling standards, data pipeline architecture, data residency and sovereignty requirements, and data governance processes.
-
-### 10.4 Legal & Compliance Policy
-
-**Status:** Pending — Legal Owner to populate via `gov knowledge`.
-**Owner:** TBD (Legal Owner). Until filled, Policy Owner holds authority.
-
-The Legal & Compliance Policy will govern legal compliance requirements applicable to software development, contractual obligations with third-party tool providers, intellectual property policies, and jurisdictional compliance requirements.
+> ## This file is yours
+>
+> gov created it once and **will never overwrite it**. It lists the policies most organizations end up
+> writing for themselves, each with the role that would own it. Rename a domain, merge two, add one, or delete
+> the ones you do not need. That is the expected first act, not a deviation.
+>
+> Nothing here is a rule yet. Each domain below is a placeholder for a policy your organization has not
+> written. Write it here, in plain English, or say where you keep it.
 
 ---
+
+## 1. Until a domain has an owner, the Policy Owner decides
+
+Each domain below names the role that will own it. Until somebody holds that role (see
+`policies/authorized-representatives.md`), the Policy Owner decides every question that falls in the domain.
+
+## 2. The domains (starter)
+
+### 2.1 Infrastructure
+
+**Status:** not yet written. **Owner:** the Infrastructure Owner, once appointed.
+
+Would cover: standards for CI/CD pipelines, the hosting platform, the vector store, authentication and
+authorization, and which LLM providers may be used. Once written, it is the reference for every
+infrastructure decision.
+
+### 2.2 System architecture
+
+**Status:** not yet written. **Owner:** the System Architecture Owner, once appointed.
+
+Would cover: system design standards, API contracts, how services talk to each other, and how architectural
+decisions are made and recorded.
+
+### 2.3 Data architecture
+
+**Status:** not yet written. **Owner:** the Data Architecture Owner, once appointed.
+
+Would cover: data modelling standards, data pipeline architecture, where data may reside and under whose law,
+and how data is governed.
+
+### 2.4 Legal and compliance
+
+**Status:** not yet written. **Owner:** the Legal Owner, once appointed.
+
+Would cover: the legal requirements that apply to building software here, obligations under contracts with
+third-party tool providers, intellectual property, and the jurisdictions the organization answers to.
+
+## 3. How to write one
+
+Write a domain's policy the same way as `policies/org-policy.md`: plain English, one requirement per
+paragraph, and say why. Say how firmly each requirement binds in ordinary words: "never", "always, unless an
+exception is approved", or "as a strong default". When the policy changes, `gov rules propose` reads it and
+proposes its rules; the people who own its sections approve them (`policies/org-policy.md` section 8).

@@ -6,9 +6,6 @@ compliance: C02
 status: seed
 ---
 
-<!-- YOURS AFTER THE FIRST INSTALL. gov seeds this file once and never touches it again (MANIFEST: seed-once),
-     so an upgrade cannot overwrite what your organization decides here. -->
-
 # Compliance review — <ORG_NAME>'s cadence
 
 **Document:** Compliance Review
@@ -17,15 +14,12 @@ status: seed
 
 > ## This file is yours
 >
-> gov created it once and **will never overwrite it**. Quarterly is a **starter**: an organization that ships
+> gov created it once and **will never overwrite it**. Quarterly is a starter: an organization that ships
 > weekly may want monthly, and one with three repositories may want twice a year. Change the cadence, change
-> who does the review, or delete a clause you do not want — that is the expected first act.
+> who does the review, or delete a clause you do not want. That is the expected first act.
 >
-> The framework has no opinion on how often you look at your own compliance. It only insists that a C01
-> violation is not something you find out about at a review (§1.3).
->
-> Write it in plain English. How strict each rule is gets decided per rule when `gov rules propose` extracts it,
-> and you approve it there (`framework/docs/specs/framework-specification.md` chapter 9).
+> The framework has no opinion on how often you look at your own compliance. It insists on one thing only: a
+> violation of a rule that admits no exception is never left for a review to find (section 1.3).
 
 ---
 
@@ -33,40 +27,54 @@ status: seed
 
 ### 1.1 Cadence
 
-The Policy Owner MAY review the organization's compliance summary under `knowledge/compliance/` once every
-quarter.
+The Policy Owner reviews the organization's compliance once every quarter. Skipping or delaying a review needs
+an approved exception, so that a missed quarter is a decision somebody made rather than something that
+drifted.
 
 ### 1.2 What the review answers
 
-The Policy Owner MAY answer three questions in each review: whether every C01 violation raised since the last
-one was surfaced and resolved, whether every C02 deviation has an approved exception on file, and whether every
-C03 deviation was recorded with its reason.
+Every review answers three questions, and the summary records the answer to each:
 
-### 1.3 A C01 violation does not wait for the review
+- Was every violation of a no-exception rule raised since the last review surfaced to a person, and resolved?
+- Does every deviation from a rule that needs an exception have an approved exception on file?
+- Was every deviation from a strong-default rule recorded, with its reason, when it was taken?
 
-An agent or a developer that finds a C01 violation MUST escalate it to the Policy Owner immediately, whatever
-this document says about cadence.
+### 1.3 A no-exception violation does not wait for the review
 
-*(No cue. The framework's own C01 cue — "C01 MEANS STOP … tell the human" — is already resident in every
-agent's context on every turn, and a second copy of it would make both weaker: one fact, one document, applied to the resident
-block. See `policies/org-policy.md` §6.3.)*
+Anyone, person or agent, who finds a violation of a rule that admits no exception tells the Policy Owner
+immediately. Never hold it for the next review, whatever this document says about cadence.
+
+Agents need no separate reminder of this: the framework already tells every agent, on every turn, to stop and
+tell a person when such a rule is broken. Saying it twice in an agent's context would weaken both.
 
 ## 2. What the review reads
 
 ### 2.1 A deviation is recorded when it is taken, not at the review
 
-An agent MAY record each exception used and each deviation taken in the active project's
-`knowledge/compliance.md` at the moment it happens, rather than reconstructing them when the project
-closes.
+Each exception used and each deviation taken is recorded in the active project's `knowledge/compliance.md`
+at the moment it happens, not reconstructed when the project closes. This always applies; recording them
+later needs an approved exception.
 
-This is the invitation in `policies/knowledge-organization-standard.md` §5 taken up: a rule whose check is bound
-to `gov close` (the `gov.verb · close` event, for example `gov-builtin/file-required` on
-`knowledge/compliance.md`) is how an organization asks `gov close` for the artifacts it wants, and the refusal
-names the file and the rule. Propose it as a warning first — the Policy Owner removed a hardcoded close gate on
-2026-09-27 because it blocked a developer who had hand-worked a project, and a seeded file should not quietly
-put it back. Make it fail when you want a project with no compliance record to be unclosable.
+If you want `gov close` to refuse a project that has no compliance record, say so here in plain words. The
+rule that comes out of it can carry a check that runs when `gov close` runs and names the missing file in its
+refusal. Start it as a warning: a hard close gate was removed from the framework on 2026-09-27 because it
+blocked a developer who had worked a project by hand, and a seeded file should not quietly put it back. Make
+it refuse once you want a project with no compliance record to be impossible to close.
 
 ### 2.2 Projects feed the organization's summary
 
-The Policy Owner MAY assemble the org-level summary under `knowledge/compliance/` from the projects' own
-records, so that the summary has a source other than memory.
+The Policy Owner builds the organization's summary under `knowledge/compliance/` from the projects' own
+compliance records, so the summary has a source other than memory. Building it any other way needs an
+approved exception.
+
+## 3. How to run a review
+
+A suggested order. Adapt it freely; it is guidance, not a rule.
+
+1. Read the last summary under `knowledge/compliance/`.
+2. Collect the `compliance.md` of every project completed in the period.
+3. Look for patterns: the same violation recurring, the same exception requested again and again, deviations
+   clustering around one rule.
+4. Decide whether a pattern points to a gap in a policy, or a gap in how it is enforced.
+5. Write the period's summary to `knowledge/compliance/<year>-Q<n>-summary.md`.
+6. Where a policy should change, propose the change as an ordinary policy pull request.
