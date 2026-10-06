@@ -64,7 +64,8 @@ CHECKS AND CUES
 - If the intent is real but nothing in the catalog can observe it → ask (kind "uncheckable"):
   "draft a new check for the Check Owner to review, or leave the rule advisory?"
 - A C01 rule bound only to observe events can only be detected after the fact; gov will ask the owner about it.
-- cue (optional): "resident" only for C01 rules binding agents; otherwise "on-demand".
+- cue (optional): "resident" only for C01 rules binding agents; "on-demand" only on a rule WITH checks (it is shown
+  when a check fires — with no check nothing can show it); otherwise no cue.
 
 FRAMEWORK RULES
 - You are given the framework's rules in force. An org rule may be STRICTER, never contradictory. If this section

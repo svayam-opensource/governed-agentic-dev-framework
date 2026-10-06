@@ -15,7 +15,8 @@
  */
 import yaml from "js-yaml";
 import { parseRuleStore, compareVersions, type RuleRow, type Stamp } from "../model/rule-row.js";
-import { POLICY_PR_PATHS, changelogEntry, isShaRefresh, nextVersion, readVersion, snapshotFiles, type BumpKind } from "./gate.js";
+import { POLICY_PR_PATHS, changelogEntry, changelogVersions, isShaRefresh, nextVersion, readVersion, snapshotFiles, type BumpKind } from "./gate.js";
+import { LEGACY_POLICY_HISTORY_DIR } from "../checks/policy-actions.js";
 import type { TreeReader, TreeWriter } from "./tree.js";
 import { REVIEWED_HEADING, renderReviewLine, type SectionReview } from "./reviewed.js";
 
@@ -97,10 +98,95 @@ export function dumpStore(previous: string, rows: readonly RuleRow[]): string {
 }
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+/** An entry nobody has approved yet: its approver cell still reads `_pending_`. */
+const pending = (entry: string): boolean => entry.includes("| _pending_ |");
+/** An entry pull request `pr` wrote. */
+const byPr = (entry: string, pr: number): boolean => entry.includes(`| #${pr} | `);
+
+/** `text` without the entry for `version` (its heading up to the next entry), or `text` unchanged. */
+function withoutEntry(text: string, version: string): string {
+  const entry = changelogEntry(text, version);
+  if (entry === null) return text;
+  const at = text.indexOf(entry);
+  let end = at + entry.length;
+  while (text[end] === "\n" || text[end] === "\r") end++;
+  return text.slice(0, at) + text.slice(end);
+}
 const withoutEnd = (r: RuleRow): string => JSON.stringify({ ...r, end: undefined });
 
 export function policyPrWriter(trees: { readonly base: TreeReader; readonly head: TreeWriter }) {
   const { base, head } = trees;
+
+  /** `dir` ← the base's policies/, unless something is already frozen there. */
+  const freeze = (dir: string): WriteResult => {
+    const existing = head.files(dir);
+    if (existing === null) return { wrote: false, detail: `${dir}/ could not be listed` };
+    if (existing.length) return { wrote: false, detail: `${dir}/ already exists — a snapshot is frozen` };
+    const files = snapshotFiles(base);
+    if (files === null) return { wrote: false, detail: "the base's policies/ could not be read" };
+    if (!files.size) return { wrote: false, detail: "the base has no policy to freeze" };
+    for (const [rel, text] of files) head.write(`${dir}/${rel}`, text);
+    return { wrote: true, detail: `froze ${files.size} file(s) in ${dir}/` };
+  };
+
+  /** Versions whose snapshot the base holds, in either folder. Null when it could not be listed. */
+  const frozenInBase = (): Set<string> | null => {
+    const out = new Set<string>();
+    for (const dir of [POLICY_PR_PATHS.snapshots, LEGACY_POLICY_HISTORY_DIR]) {
+      const files = base.files(dir);
+      if (files === null) return null;
+      for (const f of files) out.add(f.slice(dir.length + 1).split("/")[0]!);
+    }
+    return out;
+  };
+
+  /** Has this branch an APPROVED changelog entry the base lacks? Then nothing it froze is touched. */
+  const approvedOnBranch = (): boolean => {
+    const text = head.read(POLICY_PR_PATHS.changelog);
+    if (text === null) return false;
+    const b = base.read(POLICY_PR_PATHS.changelog);
+    const inBase = new Set(b === null ? [] : changelogVersions(b));
+    return changelogVersions(text).some((v) => !inBase.has(v) && !pending(changelogEntry(text, v)!));
+  };
+
+  /** Remove the snapshot folders this branch froze for a version other than `prev`; returns their versions. */
+  const dropStaleSnapshots = (prev: string): string[] => {
+    const inBase = frozenInBase();
+    const files = head.files(POLICY_PR_PATHS.snapshots);
+    if (inBase === null || files === null || approvedOnBranch()) return [];
+    const stale = files.filter((f) => {
+      const v = f.slice(POLICY_PR_PATHS.snapshots.length + 1).split("/")[0]!;
+      return v !== prev && !inBase.has(v);
+    });
+    for (const f of stale) head.remove(f);
+    return [...new Set(stale.map((f) => `${POLICY_PR_PATHS.snapshots}/${f.slice(POLICY_PR_PATHS.snapshots.length + 1).split("/")[0]!}`))];
+  };
+
+  /** Write `e` into `text` (the changelog as it stands, or null): new, rewritten, or already there. */
+  const writeEntry = (text: string | null, e: ChangelogEntry): WriteResult => {
+    const entry = renderChangelogEntry(e);
+    const existing = text === null ? null : changelogEntry(text, e.version);
+    if (text !== null && existing !== null) {
+      const ours = byPr(existing, e.pr) && pending(existing);
+      if (!ours || existing.trimEnd() === entry.trimEnd()) return { wrote: false, detail: `${POLICY_PR_PATHS.changelog} already has ${e.version}` };
+      head.write(POLICY_PR_PATHS.changelog, text.replace(existing, entry.replace(/\n+$/, "\n")));
+      return { wrote: true, detail: `${POLICY_PR_PATHS.changelog} ${e.version} rewritten for #${e.pr}` };
+    }
+    let next: string;
+    if (text === null || !text.trim()) {
+      next = `${CHANGELOG_TITLE}\n\n${CHANGELOG_INTRO}\n\n${entry}`;
+    } else {
+      const lines = text.split("\n");
+      const first = lines.findIndex((l) => /^## \d+\.\d+\.\d+\b/.test(l));
+      next = first < 0
+        ? `${text.replace(/\n*$/, "")}\n\n${entry}`
+        : [...lines.slice(0, first), ...entry.split("\n"), ...lines.slice(first)].join("\n");
+    }
+    head.write(POLICY_PR_PATHS.changelog, next);
+    return { wrote: true, detail: `${POLICY_PR_PATHS.changelog} + ${e.version}` };
+  };
+
   return {
     /**
      * VERSION = base VERSION bumped by `kind`. Skipped when the head is already there or past it — so a patch
@@ -114,46 +200,49 @@ export function policyPrWriter(trees: { readonly base: TreeReader; readonly head
       return { wrote: true, version: target, detail: `${POLICY_PR_PATHS.version} → ${target}` };
     },
 
-    /** `policies/history/<prev>/` ← the base's `policies/` minus `history/` and `actions/`. Never overwrites. */
+    /**
+     * `policies/history/<prev>/` ← the base's `policies/` minus `history/` and `actions/`. Never overwrites.
+     *
+     * ONE VERSION JUMP PER PULL REQUEST: a snapshot folder the base does not have, other than `<prev>`, is one an
+     * earlier run of THIS branch froze for a version it has since moved past (the base moved under it). It is
+     * removed — unless this branch carries an approved changelog entry, which nothing here rewrites.
+     */
     writeSnapshot(prev: string): WriteResult {
       const dir = `${POLICY_PR_PATHS.snapshots}/${prev}`;
-      const existing = head.files(dir);
-      if (existing === null) return { wrote: false, detail: `${dir}/ could not be listed` };
-      if (existing.length) return { wrote: false, detail: `${dir}/ already exists — a snapshot is frozen` };
-      const files = snapshotFiles(base);
-      if (files === null) return { wrote: false, detail: "the base's policies/ could not be read" };
-      if (!files.size) return { wrote: false, detail: "the base has no policy to freeze" };
-      for (const [rel, text] of files) head.write(`${dir}/${rel}`, text);
-      return { wrote: true, detail: `froze ${files.size} file(s) in ${dir}/` };
+      const dropped = dropStaleSnapshots(prev);
+      if (dropped.length) {
+        const r = freeze(dir);
+        return { wrote: true, detail: `removed this pull request's superseded snapshot(s) ${dropped.map((d) => `${d}/`).join(", ")}; ${r.detail}` };
+      }
+      return freeze(dir);
     },
 
     /**
      * The entry for `e.version`, newest first. Skipped when an entry for that version is already there — except
      * one THIS pull request wrote and nobody has approved yet, which is rewritten when the change has grown since
      * (a second section proposed on the same branch must be named in the same entry, or the gate fails it).
+     *
+     * ONE ENTRY PER PULL REQUEST: an entry this pull request added for ANOTHER version — an earlier run bumped to
+     * 1.0.2 for prose, a later one to 1.1.0 for rules — is replaced by this one, while nobody has approved it. An
+     * entry the base already has (another pull request's) or an approved one is never touched.
      */
     writeChangelogEntry(e: ChangelogEntry): WriteResult {
-      const text = head.read(POLICY_PR_PATHS.changelog);
-      const entry = renderChangelogEntry(e);
-      const existing = text === null ? null : changelogEntry(text, e.version);
-      if (text !== null && existing !== null) {
-        const ours = existing.includes(`| #${e.pr} | `) && existing.includes("| _pending_ |");
-        if (!ours || existing.trimEnd() === entry.trimEnd()) return { wrote: false, detail: `${POLICY_PR_PATHS.changelog} already has ${e.version}` };
-        head.write(POLICY_PR_PATHS.changelog, text.replace(existing, entry.replace(/\n+$/, "\n")));
-        return { wrote: true, detail: `${POLICY_PR_PATHS.changelog} ${e.version} rewritten for #${e.pr}` };
+      const original = head.read(POLICY_PR_PATHS.changelog);
+      let text = original;
+      const superseded: string[] = [];
+      if (text !== null) {
+        const baseText = base.read(POLICY_PR_PATHS.changelog);
+        const inBase = new Set(baseText === null ? [] : changelogVersions(baseText));
+        for (const v of changelogVersions(text)) {
+          if (v === e.version || inBase.has(v)) continue;
+          const old = changelogEntry(text, v)!;
+          if (byPr(old, e.pr) && pending(old)) { text = withoutEntry(text, v); superseded.push(v); }
+        }
       }
-      let next: string;
-      if (text === null || !text.trim()) {
-        next = `${CHANGELOG_TITLE}\n\n${CHANGELOG_INTRO}\n\n${entry}`;
-      } else {
-        const lines = text.split("\n");
-        const first = lines.findIndex((l) => /^## \d+\.\d+\.\d+\b/.test(l));
-        next = first < 0
-          ? `${text.replace(/\n*$/, "")}\n\n${entry}`
-          : [...lines.slice(0, first), ...entry.split("\n"), ...lines.slice(first)].join("\n");
-      }
-      head.write(POLICY_PR_PATHS.changelog, next);
-      return { wrote: true, detail: `${POLICY_PR_PATHS.changelog} + ${e.version}` };
+      const r = writeEntry(text, e);
+      if (!superseded.length) return r;
+      if (!r.wrote) head.write(POLICY_PR_PATHS.changelog, text!);
+      return { wrote: true, detail: `${POLICY_PR_PATHS.changelog}: this pull request's earlier entry ${superseded.join(", ")} replaced by ${e.version}` };
     },
 
     /**

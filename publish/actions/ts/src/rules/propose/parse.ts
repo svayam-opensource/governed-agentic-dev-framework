@@ -13,11 +13,14 @@
  *                     MODEL to correct (a human cannot fix a typo in an action name). Things only the owner can
  *                     decide — a C01 rule that can only be detected after the fact (Q15), a section given to a role
  *                     the org does not have (W2-Q8) — become gov's own QUESTIONS, asked like the model's.
+ *                     Some things gov SETTLES itself: an on-demand cue on a rule with no check (Q19 — nothing could
+ *                     ever show it) is dropped and the interview says so, or, on a C01 rule binding agents, the
+ *                     owner is asked whether to make it resident instead.
  *
  * Pure.
  */
 import { createHash } from "node:crypto";
-import { validateRuleStore, type Actor, type Level, type RuleRow, type RowDiagnosticKind } from "../model/rule-row.js";
+import { validateRuleStore, ROW_WARNINGS, type Actor, type Level, type RuleRow, type RowDiagnosticKind } from "../model/rule-row.js";
 import { validateBindings, type Catalog, type CheckBinding } from "../model/catalog.js";
 import { parseGovId, FRAMEWORK_SCOPE } from "../model/gov-id.js";
 
@@ -37,7 +40,7 @@ export type ModelVerdict =
   | { readonly kind: "add"; readonly row: ProposedRow };
 
 export type QuestionKind =
-  | "level" | "actor" | "keep-revise-retire" | "uncheckable" | "c01-observe-only" | "contradiction" | "ownership-role" | "other";
+  | "level" | "actor" | "keep-revise-retire" | "uncheckable" | "c01-observe-only" | "contradiction" | "ownership-role" | "cue-tier" | "other";
 
 export interface ProposalQuestion {
   readonly id: string;
@@ -215,14 +218,37 @@ export interface ProposalContext {
   readonly roles?: readonly string[];
   /** Ids of questions already answered in this interview: gov does not ask its own twice. */
   readonly answered: ReadonlySet<string>;
+  /**
+   * The interview so far. A question answered on a pull request comes back keyed by its thread, not by gov's id, so
+   * gov's own questions are matched by id OR by their text; and the cue question needs the answer itself.
+   */
+  readonly qa?: readonly ProposalNote[];
 }
+
+/** One line of the interview gov writes itself — the same shape as an answered question. */
+export interface ProposalNote { readonly id: string; readonly q: string; readonly a: string; }
 
 export interface ProposalCheck {
   /** For the MODEL to correct. */
   readonly problems: readonly string[];
   /** For the OWNER to answer: the model's own, normalised, plus gov's. */
   readonly questions: readonly ProposalQuestion[];
+  /** The verdicts as gov settles them: an on-demand cue with no check made resident (the owner's choice) or dropped. */
+  readonly verdicts: readonly ModelVerdict[];
+  /** What gov decided on its own, for the interview (and so the row's `qa` and the changelog). */
+  readonly notes: readonly ProposalNote[];
 }
+
+/** Q19: the owner's two ways out for an on-demand cue on a C01 rule binding agents that has no check. */
+export const CUE_RESIDENT = "make it a resident cue: every agent session reads it from the start";
+export const CUE_DROP = "drop the cue: nothing can trigger it until the rule has a check";
+/** What the interview records when gov drops an on-demand cue that nothing could show. */
+export const NO_CUE_NOTE = "no cue: nothing can trigger it until the rule has a check";
+
+const choseResident = (a: string): boolean => {
+  const t = a.trim();
+  return t === CUE_RESIDENT || /^1\b/.test(t) || (/\bresident\b/i.test(t) && !/\bdrop\b/i.test(t));
+};
 
 /** Store diagnostics about what gov — not the model — supplies (id, stamps, history) are not the model's to fix. */
 const GOVS_OWN: ReadonlySet<RowDiagnosticKind> = new Set(["bad-id", "wrong-scope", "bad-source", "bad-stamp", "two-in-force", "broken-chain", "end-before-start"]);
@@ -232,9 +258,17 @@ const PROBE_STAMP = { version: "0.0.0", date: "1970-01-01" } as const;
 
 const shortHash = (s: string): string => createHash("sha256").update(s).digest("hex").slice(0, 10);
 
+/** The owner's answer to gov's question `id` (asked as `text`), or undefined when it has not been answered. */
+function answerOf(ctx: ProposalContext, id: string, text: string): string | undefined {
+  const x = ctx.qa?.find((y) => y.id === id || y.q === text);
+  if (x) return x.a;
+  return ctx.answered.has(id) ? "" : undefined;
+}
+
 export function checkProposal(p: SectionProposal, ctx: ProposalContext): ProposalCheck {
   const problems: string[] = [];
   const questions: ProposalQuestion[] = [];
+  const notes: ProposalNote[] = [];
   const mine = new Set(ctx.rows.map((r) => r.id));
   const seen = new Map<string, number>();
 
@@ -269,12 +303,31 @@ export function checkProposal(p: SectionProposal, ctx: ProposalContext): Proposa
     questions.push(q);
   }
 
-  p.verdicts.forEach((v, i) => {
+  // Q19: an on-demand cue is shown when its rule's CHECK fires — keyed by the check's resource and event. On a row
+  // with no check nothing can ever show it, so gov does not accept one. A C01 rule binding agents may carry a
+  // resident cue instead (every agent session reads it), and the owner chooses; any other rule loses the cue, and
+  // the interview says so.
+  const verdicts = p.verdicts.map((v): ModelVerdict => {
+    if ((v.kind !== "add" && v.kind !== "revise") || v.row.cue?.tier !== "on-demand" || (v.row.checks?.length ?? 0) > 0) return v;
+    const { cue, ...bare } = v.row;
+    const h = shortHash(v.row.expectation);
+    if (v.row.level === "C01" && v.row.actor.some((a) => a === "agent" || a === "everyone")) {
+      const id = `cue-tier:${h}`;
+      const text = `"${v.row.expectation}" has an on-demand cue, but an on-demand cue is shown only when the rule's check fires, and this rule has no check. As a C01 rule binding agents, its cue can be resident instead. Which?`;
+      const a = answerOf(ctx, id, text);
+      if (a === undefined) { questions.push({ id, kind: "cue-tier", text, options: [CUE_RESIDENT, CUE_DROP] }); return v; }
+      return choseResident(a) ? { ...v, row: { ...v.row, cue: { tier: "resident", text: cue!.text } } } : { ...v, row: bare };
+    }
+    notes.push({ id: `cue-dropped:${h}`, q: `The proposed rule "${v.row.expectation}" came with an on-demand cue. When would it be shown?`, a: NO_CUE_NOTE });
+    return { ...v, row: bare };
+  });
+
+  verdicts.forEach((v, i) => {
     if (v.kind !== "add" && v.kind !== "revise") return;
     const cand: RuleRow = { id: `GOV-${ctx.scope}-000`, source: { doc: ctx.doc, section: ctx.section, sha: ctx.sha }, ...v.row, start: PROBE_STAMP, end: null };
     const label = v.kind === "add" ? `new rule #${i + 1} ("${v.row.expectation}")` : `revision of ${v.id}`;
     for (const d of validateRuleStore([cand], { scope: ctx.scope })) {
-      if (!GOVS_OWN.has(d.kind)) problems.push(`${label}: ${d.message.replace(cand.id + ": ", "")}`);
+      if (!GOVS_OWN.has(d.kind) && !ROW_WARNINGS.has(d.kind)) problems.push(`${label}: ${d.message.replace(cand.id + ": ", "")}`);
     }
     for (const d of validateBindings(cand, ctx.catalog)) problems.push(`${label}: ${d.message.replace(cand.id + ": ", "")}`);
 
@@ -285,12 +338,9 @@ export function checkProposal(p: SectionProposal, ctx: ProposalContext): Proposa
       const modes = checks.map((c) => ctx.catalog.resources.find((r) => r.id === c.on.resource)?.events.find((e) => e.name === c.on.event)?.mode);
       if (modes.every((m) => m === "observe")) {
         const id = `c01-observe-only:${shortHash(v.row.expectation)}`;
-        if (!ctx.answered.has(id)) {
-          questions.push({
-            id, kind: "c01-observe-only",
-            text: `"${v.row.expectation}" is C01 (no exceptions), but every check on it runs after the fact — a breach will be detected, never prevented. Accept that?`,
-            options: ["accept: detected after the fact", "lower the level", "bind it to a gate event instead"],
-          });
+        const text = `"${v.row.expectation}" is C01 (no exceptions), but every check on it runs after the fact — a breach will be detected, never prevented. Accept that?`;
+        if (answerOf(ctx, id, text) === undefined) {
+          questions.push({ id, kind: "c01-observe-only", text, options: ["accept: detected after the fact", "lower the level", "bind it to a gate event instead"] });
         }
       }
     }
@@ -301,13 +351,10 @@ export function checkProposal(p: SectionProposal, ctx: ProposalContext): Proposa
     for (const o of p.ownership) {
       if (ctx.roles.includes(o.role)) continue;
       const id = `ownership-role:${o.section}:${shortHash(o.role)}`;
-      if (ctx.answered.has(id)) { problems.push(`ownership of section ${o.section}: "${o.role}" is not in the role list — use the role the owner named in the Q&A`); continue; }
-      questions.push({
-        id, kind: "ownership-role",
-        text: `The policy says section ${o.section} is owned by "${o.role}", which is not a role in the org's role list. Which role owns it?`,
-        options: [...ctx.roles],
-      });
+      const text = `The policy says section ${o.section} is owned by "${o.role}", which is not a role in the org's role list. Which role owns it?`;
+      if (answerOf(ctx, id, text) !== undefined) { problems.push(`ownership of section ${o.section}: "${o.role}" is not in the role list — use the role the owner named in the Q&A`); continue; }
+      questions.push({ id, kind: "ownership-role", text, options: [...ctx.roles] });
     }
   }
-  return { problems, questions };
+  return { problems, questions, verdicts, notes };
 }

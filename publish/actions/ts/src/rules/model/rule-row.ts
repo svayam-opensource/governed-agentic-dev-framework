@@ -53,7 +53,17 @@ export interface RuleRow {
 export type RowDiagnosticKind =
   | "bad-id" | "wrong-scope" | "bad-source" | "bad-expectation" | "bad-actor" | "bad-level" | "bad-stamp"
   | "gov-client-in-org" | "c02-in-framework" | "resident-cue-not-c01" | "resident-cue-no-agent"
-  | "two-in-force" | "broken-chain" | "end-before-start";
+  | "two-in-force" | "broken-chain" | "end-before-start"
+  | "on-demand-cue-unbound";
+
+/**
+ * Diagnostics that are WARNINGS: reported (`gov rules check`, `gov rules build`), never a refusal, so a store that
+ * already holds such a row still loads and builds.
+ *
+ *   on-demand-cue-unbound   an on-demand cue is keyed by its rule's check resource and event (Q19, cues/on-demand.ts);
+ *                           on a row with no check nothing can ever show it. Propose no longer writes one.
+ */
+export const ROW_WARNINGS: ReadonlySet<RowDiagnosticKind> = new Set<RowDiagnosticKind>(["on-demand-cue-unbound"]);
 
 export interface RowDiagnostic {
   readonly kind: RowDiagnosticKind;
@@ -139,6 +149,9 @@ export function validateRuleStore(rows: readonly RuleRow[], store: { readonly sc
     if (r.cue?.tier === "resident") {
       if (r.level !== "C01") d("resident-cue-not-c01", `${r.id}: a resident cue is only for a C01 rule — use tier on-demand`);
       if (!actors.some((a) => a === "agent" || a === "everyone")) d("resident-cue-no-agent", `${r.id}: a resident cue is read by agents; no agent is bound by this rule`);
+    }
+    if (r.cue?.tier === "on-demand" && !(Array.isArray(r.checks) && r.checks.length > 0)) {
+      d("on-demand-cue-unbound", `${r.id}: an on-demand cue is shown when the rule's check fires, and this rule has no check — nothing can ever show it`);
     }
 
     if (!stampOk(r.start)) d("bad-stamp", `${r.id}: start needs version x.y.z and date YYYY-MM-DD`);

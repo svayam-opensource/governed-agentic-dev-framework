@@ -28,7 +28,7 @@
  *
  * Pure over two {@link TreeReader}s.
  */
-import { loadRuleStores, NO_ORG_VERSION, RULE_STORE_PATHS } from "../model/store-io.js";
+import { isStoreWarning, loadRuleStores, NO_ORG_VERSION, RULE_STORE_PATHS } from "../model/store-io.js";
 import { inForce, parseRuleStore, type RuleRow } from "../model/rule-row.js";
 import { changedSections, sectionShas } from "../checks/sections.js";
 import { LEGACY_POLICY_HISTORY_DIR, MACHINE_WRITTEN_POLICY_PATHS, POLICY_HISTORY_DIR } from "../checks/policy-actions.js";
@@ -302,6 +302,11 @@ export function changelogEntry(changelog: string, version: string): string | nul
   return lines.slice(start, end).join("\n");
 }
 
+/** Every entry's version, in the order the changelog lists them. */
+export function changelogVersions(changelog: string): string[] {
+  return changelog.split(/\r?\n/).map((l) => ENTRY_HEADING.exec(l)?.[1]).filter((v): v is string => v !== undefined);
+}
+
 const mentions = (text: string, id: string): boolean =>
   new RegExp(`(?<![A-Za-z0-9-])${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9])`).test(text);
 
@@ -333,7 +338,7 @@ export function judgePolicyPr(input: PolicyPrInput): PolicyPrJudgement {
   }
   checkVersion(baseVersion, headVersion, required, f, plan);
   if (required !== "none") {
-    checkChangelog(head, headVersion, plan.changes, f, plan.governance);
+    checkChangelog(base, head, headVersion, plan.changes, f, plan.governance);
     checkReviewed(base, head, baseVersion, headVersion, f);
     const cannot = checkSnapshot(base, head, baseVersion, f);
     if (cannot) return { ...plan, verdict: "cannot-tell", findings: [{ check: "unreadable", message: cannot }, ...findings] };
@@ -369,6 +374,8 @@ function checkStores(head: TreeReader, f: Emit): string | null {
   for (const d of r.diagnostics) {
     // Notes about a gov repo the framework has not been upgraded into are not this pull request's doing.
     if (d.kind === "missing-framework-store" || d.kind === "missing-framework-catalog") continue;
+    // A warning (an on-demand cue no check can fire) is `gov rules check`'s to report; it never blocks a policy.
+    if (isStoreWarning(d)) continue;
     f("store", `${d.store} store: ${d.message}`);
   }
   return null;
@@ -412,9 +419,21 @@ function checkVersion(base: string, head: string, required: RequiredBump, f: Emi
   f("version", `${POLICY_PR_PATHS.version} is ${head}; ${why}, so it must be ${want} (or ${major} if the organization chooses a major version)`);
 }
 
-/** (f) The CHANGELOG has an entry for the new version naming every rule added, revised or retired. */
-function checkChangelog(head: TreeReader, version: string, c: RuleChanges, f: Emit, governance: readonly string[] = []): void {
+/**
+ * (f) The CHANGELOG has an entry for the new version naming every rule added, revised or retired — and it is the
+ * ONLY entry the pull request adds: one pull request, one version jump, one entry (a second run that bumped again
+ * replaces its earlier entry; it never leaves it behind).
+ */
+function checkChangelog(base: TreeReader, head: TreeReader, version: string, c: RuleChanges, f: Emit, governance: readonly string[] = []): void {
   const text = head.read(POLICY_PR_PATHS.changelog);
+  if (text !== null) {
+    const was = base.read(POLICY_PR_PATHS.changelog);
+    const inBase = new Set(was === null ? [] : changelogVersions(was));
+    const added = [...new Set(changelogVersions(text).filter((v) => !inBase.has(v)))];
+    if (added.length > 1) {
+      f("changelog", `${POLICY_PR_PATHS.changelog} gains ${added.length} entries (${added.join(", ")}); a pull request adds exactly one, for ${version} — run gov rules propose, which keeps that one and removes the others it wrote`);
+    }
+  }
   const entry = text === null ? null : changelogEntry(text, version);
   if (entry === null) { f("changelog", `${POLICY_PR_PATHS.changelog} has no entry for ${version}`); return; }
   for (const [ids, change] of [[c.added, "added"], [c.revised, "revised"], [c.retired, "retired"]] as const) {

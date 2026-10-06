@@ -736,7 +736,9 @@ asks you only when your intent is unclear:
 - whether an old rule still holds
 - whether something can be checked at all
 
-You answer, the Policy Owner approves, and the result is locked.
+You answer, the Policy Owner approves, and the result is locked. A rule gets a cue shown at the moment of action
+only if it has a check; otherwise the cue is dropped and the changelog says why, though a C01 rule for agents may
+keep its cue as one every agent session reads.
 
 The policy pull request check starts from your policy text, not from the rules. It finds every section the pull
 request added or changed, and checks that each one was reviewed. A section with no rules counts too. The

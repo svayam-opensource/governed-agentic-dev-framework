@@ -100,7 +100,11 @@ export function finishPolicyChange(i: FinishInput): FinishResult {
   if (plan.required === "none") return { ok: true, lines: ["  policies/ is unchanged against the default branch — no version bump."], wrote: [], plan, version: plan.baseVersion };
 
   const touched = new Set<string>();
-  const tracking: TreeWriter = { ...i.head, write: (f, t) => { touched.add(f); i.head.write(f, t); } };
+  const tracking: TreeWriter = {
+    ...i.head,
+    write: (f, t) => { touched.add(f); i.head.write(f, t); },
+    remove: (f) => { touched.add(f); i.head.remove(f); },
+  };
   const w = policyPrWriter({ base: i.base, head: tracking });
   const lines: string[] = [];
   const say = (r: { wrote: boolean; detail: string }) => lines.push(`  ${r.wrote ? "wrote" : "kept "} ${r.detail}`);

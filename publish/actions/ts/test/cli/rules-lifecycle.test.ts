@@ -224,6 +224,24 @@ describe("rules at a lifecycle moment — a workspace with no rule store at all"
 });
 
 describe("gov rules check — the generated files AND the rows", () => {
+  it("REPORTS an on-demand cue no check can fire (on-demand-cue-unbound) as a warning — it never fails the check or the build", () => {
+    const unbound = store("C01 MEANS STOP.") + `- id: GOV-FRM-013
+  source: { doc: ${SPEC}, section: "10.1", sha: "${SHA}" }
+  expectation: "The agent names the rule it is about to break."
+  actor: [agent]
+  level: C03
+  cue: { tier: on-demand, text: "Say which rule." }
+  start: { version: "1.2.3", date: "2026-10-06" }
+  end: null
+`;
+    const fs = memFs(workspace("C01 MEANS STOP.", unbound));
+    const built = rules({ fs }, WORKING_TREE, "build");
+    expect(built.code, built.lines.join("\n")).to.equal(0);
+    const r = rules({ fs }, WORKING_TREE, "check");
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    expect(r.lines.join("\n")).to.contain("warnings (1)").and.contain("GOV-FRM-013  on-demand-cue-unbound");
+  });
+
   it("passes on a fresh build, and fails once a generated file is edited by hand", () => {
     const fs = memFs(workspace());
     expect(rules({ fs }, WORKING_TREE, "build").code).to.equal(0);

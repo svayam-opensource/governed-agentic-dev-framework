@@ -11,7 +11,7 @@
  * `null` from {@link TreeReader.files} means the tree could not be listed — never "no files". A gate that read
  * "could not list" as "empty" would pass a PR it never looked at.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import type { GitRead } from "../../cli/policy-gate-io.js";
 
@@ -24,6 +24,8 @@ export interface TreeReader {
 
 export interface TreeWriter extends TreeReader {
   write(file: string, text: string): void;
+  /** Delete one file (absent: nothing to do). Only the writers' own superseded output is ever removed (write.ts). */
+  remove(file: string): void;
 }
 
 const under = (file: string, dir: string): boolean => dir === "" || file === dir || file.startsWith(`${dir}/`);
@@ -34,6 +36,7 @@ export function memTree(files: Record<string, string>): TreeWriter {
     files: (dir) => Object.keys(files).filter((f) => under(f, dir)).sort(),
     read: (file) => (Object.prototype.hasOwnProperty.call(files, file) ? files[file]! : null),
     write: (file, text) => { files[file] = text; },
+    remove: (file) => { delete files[file]; },
   };
 }
 
@@ -68,6 +71,7 @@ export function fsTree(root: string): TreeWriter {
       mkdirSync(path.dirname(abs), { recursive: true });
       writeFileSync(abs, text);
     },
+    remove: (file) => { rmSync(path.join(root, file), { force: true }); },
   };
 }
 

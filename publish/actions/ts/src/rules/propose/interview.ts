@@ -68,7 +68,7 @@ export async function interviewSection(
     const proposal = parseProposal(raw);
     const check = checkProposal(proposal, {
       doc: input.doc, section: input.section, sha: input.sha, rows: input.rows, scope: input.scope,
-      catalog: input.catalog, frameworkRules: input.frameworkRules, roles: input.roles, answered: new Set(qa.map((x) => x.id)),
+      catalog: input.catalog, frameworkRules: input.frameworkRules, roles: input.roles, answered: new Set(qa.map((x) => x.id)), qa,
     });
     log("debug", "proposal round", PGM, "interviewSection", {
       doc: input.doc, section: input.section, round, verdicts: proposal.verdicts.length, problems: check.problems.length, questions: check.questions.length,
@@ -80,7 +80,9 @@ export async function interviewSection(
     }
     corrections = [];
     if (check.questions.length === 0) {
-      return { status: "done", verdicts: proposal.verdicts, ownership: proposal.ownership, qa };
+      // The verdicts as gov settled them, and what gov decided on its own written into the interview (Q19 cues).
+      const notes = check.notes.filter((n) => !qa.some((x) => x.id === n.id));
+      return { status: "done", verdicts: check.verdicts, ownership: proposal.ownership, qa: [...qa, ...notes] };
     }
     // Ask EVERY open question before ending on a pending one: in CI each is a comment, and the owner should see
     // them all at once rather than one per push.
@@ -105,8 +107,36 @@ export async function interviewSection(
 // ── channels ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
+ * A reply to a question with options, as the interview RECORDS it: the chosen option's TEXT, never its number — a
+ * changelog that says "A: 1" tells a reader nothing. Taken as a choice: the option's number ("2", "2.", "2)"), or
+ * its text (any case). A number followed by more words keeps those words after the option: they add something.
+ * Anything else is the owner's own answer, recorded as given.
+ */
+export function resolveReply(raw: string, options?: readonly string[]): string {
+  const t = raw.trim();
+  if (!options?.length) return t;
+  const pick = (n: string): string | undefined => { const k = Number(n); return k >= 1 && k <= options.length ? options[k - 1] : undefined; };
+  const bare = /^(\d+)[.):]?$/.exec(t);
+  if (bare) return pick(bare[1]!) ?? t;
+  const norm = (x: string): string => x.trim().toLowerCase().replace(/[.!]+$/, "");
+  const same = options.find((o) => norm(o) === norm(t));
+  if (same) return same;
+  const lead = /^(\d+)[.):]?\s*(?:[-—–:,]\s*)?(\S[\s\S]*)$/.exec(t);
+  const opt = lead ? pick(lead[1]!) : undefined;
+  if (lead && opt !== undefined) {
+    const rest = lead[2]!.trim();
+    return norm(rest) === norm(opt) || norm(opt).startsWith(norm(rest)) ? opt : `${opt} — ${rest}`;
+  }
+  return t;
+}
+
+/** The numbered options a question comment lists (`1. …`), in order. */
+const optionsIn = (body: string): string[] => body.split("\n").map((l) => /^\d+\. (.+)$/.exec(l.trim())?.[1]?.trim()).filter((x): x is string => !!x);
+
+/**
  * At the terminal, through the asker that owns it (`AskFns.line`, cli/ask.ts). A numbered option may be answered
- * by its number. An empty answer is pending — the run stops rather than invent one.
+ * by its number or its text; the option's text is recorded ({@link resolveReply}). An empty answer is pending — the
+ * run stops rather than invent one.
  */
 export function terminalChannel(line: (question: string) => Promise<string>): InterviewChannel {
   return {
@@ -114,9 +144,7 @@ export function terminalChannel(line: (question: string) => Promise<string>): In
       const opts = q.options?.length ? "\n" + q.options.map((o, i) => `  ${i + 1}. ${o}`).join("\n") : "";
       const raw = (await line(`\n[${key.doc} §${key.section}] ${q.text}${opts}\n> `)).trim();
       if (!raw) return { kind: "pending" };
-      const n = /^\d+$/.test(raw) ? Number(raw) : NaN;
-      const picked = q.options && n >= 1 && n <= q.options.length ? q.options[n - 1]! : raw;
-      return { kind: "answer", text: picked };
+      return { kind: "answer", text: resolveReply(raw, q.options) };
     },
   };
 }
@@ -166,7 +194,7 @@ export function prCommentChannel(port: PrCommentsPort): InterviewChannel {
         if (!m || m[2] !== section.doc || m[3] !== section.section || m[4] !== section.sha) continue;
         const a = answerTo(all, c.id);
         const text = c.body.replace(MARK, "").split("\n").find((l) => l.trim())?.replace(/^\*\*Question:\*\*\s*/, "").trim() ?? "";
-        if (a !== null) out.push({ id: `pr:${m[1]}`, q: text, a });
+        if (a !== null) out.push({ id: `pr:${m[1]}`, q: text, a: resolveReply(a, optionsIn(c.body)) });
       }
       return out;
     },
@@ -180,7 +208,7 @@ export function prCommentChannel(port: PrCommentsPort): InterviewChannel {
         return { kind: "pending" };
       }
       const a = answerTo(all, root.id);
-      return a === null ? { kind: "pending" } : { kind: "answer", text: a };
+      return a === null ? { kind: "pending" } : { kind: "answer", text: resolveReply(a, q.options) };
     },
   };
 }
