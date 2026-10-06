@@ -11,7 +11,8 @@ import type { RuleRow, Level } from "../../src/rules/model/rule-row.js";
 import type { RuleSet } from "../../src/rules/model/contracts.js";
 import type { GitRead } from "../../src/cli/policy-gate-io.js";
 import { renderResidentBlock } from "../../src/rules/cues/resident.js";
-import { carriesResidentBlock } from "../../src/rules/harness-render.js";
+import { carriesResidentBlock, renderAll, PROTOCOL_MARKER, RESIDENT_PLACEHOLDER } from "../../src/rules/harness-render.js";
+import { buildArtifacts } from "../../src/rules/rules-build.js";
 import { loadExceptions, EXCEPTIONS_DIR } from "../../src/rules/exceptions-io.js";
 import type { Exception } from "../../src/rules/exceptions.js";
 
@@ -139,3 +140,24 @@ describe("exceptions — read at the default branch (GOV-FRM-464)", () => {
     expect((unreadable as { reason: string }).reason).to.include("EX-14.md").and.include("could not read");
   });
 });
+
+// Orchestrator merge (P3C into the cutover): the ONE render path — renderAll and buildArtifacts — carries the
+// exceptions through to the resident block, so `gov rules build` and the harness files show them.
+describe("GOV-FRM-464 through the build", () => {
+  const protocol = `# protocol\n<!-- ${PROTOCOL_MARKER}: 1 -->\n\n${RESIDENT_PLACEHOLDER}\n`;
+  const input = { exceptions: [ex()], today: "2026-10-06", project: "910-GOV-CICD" };
+
+  it("GOV-FRM-464: renderAll and buildArtifacts put an in-force exception in every harness file", () => {
+    const r = renderAll(protocol, SET, input);
+    if ("error" in r) throw new Error(r.error);
+    for (const f of r.files) expect(f.content).to.contain("EX-14");
+    const b = buildArtifacts(protocol, SET, input);
+    if ("error" in b) throw new Error(b.error);
+    expect(b.files.filter((f) => f.content.includes("EX-14")).length).to.equal(r.files.length);
+  });
+
+  it("without exceptions the build is byte-identical to before", () => {
+    expect(renderAll(protocol, SET, { exceptions: [], today: "2026-10-06" })).to.deep.equal(renderAll(protocol, SET));
+  });
+});
+

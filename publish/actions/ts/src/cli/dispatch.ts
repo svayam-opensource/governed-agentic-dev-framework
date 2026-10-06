@@ -509,9 +509,9 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       // `sync` has just merged the default branch — where ratified governance lives (GOV-FRM-456) — into the
       // project branch. So this is the one moment an ORG'S OWN ratified clause can reach a project already in
       // flight, and it was the moment nothing compiled it: the policy documents moved forward and the resident
-      // block every agent reads stayed at whatever the last hand-run of the verb produced. `ensureRootProtocol`
-      // below copies `agent/harness/*` to the project root, so it must run AFTER the render or it faithfully
-      // mirrors the stale bytes and reports success.
+      // block every agent reads stayed at whatever the last hand-run of the verb produced. The order with the
+      // mirror below no longer matters: `ensureRootProtocol` copies `agent/harness/*` from the DEFAULT branch's
+      // committed render (GOV-FRM-456), never from this worktree — so what agents read is the ratified render.
       //
       // FROM THE DEFAULT BRANCH, never `ctx.home`'s worktree: `ctx.home` is on the PROJECT branch, and a clause
       // edited there is a proposal (GOV-FRM-086). Compiling it would put a rule nobody ratified into the one block

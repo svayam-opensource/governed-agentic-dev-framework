@@ -18,6 +18,7 @@ import * as path from "node:path";
 import { buildArtifacts, staleRows, formatStaleRow, summaryLines, type BuiltFile, type StaleRow } from "../rules/rules-build.js";
 import { loadRuleStores, loadRuleStoresFrom, isStoreNote, RULE_STORE_PATHS, type StoreDiagnostic } from "../rules/model/store-io.js";
 import { residentRows } from "../rules/cues/resident.js";
+import { loadExceptions } from "../rules/exceptions-io.js";
 import { summariseRuleSet } from "../rules/model/rule-map.js";
 import type { RuleSet } from "../rules/model/contracts.js";
 import type { RuleClass } from "../rules/model/catalog.js";
@@ -38,6 +39,8 @@ export interface RulesInput {
   readonly workingTree?: boolean;
   /** Where the protocol body lives, relative to `home`. */
   readonly protocolPath?: string;
+  /** YYYY-MM-DD the resident block is built for (an exception lapses after its expiry). Defaults to today. */
+  readonly today?: string;
 }
 
 export interface RulesResult {
@@ -100,14 +103,27 @@ export function plan(deps: RulesDeps, input: RulesInput): { readonly result?: Ru
   const protocol = deps.fs.readFile(path.join(input.home, input.protocolPath ?? PROTOCOL));
   if (protocol === null) return { error: `${input.protocolPath ?? PROTOCOL} is missing — it is the body every agent file is rendered from.` };
 
-  const built = buildArtifacts(protocol, loaded.set);
+  // GOV-FRM-464: in-force exceptions join the resident block — read from the ratified branch like the rules.
+  // A working-tree build has no ref to read them at, so it builds without them and says so.
+  let exceptions;
+  const exNotes: string[] = [];
+  if (!input.workingTree && deps.git) {
+    const ex = loadExceptions(deps.git, input.home, input.defaultBranch, loaded.set);
+    if (!ex.ok) return { error: `exceptions: ${ex.reason}` };
+    for (const p of ex.problems) exNotes.push(`  exception ${p.path} left out — ${p.why}`);
+    exceptions = { exceptions: ex.exceptions, today: input.today ?? new Date().toISOString().slice(0, 10) };
+  } else {
+    exNotes.push("  exceptions not read: a working-tree build has no ratified branch to read them from");
+  }
+  const built = buildArtifacts(protocol, loaded.set, exceptions);
   if ("error" in built) return { error: built.error };
   return {
     result: {
       set: loaded.set,
       files: built.files,
       errors: loaded.diagnostics.filter((d) => !isStoreNote(d)).map(diag),
-      notes: loaded.diagnostics.filter(isStoreNote).map(diag),
+      // A refused or malformed exception is already left out of the block: reported, never blocking.
+      notes: [...loaded.diagnostics.filter(isStoreNote).map(diag), ...exNotes],
       stale: staleRows(loaded.set, loaded.readDoc),
       report: summaryLines(loaded.set),
     },

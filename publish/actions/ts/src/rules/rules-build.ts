@@ -22,6 +22,7 @@
  * Pure: rows and text in, files and findings out.
  */
 import { renderAll, type RenderFailure } from "./harness-render.js";
+import type { ResidentExceptions } from "./cues/resident.js";
 import { renderRuleMap, summariseRuleSet } from "./model/rule-map.js";
 import { residentRows, RESIDENT_CAP } from "./cues/resident.js";
 import { inForce, type RuleRow } from "./model/rule-row.js";
@@ -40,8 +41,8 @@ export interface BuiltFile {
 }
 
 /** The nine harness files and the rule map, or why they cannot be rendered (an empty or over-cap resident tier). */
-export function buildArtifacts(protocolBody: string, rules: RuleSet): { readonly files: readonly BuiltFile[] } | RenderFailure {
-  const rendered = renderAll(protocolBody, rules);
+export function buildArtifacts(protocolBody: string, rules: RuleSet, exceptions?: ResidentExceptions): { readonly files: readonly BuiltFile[] } | RenderFailure {
+  const rendered = renderAll(protocolBody, rules, exceptions);
   if ("error" in rendered) return rendered;
   return {
     files: [

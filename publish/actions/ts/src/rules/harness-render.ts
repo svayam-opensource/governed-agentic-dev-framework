@@ -16,7 +16,7 @@
  * Pure: text in, files out. No disk, no clock, no randomness — `--check` compares bytes, so a renderer whose
  * output varied would make the check meaningless and the guarantee unverifiable.
  */
-import { renderResidentBlock } from "./cues/resident.js";
+import { renderResidentBlock, type ResidentExceptions } from "./cues/resident.js";
 import type { RuleSet } from "./model/contracts.js";
 
 /** The marker `verifyAgentContext` looks for before it will launch an agent. */
@@ -79,16 +79,16 @@ export function renderHarnessFile(target: (typeof HARNESS_TARGETS)[number], body
  * instructions file lacks it, so rendering without it would turn every agent unlaunchable in a way whose cause
  * is nowhere near its effect.
  */
-export function renderAll(protocolBody: string, rules: RuleSet): { readonly files: readonly { path: string; content: string }[] } | RenderFailure {
+export function renderAll(protocolBody: string, rules: RuleSet, exceptions?: ResidentExceptions): { readonly files: readonly { path: string; content: string }[] } | RenderFailure {
   if (!protocolBody.includes(PROTOCOL_MARKER)) {
     return {
       error: `the session protocol carries no '${PROTOCOL_MARKER}' line. gov verifies that marker before launching `
         + "any agent, so every rendered file would be rejected as 'not the protocol gov renders'.",
     };
   }
-  // P3C MERGE POINT (GOV-FRM-464): the ONE call site of the resident tier. In-force exceptions are passed here
-  // as `renderResidentBlock(rules, { exceptions, today, project })` once exceptions-io.ts is on this branch.
-  const block = renderResidentBlock(rules);
+  // The ONE call site of the resident tier. In-force exceptions (GOV-FRM-464) ride along when the caller loaded
+  // them (exceptions-io.ts); without them the block is byte-identical to a build with none.
+  const block = renderResidentBlock(rules, exceptions);
   if (typeof block !== "string") return { error: block.error };
   const body = protocolBody.replace(/\n+$/, "").split(RESIDENT_PLACEHOLDER).join(block);
   return { files: HARNESS_TARGETS.map((t) => ({ path: t.path, content: renderHarnessFile(t, body) })) };
