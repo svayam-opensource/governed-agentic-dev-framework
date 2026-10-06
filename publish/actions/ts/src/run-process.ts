@@ -56,8 +56,11 @@ export function run(cmd: string, args: readonly string[], opts: RunOptions = {})
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
       ...(opts.env ? { env: opts.env } : {}),
       ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
-      ...(opts.input ? { input: opts.input } : {}),
-      stdio: ["ignore", "pipe", "pipe"],
+      ...(opts.input !== undefined ? { input: opts.input } : {}),
+      // STDIN IS A PIPE ONLY WHEN THERE IS INPUT (2026-10-06). With `ignore` here, Node drops `input` without a
+      // word — the process reads an empty stdin — so every caller that streamed a value (`gh api --input -`, a
+      // secret for `gh secret set`) silently sent nothing. Input is never logged: it is often the secret.
+      stdio: [opts.input !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
     });
     logRun("info", cmd, args, opts, Date.now() - started, 0, undefined);
     return out;

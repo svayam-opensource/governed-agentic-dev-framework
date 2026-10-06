@@ -59,3 +59,10 @@ describe("run-process — the one door every external process goes through", () 
   });
 });
 
+
+describe("run-process — input reaches the process's stdin", () => {
+  // `stdio[0]: "ignore"` made Node drop `input` without a word; a secret streamed to `gh secret set` arrived empty.
+  it("run: what is passed as input is what the process reads", () => {
+    expect(run("cat", [], { input: "on-stdin" })).to.equal("on-stdin");
+  });
+});
