@@ -154,6 +154,9 @@ files:
   - { src: policies/data-classification.md,             dst: policies/data-classification.md,             mode: seed-once }
   - { src: policies/authorized-representatives.md,      dst: policies/authorized-representatives.md,      mode: seed-once }
   - { src: policies/policy-domains.md,                  dst: policies/policy-domains.md,                  mode: seed-once }
+  # Who approves a change to each policy section (W2-Q8). Seeded empty — every section is the Policy Owner's —
+  # and from then on written by `gov rules propose` from the policies' own ownership sentences.
+  - { src: policies/ownership.yaml,                     dst: policies/ownership.yaml,                     mode: seed-once }
 
   # ── knowledge/ — the ADOPTER's, shipped EMPTY (Decision 10) ─────────────────────────────
   #

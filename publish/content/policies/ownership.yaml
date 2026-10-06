@@ -1,0 +1,9 @@
+# WHO APPROVES A CHANGE TO EACH POLICY SECTION — extracted from your policies' own plain-English ownership
+# sentences (for example `org-policy.md` §8) by `gov rules propose`. Not written by hand.
+#
+# One entry per section:   - { doc: policies/org-policy.md, section: "4", role: Data Architecture Owner }
+# `role` is a role listed in `policies/authorized-representatives.md`.
+#
+# Empty as seeded: every section belongs to the Policy Owner until you delegate one. A section with no entry
+# here falls back to the Policy Owner, and a change to this file always needs the Policy Owner.
+[]

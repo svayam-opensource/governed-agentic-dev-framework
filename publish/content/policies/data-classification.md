@@ -93,3 +93,39 @@ and escalate to the Policy Owner. **(POL-244)**
 *(No cue. The framework's own C01 cue — "C01 MEANS STOP. No exception exists, and nobody can grant one" — is
 already resident in every agent's context on every turn. A second copy of it would make both weaker, which is
 POL-402 applied to the resident block.)*
+
+## 4. Secrets, and where data may go
+
+### 4.1 Credentials are never written down
+
+A credential, key, token or password is never written into a file, a log, a commit, a pull request or an
+issue. Whatever this organization calls its most sensitive tier, that data never reaches a log, a knowledge
+folder, a repository or a model provider. Anyone, person or agent, who finds one stops and escalates to the
+Policy Owner.
+
+### 4.2 Credentials live in one place
+
+Credentials, including agent API keys, are kept only in the `credentials` directory inside the person's own
+preferences folder (`~/.gov/<slug>/preferences/<github-login>/credentials`). They are never kept in a
+repository, and never in a file someone else reads.
+
+### 4.3 Nothing confidential or restricted goes to a model provider
+
+Confidential and restricted data are never sent to any model provider, whether or not this organization has
+authorized that provider. Authorizing a provider permits it to be used for public and internal data only.
+
+### 4.4 Restricted data never reaches a log
+
+Restricted data is never written to a log: not at any level, not through any transport, and not in any field.
+Each part of that sentence has caused a real incident somewhere:
+
+- **Any level.** A secret in a `debug` or `trace` call is still a secret in a log. "It is off in production"
+  is a configuration claim, not a property of the code, and it is one flag away from being false.
+- **Any transport.** Console, file, syslog, a hosted aggregator, a crash reporter, an APM trace, a span
+  attribute: a log line that leaves the process is a log line.
+- **Structured fields too.** A tidy message with the credential in a structured field, or an exception
+  object logged whole because it carries the request that carried the key, is the common way this rule is
+  broken while appearing to be kept.
+
+§2.1 keeps restricted data out of every repository, and §4.3 keeps it away from model providers. This closes
+the third route, and it is the one that looks like diligence.

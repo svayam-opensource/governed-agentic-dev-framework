@@ -175,3 +175,40 @@ has been put in the resident block.
 Good clauses are usually written after something went wrong. A clause that cannot name the failure it
 prevents is often a preference in the costume of a policy — and preferences belong in a developer's own
 preferences file, not here.
+
+---
+
+## 7. People stay accountable for AI-assisted work
+
+When an AI tool helps with a task, the person using it remains responsible for the result. Before relying on
+what the tool produced, that person checks that it complies with this policy and with the framework's rules.
+Handing the work to a tool does not hand over the accountability: "the agent wrote it" is never the answer to
+"who approved this?".
+
+## 8. Who owns each section of this policy
+
+Each section of a policy document has an owner, and a change to a section is approved by that section's owner.
+Write the ownership here, in plain sentences, one per section or group of sections. When this policy changes,
+gov reads these sentences into `policies/ownership.yaml`. On a pull request it then asks the owner of every
+changed section to review, and requires each of them to approve.
+
+**As seeded:** every section of this policy is owned by the Policy Owner, because on the first day of an
+adoption that is the only owner there is.
+
+Three things always hold, whatever you write here:
+
+- A section that names no owner belongs to the Policy Owner.
+- A change to this section, or to `policies/ownership.yaml`, is approved by the Policy Owner. Nobody can
+  hand a section to themselves.
+- An executable check action under `policies/actions/` is approved by the Check Owner.
+
+> **An example of delegating sections.** Once your organization has appointed owners in
+> `policies/authorized-representatives.md`, the Policy Owner might replace the "as seeded" sentence above with:
+>
+> *Sections 1, 5, 7 and 8 of this policy are owned by the Policy Owner.*
+> *Section 2 is owned by the System Architecture Owner.*
+> *Section 3 is owned by the System Architecture Owner.*
+> *Section 4 is owned by the Data Architecture Owner.*
+> *In `policies/data-classification.md`, every section is owned by the Data Architecture Owner.*
+>
+> Each role named must be one listed in `policies/authorized-representatives.md`, with a named holder.
