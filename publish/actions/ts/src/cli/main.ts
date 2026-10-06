@@ -1485,7 +1485,9 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     applyRepoOverrides,
     // govHome is the default-branch clone — GOV-FRM-456 requires governance be read from there,
     // never from the project-branch worktree. See sessionStartPrompt.
-    config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot, govHome: resolved.home },
+    config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot, govHome: resolved.home, defaultBranch: config.defaultBranch || "main" },
+    // The harness mirror reads the default branch through this (GOV-FRM-456).
+    git: (repo: string, args: readonly string[]) => tryRun("git", ["-C", repo, ...args]) ?? null,
     me,
     canWriteBoard: (n) =>
       tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${config.githubOrg}`, "-F", `n=${n}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) !== "false",

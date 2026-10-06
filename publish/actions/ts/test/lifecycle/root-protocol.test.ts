@@ -30,6 +30,7 @@ import {
 } from "../../src/lifecycle/root-protocol.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import { px, pxAll } from "../helpers/paths.js";
+import { harnessAtDefault } from "../helpers/harness-at-default.js";
 
 /**
  * A filesystem in a map. `dirs` exists for one reason that is load-bearing rather than cosmetic:
@@ -75,7 +76,7 @@ describe("root-protocol — defect 1: a source gov cannot read is REPORTED, neve
   it("names every harness path it could not refresh, and how to fix it", () => {
     // An un-upgraded workspace: the clone is there, `agent/harness/` is not.
     const fs = memFs({ [`${PROJECT}/${WS}/org-config.yaml`]: "org_name: Acme\n" });
-    const r = ensureRootProtocol(fs, PROJECT, WS);
+    const r = ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
 
     expect(r.placed, "nothing could be mirrored").to.have.length(0);
     expect(r.skipped.map((s) => s.rel), "and all nine are named").to.have.members([...ROOT_HARNESS_FILES]);
@@ -91,14 +92,14 @@ describe("root-protocol — defect 1: a source gov cannot read is REPORTED, neve
       [`${PROJECT}/CLAUDE.md`]: "@svm-prj-work/agent/session-protocol.md\n@svm-prj-work/framework/agent.md\n",
       [`${PROJECT}/AGENTS.md`]: rendered("AGENTS.md"),
     });
-    const r = ensureRootProtocol(fs, PROJECT, WS);
+    const r = ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
 
     const claude = r.skipped.find((s) => s.rel === "CLAUDE.md")!;
     expect(px(claude.at)).to.equal(`${PROJECT}/CLAUDE.md`);
     expect(claude.stale, "the retired mechanism, identified as such").to.equal("the retired two-line @-import stub");
     const warnings = pxAll(mirrorWarnings(r)).join("\n");
     expect(warnings, "the path a person can go and look at").to.contain(`${PROJECT}/CLAUDE.md`);
-    expect(warnings, "and where the copy should have come from").to.contain(src("CLAUDE.md"));
+    expect(warnings, "and where the copy should have come from — the default branch").to.contain("main:agent/harness/CLAUDE.md");
 
     // AND IT IS STILL A WARNING. `verifyAgentContext` permits the old stub deliberately — for an org that
     // adopted before the version marker it IS valid ratified governance, and refusing bricked the entire
@@ -112,7 +113,7 @@ describe("root-protocol — defect 1: a source gov cannot read is REPORTED, neve
       [`${PROJECT}/${WS}/org-config.yaml`]: "org_name: Acme\n",
       [`${PROJECT}/CONVENTIONS.md`]: "# aider notes someone left\n",
     });
-    const r = ensureRootProtocol(fs, PROJECT, WS);
+    const r = ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
 
     expect(r.skipped.find((s) => s.rel === "CONVENTIONS.md")!.stale, "present, so gov would have replaced it")
       .to.equal("content gov did not write");
@@ -130,7 +131,7 @@ describe("root-protocol — defect 1: a source gov cannot read is REPORTED, neve
 
   it("says NOTHING when every source was there — a warning nobody can silence is a warning nobody reads", () => {
     const fs = memFs({ ...fullWorkspace(), [`${PROJECT}/${WS}/org-config.yaml`]: "org_name: Acme\n" });
-    const r = ensureRootProtocol(fs, PROJECT, WS);
+    const r = ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
     expect(r.placed, "all nine mirrored").to.have.length(ROOT_HARNESS_FILES.length);
     expect(r.skipped).to.have.length(0);
     expect(mirrorWarnings(r)).to.deep.equal([]);
@@ -138,7 +139,7 @@ describe("root-protocol — defect 1: a source gov cannot read is REPORTED, neve
 
   it("an org that runs no agents reports nothing at all — there is no guarantee to keep", () => {
     const fs = memFs({ [`${PROJECT}/${WS}/org-config.yaml`]: "authorized_agents: none\n" });
-    const r = ensureRootProtocol(fs, PROJECT, WS);
+    const r = ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
     expect(r.structureOnly).to.equal(true);
     expect(mirrorWarnings(r), "structure-only is a decision, not a defect").to.deep.equal([]);
   });
@@ -170,7 +171,7 @@ describe("root-protocol — defect 2: the harness reaches every cloned code repo
 
   it("every agent's file lands in every clone — the case the defect was actually about", () => {
     const fs = seededProject();
-    const r = ensureRootProtocol(fs, PROJECT, WS);
+    const r = ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
 
     expect(pxAll([...r.targets]), "the project root AND both clones").to.deep.equal([PROJECT, CICD, API]);
     for (const dir of [PROJECT, API, CICD]) {
@@ -183,7 +184,7 @@ describe("root-protocol — defect 2: the harness reaches every cloned code repo
 
   it("verbatim at the project root, FENCED in a code repo — gov owns one directory and one block", () => {
     const fs = seededProject();
-    ensureRootProtocol(fs, PROJECT, WS);
+    ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
     expect(fs.files[`${PROJECT}/CLAUDE.md`], "gov's own directory: the rendered file, byte for byte")
       .to.equal(rendered("CLAUDE.md"));
     expect(fs.files[`${API}/CLAUDE.md`], "the team's repo: gov's block, delimited").to.contain(GOV_BLOCK_BEGIN);
@@ -198,7 +199,7 @@ describe("root-protocol — defect 2: the harness reaches every cloned code repo
       ...worktreeGit(API, `${BASES}/api`),
       [`${API}/CLAUDE.md`]: team,
     });
-    ensureRootProtocol(fs, PROJECT, WS);
+    ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
     const after = fs.files[`${API}/CLAUDE.md`]!;
     expect(after, "their words, kept").to.contain("Run `make test`");
     expect(after, "gov's protocol, added").to.contain(PROTOCOL_MARKER);
@@ -216,22 +217,22 @@ describe("root-protocol — defect 2: the harness reaches every cloned code repo
     // The cleanup problem moved to where it belongs: `dirtyIgnoringGovsOwnFiles` discounts gov's harness when
     // judging whether a deletion would lose somebody's work.
     const fs = seededProject();
-    ensureRootProtocol(fs, PROJECT, WS);
+    ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
     expect(fs.files[`${BASES}/api/.git/info/exclude`], "gov does not hide its own governance").to.equal(undefined);
     expect(Object.keys(fs.files).some((f) => f.endsWith("/api/AGENTS.md")), "but it did place the file").to.equal(true);
   });
 
   it("a project with no clones yet behaves exactly as before — the root, and only the root", () => {
     const fs = memFs({ ...fullWorkspace(), [`${PROJECT}/${WS}/org-config.yaml`]: "org_name: Acme\n" }, [`${PROJECT}/${WS}/.git`]);
-    const r = ensureRootProtocol(fs, PROJECT, WS);
+    const r = ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
     expect(pxAll([...r.targets])).to.deep.equal([PROJECT]);
   });
 
   it("running twice changes nothing — the mirror runs on EVERY launch", () => {
     const fs = seededProject();
-    ensureRootProtocol(fs, PROJECT, WS);
+    ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
     const first = { ...fs.files };
-    ensureRootProtocol(fs, PROJECT, WS);
+    ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
     expect(fs.files, "a per-launch rewrite that grew the files would be its own silent defect").to.deep.equal(first);
   });
 });
@@ -310,7 +311,7 @@ describe("root-protocol — which files gov owns outright inside a team's reposi
       [`${PROJECT}/${WS}/org-config.yaml`]: "org_name: Acme\n",
       ...worktreeGit(API, "/work/.bases/api"),
     });
-    ensureRootProtocol(fs, PROJECT, WS);
+    ensureRootProtocol(fs, PROJECT, WS, harnessAtDefault(fs));
     expect(fs.files[`${API}/.cursor/rules/agent.mdc`], "byte for byte, front matter first").to.equal(mdc);
 
   });
@@ -368,7 +369,7 @@ describe("root-protocol — a launch that changes nothing writes nothing", () =>
 
   it("writes on the FIRST launch, and reports how many", () => {
     const { fs, writes } = tracking(world());
-    const r = ensureRootProtocol(fs, PROJ, WSP);
+    const r = ensureRootProtocol(fs, PROJ, WSP, harnessAtDefault(fs));
     expect(writes.length, "the first launch places what is there to place").to.be.greaterThan(0);
     expect(r.written).to.equal(writes.length);
   });
@@ -376,9 +377,9 @@ describe("root-protocol — a launch that changes nothing writes nothing", () =>
   it("writes NOTHING on the second launch — same policy, same bytes", () => {
     const files = world();
     const { fs } = tracking(files);
-    ensureRootProtocol(fs, PROJ, WSP);
+    ensureRootProtocol(fs, PROJ, WSP, harnessAtDefault(fs));
     const second = tracking(files);
-    const r = ensureRootProtocol(second.fs, PROJ, WSP);
+    const r = ensureRootProtocol(second.fs, PROJ, WSP, harnessAtDefault(second.fs));
     expect(second.writes, "nothing changed, so nothing is rewritten").to.deep.equal([]);
     expect(r.written).to.equal(0);
     expect(r.placed, "but gov is still responsible for the same paths").to.not.be.empty;
@@ -386,11 +387,85 @@ describe("root-protocol — a launch that changes nothing writes nothing", () =>
 
   it("writes again the moment the POLICY changes — which is the only time a diff should appear", () => {
     const files = world();
-    ensureRootProtocol(tracking(files).fs, PROJ, WSP);
+    ensureRootProtocol(tracking(files).fs, PROJ, WSP, harnessAtDefault(tracking(files).fs));
     files[`${PROJ}/${WSP}/agent/harness/AGENTS.md`] = "# the protocol, revised\n";
     const after = tracking(files);
-    const r = ensureRootProtocol(after.fs, PROJ, WSP);
+    const r = ensureRootProtocol(after.fs, PROJ, WSP, harnessAtDefault(after.fs));
     expect(r.written, "a governance change reaches every target").to.be.greaterThan(0);
     expect(files[`${PROJ}/AGENTS.md`]).to.contain("revised");
+  });
+});
+
+/**
+ * GOV-FRM-456 — THE HARNESS IS MIRRORED FROM THE DEFAULT BRANCH, NEVER THE PROJECT BRANCH.
+ *
+ * The worktree at `<project>/<ws>` is on the project branch. A harness file edited there is a proposal, and
+ * mirroring it would let a branch rewrite the rules its own agent is launched under. The governance snapshot and
+ * the session prompt already read the default branch; the mirror read the worktree.
+ */
+describe("root-protocol — GOV-FRM-456: read from the default branch", () => {
+  /** A default branch whose harness differs from the worktree's — the case the promise is about. */
+  const twoBranches = (atDefault: Record<string, string>, opts: { resolves?: string[]; listFails?: boolean; showFails?: boolean } = {}) => {
+    const calls: string[][] = [];
+    const git = (_repo: string, args: readonly string[]): string | null => {
+      calls.push([...args]);
+      if (args[0] === "rev-parse") return (opts.resolves ?? ["main"]).some((r) => args[3] === `${r}^{commit}`) ? "abc1234" : null;
+      if (args[0] === "ls-tree") return opts.listFails ? null : Object.keys(atDefault).map((rel) => `agent/harness/${rel}`).join("\n");
+      if (args[0] === "show") {
+        if (opts.showFails) return null;
+        const rel = args[1]!.replace(/^[^:]+:agent\/harness\//, "");
+        return atDefault[rel]?.trimEnd() ?? null;        // gov's git ports trim stdout
+      }
+      return null;
+    };
+    return { source: { git, defaultBranch: "main" }, calls };
+  };
+  const projectBranchEdit = "<!-- edited on the project branch -->\n# a weaker protocol\n";
+
+  it("GOV-FRM-456: mirrors the default branch's harness, not the project-branch worktree's", () => {
+    const fs = memFs({
+      [`${PROJECT}/${WS}/org-config.yaml`]: "org_name: Acme\n",
+      ...Object.fromEntries(ROOT_HARNESS_FILES.map((rel) => [src(rel), projectBranchEdit])),
+    });
+    const { source, calls } = twoBranches(Object.fromEntries(ROOT_HARNESS_FILES.map((rel) => [rel, rendered(rel)])));
+    const r = ensureRootProtocol(fs, PROJECT, WS, source);
+
+    expect(r.placed).to.have.members([...ROOT_HARNESS_FILES]);
+    expect(fs.files[px(`${PROJECT}/AGENTS.md`)], "the ratified copy, byte for byte").to.equal(rendered("AGENTS.md"));
+    expect(Object.entries(fs.files).filter(([k, v]) => !k.includes("/agent/harness/") && v === projectBranchEdit),
+      "nothing from the project branch reached an agent's file").to.deep.equal([]);
+    expect(calls.filter((c) => c[0] === "show").every((c) => c[1]!.startsWith("main:")), "every read is at the default branch").to.equal(true);
+  });
+
+  it("GOV-FRM-456: falls back to the remote-tracking default branch, as the snapshot does — still never the worktree", () => {
+    const fs = memFs({ [`${PROJECT}/${WS}/org-config.yaml`]: "org_name: Acme\n" });
+    const { source, calls } = twoBranches({ "AGENTS.md": rendered("AGENTS.md") }, { resolves: ["origin/main"] });
+    const r = ensureRootProtocol(fs, PROJECT, WS, source);
+    expect(r.placed).to.deep.equal(["AGENTS.md"]);
+    expect(calls.filter((c) => c[0] === "show").map((c) => c[1])).to.deep.equal(["origin/main:agent/harness/AGENTS.md"]);
+  });
+
+  it("GOV-FRM-456: git that cannot read the default branch is a NOTED absence, never a silent read of the worktree", () => {
+    for (const opts of [{ resolves: [] as string[] }, { listFails: true }, { showFails: true }]) {
+      const fs = memFs({
+        [`${PROJECT}/${WS}/org-config.yaml`]: "org_name: Acme\n",
+        ...Object.fromEntries(ROOT_HARNESS_FILES.map((rel) => [src(rel), projectBranchEdit])),
+      });
+      const { source } = twoBranches(Object.fromEntries(ROOT_HARNESS_FILES.map((rel) => [rel, rendered(rel)])), opts);
+      const r = ensureRootProtocol(fs, PROJECT, WS, source);
+      expect(r.placed, JSON.stringify(opts)).to.deep.equal([]);
+      expect(r.unreadable, "the reason is recorded").to.be.a("string");
+      expect(fs.files[px(`${PROJECT}/AGENTS.md`)], "and the worktree's copy was NOT used instead").to.equal(undefined);
+      const warnings = mirrorWarnings(r).join("\n");
+      expect(warnings).to.contain("read only from the default branch").and.contain("GOV-FRM-456");
+    }
+  });
+
+  it("restores the one trailing newline a trimming git port drops, so a launch rewrites nothing", () => {
+    const fs = memFs({ [`${PROJECT}/${WS}/org-config.yaml`]: "org_name: Acme\n" });
+    const { source } = twoBranches({ "AGENTS.md": rendered("AGENTS.md") });
+    ensureRootProtocol(fs, PROJECT, WS, source);
+    expect(fs.files[px(`${PROJECT}/AGENTS.md`)]).to.equal(rendered("AGENTS.md"));
+    expect(ensureRootProtocol(fs, PROJECT, WS, source).written, "second launch: already current").to.equal(0);
   });
 });

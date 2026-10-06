@@ -40,7 +40,6 @@ const KNOWN_UNKEPT: Readonly<Record<string, string>> = {
   "GOV-FRM-033": "gov doctor reports a vacant Check Owner but never a vacant Policy Owner.",
   "GOV-FRM-083": "CODEOWNERS routes /governance/, not /knowledge/ or /policies/, to the Policy Owner — no fallback for either tree.",
   "GOV-FRM-444": "MANIFEST.yaml has no entry for framework/rules/, so gov upgrade never ships rules.yaml, catalog.yaml or pol-aliases.yaml.",
-  "GOV-FRM-456": "the governance snapshot and session prompt read the default branch, but ensureRootProtocol mirrors agent/harness/ from the project-branch worktree.",
 };
 
 // ── titles ──────────────────────────────────────────────────────────────────────────────────────────────────────

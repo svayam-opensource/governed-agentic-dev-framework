@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 import { expect } from "chai";
+import { harnessAtDefault } from "../helpers/harness-at-default.js";
 import { unstartedPage, myProjects, seedableBoards, workspaceState, NOT_STARTED, runWorkFlow, agentLaunchSpec, agentKindFromFlag, sessionStartPrompt, ensureRootProtocol, startSession, projectFromPath, matchProjects, resolveAgent, unauthorizedAgentLines, type WorkFlowDeps } from "../../src/cli/work-flow.js";
 import { AGENT_CATALOG } from "../../src/cli/agent-catalog.js";
 import type { Projects } from "../../src/lifecycle/project-list.js";
@@ -282,7 +283,7 @@ describe("gov-work — guided Work flow", () => {
       writeFile: (p: string, c: string) => writes.push([p, c]),
       mkdirp: () => {},
     };
-    ensureRootProtocol(fs, "/work/PRJ-9-infra", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9-infra", "acme-gov", harnessAtDefault(fs));
     const byPath = Object.fromEntries(writes.map(([f, c]) => [px(f), c]));
     expect(byPath["/work/PRJ-9-infra/CLAUDE.md"], "no stub written from thin air").to.equal(undefined);
     expect(byPath["/work/PRJ-9-infra/.claude/settings.json"], "no hook gov owns").to.equal(undefined);
@@ -300,7 +301,7 @@ describe("gov-work — guided Work flow", () => {
       writeFile: (p: string, c: string) => writes.push([p, c]),
       mkdirp: (dir: string) => dirs.push(dir),
     };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     const written = writes.map(([p]) => p);
     expect(pxAll(written)).to.include("/work/PRJ-9/CLAUDE.md");                 // Claude — copied, like the rest
     expect(pxAll(written)).to.include("/work/PRJ-9/AGENTS.md");                 // Codex/Cursor — copied
@@ -316,13 +317,13 @@ describe("gov-work — guided Work flow", () => {
     const w: Array<[string, string]> = []; const dirs: string[] = [];
     const fs = {
       ...fsWith([]),
-      readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("CLAUDE.md") ? "# rendered protocol" : null),
+      readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("CLAUDE.md") ? "# rendered protocol\n" : null),
       writeFile: (p: string, c: string) => w.push([p, c]),
       mkdirp: (d: string) => dirs.push(d),
     };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     const byPath = Object.fromEntries(w.map(([f, c]) => [px(f), c]));
-    expect(byPath["/work/PRJ-9/CLAUDE.md"], "the rendered protocol, mirrored").to.equal("# rendered protocol");
+    expect(byPath["/work/PRJ-9/CLAUDE.md"], "the rendered protocol, mirrored").to.equal("# rendered protocol\n");
     expect(byPath["/work/PRJ-9/.claude/settings.json"], "and no hook").to.equal(undefined);
     expect(agentLaunchSpec("claude-code", "/work/PRJ-9", "KICK")!.args, "handed over as argv")
       .to.deep.equal(["KICK"]);
@@ -331,7 +332,7 @@ describe("gov-work — guided Work flow", () => {
   it("session-start FIRES for cursor (CLI) — injected kickoff + alwaysApply rule mirrored to root", () => {
     const w: Array<[string, string]> = [];
     const fs = { ...fsWith([]), readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("agent.mdc") ? "---\nalwaysApply: true\n---\n<protocol>" : null), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"], "always-on rule at root").to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor", "/work/PRJ-9", "KICK")!.args, "speak-first").to.deep.equal(["KICK"]);
   });
@@ -339,7 +340,7 @@ describe("gov-work — guided Work flow", () => {
   it("session-start FIRES for cursor GUI — alwaysApply rule mirrored to <project> (auto-applies; GUI opens the dir)", () => {
     const w: Array<[string, string]> = [];
     const fs = { ...fsWith([]), readFile: (f: string) => (px(f).includes("/agent/harness/") && f.endsWith("agent.mdc") ? "---\nalwaysApply: true\nglobs: [\"**/*\"]\n---\n<protocol>" : null), writeFile: (p: string, c: string) => w.push([p, c]), mkdirp: () => {} };
-    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     expect(Object.fromEntries(w.map(([f, c]) => [px(f), c]))["/work/PRJ-9/.cursor/rules/agent.mdc"]).to.match(/alwaysApply: true/);
     expect(agentLaunchSpec("cursor-gui", "/work/PRJ-9", "KICK"))
       .to.deep.equal({ cmd: "cursor", args: ["/work/PRJ-9"], detached: true, promptToPaste: "KICK", promptText: "KICK" });   // cwd verbatim, prompt carried
@@ -986,7 +987,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
       writeFile: (p: string) => writes.push(px(p)),
       mkdirp: () => {},
     };
-    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     expect(r.structureOnly).to.equal(true);
     expect(r.placed).to.deep.equal([]);
     expect(writes, "not one vendor file").to.deep.equal([]);
@@ -1002,7 +1003,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
       writeFile: (p: string) => writes.push(px(p)),
       mkdirp: () => {},
     };
-    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov");
+    const r = ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs));
     expect(r.structureOnly).to.equal(false);
     expect(writes).to.include("/work/PRJ-9/CLAUDE.md");
     expect(r.placed.length, "every rendered file").to.be.greaterThan(1);
@@ -1018,7 +1019,7 @@ describe("gov-work — structure-only: agents off, process intact", () => {
       writeFile: (p: string) => writes.push(px(p)),
       mkdirp: () => {},
     };
-    expect(ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov").structureOnly).to.equal(false);
+    expect(ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs)).structureOnly).to.equal(false);
     expect(writes).to.include("/work/PRJ-9/CLAUDE.md");
   });
 });

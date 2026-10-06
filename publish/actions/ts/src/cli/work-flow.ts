@@ -16,6 +16,7 @@ import { deriveStatus } from "../lifecycle/state.js";
 import { boardNumberFromProjectId } from "../lifecycle/task.js";
 import { ensureRootProtocol, mirrorWarnings } from "../lifecycle/root-protocol.js";
 import type { GovSnapshot } from "../lifecycle/governance-snapshot.js";
+import type { GitRead } from "./policy-gate-io.js";
 import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines, type AgentCandidate } from "./agent-catalog.js";
 import { chooseAgent, choiceExplanation } from "./agent-choice.js";
 import { structureOnlyLines, TURN_AGENTS_ON } from "./approve-agents-step.js";
@@ -56,7 +57,12 @@ export interface WorkFlowDeps {
    * Optional so a caller that cannot resolve it still works — the prompt then falls back to the
    * project-branch worktree, which is a wrong-branch read (GOV-FRM-456) but not a dead path.
    */
-  readonly config: { readonly githubOrg: string; readonly workspaceRepo: string; readonly agentWorkRoot: string; readonly govHome?: string; readonly ownerField?: "organization" | "user" };
+  readonly config: { readonly githubOrg: string; readonly workspaceRepo: string; readonly agentWorkRoot: string; readonly govHome?: string; readonly ownerField?: "organization" | "user"; readonly defaultBranch?: string };
+  /**
+   * `git -C <repo> <args>` → stdout, or null. The harness is mirrored from the DEFAULT branch through it
+   * (GOV-FRM-456); absent, the mirror says it could not read the branch — it never reads the worktree instead.
+   */
+  readonly git?: GitRead;
   readonly me: string | null;
   readonly canWriteBoard: (boardNumber: number) => boolean;
   readonly run: (argv: readonly string[]) => Promise<number> | number;
@@ -1046,7 +1052,8 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
   // So an agent launched at <project> — OR inside any of its code-repo clones — runs session-start.
   // The warnings are printed, not discarded: a source gov could not read means a stale file an agent is
   // about to be governed by, and the only thing missing from that failure was somebody being told (PRJ-121).
-  const mirror = ensureRootProtocol(deps.fs, projectDir, deps.config.workspaceRepo);
+  const mirror = ensureRootProtocol(deps.fs, projectDir, deps.config.workspaceRepo,
+    { git: deps.git ?? (() => null), defaultBranch: deps.config.defaultBranch ?? "main" });
   for (const line of mirrorWarnings(mirror)) print(line);
   // …and the governing files it must read, copied from the default branch into the project (PRJ-121).
   const snap = deps.snapshotGovernance?.(projectDir) ?? null;

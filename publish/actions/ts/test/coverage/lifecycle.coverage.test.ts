@@ -495,7 +495,8 @@ describe("lifecycle coverage — merge", () => {
 // ════════════════════════════════════════════════════════════════════════════
 describe("lifecycle coverage — sync", () => {
   it("happy path → exit 0 with exact lines", () => {
-    const r = run(["sync"]);
+    // The default branch resolves and carries no rendered harness — read there, never from the worktree (GOV-FRM-456).
+    const r = run(["sync"], { git: (_repo, args) => (args[0] === "rev-parse" ? "abc1234" : args[0] === "ls-tree" ? "" : null) });
     expect(r.code).to.equal(0);
     // A SYNC IS THE MOMENT GOVERNANCE CAN CHANGE, so it is also the moment the mirrored copies
     // every agent reads must be re-placed, and the moment the person needs the one sentence
@@ -509,9 +510,9 @@ describe("lifecycle coverage — sync", () => {
       // the protocol had been re-placed when nothing was written, and an un-upgraded workspace was told the same
       // while all nine sources were missing. This fixture has no rendered harness, so the warning is the point.
       "  session-start protocol re-placed in 1 directory",
-      "  ! 9 harness file(s) could not be refreshed — this workspace has no rendered copy of them.",
+      "  ! 9 harness file(s) could not be refreshed — the default branch has no rendered copy of them.",
       "    Run `gov upgrade` (or `gov rules build` in the governance repo) to render them.",
-      "    9 absent: AGENTS.md, CLAUDE.md, and 7 more — no rendered source in this workspace.",
+      "    9 absent: AGENTS.md, CLAUDE.md, and 7 more — no rendered source at the default branch.",
       "",
       "Governance may have changed. Paste this into your running session:",
       "  Re-read the session-start protocol from disk; it has changed. Then continue.",

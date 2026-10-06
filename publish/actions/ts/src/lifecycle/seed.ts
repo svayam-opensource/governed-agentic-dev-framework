@@ -18,6 +18,7 @@ import type { Vcs } from "./vcs.js";
 import type { Fs } from "./fs-io.js";
 import type { AnchorCreator } from "./anchor.js";
 import { ensureRootProtocol, mirrorWarnings } from "./root-protocol.js";
+import type { GitRead } from "../cli/policy-gate-io.js";
 import { deriveProjectIdentity, parseBoardUrl, boardTitleFor } from "./identity.js";
 import { seedPathsFor, detectLeftovers, type LeftoverArtifact, type SeedPaths } from "./leftover.js";
 import { planCleanup, planLines, reverse, type CleanupStep } from "./cleanup.js";
@@ -67,6 +68,11 @@ export interface SeedDeps {
   readonly fs: Fs;
   readonly anchor: AnchorCreator;
   readonly cloneRepo: (url: string, dest: string) => void;
+  /**
+   * `git -C <repo> <args>` → stdout, or null. The harness is mirrored from the DEFAULT branch through it
+   * (GOV-FRM-456); absent, the mirror reports it could not read the branch rather than read the worktree.
+   */
+  readonly git?: GitRead;
   readonly log?: (msg: string) => void;
   /**
    * Whether this adopter can push to a repo, and whether they have a fork of it
@@ -432,7 +438,8 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     // more often than the project directory, and most vendors read only the root they were opened at (PRJ-121).
     // The report is logged rather than dropped: a source gov could not read leaves whatever was already at the
     // destination in place, which is a stale file an agent will be governed by with nothing said (PRJ-121).
-    for (const line of mirrorWarnings(ensureRootProtocol(deps.fs, paths.projectWorkRoot, config.workspaceRepo))) {
+    for (const line of mirrorWarnings(ensureRootProtocol(deps.fs, paths.projectWorkRoot, config.workspaceRepo,
+      { git: deps.git ?? (() => null), defaultBranch: config.defaultBranch }))) {
       log(line.trim());
     }
 
