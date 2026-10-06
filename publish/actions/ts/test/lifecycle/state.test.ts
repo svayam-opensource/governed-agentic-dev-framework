@@ -7,7 +7,7 @@ import type { AnchorCreator, AnchorStateLabel } from "../../src/lifecycle/anchor
 import type { Issues } from "../../src/lifecycle/issues.js";
 
 describe("prj-work Phase 2 — deriveStatus (SDD-020)", () => {
-  it("maps board state × anchor labels to status", () => {
+  it("GOV-FRM-451 maps board state × anchor labels to status", () => {
     expect(deriveStatus(true, [])).to.equal("active");
     expect(deriveStatus(true, ["paused"])).to.equal("paused");
     expect(deriveStatus(false, [])).to.equal("completed");
@@ -89,7 +89,7 @@ describe("prj-work Phase 2 — pause / resume / cancel", () => {
     if (!r.ok) expect(r.reason).to.equal("not-a-project-branch");
   });
 
-  it("honors an authorization deny", () => {
+  it("GOV-FRM-454 honors an authorization deny", () => {
     const { deps: base } = deps();
     const r = cancel({ ...base, authorize: () => false }, CONFIG, INPUT);
     expect(r.ok).to.equal(false);

@@ -118,7 +118,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
   });
 
   describe("(b) sha freshness", () => {
-    it("fails a prose change whose rows still cite the old sha, naming the fix", () => {
+    it("GOV-FRM-467 fails a prose change whose rows still cite the old sha, naming the fix", () => {
       const files = baseFiles();
       files[DOC] = POLICY.replace("Nobody commits a secret.", "Nobody commits a secret or a key.");
       files["policies/VERSION"] = "1.4.1\n";
@@ -296,7 +296,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
   });
 
   describe("(e) the version bump", () => {
-    it("rows changed: minor or major pass, patch fails", () => {
+    it("GOV-FRM-467 rows changed: minor or major pass, patch fails", () => {
       for (const [v, ok] of [["1.5.0", true], ["2.0.0", true], ["1.4.1", false], ["1.4.0", false], ["1.6.0", false]] as const) {
         const { base, head, files } = goodPr();
         files["policies/VERSION"] = `${v}\n`;
@@ -329,7 +329,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
   });
 
   describe("(f) the CHANGELOG entry", () => {
-    it("fails when there is no entry for the new version", () => {
+    it("GOV-FRM-467 fails when there is no entry for the new version", () => {
       const { base, head, files } = goodPr();
       files["policies/CHANGELOG.md"] = baseFiles()["policies/CHANGELOG.md"]!;
       expect(judge(base, head).findings.map((x) => x.message)).to.include("policies/CHANGELOG.md has no entry for 1.5.0");
@@ -361,7 +361,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
   });
 
   describe("(g) the snapshot of the previous version", () => {
-    it("fails when policies/version/<prev>/ is missing", () => {
+    it("GOV-FRM-467 fails when policies/version/<prev>/ is missing", () => {
       const { base, head, files } = goodPr();
       for (const k of Object.keys(files)) if (k.startsWith("policies/version/1.4.0/")) delete files[k];
       expect(judge(base, head).findings.map((x) => x.message)).to.include(

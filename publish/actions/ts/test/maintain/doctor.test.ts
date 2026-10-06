@@ -221,13 +221,13 @@ describe("branch protection — GOV-FRM-448, in the report", () => {
     ...over,
   });
 
-  it("four rows, and a compliant repo keeps the report green", () => {
+  it("GOV-FRM-448 four rows, and a compliant repo keeps the report green", () => {
     const r = doctor(facts({ protection: protection() }));
     expect(r.diagnostics.filter((d) => d.name.startsWith("protection · "))).to.have.length(4);
     expect(r.ok).to.equal(true);
   });
 
-  it("a missing requirement FAILS the report — this is the layer that holds outside gov", () => {
+  it("GOV-FRM-448 a missing requirement FAILS the report — this is the layer that holds outside gov", () => {
     const r = doctor(facts({ protection: protection({ facts: { pullRequestRequired: true, approvingReviews: 0, enforceAdmins: false, requiredStatusChecks: [] } }) }));
     expect(r.ok).to.equal(false);
     expect(r.diagnostics.filter((d) => d.status === "fail").map((d) => d.name))

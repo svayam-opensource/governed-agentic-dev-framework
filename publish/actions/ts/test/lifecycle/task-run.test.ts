@@ -104,7 +104,7 @@ function fakeVcs(branch = "BRNCH-43-governance-common-project") {
 const fsPresent = (present: boolean): FsProbe => ({ pathExists: () => present });
 
 describe("prj-work Phase 2 — task orchestrator (model A)", () => {
-  it("derives the project from cwd, branches workspace + present code repo, reflects on GitHub", () => {
+  it("GOV-FRM-453 derives the project from cwd, branches workspace + present code repo, reflects on GitHub", () => {
     const { vcs, log } = fakeVcs();
     const { issues, acted } = fakeIssues("OPEN");
     const r = task({ board: fakeBoard(), authorize: () => true,vcs, fs: fsPresent(true), issues }, CONFIG, INPUT);
@@ -142,7 +142,7 @@ describe("prj-work Phase 2 — task orchestrator (model A)", () => {
     if (!r.ok) expect(r.reason).to.equal("not-a-project-branch");
   });
 
-  it("honors an authorization deny", () => {
+  it("GOV-FRM-454 honors an authorization deny", () => {
     const deps: TaskDeps = {
       board: fakeBoard(),
       vcs: fakeVcs().vcs,

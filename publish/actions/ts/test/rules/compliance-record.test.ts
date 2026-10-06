@@ -53,7 +53,7 @@ describe("compliance — composing the two", () => {
     expect(out).to.contain("### C01 events");
   });
 
-  it("replaces ONLY the fence, leaving a person's prose exactly as it was", () => {
+  it("GOV-FRM-463 replaces ONLY the fence, leaving a person's prose exactly as it was", () => {
     const first = composeCompliance(null, [ev()]);
     const edited = first.replace("### C01 events\n", "### C01 events\n\nWe caught a leaked token in review on the 12th.\n");
     const again = composeCompliance(edited, [ev({ what: "merge blocked: unmerged sub-branches" })]);
@@ -68,7 +68,7 @@ describe("compliance — composing the two", () => {
     expect(twice).to.equal(once);
   });
 
-  it("a hand-written file with no fence keeps every word, with the derived half on top", () => {
+  it("GOV-FRM-463 a hand-written file with no fence keeps every word, with the derived half on top", () => {
     // Guessing where the generated section "should" go inside somebody's prose is the one way to lose it.
     const theirs = "# Compliance\n\nWe had one C02 exception, EX-3, for the legacy queue.\n";
     const out = composeCompliance(theirs, [ev()]);

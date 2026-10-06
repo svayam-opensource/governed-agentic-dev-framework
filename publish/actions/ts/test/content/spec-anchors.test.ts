@@ -79,10 +79,10 @@ interface Anchor {
 }
 
 const ANCHORS: readonly Anchor[] = [
-  // §2 — identity. Six patterns, each composed by code, none accepted from a person.
-  { what: "the project id", inSpec: "PRJ-<board#>-<slug>", inCode: "`PRJ-${boardNumber}-${slug}`", file: "lifecycle/identity.ts" },
-  { what: "the project branch", inSpec: "BRNCH-<board#>-<slug>", inCode: 'BRNCH-${pid.slice("PRJ-".length)}', file: "lifecycle/identity.ts" },
-  { what: "the task sub-branch", inSpec: "BRNCH-<board#>-<slug>.ISSUE-<n>", inCode: "${branch}.ISSUE-${issueNumber}", file: "lifecycle/identity.ts" },
+  // §2 — identity. The project id, project branch and task sub-branch anchors were RETIRED by W9 (rule model): they
+  // are the spec rule GOV-FRM-453, whose tagged tests (identity.test.ts, task-run.test.ts) assert the exact strings
+  // gov composes — a stronger check than "the template text is still in identity.ts" — and whose row pins
+  // framework-specification.md §4.3, which names all three patterns, by sha (framework-rules.test.ts).
   { what: "the archive tag", inSpec: "archive/<branch>", inCode: "`archive/${branch}`", file: "lifecycle/merge.ts" },
   { what: "the knowledge proposal branch", inSpec: "knowledge-<slug>", inCode: "`knowledge-${slug}`", file: "lifecycle/knowledge.ts" },
 
@@ -125,7 +125,7 @@ describe("gov-behaviour.md — every literal it names is anchored in the code", 
   it("names as many literals as it has anchors — a shrinking anchor set is how a spec stops being checked", () => {
     // Not a coverage assertion, a tripwire. If somebody deletes anchors to make a build pass, the count moves and
     // the diff shows it. Update the number deliberately, in the same commit as the reason.
-    expect(ANCHORS.length).to.equal(14);
+    expect(ANCHORS.length).to.equal(11);
   });
 });
 

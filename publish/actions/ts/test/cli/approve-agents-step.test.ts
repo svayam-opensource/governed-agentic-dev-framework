@@ -124,7 +124,7 @@ describe("gov-work — choosing NO agents (structure-only)", () => {
 
 /** `gov doctor`'s row — the pure helper doctor.ts calls. */
 describe("gov-work — the agents row in gov doctor", () => {
-  it("reports structure-only as a STATE, not a warning", () => {
+  it("GOV-FRM-446 reports structure-only as a STATE, not a warning", () => {
     const row = agentsDiagnostic('org_name: "Acme"\nauthorized_agents: none\n');
     expect(row).to.deep.equal({ name: "agents", status: "ok", detail: "none authorized (structure-only)" });
   });
