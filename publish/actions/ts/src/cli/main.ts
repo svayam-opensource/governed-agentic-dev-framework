@@ -48,6 +48,7 @@ import { appCheck, appCommand, ghRunner, readGithubApp } from "./app-verb.js";
 import { startLoopback } from "./app-loopback.js";
 import { randomBytes } from "node:crypto";
 import { checkCommandAsync } from "./check-verb.js";
+import { boardLinkedRepos, checkStatusReport, checksDiagnostic, type ScopeDeps } from "./check-scope.js";
 import { rulesPropose, settingsAt, PROPOSE_USAGE } from "./rules-propose.js";
 import { proposeOnPullRequest } from "./rules-propose-ci.js";
 import { openPrBranch, botIdentity } from "./pr-branch-io.js";
@@ -1953,6 +1954,20 @@ export async function runRulesPropose(argv: readonly string[]): Promise<number> 
 const localDate = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 /**
+ * What `gov check install --all` and `gov check status` read beyond one repository: the project's linked code repos
+ * from its board (through `gh`, bounded by `timeoutMs` when given — doctor must not hang offline), and the disk.
+ */
+function checkScopeDeps(fs: ReturnType<typeof createNodeFs>, config: { githubOrg: string; workspaceRepo: string }, pgm: string, timeoutMs?: number): ScopeDeps {
+  const runGh: RunGh = (args) => runProcess("gh", args, { pgm, fn: "gh", ...(timeoutMs ? { timeoutMs } : {}) });
+  return {
+    linkedRepos: boardLinkedRepos(createGhBoard(timeoutMs ? runGh : retryTransient(runGh)), config.githubOrg, config.workspaceRepo),
+    pathExists: (p) => fs.pathExists(p),
+    listDir: (d) => fs.readdir(d),
+    removeFile: (p) => fs.rm(p),
+  };
+}
+
+/**
  * `gov check run|install` with the proposer wired in: a rule binding `gov-builtin/rules-propose` runs it first
  * (asynchronously — a model, the pull request's comments, a push). Called from bin.ts; `main()` keeps the
  * synchronous path for everything else.
@@ -1971,6 +1986,7 @@ export async function runCheck(argv: readonly string[]): Promise<number> {
     git, gh, env: process.env,
     readFile: (f) => fs.readFile(f),
     writeFile: (f, t) => fs.writeFile(f, t),
+    scope: checkScopeDeps(fs, config, "gov-work:cli:check"),
     proposeOnPr: (tag, eventName, event, repoDir) => proposeOnPullRequest(tag, eventName, event, {
       git, gh, repoDir,
       repository: process.env.GITHUB_REPOSITORY ?? "",
@@ -1982,7 +1998,7 @@ export async function runCheck(argv: readonly string[]): Promise<number> {
       today: new Date().toISOString().slice(0, 10),
     }),
   }, {
-    home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch,
+    home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch, agentWorkRoot: config.agentWorkRoot,
     githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(createNodeFs().readFile(path.join(home, GOVERNANCE_PATH))).posture,
   });
   for (const line of r.lines) process.stdout.write(`${line}\n`);
@@ -2387,7 +2403,23 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           }, readGithubApp(doctorCfgText))
         : { verdict: "cannot-tell" as const, summary: "gh is not signed in, so GitHub could not be asked", lines: [] }
       : undefined;
+    // THE CHECK WORKFLOWS — `gov check status` as one row: the governance repo and, on a project branch, its linked
+    // code repos (the board through gh, bounded). Not signed in leaves the code repos cannot-tell, never ok.
+    const checksInstall = (!!doctorHomeOverride || resolve.ok) && gitPresent && doctorCfg
+      ? checksDiagnostic(checkStatusReport({}, {
+          git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
+          gh: () => null, env: process.env,
+          readFile: (f) => fs.readFile(f), writeFile: () => { /* status never writes */ },
+          scope: ghAuthed
+            ? checkScopeDeps(fs, doctorCfg, "gov-work:cli:doctor", 15_000)
+            : { ...checkScopeDeps(fs, doctorCfg, "gov-work:cli:doctor", 15_000), linkedRepos: () => ({ ok: false, reason: "gh is not signed in, so the board could not be read" }) },
+        }, {
+          home, defaultBranch: doctorCfg.defaultBranch || "main", defaultCodeBranch: doctorCfg.defaultCodeBranch,
+          githubOrg: doctorCfg.githubOrg, workspaceRepo: doctorCfg.workspaceRepo, agentWorkRoot: doctorCfg.agentWorkRoot, posture: null,
+        }))
+      : undefined;
     const report = doctor({
+      ...(checksInstall ? { checksInstall } : {}),
       ...(githubApp ? { githubApp } : {}),
       gitPresent,
       ghPresent,
@@ -2747,8 +2779,9 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       env: process.env,
       readFile: (f) => fs.readFile(f),
       writeFile: (f, t) => fs.writeFile(f, t),
+      scope: checkScopeDeps(fs, config, "gov-work:cli:check"),
     }, {
-      home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch,
+      home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch, agentWorkRoot: config.agentWorkRoot,
       githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(fs.readFile(path.join(home, GOVERNANCE_PATH))).posture,
     });
     for (const line of r.lines) process.stdout.write(`${line}\n`);

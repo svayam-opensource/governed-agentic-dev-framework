@@ -30,7 +30,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov log](#gov-log) — what gov did — one log per run, on this machine
 - [gov agent](#gov-agent) — which AI agents your org approves, what is installed, and how to add one
 - [gov repo](#gov-repo) — install the repository controls framework-specification.md §7.3 requires — or say why the platform will not
-- [gov check](#gov-check) — run one rule's checks for the event that fired, or install the workflow that runs them
+- [gov check](#gov-check) — run one rule's checks for the event that fired, install the workflow that runs them, or say whether it is current
 - [gov app](#gov-app) — create the org's GitHub App that lets code repos' checks read the governance rules, and check it
 - [gov rules](#gov-rules) — propose rules from your policy prose, render the rule stores into what agents read, and report on them
 
@@ -429,13 +429,13 @@ gov repo protect plan --repo acme/billing
 
 ### gov check
 
-run one rule's checks for the event that fired, or install the workflow that runs them
+run one rule's checks for the event that fired, install the workflow that runs them, or say whether it is current
 
 ```text
-gov check <run <GOV-ID> --resource <r> --event <e> | install [--repo <path>]>
+gov check <run <GOV-ID> --resource <r> --event <e> | install [--repo <path> | --all [--project <id>] [--prune]] | status [--project <id>]>
 ```
 
-**Where.** GOVERNED — `run` is what the rendered `gov-checks` workflow calls in GitHub Actions; `install` writes that workflow
+**Where.** GOVERNED — `run` is what the rendered `gov-checks` workflow calls in GitHub Actions; `install` writes that workflow; `status` compares it
 
 **Arguments**
 
@@ -443,6 +443,8 @@ gov check <run <GOV-ID> --resource <r> --event <e> | install [--repo <path>]>
 | --- | --- |
 | `run <GOV-ID>` | run the rule's checks bound to --resource · --event. Rules are read from the governance repo's DEFAULT branch; the event from GITHUB_EVENT_PATH / GITHUB_EVENT_NAME / GITHUB_REPOSITORY. A rule bound to gov-builtin/rules-propose runs the proposer on the policy pull request first |
 | `install` | render every in-force binding for one repository into `.github/workflows/gov-checks.yml` — the governance repo gets vcs.gov-repo and pms.issue, a code repo vcs.code-repo |
+| `install --all` | the same for the governance repo AND every code repo linked to the project's board, at its clone under the work root. Writes only where the repo's current branch is the project's project or task branch — a repo on any other branch is refused, with the reason. Reports each repo written / unchanged / refused, then prints the git and `gov merge` (or `gh pr create`) commands to land it |
+| `status` | for each repo in scope, compare the installed workflow with what install would write now: in-sync, stale, missing, or cannot tell (not cloned, not git, the board unreadable). `gov doctor` shows it as one row |
 
 **Flags**
 
@@ -452,6 +454,9 @@ gov check <run <GOV-ID> --resource <r> --event <e> | install [--repo <path>]>
 | `--event <e>` | run: the event (`pull_request`, `push`, `closed`, …) |
 | `--repo-dir <path>` | run: the checked-out repository the changeset is read from (default: the governance repo) |
 | `--repo <path>` | install: the working tree to write into (default: the governance repo); any other path is a linked code repo |
+| `--all` | install: every repo of the project — the governance repo and the board's linked code repos |
+| `--project <id>` | install --all, status: the project (PRJ-&lt;n&gt;-&lt;slug&gt;, or its board number) instead of the one the governance repo's branch names |
+| `--prune` | install --all: remove a workflow gov wrote earlier in a repo no rule binds any more (a file gov did not write is never touched) |
 
 **Examples**
 
@@ -459,16 +464,18 @@ gov check <run <GOV-ID> --resource <r> --event <e> | install [--repo <path>]>
 gov check run GOV-FRM-086 --resource vcs.gov-repo --event pull_request
 gov check install
 gov check install --repo ~/.gov/acme/projects/PRJ-7/billing
+gov check install --all
+gov check status --project PRJ-7
 ```
 
-**Changes.** `run` changes nothing in the repository, save the proposer below. On a failed check of an event that already happened (a push, an issue closed) it opens a `gov-violation` issue for the Policy Owner and runs the catalog's undo, if one is declared; on a gate it may request reviews from section owners. On a policy pull request whose rule rows are stale, `gov-builtin/rules-propose` reads the changed sections with the organization's model (only when `models.ci_allowed` is true on the default branch), asks its questions as review comments, and commits the settled rows, version, snapshot and changelog to the pull request's branch as the gov bot — a commit that is never an approval. `install` writes the workflow file into the working tree and stops — it never commits, pushes, or changes repository settings; under hard posture it prints the settings to apply
+**Changes.** `run` changes nothing in the repository, save the proposer below. On a failed check of an event that already happened (a push, an issue closed) it opens a `gov-violation` issue for the Policy Owner and runs the catalog's undo, if one is declared; on a gate it may request reviews from section owners. On a policy pull request whose rule rows are stale, `gov-builtin/rules-propose` reads the changed sections with the organization's model (only when `models.ci_allowed` is true on the default branch), asks its questions as review comments, and commits the settled rows, version, snapshot and changelog to the pull request's branch as the gov bot — a commit that is never an approval. `install` writes the workflow file into the working tree and stops — it never commits, pushes, or changes repository settings; under hard posture it prints the settings to apply. `install --all` reads the project's board (one `gh` read) and writes, or with `--prune` removes, only on a project or task branch — never a default branch; when the org has no GitHub App recorded it still writes, after saying the code repos' workflows need `gov app setup`. `status` changes nothing
 
 **Exit codes**
 
 | code | means |
 | --- | --- |
-| `0` | run: passed; or failed on an event that already happened (a violation record was opened); or could not tell under SOFT posture (a warning says so). install: written, or nothing to write |
-| `1` | run: failed on a gate event; or could not tell under HARD posture. install: the rules could not be read, so nothing was written |
+| `0` | run: passed; or failed on an event that already happened (a violation record was opened); or could not tell under SOFT posture (a warning says so). install: written, unchanged, or nothing to write. status: every repo in sync |
+| `1` | run: failed on a gate event; or could not tell under HARD posture. install: the rules could not be read, so nothing was written; with --all, also when any repo was refused or could not be told. status: any repo stale, missing, or cannot tell |
 | `2` | usage |
 
 **See also.** [gov app](#gov-app) · [gov repo](#gov-repo) · [gov rules](#gov-rules) · [gov validate](#gov-validate)
