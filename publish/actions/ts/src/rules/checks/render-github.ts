@@ -34,7 +34,7 @@ export interface GithubRendererOptions {
    *
    * GOV-REPO ACCESS IS A GITHUB APP (Policy Owner, 2026-10-06 — no stopgap). `GITHUB_TOKEN` is scoped to the one
    * repository running the workflow, by design, so a code repo's job mints a short-lived token per run with
-   * {@link CREATE_APP_TOKEN} from the org's App (`GOV_APP_ID`, `GOV_APP_PRIVATE_KEY` org secrets), limited to the
+   * {@link CREATE_APP_TOKEN} from the org's App (`GOV_APP_CLIENT_ID`, `GOV_APP_PRIVATE_KEY` org secrets), limited to the
    * governance repository and to reading its contents. No personal token, no long-lived secret that can write.
    */
   readonly govCheckout?: { readonly repository: string };
@@ -47,7 +47,7 @@ export interface GithubRendererOptions {
  */
 export const CREATE_APP_TOKEN = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0";
 /** The org Actions secrets the App's token is minted from (`gov check install` prints how to set them). */
-export const GOV_APP_SECRETS = { appId: "GOV_APP_ID", privateKey: "GOV_APP_PRIVATE_KEY" } as const;
+export const GOV_APP_SECRETS = { clientId: "GOV_APP_CLIENT_ID", privateKey: "GOV_APP_PRIVATE_KEY" } as const;
 
 type Binding = { readonly id: string; readonly check: CheckBinding };
 /** The GitHub trigger for a resource · event: the `on:` key, and for `issues` the activity type. */
@@ -204,7 +204,8 @@ function govCheckoutSteps(repository: string): string[] {
     "        id: gov-token",
     `        uses: ${CREATE_APP_TOKEN}`,
     "        with:",
-    `          app-id: \${{ secrets.${GOV_APP_SECRETS.appId} }}`,
+    // `client-id`, not `app-id`: v3 deprecates `app-id`, and every run would warn.
+    `          client-id: \${{ secrets.${GOV_APP_SECRETS.clientId} }}`,
     `          private-key: \${{ secrets.${GOV_APP_SECRETS.privateKey} }}`,
     `          owner: ${owner}`,
     `          repositories: ${name}`,

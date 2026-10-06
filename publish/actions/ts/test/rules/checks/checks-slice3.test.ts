@@ -425,13 +425,14 @@ describe("gov check install", () => {
     // The one-time App setup the org needs, said where the person installing the workflow will read it.
     expect(text).to.contain("GitHub App").and.contain("Contents: Read-only").and.contain("acme/acme-gov");
     expect(text).to.contain("Install it on the acme organization");
-    expect(text).to.contain("GOV_APP_ID").and.contain("GOV_APP_PRIVATE_KEY");
+    expect(text).to.contain("GOV_APP_CLIENT_ID").and.contain("GOV_APP_PRIVATE_KEY").and.contain("Client ID");
+    expect(text).to.not.contain("GOV_APP_ID ");
   });
 
   it("the governance repo itself: no App setup is printed — its workflow uses GITHUB_TOKEN", () => {
     const written: Record<string, string> = {};
     const text = checkCommand(["install"], {}, mk(written), CFG).lines.join("\n");
-    expect(text).to.not.contain("GOV_APP_ID");
+    expect(text).to.not.contain("GOV_APP_");
     expect(written["/gov/.github/workflows/gov-checks.yml"]).to.not.contain("create-github-app-token");
   });
 

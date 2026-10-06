@@ -350,7 +350,7 @@ jobs:
         id: gov-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: \${{ secrets.GOV_APP_ID }}
+          client-id: \${{ secrets.GOV_APP_CLIENT_ID }}
           private-key: \${{ secrets.GOV_APP_PRIVATE_KEY }}
           owner: acme
           repositories: acme-gov
@@ -370,7 +370,7 @@ jobs:
       - name: gov check run GOV-FRM-061
         run: gov check run GOV-FRM-061 --resource vcs.code-repo --event pull_request --gov-home .gov --repo-dir .
 `);
-    expect(files[0]!.text).to.not.contain("GOV_REPO_TOKEN");
+    expect(files[0]!.text).to.not.contain("GOV_REPO_TOKEN").and.not.contain("app-id:");
   });
 
   it("the governance repo's own workflow mints nothing — GITHUB_TOKEN already reads the repository it runs in", () => {

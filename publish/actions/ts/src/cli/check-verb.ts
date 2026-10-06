@@ -182,15 +182,16 @@ export function policyPrFromEvent(git: GitRead, repo: string, eventName: string,
  * apps or set secrets from here.
  */
 export function githubAppSetup(org: string, govRepo: string): string[] {
-  const { appId, privateKey } = GOV_APP_SECRETS;
+  const { clientId, privateKey } = GOV_APP_SECRETS;
   return [
     `One-time, for the whole ${org} organization (skip it if it is already done): this workflow reads ${govRepo}`,
     "through a GitHub App, which mints a short-lived, read-only token on every run. GitHub Apps are free on every plan.",
     `  1. Create a GitHub App owned by ${org} (Organization settings → Developer settings → GitHub Apps → New).`,
     "     No webhook. Repository permissions: Contents: Read-only, and nothing else.",
     `  2. Install it on the ${org} organization, on the repository ${govRepo} only.`,
-    `  3. Store its App ID and a private key as organization Actions secrets, available to the code repositories:`,
-    `       gh secret set ${appId} --org ${org} --visibility all --body <app id>`,
+    `  3. Store its Client ID (on the App's settings page) and a private key as organization Actions secrets,`,
+    "     available to the code repositories:",
+    `       gh secret set ${clientId} --org ${org} --visibility all --body <client id>`,
     `       gh secret set ${privateKey} --org ${org} --visibility all < <private-key>.pem`,
   ];
 }
