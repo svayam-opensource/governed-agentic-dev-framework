@@ -25,7 +25,7 @@
  */
 import path from "node:path";
 import type { GitRead } from "./policy-gate-io.js";
-import { flagStr } from "./args.js";
+import { flagBool, flagStr } from "./args.js";
 import type { CommandResult } from "./dispatch.js";
 import type { GovernancePosture } from "../config/governance.js";
 import { inForce, type RuleRow } from "../rules/model/rule-row.js";
@@ -43,6 +43,7 @@ import { gitTree } from "../rules/policy-pr/tree.js";
 import type { PolicyPrInput } from "../rules/policy-pr/gate.js";
 import type { BuiltinOutcome } from "../rules/checks/builtin.js";
 import { PROPOSE_ACTION } from "../rules/checks/builtin.js";
+import { checkInstallAll, checkStatus, type ScopeDeps } from "./check-scope.js";
 
 export interface CheckVerbDeps {
   readonly git: GitRead;
@@ -54,6 +55,8 @@ export interface CheckVerbDeps {
   readonly writeFile: (file: string, text: string) => void;
   /** `gov-builtin/rules-propose`'s outcome, run beforehand by {@link checkCommandAsync}. */
   readonly rulesPropose?: BuiltinOutcome;
+  /** `install --all` and `status`: the project's linked repos, the work root, file removal (scope in check-scope.ts). */
+  readonly scope?: ScopeDeps;
 }
 
 /**
@@ -71,17 +74,21 @@ export interface CheckVerbConfig {
   readonly workspaceRepo: string;
   /** Null only for a value gov does not recognise. */
   readonly posture: GovernancePosture | null;
+  /** `<agent_work_root>` — where `--project <id>` finds `<id>/<repo>/` clones. Absent → `--project` cannot be resolved. */
+  readonly agentWorkRoot?: string;
 }
 
 const RUN_USAGE = "check run <GOV-ID> --resource <resource> --event <event> [--gov-home <path>] [--repo-dir <path>]";
-const INSTALL_USAGE = "check install [--repo <path>]";
+const INSTALL_USAGE = "check install [--repo <path> | --all [--project <id>] [--prune]]";
+const STATUS_USAGE = "check status [--project <id>]";
 const usage = (u: string): CommandResult => ({ code: 2, lines: [`usage: gov ${u}`] });
 
 export function checkCommand(positionals: readonly string[], flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg: CheckVerbConfig): CommandResult {
   const sub = positionals[0];
   if (sub === "run") return checkRun(positionals[1], flags, deps, cfg);
   if (sub === "install") return checkInstall(flags, deps, cfg);
-  return { code: 2, lines: [`usage: gov ${RUN_USAGE}`, `       gov ${INSTALL_USAGE}`] };
+  if (sub === "status") return checkStatus(flags, deps, cfg);
+  return { code: 2, lines: [`usage: gov ${RUN_USAGE}`, `       gov ${INSTALL_USAGE}`, `       gov ${STATUS_USAGE}`] };
 }
 
 /**
@@ -239,28 +246,46 @@ export function githubAppSetup(org: string, govRepo: string): string[] {
 const GOV_REPO_RESOURCES = ["vcs.gov-repo", "pms.issue"];
 const CODE_REPO_RESOURCES = ["vcs.code-repo"];
 
-function checkInstall(flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg: CheckVerbConfig): CommandResult {
-  const target = path.resolve(cfg.home, flagStr(flags, "repo") ?? ".");
-  const isGov = target === path.resolve(cfg.home);
-  const ref = defaultRef(deps.git, cfg.home, cfg.defaultBranch);
-  const loaded = loadCheckRuleSet(deps.git, cfg.home, ref);
-  if (!loaded.ok) return { code: 1, lines: [`check install: the rules could not be read at ${ref}: ${loaded.reason}. Nothing was written.`] };
+export type RuleSetLoad = ReturnType<typeof loadCheckRuleSet>;
+
+/** What `install` would write for one repository, from rules already loaded. Pure; shared by install --all and status. */
+export type Rendered =
+  | { readonly ok: true; readonly files: readonly { readonly path: string; readonly text: string }[]; readonly bindings: readonly { readonly id: string; readonly check: CheckBinding }[] }
+  | { readonly ok: false; readonly reason: string };
+
+export function renderForRepo(isGov: boolean, loaded: RuleSetLoad, cfg: CheckVerbConfig): Rendered {
+  if (!loaded.ok) return { ok: false, reason: `the rules could not be read: ${loaded.reason}` };
   const { catalog } = loaded.set;
   const wanted = new Set((isGov ? GOV_REPO_RESOURCES : CODE_REPO_RESOURCES)
     .filter((r) => catalog.resources.find((x) => x.id === r)?.renderer === "github-actions"));
-
   const bindings: { id: string; check: CheckBinding }[] = [];
   for (const row of inForce([...loaded.set.framework, ...loaded.set.org])) {
     for (const check of row.checks ?? []) if (wanted.has(check.on.resource)) bindings.push({ id: row.id, check });
   }
-  const govRepo = cfg.githubOrg && cfg.workspaceRepo ? `${cfg.githubOrg}/${cfg.workspaceRepo}` : "";
+  const govRepo = govRepoOf(cfg);
   if (!isGov && !govRepo) {
-    return { code: 1, lines: ["check install: org-config.yaml does not name the governance repo (`github_org`, `org_gov_repo`), which a code repository's workflow must check out to read the rules. Nothing was written."] };
+    return { ok: false, reason: "org-config.yaml does not name the governance repo (`github_org`, `org_gov_repo`), which a code repository's workflow must check out to read the rules" };
   }
   const files = githubActionsRenderer({
     defaultBranch: isGov ? cfg.defaultBranch : cfg.defaultCodeBranch,
     ...(isGov ? {} : { govCheckout: { repository: govRepo } }),
   }).render(bindings);
+  return { ok: true, files, bindings };
+}
+
+export const govRepoOf = (cfg: CheckVerbConfig): string => (cfg.githubOrg && cfg.workspaceRepo ? `${cfg.githubOrg}/${cfg.workspaceRepo}` : "");
+
+function checkInstall(flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg: CheckVerbConfig): CommandResult {
+  if (flagBool(flags, "all")) return checkInstallAll(flags, deps, cfg);
+  const target = path.resolve(cfg.home, flagStr(flags, "repo") ?? ".");
+  const isGov = target === path.resolve(cfg.home);
+  const ref = defaultRef(deps.git, cfg.home, cfg.defaultBranch);
+  const loaded = loadCheckRuleSet(deps.git, cfg.home, ref);
+  if (!loaded.ok) return { code: 1, lines: [`check install: the rules could not be read at ${ref}: ${loaded.reason}. Nothing was written.`] };
+  const rendered = renderForRepo(isGov, loaded, cfg);
+  if (!rendered.ok) return { code: 1, lines: [`check install: ${rendered.reason}. Nothing was written.`] };
+  const { files, bindings } = rendered;
+  const govRepo = govRepoOf(cfg);
   if (!files.length) return { code: 0, lines: [`check install: no rule in force binds a check GitHub can run in ${target} — nothing to write.`] };
 
   const lines: string[] = [];

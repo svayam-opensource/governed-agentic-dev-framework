@@ -120,6 +120,12 @@ export interface DoctorFacts {
    * probed (no org config). Offline, or gh not signed in, is `cannot-tell` — and the row says so, never `ok`.
    */
   readonly githubApp?: AppCheckResult;
+  /**
+   * `gov check status` in one row: is each repository's `gov-checks` workflow what `gov check install` would write
+   * now? Absent = not examined (no workspace, no git). Offline or not a git working tree is `cannot tell` — a warning,
+   * never ok.
+   */
+  readonly checksInstall?: { readonly name: string; readonly status: "ok" | "warn"; readonly detail: string };
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -262,6 +268,7 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // THE ORG'S GITHUB APP — how a code repo's checks read the governance rules. A warning at worst: an org that has
     // not run `gov app setup` yet has checks that cannot read the rules, which is a next step, not a broken machine.
     ...(facts.githubApp ? [appDiagnostic(facts.githubApp)] : []),
+    ...(facts.checksInstall ? [facts.checksInstall] : []),
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
 }
