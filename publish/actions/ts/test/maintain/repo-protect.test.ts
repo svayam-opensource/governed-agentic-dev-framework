@@ -328,6 +328,10 @@ describe("gov-work — the organization's approver logins", () => {
     expect(approverLogins(['policy_owner_github: "@carol"', 'legal_owner_github: ""'].join("\n"))).to.deep.equal(["carol"]);
   });
 
+  it("the Check Owner approves too — the second built-in role reviews action code, so its approval must count", () => {
+    expect(approverLogins(['policy_owner_github: "@carol"', 'check_owner_github: "@dave"'].join("\n"))).to.deep.equal(["carol", "dave"]);
+  });
+
   it("has nothing to say about a config that names nobody", () => {
     expect(approverLogins(null)).to.deep.equal([]);
     expect(approverLogins("org_name: Acme")).to.deep.equal([]);

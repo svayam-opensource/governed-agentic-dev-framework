@@ -109,3 +109,76 @@ describe("gov-work — setup, session policy (§3.2)", () => {
     expect(readExistingOrgConfig(text).accessTtlSec).to.equal("300");
   });
 });
+
+// THE CHECK OWNER (rule-model P1 rulings, 2026-10-06): the framework's second built-in role — reviews the code of
+// the org's check actions. It MUST be assigned at setup (default: the Policy Owner), and setup cannot finish with it
+// empty: an org that never named a reviewer of code would have its actions approved by whoever happened to look.
+describe("gov-work — setup, the Check Owner", () => {
+  const noFs = (writes: Record<string, string> = {}) =>
+    ({ writeFile: (f: string, c: string) => { writes[f] = c; }, pathExists: () => false, readFile: () => null, mkdirp: () => {}, rm: () => {}, readdir: () => [] }) as Fs;
+
+  it("defaults to the Policy Owner, is written next to it, and is read back on a re-run", () => {
+    const v = deriveOrgConfig({ orgName: "Acme Inc", orgSlug: "ACME" }, CTX);
+    expect(v.checkOwnerGithub).to.equal("@rk");
+    const text = renderOrgConfig({ ...v, checkOwnerGithub: "@dave" });
+    expect(text).to.match(/^policy_owner_github: "@rk"\n(#.*\n)*check_owner_github: "@dave"$/m);
+    expect(readExistingOrgConfig(text)).to.include({ checkOwnerGithub: "@dave" });
+    expect(deriveOrgConfig({}, { ...CTX, existing: readExistingOrgConfig(text) }).checkOwnerGithub, "a re-run keeps the holder").to.equal("@dave");
+  });
+
+  it("is ASKED in a configure-in-place run, offering the Policy Owner as the default", async () => {
+    const writes: Record<string, string> = {};
+    const asked: Array<[string, string]> = [];
+    const answers: Record<string, string> = { "Full legal name of your organization": "Acme Inc", "Org slug (uppercase, 2-6 chars; e.g. ACME)": "ACME" };
+    const code = await runSetup({
+      fs: noFs(writes), cwd: "/repo", originUrl: CTX.originUrl, ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-07-04",
+      prompt: async (q, def) => { asked.push([q, def]); return /Check Owner/.test(q) ? "@dave" : answers[q] ?? def; },
+      print: () => {},
+    }, true);
+    expect(code).to.equal(0);
+    const q = asked.find(([question]) => /Check Owner/.test(question));
+    expect(q, "the question is asked").to.not.equal(undefined);
+    expect(q![1], "and defaults to the Policy Owner").to.equal("@rk");
+    expect(pxKeys(writes)["/repo/org-config.yaml"]).to.match(/^check_owner_github: "@dave"$/m);
+  });
+
+  it("is NOT asked again when the adopter interview already answered it", async () => {
+    const asked: string[] = [];
+    const code = await runSetup({
+      fs: noFs(), cwd: "/repo", originUrl: CTX.originUrl, ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-07-04",
+      interviewed: true,
+      existing: { orgName: "Acme Inc", orgShortName: "Acme", orgSlug: "ACME", defaultBranch: "main", defaultCodeBranch: "dev", policyOwnerEmail: "rk@acme.io", policyEffectiveDate: "2026-07-04", checkOwnerGithub: "@dave" },
+      prompt: async (q, def) => { asked.push(q); return def; },
+      print: () => {},
+    }, true);
+    expect(code).to.equal(0);
+    expect(asked.filter((q) => /Check Owner/.test(q))).to.deep.equal([]);
+  });
+
+  it("cannot finish with it empty — nothing is written", async () => {
+    const writes: Record<string, string> = {};
+    const printed: string[] = [];
+    // Non-interactive, no gh user, no Policy Owner on file: there is no default to fall back on.
+    const code = await runSetup({
+      fs: noFs(writes), cwd: "/repo", originUrl: CTX.originUrl, ghUser: null, gitEmail: null, today: "2026-07-04",
+      existing: { orgName: "Acme Inc", orgSlug: "ACME" },
+      prompt: async (_q, d) => d, print: (l) => printed.push(l),
+    }, false);
+    expect(code).to.equal(1);
+    expect(writes).to.deep.equal({});
+    expect(printed.join("\n")).to.match(/check_owner_github/);
+  });
+
+  it("refuses an org slug of FRM even when it arrives pre-filled (rule-model Q7)", async () => {
+    const writes: Record<string, string> = {};
+    const printed: string[] = [];
+    const code = await runSetup({
+      fs: noFs(writes), cwd: "/repo", originUrl: CTX.originUrl, ghUser: "rk", gitEmail: null, today: "2026-07-04",
+      existing: { orgName: "Acme Inc", orgSlug: "FRM" },
+      prompt: async (_q, d) => d, print: (l) => printed.push(l),
+    }, false);
+    expect(code).to.equal(1);
+    expect(writes).to.deep.equal({});
+    expect(printed.join("\n")).to.match(/reserved for the framework/);
+  });
+});

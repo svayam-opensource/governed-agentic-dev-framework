@@ -131,7 +131,7 @@ export function approverLogins(orgConfigText: string | null | undefined): readon
     }
   }
   if (listed.length) return [...new Set(listed)];
-  const roles = ["policy_owner_github", "legal_owner_github", "infra_owner_github",
+  const roles = ["policy_owner_github", "check_owner_github", "legal_owner_github", "infra_owner_github",
     "system_arch_owner_github", "data_arch_owner_github"];
   const handles: string[] = [];
   for (const line of lines) {

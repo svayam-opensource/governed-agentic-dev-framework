@@ -28,7 +28,7 @@
 import type { OrgConfigValues } from "./setup.js";
 
 import {
-  nonEmpty, orgSlug as orgSlugRule, emailShape, isoDate,
+  nonEmpty, orgSlug as orgSlugRule, githubHandle, emailShape, isoDate,
   branchChoice, parseBranchChoice, branchName, type Validator,
 } from "./answers.js";
 import { renderOrgChoices, resolveOrgChoice, defaultOrg } from "./org-choice.js";
@@ -59,7 +59,7 @@ export interface InterviewIo {
    * A convenience, never a gate — see `org-choice.ts`.
    */
   readonly myOrgs?: () => readonly string[];
-  /** Ask the agent-approval question (Q10). Absent = do not ask; the caller asks elsewhere. */
+  /** Ask the agent-approval question (Q11). Absent = do not ask; the caller asks elsewhere. */
   readonly selectAgents?: boolean;
   readonly color?: boolean;
 }
@@ -77,7 +77,7 @@ export interface InterviewResult {
   /** The GitHub organization (Q3). */
   readonly org: string;
   /**
-   * The organization's approved agents (Q10), first one default.
+   * The organization's approved agents (Q11), first one default.
    *
    * IN THE INTERVIEW, not after the repository exists. It used to be asked once the clone had
    * landed, which put the single most consequential policy answer in adoption AFTER the point
@@ -189,7 +189,7 @@ async function ask(io: InterviewIo, n: number, question: string, def: string | u
 }
 
 /**
- * Run the nine questions in order. Returns null when `afterOrg` took over.
+ * Run the ten questions in order. Returns null when `afterOrg` took over.
  *
  * Each default is re-derived from the answers so far, so Q2 can suggest a short name
  * built from Q1's legal name and Q5 can suggest a slug built from Q3's organization.
@@ -261,7 +261,14 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   a.policyEffectiveDate = await ask(io, 9,
     "What should be the policy effective date ?", io.derive(a).policyEffectiveDate, isoDate);
 
-  // Q10 — WHICH AGENTS THIS ORGANIZATION ALLOWS.
+  // Q10 — WHO REVIEWS THE CODE OF A CHECK (rule-model P1 rulings, 2026-10-06). The Check Owner is the framework's
+  // second built-in role and must be assigned here; the Policy Owner is offered because a one-person org is the
+  // common first case, and `gov doctor` says plainly when one person holds both keys.
+  a.checkOwnerGithub = await ask(io, 10,
+    "Who is the Check Owner — the GitHub handle that reviews the code of your check actions (policies/actions/)?",
+    io.derive(a).checkOwnerGithub, githubHandle);
+
+  // Q11 — WHICH AGENTS THIS ORGANIZATION ALLOWS.
   //
   // Last, because it is the only answer that is a POLICY rather than a fact about the
   // organization, and because it is the one an adopter most needs the preceding context to
@@ -271,13 +278,13 @@ export async function askOrgInterview(io: InterviewIo): Promise<InterviewResult 
   let agents: readonly ApprovedAgent[] | undefined;
   if (io.selectAgents) {
     io.print("");
-    io.print("Q10 - Which AI agents may be used in this organization?");
+    io.print("Q11 - Which AI agents may be used in this organization?");
     const picked = await askAgentSelection({
       prompt: io.prompt,
       print: io.print,
       ...(io.color === undefined ? {} : { color: io.color }),
     });
-    if (picked === null) throw new InterviewRefused("Q10: no usable AI agent selection.");
+    if (picked === null) throw new InterviewRefused("Q11: no usable AI agent selection.");
     agents = picked;
   }
 

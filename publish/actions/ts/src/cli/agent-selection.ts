@@ -81,7 +81,7 @@ const rows = (offered: readonly OfferedAgent[]): readonly string[] =>
  * old shape it was implied by typing order, which is not a way to state a policy.
  */
 export function defaultAgentLines(offered: readonly OfferedAgent[], color = false): readonly string[] {
-  // NO HEADING HERE. The interview prints `Q10 - Which AI agents...` as its question line,
+  // NO HEADING HERE. The interview prints `Q11 - Which AI agents...` as its question line,
   // and this block used to repeat it verbatim two lines later.
   return [
     "",

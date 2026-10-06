@@ -4,7 +4,7 @@
  * EVERY SELECTABLE AGENT, NOT JUST THE ONE THAT WAS WALKED.
  *
  * The e2e journey exercises `ibm-bob` end to end and nothing else. That was defensible while
- * approval was a free-text list an adopter had to compose; it stopped being defensible when Q10
+ * approval was a free-text list an adopter had to compose; it stopped being defensible when Q11
  * turned it into a menu of ten. A selection UI that offers ten agents is ten paths a real
  * adopter can take, and one of them was tested.
  *

@@ -81,6 +81,21 @@ export const DOMAIN_ROLES: readonly OwnerRole[] = [
   { key: "data_arch_owner_github", role: "Data Architecture Owner", paths: ["/knowledge/architecture/data/"] },
 ];
 
+/**
+ * THE CHECK OWNER — the framework's SECOND built-in role (rule-model P1 rulings, 2026-10-06).
+ *
+ * The rule model splits one approval into two keys: the Policy Owner approves what a rule MEANS (the prose and
+ * the rule rows), the Check Owner approves the CODE that enforces it. An org-authored check action lives in
+ * `policies/actions/<id>/` and runs in CI with the org's tokens, so it is reviewed as code by someone who reads
+ * code — which a Policy Owner need not be.
+ *
+ * NOT A DOMAIN ROLE, and the difference is the vacancy rule. A domain's paths do not exist until somebody holds
+ * the role (POL-403), so an unheld domain role adds no line. `policies/actions/` exists the moment an org writes a
+ * check, and an ungated actions directory is code anyone with write access can make CI run — so a VACANT Check
+ * Owner escalates to the Policy Owner (POL-034), and the line is always written.
+ */
+export const CHECK_OWNER: OwnerRole = { key: "check_owner_github", role: "Check Owner", paths: ["/policies/actions/"] };
+
 /** `rkant` / `@rkant` / `` → a usable `@handle`, or null when there is nobody. */
 export function normalizeHandle(raw: string | null | undefined): string | null {
   const h = (raw ?? "").trim().replace(/^@+/, "");
@@ -89,8 +104,10 @@ export function normalizeHandle(raw: string | null | undefined): string | null {
 
 export interface CodeownersResult {
   readonly text: string;
-  /** Roles named in org-config but with no holder — reported, never guessed at. */
+  /** Domain roles named in org-config but with no holder — reported, never guessed at. They add no line. */
   readonly unheld: readonly string[];
+  /** Built-in roles with no holder, whose paths the Policy Owner approves instead (POL-034). */
+  readonly escalated: readonly string[];
 }
 
 /**
@@ -122,6 +139,17 @@ export function renderCodeowners(
   const width = Math.max(...POLICY_OWNER_PATHS.map((p) => p.length)) + 2;
   for (const p of POLICY_OWNER_PATHS) lines.push(`${p.padEnd(width)}${owner}`);
 
+  // The Check Owner, AFTER every Policy Owner path: CODEOWNERS applies the LAST matching pattern, so a later
+  // `/policies/` line for the Policy Owner must never follow this one.
+  const escalated: string[] = [];
+  const checker = normalizeHandle(handles[CHECK_OWNER.key]);
+  if (checker === null) escalated.push(CHECK_OWNER.role);
+  lines.push("", checker === null
+    ? `# ${CHECK_OWNER.role} — vacant (${CHECK_OWNER.key} is empty), so the Policy Owner approves this code (POL-034).`
+    : `# ${CHECK_OWNER.role} — approves the code of the org's check actions; the Policy Owner approves the rules.`);
+  const cw = Math.max(...CHECK_OWNER.paths.map((p) => p.length)) + 2;
+  for (const p of CHECK_OWNER.paths) lines.push(`${p.padEnd(cw)}${checker ?? owner}`);
+
   const unheld: string[] = [];
   for (const r of roles) {
     const h = normalizeHandle(handles[r.key]);
@@ -130,7 +158,7 @@ export function renderCodeowners(
     const w = Math.max(...r.paths.map((p) => p.length)) + 2;
     for (const p of r.paths) lines.push(`${p.padEnd(w)}${h}`);
   }
-  return { text: `${lines.join("\n")}\n`, unheld };
+  return { text: `${lines.join("\n")}\n`, unheld, escalated };
 }
 
 /**

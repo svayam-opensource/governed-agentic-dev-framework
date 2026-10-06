@@ -272,7 +272,7 @@ describe("gov-work — guided Work flow", () => {
   it("ensureRootProtocol writes NO Claude special case — no @-import stub, no SessionStart hook", () => {
     // BOTH MECHANISMS REMOVED BY RULING (Policy Owner, 2026-09-11): one mechanism for all
     // agents, because a special case that makes one vendor better-governed biases the agent
-    // choice at Q10 for a reason unrelated to the agent. The @-import also failed differently —
+    // choice at Q11 for a reason unrelated to the agent. The @-import also failed differently —
     // it resolved at READ time, so a broken workspace path gave Claude an empty context with
     // no error, where every other agent would have had the text or nothing at all.
     const writes: Array<[string, string]> = [];

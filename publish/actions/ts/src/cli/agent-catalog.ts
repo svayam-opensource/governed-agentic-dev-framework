@@ -69,7 +69,7 @@ export interface AgentCandidate {
    * A launch list of ten is ten paths a real adopter can take, of which two have verified
    * prompt delivery. The decision was to make a smaller list foolproof first and expand from
    * there — so these entries keep their catalog knowledge, their manifest parity and their
-   * tests, and simply do not appear in the Q10 menu.
+   * tests, and simply do not appear in the Q11 menu.
    *
    * DEFERRAL AFFECTS THE MENU ONLY. An organization that already approved one of these keeps
    * working: `approvedAgents` still resolves it, `agentLaunchSpec` still launches it. Upgrading
@@ -351,7 +351,7 @@ export function approvedAgents(orgApproved: readonly string[] | null): {
  * input. gov once leaned on a Claude-only SessionStart hook to close that gap, and the hook was
  * removed (2026-09-11) — not because it failed, but because a mechanism one vendor has makes
  * that vendor the better-governed choice for a reason unrelated to the agent, and it biases the
- * selection at Q10.
+ * selection at Q11.
  *
  * It cost nothing to remove, because an instructions file read on EVERY TURN was always the
  * stronger half: it governs the whole session rather than its opening. So when this returns a
