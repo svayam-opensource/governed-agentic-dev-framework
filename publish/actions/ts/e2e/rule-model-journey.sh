@@ -39,6 +39,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=token-scopes.sh
 . "$HERE/token-scopes.sh"
+# shellcheck source=check-annotations.sh
+. "$HERE/check-annotations.sh"
 DRY=0
 for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;; esac; done
 [ "${E2E_DRY_RUN:-0}" = "1" ] && DRY=1
@@ -114,14 +116,10 @@ wait_check() { local repo="$1" sha="$2" name="$3" t0=$SECONDS line
     sleep 10
   done
 }
-# A job's log is often served a few seconds AFTER the job reports completed — one fetch can come back empty, and
-# an assertion over an empty log fails for the wrong reason. Poll until it is there.
-job_log() { if [ "$DRY" = 1 ]; then echo "(dry log)"; return 0; fi; poll gh api "repos/$1/actions/jobs/$2/logs"; }
-# expect_log NAME PATTERN REPO JOB — on a miss, print the gov lines of that job so the failure explains itself.
-expect_log() { local log; log="$(job_log "$3" "$4")"
-  if printf '%s' "$log" | grep -q "$2"; then expect "$1" true; return; fi
-  printf '%s\n' "$log" | grep -E "GOV-FRM|  - |refused|passed|failed" | sed 's/^[^ ]* //' | head -20 >&2 || true
-  expect "$1" false; }
+# What a check FOUND is read from its check run's annotations (expect_annotation, check-annotations.sh) — never from
+# the job's log, whose download came back empty in two live runs. What a check DID is read from the repository.
+# A file at a ref, raw (dry: DEFAULT).
+file_at() { xo "$4" gh api "repos/$1/contents/$2?ref=$3" -H "Accept: application/vnd.github.raw"; }
 # Poll `cmd…` until it prints something non-empty; prints it (empty on timeout).
 poll() { local t0=$SECONDS out
   if [ "$DRY" = 1 ]; then printf '  + poll: %s\n' "$*" >&3; echo "dry"; return 0; fi
@@ -312,16 +310,27 @@ PR_C="$(open_pr e2e/policy "policy: a bug fix comes with a test" "$G" "$R_GOV")"
 SHA_C="$(head_of "$R_GOV" "$PR_C")"
 res="$(wait_check "$R_GOV" "$SHA_C" "GOV-FRM-467 · pull_request")"
 expect "(c) GOV-FRM-467 failed on the prose change (got: ${res%% *})" test "${res%% *}" = failure
-expect_log "(c) GOV-FRM-467 names the section unreviewed" "was added or changed" "$R_GOV" "${res#* }"
+expect_annotation "(c) GOV-FRM-467 names the section unreviewed" "was added or changed" "$R_GOV" "${res#* }"
+expect_annotation "(c) the unreviewed finding sits on policies/org-policy.md" "^failure policies/org-policy\.md:[0-9]+ .*§2\.2 .*was added or changed" "$R_GOV" "${res#* }"
 res="$(wait_check "$R_GOV" "$SHA_C" "GOV-FRM-468 · pull_request")"
-LOG468="$(job_log "$R_GOV" "${res#* }")"
 BOT_PUSHED=1
-if [ "$REAL_MODEL" = "1" ] && [ "$DRY" != 1 ] && ! grep -q "proposed and committed" <<<"$LOG468"; then
-  expect "(c) GOV-FRM-468 ran propose with the real model (questions asked)" grep -q "question(s) are open" <<<"$LOG468"
+if [ "$REAL_MODEL" = "1" ] && [ "$DRY" != 1 ] && [ "${res%% *}" = failure ]; then
+  # The real model may ask instead of answering: 468 then fails, and says why on its check run.
+  expect_annotation "(c) GOV-FRM-468 ran propose with the real model (questions asked)" "question\(s\) are open" "$R_GOV" "${res#* }"
   BOT_PUSHED=0
 else
   expect "(c) GOV-FRM-468 passed (got: ${res%% *})" test "${res%% *}" = success
-  expect "(c) GOV-FRM-468 ran propose and committed its rows" grep -q "proposed and committed" <<<"$LOG468"
+  # WHAT IT DID, from the repository: the bot's commit on the PR, its rows, and the changelog's "Sections reviewed".
+  SHA_D="$(poll bash -c "s=\$(gh pr view $PR_C --repo $R_GOV --json headRefOid --jq .headRefOid); [ \"\$s\" != $SHA_C ] && echo \$s")"
+  expect "(c) GOV-FRM-468 committed to PR #$PR_C — the head moved past $SHA_C (${SHA_D:-none})" test -n "$SHA_D"
+  CHANGELOG_D="$(file_at "$R_GOV" policies/CHANGELOG.md "$SHA_D" '**Sections reviewed**
+- policies/org-policy.md §2.2 (dry0sha) → GOV-RME-001 added')"
+  expect "(c) the bot's commit lists policies/org-policy.md §2.2 under Sections reviewed" \
+    grep -Eq '^- policies/org-policy\.md §2\.2 \([0-9a-f]{7,}\) → ' <<<"$CHANGELOG_D"
+  if [ "$REAL_MODEL" != "1" ]; then
+    RULES_D="$(file_at "$R_GOV" policies/rules.yaml "$SHA_D" 'expectation: A change to application behaviour, or a bug fix, comes with a test that would fail without it.')"
+    expect "(c) the bot's commit adds the stub model's row to policies/rules.yaml" grep -q "or a bug fix, comes with a test that would fail without it" <<<"$RULES_D"
+  fi
 fi
 
 # (b), now that its run has had the time (c) took.
@@ -333,8 +342,6 @@ expect "(b) gov-violation issue opened, assigned to the Policy Owner @$LOGIN (#$
 # ── (d) the bot's follow-up run waits for approval ───────────────────────────────────────────────────────────────
 if [ "$BOT_PUSHED" = 1 ]; then
   step "(d) bot's follow-up run — approve through the API, GOV-FRM-467 passes"
-  SHA_D="$(poll bash -c "s=\$(gh pr view $PR_C --repo $R_GOV --json headRefOid --jq .headRefOid); [ \"\$s\" != $SHA_C ] && echo \$s")"
-  expect "(d) the bot pushed a new head to PR #$PR_C (${SHA_D:-none})" test -n "$SHA_D"
   # Wait for the runs to EXIST, then pick those waiting for approval (status or conclusion action_required).
   ALL="$(poll gh api "repos/$R_GOV/actions/runs?head_sha=$SHA_D" --jq '.workflow_runs[] | "\(.id) \(.status) \(.conclusion)"')"
   [ "$DRY" = 1 ] && ALL="1 action_required action_required"
