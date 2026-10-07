@@ -145,10 +145,13 @@ PROJ_URL=$(gh project create --owner "$E2E_ORG" --title "$SLUG" --format json --
 PROJ_NUM="${PROJ_URL##*/}"
 ISSUE_URL=$(gh issue create --repo "$E2E_ORG/$CODE_REPO" --title "e2e: implement thing" --body "outcome under test" 2>/dev/null) && ok "issue: $ISSUE_URL" || die "issue create failed"
 gh project item-add "$PROJ_NUM" --owner "$E2E_ORG" --url "$ISSUE_URL" >/dev/null 2>&1 && ok "issue linked to board" || true
-for _ in $(seq 1 20); do
+# GitHub's project index is eventually consistent: a linked issue can take well over 40 s to appear on the board,
+# and `gov seed` then fails with "no linked Issues or PRs". Wait up to ~3 min — and never call ZERO a pass.
+for _ in $(seq 1 60); do
   N=$(gh api graphql -f query="query{organization(login:\"$E2E_ORG\"){projectV2(number:$PROJ_NUM){items(first:50){nodes{content{__typename}}}}}}" --jq '[.data.organization.projectV2.items.nodes[]|select(.content!=null)]|length' 2>/dev/null || echo 0)
-  [ "${N:-0}" -ge 1 ] && break; sleep 2
+  [ "${N:-0}" -ge 1 ] && break; sleep 3
 done
+[ "${N:-0}" -ge 1 ] || die "the board still shows no linked item after ~3 min — GitHub has not indexed the issue; gov seed would fail"
 ok "board shows $N linked item(s)"
 
 # ── 4. Work: seed → task → merge ────────────────────────────────────────────
