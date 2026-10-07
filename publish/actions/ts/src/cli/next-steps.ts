@@ -95,8 +95,30 @@ export function adopterNextSteps(f: NextStepsFacts, color = false): readonly str
   ];
 }
 
-export function joinerNextSteps(f: NextStepsFacts, color = false): readonly string[] {
+/** What the joiner's screen may assume about the repository it just cloned (F15). */
+export interface JoinerScreenFacts {
+  /** Does this repo-relative path exist in the cloned repository? Absent: every listed path is assumed to. */
+  readonly exists?: (rel: string) => boolean;
+  /** Can gov start work in it as it stands? false: the "start working" steps are left out — the caller explains. */
+  readonly canStartWork?: boolean;
+}
+
+/** The joiner's reading list: a path, then what it is for. */
+const JOINER_READING: readonly (readonly [string, readonly string[]])[] = [
+  ["framework/docs/specs/framework-specification.md", [
+    "how work is organized, what must be reviewed, and what your AI assistant",
+    "must do before it touches anything"]],
+  ["agent/session-protocol.md", ["what your agent reads at the start of every session"]],
+  ["policies/authorized-representatives.md", ["who to ask when something here does not fit"]],
+  ["framework/docs/user-guides/path-joiner.md", ["the day-to-day: starting work, finishing it, and what gov does for you"]],
+];
+
+export function joinerNextSteps(f: NextStepsFacts, color = false, facts: JoinerScreenFacts = {}): readonly string[] {
   const { home, slug } = p(f);
+  // ONLY PATHS THAT EXIST (F15). A repository on an older framework does not have half of these, and a reading list
+  // of files that are not there is the first thing a joiner would try, and fail at.
+  const reading = JOINER_READING.filter(([rel]) => facts.exists?.(rel) ?? true);
+  const canStart = facts.canStartWork ?? true;
   return [
     "",
     RULE,
@@ -108,24 +130,16 @@ export function joinerNextSteps(f: NextStepsFacts, color = false): readonly stri
     "Your organization has already decided how work is governed here. Those decisions",
     "are in your workspace, and they apply to you from now on — which means the useful",
     "next step is reading them, not changing them.",
-    "",
-    "  Read first:",
-    `    ${home}/framework/docs/specs/framework-specification.md`,
-    "      how work is organized, what must be reviewed, and what your AI assistant",
-    "      must do before it touches anything",
-    `    ${home}/agent/session-protocol.md`,
-    "      what your agent reads at the start of every session",
-    `    ${home}/policies/authorized-representatives.md`,
-    "      who to ask when something here does not fit",
-    `    ${home}/framework/docs/user-guides/path-joiner.md`,
-    "      the day-to-day: starting work, finishing it, and what gov does for you",
-    "",
-    "  Then start working:",
-    "    1. Run:  gov",
-    "    2. Choose  1. Work",
-    "    3. Pick a project you are assigned to",
-    "       gov clones it, puts you on the project branch, and opens your agent with",
-    "       the rules already loaded.",
+    ...(reading.length ? ["", "  Read first:", ...reading.flatMap(([rel, about]) => [`    ${home}/${rel}`, ...about.map((a) => `      ${a}`)])] : []),
+    ...(canStart ? [
+      "",
+      "  Then start working:",
+      "    1. Run:  gov",
+      "    2. Choose  1. Work",
+      "    3. Pick a project you are assigned to",
+      "       gov clones it, puts you on the project branch, and opens your agent with",
+      "       the rules already loaded.",
+    ] : []),
     "",
     `Your workspace: ${home}`,
     // "Cloned", never "created": the repository already existed, and telling a joiner they created it is the one

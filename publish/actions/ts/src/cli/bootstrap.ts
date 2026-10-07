@@ -39,6 +39,7 @@ import { approvalSummary } from "./approve-agents-step.js";
 import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused, type SetupPreAnswers } from "../setup/interview.js";
 import { askJoinInterview, cloneTargetFor, JOIN_HEADER, JoinRefused } from "../setup/join-interview.js";
 import type { OrgConfigValues } from "../setup/setup.js";
+import { olderFrameworkLines, type FrameworkCurrency, type PolicyOwnerFacts } from "../maintain/framework-currency.js";
 
 /** What the bootstrap must do next. Pure data — the caller performs it. */
 export type BootstrapStep =
@@ -400,8 +401,20 @@ export interface FirstRunIo {
    * passed so the flow does not re-ask a question the interview already answered.
    */
   reviewNow?: (role: AdoptionRole, agent?: string) => Promise<number | null>;
-  /** What to do now, for a joiner. */
-  joinerNextSteps?: () => readonly string[];
+  /**
+   * What to do now, for a joiner. `currency` is what gov found comparing the cloned repository to itself (F15): with
+   * it the screen lists only the paths that exist, and leaves out "start working" when work cannot start.
+   */
+  joinerNextSteps?: (currency?: FrameworkCurrency) => readonly string[];
+  /**
+   * Compare the governance repository just placed at `home` to this gov — layout and version (F15). Absent: gov
+   * assumes it is current, which is how the join behaved before.
+   */
+  frameworkCurrency?: (home: string) => FrameworkCurrency;
+  /** Who the repository's Policy Owner is, and whether that is the signed-in person. */
+  policyOwner?: (home: string) => PolicyOwnerFacts;
+  /** Open the upgrade pull request for the repository at `home` — `gov upgrade --pr` there. Offered to its Policy Owner only. */
+  openUpgradePr?: (home: string) => Promise<number> | number;
   /** register the home and make it active. */
   register(org: string, home: string): { readonly ok: boolean; readonly message?: string };
   /** select an already-registered org. */
@@ -614,6 +627,24 @@ async function offerTheReview(io: FirstRunIo, role: AdoptionRole, agent?: string
 }
 
 /**
+ * THE JOIN ENDS HERE WHEN THE REPOSITORY IS OLDER THAN gov (F15). Starting work would fail at seed, so it is not
+ * offered. Its Policy Owner is offered the one thing that unblocks everyone — the upgrade pull request — and anyone
+ * else has already been told who that is. Never an instruction to change the organization's repository directly:
+ * the upgrade lands by a pull request like every other change (GOV-FRM-040).
+ */
+async function offerTheUpgrade(io: FirstRunIo, home: string, owner: PolicyOwnerFacts): Promise<number> {
+  if (!owner.isYou || !io.openUpgradePr) return 0;
+  io.print("");
+  const yes = (await io.prompt(`  ${paint("Open the upgrade pull request now (gov upgrade --pr)?", "bold", io.color ?? false)} [Y/n]: `, "Y")).trim().toLowerCase();
+  if (yes.startsWith("n")) {
+    io.print("");
+    io.print(`  Nothing opened. When you are ready:  cd ${home} && gov upgrade --pr`);
+    return 0;
+  }
+  return await io.openUpgradePr(home);
+}
+
+/**
  * The pivot: an ADOPTER answer for an organization that already has a governance repo (#197).
  *
  * Everything needed to join is already known — gov found the repository itself — so this asks for
@@ -756,8 +787,17 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
     // the role question — someone who cloned an unconfigured repo just founded an
     // organization, and was being sent to read policies nobody had written (#197).
     for (const line of io.finalStatus?.(founding ? "adopter" : "joiner") ?? []) io.print(line);
-    const after = founding ? io.adopterNextSteps : io.joinerNextSteps;
-    for (const line of after?.() ?? []) io.print(line);
+    // COMPARE BEFORE OFFERING (F15). A joiner's repository may be on an older framework than this gov; then half the
+    // reading list is not there and starting work fails at seed. Only a JOIN is compared — a founding run just
+    // seeded the repository from this gov's own content.
+    const currency = founding ? undefined : io.frameworkCurrency?.(home);
+    const after = founding ? io.adopterNextSteps?.() : io.joinerNextSteps?.(currency);
+    for (const line of after ?? []) io.print(line);
+    if (currency?.older) {
+      const owner = io.policyOwner?.(home) ?? { handle: null, isYou: false };
+      for (const line of olderFrameworkLines(currency, owner, `${identity.org}`)) io.print(line);
+      if (!currency.canStartWork) return await offerTheUpgrade(io, home, owner);
+    }
     // ONE CLOSING BLOCK, NOT FOUR (PRJ-121 #12). A walk ended a join with "Final status", "Install complete",
     // "Active org → …" and a "Thank you … final configuration" block — the last two repeating the two paths the
     // first two had just given. The checklist shows the org activated (9a); the next-steps block names the

@@ -107,6 +107,7 @@ import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../confi
 import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
 import { planAgentInstall } from "./agent-verb.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
+import { assessFrameworkCurrency, cannotStartWorkLines, policyOwnerFacts } from "../maintain/framework-currency.js";
 import { parseArgv, flagStr, flagBool } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 import { orgAdd, orgUse } from "../resolve/org.js";
@@ -1261,15 +1262,31 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       const c = loadOrgConfigText(text);
       return adopterNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
     },
-    joinerNextSteps: () => {
+    joinerNextSteps: (currency) => {
       const r = prjResolveGov(createNodeEnv());
       if (!r.ok) return [];
       const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
       if (!text) return [];
       const c = loadOrgConfigText(text);
-      return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
+      // F15: only the paths this repository has, and no "start working" when it cannot be started in.
+      return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor(), {
+        exists: (rel) => fsSync.existsSync(path.join(r.home, rel)),
+        ...(currency ? { canStartWork: currency.canStartWork } : {}),
+      });
     },
+    // F15: the cloned repository against this gov — its layout and its content VERSION.
+    frameworkCurrency: (home) => assessFrameworkCurrency(
+      (rel) => fsSync.existsSync(path.join(home, rel)),
+      fsSync.existsSync(path.join(home, "VERSION")) ? fsSync.readFileSync(path.join(home, "VERSION"), "utf8") : null,
+      readCliVersion(),
+    ),
+    policyOwner: (home) => {
+      const read = (rel: string): string | null => (fsSync.existsSync(path.join(home, rel)) ? fsSync.readFileSync(path.join(home, rel), "utf8") : null);
+      return policyOwnerFacts(read(GOVERNANCE_PATH), read("org-config.yaml"), tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null);
+    },
+    // The same `gov upgrade --pr` the Policy Owner would type, on the repository just cloned.
+    openUpgradePr: (home) => main(["upgrade", "--pr", "--gov-home", home], now),
     // The list is recorded inside `createWorkspace` (see #196 above), which is the only place
     // both after the content seed and before the commit. This says the environment CAN record
     // one, which is what decides whether Q12 is asked; it is not a second writer.
@@ -1548,6 +1565,14 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       return /^\s*preferred_agent:\s*(\S+)/m.exec(md ?? "")?.[1] ?? null;
     },
     applyRepoOverrides,
+    // F16: a governance repository on an older framework layout cannot seed a project — checked before one is offered.
+    seedBlocked: () => {
+      const home = resolved.home;
+      const c = assessFrameworkCurrency((rel) => fsSync.existsSync(path.join(home, rel)), null, readCliVersion());
+      if (c.canStartWork) return null;
+      const owner = policyOwnerFacts(fs.readFile(path.join(home, GOVERNANCE_PATH)), cfgText, me);
+      return cannotStartWorkLines(c.gaps, owner);
+    },
     // govHome is the default-branch clone — GOV-FRM-456 requires governance be read from there,
     // never from the project-branch worktree. See sessionStartPrompt.
     config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot, govHome: resolved.home, defaultBranch: config.defaultBranch || "main" },

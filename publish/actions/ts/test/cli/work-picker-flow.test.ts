@@ -329,3 +329,42 @@ describe("Work picker — the lists themselves", () => {
     expect(page.more).to.equal(true);
   });
 });
+
+/**
+ * F16 (svm-geneva re-walk, 2026-10-07). Work listed boards to START in a governance repository that could not seed
+ * one — the older framework layout — and the start failed at seed ("todo-template.md is missing… Run gov upgrade").
+ * The layout is checked before a start is offered; the screen says what to do instead.
+ */
+describe("Work picker — a governance repository that cannot seed offers nothing to start (F16)", () => {
+  const BLOCKED = ["  This governance repository is on an older framework than this gov, so no project can be started in it yet:",
+    "  Bring it forward first — its Policy Owner (@polly) runs:  gov upgrade --pr"];
+
+  it("no `s` list and no not-started rows; the reason and the remedy are on the screen", async () => {
+    const h = harness({ boards: manyBoards(3), anchors: { 100: ["rk"] }, seedBlocked: () => BLOCKED }, ["s", "0"]);
+    await runWorkFlow(h.deps);
+    expect(h.screen()).to.contain("gov upgrade --pr");
+    expect(h.screen()).to.not.contain("you could start");
+    expect(h.screen()).to.not.contain("PRJ-99");
+    expect(h.calls.access.filter((n) => n !== 100), "no write-access check for a board it will not offer").to.deep.equal([]);
+  });
+
+  it("nothing assigned and nothing startable: it says why, rather than 'create a board'", async () => {
+    const h = harness({ boards: manyBoards(3), anchors: {}, seedBlocked: () => BLOCKED }, ["0"]);
+    await runWorkFlow(h.deps);
+    expect(h.screen()).to.contain("older framework");
+    expect(h.ran, "nothing seeded").to.deep.equal([]);
+  });
+
+  it("a named project nobody has started is refused before seed runs, with --seed or without", async () => {
+    const h = harness({ boards: [{ number: 5, title: "New" }], anchors: {}, seedBlocked: () => BLOCKED }, []);
+    expect(await runWorkFlow(h.deps, { projectPattern: "PRJ-5", seedOk: true, interactive: false })).to.equal(1);
+    expect(h.ran, "seed never ran").to.deep.equal([]);
+    expect(h.screen()).to.contain("gov upgrade --pr");
+  });
+
+  it("a project already started still opens — only starting is blocked", async () => {
+    const h = harness({ boards: [{ number: 7, title: "Alpha" }], anchors: { 7: ["rk"] }, seedBlocked: () => BLOCKED }, ["1"]);
+    await runWorkFlow(h.deps, { localFirst: false });
+    expect(h.ran[0]).to.deep.equal(["join", "https://github.com/orgs/Acme/projects/7"]);
+  });
+});
