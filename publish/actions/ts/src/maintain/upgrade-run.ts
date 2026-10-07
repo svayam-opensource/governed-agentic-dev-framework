@@ -264,6 +264,10 @@ function refusedLines(plan: ReturnType<typeof planUpgrade>): string[] {
 function git(dir: string, args: string[]): string {
   return runProcess("git", ["-C", dir, ...args], { pgm: "gov-work:maintain:upgrade-run", fn: "git" }).trim();
 }
+function branchExists(dir: string, branch: string): boolean {
+  try { git(dir, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]); return true; }
+  catch { return false; /* rev-parse --verify exits non-zero for a ref that is not there: the ordinary case */ }
+}
 function contentVersion(dir: string): string {
   const p = path.join(dir, "VERSION");
   return fs.existsSync(p) ? fs.readFileSync(p, "utf8").trim() : "latest";
@@ -296,7 +300,13 @@ function upgradePrBody(version: string, appliedCount: number, plan: ReturnType<t
 export type CompileRules = (adopterDir: string) => readonly string[];
 
 /** Create a gov-upgrade branch with the full plan applied, push it, open a PR. */
-export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string; compileRules?: CompileRules; userHome?: string } = {}): UpgradeSyncResult {
+/** Open the pull request; returns its URL. Injected so a test never reaches gh. */
+export type OpenPr = (args: { cwd: string; base: string; head: string; title: string; body: string }) => string;
+
+const ghOpenPr: OpenPr = ({ cwd, base, head, title, body }) =>
+  runProcess("gh", ["pr", "create", "--base", base, "--head", head, "--title", title, "--body", body], { cwd, pgm: "gov-work:maintain:upgrade-run", fn: "pr-create" }).trim();
+
+export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string; compileRules?: CompileRules; userHome?: string; openPr?: OpenPr } = {}): UpgradeSyncResult {
   if (!fs.existsSync(path.join(contentDir, "MANIFEST.yaml"))) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
   try { git(adopterDir, ["rev-parse", "--git-dir"]); } catch { /* not a git repository: the message below is the account of it */ return { code: 1, lines: ["gov upgrade --pr: not a git repository (or no remote). Use --apply for an in-place migration instead."] }; }
   if (git(adopterDir, ["status", "--porcelain"])) return { code: 1, lines: ["gov upgrade --pr: working tree has uncommitted changes — commit or stash first."] };
@@ -304,6 +314,8 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const version = contentVersion(contentDir);
   const branch = opts.branch ?? `gov-upgrade-${version}`;
   const base = git(adopterDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  // A detached HEAD has no branch name to return to — its commit is the place to go back to.
+  const returnTo = base === "HEAD" ? git(adopterDir, ["rev-parse", "HEAD"]) : base;
 
   const manifest = parseManifest(fs.readFileSync(path.join(contentDir, "MANIFEST.yaml"), "utf8"));
   const entries = expandEntries(manifest, walk(contentDir));
@@ -315,7 +327,22 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   if (plan.actions.some((a) => a.kind === "refuse")) return { code: 1, lines: ["gov upgrade --pr: refused — nothing was written.", ...refusedLines(plan)] };
   // A refusal can only be found once the migration runs, if the workspace changed under the plan; the PR then stops.
 
-  try { git(adopterDir, ["checkout", "-b", branch]); } catch { /* the branch already exists — the runner logged the git failure; the message below says what to do */ return { code: 1, lines: [`gov upgrade --pr: branch '${branch}' already exists — delete it or pass --branch <name>.`] }; }
+  // A BRANCH LEFT BY AN EARLIER RUN (adoption walk #10): the usual cause is an upgrade PR that was closed or merged.
+  // Say that, and the exact command, rather than a bare "already exists" — and change nothing.
+  if (branchExists(adopterDir, branch)) {
+    return { code: 1, lines: [
+      `gov upgrade --pr: branch '${branch}' already exists in this clone — most likely left by an earlier \`gov upgrade --pr\`.`,
+      `  If that PR is closed or merged, delete the branch and run again:  git -C ${adopterDir} branch -D ${branch}`,
+      `  If that PR is still open, review and merge it instead — or upgrade on another branch: --branch <name>.`,
+    ] };
+  }
+  try { git(adopterDir, ["checkout", "-b", branch]); } catch (e) { return { code: 1, lines: [`gov upgrade --pr: could not create branch '${branch}': ${(e as Error).message.split("\n")[0]}`] }; }
+  // BACK TO WHERE IT WAS, whatever happens next (adoption walk #10). Left on the upgrade branch, a closed PR made
+  // gov unable to resolve its own repository from this clone. The commit lives on the branch; the clone goes home.
+  const goBack = (): string[] => {
+    try { git(adopterDir, ["checkout", "-q", returnTo]); return [`  switched this clone back to ${base === "HEAD" ? returnTo.slice(0, 12) : base} — the upgrade is on ${branch}`]; }
+    catch (e) { return [`  ⚠ could not switch this clone back to ${base}: ${(e as Error).message.split("\n")[0]} — run: git -C ${adopterDir} checkout ${returnTo}`]; }
+  };
   const res = applyUpgrade(plan, {
     readContent, readAdopter,
     writeAdopter: (rel, t) => { const p = path.join(adopterDir, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, t); },
@@ -343,16 +370,20 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   // put the new rules into force, and by `gov sync`.
   const compiledLines = [...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
 
-  git(adopterDir, ["add", "-A"]);
-  git(adopterDir, ["commit", "-m", `gov upgrade: sync framework content to ${version}`]);
-  try { git(adopterDir, ["push", "-u", "origin", branch]); } catch (e) { return { code: 1, lines: [`Applied on ${branch} but push failed: ${(e as Error).message.split("\n")[0]}`] }; }
+  try {
+    git(adopterDir, ["add", "-A"]);
+    git(adopterDir, ["commit", "-m", `gov upgrade: sync framework content to ${version}`]);
+  } catch (e) {
+    return { code: 1, lines: [`gov upgrade --pr: could not commit on ${branch}: ${(e as Error).message.split("\n")[0]}`, ...goBack()] };
+  }
+  try { git(adopterDir, ["push", "-u", "origin", branch]); } catch (e) { return { code: 1, lines: [`Applied on ${branch} but push failed: ${(e as Error).message.split("\n")[0]}`, ...goBack()] }; }
   let prUrl: string;
   try {
-    prUrl = runProcess("gh", ["pr", "create", "--base", base, "--head", branch, "--title", `gov upgrade → framework content ${version}`, "--body", upgradePrBody(version, res.applied.length, plan)], { cwd: adopterDir, pgm: "gov-work:maintain:upgrade-run", fn: "pr-create" }).trim();
+    prUrl = (opts.openPr ?? ghOpenPr)({ cwd: adopterDir, base, head: branch, title: `gov upgrade → framework content ${version}`, body: upgradePrBody(version, res.applied.length, plan) });
   } catch (e) {
-    return { code: 0, lines: [`Pushed ${branch} (open the PR manually — gh failed): ${(e as Error).message.split("\n")[0]}`, ...compiledLines] };
+    return { code: 0, lines: [`Pushed ${branch} (open the PR manually — gh failed): ${(e as Error).message.split("\n")[0]}`, ...compiledLines, ...goBack()] };
   }
-  return { code: 0, lines: [`Opened upgrade PR: ${prUrl}`, `  ${branch} → ${base} · ${res.applied.length} file(s) changed`, ...compiledLines, `  Review per-file; keep your customizations where the diff replaces them, then merge.`] };
+  return { code: 0, lines: [`Opened upgrade PR: ${prUrl}`, `  ${branch} → ${base} · ${res.applied.length} file(s) changed`, ...compiledLines, `  Review per-file; keep your customizations where the diff replaces them, then merge.`, ...goBack()] };
 }
 
 import * as os from "node:os";
