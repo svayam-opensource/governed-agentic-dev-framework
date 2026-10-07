@@ -8,9 +8,9 @@
 import { confirmPosture, parsePostureAnswer, postureRule, POSTURE_QUESTION } from "./posture-question.js";
 import * as path from "node:path";
 import type { Fs } from "../lifecycle/fs-io.js";
-import { deriveOrgConfig, renderOrgConfig, renderSetupGovernance, type OrgConfigValues, type SetupContext } from "./setup.js";
+import { deriveOrgConfig, renderOrgConfig, renderSetupGovernance, withSetupGovernance, type OrgConfigValues, type SetupContext } from "./setup.js";
 import { defaultWorkRoot } from "../config/org-config.js";
-import { parseAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
+import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { GOVERNANCE_PATH } from "../config/governance.js";
 import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, emailShape, branchChoice, parseBranchChoice, branchName, type Validator } from "./answers.js";
 
@@ -209,14 +209,25 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
   const configPath = path.join(io.cwd, "org-config.yaml");
   const governancePath = path.join(io.cwd, GOVERNANCE_PATH);
   // Read BEFORE either file is rewritten: an org-config that predates the split still holds the agents.
-  const keptAgents = existingAgents(io.fs.readFile(governancePath), io.fs.readFile(configPath));
+  const governanceText = io.fs.readFile(governancePath);
+  const keptAgents = existingAgents(governanceText, io.fs.readFile(configPath));
   io.fs.writeFile(configPath, renderOrgConfig(v));
   io.print(`Wrote ${configPath}`);
   // THE GOVERNANCE CHOICES, beside the policy they configure (org-config split, 2026-10-06). The agents are added
   // afterwards by whoever asked for them (the adopter path records Q11's answer just before the commit).
-  const fresh = renderSetupGovernance(v);
-  io.fs.writeFile(governancePath, keptAgents === null ? fresh : withAuthorizedAgents(fresh, keptAgents) ?? fresh);
-  io.print(`Wrote ${governancePath}`);
+  //
+  // GOV-FRM-445: an existing governance.yaml is the ORG'S. It is never re-rendered — that dropped the org's models
+  // block and every key gov does not read (adopter-e2e live tier, 2026-10-07). Setup edits only its own keys where its
+  // answer differs, and fills the agent list only when the file leaves it unset. Absent: seeded from the answers.
+  const withAgents = (text: string): string =>
+    keptAgents !== null && readAuthorizedAgents(text).kind === "unset" ? withAuthorizedAgents(text, keptAgents) ?? text : text;
+  const next = governanceText === null ? withAgents(renderSetupGovernance(v)) : withAgents(withSetupGovernance(governanceText, v));
+  if (next !== governanceText) {
+    io.fs.writeFile(governancePath, next);
+    io.print(`Wrote ${governancePath}`);
+  } else {
+    io.print(`Kept ${governancePath} — it already says what setup would write`);
+  }
   if (io.setOriginRemote && v.orgRepoUrl) {
     io.setOriginRemote(v.orgRepoUrl);
     io.print(`Set origin → ${v.orgRepoUrl}`);

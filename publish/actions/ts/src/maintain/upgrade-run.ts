@@ -147,6 +147,12 @@ const MIGRATIONS: Record<string, Migration> = {
     }
     const cfg = fs.existsSync(toPath) ? fs.readFileSync(toPath, "utf8") : null;
     if (cfg === null) return false;                         // no file to write into: leave everything alone
+    // GOV-FRM-445: governance.yaml that already names its agents is the org's answer — only an unset list is filled.
+    if (readAuthorizedAgents(cfg).kind !== "unset") {
+      fs.rmSync(fromPath, { force: true });
+      log("info", `${to} already names the org's agents — kept; the retired file removed`, "gov-work:maintain:upgrade-run", "migrate", { from });
+      return true;
+    }
     const next = withAuthorizedAgents(cfg, agents);
     if (next === null) { fs.rmSync(fromPath, { force: true }); return true; }   // already there
     fs.writeFileSync(toPath, next, "utf8");
@@ -244,7 +250,7 @@ import { run as runProcess } from "../run-process.js";
 import { expectedCodeowners } from "./roles-health.js";
 import { ROLE_LIST_PATH } from "../config/role-list.js";
 import { log } from "../log.js";
-import { parseApprovedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
+import { parseApprovedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { GOVERNANCE_PATH } from "../config/governance.js";
 import { recordWorkRoot } from "../config/work-root.js";
 import { readTopLevelScalar } from "../resolve/node-env.js";

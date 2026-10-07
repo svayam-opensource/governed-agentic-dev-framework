@@ -49,7 +49,7 @@ export interface OrgConfigValues {
   readonly accessTtlSec: string;
 }
 
-import { parseGovernance, renderGovernance } from "../config/governance.js";
+import { parseGovernance, renderGovernance, setGovernanceScalar } from "../config/governance.js";
 
 /** Parse a GitHub remote URL → owner/repo (ssh or https, optional .git). */
 export function parseOriginOwnerRepo(url: string): { owner: string; repo: string } | null {
@@ -219,6 +219,30 @@ export function renderSetupGovernance(v: OrgConfigValues): string {
     governancePosture: v.governancePosture, policyOwnerEmail: v.policyOwnerEmail, policyOwnerGithub: v.policyOwnerGithub,
     checkOwnerGithub: v.checkOwnerGithub, defaultAgent: "", knowledgePublication: "none",
   });
+}
+
+/**
+ * SETUP'S ANSWERS, WRITTEN INTO AN EXISTING governance.yaml BY TARGETED EDIT (GOV-FRM-445). The file is the org's:
+ * setup changes only the keys it owns — governance_posture, policy_owner.email/.github, check_owner.github — and only
+ * where its answer differs from what the file says. Every other byte (comments, the models block, keys gov does not
+ * read) is kept. An empty answer never blanks a value the file has. Pure.
+ */
+export function withSetupGovernance(existing: string, v: OrgConfigValues): string {
+  const g = parseGovernance(existing);
+  const bare = (h: string): string => h.replace(/^@+/, "").trim().toLowerCase();
+  let text = existing;
+  const owned: Array<[readonly string[], string, string, boolean]> = [
+    [["governance_posture"], v.governancePosture, g.posture.raw, false],
+    [["policy_owner", "email"], v.policyOwnerEmail, g.policyOwner.email, false],
+    [["policy_owner", "github"], v.policyOwnerGithub, g.policyOwner.github, true],
+    [["check_owner", "github"], v.checkOwnerGithub, g.checkOwner.github, true],
+  ];
+  for (const [at, want, have, isHandle] of owned) {
+    if (!want.trim()) continue;
+    if (isHandle ? bare(want) === bare(have) : want === have) continue;
+    text = setGovernanceScalar(text, at, want);
+  }
+  return text;
 }
 
 /**
