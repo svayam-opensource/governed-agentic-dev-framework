@@ -11,9 +11,9 @@ describe("context banner — when it prints", () => {
   it("prints for a person at a terminal", () => {
     expect(shouldShowBanner({}, true)).to.equal(true);
   });
-  it("never prints in GitHub Actions, even if the runner fakes a terminal", () => {
-    expect(shouldShowBanner({ GITHUB_ACTIONS: "true" }, true)).to.equal(false);
+  it("never prints in a GitHub Actions log (a step is not a terminal); prints in a terminal there (the pty journey)", () => {
     expect(shouldShowBanner({ GITHUB_ACTIONS: "true" }, false)).to.equal(false);
+    expect(shouldShowBanner({ GITHUB_ACTIONS: "true" }, true)).to.equal(true);
   });
   it("does not print when stdout is not a terminal (piped, redirected, another CI)", () => {
     expect(shouldShowBanner({}, false)).to.equal(false);

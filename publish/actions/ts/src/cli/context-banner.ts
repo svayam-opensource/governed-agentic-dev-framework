@@ -71,12 +71,13 @@ export function renderBanner(info: ContextInfo, targetEnv?: string): string[] {
  * WHETHER TO PRINT THE BANNER AT ALL (sandbox finding, PRJ-121, 2026-10-07). The banner is for a person at a
  * terminal deciding whether gov is about to act in the right place. In a GitHub Actions log nobody can answer
  * it, and it printed "context: NONE … no organization set up on this machine yet" in every run — noise that
- * reads like a failure. So: not when `GITHUB_ACTIONS=true`, and not when stdout is not a terminal (piped,
- * redirected, or any other runner). `GOV_NO_BANNER` still turns it off everywhere. PURE.
+ * reads like a failure. So: not when stdout is not a terminal (piped, redirected, or any CI step — an Actions step is
+ * never a TTY). NOT keyed on `GITHUB_ACTIONS` (corrected the same day): the interactive journey runs IN Actions
+ * inside a real pseudo-terminal, standing in for a person, and hiding the banner there hid the very warning it was
+ * testing (a dead active org). `GOV_NO_BANNER` still turns it off everywhere. PURE.
  */
 export function shouldShowBanner(env: Readonly<Record<string, string | undefined>>, stdoutIsTTY: boolean): boolean {
   if ("GOV_NO_BANNER" in env) return false;
-  if (env.GITHUB_ACTIONS === "true") return false;
   return stdoutIsTTY;
 }
 
