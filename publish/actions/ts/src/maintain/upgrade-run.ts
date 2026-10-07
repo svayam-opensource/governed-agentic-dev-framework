@@ -194,7 +194,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
     const p = path.join(adopterDir, rel);
     return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null;
   };
-  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire);
+  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned);
 
   if (!opts.apply) {
     return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), "", "Re-run with --apply to write these changes."] };
@@ -309,8 +309,8 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const entries = expandEntries(manifest, walk(contentDir));
   const readContent = (rel: string): string | null => { const p = path.join(contentDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
   const readAdopter = (rel: string): string | null => { const p = path.join(adopterDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
-  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire);
-  if (plan.actions.every((a) => a.kind === "same")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
+  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned);
+  if (plan.actions.every((a) => a.kind === "same" || a.kind === "keep")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
   // Before the branch exists: a PR that silently lacks the org-config merge would read as a complete upgrade.
   if (plan.actions.some((a) => a.kind === "refuse")) return { code: 1, lines: ["gov upgrade --pr: refused — nothing was written.", ...refusedLines(plan)] };
   // A refusal can only be found once the migration runs, if the workspace changed under the plan; the PR then stops.

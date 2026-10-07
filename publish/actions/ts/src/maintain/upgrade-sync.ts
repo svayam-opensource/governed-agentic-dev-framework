@@ -39,6 +39,34 @@
  */
 
 export type EntryMode = "scaffold-auto" | "seed-once" | "scaffold-prompt";
+/** The modes this engine implements. A manifest row in any other mode (an older content's `overlay-schema`) is KEPT, never applied. */
+export const KNOWN_MODES: readonly string[] = ["scaffold-auto", "seed-once", "scaffold-prompt"];
+
+/**
+ * THE ORGANIZATION'S OWN FILES — decided HERE, never by the content's MANIFEST (GOV-FRM-445, 2026-10-07).
+ *
+ * A gov built from one branch ran against content fetched from another, whose MANIFEST still marked
+ * org-config.yaml `overlay-schema` — a mode this engine had dropped, so it fell through to "conflict", and `--pr`
+ * applies conflicts. The org's filled org-config.yaml became the blank template (`org_name: "Geneva ERS"` → `""`).
+ * A manifest is DATA from whichever content was fetched; the one promise an upgrade makes — it never replaces what
+ * the organization wrote — cannot rest on that data being the right version.
+ *
+ * So org-config.yaml and everything under policies/ (plus anything the manifest's own `owned:` list names) are
+ * SEED-ONCE whatever mode the manifest gives them: created when absent, otherwise kept, and the plan says so.
+ * org-config.yaml is never retired either. Values still move by the named migrations (`org-config-split`), which
+ * carry the org's own values and refuse rather than lose one — those are not template bytes.
+ */
+export const ORG_OWNED_FILES: readonly string[] = ["org-config.yaml"];
+export const ORG_OWNED_DIRS: readonly string[] = ["policies/"];
+
+/** Is `dst` the organization's? `owned` is the manifest's own `owned:` list (exact paths, `dir/` prefixes, `*` globs). */
+export function isOrgOwned(dst: string, owned: readonly string[] = []): boolean {
+  if (ORG_OWNED_FILES.includes(dst) || ORG_OWNED_DIRS.some((d) => dst.startsWith(d))) return true;
+  return owned.some((o) => {
+    const body = o.split("*").map((part) => part.replace(/[.+?^$(){}|[\]\\]/g, "\\$&")).join("[^/]*");
+    return new RegExp(o.endsWith("/") ? `^${body}` : `^${body}$`).test(dst);
+  });
+}
 export interface ManifestEntry { readonly src: string; readonly dst: string; readonly mode: EntryMode; }
 export interface Manifest {
   readonly files: readonly ManifestEntry[];
@@ -209,7 +237,8 @@ export function expandEntries(manifest: Manifest, contentFiles: readonly string[
   return [...out.values()].map((v) => v.entry);
 }
 
-export type ActionKind = "create" | "same" | "update" | "conflict" | "refuse" | "retire" | "move" | "migrate";
+/** `keep`: the org's file, left as it is although the manifest asked otherwise — shown, never applied (GOV-FRM-445). */
+export type ActionKind = "create" | "same" | "keep" | "update" | "conflict" | "refuse" | "retire" | "move" | "migrate";
 export interface PlanAction {
   readonly kind: ActionKind;
   readonly dst: string;
@@ -243,7 +272,7 @@ export interface PlanReaders {
 export const moveId = (m: { from: string; to: string }): string => `${m.from} → ${m.to}`;
 
 /** Compute the migration plan (no writes). */
-export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, moves: readonly ManifestMove[] = [], retire: readonly string[] = []): UpgradePlan {
+export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, moves: readonly ManifestMove[] = [], retire: readonly string[] = [], owned: readonly string[] = []): UpgradePlan {
   const actions: PlanAction[] = [];
   const shippedDst = new Set<string>();
 
@@ -255,6 +284,16 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
 
     if (current === null) { actions.push({ kind: "create", dst: e.dst, src: e.src }); continue; }
     if (current === content) { actions.push({ kind: "same", dst: e.dst, src: e.src }); continue; }
+    // GOV-FRM-445: the org's file is seed-once whatever the manifest says — and a manifest that says otherwise is
+    // named in the plan, because it means the content is not the build this gov expects.
+    if (e.mode !== "seed-once" && isOrgOwned(e.dst, owned)) {
+      actions.push({ kind: "keep", dst: e.dst, src: e.src, detail: `org-owned — the content's manifest marks it ${e.mode}; gov never overwrites it` });
+      continue;
+    }
+    if (!KNOWN_MODES.includes(e.mode)) {
+      actions.push({ kind: "keep", dst: e.dst, src: e.src, detail: `this gov does not know mode ${e.mode} — left as it is; use the gov this content was built for` });
+      continue;
+    }
     if (e.mode === "seed-once") { actions.push({ kind: "same", dst: e.dst, src: e.src, detail: "yours since the first install" }); continue; }
     if (e.mode === "scaffold-auto") { actions.push({ kind: "update", dst: e.dst, src: e.src, detail: "framework-owned overwrite" }); continue; }
     // scaffold-prompt: NO MANIFEST ENTRY USES THIS ANY MORE (2026-09-15).
@@ -320,6 +359,10 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
   // ships — or a listed directory it ships into — is left alone, so a bad entry can never delete a live file.
   for (const rp of retire) {
     if (seenRetire.has(rp)) continue;
+    if (ORG_OWNED_FILES.includes(rp) || owned.includes(rp)) {
+      if (present.has(rp)) actions.push({ kind: "keep", dst: rp, detail: "org-owned — the content's manifest retires it; gov never removes it" });
+      continue;
+    }
     if (rp.endsWith("/") ? shipsUnder(rp) : shippedDst.has(rp)) continue;
     const hit = rp.endsWith("/") ? [...present].some((p) => p.startsWith(rp)) : present.has(rp);
     if (hit && !movedAway.has(rp)) {
@@ -341,7 +384,7 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
 }
 
 export function formatPlan(plan: UpgradePlan): string[] {
-  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", update: "~ update ", conflict: "! review ", refuse: "✗ refuse ", retire: "- retire ", move: "→ move   ", migrate: "→ migrate" };
+  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", keep: "= keep   ", update: "~ update ", conflict: "! review ", refuse: "✗ refuse ", retire: "- retire ", move: "→ move   ", migrate: "→ migrate" };
   const shown = plan.actions.filter((a) => a.kind !== "same");
   const lines = shown.map((a) => `  ${mark[a.kind]} ${a.from ? `${a.from} → ${a.dst}` : a.dst}${a.detail ? `   (${a.detail})` : ""}`);
   const counts = plan.actions.reduce<Record<string, number>>((m, a) => ((m[a.kind] = (m[a.kind] ?? 0) + 1), m), {});
@@ -378,7 +421,12 @@ export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { include
   const filled = new Set<string>();
   const ordered = [...plan.actions.filter((a) => a.kind === "move"), ...plan.actions.filter((a) => a.kind !== "move")];
   for (const a of ordered) {
-    if (a.kind === "same") continue;
+    if (a.kind === "same" || a.kind === "keep") continue;
+    // GOV-FRM-445, the second line of defence: whatever a plan says, an org-owned file that exists is never
+    // written with content bytes. (A plan built elsewhere, or a file that appeared since planning.)
+    if ((a.kind === "create" || a.kind === "update" || a.kind === "conflict") && isOrgOwned(a.dst) && deps.readAdopter(a.dst) !== null) {
+      skipped.push(a.dst); continue;
+    }
     if (a.kind === "create" && filled.has(a.dst)) continue;
     // NEVER written, whatever the options: includeConflicts means "the PR diff is the review", and a value
     // silently gone from org-config.yaml is exactly what a reviewer skims past.
