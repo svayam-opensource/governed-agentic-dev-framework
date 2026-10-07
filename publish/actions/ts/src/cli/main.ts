@@ -866,6 +866,9 @@ export async function runSetupCommand(
         interviewed: pre !== undefined,
         prompt: ask,
         print: (l) => process.stdout.write(`${l}\n`),
+        // ADOPTION WALK #4 + #14: on a repo setup cannot write (the old layout), the same `gov upgrade --apply` a
+        // person would type, on THIS repository — run before the first question, never after an answer.
+        upgradeFirst: () => main(["upgrade", "--apply", "--gov-home", cwd], now),
         setOriginRemote: (url) => {
           try {
             runProcess("git", ["-C", cwd, "remote", "set-url", "origin", url], { pgm: "gov-work:cli:main" });

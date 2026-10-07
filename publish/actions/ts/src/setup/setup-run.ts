@@ -8,7 +8,7 @@
 import { confirmPosture, parsePostureAnswer, postureRule, POSTURE_QUESTION } from "./posture-question.js";
 import * as path from "node:path";
 import type { Fs } from "../lifecycle/fs-io.js";
-import { deriveOrgConfig, renderOrgConfig, renderSetupGovernance, withSetupGovernance, type OrgConfigValues, type SetupContext } from "./setup.js";
+import { deriveOrgConfig, readExistingOrgConfig, renderOrgConfig, renderSetupGovernance, setupNeedsUpgrade, withSetupGovernance, type OrgConfigValues, type SetupContext } from "./setup.js";
 import { defaultWorkRoot } from "../config/org-config.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { GOVERNANCE_PATH } from "../config/governance.js";
@@ -34,6 +34,12 @@ export interface SetupIo {
   /** Ask a question with a default; return the answer (default if blank). Injected. */
   readonly prompt: (question: string, def: string) => Promise<string>;
   readonly print: (line: string) => void;
+  /**
+   * Bring the workspace to the current layout — `gov upgrade --apply` on `cwd` — and return its exit code. Run BEFORE
+   * the first question when the repo is on a layout setup cannot write (adoption walk #4 + #14; `setupNeedsUpgrade`).
+   * Absent: setup cannot upgrade here, and refuses with the command instead.
+   */
+  readonly upgradeFirst?: () => Promise<number> | number;
   /** Configure the origin remote (git remote set-url/add). Optional. */
   readonly setOriginRemote?: (url: string) => void;
 }
@@ -97,7 +103,51 @@ export async function runSetup(io: SetupIo, interactive: boolean): Promise<numbe
   }
 }
 
-async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number> {
+/**
+ * THE UPGRADE COMES FIRST ON A REPO SETUP CANNOT WRITE (adoption walk #4 + #14, 2026-10-07 — data loss).
+ *
+ * Why upgrade-then-setup, and not "write the answers in the old shape and let the upgrade carry them": the upgrade's
+ * split never replaces a value the org wrote and REFUSES on any disagreement (GOV-FRM-445), so an answer that differs
+ * from what the old files say would be blocked, not carried — and setup's identity-only org-config.yaml deletes the
+ * keys the split needs before it can run. Upgrading first puts every old value where the current layout keeps it;
+ * setup then asks against that layout and edits only its own keys. No answer passes through a translation.
+ *
+ * Returns the defaults to offer (re-read after the upgrade moved them), or an exit code to stop with — before any
+ * question, with nothing written.
+ */
+async function upgradeIfNeeded(io: SetupIo, interactive: boolean): Promise<{ readonly existing?: Partial<OrgConfigValues> } | number> {
+  const configPath = path.join(io.cwd, "org-config.yaml");
+  const governancePath = path.join(io.cwd, GOVERNANCE_PATH);
+  const why = setupNeedsUpgrade((rel) => io.fs.pathExists(path.join(io.cwd, rel)), io.fs.readFile(configPath), io.fs.readFile(governancePath));
+  if (why === null) return io.existing === undefined ? {} : { existing: io.existing };
+  io.print(`setup: ${why}.`);
+  const yes = interactive && io.upgradeFirst !== undefined
+    && !/^n(o)?$/i.test((await io.prompt("Upgrade it now (gov upgrade --apply), then continue with setup? [Y/n]", "y")).trim());
+  if (!yes || !io.upgradeFirst) {
+    io.print("  Nothing was written. Bring it to the current layout first, then re-run setup:");
+    io.print("    gov upgrade --apply");
+    io.print("    gov setup");
+    return 1;
+  }
+  const rc = await io.upgradeFirst();
+  if (rc !== 0) {
+    io.print("setup: the upgrade did not complete — setup stops here and writes nothing. Fix what it reported, then re-run `gov setup`.");
+    return rc || 1;
+  }
+  const after = setupNeedsUpgrade((rel) => io.fs.pathExists(path.join(io.cwd, rel)), io.fs.readFile(configPath), io.fs.readFile(governancePath));
+  if (after !== null) {
+    io.print(`setup: after the upgrade, ${after} — setup stops here and writes nothing. Reconcile it, then re-run \`gov setup\`.`);
+    return 1;
+  }
+  const cfgText = io.fs.readFile(configPath);
+  return { existing: { ...io.existing, ...(cfgText ? readExistingOrgConfig(cfgText, io.fs.readFile(governancePath)) : {}) } };
+}
+
+async function runSetupInner(io0: SetupIo, interactive: boolean): Promise<number> {
+  // Before ANY question — nothing is asked about a layout setup cannot write.
+  const ready = await upgradeIfNeeded(io0, interactive);
+  if (typeof ready === "number") return ready;
+  const io: SetupIo = ready.existing === undefined ? io0 : { ...io0, existing: ready.existing };
   const ctx: SetupContext = { originUrl: io.originUrl, ghUser: io.ghUser, gitEmail: io.gitEmail, today: io.today, existing: io.existing };
   const answers: Partial<Record<keyof OrgConfigValues, string>> = {};
 
