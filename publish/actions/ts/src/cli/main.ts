@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 // `spawn` only, and only to hand the TERMINAL to an agent (detached, or with inherited stdin): everything else
 // goes through run-process.ts so it is logged. The two launches log themselves at the call site.
 import { spawn } from "node:child_process";
-import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive } from "../run-process.js";
+import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive, runResult } from "../run-process.js";
 import { runSetup } from "../setup/setup-run.js";
 import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog, cacheLogin, cachedLogin } from "../log.js";
@@ -107,6 +107,7 @@ import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../confi
 import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
 import { planAgentInstall } from "./agent-verb.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
+import { finishInPlace, landSetupChanges } from "../setup/in-place-land.js";
 import { assessFrameworkCurrency, cannotStartWorkLines, policyOwnerFacts } from "../maintain/framework-currency.js";
 import { parseArgv, flagStr, flagBool } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
@@ -869,6 +870,9 @@ export async function runSetupCommand(
     return 1;
   }
   const originUrl = tryRun("git", ["-C", cwd, "remote", "get-url", "origin"]) ?? "";
+  // F17: what was already changed before setup touched anything — so setup lands only what IT changed.
+  // Untrimmed: porcelain's first column is significant (" M file").
+  const statusBefore = createdHome === null ? runResult("git", ["-C", cwd, "status", "--porcelain", "-uall"], { pgm: "gov-work:cli:main", fn: "setup-land" }).stdout : "";
   const existingText = fs.readFile(path.join(cwd, "org-config.yaml"));
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def: string): Promise<string> =>
@@ -1135,6 +1139,25 @@ export async function runSetupCommand(
           projectsPath: defaultWorkRoot(written.orgSlug ?? "") || path.join(os.homedir(), ".gov"),
         })) process.stdout.write(`${line}\n`);
       }
+    }
+    // CONFIGURE-IN-PLACE ENDS WITH ITS CHANGES LANDED THE GOVERNED WAY (F17 + F20). CODEOWNERS follows the owners setup
+    // just wrote, in the same change; then a branch and a pull request — never the default branch with uncommitted
+    // governance changes and no word about them.
+    if (createdHome === null && rc === 0) {
+      for (const line of finishInPlace(cwd)) process.stdout.write(`${line}\n`);
+      const written = loadOrgConfigText(fs.readFile(path.join(cwd, "org-config.yaml")) ?? "");
+      const landed = await landSetupChanges({
+        git: (args) => { const r = runResult("git", ["-C", cwd, ...args], { pgm: "gov-work:cli:main", fn: "setup-land" }); return r.status === 0 ? r.stdout : null; },
+        gh: (args) => { const r = runResult("gh", [...args], { pgm: "gov-work:cli:main", fn: "setup-land", cwd }); return r.status === 0 ? r.stdout : null; },
+        print: (l) => process.stdout.write(`${l}\n`),
+        ...(!nonInteractiveFlag && process.stdin.isTTY ? { prompt: ask } : {}),
+      }, {
+        defaultBranch: written.defaultBranch || "main",
+        today: now.slice(0, 10),
+        before: statusBefore,
+        setupPaths: ["org-config.yaml", GOVERNANCE_PATH, "CODEOWNERS", ROLE_LIST_PATH],
+      });
+      if (landed !== 0) return landed;
     }
     if (rc === 0) process.stdout.write("\nNext: run `gov app setup` so checks in your code repos can read the governance rules.\n");
     return rc;
