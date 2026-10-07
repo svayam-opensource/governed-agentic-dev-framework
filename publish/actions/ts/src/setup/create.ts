@@ -28,6 +28,7 @@
 import { parseGovernance, governanceTokens } from "../config/governance.js";
 import { defaultWorkRoot } from "../config/org-config.js";
 import { isReservedSlug } from "./answers.js";
+import { GH_SCOPES_ARGS, GH_SIGNED_IN_ARGS, parseGrantedScopes } from "../maintain/fix-env.js";
 
 /** The GitHub coordinates of the repo to create. */
 export interface CreateTarget {
@@ -178,7 +179,8 @@ export function preflight(
   // Before GitHub is asked anything: no answer from it could make this slug usable.
   if (isReservedSlug(slug)) return { ok: false, failure: { why: "reserved-slug", slug } };
 
-  if (io.gh(["auth", "status"]) === null) return { ok: false, failure: { why: "not-authenticated" } };
+  // `gh api user`, not `gh auth status` (adoption walk #2): the latter fails when ANY stored account is stale.
+  if (io.gh(GH_SIGNED_IN_ARGS) === null) return { ok: false, failure: { why: "not-authenticated" } };
 
   // Ask GitHub whether this token may create here, rather than inferring it from scopes — an org can
   // forbid member repo creation with every scope present, and the scope list is not the authority.
@@ -199,8 +201,9 @@ export function preflight(
     warnings.push({ what: "governance-scan-truncated",
       detail: `${target.org} has more than 100 repositories — only the first 100 were checked for an existing governance repo. Confirm by hand that none exists before continuing.` });
   }
-  const scopes = io.gh(["auth", "status"]) ?? "";
-  if (!/\bproject\b/.test(scopes)) {
+  // Null = the token states no scopes (fine-grained or app token): cannot tell, so no warning rather than a false one.
+  const scopes = parseGrantedScopes(io.gh(GH_SCOPES_ARGS) ?? "");
+  if (scopes !== null && !scopes.includes("project")) {
     warnings.push({ what: "no-project-scope",
       detail: "the 'project' scope is missing — GitHub Projects are the source of truth for project state, so `gov seed` will need it. Add it with: gh auth refresh -s project" });
   }

@@ -12,6 +12,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect } from "chai";
+import { parseGrantedScopes } from "../../src/maintain/fix-env.js";
 import { cleanSlateEntries, strayRootEntries, adopterRootEntries, parseTarget, derivedPaths, suggestRepoName, preflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, substituteTokens, leftoverTokens, type CreateIo, expectedDirs, tokenValuesFromOrgConfig, PER_PROJECT_TOKENS } from "../../src/setup/create.js";
 
 /** A machine where everything is fine: signed in, org reachable, no governance repo, nothing at the path. */
@@ -112,14 +113,15 @@ describe("preflight — nothing is created until all of this holds", () => {
   // An org can forbid member repo creation with every scope present, so the scope list is not the
   // authority — ask GitHub about the org itself.
   it("refuses when the org is unreachable, naming the org", () => {
-    const r = preflight(okIo({ gh: (a) => (a[0] === "auth" ? "scopes: repo" : null) }), "acme/acme-gov", "ACME");
+    // Signed in (`gh api user` answers), but the org itself is not reachable.
+    const r = preflight(okIo({ gh: (a) => (a[0] === "api" && a[1] === "user" ? "rk" : null) }), "acme/acme-gov", "ACME");
     expect(r.ok === false && r.failure.why).to.equal("cannot-create");
     if (!r.ok && r.failure.why === "cannot-create") expect(r.failure.org).to.equal("acme");
   });
 
   it("warns — but does NOT fail — when the project scope is missing", () => {
     const r = preflight(okIo({ gh: (a) => {
-      if (a[0] === "auth") return "Token scopes: 'read:org', 'repo'";
+      if (a[0] === "api" && a[1] === "-i") return "HTTP/2.0 200 OK\nX-Oauth-Scopes: read:org, repo\n\n{}";
       if (a[0] === "api" && a[1] === "graphql") return '{"repos":[],"more":false}';
       if (a[0] === "api") return "acme";
       return "";
@@ -412,5 +414,64 @@ describe("adoption — only what the manifest produces reaches an adopter", () =
     for (const known of ["publish", "site", "install.ps1", "install.sh", "CHANGELOG.md", "packages", "ci", "docs"]) {
       if (root.includes(known)) expect(adopterRootEntries(manifestText).has(known), `${known} must not be an adopter root entry`).to.equal(false);
     }
+  });
+});
+
+/**
+ * ADOPTION WALK #2 (2026-10-07): `gh auth status` exits non-zero when ANY stored gh account is stale — even while the
+ * active token works. gov asked it "am I signed in?" and refused a machine that could act on GitHub perfectly well.
+ * The question gov needs answered is "can gov act on GitHub", which `gh api user` answers; the scopes come from the
+ * same endpoint's `X-OAuth-Scopes` header.
+ */
+describe("gh sign-in — can gov act on GitHub (walk #2)", () => {
+  const HEADERS = "HTTP/2.0 200 OK\nContent-Type: application/json\nX-Oauth-Scopes: gist, read:org, repo, workflow\n\n{\"login\":\"rk\"}";
+  const staleOther = (over: (a: readonly string[]) => string | null | undefined = () => undefined): CreateIo => okIo({ gh: (a) => {
+    const o = over(a); if (o !== undefined) return o;
+    if (a[0] === "auth") return null;                                          // a stale stored account: exit 1
+    if (a[0] === "api" && a[1] === "-i" && a[2] === "user") return HEADERS;
+    if (a[0] === "api" && a[1] === "user") return "rk";
+    if (a[0] === "api" && a[1] === "graphql") return '{"repos":[],"more":false}';
+    if (a[0] === "api") return "acme";
+    return null;
+  } });
+
+  it("a stale stored account does not stop setup when the active token works", () => {
+    const r = preflight(staleOther(), "acme/acme-gov", "ACME");
+    expect(r.ok, "gh api user answered — gov can act on GitHub").to.equal(true);
+  });
+
+  it("the scope warning reads X-OAuth-Scopes from `gh api -i user`", () => {
+    const r = preflight(staleOther(), "acme/acme-gov", "ACME");
+    expect(r.ok && r.warnings.map((w) => w.what)).to.deep.equal(["no-project-scope"]);
+  });
+
+  it("no scope header (a fine-grained or app token) is 'cannot tell', never a false alarm", () => {
+    const r = preflight(staleOther((a) => (a[1] === "-i" ? "HTTP/2.0 200 OK\n\n{}" : undefined)), "acme/acme-gov", "ACME");
+    expect(r.ok && r.warnings).to.deep.equal([]);
+  });
+
+  it("not signed in is `gh api user` failing", () => {
+    const r = preflight(staleOther((a) => (a[0] === "api" && a[1] === "user" ? null : undefined)), "acme/acme-gov", "ACME");
+    expect(r.ok === false && r.failure.why).to.equal("not-authenticated");
+  });
+
+  it("parseGrantedScopes reads the header as well as the old status line", () => {
+    expect(parseGrantedScopes(HEADERS)).to.deep.equal(["gist", "read:org", "repo", "workflow"]);
+    expect(parseGrantedScopes("x-oauth-scopes: \n")).to.deep.equal([]);
+    expect(parseGrantedScopes("HTTP/2.0 200 OK\n\n{}")).to.equal(null);
+  });
+
+  it("no gov source asks `gh auth status` whether it may act", () => {
+    const root = fileURLToPath(new URL("../../src/", import.meta.url));
+    const offenders: string[] = [];
+    const walk = (d: string): void => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const f = path.join(d, e.name);
+        if (e.isDirectory()) walk(f);
+        else if (f.endsWith(".ts") && /\[\s*"auth"\s*,\s*"status"\s*\]/.test(fs.readFileSync(f, "utf8"))) offenders.push(path.relative(root, f));
+      }
+    };
+    walk(root);
+    expect(offenders).to.deep.equal([]);
   });
 });

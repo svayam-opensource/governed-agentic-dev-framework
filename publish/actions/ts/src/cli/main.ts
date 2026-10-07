@@ -79,7 +79,7 @@ import { policyChecks } from "./diff-check-io.js";
 import { formatDiffChecks } from "../rules/diff-check.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
-import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes } from "../maintain/fix-env.js";
+import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes, GH_SIGNED_IN_ARGS, GH_SCOPES_ARGS } from "../maintain/fix-env.js";
 import { checklist, renderChecklist, checklistPreamble, statusSoFar, finalStatus, stepBanner, stepDone, itemForFix, type ChecklistFacts } from "./checklist.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
@@ -1214,7 +1214,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       return finalStatus(checklist({
         gitPresent: tryRun("git", ["--version"]) !== undefined,
         ghPresent: tryRun("gh", ["--version"]) !== undefined,
-        ghAuthenticated: (() => { return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); })(),
+        ghAuthenticated: okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" }),
         ghScopesOk: true,
         gitIdentityOk: Boolean(gitCfg2("user.name") && gitCfg2("user.email")),
         workspaceResolves: r.ok,
@@ -2400,15 +2400,13 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     const ghPresent = tryRun("gh", ["--version"]) !== undefined;
     // Installed and signed-in are different facts; only the second predicts whether
     // the next GitHub call works (#186).
-    // One call answers both questions — signed in, and with which permissions. gh
-    // writes the status to stderr, so it has to be captured, not just tested.
+    // CAN GOV ACT ON GITHUB — `gh api user`, not `gh auth status` (adoption walk #2): the latter fails when ANY
+    // stored account is stale, while the active token works. The scopes come from the same endpoint's headers.
     const ghStatus = ghPresent ? ((): string | null => {
-      try { return runProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); }
-      catch (e) { const r = (e as { stdout?: string; stderr?: string }); return (r.stdout ?? "") + (r.stderr ?? "") || null; }
+      try { return runProcess("gh", [...GH_SCOPES_ARGS], { pgm: "gov-work:cli:main" }); }
+      catch { return null; }
     })() : null;
-    const ghAuthed = ghPresent && ((): boolean => {
-      return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" });
-    })();
+    const ghAuthed = ghPresent && okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" });
     const ghScopes = ghAuthed && ghStatus ? parseGrantedScopes(ghStatus) : null;
     // The workspace's org-config, read ONCE: doctor reports the keys gov ignores in it, and the protection
     // probe needs it to know which repo and branch framework-specification.md §7.3 is about.
@@ -2750,10 +2748,10 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         ...facts(),
         gitPresent: tryRun("git", ["--version"]) !== undefined,
         ghPresent: tryRun("gh", ["--version"]) !== undefined,
-        ghAuthenticated: (() => { return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); })(),
+        ghAuthenticated: okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" }),
         ghScopesOk: (() => {
           try {
-            const s = runProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" });
+            const s = runProcess("gh", [...GH_SCOPES_ARGS], { pgm: "gov-work:cli:main" });
             const g = parseGrantedScopes(s);
             return Boolean(g && missingScopes(g).length === 0);
           } catch { return false; }
@@ -3001,7 +2999,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
     const pf = preflight(assembleNeeds(), {
       gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
-      ghAuthOk: () => { return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); },
+      ghAuthOk: () => okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" }),
     });
     if (!pf.ok) {
       for (const line of renderGap(pf.gap)) process.stderr.write(`${line}\n`);
