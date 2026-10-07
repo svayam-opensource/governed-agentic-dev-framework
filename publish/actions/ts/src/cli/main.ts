@@ -84,7 +84,8 @@ import { checklist, renderChecklist, checklistPreamble, statusSoFar, finalStatus
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
 import { upgradePlan, formatUpgradePlan } from "../maintain/upgrade.js";
-import { runUpgradeSync, runUpgradePr, fetchTemplateContent, DEFAULT_TEMPLATE } from "../maintain/upgrade-run.js";
+import { runUpgradeSync, runUpgradePr, fetchTemplateContent } from "../maintain/upgrade-run.js";
+import { readBuildIdentity, selectUpgradeContent, type BuildIdentity } from "../maintain/build-identity.js";
 import { contentLayoutOf, staleArtifactsIn } from "../maintain/upgrade-sync.js";
 import { formatRuns, listRuns, selectRuns } from "../maintain/log-view.js";
 import { coerce, formatPreferences, specFor, stringPref } from "../preferences.js";
@@ -1386,6 +1387,24 @@ export function readCliVersion(): string {
   return "?";
 }
 
+/**
+ * THIS gov's build identity (maintain/build-identity.ts): the package root found by walking up from this module,
+ * read as a build when running from `lib/`, as a source checkout when running from `src/` (tsx).
+ */
+export function cliBuildIdentity(): BuildIdentity | null {
+  const moduleDir = fileURLToPath(new URL(".", import.meta.url));
+  const fs = createNodeFs();
+  for (let dir = moduleDir, i = 0; i < 6; i++) {
+    const raw = fs.readFile(path.join(dir, "package.json"));
+    try { if (raw && (JSON.parse(raw) as { name?: string }).name === PACKAGE_NAME) return readBuildIdentity(dir, { built: !moduleDir.includes(`${path.sep}src${path.sep}`) }); }
+    catch { /* not ours — keep walking */ }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
 /** Gather the best-effort banner context for the interactive menu (all optional). */
 export async function gatherMenuContext(): Promise<MenuContext> {
   const fs = createNodeFs();
@@ -2300,23 +2319,28 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         }
         home = resolved.home;
       }
-      let contentDir: string;
-      let cleanup = (): void => {};
-      if (from) {
-        contentDir = path.resolve(expandTilde(from));
-      } else {
-        const template = flagStr(parsed.flags, "template") ?? DEFAULT_TEMPLATE;
-        const ref = flagStr(parsed.flags, "ref") ?? "main";
-        process.stderr.write(`fetching content from ${template}@${ref} …\n`);
-        try {
-          const fetched = fetchTemplateContent(template, ref);
-          contentDir = fetched.contentDir;
-          cleanup = fetched.cleanup;
-        } catch (e) {
-          process.stderr.write(`gov upgrade: ${(e as Error).message}\n`);
-          return 1;
-        }
+      // THE CONTENT IS THIS GOV'S OWN BUILD (adoption walk #9): fetched at the commit gov was built from — never
+      // `main` by default — and whatever arrives is checked against the build's content fingerprint before a byte
+      // is written. A client and content from different builds are refused, naming both and the fix.
+      let selected: ReturnType<typeof selectUpgradeContent>;
+      try {
+        selected = selectUpgradeContent(cliBuildIdentity(), {
+          ...(from !== undefined ? { from: path.resolve(expandTilde(from)) } : {}),
+          ...(flagStr(parsed.flags, "ref") !== undefined ? { ref: flagStr(parsed.flags, "ref") } : {}),
+          ...(flagStr(parsed.flags, "template") !== undefined ? { template: flagStr(parsed.flags, "template") } : {}),
+        }, (template, ref) => {
+          process.stderr.write(`fetching content from ${template}@${ref} …\n`);
+          return fetchTemplateContent(template, ref);
+        });
+      } catch (e) {
+        process.stderr.write(`gov upgrade: ${(e as Error).message}\n`);
+        return 1;
       }
+      if (!selected.ok) {
+        for (const line of selected.lines) process.stderr.write(`${line}\n`);
+        return 1;
+      }
+      const { contentDir, cleanup } = selected;
       try {
         // ── RE-RENDER THE HARNESS FROM THE CLAUSES THIS UPGRADE WROTE (design §7) ───────────────────────────
         //

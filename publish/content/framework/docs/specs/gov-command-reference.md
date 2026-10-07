@@ -25,7 +25,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov org](#gov-org) — the governance workspaces on this machine, and which one is active
 - [gov doctor](#gov-doctor) — check this machine: git, gh, the workspace, the active org, versions
 - [gov setup](#gov-setup) — set this machine up for an organization — the first `gov` run does this for you
-- [gov upgrade](#gov-upgrade) — pull the latest framework content into this org (not the CLI — that is `npm i -g`)
+- [gov upgrade](#gov-upgrade) — bring this org's framework content to the build this gov was made from (not the CLI — that is `npm i -g`)
 - [gov preferences](#gov-preferences) — your settings for gov: the agent it launches, the picker, colour, how long logs are kept
 - [gov log](#gov-log) — what gov did — one log per run, on this machine
 - [gov agent](#gov-agent) — which AI agents your org approves, what is installed, and how to add one
@@ -236,10 +236,10 @@ gov setup acme/acme-gov
 
 ### gov upgrade
 
-pull the latest framework content into this org (not the CLI — that is `npm i -g`)
+bring this org's framework content to the build this gov was made from (not the CLI — that is `npm i -g`)
 
 ```text
-gov upgrade [--apply] [--pr] [--ref <branch>] [--from <dir>]
+gov upgrade [--apply] [--pr] [--ref <commit|tag|branch>] [--from <dir>]
 ```
 
 **Where.** GOVERNED — the org's workspace
@@ -250,7 +250,7 @@ gov upgrade [--apply] [--pr] [--ref <branch>] [--from <dir>]
 | --- | --- |
 | `--apply` | make the changes. Without it, gov only says what it would do |
 | `--pr` | put the changes in a pull request instead of the working tree |
-| `--ref <branch>` | take the content from another branch of the framework |
+| `--ref <commit|tag|branch>` | fetch the content at this ref instead of the commit gov was built from. Content that is not this gov's build is refused |
 | `--from <dir>` | take the content from a local directory instead of the template remote |
 
 **Examples**

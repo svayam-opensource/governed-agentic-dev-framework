@@ -264,6 +264,11 @@ function refusedLines(plan: ReturnType<typeof planUpgrade>): string[] {
 function git(dir: string, args: string[]): string {
   return runProcess("git", ["-C", dir, ...args], { pgm: "gov-work:maintain:upgrade-run", fn: "git" }).trim();
 }
+/** The line of a git failure that says what went wrong: its `fatal:` line, else the last one. */
+function gitReason(message: string): string {
+  const lines = message.split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.find((l) => l.startsWith("fatal:")) ?? lines.pop() ?? "git failed";
+}
 function branchExists(dir: string, branch: string): boolean {
   try { git(dir, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]); return true; }
   catch { return false; /* rev-parse --verify exits non-zero for a ref that is not there: the ordinary case */ }
@@ -393,23 +398,32 @@ export const DEFAULT_TEMPLATE = "https://github.com/svayam-opensource/governed-a
 
 /**
  * Fetch publish/content from the template remote into a temp dir (sparse, shallow
- * — only publish/content is materialized). Returns the content dir + a cleanup fn.
+ * — only publish/content is materialized). Returns the content dir, the commit it
+ * holds, and a cleanup fn. `ref` is a branch, a tag or a FULL commit sha — the
+ * default ref is the commit gov was built from (build-identity.ts), which
+ * `git clone --branch` cannot take, so this inits and fetches the one ref.
  * `templateUrl` may be a URL or a local path (for testing).
  */
-export function fetchTemplateContent(templateUrl: string, ref: string): { contentDir: string; cleanup: () => void } {
+export function fetchTemplateContent(templateUrl: string, ref: string): { contentDir: string; cleanup: () => void; commit: string | null } {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gov-content-"));
   const cleanup = () => fs.rmSync(tmp, { recursive: true, force: true });
+  const g = (args: string[]): string => runProcess("git", ["-C", tmp, ...args], { pgm: "gov-work:maintain:upgrade-run", fn: "fetch-template" });
   try {
-    runProcess("git", ["clone", "--depth", "1", "--filter=blob:none", "--sparse", "--branch", ref, templateUrl, tmp], { pgm: "gov-work:maintain:upgrade-run", fn: "fetch-template" });
-    runProcess("git", ["-C", tmp, "sparse-checkout", "set", "publish/content"], { pgm: "gov-work:maintain:upgrade-run" });
+    g(["init", "-q"]);
+    g(["remote", "add", "origin", templateUrl]);
+    g(["sparse-checkout", "set", "publish/content"]);
+    g(["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", ref]);
+    g(["checkout", "-q", "FETCH_HEAD"]);
   } catch (e) {
     cleanup();
-    throw new Error(`could not fetch content from ${templateUrl}@${ref}: ${(e as Error).message.split("\n").pop()}`, { cause: e });
+    throw new Error(`could not fetch content from ${templateUrl}@${ref}: ${gitReason((e as Error).message)}`, { cause: e });
   }
   const contentDir = path.join(tmp, "publish", "content");
   if (!fs.existsSync(path.join(contentDir, "MANIFEST.yaml"))) {
     cleanup();
     throw new Error(`fetched ${templateUrl}@${ref} but publish/content/MANIFEST.yaml is not there`);
   }
-  return { contentDir, cleanup };
+  let commit: string | null = null;
+  try { commit = g(["rev-parse", "HEAD"]).trim(); } catch { /* the content is there; only the label for a refusal is missing */ }
+  return { contentDir, cleanup, commit };
 }

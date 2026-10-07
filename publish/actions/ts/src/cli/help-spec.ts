@@ -115,13 +115,13 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   {
     name: "upgrade", audience: "you",
-    summary: "pull the latest framework content into this org (not the CLI — that is `npm i -g`)",
-    usage: "[--apply] [--pr] [--ref <branch>] [--from <dir>]",
+    summary: "bring this org's framework content to the build this gov was made from (not the CLI — that is `npm i -g`)",
+    usage: "[--apply] [--pr] [--ref <commit|tag|branch>] [--from <dir>]",
     where: "GOVERNED — the org's workspace",
     flags: [
       { name: "--apply", what: "make the changes. Without it, gov only says what it would do" },
       { name: "--pr", what: "put the changes in a pull request instead of the working tree" },
-      { name: "--ref <branch>", what: "take the content from another branch of the framework" },
+      { name: "--ref <commit|tag|branch>", what: "fetch the content at this ref instead of the commit gov was built from. Content that is not this gov's build is refused" },
       { name: "--from <dir>", what: "take the content from a local directory instead of the template remote" },
     ],
     examples: ["gov upgrade", "gov upgrade --pr", "gov upgrade --apply"],
