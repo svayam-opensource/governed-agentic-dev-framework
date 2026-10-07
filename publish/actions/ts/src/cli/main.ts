@@ -889,7 +889,7 @@ export async function runSetupCommand(
     // is gone.
     if (createdHome !== null && rc === 0) {
       const env = createNodeEnv();
-      const deps = { store: createNodeRegistryStore(), govConfigAt: (p: string) => env.govConfigAt(p) };
+      const deps = { store: createNodeRegistryStore(), govConfigAt: (p: string) => env.govConfigAt(p), diagnoseConfigAt: (p: string) => env.diagnoseConfigAt!(p) };
       const cfg = env.govConfigAt(createdHome);
       const manifest: ManifestLine[] = [{ what: "Created", detail: `${createdHome} (from the framework template)` }];
       let activeNote = "";
@@ -1350,14 +1350,14 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       today: now.slice(0, 10),
     }),
     register: (org, home) => {
-      const deps = { store, govConfigAt: (p: string) => env.govConfigAt(p) };
+      const deps = { store, govConfigAt: (p: string) => env.govConfigAt(p), diagnoseConfigAt: (p: string) => env.diagnoseConfigAt!(p) };
       const added = orgAdd(deps, org, home);
       if (!added.ok) return { ok: false, message: added.message };
       const used = orgUse(deps, org);
       return used.ok ? { ok: true } : { ok: false, message: used.message };
     },
     activate: (org) => {
-      const used = orgUse({ store, govConfigAt: (p: string) => env.govConfigAt(p) }, org);
+      const used = orgUse({ store, govConfigAt: (p: string) => env.govConfigAt(p), diagnoseConfigAt: (p: string) => env.diagnoseConfigAt!(p) }, org);
       return used.ok ? { ok: true } : { ok: false, message: used.message };
     },
   };
@@ -2778,7 +2778,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   // `prj org …` runs BEFORE resolution — it's the bootstrap that makes resolution
   // work (registering a gov home / selecting the active org).
   if (parsed.command === "org") {
-    const orgResult = routeOrg(parsed.positionals, parsed.flags, { store: createNodeRegistryStore(), govConfigAt: (p) => env.govConfigAt(p) });
+    const orgResult = routeOrg(parsed.positionals, parsed.flags, { store: createNodeRegistryStore(), govConfigAt: (p) => env.govConfigAt(p), diagnoseConfigAt: (p) => env.diagnoseConfigAt!(p) });
     for (const line of orgResult.lines) process.stdout.write(`${line}\n`);
     return orgResult.code;
   }
