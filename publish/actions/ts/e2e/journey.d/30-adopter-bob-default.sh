@@ -24,8 +24,8 @@ chmod +x "$WORLD/bin/curl"
 drive "$(conv <<'C'
 > Select \(A/B/C\)
 < A
-# NINE QUESTIONS, ALL BEFORE ANYTHING IS CREATED (#215). Names first, identifiers
-# second, and the repository is created only after Q9 — so this block is the whole
+# TWELVE QUESTIONS, ALL BEFORE ANYTHING IS CREATED (#215). Names first, identifiers
+# second, and the repository is created only after Q12 — so this block is the whole
 # interview, uninterrupted, and the `creating acme/acme-gov` line comes after it.
 ~ 240
 > Q1 - What is full legal name
@@ -46,20 +46,20 @@ drive "$(conv <<'C'
 <
 > Q7 - Default branch to be used for development
 <
-# ANSWERED, not defaulted: the container may have no git user.email, and an empty
-# default against an email rule is a question that cannot be answered by pressing
-# Enter — which in a pty driver is a hang, not a failure.
-> Q8 - What is policy owner email
-< adopter@acme.test
-# Q9 — THE CHECK OWNER (rule-model, 2026-10-06): who reviews the code of the org's check actions. Answered,
-# not defaulted: the default is the Policy Owner's gh login, which the container may not have.
+# Q8–Q10 — BOTH ROLES BY GITHUB HANDLE, THEN AN OPTIONAL CONTACT (adoption walk #1, 2026-10-07).
+# Answered, not defaulted: the defaults are the gh login (which the container may not have) and the
+# git email — an empty default against a handle rule is a hang in a pty driver, not a failure.
+> Q8 - Who is the Policy Owner
+< adopter
 > Q9 - Who is the Check Owner
 < adopter
-# Q10 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
-> Q10 - What governance posture
+> Q10 - What contact email
+< adopter@acme.test
+# Q11 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
+> Q11 - What governance posture
 <
 ~ 240
-# Q11 — THE AGENT POLICY, NOW INSIDE THE INTERVIEW AND BEFORE THE CLONE. It used to be asked
+# Q12 — THE AGENT POLICY, NOW INSIDE THE INTERVIEW AND BEFORE THE CLONE. It used to be asked
 # after the repository existed, which put the one genuine policy decision in adoption on the
 # far side of the irreversible step. One agent at a time now: the old shape was a
 # space-separated list, where a typo silently changed the organization's default.
@@ -96,6 +96,11 @@ q9="$(grep -n 'happy with your AI agent selection' "$PLAIN" | head -1 | cut -d: 
 [ -n "$q9" ] && [ -n "$create" ] && [ "$q9" -lt "$create" ] \
   && pass "nothing is created until the LAST question (Q12's confirmation) is answered" \
   || fail "nothing is created until the LAST question (Q12's confirmation) is answered"
+# Walk #1 and #3 (2026-10-07): both roles asked by handle, and a numbered question says what Enter does.
+saw "the Policy Owner is ASKED by GitHub handle, not taken from the gh login" "Q8 - Who is the Policy Owner"
+saw "the contact email is optional, and says so" "(optional"
+saw "a numbered question names its default and the option it stands for" "Choose [1/2] (Enter = 1, soft) : "
+saw "and the branch question does too" "Choose [1/2] (Enter = 1, main) : "
 saw "and the closing block names the repository it made" "A new governance repo is created for your organization at"
 saw "with the local path, which is what the adopter needs next" "/.gov/acme/gov_repo"
 never "the mid-flow echoes are gone — they are in the closing block now" "(from origin)"
@@ -132,8 +137,8 @@ info "#196 — the org decides which agents it allows, during adoption"
 says "the question is asked" "Which AI agents may be used in this organization"
 saw_re "and the answer is written down, not remembered" "authorized_agents|IBM Bob"
 runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
-  && pass "ibm-bob is in org-config.yaml — the authorized list is a file, not a memory" \
-  || fail "ibm-bob was not written to org-config.yaml"
+  && pass "ibm-bob is in policies/governance.yaml — the authorized list is a file, not a memory" \
+  || fail "ibm-bob was not written to policies/governance.yaml"
 
 # ONE WRITER, AND NO FALSE ALARM ABOUT IT.
 #
@@ -146,7 +151,7 @@ runs grep -q "ibm-bob" "$HOME/.gov/acme/gov_repo/policies/governance.yaml" \
 # is worse than silence: the adopter's next move is to repair something that is not broken.
 never "no false alarm about writing the policy" "could not record the authorized agents"
 saw   "and the recording is reported once, by the writer that can commit it" \
-      "authorized agent(s) in org-config.yaml"
+      "authorized agent(s) in policies/governance.yaml"
 
 info "#193 — no placeholder survives into the adopter's own policies"
 never "<ORG_NAME> is resolved" "<ORG_NAME>"

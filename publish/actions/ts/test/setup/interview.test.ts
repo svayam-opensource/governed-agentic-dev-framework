@@ -21,7 +21,7 @@ async function run(reply: (q: string) => string) {
 }
 
 describe("gov-work — the adopter interview, Check Owner", () => {
-  const base = (q: string): string => (/^Q1 /.test(q) ? "Acme Inc" : /^Q3 /.test(q) ? "acme" : /^Q8 /.test(q) ? "rk@acme.io" : "");
+  const base = (q: string): string => (/^Q1 /.test(q) ? "Acme Inc" : /^Q3 /.test(q) ? "acme" : "");
 
   it("asks Q9 for the Check Owner, defaulting to the Policy Owner, and keeps the answer", async () => {
     const { r, asked } = await run((q) => (/^Q9 /.test(q) ? "@dave" : base(q)));
@@ -45,24 +45,24 @@ describe("gov-work — the adopter interview, Check Owner", () => {
 
 // W2-Q6 (Policy Owner, 2026-10-06): posture defaults to soft; hard is chosen past a confirmation, default N.
 describe("gov-work — the adopter interview, governance posture", () => {
-  const base = (q: string): string => (/^Q1 /.test(q) ? "Acme Inc" : /^Q3 /.test(q) ? "acme" : /^Q8 /.test(q) ? "rk@acme.io" : "");
+  const base = (q: string): string => (/^Q1 /.test(q) ? "Acme Inc" : /^Q3 /.test(q) ? "acme" : "");
 
-  it("GOV-FRM-450 asks Q10 for the posture; Enter is soft and asks nothing more", async () => {
+  it("GOV-FRM-450 asks Q11 for the posture; Enter is soft and asks nothing more", async () => {
     const { r, asked } = await run(base);
-    expect(asked.find((q) => /^Q10 /.test(q))).to.match(/governance posture/).and.contain("Choose [1/2]");
+    expect(asked.find((q) => /^Q11 /.test(q))).to.match(/governance posture/).and.contain("Choose [1/2]");
     expect(asked.some((q) => q.startsWith(HARD_POSTURE_CONFIRMATION))).to.equal(false);
     expect(r!.answers.governancePosture).to.equal("soft");
   });
 
   it("GOV-FRM-450 hard shows the confirmation VERBATIM; y keeps hard", async () => {
-    const { r, asked } = await run((q) => (/^Q10 /.test(q) ? "2" : q.startsWith("Choosing") ? "y" : base(q)));
+    const { r, asked } = await run((q) => (/^Q11 /.test(q) ? "2" : q.startsWith("Choosing") ? "y" : base(q)));
     expect(asked.some((q) => q.startsWith(HARD_POSTURE_CONFIRMATION))).to.equal(true);
     expect(r!.answers.governancePosture).to.equal("hard");
   });
 
   it("GOV-FRM-450 the confirmation defaults to N — Enter (or anything but yes) is soft", async () => {
     for (const reply of ["", "n", "maybe"]) {
-      const { r } = await run((q) => (/^Q10 /.test(q) ? "hard" : q.startsWith("Choosing") ? reply : base(q)));
+      const { r } = await run((q) => (/^Q11 /.test(q) ? "hard" : q.startsWith("Choosing") ? reply : base(q)));
       expect(r!.answers.governancePosture, JSON.stringify(reply)).to.equal("soft");
     }
   });

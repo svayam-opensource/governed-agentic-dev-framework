@@ -12,7 +12,7 @@ import { deriveOrgConfig, renderOrgConfig, renderSetupGovernance, withSetupGover
 import { defaultWorkRoot } from "../config/org-config.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { GOVERNANCE_PATH } from "../config/governance.js";
-import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, emailShape, branchChoice, parseBranchChoice, branchName, type Validator } from "./answers.js";
+import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, optionalEmail, parseOptionalEmail, branchChoice, parseBranchChoice, branchName, type Validator } from "./answers.js";
 
 export interface SetupIo {
   readonly fs: Fs;
@@ -159,18 +159,24 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
     // disagreement fixed in #186 came from exactly this value being settable in one
     // place and derived in another. Told, not asked.
     if (!interviewed) io.print(`  Project workspaces will live in  ${defaultWorkRoot(d1.orgSlug)}  (yours to change: ~/.gov/work-roots)`);
-    answers.policyOwnerEmail = known("policyOwnerEmail")
-      ?? await askValid(io, "Policy Owner email", d1.policyOwnerEmail, emailShape);
-    // NOT ASKED either. The email above identifies a GitHub account; the handle is
-    // a lookup, not an opinion. Asking invited an answer that disagreed with the
-    // email above it, and nothing downstream reconciled the two.
-    const derivedHandle = deriveOrgConfig(answers, ctx).policyOwnerGithub;
-    if (derivedHandle && !interviewed) io.print(`  Policy Owner GitHub handle       ${derivedHandle}`);
-    // ASKED, unlike the Policy Owner's handle: who reviews CODE is a decision, not a lookup. The Policy Owner is
-    // offered because a one-person org is the common first case — and doctor says so when it is accepted.
+    // BOTH ROLES BY HANDLE, THEN AN OPTIONAL CONTACT (Policy Owner, 2026-10-07 — adoption walk #1). The Policy
+    // Owner's handle used to be TOLD, taken from whoever was signed in to gh, while the email was asked: the one
+    // answer that decides who approves every policy was the one nobody was asked for. The signed-in user is the
+    // default now, not the answer.
+    answers.policyOwnerGithub = known("policyOwnerGithub") ?? await askValid(io,
+      "Policy Owner GitHub handle (approves your policies, and holds every role nobody else holds)",
+      deriveOrgConfig(answers, ctx).policyOwnerGithub, githubHandle);
+    // The Policy Owner is offered because a one-person org is the common first case — and doctor says so when it is
+    // accepted.
     answers.checkOwnerGithub = known("checkOwnerGithub") ?? await askValid(io,
       "Check Owner GitHub handle (reviews the code of your check actions in policies/actions/)",
       deriveOrgConfig(answers, ctx).checkOwnerGithub, githubHandle);
+    // OPTIONAL: a contact the policies show, not the role. `none` leaves it empty. An interviewed answer may be
+    // empty on purpose, so it is taken as given rather than through `known` (which reads empty as "not answered").
+    answers.policyOwnerEmail = interviewed && io.existing?.policyOwnerEmail !== undefined
+      ? io.existing.policyOwnerEmail
+      : parseOptionalEmail(await askValid(io, "Policy Owner contact email for your policies (optional — `none` for no email)",
+          deriveOrgConfig(answers, ctx).policyOwnerEmail, optionalEmail));
     // W2-Q6: soft unless hard is chosen past the confirmation.
     answers.governancePosture = known("governancePosture") ?? await confirmPosture(
       parsePostureAnswer(await askValid(io, POSTURE_QUESTION, "1", postureRule)) ?? "soft", io.prompt);
@@ -214,7 +220,7 @@ async function runSetupInner(io: SetupIo, interactive: boolean): Promise<number>
   io.fs.writeFile(configPath, renderOrgConfig(v));
   io.print(`Wrote ${configPath}`);
   // THE GOVERNANCE CHOICES, beside the policy they configure (org-config split, 2026-10-06). The agents are added
-  // afterwards by whoever asked for them (the adopter path records Q11's answer just before the commit).
+  // afterwards by whoever asked for them (the adopter path records Q12's answer just before the commit).
   //
   // GOV-FRM-445: an existing governance.yaml is the ORG'S. It is never re-rendered — that dropped the org's models
   // block and every key gov does not read (adopter-e2e live tier, 2026-10-07). Setup edits only its own keys where its
