@@ -51,7 +51,9 @@ describe("e2e/rule-model-journey.sh --dry-run", function () {
 
   it("lists every assertion, (a) through (f)", () => {
     for (const a of ["(a) GOV-FRM-455", "(a) GOV-FRM-467", "(a) GOV-FRM-468", "(b) gov-violation issue", "(c) GOV-FRM-467 names the section unreviewed",
-      "(c) GOV-FRM-468 ran propose", "(d) GOV-FRM-467 passes", "(e) gov-violation record", "(f) the code repo judged"]) {
+      "(c) the unreviewed finding sits on policies/org-policy.md",
+      "(c) GOV-FRM-468 passed", "(c) GOV-FRM-468 committed to PR", "(c) the bot's commit lists policies/org-policy.md §2.2 under Sections reviewed",
+      "(c) the bot's commit adds the stub model's row to policies/rules.yaml", "(d) GOV-FRM-467 passes", "(e) gov-violation record", "(f) the code repo judged"]) {
       expect(out, a).to.include(`would assert: ${a}`);
     }
   });
@@ -64,6 +66,18 @@ describe("e2e/rule-model-journey.sh --dry-run", function () {
     expect(out).to.match(/\+ gh api -X POST repos\/\S+\/actions\/runs\/\S+\/approve/);
     expect(out).to.match(/\+ gh repo delete \S+\/rmj-dry-gov --yes/);
     expect(out).to.match(/\+ gh repo delete \S+\/rmj-dry-app --yes/);
+  });
+
+  it("reads what a check found from its check run's ANNOTATIONS, never from a job's log", () => {
+    expect(out).to.match(/\+ poll gh api repos\/\S+\/check-runs\/\S+\/annotations/);
+    expect(out).to.not.match(/actions\/jobs\/\S*\/logs/);
+    const script = fs.readFileSync(SCRIPT, "utf8");
+    expect(script, "no log-grepping helper is left").to.not.match(/job_log|expect_log|LOG468|\/logs\b/);
+  });
+
+  it("judges GOV-FRM-468 by the repository it changed: the bot's commit, its rows, the changelog's Sections reviewed", () => {
+    expect(out).to.match(/\+ gh api repos\/\S+\/contents\/policies\/rules\.yaml\?ref=\S+/);
+    expect(out).to.match(/\+ gh api repos\/\S+\/contents\/policies\/CHANGELOG\.md\?ref=\S+/);
   });
 
   it("checks the token's scopes at START, before it creates anything it may not be able to delete", () => {

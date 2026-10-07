@@ -8,6 +8,7 @@
  *
  *   ::error title=<GOV-ID>[,file=<path>[,line=<n>]]::<finding>      the verdict is fail
  *   ::warning title=<GOV-ID>[,file=<path>[,line=<n>]]::<finding>    cannot-tell, or an `on_miss: warn` miss (`warn: …`)
+ *   ::notice title=<GOV-ID>[,…]::<finding>                          a pass's other findings: what it did (propose committed)
  *
  * GitHub turns each into an annotation on the check run — shown on the pull request, inline on the file when one is
  * named, and readable through `GET /repos/{r}/check-runs/{id}/annotations`. That API is what a test reads to learn
@@ -57,7 +58,8 @@ export function headingLine(text: string, section: string): number | undefined {
  */
 export function annotationLines(id: string, verdict: AnnotationVerdict, read?: (file: string) => string | null): string[] {
   return verdict.findings.map((finding) => {
-    const level = verdict.verdict === "fail" && !finding.startsWith("warn: ") ? "error" : "warning";
+    const warn = finding.startsWith("warn: ");
+    const level = verdict.verdict === "cannot-tell" || warn ? "warning" : verdict.verdict === "fail" ? "error" : "notice";
     const props = [`title=${escapeProperty(id)}`];
     const loc = findingLocation(finding);
     if (loc) {

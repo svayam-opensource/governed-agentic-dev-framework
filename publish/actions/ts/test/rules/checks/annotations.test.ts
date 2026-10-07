@@ -33,6 +33,11 @@ describe("check annotations — GitHub workflow commands for findings", () => {
     expect(annotationLines("GOV-FRM-040", { verdict: "pass", findings: [] })).to.deep.equal([]);
   });
 
+  it("a pass's other findings (what it did — propose committed rows) are ::notice, neither error nor warning", () => {
+    expect(annotationLines("GOV-FRM-468", { verdict: "pass", findings: ["GOV-FRM-468 [p]: proposed and committed abc1234"] }))
+      .to.deep.equal(["::notice title=GOV-FRM-468::GOV-FRM-468 [p]: proposed and committed abc1234"]);
+  });
+
   it("a multi-line finding is one annotation, its newlines escaped", () => {
     expect(annotationLines("GOV-FRM-1", { verdict: "fail", findings: ["first\nsecond 50%"] }))
       .to.deep.equal(["::error title=GOV-FRM-1::first%0Asecond 50%25"]);
