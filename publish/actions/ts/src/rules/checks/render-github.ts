@@ -118,6 +118,9 @@ function permissionsFor(trigger: Trigger, actions: ReadonlySet<string>): Record<
   // Policy Owner, option B) and comments its questions: contents and pull requests, write, on THIS job only.
   if (actions.has("gov-builtin/rules-propose")) { p.contents = "write"; p["pull-requests"] = "write"; }
   else if (actions.has("gh-action/landed-by-pr")) p["pull-requests"] = "read";
+  // landed-by-pr also reads the merged PR's check runs, to record a soft-posture merge made with gov checks red.
+  // Without `checks: read` that call is refused and the merge goes unrecorded (found in the live journey, (e)).
+  if (actions.has("gh-action/landed-by-pr")) p.checks = "read";
   return p;
 }
 

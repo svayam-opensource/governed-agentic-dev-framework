@@ -547,3 +547,10 @@ describe("the propose job's permissions", () => {
   });
 });
 
+describe("the push job may read the merged PR's checks", () => {
+  it("a landed-by-pr job gets checks: read (a soft merge with red checks is recorded from them)", () => {
+    const [f] = renderWorkflow([{ id: "GOV-FRM-040", check: { on: { resource: "vcs.gov-repo", event: "push" }, action: "gh-action/landed-by-pr", with: { branches: ["$default"] }, on_miss: "fail" } }]);
+    expect(f!.text).to.match(/GOV-FRM-040[\s\S]*checks: read/);
+  });
+});
+
