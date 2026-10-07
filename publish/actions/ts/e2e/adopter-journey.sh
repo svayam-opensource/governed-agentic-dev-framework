@@ -29,13 +29,22 @@ ROOT="$(mktemp -d)"
 PASS=0; FAIL=0; CREATED=()
 step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32m✓ %s\033[0m\n' "$*"; PASS=$((PASS+1)); }
-die()  { printf '  \033[31m✗ %s\033[0m\n' "$*"; FAIL=$((FAIL+1)); exit 1; }
+die()  { printf '  \033[31m✗ %s\033[0m\n' "$*"; FAIL=$((FAIL+1)); [ -n "${GITHUB_ACTIONS:-}" ] && echo "::error::adopter journey: $*"; exit 1; }
+# NO SILENT EXIT. Under `set -e` any failing line ends the run with no word of why — the 2026-10-07 live run died
+# right after seed with a bare "exit code 2" (an awk on an absent file, inside a pipefail substitution). Name the
+# line and the command, so the next one is read off the log rather than bisected.
+on_err() { local rc=$? line=$1 cmd=$2; [ "$rc" -eq 0 ] && return 0
+  printf '  \033[31m✗ line %s exited %s: %s\033[0m\n' "$line" "$rc" "$cmd"
+  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::error::adopter journey: line $line exited $rc: $cmd"; return 0; }
+trap 'on_err "$LINENO" "$BASH_COMMAND"' ERR
 assert_contains() { echo "$1" | grep -qF "$2" && ok "$3" || die "$3 — expected to contain: $2"; }
 
 # ── Teardown (runs in THIS process — deletes work when the script is invoked by
 #    you / CI, not blocked like an assistant tool-call). ──────────────────────
 teardown() {
-  [ "${E2E_KEEP:-0}" = "1" ] && { echo "E2E_KEEP=1 — leaving $WS_REPO / $CODE_REPO / project"; return; }
+  local rc=$?
+  trap - ERR
+  if [ "${E2E_KEEP:-0}" = "1" ]; then echo "E2E_KEEP=1 — leaving $WS_REPO / $CODE_REPO / project"; else
   step "Teardown"
   # Only what this run created, and an exact account of what it could not delete (leak_report, token-scopes.sh).
   local leaked=() err
@@ -48,6 +57,10 @@ teardown() {
   fi
   leak_report "${leaked[@]:+${leaked[@]}}"
   rm -rf "$ROOT"
+  fi
+  # The verdict is the LAST line of the step, pass or fail — a failure must not end on a teardown that looks routine.
+  printf '\n\033[1m═══ adopter-journey: %d passed, %s ═══\033[0m\n' "$PASS" "$([ "$rc" -eq 0 ] && echo ok || echo "FAILED (exit $rc)")"
+  exit "$rc"
 }
 trap teardown EXIT
 
@@ -147,7 +160,12 @@ assert_contains "$SEED_OUT" "BRNCH-${PROJ_NUM}" "seed created the project branch
 # not the original clone (which is on main). seed put it under the work root: this person's own
 # (~/.gov/work-roots), else ~/.gov/<slug>/projects — no longer an org-config key (org-config split).
 SLUG_LC="$(grep -E '^org_slug:' org-config.yaml | sed -E 's/^org_slug:[[:space:]]*"?([^"#[:space:]]+).*/\1/' | tr '[:upper:]' '[:lower:]')"
-AWR="$(awk -F'\t' -v o="$(grep -E '^github_org:' org-config.yaml | sed -E 's/^github_org:[[:space:]]*"?([^"#[:space:]]+).*/\1/')" '$1==o {print $2}' "$HOME/.gov/work-roots" 2>/dev/null | tail -1)"
+# ~/.gov/work-roots exists only when someone chose a root; absent, awk exits 2 and pipefail made that the journey's
+# exit — silently, the step's one failure on 2026-10-07. Absent means the default, so read it only when it is there.
+AWR=""
+if [ -f "$HOME/.gov/work-roots" ]; then
+  AWR="$(awk -F'\t' -v o="$(grep -E '^github_org:' org-config.yaml | sed -E 's/^github_org:[[:space:]]*"?([^"#[:space:]]+).*/\1/')" '$1==o {print $2}' "$HOME/.gov/work-roots" | tail -1)"
+fi
 [ -n "$AWR" ] || AWR="$HOME/.gov/$SLUG_LC/projects"
 AWR="${AWR/#\~/$HOME}"
 PID="PRJ-${PROJ_NUM}-${SLUG}"
@@ -218,5 +236,4 @@ cd /tmp
 DOC_OUT=$(gov doctor --gov-home "$ROOT/$WS_REPO" 2>&1 || true)
 assert_contains "$DOC_OUT" "$WS_REPO" "gov --gov-home resolved the workspace from an unrelated cwd"
 
-printf '\n\033[1m═══ adopter-journey: %d passed, %d failed ═══\033[0m\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+[ "$FAIL" -eq 0 ]   # the verdict banner is printed by the EXIT trap, after teardown

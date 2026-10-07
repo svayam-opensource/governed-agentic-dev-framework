@@ -74,6 +74,11 @@ ok()   { printf '  \033[32m✓ %s\033[0m\n' "$*"; PASS=$((PASS+1)); }
 note() { printf '  \033[33m! %s\033[0m\n' "$*"; }
 skip() { printf '  \033[33m⤼ SKIPPED: %s\033[0m\n' "$*"; SKIP=$((SKIP+1)); [ -n "${GITHUB_ACTIONS:-}" ] && echo "::notice::rule-model journey: skipped $*"; return 0; }
 die()  { printf '  \033[31m✗ %s\033[0m\n' "$*"; [ -n "${GITHUB_ACTIONS:-}" ] && echo "::error::rule-model journey: $*"; exit 1; }
+# No silent exit: a line that fails under `set -e` is named, with its command (see adopter-journey.sh, 2026-10-07).
+on_err() { local rc=$? line=$1 cmd=$2; [ "$rc" -eq 0 ] && return 0
+  printf '  \033[31m✗ line %s exited %s: %s\033[0m\n' "$line" "$rc" "$cmd"
+  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::error::rule-model journey: line $line exited $rc: $cmd"; return 0; }
+trap 'on_err "$LINENO" "$BASH_COMMAND"' ERR
 
 # THE ONLY DOORS TO THE OUTSIDE. Dry: print the call, make none. `x` runs; `xo DEFAULT …` captures stdout (dry: DEFAULT).
 x()  { if [ "$DRY" = 1 ]; then printf '  + %s\n' "$*" >&3; return 0; fi; "$@"; }
@@ -89,6 +94,7 @@ secret_set() { local name="$1" repo="$2" var="$3"
 # ── Teardown: ALWAYS, on success, failure or cancellation ────────────────────────────────────────────────────────
 teardown() {
   local rc=$?
+  trap - ERR
   if [ "${E2E_KEEP:-0}" = "1" ]; then echo "E2E_KEEP=1 — leaving ${CREATED[*]:-nothing}"; else
     step "Teardown"
     local leaked=() err
