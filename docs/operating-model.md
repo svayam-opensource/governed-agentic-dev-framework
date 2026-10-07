@@ -63,7 +63,7 @@ flowchart TD
 3. **Bootstrap:** clone the framework content into it, then run **`gov setup`** — it
    prompts for your org identity and writes **`org-config.yaml`** (org identity,
    default branches, owners), and points `origin` at your org repo.
-4. **Register the workspace:** `gov org add <github_org> <gov-home-path>` then
+4. **Register the workspace:** `gov org add <github_org> --home <gov-home-path>` then
    `gov org use <github_org>` (records the gov home so `gov-work` resolves it in any shell).
 5. **Commit + push** to your org repo, then **start working:** `gov seed <board-url>`.
 

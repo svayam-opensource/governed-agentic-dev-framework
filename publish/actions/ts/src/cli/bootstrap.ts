@@ -742,7 +742,7 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
 
     const home = govHomeFor(io.homeDir, identity.orgSlug);
     if (io.exists(home)) {
-      io.print(`${home} already exists — register it instead:  gov org add ${identity.org} ${home}`);
+      io.print(`${home} already exists — register it instead:  gov org add ${identity.org} --home ${home}`);
       return 1;
     }
     io.place(staged, home);

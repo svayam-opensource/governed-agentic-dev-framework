@@ -142,13 +142,13 @@ export function resolveFailureMessage(r: Extract<ResolveResult, { ok: false }>):
     case "no-home":
       return (
         `Active org ${r.activeOrg} has no registered gov home. ` +
-        `Run \`gov org add ${r.activeOrg} <path-to-gov-repo>\`.`
+        `Run \`gov org add ${r.activeOrg} --home <path-to-gov-repo>\`.`
       );
     case "pointer-mismatch": {
       const base = `The registry points ${r.activeOrg} → ${r.home}, but `;
       const configProblem = orgConfigProblem(r.home, r.detail);
       if (configProblem) {
-        return base + configProblem + ` Or re-point it with \`gov org add ${r.activeOrg} <path>\`, or drop it with \`gov org remove ${r.activeOrg}\`.`;
+        return base + configProblem + ` Or re-point it with \`gov org add ${r.activeOrg} --home <path>\`, or drop it with \`gov org remove ${r.activeOrg}\`.`;
       }
       const tail =
         r.detail.why === "not-a-gov-repo"
@@ -158,7 +158,7 @@ export function resolveFailureMessage(r: Extract<ResolveResult, { ok: false }>):
             : `it is not a canonical gov home (its gov_workspace is ${r.detail.found}).`;
       // "Fix it with `gov org add`" alone was the wrong advice when the folder is simply GONE (a walk, 2026-09-22):
       // re-pointing needs a path that may not exist. Offer both: re-point it, or drop it.
-      return base + tail + ` Re-point it with \`gov org add ${r.activeOrg} <path>\`, or drop it with \`gov org remove ${r.activeOrg}\`.`;
+      return base + tail + ` Re-point it with \`gov org add ${r.activeOrg} --home <path>\`, or drop it with \`gov org remove ${r.activeOrg}\`.`;
     }
   }
 }

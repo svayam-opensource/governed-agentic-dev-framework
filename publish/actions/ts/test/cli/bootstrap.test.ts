@@ -289,7 +289,7 @@ describe("gov-work — first run: the flow", () => {
     expect(await runFirstRun(w)).to.equal(1);
     expect(acts.some((a) => a.startsWith("place")), "nothing was placed").to.equal(false);
     expect(acts).to.include("discard /tmp/boot");
-    expect(pxAll(out).join("\n")).to.match(/gov org add Svayamtech \/home\/rk\/\.gov\/svm\/gov_repo/);
+    expect(pxAll(out).join("\n")).to.match(/gov org add Svayamtech --home \/home\/rk\/\.gov\/svm\/gov_repo/);
   });
 
   it("abandoning setup discards the clone and does NOT register a half-made org", async () => {
