@@ -114,7 +114,14 @@ wait_check() { local repo="$1" sha="$2" name="$3" t0=$SECONDS line
     sleep 10
   done
 }
-job_log() { xo "(dry log)" gh api "repos/$1/actions/jobs/$2/logs" 2>/dev/null || true; }
+# A job's log is often served a few seconds AFTER the job reports completed — one fetch can come back empty, and
+# an assertion over an empty log fails for the wrong reason. Poll until it is there.
+job_log() { if [ "$DRY" = 1 ]; then echo "(dry log)"; return 0; fi; poll gh api "repos/$1/actions/jobs/$2/logs"; }
+# expect_log NAME PATTERN REPO JOB — on a miss, print the gov lines of that job so the failure explains itself.
+expect_log() { local log; log="$(job_log "$3" "$4")"
+  if printf '%s' "$log" | grep -q "$2"; then expect "$1" true; return; fi
+  printf '%s\n' "$log" | grep -E "GOV-FRM|  - |refused|passed|failed" | sed 's/^[^ ]* //' | head -20 >&2 || true
+  expect "$1" false; }
 # Poll `cmd…` until it prints something non-empty; prints it (empty on timeout).
 poll() { local t0=$SECONDS out
   if [ "$DRY" = 1 ]; then printf '  + poll: %s\n' "$*" >&3; echo "dry"; return 0; fi
@@ -305,7 +312,7 @@ PR_C="$(open_pr e2e/policy "policy: a bug fix comes with a test" "$G" "$R_GOV")"
 SHA_C="$(head_of "$R_GOV" "$PR_C")"
 res="$(wait_check "$R_GOV" "$SHA_C" "GOV-FRM-467 · pull_request")"
 expect "(c) GOV-FRM-467 failed on the prose change (got: ${res%% *})" test "${res%% *}" = failure
-expect "(c) GOV-FRM-467 names the section unreviewed" grep -q "was added or changed" <(job_log "$R_GOV" "${res#* }")
+expect_log "(c) GOV-FRM-467 names the section unreviewed" "was added or changed" "$R_GOV" "${res#* }"
 res="$(wait_check "$R_GOV" "$SHA_C" "GOV-FRM-468 · pull_request")"
 LOG468="$(job_log "$R_GOV" "${res#* }")"
 BOT_PUSHED=1
