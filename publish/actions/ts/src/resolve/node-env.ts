@@ -10,7 +10,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { GovConfig, ResolveEnv } from "./types.js";
+import type { GovConfig, HomeCheckFailure, ResolveEnv } from "./types.js";
+import yaml from "js-yaml";
+import { REQUIRED_ORG_CONFIG_KEYS } from "../config/org-config.js";
 import { homeForOrg, parseGovWorkspaces } from "./registry.js";
 
 /** Expand a leading `~` / `~/…` against `$HOME` (matches the bash pointer read). */
@@ -212,6 +214,10 @@ export function createNodeEnv(opts: NodeEnvOptions = {}): ResolveEnv {
       return { org, govWorkspace };
     },
 
+    diagnoseConfigAt(p: string): HomeCheckFailure {
+      return diagnoseOrgConfig(p);
+    },
+
     readActiveOrg(): string | null {
       const raw = readText(activeOrgFile);
       if (raw === null) return null;
@@ -229,4 +235,25 @@ export function createNodeEnv(opts: NodeEnvOptions = {}): ResolveEnv {
       return normalizeHome(a) === normalizeHome(b);
     },
   };
+}
+
+/**
+ * Why a folder's org-config.yaml cannot anchor a gov home (adoption walk #12): MISSING, UNREADABLE (the read
+ * error's code), or READ BUT INVALID — not YAML, or required keys empty (github_org always among those named when
+ * it is, since resolution cannot work without it).
+ */
+export function diagnoseOrgConfig(dir: string): HomeCheckFailure {
+  if (containsBasesSegment(dir)) return { why: "not-a-gov-repo" };
+  const file = path.join(dir, "org-config.yaml");
+  let text: string;
+  try { text = fs.readFileSync(file, "utf8"); }
+  catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    return code === "ENOENT" ? { why: "config-missing" } : { why: "config-unreadable", found: code ?? (e as Error).message };
+  }
+  try { yaml.load(text); }
+  catch (e) { return { why: "config-invalid", found: (e as Error).message.split("\n")[0] }; }
+  const keys = REQUIRED_ORG_CONFIG_KEYS.filter((k) => !(readTopLevelScalar(text, k) ?? "").trim());
+  if (!keys.includes("github_org") && !(readTopLevelScalar(text, "github_org") ?? "").trim()) keys.unshift("github_org");
+  return { why: "config-invalid", keys: keys.length ? keys : ["github_org"] };
 }

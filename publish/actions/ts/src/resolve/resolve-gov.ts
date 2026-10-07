@@ -84,7 +84,7 @@ function walkForOrg(env: ResolveEnv): { org: string; home: string } | null {
  */
 function confirmHome(env: ResolveEnv, home: string, org: string): HomeCheckFailure | null {
   const cfg = env.govConfigAt(home);
-  if (cfg === null) return { why: "not-a-gov-repo" };
+  if (cfg === null) return env.diagnoseConfigAt?.(home) ?? { why: "not-a-gov-repo" };
   if (cfg.org !== org) return { why: "org-mismatch", found: cfg.org };
   if (cfg.govWorkspace !== null && !env.sameHome(cfg.govWorkspace, home)) {
     return { why: "not-canonical", found: cfg.govWorkspace };
@@ -146,6 +146,10 @@ export function resolveFailureMessage(r: Extract<ResolveResult, { ok: false }>):
       );
     case "pointer-mismatch": {
       const base = `The registry points ${r.activeOrg} → ${r.home}, but `;
+      const configProblem = orgConfigProblem(r.home, r.detail);
+      if (configProblem) {
+        return base + configProblem + ` Or re-point it with \`gov org add ${r.activeOrg} <path>\`, or drop it with \`gov org remove ${r.activeOrg}\`.`;
+      }
       const tail =
         r.detail.why === "not-a-gov-repo"
           ? "that path is not a gov repo (no org-config.yaml)."
@@ -156,5 +160,26 @@ export function resolveFailureMessage(r: Extract<ResolveResult, { ok: false }>):
       // re-pointing needs a path that may not exist. Offer both: re-point it, or drop it.
       return base + tail + ` Re-point it with \`gov org add ${r.activeOrg} <path>\`, or drop it with \`gov org remove ${r.activeOrg}\`.`;
     }
+  }
+}
+
+/**
+ * WHAT IS WRONG WITH A HOME'S org-config.yaml, AND THE FIX — one sentence per state (adoption walk #12, 2026-10-07).
+ * null for a failure that is not about the file. Shared by the resolver and `gov org add`.
+ */
+export function orgConfigProblem(home: string, d: HomeCheckFailure): string | null {
+  const file = `${home.replace(/[\\/]$/, "")}/org-config.yaml`;
+  switch (d.why) {
+    case "config-missing":
+      return `that folder has no org-config.yaml. If it was committed, restore it: \`git -C ${home} checkout -- org-config.yaml\`.`;
+    case "config-unreadable":
+      return `its org-config.yaml is there but could not be read (${d.found ?? "read error"}). Make it readable: \`chmod u+r ${file}\`.`;
+    case "config-invalid":
+      return d.keys?.length
+        ? `its org-config.yaml is there but not in the shape gov reads: ${d.keys.join(", ")} ${d.keys.length === 1 ? "is" : "are"} empty or missing. ` +
+          `If an upgrade blanked it, restore the filled version from history (\`git -C ${home} log -p -- org-config.yaml\`, then \`git -C ${home} checkout <commit> -- org-config.yaml\`); otherwise fill ${d.keys.length === 1 ? "it" : "them"} in.`
+        : `its org-config.yaml is there but is not valid YAML (${d.found ?? "parse error"}). Fix the file, or restore it from history: \`git -C ${home} log -p -- org-config.yaml\`.`;
+    default:
+      return null;
   }
 }

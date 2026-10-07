@@ -194,7 +194,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
     const p = path.join(adopterDir, rel);
     return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null;
   };
-  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire);
+  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned);
 
   if (!opts.apply) {
     return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), "", "Re-run with --apply to write these changes."] };
@@ -264,6 +264,15 @@ function refusedLines(plan: ReturnType<typeof planUpgrade>): string[] {
 function git(dir: string, args: string[]): string {
   return runProcess("git", ["-C", dir, ...args], { pgm: "gov-work:maintain:upgrade-run", fn: "git" }).trim();
 }
+/** The line of a git failure that says what went wrong: its `fatal:` line, else the last one. */
+function gitReason(message: string): string {
+  const lines = message.split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.find((l) => l.startsWith("fatal:")) ?? lines.pop() ?? "git failed";
+}
+function branchExists(dir: string, branch: string): boolean {
+  try { git(dir, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]); return true; }
+  catch { return false; /* rev-parse --verify exits non-zero for a ref that is not there: the ordinary case */ }
+}
 function contentVersion(dir: string): string {
   const p = path.join(dir, "VERSION");
   return fs.existsSync(p) ? fs.readFileSync(p, "utf8").trim() : "latest";
@@ -296,7 +305,13 @@ function upgradePrBody(version: string, appliedCount: number, plan: ReturnType<t
 export type CompileRules = (adopterDir: string) => readonly string[];
 
 /** Create a gov-upgrade branch with the full plan applied, push it, open a PR. */
-export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string; compileRules?: CompileRules; userHome?: string } = {}): UpgradeSyncResult {
+/** Open the pull request; returns its URL. Injected so a test never reaches gh. */
+export type OpenPr = (args: { cwd: string; base: string; head: string; title: string; body: string }) => string;
+
+const ghOpenPr: OpenPr = ({ cwd, base, head, title, body }) =>
+  runProcess("gh", ["pr", "create", "--base", base, "--head", head, "--title", title, "--body", body], { cwd, pgm: "gov-work:maintain:upgrade-run", fn: "pr-create" }).trim();
+
+export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string; compileRules?: CompileRules; userHome?: string; openPr?: OpenPr } = {}): UpgradeSyncResult {
   if (!fs.existsSync(path.join(contentDir, "MANIFEST.yaml"))) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
   try { git(adopterDir, ["rev-parse", "--git-dir"]); } catch { /* not a git repository: the message below is the account of it */ return { code: 1, lines: ["gov upgrade --pr: not a git repository (or no remote). Use --apply for an in-place migration instead."] }; }
   if (git(adopterDir, ["status", "--porcelain"])) return { code: 1, lines: ["gov upgrade --pr: working tree has uncommitted changes — commit or stash first."] };
@@ -304,18 +319,35 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const version = contentVersion(contentDir);
   const branch = opts.branch ?? `gov-upgrade-${version}`;
   const base = git(adopterDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  // A detached HEAD has no branch name to return to — its commit is the place to go back to.
+  const returnTo = base === "HEAD" ? git(adopterDir, ["rev-parse", "HEAD"]) : base;
 
   const manifest = parseManifest(fs.readFileSync(path.join(contentDir, "MANIFEST.yaml"), "utf8"));
   const entries = expandEntries(manifest, walk(contentDir));
   const readContent = (rel: string): string | null => { const p = path.join(contentDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
   const readAdopter = (rel: string): string | null => { const p = path.join(adopterDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
-  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire);
-  if (plan.actions.every((a) => a.kind === "same")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
+  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned);
+  if (plan.actions.every((a) => a.kind === "same" || a.kind === "keep")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
   // Before the branch exists: a PR that silently lacks the org-config merge would read as a complete upgrade.
   if (plan.actions.some((a) => a.kind === "refuse")) return { code: 1, lines: ["gov upgrade --pr: refused — nothing was written.", ...refusedLines(plan)] };
   // A refusal can only be found once the migration runs, if the workspace changed under the plan; the PR then stops.
 
-  try { git(adopterDir, ["checkout", "-b", branch]); } catch { /* the branch already exists — the runner logged the git failure; the message below says what to do */ return { code: 1, lines: [`gov upgrade --pr: branch '${branch}' already exists — delete it or pass --branch <name>.`] }; }
+  // A BRANCH LEFT BY AN EARLIER RUN (adoption walk #10): the usual cause is an upgrade PR that was closed or merged.
+  // Say that, and the exact command, rather than a bare "already exists" — and change nothing.
+  if (branchExists(adopterDir, branch)) {
+    return { code: 1, lines: [
+      `gov upgrade --pr: branch '${branch}' already exists in this clone — most likely left by an earlier \`gov upgrade --pr\`.`,
+      `  If that PR is closed or merged, delete the branch and run again:  git -C ${adopterDir} branch -D ${branch}`,
+      `  If that PR is still open, review and merge it instead — or upgrade on another branch: --branch <name>.`,
+    ] };
+  }
+  try { git(adopterDir, ["checkout", "-b", branch]); } catch (e) { return { code: 1, lines: [`gov upgrade --pr: could not create branch '${branch}': ${(e as Error).message.split("\n")[0]}`] }; }
+  // BACK TO WHERE IT WAS, whatever happens next (adoption walk #10). Left on the upgrade branch, a closed PR made
+  // gov unable to resolve its own repository from this clone. The commit lives on the branch; the clone goes home.
+  const goBack = (): string[] => {
+    try { git(adopterDir, ["checkout", "-q", returnTo]); return [`  switched this clone back to ${base === "HEAD" ? returnTo.slice(0, 12) : base} — the upgrade is on ${branch}`]; }
+    catch (e) { return [`  ⚠ could not switch this clone back to ${base}: ${(e as Error).message.split("\n")[0]} — run: git -C ${adopterDir} checkout ${returnTo}`]; }
+  };
   const res = applyUpgrade(plan, {
     readContent, readAdopter,
     writeAdopter: (rel, t) => { const p = path.join(adopterDir, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, t); },
@@ -343,16 +375,20 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   // put the new rules into force, and by `gov sync`.
   const compiledLines = [...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
 
-  git(adopterDir, ["add", "-A"]);
-  git(adopterDir, ["commit", "-m", `gov upgrade: sync framework content to ${version}`]);
-  try { git(adopterDir, ["push", "-u", "origin", branch]); } catch (e) { return { code: 1, lines: [`Applied on ${branch} but push failed: ${(e as Error).message.split("\n")[0]}`] }; }
+  try {
+    git(adopterDir, ["add", "-A"]);
+    git(adopterDir, ["commit", "-m", `gov upgrade: sync framework content to ${version}`]);
+  } catch (e) {
+    return { code: 1, lines: [`gov upgrade --pr: could not commit on ${branch}: ${(e as Error).message.split("\n")[0]}`, ...goBack()] };
+  }
+  try { git(adopterDir, ["push", "-u", "origin", branch]); } catch (e) { return { code: 1, lines: [`Applied on ${branch} but push failed: ${(e as Error).message.split("\n")[0]}`, ...goBack()] }; }
   let prUrl: string;
   try {
-    prUrl = runProcess("gh", ["pr", "create", "--base", base, "--head", branch, "--title", `gov upgrade → framework content ${version}`, "--body", upgradePrBody(version, res.applied.length, plan)], { cwd: adopterDir, pgm: "gov-work:maintain:upgrade-run", fn: "pr-create" }).trim();
+    prUrl = (opts.openPr ?? ghOpenPr)({ cwd: adopterDir, base, head: branch, title: `gov upgrade → framework content ${version}`, body: upgradePrBody(version, res.applied.length, plan) });
   } catch (e) {
-    return { code: 0, lines: [`Pushed ${branch} (open the PR manually — gh failed): ${(e as Error).message.split("\n")[0]}`, ...compiledLines] };
+    return { code: 0, lines: [`Pushed ${branch} (open the PR manually — gh failed): ${(e as Error).message.split("\n")[0]}`, ...compiledLines, ...goBack()] };
   }
-  return { code: 0, lines: [`Opened upgrade PR: ${prUrl}`, `  ${branch} → ${base} · ${res.applied.length} file(s) changed`, ...compiledLines, `  Review per-file; keep your customizations where the diff replaces them, then merge.`] };
+  return { code: 0, lines: [`Opened upgrade PR: ${prUrl}`, `  ${branch} → ${base} · ${res.applied.length} file(s) changed`, ...compiledLines, `  Review per-file; keep your customizations where the diff replaces them, then merge.`, ...goBack()] };
 }
 
 import * as os from "node:os";
@@ -362,23 +398,32 @@ export const DEFAULT_TEMPLATE = "https://github.com/svayam-opensource/governed-a
 
 /**
  * Fetch publish/content from the template remote into a temp dir (sparse, shallow
- * — only publish/content is materialized). Returns the content dir + a cleanup fn.
+ * — only publish/content is materialized). Returns the content dir, the commit it
+ * holds, and a cleanup fn. `ref` is a branch, a tag or a FULL commit sha — the
+ * default ref is the commit gov was built from (build-identity.ts), which
+ * `git clone --branch` cannot take, so this inits and fetches the one ref.
  * `templateUrl` may be a URL or a local path (for testing).
  */
-export function fetchTemplateContent(templateUrl: string, ref: string): { contentDir: string; cleanup: () => void } {
+export function fetchTemplateContent(templateUrl: string, ref: string): { contentDir: string; cleanup: () => void; commit: string | null } {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gov-content-"));
   const cleanup = () => fs.rmSync(tmp, { recursive: true, force: true });
+  const g = (args: string[]): string => runProcess("git", ["-C", tmp, ...args], { pgm: "gov-work:maintain:upgrade-run", fn: "fetch-template" });
   try {
-    runProcess("git", ["clone", "--depth", "1", "--filter=blob:none", "--sparse", "--branch", ref, templateUrl, tmp], { pgm: "gov-work:maintain:upgrade-run", fn: "fetch-template" });
-    runProcess("git", ["-C", tmp, "sparse-checkout", "set", "publish/content"], { pgm: "gov-work:maintain:upgrade-run" });
+    g(["init", "-q"]);
+    g(["remote", "add", "origin", templateUrl]);
+    g(["sparse-checkout", "set", "publish/content"]);
+    g(["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", ref]);
+    g(["checkout", "-q", "FETCH_HEAD"]);
   } catch (e) {
     cleanup();
-    throw new Error(`could not fetch content from ${templateUrl}@${ref}: ${(e as Error).message.split("\n").pop()}`, { cause: e });
+    throw new Error(`could not fetch content from ${templateUrl}@${ref}: ${gitReason((e as Error).message)}`, { cause: e });
   }
   const contentDir = path.join(tmp, "publish", "content");
   if (!fs.existsSync(path.join(contentDir, "MANIFEST.yaml"))) {
     cleanup();
     throw new Error(`fetched ${templateUrl}@${ref} but publish/content/MANIFEST.yaml is not there`);
   }
-  return { contentDir, cleanup };
+  let commit: string | null = null;
+  try { commit = g(["rev-parse", "HEAD"]).trim(); } catch { /* the content is there; only the label for a refusal is missing */ }
+  return { contentDir, cleanup, commit };
 }
