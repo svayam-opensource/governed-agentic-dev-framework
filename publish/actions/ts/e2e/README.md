@@ -42,6 +42,16 @@ seed → task → merge (issue closed) → knowledge propose → close (board sh
 be able to create repos + projects in `E2E_ORG` (org owner, or member with repo
 creation enabled; SSO-authorize the token if the org enforces SSO).
 
+**`delete_repo` is required**, not optional: without it every run leaks its repos
+into the sandbox (the first live run, 2026-10-07, left `rmj-…-gov` / `rmj-…-app`).
+Both live journeys read the token's scopes at START (`gh api -i user` →
+`x-oauth-scopes`, `e2e/token-scopes.sh`); a token without `delete_repo` gets a
+`::warning::` naming the scope and the repos it will leak, and the run carries on.
+A fine-grained token has no scope header — the journey says it cannot tell; it
+needs **Administration: read and write** on the sandbox's repositories. Teardown
+ends by listing exactly what it could not delete. Check a token by hand with
+`gh api -i user | grep -i x-oauth-scopes`.
+
 ## CI
 
 `.github/workflows/adopter-e2e.yml`:
@@ -87,6 +97,12 @@ bash e2e/rule-model-journey.sh --dry-run   # hermetic: prints every gh/git/gov c
    nothing fails.
 3. **`GEMINI_API_KEY`** in the framework repo's secrets — used only by a manual
    run (Actions → adopter-e2e → Run workflow → `real_model`).
-4. Already present: `TESTBED_BOT_PAT` (classic: `repo`, `workflow`, `project`,
-   `read:org`, `delete_repo`; its owner is an org owner of the sandbox, so it can
-   add repos to the App installation) and the variable `TESTBED_SANDBOX_ORG`.
+4. **`TESTBED_BOT_PAT`** (classic: `repo`, `workflow`, `project`, `read:org` **and
+   `delete_repo`** — REQUIRED, or every run leaks its repos; its owner is an org owner
+   of the sandbox, so it can add repos to the App installation) and the variable
+   `TESTBED_SANDBOX_ORG`. The token that ran on 2026-10-07 lacked `delete_repo`:
+   as its owner, github.com → Settings → Developer settings → Personal access tokens
+   (classic) → the token → tick `delete_repo` → Update token (the value is unchanged,
+   so the secret needs no update). Delete any `rmj-*` / `gov-e2e-*` repos it left in
+   the sandbox; the rule-model journey also sweeps `rmj-*` leftovers older than two
+   hours once it can delete.

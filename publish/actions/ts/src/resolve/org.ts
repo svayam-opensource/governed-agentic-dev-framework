@@ -32,7 +32,7 @@ export function orgAdd(deps: OrgDeps, org: string, homePath: string): OrgResult 
 /** Select the active org (must already be registered). */
 export function orgUse(deps: OrgDeps, org: string): OrgResult {
   if (homeForOrg(deps.store.readHomes(), org) === null) {
-    return { ok: false, code: 1, message: `Org '${org}' is not registered — add it first: prj org add ${org} <home>.` };
+    return { ok: false, code: 1, message: `Org '${org}' is not registered — add it first: gov org add ${org} --home <path>.` };
   }
   deps.store.writeActiveOrg(org);
   return { ok: true, lines: [`Active org → ${org}`] };
@@ -42,7 +42,7 @@ export function orgUse(deps: OrgDeps, org: string): OrgResult {
 export function orgList(deps: OrgDeps): OrgResult {
   const homes = deps.store.readHomes();
   const active = deps.store.readActiveOrg();
-  if (homes.length === 0) return { ok: true, lines: ["No orgs registered. Add one: prj org add <org> <home>."] };
+  if (homes.length === 0) return { ok: true, lines: ["No orgs registered. Add one: gov org add <github_org> --home <path>."] };
   const lines = homes.map((h: GovHome) => `${h.org === active ? "* " : "  "}${h.org}\t${h.home}`);
   return { ok: true, lines: ["Registered gov homes (* = active):", ...lines] };
 }

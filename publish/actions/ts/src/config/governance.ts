@@ -272,3 +272,43 @@ models:
   ci_allowed: false
 `;
 }
+
+/**
+ * Set a scalar in governance.yaml text, keeping every other byte: a top-level `key: value` line, or `  leaf: value`
+ * inside a top-level block. A block written in flow style (`policy_owner: { … }`) is rewritten as a block. Absent
+ * entirely → appended. A comment at the end of the edited line is kept.
+ */
+export function setGovernanceScalar(text: string, path: readonly string[], value: string): string {
+  const quoted = JSON.stringify(value);
+  const lines = text.split("\n");
+  const [top, leaf] = path;
+  const at = lines.findIndex((l) => new RegExp(`^${top}\\s*:`).test(l));
+  if (leaf === undefined) {
+    if (at === -1) return `${text.replace(/\n*$/, "\n")}${top}: ${quoted}\n`;
+    lines[at] = `${top}: ${quoted}${trailingComment(lines[at]!)}`;
+    return lines.join("\n");
+  }
+  if (at === -1) return `${text.replace(/\n*$/, "\n")}${top}:\n  ${leaf}: ${quoted}\n`;
+  const flow = /^[^:]+:\s*\{(.*)\}\s*(#.*)?$/.exec(lines[at]!);
+  if (flow) {
+    const entries = (flow[1] ?? "").split(",").map((p) => /^\s*([a-z_]+)\s*:\s*(.*?)\s*$/i.exec(p)).filter((m): m is RegExpExecArray => !!m);
+    const out = [`${top}:`, ...entries.map((m) => `  ${m[1]}: ${m[1] === leaf ? quoted : m[2]}`)];
+    if (!entries.some((m) => m[1] === leaf)) out.push(`  ${leaf}: ${quoted}`);
+    lines.splice(at, 1, ...out);
+    return lines.join("\n");
+  }
+  for (let i = at + 1; i < lines.length; i++) {
+    const l = lines[i]!;
+    if (/^\S/.test(l)) { lines.splice(i, 0, `  ${leaf}: ${quoted}`); return lines.join("\n"); }   // block ended
+    const m = new RegExp(`^(\\s+)${leaf}\\s*:`).exec(l);
+    if (m) { lines[i] = `${m[1]}${leaf}: ${quoted}${trailingComment(l)}`; return lines.join("\n"); }
+  }
+  lines.push(`  ${leaf}: ${quoted}`);
+  return lines.join("\n");
+}
+
+/** The ` # …` comment at the end of a `key: value` line ("" when none) — a `#` inside a quoted value is not one. */
+function trailingComment(line: string): string {
+  const m = /^\s*[^:#]+:\s*(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^#]*?)(\s+#.*)?$/.exec(line);
+  return m?.[1] ?? "";
+}

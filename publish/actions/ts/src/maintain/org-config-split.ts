@@ -26,7 +26,10 @@
  */
 import { readTopLevelScalar } from "../resolve/node-env.js";
 import { parseOrgConfig, defaultWorkRoot } from "../config/org-config.js";
-import { parseGovernance, classifyPosture } from "../config/governance.js";
+import { parseGovernance, classifyPosture, renderGovernance, EMPTY_GOVERNANCE_VALUES, setGovernanceScalar } from "../config/governance.js";
+
+/** Re-exported: it lived here before setup needed it too. */
+export { setGovernanceScalar };
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { normalizeHandle } from "../config/codeowners.js";
 import { parseRoleList } from "../config/role-list.js";
@@ -89,40 +92,6 @@ function governanceValue(govText: string, path: readonly string[]): string {
 
 /** The template's own value at a path: an org-config value replaces only this. */
 const TEMPLATE_DEFAULT: Readonly<Record<string, string>> = { governance_posture: "soft", knowledge_publication: "none" };
-
-/**
- * Set a scalar in governance.yaml text, keeping every other byte: a top-level `key: value` line, or `  leaf: value`
- * inside a top-level block. A block written in flow style (`policy_owner: { … }`) is rewritten as a block. Absent
- * entirely → appended.
- */
-export function setGovernanceScalar(text: string, path: readonly string[], value: string): string {
-  const quoted = JSON.stringify(value);
-  const lines = text.split("\n");
-  const [top, leaf] = path;
-  const at = lines.findIndex((l) => new RegExp(`^${top}\\s*:`).test(l));
-  if (leaf === undefined) {
-    if (at === -1) return `${text.replace(/\n*$/, "\n")}${top}: ${quoted}\n`;
-    lines[at] = `${top}: ${quoted}`;
-    return lines.join("\n");
-  }
-  if (at === -1) return `${text.replace(/\n*$/, "\n")}${top}:\n  ${leaf}: ${quoted}\n`;
-  const flow = /^[^:]+:\s*\{(.*)\}\s*(#.*)?$/.exec(lines[at]!);
-  if (flow) {
-    const entries = (flow[1] ?? "").split(",").map((p) => /^\s*([a-z_]+)\s*:\s*(.*?)\s*$/i.exec(p)).filter((m): m is RegExpExecArray => !!m);
-    const out = [`${top}:`, ...entries.map((m) => `  ${m[1]}: ${m[1] === leaf ? quoted : m[2]}`)];
-    if (!entries.some((m) => m[1] === leaf)) out.push(`  ${leaf}: ${quoted}`);
-    lines.splice(at, 1, ...out);
-    return lines.join("\n");
-  }
-  for (let i = at + 1; i < lines.length; i++) {
-    const l = lines[i]!;
-    if (/^\S/.test(l)) { lines.splice(i, 0, `  ${leaf}: ${quoted}`); return lines.join("\n"); }   // block ended
-    const m = new RegExp(`^(\\s+)${leaf}\\s*:`).exec(l);
-    if (m) { lines[i] = `${m[1]}${leaf}: ${quoted}`; return lines.join("\n"); }
-  }
-  lines.push(`  ${leaf}: ${quoted}`);
-  return lines.join("\n");
-}
 
 /** The lines of a top-level key: its own line and everything indented (or blank) beneath it, up to the next key. */
 function keyExtent(lines: readonly string[], i: number): number {
@@ -204,11 +173,16 @@ function fillRoleList(roleList: string | null, orgConfig: string): string | null
 export function splitOrgConfig(input: SplitInput): SplitResult {
   const cfg = input.orgConfig;
   let gov = input.governance ?? "";
+  // GOV-FRM-445: a value the org WROTE is never replaced — only an empty one is filled. The template's own defaults
+  // (`soft`, `none`) count as empty only while the file IS the template, untouched: in a file the org has edited,
+  // `soft` is their answer, and an org-config that disagrees is a loss for a person to reconcile (splitLoss).
+  const isTemplate = gov.trim() === "" || gov === renderGovernance(EMPTY_GOVERNANCE_VALUES);
   for (const { key, path } of TO_GOVERNANCE) {
     const v = scalar(cfg, key);
     if (!v) continue;
     const now = governanceValue(gov, path);
-    if (now === "" || now === TEMPLATE_DEFAULT[path.join(".")]) gov = setGovernanceScalar(gov, path, v);
+    if (now === v) continue;
+    if (now === "" || (isTemplate && now === TEMPLATE_DEFAULT[path.join(".")])) gov = setGovernanceScalar(gov, path, v);
   }
   if (hasKey(cfg, "authorized_agents") && readAuthorizedAgents(gov).kind === "unset") {
     const agents = parseAuthorizedAgents(cfg);

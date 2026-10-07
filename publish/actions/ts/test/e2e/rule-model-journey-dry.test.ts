@@ -66,6 +66,13 @@ describe("e2e/rule-model-journey.sh --dry-run", function () {
     expect(out).to.match(/\+ gh repo delete \S+\/rmj-dry-app --yes/);
   });
 
+  it("checks the token's scopes at START, before it creates anything it may not be able to delete", () => {
+    const at = out.indexOf("+ gh api -i user");
+    expect(at, "the scope check runs").to.be.greaterThan(-1);
+    expect(at, "before the repos are created").to.be.lessThan(out.indexOf("+ gh repo create"));
+    expect(out, "the dry run's token has delete_repo").to.not.include("delete_repo scope");
+  });
+
   it("never prints a secret's value — they go on stdin", () => {
     expect(out).to.not.include("SECRET");
     expect(out).to.include("gh secret set GOV_APP_PRIVATE_KEY");
