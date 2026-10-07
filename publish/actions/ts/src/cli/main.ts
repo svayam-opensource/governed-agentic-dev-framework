@@ -100,7 +100,7 @@ import { rulesFacts } from "./rules-verb.js";
 import { clearPending, readPending } from "../rules-pending.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
-import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
+import { ensureStarterProject, starterProject, starterSummary } from "../lifecycle/starter-project.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
 import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
@@ -1298,16 +1298,17 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       })();
       if (!cfg) return ["  (no workspace resolved yet — skipping the starter project)"];
 
-      const spec = starterProject(cfg.org, cfg.repo);
-      const boardUrl = tryRun("gh", ["project", "create", "--owner", cfg.org, "--title", spec.boardTitle, "--format", "json"])
-        ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null;
+      // REUSED WHEN ONE IS OPEN (adoption walk #5): every run used to make another — the walk found 17.
       const issues = createGhIssues((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
-      const issueUrl = boardUrl ? issues.create(spec.issueRepo, spec.issueTitle, spec.issueBody, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")) : null;
-      if (boardUrl && issueUrl) {
-        const n = Number(boardUrl.match(/\/projects\/(\d+)/)?.[1] ?? 0);
-        if (n) issues.addToBoard(cfg.org, n, issueUrl);
-      }
-      return ["", "Starter project:", ...starterSummary({ boardUrl, issueUrl, seeded: false })];
+      const projects = createGhProjects((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
+      const outcome = ensureStarterProject({
+        listBoards: (owner) => { const b = projects.listBoards(owner); return projects.lastFailure?.() ? null : b; },
+        createBoard: (owner, title) => tryRun("gh", ["project", "create", "--owner", owner, "--title", title, "--format", "json"])
+          ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null,
+        createIssue: (repo, title, body) => issues.create(repo, title, body, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")),
+        addToBoard: (owner, n, url) => { issues.addToBoard(owner, n, url); },
+      }, cfg.org, cfg.repo);
+      return ["", "Starter project:", ...starterSummary(outcome)];
     },
     // THE LAST STEP, DONE RATHER THAN DESCRIBED (#203). The same code path as
     // `gov` -> 1. Work -> pick the review project, reached from the question that
