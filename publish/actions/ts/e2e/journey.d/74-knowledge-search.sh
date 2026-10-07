@@ -56,7 +56,9 @@ info "the agent's answer is the same answer, as data"
 # belongs on stderr — so `gov knowledge search --json | jq` works without a single filter. Merging the two
 # streams here would have tested the opposite thing, and passed.
 ( cd "$REMOTE" && gov knowledge search "restricted data" --json >"$WORLD/k-json.out" 2>"$WORLD/k-json.err" )
-python3 -c "import json; d=json.load(open('$WORLD/k-json.out')); assert d['results'][0]['path'].endswith('data-classification.md'), d" 2>/dev/null \
+# Parsed with node, which every image that runs gov has: debian:stable-slim ships no python3, and a missing
+# interpreter read as "not pure JSON" there.
+node -e 'const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); if (!d.results[0].path.endsWith("data-classification.md")) process.exit(1)' "$WORLD/k-json.out" 2>/dev/null \
   && pass "stdout is pure JSON, and ranks the owning document first" || { fail "stdout is pure JSON, and ranks the owning document first"; cat "$WORLD/k-json.out"; }
 
 info "a miss is a dead end that offers the next move"
