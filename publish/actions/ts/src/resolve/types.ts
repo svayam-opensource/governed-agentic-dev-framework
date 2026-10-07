@@ -72,7 +72,7 @@ export interface HomeCheckFailure {
    * `config-missing` / `config-unreadable` / `config-invalid` refine `not-a-gov-repo` when the env can tell them
    * apart: the file is not there; it is there but could not be read; it was read but is not usable (`keys`).
    */
-  readonly why: "not-a-gov-repo" | "config-missing" | "config-unreadable" | "config-invalid" | "org-mismatch" | "not-canonical";
+  readonly why: "not-a-gov-repo" | "folder-missing" | "config-missing" | "config-unreadable" | "config-invalid" | "org-mismatch" | "not-canonical";
   /** The conflicting value found (the actual org, or the actual gov_workspace); the read error's code; the parse error. */
   readonly found?: string;
   /** `config-invalid`: the required keys that are empty or absent. */

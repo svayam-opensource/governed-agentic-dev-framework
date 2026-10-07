@@ -244,6 +244,9 @@ export function createNodeEnv(opts: NodeEnvOptions = {}): ResolveEnv {
  */
 export function diagnoseOrgConfig(dir: string): HomeCheckFailure {
   if (containsBasesSegment(dir)) return { why: "not-a-gov-repo" };
+  // The FOLDER itself gone is not "org-config.yaml missing": advising `git checkout` inside a folder that no longer
+  // exists is advice that cannot be followed (journey scenario 72, after the adoption walk's #12 fix).
+  if (!fs.existsSync(dir)) return { why: "folder-missing" };
   const file = path.join(dir, "org-config.yaml");
   let text: string;
   try { text = fs.readFileSync(file, "utf8"); }

@@ -38,6 +38,14 @@ describe("the resolver names WHY a home's org-config.yaml cannot be used", () =>
     expect(msg).to.include(`git -C ${home} checkout -- org-config.yaml`);
   });
 
+  it("the FOLDER gone: says so, and never advises a git checkout inside a folder that does not exist", () => {
+    const home = path.join(tmp("cfgstate-gone-"), "deleted-by-a-test");
+    const msg = resolveFailureMessage(failureFor(home));
+    expect(msg).to.include("that folder no longer exists");
+    expect(msg).to.not.include("checkout");
+    expect(msg).to.include("gov org remove svm-geneva");
+  });
+
   it("readable but invalid (the blank template an upgrade left): names the empty keys, never says the file is missing", () => {
     const home = tmp("cfgstate-blank-");
     fs.writeFileSync(path.join(home, "org-config.yaml"), BLANK);

@@ -170,6 +170,8 @@ export function resolveFailureMessage(r: Extract<ResolveResult, { ok: false }>):
 export function orgConfigProblem(home: string, d: HomeCheckFailure): string | null {
   const file = `${home.replace(/[\\/]$/, "")}/org-config.yaml`;
   switch (d.why) {
+    case "folder-missing":
+      return "that folder no longer exists.";
     case "config-missing":
       return `that folder has no org-config.yaml. If it was committed, restore it: \`git -C ${home} checkout -- org-config.yaml\`.`;
     case "config-unreadable":
