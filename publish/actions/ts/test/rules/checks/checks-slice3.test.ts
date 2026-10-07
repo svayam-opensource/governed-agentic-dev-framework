@@ -323,6 +323,28 @@ describe("gov check run", () => {
     expect(calls.some((c) => c.includes("repos/acme/acme-gov/pulls/42/requested_reviewers") && c.includes('<{"reviewers":["chuck"]}'))).to.equal(true);
   });
 
+  it("in GitHub Actions, each finding is ALSO an annotation — ::error with the rule id, the policy file and its line", () => {
+    const d = deps({ git: prGit, gh: prGh("[]")([]), event: PR_EVENT, env: { GITHUB_EVENT_NAME: "pull_request", GITHUB_ACTIONS: "true" } });
+    const head = POLICY.replace("Keep it safe.", "Keep it very safe.");
+    const r = run(ARGS, { ...d, readFile: (f) => (f === "/gov/policies/org-policy.md" ? head : d.readFile(f)) });
+    const ann = r.lines.filter((l) => l.startsWith("::"));
+    expect(ann, r.lines.join("\n")).to.have.length(1);
+    expect(ann[0]).to.match(/^::error title=GOV-FRM-455,file=policies\/org-policy\.md,line=1::GOV-FRM-455 \[gov-builtin\/section-owner-approval\]: @chuck has not approved/);
+    // The human output is the same with or without Actions — the annotations are only added, at the end.
+    const plain = run(ARGS, deps({ git: prGit, gh: prGh("[]")([]), event: PR_EVENT, env: { GITHUB_EVENT_NAME: "pull_request" } }));
+    expect(plain.lines.some((l) => l.startsWith("::"))).to.equal(false);
+    expect(r.lines.slice(0, plain.lines.length)).to.deep.equal(plain.lines);
+  });
+
+  it("in GitHub Actions, cannot-tell findings are ::warning annotations; rules that cannot be read are one too", () => {
+    const soft = run(ARGS, deps({ event: undefined, env: { GITHUB_ACTIONS: "true" } }));
+    expect(soft.lines.filter((l) => l.startsWith("::")).every((l) => l.startsWith("::warning title=GOV-FRM-455::"))).to.equal(true);
+    expect(soft.lines.some((l) => l.startsWith("::warning"))).to.equal(true);
+    const unread = run(ARGS, deps({ git: () => null, env: { GITHUB_ACTIONS: "true" } }));
+    expect(unread.lines.filter((l) => l.startsWith("::"))).to.have.length(1);
+    expect(unread.lines.find((l) => l.startsWith("::"))).to.match(/^::warning title=GOV-FRM-455::GOV-FRM-455: the rules could not be read/);
+  });
+
   it("approved by the owner → pass, exit 0", () => {
     const r = run(ARGS, deps({ git: prGit, gh: prGh(reviewsBy("chuck"))([]), event: PR_EVENT, env: { GITHUB_EVENT_NAME: "pull_request" } }));
     expect(r.code, r.lines.join("\n")).to.equal(0);

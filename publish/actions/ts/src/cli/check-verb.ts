@@ -44,6 +44,7 @@ import type { PolicyPrInput } from "../rules/policy-pr/gate.js";
 import type { BuiltinOutcome } from "../rules/checks/builtin.js";
 import { PROPOSE_ACTION } from "../rules/checks/builtin.js";
 import { checkInstallAll, checkStatus, type ScopeDeps } from "./check-scope.js";
+import { annotationLines, type AnnotationVerdict } from "../rules/checks/annotations.js";
 
 export interface CheckVerbDeps {
   readonly git: GitRead;
@@ -126,10 +127,28 @@ export async function checkCommandAsync(
   return checkCommand(positionals, flags, { ...deps, rulesPropose: outcome }, cfg);
 }
 
+/**
+ * {@link judge}, and — inside GitHub Actions — each finding again as a workflow command (rules/checks/annotations.ts),
+ * after the human output, which stays exactly as it is outside Actions. The annotations are what a reader of the
+ * check run gets through the API; the log can lag or come back empty.
+ */
 function checkRun(id: string | undefined, flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg: CheckVerbConfig): CommandResult {
+  const judged = judge(id, flags, deps, cfg);
+  if (deps.env.GITHUB_ACTIONS !== "true" || !judged.annotate || !id) return judged.result;
+  const { verdict, read } = judged.annotate;
+  return { ...judged.result, lines: [...judged.result.lines, ...annotationLines(id, verdict, read)] };
+}
+
+interface Judged {
+  readonly result: CommandResult;
+  /** What to annotate: the verdict, and the change's head (repository-relative path → text) to place a section on. */
+  readonly annotate?: { readonly verdict: AnnotationVerdict; readonly read?: (file: string) => string | null };
+}
+
+function judge(id: string | undefined, flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg: CheckVerbConfig): Judged {
   const resource = flagStr(flags, "resource");
   const eventFlag = flagStr(flags, "event");
-  if (!id || !resource || !eventFlag) return usage(RUN_USAGE);
+  if (!id || !resource || !eventFlag) return { result: usage(RUN_USAGE) };
   // Against the directory the job runs in — the rendered code-repo job passes `--gov-home .gov --repo-dir .`, and
   // `.` there is the code repository, not the governance repository checked out inside it.
   const repoDirFlag = flagStr(flags, "repo-dir");
@@ -150,7 +169,10 @@ function checkRun(id: string | undefined, flags: Readonly<Record<string, string 
 
   const ref = defaultRef(deps.git, cfg.home, cfg.defaultBranch);
   const loaded = loadCheckRuleSet(deps.git, cfg.home, ref);
-  if (!loaded.ok) return cannotTell([`${id}: the rules could not be read at ${ref}: ${loaded.reason}.`]);
+  if (!loaded.ok) {
+    const finding = `${id}: the rules could not be read at ${ref}: ${loaded.reason}.`;
+    return { result: cannotTell([finding]), annotate: { verdict: { verdict: "cannot-tell", findings: [finding] } } };
+  }
   const rules = loaded.set;
   const row: RuleRow | undefined = inForce([...rules.framework, ...rules.org]).find((r) => r.id === id);
 
@@ -184,6 +206,10 @@ function checkRun(id: string | undefined, flags: Readonly<Record<string, string 
     ...(repository ? { github: { pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository) } } : {}),
   });
   const verdict = runner.run(id, ctx);
+  // A section finding lands on its heading at the change's head: the pull request's head tree when there is one,
+  // else the checkout the job runs in.
+  const read = (file: string): string | null => (policyPr ? policyPr.head.read(file) : deps.readFile(path.join(repoDir, file)));
+  const done = (result: CommandResult): Judged => ({ result, annotate: { verdict, read } });
   const runUrl = deps.env.GITHUB_SERVER_URL && repository && deps.env.GITHUB_RUN_ID
     ? `${deps.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${deps.env.GITHUB_RUN_ID}` : undefined;
   // SOFT MERGE WITH RED CHECKS (Policy Owner, 2026-10-07). On the landed-by-pr binding, the push also reads the check
@@ -211,8 +237,8 @@ function checkRun(id: string | undefined, flags: Readonly<Record<string, string 
       : `  ! could not request review from ${verdict.requestReview.map((h) => `@${h}`).join(", ")} — ask them by hand`);
   }
 
-  if (verdict.verdict === "pass") return { code: 0, lines: [...lines, `${id} passed (${resource} · ${eventFlag}).`] };
-  if (verdict.verdict === "cannot-tell") return cannotTell(say());
+  if (verdict.verdict === "pass") return done({ code: 0, lines: [...lines, `${id} passed (${resource} · ${eventFlag}).`] });
+  if (verdict.verdict === "cannot-tell") return done(cannotTell(say()));
 
   const mode = rules.catalog.resources.find((r) => r.id === resource)?.events.find((e) => e.name === eventFlag)?.mode;
   if (mode === "observe" && row) {
@@ -220,9 +246,9 @@ function checkRun(id: string | undefined, flags: Readonly<Record<string, string 
       { row, ctx, verdict, rules, ...(runUrl ? { runUrl } : {}) },
       githubViolationPorts(deps.gh, repository, built.issueNumber),
     );
-    return { code: 0, lines: [...lines, ...say(), ...out.lines, `${id}: the event had already happened, so this does not block (exit 0) — the record is the response.`] };
+    return done({ code: 0, lines: [...lines, ...say(), ...out.lines, `${id}: the event had already happened, so this does not block (exit 0) — the record is the response.`] });
   }
-  return { code: 1, lines: [...lines, ...say(), `${id}: refused (exit 1).`] };
+  return done({ code: 1, lines: [...lines, ...say(), `${id}: refused (exit 1).`] });
 }
 
 /**
