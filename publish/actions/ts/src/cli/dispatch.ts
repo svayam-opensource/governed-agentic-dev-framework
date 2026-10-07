@@ -171,6 +171,16 @@ const MOVED_NAMESPACES = new Set(["infra"]);
  *  install is not. Delete an entry the day its package publishes. */
 const UNRELEASED_CLIENTS = new Set(["gov-infra"]);
 
+/**
+ * HOW EACH RELEASED CLIENT IS INSTALLED — the real package, and the registry it is published to (adoption walk #8,
+ * 2026-10-07). `@svayam/gov-cicd` is the name in 910-GOV-CICD/package.json, but its publishConfig sends it to the
+ * Svayam registry only, so `npm i -g @svayam/gov-cicd` against the default registry 404s. An install line has to
+ * work when typed.
+ */
+const CLIENT_INSTALL: Readonly<Record<string, string>> = {
+  "gov-cicd": "npm i -g @svayam/gov-cicd --registry https://npm.svayamtech.com",
+};
+
 const usage = (spec: string): CommandResult => ({ code: 2, lines: [`usage: gov ${spec}`] });
 
 /** Render a PAGINATED project list: "<header> (X–Y of TOTAL):" + rows + a next-page hint when there's more. */
@@ -837,7 +847,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
                ...(UNRELEASED_CLIENTS.has(moved)
                  ? [`  ${moved} is not released yet — these verbs are unavailable, and there is nothing to install.`]
                  : [`  run:  ${moved} ${MOVED_NAMESPACES.has(command) ? "<verb>" : command} …`,
-                    `  (install:  npm i -g @svayam/${moved})`]),
+                    `  (install:  ${CLIENT_INSTALL[moved] ?? `npm i -g @svayam/${moved}`})`]),
                ""]
             : [`unknown command '${command}'`]),
           "bootstrap: setup org",

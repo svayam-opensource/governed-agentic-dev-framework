@@ -12,6 +12,8 @@ import type { Issues } from "../../src/lifecycle/issues.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
 import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 import { RULE_STORE_PATHS } from "../../src/rules/model/store-io.js";
 
@@ -150,6 +152,19 @@ describe("cli — verbs that MOVED to another client", () => {
     const out = lines("promote");
     expect(out).to.contain("gov-cicd promote");
     expect(out).to.contain("npm i -g @svayam/gov-cicd");
+  });
+
+  // ADOPTION WALK #8 (2026-10-07): `gov auth login` printed `npm i -g @svayam/gov-cicd`. The NAME is the real
+  // package's (910-GOV-CICD/package.json), but it is published only to the Svayam registry (its publishConfig), so
+  // the line as printed 404s against the default npm registry. The install line names the registry.
+  it("the install line is one that works when typed — the real package, from the registry it is published to", () => {
+    const out = lines("auth");
+    expect(out).to.contain("npm i -g @svayam/gov-cicd --registry https://npm.svayamtech.com");
+    const sibling = fileURLToPath(new URL("../../../../../../910-GOV-CICD/package.json", import.meta.url));
+    if (existsSync(sibling)) {
+      const pkg = JSON.parse(readFileSync(sibling, "utf8")) as { name: string; publishConfig?: { registry?: string } };
+      expect(out).to.contain(`npm i -g ${pkg.name} --registry ${(pkg.publishConfig?.registry ?? "").replace(/\/$/, "")}`);
+    }
   });
 
   it("still exits 2 — a moved verb is a usage error, not a success", () => {
