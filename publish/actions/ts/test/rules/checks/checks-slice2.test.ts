@@ -440,7 +440,7 @@ describe("check engine slice 2 — the renderer: branches, forced, permissions",
     ], { defaultBranch: "main" });
     const doc = yaml.load(f!.text) as { on: Record<string, unknown>; jobs: Record<string, { permissions?: Record<string, string> }> };
     expect(doc.on).to.deep.equal({ issues: { types: ["closed"] }, push: { branches: ["main"] } });
-    expect(doc.jobs["GOV-FRM-040_push"]!.permissions).to.deep.equal({ contents: "read", issues: "write", "pull-requests": "read" });
+    expect(doc.jobs["GOV-FRM-040_push"]!.permissions).to.deep.equal({ checks: "read", contents: "read", issues: "write", "pull-requests": "read" });
     expect(doc.jobs["GOV-SVM-050_closed"]!.permissions).to.deep.equal({ contents: "read", issues: "write" });
   });
 
@@ -499,6 +499,7 @@ ${steps("GOV-FRM-001", "vcs.gov-repo", "pull_request", false)}  GOV-FRM-040_push
     if: github.event_name == 'push'
     permissions:
       contents: read
+      checks: read
       issues: write
       pull-requests: read
 ${steps("GOV-FRM-040", "vcs.gov-repo", "push", true)}  GOV-FRM-086_pull_request:
