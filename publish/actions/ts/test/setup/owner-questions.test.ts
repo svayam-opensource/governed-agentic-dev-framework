@@ -18,6 +18,7 @@ import { runSetup } from "../../src/setup/setup-run.js";
 import { governanceTokens, parseGovernance } from "../../src/config/governance.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import { px } from "../helpers/paths.js";
+import { agentAnswer } from "../helpers/agents-answer.js";
 
 const pxKeys = (m: Record<string, string>): Record<string, string> => Object.fromEntries(Object.entries(m).map(([k, v]) => [px(k), v]));
 
@@ -80,7 +81,7 @@ describe("gov-work — setup asks both owners by GitHub handle (walk #1)", () =>
         if (/legal name/.test(q)) return "Acme Inc";
         if (/Org slug/.test(q)) return "ACME";
         if (/Policy Owner GitHub handle/.test(q)) return "@alice";
-        return def;
+        return agentAnswer(q) ?? def;
       },
       print: () => {},
     }, true);

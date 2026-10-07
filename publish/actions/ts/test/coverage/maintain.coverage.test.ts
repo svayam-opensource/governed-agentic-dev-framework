@@ -34,6 +34,7 @@ import { makePrivacyValidator } from "../../src/governance/privacy.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { ResolveResult } from "../../src/resolve/types.js";
 import { px } from "../helpers/paths.js";
+import { agentAnswer } from "../helpers/agents-answer.js";
 
 /** A writes-map keyed by normalised path, so a POSIX literal finds an entry the code wrote
  *  with the host separator (Windows). */
@@ -647,7 +648,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
     };
     const code = await runSetup({
       fs: fakeFs(writes), cwd: "/repo", ...CTX, ghUser: "rk", gitEmail: "rk@acme.io",
-      prompt: async (q, def) => answers[q] ?? def,
+      prompt: async (q, def) => agentAnswer(q) ?? answers[q] ?? def,
       print: (l) => printed.push(l),
       setOriginRemote: (u) => { remote = u; },
     }, true);
@@ -681,7 +682,7 @@ describe("coverage — setup: interactive, non-interactive, existing-config, url
       // orgName too: this stub answers every prompt with its default, and an empty
       // default for a required field is now correctly refused rather than accepted.
       existing: { orgSlug: "ACME", orgName: "Acme Inc" },
-      prompt: async (q, def) => { asked.push(q); return def; },
+      prompt: async (q, def) => { asked.push(q); return agentAnswer(q) ?? def; },
       print: (l) => printed.push(l),
     }, true);
     expect(code).to.equal(0);
