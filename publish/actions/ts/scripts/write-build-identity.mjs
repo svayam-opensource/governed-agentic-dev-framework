@@ -24,4 +24,6 @@ const commit = git("rev-parse", "HEAD");
 const dirty = commit !== null && (git("status", "--porcelain", "--", contentDir) ?? "") !== "";
 const { version } = JSON.parse(fs.readFileSync(path.join(pkgRoot, "package.json"), "utf8"));
 const id = writeBuildIdentity(pkgRoot, contentDir, { version, commit, dirty });
-console.log(`build identity: content ${id.contentFingerprint.slice(7, 19)}${commit ? ` @ ${commit.slice(0, 12)}${dirty ? " (+ uncommitted content)" : ""}` : " (no git commit)"}`);
+// STDERR, never stdout: this runs inside `npm pack --json` (prepack → build → postbuild), and gov-cicd parses that
+// stdout as JSON — a log line there broke every deploy of gov ("build iden… is not valid JSON", 2026-10-07).
+console.error(`build identity: content ${id.contentFingerprint.slice(7, 19)}${commit ? ` @ ${commit.slice(0, 12)}${dirty ? " (+ uncommitted content)" : ""}` : " (no git commit)"}`);
