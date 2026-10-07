@@ -222,7 +222,7 @@ gov setup
 gov setup acme/acme-gov
 ```
 
-**Changes.** with an argument: creates the org's governance repository on GitHub, clones it, seeds the framework content, registers and activates it. Without one: configures the workspace you are standing in
+**Changes.** with an argument: creates the org's governance repository on GitHub, clones it, seeds the framework content, registers and activates it. Without one: configures the workspace you are standing in, regenerates CODEOWNERS from the owners it wrote, and — on the default branch — offers to put only what it changed on a `gov-setup-<date>` branch and open the pull request (GOV-FRM-040); with --non-interactive, or declined, it commits nothing and prints those commands. On another branch it commits nothing and says where the changes are
 
 **Exit codes**
 

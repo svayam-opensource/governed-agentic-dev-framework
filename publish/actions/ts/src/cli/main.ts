@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 // `spawn` only, and only to hand the TERMINAL to an agent (detached, or with inherited stdin): everything else
 // goes through run-process.ts so it is logged. The two launches log themselves at the call site.
 import { spawn } from "node:child_process";
-import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive } from "../run-process.js";
+import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive, runResult } from "../run-process.js";
 import { runSetup } from "../setup/setup-run.js";
 import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog, cacheLogin, cachedLogin } from "../log.js";
@@ -107,6 +107,8 @@ import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../confi
 import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
 import { planAgentInstall } from "./agent-verb.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
+import { finishInPlace, landSetupChanges } from "../setup/in-place-land.js";
+import { assessFrameworkCurrency, cannotStartWorkLines, policyOwnerFacts } from "../maintain/framework-currency.js";
 import { parseArgv, flagStr, flagBool } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 import { orgAdd, orgUse } from "../resolve/org.js";
@@ -868,6 +870,9 @@ export async function runSetupCommand(
     return 1;
   }
   const originUrl = tryRun("git", ["-C", cwd, "remote", "get-url", "origin"]) ?? "";
+  // F17: what was already changed before setup touched anything — so setup lands only what IT changed.
+  // Untrimmed: porcelain's first column is significant (" M file").
+  const statusBefore = createdHome === null ? runResult("git", ["-C", cwd, "status", "--porcelain", "-uall"], { pgm: "gov-work:cli:main", fn: "setup-land" }).stdout : "";
   const existingText = fs.readFile(path.join(cwd, "org-config.yaml"));
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const ask = (q: string, def: string): Promise<string> =>
@@ -1135,6 +1140,25 @@ export async function runSetupCommand(
         })) process.stdout.write(`${line}\n`);
       }
     }
+    // CONFIGURE-IN-PLACE ENDS WITH ITS CHANGES LANDED THE GOVERNED WAY (F17 + F20). CODEOWNERS follows the owners setup
+    // just wrote, in the same change; then a branch and a pull request — never the default branch with uncommitted
+    // governance changes and no word about them.
+    if (createdHome === null && rc === 0) {
+      for (const line of finishInPlace(cwd)) process.stdout.write(`${line}\n`);
+      const written = loadOrgConfigText(fs.readFile(path.join(cwd, "org-config.yaml")) ?? "");
+      const landed = await landSetupChanges({
+        git: (args) => { const r = runResult("git", ["-C", cwd, ...args], { pgm: "gov-work:cli:main", fn: "setup-land" }); return r.status === 0 ? r.stdout : null; },
+        gh: (args) => { const r = runResult("gh", [...args], { pgm: "gov-work:cli:main", fn: "setup-land", cwd }); return r.status === 0 ? r.stdout : null; },
+        print: (l) => process.stdout.write(`${l}\n`),
+        ...(!nonInteractiveFlag && process.stdin.isTTY ? { prompt: ask } : {}),
+      }, {
+        defaultBranch: written.defaultBranch || "main",
+        today: now.slice(0, 10),
+        before: statusBefore,
+        setupPaths: ["org-config.yaml", GOVERNANCE_PATH, "CODEOWNERS", ROLE_LIST_PATH],
+      });
+      if (landed !== 0) return landed;
+    }
     if (rc === 0) process.stdout.write("\nNext: run `gov app setup` so checks in your code repos can read the governance rules.\n");
     return rc;
   } finally {
@@ -1261,15 +1285,31 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       const c = loadOrgConfigText(text);
       return adopterNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
     },
-    joinerNextSteps: () => {
+    joinerNextSteps: (currency) => {
       const r = prjResolveGov(createNodeEnv());
       if (!r.ok) return [];
       const text = fsSync.existsSync(path.join(r.home, "org-config.yaml"))
         ? fsSync.readFileSync(path.join(r.home, "org-config.yaml"), "utf8") : null;
       if (!text) return [];
       const c = loadOrgConfigText(text);
-      return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor());
+      // F15: only the paths this repository has, and no "start working" when it cannot be started in.
+      return joinerNextSteps({ orgSlug: c.orgSlug, githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, workspacePath: r.home }, stderrColor(), {
+        exists: (rel) => fsSync.existsSync(path.join(r.home, rel)),
+        ...(currency ? { canStartWork: currency.canStartWork } : {}),
+      });
     },
+    // F15: the cloned repository against this gov — its layout and its content VERSION.
+    frameworkCurrency: (home) => assessFrameworkCurrency(
+      (rel) => fsSync.existsSync(path.join(home, rel)),
+      fsSync.existsSync(path.join(home, "VERSION")) ? fsSync.readFileSync(path.join(home, "VERSION"), "utf8") : null,
+      readCliVersion(),
+    ),
+    policyOwner: (home) => {
+      const read = (rel: string): string | null => (fsSync.existsSync(path.join(home, rel)) ? fsSync.readFileSync(path.join(home, rel), "utf8") : null);
+      return policyOwnerFacts(read(GOVERNANCE_PATH), read("org-config.yaml"), tryRun("gh", ["api", "user", "--jq", ".login"]) ?? null);
+    },
+    // The same `gov upgrade --pr` the Policy Owner would type, on the repository just cloned.
+    openUpgradePr: (home) => main(["upgrade", "--pr", "--gov-home", home], now),
     // The list is recorded inside `createWorkspace` (see #196 above), which is the only place
     // both after the content seed and before the commit. This says the environment CAN record
     // one, which is what decides whether Q12 is asked; it is not a second writer.
@@ -1548,6 +1588,14 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       return /^\s*preferred_agent:\s*(\S+)/m.exec(md ?? "")?.[1] ?? null;
     },
     applyRepoOverrides,
+    // F16: a governance repository on an older framework layout cannot seed a project — checked before one is offered.
+    seedBlocked: () => {
+      const home = resolved.home;
+      const c = assessFrameworkCurrency((rel) => fsSync.existsSync(path.join(home, rel)), null, readCliVersion());
+      if (c.canStartWork) return null;
+      const owner = policyOwnerFacts(fs.readFile(path.join(home, GOVERNANCE_PATH)), cfgText, me);
+      return cannotStartWorkLines(c.gaps, owner);
+    },
     // govHome is the default-branch clone — GOV-FRM-456 requires governance be read from there,
     // never from the project-branch worktree. See sessionStartPrompt.
     config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot, govHome: resolved.home, defaultBranch: config.defaultBranch || "main" },

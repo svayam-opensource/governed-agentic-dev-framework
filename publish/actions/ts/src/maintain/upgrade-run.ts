@@ -220,9 +220,37 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       ...res.skipped.map((s) => `  ! ${s} (org-customized — reconcile by hand)`),
       ...refusedLines(plan),
       ...res.why,
+      ...settleRoleList(adopterDir),
       ...refreshCodeowners(adopterDir),
     ],
   };
+}
+
+/**
+ * THE ROLE LIST'S SEEDED TOKENS, SETTLED (F19). The shipped list names its holders by token; whatever seeded it — this
+ * upgrade, or a setup — leaves none behind. A token cell takes the handle the org-config's pre-split key still names,
+ * else `vacant` (the documented empty form). Only token cells are written (GOV-FRM-445). Run before CODEOWNERS is
+ * regenerated, so the routing reads the settled list. Only in an adopter repo (one with org-config.yaml).
+ */
+export function settleRoleList(adopterDir: string): string[] {
+  const at = (rel: string): string => path.join(adopterDir, rel);
+  const cfg = readIf(at("org-config.yaml"));
+  const list = readIf(at(ROLE_LIST_PATH));
+  if (cfg === null || list === null) return [];
+  const known = (token: string): string | null => {
+    const key = ROLE_HOLDER_TOKENS[token];
+    return key ? normalizeHandle(readTopLevelScalar(cfg, key)) : null;
+  };
+  const r = settleRoleListTokens(list, known);
+  if (r.text === list) return [];
+  fs.writeFileSync(at(ROLE_LIST_PATH), r.text, "utf8");
+  log("info", "settled the role list's seeded tokens", "gov-work:maintain:upgrade-run", "settleRoleList", { filled: r.filled, vacated: r.vacated });
+  return [
+    `  ${ROLE_LIST_PATH}: ${[
+      ...(r.filled.length ? [`filled ${r.filled.join(", ")} from org-config.yaml`] : []),
+      ...(r.vacated.length ? [`${r.vacated.join(", ")} written as vacant — the Policy Owner holds them until the org names someone`] : []),
+    ].join("; ")}`,
+  ];
 }
 
 /**
@@ -248,7 +276,8 @@ export function refreshCodeowners(adopterDir: string): string[] {
 
 import { run as runProcess } from "../run-process.js";
 import { expectedCodeowners } from "./roles-health.js";
-import { ROLE_LIST_PATH } from "../config/role-list.js";
+import { ROLE_LIST_PATH, ROLE_HOLDER_TOKENS, settleRoleListTokens } from "../config/role-list.js";
+import { normalizeHandle } from "../config/codeowners.js";
 import { log } from "../log.js";
 import { parseApprovedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { GOVERNANCE_PATH } from "../config/governance.js";

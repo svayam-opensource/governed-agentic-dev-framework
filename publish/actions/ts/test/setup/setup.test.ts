@@ -9,6 +9,7 @@ import { parseOrgConfig, validateOrgConfig, RETIRED_ORG_CONFIG_KEYS } from "../.
 import { parseGovernance, frameworkOwners } from "../../src/config/governance.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import { px } from "../helpers/paths.js";
+import { agentAnswer } from "../helpers/agents-answer.js";
 
 /** writes keyed by normalised path, so a POSIX literal finds what the code wrote host-natively. */
 const pxKeys = (m: Record<string, string>): Record<string, string> =>
@@ -83,7 +84,7 @@ describe("gov-work — setup (bootstrap)", () => {
     const answers: Record<string, string> = { "Full legal name of your organization": "Acme Inc", "Org slug (uppercase, 2-6 chars; e.g. ACME)": "ACME" };
     const code = await runSetup({
       fs, cwd: "/repo", originUrl: CTX.originUrl, ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-07-04",
-      prompt: async (q, def) => answers[q] ?? def,
+      prompt: async (q, def) => agentAnswer(q) ?? answers[q] ?? def,
       print: (l) => printed.push(l),
       setOriginRemote: (u) => { remoteSet = u; },
     }, true);
@@ -168,7 +169,7 @@ describe("gov-work — setup, the Check Owner", () => {
     const answers: Record<string, string> = { "Full legal name of your organization": "Acme Inc", "Org slug (uppercase, 2-6 chars; e.g. ACME)": "ACME" };
     const code = await runSetup({
       fs: noFs(writes), cwd: "/repo", originUrl: CTX.originUrl, ghUser: "rk", gitEmail: "rk@acme.io", today: "2026-07-04",
-      prompt: async (q, def) => { asked.push([q, def]); return /Check Owner/.test(q) ? "@dave" : answers[q] ?? def; },
+      prompt: async (q, def) => { asked.push([q, def]); return /Check Owner/.test(q) ? "@dave" : agentAnswer(q) ?? answers[q] ?? def; },
       print: () => {},
     }, true);
     expect(code).to.equal(0);

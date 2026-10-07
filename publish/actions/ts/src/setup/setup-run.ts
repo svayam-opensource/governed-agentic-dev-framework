@@ -10,7 +10,8 @@ import * as path from "node:path";
 import type { Fs } from "../lifecycle/fs-io.js";
 import { deriveOrgConfig, readExistingOrgConfig, renderOrgConfig, renderSetupGovernance, setupNeedsUpgrade, withSetupGovernance, type OrgConfigValues, type SetupContext } from "./setup.js";
 import { defaultWorkRoot } from "../config/org-config.js";
-import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
+import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents, type ApprovedAgent } from "../config/approved-agents.js";
+import { askAgentSelection, namesSentence } from "../cli/agent-selection.js";
 import { GOVERNANCE_PATH } from "../config/governance.js";
 import { nonEmpty, orgSlug as orgSlugRule, githubHandle, isReservedSlug, optionalEmail, parseOptionalEmail, branchChoice, parseBranchChoice, branchName, type Validator } from "./answers.js";
 
@@ -88,6 +89,29 @@ async function askValid(io: SetupIo, question: string, def: string, rule: Valida
  */
 function existingAgents(governanceText: string | null, orgConfigText: string | null): ReturnType<typeof parseAuthorizedAgents> {
   return parseAuthorizedAgents(governanceText) ?? parseAuthorizedAgents(orgConfigText);
+}
+
+/**
+ * THE AGENTS QUESTION, IN PLACE TOO (F18, svm-geneva re-walk 2026-10-07). Configure-in-place skipped it, and doctor
+ * then said "agents: not chosen yet" about a setup that had just finished. An org that already chose is shown its
+ * choice and keeps it on Enter; one that has not is asked the same selection the adopter interview asks (Q12).
+ * Returns the answer, which is the org's decision — written even where it replaces the old list, because the person
+ * at the keyboard just made it.
+ */
+async function askAgentsInPlace(io: SetupIo, before: readonly ApprovedAgent[] | null): Promise<readonly ApprovedAgent[]> {
+  io.print("");
+  if (before !== null) {
+    io.print(`  Authorized AI agents             ${namesSentence(before)}  (${GOVERNANCE_PATH})`);
+    const keep = (await io.prompt("Keep your organization's authorized AI agents as they are? [Y/n]", "y")).trim();
+    if (!/^n(o)?$/i.test(keep)) return before;
+  } else {
+    io.print("  Your organization has not chosen its AI agents yet — `gov doctor` reports it until it does.");
+    io.print("  Which AI agents may be used in this organization?");
+  }
+  // The selection builds its own `Choose […] : ` label; the setup prompt adds its own colon, so the label's is dropped.
+  const picked = await askAgentSelection({ prompt: (q, def) => io.prompt(q.replace(/\s*:\s*$/, ""), def), print: io.print });
+  if (picked === null) throw new AnswerRefused("Which AI agents may be used: no usable selection.");
+  return picked;
 }
 
 export async function runSetup(io: SetupIo, interactive: boolean): Promise<number> {
@@ -168,6 +192,8 @@ async function runSetupInner(io0: SetupIo, interactive: boolean): Promise<number
   // Did the interview already run? Then these echo lines are noise: the closing
   // summary block reports every one of these values, with addresses.
   const interviewed = io.interviewed === true;
+  /** The agents answered in place (F18) — undefined when the question was not asked. */
+  let chosenAgents: readonly ApprovedAgent[] | undefined;
 
   if (interactive) {
     const d0 = deriveOrgConfig({}, ctx);
@@ -230,6 +256,11 @@ async function runSetupInner(io0: SetupIo, interactive: boolean): Promise<number
     // W2-Q6: soft unless hard is chosen past the confirmation.
     answers.governancePosture = known("governancePosture") ?? await confirmPosture(
       parsePostureAnswer(await askValid(io, POSTURE_QUESTION, "1", postureRule)) ?? "soft", io.prompt);
+    // F18: in place, the agents are asked here; the interviewed path asked them at Q12 and records them itself.
+    if (!interviewed) {
+      chosenAgents = await askAgentsInPlace(io, existingAgents(
+        io.fs.readFile(path.join(io.cwd, GOVERNANCE_PATH)), io.fs.readFile(path.join(io.cwd, "org-config.yaml"))));
+    }
     // NOT MENTIONED HERE (#192). Service endpoints are org-level values the deploy
     // clients read (gov-cicd, gov-infra); gov-work needs none of them. Announcing a
     // heading for a section that then asks nothing left an adopter waiting for a
@@ -276,7 +307,9 @@ async function runSetupInner(io0: SetupIo, interactive: boolean): Promise<number
   // block and every key gov does not read (adopter-e2e live tier, 2026-10-07). Setup edits only its own keys where its
   // answer differs, and fills the agent list only when the file leaves it unset. Absent: seeded from the answers.
   const withAgents = (text: string): string =>
-    keptAgents !== null && readAuthorizedAgents(text).kind === "unset" ? withAuthorizedAgents(text, keptAgents) ?? text : text;
+    chosenAgents !== undefined
+      ? withAuthorizedAgents(text, chosenAgents) ?? text
+      : keptAgents !== null && readAuthorizedAgents(text).kind === "unset" ? withAuthorizedAgents(text, keptAgents) ?? text : text;
   const next = governanceText === null ? withAgents(renderSetupGovernance(v)) : withAgents(withSetupGovernance(governanceText, v));
   if (next !== governanceText) {
     io.fs.writeFile(governancePath, next);

@@ -87,6 +87,12 @@ export interface WorkFlowDeps {
   readonly approvedAgents?: () => readonly { readonly id: string; readonly default?: boolean }[] | null;
   /** This person's preferred agent id, from their preferences file. C03. */
   readonly agentPreference?: () => string | null;
+  /**
+   * Can a project be STARTED (seeded) in this governance repository? null: yes. Otherwise the lines that say why not
+   * and what to do instead (F16) — a repository on an older framework layout fails at seed, so nothing to start is
+   * offered there. Projects already started still open. Absent: gov assumes it can, as it always did.
+   */
+  readonly seedBlocked?: () => readonly string[] | null;
   /** Install an approved agent and offer its sign-in. Returns whether it is usable now. */
   /**
    * Install an approved agent and settle its sign-in. Returns whether it is usable now.
@@ -643,6 +649,9 @@ async function pickProject(
   const localAll = set.localFirst
     ? orderLocal(scanLocalProjects(deps.fs, deps.config.agentWorkRoot, deps.config.workspaceRepo), set.localOrder)
     : [];
+  // NOTHING TO START WHERE NOTHING CAN BE STARTED (F16). Said once, up front, so the lists below are read knowing it.
+  const seedBlocked = deps.seedBlocked?.() ?? null;
+  if (seedBlocked) for (const line of seedBlocked) print(line);
 
   // GITHUB IS ASKED WHEN A LEVEL NEEDS IT, AND ONCE. `withBoardCache` keeps the answer; this keeps the
   // failure, so a rate limit is reported where it happened instead of being retried on every keystroke.
@@ -690,7 +699,9 @@ async function pickProject(
   const pop = (): void => { stack.pop(); fresh(); };
   const nothingForYou = (): Done => {
     print(`  No active or startable projects for you${deps.me ? ` (${deps.me})` : ""}.`);
-    print("  Ask a project owner to assign you, or create a GitHub Project board for a new one, then retry.");
+    print(seedBlocked
+      ? "  Ask a project owner to assign you to a project already started; a new one waits for the upgrade above."
+      : "  Ask a project owner to assign you, or create a GitHub Project board for a new one, then retry.");
     return { kind: "done", code: 0 };
   };
 
@@ -735,7 +746,7 @@ async function pickProject(
         continue;
       }
       const mineAll = c.filter((x) => x.mine);
-      const unstartedAll = deps.me ? c.filter((x) => !x.anchored) : [];
+      const unstartedAll = deps.me && !seedBlocked ? c.filter((x) => !x.anchored) : [];
 
       if (level === "mine" && !mineAll.length) {
         // Being assigned to nothing is a joiner's ordinary state, not an error. Descend rather than print an
@@ -992,6 +1003,13 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
   }
 
   if (state === "not-seeded") {
+    // F16: checked before consent is asked — a yes to something that cannot happen is not worth asking for.
+    const blocked = deps.seedBlocked?.() ?? null;
+    if (blocked) {
+      print(`  '${p.projectId}' has not been started yet, and it cannot be started here:`);
+      for (const line of blocked) print(line);
+      return 1;
+    }
     // SEEDING IS ORG-VISIBLE — branches in every repo, an anchor issue, an assignment. Choosing a
     // `(not started)` entry from the menu IS consent; a regex that happened to match one is not. So a
     // pattern-selected project asks first, and with no terminal it refuses and names the flag.

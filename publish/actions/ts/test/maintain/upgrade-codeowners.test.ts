@@ -35,7 +35,7 @@ describe("gov upgrade — CODEOWNERS follows the role list", function () {
       .replace(/^policy_owner:\n {2}email: ""\n {2}github: ""$/m, 'policy_owner:\n  email: ""\n  github: "@polly"')
       .replace(/^check_owner:\n {2}github: ""$/m, 'check_owner:\n  github: "@chuck"');
     fs.writeFileSync(path.join(dir, GOVERNANCE_PATH), gov);
-    const list = read(ROLE_LIST_PATH)!.replace(/^\| Data Architecture Owner \| <DATA_ARCH_OWNER_GITHUB> \|.*$/m,
+    const list = read(ROLE_LIST_PATH)!.replace(/^\| Data Architecture Owner \| vacant \|.*$/m,
       "| Data Owner | @dana | `knowledge/data/` |");
     fs.writeFileSync(path.join(dir, ROLE_LIST_PATH), list);
   });

@@ -165,6 +165,12 @@ YAML
   cp "$CONTENT_DIR/framework/docs/specs/framework-specification.md" "$dir/framework/docs/specs/" 2>/dev/null \
     || echo "# framework specification" > "$dir/framework/docs/specs/framework-specification.md"
   cp "$CONTENT_DIR"/framework/rules/*.yaml "$dir/framework/rules/" 2>/dev/null || true
+  # A CURRENT governance repo carries the todo template a project is seeded from, and the content VERSION. Without
+  # them gov rightly reads the repo as an older framework (F15/F16) and offers nothing to start — the fixture's
+  # `framework/templates/` was an empty folder, which git does not even keep.
+  cp "$CONTENT_DIR/framework/templates/todo-template.md" "$dir/framework/templates/" 2>/dev/null \
+    || printf '# todo — <PROJECT_ID>\n\n## Open\n\n## Done\n' > "$dir/framework/templates/todo-template.md"
+  cp "$CONTENT_DIR/VERSION" "$dir/VERSION" 2>/dev/null || true
 
   # THE RENDERED HARNESS — what makes this a GOVERNED workspace rather than one that says it is.
   #

@@ -128,6 +128,63 @@ function readRows(rows: readonly string[][]): { roles: RoleHolder[]; problems: s
   return { roles, problems };
 }
 
+/**
+ * The holder tokens the shipped role list carries, and the pre-split org-config key that named each one. Setup fills
+ * them from its answers; an upgrade from these keys when the org-config still holds them (F19).
+ */
+export const ROLE_HOLDER_TOKENS: Readonly<Record<string, string>> = {
+  LEGAL_OWNER_GITHUB: "legal_owner_github",
+  INFRA_OWNER_GITHUB: "infra_owner_github",
+  SYSTEM_ARCH_OWNER_GITHUB: "system_arch_owner_github",
+  DATA_ARCH_OWNER_GITHUB: "data_arch_owner_github",
+};
+
+/** The documented empty form a seeded holder cell takes when gov knows nobody for it (§4 of the role list). */
+export const VACANT_HOLDER = "vacant";
+
+export interface SettledRoleList {
+  readonly text: string;
+  /** Roles whose token cell gov filled with a handle it knew. */
+  readonly filled: readonly string[];
+  /** Roles whose token cell gov wrote as `vacant`. */
+  readonly vacated: readonly string[];
+}
+
+/**
+ * A SEEDED ROLE LIST NEVER CARRIES A RAW TOKEN (F19, svm-geneva re-walk 2026-10-07). `gov upgrade` seeded the list with
+ * `<LEGAL_OWNER_GITHUB>`… still in it, and doctor read four roles as vacant with an "unresolved token" warning each —
+ * a fault reported against the org for a file the framework wrote.
+ *
+ * Every holder cell of the role table that is exactly one `<TOKEN>` is settled: to the handle `known(token)` gives,
+ * else to `vacant`. FILL-EMPTY-ONLY (GOV-FRM-445): any other cell — a handle, or the org's own `vacant` — is the
+ * org's and is left byte for byte. A table inside a code fence is an example and is not touched.
+ */
+export function settleRoleListTokens(markdown: string, known: (token: string) => string | null): SettledRoleList {
+  const eol = markdown.includes("\r\n") ? "\r\n" : "\n";
+  const lines = markdown.split(/\r?\n/);
+  const filled: string[] = [];
+  const vacated: string[] = [];
+  let fenced = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue; }
+    if (fenced || !line.trim().startsWith("|") || !isHeader(cells(line)) || !isSeparator(lines[i + 1] ?? "")) continue;
+    for (let j = i + 2; j < lines.length && lines[j]!.trim().startsWith("|"); j++) {
+      const m = /^(\s*\|[^|]*\|)([^|]*)(\|.*)$/.exec(lines[j]!);
+      const tok = m ? /^\s*`?<([A-Za-z_]+)>`?\s*$/.exec(m[2]!) : null;
+      if (!m || !tok) continue;
+      const role = unquote(cells(lines[j]!)[0] ?? "");
+      const handle = known(tok[1]!);
+      const h = handle === null ? null : parseHolder(handle);
+      const value = typeof h === "string" ? h : VACANT_HOLDER;
+      (value === VACANT_HOLDER ? vacated : filled).push(role);
+      lines[j] = `${m[1]} ${value} ${m[3]}`;
+    }
+    break;   // the first role table is the list (parseRoleList reads the same one)
+  }
+  return { text: lines.join(eol), filled, vacated };
+}
+
 export interface ResolvedRoles {
   /** The document has a role table. Without one the org defines no roles of its own. */
   readonly found: boolean;
