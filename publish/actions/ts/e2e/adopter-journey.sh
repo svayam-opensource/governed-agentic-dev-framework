@@ -9,12 +9,16 @@
 #
 # Required env:
 #   E2E_ORG      GitHub org to create the throwaway repos/project in (you own it)
-#   GH_TOKEN     token with scopes: repo, project, read:org  (gov delegates to gh)
+#   GH_TOKEN     classic token with scopes: repo, project, read:org, delete_repo  (gov delegates to gh;
+#                without delete_repo the journey warns at start and its repos are leaked)
 #   GOV_TARBALL  path to the packed local gov build (npm pack output) — tests THIS build
 #   CONTENT_DIR  path to the framework publish/content (the template source)
 # Optional:
 #   E2E_KEEP=1   skip teardown (leave artifacts for inspection)
 set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=token-scopes.sh
+. "$HERE/token-scopes.sh"
 
 : "${E2E_ORG:?set E2E_ORG}"; : "${GH_TOKEN:?set GH_TOKEN}"; : "${GOV_TARBALL:?set GOV_TARBALL}"; : "${CONTENT_DIR:?set CONTENT_DIR}"
 RUN_ID="${E2E_RUN_ID:-$(date +%s)}"           # unique namespace per run
@@ -22,7 +26,7 @@ SLUG="gov-e2e-${RUN_ID}"
 WS_REPO="${SLUG}-gov"                          # the adopter workspace repo
 CODE_REPO="${SLUG}-svc"                        # a code repo in the project
 ROOT="$(mktemp -d)"
-PASS=0; FAIL=0
+PASS=0; FAIL=0; CREATED=()
 step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32m✓ %s\033[0m\n' "$*"; PASS=$((PASS+1)); }
 die()  { printf '  \033[31m✗ %s\033[0m\n' "$*"; FAIL=$((FAIL+1)); exit 1; }
@@ -33,9 +37,16 @@ assert_contains() { echo "$1" | grep -qF "$2" && ok "$3" || die "$3 — expected
 teardown() {
   [ "${E2E_KEEP:-0}" = "1" ] && { echo "E2E_KEEP=1 — leaving $WS_REPO / $CODE_REPO / project"; return; }
   step "Teardown"
-  gh repo delete "$E2E_ORG/$WS_REPO"   --yes 2>/dev/null && echo "  deleted $WS_REPO"  || true
-  gh repo delete "$E2E_ORG/$CODE_REPO" --yes 2>/dev/null && echo "  deleted $CODE_REPO" || true
-  [ -n "${PROJ_NUM:-}" ] && gh project delete "$PROJ_NUM" --owner "$E2E_ORG" 2>/dev/null && echo "  deleted project #$PROJ_NUM" || true
+  # Only what this run created, and an exact account of what it could not delete (leak_report, token-scopes.sh).
+  local leaked=() err
+  for r in "${CREATED[@]:+${CREATED[@]}}"; do
+    if err="$(gh repo delete "$r" --yes 2>&1 >/dev/null)"; then echo "  deleted $r"
+    else leaked+=("$r"); echo "  ! could not delete $r: ${err%%$'\n'*}"; fi
+  done
+  if [ -n "${PROJ_NUM:-}" ]; then
+    gh project delete "$PROJ_NUM" --owner "$E2E_ORG" >/dev/null 2>&1 && echo "  deleted project #$PROJ_NUM" || leaked+=("project #$PROJ_NUM")
+  fi
+  leak_report "${leaked[@]:+${leaked[@]}}"
   rm -rf "$ROOT"
 }
 trap teardown EXIT
@@ -66,11 +77,14 @@ git config --global user.name "Gyan E2E"
 git config --global init.defaultBranch main
 gh auth setup-git 2>/dev/null   # make raw `git push` to github.com use gh's token
 ok "git identity set ($(git config --global user.email)) + git credential helper"
+# CAN IT CLEAN UP? Checked before anything is created: without delete_repo every repo below is leaked.
+scope_check "$(gh api -i user 2>/dev/null || true)" "$E2E_ORG/$WS_REPO" "$E2E_ORG/$CODE_REPO"
 
 # ── 1. Create the workspace repo from the framework template ─────────────────
 step "Create adopter workspace repo ($E2E_ORG/$WS_REPO) from template content"
 gh repo create "$E2E_ORG/$WS_REPO" --private --clone -- "$ROOT/$WS_REPO" >/dev/null 2>&1 || \
   { gh repo create "$E2E_ORG/$WS_REPO" --private >/dev/null && gh repo clone "$E2E_ORG/$WS_REPO" "$ROOT/$WS_REPO" >/dev/null 2>&1; }
+CREATED+=("$E2E_ORG/$WS_REPO")
 cp -R "$CONTENT_DIR"/. "$ROOT/$WS_REPO"/         # seed the workspace from publish/content (the template)
 cd "$ROOT/$WS_REPO"
 [ -f MANIFEST.yaml ] || die "template content missing (CONTENT_DIR wrong?)"
@@ -83,14 +97,13 @@ ok "workspace seeded from template + pushed ($(git rev-parse --short HEAD))"
 # org_name/org_slug pre-seeded (it has no prompt to ask them). github_org/
 # workspace_repo come from the repo origin ($E2E_ORG/$WS_REPO).
 step "gov setup"
-# Pre-seed the fields non-interactive setup can't prompt for. gov_workspace is
-# set to THIS clone (the canonical home the resolver checks the registry against);
-# setup's pick() honors existing values (answers ?? existing ?? default).
+# Pre-seed the fields non-interactive setup can't prompt for; setup honors existing values (answers ?? existing ??
+# default). The slug follows today's rule — 2 to 6 letters or digits (it numbers the org's rules, GOV-<slug>-NNN) —
+# and the home is registered below with `gov org add --home`; gov_workspace is no longer a key (2026-10-07).
 cat > org-config.yaml <<YAML
 org_name: "Gov E2E Org"
 org_short_name: "GovE2E"
-org_slug: "gov-e2e"
-gov_workspace: "$PWD"
+org_slug: "GE2E"
 YAML
 gov setup --non-interactive >/tmp/setup.log 2>&1 || true
 grep -q "github_org: \"$E2E_ORG\"" org-config.yaml 2>/dev/null && ok "org-config.yaml written for $E2E_ORG" \
@@ -100,12 +113,15 @@ grep -q 'org_name: ""' org-config.yaml && die "org-config still in template stat
 # per-project worktree resolves to ITSELF (cwd) only when its committed config
 # names the active org; otherwise resolution falls back to the home clone (main).
 git add -A && git commit -qm "gov setup: configure org-config.yaml" >/dev/null && git push -q origin HEAD 2>/dev/null && ok "committed org-config to the workspace" || die "commit/push org-config failed"
-gov org add "$E2E_ORG" "$PWD" >/dev/null 2>&1 && gov org use "$E2E_ORG" >/dev/null 2>&1 && ok "registered + activated org $E2E_ORG" || die "gov org add/use failed"
+# `gov org add <github_org> --home <path>` — the home is a flag. This line passed it positionally, the syntax gov
+# dropped; gov printed its usage (exit 2) into /dev/null, and the journey said only "add/use failed" (2026-10-07).
+ORG_OUT="$( { gov org add "$E2E_ORG" --home "$PWD" && gov org use "$E2E_ORG"; } 2>&1 )" && ok "registered + activated org $E2E_ORG" \
+  || { echo "$ORG_OUT" | tail -5; die "gov org add/use failed"; }
 
 # ── 3. Create a code repo + a Project board + an issue ──────────────────────
 step "Create code repo + project board + issue"
 # a real code repo has an initial commit + the base branch gov branches off of
-gh repo create "$E2E_ORG/$CODE_REPO" --private --add-readme >/dev/null && ok "code repo $CODE_REPO created" || die "code repo create failed"
+gh repo create "$E2E_ORG/$CODE_REPO" --private --add-readme >/dev/null && CREATED+=("$E2E_ORG/$CODE_REPO") && ok "code repo $CODE_REPO created" || die "code repo create failed"
 CODE_BASE=$(grep -E '^default_code_branch:' org-config.yaml | sed -E 's/^default_code_branch:[[:space:]]*"?([^"#[:space:]]+).*/\1/')
 DEFB=$(gh api "repos/$E2E_ORG/$CODE_REPO" --jq .default_branch 2>/dev/null)
 if [ -n "$CODE_BASE" ] && [ "$CODE_BASE" != "$DEFB" ]; then

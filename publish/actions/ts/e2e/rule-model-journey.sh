@@ -37,6 +37,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=token-scopes.sh
+. "$HERE/token-scopes.sh"
 DRY=0
 for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;; esac; done
 [ "${E2E_DRY_RUN:-0}" = "1" ] && DRY=1
@@ -87,7 +89,12 @@ teardown() {
   local rc=$?
   if [ "${E2E_KEEP:-0}" = "1" ]; then echo "E2E_KEEP=1 — leaving ${CREATED[*]:-nothing}"; else
     step "Teardown"
-    for r in "${CREATED[@]:+${CREATED[@]}}"; do x gh repo delete "$r" --yes >/dev/null 2>&1 && echo "  deleted $r" || echo "  ! could not delete $r"; done
+    local leaked=() err
+    for r in "${CREATED[@]:+${CREATED[@]}}"; do
+      if err="$(x gh repo delete "$r" --yes 2>&1 >/dev/null)"; then echo "  deleted $r"
+      else leaked+=("$r"); echo "  ! could not delete $r: ${err%%$'\n'*}"; fi
+    done
+    leak_report "${leaked[@]:+${leaked[@]}}"   # exactly what is left behind, as a ::warning:: in Actions
   fi
   rm -rf "$ROOT"
   printf '\n\033[1m═══ rule-model-journey%s: %d passed, %d skipped, %s ═══\033[0m\n' "$([ "$DRY" = 1 ] && echo ' (DRY RUN)')" "$PASS" "$SKIP" "$([ $rc -eq 0 ] && echo ok || echo FAILED)"
@@ -130,6 +137,8 @@ x npm i -g "$GOV_TARBALL" >/dev/null 2>&1 || die "could not install $GOV_TARBALL
 x gov --version >/dev/null || die "gov not on PATH after installing the tarball"
 LOGIN="$(xo e2e-bot gh api user --jq .login)" || die "gh auth failed (GH_TOKEN)"
 [ -n "$LOGIN" ] || die "gh auth failed (GH_TOKEN)"
+# CAN IT CLEAN UP? Checked before anything is created: without delete_repo every repo below is leaked (run 37550667671).
+scope_check "$(xo $'HTTP/2.0 200 OK\nX-Oauth-Scopes: repo, workflow, delete_repo, read:org' gh api -i user 2>/dev/null || true)" "$R_GOV" "$R_APP"
 x git config --global user.name "$LOGIN"
 x git config --global user.email "$LOGIN@users.noreply.github.com"
 x git config --global init.defaultBranch main

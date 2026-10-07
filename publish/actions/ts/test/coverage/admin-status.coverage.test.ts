@@ -547,6 +547,8 @@ describe("coverage: gov org (routeOrg)", () => {
     const r = routeOrg(["use", "Ghost"], {}, deps);
     expect(r.code).to.equal(1);
     expect(r.lines[0]).to.match(/Org 'Ghost' is not registered/);
+    // The hint is the syntax gov accepts today (adopter-journey followed a stale `org add <org> <home>`, 2026-10-07).
+    expect(r.lines[0]).to.contain("gov org add Ghost --home <path>");
   });
 
   it("org use (missing org) → exit 2, usage", () => {
@@ -560,7 +562,7 @@ describe("coverage: gov org (routeOrg)", () => {
     const deps: OrgDeps = { store: memStore(), govConfigAt: probe({}) };
     const r = routeOrg(["list"], {}, deps);
     expect(r.code).to.equal(0);
-    expect(r.lines[0]).to.equal("No orgs registered. Add one: prj org add <org> <home>.");
+    expect(r.lines[0]).to.equal("No orgs registered. Add one: gov org add <github_org> --home <path>.");
   });
 
   it("org list (populated) → exit 0, marks the active org", () => {
