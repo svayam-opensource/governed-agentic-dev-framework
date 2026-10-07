@@ -17,7 +17,10 @@ PASS=0; FAIL=0
 step(){ printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 pass(){ printf '  \033[32m✓ %s\033[0m\n' "$*"; PASS=$((PASS+1)); }
 fail(){ printf '  \033[31m✗ %s\033[0m\n' "$*"; FAIL=$((FAIL+1)); }
-has(){ echo "$1" | grep -qF "$2" && pass "$3" || { echo "     got: $1"; fail "$3 — missing: $2"; }; }
+# Matched in the shell, never `echo | grep -q`: grep -q stops at its first match, echo then dies of SIGPIPE writing the
+# rest, and `pipefail` turns a FOUND needle into a failure — timing-dependent, so it passed on macOS and failed on
+# Linux CI once `gov help --json` grew past ~40 KB (2026-10-07).
+has(){ case "$1" in *"$2"*) pass "$3" ;; *) echo "     got: $1"; fail "$3 — missing: $2" ;; esac; }
 
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 BIN="$WORK/bin"; mkdir -p "$BIN"
