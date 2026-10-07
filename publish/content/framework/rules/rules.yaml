@@ -341,7 +341,7 @@
 
 # new promise: the Policy Owner's "do not edit" opening
 - id: GOV-FRM-444
-  source: { doc: framework/docs/specs/framework-specification.md, section: "1.1", sha: "4f474f3" }
+  source: { doc: framework/docs/specs/framework-specification.md, section: "1.1", sha: "041b9f2" }
   expectation: "gov upgrade replaces every file under framework/ with the release's copy."
   actor: [gov-client]
   level: C01

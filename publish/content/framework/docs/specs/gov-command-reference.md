@@ -25,7 +25,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov org](#gov-org) — the governance workspaces on this machine, and which one is active
 - [gov doctor](#gov-doctor) — check this machine: git, gh, the workspace, the active org, versions
 - [gov setup](#gov-setup) — set this machine up for an organization — the first `gov` run does this for you
-- [gov upgrade](#gov-upgrade) — bring this org's framework content to the build this gov was made from (not the CLI — that is `npm i -g`)
+- [gov upgrade](#gov-upgrade) — bring this org's framework content to the content this gov carries (newer content: install a newer gov)
 - [gov preferences](#gov-preferences) — your settings for gov: the agent it launches, the picker, colour, how long logs are kept
 - [gov log](#gov-log) — what gov did — one log per run, on this machine
 - [gov agent](#gov-agent) — which AI agents your org approves, what is installed, and how to add one
@@ -199,7 +199,7 @@ gov doctor --fix
 set this machine up for an organization — the first `gov` run does this for you
 
 ```text
-gov setup [<github_org>/<repo>] [--non-interactive] [--path <dir>]
+gov setup [<github_org>/<repo>] [--non-interactive] [--path <dir>] [--ref <commit|tag|branch>] [--from <dir>]
 ```
 
 **Arguments**
@@ -214,6 +214,8 @@ gov setup [<github_org>/<repo>] [--non-interactive] [--path <dir>]
 | --- | --- |
 | `--non-interactive` | never create anything and never ask; for CI |
 | `--path <dir>` | where to put the clone |
+| `--ref <commit|tag|branch>` | seed the framework content at this ref of the template instead of the content this gov carries. Content that is not this gov's build is refused |
+| `--from <dir>` | seed the framework content from a local directory instead of the content this gov carries. Checked the same way |
 
 **Examples**
 
@@ -222,7 +224,7 @@ gov setup
 gov setup acme/acme-gov
 ```
 
-**Changes.** with an argument: creates the org's governance repository on GitHub, clones it, seeds the framework content, registers and activates it. Without one: configures the workspace you are standing in, regenerates CODEOWNERS from the owners it wrote, and — on the default branch — offers to put only what it changed on a `gov-setup-<date>` branch and open the pull request (GOV-FRM-040); with --non-interactive, or declined, it commits nothing and prints those commands. On another branch it commits nothing and says where the changes are
+**Changes.** with an argument: creates the org's governance repository on GitHub, clones it, seeds the framework content this gov carries, registers and activates it. Without one: configures the workspace you are standing in, regenerates CODEOWNERS from the owners it wrote, and — on the default branch — offers to put only what it changed on a `gov-setup-<date>` branch and open the pull request (GOV-FRM-040); with --non-interactive, or declined, it commits nothing and prints those commands. On another branch it commits nothing and says where the changes are
 
 **Exit codes**
 
@@ -236,7 +238,7 @@ gov setup acme/acme-gov
 
 ### gov upgrade
 
-bring this org's framework content to the build this gov was made from (not the CLI — that is `npm i -g`)
+bring this org's framework content to the content this gov carries (newer content: install a newer gov)
 
 ```text
 gov upgrade [--apply] [--pr] [--ref <commit|tag|branch>] [--from <dir>]
@@ -250,8 +252,8 @@ gov upgrade [--apply] [--pr] [--ref <commit|tag|branch>] [--from <dir>]
 | --- | --- |
 | `--apply` | make the changes. Without it, gov only says what it would do |
 | `--pr` | put the changes in a pull request instead of the working tree |
-| `--ref <commit|tag|branch>` | fetch the content at this ref instead of the commit gov was built from. Content that is not this gov's build is refused |
-| `--from <dir>` | take the content from a local directory instead of the template remote |
+| `--ref <commit|tag|branch>` | fetch the content at this ref of the template instead of the content this gov carries. Content that is not this gov's build is refused |
+| `--from <dir>` | take the content from a local directory instead of the content this gov carries. Checked the same way |
 
 **Examples**
 

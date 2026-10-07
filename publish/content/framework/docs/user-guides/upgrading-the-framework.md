@@ -10,63 +10,59 @@ status: current
 Pulling new framework content into your organization, and what the test-merge gate exists to
 catch.
 
-## 10. Framework upgrades from TEMPLATE
+## 10. Framework upgrades
 
-The framework template lives at
-[`svayam-opensource/governed-agentic-dev-framework`](https://github.com/svayam-opensource/governed-agentic-dev-framework).
-Your org's repo was created from it (`gh repo create --template ...` or "Use
-this template" on GitHub). `gov setup` configured a `template` remote
-pointing at the upstream so you can pull future framework updates without
-touching org-specific values.
+Your organization's repository was created by `gov setup`, which seeded it with the framework's content:
+the `framework/` folder, the agent instruction files, and starting copies of your policies.
 
-> **The gov-work CLI is installed from npm** — `npm i -g @svayam-opensource/gov`
-> (requires Node 24), never vendored into a repo. Repos carry only data
-> (`org-config.yaml`, `projects/`, `knowledge/`), and you upgrade the CLI itself
-> with `npm i -g @svayam-opensource/gov@latest`, independently of any project's
-> data. Framework *content* (policies, scaffolded files) upgrades separately via
-> `gov upgrade`, described below.
+### The CLI carries its content
 
-### How upgrades work (Direction A)
+The `gov` command is installed from npm — `npm i -g @svayam-opensource/gov` (Node 24 or later). It is never
+copied into a repository.
 
-Framework files (`framework/`, `CLAUDE.md`, `AGENTS.md`,
-the per-tool rule files, etc.) contain **no org-specific values**. They use
-angle-bracketed tokens like `<ORG_NAME>` and `<DEFAULT_BRANCH>` that the agent
-resolves at runtime from `org-config.yaml`. After `gov setup`, the ONLY file
-that diverges from upstream TEMPLATE is `org-config.yaml` (plus `projects/` as
-you do project work). That makes upgrades conflict-free.
+Each version of gov carries the framework content it was built with. The two always match. You never pick a
+content version separately, and gov never downloads content behind your back:
 
-### Pulling an upgrade (v0.3.0+)
+- `gov setup` seeds a new repository from the content gov carries.
+- `gov upgrade` brings an existing repository to the content gov carries.
 
-v0.3.0 introduces a framework-as-package upgrade model. Framework files live
-in a `framework/` directory inside TEMPLATE; on ORG side that directory is
-ephemeral — it gets fetched, applied, and deleted on every upgrade. ORG's
-working tree at rest contains only org-owned content + scaffolded canonical
-paths populated by the framework.
-
-From your HOME repo on the default branch:
+So **upgrading the framework means installing a newer gov**:
 
 ```bash
-gov upgrade [version]      # e.g. gov upgrade v0.3.1
+npm i -g @svayam-opensource/gov@latest
+gov upgrade            # shows what would change; writes nothing
+gov upgrade --pr       # puts the change in a pull request for review
+gov upgrade --apply    # or writes it into your working tree
 ```
 
-That fetches the `template` remote at the requested version (or `template/main`
-if no version is given) and applies the framework update:
-1. Checks out `framework/` at the requested version.
-2. Applies the framework's `MANIFEST.yaml`, which governs how each shipped file
-   lands:
-   - For `scaffold-auto` files (scripts, CI): overwrites the canonical copy
-     without asking.
-   - For `scaffold-prompt` files (agent rule files, policy text): 3-way
-     merges against the previous framework version. Prompts only when your
-     org has customized AND the framework also changed the same file.
-   - For `overlay-schema` files (`org-config.yaml`): adds new keys with
-     empty values; never modifies existing values.
-   - Leaves `projects/` and your custom knowledge files completely untouched.
-3. Writes `.framework-version` to record what's now installed.
-4. Deletes `framework/` from the working tree.
-5. Stages everything for your review.
+### What an upgrade changes
+
+The content's `MANIFEST.yaml` says how each file lands:
+
+- **Framework files** (`framework/`, the agent instruction files, CI workflows) are replaced with the new
+  version. Do not edit them; your edits would be lost.
+- **Your files** (`org-config.yaml`, `policies/`) are created if missing and otherwise left exactly as you wrote
+  them. A new file the release adds is added once, and is yours from then on.
+- **`projects/` and your own knowledge** are never touched.
+- **Leftovers of the template copy** — the framework's own `publish/` and `site/` folders, or the framework's
+  README in place of yours — are removed or replaced, but only when gov recognises them as the framework's
+  exact files. Anything you wrote stays.
 
 After upgrading, run `gov validate` to confirm everything still validates.
+
+### Using other content on purpose
+
+Both commands accept two overrides, for when you deliberately want content other than the content gov carries:
+
+- `--ref <commit|tag|branch>` — fetch the content at that point of the framework's repository.
+- `--from <dir>` — use the content in a local directory.
+
+For example, `gov upgrade --from ~/src/governed-agentic-dev-framework/publish/content`, or
+`gov setup acme/acme-gov --ref v1.2.3`.
+
+gov checks whatever you name against the content it was built with. If they differ, it refuses and writes
+nothing — even when the version numbers agree, because a version number is a label and the check compares the
+files themselves. To use newer content, install the gov that was built with it.
 
 ### What the test-merge gate catches
 

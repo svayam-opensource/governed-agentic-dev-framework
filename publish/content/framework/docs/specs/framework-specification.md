@@ -50,6 +50,13 @@ The same holds for the framework's rules in `framework/rules/rules.yaml`: one wr
 else. If something here does not fit your organization, tell the framework's maintainers. A local edit only
 postpones the problem to the next upgrade, and hides it until then.
 
+The release `gov upgrade` writes is the one your gov carries. Each gov package includes the framework content it
+was built with, so the client and the content always match. `gov setup` seeds a new repository from that content,
+and `gov upgrade` brings an existing one to it. Neither fetches anything to do so. To move to newer framework
+content, install a newer gov, then run `gov upgrade`. To use other content on purpose, pass `--ref` (a commit,
+branch or tag of the framework's repository) or `--from` (a local directory) to either command. gov refuses
+content that is not the build it was made with, and writes nothing.
+
 ### 1.2 Your policies are yours
 
 Your organization's own governance policy lives in the **`policies/`** folder.

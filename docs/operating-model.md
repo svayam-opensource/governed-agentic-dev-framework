@@ -21,13 +21,14 @@ flowchart TD
     CLISRC["ts/gov-work/<br/>(Node CLI source)"]
     CONTENT["framework/<br/>(content: policy · knowledge · harness)"]
   end
-  CLISRC -->|"(a) bump + governed publish"| NPM["npm @svayam-opensource/gov"]
+  CLISRC -->|"(a) bump + governed publish"| NPM["npm @svayam-opensource/gov<br/>(CLI + the content it was built with)"]
+  CONTENT -->|"bundled at build"| NPM
   subgraph ADOPT["Adopter governance DATA repo"]
     DATA["org-config.yaml · projects/ · knowledge/"]
   end
   NPM -->|"(c) npm i -g"| DEV["developer machine"]
   DEV -->|"runs gov on"| ADOPT
-  CONTENT -->|"(b) gov upgrade (git: template remote)"| ADOPT
+  DEV -->|"(b) gov setup / gov upgrade (the content gov carries)"| ADOPT
   ADOPT -.->|"(b) propose content change (PR to template)"| TPL
   DEV -.->|"(c) propose CLI change (PR to template)"| TPL
 ```
@@ -41,7 +42,7 @@ flowchart TD
 | Goal | Path |
 |---|---|
 | **Update content** | Edit under `framework/` (policies, knowledge starters, harness). If you changed the **session protocol** (`agent/session-protocol.md`), re-render the per-tool harness files (the generated `framework/CLAUDE.md`, `.cursor/…` etc. carry a "do not edit" banner — edit the source + re-render). |
-| **Publish content** | Open a PR → merge to `main`. Merging **is** the content release: adopters pick it up with `gov upgrade`. No separate step. |
+| **Publish content** | Open a PR → merge to `main`, then publish gov: the package carries the content it was built with, and adopters pick it up by installing that gov and running `gov upgrade`. (`--ref`/`--from` take other content deliberately, and are refused unless it is that gov's build.) |
 | **Update the CLI** | Edit at `ts/gov-work/` (Node 24 / TypeScript). `npm test` (incl. the full-flow e2e gate) must pass — it's a required check on `main`. |
 | **Publish the CLI to npmjs** | `gov bump-version <x.y.z>` (keeps `package.json` == `framework/VERSION` == `.framework-version` in sync; `gov validate` enforces it), commit, push `main`, then run the governed publish pipeline (`@svayam-opensource/gov`, dist-tag `latest`). The gate runs build + lint + test + version-sync + `npm pack`; verify the new version is live on npmjs afterward. |
 
