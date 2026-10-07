@@ -25,9 +25,13 @@
  * the registry either way, so R2 is unaffected.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { parseGovernance, governanceTokens } from "../config/governance.js";
 import { defaultWorkRoot } from "../config/org-config.js";
 import { isReservedSlug } from "./answers.js";
+import { contentFingerprint, selectUpgradeContent, type BuildIdentity, type Fetch, type SelectedContent } from "../maintain/build-identity.js";
+import { GH_SCOPES_ARGS, GH_SIGNED_IN_ARGS, parseGrantedScopes } from "../maintain/fix-env.js";
 
 /** The GitHub coordinates of the repo to create. */
 export interface CreateTarget {
@@ -178,7 +182,8 @@ export function preflight(
   // Before GitHub is asked anything: no answer from it could make this slug usable.
   if (isReservedSlug(slug)) return { ok: false, failure: { why: "reserved-slug", slug } };
 
-  if (io.gh(["auth", "status"]) === null) return { ok: false, failure: { why: "not-authenticated" } };
+  // `gh api user`, not `gh auth status` (adoption walk #2): the latter fails when ANY stored account is stale.
+  if (io.gh(GH_SIGNED_IN_ARGS) === null) return { ok: false, failure: { why: "not-authenticated" } };
 
   // Ask GitHub whether this token may create here, rather than inferring it from scopes — an org can
   // forbid member repo creation with every scope present, and the scope list is not the authority.
@@ -199,8 +204,9 @@ export function preflight(
     warnings.push({ what: "governance-scan-truncated",
       detail: `${target.org} has more than 100 repositories — only the first 100 were checked for an existing governance repo. Confirm by hand that none exists before continuing.` });
   }
-  const scopes = io.gh(["auth", "status"]) ?? "";
-  if (!/\bproject\b/.test(scopes)) {
+  // Null = the token states no scopes (fine-grained or app token): cannot tell, so no warning rather than a false one.
+  const scopes = parseGrantedScopes(io.gh(GH_SCOPES_ARGS) ?? "");
+  if (scopes !== null && !scopes.includes("project")) {
     warnings.push({ what: "no-project-scope",
       detail: "the 'project' scope is missing — GitHub Projects are the source of truth for project state, so `gov seed` will need it. Add it with: gh auth refresh -s project" });
   }
@@ -456,4 +462,31 @@ export function canAdoptExisting(io: CreateIo, target: CreateTarget): AdoptVerdi
 /** Where a previous attempt's clone is moved so a retry can proceed without destroying evidence. */
 export function archivePathFor(home: string, slug: string, stamp: string): string {
   return `${derivedPaths(home, slug).govRepo.replace(/\/gov_repo$/, "")}/archive/${stamp}/gov_repo`;
+}
+
+/**
+ * WHICH CONTENT A NEW REPOSITORY IS SEEDED FROM — this gov's own build, the rule `gov upgrade` follows (adoption
+ * walk #9). The template copy's `publish/content` is the template's DEFAULT branch, whatever build that is; seeding
+ * from it unchecked put one build's content under another build's client with nothing comparing them.
+ *
+ *   - the template copy, when its fingerprint IS this gov's build — no fetch;
+ *   - otherwise the content `gov upgrade` would choose with no flags (the checkout's own, or the template fetched at
+ *     this gov's build commit — never `main`), checked against the build's fingerprint;
+ *   - a gov that cannot say what it was built with seeds nothing.
+ *
+ * A refusal never throws; the caller owns `cleanup`.
+ */
+export function selectSetupContent(identity: BuildIdentity | null, templateCopy: string | null, fetch: Fetch): SelectedContent {
+  const asSetup = (lines: readonly string[]): readonly string[] => lines.map((l, i) =>
+    i === 0 ? l.replace(/^gov upgrade:/, "gov setup:").replace("Nothing was written.", "Nothing was seeded.") : l);
+  if (identity !== null && templateCopy !== null && fs.existsSync(path.join(templateCopy, "MANIFEST.yaml"))
+    && contentFingerprint(templateCopy) === identity.contentFingerprint) {
+    return { ok: true, contentDir: templateCopy, cleanup: () => {}, label: templateCopy };
+  }
+  try {
+    const r = selectUpgradeContent(identity, {}, fetch);
+    return r.ok ? r : { ok: false, lines: [...asSetup(r.lines), "  setup seeds a repository only from the content this gov was built with."] };
+  } catch (e) {
+    return { ok: false, lines: [`gov setup: could not fetch the content this gov was built with — ${(e as Error).message}`, "  Nothing was seeded."] };
+  }
 }

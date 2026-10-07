@@ -19,7 +19,7 @@
 export interface NeedProbes {
   /** `git config <key>` (e.g. `user.email`), or undefined if unset. */
   readonly gitConfig: (key: string) => string | undefined;
-  /** is the GitHub CLI authenticated (`gh auth status` ok)? */
+  /** can gov act on GitHub (`gh api user` answers — not `gh auth status`, which a stale stored account fails)? */
   readonly ghAuthOk: () => boolean;
 }
 

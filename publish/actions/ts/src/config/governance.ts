@@ -166,7 +166,10 @@ export function frameworkOwners(g: GovernanceConfig): { policyOwner: string; che
 /** The content tokens these values fill — they came from org-config.yaml's keys before the split. */
 export function governanceTokens(g: GovernanceConfig): Record<string, string> {
   const out: Record<string, string> = {};
-  if (g.policyOwner.email) out.POLICY_OWNER_EMAIL = g.policyOwner.email;
+  // The email is an OPTIONAL contact (Policy Owner, 2026-10-07). With none given the policies name the owner by
+  // handle — never the literal token, which would read as setup having failed.
+  const contact = g.policyOwner.email || g.policyOwner.github;
+  if (contact) out.POLICY_OWNER_EMAIL = contact;
   if (g.policyOwner.github) out.POLICY_OWNER_GITHUB = g.policyOwner.github;
   if (g.checkOwner.github) out.CHECK_OWNER_GITHUB = g.checkOwner.github;
   return out;

@@ -21,7 +21,7 @@ import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog, cacheLogin, cachedLogin } from "../log.js";
 import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
-import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, setupTokenValues, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, setupTokenValues, renderManifest, selectSetupContent, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, projectFromPath, type AgentKind } from "./work-flow.js";
 import { verifyAgentContext } from "../lifecycle/root-protocol.js";
@@ -79,7 +79,7 @@ import { policyChecks } from "./diff-check-io.js";
 import { formatDiffChecks } from "../rules/diff-check.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
-import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes } from "../maintain/fix-env.js";
+import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes, GH_SIGNED_IN_ARGS, GH_SCOPES_ARGS } from "../maintain/fix-env.js";
 import { checklist, renderChecklist, checklistPreamble, statusSoFar, finalStatus, stepBanner, stepDone, itemForFix, type ChecklistFacts } from "./checklist.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
@@ -101,7 +101,7 @@ import { rulesFacts } from "./rules-verb.js";
 import { clearPending, readPending } from "../rules-pending.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
 import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
-import { starterProject, starterSummary } from "../lifecycle/starter-project.js";
+import { ensureStarterProject, starterProject, starterSummary } from "../lifecycle/starter-project.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
 import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
@@ -803,6 +803,15 @@ export async function runSetupCommand(
   // the cwd — creation must never be inferred from location, so a CI re-run cannot make a repository.
   const positional = "error" in parsed ? [] : parsed.positionals;
   if (positional.length > 0 && !nonInteractiveFlag) {
+    // THE SEED IS THIS GOV'S OWN BUILD (adoption walk #9 — the rule `gov upgrade` follows). A gov that cannot say
+    // what it was built with refuses here, before the repository exists; the content itself is chosen and checked
+    // once the template copy has landed (it is used when it IS this build, which saves a fetch).
+    const buildId = cliBuildIdentity();
+    if (buildId === null) {
+      process.stderr.write("gov setup: refused — this gov does not know which content it was built with, so it cannot seed a repository it can vouch for. Nothing was created.\n");
+      process.stderr.write("  Reinstall gov from a current build (it records its content), then run gov setup again.\n");
+      return 1;
+    }
     const created = await runCreateWorkspace(positional[0], "error" in parsed ? {} : parsed.flags, pre);
     if (typeof created === "number") return created;
     cwd = created.home;                             // continue into the normal flow, inside the new clone
@@ -817,10 +826,19 @@ export async function runSetupCommand(
     const templateRemoved = cleanSlateEntries(fsSync.readdirSync(created.home));
     for (const e of templateRemoved) fsSync.rmSync(path.join(created.home, e), { recursive: true, force: true });
     templateRemovedFromCreate = templateRemoved;
-    const seed = runUpgradeSync(path.join(created.home, "publish", "content"), created.home, { apply: true });
+    const seedContent = selectSetupContent(buildId, path.join(created.home, "publish", "content"), (template, ref) => {
+      process.stderr.write(`fetching content from ${template}@${ref} …\n`);
+      return fetchTemplateContent(template, ref);
+    });
+    if (!seedContent.ok) {
+      for (const l of seedContent.lines) process.stderr.write(`${l}\n`);
+      process.stderr.write(`  The repository exists (${created.home}) — nothing was seeded into it. Re-run with the matching gov to resume.\n`);
+      return 1;
+    }
+    const seed = (() => { try { return runUpgradeSync(seedContent.contentDir, created.home, { apply: true }); } finally { seedContent.cleanup(); } })();
     if (seed.code !== 0) {
       for (const l of seed.lines) process.stderr.write(`${l}\n`);
-      process.stderr.write(`gov setup: could not seed content from publish/. The repo exists — re-run to resume.\n`);
+      process.stderr.write(`gov setup: could not seed the content this gov was built with. The repo exists — re-run to resume.\n`);
       return 1;
     }
     // THE ORGANIZATION'S AGENT POLICY, WRITTEN BEFORE THE COMMIT (#196).
@@ -835,7 +853,7 @@ export async function runSetupCommand(
     // agents yet, so these are the framework's defaults" — the exact fallback #196 exists to
     // remove, reintroduced by an ordering mistake rather than by a decision.
     //
-    // Q11 collects the answer before anything is created, so it is available here, which is the
+    // Q12 collects the answer before anything is created, so it is available here, which is the
     // only place that is both after the seed and before the commit.
     // The org's authorized agents are recorded AFTER the workspace is configured — further down, just before
     // the commit. Writing them here put them in a file the configure step then rewrote: gov said "recorded"
@@ -867,6 +885,9 @@ export async function runSetupCommand(
         interviewed: pre !== undefined,
         prompt: ask,
         print: (l) => process.stdout.write(`${l}\n`),
+        // ADOPTION WALK #4 + #14: on a repo setup cannot write (the old layout), the same `gov upgrade --apply` a
+        // person would type, on THIS repository — run before the first question, never after an answer.
+        upgradeFirst: () => main(["upgrade", "--apply", "--gov-home", cwd], now),
         setOriginRemote: (url) => {
           try {
             runProcess("git", ["-C", cwd, "remote", "set-url", "origin", url], { pgm: "gov-work:cli:main" });
@@ -1031,7 +1052,7 @@ export async function runSetupCommand(
       // the right one: the configure step has written governance.yaml, and nothing else will.
       //
       // `agents: []` IS AN ANSWER AND MUST BE WRITTEN (Policy Owner, 2026-09-28). This read
-      // `pre?.agents?.length`, so an organization that chose "none" at Q11 had its decision
+      // `pre?.agents?.length`, so an organization that chose "none" at Q12 had its decision
       // silently dropped: the key never appeared, `readAuthorizedAgents` said "unset", and every
       // joiner was governed by gov's own list — which is precisely the unowned state the question
       // exists to remove, reached by answering it. `withAuthorizedAgents` writes
@@ -1215,7 +1236,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       return finalStatus(checklist({
         gitPresent: tryRun("git", ["--version"]) !== undefined,
         ghPresent: tryRun("gh", ["--version"]) !== undefined,
-        ghAuthenticated: (() => { return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); })(),
+        ghAuthenticated: okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" }),
         ghScopesOk: true,
         gitIdentityOk: Boolean(gitCfg2("user.name") && gitCfg2("user.email")),
         workspaceResolves: r.ok,
@@ -1251,7 +1272,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     },
     // The list is recorded inside `createWorkspace` (see #196 above), which is the only place
     // both after the content seed and before the commit. This says the environment CAN record
-    // one, which is what decides whether Q11 is asked; it is not a second writer.
+    // one, which is what decides whether Q12 is asked; it is not a second writer.
     recordsApprovals: true,
     createStarterProject: () => {
       // Reads the terminal directly rather than through `ask`, because this hook is
@@ -1296,16 +1317,17 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       })();
       if (!cfg) return ["  (no workspace resolved yet — skipping the starter project)"];
 
-      const spec = starterProject(cfg.org, cfg.repo);
-      const boardUrl = tryRun("gh", ["project", "create", "--owner", cfg.org, "--title", spec.boardTitle, "--format", "json"])
-        ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null;
+      // REUSED WHEN ONE IS OPEN (adoption walk #5): every run used to make another — the walk found 17.
       const issues = createGhIssues((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
-      const issueUrl = boardUrl ? issues.create(spec.issueRepo, spec.issueTitle, spec.issueBody, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")) : null;
-      if (boardUrl && issueUrl) {
-        const n = Number(boardUrl.match(/\/projects\/(\d+)/)?.[1] ?? 0);
-        if (n) issues.addToBoard(cfg.org, n, issueUrl);
-      }
-      return ["", "Starter project:", ...starterSummary({ boardUrl, issueUrl, seeded: false })];
+      const projects = createGhProjects((args) => runProcess("gh", args, { pgm: "gov-work:cli:main" }));
+      const outcome = ensureStarterProject({
+        listBoards: (owner) => { const b = projects.listBoards(owner); return projects.lastFailure?.() ? null : b; },
+        createBoard: (owner, title) => tryRun("gh", ["project", "create", "--owner", owner, "--title", title, "--format", "json"])
+          ?.match(/https:\/\/github\.com\/\S+/)?.[0] ?? null,
+        createIssue: (repo, title, body) => issues.create(repo, title, body, (tryRun("gh", ["api", "user", "--jq", ".login"]) ?? "")),
+        addToBoard: (owner, n, url) => { issues.addToBoard(owner, n, url); },
+      }, cfg.org, cfg.repo);
+      return ["", "Starter project:", ...starterSummary(outcome)];
     },
     // THE LAST STEP, DONE RATHER THAN DESCRIBED (#203). The same code path as
     // `gov` -> 1. Work -> pick the review project, reached from the question that
@@ -2424,15 +2446,13 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     const ghPresent = tryRun("gh", ["--version"]) !== undefined;
     // Installed and signed-in are different facts; only the second predicts whether
     // the next GitHub call works (#186).
-    // One call answers both questions — signed in, and with which permissions. gh
-    // writes the status to stderr, so it has to be captured, not just tested.
+    // CAN GOV ACT ON GITHUB — `gh api user`, not `gh auth status` (adoption walk #2): the latter fails when ANY
+    // stored account is stale, while the active token works. The scopes come from the same endpoint's headers.
     const ghStatus = ghPresent ? ((): string | null => {
-      try { return runProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); }
-      catch (e) { const r = (e as { stdout?: string; stderr?: string }); return (r.stdout ?? "") + (r.stderr ?? "") || null; }
+      try { return runProcess("gh", [...GH_SCOPES_ARGS], { pgm: "gov-work:cli:main" }); }
+      catch { return null; }
     })() : null;
-    const ghAuthed = ghPresent && ((): boolean => {
-      return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" });
-    })();
+    const ghAuthed = ghPresent && okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" });
     const ghScopes = ghAuthed && ghStatus ? parseGrantedScopes(ghStatus) : null;
     // The workspace's org-config, read ONCE: doctor reports the keys gov ignores in it, and the protection
     // probe needs it to know which repo and branch framework-specification.md §7.3 is about.
@@ -2774,10 +2794,10 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         ...facts(),
         gitPresent: tryRun("git", ["--version"]) !== undefined,
         ghPresent: tryRun("gh", ["--version"]) !== undefined,
-        ghAuthenticated: (() => { return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); })(),
+        ghAuthenticated: okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" }),
         ghScopesOk: (() => {
           try {
-            const s = runProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" });
+            const s = runProcess("gh", [...GH_SCOPES_ARGS], { pgm: "gov-work:cli:main" });
             const g = parseGrantedScopes(s);
             return Boolean(g && missingScopes(g).length === 0);
           } catch { return false; }
@@ -3025,7 +3045,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   if (!("GOV_SKIP_PREFLIGHT" in process.env)) {
     const pf = preflight(assembleNeeds(), {
       gitConfig: (k) => tryRun("git", ["-C", home, "config", "--get", k]) || undefined,
-      ghAuthOk: () => { return okProcess("gh", ["auth", "status"], { pgm: "gov-work:cli:main" }); },
+      ghAuthOk: () => okProcess("gh", [...GH_SIGNED_IN_ARGS], { pgm: "gov-work:cli:main" }),
     });
     if (!pf.ok) {
       for (const line of renderGap(pf.gap)) process.stderr.write(`${line}\n`);

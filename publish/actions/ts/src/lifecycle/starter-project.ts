@@ -16,6 +16,7 @@
  *
  * Pure planning. The caller performs it, and may decline.
  */
+import type { BoardSummary } from "./project-list.js";
 
 export interface StarterProject {
   readonly boardTitle: string;
@@ -37,7 +38,8 @@ export function starterProject(githubOrg: string, workspaceRepo: string): Starte
       "",
       "## What to look at, in this order",
       "",
-      "  setup. Name the people who will actually hold them, or leave a role with the",
+      "- `policies/authorized-representatives.md` — who approves what. Every role points at",
+      "  the Policy Owner after setup. Name the people who will actually hold them, or leave a role with the",
       "  Policy Owner deliberately. An empty role escalates by design; an *assumed*",
       "  one does not exist.",
       "- `framework/docs/specs/framework-specification.md` — how the framework works.",
@@ -57,7 +59,7 @@ export function starterProject(githubOrg: string, workspaceRepo: string): Starte
       "```",
       "",
       "That puts you on a project branch with your agent already reading the rules.",
-      "Changes land as a pull request, reviewed by the owners named in `roles.md` —",
+      "Changes land as a pull request, reviewed by the owners named in `policies/authorized-representatives.md` —",
       "which is the whole mechanism, exercised once, on the smallest possible change.",
       "",
       "Close this when the policies say what your organization means.",
@@ -70,9 +72,58 @@ export interface StarterOutcome {
   readonly boardUrl: string | null;
   readonly issueUrl: string | null;
   readonly seeded: boolean;
+  /** An open review project already existed and is the one to use — nothing was created. */
+  readonly reused?: boolean;
+  /** GitHub could not list the org's boards, so gov did not risk creating a second one. */
+  readonly unchecked?: boolean;
+}
+
+/** The GitHub calls the starter project needs — injected, so the reuse rule is testable without GitHub. */
+export interface StarterDeps {
+  /** The org's boards, open and closed; null when GitHub could not be asked. */
+  readonly listBoards: (owner: string) => readonly BoardSummary[] | null;
+  readonly createBoard: (owner: string, title: string) => string | null;
+  readonly createIssue: (repo: string, title: string, body: string) => string | null;
+  readonly addToBoard: (owner: string, boardNumber: number, issueUrl: string) => void;
+}
+
+/**
+ * REUSE THE OPEN REVIEW PROJECT; CREATE ONE ONLY WHEN NONE IS OPEN (adoption walk #5, 2026-10-07). Every setup run
+ * used to create a new board — the walk found 17 of them (PRJ-13…29), each with its own copy of the same issue.
+ * Matched by title (case-insensitive) and open (not started, or in progress — a closed board is finished or
+ * cancelled); the oldest open one wins, being the one any work already went into. A board list GitHub did not
+ * answer creates nothing: a possible duplicate is the defect, and a skipped convenience is not.
+ */
+export function ensureStarterProject(deps: StarterDeps, githubOrg: string, workspaceRepo: string): StarterOutcome {
+  const spec = starterProject(githubOrg, workspaceRepo);
+  const boards = deps.listBoards(githubOrg);
+  if (boards === null) return { boardUrl: null, issueUrl: null, seeded: false, unchecked: true };
+  const title = spec.boardTitle.toLowerCase();
+  const open = boards.filter((b) => !b.closed && b.title.trim().toLowerCase() === title).sort((a, b) => a.number - b.number)[0];
+  if (open) return { boardUrl: open.url, issueUrl: null, seeded: false, reused: true };
+  const boardUrl = deps.createBoard(githubOrg, spec.boardTitle);
+  const issueUrl = boardUrl ? deps.createIssue(spec.issueRepo, spec.issueTitle, spec.issueBody) : null;
+  if (boardUrl && issueUrl) {
+    const n = Number(boardUrl.match(/\/projects\/(\d+)/)?.[1] ?? 0);
+    if (n) deps.addToBoard(githubOrg, n, issueUrl);
+  }
+  return { boardUrl, issueUrl, seeded: false, reused: false };
 }
 
 export function starterSummary(o: StarterOutcome): readonly string[] {
+  if (o.unchecked) {
+    return [
+      "  Could not check whether your organization already has a review project — GitHub did not list its boards —",
+      "  so gov did not create another. Run `gov` → Work to find it, or re-run setup when GitHub answers.",
+    ];
+  }
+  if (o.reused && o.boardUrl) {
+    return [
+      `  You already have one, still open — reusing it rather than creating another:`,
+      `  Board:   ${o.boardUrl}`,
+      "  Run `gov` → Work → pick it, and you are on the project branch",
+    ];
+  }
   if (!o.boardUrl) {
     return [
       "  Could not create the starter project board — your token may lack the `project` scope.",

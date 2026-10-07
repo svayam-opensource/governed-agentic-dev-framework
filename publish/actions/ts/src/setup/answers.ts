@@ -70,6 +70,19 @@ export const emailShape: Validator = (v) => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t) ? null : `'${t}' does not look like an email address (name@example.com).`;
 };
 
+/**
+ * THE POLICY OWNER'S CONTACT EMAIL IS OPTIONAL (Policy Owner, 2026-10-07 — adoption walk #1). The role is held by a
+ * GitHub handle; the email is only a contact the policies show. Blank or `none` leaves it empty; anything else must
+ * still look like an address, because a typo here is printed in every policy that names the owner.
+ */
+export const optionalEmail: Validator = (v) => {
+  const t = v.trim();
+  return t === "" || t.toLowerCase() === "none" ? null : emailShape(t);
+};
+
+/** `none` (any case) → empty; otherwise the answer, trimmed. */
+export const parseOptionalEmail = (v: string): string => (v.trim().toLowerCase() === "none" ? "" : v.trim());
+
 export const isoDate: Validator = (v) => {
   const t = v.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return `'${t}' is not a date in YYYY-MM-DD form.`;

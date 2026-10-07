@@ -50,6 +50,38 @@ export interface OrgConfigValues {
 }
 
 import { parseGovernance, renderGovernance, setGovernanceScalar } from "../config/governance.js";
+import { contentLayoutOf } from "../maintain/upgrade-sync.js";
+
+/**
+ * MUST THE UPGRADE RUN BEFORE SETUP? (adoption walk #4 + #14, 2026-10-07 — data loss). The reason, or null.
+ *
+ * Setup writes org-config.yaml in the CURRENT, identity-only shape and the governance answers to
+ * policies/governance.yaml. On a repo the upgrade has not carried across, that rewrite deletes values only the
+ * upgrade's org-config split knows where to put — the domain role holders, a work root, the publication choice — and
+ * the seed that follows finds no framework/ tree. So setup asks nothing until the upgrade has run, when:
+ *
+ *   - the repo is on the OLD layout (`governance/policies/`, no framework/ tree), or
+ *   - org-config.yaml still holds a key setup cannot carry and policies/governance.yaml does not exist yet.
+ *
+ * An org-config that predates the split with only the keys setup itself carries (the owners, the posture, the
+ * agents) stays setup's to handle — it reads them as defaults and writes them where they now live.
+ */
+export function setupNeedsUpgrade(exists: (rel: string) => boolean, orgConfigText: string | null, governanceText: string | null): string | null {
+  if (contentLayoutOf(exists) === "governance") {
+    return "this governance repository is on the old layout (governance/), and setup writes only the current one (policies/, framework/)";
+  }
+  if (governanceText === null && orgConfigText) {
+    const held = UPGRADE_CARRIES.filter((k) => new RegExp(`^${k}\\s*:\\s*"?[^"\\s#]`, "m").test(orgConfigText));
+    if (held.length) return `org-config.yaml still holds ${held.join(", ")} — values only the upgrade carries to where they live now`;
+  }
+  return null;
+}
+
+/** org-config keys from before the split that setup neither asks nor writes — the upgrade's split carries them. */
+const UPGRADE_CARRIES = [
+  "legal_owner_github", "infra_owner_github", "system_arch_owner_github", "data_arch_owner_github",
+  "agent_work_root", "knowledge_publication", "authorized_approvers",
+] as const;
 
 /** Parse a GitHub remote URL → owner/repo (ssh or https, optional .git). */
 export function parseOriginOwnerRepo(url: string): { owner: string; repo: string } | null {

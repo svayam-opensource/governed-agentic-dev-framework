@@ -32,6 +32,8 @@ esac
 
 case "$*" in
   "auth status"*)                echo "stub: logged in to github.com as $GH_STUB_LOGIN (repo, read:org, project)" ;;
+  # gov asks `gh api user` whether it can act, and reads the scopes from its headers (adoption walk #2).
+  "api -i user")                 printf 'HTTP/2.0 200 OK\nX-Oauth-Scopes: project, read:org, repo, workflow\n\n{"login":"%s"}\n' "$GH_STUB_LOGIN" ;;
   "api user --jq .login")        echo "$GH_STUB_LOGIN" ;;
   "api user --jq .login // empty") echo "$GH_STUB_LOGIN" ;;
   "api user"*)                   echo "{\"login\":\"$GH_STUB_LOGIN\"}" ;;

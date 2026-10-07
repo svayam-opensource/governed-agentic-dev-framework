@@ -14,7 +14,8 @@
  * would be a lie an admin sees through immediately: they have write access to that
  * repository and will use GitHub or their editor if that is faster. Naming which is
  * governed and which is not respects that, and makes the choice a decision rather
- * than a workaround.
+ * than a workaround. Under the rule model a push straight to main breaks GOV-FRM-040
+ * (adoption walk #7), so B says so rather than instructing it, and C is recommended.
  */
 
 import { paint } from "./format.js";
@@ -57,13 +58,12 @@ export function adopterNextSteps(f: NextStepsFacts, color = false): readonly str
     "     3. Read framework/docs/specs/framework-specification.md",
     "",
     "  B. In your editor (VS Code, Cursor, Eclipse…) — direct, and UNGOVERNED",
-    `     1. Open ${home}`,
-    "     2. Make sure you are on the main branch",
-    "     3. Edit what you like, then commit and push",
-    "     This bypasses the review the framework exists to provide. It is your right",
-    "     as the admin, and worth using deliberately rather than by habit.",
+    `     Open ${home} and edit. But a change pushed straight to main breaks`,
+    "     GOV-FRM-040 — every change lands by a pull request someone authorized",
+    "     approves — and the framework's own check records it as a violation.",
+    "     If you edit here, push to a branch and open a pull request; better, use C.",
     "",
-    "  C. Through gov — the governed way, and the one to learn",
+    "  C. Through gov — the governed way, and the one recommended",
     "     1. Run:  gov",
     "     2. Choose  1. Work",
     "     3. Pick the review project",
@@ -73,10 +73,14 @@ export function adopterNextSteps(f: NextStepsFacts, color = false): readonly str
     `Your workspace: ${home}`,
     `Projects will be cloned under: ~/.gov/${slug}/projects/`,
     "",
+    // EVERY DESCRIPTION UNDER A PATH THAT EXISTS (adoption walk #6). Two of these lost their paths when the split
+    // renamed the documents, and printed as captions for nothing; a test now holds each path against the seed.
     "Read these, in this order — the full paths, so nothing has to be guessed:",
+    `  ${home}/policies/authorized-representatives.md`,
     "      who is accountable for what. Every role currently points at you.",
     `  ${home}/framework/docs/specs/framework-specification.md`,
     "      how the framework works — read chapters 3 and 6 before changing anything",
+    `  ${home}/policies/data-classification.md`,
     "      what may never leave your organization",
     `  ${home}/agent/session-protocol.md`,
     "      what every agent reads before it touches anything",
@@ -111,8 +115,9 @@ export function joinerNextSteps(f: NextStepsFacts, color = false): readonly stri
     "      must do before it touches anything",
     `    ${home}/agent/session-protocol.md`,
     "      what your agent reads at the start of every session",
+    `    ${home}/policies/authorized-representatives.md`,
     "      who to ask when something here does not fit",
-    `    ${home}/docs/USER_GUIDE.md`,
+    `    ${home}/framework/docs/user-guides/path-joiner.md`,
     "      the day-to-day: starting work, finishing it, and what gov does for you",
     "",
     "  Then start working:",

@@ -302,7 +302,7 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
   // THE CLAUDE-ONLY SessionStart HOOK IS GONE (Policy Owner, 2026-09-11).
   //
   // It worked, and that was the problem. A mechanism only one vendor has made that vendor
-  // better-governed than the rest, which biases the agent choice at Q11 for a reason that has
+  // better-governed than the rest, which biases the agent choice at Q12 for a reason that has
   // nothing to do with the agent. Consistency was ruled to matter more than the marginal
   // capability, and the guarantee no longer needs it: the protocol is placed in every agent's
   // own file and handed to eight of ten as their first message, so the hook added nothing

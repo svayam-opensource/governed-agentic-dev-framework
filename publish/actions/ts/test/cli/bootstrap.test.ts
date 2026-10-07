@@ -133,7 +133,9 @@ function io(over: Partial<FirstRunIo> = {}) {
  */
 const INTERVIEW_ANSWERS: Record<string, string> = {
   Q1: "Acme Incorporated", Q2: "Acme", Q3: "svm-geneva", Q4: "svm-geneva-gov",
-  Q5: "GENEVA", Q6: "1", Q7: "dev", Q8: "rk@acme.io",
+  Q5: "GENEVA", Q6: "1", Q7: "dev",
+  // Both roles by GitHub handle, then the contact email (adoption walk #1, 2026-10-07).
+  Q8: "@rk", Q10: "rk@acme.io",
   // The Check Owner (rule-model, 2026-10-06): who reviews the code of the org's check actions. (No effective-date
   // question since the org-config split retired policy_effective_date.)
   Q9: "@rk",
@@ -287,7 +289,7 @@ describe("gov-work — first run: the flow", () => {
     expect(await runFirstRun(w)).to.equal(1);
     expect(acts.some((a) => a.startsWith("place")), "nothing was placed").to.equal(false);
     expect(acts).to.include("discard /tmp/boot");
-    expect(pxAll(out).join("\n")).to.match(/gov org add Svayamtech \/home\/rk\/\.gov\/svm\/gov_repo/);
+    expect(pxAll(out).join("\n")).to.match(/gov org add Svayamtech --home \/home\/rk\/\.gov\/svm\/gov_repo/);
   });
 
   it("abandoning setup discards the clone and does NOT register a half-made org", async () => {

@@ -40,17 +40,20 @@ drive "$(conv <<'C'
 <
 > Q7 - Default branch to be used for development
 <
-> Q8 - What is policy owner email
-< adopter@acme.test
-# Q9 — THE CHECK OWNER (rule-model, 2026-10-06): who reviews the code of the org's check actions. Answered,
-# not defaulted: the default is the Policy Owner's gh login, which the container may not have.
+# Q8–Q10 — BOTH ROLES BY GITHUB HANDLE, THEN AN OPTIONAL CONTACT (adoption walk #1, 2026-10-07).
+# Answered, not defaulted: the defaults are the gh login (which the container may not have) and the
+# git email — an empty default against a handle rule is a hang in a pty driver, not a failure.
+> Q8 - Who is the Policy Owner
+< adopter
 > Q9 - Who is the Check Owner
 < adopter
-# Q10 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
-> Q10 - What governance posture
+> Q10 - What contact email
+< adopter@acme.test
+# Q11 — THE GOVERNANCE POSTURE (W2-Q6): Enter is soft, the default, and asks nothing more.
+> Q11 - What governance posture
 <
 ~ 240
-# Q11 — ANSWERED WITH THE WORD, not the number. The numbered option is asserted on the screen
+# Q12 — ANSWERED WITH THE WORD, not the number. The numbered option is asserted on the screen
 # below; typing `none` is the answer someone gives who read the list rather than counting it, and
 # it must work for the same reason `ibm-bob` does.
 > default for your organization
@@ -67,7 +70,7 @@ drive "$(conv <<'C'
 C
 )" gov
 
-info "Q11 offers 'none' as an ANSWER, not as a way past the question"
+info "Q12 offers 'none' as an ANSWER, not as a way past the question"
 saw "the option is on the menu, numbered like the rest" "none — this organization does not use AI agents"
 says "and it says what gov still does, which is everything else" "projects, tasks, branches, knowledge, review"
 never "it is never presented as skipping the question" "skip this"

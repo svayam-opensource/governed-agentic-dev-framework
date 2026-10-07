@@ -43,14 +43,25 @@ export const RECOMMENDED_SCOPES: readonly { readonly scope: string; readonly why
 ];
 
 /**
- * Pull the granted scopes out of `gh auth status` output. Returns null when the
- * line is absent, which means "could not tell" — reported as unknown rather than
- * as missing, because a false alarm about permissions sends people to their
- * administrator for nothing.
+ * CAN GOV ACT ON GITHUB? (adoption walk #2, 2026-10-07). `gh auth status` exits non-zero when ANY account gh has
+ * stored is stale — even while the active token works — so it answered a different question than the one gov asks,
+ * and refused machines that could act on GitHub perfectly well. `gh api user` succeeds exactly when the active
+ * token can act, and the same endpoint with `-i` carries the token's scopes in its `X-OAuth-Scopes` header.
  */
-export function parseGrantedScopes(ghAuthStatus: string): readonly string[] | null {
-  const m = /Token scopes:\s*(.+)/.exec(ghAuthStatus);
-  if (!m?.[1]) return null;
+export const GH_SIGNED_IN_ARGS: readonly string[] = ["api", "user", "--jq", ".login"];
+/** `gh api -i user` — the headers carry `X-OAuth-Scopes` (classic tokens; absent for fine-grained and app tokens). */
+export const GH_SCOPES_ARGS: readonly string[] = ["api", "-i", "user"];
+
+/**
+ * Pull the granted scopes out of `gh api -i user` output (the `X-OAuth-Scopes` header) — or, for older captured
+ * output, a `gh auth status` "Token scopes:" line. Returns null when neither is present, which means "could not
+ * tell" — reported as unknown rather than as missing, because a false alarm about permissions sends people to
+ * their administrator for nothing.
+ */
+export function parseGrantedScopes(ghOutput: string): readonly string[] | null {
+  const header = /^x-oauth-scopes:[ \t]*(.*)$/im.exec(ghOutput);
+  const m = header ?? /Token scopes:\s*(.+)/.exec(ghOutput);
+  if (!m || m[1] === undefined) return null;
   return m[1].split(",").map((x) => x.trim().replace(/^'|'$/g, "")).filter(Boolean);
 }
 
