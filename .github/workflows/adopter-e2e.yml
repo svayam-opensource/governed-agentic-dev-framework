@@ -187,6 +187,7 @@ jobs:
           npm ci && npm run build
           echo "tgz=$PWD/$(npm pack --silent | tail -1)" >> "$GITHUB_OUTPUT"
       - name: Run adopter journey (real GitHub, self-cleaning)
+        id: adopter
         if: steps.guard.outputs.run == 'true'
         env:
           E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
@@ -199,6 +200,7 @@ jobs:
             bash publish/actions/ts/e2e/adopter-journey.sh
       # Its own step, run even when the adopter journey failed: the two prove different things.
       - name: Run rule-model journey (real GitHub, self-cleaning)
+        id: rulemodel
         if: steps.guard.outputs.run == 'true' && !cancelled()
         env:
           E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
@@ -213,3 +215,26 @@ jobs:
         run: |
           GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" \
             bash publish/actions/ts/e2e/rule-model-journey.sh
+      # ONE VERDICT PER JOURNEY, at the job's end. The rule-model journey runs after a failed adopter journey, and on
+      # 2026-10-07 its closing "31 passed, ok" banner was the last thing the log said — a failed job that read green.
+      # This step names each journey's outcome (log + run summary) and fails the job when either did.
+      - name: Live journeys — verdict
+        if: always() && steps.guard.outputs.run == 'true'
+        env:
+          ADOPTER: ${{ steps.adopter.outcome }}
+          RULEMODEL: ${{ steps.rulemodel.outcome }}
+        run: |
+          bad=0
+          {
+            echo "### Live journeys"
+            echo "| journey | outcome |"
+            echo "|---|---|"
+            echo "| adopter (seed → task → merge → close) | ${ADOPTER:-not run} |"
+            echo "| rule-model | ${RULEMODEL:-not run} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for j in "adopter:$ADOPTER" "rule-model:$RULEMODEL"; do
+            name="${j%%:*}"; out="${j#*:}"
+            if [ "$out" = "success" ]; then echo "✓ $name journey: success"
+            else echo "::error::$name journey: ${out:-not run}"; bad=1; fi
+          done
+          exit "$bad"

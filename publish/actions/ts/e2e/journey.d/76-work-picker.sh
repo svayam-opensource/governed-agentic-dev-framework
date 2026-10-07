@@ -35,7 +35,7 @@ WORK_ROOT="$HOME/.gov/acme/projects"
 fake_joined_project "$WORK_ROOT/PRJ-7-alpha" "acme-gov"
 fake_joined_project "$WORK_ROOT/PRJ-9-infra" "acme-gov"
 # The branch each row shows, read from HEAD — no `git` process, because the local list must cost nothing.
-# (`fake_joined_project` makes a bare `.git` directory; a real join leaves a HEAD in it.)
+# (`fake_joined_project` clones the governance repo; a real join leaves the project branch in HEAD.)
 printf 'ref: refs/heads/BRNCH-7-alpha\n' > "$WORK_ROOT/PRJ-7-alpha/acme-gov/.git/HEAD"
 printf 'ref: refs/heads/BRNCH-9-infra\n' > "$WORK_ROOT/PRJ-9-infra/acme-gov/.git/HEAD"
 touch -t 202601010000 "$WORK_ROOT/PRJ-9-infra"

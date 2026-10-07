@@ -78,8 +78,13 @@ says "and then what it would run about it" "To put that right, gov will run"
 # is Rocky's answer written down as if it were everyone's — the same distro-blindness the tier
 # exists to catch in gov. What must be true everywhere is that the plan names a command for
 # each missing thing; WHICH command is the package manager's business.
-saw_re "the plan names a command that installs git" "install (-y )?git"
-saw_re "and one that installs gh" "install (-y )?gh"
+#
+# AND THE PLAN'S OWN LINES, flags and all. `install (-y )?gh` was written before the plan went quiet (`dnf install
+# -y -q gh`, 14a94f6: a ~350-line dnf transcript scrolled the consented plan away) and stopped matching. Its git
+# twin was passing on the doctor's hint ("git: not found — install git"), not on the plan. A numbered plan step that
+# installs the package, with whatever flags the manager takes, is the claim.
+saw_re "the plan names a command that installs git" "^ *[0-9]+\. (sudo )?[a-z-]+ (install|add|-S)( -[-a-zA-Z]+)* git[[:space:]]*$"
+saw_re "and one that installs gh" "^ *[0-9]+\. (sudo )?[a-z-]+ (install|add|-S)( -[-a-zA-Z]+)* (gh|github-cli)[[:space:]]*$"
 saw "and the sign-in only a person can do" "gh auth login"
 saw "and the identity a fresh git does not have" "git config --global"
 

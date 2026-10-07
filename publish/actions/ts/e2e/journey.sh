@@ -189,7 +189,9 @@ YAML
       return 1
     fi
   done
-  ( cd "$dir" && git init -q . && git add -A && git -c user.email=e@x -c user.name=e commit -qm init )
+  # `-b main`, because org-config says so: gov reads the harness from `default_branch` (GOV-FRM-456), and a CI
+  # container's git still names its first branch `master`.
+  ( cd "$dir" && git init -q -b main . && git add -A && git -c user.email=e@x -c user.name=e commit -qm init )
 }
 
 # A project workspace as a REAL join leaves it: a git dir, and the rendered harness in it.
@@ -199,8 +201,22 @@ YAML
 # project with no governance in it — and gov now refuses to launch an agent into exactly that.
 # The shortcut was fine while nothing checked; it is a false world now, so it has a helper that
 # builds the true one.
+#
+# A CLONE, WHEN THERE IS A GOVERNANCE REPO TO CLONE (GOV-FRM-456, rule-model-design.md P3 wave 1). gov builds the
+# harness from the governance repo's DEFAULT BRANCH, read through git in this folder — never from the files in its
+# working tree, which belong to a project branch. An empty `.git` beside copied files has no default branch, so gov
+# rightly refused to launch into it ("could not read the default branch 'main'"). A real join leaves a git
+# checkout of the governance repo on the project branch, with `main` reachable; that is what this builds when the
+# scenario has made the remote. Without one, the old shape stays: only scenarios that never launch an agent use it.
 fake_joined_project() {
-  local project_dir="$1" ws="$2"
+  local project_dir="$1" ws="$2" remote="$GIT_STUB_REMOTES/$2"
+  if [ -d "$remote/.git" ]; then
+    local id; id="$(basename "$project_dir")"           # PRJ-<n>-<slug> → BRNCH-<n>-<slug>
+    mkdir -p "$project_dir"
+    /usr/bin/git clone -q "$remote" "$project_dir/$ws" || { printf 'fake_joined_project: could not clone %s\n' "$remote" >&2; return 1; }
+    /usr/bin/git -C "$project_dir/$ws" checkout -q -b "BRNCH-${id#PRJ-}"
+    return 0
+  fi
   mkdir -p "$project_dir/$ws/.git"
   # UNDER agent/harness/ SINCE DECISION 2 (2026-09-14), and GEMINI.md not .gemini/styleguide.md
   # since Decision 15 — the Gemini CLI reads GEMINI.md and never looked at the styleguide.
