@@ -5,8 +5,8 @@
  *
  * `gov upgrade` fetched content from `main` while gov was built from a feature branch; "CLI 1.2.3 == content
  * 1.2.3" passed because neither side bumped its version, and the mismatch is what emptied an org's org-config
- * (#13). gov now records, at build time, the fingerprint of the content it was built with (and the commit), fetches
- * THAT commit by default, and refuses any content whose fingerprint differs.
+ * (#13). gov now CARRIES the content it was built with (its bundle, fingerprinted at build time), uses it by
+ * default with nothing to fetch, and refuses any content whose fingerprint differs.
  */
 import { expect } from "chai";
 import * as fs from "node:fs";
@@ -17,6 +17,7 @@ import {
   contentFingerprint, checkContentIdentity, readBuildIdentity, writeBuildIdentity, selectUpgradeContent,
   BUILD_IDENTITY_PATH, type BuildIdentity,
 } from "../../src/maintain/build-identity.js";
+import { CONTENT_BUNDLE_PATH } from "../../src/maintain/content-bundle.js";
 import { fetchTemplateContent } from "../../src/maintain/upgrade-run.js";
 
 const tmp = (p: string): string => fs.mkdtempSync(path.join(os.tmpdir(), p));
@@ -25,7 +26,7 @@ const gitOk = (): boolean => { try { execFileSync("git", ["--version"], { stdio:
 
 function content(extra: Record<string, string> = {}): string {
   const c = tmp("bid-content-");
-  write(c, "MANIFEST.yaml", "files:\n  - { src: VERSION, dst: VERSION, mode: scaffold-auto }\n");
+  write(c, "MANIFEST.yaml", "files:\n  - { src: VERSION, dst: VERSION, mode: scaffold-auto }\n  - { src: org-config.example.yaml, dst: org-config.example.yaml, mode: seed-once }\n  - { src: framework/, dst: framework/, mode: scaffold-auto }\n");
   write(c, "VERSION", "1.2.3\n");
   write(c, "org-config.example.yaml", 'org_name: ""\n');
   for (const [k, v] of Object.entries(extra)) write(c, k, v);
@@ -47,6 +48,10 @@ describe("build identity — the content a gov was built with", () => {
     expect(contentFingerprint(b)).to.not.equal(contentFingerprint(a));
     write(a, "framework/new.md", "x\n");
     expect(contentFingerprint(a), "an added file changes it").to.not.equal(contentFingerprint(content()));
+    const c = content();
+    write(c, "notes-not-shipped.md", "x\n");
+    write(c, "framework/.DS_Store", "x");
+    expect(contentFingerprint(c), "a file the manifest does not ship, or OS litter, is not content").to.equal(contentFingerprint(content()));
   });
 
   it("content that IS the build passes", () => {
@@ -56,7 +61,7 @@ describe("build identity — the content a gov was built with", () => {
 
   it("content from another build — same VERSION — is REFUSED, naming both identities and both fixes", () => {
     const mine = content();
-    const other = content({ "MANIFEST.yaml": "files:\n  - { src: org-config.example.yaml, dst: org-config.yaml, mode: overlay-schema }\n" });
+    const other = content({ "VERSION": "1.2.3\n# another build\n" });
     const r = checkContentIdentity(built(mine), other, "https://example.test/fw.git@main", "fedcba9876543210fedcba9876543210fedcba98");
     expect(r.ok).to.equal(false);
     const out = r.ok ? "" : r.lines.join("\n");
@@ -68,7 +73,6 @@ describe("build identity — the content a gov was built with", () => {
     expect(out).to.include("fedcba987654");                       // the content's commit
     expect(out).to.match(/VERSION 1\.2\.3/);
     expect(out).to.include("gov upgrade --ref 0123456789abcdef0123456789abcdef01234567");
-    expect(out).to.match(/--from/);
     expect(out).to.match(/install the gov built from that content/);
   });
 
@@ -78,13 +82,24 @@ describe("build identity — the content a gov was built with", () => {
     expect(r.ok ? "" : r.lines.join("\n")).to.match(/does not know which content it was built with/);
   });
 
-  it("writeBuildIdentity records version, commit, dirtiness and fingerprint; readBuildIdentity reads it back", () => {
+  it("writeBuildIdentity bundles the content and records version, commit, dirtiness and fingerprint; readBuildIdentity reads it back", () => {
     const pkg = tmp("bid-pkg-");
     const c = content();
     writeBuildIdentity(pkg, c, { version: "1.2.3", commit: "abc", dirty: true });
     const id = readBuildIdentity(pkg);
-    expect(id).to.deep.include({ version: "1.2.3", commit: "abc", dirty: true, source: "build", contentFingerprint: contentFingerprint(c) });
+    expect(id).to.deep.include({ version: "1.2.3", commit: "abc", dirty: true, source: "build", contentFingerprint: contentFingerprint(c), bundle: path.join(pkg, CONTENT_BUNDLE_PATH) });
     expect(fs.existsSync(path.join(pkg, BUILD_IDENTITY_PATH))).to.equal(true);
+  });
+
+  it("a build OUTSIDE git (no commit) still carries its content — nothing on the default path needs the commit", () => {
+    const pkg = tmp("bid-nogit-");
+    const c = content();
+    writeBuildIdentity(pkg, c, { version: "1.2.3", commit: null, dirty: false });
+    const id = readBuildIdentity(pkg);
+    expect(id?.commit).to.equal(null);
+    const r = selectUpgradeContent(id, {}, () => { throw new Error("must not fetch"); });
+    expect(r.ok).to.equal(true);
+    if (r.ok) { expect(contentFingerprint(r.contentDir)).to.equal(contentFingerprint(c)); r.cleanup(); }
   });
 
   it("run from a source checkout (no build file), the identity is the checkout's own content", () => {
@@ -109,11 +124,25 @@ describe("selectUpgradeContent — the default content is the client's own build
   const fakeFetch = (dir: string) => (url: string, ref: string) => { fetched.push({ url, ref }); return { contentDir: dir, cleanup: () => {}, commit: ref }; };
   beforeEach(() => { fetched.length = 0; });
 
-  it("no flags, a built gov → fetches the commit it was built from", () => {
+  it("no flags, a built gov → the content it carries (its bundle), no fetch, cleaned up after", () => {
+    const pkg = tmp("bid-sel-");
     const c = content();
-    const r = selectUpgradeContent(built(c), {}, fakeFetch(c));
+    writeBuildIdentity(pkg, c, { version: "1.2.3", commit: "0123456789abcdef0123456789abcdef01234567", dirty: false });
+    const r = selectUpgradeContent(readBuildIdentity(pkg), {}, fakeFetch(c));
     expect(r.ok).to.equal(true);
-    expect(fetched).to.deep.equal([{ url: "https://github.com/svayam-opensource/governed-agentic-dev-framework.git", ref: "0123456789abcdef0123456789abcdef01234567" }]);
+    expect(fetched).to.deep.equal([]);
+    if (r.ok) {
+      expect(fs.readFileSync(path.join(r.contentDir, "VERSION"), "utf8")).to.equal("1.2.3\n");
+      r.cleanup();
+      expect(fs.existsSync(r.contentDir)).to.equal(false);
+    }
+  });
+
+  it("an explicit --ref with no --template fetches the published template", () => {
+    const c = content();
+    const r = selectUpgradeContent(built(c), { ref: "v1.2.3" }, fakeFetch(c));
+    expect(r.ok).to.equal(true);
+    expect(fetched).to.deep.equal([{ url: "https://github.com/svayam-opensource/governed-agentic-dev-framework.git", ref: "v1.2.3" }]);
   });
 
   it("no flags, a source checkout → its own working-tree content, no fetch", () => {
@@ -134,14 +163,15 @@ describe("selectUpgradeContent — the default content is the client's own build
   it("--from a directory that is the build → ok; that is not → refused", () => {
     const mine = content();
     expect(selectUpgradeContent(built(mine), { from: mine }, fakeFetch(mine)).ok).to.equal(true);
-    expect(selectUpgradeContent(built(mine), { from: content({ "x.md": "x" }) }, fakeFetch(mine)).ok).to.equal(false);
+    expect(selectUpgradeContent(built(mine), { from: content({ "framework/x.md": "x" }) }, fakeFetch(mine)).ok).to.equal(false);
   });
 
-  it("a built gov that recorded no commit and no --ref/--from → says what to pass", () => {
+  it("a built gov whose package lacks its bundle → refuses, naming only flags gov upgrade accepts", () => {
     const c = content();
     const r = selectUpgradeContent(built(c, null), {}, fakeFetch(c));
     expect(r.ok).to.equal(false);
-    expect(r.ok ? "" : r.lines.join("\n")).to.match(/--ref <commit>.*--from <content dir>/);
+    expect(fetched).to.deep.equal([]);
+    expect(r.ok ? "" : r.lines.join("\n")).to.match(/does not carry its framework content[\s\S]*gov upgrade --ref <commit\|tag\|branch>, or gov upgrade --from <dir>/);
   });
 });
 
@@ -163,14 +193,5 @@ describe("selectUpgradeContent — the default content is the client's own build
     } finally { f.cleanup(); }
     const b = fetchTemplateContent(repo, "main");
     try { expect(fs.readFileSync(path.join(b.contentDir, "VERSION"), "utf8")).to.equal("2.0.0\n"); } finally { b.cleanup(); }
-  });
-});
-
-describe("selectUpgradeContent — a default commit the remote lacks", () => {
-  it("the fetch failure says the commit is this gov's own and what to pass instead", () => {
-    const c = content();
-    const id: BuildIdentity = { version: "1.2.3", commit: "0123456789abcdef0123456789abcdef01234567", dirty: false, contentFingerprint: contentFingerprint(c), source: "build" };
-    expect(() => selectUpgradeContent(id, {}, () => { throw new Error("could not fetch content: fatal: not our ref"); }))
-      .to.throw(/built from commit 0123456789abcdef0123456789abcdef01234567.*--from <its publish\/content>/s);
   });
 });
