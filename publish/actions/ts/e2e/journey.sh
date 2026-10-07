@@ -281,7 +281,10 @@ saw_re()  { grep -qE -- "$2" "$PLAIN" && pass "$1" || { fail "$1"; printf '%s   
 never()   { grep -qF -- "$2" "$PLAIN" && { fail "$1"; printf '%s     forbidden: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
 # On a miss, show the closest thing gov DID say (lines sharing the expectation's first words) — CI then explains its
 # own failure instead of only naming what was missing (scenario 72 failed in CI only, and the log could not say why).
-near()    { local k="${2:0:14}"; grep -nF -- "$k" "$1" 2>/dev/null | head -3 | sed "s/^/${DIM}     near: /;s/\$/${RST}/" || true; }
+near()    { local k="${2:0:14}" hits; hits="$(grep -nF -- "$k" "$1" 2>/dev/null | head -3)"
+            # Nothing close at all: show the top of the screen — the banner, where the state is named.
+            [ -n "$hits" ] || hits="$(grep -n -v '^[[:space:]]*$' "$1" 2>/dev/null | head -6)"
+            printf '%s\n' "$hits" | sed "s/^/${DIM}     near: /;s/\$/${RST}/"; }
 says()    { grep -qF -- "$2" "$FLAT" && pass "$1" || { fail "$1"; printf '%s     expected sentence: %s%s\n' "$DIM" "$2" "$RST"; near "$FLAT" "$2"; }; }
 never_says(){ grep -qF -- "$2" "$FLAT" && { fail "$1"; printf '%s     forbidden sentence: %s%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
 never_re(){ grep -qE -- "$2" "$PLAIN" && { fail "$1"; printf '%s     forbidden /%s/%s\n' "$DIM" "$2" "$RST"; } || pass "$1"; }
