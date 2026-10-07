@@ -21,7 +21,7 @@ import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog, cacheLogin, cachedLogin } from "../log.js";
 import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
-import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, setupTokenValues, renderManifest, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
+import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, setupTokenValues, renderManifest, selectSetupContent, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
 import { runWorkFlow, myProjects, agentLaunchSpec, projectFromPath, type AgentKind } from "./work-flow.js";
 import { verifyAgentContext } from "../lifecycle/root-protocol.js";
@@ -803,6 +803,15 @@ export async function runSetupCommand(
   // the cwd — creation must never be inferred from location, so a CI re-run cannot make a repository.
   const positional = "error" in parsed ? [] : parsed.positionals;
   if (positional.length > 0 && !nonInteractiveFlag) {
+    // THE SEED IS THIS GOV'S OWN BUILD (adoption walk #9 — the rule `gov upgrade` follows). A gov that cannot say
+    // what it was built with refuses here, before the repository exists; the content itself is chosen and checked
+    // once the template copy has landed (it is used when it IS this build, which saves a fetch).
+    const buildId = cliBuildIdentity();
+    if (buildId === null) {
+      process.stderr.write("gov setup: refused — this gov does not know which content it was built with, so it cannot seed a repository it can vouch for. Nothing was created.\n");
+      process.stderr.write("  Reinstall gov from a current build (it records its content), then run gov setup again.\n");
+      return 1;
+    }
     const created = await runCreateWorkspace(positional[0], "error" in parsed ? {} : parsed.flags, pre);
     if (typeof created === "number") return created;
     cwd = created.home;                             // continue into the normal flow, inside the new clone
@@ -817,10 +826,19 @@ export async function runSetupCommand(
     const templateRemoved = cleanSlateEntries(fsSync.readdirSync(created.home));
     for (const e of templateRemoved) fsSync.rmSync(path.join(created.home, e), { recursive: true, force: true });
     templateRemovedFromCreate = templateRemoved;
-    const seed = runUpgradeSync(path.join(created.home, "publish", "content"), created.home, { apply: true });
+    const seedContent = selectSetupContent(buildId, path.join(created.home, "publish", "content"), (template, ref) => {
+      process.stderr.write(`fetching content from ${template}@${ref} …\n`);
+      return fetchTemplateContent(template, ref);
+    });
+    if (!seedContent.ok) {
+      for (const l of seedContent.lines) process.stderr.write(`${l}\n`);
+      process.stderr.write(`  The repository exists (${created.home}) — nothing was seeded into it. Re-run with the matching gov to resume.\n`);
+      return 1;
+    }
+    const seed = (() => { try { return runUpgradeSync(seedContent.contentDir, created.home, { apply: true }); } finally { seedContent.cleanup(); } })();
     if (seed.code !== 0) {
       for (const l of seed.lines) process.stderr.write(`${l}\n`);
-      process.stderr.write(`gov setup: could not seed content from publish/. The repo exists — re-run to resume.\n`);
+      process.stderr.write(`gov setup: could not seed the content this gov was built with. The repo exists — re-run to resume.\n`);
       return 1;
     }
     // THE ORGANIZATION'S AGENT POLICY, WRITTEN BEFORE THE COMMIT (#196).
