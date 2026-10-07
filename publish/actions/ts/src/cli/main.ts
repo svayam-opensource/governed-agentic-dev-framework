@@ -782,6 +782,24 @@ async function runCreateWorkspace(rawTarget: string, flags: Record<string, strin
 }
 
 /**
+ * `gov setup --ref <commit|tag|branch>` / `--from <dir>` (F21) — the same overrides `gov upgrade` takes, for the
+ * content setup seeds (and the old-layout upgrade it runs first). Both need a value; both together is ambiguous.
+ */
+export function setupContentFlags(flags: Readonly<Record<string, string | boolean>>): { flags: { from?: string; ref?: string }; argv: string[] } | { error: string } {
+  for (const f of ["ref", "from"]) {
+    if (f in flags && typeof flags[f] !== "string") return { error: `--${f} needs a value (--ref <commit|tag|branch>, --from <dir>)` };
+  }
+  const ref = flagStr(flags, "ref");
+  const fromRaw = flagStr(flags, "from");
+  if (ref !== undefined && fromRaw !== undefined) return { error: "pass --ref or --from, not both" };
+  const from = fromRaw !== undefined ? path.resolve(expandTilde(fromRaw)) : undefined;
+  return {
+    flags: { ...(ref !== undefined ? { ref } : {}), ...(from !== undefined ? { from } : {}) },
+    argv: [...(ref !== undefined ? ["--ref", ref] : []), ...(from !== undefined ? ["--from", from] : [])],
+  };
+}
+
+/**
  * `gov setup` — the interactive workspace BOOTSTRAP (port of setup.sh). Async
  * (readline prompts), so bin.ts routes it here instead of through resolution.
  * Runs in cwd (the cloned framework repo), before any resolution.
@@ -804,16 +822,25 @@ export async function runSetupCommand(
   // configure the workspace we are in, exactly as before. `--non-interactive` never creates, whatever
   // the cwd — creation must never be inferred from location, so a CI re-run cannot make a repository.
   const positional = "error" in parsed ? [] : parsed.positionals;
+  const setupContent = setupContentFlags("error" in parsed ? {} : parsed.flags);
+  if ("error" in setupContent) {
+    process.stderr.write(`gov setup: ${setupContent.error}\n`);
+    return 2;
+  }
   if (positional.length > 0 && !nonInteractiveFlag) {
-    // THE SEED IS THIS GOV'S OWN BUILD (adoption walk #9 — the rule `gov upgrade` follows). A gov that cannot say
-    // what it was built with refuses here, before the repository exists; the content itself is chosen and checked
-    // once the template copy has landed (it is used when it IS this build, which saves a fetch).
-    const buildId = cliBuildIdentity();
-    if (buildId === null) {
-      process.stderr.write("gov setup: refused — this gov does not know which content it was built with, so it cannot seed a repository it can vouch for. Nothing was created.\n");
-      process.stderr.write("  Reinstall gov from a current build (it records its content), then run gov setup again.\n");
+    // THE SEED IS THE CONTENT THIS GOV CARRIES (Policy Owner, 2026-10-07, option B): its bundle, or a source
+    // checkout's own publish/content — or, deliberately, `--ref`/`--from` (F21), checked against this build. Chosen
+    // BEFORE the repository exists, so a refusal creates nothing.
+    const seedContent = selectSetupContent(cliBuildIdentity(), setupContent.flags, (template, ref) => {
+      process.stderr.write(`fetching content from ${template}@${ref} …\n`);
+      return fetchTemplateContent(template, ref);
+    }, { verb: "setup", line: `gov setup ${positional[0]}` });
+    if (!seedContent.ok) {
+      for (const l of seedContent.lines) process.stderr.write(`${l}\n`);
+      process.stderr.write("  Nothing was created.\n");
       return 1;
     }
+    try {
     const created = await runCreateWorkspace(positional[0], "error" in parsed ? {} : parsed.flags, pre);
     if (typeof created === "number") return created;
     cwd = created.home;                             // continue into the normal flow, inside the new clone
@@ -828,16 +855,7 @@ export async function runSetupCommand(
     const templateRemoved = cleanSlateEntries(fsSync.readdirSync(created.home));
     for (const e of templateRemoved) fsSync.rmSync(path.join(created.home, e), { recursive: true, force: true });
     templateRemovedFromCreate = templateRemoved;
-    const seedContent = selectSetupContent(buildId, path.join(created.home, "publish", "content"), (template, ref) => {
-      process.stderr.write(`fetching content from ${template}@${ref} …\n`);
-      return fetchTemplateContent(template, ref);
-    });
-    if (!seedContent.ok) {
-      for (const l of seedContent.lines) process.stderr.write(`${l}\n`);
-      process.stderr.write(`  The repository exists (${created.home}) — nothing was seeded into it. Re-run with the matching gov to resume.\n`);
-      return 1;
-    }
-    const seed = (() => { try { return runUpgradeSync(seedContent.contentDir, created.home, { apply: true }); } finally { seedContent.cleanup(); } })();
+    const seed = runUpgradeSync(seedContent.contentDir, created.home, { apply: true });
     if (seed.code !== 0) {
       for (const l of seed.lines) process.stderr.write(`${l}\n`);
       process.stderr.write(`gov setup: could not seed the content this gov was built with. The repo exists — re-run to resume.\n`);
@@ -863,6 +881,7 @@ export async function runSetupCommand(
     // #159 finding 1a — the slug was asked BEFORE creating (it decides the location), then asked again
     // by the setup flow, with a blank default. One fact, one question: carry the answer forward.
     createdSlug = created.slug;
+    } finally { seedContent.cleanup(); }
   }
 
   if (tryRun("git", ["-C", cwd, "rev-parse", "--git-dir"]) === undefined) {
@@ -892,7 +911,7 @@ export async function runSetupCommand(
         print: (l) => process.stdout.write(`${l}\n`),
         // ADOPTION WALK #4 + #14: on a repo setup cannot write (the old layout), the same `gov upgrade --apply` a
         // person would type, on THIS repository — run before the first question, never after an answer.
-        upgradeFirst: () => main(["upgrade", "--apply", "--gov-home", cwd], now),
+        upgradeFirst: () => main(["upgrade", "--apply", "--gov-home", cwd, ...setupContent.argv], now),
         setOriginRemote: (url) => {
           try {
             runProcess("git", ["-C", cwd, "remote", "set-url", "origin", url], { pgm: "gov-work:cli:main" });

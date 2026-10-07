@@ -197,7 +197,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
   const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned);
 
   if (!opts.apply) {
-    return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), "", "Re-run with --apply to write these changes."] };
+    return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
   }
 
   const res = applyUpgrade(plan, {
@@ -220,6 +220,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       ...res.skipped.map((s) => `  ! ${s} (org-customized — reconcile by hand)`),
       ...refusedLines(plan),
       ...res.why,
+      ...replaceFrameworkReadme(adopterDir, contentDir, true),
       ...settleRoleList(adopterDir),
       ...refreshCodeowners(adopterDir),
     ],
@@ -254,6 +255,25 @@ export function settleRoleList(adopterDir: string): string[] {
 }
 
 /**
+ * THE FRAMEWORK'S README, LEFT BY THE TEMPLATE COPY, BECOMES THE ORG'S (F22 — framework-readme.ts). Only a README
+ * whose fingerprint is one the framework shipped, and only in an adopter repo (one with org-config.yaml): in the
+ * framework's own checkout that README is the framework's. The org README's tokens are filled from org-config.yaml
+ * and policies/governance.yaml, as setup fills them. Any other README is the org's and is never touched (GOV-FRM-445).
+ */
+export function replaceFrameworkReadme(adopterDir: string, contentDir: string, apply: boolean, today: string = new Date().toISOString().slice(0, 10)): string[] {
+  const cfg = readIf(path.join(adopterDir, "org-config.yaml"));
+  if (cfg === null) return [];
+  const values = setupTokenValues(cfg, readIf(path.join(adopterDir, GOVERNANCE_PATH)), today);
+  const text = settleFrameworkReadme(readIf(path.join(adopterDir, "README.md")), readIf(path.join(contentDir, "README.md")), (t) => substituteTokens(t, values));
+  if (text === null) return [];
+  const why = "the framework's own README, left by the template copy";
+  if (!apply) return [`  ~ update   README.md   (${why} — replaced by the organization's README)`];
+  fs.writeFileSync(path.join(adopterDir, "README.md"), text, "utf8");
+  log("info", "replaced the framework's README left by the template copy with the org's", "gov-work:maintain:upgrade-run", "replaceFrameworkReadme", { path: "README.md" });
+  return [`  README.md: ${why} — replaced by the organization's README`];
+}
+
+/**
  * CODEOWNERS FOLLOWS THE ROLE LIST (GOV-FRM-083). gov generates CODEOWNERS from policies/governance.yaml (the Policy and Check
  * Owners) and the org's role list (policies/authorized-representatives.md); a holder changes by a pull request to
  * those, and the file is regenerated here — the command `gov doctor`'s drift row names. Written only when it would
@@ -283,6 +303,8 @@ import { parseApprovedAgents, readAuthorizedAgents, withAuthorizedAgents } from 
 import { GOVERNANCE_PATH } from "../config/governance.js";
 import { recordWorkRoot } from "../config/work-root.js";
 import { readTopLevelScalar } from "../resolve/node-env.js";
+import { settleFrameworkReadme } from "./framework-readme.js";
+import { setupTokenValues, substituteTokens } from "../setup/create.js";
 import { splitLoss, splitOrgConfig, type SplitInput } from "./org-config-split.js";
 
 /** Each refused merge, with what it would have lost. A refusal is the one outcome the summary must never hide. */

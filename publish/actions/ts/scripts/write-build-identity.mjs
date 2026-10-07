@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * Record which framework content this gov is built with (src/maintain/build-identity.ts) — run by `postbuild`,
- * after tsc, so it uses the compiled fingerprint the installed gov will use to check content.
+ * Bundle the framework content into the package and record its identity (src/maintain/build-identity.ts,
+ * content-bundle.ts) — run by `postbuild`, after tsc, so it uses the compiled code the installed gov will use.
+ * The package then CARRIES the content it was built with (Policy Owner, 2026-10-07, option B): `lib/content-bundle.json`,
+ * fingerprinted exactly as bundled. The commit is recorded when the build is in git, and is never required.
  *
- * Fails the build when publish/content is not beside the package: a gov that cannot say what content it was
- * built with is a gov whose `gov upgrade` must refuse everything, and that should surface here, not at an adopter.
+ * Fails the build when publish/content is not beside the package: a gov without its content cannot seed or upgrade
+ * anything, and that should surface here, not at an adopter.
  */
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -26,4 +28,4 @@ const { version } = JSON.parse(fs.readFileSync(path.join(pkgRoot, "package.json"
 const id = writeBuildIdentity(pkgRoot, contentDir, { version, commit, dirty });
 // STDERR, never stdout: this runs inside `npm pack --json` (prepack → build → postbuild), and gov-cicd parses that
 // stdout as JSON — a log line there broke every deploy of gov ("build iden… is not valid JSON", 2026-10-07).
-console.error(`build identity: content ${id.contentFingerprint.slice(7, 19)}${commit ? ` @ ${commit.slice(0, 12)}${dirty ? " (+ uncommitted content)" : ""}` : " (no git commit)"}`);
+console.error(`build identity: content ${id.contentFingerprint.slice(7, 19)} (${id.files} files bundled)${commit ? ` @ ${commit.slice(0, 12)}${dirty ? " (+ uncommitted content)" : ""}` : " (no git commit)"}`);

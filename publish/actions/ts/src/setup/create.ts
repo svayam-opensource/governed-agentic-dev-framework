@@ -25,12 +25,10 @@
  * the registry either way, so R2 is unaffected.
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { parseGovernance, governanceTokens } from "../config/governance.js";
 import { defaultWorkRoot } from "../config/org-config.js";
 import { isReservedSlug } from "./answers.js";
-import { contentFingerprint, selectUpgradeContent, type BuildIdentity, type Fetch, type SelectedContent } from "../maintain/build-identity.js";
+import { selectContent, type BuildIdentity, type ContentFlags, type Fetch, type Invocation, type SelectedContent } from "../maintain/build-identity.js";
 import { GH_SCOPES_ARGS, GH_SIGNED_IN_ARGS, parseGrantedScopes } from "../maintain/fix-env.js";
 
 /** The GitHub coordinates of the repo to create. */
@@ -465,28 +463,16 @@ export function archivePathFor(home: string, slug: string, stamp: string): strin
 }
 
 /**
- * WHICH CONTENT A NEW REPOSITORY IS SEEDED FROM — this gov's own build, the rule `gov upgrade` follows (adoption
- * walk #9). The template copy's `publish/content` is the template's DEFAULT branch, whatever build that is; seeding
- * from it unchecked put one build's content under another build's client with nothing comparing them.
- *
- *   - the template copy, when its fingerprint IS this gov's build — no fetch;
- *   - otherwise the content `gov upgrade` would choose with no flags (the checkout's own, or the template fetched at
- *     this gov's build commit — never `main`), checked against the build's fingerprint;
- *   - a gov that cannot say what it was built with seeds nothing.
- *
- * A refusal never throws; the caller owns `cleanup`.
+ * WHICH CONTENT A NEW REPOSITORY IS SEEDED FROM — the content this gov carries (Policy Owner, 2026-10-07, option B):
+ * its bundle, or a source checkout's own `publish/content`. No fetch, and no recorded commit needed. `--ref` and
+ * `--from` name other content deliberately (F21), and whatever is named is checked against this gov's build, as
+ * `gov upgrade` checks it. A refusal never throws; the caller owns `cleanup`.
  */
-export function selectSetupContent(identity: BuildIdentity | null, templateCopy: string | null, fetch: Fetch): SelectedContent {
-  const asSetup = (lines: readonly string[]): readonly string[] => lines.map((l, i) =>
-    i === 0 ? l.replace(/^gov upgrade:/, "gov setup:").replace("Nothing was written.", "Nothing was seeded.") : l);
-  if (identity !== null && templateCopy !== null && fs.existsSync(path.join(templateCopy, "MANIFEST.yaml"))
-    && contentFingerprint(templateCopy) === identity.contentFingerprint) {
-    return { ok: true, contentDir: templateCopy, cleanup: () => {}, label: templateCopy };
-  }
+export function selectSetupContent(identity: BuildIdentity | null, flags: ContentFlags, fetch: Fetch, inv: Invocation): SelectedContent {
   try {
-    const r = selectUpgradeContent(identity, {}, fetch);
-    return r.ok ? r : { ok: false, lines: [...asSetup(r.lines), "  setup seeds a repository only from the content this gov was built with."] };
+    const r = selectContent(identity, flags, fetch, inv);
+    return r.ok ? r : { ok: false, lines: [...r.lines, "  setup seeds a repository only from the content this gov was built with."] };
   } catch (e) {
-    return { ok: false, lines: [`gov setup: could not fetch the content this gov was built with — ${(e as Error).message}`, "  Nothing was seeded."] };
+    return { ok: false, lines: [`gov setup: could not fetch the content — ${(e as Error).message}`, "  Nothing was seeded."] };
   }
 }
