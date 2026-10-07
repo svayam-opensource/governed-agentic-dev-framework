@@ -406,6 +406,16 @@ describe("adoption — only what the manifest produces reaches an adopter", () =
       .to.deep.equal(["publish", "governance"]);
   });
 
+  // svm-geneva walk, 2026-10-07: setup judged strays by the TEMPLATE copy's manifest (the template's default branch,
+  // older than this gov), which has no framework/ or policies/ destinations — and deleted the folders the seed had
+  // just written. Strays are judged by the SEEDED content's manifest (main.ts: seededManifestText). This pins why.
+  it("strays are judged by the seeded manifest: an older manifest would delete framework/ and policies/", () => {
+    const root = [".git", "framework", "policies", "agent", "org-config.yaml", "CODEOWNERS"];
+    const olderManifest = "files:\n  - { src: agent/x.md, dst: agent/x.md, mode: scaffold-auto }\n  - { src: org-config.example.yaml, dst: org-config.yaml, mode: seed-once }\n";
+    expect(strayRootEntries(root, olderManifest)).to.include.members(["framework", "policies"]);
+    expect(strayRootEntries(root, manifestText)).to.not.include.members(["framework", "policies"]);
+  });
+
   it("against THIS repo: none of the framework's own root entries survives into an adopter's repo", () => {
     const root = fs.readdirSync(frameworkRoot);
     const survivors = root.filter((e) => !cleanSlateEntries(root).includes(e));           // .git, publish
