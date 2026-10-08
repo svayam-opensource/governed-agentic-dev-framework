@@ -36,6 +36,9 @@ export interface PrefSpec {
  */
 export const PREFS: readonly PrefSpec[] = [
   { key: "agent.default", what: "the agent gov launches for you (must be one your org approves)", def: null, kind: "string" },
+  // ASK BY DEFAULT (Policy Owner, 2026-10-08): every approved agent is offered, Enter takes your default. `never`
+  // picks without asking — your preference, else the org default — and still names the agent it opened.
+  { key: "work.agent.ask", what: "ask which approved agent to open on every `gov work` (never: open your default without asking)", def: "always", kind: "enum", values: ["always", "never"] },
   { key: "work.picker.localFirst", what: "list projects already on this machine first (no GitHub call)", def: true, kind: "boolean" },
   { key: "work.picker.localOrder", what: "how the local list is ordered", def: "last-used", kind: "enum", values: ["last-used", "number"] },
   { key: "work.picker.pageSize", what: "how many projects a page of the picker shows", def: 15, kind: "number", min: 5, max: 50 },

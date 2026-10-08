@@ -28,6 +28,14 @@ me="$(basename "$0")"
   printf '%s\n' '--'
 } >> "$AGENT_DOUBLE_LOG"
 
+# AN ACCOUNT THAT STOPS THE AGENT — not a first-run step, and nothing gov can settle (F24, 2026-10-08).
+#
+# Armed by naming the binary in AGENT_DOUBLE_TRIAL_EXPIRED. Bob's words, as a container walk saw them.
+if [ -n "${AGENT_DOUBLE_TRIAL_EXPIRED:-}" ] && [ "$me" = "$AGENT_DOUBLE_TRIAL_EXPIRED" ]; then
+  echo "Error: Your Free trial has expired. You have reached the end of your free trial period. Upgrade your plan to continue." >&2
+  exit 1
+fi
+
 # A FIRST-RUN GATE, THE WAY A REAL VENDOR HAS ONE.
 #
 # IBM Bob refuses a first message until its licence is accepted:

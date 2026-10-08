@@ -101,3 +101,41 @@ describe("redactArgv — the flag stays, the value goes", () => {
     expect(redactArgv(["--token", "--verbose"])).to.deep.equal(["--token", "--verbose"]);
   });
 });
+
+/**
+ * F25 (PRJ-121, 2026-10-08). A run ended with, on the person's screen:
+ *
+ *     [winston] Attempt to write logs with no transports, which can increase memory usage: {...}
+ *
+ * The launch closes the log before handing over the terminal (an agent can run for hours, and the lines before it
+ * must be on disk). Closing a winston logger removes its transports — and the logger was kept, so the very next line,
+ * "run finished", went to a logger with none, and winston complained on stderr. Rule 1 of log.ts: nothing here ever
+ * writes to the screen. This holds whatever winston does: gov does not log through a closed logger.
+ */
+describe("ending a run (F25)", () => {
+  it("close, then endRun, writes nothing to stderr — and the lines after the close still reach the file", async () => {
+    const os = await import("node:os");
+    const fs = await import("node:fs");
+    const { startRun, endRun, closeLog, log, runDir } = await import("../src/log.js");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "gov-f25-"));
+    const written: string[] = [];
+    const real = process.stderr.write.bind(process.stderr);
+    (process.stderr as { write: unknown }).write = (chunk: unknown): boolean => { written.push(String(chunk)); return true; };
+    try {
+      startRun({ argv: ["work"], command: "work", workRoot: root, login: "tester" });
+      log("info", "launching the agent", "gov-work:test", "f25");
+      closeLog();                                   // what the launch does before handing over the terminal
+      log("info", "the agent exited", "gov-work:test", "f25");
+      endRun(0);                                    // "run finished", then close
+      log("info", "a straggler after the end", "gov-work:test", "f25");
+      await new Promise((r) => setTimeout(r, 300));
+    } finally {
+      (process.stderr as { write: unknown }).write = real;
+    }
+    expect(written.join(""), "nothing on the person's screen").to.equal("");
+    const dir = runDir();
+    const files = dir ? fs.readdirSync(dir).filter((f) => f.endsWith(".log")) : [];
+    const text = files.map((f) => fs.readFileSync(path.join(dir, f), "utf8")).join("");
+    expect(text, "the record after the close was kept, not dropped").to.contain("run finished");
+  });
+});

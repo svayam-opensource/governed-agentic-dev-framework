@@ -67,8 +67,12 @@ drive "$(conv <<'C'
 ~ 240
 > Proceed\? \(y/N\)
 < y
-> Install which
+# EVERY APPROVED AGENT, INSTALLED OR NOT (2026-10-08): the picker lists it, Enter or 1 picks it, and an
+# agent that is not here is offered the install.
+> Choose \[1\]
 < 1
+> Install IBM Bob now
+< y
 # 3 = Skip for now. The walk's person took the browser route, which in a container amounts to
 # the same thing: no key reaches the agent.
 > Choose \[1-3\]

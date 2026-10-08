@@ -59,12 +59,14 @@ drive "$(conv <<'C'
 ~ 240
 > Proceed\? \(y/N\)
 < y
-# MATCHES THE RAW STREAM, WHICH CARRIES COLOUR. "Install which?" is painted bold
-# (#204), so escape codes sit between the `?` and the ` (Y/n)` — a pattern spanning them
-# never matches, and the run reads as a hang rather than a typo. Match inside one painted
-# run, never across its edges.
-> Install which
+# MATCHES THE RAW STREAM, WHICH MAY CARRY COLOUR (#204). Match inside one painted run, never
+# across its edges, or the run reads as a hang rather than a typo.
+# EVERY APPROVED AGENT, INSTALLED OR NOT (2026-10-08): the picker lists it, Enter or 1 picks it, and an
+# agent that is not here is offered the install.
+> Choose \[1\]
 < 1
+> Install IBM Bob now
+< y
 # THE ASSERTION IS THAT THESE TWO PROMPTS ARE REACHED AND WAIT. Before the fix the whole
 # screen scrolled past unanswered, because a readline already held fd 0.
 > Choose \[1-3\]

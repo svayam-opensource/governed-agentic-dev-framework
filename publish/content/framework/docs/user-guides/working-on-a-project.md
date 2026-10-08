@@ -88,6 +88,37 @@ At the end you'll see a **"Next steps"** block printing the exact `cd` target pl
 
 ## 3. Each working session
 
+### Choosing your agent
+
+`gov work` opens an AI agent in the project. Before it does, it lists every agent your
+organization has approved — including ones not yet installed on this machine:
+
+```
+  Agent for PRJ-31 (approved by Geneva ERS):
+    1) IBM Bob        installed · organization default
+    2) OpenAI Codex   not installed — choose it to install now
+    3) Claude Code    not installed — choose it to install now
+  Choose [1/2/3] (Enter = 1, IBM Bob) :
+```
+
+- **Press Enter** to take the default: your own preference if you have set one, otherwise
+  your organization's default.
+- **Pick one that is not installed** and gov offers to install it for you, the same way
+  `gov agent install <id>` does. Say no, and you are back at the list.
+- **If an agent cannot run because of its account** — a free trial that has ended, a plan or
+  quota used up, an API key the vendor no longer accepts — gov says so plainly. That is
+  between you and the vendor; gov cannot fix it. The list comes back without that agent, so
+  you can carry on with another.
+
+To always open your default without being asked, run
+`gov preferences set work.agent.ask never`. gov still tells you which agent it opened, and
+`gov preferences set work.agent.ask always` brings the question back. To set your own
+default, run `gov preferences set agent.default <id>` — it must be an agent your
+organization approves.
+
+When there is no terminal to ask in (a script, a CI job), gov does not ask: it uses the
+default and says so. Name a different one with `gov work --agent=<id>`.
+
 ### Session-start protocol (C01 — non-negotiable)
 
 Sessions happen **inside the per-project workspace**, not in the HOME repo:

@@ -117,6 +117,23 @@ export interface AgentCandidate {
   readonly signupUrl?: string;
   /** Every way to run it. The policy approves the agent; this is what that buys. */
   readonly variants?: readonly AgentVariant[];
+  /**
+   * Who sells it — named when an account or a bill stops it running, because that is between the person and
+   * this company, not gov (F24). Absent: "the vendor".
+   */
+  readonly vendor?: string;
+  /**
+   * What this agent prints when its ACCOUNT stops it — a trial over, a plan or quota used up, a key the vendor
+   * no longer accepts (F24). Checked before the generic set in agent-account.ts. Only text SEEN from the vendor's
+   * own CLI belongs here; the generic set covers the rest.
+   */
+  readonly accountFailures?: readonly AccountFailurePattern[];
+}
+
+/** One recognisable account or billing failure: the text, and what it means in plain words ("its …"). */
+export interface AccountFailurePattern {
+  readonly pattern: RegExp;
+  readonly reason: string;
 }
 
 /**
@@ -145,7 +162,11 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // promptArgv verified in use: both take the first message as a bare positional.
   { id: "claude-code", tool: "Claude Code", launch: "cli", cmd: "claude", promptArgv: ["{prompt}"],
     install: { npm: "@anthropic-ai/claude-code", url: "https://claude.com/claude-code" },
-    credentialEnv: "ANTHROPIC_API_KEY", signupUrl: "https://claude.com/claude-code",
+    credentialEnv: "ANTHROPIC_API_KEY", signupUrl: "https://claude.com/claude-code", vendor: "Anthropic",
+    accountFailures: [
+      { pattern: /credit balance is too low/i, reason: "its account's credit balance is too low" },
+      { pattern: /invalid api key/i, reason: "its API key is invalid or has expired" },
+    ],
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "claude",
         install: { npm: "@anthropic-ai/claude-code", url: "https://claude.com/claude-code" },
@@ -154,7 +175,7 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     ] },
   { id: "cursor", tool: "Cursor", launch: "cli", cmd: "cursor-agent", promptArgv: ["{prompt}"],
     install: { script: "curl https://cursor.com/install -fsS | bash", url: "https://cursor.com/cli" },
-    signupUrl: "https://cursor.com",
+    signupUrl: "https://cursor.com", vendor: "Cursor",
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "cursor-agent",
         install: { script: "curl https://cursor.com/install -fsS | bash", url: "https://cursor.com/cli" },
@@ -168,7 +189,10 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // codex --help: `[PROMPT]  Optional user prompt to start the session` (read 2026-09-11)
     promptArgv: ["{prompt}"],
     install: { npm: "@openai/codex", url: "https://developers.openai.com/codex/cli" },
-    credentialEnv: "OPENAI_API_KEY", signupUrl: "https://platform.openai.com/signup",
+    credentialEnv: "OPENAI_API_KEY", signupUrl: "https://platform.openai.com/signup", vendor: "OpenAI",
+    accountFailures: [
+      { pattern: /exceeded your current quota/i, reason: "its account has run out of quota on its plan" },
+    ],
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "codex",
         install: { npm: "@openai/codex", url: "https://developers.openai.com/codex/cli" },
@@ -180,7 +204,7 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // interactive mode`. NOT `-p`, which is headless and exits (read 2026-09-11).
     promptArgv: ["-i", "{prompt}"],
     install: { npm: "@google/gemini-cli", url: "https://github.com/google-gemini/gemini-cli" },
-    credentialEnv: "GEMINI_API_KEY", signupUrl: "https://aistudio.google.com/apikey",
+    credentialEnv: "GEMINI_API_KEY", signupUrl: "https://aistudio.google.com/apikey", vendor: "Google",
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "gemini",
         install: { npm: "@google/gemini-cli", url: "https://github.com/google-gemini/gemini-cli" } },
@@ -191,7 +215,7 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // execute this prompt`. NOT `-p`, which is non-interactive (read 2026-09-11).
     promptArgv: ["-i", "{prompt}"],
     install: { npm: "@github/copilot", url: "https://github.com/features/copilot/cli" },
-    signupUrl: "https://github.com/features/copilot",
+    signupUrl: "https://github.com/features/copilot", vendor: "GitHub",
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "copilot",
         install: { npm: "@github/copilot", url: "https://github.com/features/copilot/cli" } },
@@ -226,7 +250,7 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   { id: "cline", tool: "Cline / Roo Code", launch: "cli", cmd: "cline",
     // cline 3.0.61: `[prompt]  Your prompt. Default to start in act mode` (read 2026-09-11)
     promptArgv: ["{prompt}"],
-    install: { npm: "cline", url: "https://cline.bot" },
+    install: { npm: "cline", url: "https://cline.bot" }, vendor: "Cline",
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "cline", install: { npm: "cline", url: "https://cline.bot" } },
       { kind: "extension", label: "in VS Code", extensionId: "saoudrizwan.claude-dev", hosts: ["code", "cursor", "windsurf"] },
@@ -239,7 +263,7 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // cn 1.5.47: `[prompt]  Optional prompt to send to the assistant`. The bare positional,
     // not `-p, --print`, which prints and exits (read 2026-09-11).
     promptArgv: ["{prompt}"],
-    install: { npm: "@continuedev/cli", url: "https://continue.dev" },
+    install: { npm: "@continuedev/cli", url: "https://continue.dev" }, vendor: "Continue",
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "cn", install: { npm: "@continuedev/cli", url: "https://continue.dev" } },
       { kind: "extension", label: "in VS Code", extensionId: "Continue.continue", hosts: ["code", "cursor", "windsurf"] },
@@ -273,7 +297,12 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // the live session. Tasks are per user and per machine (a resume from another container: "No task found").
     promptArgv: ["-p", "{prompt}"],
     resume: { argv: ["chat", "--resume", "{taskId}"], pickerArgv: ["chat", "--resume"], taskIdPattern: /Task ID:\s+([0-9a-f]{32})/ },
-    credentialEnv: "BOB_API_KEY", signsInItself: true, signupUrl: "https://bob.ibm.com",
+    credentialEnv: "BOB_API_KEY", signsInItself: true, signupUrl: "https://bob.ibm.com", vendor: "IBM",
+    // SEEN on a container walk, 2026-10-08 (F24): "Error: Your Free trial has expired. You have reached the end of
+    // your free trial period. Upgrade your plan to continue." gov called it a first-run step and offered Bob again.
+    accountFailures: [
+      { pattern: /free trial (has )?expired|end of your free trial/i, reason: "its account's free trial has expired" },
+    ],
     variants: [
       // No login subcommand: Bob Shell opens the browser itself when it needs to
       // authenticate, so there is nothing for gov to run — which is tier 1 working

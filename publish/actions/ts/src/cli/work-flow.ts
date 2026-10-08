@@ -19,9 +19,10 @@ import type { GovSnapshot } from "../lifecycle/governance-snapshot.js";
 import type { GitRead } from "./policy-gate-io.js";
 import { AGENT_CATALOG, CURSOR_GUI, agentStatuses, approvedAgents, offerable, installable, menuLines, nothingInstalledLines, type AgentCandidate } from "./agent-catalog.js";
 import { chooseAgent, choiceExplanation } from "./agent-choice.js";
+import { pickerDefault, pickerLines, pickerPrompt, pickerRows, resolvePickerAnswer } from "./agent-picker.js";
+import { accountFailureLine } from "./agent-account.js";
 import { structureOnlyLines, TURN_AGENTS_ON } from "./approve-agents-step.js";
 import { defaultAgent } from "../config/approved-agents.js";
-import { paint } from "./format.js";
 import { decide, log } from "../log.js";
 import {
   fillPage, formatLevel, githubUnreachableLines, leadWithSearch, matchProjects, pageOf, pickerSettings,
@@ -57,7 +58,7 @@ export interface WorkFlowDeps {
    * Optional so a caller that cannot resolve it still works — the prompt then falls back to the
    * project-branch worktree, which is a wrong-branch read (GOV-FRM-456) but not a dead path.
    */
-  readonly config: { readonly githubOrg: string; readonly workspaceRepo: string; readonly agentWorkRoot: string; readonly govHome?: string; readonly ownerField?: "organization" | "user"; readonly defaultBranch?: string };
+  readonly config: { readonly orgName?: string; readonly githubOrg: string; readonly workspaceRepo: string; readonly agentWorkRoot: string; readonly govHome?: string; readonly ownerField?: "organization" | "user"; readonly defaultBranch?: string };
   /**
    * `git -C <repo> <args>` → stdout, or null. The harness is mirrored from the DEFAULT branch through it
    * (GOV-FRM-456); absent, the mirror says it could not read the branch — it never reads the worktree instead.
@@ -130,7 +131,7 @@ export interface WorkFlowDeps {
   /** Launch an interactive agent/editor/shell with `cwd` = the project dir. `inject` = the session-start
    *  kickoff prompt handed to a speak-first CLI agent (Claude / cursor-agent) so it runs the protocol
    *  immediately. Terminal agents inherit stdio + block; the GUI editor opens detached. */
-  readonly launch: (agent: AgentKind, cwd: string, inject: string) => Promise<number>;
+  readonly launch: (agent: AgentKind, cwd: string, inject: string) => Promise<LaunchResult>;
   /** `--print-prompt` writes HERE, not through `print` — stdout must carry the prompt and nothing else,
    *  so `gov work … --print-prompt` can be captured or piped. */
   readonly printPrompt?: (prompt: string) => void;
@@ -175,6 +176,9 @@ export interface WorkFlowOpts {
   /** false when there is no TTY: an unresolved choice must then FAIL naming the flag that would resolve it,
    *  because there is nobody to ask. */
   readonly interactive?: boolean;
+  /** `work.agent.ask` — `always` (the default) lists every approved agent and asks; `never` opens your default
+   *  without asking, and still names it. */
+  readonly agentAsk?: "always" | "never";
   /** `work.picker.pageSize` — how many projects a page shows. The person's preference; 15 when unset. */
   readonly pageSize?: number;
   /** `work.picker.localFirst` — offer the projects already cloned here before any GitHub call. Default true. */
@@ -1106,7 +1110,7 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
     }
     print("");
     print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
-    return await deps.launch("shell", projectDir, kickoff());
+    return exitOf(await deps.launch("shell", projectDir, kickoff()));
   }
 
   // An agent named on the command line is checked against the org's decision like one picked from the menu (GOV-FRM-461).
@@ -1121,126 +1125,180 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
     }
   }
 
-  let agent: AgentKind | null = opts.agent ?? null;
-  if (!agent && !interactive) {
-    print("  No --agent=<claude|cursor|cursor-gui|shell>, and no terminal to choose in.");
-    print(`  The project is ready at ${projectDir} — name an agent, or use --print-prompt to drive your own.`);
-    return 2;
-  }
-  if (!agent) {
-    // OFFER WHAT EXISTS, AND ONLY WHAT IS APPROVED (#195/#196). The old menu was four
-    // fixed lines — offered whole to a machine with none of them installed, and led
-    // by a tool the policy this same install had just seeded lists as prohibited.
-    const statuses = agentStatuses(AGENT_CATALOG, deps.hasTool ?? (() => false), deps.env ?? {});
-    const approvedList = deps.approvedAgents?.() ?? null;
-    const approved = approvedAgents(approvedList ? approvedList.map((a) => a.id) : null);
-    const offer = [...offerable(statuses, approved.ids)];
-    if (approved.ids.includes("cursor") && (deps.hasTool?.("cursor") ?? false)) {
-      offer.push({ candidate: CURSOR_GUI, installed: true, credentialPresent: null });
-    }
+  // ── which agent ──────────────────────────────────────────────────────────────────────────────────
+  //
+  // EVERY APPROVED AGENT IS A CHOICE (Policy Owner, 2026-10-08). svm-geneva approved IBM Bob (default), OpenAI Codex
+  // and Claude Code; only Bob was installed, and this flow said "Using IBM Bob — the only approved agent installed
+  // here" and launched it. An approved agent that is not installed is not "not an option" — it is an option that
+  // costs an install, and that is the person's to weigh. So an organization's list is shown whole, every time
+  // (`work.agent.ask`, default `always`), Enter takes the default, and an uninstalled choice is offered the install.
+  //
+  // WHEN AN AGENT'S ACCOUNT STOPS IT (F24), the launch says so instead of returning a code, and the list comes back
+  // without that agent — so the person continues with another rather than circling one nobody here can fix.
+  const statuses = agentStatuses(AGENT_CATALOG, deps.hasTool ?? (() => false), deps.env ?? {});
+  const approvedList = authorized;
+  const orgList = approvedList && approvedList.length ? approvedList : null;
+  const approved = approvedAgents(approvedList ? approvedList.map((a) => a.id) : null);
+  const preference = deps.agentPreference?.() ?? null;
+  const toolName = (id: string): string => (id === "cursor-gui" ? CURSOR_GUI.tool : AGENT_CATALOG.find((a) => a.id === id)?.tool ?? id);
+  const cursorGui = approved.ids.includes("cursor") && (deps.hasTool?.("cursor") ?? false);
+  const offer = [...offerable(statuses, approved.ids)];
+  if (cursorGui) offer.push({ candidate: CURSOR_GUI, installed: true, credentialPresent: null });
+  const blocked: string[] = [];
+  const justInstalled = new Set<string>();
 
-    if (!offer.length) {
-      // NOTHING INSTALLED IS THE JOINER'S ORDINARY CASE, not an edge one — a new
-      // machine, a new person, a container. The adopter already chose a default for
-      // exactly this moment (#196, Q3), so the useful thing is to OFFER it rather
-      // than print a list and step aside. Printing a list was the old behaviour and
-      // it left the person who most needs help holding a command to retype.
-      const def = defaultAgent(approvedList);
-      const defName = def ? AGENT_CATALOG.find((a) => a.id === def)?.tool ?? def : null;
+  /** Launch; an account failure is said plainly and remembered, so the list can leave that agent out. */
+  const start = async (kind: AgentKind): Promise<number | "blocked"> => {
+    print(`  Launching ${kind === "cursor-gui" ? "Cursor (GUI)" : kind} in ${projectDir}…`);
+    const r = await deps.launch(kind, projectDir, kickoff());
+    if (typeof r === "number") return r;
+    print("");
+    print(`  ${accountFailureLine(kind === "cursor-gui" ? "cursor" : kind, r)}`);
+    log("warn", "the agent's account stopped it", "gov-work:cli:work-flow", "runWorkFlow", { agent: kind, reason: r.reason });
+    blocked.push(kind);
+    return "blocked";
+  };
 
-      // EVERY APPROVED AGENT IS A REAL CHOICE, THE DEFAULT PRE-SELECTED (PRJ-121, 2026-09-22).
-      //
-      // This used to offer the default alone — `Install IBM Bob now? (Y/n)` — and answering `n` printed the
-      // other approved agents as commands to run elsewhere, then opened a shell: the very "list to retype" the
-      // Y/n was introduced to replace. An org approving three agents gave a joiner one. The Policy Owner, on a
-      // walk: "I was expecting to see a choice of approved agents rather than forced to use just the default."
-      //
-      // `installAgent` already installs ANY approved agent (the same plan as `gov agent install`, checked
-      // against the policy), so this is only the offer. Enter — and a reflexive `y` — still mean the default,
-      // so #196's one-keypress intent stands; `n` still means none.
-      //
-      // Only for an org that has APPROVED agents. With none approved the list is the framework's fallback,
-      // and gov does not install on an organization's behalf what the organization never chose.
-      const choices = deps.installAgent && !approved.usingDefaults
-        ? [...installable(statuses, approved.ids)].sort((a, b) => Number(b.candidate.id === def) - Number(a.candidate.id === def))
-        : [];
-      if (choices.length && deps.installAgent) {
-        const hasDefault = choices[0]!.candidate.id === def;
-        const none = choices.length + 1;
+  const label = `${/^(PRJ-\d+)/i.exec(p.projectId)?.[1] ?? p.projectId} (approved by ${deps.config.orgName || deps.config.githubOrg})`;
+
+  /** The picker: every approved agent, less any whose account stopped it. Bounded — it never loops on a stream. */
+  const picker = async (list: readonly { readonly id: string; readonly default?: boolean }[]): Promise<number> => {
+    let misses = 0;
+    for (;;) {
+      const st = statuses.map((s) => (justInstalled.has(s.candidate.id) ? { ...s, installed: true } : s));
+      const rows = pickerRows(list, st, preference, blocked, cursorGui);
+      if (!rows.some((r) => r.state !== "unlaunchable")) {
         print("");
-        print(`  No AI agent is installed here yet.${hasDefault && defName ? ` Your organization's default is ${defName}.` : ""}`);
-        print("");
-        print("  Which would you like to install?");
-        choices.forEach((s, i) => print(`     ${i + 1}) ${s.candidate.tool}${s.candidate.id === def ? "  — your organization's default" : ""}`));
-        print(`     ${none}) none — open a shell here`);
-        print("");
-        const ask = `  ${paint("Install which?", "bold", deps.color ?? false)} ${hasDefault ? "[1] " : `[1-${none}] `}`;
-        let n = NaN;
-        for (let tries = 0; tries < 3 && !(n >= 1 && n <= none); tries++) {
-          const a = (await deps.prompt(tries ? `  Choose a number from 1 to ${none}: ` : ask)).trim().toLowerCase();
-          n = a === "" || /^y(es)?$/.test(a) ? (hasDefault ? 1 : NaN) : /^n(o)?$/.test(a) ? none : Number(a);
-        }
-        const pick = n >= 1 && n < none ? choices[n - 1]!.candidate : null;
-        if (pick) {
-          if (await deps.installAgent(pick.id, deps.ask)) {
-            // THE ID IS THE LAUNCH INSTRUCTION (#199). This used to map anything but Claude Code
-            // and Cursor to "shell", so an org whose default was Bob, codex, gemini, copilot or
-            // aider was told its agent had started and handed a shell prompt.
-            print(`  ✓ ${pick.tool} is ready. Starting it in ${projectDir}…`);
-            return await deps.launch(pick.id, projectDir, kickoff());
-          }
-          // INSTALLED IS NOT READY (#200). `installAgent` now answers "can it run", so an agent
-          // waiting on a key stops here instead of being announced as started. The project is made
-          // and the shell is a real place to work from; the claim is what had to go.
-          print(`  ${pick.tool} is not ready yet — the lines above say what it still needs.`);
-          print(`  The project is ready at ${projectDir}.`);
-          print("");
-          print(`  Opening a shell there. Type 'exit' to come back.`);
-          return await deps.launch("shell", projectDir, kickoff());
-        }
-        // None chosen (or no valid answer in three tries): a shell, with the choice still open for later.
-        print(`  No agent installed. Any of them is one command away:  gov agent install <${choices.map((s) => s.candidate.id).join(" | ")}>`);
+        print(blocked.length ? "  No other approved agent to offer here." : "  None of your organization's approved agents can be started from gov.");
+        print(`  The project is ready at ${projectDir}. Start an agent there yourself, or: gov work --agent shell`);
+        return 1;
+      }
+      if (misses >= 3) {
+        print("  No agent chosen. Any approved agent is one command away:  gov agent install <id>");
         print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
-        return await deps.launch("shell", projectDir, kickoff());
+        return exitOf(await deps.launch("shell", projectDir, kickoff()));
       }
-
-      for (const line of nothingInstalledLines(installable(statuses, approved.ids), approved.usingDefaults)) print(line);
+      const def = pickerDefault(rows, preference, defaultAgent(list));
       print("");
-      print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
-      return await deps.launch("shell", projectDir, kickoff());
-    }
-
-    // ORG DEFAULT → USER PREFERENCE → ASK (#196, Q9). Three layers already existed;
-    // the mistake would be inventing a fourth memory. Asked only when neither the
-    // organization nor the person has an answer, which for most people is once.
-    const decided = chooseAgent(approvedList, deps.agentPreference?.() ?? null, offer.map((o) => o.candidate.id));
-    decide("agent", decided.id, decided.source, "gov-work:cli:work-flow", "runWorkFlow",
-      { offered: offer.map((o) => o.candidate.id), ...(decided.ignoredPreference ? { ignoredPreference: decided.ignoredPreference } : {}) });
-    for (const line of choiceExplanation(decided, (id) => AGENT_CATALOG.find((a) => a.id === id)?.tool ?? id)) print(line);
-
-    if (decided.id) {
-      const picked = offer.find((o) => o.candidate.id === decided.id)?.candidate;
-      // Object identity, not id: CURSOR_GUI shares the id "cursor" with the CLI entry — one approval,
-      // two ways to run it (#196, Q8) — so only the instance says which was offered.
-      if (picked) agent = picked === CURSOR_GUI ? "cursor-gui" : picked.id;
-    }
-
-    if (!agent) {
-      print("  Start an agent in it now?");
-      for (const line of menuLines(offer)) print(line);
-      const choice = (await deps.prompt("  Choose: ")).trim();
-      const n = Number(choice);
-      if (n >= 1 && n <= offer.length) {
-        const picked = offer[n - 1]!.candidate;
-        agent = picked === CURSOR_GUI ? "cursor-gui" : picked.id;
-      } else if (n === offer.length + 1) {
-        agent = "shell";
-      } else {
-        agent = null;
+      for (const line of pickerLines(rows, label)) print(line);
+      const i = resolvePickerAnswer(await deps.prompt(pickerPrompt(rows, def)), rows, def);
+      if (i === null) { misses++; print(`  ✗ Choose a number from 1 to ${rows.length}.`); continue; }
+      const row = rows[i]!;
+      if (row.state === "unlaunchable") { misses++; print(`  gov cannot start ${row.name} — use it outside gov, or choose another.`); continue; }
+      if (row.state === "manual") { misses++; print(`  gov cannot install ${row.name} itself — install it from ${row.url ?? "the vendor's site"}, then run gov work again.`); continue; }
+      if (row.state === "installable") {
+        if (!deps.installAgent) { misses++; print(`  Install it with:  gov agent install ${row.id}`); continue; }
+        const yes = (await deps.prompt(`  Install ${row.name} now? [Y/n] : `)).trim();
+        if (/^n(o)?$/i.test(yes)) { misses++; continue; }
+        if (!(await deps.installAgent(row.id, deps.ask))) {
+          // INSTALLED IS NOT READY (#200): the lines above say what it still needs. Back to the list.
+          misses++;
+          print(`  ${row.name} is not ready yet — the lines above say what it still needs.`);
+          continue;
+        }
+        justInstalled.add(row.id);
+        print(`  ✓ ${row.name} is ready.`);
       }
+      decide("agent", row.launch, "asked", "gov-work:cli:work-flow", "runWorkFlow", { offered: rows.map((r) => r.launch), blocked });
+      const r = await start(row.launch);
+      if (r !== "blocked") return r;
+      misses = 0;
+    }
+  };
+
+  /** After a launch: a number is the answer; an account failure goes back to the list when there is one to show. */
+  const after = async (r: number | "blocked"): Promise<number> => {
+    if (r !== "blocked") return r;
+    if (orgList && interactive) return picker(orgList);
+    print(`  The project is ready at ${projectDir}. Choose another approved agent with --agent=<id>.`);
+    return 1;
+  };
+
+  // NAMED ON THE COMMAND LINE: launched as asked (it was checked against the policy above).
+  if (opts.agent) return after(await start(opts.agent));
+
+  // NO TERMINAL: NO QUESTION, NEVER A HANG. The default is used and named; with none, the flag that decides it is.
+  if (!interactive) {
+    const decided = chooseAgent(approvedList, preference, offer.map((o) => o.candidate.id));
+    decide("agent", decided.id, decided.source, "gov-work:cli:work-flow", "runWorkFlow", { offered: offer.map((o) => o.candidate.id), interactive: false });
+    if (!decided.id) {
+      print("  No --agent=<claude|cursor|cursor-gui|shell>, and no terminal to choose in.");
+      print(`  The project is ready at ${projectDir} — name an agent, or use --print-prompt to drive your own.`);
+      return 2;
+    }
+    for (const line of choiceExplanation(decided, toolName)) print(line);
+    print(`  No terminal to ask in, so gov used ${toolName(decided.id)} without asking. Name another with --agent=<id>.`);
+    return after(await start(kindOf(offer, decided.id)));
+  }
+
+  if (orgList) {
+    // `work.agent.ask: never` — today's silent pick, still said out loud, with the way back to being asked.
+    if (opts.agentAsk === "never") {
+      const decided = chooseAgent(orgList, preference, offer.map((o) => o.candidate.id));
+      decide("agent", decided.id, decided.source, "gov-work:cli:work-flow", "runWorkFlow", { offered: offer.map((o) => o.candidate.id), ask: "never" });
+      for (const line of choiceExplanation(decided, toolName)) print(line);
+      if (decided.id) {
+        print("  (Not asked, because work.agent.ask is never. To choose each time:  gov preferences set work.agent.ask always)");
+        return after(await start(kindOf(offer, decided.id)));
+      }
+    }
+    // ONE APPROVED AGENT, AND IT IS HERE: there is nothing to choose between.
+    const launchable = orgList.filter((a) => AGENT_CATALOG.some((c) => c.id === a.id && c.cmd && c.launch !== "none"));
+    if (launchable.length === 1 && !cursorGui && offer.length === 1 && offer[0]!.candidate.id === launchable[0]!.id) {
+      print(`  Using ${toolName(launchable[0]!.id)} — the only agent your organization approves.`);
+      decide("agent", launchable[0]!.id, "only-one", "gov-work:cli:work-flow", "runWorkFlow", { offered: [launchable[0]!.id] });
+      return after(await start(launchable[0]!.id));
+    }
+    return picker(orgList);
+  }
+
+  // ── an organization that has not decided: the framework's list, as before ──────────────────────────
+  if (!offer.length) {
+    for (const line of nothingInstalledLines(installable(statuses, approved.ids), approved.usingDefaults)) print(line);
+    print("");
+    print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
+    return exitOf(await deps.launch("shell", projectDir, kickoff()));
+  }
+
+  // ORG DEFAULT → USER PREFERENCE → ASK (#196, Q9), over the framework's list.
+  const decided = chooseAgent(approvedList, preference, offer.map((o) => o.candidate.id));
+  decide("agent", decided.id, decided.source, "gov-work:cli:work-flow", "runWorkFlow",
+    { offered: offer.map((o) => o.candidate.id), ...(decided.ignoredPreference ? { ignoredPreference: decided.ignoredPreference } : {}) });
+  for (const line of choiceExplanation(decided, toolName)) print(line);
+  let agent: AgentKind | null = decided.id ? kindOf(offer, decided.id) : null;
+
+  if (!agent) {
+    print("  Start an agent in it now?");
+    for (const line of menuLines(offer)) print(line);
+    const choice = (await deps.prompt("  Choose: ")).trim();
+    const n = Number(choice);
+    if (n >= 1 && n <= offer.length) {
+      const picked = offer[n - 1]!.candidate;
+      agent = picked === CURSOR_GUI ? "cursor-gui" : picked.id;
+    } else if (n === offer.length + 1) {
+      agent = "shell";
     }
   }
   if (!agent) { print(`  Later:  cd "${projectDir}" && claude "<session-start>"      # or your agent`); return 0; }
-  print(`  Launching ${agent === "cursor-gui" ? "Cursor (GUI)" : agent} in ${projectDir}…`);
-  return await deps.launch(agent, projectDir, kickoff());
+  return after(await start(agent));
+}
+
+/** What a launch returns: an exit code, or — when the agent's ACCOUNT stopped it — why (F24). */
+export interface AgentBlocked {
+  readonly blocked: "account";
+  /** Plain words, "its …": "its account's free trial has expired". */
+  readonly reason: string;
+}
+export type LaunchResult = number | AgentBlocked;
+
+/** A launch result as an exit code, for the launches (a shell) where nothing else follows. */
+const exitOf = (r: LaunchResult): number => (typeof r === "number" ? r : 1);
+
+/**
+ * The launch kind for a chosen id. Object identity, not id: CURSOR_GUI shares the id "cursor" with the CLI entry —
+ * one approval, two ways to run it (#196, Q8) — so only the offered instance says which.
+ */
+function kindOf(offer: readonly { readonly candidate: AgentCandidate }[], id: string): AgentKind {
+  const picked = offer.find((o) => o.candidate.id === id)?.candidate;
+  return picked === CURSOR_GUI ? "cursor-gui" : id;
 }

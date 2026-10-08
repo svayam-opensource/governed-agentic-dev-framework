@@ -22,6 +22,15 @@ describe("preferences — the settings themselves", () => {
     }
   });
 
+  it("work.agent.ask: gov asks which agent every time unless told never to (Policy Owner, 2026-10-08)", () => {
+    const spec = specFor("work.agent.ask")!;
+    expect(spec.def).to.equal("always");
+    expect(spec.values).to.deep.equal(["always", "never"]);
+    expect(spec.what).to.match(/agent/);
+    expect(valueOf(parsePreferences('{"work":{"agent":{"ask":"never"}}}'), "work.agent.ask")).to.equal("never");
+    expect(coerce(spec, "sometimes")).to.have.property("error");
+  });
+
   it("a fresh file is just the version — every value is gov's until someone says otherwise", () => {
     const starter = starterPreferences();
     expect(JSON.parse(starter)).to.deep.equal({ version: PREFERENCES_VERSION });

@@ -88,10 +88,11 @@ import { runUpgradeSync, runUpgradePr, fetchTemplateContent } from "../maintain/
 import { readBuildIdentity, selectUpgradeContent, type BuildIdentity } from "../maintain/build-identity.js";
 import { contentLayoutOf, staleArtifactsIn } from "../maintain/upgrade-sync.js";
 import { formatRuns, listRuns, selectRuns } from "../maintain/log-view.js";
-import { coerce, formatPreferences, specFor, stringPref } from "../preferences.js";
+import { coerce, formatPreferences, specFor, stringPref, type Preferences } from "../preferences.js";
 import { didYouMean, helpFor, overview } from "./help-render.js";
 import { COMMAND_SPECS } from "./help-spec.js";
 import { pickerSettingsFromPreferences } from "./project-picker.js";
+import { recogniseAccountFailure } from "./agent-account.js";
 import { loadPreferences, savePreference } from "./preferences-io.js";
 import { ensureLogin, runContext } from "./run-context.js";
 import { logsRoot, redactArgv } from "../state-paths.js";
@@ -578,6 +579,11 @@ function expandHome(p: string): string {
  * looks answered. If this is ever reached, something is asking from a place that has no
  * terminal, and a stack trace is the useful answer.
  */
+/** `work.agent.ask` for the work flow: `always` (the default) lists every approved agent; `never` picks silently. */
+function agentAskFromPreferences(prefs: Preferences): { agentAsk: "always" | "never" } {
+  return { agentAsk: stringPref(prefs, "work.agent.ask") === "never" ? "never" : "always" };
+}
+
 const neverAsks: AskFns = {
   line: () => { throw new Error("asked a question from a read-only path"); },
   secret: () => { throw new Error("asked for a secret from a read-only path"); },
@@ -1414,7 +1420,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       try {
         return await runWorkFlow(
           { ...workDeps, prompt: ask2, print: (l) => process.stderr.write(`${l}\n`), color: stderrColor(), ask: askFns(rl2, ask2) },
-          { ...(role === "adopter" ? { projectPattern: slug } : {}), interactive: true },
+          { ...(role === "adopter" ? { projectPattern: slug } : {}), interactive: true, ...agentAskFromPreferences(loadPreferences().prefs) },
         );
       } finally { rl2.close(); }
     },
@@ -1622,7 +1628,7 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     },
     // govHome is the default-branch clone — GOV-FRM-456 requires governance be read from there,
     // never from the project-branch worktree. See sessionStartPrompt.
-    config: { githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot, govHome: resolved.home, defaultBranch: config.defaultBranch || "main" },
+    config: { orgName: config.orgName || undefined, githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, agentWorkRoot: config.agentWorkRoot, govHome: resolved.home, defaultBranch: config.defaultBranch || "main" },
     // The harness mirror reads the default branch through this (GOV-FRM-456).
     git: (repo: string, args: readonly string[]) => tryRun("git", ["-C", repo, ...args]) ?? null,
     me,
@@ -1828,6 +1834,17 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       let r: { status: number; error: boolean; ms: number; out?: string } = await firstRun(s.args);
       if (r.error) { process.stderr.write(`  could not launch '${s.cmd}' — is it installed and on PATH?\n`); return 1; }
 
+      // AN ACCOUNT, NOT A FIRST RUN (F24, 2026-10-08). IBM Bob exited "Your Free trial has expired … Upgrade your plan
+      // to continue", and the first-run text below called it "accepting a licence, or signing in" and offered to open
+      // Bob again — a loop nobody on this machine can leave. A trial, a quota or a rejected key is between the person
+      // and the vendor: the work flow says so and offers the other approved agents. Only output gov CAPTURED can be
+      // read (an agent that owns the terminal shows its own error); a licence or sign-in still takes the path below.
+      const acct = r.status !== 0 ? recogniseAccountFailure(agent, r.out ?? "") : null;
+      if (acct) {
+        log("warn", "the agent's account stopped it", "gov-work:cli:main", "launch", { agent, reason: acct.reason, status: r.status });
+        return { blocked: "account" as const, reason: acct.reason };
+      }
+
       // A FIRST-RUN GATE THE ADOPTER HAS JUST READ — see IMMEDIATE_EXIT_MS above for why this
       // reacts to an exit rather than to a parsed error, and why the offer is to hand over THIS
       // terminal rather than open another one.
@@ -1849,6 +1866,8 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
           runIt([]);
           process.stderr.write(`\n${r3.step(`Handing ${agent} the session-start protocol again.`)}\n\n`);
           r = await firstRun(s.args);
+          const again = r.status !== 0 ? recogniseAccountFailure(agent, r.out ?? "") : null;
+          if (again) return { blocked: "account" as const, reason: again.reason };
         }
         // STILL NO, AND SAID SO. A retry that fails silently would leave an adopter believing
         // the session is governed when nothing was ever delivered.
@@ -2195,6 +2214,7 @@ export async function runWork(argv: readonly string[]): Promise<number> {
       // `searchThreshold`) landed with defaults that were correct and a reader that never looked at the person's
       // file — a preference gov defines, documents and then ignores is worse than one it does not offer.
       ...pickerSettingsFromPreferences(loadPreferences().prefs),
+      ...agentAskFromPreferences(loadPreferences().prefs),
       seedOk: argv.includes("--seed"),
       printPromptOnly: argv.includes("--print-prompt"),
       interactive,
@@ -2266,7 +2286,7 @@ export async function runMainMenu(): Promise<number> {
       // `gov work` path happened to survive it. Whoever owns the terminal does the asking.
       // PROJECT context → Work continues THIS project, as the menu line says (a walk, 2026-09-22).
       return runWorkFlow({ ...workDeps, prompt: io.prompt, print: io.print, ask: io.ask },
-        { ...(ctx.mode === "project" && ctx.project ? { currentProject: ctx.project } : {}), ...pickerSettingsFromPreferences(loadPreferences().prefs) });
+        { ...(ctx.mode === "project" && ctx.project ? { currentProject: ctx.project } : {}), ...pickerSettingsFromPreferences(loadPreferences().prefs), ...agentAskFromPreferences(loadPreferences().prefs) });
     },
     switchOrg: (org) => runAny(["org", "use", org]),
     listOrgs: () => { try { return createNodeRegistryStore().readHomes(); } catch { return []; } },

@@ -50,6 +50,8 @@ interface Run {
   readonly dir: string;          // the run's folder, or "" when nothing could be written
   readonly started: number;
   logger: Logger | null;
+  /** endRun has closed the record. Nothing after it is written — and nothing reaches a logger with no transports. */
+  ended?: boolean;
 }
 
 let run: Run | null = null;
@@ -123,6 +125,7 @@ export function startRun(opts: {
 export function endRun(exitCode: number): void {
   if (run) log("info", "run finished", "gov-work:cli:bin", "end", { run: run.id, exitCode, ms: Date.now() - run.started });
   closeLog();
+  if (run) run.ended = true;
 }
 
 /** This run's id, or null before {@link startRun}. Quoted in failure messages and typed into `gov log`. */
@@ -145,7 +148,7 @@ export const runDir = (): string => run?.dir ?? "";
  * those installed, gov logs `warn` and `error` only, unless the person sets NODE_DEBUG themselves.
  */
 function logger(): Logger | null {
-  if (!run) return null;
+  if (!run || run.ended) return null;
   if (run.logger) return run.logger;
   try {
     fs.mkdirSync(run.dir, { recursive: true });
@@ -157,6 +160,11 @@ function logger(): Logger | null {
       gate: "level",
       methods: [{ METHOD: "file", LOGLEVEL: process.env.GOV_DEBUG ? LogLevel.debug : LogLevel.info }],
     });
+    // A LOGGER WITH NO TRANSPORT IS NOT A LOGGER (F25). winston answers a line it cannot deliver by printing
+    // "[winston] Attempt to write logs with no transports" to stderr — on the person's screen, breaking rule 1.
+    // So one that came up empty is not used at all, whatever the library does about it.
+    const enabled = (run.logger.toLogObject() as { ENABLED_TRANSPORTS?: unknown }).ENABLED_TRANSPORTS;
+    if (Array.isArray(enabled) && enabled.length === 0) run.logger = null;
   } catch { /* absent or unreadable is the ordinary answer here, not a failure */
     run.logger = null;
     run = { ...run, dir: "", logger: null };
@@ -197,6 +205,11 @@ export function decide(what: string, chose: string | null, why: string, pgm: str
 /** Flush before a short-lived process exits, or the last lines — the interesting ones — are lost. */
 export function closeLog(): void {
   try { run?.logger?.close(); } catch { /* closing a closed logger is not news */ }
+  // FORGET IT ONCE CLOSED (F25). Closing a winston logger removes its transports, and this kept the closed one: the
+  // launch closes the log before handing over the terminal, so every line after the agent exited — "run finished"
+  // first — went to a logger with no transports, and winston said so on stderr. The next line now opens a fresh one
+  // on the same run folder; after endRun nothing opens it again.
+  if (run) run.logger = null;
 }
 
 /** What `bin.ts` started this run with, for the handful of callers that report it. */
