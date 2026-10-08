@@ -188,7 +188,12 @@ if [ -n "$REPO_WT" ]; then
   ok "committed a change on the task sub-branch"
 fi
 step "gov merge"
-MERGE_OUT=$(gov merge "$ISSUE_URL" 2>&1) || { echo "$MERGE_OUT" | tail -8; die "gov merge failed"; }
+MERGE_OUT=$(gov merge "$ISSUE_URL" 2>&1) || {
+  echo "$MERGE_OUT" | tail -8
+  # "Uncommitted changes in <dir>" names a folder but not the files — show them, so the run explains itself.
+  DIRTY=$(printf '%s\n' "$MERGE_OUT" | sed -n 's/^Uncommitted changes in \(.*\) — commit or stash first\./\1/p' | head -1)
+  [ -n "$DIRTY" ] && { echo "  git status in $DIRTY:"; git -C "$DIRTY" status --porcelain -uall | head -20 | sed 's/^/    /'; }
+  die "gov merge failed"; }
 [ "$(gh issue view "$ISSUE_URL" --json state --jq .state 2>/dev/null)" = "CLOSED" ] && ok "merge closed the issue" || die "issue not closed after merge"
 
 # ── 5. Propose org knowledge (branch → PR) ───────────────────────────────────
