@@ -12,6 +12,11 @@
  * The ordering is the honest one: an organization decides what may be used, a person
  * decides among those, and the question is asked once rather than daily.
  *
+ * WHERE THIS STILL DECIDES (2026-10-08). An organization's list now goes to the picker (agent-picker.ts): every
+ * approved agent is shown and the person chooses, Enter taking the default. This silent choice remains for the
+ * three cases with nobody to ask or nothing to ask about: no terminal, `work.agent.ask: never`, and an org that
+ * has not decided its list.
+ *
  * A PREFERENCE IS CHECKED AT LAUNCH, not at write time. If it were validated only
  * when written, an org narrowing its policy would keep launching the now-forbidden
  * tool until someone happened to edit their preferences — which is precisely the

@@ -64,8 +64,12 @@ drive "$(conv <<'C'
 ~ 240
 > Proceed\? \(y/N\)
 < y
-> Install which
+# EVERY APPROVED AGENT, INSTALLED OR NOT (2026-10-08): the picker lists it, Enter or 1 picks it, and an
+# agent that is not here is offered the install.
+> Choose \[1\]
 < 1
+> Install IBM Bob now
+< y
 > Choose \[1-3\]
 < 3
 # THE HANDOVER OFFER. The agent has just refused the protocol and said why, on screen, in its

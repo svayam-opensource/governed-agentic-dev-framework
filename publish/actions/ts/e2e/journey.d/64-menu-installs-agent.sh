@@ -68,8 +68,12 @@ drive "$(conv <<'C'
 < 1
 > Choose:
 < 1
-> Install which
+# EVERY APPROVED AGENT, INSTALLED OR NOT (2026-10-08): the picker lists it, Enter or 1 picks it, and an
+# agent that is not here is offered the install.
+> Choose \[1\]
 < 1
+> Install IBM Bob now
+< y
 > Choose \[1-3\]
 < 2
 > Paste the BOB_API_KEY

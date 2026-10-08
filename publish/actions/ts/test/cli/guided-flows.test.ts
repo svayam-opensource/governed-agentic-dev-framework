@@ -536,70 +536,70 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
 });
 
 describe("gov-work — the agent menu offers what exists (#195)", () => {
-  it("nothing installed and an org default → offers to install THAT, then starts it", async () => {
-    // The joiner's ordinary case, not an edge one: a new machine, a new person, a
-    // container. The adopter chose a default for exactly this moment (#196, Q3), so
-    // printing a list and stepping aside leaves the person who most needs help
-    // holding a command to retype.
+  // An org's list now goes through the picker (2026-10-08): every approved agent, installed or not. The answers
+  // route by question — the picker's `Choose [..]`, the install's `Install … now?` — and anything else is the
+  // project picker's "1".
+  const route = (choose: string[], install: string[] = []) => {
+    const c = [...choose]; const i = [...install];
+    return async (q: string): Promise<string> =>
+      /Choose \[/.test(q) ? (c.shift() ?? "zz") : /Install .* now\?/.test(q) ? (i.shift() ?? "n") : "1";
+  };
+
+  it("nothing installed and an org default → Enter offers to install THAT, then starts it", async () => {
+    // The joiner's ordinary case: a new machine, a new person, a container (#196, Q3).
     const installed: string[] = [];
     const { deps: d, out, launched } = deps({
       hasTool: () => false,
-      approvedAgents: () => [{ id: "claude-code", default: true }],
+      approvedAgents: () => [{ id: "claude-code", default: true }, { id: "cursor" }],
       installAgent: (id: string) => { installed.push(id); return true; },
-      prompt: async (q: string) => (/Install/.test(q) ? "y" : "1"),
+      prompt: route([""], ["y"]),
     });
     await runWorkFlow(d);
-    expect(out.join("\n")).to.contain("Your organization's default is Claude Code");
+    expect(out.join("\n")).to.match(/1\) Claude Code\s+not installed — choose it to install now · organization default/);
     expect(installed).to.deep.equal(["claude-code"]);
     expect(launched[0]?.[0], "and it starts, rather than telling you to re-run").to.equal("claude-code");
   });
 
   it("an agent that installs but cannot run is NOT announced as started (#200)", async () => {
-    // `installAgent` answers "can it run", not "did npm succeed". An agent waiting on an API key
-    // used to be reported ready and then launched — which, before #199, meant a bare shell wearing
-    // its name. The project is still made; only the claim is withdrawn.
+    // `installAgent` answers "can it run", not "did the installer succeed". The claim is withdrawn and the person
+    // is back at the list; three misses end in a shell, called a shell.
     const { deps: d, out, launched } = deps({
       hasTool: () => false,
       approvedAgents: () => [{ id: "ibm-bob", default: true }],
       installAgent: () => false,                       // installed, no key: not usable
-      prompt: async (q: string) => (/Install/.test(q) ? "y" : "1"),
+      prompt: route(["", "", ""], ["y", "y", "y"]),
     });
     await runWorkFlow(d);
     expect(out.join("\n"), "no false claim").to.not.match(/IBM Bob is ready/);
     expect(out.join("\n")).to.match(/IBM Bob is not ready yet/);
-    expect(out.join("\n"), "and the project still exists").to.match(/The project is ready at/);
     expect(launched.map(([a]) => a), "a shell, called a shell").to.deep.equal(["shell"]);
   });
 
-  it("declining the install still gets you a working shell", async () => {
-    const { deps: d, out, launched } = deps({
+  it("declining every install still gets you a working shell — never a silent install", async () => {
+    const { deps: d, launched } = deps({
       hasTool: () => false,
       approvedAgents: () => [{ id: "claude-code", default: true }],
       installAgent: () => { throw new Error("must not be called"); },
-      prompt: async (q: string) => (/Install/.test(q) ? "n" : "1"),
+      prompt: route(["", "", ""], ["n", "n", "n"]),
     });
     await runWorkFlow(d);
-    expect(out.join("\n")).to.contain("No AI agent is installed");
     expect(launched[0]?.[0]).to.equal("shell");
   });
 
   // PRJ-121, 2026-09-22 — the Policy Owner, on a walk: "I was expecting to see a choice of approved agents rather
-  // than forced to use just the default." The org approved three; `n` used to print the other two as commands to
-  // run elsewhere, then open a shell.
-  it("every APPROVED agent is offered, the default first and pre-selected", async () => {
+  // than forced to use just the default."
+  it("every APPROVED agent is offered, in the org's order, the default pre-selected", async () => {
     const asked: string[] = [];
     const { deps: d, out } = deps({
       hasTool: () => false,
       approvedAgents: () => [{ id: "claude-code" }, { id: "ibm-bob", default: true }, { id: "openai-codex" }],
       installAgent: () => true,
-      prompt: async (q: string) => { asked.push(q); return /Install which/.test(q) ? "" : "1"; },
+      prompt: async (q: string) => { asked.push(q); return route([""], ["y"])(q); },
     });
     await runWorkFlow(d);
     const menu = out.join("\n");
-    expect(menu).to.match(/1\) IBM Bob\s+— your organization's default/, "the default leads, and says so");
-    expect(menu).to.match(/2\) Claude Code/).and.to.match(/3\) OpenAI Codex/);
-    expect(menu).to.match(/4\) none — open a shell here/);
-    expect(asked.some((q) => /Install which\?.*\[1\]/.test(q)), "Enter means the default").to.equal(true);
+    expect(menu).to.match(/1\) Claude Code/).and.to.match(/2\) IBM Bob\s+not installed.*organization default/).and.to.match(/3\) OpenAI Codex/);
+    expect(asked, "Enter means the default").to.include("  Choose [1/2/3] (Enter = 2, IBM Bob) : ");
   });
 
   it("picking a NON-default approved agent installs and starts THAT one", async () => {
@@ -608,7 +608,7 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
       hasTool: () => false,
       approvedAgents: () => [{ id: "ibm-bob", default: true }, { id: "claude-code" }],
       installAgent: (id: string) => { installed.push(id); return true; },
-      prompt: async (q: string) => (/Install which/.test(q) ? "2" : "1"),
+      prompt: route(["2"], ["y"]),
     });
     await runWorkFlow(d);
     expect(installed, "not the default — the one chosen").to.deep.equal(["claude-code"]);
@@ -621,7 +621,7 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
       hasTool: () => false,
       approvedAgents: () => [{ id: "ibm-bob", default: true }, { id: "claude-code" }],
       installAgent: () => { throw new Error("must not be called"); },
-      prompt: async (q: string) => (/Install which|Choose a number/.test(q) ? (n++, "zz") : "1"),
+      prompt: async (q: string) => (/Choose \[/.test(q) ? (n++, "zz") : "1"),
     });
     await runWorkFlow(d);
     expect(n, "asked three times").to.equal(3);
@@ -629,13 +629,15 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
   });
 
   it("with no default, Enter chooses nothing — gov never installs what nobody picked", async () => {
+    const asked: string[] = [];
     const { deps: d, launched } = deps({
       hasTool: () => false,
       approvedAgents: () => [{ id: "ibm-bob" }, { id: "claude-code" }],
       installAgent: () => { throw new Error("must not be called"); },
-      prompt: async (q: string) => (/Install which|Choose a number/.test(q) ? "" : "1"),
+      prompt: async (q: string) => { asked.push(q); return /Choose \[/.test(q) ? "" : "1"; },
     });
     await runWorkFlow(d);
+    expect(asked, "and the prompt names no default").to.include("  Choose [1/2] : ");
     expect(launched[0]?.[0]).to.equal("shell");
   });
 
@@ -661,15 +663,15 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
     expect(launched[0]?.[0]).to.equal("claude-code");
   });
 
-  it("offers a menu when neither layer decides, and says what each choice does", async () => {
-    const { deps: d, out } = deps({
+  it("two installed and no default: the picker asks, and opens the one chosen", async () => {
+    const { deps: d, out, launched } = deps({
       hasTool: (c: string) => c === "claude" || c === "cursor-agent",
       approvedAgents: () => [{ id: "claude-code" }, { id: "cursor" }],   // two, no default
+      prompt: route(["2"]),
     });
     await runWorkFlow(d);
-    const text = out.join("\n");
-    expect(text).to.contain("runs the agent here, with the rules loaded");
-    expect(text, "the option that always works, explained").to.contain("No AI involved");
+    expect(out.join("\n")).to.match(/1\) Claude Code\s+installed/).and.to.match(/2\) Cursor\s+installed/);
+    expect(launched[0]?.[0]).to.equal("cursor");
   });
 
   it("honours the org's approved list over what happens to be installed", async () => {
@@ -681,7 +683,7 @@ describe("gov-work — the agent menu offers what exists (#195)", () => {
     // Claude is installed and NOT approved here — offering it would put gov's own
     // menu in breach of the policy it seeded.
     expect(out.join("\n")).to.not.contain("Claude Code");
-    expect(out.join("\n")).to.contain("the only approved agent installed here");
+    expect(out.join("\n")).to.contain("the only agent your organization approves");
     expect(launched[0]?.[0]).to.equal("cursor");
   });
 });
@@ -1021,5 +1023,133 @@ describe("gov-work — structure-only: agents off, process intact", () => {
     };
     expect(ensureRootProtocol(fs, "/work/PRJ-9", "acme-gov", harnessAtDefault(fs)).structureOnly).to.equal(false);
     expect(writes).to.include("/work/PRJ-9/CLAUDE.md");
+  });
+});
+
+/**
+ * EVERY APPROVED AGENT IS A CHOICE (Policy Owner, 2026-10-08) — and an agent whose ACCOUNT stops it is said to be
+ * stopped, not sent round the first-run loop (F24).
+ *
+ * svm-geneva approved IBM Bob (default), OpenAI Codex and Claude Code; only Bob was installed. gov said "Using IBM
+ * Bob — the only approved agent installed here" and launched it. Then Bob's free trial had expired, and gov called
+ * that a first-run step and offered to open Bob again.
+ */
+describe("gov-work — the agent picker lists every approved agent (2026-10-08)", () => {
+  const GENEVA = [{ id: "ibm-bob", default: true }, { id: "openai-codex" }, { id: "claude-code" }];
+
+  /** A Geneva machine: Bob only. `answers` are the agent picker's, in order; installs answer from `install`. */
+  function geneva(over: Partial<WorkFlowDeps> & { answers?: string[]; install?: string[] } = {}) {
+    const asked: string[] = [];
+    const installed: string[] = [];
+    const answers = [...(over.answers ?? [""])];
+    const install = [...(over.install ?? [])];
+    const { answers: _a, install: _i, ...rest } = over;
+    const made = deps({
+      hasTool: (c: string) => c === "bob",
+      approvedAgents: () => GENEVA,
+      config: { githubOrg: "svm-geneva", workspaceRepo: "acme-gov", agentWorkRoot: "/work", orgName: "Geneva ERS" },
+      installAgent: (id: string) => { installed.push(id); return true; },
+      prompt: async (q: string) => {
+        asked.push(q);
+        if (/Choose \[/.test(q)) return answers.shift() ?? "zz";
+        if (/Install .* now\?/.test(q)) return install.shift() ?? "n";
+        return "1";
+      },
+      ...rest,
+    });
+    return { ...made, asked, installed };
+  }
+
+  it("shows all three, says what each costs, and Enter opens the default", async () => {
+    const { deps: d, out, asked, launched } = geneva();
+    expect(await runWorkFlow(d)).to.equal(0);
+    const text = out.join("\n");
+    expect(text).to.contain([
+      "  Agent for PRJ-7 (approved by Geneva ERS):",
+      "    1) IBM Bob        installed · organization default",
+      "    2) OpenAI Codex   not installed — choose it to install now",
+      "    3) Claude Code    not installed — choose it to install now",
+    ].join("\n"));
+    expect(asked).to.include("  Choose [1/2/3] (Enter = 1, IBM Bob) : ");
+    expect(text, "no silent pick any more").to.not.contain("the only approved agent installed here");
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  it("choosing an agent that is not installed offers the install, then opens it", async () => {
+    const { deps: d, installed, launched } = geneva({ answers: ["2"], install: ["y"] });
+    await runWorkFlow(d);
+    expect(installed).to.deep.equal(["openai-codex"]);
+    expect(launched.map(([a]) => a)).to.deep.equal(["openai-codex"]);
+  });
+
+  it("declining the install goes back to the list — nothing installed, nothing opened behind your back", async () => {
+    const { deps: d, installed, launched, asked } = geneva({ answers: ["3", "1"], install: ["n"] });
+    await runWorkFlow(d);
+    expect(installed).to.deep.equal([]);
+    expect(asked.filter((q) => /Choose \[/.test(q)), "asked twice").to.have.length(2);
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  it("an install that does not leave the agent ready goes back to the list too", async () => {
+    const { deps: d, out, launched } = geneva({ answers: ["2", "1"], install: ["y"], installAgent: () => false });
+    await runWorkFlow(d);
+    expect(out.join("\n")).to.contain("OpenAI Codex is not ready yet");
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  it("Enter is YOUR preference when you set one, even an agent still to install", async () => {
+    const { deps: d, asked } = geneva({ agentPreference: () => "claude-code", answers: ["1"] });
+    await runWorkFlow(d);
+    expect(asked).to.include("  Choose [1/2/3] (Enter = 3, Claude Code) : ");
+  });
+
+  it("work.agent.ask=never: no question — but gov names the agent and says how to change that", async () => {
+    const { deps: d, out, asked, launched } = geneva();
+    await runWorkFlow(d, { agentAsk: "never" });
+    expect(asked.some((q) => /Choose \[/.test(q))).to.equal(false);
+    expect(out.join("\n")).to.contain("Using IBM Bob");
+    expect(out.join("\n")).to.contain("gov preferences set work.agent.ask always");
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  it("no terminal: no question, the default is used, and gov says so — it never hangs", async () => {
+    const { deps: d, out, launched } = geneva({
+      fs: fsWith(["/work/PRJ-7-alpha", "/work/PRJ-7-alpha/acme-gov/.git"]),
+      prompt: async () => { throw new Error("must not prompt"); },
+    });
+    expect(await runWorkFlow(d, { projectPattern: "PRJ-7", interactive: false })).to.equal(0);
+    expect(out.join("\n")).to.match(/No terminal to ask in/);
+    expect(out.join("\n")).to.contain("IBM Bob");
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  it("F24: an expired trial is said plainly, and the list comes back WITHOUT that agent", async () => {
+    const launches: string[] = [];
+    const { deps: d, out, asked, installed } = geneva({
+      answers: ["", "1"], install: ["y"],
+      launch: async (agent) => {
+        launches.push(agent);
+        return agent === "ibm-bob" ? { blocked: "account" as const, reason: "its account's free trial has expired" } : 0;
+      },
+    });
+    expect(await runWorkFlow(d)).to.equal(0);
+    const text = out.join("\n");
+    expect(text).to.contain("IBM Bob cannot run: its account's free trial has expired — that is between you and IBM, gov cannot fix it.");
+    expect(text, "not the first-run story").to.not.match(/licence|signing in/);
+    const second = text.slice(text.lastIndexOf("Agent for"));
+    expect(second, "Bob is gone from the second list").to.not.contain("IBM Bob");
+    expect(asked.filter((q) => /Choose \[/.test(q))[1]).to.equal("  Choose [1/2] : ");
+    expect(installed).to.deep.equal(["openai-codex"]);
+    expect(launches).to.deep.equal(["ibm-bob", "openai-codex"]);
+  });
+
+  it("F24: with no other approved agent left, gov stops and says where the project is", async () => {
+    const { deps: d, out } = geneva({
+      approvedAgents: () => [{ id: "ibm-bob", default: true }],
+      launch: async () => ({ blocked: "account" as const, reason: "its account's free trial has expired" }),
+    });
+    expect(await runWorkFlow(d)).to.equal(1);
+    expect(out.join("\n")).to.contain("gov cannot fix it");
+    expect(out.join("\n")).to.match(/No other approved agent/);
   });
 });

@@ -90,7 +90,7 @@ runs grep -qE '^authorized_agents:[[:space:]]*$' "$HOME/.gov/acme/gov_repo/polic
   || pass "and not as an empty block, which is the unanswered state"
 
 info "nothing agent-shaped happens on this run"
-never "no agent is offered for install" "Install which"
+never "no agent is offered for install" "Agent for PRJ"
 never "nor the framework's own catalogue as though it were theirs" "No AI agent is installed"
 never "no sign-in question" "How would you like to sign"
 never_re "and no credential is ever asked for" "Paste the [A-Z_]+"
@@ -140,7 +140,7 @@ info "a JOINER meets no agent question they cannot answer"
 # anybody, with or without agents. The structure-only branch behind it is covered by unit test
 # (test/setup/join-interview.test.ts); what this world can honestly assert is the absence.
 never "they are not asked to pick from a list that does not exist" "Which would you like to use"
-never "and nothing is installed for them on the way in" "Install which"
+never "and nothing is installed for them on the way in" "Agent for PRJ"
 saw "the JOINER's closing screen still arrives" "Install complete — for JOINERS"
 
 drive "$(conv <<'C'
@@ -157,7 +157,7 @@ saw "it says agents are off for this organization" "AI agents are OFF for this o
 saw "and where that is recorded" "authorized_agents: none"
 saw "and the one command that turns them on" "gov agent approve <id>"
 saw "then it opens the project, which is what the fixed process is for" "Opening a shell in"
-never "no install offer" "Install which"
+never "no install offer" "Agent for PRJ"
 never "nor the framework's catalogue proposed as the org's own" "No AI agent is installed"
 never "and no agent is announced as starting" "Launching"
 
