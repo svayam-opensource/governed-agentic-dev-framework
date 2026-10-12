@@ -36,7 +36,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov evidence](#gov-evidence) — verify the org's signed evidence ledger (free, offline — for auditors too), turn the ledger on for the org, or generate an auditor report (subscription)
 - [gov licence](#gov-licence) — sign in with your gov personal key, see your organization's plan, and install the paid evidence module
 - [gov rules](#gov-rules) — propose rules from your policy prose, render the rule stores into what agents read, and report on them
-- [gov signal](#gov-signal) — tell another project something — ask, depends, notice; list and acknowledge what came in
+- [gov signal](#gov-signal) — tell another project something — ask, depends, notice; hand items over or merge; list and acknowledge
 
 **[Your agent runs these (you can too)](#your-agent-runs-these-you-can-too)**
 
@@ -719,10 +719,10 @@ gov rules show POL-086b
 
 ### gov signal
 
-tell another project something — ask, depends, notice; list and acknowledge what came in
+tell another project something — ask, depends, notice; hand items over or merge; list and acknowledge
 
 ```text
-gov signal ask|depends|notice --to <PRJ-n-slug> --title <t> [--body-file <f>] [--items <a,b>]  |  list [--add]  |  ack <signal-url> [--answer <a>]  |  send <draft.md>
+gov signal ask|depends|notice --to <PRJ-n-slug> --title <t> [--body-file <f>] [--items <a,b>]  |  handover --to <PRJ> --title <t> --items <a,b>  |  merge --to <PRJ> --title <t>  |  list [--add]  |  ack <signal-url> [--answer <a>]  |  send <draft.md>
 ```
 
 **Where.** PROJECT
@@ -733,7 +733,7 @@ gov signal ask|depends|notice --to <PRJ-n-slug> --title <t> [--body-file <f>] [-
 | --- | --- |
 | `--to <PRJ-n-slug>` | the project the signal is for |
 | `--title <t> · --body-file <f>` | what it says |
-| `--items <a,b>` | depends: the items that wait on the answer (default: this project's anchor) |
+| `--items <a,b>` | depends: the items that wait on the answer (default: this project's anchor); handover: the items that move |
 | `--add` | list: put incoming signals that are missing from this project's board onto it |
 | `--answer <a>` | ack: the answer an ask or depends is closed with |
 
@@ -745,7 +745,7 @@ gov signal list
 gov signal send projects/PRJ-121-x/signals/drafts/iam.md
 ```
 
-**Changes.** creates one issue in the governance repo (label gov-signal:&lt;kind&gt;) on both projects' boards; depends blocks this project's anchor; ack comments and closes it. A person confirms each one — refused inside an agent session (agents write drafts)
+**Changes.** creates one issue in the governance repo (label gov-signal:&lt;kind&gt;) on both projects' boards; depends blocks this project's anchor; ack comments and closes it. handover moves items between the boards; merge moves every item, names the repos to add, and closes this project's board and anchor (owner of both boards only). A person confirms each one — refused inside an agent session (agents write drafts)
 
 **Exit codes**
 

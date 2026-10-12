@@ -19,6 +19,7 @@ import { assessProtection, postureDiagnostic, postureOf } from "./protection-che
 import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
 import { appDiagnostic, secretsDiagnostic, type AppCheckResult } from "../cli/app-verb.js";
 import { lifecycleDiagnostic } from "../intent/lifecycle-policy.js";
+import { lettersDiagnostic } from "../signal/letters.js";
 import { checkOwnerDiagnostic, codeownersDiagnostic, policyOwnerDiagnostic, roleListDiagnostic } from "./roles-health.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
@@ -135,6 +136,8 @@ export interface DoctorFacts {
    * cannot parse is an advisory row, never a failure.
    */
   readonly lifecycleText?: string | null;
+  /** Every tracked file under `projects/` (repo-relative), for the retired-letters advisory. undefined = not listed. */
+  readonly projectFiles?: readonly string[];
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -250,6 +253,8 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     ...(facts.governanceText !== undefined ? [governanceRow(facts.governanceText)] : []),
     // THE ADOPTED LIFECYCLE (spec 03 X7): gov reads its step headings; one it cannot read is skipped, and said so here.
     ...(() => { const l = lifecycleDiagnostic(facts.lifecycleText); return l ? [l] : []; })(),
+    // LETTERS ARE RETIRED (spec 03 Q9): a new for-*.md is an advisory pointing at `gov signal`.
+    ...(() => { const l = lettersDiagnostic(facts.projectFiles); return l ? [l] : []; })(),
     // THE TWO-KEY REVIEW (rule-model P1 rulings, 2026-10-06): the Check Owner approves the code of the org's check
     // actions, the Policy Owner the rules. Vacant, or both roles on one handle, and there is only one key.
     // WHO HOLDS EACH ROLE (GOV-FRM-033, W2-Q5) and whether CODEOWNERS still routes to them (GOV-FRM-083).

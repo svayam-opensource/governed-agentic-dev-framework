@@ -39,6 +39,14 @@ The governance branch is not archived on that first run, because it is the head 
 the request is merged, run `gov close` again and gov tags and deletes the branch. While the request is still open,
 a second run says so and changes nothing. **gov never merges that pull request itself.**
 
+## Merging into another project
+
+When the work belongs in another project, fold yours into it instead of closing it:
+`gov signal merge --to <PRJ-n-slug> --title "…"`. You must own both boards. Every item on your board moves to
+theirs. gov names each of your repositories for `gov add-repo` in their workspace. Then your board and its anchor
+issue close, both pointing at the merge record. If any item cannot move, nothing is closed and you can run it
+again. See [working on a project §8](working-on-a-project.md#8-signals-between-projects).
+
 ## Cancelling
 
 ```bash

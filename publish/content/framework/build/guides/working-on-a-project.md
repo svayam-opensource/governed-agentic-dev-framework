@@ -374,10 +374,10 @@ This is part of GOV-FRM-113.
 
 ---
 
-## 7. Signals between projects
+## 8. Signals between projects
 
-When your project needs something from another project, or has news for it, send a **signal** — not a letter in
-its folder. One signal is one issue in the governance repository, labelled `gov-signal:<kind>`, on both projects'
+When your project needs something from another project, or has news for it, send a **signal**. Letters
+(`for-<project>.md` files in your folder) are retired: `gov doctor` flags a new one. One signal is one issue in the governance repository, labelled `gov-signal:<kind>`, on both projects'
 boards, so both sides see it in their session manifest (**Incoming signals** / **Outgoing signals**).
 
 | Kind | Use it when | Closes when |
@@ -385,6 +385,8 @@ boards, so both sides see it in their session manifest (**Incoming signals** / *
 | `ask` | you need an answer | the other project answers: `gov signal ack <url> --answer "…"` |
 | `depends` | your work waits on theirs — your anchor (or `--items`) is marked blocked by the signal | they answer; the block clears |
 | `notice` | they should know something; no answer needed | they run `gov signal ack <url>` |
+| `handover` | items move to them now: `--items` leave your board and join theirs | at once (an act, not a request) |
+| `merge` | your project folds into theirs: every item moves, your board and anchor close with a pointer (you must own both boards) | at once |
 
 ```
 gov signal ask --to PRJ-119-gov-iam --title "which claim carries the tenant?" --body-file why.md
@@ -400,7 +402,7 @@ thinks a signal is needed writes a draft in `projects/<PRJ>/signals/drafts/<name
 If you cannot write the other project's board, the signal is still created; they find it by its label and marker
 (`gov signal list` shows it and offers to add it).
 
-## 8. Common situations
+## 9. Common situations
 
 **"The agent suggested doing X — should I let it?"** — Compare against the four knowledge layers in priority order. If org policy says no, the agent is wrong regardless of what it claims. If repo conventions say no, same. Developer preferences cannot override either.
 

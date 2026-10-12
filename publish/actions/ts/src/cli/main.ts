@@ -11,6 +11,7 @@ import { LIFECYCLE_POLICY_PATH } from "../intent/lifecycle-policy.js";
 import { AGENT_SESSION_ENV } from "../signal/model.js";
 import { signalCommand } from "./signal-verb.js";
 import { pickAdapter, builtInProviders } from "../adapters/registry.js";
+import { repoNameFromUrl } from "../lifecycle/repo.js";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as fsSync from "node:fs";
@@ -2238,6 +2239,19 @@ export async function runSignal(argv: readonly string[]): Promise<number> {
     interactive: process.stdin.isTTY === true && process.stdout.isTTY === true,
     confirm: (q) => askYes(q),
     readFile: (f) => fs.readFile(path.isAbsolute(f) ? f : path.join(process.cwd(), f)),
+    merge: {
+      // gov's owner test, as `gov task` and `gov merge` use it (C01): write access to the project board.
+      isOwner: async (p) => tryRun("gh", ["api", "graphql", "-f", "query=query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}", "-F", `o=${p.owner}`, "-F", `n=${p.number}`, "--jq", ".data.organization.projectV2.viewerCanUpdate"]) === "true",
+      repos: async (p) => {
+        try {
+          const b = createGhBoard(retryTransient((args) => runProcess("gh", args, { pgm: "gov-work:cli:signal", fn: "gh" }))).fetchProject({ owner: p.owner, ownerField: "organization", number: p.number });
+          return { ok: true, value: b.repoUrls.filter((u) => repoNameFromUrl(u) !== config.workspaceRepo) };
+        } catch (e) {
+          // Reported, not thrown: merge says the repositories must be checked by hand.
+          return { ok: false, reason: (e as Error).message, retryable: true };
+        }
+      },
+    },
   });
   for (const line of r.lines) process.stdout.write(`${line}\n`);
   return r.code;
@@ -2802,6 +2816,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         roleListText: fs.readFile(path.join(home, ROLE_LIST_PATH)),
         codeownersText: fs.readFile(path.join(home, "CODEOWNERS")),
         lifecycleText: fs.readFile(path.join(home, LIFECYCLE_POLICY_PATH)),
+        projectFiles: (tryRun("git", ["-C", home, "ls-files", "projects"]) ?? "").split("\n").filter(Boolean),
       } : {}),
       ...(protection ? { protection } : {}),
       ...(doctorRules && !("error" in doctorRules) ? { rules: doctorRules } : {}),
