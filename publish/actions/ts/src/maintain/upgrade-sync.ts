@@ -28,6 +28,11 @@
  *                     seed-once file. If it must, it ships a SCHEMA beside it that gov checks
  *                     the org's file against (org-config.yaml ↔ framework/config/
  *                     org-config.schema.yaml), or a reference the org copies from.
+ *   seed-new        — a STARTER FOR NEW ORGANIZATIONS (PRJ-121 intent 01, §3.2): `gov setup`'s seed creates
+ *                     it exactly as it does a seed-once file; `gov upgrade` never plans it — not create,
+ *                     not update, not conflict. An org that adopted before the starter shipped is not
+ *                     handed it by an upgrade (it wrote its own policy, or chose not to); an org that has
+ *                     it keeps its copy untouched. The dry run names a missing one "starter for new orgs".
  *   scaffold-prompt — org may extend; create if missing, update if it still
  *                     matches the shipped baseline, else flag as a conflict to
  *                     review (a full 3-way merge is a later refinement).
@@ -38,9 +43,9 @@
  * .framework-version, vendored bash) that the new layout removes.
  */
 
-export type EntryMode = "scaffold-auto" | "seed-once" | "scaffold-prompt";
+export type EntryMode = "scaffold-auto" | "seed-once" | "seed-new" | "scaffold-prompt";
 /** The modes this engine implements. A manifest row in any other mode (an older content's `overlay-schema`) is KEPT, never applied. */
-export const KNOWN_MODES: readonly string[] = ["scaffold-auto", "seed-once", "scaffold-prompt"];
+export const KNOWN_MODES: readonly string[] = ["scaffold-auto", "seed-once", "seed-new", "scaffold-prompt"];
 
 /**
  * THE ORGANIZATION'S OWN FILES — decided HERE, never by the content's MANIFEST (GOV-FRM-445, 2026-10-07).
@@ -237,8 +242,11 @@ export function expandEntries(manifest: Manifest, contentFiles: readonly string[
   return [...out.values()].map((v) => v.entry);
 }
 
-/** `keep`: the org's file, left as it is although the manifest asked otherwise — shown, never applied (GOV-FRM-445). */
-export type ActionKind = "create" | "same" | "keep" | "update" | "conflict" | "refuse" | "retire" | "move" | "migrate";
+/**
+ * `keep`: the org's file, left as it is although the manifest asked otherwise — shown, never applied (GOV-FRM-445).
+ * `starter`: a seed-new file this workspace does not have — shown by an upgrade's dry run, never applied (§3.2).
+ */
+export type ActionKind = "create" | "same" | "keep" | "starter" | "update" | "conflict" | "refuse" | "retire" | "move" | "migrate";
 export interface PlanAction {
   readonly kind: ActionKind;
   readonly dst: string;
@@ -298,8 +306,11 @@ export function directoryMoveDone(m: { from: string; to: string }, done: Readonl
   return false;
 }
 
-/** Compute the migration plan (no writes). */
-export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, moves: readonly ManifestMove[] = [], retire: readonly string[] = [], owned: readonly string[] = []): UpgradePlan {
+/**
+ * Compute the migration plan (no writes). `opts.seed`: this is `gov setup` seeding a new workspace, so a seed-new
+ * starter is planned like seed-once; without it (every `gov upgrade`) a seed-new row is never created or changed.
+ */
+export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, moves: readonly ManifestMove[] = [], retire: readonly string[] = [], owned: readonly string[] = [], opts: { seed?: boolean } = {}): UpgradePlan {
   const actions: PlanAction[] = [];
   const shippedDst = new Set<string>();
 
@@ -309,11 +320,17 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
     if (content === null) continue; // shipped file missing from the content source
     const current = r.readAdopter(e.dst);
 
+    // seed-new (§3.2): before the org-owned check — the row is the org's by design, not a manifest that disagrees.
+    if (e.mode === "seed-new" && !opts.seed) {
+      if (current === null) actions.push({ kind: "starter", dst: e.dst, src: e.src, detail: "starter for new orgs — gov setup creates it; an upgrade never does" });
+      else actions.push({ kind: "same", dst: e.dst, src: e.src, detail: "yours — a starter for new orgs; an upgrade never touches it" });
+      continue;
+    }
     if (current === null) { actions.push({ kind: "create", dst: e.dst, src: e.src }); continue; }
     if (current === content) { actions.push({ kind: "same", dst: e.dst, src: e.src }); continue; }
     // GOV-FRM-445: the org's file is seed-once whatever the manifest says — and a manifest that says otherwise is
     // named in the plan, because it means the content is not the build this gov expects.
-    if (e.mode !== "seed-once" && isOrgOwned(e.dst, owned)) {
+    if (e.mode !== "seed-once" && e.mode !== "seed-new" && isOrgOwned(e.dst, owned)) {
       actions.push({ kind: "keep", dst: e.dst, src: e.src, detail: `org-owned — the content's manifest marks it ${e.mode}; gov never overwrites it` });
       continue;
     }
@@ -321,7 +338,7 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
       actions.push({ kind: "keep", dst: e.dst, src: e.src, detail: `this gov does not know mode ${e.mode} — left as it is; use the gov this content was built for` });
       continue;
     }
-    if (e.mode === "seed-once") { actions.push({ kind: "same", dst: e.dst, src: e.src, detail: "yours since the first install" }); continue; }
+    if (e.mode === "seed-once" || e.mode === "seed-new") { actions.push({ kind: "same", dst: e.dst, src: e.src, detail: "yours since the first install" }); continue; }
     if (e.mode === "scaffold-auto") { actions.push({ kind: "update", dst: e.dst, src: e.src, detail: "framework-owned overwrite" }); continue; }
     // scaffold-prompt: NO MANIFEST ENTRY USES THIS ANY MORE (2026-09-15).
     //
@@ -435,9 +452,10 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
 }
 
 export function formatPlan(plan: UpgradePlan): string[] {
-  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", keep: "= keep   ", update: "~ update ", conflict: "! review ", refuse: "✗ refuse ", retire: "- retire ", move: "→ move   ", migrate: "→ migrate" };
+  const mark: Record<ActionKind, string> = { create: "+ create ", same: "= same   ", keep: "= keep   ", starter: "· starter", update: "~ update ", conflict: "! review ", refuse: "✗ refuse ", retire: "- retire ", move: "→ move   ", migrate: "→ migrate" };
   const shown = plan.actions.filter((a) => a.kind !== "same");
-  const lines = shown.map((a) => `  ${mark[a.kind]} ${a.from ? `${a.from} → ${a.dst}` : a.dst}${a.detail ? `   (${a.detail})` : ""}`);
+  const detailOf = (a: PlanAction): string | undefined => a.detail ?? (a.kind === "starter" ? "starter for new orgs" : undefined);
+  const lines = shown.map((a) => `  ${mark[a.kind]} ${a.from ? `${a.from} → ${a.dst}` : a.dst}${detailOf(a) ? `   (${detailOf(a)})` : ""}`);
   const counts = plan.actions.reduce<Record<string, number>>((m, a) => ((m[a.kind] = (m[a.kind] ?? 0) + 1), m), {});
   const summary = Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(" · ");
   return [...(lines.length ? lines : ["  (workspace already matches the published content)"]), "", `plan: ${summary}`];
@@ -484,7 +502,7 @@ export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { include
   };
   for (const a of ordered) {
     if (a.kind !== "move") recordGroups();
-    if (a.kind === "same" || a.kind === "keep") continue;
+    if (a.kind === "same" || a.kind === "keep" || a.kind === "starter") continue;
     // GOV-FRM-445, the second line of defence: whatever a plan says, an org-owned file that exists is never
     // written with content bytes. (A plan built elsewhere, or a file that appeared since planning.)
     if ((a.kind === "create" || a.kind === "update" || a.kind === "conflict") && isOrgOwned(a.dst) && deps.readAdopter(a.dst) !== null) {

@@ -70,6 +70,27 @@ policy says they live. Nothing in the framework requires it.
 
 ---
 
+## How gov setup and gov upgrade treat each shipped file
+
+Every file the framework ships has a mode in the framework's manifest. The mode decides what `gov setup` does
+when it creates `<ORG_GOV_REPO>`, and what `gov upgrade` does to it later.
+
+| Mode | `gov setup` (a new org) | `gov upgrade` — file missing | `gov upgrade` — file present and different |
+| --- | --- | --- | --- |
+| `scaffold-auto` | creates it | creates it | replaces it: the framework owns the file |
+| `seed-once` | creates it | creates it | leaves it alone: the file is yours |
+| `seed-new` | creates it | does nothing; the dry run lists it as a "starter for new orgs" | leaves it alone: the file is yours |
+| `scaffold-prompt` | creates it | creates it | flags it for you to review (no shipped file uses this mode) |
+
+A `seed-new` file is a starter for organizations that adopt after it ships. An organization that adopted earlier
+is not handed it by an upgrade: it has written its own, or chosen not to. If you want the starter, copy it from
+the framework's content by hand.
+
+Everything under `policies/`, and `org-config.yaml`, is yours whatever mode the manifest gives it: an upgrade
+never overwrites it.
+
+---
+
 ## Infrastructure Owner Responsibilities
 
 - Build, maintain, and monitor this pipeline

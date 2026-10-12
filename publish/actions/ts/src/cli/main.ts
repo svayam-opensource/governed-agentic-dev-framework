@@ -870,7 +870,7 @@ export async function runSetupCommand(
     for (const e of templateRemoved) fsSync.rmSync(path.join(created.home, e), { recursive: true, force: true });
     templateRemovedFromCreate = templateRemoved;
     seededManifestText = fsSync.readFileSync(path.join(seedContent.contentDir, "MANIFEST.yaml"), "utf8");
-    const seed = runUpgradeSync(seedContent.contentDir, created.home, { apply: true });
+    const seed = runUpgradeSync(seedContent.contentDir, created.home, { apply: true, seed: true });
     if (seed.code !== 0) {
       for (const l of seed.lines) process.stderr.write(`${l}\n`);
       process.stderr.write(`gov setup: could not seed the content this gov was built with. The repo exists — re-run to resume.\n`);
