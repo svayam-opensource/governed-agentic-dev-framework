@@ -114,7 +114,7 @@ import { assessFrameworkCurrency, cannotStartWorkLines, policyOwnerFacts } from 
 import { parseArgv, flagStr, flagBool } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
 import { orgAdd, orgUse } from "../resolve/org.js";
-import { PACKAGE_NAME } from "../index.js";
+import { PACKAGE_NAME } from "../package-identity.js";
 
 /** Run a command, swallowing failures (returns undefined). */
 /** Every `git`/`gh` probe in this file. Goes through the logged runner (run-process.ts), so a slow or

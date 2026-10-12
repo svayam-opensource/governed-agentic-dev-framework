@@ -6,7 +6,7 @@
  * published; today this resolves the target and reports the install command
  * (drift is surfaced by `doctor`). Pure plan; no auto-install.
  */
-import { PACKAGE_NAME } from "../index.js";
+import { PACKAGE_NAME } from "../package-identity.js";
 
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 // The published name, imported rather than restated. `upgrade` INSTALLS by this string, so a copy that

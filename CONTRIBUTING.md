@@ -63,3 +63,13 @@ compiled (`src/**` + `tsconfig*.json`, in `lib/source-fingerprint.json`);
   stale, and stop if that build fails.
 
 So run `npm run build` first after changing `src/` — the gate order above.
+
+### No barrel imports inside `src/`
+
+A module inside `src/` never imports a barrel (`index.js` — the package root
+`src/index.ts` or a folder's `index.ts`). The package entry (`main`/`exports`) is that
+root barrel; when `maintain/upgrade.ts` imported `PACKAGE_NAME` from it, loading the
+published library threw `Cannot access 'PACKAGE_NAME' before initialization`. Import
+the leaf module that defines the name instead — the package's own constants are in
+`src/package-identity.ts`. eslint (`no-restricted-imports`) enforces it, and
+`test/package/import-entry.test.ts` loads the built ESM and CJS entries.
