@@ -72,7 +72,13 @@ PASS=0; SKIP=0; CREATED=()
 step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32m✓ %s\033[0m\n' "$*"; PASS=$((PASS+1)); }
 note() { printf '  \033[33m! %s\033[0m\n' "$*"; }
-skip() { printf '  \033[33m⤼ SKIPPED: %s\033[0m\n' "$*"; SKIP=$((SKIP+1)); [ -n "${GITHUB_ACTIONS:-}" ] && echo "::notice::rule-model journey: skipped $*"; return 0; }
+# A SKIP IS NOT A PASS (PRJ-121 intent 05, ruling Q2). Each skipped assertion is named in the log, as an annotation, and
+# in $E2E_SKIPS_FILE, which the workflow's verdict (e2e/live-verdict.sh) reads: a journey with a skip is `incomplete`,
+# which fails a manual dispatch and a PR into dev/main. green-streak.sh reads the annotation.
+skip() { printf '  \033[33m⤼ SKIPPED: %s\033[0m\n' "$*"; SKIP=$((SKIP+1))
+  if [ -n "${E2E_SKIPS_FILE:-}" ]; then printf 'rule-model\t%s\n' "$*" >>"$E2E_SKIPS_FILE"; fi
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::warning::rule-model journey: skipped $* — the journey is incomplete"; fi
+  return 0; }
 die()  { printf '  \033[31m✗ %s\033[0m\n' "$*"; [ -n "${GITHUB_ACTIONS:-}" ] && echo "::error::rule-model journey: $*"; exit 1; }
 # No silent exit: a line that fails under `set -e` is named, with its command (see adopter-journey.sh, 2026-10-07).
 on_err() { local rc=$? line=$1 cmd=$2; [ "$rc" -eq 0 ] && return 0
@@ -105,7 +111,7 @@ teardown() {
     leak_report "${leaked[@]:+${leaked[@]}}"   # exactly what is left behind, as a ::warning:: in Actions
   fi
   rm -rf "$ROOT"
-  printf '\n\033[1m═══ rule-model-journey%s: %d passed, %d skipped, %s ═══\033[0m\n' "$([ "$DRY" = 1 ] && echo ' (DRY RUN)')" "$PASS" "$SKIP" "$([ $rc -eq 0 ] && echo ok || echo FAILED)"
+  printf '\n\033[1m═══ rule-model-journey%s: %d passed, %d skipped, %s ═══\033[0m\n' "$([ "$DRY" = 1 ] && echo ' (DRY RUN)')" "$PASS" "$SKIP" "$(if [ $rc -ne 0 ]; then echo FAILED; elif [ "$SKIP" -gt 0 ]; then echo INCOMPLETE; else echo ok; fi)"
   exit $rc
 }
 trap teardown EXIT

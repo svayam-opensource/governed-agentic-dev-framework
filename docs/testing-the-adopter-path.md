@@ -266,6 +266,49 @@ seven of them turned out to be real.
 
 ---
 
+## What green means — adopter-e2e, computed
+
+`adopter-e2e` (`.github/workflows/adopter-e2e.yml`) runs five tiers: `smoke` (hermetic), `journey`
+(pty, three distros), `os-tier` (bare machines), and `live` (the adopter and rule-model journeys
+against real GitHub in the sandbox org). A run is **green** only when all of this is true, and
+nobody decides it by reading a summary line:
+
+- the run concluded `success`, and **every job** concluded `success` — a skipped job is not a pass;
+- **no step was skipped** and **no assertion was skipped** — a journey that passed with a skipped
+  assertion is `incomplete`;
+- it is the **first attempt** — a re-run is a retry, and a retry is not evidence.
+
+The release measure (PRJ-121 I05.1) is **three such runs in a row, all manual dispatches, on the same
+commit**. A new commit restarts the count at 0. `green-streak.sh` computes it:
+
+```bash
+cd publish/actions/ts
+gh workflow run adopter-e2e.yml --ref <branch>      # one at a time; wait for each to finish
+bash e2e/green-streak.sh <branch> 3                 # GREEN_STREAK_REPO=owner/repo for a fork
+```
+
+It walks the branch's runs newest first, reads every run's jobs, steps and annotations, and prints
+one line per run — `OK`, or `BREAK:` and why (`event push`, `different commit`, `attempt 2`,
+`job "…" failure`, `step skipped: …`, `annotation: rule-model journey: skipped (f) …`) — then
+`STREAK k/3`. It exits 0 only at 3/3. Paste its output, with the run ids, into the PR.
+
+### Which secrets each tier needs, and when a skip is allowed
+
+| Tier | Needs | When something is missing |
+|---|---|---|
+| `smoke`, `journey`, `os-tier` | nothing | — |
+| `live` — adopter journey | secret `TESTBED_BOT_PAT`, variable `TESTBED_SANDBOX_ORG` | **fails** on a manual dispatch, a PR into `dev`/`main`, a push to `dev`/`main`; **skips visibly** (notice + run summary) on a feature-branch push |
+| `live` — rule-model journey, assertion (f) | secrets `GOV_E2E_APP_CLIENT_ID`, `GOV_E2E_APP_PRIVATE_KEY` | the same: the guard names them up front on a strict run; elsewhere (f) is skipped, named, and the journey reports `incomplete` |
+| `live` — real model | secret `GEMINI_API_KEY`, only when dispatched with `real_model` | fails that dispatch |
+
+The decision is made by `publish/actions/ts/e2e/live-guard.sh` (the workflow's first `live` step), and
+the verdict by `e2e/live-verdict.sh` (its last), which lists every journey and every skipped assertion
+in the run summary. Both are tested with the secrets unset (`test/e2e/live-gate.test.ts`), so proving
+the guard never needs the repository's real secrets removed. Token scopes are in
+`publish/actions/ts/e2e/README.md`.
+
+---
+
 ## What a container cannot test, and must not be marked failed for
 
 Some steps cannot pass in here no matter how correct gov is. Recognise them, or you

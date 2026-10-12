@@ -56,9 +56,12 @@ ends by listing exactly what it could not delete. Check a token by hand with
 
 `.github/workflows/adopter-e2e.yml`:
 - **`smoke`** runs for everyone on every PR (no secrets).
-- **`live`** runs only when the repo has secret **`TESTBED_BOT_PAT`** + variable
-  **`TESTBED_SANDBOX_ORG`** (a throwaway org); otherwise it **skips** (never fails)
-  and names what is missing, so forks/contributors aren't blocked. The ephemeral
+- **`live`** needs secret **`TESTBED_BOT_PAT`** + variable **`TESTBED_SANDBOX_ORG`**
+  (a throwaway org) and the sandbox App secrets below. When one is missing it
+  **fails** on a manual dispatch and on PRs into / pushes to `dev` and `main`,
+  naming each (`e2e/live-guard.sh`); only a feature-branch push may skip, and it
+  says so in the run summary. What "green" means, and `e2e/green-streak.sh`, are in
+  `docs/testing-the-adopter-path.md`. The ephemeral
   runner is the clean slate — both journeys run directly on it (no container in CI).
   On a PR it runs only when the base is `dev` or `main`.
 
@@ -93,8 +96,8 @@ bash e2e/rule-model-journey.sh --dry-run   # hermetic: prints every gh/git/gov c
    gh secret set GOV_E2E_APP_PRIVATE_KEY < ~/Downloads/<app>.private-key.pem && rm ~/Downloads/<app>.private-key.pem
    ```
    The journey copies both as **repo** secrets onto its ephemeral repos (GitHub Free:
-   org secrets never reach private repos). Without them, (f) is skipped with a notice;
-   nothing fails.
+   org secrets never reach private repos). Without them (f) is skipped, named, and the
+   journey is **incomplete** — which fails a manual dispatch and a PR into `dev`/`main`.
 3. **`GEMINI_API_KEY`** in the framework repo's secrets — used only by a manual
    run (Actions → adopter-e2e → Run workflow → `real_model`).
 4. **`TESTBED_BOT_PAT`** (classic: `repo`, `workflow`, `project`, `read:org` **and

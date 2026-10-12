@@ -118,7 +118,10 @@ org_name: "Gov E2E Org"
 org_short_name: "GovE2E"
 org_slug: "GE2E"
 YAML
-gov setup --non-interactive >/tmp/setup.log 2>&1 || true
+# Its exit is checked (it was `|| true`, read only through the grep below — PRJ-121 intent 05, Item 1): a setup that
+# failed after writing org-config would have passed.
+SETUP_RC=0; gov setup --non-interactive >/tmp/setup.log 2>&1 || SETUP_RC=$?
+[ "$SETUP_RC" -eq 0 ] || { echo "  --- setup log ---"; tail -15 /tmp/setup.log; die "gov setup --non-interactive exited $SETUP_RC"; }
 grep -q "github_org: \"$E2E_ORG\"" org-config.yaml 2>/dev/null && ok "org-config.yaml written for $E2E_ORG" \
   || { echo "  --- setup log ---"; tail -8 /tmp/setup.log; die "org-config not configured for $E2E_ORG"; }
 grep -q 'org_name: ""' org-config.yaml && die "org-config still in template state" || ok "workspace is non-template"

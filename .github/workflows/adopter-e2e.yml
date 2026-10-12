@@ -9,8 +9,12 @@ name: adopter-e2e
 #     journey (e2e/rule-model-journey.sh). Runs ONLY when a maintainer has configured a throwaway sandbox: secret
 #     TESTBED_BOT_PAT (scopes: repo, workflow, project, read:org, delete_repo) + var TESTBED_SANDBOX_ORG. The
 #     sandbox App (secrets GOV_E2E_APP_CLIENT_ID / GOV_E2E_APP_PRIVATE_KEY) enables the rule-model journey's
-#     code-repo assertion. Self-cleaning. Skips (never fails) when unset, naming what is missing, so forks /
-#     contributors without a sandbox aren't blocked. One-time setup: publish/actions/ts/e2e/README.md.
+#     code-repo assertion. Self-cleaning. When a secret is missing it FAILS on a manual dispatch and on PRs into /
+#     pushes to dev and main, naming what is missing (ruling Q2, PRJ-121 intent 05); it skips — visibly, never as
+#     green evidence — only where no gate depends on it. One-time setup: publish/actions/ts/e2e/README.md.
+#
+# GREEN IS COMPUTED: `bash publish/actions/ts/e2e/green-streak.sh <branch> [n]` reads every job of the branch's runs
+# (docs/testing-the-adopter-path.md, "What green means").
 
 on:
   # PRs: NO path filter — so the hermetic `smoke` job always runs + reports,
@@ -149,7 +153,9 @@ jobs:
       - uses: actions/checkout@v4
       # THE NAMES THE REPO ACTUALLY HOLDS. This job read GOV_E2E_TOKEN / GOV_E2E_ORG while the repository holds
       # TESTBED_BOT_PAT / TESTBED_SANDBOX_ORG, so it never ran and skipped green (rule-model-design.md, "sandbox CI").
-      # A skip now names each missing value, so the next mismatch is visible in the log.
+      # Since PRJ-121 intent 05 (ruling Q2) a missing value FAILS a dispatch and a PR into / push to dev or main, naming
+      # each one; only a feature-branch push may skip, and it says so. The logic is e2e/live-guard.sh, so a test can run
+      # it with the secrets unset (test/e2e/live-gate.test.ts).
       - name: Guard — is a sandbox org + token configured?
         id: guard
         env:
@@ -159,20 +165,10 @@ jobs:
           APP_KEY: ${{ secrets.GOV_E2E_APP_PRIVATE_KEY }}
           GEMINI: ${{ secrets.GEMINI_API_KEY }}
           REAL_MODEL: ${{ inputs.real_model && 'true' || 'false' }}
-        run: |
-          missing=""
-          [ -n "$TOK" ] || missing="$missing secret:TESTBED_BOT_PAT"
-          [ -n "$ORG" ] || missing="$missing var:TESTBED_SANDBOX_ORG"
-          if [ "$REAL_MODEL" = "true" ] && [ -z "$GEMINI" ]; then missing="$missing secret:GEMINI_API_KEY(real_model)"; fi
-          if [ -z "$missing" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::live journeys skipped — missing:$missing (see publish/actions/ts/e2e/README.md)."
-          fi
-          if [ -z "$APP_ID" ] || [ -z "$APP_KEY" ]; then
-            echo "::notice::sandbox App secrets missing (GOV_E2E_APP_CLIENT_ID / GOV_E2E_APP_PRIVATE_KEY) — the rule-model journey will skip assertion (f)."
-          fi
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: bash publish/actions/ts/e2e/live-guard.sh
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.run == 'true'
         with:
@@ -212,29 +208,20 @@ jobs:
           E2E_REAL_MODEL: ${{ inputs.real_model && '1' || '0' }}
           GEMINI_API_KEY: ${{ inputs.real_model && secrets.GEMINI_API_KEY || '' }}
           E2E_DEADLINE_SECS: "2100"
+          # Every skipped assertion is written here by name; the verdict reads it (a skip is never a silent pass).
+          E2E_SKIPS_FILE: ${{ runner.temp }}/live-skips.tsv
         run: |
           GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" \
             bash publish/actions/ts/e2e/rule-model-journey.sh
       # ONE VERDICT PER JOURNEY, at the job's end. The rule-model journey runs after a failed adopter journey, and on
       # 2026-10-07 its closing "31 passed, ok" banner was the last thing the log said — a failed job that read green.
-      # This step names each journey's outcome (log + run summary) and fails the job when either did.
+      # e2e/live-verdict.sh names each journey's outcome and every skipped assertion (log + run summary), and fails the
+      # job when a journey did not succeed — or, on a strict run (ruling Q2), when one is incomplete.
       - name: Live journeys — verdict
         if: always() && steps.guard.outputs.run == 'true'
         env:
           ADOPTER: ${{ steps.adopter.outcome }}
           RULEMODEL: ${{ steps.rulemodel.outcome }}
-        run: |
-          bad=0
-          {
-            echo "### Live journeys"
-            echo "| journey | outcome |"
-            echo "|---|---|"
-            echo "| adopter (seed → task → merge → close) | ${ADOPTER:-not run} |"
-            echo "| rule-model | ${RULEMODEL:-not run} |"
-          } >> "$GITHUB_STEP_SUMMARY"
-          for j in "adopter:$ADOPTER" "rule-model:$RULEMODEL"; do
-            name="${j%%:*}"; out="${j#*:}"
-            if [ "$out" = "success" ]; then echo "✓ $name journey: success"
-            else echo "::error::$name journey: ${out:-not run}"; bad=1; fi
-          done
-          exit "$bad"
+          STRICT: ${{ steps.guard.outputs.strict }}
+          E2E_SKIPS_FILE: ${{ runner.temp }}/live-skips.tsv
+        run: bash publish/actions/ts/e2e/live-verdict.sh
