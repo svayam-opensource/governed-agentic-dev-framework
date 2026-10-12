@@ -56,7 +56,7 @@ function fakeVcs(): Vcs {
     currentBranch: () => PBRANCH, isAncestor: () => false, isClean: () => true,
     remoteBranchesMatching: () => [], addPath: noop, commit: noop, resetHard: noop, resetKeepingFiles: noop, cleanUntracked: noop,
     worktreeAdd: noop, worktreeAddExisting: noop, worktreeRemove: noop, branchDelete: noop, push: noop, pushDelete: noop, clone: noop,
-    fetch: noop, setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,
+    fetch: noop, fetchDefault: () => "remote-sha", setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,
   };
 }
 
@@ -274,7 +274,10 @@ describe("lifecycle coverage — seed", () => {
     const boom = seedVcs({ commit: () => { throw new Error("boom"); } });
     const r = run(["seed", BOARD_URL], { vcs: boom });
     expect(r.code).to.equal(1);
-    expect(px(r.lines[0])).to.equal("boom");
+    // The cause first; then what the run created and undid (#180).
+    const [cause, , accounting] = px(r.lines[0]).split("\n");
+    expect(cause).to.equal("boom");
+    expect(accounting).to.match(/^created: .*; rolled back: .*; left behind: nothing$/);
   });
 });
 

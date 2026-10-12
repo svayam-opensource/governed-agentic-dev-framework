@@ -5,11 +5,13 @@
  * any failure unwinds. The HOME workspace stays on the default branch throughout;
  * all project-branch work happens in the per-project worktree.
  *
- *   A   home stub commit on the default branch (local; pushed in D)
+ *   —   fetch the remote's default branch (#180) — the project branch is cut from it, local `main` untouched
  *   B   gov worktree (project branch) + carry identity
  *   B.1 scaffold projects/<id>/ content (project.yaml/agent.md/todo.md/tool files)
  *   C   code-repo worktrees (setupCodeRepoWorktree)
- *   D   push project branch + home default; best-effort anchor issue
+ *   D   push the project branch; best-effort anchor issue
+ *
+ * (Phase A — a stub commit pushed to the default branch — is gone; see the note where it used to run.)
  */
 import * as path from "node:path";
 import { Transaction, type RollbackFailure } from "./transaction.js";
@@ -281,6 +283,32 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
   }
   const adoptIn = new Set(reused);
 
+  // ── THE DEFAULT BRANCH, AS THE REMOTE HAS IT NOW (gadf#180, ruling Q3) ──────
+  //
+  // Phase B used to cut the project branch from the gov home's LOCAL default branch, with no fetch. A home whose
+  // `main` was behind the remote — the normal state of a mirror nobody has pulled this week — gave the project a
+  // branch based on old policy, and nothing said so: every agent on the project was then governed by rules the
+  // organization had already replaced.
+  //
+  // Fetched here, before the first write, for the same reason as the preflight above: if it cannot be read, that
+  // is knowable now, and stopping now leaves nothing to roll back. The branch is cut from the FETCHED SHA, not
+  // from `<remote>/<default>` by name: a ref read twice can answer twice, and a sha cannot. The developer's local
+  // default branch is not moved — they may be standing on it with work of their own (Q3, option b).
+  const policyBase = deps.vcs.fetchDefault(config.govHome, remote, config.defaultBranch);
+  if (policyBase === null) {
+    return {
+      ok: false,
+      code: 1,
+      reason: "preflight-failed",
+      message:
+        `Cannot seed ${projectId} — nothing has been created:\n` +
+        `  could not fetch ${remote}/${config.defaultBranch} into ${config.govHome}.\n` +
+        "  gov cuts the project branch from the remote's CURRENT default branch, never from a local copy that may be\n" +
+        "  behind it. Check your network and your access to the governance repo, then run the same command again.",
+    };
+  }
+  log(`Policy base: ${remote}/${config.defaultBranch} at ${policyBase.slice(0, 12)}`);
+
   const tx = new Transaction();
 
   // The one file that makes this directory a governance workspace. Recorded before
@@ -315,10 +343,12 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
 
     // ── Phase B: gov worktree on the project branch ───────────────────────────
     log("Phase B: gov worktree");
-    tx.step("mkdir workRoot", () => deps.fs.mkdirp(paths.projectWorkRoot), () => deps.fs.rm(paths.projectWorkRoot));
+    // Labels are what a failed seed reports as created / rolled back / left behind (#180): a place a person can
+    // look, not a phase name only the code knows.
+    tx.step(`work root ${paths.projectWorkRoot}`, () => deps.fs.mkdirp(paths.projectWorkRoot), () => deps.fs.rm(paths.projectWorkRoot));
     tx.step(
-      "gov worktree",
-      () => deps.vcs.worktreeAdd(config.govHome, branch, orgGovClone, config.defaultBranch),
+      `worktree ${orgGovClone}`,
+      () => deps.vcs.worktreeAdd(config.govHome, branch, orgGovClone, policyBase),
       () => {
         deps.vcs.worktreeRemove(config.govHome, orgGovClone);
         deps.vcs.branchDelete(config.govHome, branch);
@@ -409,7 +439,7 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     // ── Phase D: push ─────────────────────────────────────────────────────────
     log("Phase D: push");
     tx.step(
-      "push gov branch",
+      `push ${orgGovClone}`,
       () => deps.vcs.push(orgGovClone, remote, branch, { setUpstream: true }),
       () => deps.vcs.pushDelete(orgGovClone, remote, branch),
     );
@@ -472,6 +502,9 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     return { ok: true, projectId, branch, projectWorkRoot: paths.projectWorkRoot, orgGovClone, repos, anchorRef, boardRenamed };
   } catch (error) {
     const rollbackFailures = tx.rollback();
+    // WHAT STATE IT LEFT BEHIND (#180). The cause first, then one line: what this run made, what it unmade, and
+    // what it could not — so the reader knows whether a re-run is safe without opening the log.
+    const accounting = tx.summary();
     // A rollback that leaves the workspace unresolvable is a bigger event than the
     // failure that triggered it, and it used to be silent: the reader was told the
     // seed failed, and found out about the workspace on their next command, phrased
@@ -484,8 +517,8 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
         "  now report 'no gov workspace resolved' even though the workspace is registered.\n" +
         "  Restore it with:  git -C " + config.govHome + " checkout -- org-config.yaml\n" +
         "  or, if it was never committed:  cd " + config.govHome + " && gov setup\n" +
-        "  Please report this — a project's rollback must never un-configure the org."
-      : (error as Error).message;
+        "  Please report this — a project's rollback must never un-configure the org.\n\n" + accounting
+      : `${(error as Error).message}\n\n${accounting}`;
     return {
       ok: false,
       code: 1,

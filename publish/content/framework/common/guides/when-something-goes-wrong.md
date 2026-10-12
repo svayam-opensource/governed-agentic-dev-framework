@@ -84,6 +84,33 @@ stayed on disk. gov made the missing branch again from the base branch, pushed i
 yours was changed. If a repo is not on disk at all, `gov add-repo <repo-url>` brings it back, and it reuses a
 worktree that is already there.
 
+## Reading a failed `gov seed`
+
+A seed that fails part-way undoes what it did, and its last line says so:
+
+```
+push failed: BRNCH-7-alpha …
+
+created: work root ~/.gov/ACME/projects/PRJ-7-alpha, worktree …/acme-gov; rolled back: worktree …/acme-gov, work root ~/.gov/ACME/projects/PRJ-7-alpha; left behind: nothing
+```
+
+- **created** — every step this run took, in order.
+- **rolled back** — the steps it undid, newest first.
+- **left behind** — the steps it could **not** undo, each with the reason. `nothing` means the machine and the
+  remote are as they were: fix the cause (the first line) and run the same command again. Anything listed here
+  is real state — remove it, or run `gov seed <board-url> --clean`, which says what is safe to reverse.
+
+**"could not fetch origin/main … nothing has been created."** Seed fetches the governance repo's default branch
+first and cuts the project branch from what the remote holds **now**, so a project never starts on policy your
+organization has already replaced. It could not reach the remote, so it stopped before creating anything. Check
+your network and access, then re-run. Your local default branch is never moved by seed — only `origin/main`.
+
+## `gov setup` says "the remote moved"
+
+Before its first push, setup fetches. If someone pushed to the governance repository's default branch while setup
+was running, setup stops instead of overwriting their work: your configuration is committed in the local clone and
+nothing was pushed. Run `git pull --rebase` in that clone, then `gov setup` again. gov never force-pushes.
+
 ## The test-merge gate fails after a sync
 
 The merge itself worked; a validator downstream of it did not. The output names the check and the file and line.

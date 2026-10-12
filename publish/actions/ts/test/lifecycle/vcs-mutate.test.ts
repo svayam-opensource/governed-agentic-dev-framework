@@ -44,6 +44,24 @@ describe("prj-work Phase 2 — Vcs mutating ops (injected runner)", () => {
     ]);
   });
 
+  // gadf#180 / Q3: seed's start point. Fetches into the REMOTE-TRACKING ref only (never `main:main`), and a
+  // failed fetch is null — the caller must not cut a branch from a sha it could not confirm.
+  it("fetchDefault fetches into the remote-tracking ref only, and returns its sha", () => {
+    const { calls, runGit } = spy();
+    expect(createGitVcs(runGit).fetchDefault("/gov", "origin", "main")).to.equal("abc123");
+    expect(calls).to.deep.equal([
+      ["-C", "/gov", "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main"],
+      ["-C", "/gov", "rev-parse", "--verify", "--quiet", "refs/remotes/origin/main^{commit}"],
+    ]);
+    expect(calls.flat().some((a) => /^(\+?refs\/heads\/main:refs\/heads\/|main:main$)/.test(a)), "local main is never a fetch target").to.equal(false);
+  });
+
+  it("fetchDefault is null when the fetch fails", () => {
+    const { calls, runGit } = spy((args) => (args.includes("fetch") ? 128 : 0));
+    expect(createGitVcs(runGit).fetchDefault("/gov", "origin", "main")).to.equal(null);
+    expect(calls, "no rev-parse of a stale tracking ref").to.have.lengthOf(1);
+  });
+
   it("headSha trims the rev-parse output", () => {
     const { runGit } = spy();
     expect(createGitVcs(runGit).headSha("/r")).to.equal("abc123");

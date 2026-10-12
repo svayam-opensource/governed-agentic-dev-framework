@@ -11,6 +11,7 @@ function recVcs() {
   const log: string[] = [];
   const vcs = {
     fetch: (_d: string, _r: string, b: string) => log.push(`fetch ${b}`),
+    fetchDefault: () => "remote-sha",
     checkout: (_d: string, b: string) => log.push(`checkout ${b}`),
     checkoutNew: (_d: string, b: string) => log.push(`checkoutNew ${b}`),
     push: (_d: string, _r: string, b: string) => log.push(`push ${b}`),

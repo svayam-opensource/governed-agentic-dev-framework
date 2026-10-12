@@ -88,6 +88,13 @@ export interface Vcs {
   clone(url: string, dest: string): void;
   /** Fetch `ref` (or everything) from `remote` into `repoDir`; best-effort (no throw). */
   fetch(repoDir: string, remote: string, ref?: string): void;
+  /**
+   * Fetch `branch` from `remote` and return the sha of `<remote>/<branch>` as fetched, or null when it could not
+   * be fetched (gadf#180, ruling Q3). Updates the remote-tracking ref ONLY — the local `branch` is never moved:
+   * it is the developer's, and they may be standing on it. Unlike {@link fetch}, failure is an answer here, not
+   * something to shrug off: a caller about to cut a branch from the result must know it is current.
+   */
+  fetchDefault(repoDir: string, remote: string, branch: string): string | null;
   /** Set local git identity in `repoDir` (skips undefined fields). */
   setIdentity(repoDir: string, identity: { name?: string; email?: string }): void;
   /** Check out an existing `branch` in `repoDir`. */
@@ -261,6 +268,15 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     },
     fetch(repoDir, remote, ref) {
       runGit(["-C", repoDir, "fetch", remote, ...(ref ? [ref] : []), "--tags"]); // best-effort; --tags: release tags drive content-sha
+    },
+    fetchDefault(repoDir, remote, branch) {
+      // An explicit refspec, so the tracking ref is written whatever `remote.<name>.fetch` says (a single-branch
+      // clone's refspec names only the branch it was cloned on). Forced (`+`) because a remote-tracking ref
+      // mirrors the remote, rewinds included — it is never anyone's work.
+      const r = runGit(["-C", repoDir, "fetch", "--no-tags", remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`]);
+      if (r.status !== 0) return null;
+      const sha = runGit(["-C", repoDir, "rev-parse", "--verify", "--quiet", `refs/remotes/${remote}/${branch}^{commit}`]);
+      return sha.status === 0 && sha.stdout.trim() ? sha.stdout.trim() : null;
     },
     setIdentity(repoDir, identity) {
       if (identity.name) must(["-C", repoDir, "config", "user.name", identity.name]);

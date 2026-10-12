@@ -18,6 +18,7 @@ function world(opts: { hasKnowledge?: boolean; remoteBranch?: boolean } = {}) {
     remoteBranchExists: () => opts.remoteBranch ?? false,
     defaultBranch: () => "main",
     fetch: () => log.push("fetch"),
+    fetchDefault: () => "remote-sha",
     checkout: (_d: string, b: string) => log.push(`checkout ${b}`),
     checkoutNew: (_d: string, b: string) => log.push(`checkoutNew ${b}`),
     addPath: (_d: string, p: string) => log.push(`add ${p}`),

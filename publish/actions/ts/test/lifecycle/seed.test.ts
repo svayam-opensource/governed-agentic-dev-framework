@@ -88,6 +88,8 @@ function fakeVcs(opts: { throwPushFor?: string[]; leftoverLocalBranch?: boolean 
     pushDelete: (r) => rec(`pushDelete ${r}`),
     clone: () => {},
     fetch: () => {},
+    // The gov home's default branch, as fetched (#180): the project branch is cut from this sha.
+    fetchDefault: () => "remote-sha",
     setIdentity: (r) => rec(`setIdentity ${r}`),
   };
   return { vcs, log };

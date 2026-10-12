@@ -61,6 +61,7 @@ function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: bo
     pushDelete: (r, _rm, b) => log.push(`pushDelete ${r} ${b}`),
     clone: () => {},
     fetch: () => {},
+    fetchDefault: () => "remote-sha",
     setIdentity: () => {},
     checkout: (r, b) => log.push(`checkout ${r} ${b}`),
     checkoutNew: () => {},

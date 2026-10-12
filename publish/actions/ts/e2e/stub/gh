@@ -11,6 +11,8 @@
 #   GH_STUB_GOVERNED         "owner/repo,owner/other" already governing the org  (#197)
 #   GH_STUB_BOARDS           "number:Title:closed" per board, ';'-separated
 #   GH_STUB_ANCHORS          board numbers that HAVE an anchor issue (= seeded)   (#198)
+#   GH_STUB_PROJECT          "Title|https://github.com/<owner>/<repo>" — the board `gov seed` reads: that title,
+#                            one item linked from that repo (#180, scenario 49)
 #   GH_STUB_LOG              a file every invocation is appended to, for assertions
 #   GH_STUB_ISSUE_BODY       the body `gh issue view` answers with (every issue is OPEN, titled from its number)
 #   GH_STUB_DB               a directory: a fake GitHub WITH A MEMORY (stub/gh-db.mjs) answers the pulls API, issues
@@ -53,6 +55,12 @@ case "$*" in
   # THE GOVERNANCE PROBE (#197/#201). One GraphQL call, answered from GH_STUB_GOVERNED.
   "api graphql"*"org-config.yaml"*) json_repos ;;
   "api graphql"*viewerCanUpdate*) echo "true" ;;
+  # THE BOARD SEED READS (projectV2 with its items). One linked item — a board with none fails seed's C01 gate.
+  "api graphql"*shortDescription*)
+      if [ -n "${GH_STUB_PROJECT:-}" ]; then
+        t="${GH_STUB_PROJECT%%|*}"; r="${GH_STUB_PROJECT#*|}"
+        printf '{"data":{"organization":{"projectV2":{"id":"PVT_stub","title":"%s","shortDescription":"stub board","items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"content":{"url":"%s/issues/1","repository":{"url":"%s"}}}]}}}}}' "$t" "$r" "$r"
+      else echo "{}"; fi ;;
   "api graphql"*)                echo "{}" ;;
 
   "api repos/"*"/contents --jq length") echo "42" ;;   # the template copy has finished
