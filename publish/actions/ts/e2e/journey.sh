@@ -306,7 +306,13 @@ exists()  { [ -e "$2" ] && pass "$1" || { fail "$1"; printf '%s     no such path
 runs()    { "$@" >/dev/null 2>&1; }
 dump()    { printf '%s--- transcript ---%s\n%s\n' "$DIM" "$RST" "$(sed 's/^/    /' "$PLAIN")"; }
 
-[ -f "$TS_DIR/lib/esm/cli/bin.js" ] || ( cd "$TS_DIR" && npm run build >/dev/null 2>&1 )
+# Build when lib/ is missing OR STALE (PRJ-121 intent 05, Item 7a): a lib/ compiled before the last src/ change was
+# run silently when this only checked that bin.js existed. scripts/lib-fresh.mjs compares src/** + tsconfig*.json
+# with the fingerprint the build recorded. A failed build stops the run — it is never followed by the old lib/.
+node "$TS_DIR/scripts/lib-fresh.mjs" --root "$TS_DIR" 2>/dev/null || {
+  printf 'lib/ missing or stale — building gov (npm run build)\n' >&2
+  ( cd "$TS_DIR" && npm run build >/dev/null 2>&1 ) || { printf 'npm run build failed in %s\n' "$TS_DIR" >&2; exit 1; }
+}
 
 export HERE TS_DIR CONTENT_DIR
 shopt -s nullglob

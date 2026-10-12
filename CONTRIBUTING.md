@@ -48,3 +48,18 @@ npm install && npm run build && npm run lint && npm test   # the gov-work gate
 npm run test:adopter:smoke                                 # the adopter-smoke gate
 E2E_ORG=<throwaway-org> GH_TOKEN=<token> npm run test:adopter   # live (bring your own sandbox)
 ```
+
+### Build before you test — a stale `lib/` is never used silently
+
+`npm test` runs `src/` through tsx and builds nothing, but a few tests and both e2e
+harnesses run the **compiled** `lib/`. The build records a fingerprint of what it
+compiled (`src/**` + `tsconfig*.json`, in `lib/source-fingerprint.json`);
+`node scripts/lib-fresh.mjs` recomputes it — exit 0 fresh, 1 stale
+(`lib/ is stale — npm run build`), 2 no `lib/`.
+
+- The `lib/`-dependent unit tests **fail** on a stale `lib/` and **skip** only when
+  there is no `lib/` at all (a pure unit run that never built).
+- `e2e/journey.sh` and `e2e/adopter-smoke.sh` **rebuild** when `lib/` is missing or
+  stale, and stop if that build fails.
+
+So run `npm run build` first after changing `src/` — the gate order above.

@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BUILD_IDENTITY_PATH, contentFingerprint } from "../../src/maintain/build-identity.js";
+import { requireFreshLib } from "../helpers/lib-fresh.js";
 import { CONTENT_BUNDLE_PATH, fingerprintEntries, materializeContentBundle, readContentBundle } from "../../src/maintain/content-bundle.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -17,8 +18,9 @@ const contentDir = path.resolve(root, "..", "..", "content");
 
 describe("the gov package bundles its framework content", () => {
   before(function () {
-    // The bundle is written by the build (postbuild). Write it fresh, so this tests this tree, not a stale lib/.
-    if (!fs.existsSync(path.join(root, "lib", "esm", "maintain", "build-identity.js"))) this.skip();
+    // The bundle is written by the build (postbuild) with the COMPILED lib/: skip when there is none, FAIL when it
+    // is stale (Item 7a — a lib/ older than src/ is never used silently). Then write the bundle fresh from this tree.
+    requireFreshLib(this);
     const r = spawnSync(process.execPath, ["scripts/write-build-identity.mjs"], { cwd: root, encoding: "utf8" });
     expect(r.status, r.stderr).to.equal(0);
   });

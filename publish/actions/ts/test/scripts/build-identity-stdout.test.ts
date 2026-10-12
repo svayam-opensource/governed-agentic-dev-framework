@@ -6,8 +6,12 @@
 import { expect } from "chai";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { requireFreshLib } from "../helpers/lib-fresh.js";
 
 describe("the build-identity step keeps npm pack --json parseable", () => {
+  // It runs the COMPILED lib/: skip when there is none, FAIL when it is stale (Item 7a — never a stale lib silently).
+  before(function () { requireFreshLib(this); });
+
   it("writes nothing to stdout (its message goes to stderr)", () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
     const r = spawnSync(process.execPath, ["scripts/write-build-identity.mjs"], { cwd: root, encoding: "utf8" });
