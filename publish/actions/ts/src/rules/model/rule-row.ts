@@ -14,6 +14,11 @@
  * The policy prose a row came from is never touched: the row carries the NORMALISED expectation the Policy Owner
  * approved, the source section's sha (so a changed section marks its rows for re-review), and the cue and checks.
  *
+ * THE PUBLISHED SHAPE is `framework/rules/rule-row.schema.yaml` (JSON Schema 2020-12; PRJ-121 intent 05, Q10). It and
+ * {@link validateRuleStore} must give the same verdict on every store: `test/rules/rule-row-schema-parity.test.ts`
+ * holds them together, so a change to a row's shape here is a change to the schema in the same commit. The cross-row
+ * rules (two-in-force, broken-chain, end-before-start) are this file's alone; the schema's description lists them.
+ *
  * Pure: text in, rows and diagnostics out.
  */
 import yaml from "js-yaml";
