@@ -13,6 +13,8 @@
  * {@link Result} the caller must handle.
  */
 export * from "./result.js";
+import type { CiIdentityPort } from "./ci-identity.js";
+export type { CiIdentityPort, CiClaims } from "./ci-identity.js";
 
 /**
  * The ports, by name — the list a conformance suite walks. The yaml key for each is {@link PORT_CONFIG_KEYS}.
@@ -37,7 +39,7 @@ export interface PortTypes {
   /** VcsPort — `./vcs.ts` (plan 03 L03): the code HOST. Local git stays in `lifecycle/vcs.ts`. */
   vcs: unknown;
   /** CiIdentityPort — `./ci-identity.ts` (plan 03 L04). */
-  ciIdentity: unknown;
+  ciIdentity: CiIdentityPort;
 }
 
 /** One adapter per port, as the registry builds them. */
