@@ -15,7 +15,7 @@ import * as path from "node:path";
 import type { Board } from "./board.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { Fs } from "./fs-io.js";
-import type { Issues } from "./issues.js";
+import { NO_TRACKER, type BoardCloseResult, type WorkTrackerPort } from "../ports/work-tracker.js";
 import type { Pulls } from "./pulls.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl, repoSlugFromUrl } from "./repo.js";
@@ -48,8 +48,9 @@ export interface CloseDeps {
   readonly board: Board;
   readonly vcs: Vcs;
   readonly fs: Fs;
-  readonly issues: Issues;
   readonly pulls: Pulls;
+  /** Closes the board (gadf#225). Absent → reported as `unreachable`, never a silent skip. */
+  readonly tracker?: WorkTrackerPort;
   /** REQUIRED (C01) — write-access to the GitHub Project. Called unconditionally; no caller can omit it. */
   readonly authorize: (ref: BoardRef) => boolean;
   /** REQUIRED — the test-merge validators (Phase 3). Always run before any push. */
@@ -79,6 +80,8 @@ export interface CloseSuccess {
   readonly boardNumber: number;
   readonly prUrl: string | null;
   readonly reposMerged: readonly string[];
+  /** Whether the board actually closed. Absent on the archive-only re-run, which does not touch the board. */
+  readonly boardClosed?: BoardCloseResult;
   /**
    * The close PR is open and a person has to merge it. The project is COMPLETE — the board is closed and the code
    * is on its branches — and the governance branch is deliberately still there, because it is that PR's head.
@@ -259,8 +262,7 @@ export function close(deps: CloseDeps, config: CloseConfig, input: CloseInput): 
   // The board closes NOW, without waiting for the pull request, and that is deliberate: a completed project
   // stays completed whether its knowledge proposal is merged, rejected or abandoned. The code is already on its
   // branches; the proposal's fate does not un-complete the work.
-  deps.issues.closeBoard(ref);
-  log(`board #${boardNumber} closed`);
+  const boardClosed = deps.tracker ? deps.tracker.closeProject(ref) : NO_TRACKER;
 
   // THE CODE REPOS ARCHIVE; THE GOVERNANCE BRANCH DOES NOT.
   //
@@ -272,5 +274,5 @@ export function close(deps: CloseDeps, config: CloseConfig, input: CloseInput): 
   // ── Best-effort workspace teardown (deferred if not provided) ───────────────
   deps.cleanup?.();
 
-  return { ok: true, projectId, projectBranch, boardNumber, prUrl, reposMerged: merged, awaitingReview: true };
+  return { ok: true, projectId, projectBranch, boardNumber, prUrl, reposMerged: merged, boardClosed, awaitingReview: true };
 }

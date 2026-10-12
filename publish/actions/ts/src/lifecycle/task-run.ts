@@ -5,13 +5,15 @@
  * the project from the workspace (current branch → board number) and the repos
  * from GitHub (board linked items); NO project.yaml. Creates the task sub-branch
  * in the workspace clone + each present code-repo worktree through a Transaction,
- * then reflects the task on GitHub (assign + board status, best-effort).
+ * then reflects the task on GitHub (assign, best-effort; board Status through the
+ * WorkTrackerPort, its outcome reported).
  */
 import * as path from "node:path";
 import { Transaction, type RollbackFailure } from "./transaction.js";
 import type { Board } from "./board.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { Issues } from "./issues.js";
+import { NO_TRACKER, STATUS_IN_PROGRESS, type BoardStatusOutcome, type WorkTrackerPort } from "../ports/work-tracker.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl } from "./repo.js";
 import {
@@ -43,6 +45,8 @@ export interface TaskDeps {
   readonly vcs: Vcs;
   readonly fs: FsProbe;
   readonly issues: Issues;
+  /** Sets the board Status (gadf#225). Absent → every issue reports `unreachable`, never a silent skip. */
+  readonly tracker?: WorkTrackerPort;
   /** Optional authorization gate (viewerCanUpdate); deny → abort. */
   /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
   readonly authorize: (ref: BoardRef) => boolean;
@@ -57,6 +61,8 @@ export interface TaskSuccess {
   readonly issueNumbers: readonly number[];
   /** Repo dirs where the sub-branch was created or resumed. */
   readonly reposBranched: readonly string[];
+  /** What happened to each issue's board Status — the caller prints it; a failure never fails the task. */
+  readonly boardStatus: readonly BoardStatusOutcome[];
   /** Linked repos with no local worktree (need repo-on-demand — deferred). */
   readonly reposSkipped: readonly string[];
 }
@@ -124,10 +130,12 @@ export function task(deps: TaskDeps, config: TaskConfig, input: TaskInput): Task
   }
 
   // ── Reflect the task on GitHub (best-effort, post-branch) ────────────────────
+  const boardStatus: BoardStatusOutcome[] = [];
   for (const url of input.issueUrls) {
     deps.issues.assign(url, input.assignee);
-    deps.issues.setBoardStatus(ref, url, "In progress");
+    const result = deps.tracker ? deps.tracker.setStatus(ref, url, STATUS_IN_PROGRESS) : NO_TRACKER;
+    boardStatus.push({ issueUrl: url, status: STATUS_IN_PROGRESS, result });
   }
 
-  return { ok: true, taskId, projectBranch, boardNumber, issueNumbers, reposBranched, reposSkipped };
+  return { ok: true, taskId, projectBranch, boardNumber, issueNumbers, reposBranched, reposSkipped, boardStatus };
 }

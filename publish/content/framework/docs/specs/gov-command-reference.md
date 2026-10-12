@@ -671,7 +671,7 @@ gov task https://github.com/acme/app/issues/42
 gov task https://github.com/acme/app/issues/42,https://github.com/acme/app/issues/43
 ```
 
-**Changes.** creates &lt;project-branch&gt;.ISSUE-&lt;n&gt; in the workspace and each code repo and pushes it; assigns the issues to you and moves them to In progress
+**Changes.** creates &lt;project-branch&gt;.ISSUE-&lt;n&gt; in the workspace and each code repo and pushes it; assigns the issues to you and sets each one's board Status to In progress. It prints `board: #<n> Status → In progress`, or `board: Status not set — <why> (#<n>: <detail>)` where &lt;why&gt; is no-field, no-option, not-on-board, denied or unreachable; a board that cannot be updated never fails the task
 
 **Exit codes**
 
@@ -700,7 +700,7 @@ gov merge https://github.com/acme/app/issues/42
 gov merge BRNCH-43-billing.ISSUE-42
 ```
 
-**Changes.** merges the sub-branch into the project branch in every repo that has it, pushes, deletes the sub-branch, and closes the issue. Refuses first, changing nothing, if any repo holds uncommitted changes, and names up to five of the files; the agent instruction files gov itself writes into each clone never count.
+**Changes.** merges the sub-branch into the project branch in every repo that has it, pushes, deletes the sub-branch, closes the issue and sets its board Status to Done. It prints `board: #<n> Status → Done`, or `board: Status not set — <why> (#<n>: <detail>)`; a board that cannot be updated never fails the merge. Refuses first, changing nothing, if any repo holds uncommitted changes, and names up to five of the files; the agent instruction files gov itself writes into each clone never count.
 
 **Exit codes**
 
@@ -790,7 +790,7 @@ gov close
 gov close
 ```
 
-**Changes.** TWO PHASES, because the two things it does carry different authority. In a CODE repo the project branch merges back into the branch it was cut from — an authorized automatic merge, no pull request, done locally with git. In the GOVERNANCE repo it opens a pull request and leaves it: that branch proposes org-wide knowledge and a PERSON merges it. So the first run runs the gate, merges and pushes every code repo, archives their project branches, opens the close pull request and closes the board — the project is complete at that point whether the proposal is later merged, rejected or abandoned. It deliberately does NOT archive the governance branch, because that branch is the open pull request's head and deleting it would close the request unmerged. Re-run `gov close` after someone merges, and it tags and deletes that branch
+**Changes.** TWO PHASES, because the two things it does carry different authority. In a CODE repo the project branch merges back into the branch it was cut from — an authorized automatic merge, no pull request, done locally with git. In the GOVERNANCE repo it opens a pull request and leaves it: that branch proposes org-wide knowledge and a PERSON merges it. So the first run runs the gate, merges and pushes every code repo, archives their project branches, opens the close pull request and closes the board — the project is complete at that point whether the proposal is later merged, rejected or abandoned. It deliberately does NOT archive the governance branch, because that branch is the open pull request's head and deleting it would close the request unmerged. Re-run `gov close` after someone merges, and it tags and deletes that branch. If the board cannot be closed, close still succeeds and says `board: not closed — <why> (<detail>)` (denied or unreachable)
 
 **Exit codes**
 
@@ -874,7 +874,7 @@ gov cancel
 gov cancel
 ```
 
-**Changes.** labels the anchor issue and closes the board. Branches and clones are left alone
+**Changes.** labels the anchor issue and closes the board — or prints `board: not closed — <why> (<detail>)`. Branches and clones are left alone
 
 **Exit codes**
 

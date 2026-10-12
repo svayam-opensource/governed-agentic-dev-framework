@@ -23,6 +23,7 @@ import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
+import type { WorkTrackerPort } from "../../src/ports/work-tracker.js";
 import { px, pxDeep } from "../helpers/paths.js";
 
 // ── Shared constants (derived id/branch must match the fake board title) ────────
@@ -79,7 +80,9 @@ const fs: Fs = {
   readFile: (p: string) => (p.endsWith("todo-template.md") ? TODO_TEMPLATE : null),
   mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [],
 };
-const issues: Issues = { state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {}, resolveIssueUrl: () => null, closeBoard: () => {} };
+const issues: Issues = { state: () => "OPEN", assign: () => {}, close: () => {}, resolveIssueUrl: () => null } as unknown as Issues;
+// The board writes (gadf#225) — succeed unless a test says otherwise.
+const workTracker: WorkTrackerPort = { setStatus: () => ({ ok: true }), closeProject: () => ({ ok: true }) };
 // `find` is part of AnchorCreator and close now calls it to read the recorded base branch. The
 // double used to omit it behind a cast, which typechecked and then threw at runtime — so it is
 // implemented here rather than guarded against in close.
@@ -96,7 +99,7 @@ function ctx(over: Partial<CliContext> = {}): CliContext {
     config: CONFIG, home: GOV_CLONE, today: "2026-07-03",
     // See dispatch.test.ts: without `login` every mutating verb refuses, because gov cannot tell whether the
     // rules changed. These tests are about the verbs, so the fixture knows who it is.
-    seededBy: "svayam-rkant", login: "svayam-rkant", board: okBoard, vcs: fakeVcs(), fs, issues, anchor, pulls,
+    seededBy: "svayam-rkant", login: "svayam-rkant", board: okBoard, vcs: fakeVcs(), fs, issues, workTracker, anchor, pulls,
     projects: { listBoards: () => [] }, cloneRepo: () => {}, authorize: () => true, gate: () => ({ ok: true, failures: [] }), ...over,
   };
 }
@@ -336,6 +339,7 @@ describe("lifecycle coverage — task", () => {
     expect(pxDeep(r.lines)).to.deep.equal([
       `Task ${PBRANCH}.ISSUE-9`,
       "  branched: 1 repo(s)",
+      "  board: #9 Status → In progress",
     ]);
   });
 
@@ -353,6 +357,7 @@ describe("lifecycle coverage — task", () => {
       `Task ${PBRANCH}.ISSUE-9`,
       "  branched: 1 repo(s)",
       `  skipped (not cloned): ${APP_DIR}`,
+      "  board: #9 Status → In progress",
     ]);
   });
 
@@ -431,6 +436,7 @@ describe("lifecycle coverage — merge", () => {
     expect(pxDeep(r.lines)).to.deep.equal([
       `Merged ${PBRANCH}.ISSUE-9 → ${PBRANCH}`,
       "  closed issue(s): 1",
+      "  board: #9 Status → Done",
     ]);
   });
 
@@ -670,7 +676,7 @@ describe("lifecycle coverage — resume", () => {
 describe("lifecycle coverage — cancel", () => {
   it("happy path → exit 0 (status cancelled) and closes the board", () => {
     let closed = 0;
-    const r = run(["cancel"], { issues: { ...issues, closeBoard: () => { closed++; } } });
+    const r = run(["cancel"], { workTracker: { ...workTracker, closeProject: () => { closed++; return { ok: true }; } } });
     expect(r.code).to.equal(0);
     expect(pxDeep(r.lines)).to.deep.equal(["Project #43 → cancelled"]);
     expect(closed).to.equal(1);

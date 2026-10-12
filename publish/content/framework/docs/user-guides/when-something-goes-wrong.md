@@ -44,6 +44,23 @@ The agent instruction files gov itself writes into every clone — `AGENTS.md`, 
 gov can write them again from the governance repo. They still show in `git status`, and committing them with
 your project work is still the right thing to do.
 
+## `board: Status not set — <why>` after `gov task` or `gov merge`
+
+The task or merge itself worked — the branches are made or landed, the issue assigned or closed. Only the issue's
+**Status** on the project board did not move, and the line says why:
+
+| `<why>` | What it means | What to do |
+|---|---|---|
+| `no-field` | The board has no single-select field named **Status**. | Add one (GitHub's default board has it), or set Status by hand. |
+| `no-option` | Status has no option with that name. gov sets *In progress* on task and *Done* on merge, ignoring case; the line lists the options there are. | Add or rename the option on the board. |
+| `not-on-board` | The issue is not an item of this project's board — or GitHub could not resolve the issue at all. | Add the issue to the board; check the URL. |
+| `denied` | Your token may not read or write the board (or the issue's repository). | `gh auth refresh -s project`; ask an owner for write access to the board. |
+| `unreachable` | Anything else: GitHub did not answer, answered something unexpected, or this command had no board connection. | Re-run later; set the Status by hand meanwhile. |
+
+`board: not closed — <why>` after `gov close` or `gov cancel` is the same report for closing the board itself
+(`denied` or `unreachable`): the project's branches are done, but it reads as active until the board is closed —
+close it on GitHub, or fix the token and re-run.
+
 ## "Branch already exists" during `gov seed`
 
 Somebody created a branch matching `BRNCH-<board#>-<slug>` by hand, or a previous seed half-completed. Look at

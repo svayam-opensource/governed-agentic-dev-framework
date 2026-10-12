@@ -64,7 +64,7 @@ function fakeVcs(): Vcs {
 }
 
 const board: Board = { fetchProject: () => ({ id: "P", title: "@Governance Common Project", shortDescription: null, linkedItemCount: 1, repoUrls: [] }) };
-const issues: Issues = { state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {}, resolveIssueUrl: () => null, closeBoard: () => {} };
+const issues: Issues = { state: () => "OPEN", assign: () => {}, close: () => {}, resolveIssueUrl: () => null };
 const anchor: AnchorCreator = { createAnchorIssue: () => "r#1", setState: () => true };
 const pulls: Pulls = { create: () => "pr", state: () => null };
 

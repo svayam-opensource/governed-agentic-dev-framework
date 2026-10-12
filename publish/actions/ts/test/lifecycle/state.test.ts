@@ -4,7 +4,7 @@ import { expect } from "chai";
 import { deriveStatus, pause, resume, cancel, type StateConfig, type StateInput, type StateDeps } from "../../src/lifecycle/state.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { AnchorCreator, AnchorStateLabel } from "../../src/lifecycle/anchor.js";
-import type { Issues } from "../../src/lifecycle/issues.js";
+import type { WorkTrackerPort } from "../../src/ports/work-tracker.js";
 
 describe("prj-work Phase 2 — deriveStatus (SDD-020)", () => {
   it("GOV-FRM-451 maps board state × anchor labels to status", () => {
@@ -46,18 +46,19 @@ function fakeAnchor() {
   };
   return { anchor, calls };
 }
-function fakeIssues() {
+/** Closing the board goes through the WorkTrackerPort (gadf#225). */
+function fakeTracker() {
   const calls: string[] = [];
-  const issues: Issues = {
-    state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {},
-    resolveIssueUrl: () => null, closeBoard: (r) => calls.push(`closeBoard ${r.number}`),
+  const tracker: WorkTrackerPort = {
+    setStatus: () => ({ ok: true }),
+    closeProject: (r) => { calls.push(`closeBoard ${r.number}`); return { ok: true }; },
   };
-  return { issues, calls };
+  return { tracker, calls };
 }
 function deps(vcs = fakeVcs()): { deps: StateDeps; anchorCalls: string[]; issueCalls: string[] } {
   const a = fakeAnchor();
-  const i = fakeIssues();
-  return { deps: { vcs, anchor: a.anchor, issues: i.issues, authorize: () => true }, anchorCalls: a.calls, issueCalls: i.calls };
+  const i = fakeTracker();
+  return { deps: { vcs, anchor: a.anchor, tracker: i.tracker, authorize: () => true }, anchorCalls: a.calls, issueCalls: i.calls };
 }
 
 describe("prj-work Phase 2 — pause / resume / cancel", () => {

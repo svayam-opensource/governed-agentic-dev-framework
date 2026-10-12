@@ -7,7 +7,7 @@ import { createGhPulls } from "../../src/lifecycle/pulls.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
-import type { Issues } from "../../src/lifecycle/issues.js";
+import type { WorkTrackerPort } from "../../src/ports/work-tracker.js";
 import type { Pulls, PrState } from "../../src/lifecycle/pulls.js";
 import { px, pxAll, pxDeep } from "../helpers/paths.js";
 
@@ -137,17 +137,14 @@ function fakeVcs(opts: { openTasks?: string[]; syncConflict?: boolean } = {}) {
   };
   return { vcs, log };
 }
-function fakeIssues() {
+/** Closing the board goes through the WorkTrackerPort (gadf#225). */
+function fakeTracker() {
   const acted: string[] = [];
-  const issues: Issues = {
-    state: () => "OPEN",
-    assign: () => {},
-    setBoardStatus: () => {},
-    close: () => {},
-    resolveIssueUrl: () => null,
-    closeBoard: (r) => acted.push(`closeBoard ${r.number}`),
+  const tracker: WorkTrackerPort = {
+    setStatus: () => ({ ok: true }),
+    closeProject: (r) => { acted.push(`closeBoard ${r.number}`); return { ok: true }; },
   };
-  return { issues, acted };
+  return { acted, tracker };
 }
 /** `null` — gov could not read the PR — is the state that lets close take its ordinary path. */
 const fakePulls = (state: PrState = null): Pulls => ({
@@ -157,13 +154,13 @@ const fakePulls = (state: PrState = null): Pulls => ({
 
 describe("prj-work Phase 2 — close orchestrator (model A)", () => {
   function deps(over: Partial<CloseDeps> = {}): CloseDeps {
-    return { board: fakeBoard(), vcs: fakeVcs().vcs, fs: fakeFs(), issues: fakeIssues().issues, pulls: fakePulls(), authorize: () => true, gate: () => ({ ok: true, failures: [] }), ...over };
+    return { board: fakeBoard(), vcs: fakeVcs().vcs, fs: fakeFs(), pulls: fakePulls(), authorize: () => true, gate: () => ({ ok: true, failures: [] }), ...over };
   }
 
   it("gates → merges → PR-promotes → closes board → archives (happy path)", () => {
     const v = fakeVcs();
-    const iss = fakeIssues();
-    const r = close(deps({ vcs: v.vcs, issues: iss.issues }), CONFIG, input());
+    const iss = fakeTracker();
+    const r = close(deps({ vcs: v.vcs, tracker: iss.tracker }), CONFIG, input());
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
     expect(r.projectId).to.equal("PRJ-43-governance-common-project");
@@ -177,6 +174,15 @@ describe("prj-work Phase 2 — close orchestrator (model A)", () => {
     // AND NOT THE GOVERNANCE BRANCH. It is the open PR's head; archiving deletes the remote branch, which closes
     // that PR unmerged and loses the knowledge proposal. A later run archives it once a person has merged.
     expect(pxAll(v.log)).to.not.include(`tag ${GOV} archive/BRNCH-43-governance-common-project`);
+  });
+
+  it("gadf#225: a board that will not close is REPORTED — close still succeeds, never silently", () => {
+    const tracker: WorkTrackerPort = { setStatus: () => ({ ok: true }), closeProject: () => ({ ok: false, why: "denied", detail: "HTTP 403" }) };
+    const r = close(deps({ tracker }), CONFIG, input());
+    expect(r.ok).to.equal(true);
+    if (r.ok) expect(r.boardClosed).to.deep.equal({ ok: false, why: "denied", detail: "HTTP 403" });
+    const unwired = close(deps(), CONFIG, input());
+    if (unwired.ok) expect(unwired.boardClosed).to.include({ ok: false, why: "unreachable" });
   });
 
   it("fails the structural pre-close gate before touching anything", () => {

@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
  * The `Issues` port (SDD Part B, create-task) — read an issue's open/closed
- * state and reflect the task on GitHub (assign + board status). Under model A
+ * state and reflect the task on GitHub (assign). Board writes — Status and closing
+ * the board — moved to the WorkTrackerPort (`src/ports/work-tracker.ts`, gadf#225). Under model A
  * (SDD-012) the issue + its sub-branch ARE the task record; there is no
  * project.yaml tasks[]. Board reflection is best-effort. Shells to `gh`.
  */
@@ -18,14 +19,10 @@ export interface Issues {
   state(issueUrl: string): IssueState;
   /** Assign the issue (best-effort; no throw). */
   assign(issueUrl: string, assignee: string): void;
-  /** Set the issue's Status on the project board (best-effort; no throw). */
-  setBoardStatus(ref: BoardRef, issueUrl: string, status: string): void;
   /** Close an issue with a comment (best-effort; no throw). */
   close(issueUrl: string, comment: string): void;
   /** Resolve an issue number to its URL on the board, or null. */
   resolveIssueUrl(ref: BoardRef, issueNumber: number): string | null;
-  /** Close the project board (best-effort) — makes the project read as completed. */
-  closeBoard(ref: BoardRef): void;
   /** Create an issue, assigned. Returns its URL, or null when creation failed (#182). */
   create(repo: string, title: string, body: string, assignee: string): string | null;
   /** Read an upstream issue for mirroring (#194). Null when it cannot be read. */
@@ -90,17 +87,6 @@ export function createGhIssues(runGh: RunGh): Issues {
         /* best-effort — assign manually if this fails */
       }
     },
-    setBoardStatus(ref, issueUrl, status) {
-      // KNOWN LIMITATION (found in e2e): setting a Project single-select field via
-      // gh needs the item-id + project-id + field-id + option-id, not `--url/--field/
-      // --value` (which gh rejects). Proper impl: resolve those IDs, then
-      // `gh project item-edit --id … --project-id … --field-id … --single-select-option-id …`.
-      // Deferred; best-effort so it never blocks a command. Assignment + issue
-      // open/close (which actually drive the workflow) DO work.
-      void ref;
-      void issueUrl;
-      void status;
-    },
     close(issueUrl, comment) {
       try {
         runGh(["issue", "close", issueUrl, "--comment", comment]);
@@ -124,13 +110,6 @@ export function createGhIssues(runGh: RunGh): Issues {
         /* unparseable — give up */
       }
       return null;
-    },
-    closeBoard(ref) {
-      try {
-        runGh(["project", "close", String(ref.number), "--owner", ref.owner]);
-      } catch {
-        /* non-fatal — close the board manually if this fails */
-      }
     },
   };
 }

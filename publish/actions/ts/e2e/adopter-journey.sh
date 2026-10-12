@@ -182,6 +182,13 @@ ok "in project workspace on $(git rev-parse --abbrev-ref HEAD)"
 
 TASK_OUT=$(gov task "$ISSUE_URL" 2>&1) || { echo "$TASK_OUT" | tail -8; die "gov task failed"; }
 assert_contains "$TASK_OUT" "ISSUE-" "task opened a sub-branch"
+# gadf#225 — the issue's board Status, read back from GitHub (never from gov's own output), from the ISSUE side.
+board_status() { gh api graphql -f u="$ISSUE_URL" -f query='query($u:URI!){resource(url:$u){... on Issue{projectItems(first:20){nodes{project{number} fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}' \
+  --jq ".data.resource.projectItems.nodes[]|select(.project.number==$PROJ_NUM)|.fieldValueByName.name // empty"; }
+assert_status() { local s; s=$(board_status 2>&1) || s="(read failed: $s)"
+  [ "$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" ] && ok "board Status is '$s' after $2" \
+    || { printf '%s\n' "$3" | grep 'board:' | sed 's/^/    /'; die "board Status after $2 is '${s:-none}', expected '$1'"; }; }
+assert_status "In progress" "gov task" "$TASK_OUT"
 
 # make a change in the code-repo worktree the task created, then land it. The clone is at EXACTLY
 # <project work root>/<repo> — the work root `gov seed` printed ("  workspace: <dir>"). A `find | head -1` under the
@@ -201,6 +208,7 @@ MERGE_OUT=$(gov merge "$ISSUE_URL" 2>&1) || {
   [ -n "$DIRTY" ] && { echo "  git status in $DIRTY:"; git -C "$DIRTY" status --porcelain -uall | head -20 | sed 's/^/    /'; }
   die "gov merge failed"; }
 [ "$(gh issue view "$ISSUE_URL" --json state --jq .state 2>/dev/null)" = "CLOSED" ] && ok "merge closed the issue" || die "issue not closed after merge"
+assert_status "Done" "gov merge" "$MERGE_OUT"
 
 # ── 5. Propose org knowledge (branch → PR) ───────────────────────────────────
 # Knowledge is an ORG-level op (branches off main) → run from the HOME clone, not

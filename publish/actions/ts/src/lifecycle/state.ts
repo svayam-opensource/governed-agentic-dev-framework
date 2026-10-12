@@ -12,7 +12,7 @@
  */
 import type { Vcs } from "./vcs.js";
 import type { AnchorCreator } from "./anchor.js";
-import type { Issues } from "./issues.js";
+import { NO_TRACKER, type BoardCloseResult, type WorkTrackerPort } from "../ports/work-tracker.js";
 import type { BoardRef } from "./identity.js";
 import { projectBranchOf, boardNumberFromBranch } from "./task.js";
 
@@ -38,14 +38,19 @@ export interface StateInput {
 export interface StateDeps {
   readonly vcs: Vcs;
   readonly anchor: AnchorCreator;
-  readonly issues: Issues;
+  /** Closes the board on cancel (gadf#225). Absent → reported as `unreachable`, never a silent skip. */
+  readonly tracker?: WorkTrackerPort;
   /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
   readonly authorize: (ref: BoardRef) => boolean;
   readonly log?: (msg: string) => void;
 }
 
 export type StateResult =
-  | { readonly ok: true; readonly status: ProjectStatus; readonly boardNumber: number; readonly applied: boolean }
+  | {
+      readonly ok: true; readonly status: ProjectStatus; readonly boardNumber: number; readonly applied: boolean;
+      /** cancel only — whether the board actually closed. */
+      readonly boardClosed?: BoardCloseResult;
+    }
   | { readonly ok: false; readonly code: number; readonly reason: "not-a-project-branch" | "unauthorized"; readonly message: string };
 
 /** Resolve the board ref from the workspace's current branch. */
@@ -82,6 +87,6 @@ export function cancel(deps: StateDeps, config: StateConfig, input: StateInput):
   const r = refFromCwd(deps, config, input);
   if ("error" in r) return r.error;
   const applied = deps.anchor.setState(r, config.workspaceRepo, "cancelled", "add");
-  deps.issues.closeBoard(r);
-  return { ok: true, status: "cancelled", boardNumber: r.number, applied };
+  const boardClosed = deps.tracker ? deps.tracker.closeProject(r) : NO_TRACKER;
+  return { ok: true, status: "cancelled", boardNumber: r.number, applied, boardClosed };
 }

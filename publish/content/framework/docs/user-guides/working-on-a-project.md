@@ -207,6 +207,11 @@ Harness registry (all tools): [`agent/harness-manifest.yaml`](https://github.com
   - `notes.md` — decisions, design rationale, anything future-you would need.
   - any other domain-specific files as needed (`security.md`, `migrations.md`, etc.).
 - **Intermediate to-dos** go in `projects/PRJ-001-feature-x/knowledge/todo.md` under `## Open`. Capture them as they arise, not at session end.
+- **What gov does to the board.** `gov task` assigns each issue to you and sets its board **Status** to *In
+  progress*; `gov merge` closes the issue and sets its Status to *Done*; `gov close` and `gov cancel` close the
+  board itself. Each prints one `board:` line saying what happened — `board: #42 Status → In progress`, or
+  `board: Status not set — <why> (…)` when the board could not be updated. The command still succeeds: the
+  branches are the task, and the Status is its reflection. *When something goes wrong* explains each `<why>`.
 - **NEVER** edit:
   - The workspace repo's `knowledge/` (editable on the project branch, but only as a proposal — GOV-FRM-086).
   - Task state by hand — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.

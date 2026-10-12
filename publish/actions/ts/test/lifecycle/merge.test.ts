@@ -4,6 +4,7 @@ import { expect } from "chai";
 import { merge, type MergeConfig, type MergeInput } from "../../src/lifecycle/merge.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
+import type { WorkTrackerPort } from "../../src/ports/work-tracker.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import { pxDeep } from "../helpers/paths.js";
 
@@ -22,12 +23,15 @@ function fakeIssues() {
   const issues: Issues = {
     state: () => "OPEN",
     assign: () => {},
-    setBoardStatus: (_r, u, s) => acted.push(`status ${u} ${s}`),
     close: (u, c) => acted.push(`close ${u} :: ${c}`),
     resolveIssueUrl: () => null,
-    closeBoard: () => {},
   };
-  return { issues, acted };
+  // The board Status goes through the WorkTrackerPort now (gadf#225); same log, so the order stays visible.
+  const tracker: WorkTrackerPort = {
+    setStatus: (_r, u, s) => { acted.push(`status ${u} ${s}`); return { ok: true }; },
+    closeProject: () => ({ ok: true }),
+  };
+  return { issues, acted, tracker };
 }
 function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: boolean; dirtyPaths?: string[]; hasRemoteTask?: boolean } = {}) {
   const log: string[] = [];
@@ -74,8 +78,8 @@ const input = (taskArg = ISSUE): MergeInput => ({ govClone: GOV, projectWorkRoot
 describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
   it("merges the sub-branch across repos, archives it, and closes the issue", () => {
     const { vcs, log } = fakeVcs();
-    const { issues, acted } = fakeIssues();
-    const r = merge({ board: fakeBoard(), authorize: () => true,vcs, fs: fsPresent(true), issues }, CONFIG, input());
+    const { issues, acted, tracker } = fakeIssues();
+    const r = merge({ board: fakeBoard(), authorize: () => true,vcs, fs: fsPresent(true), issues, tracker }, CONFIG, input());
     expect(r.ok).to.equal(true);
     if (!r.ok) return;
     expect(r.taskId).to.equal(TASK_ID);

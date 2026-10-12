@@ -17,6 +17,7 @@ import type { Board } from "../lifecycle/board.js";
 import type { Vcs } from "../lifecycle/vcs.js";
 import type { Fs } from "../lifecycle/fs-io.js";
 import type { Issues } from "../lifecycle/issues.js";
+import type { BoardCloseResult, BoardStatusOutcome, WorkTrackerPort } from "../ports/work-tracker.js";
 import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
@@ -78,6 +79,8 @@ export interface CliContext {
   readonly vcs: Vcs;
   readonly fs: Fs;
   readonly issues: Issues;
+  /** The board writes — Status and closing (gadf#225). Absent → task/merge/close/cancel say the board was not touched. */
+  readonly workTracker?: WorkTrackerPort;
   readonly anchor: AnchorCreator;
   readonly pulls: Pulls;
   readonly projects: Projects;
@@ -240,6 +243,23 @@ function markerKey(ctx: CliContext): { workRoot: string; login: string } | null 
  * stamp that could not be computed is stated as a fact with its reason, and the facts are printed anyway when
  * there was no pull request to hold them — so the run log carries them even where GitHub does not.
  */
+/**
+ * One line per issue about its board Status (gadf#225): `board: #<n> Status → <status>`, or
+ * `board: Status not set — <why> (#<n>: <detail>)`. A board that could not be updated never changes the exit code.
+ */
+export function boardStatusLines(outcomes: readonly BoardStatusOutcome[]): string[] {
+  return outcomes.map(({ issueUrl, status, result }) => {
+    const n = /\/(?:issues|pull)\/(\d+)/.exec(issueUrl)?.[1];
+    const which = n ? `#${n}` : issueUrl;
+    return result.ok ? `  board: ${which} Status → ${status}` : `  board: Status not set — ${result.why} (${which}: ${result.detail})`;
+  });
+}
+
+/** The board-close line for close/cancel — only when it did NOT close; success is already in the headline. */
+export function boardCloseLines(r: BoardCloseResult | undefined): string[] {
+  return r && !r.ok ? [`  board: not closed — ${r.why} (${r.detail})`] : [];
+}
+
 function stampReport(stamp: MergeStamp | undefined): string[] {
   if (!stamp) return [];
   if (stamp.error) return [`  governance stamp: not recorded — ${stamp.error} (the merge is done)`];
@@ -437,12 +457,12 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     case "task": {
       if (positionals.length < 1) return usage("task <issue-url[,issue-url...]>");
       const r = task(
-        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, authorize: ctx.authorize, log: ctx.log },
+        { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, tracker: ctx.workTracker, authorize: ctx.authorize, log: ctx.log },
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo },
         { govClone: ctx.home, projectWorkRoot, issueUrls: positionals[0].split(","), assignee: flagStr(flags, "assignee") ?? ctx.login ?? ctx.seededBy },
       );
       return r.ok
-        ? { code: 0, lines: [`Task ${r.taskId}`, `  branched: ${r.reposBranched.length} repo(s)`, ...(r.reposSkipped.length ? [`  skipped (not cloned): ${r.reposSkipped.join(", ")}`] : [])] }
+        ? { code: 0, lines: [`Task ${r.taskId}`, `  branched: ${r.reposBranched.length} repo(s)`, ...(r.reposSkipped.length ? [`  skipped (not cloned): ${r.reposSkipped.join(", ")}`] : []), ...boardStatusLines(r.boardStatus)] }
         : { code: r.code, lines: [r.message] };
     }
 
@@ -450,7 +470,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       if (positionals.length < 1) return usage("merge <issue-url | task-branch>");
       const r = merge(
         {
-          board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, authorize: ctx.authorize, log: ctx.log,
+          board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, tracker: ctx.workTracker, authorize: ctx.authorize, log: ctx.log,
           // §10.10 — what governed this change, into the pull request body. Both ports are optional in `merge`
           // and both are wired here, because a stamp that only exists when someone remembers to pass a flag is
           // the same "implemented, called by nothing" state the rules compiler was in.
@@ -461,7 +481,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         { govClone: ctx.home, projectWorkRoot, taskArg: positionals[0] },
       );
       return r.ok
-        ? { code: 0, lines: [`Merged ${r.taskId} → ${r.projectBranch}`, `  closed issue(s): ${r.issueUrls.length}`, ...stampReport(r.stamp)] }
+        ? { code: 0, lines: [`Merged ${r.taskId} → ${r.projectBranch}`, `  closed issue(s): ${r.issueUrls.length}`, ...boardStatusLines(r.boardStatus), ...stampReport(r.stamp)] }
         : { code: r.code, lines: [r.message] };
     }
 
@@ -469,7 +489,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       const r = close(
         // `anchor` is what lets close read the base branch seed recorded, instead of assuming dev.
         {
-          board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, pulls: ctx.pulls, authorize: ctx.authorize,
+          board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, pulls: ctx.pulls, tracker: ctx.workTracker, authorize: ctx.authorize,
           gate: ctx.gate, anchor: ctx.anchor, log: ctx.log,
           // The organization's own `when=verb:close` checks, read from the DEFAULT branch — the socket that
           // replaced the hardcoded knowledge gate (2026-09-28). A workspace with no such clause has none.
@@ -491,7 +511,8 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       return {
         code: 0,
         lines: [
-          `Project ${r.projectId} closed`,
+          r.boardClosed?.ok === false ? `Project ${r.projectId} closed — but its board is still open` : `Project ${r.projectId} closed`,
+          ...boardCloseLines(r.boardClosed),
           r.prUrl
             ? `  PR: ${r.prUrl} — a human merges this; re-run \`gov close\` afterwards to archive the branch`
             : `  the close PR could not be opened — open one for '${r.projectBranch}' → ${c.defaultBranch}, then re-run \`gov close\``,
@@ -823,12 +844,12 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
     case "cancel": {
       const fn = command === "pause" ? pause : command === "resume" ? resume : cancel;
       const r = fn(
-        { vcs: ctx.vcs, anchor: ctx.anchor, issues: ctx.issues, authorize: ctx.authorize, log: ctx.log },
+        { vcs: ctx.vcs, anchor: ctx.anchor, tracker: ctx.workTracker, authorize: ctx.authorize, log: ctx.log },
         { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo },
         { govClone: ctx.home },
       );
       return r.ok
-        ? { code: 0, lines: [`Project #${r.boardNumber} → ${r.status}${r.applied ? "" : " (anchor label not applied — check gh access)"}`] }
+        ? { code: 0, lines: [`Project #${r.boardNumber} → ${r.status}${r.applied ? "" : " (anchor label not applied — check gh access)"}`, ...boardCloseLines(r.boardClosed)] }
         : { code: r.code, lines: [r.message] };
     }
 

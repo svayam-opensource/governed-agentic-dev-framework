@@ -70,6 +70,7 @@ import { createNodeFs } from "../lifecycle/fs-io.js";
 import { createGitVcs } from "../lifecycle/vcs.js";
 import { createGhBoard, retryTransient, type RunGh } from "../lifecycle/gh-board.js";
 import { createGhIssues } from "../lifecycle/issues.js";
+import { createGithubWorkTracker } from "../adapters/github/work-tracker.js";
 import { createGhAnchor } from "../lifecycle/anchor.js";
 import { createGhPulls } from "../lifecycle/pulls.js";
 import { makeCloneRepo } from "../lifecycle/code-repo.js";
@@ -3039,6 +3040,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     vcs,
     fs,
     issues: createGhIssues(runGh),
+    workTracker: createGithubWorkTracker(runGh),
     anchor: createGhAnchor(runGh),
     pulls: createGhPulls(runGh),
     projects: createGhProjects(runGh),

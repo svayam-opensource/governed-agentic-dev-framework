@@ -60,7 +60,7 @@ const vcsWith = (over: Partial<Vcs> = {}): Vcs => ({ ...baseVcs(), ...over });
 
 const board: Board = { fetchProject: () => ({ id: "P", title: "@Governance Common Project", shortDescription: null, linkedItemCount: 1, repoUrls: [] }) };
 const baseFs: Fs = { pathExists: () => false, readFile: () => null, mkdirp: () => {}, writeFile: () => {}, rm: () => {}, readdir: () => [] };
-const issues: Issues = { state: () => "OPEN", assign: () => {}, setBoardStatus: () => {}, close: () => {}, resolveIssueUrl: () => null, closeBoard: () => {} };
+const issues: Issues = { state: () => "OPEN", assign: () => {}, close: () => {}, resolveIssueUrl: () => null };
 const pulls: Pulls = { create: () => "pr", state: () => null };
 
 /** Projects port over an explicit board list. */
