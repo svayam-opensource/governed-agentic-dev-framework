@@ -49,7 +49,8 @@ describe("setup and upgrade — what the shipped content promises about the tree
     const manifest = parseManifest(fs.readFileSync(path.join(contentDir, "MANIFEST.yaml"), "utf8"));
     const policies = manifest.files.filter((e) => e.dst.startsWith("policies/"));
     expect(policies.length, "the MANIFEST seeds the organization's starter policies").to.be.greaterThan(0);
-    expect(policies.filter((e) => e.mode !== "seed-once").map((e) => `${e.dst} (${e.mode})`)).to.deep.equal([]);
+    // seed-new (intent 01 §3.2) is seed-once for a new org and never planned by an upgrade — stricter, not looser.
+    expect(policies.filter((e) => e.mode !== "seed-once" && e.mode !== "seed-new").map((e) => `${e.dst} (${e.mode})`)).to.deep.equal([]);
   });
 
   it("GOV-FRM-445 an upgrade over the organization's edited policies/ leaves every byte as the organization wrote it", () => {
