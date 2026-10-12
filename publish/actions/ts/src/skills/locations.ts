@@ -6,34 +6,49 @@
  * A leaf: no rule model, no renderer — so the launch mirror (lifecycle/root-protocol.ts) and cleanup can import it
  * without pulling the rules in behind them.
  *
- * ONLY LOCATIONS SEEN TO WORK ARE LISTED (the `promptArgv` rule, agent-catalog.ts). Verified 2026-10-12:
- *
- *   claude-code  `.claude/skills/<name>/SKILL.md` — RUN-VERIFIED with Claude Code 2.1.272: a scratch git repo holding
- *                `.claude/skills/gov-verify-zebra/SKILL.md` (front matter name, description, gov-ids, policy-version);
- *                `claude -p "Use the gov-verify-zebra skill …" --output-format json` invoked the Skill tool with
- *                `gov-verify-zebra` and answered the codeword only that file held. The two extra front-matter keys
- *                were accepted.
- *   cursor       `.cursor/skills/<name>/SKILL.md` — DOC-VERIFIED ONLY: Cursor's own bundled `create-skill` skill
- *                (`~/.cursor/skills-cursor/create-skill/SKILL.md`, cursor-agent 2026.07.16-899851b) gives the project
- *                location as `.cursor/skills/skill-name/` and the limits name ≤ 64 chars [a-z0-9-], description
- *                ≤ 1024 chars. A run was attempted and refused ("Authentication required") — this machine's
- *                cursor-agent is not logged in, and gov's tasks may not touch credentials. Re-verify by a run (L15).
- *
- * Every other agent waits for L15 (a native location seen to load a skill, or the harness-file index, Q14).
+ * ONLY LOCATIONS SEEN TO WORK ARE USED (the `promptArgv` rule). Each agent's native location is its catalog entry's
+ * `skillsDir`, with the dated note of what was run (`skillsVerified`, agent-catalog.ts; L15). The targets are those
+ * directories, once each, plus the FALLBACK location every other agent is pointed at by the index in its harness
+ * file (Q14, fallback-index.ts) — `.agents/skills`, the cross-vendor convention, which gemini also reads natively.
  */
 import * as path from "node:path";
 import type { Fs } from "../lifecycle/fs-io.js";
+import { AGENT_CATALOG, harnessFileFor } from "../cli/agent-catalog.js";
+
+/** Where the index-only agents' skills are written, and where their harness file's index points. */
+export const FALLBACK_SKILLS_DIR = ".agents/skills";
 
 export interface SkillTarget {
-  readonly agent: "claude-code" | "cursor";
   /** Relative to the directory the agent runs in (and to `agent/harness/` in the governance repo). POSIX. */
   readonly dir: string;
+  /** The agents that load skills from here natively (verified); empty for a fallback-only location. */
+  readonly agents: readonly string[];
+  /** True when this is the fallback location an index points at. */
+  readonly fallback: boolean;
 }
 
-export const SKILL_TARGETS: readonly SkillTarget[] = [
-  { agent: "claude-code", dir: ".claude/skills" },
-  { agent: "cursor", dir: ".cursor/skills" },
-];
+/** Catalog agents that have a harness file but no verified native skill location: they read the index. */
+export const indexOnlyAgents = (): readonly string[] =>
+  AGENT_CATALOG.filter((a) => !a.skillsDir && harnessFileFor(a.id) !== null).map((a) => a.id);
+
+function targets(): SkillTarget[] {
+  const out: { dir: string; agents: string[]; fallback: boolean }[] = [];
+  for (const a of AGENT_CATALOG) {
+    if (!a.skillsDir) continue;
+    const t = out.find((x) => x.dir === a.skillsDir);
+    if (t) t.agents.push(a.id);
+    else out.push({ dir: a.skillsDir, agents: [a.id], fallback: false });
+  }
+  if (indexOnlyAgents().length) {
+    const t = out.find((x) => x.dir === FALLBACK_SKILLS_DIR);
+    if (t) t.fallback = true;
+    else out.push({ dir: FALLBACK_SKILLS_DIR, agents: [], fallback: true });
+  }
+  return out;
+}
+
+/** Every directory gov writes its skills to, in catalog order; the fallback appended when no agent reads it natively. */
+export const SKILL_TARGETS: readonly SkillTarget[] = targets();
 
 /** Every generated skill's name starts with this; a directory without it is never gov's. */
 export const SKILL_PREFIX = "gov-";

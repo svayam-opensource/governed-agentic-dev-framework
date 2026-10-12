@@ -68,16 +68,33 @@ matches.
   `gov-framework-specification-8-3-write-it-down-as-you-decide-it`.
 - **What it says.** The description names the section and when to use it (the files or `gov` commands its rules
   are checked on). The body lists each rule — C02 as *required*, C03 as *preferred* — then links the section.
-- **Where it goes.** Only where an agent has been seen to load it:
+- **Lifecycle skills.** If your organization has an active lifecycle (`policies/active/ai-sdlc-lifecycle.md`),
+  each of its Intent, Spec, Plan and Build steps also becomes a skill: `gov-lifecycle-intent`, `-spec`, `-plan`,
+  `-build`. Each one carries that step's section of your lifecycle word for word, the sections the artifact must
+  have, and the step's template. So any agent writes an intent, spec, plan or build record your way. Edit the
+  lifecycle or a template, and the next build updates the skill. With no lifecycle there are no lifecycle skills.
+- **Where it goes.** An agent loads skills from its own folder only if gov has seen it do so. gov records that in
+  its agent list, with the date, the version and what was run. Every other agent gets an **index** at the end of
+  its instruction file. The index lists each skill as "When *this kind of work*: read
+  `.agents/skills/<name>/SKILL.md`", and gov writes those files too.
 
-  | Agent | Skill location | How it was verified |
-  |---|---|---|
-  | Claude Code | `.claude/skills/<name>/SKILL.md` | Run: Claude Code loaded a skill there (2026-10-12) |
-  | Cursor | `.cursor/skills/<name>/SKILL.md` | Cursor's own documentation (2026-10-12); a run is still to do |
+  | Agent | Instruction file | Skills | How it was verified |
+  |---|---|---|---|
+  | Claude Code | `CLAUDE.md` | native: `.claude/skills/<name>/SKILL.md` | Run: Claude Code 2.1.272 loaded a skill there (2026-10-12) |
+  | Cursor | `.cursor/rules/agent.mdc` | native: `.cursor/skills/<name>/SKILL.md` | Cursor's own documentation (2026-10-12). A run is still to do |
+  | Gemini CLI | `GEMINI.md` | native: `.agents/skills/<name>/SKILL.md` | `gemini skills list` (0.31.0) found skills there (2026-10-12) |
+  | OpenAI Codex | `AGENTS.md` | index → `.agents/skills/` | not yet verified |
+  | IBM Bob | `AGENTS.md` | index → `.agents/skills/` | not yet verified (needs a signed-in run) |
+  | GitHub Copilot | `.github/copilot-instructions.md` | index → `.agents/skills/` | not yet verified |
+  | Cline / Roo Code | `.clinerules/agent.md` | index → `.agents/skills/` | not yet verified |
+  | Continue.dev | `.continue/rules/agent.md` | index → `.agents/skills/` | not yet verified |
+  | Windsurf | `.windsurf/rules/agent.md` | index → `.agents/skills/` | not yet verified |
+  | Aider | `CONVENTIONS.md` | index → `.agents/skills/` | not yet verified |
 
-  Other agents get none yet; they still have every C01 rule in their protocol file.
-- **How it gets there.** `gov rules build` (and `gov setup`, `gov upgrade`, `gov sync`) writes the skills under
-  `agent/harness/` with the protocol files. `gov work` copies them into the project folder and each code repo every
+  When an agent is seen loading skills from its own folder, gov adds that folder to the agent list. The index then
+  leaves that agent's instruction file at the next build.
+- **How it gets there.** `gov rules build` (and `gov setup`, `gov upgrade`, `gov sync`) writes the skills, and the
+  index, under `agent/harness/` with the protocol files. `gov work` copies them into the project folder and each code repo every
   time it starts an agent.
 - **Renamed or removed sections.** Rename a section and its skill is renamed: the next build writes the new skill
   and deletes the old one. `gov rules check` fails until that build is done.

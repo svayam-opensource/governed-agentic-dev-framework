@@ -149,6 +149,17 @@ export interface AgentCandidate {
   readonly headlessArgv?: readonly string[];
   /** `YYYY-MM-DD <cli> <version>: what was run and seen` — required wherever `headlessArgv` is set (a test holds it). */
   readonly headlessVerified?: string;
+  /**
+   * WHERE THIS AGENT LOADS SKILLS FROM, relative to the directory it runs in (intent 03 spec §5, D6; L15).
+   *
+   * ABSENT MEANS GOV HAS NOT SEEN IT WORK — the `promptArgv` rule. A location goes here only after that vendor's
+   * own CLI was run and seen to load a skill from it, and `skillsVerified` says when, on which version, and how.
+   * An agent without one still gets every skill: its harness file carries an index — "when a task matches X, read
+   * `.agents/skills/<name>/SKILL.md`" (Q14, skills/fallback-index.ts). A test holds the two fields together.
+   */
+  readonly skillsDir?: string;
+  /** The dated note for `skillsDir`: `YYYY-MM-DD <cli> <version>: what was run and what it showed`. */
+  readonly skillsVerified?: string;
   /** Where to go to create an account, when there is no automating it. */
   readonly signupUrl?: string;
   /** Every way to run it. The policy approves the agent; this is what that buys. */
@@ -209,6 +220,10 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     headlessArgv: ["-p", "{prompt}", "--output-format", "text"],
     headlessVerified: "2026-10-12 claude 2.1.272 (macOS): `claude -p \"Reply with exactly: ok\" --output-format text` "
       + "with stdin closed printed `ok` and exited 0, no TTY, no prompt",
+    skillsDir: ".claude/skills",
+    skillsVerified: "2026-10-12 claude 2.1.272: RUN — a scratch git repo holding .claude/skills/gov-verify-zebra/SKILL.md "
+      + "(front matter name, description, gov-ids, policy-version); `claude -p \"Use the gov-verify-zebra skill …\" "
+      + "--output-format json` invoked the Skill tool with gov-verify-zebra and answered the codeword only that file held (L14).",
     install: { npm: "@anthropic-ai/claude-code", url: "https://claude.com/claude-code" },
     credentialEnv: "ANTHROPIC_API_KEY", signupUrl: "https://claude.com/claude-code", vendor: "Anthropic",
     accountFailures: [
@@ -228,6 +243,14 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // with --print/headless mode)`. The candidate is ["-p", "{prompt}", "--output-format", "text", "--trust"]. Run
     // once with it, it exited 1 without prompting — "Authentication required. Please run 'agent login' first" — so
     // it is non-interactive, but no answer was seen. Set it after one signed-in run prints an answer and exits 0.
+    // NOT YET RUN-VERIFIED — kept as L14 placed it, by the lead's decision, until a logged-in run confirms it. The
+    // same CLI's bundle (2026.07.16-899851b) also scans .agents/skills, .claude/skills and .codex/skills in the
+    // project, so once a run confirms the loader, .agents/skills (one copy, shared) is the better home.
+    skillsDir: ".cursor/skills",
+    skillsVerified: "2026-10-12 cursor-agent 2026.07.16-899851b: DOC ONLY — its bundled create-skill skill "
+      + "(~/.cursor/skills-cursor/create-skill/SKILL.md) gives the project location .cursor/skills/<name>/; a run was "
+      + "refused (\"Authentication required\": not logged in on this machine, and gov's tasks never touch credentials). "
+      + "Re-verify by a run.",
     install: { script: "https://cursor.com/install", url: "https://cursor.com/cli" },
     signupUrl: "https://cursor.com", vendor: "Cursor",
     variants: [
@@ -257,6 +280,13 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // gemini 0.59.0: `-i, --prompt-interactive  Execute the provided prompt and continue in
     // interactive mode`. NOT `-p`, which is headless and exits (read 2026-09-11).
     promptArgv: ["-i", "{prompt}"],
+    // .agents/skills, not .gemini/skills: gemini reads BOTH, and the same name in both is a "Skill conflict
+    // detected" warning — so it shares the fallback copy every index-only agent is pointed at, and there is one.
+    skillsDir: ".agents/skills",
+    skillsVerified: "2026-10-12 gemini 0.31.0: CLI LISTING — in a scratch git repo, `gemini skills list` (run with a "
+      + "placeholder GEMINI_API_KEY only to pass its auth-method gate; no model call is made) discovered "
+      + ".agents/skills/gov-verify-agents/SKILL.md and .gemini/skills/gov-verify-gem/SKILL.md with gov's front matter "
+      + "(name, description, gov-ids, policy-version) as [Enabled] workspace skills. No model run: no credentials here.",
     install: { npm: "@google/gemini-cli", url: "https://github.com/google-gemini/gemini-cli" },
     credentialEnv: "GEMINI_API_KEY", signupUrl: "https://aistudio.google.com/apikey", vendor: "Google",
     variants: [
@@ -350,6 +380,9 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // answer, and the context and cost carried over. So: `-p` delivers the protocol, `resume` hands the person
     // the live session. Tasks are per user and per machine (a resume from another container: "No task found").
     promptArgv: ["-p", "{prompt}"],
+    // NO skillsDir (L15, 2026-10-12): bob 2.0.2's bundle documents `.bob/skills/<name>/SKILL.md`, but it has no
+    // listing command and a run needs a signed-in account, so nothing was SEEN loading. It reads the index in
+    // AGENTS.md until a run confirms the location.
     resume: { argv: ["chat", "--resume", "{taskId}"], pickerArgv: ["chat", "--resume"], taskIdPattern: /Task ID:\s+([0-9a-f]{32})/ },
     credentialEnv: "BOB_API_KEY", signsInItself: true, signupUrl: "https://bob.ibm.com", vendor: "IBM",
     // SEEN on a container walk, 2026-10-08 (F24): "Error: Your Free trial has expired. You have reached the end of

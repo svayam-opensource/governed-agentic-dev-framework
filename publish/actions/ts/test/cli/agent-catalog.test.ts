@@ -21,7 +21,9 @@ import { ROOT_HARNESS_FILES, verifyAgentContext, PROTOCOL_MARKER, RENDERED_BANNE
 import { cleanSlateEntries } from "../../src/setup/create.js";
 import { buildArtifacts, HARNESS_DIR } from "../../src/rules/rules-build.js";
 import { loadRuleStoresFrom } from "../../src/rules/model/store-io.js";
-import { staleSkillDirs, SKILL_TARGETS } from "../../src/skills/locations.js";
+import { staleSkillDirs, SKILL_TARGETS, FALLBACK_SKILLS_DIR } from "../../src/skills/locations.js";
+import { needsSkillIndex, SKILL_INDEX_MARK } from "../../src/skills/fallback-index.js";
+import { HARNESS_TARGETS } from "../../src/rules/harness-render.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -404,6 +406,66 @@ describe("gov-work — generated skills in the shipped content match a fresh ren
       readFile: (f: string) => (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null),
     };
     expect(staleSkillDirs(nodeFs, path.join(content, HARNESS_DIR), built.skills)).to.deep.equal([]);
+  });
+});
+
+/**
+ * RENDER PARITY FOR ALL NINE HARNESS FILES (intent 03 L15). The fallback skill index (Q14) is part of the harness
+ * render, so the shipped files are compared with a fresh render — every one of the nine, byte for byte — and the
+ * index is present exactly where an agent with no verified native skill location reads.
+ */
+describe("gov-work — all nine shipped harness files match a fresh render, fallback index included", () => {
+  const content = path.join(repoRoot, "publish", "content");
+  const read = (rel: string): string | undefined =>
+    fs.existsSync(path.join(content, rel)) ? fs.readFileSync(path.join(content, rel), "utf8") : undefined;
+  const loaded = loadRuleStoresFrom({ where: "publish/content", orgScope: "ORG", read });
+  if (!loaded.ok) throw new Error(loaded.reason);
+  const built = buildArtifacts(
+    fs.readFileSync(path.join(repoRoot, "agent", "session-protocol.md"), "utf8"), loaded.set, undefined, (rel) => read(rel) ?? null,
+  );
+  if ("error" in built) throw new Error(built.error);
+
+  for (const t of HARNESS_TARGETS) {
+    it(`${t.path}: shipped bytes = render; index ${needsSkillIndex(t.path) ? "present" : "absent"}`, () => {
+      const f = built.files.find((x) => x.path === `${HARNESS_DIR}/${t.path}`);
+      expect(f, t.path).to.not.equal(undefined);
+      expect(read(f!.path), `${f!.path} — run \`npm run render-harness\``).to.equal(f!.content);
+      expect(f!.content.includes(SKILL_INDEX_MARK), t.path).to.equal(needsSkillIndex(t.path));
+    });
+  }
+
+  it("the shipped lifecycle is active, so its step skills ship too", () => {
+    for (const step of ["intent", "spec", "plan", "build"]) expect(built.skills).to.include(`gov-lifecycle-${step}`);
+  });
+});
+
+/**
+ * A NATIVE SKILL LOCATION IS RECORDED ONLY AFTER IT WAS SEEN TO WORK (intent 03 spec §5; L15) — the `promptArgv`
+ * rule. `skillsDir` without a dated `skillsVerified` note is a guess; a note without a dir is a claim about nothing.
+ */
+describe("gov-work — skillsDir is set only with a dated verification note", () => {
+  it("every skillsDir has a dated skillsVerified note naming the version it was seen on, and vice versa", () => {
+    for (const a of AGENT_CATALOG) {
+      if (a.skillsDir === undefined) {
+        expect(a.skillsVerified, `${a.id}: a verification note without a skillsDir`).to.equal(undefined);
+        continue;
+      }
+      expect(a.skillsVerified, `${a.id}: skillsDir '${a.skillsDir}' with no verification note`).to.be.a("string");
+      expect(a.skillsVerified!, a.id).to.match(/^20\d\d-\d\d-\d\d /);
+      expect(a.skillsVerified!, `${a.id}: name the version it was seen on`).to.match(/\d+\.\d+/);
+      expect(a.skillsDir, a.id).to.match(/^\.[a-z]+\/skills$/);
+    }
+  });
+
+  it("the skill targets are exactly the verified dirs plus the fallback location", () => {
+    const dirs = [...new Set(AGENT_CATALOG.flatMap((a) => (a.skillsDir ? [a.skillsDir] : [])))];
+    expect(SKILL_TARGETS.map((t) => t.dir).sort()).to.deep.equal([...new Set([...dirs, FALLBACK_SKILLS_DIR])].sort());
+  });
+
+  it("today: claude-code (run), cursor (as L14 left it) and gemini (CLI listing) — no other agent", () => {
+    expect(AGENT_CATALOG.filter((a) => a.skillsDir).map((a) => [a.id, a.skillsDir])).to.deep.equal([
+      ["claude-code", ".claude/skills"], ["cursor", ".cursor/skills"], ["gemini-code-assist", ".agents/skills"],
+    ]);
   });
 });
 
