@@ -70,6 +70,10 @@ export function setupNeedsUpgrade(exists: (rel: string) => boolean, orgConfigTex
   if (contentLayoutOf(exists) === "governance") {
     return "this governance repository is on the old layout (governance/), and setup writes only the current one (policies/, framework/)";
   }
+  // bridge: deleted in D01 (PRJ-121 intent 01, spec §4.1)
+  if (contentLayoutOf(exists) === "layout-1.0") {
+    return "this governance repository is on the 1.0 layout (knowledge/policies/), and setup writes only the current one (policies/, framework/)";
+  }
   if (governanceText === null && orgConfigText) {
     const held = UPGRADE_CARRIES.filter((k) => new RegExp(`^${k}\\s*:\\s*"?[^"\\s#]`, "m").test(orgConfigText));
     if (held.length) return `org-config.yaml still holds ${held.join(", ")} — values only the upgrade carries to where they live now`;

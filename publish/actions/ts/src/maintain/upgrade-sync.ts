@@ -126,7 +126,7 @@ export interface ManifestMove {
  * `gov doctor` names it, and the upgrade's moves carry a workspace across. Derived from what is on disk
  * rather than stored: a marker file would be a second copy of a fact the tree already states.
  */
-export type ContentLayout = "framework" | "governance" | "none";
+export type ContentLayout = "framework" | "governance" | "layout-1.0" | "none";
 
 /** The current layout's own folders under `framework/` (spec 01 §2) — any of them means `framework/` is not the old world. */
 const FRAMEWORK_LAYOUT_DIRS = ["framework/rules", "framework/common", "framework/build"] as const;
@@ -136,6 +136,9 @@ export function contentLayoutOf(exists: (rel: string) => boolean): ContentLayout
   // The flat 1.2.x layout also has framework/rules/, so it reads as "framework" and its MANIFEST retire list carries it.
   if (FRAMEWORK_LAYOUT_DIRS.some((d) => exists(d))) return "framework";
   if (exists("governance/policies")) return "governance";
+  // bridge: deleted in D01 (PRJ-121 intent 01, spec §4.1). The 1.0 layout (Svayamtech's): the framework's policy and
+  // the org's role registry under knowledge/policies/, no framework/ tree. The bridge upgrade carries it to 2.0.
+  if (exists("knowledge/policies/agentic-development-policy.md") || exists("knowledge/policies/roles.md")) return "layout-1.0";
   return "none";
 }
 

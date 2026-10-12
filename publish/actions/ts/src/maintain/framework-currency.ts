@@ -44,6 +44,7 @@ export function assessFrameworkCurrency(exists: (rel: string) => boolean, conten
   const gaps: string[] = [];
   const layout = contentLayoutOf(exists);
   if (layout === "governance") gaps.push("it is on the older `governance/` layout; this gov works on `framework/` + `policies/`");
+  else if (layout === "layout-1.0") gaps.push("it is on the 1.0 layout (knowledge/policies/); this gov works on `framework/` + `policies/`"); // bridge: deleted in D01
   else if (layout === "none") gaps.push("it has no `framework/` tree");
   if (!exists(GOVERNANCE_PATH)) gaps.push(`it has no \`${GOVERNANCE_PATH}\` (the organization's governance choices)`);
   if (!exists(TODO_TEMPLATE_PATH)) gaps.push(`it has no \`${TODO_TEMPLATE_PATH}\`, so a project cannot be started in it`);

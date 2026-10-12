@@ -64,7 +64,7 @@ export interface DoctorFacts {
   readonly registeredOrgs?: readonly string[];
   readonly cliVersion: string;
   /** Which content layout the workspace is on — `governance` is the pre-2026-09-23 one. */
-  readonly contentLayout?: "framework" | "governance" | "none";
+  readonly contentLayout?: "framework" | "governance" | "layout-1.0" | "none";
   /** Old-world artifacts found in the workspace (registry.yaml, bin/, …). */
   readonly staleArtifacts?: readonly string[];
   /** A workspace was actually examined — one resolved, or one the person named (`--gov-home`). Absent means
@@ -216,6 +216,9 @@ export function doctor(facts: DoctorFacts): DoctorReport {
           // someone to notice that their policy file is not where the documentation says.
           facts.contentLayout === "governance"
             ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: "the older `governance/` layout — `gov upgrade --pr` moves it to framework/ + policies/, carrying your own files across" }
+            // bridge: deleted in D01 (PRJ-121 intent 01, spec §4.1)
+            : facts.contentLayout === "layout-1.0"
+            ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: "the 1.0 layout (knowledge/policies/) — `gov upgrade --pr` moves it to framework/ + policies/, carrying your own files across" }
             : (facts.staleArtifacts && facts.staleArtifacts.length)
             ? { name: "content layout", status: "warn" as DiagnosticStatus, detail: `files that are not this org's (${facts.staleArtifacts.join(", ")}) — \`gov upgrade --apply\` removes them (or \`gov upgrade --pr\` to review first)` }
             : { name: "content layout", status: "ok" as DiagnosticStatus, detail: "current" },

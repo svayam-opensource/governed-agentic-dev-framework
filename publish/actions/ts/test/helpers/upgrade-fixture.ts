@@ -62,8 +62,8 @@ export interface FixtureRepo {
   readonly g: (...args: string[]) => string;
 }
 
-/** The fixture as a governance clone: one commit on `main`, with an `origin` (a local bare repo) to push to. */
-export function fixtureRepo(name: FixtureName): FixtureRepo {
+/** The fixture as a governance clone: one commit on `main`, with an `origin` (a local bare repo) to push to. `edit` overrides bodies. */
+export function fixtureRepo(name: FixtureName, edit: Readonly<Record<string, string>> = {}): FixtureRepo {
   const remote = tmpDir("govfx-remote-");
   execFileSync("git", ["init", "-q", "--bare", remote]);
   const dir = tmpDir(`govfx-${name}-`);
@@ -72,6 +72,7 @@ export function fixtureRepo(name: FixtureName): FixtureRepo {
   g("config", "user.email", "fixture@example.test"); g("config", "user.name", "fixture"); g("config", "core.autocrlf", "false");
   g("remote", "add", "origin", remote);
   materialise(name, dir);
+  for (const [p, body] of Object.entries(edit)) { fs.mkdirSync(path.dirname(path.join(dir, p)), { recursive: true }); fs.writeFileSync(path.join(dir, p), body); }
   g("add", "-A"); g("commit", "-qm", `fixture ${name}`);
   return { dir, g };
 }
@@ -83,4 +84,24 @@ export function treeOf(root: string, rel = ""): string[] {
     const r = rel ? `${rel}/${n}` : n;
     return fs.statSync(path.join(root, r)).isDirectory() ? treeOf(root, r) : [r];
   }).sort();
+}
+
+/** Run `gov upgrade --pr` on a fixture clone: the result, the PR body, and the upgrade branch's commits oldest first. */
+export function upgradeFixture(repo: FixtureRepo, run: (dir: string, openPr: (a: { body: string }) => string) => { code: number; lines: readonly string[] }): {
+  code: number; out: string; body: string; branch: string; commits: { sha: string; subject: string }[];
+} {
+  let body = "";
+  const r = run(repo.dir, (a) => { body = a.body; return "https://example.test/pr/1"; });
+  const branch = repo.g("branch", "--list", "gov-upgrade-*", "--format=%(refname:short)").split("\n")[0] ?? "";
+  const commits = branch ? repo.g("log", "--reverse", "--format=%H %s", `main..${branch}`).split("\n").filter(Boolean)
+    .map((l) => ({ sha: l.slice(0, 40), subject: l.slice(41) })) : [];
+  return { code: r.code, out: r.lines.join("\n"), body, branch, commits };
+}
+
+/** What one commit did: path → git status letter (A, M, D), renames shown as D + A. */
+export function commitChanges(repo: FixtureRepo, sha: string): Map<string, string> {
+  return new Map(repo.g("show", "--format=", "--name-status", "--no-renames", sha).split("\n").filter(Boolean).map((l) => {
+    const [st, p] = l.split("\t");
+    return [p!, st!];
+  }));
 }
