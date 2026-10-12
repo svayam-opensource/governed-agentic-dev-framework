@@ -122,7 +122,7 @@ moves:
   });
 });
 
-describe("upgrade — the directory record on disk (.gov-upgrade-moves.json)", function () {
+describe("upgrade — the directory record on disk (framework/upgrade-moves.json)", function () {
   this.timeout(30000);
   let content = "", ws = "";
   const put = (root: string, rel: string, text: string): void => {
@@ -145,7 +145,7 @@ describe("upgrade — the directory record on disk (.gov-upgrade-moves.json)", f
     const first = runUpgradeSync(content, ws, { apply: true, govVersion: "1.2.3" });
     expect(first.code, first.lines.join("\n")).to.equal(0);
     expect(read("new/snap/1.0/a.md")).to.equal("A\n");
-    expect(JSON.parse(read(MOVES_FILE)!)).to.deep.equal([ID, { move: ID, version: "1.2.3" }]);
+    expect(JSON.parse(read(MOVES_FILE)!)).to.deep.equal([{ move: ID, version: "1.2.3" }]);
     expect(moveRecords(ws)).to.deep.equal([{ move: ID, version: "1.2.3" }]);
     expect(fs.existsSync(path.join(ws, "old")), "the emptied old folder is gone").to.equal(false);
 
@@ -154,7 +154,7 @@ describe("upgrade — the directory record on disk (.gov-upgrade-moves.json)", f
     expect(second.code, second.lines.join("\n")).to.equal(0);
     expect(read("old/snap/ours.md")).to.equal("the org's, put back deliberately\n");
     expect(read("new/snap/ours.md")).to.equal(null);
-    expect(JSON.parse(read(MOVES_FILE)!), "the record is unchanged").to.deep.equal([ID, { move: ID, version: "1.2.3" }]);
+    expect(JSON.parse(read(MOVES_FILE)!), "the record is unchanged").to.deep.equal([{ move: ID, version: "1.2.3" }]);
   });
 
   it("without a gov version given, the record names the content's VERSION", () => {

@@ -7,7 +7,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { parseManifest, expandEntries, planUpgrade, applyUpgrade, formatPlan } from "./upgrade-sync.js";
+import { parseManifest, expandEntries, planUpgrade, applyUpgrade, formatPlan, MOVE_RECORD_PATH } from "./upgrade-sync.js";
 
 const SKIP = new Set([".git", "node_modules"]);
 
@@ -55,27 +55,40 @@ function moveInWorkspace(adopterDir: string): (from: string, to: string) => void
   };
 }
 
-export const MOVES_FILE = ".gov-upgrade-moves.json";
+/**
+ * THE MOVE RECORD (PRJ-121 intent 01, spec §3.7, Policy Owner ruling Q5): `framework/upgrade-moves.json`, listed in
+ * the MANIFEST's `generated:` list — never shipped, never retired, written only by `gov upgrade` (with `--pr`, on the
+ * upgrade branch, so it arrives inside the upgrade pull request).
+ */
+export const MOVES_FILE = MOVE_RECORD_PATH;
+/**
+ * BRIDGE — the 1.x record at the repository root. Read only while a workspace has no record at MOVES_FILE yet, so a
+ * repo the bridge (B05) has not reached keeps its relocations done and nothing moves twice. Never written. The
+ * bridge moves the file once; D01 deletes this reader, and 2.0.0 reads only MOVES_FILE.
+ */
+export const LEGACY_MOVES_FILE = ".gov-upgrade-moves.json";
 
 /**
- * THE RECORD'S FORMAT (PRJ-121, 2026-10-12). A JSON array. Each relocation is
- *   · its id as a string, `"<from> → <to>"` — a directory move ONCE, as the directory (`"policies/version/ →
- *     policies/history/"`), never one entry per file; and
- *   · beside it, `{ "move": "<from> → <to>", "version": "<the gov that applied it>" }`.
- * The bare string is what every gov reads, back to the first that kept this file: a gov one minor release older
- * (version-compat only warns about it) still sees the relocation as done and moves nothing again. Writing only the
- * object would make that gov re-run every move — the very defect this record exists to prevent.
+ * THE RECORD'S FORMAT. A JSON array of `{ "move": "<from> → <to>", "version": "<the gov that applied it>" }` — a
+ * directory move ONCE, as the directory (`"policies/version/ → policies/history/"`), never one entry per file.
+ * `version` is null for a relocation carried over from a record that did not say which gov applied it.
  *
- * Per-file strings written before 2026-10-12 are still read: any one of them under a declared directory move counts
- * as that directory move applied (upgrade-sync `directoryMoveDone`).
+ * The reader also accepts the bare string `"<from> → <to>"`: the root record's form, which every 1.x gov wrote beside
+ * the object so a gov one minor release older kept reading it. Only the root file needed that, and no gov older than
+ * this one reads MOVES_FILE, so this file is written as objects only. Per-file strings written before 2026-10-12 still
+ * count: any one of them under a declared directory move is that directory move applied (upgrade-sync
+ * `directoryMoveDone`).
  */
 export interface MoveRecord { readonly move: string; readonly version: string | null }
 
-function readMovesFile(adopterDir: string): unknown[] {
+function readRecordAt(file: string): unknown[] | null {
   try {
-    const raw: unknown = JSON.parse(fs.readFileSync(path.join(adopterDir, MOVES_FILE), "utf8"));
+    const raw: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
     return Array.isArray(raw) ? raw : [];
-  } catch { return []; /* nothing moved yet — the ordinary case for every workspace but the one mid-upgrade */ }
+  } catch { return null; /* nothing moved yet — the ordinary case for every workspace but the one mid-upgrade */ }
+}
+function readMovesFile(adopterDir: string): unknown[] {
+  return readRecordAt(path.join(adopterDir, MOVES_FILE)) ?? readRecordAt(path.join(adopterDir, LEGACY_MOVES_FILE)) ?? [];
 }
 
 /** Every relocation recorded here, with the gov version that applied it when that was recorded. */
@@ -94,11 +107,18 @@ export function moveRecords(adopterDir: string): MoveRecord[] {
 /** The ids of the relocations already carried out here (`<from> → <to>`). */
 export function doneMoves(adopterDir: string): string[] { return moveRecords(adopterDir).map((r) => r.move); }
 
+/**
+ * Record one relocation at MOVES_FILE. The first write carries every relocation the workspace already records — the
+ * root record's included, while the bridge has not moved it — so the record at the new path is complete on its own.
+ */
 function recordMove(adopterDir: string, id: string, version: string): void {
-  const all = readMovesFile(adopterDir);
-  if (!all.includes(id)) all.push(id);
-  if (!all.some((e) => e && typeof e === "object" && (e as { move?: unknown }).move === id)) all.push({ move: id, version });
-  try { fs.writeFileSync(path.join(adopterDir, MOVES_FILE), `${JSON.stringify(all, null, 2)}\n`); }
+  const all = moveRecords(adopterDir);
+  if (!all.some((r) => r.move === id)) all.push({ move: id, version });
+  const file = path.join(adopterDir, MOVES_FILE);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify(all, null, 2)}\n`);
+  }
   catch (e) { log("warn", "could not record a relocation — it may be planned again", "gov-work:maintain:upgrade-run", "recordMove", { id, message: (e as Error)?.message }); }
 }
 
@@ -198,6 +218,19 @@ const MIGRATIONS: Record<string, Migration> = {
 
 export function migrationNames(): string[] { return Object.keys(MIGRATIONS); }
 
+/**
+ * Remove a retired file or directory — but never a `generated:` file under it (§3.7): a retired directory that holds the
+ * move record (the old world's `framework/`) goes, and the record, written earlier in the same run, stays.
+ */
+function removeKeepingGenerated(adopterDir: string, generated: readonly string[]): (rel: string) => void {
+  const keep = [MOVE_RECORD_PATH, ...generated];
+  return (rel) => {
+    const kept = keep.filter((g) => rel.endsWith("/") && g.startsWith(rel)).map((g) => [g, readIf(path.join(adopterDir, g))] as const).filter(([, t]) => t !== null);
+    fs.rmSync(path.join(adopterDir, rel.replace(/\/$/, "")), { recursive: true, force: true });
+    for (const [g, t] of kept) { fs.mkdirSync(path.dirname(path.join(adopterDir, g)), { recursive: true }); fs.writeFileSync(path.join(adopterDir, g), t!); }
+  };
+}
+
 /** The plan's view of a migration's losses (upgrade-sync `checkMigration`). */
 function checkMigration(adopterDir: string, contentDir: string): (how: string) => readonly string[] {
   return (how) => (how === "org-config-split" ? checkOrgConfigSplit(adopterDir, contentDir) : []);
@@ -230,7 +263,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
     const p = path.join(adopterDir, rel);
     return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null;
   };
-  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned, { seed: opts.seed === true });
+  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned, { seed: opts.seed === true, generated: manifest.generated });
 
   if (!opts.apply) {
     return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
@@ -244,7 +277,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       fs.mkdirSync(path.dirname(p), { recursive: true });
       fs.writeFileSync(p, text);
     },
-    removeAdopter: (rel) => fs.rmSync(path.join(adopterDir, rel.replace(/\/$/, "")), { recursive: true, force: true }),
+    removeAdopter: removeKeepingGenerated(adopterDir, manifest.generated),
     moveAdopter: moveInWorkspace(adopterDir),
     migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir }),
     recordMove: (id) => recordMove(adopterDir, id, opts.govVersion ?? contentVersion(contentDir)),
@@ -413,7 +446,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const entries = expandEntries(manifest, walk(contentDir));
   const readContent = (rel: string): string | null => { const p = path.join(contentDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
   const readAdopter = (rel: string): string | null => { const p = path.join(adopterDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
-  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned);
+  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned, { generated: manifest.generated });
   if (plan.actions.every((a) => a.kind === "same" || a.kind === "keep" || a.kind === "starter")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
   // Before the branch exists: a PR that silently lacks the org-config merge would read as a complete upgrade.
   if (plan.actions.some((a) => a.kind === "refuse")) return { code: 1, lines: ["gov upgrade --pr: refused — nothing was written.", ...refusedLines(plan)] };
@@ -438,7 +471,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const res = applyUpgrade(plan, {
     readContent, readAdopter,
     writeAdopter: (rel, t) => { const p = path.join(adopterDir, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, t); },
-    removeAdopter: (rel) => fs.rmSync(path.join(adopterDir, rel.replace(/\/$/, "")), { recursive: true, force: true }),
+    removeAdopter: removeKeepingGenerated(adopterDir, manifest.generated),
     moveAdopter: moveInWorkspace(adopterDir),
     migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir }),
     recordMove: (id) => recordMove(adopterDir, id, opts.govVersion ?? contentVersion(contentDir)),

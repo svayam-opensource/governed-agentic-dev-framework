@@ -2509,7 +2509,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             : built.lines;
         };
 
-        // The gov that applies a relocation is named in the workspace's record of it (.gov-upgrade-moves.json).
+        // The gov that applies a relocation is named in the workspace's record of it (framework/upgrade-moves.json).
         const cliVersion = readCliVersion();
         const govVersion = cliVersion === "?" ? {} : { govVersion: cliVersion };
         const res = "pr" in parsed.flags

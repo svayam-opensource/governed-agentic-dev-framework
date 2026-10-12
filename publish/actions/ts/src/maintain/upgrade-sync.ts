@@ -72,6 +72,12 @@ export function isOrgOwned(dst: string, owned: readonly string[] = []): boolean 
     return new RegExp(o.endsWith("/") ? `^${body}` : `^${body}$`).test(dst);
   });
 }
+/**
+ * THE MOVE RECORD'S PATH (§3.7, Q5) — gov's own, like the org-owned files above: decided here, not only by the
+ * content's `generated:` list, so content without that list can still never ship or retire it.
+ */
+export const MOVE_RECORD_PATH = "framework/upgrade-moves.json";
+
 export interface ManifestEntry { readonly src: string; readonly dst: string; readonly mode: EntryMode; }
 export interface Manifest {
   readonly files: readonly ManifestEntry[];
@@ -83,6 +89,12 @@ export interface Manifest {
    * manifest also ships is never retired: shipping wins.
    */
   readonly retire: readonly string[];
+  /**
+   * What `gov` WRITES into a workspace, never ships and never retires (PRJ-121 intent 01, §3.7, Q5): the move record
+   * `framework/upgrade-moves.json`, written only by `gov upgrade`. A file row or directory row that would ship one of
+   * these is dropped, and no retire — the manifest's or the old layout's — ever removes one.
+   */
+  readonly generated: readonly string[];
 }
 
 /**
@@ -189,7 +201,8 @@ export function parseManifest(text: string): Manifest {
   const owned: string[] = [];
   const moves: ManifestMove[] = [];
   const retire: string[] = [];
-  let section: "files" | "owned" | "moves" | "retire" | null = null;
+  const generated: string[] = [];
+  let section: "files" | "owned" | "moves" | "retire" | "generated" | null = null;
   for (const raw of text.split(/\r?\n/)) {
     const t = raw.trim();
     if (!t || t.startsWith("#")) continue;
@@ -197,6 +210,7 @@ export function parseManifest(text: string): Manifest {
     if (t === "owned:") { section = "owned"; continue; }
     if (t === "moves:") { section = "moves"; continue; }
     if (t === "retire:") { section = "retire"; continue; }
+    if (t === "generated:") { section = "generated"; continue; }
     if (/^[a-z_]+:/.test(t) && section === null) continue; // top-level scalars (version:)
     if (section === "files") {
       const m = t.match(/^-\s*\{\s*src:\s*([^,]+?)\s*,\s*dst:\s*([^,]+?)\s*,\s*mode:\s*([a-z-]+)\s*\}/);
@@ -207,12 +221,15 @@ export function parseManifest(text: string): Manifest {
     } else if (section === "retire") {
       const m = t.match(/^-\s*(.+?)(?:\s+#.*)?$/);
       if (m) retire.push(m[1]!.trim().replace(/^["']|["']$/g, ""));
+    } else if (section === "generated") {
+      const m = t.match(/^-\s*(.+?)(?:\s+#.*)?$/);
+      if (m) generated.push(m[1]!.trim().replace(/^["']|["']$/g, ""));
     } else if (section === "owned") {
       const m = t.match(/^-\s*(.+?)(?:\s+#.*)?$/);
       if (m) owned.push(m[1].trim().replace(/^["']|["']$/g, ""));
     }
   }
-  return { files, owned, moves, retire };
+  return { files, owned, moves, retire, generated };
 }
 
 /**
@@ -226,7 +243,9 @@ export function parseManifest(text: string): Manifest {
  */
 export function expandEntries(manifest: Manifest, contentFiles: readonly string[]): ManifestEntry[] {
   const out = new Map<string, { entry: ManifestEntry; rank: number }>();
+  const generated = new Set([MOVE_RECORD_PATH, ...(manifest.generated ?? [])]);
   const put = (entry: ManifestEntry, rank: number): void => {
+    if (generated.has(entry.dst)) return;   // gov writes it; the content never ships it (§3.7)
     const had = out.get(entry.dst);
     if (!had || rank >= had.rank) out.set(entry.dst, { entry, rank });
   };
@@ -310,7 +329,7 @@ export function directoryMoveDone(m: { from: string; to: string }, done: Readonl
  * Compute the migration plan (no writes). `opts.seed`: this is `gov setup` seeding a new workspace, so a seed-new
  * starter is planned like seed-once; without it (every `gov upgrade`) a seed-new row is never created or changed.
  */
-export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, moves: readonly ManifestMove[] = [], retire: readonly string[] = [], owned: readonly string[] = [], opts: { seed?: boolean } = {}): UpgradePlan {
+export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, moves: readonly ManifestMove[] = [], retire: readonly string[] = [], owned: readonly string[] = [], opts: { seed?: boolean; generated?: readonly string[] } = {}): UpgradePlan {
   const actions: PlanAction[] = [];
   const shippedDst = new Set<string>();
 
@@ -410,6 +429,10 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
   }
 
   // Retire old-world artifacts present in the adopter — never a directory the manifest ships into (Tier 0 #7).
+  // A `generated:` path (the move record) is never retired by name (§3.7). A DIRECTORY retire that covers one still
+  // runs — the old world's vendored `framework/` must go — and the runner's remover keeps the generated file
+  // (upgrade-run `removeKeepingGenerated`).
+  const generated = [MOVE_RECORD_PATH, ...(opts.generated ?? [])];
   const shipsUnder = (dir: string): boolean => [...shippedDst].some((d) => d.startsWith(dir));
   const seenRetire = new Set<string>();
   for (const p of r.adopterPaths()) {
@@ -431,7 +454,7 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
       if (present.has(rp)) actions.push({ kind: "keep", dst: rp, detail: "org-owned — the content's manifest retires it; gov never removes it" });
       continue;
     }
-    if (rp.endsWith("/") ? shipsUnder(rp) : shippedDst.has(rp)) continue;
+    if (rp.endsWith("/") ? shipsUnder(rp) : shippedDst.has(rp) || generated.includes(rp)) continue;
     const hit = rp.endsWith("/") ? [...present].some((p) => p.startsWith(rp)) : present.has(rp);
     if (hit && !movedAway.has(rp)) {
       seenRetire.add(rp);

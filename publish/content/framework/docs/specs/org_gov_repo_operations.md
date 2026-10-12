@@ -89,6 +89,17 @@ the framework's content by hand.
 Everything under `policies/`, and `org-config.yaml`, is yours whatever mode the manifest gives it: an upgrade
 never overwrites it.
 
+### The move record: `framework/upgrade-moves.json`
+
+When a framework release moves one of your files to a new place, `gov upgrade` moves it once and records the move
+in `framework/upgrade-moves.json`. A later upgrade reads the record and does not move the file again, so a file you
+put back at its old place stays where you put it.
+
+- Only `gov upgrade` writes the record. With `gov upgrade --pr` it is written on the upgrade branch, so it reaches
+  `<DEFAULT_BRANCH>` in the same pull request as the moves it records.
+- Each entry names the move and the gov version that made it: `{ "move": "<from> → <to>", "version": "<gov version>" }`.
+- The framework never ships this file and never removes it. Do not edit it by hand.
+
 ---
 
 ## Infrastructure Owner Responsibilities

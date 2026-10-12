@@ -250,6 +250,13 @@ moves:
   # a checkout keeps only one of the two, and `git commit -a` records the other as deleted. VERSION keeps its name.
   - { from: policies/version/, to: policies/history/, mode: move }
 
+# ── generated: WHAT GOV WRITES, AND NEVER SHIPS OR RETIRES (PRJ-121 intent 01, §3.7, Q5) ────────────────────
+#
+# A file gov itself writes into the workspace. Never shipped (a row above that would ship one is dropped) and never
+# retired (no retire: entry or old-layout directory removes one).
+generated:
+  - framework/upgrade-moves.json   # the move record: written only by gov upgrade, inside the upgrade PR
+
 # ── retire: WHAT THIS RELEASE STOPPED SHIPPING (P3 cutover, 2026-10-06) ──────────────────────────────────────
 #
 # The framework's own files a release merged away. `gov upgrade` removes each one the workspace has — exact files,
