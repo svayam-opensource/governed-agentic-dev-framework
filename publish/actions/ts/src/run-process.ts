@@ -89,6 +89,37 @@ export function runResult(cmd: string, args: readonly string[], opts: RunOptions
   }
 }
 
+/**
+ * Run a process to completion and say exactly how it ended — never a throw. For a caller that must tell apart an
+ * exit code, a TIMEOUT and a command that is not installed (an org check action: 1 is a miss, a timeout or a missing
+ * `python3` is "could not tell"), which {@link runResult} folds together. The env given is the WHOLE env: nothing
+ * of gov's own is inherited, so a caller that allow-lists gets exactly the list.
+ */
+export function runCapture(cmd: string, args: readonly string[], opts: RunOptions = {}): {
+  status: number | null; stdout: string; stderr: string; timedOut: boolean; notFound: boolean; error?: string;
+} {
+  const started = Date.now();
+  const r = spawnSync(cmd, args as string[], {
+    encoding: "utf8",
+    stdio: [opts.input !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
+    ...(opts.cwd ? { cwd: opts.cwd } : {}),
+    ...(opts.env ? { env: opts.env } : {}),
+    ...(opts.timeoutMs ? { timeout: opts.timeoutMs, killSignal: "SIGKILL" as const } : {}),
+    ...(opts.input !== undefined ? { input: opts.input } : {}),
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
+  const timedOut = code === "ETIMEDOUT" || (r.status === null && r.signal !== null && !!opts.timeoutMs && Date.now() - started >= opts.timeoutMs);
+  const notFound = code === "ENOENT";
+  const status = r.status;
+  logRun(status === 0 ? "info" : "warn", cmd, args, { ...opts, meta: { ...(opts.meta ?? {}), ...(timedOut ? { timedOut } : {}), ...(notFound ? { notFound } : {}) } },
+    Date.now() - started, status ?? 1, tail(r.stderr ?? r.error?.message));
+  return {
+    status, stdout: r.stdout ?? "", stderr: r.stderr ?? "", timedOut, notFound,
+    ...(r.error && !timedOut && !notFound ? { error: r.error.message } : {}),
+  };
+}
+
 /** Did it succeed? For the many checks that care only about the exit code. */
 export function ok(cmd: string, args: readonly string[], opts: RunOptions = {}): boolean {
   try { run(cmd, args, opts); return true; } catch { return false; }

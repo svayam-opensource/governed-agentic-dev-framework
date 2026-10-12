@@ -44,6 +44,7 @@ import { loadOrgConfigText } from "../config/work-root.js";
 import { ORG_CONFIG_SCHEMA_PATH, orgConfigLoadNotes, defaultWorkRoot, parseOrgConfig } from "../config/org-config.js";
 import { GOVERNANCE_PATH, readPosture, readGovernance, frameworkOwners } from "../config/governance.js";
 import { checkCommand } from "./check-verb.js";
+import { createNodeActionExecutor } from "../rules/checks/executor.js";
 import { appCheck, appCommand, ghRunner, readGithubApp } from "./app-verb.js";
 import { startLoopback } from "./app-loopback.js";
 import { randomBytes } from "node:crypto";
@@ -2145,6 +2146,7 @@ export async function runCheck(argv: readonly string[]): Promise<number> {
     readFile: (f) => fs.readFile(f),
     writeFile: (f, t) => fs.writeFile(f, t),
     scope: checkScopeDeps(fs, config, "gov-work:cli:check"),
+    executor: createNodeActionExecutor(),
     proposeOnPr: (tag, eventName, event, repoDir) => proposeOnPullRequest(tag, eventName, event, {
       git, gh, repoDir,
       repository: process.env.GITHUB_REPOSITORY ?? "",
@@ -2948,6 +2950,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       readFile: (f) => fs.readFile(f),
       writeFile: (f, t) => fs.writeFile(f, t),
       scope: checkScopeDeps(fs, config, "gov-work:cli:check"),
+      executor: createNodeActionExecutor(),
     }, {
       home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch, agentWorkRoot: config.agentWorkRoot,
       githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(fs.readFile(path.join(home, GOVERNANCE_PATH))).posture,

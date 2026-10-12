@@ -58,7 +58,11 @@ resources:
       - { name: knowledge, mode: gate }
 
 tools:
+  # Runs inside gov.
   - id: gov-builtin
+  # An org-authored script in policies/actions/<name>/ (action.yaml: tool, entry, timeout, needs), run from the
+  # DEFAULT branch's copy with no token unless `needs: [github]`. Exit 0 pass, 1 miss, else cannot-tell
+  # (framework-specification.md §9.5). `python` needs python3 on PATH.
   - id: bash
   - id: python
   - id: gh-action

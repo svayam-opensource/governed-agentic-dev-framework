@@ -816,6 +816,44 @@ changed and prints the commands to land them. Running it again changes nothing i
 `gov check status` tells you, for each repository, whether its workflow is current, out of date or missing, and
 `gov doctor` shows the same answer in one line. When gov cannot see a repository, it says it cannot tell.
 
+**Writing your own check action.** When the framework's actions cannot express a check, your organization can
+write one as a small `bash` or `python` program. It lives in its own folder, `policies/actions/<name>/`, and the
+Check Owner reviews it like any other code (§2.2). You list it in `policies/catalog.yaml` as `bash/<name>` or
+`python/<name>`, and a rule binds it like any other action. The folder holds:
+
+- `action.yaml`, which says `tool:` (`bash` or `python`, the same as the catalog entry), `entry:` (the script in
+  the folder to run, for example `run.sh` or `run.py`), and optionally `timeout:` in seconds (60 if you leave it
+  out) and `needs: [github]`.
+- the script itself, and anything else it reads.
+
+gov runs the script in the repository being checked. It tells the script what happened through environment
+variables: `GOV_RULE_ID`, `GOV_EVENT`, `GOV_RESOURCE`, `GOV_REPO_DIR` (the repository, also the working
+directory), `GOV_PARAMS` (the rule's `with:` settings, as JSON) and `GOV_CHANGED_FILES` (the path of a file listing
+the changed files, one per line). The script answers with its exit code:
+
+| exit code | means |
+| --- | --- |
+| 0 | the rule held |
+| 1 | the rule did not hold. The rule's `on_miss` decides whether that fails or only warns. |
+| anything else | the check could not tell |
+
+A script that runs past its timeout also could not tell, and so does a `python` action on a machine without
+`python3`. To say what it found, the script prints one JSON object per line, with a `message` and, where it
+helps, the `file`, the `line` and the `rule`. gov shows each one as a finding. Any other output is the script's own
+log, and gov ignores it.
+
+Three things keep this safe:
+
+- gov runs the action as your **default branch** has it, never the copy in the change being checked. A pull
+  request that changes an action cannot run its new code until it is approved and merged. Until then, a check
+  that needs an action the default branch does not have yet could not tell.
+- The script gets no GitHub token and none of gov's own settings. Only the variables above, and basics such as
+  `PATH` and `HOME`, are passed. An action that must call GitHub says `needs: [github]` in `action.yaml`, which
+  passes `GH_TOKEN` and `GITHUB_TOKEN` and nothing more. The Check Owner sees that line in review.
+- The timeout stops a script that hangs.
+
+`gov check run` runs these actions on your machine as well as in GitHub Actions.
+
 ### 9.6 Cues
 
 A **cue** is a one-line reminder an agent carries. Cues come in two tiers:

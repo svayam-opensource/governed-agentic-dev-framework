@@ -45,6 +45,7 @@ import type { BuiltinOutcome } from "../rules/checks/builtin.js";
 import { PROPOSE_ACTION } from "../rules/checks/builtin.js";
 import { checkInstallAll, checkStatus, type ScopeDeps } from "./check-scope.js";
 import { annotationLines, type AnnotationVerdict } from "../rules/checks/annotations.js";
+import type { ActionExecutor } from "../rules/checks/executor.js";
 
 export interface CheckVerbDeps {
   readonly git: GitRead;
@@ -58,6 +59,11 @@ export interface CheckVerbDeps {
   readonly rulesPropose?: BuiltinOutcome;
   /** `install --all` and `status`: the project's linked repos, the work root, file removal (scope in check-scope.ts). */
   readonly scope?: ScopeDeps;
+  /**
+   * Runs an org `bash`/`python` check action (rules/checks/executor.ts). Its code is read from the governance
+   * repository's DEFAULT branch, never from the change under review. Absent → those actions are `cannot-tell`.
+   */
+  readonly executor?: ActionExecutor;
 }
 
 /**
@@ -201,6 +207,14 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
   const runner = createCheckRunner({
     rules,
     readDefault: (p) => deps.git(cfg.home, ["show", `${ref}:${p}`]),
+    // ORG ACTIONS (Item 8, Q8): their code from the same default-branch ref as the rules; run in the checkout judged.
+    listDefault: (dir) => {
+      const out = deps.git(cfg.home, ["ls-tree", "-r", "--name-only", ref, "--", dir]);
+      return out === null ? null : out.split("\n").map((l) => l.trim()).filter(Boolean);
+    },
+    ...(deps.executor ? { executor: deps.executor } : {}),
+    env: deps.env,
+    repoDir,
     ...(policyPr ? { policyPr } : {}),
     ...(deps.rulesPropose ? { propose: deps.rulesPropose } : {}),
     ...(repository ? { github: { pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository) } } : {}),

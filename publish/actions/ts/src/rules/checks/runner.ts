@@ -21,6 +21,7 @@ import type { ReadDoc } from "../diff-check.js";
 import { runBuiltin, type BuiltinOutcome } from "./builtin.js";
 import { landedByPr, type GithubPorts } from "./gh-actions.js";
 import { validateParams } from "./params.js";
+import { runOrgAction, ORG_TOOLS, type ActionExecutor } from "./executor.js";
 import type { PolicyPrInput } from "../policy-pr/gate.js";
 
 /** A verdict, plus the reviews a gate asks the workflow to request (section-owner-approval). */
@@ -41,6 +42,15 @@ export interface CheckRunnerDeps {
   readonly policyPr?: PolicyPrInput;
   /** `gov-builtin/rules-propose`: the proposer's outcome on this pull request, run by the CLI beforehand. */
   readonly propose?: BuiltinOutcome;
+  /**
+   * Org `bash`/`python` actions (executor.ts): every file under a folder of the DEFAULT branch, the process runner,
+   * the parent env the child's allow-list is taken from, and the checkout the action runs in. Any absent → those
+   * actions are `cannot-tell`.
+   */
+  readonly listDefault?: (dir: string) => readonly string[] | null;
+  readonly executor?: ActionExecutor;
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly repoDir?: string;
 }
 
 type Outcome = "pass" | "fail" | "cannot-tell";
@@ -76,7 +86,8 @@ export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner & { run(id
           fold("cannot-tell", [`${tag}: LLM judge not implemented, so nothing was checked.`]);
           continue;
         }
-        const runnable = action.tool === "gov-builtin" || b.action === "gh-action/landed-by-pr";
+        const org = (ORG_TOOLS as readonly string[]).includes(action.tool);
+        const runnable = action.tool === "gov-builtin" || org || b.action === "gh-action/landed-by-pr";
         if (!runnable) {
           fold("cannot-tell", [`${tag}: running a ${action.tool} action is not implemented yet, so nothing was checked.`]);
           continue;
@@ -87,6 +98,12 @@ export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner & { run(id
         let out: BuiltinOutcome;
         if (action.tool === "gov-builtin") {
           out = runBuiltin({ ruleId: id, action: b.action, params: b.with ?? {}, ctx, readDefault: deps.readDefault, rules, ...(deps.policyPr ? { policyPr: deps.policyPr } : {}), ...(deps.propose ? { propose: deps.propose } : {}) });
+        } else if (org) {
+          out = runOrgAction({
+            ruleId: id, action, params: b.with ?? {}, ctx, readDefault: deps.readDefault,
+            ...(deps.listDefault ? { listDefault: deps.listDefault } : {}), ...(deps.executor ? { executor: deps.executor } : {}),
+            ...(deps.env ? { env: deps.env } : {}), ...(deps.repoDir !== undefined ? { repoDir: deps.repoDir } : {}),
+          });
         } else if (!deps.github) {
           fold("cannot-tell", [`${tag}: GitHub is not reachable from here, so nothing was checked.`]);
           continue;

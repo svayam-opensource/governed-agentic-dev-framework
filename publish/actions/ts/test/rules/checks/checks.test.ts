@@ -266,7 +266,7 @@ describe("check engine — CheckRunner", () => {
     expect(v.findings.join()).to.match(/LLM judge not implemented/);
   });
 
-  it("a bash / python / gh-action tool is cannot-tell in this slice", () => {
+  it("a bash action with no executor or code on the default branch is cannot-tell, never a pass", () => {
     const cat: Catalog = { ...CATALOG, actions: [...CATALOG.actions, { id: "bash/lint", tool: "bash" }] };
     const v = createCheckRunner({ rules: ruleset([row("GOV-SVM-021", [bind("vcs.code-repo", "pull_request", "bash/lint")])], [], cat), readDefault })
       .run("GOV-SVM-021", leftPad);
