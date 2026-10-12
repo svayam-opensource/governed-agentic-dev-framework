@@ -247,6 +247,36 @@ workflow's `push` trigger is limited to `main` and `dev`.
 
 ---
 
+## The automated journey scenarios
+
+The walks above are by hand. The hermetic **journey** tier (`publish/actions/ts/e2e/journey.d/`, how it works:
+`e2e/README-journey.md`) drives the real gov in a pty against stub `gh`/`git` and agent doubles. CI's `journey`
+job in `adopter-e2e.yml` runs **every** scenario on rocky, debian and fedora — there is no sharding, so a new file
+in `journey.d/` is in the matrix the moment it lands. Run one locally with `npm run test:journey <number>`.
+
+| # | Scenario |
+|---|---|
+| 30 | adopter founds an org, IBM Bob as the default agent |
+| 32 | adopter founds an org that uses no AI agents (structure-only) |
+| 40 | joiner, org default agent, nothing installed |
+| 45 | the closing checklist follows the path actually walked |
+| 47 | joiner, organization on an older framework layout |
+| 48 | **adopter whose template is older than gov** — the template is `git archive` of this repository at the newest `gov-work-*` release tag on an older layout; the new repository must come out in the layout gov seeds (`framework/`, `policies/`, nothing else at the root). Fails if `d087f8e` is reverted. Needs the release tags: the CI job checks out with full history, and locally `git fetch --tags`. |
+| 50 | adopter, org already governed → the pivot to joining |
+| 55 | adopter declines the pivot |
+| 60 | agent install — IBM Bob |
+| 62 | the work flow installs and signs in an agent |
+| 64 | the menu installs and signs in an agent |
+| 66 | the closing offer installs and signs in an agent |
+| 68 | a first-run licence gate, cleared in the same terminal |
+| 69 | a failed retry says the reason gov knows |
+| 70 | an expired agent trial is said plainly, another approved agent is offered |
+| 72 | the menu with a dead active org |
+| 74 | knowledge search reads the workspace |
+| 76 | the work picker |
+
+---
+
 ## What to look at, beyond pass or fail
 
 The scenarios above tell you whether it worked. These questions tell you whether
