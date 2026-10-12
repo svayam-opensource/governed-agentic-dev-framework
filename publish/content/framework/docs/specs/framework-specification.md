@@ -1171,6 +1171,30 @@ its workflow grants `id-token: write`. Outside CI the port says it is not availa
 gov reads what the token says but does not check its signature itself. The service the token is shown to checks
 it. gov never writes the token to its log, prints it, or puts it in an error message.
 
+### 13.5 Work items and the board
+
+The work tracker port is how gov reads a project and its items, and how it changes them. On GitHub a project is
+a GitHub Project board and an item is an issue on it.
+
+- **Every item has an assignee.** gov refuses to create an item without one, before anything is created.
+- **State is the board's Status.** gov moves an item between three states: to do, in progress and done. It sets
+  the board option with that name, whatever its capitals or spacing ("In Progress", "in-progress"). A board
+  with no Status field, or no option for the state, is reported as such. `gov task` sets in progress and
+  `gov merge` sets done. When the board cannot be updated, the command still succeeds, because its branches are
+  already made, and it prints why the Status was not set.
+- **Links.** One item can block another, relate to it, or have moved to it. GitHub records "blocks" as an issue
+  dependency. When GitHub refuses that, for example because the repository's plan has no issue dependencies,
+  gov writes a comment on the blocked item instead. The comment says which item blocks it and carries a
+  machine-readable marker. gov then reports that the link was recorded as a comment. Links of the other two
+  kinds are always comments with the same marker.
+- **Finding items again.** gov searches one repository by label, by a marker in the item's text, and by
+  open or closed. It does not search all of GitHub.
+- **Closing a project.** When the work moves somewhere else, gov first writes where it went into the project's
+  description, then closes it. If gov cannot write the description, the project stays open and gov says why.
+
+Adding an item to a project it is already on succeeds and changes nothing. Removing an item that is not on the
+project fails, so a caller never takes "nothing happened" for "done".
+
 ---
 
 ## Glossary

@@ -6,7 +6,7 @@ import { projectBranchOf, boardNumberFromBranch } from "../../src/lifecycle/task
 import { createGhIssues } from "../../src/lifecycle/issues.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
-import type { WorkTrackerPort } from "../../src/ports/work-tracker.js";
+import type { BoardWriter } from "../../src/ports/work-tracker.js";
 import type { Issues, IssueState } from "../../src/lifecycle/issues.js";
 import { pxAll } from "../helpers/paths.js";
 
@@ -64,8 +64,8 @@ function fakeIssues(state: IssueState = "OPEN") {
     resolveIssueUrl: () => null,
   };
   // The board Status goes through the WorkTrackerPort now (gadf#225); same log, so the order stays visible.
-  const tracker: WorkTrackerPort = {
-    setStatus: (_r, u, s) => { acted.push(`status ${u} ${s}`); return { ok: true }; },
+  const tracker: BoardWriter = {
+    setState: (_r, u, s) => { acted.push(`status ${u} ${s}`); return { ok: true }; },
     closeProject: () => ({ ok: true }),
   };
   return { issues, acted, tracker };

@@ -23,7 +23,7 @@ import type { Fs } from "../../src/lifecycle/fs-io.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import type { AnchorCreator } from "../../src/lifecycle/anchor.js";
 import type { Pulls } from "../../src/lifecycle/pulls.js";
-import type { WorkTrackerPort } from "../../src/ports/work-tracker.js";
+import type { BoardWriter } from "../../src/ports/work-tracker.js";
 import { px, pxDeep } from "../helpers/paths.js";
 
 // ── Shared constants (derived id/branch must match the fake board title) ────────
@@ -82,7 +82,7 @@ const fs: Fs = {
 };
 const issues: Issues = { state: () => "OPEN", assign: () => {}, close: () => {}, resolveIssueUrl: () => null } as unknown as Issues;
 // The board writes (gadf#225) — succeed unless a test says otherwise.
-const workTracker: WorkTrackerPort = { setStatus: () => ({ ok: true }), closeProject: () => ({ ok: true }) };
+const workTracker: BoardWriter = { setState: () => ({ ok: true }), closeProject: () => ({ ok: true }) };
 // `find` is part of AnchorCreator and close now calls it to read the recorded base branch. The
 // double used to omit it behind a cast, which typechecked and then threw at runtime — so it is
 // implemented here rather than guarded against in close.

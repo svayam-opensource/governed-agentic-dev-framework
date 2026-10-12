@@ -8,8 +8,8 @@
  * nobody registered is an {@link UnknownAdapterError} that names it — never a quiet fallback to another adapter,
  * which would have gov report work done on a platform it never touched.
  *
- * Learned from gov-cicd's `adapters/registry.ts`. Each port's task adds its factories to {@link builtInProviders}:
- * plan 05 T04 / plan 03 L02 the work tracker, L03 the VCS host, L04 CI identity.
+ * Learned from gov-cicd's `adapters/registry.ts`. {@link builtInProviders} holds each port's factories: the work
+ * tracker (plan 05 T04, plan 03 L02), the VCS host (L03), CI identity (L04).
  */
 import { PORT_NAMES, PORT_CONFIG_KEYS, type PortName, type PortTypes, type Ports } from "../ports/index.js";
 import { MEMORY_ADAPTER_ID } from "./memory/index.js";
@@ -17,6 +17,8 @@ import { createGithubCiIdentity } from "./github/ci-identity.js";
 import { createMemoryCiIdentity } from "./memory/ci-identity.js";
 import { createGithubVcs } from "./github/vcs.js";
 import { createMemoryVcs } from "./memory/vcs.js";
+import { createGithubWorkTracker } from "./github/work-tracker.js";
+import { createMemoryWorkTracker } from "./memory/work-tracker.js";
 import type { GhRun } from "./github/gh.js";
 
 export type AdapterId = string;
@@ -59,12 +61,12 @@ export const SELECTABLE_ADAPTERS: { readonly [K in PortName]: readonly AdapterId
   ciIdentity: ["github"],
 };
 
-/**
- * The adapters gov ships. A port's table fills in as its task lands — the empty ones are the spots it fills:
- * `workTracker` (plan 05 T04: `github/work-tracker.ts`; plan 03 L02: + `memory`), `vcs` is L03's and `ciIdentity` L04's.
- */
+/** The adapters gov ships, per port: `github` for organizations, `memory` for tests. */
 export const builtInProviders: AdapterProviders = {
-  workTracker: {},
+  workTracker: {
+    github: (ctx) => createGithubWorkTracker(ctx.gh ? { gh: ctx.gh } : {}),
+    memory: () => createMemoryWorkTracker(),
+  },
   vcs: {
     github: (ctx) => createGithubVcs(ctx.gh ? { gh: ctx.gh } : {}),
     memory: () => createMemoryVcs(),
