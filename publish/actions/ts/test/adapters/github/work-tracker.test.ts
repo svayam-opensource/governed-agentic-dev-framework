@@ -8,7 +8,7 @@
  * One test per outcome the port can report.
  */
 import { expect } from "chai";
-import { createGithubWorkTracker } from "../../../src/adapters/github/work-tracker.js";
+import { createGithubBoardWriter } from "../../../src/adapters/github/work-tracker.js";
 import type { BoardRef } from "../../../src/lifecycle/identity.js";
 
 const REF: BoardRef = { owner: "Svayamtech", ownerField: "organization", number: 43 };
@@ -47,10 +47,10 @@ function fakeGh(query: () => string, mutation: () => string = () => "{\"data\":{
 const mutations = (calls: string[][]) => calls.filter((c) => c.some((a) => a.includes("updateProjectV2ItemFieldValue")));
 const arg = (c: string[], name: string) => c[c.indexOf(c.find((a) => a.startsWith(`${name}=`))!)].slice(name.length + 1);
 
-describe("WorkTrackerPort (GitHub) — setStatus (gadf#225)", () => {
+describe("BoardWriter (GitHub) — setState (gadf#225; was setStatus)", () => {
   it("ok: one query, one mutation with the item, project, field and option ids", () => {
     const { runGh, calls } = fakeGh(() => answer([item()]));
-    const r = createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "Done");
+    const r = createGithubBoardWriter(runGh).setState(REF, ISSUE, "done");
     expect(r).to.deep.equal({ ok: true });
     expect(calls).to.have.lengthOf(2);
     const m = mutations(calls)[0];
@@ -62,22 +62,22 @@ describe("WorkTrackerPort (GitHub) — setStatus (gadf#225)", () => {
     expect(arg(calls[0], "url")).to.equal(ISSUE);
   });
 
-  it("matches the option name case-insensitively ('In progress' → 'In Progress')", () => {
+  it("matches the option name case-insensitively (in-progress → 'In Progress')", () => {
     const { runGh, calls } = fakeGh(() => answer([item()]));
-    expect(createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "In progress")).to.deep.equal({ ok: true });
+    expect(createGithubBoardWriter(runGh).setState(REF, ISSUE, "in-progress")).to.deep.equal({ ok: true });
     expect(arg(mutations(calls)[0], "option")).to.equal("O_wip");
   });
 
   it("picks THIS board's item when the issue is on several boards", () => {
     const other = { ...item({ number: 7 }), id: "PVTI_other" };
     const { runGh, calls } = fakeGh(() => answer([other, item()]));
-    expect(createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "Done").ok).to.equal(true);
+    expect(createGithubBoardWriter(runGh).setState(REF, ISSUE, "done").ok).to.equal(true);
     expect(arg(mutations(calls)[0], "item")).to.equal("PVTI_1");
   });
 
   it("no-field: the board has no single-select field named Status", () => {
     const { runGh, calls } = fakeGh(() => answer([item({ field: null })]));
-    const r = createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "Done");
+    const r = createGithubBoardWriter(runGh).setState(REF, ISSUE, "done");
     expect(r.ok).to.equal(false);
     if (r.ok) return;
     expect(r.why).to.equal("no-field");
@@ -85,79 +85,87 @@ describe("WorkTrackerPort (GitHub) — setStatus (gadf#225)", () => {
     expect(mutations(calls)).to.have.lengthOf(0);
   });
 
-  it("no-option: Status has no such option — the detail names the options there are", () => {
-    const { runGh, calls } = fakeGh(() => answer([item()]));
-    const r = createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "Shipped");
+  it("no-option: Status has no option for the state — the detail names the options there are", () => {
+    const field = { ...STATUS_FIELD, options: [{ id: "O_todo", name: "Todo" }, { id: "O_wip", name: "In Progress" }, { id: "O_ship", name: "Shipped" }] };
+    const { runGh, calls } = fakeGh(() => answer([item({ field })]));
+    const r = createGithubBoardWriter(runGh).setState(REF, ISSUE, "done");
     expect(r.ok).to.equal(false);
     if (r.ok) return;
     expect(r.why).to.equal("no-option");
-    expect(r.detail).to.match(/Shipped/);
-    expect(r.detail).to.match(/Todo, In Progress, Done/);
+    expect(r.detail).to.match(/"Done"/);
+    expect(r.detail).to.match(/Todo, In Progress, Shipped/);
     expect(mutations(calls)).to.have.lengthOf(0);
   });
 
   it("not-on-board: the issue is on no item of this board", () => {
     const { runGh } = fakeGh(() => answer([item({ number: 7 })]));
-    const r = createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "Done");
+    const r = createGithubBoardWriter(runGh).setState(REF, ISSUE, "done");
     expect(r.ok).to.equal(false);
     if (!r.ok) expect(r.why).to.equal("not-on-board");
   });
 
   it("not-on-board: same board number under another owner does not count", () => {
     const { runGh } = fakeGh(() => answer([item({ owner: "someone-else" })]));
-    const r = createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "Done");
+    const r = createGithubBoardWriter(runGh).setState(REF, ISSUE, "done");
     if (!r.ok) expect(r.why).to.equal("not-on-board");
     else expect.fail("must not set Status on another owner's board");
   });
 
   it("not-on-board: the issue itself cannot be resolved", () => {
     const { runGh } = fakeGh(() => answer(null));
-    const r = createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "Done");
+    const r = createGithubBoardWriter(runGh).setState(REF, ISSUE, "done");
     if (!r.ok) { expect(r.why).to.equal("not-on-board"); expect(r.detail).to.include(ISSUE); }
     else expect.fail("expected a failure");
   });
 
   it("denied: the query is refused for permission", () => {
     const { runGh } = fakeGh(() => { throw new GhError("gh: Resource not accessible by personal access token (FORBIDDEN)"); });
-    const r = createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "Done");
+    const r = createGithubBoardWriter(runGh).setState(REF, ISSUE, "done");
     if (!r.ok) { expect(r.why).to.equal("denied"); expect(r.detail).to.match(/Resource not accessible/); }
     else expect.fail("expected a failure");
   });
 
   it("denied: the mutation is refused (token can read the board but not write it)", () => {
     const { runGh } = fakeGh(() => answer([item()]), () => { throw new GhError("gh: Your token has not been granted the required scopes to execute this query. INSUFFICIENT_SCOPES"); });
-    const r = createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "Done");
+    const r = createGithubBoardWriter(runGh).setState(REF, ISSUE, "done");
     if (!r.ok) expect(r.why).to.equal("denied");
     else expect.fail("expected a failure");
   });
 
   it("unreachable: gh fails for any other reason", () => {
     const { runGh } = fakeGh(() => { throw new GhError("Post \"https://api.github.com/graphql\": EOF"); });
-    const r = createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "Done");
+    const r = createGithubBoardWriter(runGh).setState(REF, ISSUE, "done");
     if (!r.ok) expect(r.why).to.equal("unreachable");
     else expect.fail("expected a failure");
   });
 
   it("unreachable: an answer that is not the expected JSON", () => {
     const { runGh } = fakeGh(() => "<html>gateway</html>");
-    const r = createGithubWorkTracker(runGh).setStatus(REF, ISSUE, "Done");
+    const r = createGithubBoardWriter(runGh).setState(REF, ISSUE, "done");
     if (!r.ok) expect(r.why).to.equal("unreachable");
     else expect.fail("expected a failure");
   });
 });
 
-describe("WorkTrackerPort (GitHub) — closeProject", () => {
+describe("BoardWriter (GitHub) — closeProject", () => {
   it("ok: closes the board", () => {
     const { runGh, calls } = fakeGh(() => "", () => "");
-    expect(createGithubWorkTracker(runGh).closeProject(REF)).to.deep.equal({ ok: true });
+    expect(createGithubBoardWriter(runGh).closeProject(REF)).to.deep.equal({ ok: true });
     expect(calls[0]).to.deep.equal(["project", "close", "43", "--owner", "Svayamtech"]);
+  });
+  it("with a pointer: the description says where the work went, then the board closes", () => {
+    const { runGh, calls } = fakeGh(() => "", () => "");
+    expect(createGithubBoardWriter(runGh).closeProject(REF, "https://github.com/orgs/Svayamtech/projects/9")).to.deep.equal({ ok: true });
+    expect(calls[0]!.slice(0, 5)).to.deep.equal(["project", "edit", "43", "--owner", "Svayamtech"]);
+    expect(calls[0]![calls[0]!.indexOf("--description") + 1]).to.contain("projects/9");
+    expect(calls[1]).to.deep.equal(["project", "close", "43", "--owner", "Svayamtech"]);
   });
   it("denied / unreachable are reported, never thrown", () => {
     const denied = fakeGh(() => "", () => { throw new GhError("HTTP 403: Resource not accessible by integration"); });
-    const r1 = createGithubWorkTracker(denied.runGh).closeProject(REF);
+    const r1 = createGithubBoardWriter(denied.runGh).closeProject(REF);
     expect(r1.ok ? null : r1.why).to.equal("denied");
     const down = fakeGh(() => "", () => { throw new GhError("connection reset by peer"); });
-    const r2 = createGithubWorkTracker(down.runGh).closeProject(REF);
+    const r2 = createGithubBoardWriter(down.runGh).closeProject(REF);
     expect(r2.ok ? null : r2.why).to.equal("unreachable");
   });
 });

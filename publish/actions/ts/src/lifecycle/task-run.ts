@@ -13,7 +13,7 @@ import { Transaction, type RollbackFailure } from "./transaction.js";
 import type { Board } from "./board.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { Issues } from "./issues.js";
-import { NO_TRACKER, STATUS_IN_PROGRESS, type BoardStatusOutcome, type WorkTrackerPort } from "../ports/work-tracker.js";
+import { NO_TRACKER, STATE_NAMES, type BoardStatusOutcome, type BoardWriter } from "../ports/work-tracker.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl } from "./repo.js";
 import { ensureProjectBranch } from "./code-repo.js";
@@ -52,7 +52,7 @@ export interface TaskDeps {
   readonly fs: FsProbe;
   readonly issues: Issues;
   /** Sets the board Status (gadf#225). Absent → every issue reports `unreachable`, never a silent skip. */
-  readonly tracker?: WorkTrackerPort;
+  readonly tracker?: BoardWriter;
   /** Optional authorization gate (viewerCanUpdate); deny → abort. */
   /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
   readonly authorize: (ref: BoardRef) => boolean;
@@ -148,8 +148,8 @@ export function task(deps: TaskDeps, config: TaskConfig, input: TaskInput): Task
   const boardStatus: BoardStatusOutcome[] = [];
   for (const url of input.issueUrls) {
     deps.issues.assign(url, input.assignee);
-    const result = deps.tracker ? deps.tracker.setStatus(ref, url, STATUS_IN_PROGRESS) : NO_TRACKER;
-    boardStatus.push({ issueUrl: url, status: STATUS_IN_PROGRESS, result });
+    const result = deps.tracker ? deps.tracker.setState(ref, url, "in-progress") : NO_TRACKER;
+    boardStatus.push({ issueUrl: url, status: STATE_NAMES["in-progress"], result });
   }
 
   return { ok: true, taskId, projectBranch, boardNumber, issueNumbers, reposBranched, reposSkipped, recreated, boardStatus };

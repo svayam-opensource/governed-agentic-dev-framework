@@ -17,7 +17,7 @@ import type { Board } from "../lifecycle/board.js";
 import type { Vcs } from "../lifecycle/vcs.js";
 import type { Fs } from "../lifecycle/fs-io.js";
 import type { Issues } from "../lifecycle/issues.js";
-import type { BoardCloseResult, BoardStatusOutcome, WorkTrackerPort } from "../ports/work-tracker.js";
+import type { BoardCloseResult, BoardStatusOutcome, BoardWriter } from "../ports/work-tracker.js";
 import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
@@ -80,7 +80,7 @@ export interface CliContext {
   readonly fs: Fs;
   readonly issues: Issues;
   /** The board writes — Status and closing (gadf#225). Absent → task/merge/close/cancel say the board was not touched. */
-  readonly workTracker?: WorkTrackerPort;
+  readonly workTracker?: BoardWriter;
   readonly anchor: AnchorCreator;
   readonly pulls: Pulls;
   readonly projects: Projects;

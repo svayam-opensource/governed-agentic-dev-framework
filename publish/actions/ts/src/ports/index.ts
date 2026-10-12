@@ -15,10 +15,14 @@
 export * from "./result.js";
 import type { CiIdentityPort } from "./ci-identity.js";
 import type { VcsPort } from "./vcs.js";
+import type { WorkTrackerPort } from "./work-tracker.js";
 export type {
   VcsPort, RepoRef, RepoInfo, BranchInfo, NewChangeRequest, ChangeRequestRef, ChangeRequest, Review, Identity, AccountKind,
 } from "./vcs.js";
 export type { CiIdentityPort, CiClaims } from "./ci-identity.js";
+export type {
+  WorkTrackerPort, ProjectRef, ItemRef, Project, Item, NewItem, WorkState, LinkKind, LinkOutcome, SearchQuery, BoardWriter,
+} from "./work-tracker.js";
 
 /**
  * The ports, by name — the list a conformance suite walks. The yaml key for each is {@link PORT_CONFIG_KEYS}.
@@ -33,13 +37,10 @@ export const PORT_CONFIG_KEYS: Readonly<Record<PortName, string>> = {
   ciIdentity: "ci_identity",
 };
 
-/**
- * The interface behind each port name. A port not yet built is `unknown`; the task that builds it replaces that
- * one line with its interface, and the registry and every adapter table are typed from here.
- */
+/** The interface behind each port name; the registry and every adapter table are typed from here. */
 export interface PortTypes {
-  /** WorkTrackerPort — `./work-tracker.ts` (plan 05 T04 starts it with setStatus; plan 03 L02 completes it). */
-  workTracker: unknown;
+  /** WorkTrackerPort — `./work-tracker.ts` (plan 05 T04 started it; plan 03 L02 completed it, setStatus → setState). */
+  workTracker: WorkTrackerPort;
   /** VcsPort — `./vcs.ts` (plan 03 L03): the code HOST. Local git stays in `lifecycle/vcs.ts`. */
   vcs: VcsPort;
   /** CiIdentityPort — `./ci-identity.ts` (plan 03 L04). */

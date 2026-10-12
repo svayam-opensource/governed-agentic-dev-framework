@@ -11,7 +11,7 @@ import { parseArgv } from "../../src/cli/args.js";
 import { task } from "../../src/lifecycle/task-run.js";
 import { merge } from "../../src/lifecycle/merge.js";
 import { cancel } from "../../src/lifecycle/state.js";
-import type { WorkTrackerPort, BoardStatusResult, BoardCloseResult } from "../../src/ports/work-tracker.js";
+import type { BoardWriter, BoardStatusResult, BoardCloseResult } from "../../src/ports/work-tracker.js";
 import type { OrgConfig } from "../../src/config/org-config.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Board } from "../../src/lifecycle/board.js";
@@ -40,8 +40,8 @@ const CFG = { githubOrg: "Svayamtech", workspaceRepo: "svm-prj-work" };
 
 function tracker(status: BoardStatusResult = { ok: true }, closed: BoardCloseResult = { ok: true }) {
   const calls: string[] = [];
-  const t: WorkTrackerPort = {
-    setStatus: (ref, url, s) => { calls.push(`status #${ref.number} ${url} ${s}`); return status; },
+  const t: BoardWriter = {
+    setState: (ref, url, s) => { calls.push(`status #${ref.number} ${url} ${s}`); return status; },
     closeProject: (ref) => { calls.push(`close #${ref.number}`); return closed; },
   };
   return { t, calls };
@@ -62,7 +62,7 @@ describe("gadf#225 — task / merge set the board Status through the WorkTracker
     const { t, calls } = tracker();
     const r = task({ ...base, tracker: t }, CFG, input);
     expect(r.ok).to.equal(true);
-    expect(calls).to.deep.equal([`status #43 ${ISSUE} In progress`]);
+    expect(calls).to.deep.equal([`status #43 ${ISSUE} in-progress`]);
     if (r.ok) expect(r.boardStatus).to.deep.equal([{ issueUrl: ISSUE, status: "In progress", result: { ok: true } }]);
   });
 
@@ -85,7 +85,7 @@ describe("gadf#225 — task / merge set the board Status through the WorkTracker
     const r = merge({ board, vcs: fakeVcs(), fs: { pathExists: () => false }, issues, authorize: () => true, tracker: t }, CFG,
       { govClone: "/g", projectWorkRoot: "/w", taskArg: ISSUE });
     expect(r.ok).to.equal(true);
-    expect(calls).to.deep.equal([`status #43 ${ISSUE} Done`]);
+    expect(calls).to.deep.equal([`status #43 ${ISSUE} done`]);
     if (r.ok) expect(r.boardStatus).to.deep.equal([{ issueUrl: ISSUE, status: "Done", result: { ok: true } }]);
   });
 

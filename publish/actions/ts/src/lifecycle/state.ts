@@ -12,7 +12,7 @@
  */
 import type { Vcs } from "./vcs.js";
 import type { AnchorCreator } from "./anchor.js";
-import { NO_TRACKER, type BoardCloseResult, type WorkTrackerPort } from "../ports/work-tracker.js";
+import { NO_TRACKER, type BoardCloseResult, type BoardWriter } from "../ports/work-tracker.js";
 import type { BoardRef } from "./identity.js";
 import { projectBranchOf, boardNumberFromBranch } from "./task.js";
 
@@ -39,7 +39,7 @@ export interface StateDeps {
   readonly vcs: Vcs;
   readonly anchor: AnchorCreator;
   /** Closes the board on cancel (gadf#225). Absent → reported as `unreachable`, never a silent skip. */
-  readonly tracker?: WorkTrackerPort;
+  readonly tracker?: BoardWriter;
   /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
   readonly authorize: (ref: BoardRef) => boolean;
   readonly log?: (msg: string) => void;
