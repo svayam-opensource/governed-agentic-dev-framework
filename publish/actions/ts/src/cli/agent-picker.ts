@@ -6,7 +6,12 @@
  * svm-geneva approved IBM Bob (default), OpenAI Codex and Claude Code. Only Bob was installed in the container, and
  * `gov work` printed "Using IBM Bob — the only approved agent installed here" and launched it: two approved choices
  * hidden because they cost an install. That cost is the person's to weigh, so every approved agent is listed with
- * what choosing it means, and Enter takes the default — the person's preference if they set one, else the org's.
+ * what choosing it means, and Enter takes the default.
+ *
+ * THE LIST IS SHOWN ONLY WHEN THERE IS A CHOICE (Policy Owner, 2026-10-12): an organization approving more than one
+ * agent. With exactly one approved and installed, work-flow.ts opens it and says so in one line. Enter is the agent
+ * this person used LAST TIME on this project when resuming it, else the organization's default (seeding from
+ * scratch, or the last one no longer approved or installed) — see last-agent.ts.
  *
  *     Agent for PRJ-31 (approved by Geneva ERS):
  *       1) IBM Bob        installed · organization default
@@ -36,16 +41,17 @@ export interface PickerRow {
    */
   readonly state: "installed" | "installable" | "manual" | "unlaunchable";
   readonly orgDefault: boolean;
-  readonly preference: boolean;
+  /** The agent this person opened last time on this project. */
+  readonly lastUsed: boolean;
   readonly url?: string;
 }
 
 /**
  * One row per approved agent, in the organization's order, less any `exclude`d (an agent that just failed on its
- * account). `cursorGui`: the Cursor editor is on this machine, so Cursor gets a second row for it.
+ * account). `lastUsed` is the launch kind recorded for this project (`cursor-gui` for the editor). `cursorGui`: the Cursor editor is on this machine, so Cursor gets a second row for it.
  */
 export function pickerRows(
-  approved: readonly ApprovedAgent[], statuses: readonly AgentStatus[], preference: string | null,
+  approved: readonly ApprovedAgent[], statuses: readonly AgentStatus[], lastUsed: string | null,
   exclude: readonly string[] = [], cursorGui = false,
 ): PickerRow[] {
   const orgDefault = approved.find((a) => a.default)?.id ?? null;
@@ -60,28 +66,37 @@ export function pickerRows(
           : "manual";
     rows.push({
       id: a.id, launch: a.id, name: c?.tool ?? a.id, state,
-      orgDefault: a.id === orgDefault, preference: a.id === preference,
+      orgDefault: a.id === orgDefault, lastUsed: a.id === lastUsed,
       ...(c?.install?.url ? { url: c.install.url } : {}),
     });
     if (a.id === "cursor" && cursorGui && !exclude.includes("cursor-gui")) {
-      rows.push({ id: "cursor", launch: "cursor-gui", name: CURSOR_GUI.tool, state: "installed", orgDefault: false, preference: false });
+      rows.push({ id: "cursor", launch: "cursor-gui", name: CURSOR_GUI.tool, state: "installed", orgDefault: false, lastUsed: lastUsed === "cursor-gui" });
     }
   }
   return rows;
 }
 
-/** The row Enter chooses (0-based): the person's preference, else the org default — or null, and Enter is no answer. */
-export function pickerDefault(rows: readonly PickerRow[], preference: string | null, orgDefault: string | null): number | null {
-  for (const want of [preference, orgDefault]) {
-    if (!want) continue;
-    const i = rows.findIndex((r) => r.id === want && r.launch === want && r.state !== "unlaunchable");
+/**
+ * The row Enter chooses (0-based): the agent used last time on this project, else the org default — or null, and
+ * Enter is no answer. A last-used agent that is no longer listed (the org withdrew it) or is not installed here
+ * falls through to the org default. Matched by LAUNCH kind, so the Cursor editor is remembered apart from its CLI.
+ */
+export function pickerDefault(rows: readonly PickerRow[], lastUsed: string | null, orgDefault: string | null): number | null {
+  if (lastUsed) {
+    // Last time's agent must still be HERE: one since uninstalled is not offered as Enter (the ruling's fallback).
+    const i = rows.findIndex((r) => r.launch === lastUsed && r.state === "installed");
+    if (i >= 0) return i;
+  }
+  if (orgDefault) {
+    // The org default may still need installing — Enter then offers the install, as before.
+    const i = rows.findIndex((r) => r.launch === orgDefault && r.state !== "unlaunchable");
     if (i >= 0) return i;
   }
   return null;
 }
 
 function status(r: PickerRow): string {
-  const tags = [r.preference ? "your preference" : "", r.orgDefault ? "organization default" : ""].filter(Boolean);
+  const tags = [r.lastUsed ? "used last time" : "", r.orgDefault ? "organization default" : ""].filter(Boolean);
   const head = r.state === "installed" ? "installed"
     : r.state === "installable" ? "not installed — choose it to install now"
       : r.state === "manual" ? `not installed — install it from ${r.url ?? "the vendor's site"}`

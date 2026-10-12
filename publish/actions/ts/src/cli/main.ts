@@ -1585,8 +1585,6 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     hasTool: (cmd: string) => tryRun(cmd, ["--version"]) !== undefined,
     env: process.env,
     approvedAgents: () => parseAuthorizedAgents(fs.readFile(path.join(resolved.home, GOVERNANCE_PATH))),
-    // The person's own choice, from the lowest knowledge layer (C03). Read every
-    // time, and validated against the org's list at launch — not at write time.
     // The joiner's ordinary case: nothing installed, and the org already chose what
     // should be. Same plan and same performer as `gov agent install` — one path.
     installAgent: async (id: string, ask: AskFns) => {
@@ -1608,15 +1606,6 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       },
       now: () => new Date(),
     }, projectDir, config.workspaceRepo, config.defaultBranch || "main"),
-    agentPreference: () => {
-      // `preferences.json` FIRST (Policy Owner, 2026-09-22: the CLI's values live there; the `.md` beside it is
-      // for the person's AGENT). The old `preferred_agent:` line in that markdown still works, so nobody's
-      // existing preference is lost — it is read only when the setting has not been made.
-      const chosen = stringPref(loadPreferences().prefs, "agent.default");
-      if (chosen) return chosen;
-      const md = fs.readFile(path.join(config.agentWorkRoot, "preferences", `${me ?? ""}.md`));
-      return /^\s*preferred_agent:\s*(\S+)/m.exec(md ?? "")?.[1] ?? null;
-    },
     applyRepoOverrides,
     // F16: a governance repository on an older framework layout cannot seed a project — checked before one is offered.
     seedBlocked: () => {

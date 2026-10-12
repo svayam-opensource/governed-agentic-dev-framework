@@ -27,16 +27,30 @@ describe("the agent picker — every approved agent, installed or not", () => {
     expect(pickerPrompt(rows, pickerDefault(rows, null, "ibm-bob"))).to.equal("  Choose [1/2/3] (Enter = 1, IBM Bob) : ");
   });
 
-  it("Enter is the person's preference when set, else the org default", () => {
-    const rows = pickerRows(GENEVA, onlyBob, "claude-code");
+  // Policy Owner, 2026-10-12: Enter is the agent used last time on this project, else the org default.
+  it("Enter is the agent used last time on the project when it is installed, else the org default", () => {
+    const both = agentStatuses(AGENT_CATALOG, (c) => c === "bob" || c === "claude", {});
+    const rows = pickerRows(GENEVA, both, "claude-code");
     expect(pickerDefault(rows, "claude-code", "ibm-bob")).to.equal(2);
-    expect(pickerDefault(rows, null, "ibm-bob")).to.equal(0);
-    expect(pickerLines(rows, "x")[3]).to.contain("your preference");
+    expect(pickerDefault(rows, null, "ibm-bob"), "seeding from scratch: the org default").to.equal(0);
+    expect(pickerLines(rows, "x")[3]).to.contain("used last time");
   });
 
-  it("a preference the org does not approve is not the default — the org default is", () => {
+  it("last time's agent no longer installed is not Enter — the org default is", () => {
+    const rows = pickerRows(GENEVA, onlyBob, "claude-code");
+    expect(pickerDefault(rows, "claude-code", "ibm-bob")).to.equal(0);
+  });
+
+  it("last time's agent the org no longer approves is not Enter — the org default is", () => {
     const rows = pickerRows(GENEVA, onlyBob, "cursor");
     expect(pickerDefault(rows, "cursor", "ibm-bob")).to.equal(0);
+  });
+
+  it("last time's Cursor editor is remembered apart from the Cursor CLI", () => {
+    const cur = agentStatuses(AGENT_CATALOG, (c) => c === "cursor-agent", {});
+    const rows = pickerRows([{ id: "cursor", default: true }, { id: "claude-code" }], cur, "cursor-gui", [], true);
+    expect(rows.map((r) => r.launch)).to.deep.equal(["cursor", "cursor-gui", "claude-code"]);
+    expect(pickerDefault(rows, "cursor-gui", "cursor")).to.equal(1);
   });
 
   it("no default at all: Enter chooses nothing, and the prompt does not pretend otherwise", () => {

@@ -95,7 +95,7 @@ gov work [<project-id>] [--project <pattern>] [--agent <id>] [--seed] [--print-p
 | flag | what it does |
 | --- | --- |
 | `--project <pattern>` | match a project by a regular expression instead of picking from a list |
-| `--agent <id>` | the agent to launch, without asking (`gov agent list` shows what your org approves). Without it, gov lists every approved agent — installed or not — and Enter takes your default |
+| `--agent <id>` | the agent to launch, without asking (`gov agent list` shows what your org approves). Without it, gov lists every approved agent — installed or not — when your org approves more than one, and Enter takes the one you used last time on the project, else the org default |
 | `--seed` | allow STARTING a project nobody has started yet — org-visible, so never implied |
 | `--print-prompt` | print the session-start prompt and stop: changes nothing, launches nothing |
 
@@ -107,7 +107,7 @@ gov work --project=billing
 gov work --project=PRJ-43-billing --agent=claude --print-prompt
 ```
 
-**Changes.** clones the project's repos if they are not here, puts each on the project branch, writes the agent harness and the governance snapshot into the project folder, and launches your agent. It first lists every agent your organization approves — choosing one that is not installed offers to install it — and Enter takes your preference, else the organization's default. `gov preferences set work.agent.ask never` opens the default without asking; with no terminal gov never asks, and says which agent it used. An agent stopped by its account (a trial ended, a quota used up, a rejected key) is named as such, and the list comes back without it
+**Changes.** clones the project's repos if they are not here, puts each on the project branch, writes the agent harness and the governance snapshot into the project folder, and launches your agent. When your organization approves more than one agent it first lists them all — choosing one that is not installed offers to install it — and Enter takes the agent you used last time on this project, else the organization's default (always the org default for a project you are starting from scratch, or when last time's agent is no longer approved or installed). With exactly one approved and installed, gov opens it and says so in one line. gov remembers your choice per project, on this machine only. `gov preferences set work.agent.ask never` opens the default without asking; with no terminal gov never asks, and says which agent it used. An agent stopped by its account (a trial ended, a quota used up, a rejected key) is named as such, and the list comes back without it
 
 **Exit codes**
 
@@ -295,7 +295,7 @@ gov preferences [list] | set <key> <value> | reset <key> | path
 gov preferences
 gov preferences set work.picker.pageSize 25
 gov preferences set work.agent.ask never
-gov preferences reset agent.default
+gov preferences reset work.agent.ask
 ```
 
 **Changes.** writes your own preferences file. Affects nobody else, and never overrides what your organization requires

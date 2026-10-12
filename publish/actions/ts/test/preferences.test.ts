@@ -38,7 +38,6 @@ describe("preferences — the settings themselves", () => {
     expect(p.problems).to.deep.equal([]);
     expect(numberPref(p, "work.picker.pageSize")).to.equal(15);
     expect(boolPref(p, "work.picker.localFirst")).to.equal(true);
-    expect(stringPref(p, "agent.default"), "nobody's agent by default").to.equal(null);
   });
 });
 
@@ -71,11 +70,19 @@ describe("preferences — reading a person's file", () => {
     expect(boolPref(p, "work.picker.localFirst")).to.equal(true);
   });
 
+  // Policy Owner, 2026-10-12: gov work opens the agent used last time on the project, else the org default.
+  it("agent.default is retired: a file that still sets it is told why, and nothing else changes", () => {
+    const p = parsePreferences(JSON.stringify({ version: 1, agent: { default: "cursor" }, work: { picker: { pageSize: 20 } } }));
+    expect(specFor("agent.default")).to.equal(undefined);
+    expect(p.problems.join(" ")).to.contain("agent.default: retired").and.contain("used last time on the project");
+    expect(numberPref(p, "work.picker.pageSize")).to.equal(20);
+  });
+
   it("a key gov does not know is named, not silently dropped", () => {
     const p = parsePreferences(JSON.stringify({ work: { picker: { pageSize: 20, colour: "blue" } }, wat: 1 }));
     expect(p.problems.join(" ")).to.contain("work.picker.colour").and.contain("wat");
     expect(numberPref(p, "work.picker.pageSize"), "and the good keys still apply").to.equal(20);
-    expect(unknownKeys({ version: 1, agent: { default: "x" } }), "version and known keys are not unknown").to.deep.equal([]);
+    expect(unknownKeys({ version: 1, work: { agent: { ask: "never" } } }), "version and known keys are not unknown").to.deep.equal([]);
   });
 });
 
@@ -84,7 +91,6 @@ describe("preferences — changing one", () => {
     expect(coerce(specFor("work.picker.pageSize")!, " 25 ")).to.deep.equal({ value: 25 });
     expect(coerce(specFor("work.picker.localFirst")!, "no")).to.deep.equal({ value: false });
     expect(coerce(specFor("display.color")!, "never")).to.deep.equal({ value: "never" });
-    expect(coerce(specFor("agent.default")!, "null"), "a preference can be unset").to.deep.equal({ value: null });
   });
 
   it("refuses what the setting does not allow, and says what it wanted", () => {

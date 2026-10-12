@@ -90,8 +90,10 @@ At the end you'll see a **"Next steps"** block printing the exact `cd` target pl
 
 ### Choosing your agent
 
-`gov work` opens an AI agent in the project. Before it does, it lists every agent your
-organization has approved — including ones not yet installed on this machine:
+`gov work` opens an AI agent in the project. If your organization approves only one agent
+and it is installed, gov opens it straight away and prints one line saying which agent and
+why. If your organization approves more than one, gov first lists them all — including ones
+not yet installed on this machine:
 
 ```
   Agent for PRJ-31 (approved by Geneva ERS):
@@ -101,8 +103,11 @@ organization has approved — including ones not yet installed on this machine:
   Choose [1/2/3] (Enter = 1, IBM Bob) :
 ```
 
-- **Press Enter** to take the default: your own preference if you have set one, otherwise
-  your organization's default.
+- **Press Enter** to take the default: the agent you used last time on this project. For a
+  project you are starting from scratch, or when last time's agent is no longer approved or
+  no longer installed, the default is your organization's default instead. gov remembers
+  your choice per project, on this machine only, in your own state folder
+  (`preferences/<your-gh-login>/state/agent/`) — never in the governance repository.
 - **Pick one that is not installed** and gov offers to install it for you, the same way
   `gov agent install <id>` does. Say no, and you are back at the list.
 - **If an agent cannot run because of its account** — a free trial that has ended, a plan or
@@ -112,9 +117,8 @@ organization has approved — including ones not yet installed on this machine:
 
 To always open your default without being asked, run
 `gov preferences set work.agent.ask never`. gov still tells you which agent it opened, and
-`gov preferences set work.agent.ask always` brings the question back. To set your own
-default, run `gov preferences set agent.default <id>` — it must be an agent your
-organization approves.
+`gov preferences set work.agent.ask always` brings the question back. There is no separate
+personal default: what you choose on a project is what Enter offers next time on it.
 
 When there is no terminal to ask in (a script, a CI job), gov does not ask: it uses the
 default and says so. Name a different one with `gov work --agent=<id>`.

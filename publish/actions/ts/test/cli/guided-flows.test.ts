@@ -1097,10 +1097,80 @@ describe("gov-work — the agent picker lists every approved agent (2026-10-08)"
     expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
   });
 
-  it("Enter is YOUR preference when you set one, even an agent still to install", async () => {
-    const { deps: d, asked } = geneva({ agentPreference: () => "claude-code", answers: ["1"] });
+  // ── Policy Owner, 2026-10-12: a list only when there is a choice; Enter is what you used LAST TIME ───────────
+  /** An in-memory disk holding gov's per-person state; nothing else exists on it. */
+  const memFs = (seed: Record<string, string> = {}) => {
+    const files = new Map<string, string>(Object.entries(seed).map(([k, v]) => [px(k), v]));
+    const fs: Fs = { ...fsWith([]), readFile: (f) => files.get(px(f)) ?? null, writeFile: (f, c) => { files.set(px(f), c); }, mkdirp() {} };
+    return { fs, files };
+  };
+  const RECORD_7 = "/work/preferences/rk/state/agent/PRJ-7-alpha.json";
+  const last = (agent: string) => JSON.stringify({ agent, at: "2026-10-11T00:00:00.000Z" });
+
+  it("resuming a project: Enter is the agent you used LAST TIME on it", async () => {
+    const { fs } = memFs({ [RECORD_7]: last("claude-code") });
+    const { deps: d, asked, out, launched } = geneva({ fs, hasTool: (c: string) => c === "bob" || c === "claude", answers: [""] });
     await runWorkFlow(d);
     expect(asked).to.include("  Choose [1/2/3] (Enter = 3, Claude Code) : ");
+    expect(out.join("\n")).to.match(/3\) Claude Code\s+installed · used last time/);
+    expect(launched.map(([a]) => a)).to.deep.equal(["claude-code"]);
+  });
+
+  it("last time's agent no longer installed: Enter falls back to the org default", async () => {
+    const { fs } = memFs({ [RECORD_7]: last("claude-code") });
+    const { deps: d, asked } = geneva({ fs, answers: ["1"] });   // Bob only on this machine
+    await runWorkFlow(d);
+    expect(asked).to.include("  Choose [1/2/3] (Enter = 1, IBM Bob) : ");
+  });
+
+  it("last time's agent the org no longer approves: Enter falls back to the org default", async () => {
+    const { fs } = memFs({ [RECORD_7]: last("cursor") });
+    const { deps: d, asked } = geneva({ fs, hasTool: (c: string) => c === "bob" || c === "cursor-agent", answers: ["1"] });
+    await runWorkFlow(d);
+    expect(asked).to.include("  Choose [1/2/3] (Enter = 1, IBM Bob) : ");
+  });
+
+  it("seeding a project from scratch: Enter is the org default, whatever an old record says", async () => {
+    const { fs } = memFs({ "/work/preferences/rk/state/agent/PRJ-9-infra.json": last("claude-code") });
+    const { deps: d, asked, launched } = geneva({
+      fs, hasTool: (c: string) => c === "bob" || c === "claude", answers: [""],
+      projects: projects([{ number: 9, title: "Infra" }]), anchor: anchorFor({}),
+    });
+    await runWorkFlow(d);
+    expect(asked).to.include("  Choose [1/2/3] (Enter = 1, IBM Bob) : ");
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+  });
+
+  it("the choice is recorded per project and per developer, locally, once it is made", async () => {
+    const { fs, files } = memFs();
+    const { deps: d } = geneva({ fs, answers: ["2"], install: ["y"] });
+    await runWorkFlow(d);
+    const rec = files.get(px(RECORD_7));
+    expect(rec, "written under the person's own state folder").to.be.a("string");
+    expect(JSON.parse(rec!).agent).to.equal("openai-codex");
+    // …and the next session on the project offers it as Enter.
+    const again = geneva({ fs, hasTool: (c: string) => c === "bob" || c === "codex", answers: [""] });
+    await runWorkFlow(again.deps);
+    expect(again.asked).to.include("  Choose [1/2/3] (Enter = 2, OpenAI Codex) : ");
+  });
+
+  it("ONE approved agent, installed: no list, no prompt — one line says which and why", async () => {
+    const { fs, files } = memFs();
+    const { deps: d, out, asked, launched } = geneva({ fs, approvedAgents: () => [{ id: "ibm-bob", default: true }] });
+    await runWorkFlow(d);
+    expect(asked.some((q) => /Choose \[/.test(q)), "no prompt").to.equal(false);
+    expect(out.join("\n")).to.not.contain("Agent for");
+    expect(out.filter((l) => /IBM Bob/.test(l))).to.deep.equal(["  Opening IBM Bob — the only agent your organization approves."]);
+    expect(launched.map(([a]) => a)).to.deep.equal(["ibm-bob"]);
+    expect(JSON.parse(files.get(px(RECORD_7))!).agent, "and recorded like any choice").to.equal("ibm-bob");
+  });
+
+  it("work.agent.ask=never on a resumed project opens last time's agent, and says that is why", async () => {
+    const { fs } = memFs({ [RECORD_7]: last("claude-code") });
+    const { deps: d, out, launched } = geneva({ fs, hasTool: (c: string) => c === "bob" || c === "claude" });
+    await runWorkFlow(d, { agentAsk: "never" });
+    expect(out.join("\n")).to.contain("Using Claude Code — the agent you used last time on this project.");
+    expect(launched.map(([a]) => a)).to.deep.equal(["claude-code"]);
   });
 
   it("work.agent.ask=never: no question — but gov names the agent and says how to change that", async () => {

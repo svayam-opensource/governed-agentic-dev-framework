@@ -9,9 +9,13 @@
  *
  * THE LINE THIS FILE MUST NOT CROSS. A key here is a preference, never policy: policy lives in
  * `org-config.yaml` and the org's knowledge, and a preference only ever chooses INSIDE what policy allows.
- * `agent.default` is the shape of that rule — it must name an agent the org approved, and if the org withdraws
- * it the preference is ignored AT USE and gov says so (agent-choice.ts already does this). Nothing that
+ * `work.agent.ask` is the shape of that rule — it changes whether you are asked, never which agents the org
+ * allows. Nothing that
  * changes what gov does to shared state, or how a script behaves, belongs here.
+ *
+ * `agent.default` WAS RETIRED (Policy Owner, 2026-10-12). `gov work` now opens the agent you used LAST TIME on the
+ * project, else your organization's default (cli/last-agent.ts) — a standing per-person default competed with
+ * that. A file that still sets it is told so (RETIRED, below), and the key is dropped the next time gov saves.
  *
  * EVERY KEY HAS A DEFAULT THAT IS RIGHT FOR MOST PEOPLE, so nobody has to open the file to get a sensible gov.
  * A value out of range, or a key gov does not know, is REPORTED and ignored — never a reason to stop a command
@@ -35,10 +39,10 @@ export interface PrefSpec {
  * for what a valid value is — the three things that keep this file from becoming a junk drawer.
  */
 export const PREFS: readonly PrefSpec[] = [
-  { key: "agent.default", what: "the agent gov launches for you (must be one your org approves)", def: null, kind: "string" },
-  // ASK BY DEFAULT (Policy Owner, 2026-10-08): every approved agent is offered, Enter takes your default. `never`
-  // picks without asking — your preference, else the org default — and still names the agent it opened.
-  { key: "work.agent.ask", what: "ask which approved agent to open on every `gov work` (never: open your default without asking)", def: "always", kind: "enum", values: ["always", "never"] },
+  // ASK BY DEFAULT (Policy Owner, 2026-10-08; 2026-10-12): when the org approves more than one agent they are
+  // offered, Enter takes the default — the one used last time on the project, else the org's. `never` picks that
+  // default without asking, and still names the agent it opened.
+  { key: "work.agent.ask", what: "ask which approved agent to open on `gov work` when your org approves more than one (never: open the one you used last time on the project, else the org default)", def: "always", kind: "enum", values: ["always", "never"] },
   { key: "work.picker.localFirst", what: "list projects already on this machine first (no GitHub call)", def: true, kind: "boolean" },
   { key: "work.picker.localOrder", what: "how the local list is ordered", def: "last-used", kind: "enum", values: ["last-used", "number"] },
   { key: "work.picker.pageSize", what: "how many projects a page of the picker shows", def: 15, kind: "number", min: 5, max: 50 },
@@ -49,6 +53,11 @@ export const PREFS: readonly PrefSpec[] = [
 ];
 
 export const specFor = (key: string): PrefSpec | undefined => PREFS.find((p) => p.key === key);
+
+/** Settings gov once had, and why each went — so a file that still sets one is told, not just "unknown". */
+export const RETIRED: Readonly<Record<string, string>> = {
+  "agent.default": "retired — gov work now opens the agent you used last time on the project, else your organization's default",
+};
 
 export type PrefValue = string | number | boolean | null;
 export interface Preferences { readonly values: ReadonlyMap<string, PrefValue>; readonly problems: readonly string[] }
@@ -106,7 +115,7 @@ export function parsePreferences(text: string | null): Preferences {
     if (why) { problems.push(`${why} — using the default (${String(spec.def)})`); continue; }
     values.set(spec.key, raw as PrefValue);
   }
-  for (const key of unknownKeys(doc)) problems.push(`${key}: gov does not know this setting — ignored`);
+  for (const key of unknownKeys(doc)) problems.push(`${key}: ${RETIRED[key] ?? "gov does not know this setting"} — ignored`);
   return { values, problems };
 }
 
