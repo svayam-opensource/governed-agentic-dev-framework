@@ -84,6 +84,14 @@ After `gov close`, the framework offers to synthesize project knowledge into pro
 
 Knowledge close PRs are reviewed normally. Outcome (merged / rejected / abandoned) is reflected by the PR's state.
 
+### Merging into another project
+
+When the work belongs in another project, fold yours into it instead of closing:
+`gov signal merge --to <PRJ-n-slug> --title "…"`. You must own both boards. Every item on your board moves to
+theirs, gov names each of your repositories for `gov add-repo` in their workspace, and your board closes with its
+anchor, both pointing at the merge record. If any item cannot move, nothing is closed and you can run it again.
+See [working on a project §7](working-on-a-project.md#7-signals-between-projects).
+
 ### Cancelling
 
 ```bash

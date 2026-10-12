@@ -53,8 +53,22 @@ describe("gov signal — the verb", () => {
     expect(r.lines[0]).to.match(/Sent notice → PRJ-2-beta/);
   });
 
-  it("handover/merge say they are not in this build; outside a project it says so", async () => {
-    expect((await signalCommand(["handover"], { to: "PRJ-2-b", title: "t" }, deps())).lines.join()).to.match(/L08/);
+  it("outside a project it says so", async () => {
     expect((await signalCommand(["list"], {}, deps({ project: null }))).code).to.equal(1);
+  });
+});
+
+describe("gov signal — handover and merge through the verb (L08)", () => {
+  it("handover moves --items after a person confirms", async () => {
+    const d = deps();
+    const it_ = await d.tracker.create({ owner: "acme", name: "gov" }, { title: "x", body: "", assignee: "ann" }, [{ owner: "acme", number: 1 }]);
+    if (!it_.ok) throw new Error(it_.reason);
+    const r = await signalCommand(["handover"], { to: "PRJ-2-beta", title: "take x", items: it_.value.url }, d);
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    expect(d.asked[0]).to.match(/Hand 1 item\(s\) from PRJ-1-alpha over to PRJ-2-beta/);
+  });
+  it("merge refuses without ownership deps, and in an agent session", async () => {
+    expect((await signalCommand(["merge"], { to: "PRJ-2-beta", title: "t" }, deps())).lines.join()).to.match(/ownership/);
+    expect((await signalCommand(["merge"], { to: "PRJ-2-beta", title: "t" }, deps({ env: { [AGENT_SESSION_ENV]: "x" } }))).code).to.equal(1);
   });
 });

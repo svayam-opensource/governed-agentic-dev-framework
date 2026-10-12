@@ -8,6 +8,8 @@
  *   gov signal list [--add]
  *   gov signal ack <signal-url> [--answer "…"]
  *   gov signal send <draft.md>
+ *   gov signal handover --to <PRJ> --title "…" --items a,b      (an act: items move now)
+ *   gov signal merge --to <PRJ> --title "…"                     (an act: this project folds into <PRJ>)
  */
 import type { WorkTrackerPort } from "../ports/work-tracker.js";
 import type { RepoRef } from "../ports/vcs.js";
@@ -15,6 +17,8 @@ import { sendSignal, type SignalEnv } from "../signal/send.js";
 import { listSignals, addIncomingToBoard, manifestLines } from "../signal/list.js";
 import { ackSignal } from "../signal/ack.js";
 import { parseDraft } from "../signal/draft.js";
+import { handover } from "../signal/handover.js";
+import { mergeProjects, type MergeDeps } from "../signal/merge.js";
 import { sendGuard, SIGNAL_KINDS, type SignalKind } from "../signal/model.js";
 
 export interface SignalVerbDeps {
@@ -28,12 +32,15 @@ export interface SignalVerbDeps {
   readonly interactive: boolean;
   readonly confirm: (question: string) => Promise<boolean>;
   readonly readFile: (p: string) => string | null;
+  /** merge: who owns a board, and which repositories it links. */
+  readonly merge?: MergeDeps;
 }
 
 type Flags = Readonly<Record<string, string | boolean>>;
 const str = (f: Flags, k: string): string | undefined => (typeof f[k] === "string" ? (f[k] as string) : undefined);
 const USAGE = [
   "usage: gov signal ask|depends|notice --to <PRJ-n-slug> --title \"…\" [--body-file f] [--items a,b]",
+  "       gov signal handover --to <PRJ-n-slug> --title \"…\" --items a,b · gov signal merge --to <PRJ-n-slug> --title \"…\"",
   "       gov signal list [--add] · gov signal ack <signal-url> [--answer \"…\"] · gov signal send <draft.md>",
 ];
 
@@ -87,7 +94,6 @@ export async function signalCommand(positionals: readonly string[], flags: Flags
     ({ kind, to, title, body, items } = dr.value);
   } else if ((SIGNAL_KINDS as readonly string[]).includes(sub)) {
     kind = sub as SignalKind;
-    if (kind === "handover" || kind === "merge") return { code: 1, lines: [`gov signal ${kind} is not available in this build yet (plan 03 L08).`] };
     to = str(flags, "to"); title = str(flags, "title");
     const bf = str(flags, "body-file");
     body = bf ? (d.readFile(bf) ?? "") : (str(flags, "body") ?? "");
@@ -96,8 +102,19 @@ export async function signalCommand(positionals: readonly string[], flags: Flags
     return { code: 2, lines: [`unknown signal '${sub}'.`, ...USAGE] };
   }
   if (!to || !title) return { code: 2, lines: ["a signal needs --to <PRJ-n-slug> and --title.", ...USAGE] };
-  const refused = await personActs(`Send ${kind} "${title}" from ${d.project} to ${to}?`);
+  const refused = await personActs(kind === "merge"
+    ? `MERGE ${d.project} into ${to}? Every item moves and ${d.project}'s board closes.`
+    : kind === "handover" ? `Hand ${items.length} item(s) from ${d.project} over to ${to}?` : `Send ${kind} "${title}" from ${d.project} to ${to}?`);
   if (refused) return { code: 1, lines: [refused] };
+  if (kind === "handover") {
+    const h = await handover(env, { to, title, body, items });
+    return { code: h.ok ? 0 : 1, lines: h.lines };
+  }
+  if (kind === "merge") {
+    if (!d.merge) return { code: 1, lines: ["gov signal merge cannot read board ownership here."] };
+    const m = await mergeProjects(env, d.merge, { to, title, body });
+    return { code: m.ok ? 0 : 1, lines: m.lines };
+  }
   const r = await sendSignal(env, { kind, to, title, body, items });
   return { code: r.ok ? 0 : 1, lines: r.lines };
 }
