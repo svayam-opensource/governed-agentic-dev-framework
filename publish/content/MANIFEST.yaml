@@ -18,6 +18,11 @@
 #                      seed-once file. If it must, it ships a SCHEMA beside it (scaffold-auto)
 #                      that gov checks the org's file against — org-config.yaml and
 #                      framework/config/org-config.schema.yaml — or a reference the org copies from.
+#   seed-new         — A STARTER FOR NEW ORGS (PRJ-121 intent 01, §3.2). `gov setup` creates it like
+#                      seed-once; `gov upgrade` NEVER plans it — not create, not update, not conflict —
+#                      so an org that adopted before it shipped is not handed it, and one that has it
+#                      keeps its copy. `gov upgrade`'s dry run lists a missing one as "starter for new orgs".
+#                      NOTE the first rule above does not hold for this mode on an upgrade.
 #   (overlay-schema, the key-by-key MERGE org-config.yaml used to get, is gone — org-config split,
 #    Policy Owner 2026-10-06. Two writers of one file emptied an org's values once (Tier 0 #5); the
 #    framework now writes only the schema, and the org only the values.)

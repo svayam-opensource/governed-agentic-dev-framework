@@ -26,7 +26,7 @@ So, when you change this repo:
 | You add… | It reaches adopters? | To make it reach them |
 |---|---|---|
 | a new top-level file or folder (`site/`, `install.ps1`, …) | **no**, and that is correct | only if an adopter needs it: put it under `publish/content/` and add a MANIFEST row |
-| a file under `publish/content/` | **only with a MANIFEST row** (mode: scaffold-auto · seed-once · overlay-schema) | add the row |
+| a file under `publish/content/` | **only with a MANIFEST row** (mode: scaffold-auto · seed-once · seed-new) | add the row |
 | code under `publish/actions/` | **never**: adopters install the CLI from npm | nothing |
 
 **Do not bring back a delete list.** Until 2026-09-22 setup deleted a hand-kept list of framework paths, which

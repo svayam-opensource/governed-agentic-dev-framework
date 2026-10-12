@@ -127,7 +127,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
       { name: "--from <dir>", what: "take the content from a local directory instead of the content this gov carries. Checked the same way" },
     ],
     examples: ["gov upgrade", "gov upgrade --pr", "gov upgrade --apply"],
-    changes: "with `--apply`: rewrites framework-owned files, leaves the org's own alone (org-config.yaml and policies/governance.yaml included), runs each recorded one-time migration — the org-config split among them — and removes what the new layout retires. With `--pr`: the same, on a branch, as a pull request",
+    changes: "with `--apply`: rewrites framework-owned files, leaves the org's own alone (org-config.yaml and policies/governance.yaml included), runs each recorded one-time migration — the org-config split among them — and removes what the new layout retires. A starter for new orgs (a `seed-new` file) is never created or changed by an upgrade; the dry run lists a missing one as \"starter for new orgs\". With `--pr`: the same, on a branch, as a pull request",
     exit: EXIT_USUAL,
     seeAlso: ["doctor", "validate"],
   },

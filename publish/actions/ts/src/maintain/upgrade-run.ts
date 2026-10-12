@@ -215,7 +215,8 @@ function runMigration(adopterDir: string, ctx: MigrationContext): (how: string, 
 }
 
 /** `govVersion`: the gov applying the upgrade, named in the record of each relocation — else the content's VERSION, which a release keeps equal to its CLI's. */
-export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { apply: boolean; userHome?: string; govVersion?: string }): UpgradeSyncResult {
+/** `seed`: `gov setup` seeding a new workspace — a seed-new starter is created like seed-once (spec §3.2). */
+export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { apply: boolean; userHome?: string; govVersion?: string; seed?: boolean }): UpgradeSyncResult {
   const manifestPath = path.join(contentDir, "MANIFEST.yaml");
   if (!fs.existsSync(manifestPath)) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
 
@@ -229,7 +230,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
     const p = path.join(adopterDir, rel);
     return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null;
   };
-  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned);
+  const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned, { seed: opts.seed === true });
 
   if (!opts.apply) {
     return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
@@ -413,7 +414,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const readContent = (rel: string): string | null => { const p = path.join(contentDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
   const readAdopter = (rel: string): string | null => { const p = path.join(adopterDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
   const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned);
-  if (plan.actions.every((a) => a.kind === "same" || a.kind === "keep")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
+  if (plan.actions.every((a) => a.kind === "same" || a.kind === "keep" || a.kind === "starter")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
   // Before the branch exists: a PR that silently lacks the org-config merge would read as a complete upgrade.
   if (plan.actions.some((a) => a.kind === "refuse")) return { code: 1, lines: ["gov upgrade --pr: refused — nothing was written.", ...refusedLines(plan)] };
   // A refusal can only be found once the migration runs, if the workspace changed under the plan; the PR then stops.
