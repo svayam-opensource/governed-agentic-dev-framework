@@ -17,6 +17,7 @@ import { rulesRows, type RulesFacts } from "./rules-health.js";
 import { assessProtection, postureDiagnostic, postureOf } from "./protection-check.js";
 import type { ProtectionFacts } from "../lifecycle/branch-protection.js";
 import { appDiagnostic, secretsDiagnostic, type AppCheckResult } from "../cli/app-verb.js";
+import { lifecycleDiagnostic } from "../intent/lifecycle-policy.js";
 import { checkOwnerDiagnostic, codeownersDiagnostic, policyOwnerDiagnostic, roleListDiagnostic } from "./roles-health.js";
 
 export type DiagnosticStatus = "ok" | "warn" | "fail";
@@ -126,6 +127,11 @@ export interface DoctorFacts {
    * never ok.
    */
   readonly checksInstall?: { readonly name: string; readonly status: "ok" | "warn"; readonly detail: string };
+  /**
+   * `policies/active/ai-sdlc-lifecycle.md` (spec 03 X7): text, `null` none adopted, undefined = not read. A section gov
+   * cannot parse is an advisory row, never a failure.
+   */
+  readonly lifecycleText?: string | null;
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -235,6 +241,8 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // work for the org without them; unknown, retired and renamed keys WARN, each saying what to do.
     ...(facts.orgConfigText ? [orgConfigRow(facts.orgConfigText, facts.orgConfigSchemaText ?? null)] : []),
     ...(facts.governanceText !== undefined ? [governanceRow(facts.governanceText)] : []),
+    // THE ADOPTED LIFECYCLE (spec 03 X7): gov reads its step headings; one it cannot read is skipped, and said so here.
+    ...(() => { const l = lifecycleDiagnostic(facts.lifecycleText); return l ? [l] : []; })(),
     // THE TWO-KEY REVIEW (rule-model P1 rulings, 2026-10-06): the Check Owner approves the code of the org's check
     // actions, the Policy Owner the rules. Vacant, or both roles on one handle, and there is only one key.
     // WHO HOLDS EACH ROLE (GOV-FRM-033, W2-Q5) and whether CODEOWNERS still routes to them (GOV-FRM-083).
