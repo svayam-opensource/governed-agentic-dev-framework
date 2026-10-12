@@ -92,6 +92,16 @@ keys:
     about: Session settings the identity provider is told to honour.
     keys:
       access_ttl_sec: { type: string, about: "How long an access token lives, in seconds — the organization's standard (300 unless amended)." }
+  adapters:
+    type: map
+    about: >-
+      Which platform gov talks to for each kind of work: the work tracker (boards and issues), the code host
+      (change requests, reviews, required checks) and CI identity. Leave it out to use GitHub for all three, which
+      is the only platform gov has today. `gov doctor` fails on a name gov does not have.
+    keys:
+      work_tracker: { type: string, about: "Where projects and work items live. github (default)." }
+      vcs: { type: string, about: "The code host: repositories, change requests, reviews and required checks. github (default)." }
+      ci_identity: { type: string, about: "The CI whose signed identity gov can check. github (default) — GitHub Actions OIDC." }
   workspace_repo:
     type: string
     replaced: org_gov_repo

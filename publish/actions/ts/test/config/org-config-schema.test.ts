@@ -13,6 +13,7 @@ import {
   BUILT_IN_ORG_CONFIG_SCHEMA, ORG_CONFIG_SERVICE_KEYS, parseOrgConfigSchema, validateOrgConfig, defaultWorkRoot,
 } from "../../src/config/org-config.js";
 import { parseManifest } from "../../src/maintain/upgrade-sync.js";
+import { PORT_NAMES, PORT_CONFIG_KEYS } from "../../src/ports/index.js";
 
 const CONTENT = fileURLToPath(new URL("../../../../content/", import.meta.url));
 const SCHEMA_PATH = "framework/common/reference/org-config.schema.yaml";
@@ -38,6 +39,11 @@ describe("gov-work — the org-config schema (framework/common/reference/org-con
   it("documents every key under services:", () => {
     const doc = shipped();
     for (const k of ORG_CONFIG_SERVICE_KEYS) expect(doc, k).to.match(new RegExp(`^\\s+${k}:`, "m"));
+  });
+
+  it("documents every port under adapters:", () => {
+    const doc = shipped();
+    for (const p of PORT_NAMES) expect(doc, p).to.match(new RegExp(`^\\s+${PORT_CONFIG_KEYS[p]}:`, "m"));
   });
 
   it("keeps identity and infrastructure only", () => {

@@ -10,7 +10,8 @@ import type { ResolveResult } from "../resolve/types.js";
 import { workspaceStateMessage } from "../resolve/resolve-gov.js";
 import { checkVersionCompat } from "./version-compat.js";
 import { missingScopes, RECOMMENDED_SCOPES } from "./fix-env.js";
-import { parseOrgConfigSchema, validateOrgConfig, BUILT_IN_ORG_CONFIG_SCHEMA } from "../config/org-config.js";
+import { parseOrgConfigSchema, validateOrgConfig, BUILT_IN_ORG_CONFIG_SCHEMA, parseAdapterSelection } from "../config/org-config.js";
+import { PORT_NAMES, PORT_CONFIG_KEYS } from "../ports/index.js";
 import { GOVERNANCE_PATH, parseGovernance } from "../config/governance.js";
 import { agentsDiagnostic } from "../cli/approve-agents-step.js";
 import { rulesRows, type RulesFacts } from "./rules-health.js";
@@ -239,6 +240,7 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // (framework/common/reference/org-config.schema.yaml), the org owns the values. Missing required keys FAIL — gov cannot
     // work for the org without them; unknown, retired and renamed keys WARN, each saying what to do.
     ...(facts.orgConfigText ? [orgConfigRow(facts.orgConfigText, facts.orgConfigSchemaText ?? null)] : []),
+    ...(facts.orgConfigText ? adaptersRows(facts.orgConfigText) : []),
     ...(facts.governanceText !== undefined ? [governanceRow(facts.governanceText)] : []),
     // THE TWO-KEY REVIEW (rule-model P1 rulings, 2026-10-06): the Check Owner approves the code of the org's check
     // actions, the Policy Owner the rules. Vacant, or both roles on one handle, and there is only one key.
@@ -293,6 +295,18 @@ function orgConfigRow(text: string, schemaText: string | null): Diagnostic {
   ];
   if (!parts.length) return { name: "org-config", status: "ok", detail: "matches the schema — all keys recognised" };
   return { name: "org-config", status: r.missing.length ? "fail" : "warn", detail: parts.join("; ") };
+}
+
+/**
+ * `adapters:` in org-config.yaml — which platform answers each port (PRJ-121 intent 03, Q15). No block, no row:
+ * github is the default and there is nothing to say. A bad id FAILS, because every command that reaches that port
+ * would refuse it — better named here, once, than discovered mid-merge.
+ */
+function adaptersRows(text: string): Diagnostic[] {
+  const r = parseAdapterSelection(text);
+  if (!r.present) return [];
+  if (r.problems.length) return [{ name: "adapters", status: "fail", detail: r.problems.join("; ") }];
+  return [{ name: "adapters", status: "ok", detail: PORT_NAMES.map((p) => `${PORT_CONFIG_KEYS[p]} → ${r.selection[p]}`).join(", ") }];
 }
 
 /** policies/governance.yaml: present and readable, or what is wrong with it. */
