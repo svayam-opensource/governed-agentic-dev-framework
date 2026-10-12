@@ -97,7 +97,8 @@ describe("gov-work — gov agent install (#196)", () => {
     const p = planAgentInstall("cursor", [{ id: "cursor" }], () => false);
     expect(p.ok).to.equal(true);
     if (!p.ok) return;
-    expect(p.steps.map((s) => s.command[0])).to.include("sh");
+    // Run as a verified download now, not `sh -c "curl | bash"` (#205) — agent-script-pin.test.ts.
+    expect(p.steps.some((s) => s.script?.url === "https://cursor.com/install")).to.equal(true);
   });
 
   it("installs an extension into a host that exists", () => {
@@ -170,6 +171,7 @@ describe("gov-work — gov agent install on Windows (#223, plan 04 T10)", () => 
     const p = planAgentInstall("cursor", [{ id: "cursor" }], () => false, "linux");
     expect(p.ok).to.equal(true);
     if (!p.ok) return;
-    expect(p.steps.map((s) => s.command[0])).to.include("sh");
+    // Run as a verified download now, not `sh -c "curl | bash"` (#205) — agent-script-pin.test.ts.
+    expect(p.steps.some((s) => s.script?.url === "https://cursor.com/install")).to.equal(true);
   });
 });

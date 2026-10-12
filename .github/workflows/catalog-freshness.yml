@@ -7,12 +7,21 @@
 # It exits 1 only when a package exists that the VENDOR published for an agent the catalog says
 # gov cannot install. A lookalike from an unrelated maintainer is reported and ignored — that
 # refusal is the point (#201), not a limitation.
+#
+# VENDOR SCRIPT PINS (#205, ruling Q16 C). It also exits 1 when a PINNED vendor install script
+# no longer matches its `scriptSha256` — gov refuses that script at install time. The new digest is
+# written into src/cli/agent-catalog.ts and raised as a PULL REQUEST, never pushed: a person reads
+# the new script before the pin is trusted. The PR is a proposal, not an approval.
 name: catalog-freshness
 
 on:
   schedule:
     - cron: "0 6 * * 1"          # Mondays, 06:00 UTC
   workflow_dispatch:
+
+permissions:
+  contents: write          # push the proposal branch only — never the base branch
+  pull-requests: write     # open the pin proposal
 
 jobs:
   freshness:
@@ -24,10 +33,12 @@ jobs:
         with:
           node-version: "24"
       - name: Look
+        id: look
+        continue-on-error: true
         working-directory: publish/actions/ts
         run: |
           npm ci --no-audit --no-fund
-          npm run catalog:freshness
+          npm run catalog:freshness -- --write-pins
           # HARNESS PATHS, AGAINST THE VENDOR — not against gov's own copies of the belief.
           #
           # `harnessFileFor`, `ROOT_HARNESS_FILES` and `harness-manifest.yaml` are asserted
@@ -39,3 +50,23 @@ jobs:
           #
           # Advisory, like the catalog check: a vendor rename is news, not a build break.
           npm run harness:freshness
+      - name: Propose moved pins
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git diff --quiet -- publish/actions/ts/src/cli/agent-catalog.ts && { echo "no pin moved"; exit 0; }
+          branch="catalog-freshness/script-pins-$(date -u +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -m "catalog-freshness: propose new vendor script pins (#205)" -- publish/actions/ts/src/cli/agent-catalog.ts
+          git push origin "$branch"
+          gh pr create --base "${{ github.ref_name }}" --head "$branch" \
+            --title "catalog-freshness: vendor install script pins moved" \
+            --body "A pinned vendor install script no longer matches its scriptSha256, so gov refuses it at install time (#205, Q16 C). This PR carries the digest the vendor serves today. READ THE NEW SCRIPT before merging: the pin is only as good as that review. See the run log for URLs and both digests: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Verdict
+        if: steps.look.outcome == 'failure'
+        run: |
+          echo "catalog-freshness found something — see the Look step"
+          exit 1

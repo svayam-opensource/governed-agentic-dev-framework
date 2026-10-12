@@ -292,7 +292,7 @@ describe("gov-work — an install must come from the vendor it names (#201)", ()
       expect(i!.npm, "no npm coordinate — the one that was here was not IBM's").to.equal(undefined);
       expect(i!.url).to.match(/^https:\/\/bob\.ibm\.com/);
     }
-    expect(bob.install?.script, "IBM's script is the channel").to.match(/^curl -fsSL https:\/\/bob\.ibm\.com\//);
+    expect(bob.install?.script, "IBM's script is the channel").to.match(/^https:\/\/bob\.ibm\.com\//);
   });
 
   it("every install names where it comes from, runnable or not", () => {

@@ -28,6 +28,23 @@
 export type LaunchKind = "cli" | "ide" | "none";
 
 /**
+ * Where an agent comes from. `script` is the https URL of the VENDOR'S OWN install script; gov downloads it once,
+ * verifies it, and runs those exact bytes with bash (vendor-script.ts, #205, ruling Q16 C).
+ *
+ * `scriptSha256` PINS IT, where the vendor's script is stable across releases: a different script is refused,
+ * naming both digests. Leave it out where the vendor rewrites the script every release (Cursor's embeds its
+ * version) — then gov shows the URL and digest and asks. `npm run catalog:freshness` proposes new pins.
+ */
+export interface AgentInstall {
+  readonly npm?: string;
+  readonly brew?: string;
+  readonly script?: string;
+  readonly scriptSha256?: string;
+  readonly pip?: string;
+  readonly url: string;
+}
+
+/**
  * One way to run an approved agent (#196, Q8). The policy approves the AGENT — its
  * real question is which provider may see your code, and that does not change
  * between a CLI and an extension of the same tool — so a single approval brings all
@@ -38,8 +55,8 @@ export interface AgentVariant {
   readonly label: string;
   /** The command to probe and to launch. Extensions have none of their own. */
   readonly cmd?: string;
-  /** npm package, or a shell line for a vendor installer. */
-  readonly install?: { readonly npm?: string; readonly script?: string; readonly pip?: string; readonly url: string };
+  /** npm package, or the https URL of a vendor's install script (with its optional pin — see AgentInstall). */
+  readonly install?: AgentInstall;
   /** For extensions: the marketplace id, installed through the host's own CLI. */
   readonly extensionId?: string;
   /** The hosts that can carry this extension, in preference order. */
@@ -57,10 +74,11 @@ export interface AgentCandidate {
   readonly cmd?: string;
   /**
    * How to install it. `npm` is a named package from a named publisher; `script` is
-   * a vendor's own installer, piped into a shell. gov runs either — but only for an
-   * agent the org has approved, because approval IS the trust decision (#196, Q2).
+   * a vendor's own installer, downloaded once and verified before bash runs it (#205). gov
+   * runs either — but only for an agent the org has approved, because approval IS the trust
+   * decision about the vendor (#196, Q2); the digest is the check on the bytes.
    */
-  readonly install?: { readonly npm?: string; readonly brew?: string; readonly script?: string; readonly pip?: string; readonly url: string };
+  readonly install?: AgentInstall;
   /** The environment variable that would hold a key, so gov can report its absence. */
   readonly credentialEnv?: string;
   /**
@@ -158,6 +176,13 @@ export interface AccountFailurePattern {
  * WHAT IS VERIFIED, PRECISELY: that the flag exists and what the vendor says it does. Whether
  * the agent then runs the protocol needs a credential and a real session, which is the walk.
  */
+/**
+ * IBM's `bobshell.sh` takes the version as an argument and fetches the release itself, so the script is stable
+ * across Bob releases and is pinned. Fetched and hashed 2026-10-12 (10948 bytes). Cursor's `install` hard-codes
+ * its release (`versions/2026.10.01-e373342`) and so is unpinned — asked about instead (Q16 C).
+ */
+const BOB_SCRIPT_SHA256 = "875da3da486050071662c7072539e84d76510acef5d60ee1738da553c9e5b2cc";
+
 export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // promptArgv verified in use: both take the first message as a bare positional.
   { id: "claude-code", tool: "Claude Code", launch: "cli", cmd: "claude", promptArgv: ["{prompt}"],
@@ -174,11 +199,11 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
       { kind: "extension", label: "in VS Code", extensionId: "anthropic.claude-code", hosts: ["code", "cursor", "windsurf"] },
     ] },
   { id: "cursor", tool: "Cursor", launch: "cli", cmd: "cursor-agent", promptArgv: ["{prompt}"],
-    install: { script: "curl https://cursor.com/install -fsS | bash", url: "https://cursor.com/cli" },
+    install: { script: "https://cursor.com/install", url: "https://cursor.com/cli" },
     signupUrl: "https://cursor.com", vendor: "Cursor",
     variants: [
       { kind: "cli", label: "in the terminal", cmd: "cursor-agent",
-        install: { script: "curl https://cursor.com/install -fsS | bash", url: "https://cursor.com/cli" },
+        install: { script: "https://cursor.com/install", url: "https://cursor.com/cli" },
         login: ["cursor-agent", "login"] },
       // The editor IS the agent here — there is no Cursor extension for someone
       // else's host — so choosing it means installing an editor. That is the one
@@ -282,7 +307,7 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // Corporation; that is the only channel here. Restore an npm package only when it sits
   // in an IBM-owned scope, and let `every-npm-package-is-the-vendor's` say so.
   { id: "ibm-bob", tool: "IBM Bob", launch: "cli", cmd: "bob",
-    install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" },
+    install: { script: "https://bob.ibm.com/download/bobshell.sh", scriptSha256: BOB_SCRIPT_SHA256, url: "https://bob.ibm.com" },
     // Verified on a container: Bob prints its own sign-in URL and waits (#208).
     //
     // `-p` IS ONE-SHOT — corrected 2026-09-22 on a walk (bob 2.0.4). This comment used to say `-p` hands the
@@ -308,7 +333,7 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
       // authenticate, so there is nothing for gov to run — which is tier 1 working
       // exactly as intended, with gov never near the credential.
       { kind: "cli", label: "in the terminal", cmd: "bob",
-        install: { script: "curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash", url: "https://bob.ibm.com" } },
+        install: { script: "https://bob.ibm.com/download/bobshell.sh", scriptSha256: BOB_SCRIPT_SHA256, url: "https://bob.ibm.com" } },
       { kind: "editor", label: "the Bob IDE", cmd: "bob-ide", install: { url: "https://bob.ibm.com/download" } },
     ] },
   { id: "aider", tool: "Aider", launch: "cli", cmd: "aider",

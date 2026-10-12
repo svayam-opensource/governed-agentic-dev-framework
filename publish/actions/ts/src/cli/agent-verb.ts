@@ -18,6 +18,7 @@
  */
 import { AGENT_CATALOG, variantStatuses, runnableVariants, type AgentCandidate, type VariantStatus } from "./agent-catalog.js";
 import { defaultAgent, NO_AGENTS, type ApprovedAgent } from "../config/approved-agents.js";
+import type { VendorScript } from "./vendor-script.js";
 
 export interface AgentReportFacts {
   /** The org's block, or null when the policy carries none. */
@@ -158,12 +159,23 @@ export interface HostNeeded {
   readonly extensionId: string;
 }
 
+/**
+ * One install step. A `script` step's `command` is `bash -s`, and it is never run as-is: the performer downloads
+ * `script.url` once, verifies it (pinned digest, or the person's yes), and feeds those bytes to bash on stdin
+ * (vendor-script.ts, #205). `curl … | bash` is gone — that ran whatever the server sent that second.
+ */
+export interface InstallStep {
+  readonly what: string;
+  readonly command: readonly string[];
+  readonly script?: VendorScript;
+}
+
 export type InstallPlan =
   | { readonly ok: false; readonly message: string }
   | {
       readonly ok: true;
       readonly agent: AgentCandidate;
-      readonly steps: readonly { readonly what: string; readonly command: readonly string[] }[];
+      readonly steps: readonly InstallStep[];
       readonly signIn: readonly string[] | null;
       readonly signupUrl: string | null;
       /** Routes waiting on a host editor. Empty when every route is runnable as-is. */
@@ -206,7 +218,7 @@ export function planAgentInstall(
     };
   }
 
-  const steps: { what: string; command: readonly string[] }[] = [];
+  const steps: InstallStep[] = [];
   const hostNeeded: HostNeeded[] = [];
   // ROUTES WINDOWS CANNOT TAKE (#223, Q10 B). A vendor's `curl … | bash` is a POSIX shell script: on Windows
   // there is no `sh` to run it, and guessing a PowerShell equivalent would be running code nobody reviewed.
@@ -232,7 +244,10 @@ export function planAgentInstall(
     const inst = v.variant.install;
     if (inst?.npm) steps.push({ what: v.variant.label, command: ["npm", "install", "-g", inst.npm] });
     else if (inst?.script && win) noWindows.push({ what: v.variant.label, url: inst.url });
-    else if (inst?.script) steps.push({ what: v.variant.label, command: ["sh", "-c", inst.script] });
+    else if (inst?.script) {
+      steps.push({ what: v.variant.label, command: ["bash", "-s"],
+        script: { url: inst.script, ...(inst.scriptSha256 ? { sha256: inst.scriptSha256 } : {}) } });
+    }
     else if (inst?.pip) steps.push({ what: v.variant.label, command: [python, "-m", "pip", "install", "--user", inst.pip] });
   }
 
