@@ -32,6 +32,8 @@ import {
   rankProjects, resolvePickerInput, type LevelView, type LocalOrder, type PickerLevel,
   type PickerRow, type PickerSettings,
 } from "./project-picker.js";
+import { inForce, type RuleRow } from "../rules/model/rule-row.js";
+import { runCaptureAsync, type CapturedRun } from "../run-process.js";
 import { lastUsedLabel, orderLocal, scanLocalProjects, type LocalProject } from "../lifecycle/local-projects.js";
 
 /**
@@ -246,6 +248,136 @@ export function sessionStartPrompt(projectId: string, workspaceRepo: string, gov
 }
 
 
+/**
+ * THE kickoff prompt — the one every gov-launched session starts with, interactive or headless (03 §3.4).
+ *
+ * `gov work` hands it to the agent it opens; `gov autorun` hands it to the agent it runs headless. One function, so
+ * the two cannot drift: a headless session that skipped or reworded the session-start protocol would be the one
+ * session nobody watches, governed less than the ones people do.
+ */
+export function kickoffPrompt(
+  projectId: string,
+  config: { readonly workspaceRepo: string; readonly govHome?: string },
+  snapshot?: GovSnapshot | null,
+): string {
+  return sessionStartPrompt(projectId, config.workspaceRepo, config.govHome, snapshot);
+}
+
+// ── HEADLESS AGENT MODE (PRJ-121 intent 03, L16; 03-Q10, 03-Q16) ─────────────────────────────────────────────
+//
+// `gov autorun` runs one agent per item with nobody at the terminal. These are its launch pieces, pure where they
+// can be: which argv (or a refusal), what the exit means, and one spawn that captures output under a time budget.
+
+/** How a headless run ended. `c01` halts the whole autorun; `failed` is that item only (03 §3.3). */
+export type HeadlessOutcome = "ok" | "failed" | "c01";
+
+export interface HeadlessSpec {
+  readonly cmd: string;
+  readonly args: readonly string[];
+  /** The whole prompt handed over: the kickoff, then the task brief when there is one. */
+  readonly promptText: string;
+}
+
+/**
+ * The command for running `agentId` headless, or why it may not (03-Q16 (b): only an agent whose non-interactive
+ * mode was verified and recorded in the catalog; every other is refused with a reason, never launched and hoped).
+ *
+ * The prompt is the kickoff VERBATIM, with the task brief after a blank line: the session-start protocol runs first,
+ * then the work. A brief never replaces the kickoff.
+ */
+export function headlessLaunchSpec(
+  agentId: string,
+  kickoff: string,
+  catalog: readonly AgentCandidate[] = AGENT_CATALOG,
+  task?: string,
+): HeadlessSpec | { readonly refused: string } {
+  const c = catalog.find((a) => a.id === agentId);
+  if (!c) return { refused: `'${agentId}' is not an agent gov knows, so it cannot be run headless.` };
+  if (!c.cmd || c.launch !== "cli") {
+    return { refused: `${c.tool} is not a command-line agent gov can start, so it cannot be run headless.` };
+  }
+  if (!c.headlessArgv) {
+    return { refused: `${c.tool} has no verified headless mode in gov's catalog (headlessArgv), so gov will not run it `
+      + "without a person at the terminal (03-Q16). Run it interactively with `gov work`, or choose an agent that has one." };
+  }
+  const promptText = task ? `${kickoff}\n\n${task}` : kickoff;
+  return { cmd: c.cmd, args: c.headlessArgv.map((a) => a.replaceAll("{prompt}", promptText)), promptText };
+}
+
+/** A GOV id anywhere in text — the shape `parseGovId` accepts (`GOV-<scope>-NNN`). */
+const GOV_ID_IN_TEXT = /\bGOV-[A-Z][A-Z0-9]{1,5}-\d{3,}\b/g;
+
+/** The ids that halt an autorun: the in-force C01 rows of the loaded rule stores (framework and org). */
+export function c01IdsFromRules(rows: readonly RuleRow[]): ReadonlySet<string> {
+  return new Set(inForce(rows).filter((r) => r.level === "C01").map((r) => r.id));
+}
+
+/**
+ * What a headless exit means (03-Q10, ruled (a)+(b)).
+ *
+ *   exit 0                         ok — even when the output cites a C01 rule: a context manifest NAMES the rules it
+ *                                  read (the kickoff itself cites GOV-FRM-086), and reading one is not breaking it.
+ *   non-zero, a C01 id in output   c01 — the agent's own exit carries a C01 refusal; the run halts.
+ *   any other non-zero, or killed  failed — a per-item failure (Q10 (c) is explicitly not a halt).
+ *
+ * Only ids `isC01` accepts count: an unknown or C02/C03 id on a failing exit is a failure, not a halt.
+ */
+export function classifyHeadlessExit(
+  code: number | null, output: string, isC01: (id: string) => boolean,
+): { readonly outcome: HeadlessOutcome; readonly c01Ids: readonly string[] } {
+  if (code === 0) return { outcome: "ok", c01Ids: [] };
+  const ids = [...new Set(output.match(GOV_ID_IN_TEXT) ?? [])].filter(isC01);
+  return ids.length && code !== null ? { outcome: "c01", c01Ids: ids } : { outcome: "failed", c01Ids: [] };
+}
+
+export interface HeadlessRunDeps {
+  readonly exec: (cmd: string, args: readonly string[], opts: { readonly cwd: string; readonly timeoutMs?: number }) => Promise<CapturedRun>;
+}
+
+export interface HeadlessRequest {
+  readonly agent: string;
+  /** The project directory, as `gov work` would launch in. */
+  readonly cwd: string;
+  /** {@link kickoffPrompt} for the project — the caller builds it so it is the same one `gov work` would send. */
+  readonly kickoff: string;
+  /** What to do once the protocol has run (autorun's per-item brief). */
+  readonly task?: string;
+  readonly isC01: (id: string) => boolean;
+  /** The per-item wall clock (03-Q11); past it the agent is killed and the item fails. */
+  readonly timeoutMs?: number;
+}
+
+export interface HeadlessResult {
+  readonly outcome: HeadlessOutcome | "refused";
+  /** Why it was refused — set only for `refused`. */
+  readonly reason?: string;
+  readonly c01Ids: readonly string[];
+  readonly exitCode: number | null;
+  /** stdout then stderr, as the agent wrote them. */
+  readonly output: string;
+  readonly timedOut?: boolean;
+  readonly argv?: readonly string[];
+}
+
+/** The real process runner for {@link runHeadless}: no terminal, output captured, logged (run-process.ts). */
+export const HEADLESS_EXEC: HeadlessRunDeps = {
+  exec: (cmd, args, o) => runCaptureAsync(cmd, args, { cwd: o.cwd, pgm: "gov-work:cli:work-flow", fn: "runHeadless",
+    ...(o.timeoutMs ? { timeoutMs: o.timeoutMs } : {}) }),
+};
+
+/** Run one agent headless and say how it ended. A refusal never spawns anything. */
+export async function runHeadless(
+  deps: HeadlessRunDeps, req: HeadlessRequest, catalog: readonly AgentCandidate[] = AGENT_CATALOG,
+): Promise<HeadlessResult> {
+  const spec = headlessLaunchSpec(req.agent, req.kickoff, catalog, req.task);
+  if ("refused" in spec) return { outcome: "refused", reason: spec.refused, c01Ids: [], exitCode: null, output: "" };
+  const r = await deps.exec(spec.cmd, spec.args, { cwd: req.cwd, ...(req.timeoutMs ? { timeoutMs: req.timeoutMs } : {}) });
+  const output = r.stderr ? `${r.stdout}${r.stdout.endsWith("\n") || !r.stdout ? "" : "\n"}${r.stderr}` : r.stdout;
+  const c = classifyHeadlessExit(r.timedOut ? null : r.code, output, req.isC01);
+  return { outcome: c.outcome, c01Ids: c.c01Ids, exitCode: r.code, output, argv: [spec.cmd, ...spec.args], ...(r.timedOut ? { timedOut: true } : {}) };
+}
+
+
 export interface StartSession {
   readonly projectId: string;
   /** the project directory the agent must run in — repos are its children. */
@@ -270,7 +402,7 @@ export function startSession(
 ): StartSession | undefined {
   const dir = path.join(projectWorkRoot, projectId);   // path.join, not a literal '/': on Windows the two do not match
   if (!exists(dir)) return undefined;
-  return { projectId, dir, prompt: sessionStartPrompt(projectId, workspaceRepo) };
+  return { projectId, dir, prompt: kickoffPrompt(projectId, { workspaceRepo }) };
 }
 
 /**
@@ -1011,7 +1143,7 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
       print(`  Set it up first:  gov work --project=${p.projectId}`);
       return 1;
     }
-    deps.printPrompt?.(sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome));
+    deps.printPrompt?.(kickoffPrompt(p.projectId, deps.config));
     return 0;
   }
 
@@ -1091,7 +1223,7 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
   for (const line of mirrorWarnings(mirror)) print(line);
   // …and the governing files it must read, copied from the default branch into the project (PRJ-121).
   const snap = deps.snapshotGovernance?.(projectDir) ?? null;
-  const kickoff = (): string => sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome, snap);
+  const kickoff = (): string => kickoffPrompt(p.projectId, deps.config, snap);
   // A GOVERNED SESSION IS EVIDENCE (spec 02 §3.1): a `session` record when the agent starts and when it ends —
   // written only if the paid module runs; dropped otherwise. The quiet notice, when evidence was wanted, is its own
   // line under the manifest (deps.evidenceNotice).
