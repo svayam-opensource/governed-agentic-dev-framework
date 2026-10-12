@@ -13,6 +13,8 @@
  */
 import { PORT_NAMES, PORT_CONFIG_KEYS, type PortName, type PortTypes, type Ports } from "../ports/index.js";
 import { MEMORY_ADAPTER_ID } from "./memory/index.js";
+import { createGithubCiIdentity } from "./github/ci-identity.js";
+import { createMemoryCiIdentity } from "./memory/ci-identity.js";
 
 export type AdapterId = string;
 
@@ -54,12 +56,15 @@ export const SELECTABLE_ADAPTERS: { readonly [K in PortName]: readonly AdapterId
 
 /**
  * The adapters gov ships. A port's table fills in as its task lands — the empty ones are the spots it fills:
- * `workTracker` (plan 05 T04: `github/work-tracker.ts`; plan 03 L02: + `memory`), `vcs` (L03), `ciIdentity` (L04).
+ * `workTracker` (plan 05 T04: `github/work-tracker.ts`; plan 03 L02: + `memory`), `vcs` (L03). `ciIdentity` is L04's.
  */
 export const builtInProviders: AdapterProviders = {
   workTracker: {},
   vcs: {},
-  ciIdentity: {},
+  ciIdentity: {
+    github: (ctx) => createGithubCiIdentity({ ...(ctx.env ? { env: ctx.env } : {}), ...(ctx.fetch ? { fetch: ctx.fetch } : {}) }),
+    memory: () => createMemoryCiIdentity(),
+  },
 };
 
 /** No adapter registered under that id for that port. The message names the id, the port and what exists. */

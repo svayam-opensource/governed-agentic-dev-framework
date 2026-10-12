@@ -901,6 +901,15 @@ Leave the block out, or leave a port out of it, and gov uses `github`. `gov doct
 adapter gov does not have, and says which port and which name. gov never falls back to a different adapter in
 silence, because then it would report work done on a platform it never touched.
 
+### 13.3 Proving where a run came from
+
+A command running in CI can ask the CI identity port for a signed token that says which repository, branch and
+run it belongs to, and who started it. On GitHub this is the job's OIDC token, which a job receives only when
+its workflow grants `id-token: write`. Outside CI the port says it is not available, and gov does not guess.
+
+gov reads what the token says but does not check its signature itself. The service the token is shown to checks
+it. gov never writes the token to its log, prints it, or puts it in an error message.
+
 ---
 
 ## Glossary
