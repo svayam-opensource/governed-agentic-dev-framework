@@ -93,6 +93,8 @@ Use this structure in your first reply:
 - **Status:** <derived from the GitHub board (open = active), or n/a>
 - **Repos:** <the board's linked repos, or n/a>
 - **Open todos:** <bullets from todo.md ## Open, or "none">
+- **Incoming signals:** <open signals to this project, from `gov signal list`, or "none">
+- **Outgoing signals:** <open signals from this project, from `gov signal list`, or "none">
 - **Layers loaded:** org ✓/✗ · project ✓/✗ · repo ✓/✗ · prefs ✓/✗
 - **Awaiting:** your direction (no tasks proposed)
 ```

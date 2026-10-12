@@ -118,6 +118,8 @@ export interface WorkTrackerPort {
   link(a: ItemRef, b: ItemRef, kind: LinkKind): Promise<Result<LinkOutcome>>;
   label(i: ItemRef, add: readonly string[], remove?: readonly string[]): Promise<Result<void>>;
   comment(i: ItemRef, text: string): Promise<Result<void>>;
+  /** Close the item itself (a signal answered, a notice acknowledged — plan 03 L07). Closing a closed item is ok. */
+  close(i: ItemRef): Promise<Result<void>>;
   search(q: SearchQuery): Promise<Result<Item[]>>;
   createProject(owner: string, title: string): Promise<Result<ProjectRef>>;
   /** Close it; with `pointer` (where the work went), the project's description says so first. */

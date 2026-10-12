@@ -21,6 +21,8 @@ export interface MemoryProjectSeed {
   readonly title: string;
   /** false: the board has no Status field, so setState fails `no-field`. Default true. */
   readonly statusField?: boolean;
+  /** false: the invoker may read the board but not add to it — addToProject fails `denied`. Default true. */
+  readonly writable?: boolean;
 }
 
 export interface MemoryWorkTrackerSeed {
@@ -43,7 +45,7 @@ export interface MemoryWorkTracker extends WorkTrackerPort {
 }
 
 interface MItem { url: string; title: string; body: string; state: "open" | "closed"; labels: string[]; assignees: string[]; comments: string[] }
-interface MProject { ref: ProjectRef; title: string; closed: boolean; description: string; statusField: boolean; items: Map<string, WorkState | null> }
+interface MProject { ref: ProjectRef; title: string; closed: boolean; description: string; statusField: boolean; writable: boolean; items: Map<string, WorkState | null> }
 
 const pkey = (p: ProjectRef): string => `${p.owner.toLowerCase()}#${p.number}`;
 const done: Result<void> = ok(undefined);
@@ -56,7 +58,7 @@ export function createMemoryWorkTracker(seed: MemoryWorkTrackerSeed = {}): Memor
   let blocksRefused = false;
 
   const addProject = (s: MemoryProjectSeed): void => {
-    projects.set(pkey(s.ref), { ref: { owner: s.ref.owner, number: s.ref.number }, title: s.title, closed: false, description: "", statusField: s.statusField !== false, items: new Map() });
+    projects.set(pkey(s.ref), { ref: { owner: s.ref.owner, number: s.ref.number }, title: s.title, closed: false, description: "", statusField: s.statusField !== false, writable: s.writable !== false, items: new Map() });
   };
   for (const s of seed.projects ?? []) addProject(s);
 
@@ -89,6 +91,7 @@ export function createMemoryWorkTracker(seed: MemoryWorkTrackerSeed = {}): Memor
     const pr = projects.get(pkey(p));
     if (!pr) return noProject(p);
     if (!items.has(i.url)) return noItem(i);
+    if (!pr.writable) return fail(`denied: may not add items to project ${p.owner}#${p.number}`);
     if (!pr.items.has(i.url)) pr.items.set(i.url, null);
     return done;
   };
@@ -147,6 +150,12 @@ export function createMemoryWorkTracker(seed: MemoryWorkTrackerSeed = {}): Memor
       return done;
     },
     async comment(i, text) { return comment(i, text); },
+    async close(i) {
+      const m = items.get(i.url);
+      if (!m) return noItem(i);
+      m.state = "closed";
+      return done;
+    },
     async search(q) {
       const inRepo = (url: string) => !q.repo || url.startsWith(`memory://${q.repo.owner}/${q.repo.name}/`);
       return ok([...items.values()]

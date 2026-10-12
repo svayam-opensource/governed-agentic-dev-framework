@@ -141,6 +141,14 @@ export function workTrackerConformance(name: string, setup: () => Promise<WorkTr
       expectFailure(await fx.tracker.comment(i, "   "), "empty comment");
     });
 
+    it("close(): the item reads closed; closing it again is ok", async () => {
+      const i = await make("conformance: close");
+      expect(await fx.tracker.close(i)).to.deep.equal({ ok: true, value: undefined });
+      const r = await fx.tracker.item(i);
+      expect(r.ok && r.value.state).to.equal("closed");
+      expect((await fx.tracker.close(i)).ok).to.equal(true);
+    });
+
     it("search(): by label and marker, and by state", async () => {
       const a = await make("conformance: search a", { labels: [fx.labels[0]] });
       const b = await make("conformance: search b");

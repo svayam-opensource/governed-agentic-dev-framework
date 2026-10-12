@@ -7,6 +7,9 @@
  * external tools; no bash/python. This is the integration seam; the pure router
  * (dispatch.ts) is exhaustively unit-tested.
  */
+import { AGENT_SESSION_ENV } from "../signal/model.js";
+import { signalCommand } from "./signal-verb.js";
+import { pickAdapter, builtInProviders } from "../adapters/registry.js";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as fsSync from "node:fs";
@@ -1684,6 +1687,10 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       // Only agents gov claims to govern are gated: `harnessFileFor` returning null means gov
       // never promised anything for that target (`--agent shell`, chatgpt-web), and the loud
       // "nothing governs its session yet" further down is the honest answer there.
+      // THE SESSION IS AN AGENT'S (plan 03 L07, Q6): everything it starts inherits the marker, so `gov signal` run
+      // from inside the agent refuses to send and points at a draft instead. Set on gov's own environment because the
+      // agent's spawn inherits it, and gov exits when the agent does.
+      process.env[AGENT_SESSION_ENV] = agent;
       const gate = harnessFileFor(agent);
       if (gate) {
         const v = verifyAgentContext(fs, cwd, gate);
@@ -2172,6 +2179,34 @@ function checkScopeDeps(fs: ReturnType<typeof createNodeFs>, config: { githubOrg
     listDir: (d) => fs.readdir(d),
     removeFile: (p) => fs.rm(p),
   };
+}
+
+/**
+ * `gov signal …` — one project to another (plan 03 L07, spec 03 §4). Asynchronous (WorkTrackerPort) and it ASKS
+ * (a person confirms each send, Q6), so it is routed from bin.ts like `check` and `work`.
+ */
+export async function runSignal(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const at = resolveHomeConfig(parsed.flags);
+  if (typeof at === "number") return at;
+  const { home, config } = at;
+  const fs = createNodeFs();
+  const branch = tryRun("git", ["-C", home, "rev-parse", "--abbrev-ref", "HEAD"]) ?? "";
+  const projectBranch = branch.replace(/\.ISSUE-.*$/i, "");
+  const r = await signalCommand(parsed.positionals, parsed.flags, {
+    tracker: pickAdapter(builtInProviders, "workTracker", config.adapters.workTracker),
+    govRepo: { owner: config.githubOrg, name: config.workspaceRepo },
+    owner: config.githubOrg,
+    login: tryRun("gh", ["api", "user", "--jq", ".login"]) ?? cachedLogin(config.orgSlugLower) ?? "",
+    project: /^brnch-\d+-/i.test(projectBranch) ? projectBranch.replace(/^brnch-/i, "PRJ-") : null,
+    env: process.env,
+    interactive: process.stdin.isTTY === true && process.stdout.isTTY === true,
+    confirm: (q) => askYes(q),
+    readFile: (f) => fs.readFile(path.isAbsolute(f) ? f : path.join(process.cwd(), f)),
+  });
+  for (const line of r.lines) process.stdout.write(`${line}\n`);
+  return r.code;
 }
 
 /**
