@@ -65,6 +65,9 @@ tools:
   # (framework-specification.md §9.5). `python` needs python3 on PATH.
   - id: bash
   - id: python
+  # A GitHub Action. The framework's own (gh-action/landed-by-pr) runs inside gov; an org's gh-action/<name>
+  # (policies/actions/<name>/action.yml) runs in CI only, as a step of the rule's rendered job taken from the
+  # default branch, and its outcome is the verdict. Locally: cannot-tell "runs in CI only".
   - id: gh-action
   # An `llm` judge never blocks: bind it to an observe event only (Q22).
   - id: llm

@@ -49,11 +49,13 @@ describe("e2e/rule-model-journey.sh --dry-run", function () {
     expect(trapLog()).to.equal("");
   });
 
-  it("lists every assertion, (a) through (f)", () => {
+  it("lists every assertion, (a) through (g)", () => {
     for (const a of ["(a) GOV-FRM-455", "(a) GOV-FRM-467", "(a) GOV-FRM-468", "(b) gov-violation issue", "(c) GOV-FRM-467 names the section unreviewed",
       "(c) the unreviewed finding sits on policies/org-policy.md",
       "(c) GOV-FRM-468 passed", "(c) GOV-FRM-468 committed to PR", "(c) the bot's commit lists policies/org-policy.md §2.2 under Sections reviewed",
-      "(c) the bot's commit adds the stub model's row to policies/rules.yaml", "(d) GOV-FRM-467 passes", "(e) gov-violation record", "(f) the code repo judged"]) {
+      "(c) the bot's commit adds the stub model's row to policies/rules.yaml", "(d) GOV-FRM-467 passes", "(e) gov-violation record", "(f) the code repo judged",
+      "(g) the org catalog lists bash/no-marker", "(g) gov-checks.yml has a job for GOV-RME-900", "(g) GOV-RME-900 failed PR",
+      "(g) the finding is the default branch's action's, naming marker.txt"]) {
       expect(out, a).to.include(`would assert: ${a}`);
     }
   });

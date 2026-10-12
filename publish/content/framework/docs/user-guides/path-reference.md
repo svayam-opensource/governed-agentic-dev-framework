@@ -29,7 +29,7 @@ Consulted, not read through. Use this when you know what you want and need the e
 For the Check Owner, and for anyone who writes a check your organization's own rules call.
 
 - [Writing your own check action](../specs/framework-specification.md#95-checks) — the folder, `action.yaml`, what the
-  script is given, what its exit code means, and what keeps it safe
+  script is given, what its exit code means, what keeps it safe, and why a GitHub Action check runs in CI only
 - [Your catalog additions](../../../policies/catalog.yaml) — where a new action is listed
 
 ## Infrastructure

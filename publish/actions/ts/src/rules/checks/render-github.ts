@@ -19,6 +19,7 @@
  */
 import type { CheckBinding } from "../model/catalog.js";
 import type { BindingRenderer } from "../model/contracts.js";
+import { GH_ACTION_OUTCOMES_ENV, ghActionKey, ghActionName, isOrgGhAction } from "./gh-org-actions.js";
 
 export const WORKFLOW_PATH = ".github/workflows/gov-checks.yml";
 
@@ -130,7 +131,7 @@ function permissionsFor(trigger: Trigger, actions: ReadonlySet<string>): Record<
  */
 export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendererOptions = {}): { path: string; text: string }[] {
   const pkg = opts.govPackage ?? "@svayam-opensource/gov";
-  type Job = { id: string; resource: string; event: string; trigger: Trigger; actions: Set<string>; branches: Set<string> | null };
+  type Job = { id: string; resource: string; event: string; trigger: Trigger; actions: Set<string>; branches: Set<string> | null; gh: Map<string, CheckBinding> };
   const jobs = new Map<string, Job>();
   const skipped = new Set<string>();
   for (const { id, check } of bindings) {
@@ -143,10 +144,13 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
     const key = `${id}\u0000${resource}\u0000${event}`;
     const branches = trigger.on === "push" ? pushBranches(check, opts.defaultBranch) : null;
     const job = jobs.get(key);
+    const gh = new Map<string, CheckBinding>();
+    if (isOrgGhAction(check.action)) gh.set(ghActionKey(check), check);
     if (!job) {
-      jobs.set(key, { id, resource, event, trigger, actions: new Set([check.action]), branches: branches ? new Set(branches) : null });
+      jobs.set(key, { id, resource, event, trigger, actions: new Set([check.action]), branches: branches ? new Set(branches) : null, gh });
     } else {
       job.actions.add(check.action);
+      for (const [k, b] of gh) job.gh.set(k, b);
       // One unfiltered binding makes the job unfiltered.
       if (job.branches && branches) for (const b of branches) job.branches.add(b);
       else job.branches = null;
@@ -193,6 +197,12 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
     const keys = Object.keys(perms).filter((k) => k !== "contents").sort(cmp);
     // Two resources of one repo bound on the same event name would share a job id; the resource keeps them apart.
     const sameName = sorted.filter((k) => k.id === j.id && k.event === j.event).length > 1;
+    const ghSteps = orgGhActionSteps(j.gh, opts);
+    const env = [
+      ...(keys.length ? ["          GH_TOKEN: ${{ github.token }}"] : []),
+      ...(j.actions.has("gov-builtin/rules-propose") ? MODEL_KEY_SECRETS.map((k) => `          ${k}: \${{ secrets.${k} }}`) : []),
+      ...(ghSteps.outcomes ? [`          ${GH_ACTION_OUTCOMES_ENV}: ${ghSteps.outcomes}`] : []),
+    ];
     lines.push(
       `  ${jobId(sameName ? `${j.id}_${j.resource}_${j.event}` : `${j.id}_${j.event}`)}:`,
       `    name: ${checkRunName(j.id, j.event)}`,
@@ -205,6 +215,7 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       "        with:",
       "          fetch-depth: 0",
       ...(opts.govCheckout ? govCheckoutSteps(opts.govCheckout.repository) : []),
+      ...ghSteps.lines,
       "      - uses: actions/setup-node@v4",
       "        with:",
       '          node-version: "24"',
@@ -212,12 +223,46 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       `        run: npm install -g ${pkg}`,
       `      - name: gov check run ${j.id}`,
       // The token only where the job was granted more than reading the repository.
-      ...(keys.length ? ["        env:", "          GH_TOKEN: ${{ github.token }}"] : []),
-      ...(j.actions.has("gov-builtin/rules-propose") ? MODEL_KEY_SECRETS.map((k) => `          ${k}: \${{ secrets.${k} }}`) : []),
+      ...(env.length ? ["        env:", ...env] : []),
       `        run: gov check run ${j.id} --resource ${j.resource} --event ${j.event} ${opts.govCheckout ? "--gov-home .gov --repo-dir ." : "--gov-home ."}`,
     );
   }
   return [{ path: WORKFLOW_PATH, text: lines.join("\n") + "\n" }];
+}
+
+/**
+ * ORG gh-action STEPS (Q9; gh-org-actions.ts). Each runs the DEFAULT branch's copy of `policies/actions/<name>/` —
+ * in a code repo's job the governance repo is already checked out at `.gov` (its default branch); in the governance
+ * repo's own job the checkout is the change under review, so the default branch is checked out apart, at
+ * `.gov-actions`. `continue-on-error`, so the job reaches `gov check run`, which reads the outcomes and folds them
+ * like any action's: the job's conclusion is the rule's verdict. Sorted by key — byte-stable.
+ */
+function orgGhActionSteps(gh: ReadonlyMap<string, CheckBinding>, opts: GithubRendererOptions): { lines: string[]; outcomes?: string } {
+  if (!gh.size) return { lines: [] };
+  const root = opts.govCheckout ? ".gov" : ".gov-actions";
+  const lines: string[] = opts.govCheckout ? [] : [
+    "      - name: Check out the default branch's check actions (never the change under review)",
+    "        uses: actions/checkout@v4",
+    "        with:",
+    `          ref: ${opts.defaultBranch ?? "${{ github.event.repository.default_branch }}"}`,
+    "          path: .gov-actions",
+    "          persist-credentials: false",
+  ];
+  const map: string[] = [];
+  [...gh.entries()].sort(([a], [b]) => cmp(a, b)).forEach(([key, b], i) => {
+    const params = Object.entries(b.with ?? {}).sort(([x], [y]) => cmp(x, y));
+    lines.push(
+      `      - name: ${b.action}`,
+      `        id: gov_action_${i}`,
+      "        continue-on-error: true",
+      `        uses: ./${root}/policies/actions/${ghActionName(b.action)}`,
+      // An action's inputs are strings: a list or map goes as JSON.
+      ...(params.length ? ["        with:", ...params.map(([k, v]) => `          ${k}: ${JSON.stringify(typeof v === "string" ? v : JSON.stringify(v))}`)] : []),
+    );
+    map.push(`${JSON.stringify(key)}:"\${{ steps.gov_action_${i}.outcome }}"`);
+  });
+  // A YAML single-quoted scalar: a quote inside is written twice.
+  return { lines, outcomes: `'{${map.join(",").replace(/'/g, "''")}}'` };
 }
 
 /** Mint the App's read-only token for the governance repository, then check that repository out with it. */

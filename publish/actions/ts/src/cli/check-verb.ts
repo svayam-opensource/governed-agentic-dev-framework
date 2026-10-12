@@ -46,6 +46,7 @@ import { PROPOSE_ACTION } from "../rules/checks/builtin.js";
 import { checkInstallAll, checkStatus, type ScopeDeps } from "./check-scope.js";
 import { annotationLines, type AnnotationVerdict } from "../rules/checks/annotations.js";
 import type { ActionExecutor } from "../rules/checks/executor.js";
+import { GH_ACTION_OUTCOMES_ENV, parseGhActionOutcomes } from "../rules/checks/gh-org-actions.js";
 
 export interface CheckVerbDeps {
   readonly git: GitRead;
@@ -215,6 +216,8 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
     ...(deps.executor ? { executor: deps.executor } : {}),
     env: deps.env,
     repoDir,
+    // ORG gh-actions (Q9): their rendered steps' outcomes, handed in by the job. Absent → "runs in CI only".
+    ...(() => { const o = parseGhActionOutcomes(deps.env[GH_ACTION_OUTCOMES_ENV]); return o ? { ghActionOutcomes: o } : {}; })(),
     ...(policyPr ? { policyPr } : {}),
     ...(deps.rulesPropose ? { propose: deps.rulesPropose } : {}),
     ...(repository ? { github: { pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository) } } : {}),

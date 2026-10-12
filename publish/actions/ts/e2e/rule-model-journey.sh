@@ -15,6 +15,7 @@
 #   (d) the bot's follow-up run waits for approval (action_required); approved through the API, GOV-FRM-467 passes
 #   (e) merging a PR with a red gov check under soft posture opens a gov-violation record naming the PR
 #   (f) the code repo's check reads the gov repo's rules through the App (SKIPPED, never failed, without the App)
+#   (g) an org `bash` check action (policies/actions/) fails a PR — run from the default branch, not the PR's copy
 #
 # Propose uses a STUB `command` model (a script returning one fixed valid proposal): no key, no cost. The REAL
 # model (gemini, GEMINI_API_KEY) runs only with E2E_REAL_MODEL=1 — CI sets that on workflow_dispatch only.
@@ -394,3 +395,60 @@ if [ "$APP_READY" = 1 ]; then
   V_F="$(poll violations "$R_APP" '^gov-violation: GOV-FRM-040 ')"
   expect "(f) the code repo judged its direct push by the gov repo's rules (violation #${V_F:-none})" test -n "$V_F"
 fi
+
+# ── (g) an org bash action fails a PR (Item 8, rulings Q8/Q9) ────────────────────────────────────────────────────
+# The org's own check, as an adopter writes one: policies/actions/no-marker/ (action.yaml + run.sh), listed in
+# policies/catalog.yaml, bound by an org rule row. Landed on the default branch by a direct push (no policy PR: the
+# proposer and the policy gate are (c)'s business, and a hand-written row is what this assertion needs). Then a PR
+# adds a file with the marker AND rewrites run.sh to `exit 0` — the check must still fail, because gov runs the
+# action as the DEFAULT branch has it, never the copy under review.
+step "(g) an org bash action fails a PR — run from the default branch, not the PR's copy"
+G_ID="GOV-RME-900"
+x git -C "$G" switch -q "$DEF" && x git -C "$G" pull -q --ff-only || die "pull $DEF failed"
+mkdir -p "$G/policies/actions/no-marker"
+cat > "$G/policies/actions/no-marker/action.yaml" <<'YAML'
+tool: bash
+entry: run.sh
+timeout: 30
+YAML
+cat > "$G/policies/actions/no-marker/run.sh" <<'SH'
+#!/usr/bin/env bash
+# rule-model journey (g): an org bash action. Misses (exit 1) when a changed file carries the marker.
+hit=0
+while IFS= read -r f; do
+  [ -f "$GOV_REPO_DIR/$f" ] || continue
+  if grep -q "GOV-E2E-FORBIDDEN""-MARKER" "$GOV_REPO_DIR/$f"; then
+    printf '{"file":"%s","line":1,"message":"carries the forbidden marker (org bash action no-marker)"}\n' "$f"; hit=1
+  fi
+done < "$GOV_CHANGED_FILES"
+exit $hit
+SH
+# The seeded org store is `[]`; a row appended after it would not parse.
+x perl -0pi -e 's/^\[\]\s*\z//m' "$G/policies/rules.yaml"
+cat >> "$G/policies/rules.yaml" <<YAML
+- id: $G_ID
+  source: { doc: policies/org-policy.md, section: "2", sha: "0000000" }
+  expectation: "No change carries the e2e forbidden marker (rule-model journey (g))."
+  actor: [human, agent]
+  level: C02
+  checks:
+    - { on: { resource: vcs.gov-repo, event: pull_request }, action: bash/no-marker, on_miss: fail }
+  start: { version: "1.0.0", date: "2026-10-12" }
+  end: null
+YAML
+x perl -0pi -e 's/^actions: \[\]\s*$/actions:\n  - { id: bash\/no-marker, tool: bash, reviewed: { by: e2e, pr: 1 } }\n/m' "$G/policies/catalog.yaml"
+expect "(g) the org catalog lists bash/no-marker" grep -q 'bash/no-marker' "$G/policies/catalog.yaml"
+x git -C "$G" add -A && x git -C "$G" commit -qm "org check action no-marker + $G_ID (rule-model journey (g))" \
+  && x git -C "$G" push -q origin "$DEF" || die "could not land the org action on $DEF"
+ok "(g) org action + $G_ID on $DEF"
+x git -C "$G" switch -q -c e2e/org-action
+( cd "$G" && x gov check install --gov-package ./.gov-ci/gov.tgz --gov-home . >"$ROOT/install-g.log" 2>&1 ) || { tail -10 "$ROOT/install-g.log"; die "gov check install (g) failed"; }
+expect "(g) gov-checks.yml has a job for $G_ID" grep -q "name: $G_ID · pull_request" "$G/.github/workflows/gov-checks.yml"
+echo "GOV-E2E-FORBIDDEN-MARKER $RUN_ID" > "$G/marker.txt"
+printf '#!/usr/bin/env bash\nexit 0   # the PR tries to switch the check off — it must not work\n' > "$G/policies/actions/no-marker/run.sh"
+x git -C "$G" add -A && x git -C "$G" commit -qm "marker + an action rewritten to pass (rule-model journey (g))" || die "commit (g) failed"
+PR_G="$(open_pr e2e/org-action "org action: marker (must fail)" "$G" "$R_GOV")"
+SHA_G="$(head_of "$R_GOV" "$PR_G")"
+res="$(wait_check "$R_GOV" "$SHA_G" "$G_ID · pull_request")"
+expect "(g) $G_ID failed PR #$PR_G — the org bash action ran from $DEF (got: ${res%% *})" test "${res%% *}" = failure
+expect_annotation "(g) the finding is the default branch's action's, naming marker.txt" "marker\.txt.*carries the forbidden marker" "$R_GOV" "${res#* }"

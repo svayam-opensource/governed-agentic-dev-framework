@@ -860,6 +860,12 @@ Three things keep this safe:
 
 `gov check run` runs these actions on your machine as well as in GitHub Actions.
 
+An action can also be a GitHub Action, listed as `gh-action/<name>`, with its own `action.yml` in
+`policies/actions/<name>/`. That kind runs **in GitHub Actions only**. `gov check install` writes it into the rule's
+job as a step, taken from your default branch's copy of the folder, and the step's result is the check's result. The
+rule's `on_miss` applies to it as to any other action. Run on your machine, `gov check run` cannot run it, and says
+the check runs in CI only.
+
 ### 9.6 Cues
 
 A **cue** is a one-line reminder an agent carries. Cues come in two tiers:
