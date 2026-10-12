@@ -11,6 +11,8 @@ import * as os from "node:os";
 import yaml from "js-yaml";
 import { parseRepoOverrides } from "./repo-overrides.js";
 import { readTopLevelScalar, expandTilde } from "../resolve/node-env.js";
+import { PORT_NAMES, PORT_CONFIG_KEYS, type PortName } from "../ports/index.js";
+import { DEFAULT_SELECTION, selectionProblems, type AdapterSelection } from "../adapters/registry.js";
 
 /**
  * THE SCALARS THIS READER READS — the one list, and the only way to name one (PRJ-121, 2026-09-27).
@@ -88,6 +90,7 @@ const BLOCKS = [
   "repo_overrides",     // config/repo-overrides.ts
   "env_branches",       // readTopLevelList, below
   "session",            // written by setup; `access_ttl_sec` is read by the DEPLOY clients (gov-cicd/gov-infra)
+  "adapters",           // parseAdapterSelection, below — which platform answers each port (PRJ-121 intent 03, Q15)
 ] as const;
 
 /** Every top-level key gov reads, from the one place each is declared. Exported for `gov doctor`. */
@@ -267,6 +270,12 @@ export interface OrgConfig {
   readonly services: Readonly<Record<string, string>>;
   /** Gov tenant/account (`gov_account`) — the account context service auth mints under; env `GOV_ACCOUNT` overrides. */
   readonly govAccount: string;
+  /**
+   * `adapters:` — which adapter answers each port (PRJ-121 intent 03, Q15). `github` for any port the block does
+   * not name, and for all three when there is no block. An id gov does not have is kept AS WRITTEN, so building
+   * the port fails naming it (adapters/registry.ts) and `gov doctor` fails its row — never a quiet fallback.
+   */
+  readonly adapters: AdapterSelection;
   /** The file checked against the schema gov was built with: unknown, missing, retired and renamed keys. */
   readonly keyReport: OrgConfigKeyReport;
   /** Token → value for tool-file substitution (seed phase B.1). */
@@ -313,6 +322,48 @@ function readServiceScalar(text: string, key: OrgConfigServiceKey): string | und
     if (m) return m[1].trim().replace(/\s+#.*$/, "").replace(/^["']|["']$/g, "").trim() || undefined;
   }
   return undefined;
+}
+
+/** The `adapters:` block read: the selection, and what is wrong with it (empty = nothing). */
+export interface AdapterSelectionRead {
+  readonly selection: AdapterSelection;
+  /** True when the file has an `adapters:` block at all — `gov doctor` says nothing about a block nobody wrote. */
+  readonly present: boolean;
+  readonly problems: readonly string[];
+}
+
+/**
+ * Read `adapters:` from org-config.yaml's text. Pure; never throws.
+ *
+ *   adapters:
+ *     work_tracker: github
+ *     vcs: github
+ *     ci_identity: github
+ *
+ * A port left out is `github`. An unknown port key, an id gov does not have, or a block that is not a map is a
+ * problem — reported, and (for an id) kept as written so nothing downstream can quietly use something else.
+ */
+export function parseAdapterSelection(text: string): AdapterSelectionRead {
+  let doc: unknown;
+  try { doc = yaml.load(text); } catch (e) {
+    return { selection: DEFAULT_SELECTION, present: /^adapters:/m.test(text), problems: /^adapters:/m.test(text) ? [`org-config.yaml could not be read as YAML (${(e as Error).message.split("\n")[0]})`] : [] };
+  }
+  const isMap = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+  if (!isMap(doc) || !("adapters" in doc)) return { selection: DEFAULT_SELECTION, present: false, problems: [] };
+  const block = doc.adapters;
+  if (block === null || block === undefined) return { selection: DEFAULT_SELECTION, present: true, problems: [] };
+  if (!isMap(block)) return { selection: DEFAULT_SELECTION, present: true, problems: ["adapters: must be a map of port: adapter (for example `vcs: github`)"] };
+  const byKey = new Map<string, PortName>(PORT_NAMES.map((p) => [PORT_CONFIG_KEYS[p], p]));
+  const selection: Record<PortName, string> = { ...DEFAULT_SELECTION };
+  const problems: string[] = [];
+  for (const [k, v] of Object.entries(block)) {
+    const port = byKey.get(k);
+    if (!port) { problems.push(`adapters: '${k}' is not a port gov has — the ports are ${[...byKey.keys()].join(", ")}`); continue; }
+    if (v === null || v === undefined || String(v).trim() === "") continue;   // left empty → the default
+    selection[port] = String(v).trim();
+  }
+  problems.push(...selectionProblems(selection));
+  return { selection, present: true, problems };
 }
 
 /** What the caller knows that the file does not: this person's own work root, when they recorded one. */
@@ -382,6 +433,7 @@ export function parseOrgConfig(text: string, home: string = os.homedir(), extras
     oidcBase,
     services,
     govAccount,
+    adapters: parseAdapterSelection(text).selection,
     keyReport: validateOrgConfig(text),
     orgTokens,
   };
