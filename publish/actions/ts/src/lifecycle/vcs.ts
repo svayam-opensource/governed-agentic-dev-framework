@@ -8,6 +8,7 @@
  */
 import { runResult } from "../run-process.js";
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 /** Version-control operations seed needs. */
 export interface Vcs {
@@ -68,6 +69,13 @@ export interface Vcs {
   worktreeAdd(baseRepo: string, newBranch: string, worktreePath: string, startPoint: string): void;
   /** `git worktree add <path> <existingBranch>` — check out a branch that is already there. */
   worktreeAddExisting(baseRepo: string, branch: string, worktreePath: string): void;
+  /**
+   * Is `dir` a worktree registered to `baseRepo`? (#224: a present worktree is reused, not re-added.)
+   *
+   * OPTIONAL, like `Fs.mtimeMs`: every existing double of this port predates it, and a double without it
+   * answers "no" — which sends an occupied path down the archive route, never down a destructive one.
+   */
+  worktreeOf?(baseRepo: string, dir: string): boolean;
   /** Remove the worktree at `worktreePath` (force; falls back to rm + prune). */
   worktreeRemove(baseRepo: string, worktreePath: string): void;
   /** Delete local `branch` in `repoDir`. */
@@ -84,8 +92,8 @@ export interface Vcs {
   setIdentity(repoDir: string, identity: { name?: string; email?: string }): void;
   /** Check out an existing `branch` in `repoDir`. */
   checkout(repoDir: string, branch: string): void;
-  /** Create and check out a new `branch` in `repoDir`. */
-  checkoutNew(repoDir: string, branch: string): void;
+  /** Create and check out a new `branch` in `repoDir` — at HEAD, or at `startPoint` when given. */
+  checkoutNew(repoDir: string, branch: string, startPoint?: string): void;
   /** Merge `from` into the current branch (`--no-edit`); "merged" or "conflict" (no throw). */
   mergeNoEdit(repoDir: string, from: string): "merged" | "conflict";
   /** Create a tag `name` at HEAD in `repoDir`. */
@@ -197,13 +205,34 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
       must(["-C", repoDir, "clean", "-fd", pathspec]);
     },
     worktreeAdd(baseRepo, newBranch, worktreePath, startPoint) {
+      // A worktree whose directory was deleted by hand is still registered, and git then refuses the path as
+      // "missing but already registered". Forgetting registrations that point at nothing is all prune does.
+      runGit(["-C", baseRepo, "worktree", "prune"]);
       must(["-C", baseRepo, "worktree", "add", "-b", newBranch, worktreePath, startPoint]);
     },
     worktreeAddExisting(baseRepo, branch, worktreePath) {
       // Fetch first: the branch may exist only on the remote, left by the failed run
       // this is recovering from.
       runGit(["-C", baseRepo, "fetch", "origin", `${branch}:${branch}`]);
+      runGit(["-C", baseRepo, "worktree", "prune"]);
       must(["-C", baseRepo, "worktree", "add", worktreePath, branch]);
+    },
+    worktreeOf(baseRepo, dir) {
+      const r = runGit(["-C", baseRepo, "worktree", "list", "--porcelain"]);
+      if (r.status !== 0) return false;
+      // Compared through realpath: git prints resolved paths, and a caller's path may run through a symlink
+      // (macOS /var → /private/var) or use the other separator (Windows).
+      const real = (p: string): string => {
+        try {
+          return fs.realpathSync(p);
+        } catch { /* a registered worktree whose directory is gone has no realpath; compare it as written */
+          return path.resolve(p);
+        }
+      };
+      const want = real(dir);
+      return r.stdout.split("\n")
+        .filter((l) => l.startsWith("worktree "))
+        .some((l) => real(l.slice("worktree ".length).trim()) === want);
     },
     worktreeRemove(baseRepo, worktreePath) {
       const r = runGit(["-C", baseRepo, "worktree", "remove", "--force", worktreePath]);
@@ -240,8 +269,8 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     checkout(repoDir, branch) {
       must(["-C", repoDir, "checkout", branch]);
     },
-    checkoutNew(repoDir, branch) {
-      must(["-C", repoDir, "checkout", "-b", branch]);
+    checkoutNew(repoDir, branch, startPoint) {
+      must(["-C", repoDir, "checkout", "-b", branch, ...(startPoint ? [startPoint] : [])]);
     },
     mergeNoEdit(repoDir, from) {
       return runGit(["-C", repoDir, "merge", "--no-edit", from]).status === 0 ? "merged" : "conflict";

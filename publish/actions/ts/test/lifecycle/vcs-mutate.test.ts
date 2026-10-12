@@ -35,6 +35,7 @@ describe("prj-work Phase 2 — Vcs mutating ops (injected runner)", () => {
       ["-C", "/r", "commit", "-m", "seed: scaffold"],
       ["-C", "/r", "reset", "--hard", "deadbeef"],
       ["-C", "/r", "clean", "-fd", "projects"],
+      ["-C", "/base", "worktree", "prune"], // a hand-deleted worktree is still registered (#214)
       ["-C", "/base", "worktree", "add", "-b", "BRNCH-43", "/wt", "main"],
       ["-C", "/base", "branch", "-D", "BRNCH-43"],
       ["-C", "/r", "push", "-u", "origin", "BRNCH-43"],

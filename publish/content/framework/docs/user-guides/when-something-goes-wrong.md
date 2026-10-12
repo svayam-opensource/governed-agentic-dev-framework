@@ -67,6 +67,23 @@ Somebody created a branch matching `BRNCH-<board#>-<slug>` by hand, or a previou
 the branch, decide whether it holds anything (`git log <branch> --oneline -5`), delete it if not, and re-run.
 Seed does not adopt an existing branch silently, on purpose: a branch someone else made may carry their work.
 
+## `gov add-repo` says "archived the previous attempt"
+
+Something was already at the place the repo goes, `<project>/<repo>`, that was not one of gov's worktrees. That
+is usually a clone made before gov used worktrees, or what a failed attempt left. gov moved it to
+`<project>/archive/<time>/<repo>`, did not delete it, and added the repo. Look inside the archived copy. Take
+anything you want from it, then delete it yourself.
+
+If the add fails partway, gov puts the archived copy back and removes the branch it had started. You can
+re-run straight away; nothing is left to clean up.
+
+## `gov sync` or `gov task` says "recreated '<branch>' … off origin/<base>"
+
+The project was closed and then reopened. Closing deleted the code repos' project branches, but your worktrees
+stayed on disk. gov made the missing branch again from the base branch, pushed it, and carried on. Nothing of
+yours was changed. If a repo is not on disk at all, `gov add-repo <repo-url>` brings it back, and it reuses a
+worktree that is already there.
+
 ## The test-merge gate fails after a sync
 
 The merge itself worked; a validator downstream of it did not. The output names the check and the file and line.

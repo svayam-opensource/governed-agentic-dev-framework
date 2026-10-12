@@ -94,4 +94,11 @@ Branches are tagged-then-deleted. **No merge to base branches**. No knowledge cl
 
 Code changes are preserved in archive tags (`archive/<branch>`) — recoverable but not merged.
 
+### Reopening
+
+If a closed project's board is opened again on GitHub, carry on with the usual commands. Closing deleted each
+code repo's project branch. The first `gov sync` or `gov task` makes the missing branch again from the base
+branch and prints `recreated '<branch>' in <repo> off origin/<base>`. `gov add-repo` reuses a worktree that is
+already on disk. Work merged at close stays merged, and nothing is restored from the `archive/` tags.
+
 ---

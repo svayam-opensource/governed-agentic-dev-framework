@@ -16,6 +16,7 @@ import type { Issues } from "./issues.js";
 import { NO_TRACKER, STATUS_IN_PROGRESS, type BoardStatusOutcome, type WorkTrackerPort } from "../ports/work-tracker.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl } from "./repo.js";
+import { ensureProjectBranch } from "./code-repo.js";
 import {
   parseIssueUrl,
   taskIdFor,
@@ -28,6 +29,11 @@ export interface TaskConfig {
   readonly githubOrg: string;
   readonly ownerField?: "organization" | "user";
   readonly workspaceRepo: string;
+  /**
+   * The code repos' base. With it, a code repo whose project branch is missing (a closed project, reopened —
+   * #224) has the branch recreated off this base instead of failing the task; without it, the old checkout error.
+   */
+  readonly defaultCodeBranch?: string;
   readonly remote?: string;
 }
 
@@ -65,6 +71,8 @@ export interface TaskSuccess {
   readonly boardStatus: readonly BoardStatusOutcome[];
   /** Linked repos with no local worktree (need repo-on-demand — deferred). */
   readonly reposSkipped: readonly string[];
+  /** Code repos whose missing project branch was recreated off the base (#224). */
+  readonly recreated: readonly string[];
 }
 
 export type TaskResult =
@@ -109,6 +117,7 @@ export function task(deps: TaskDeps, config: TaskConfig, input: TaskInput): Task
   const tx = new Transaction();
   const reposBranched: string[] = [];
   const reposSkipped: string[] = [];
+  const recreated: string[] = [];
   try {
     log(`task ${taskId}: workspace repo`);
     createSubBranch({ vcs: deps.vcs, tx }, { repoDir: input.govClone, projectBranch, taskId, label: "workspace repo", remote });
@@ -119,6 +128,12 @@ export function task(deps: TaskDeps, config: TaskConfig, input: TaskInput): Task
       if (!deps.fs.pathExists(path.join(repoDir, ".git"))) {
         reposSkipped.push(repoDir); // needs repo-on-demand (add-repo) — deferred
         continue;
+      }
+      // Not a transaction step: a branch at the base tip, pushed, is what a reopened project should have whether
+      // or not this task goes on to succeed (#224, Q17 A).
+      if (config.defaultCodeBranch
+        && ensureProjectBranch(deps.vcs, { repoDir, projectBranch, baseBranch: config.defaultCodeBranch, remote }, log) === "recreated") {
+        recreated.push(repoDir);
       }
       createSubBranch({ vcs: deps.vcs, tx }, { repoDir, projectBranch, taskId, label: url, remote });
       reposBranched.push(repoDir);
@@ -137,5 +152,5 @@ export function task(deps: TaskDeps, config: TaskConfig, input: TaskInput): Task
     boardStatus.push({ issueUrl: url, status: STATUS_IN_PROGRESS, result });
   }
 
-  return { ok: true, taskId, projectBranch, boardNumber, issueNumbers, reposBranched, reposSkipped, boardStatus };
+  return { ok: true, taskId, projectBranch, boardNumber, issueNumbers, reposBranched, reposSkipped, recreated, boardStatus };
 }

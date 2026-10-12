@@ -30,6 +30,11 @@ export interface Fs extends FsProbe {
    * must degrade visibly — `orderLocal` falls back to board order — never invent a timestamp.
    */
   mtimeMs?(p: string): number | null;
+  /**
+   * Move `from` to `to`, creating `to`'s parent. How a previous attempt is ARCHIVED rather than deleted (#214) —
+   * the same move `gov setup` makes on its retry path. Optional for the same reason as `mtimeMs`.
+   */
+  rename?(from: string, to: string): void;
 }
 
 /** The real node:fs-backed writer. */
@@ -71,6 +76,11 @@ export function createNodeFs(): Fs {
       } catch { /* absent or unreadable is the ordinary answer here, not a failure */
         return [];
       }
+    },
+    rename: (from, to) => {
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.renameSync(from, to);
+      log("info", "moved", "gov-work:lifecycle:fs-io", "rename", { from, to });
     },
     mtimeMs: (p) => {
       try {

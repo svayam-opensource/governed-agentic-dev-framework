@@ -458,7 +458,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       if (positionals.length < 1) return usage("task <issue-url[,issue-url...]>");
       const r = task(
         { board: ctx.board, vcs: ctx.vcs, fs: ctx.fs, issues: ctx.issues, tracker: ctx.workTracker, authorize: ctx.authorize, log: ctx.log },
-        { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo },
+        { githubOrg: c.githubOrg, ownerField, workspaceRepo: c.workspaceRepo, defaultCodeBranch: c.defaultCodeBranch },
         { govClone: ctx.home, projectWorkRoot, issueUrls: positionals[0].split(","), assignee: flagStr(flags, "assignee") ?? ctx.login ?? ctx.seededBy },
       );
       return r.ok

@@ -11,6 +11,9 @@ import { setupCodeRepoWorktree, makeCloneRepo } from "../../src/lifecycle/code-r
 import { Transaction } from "../../src/lifecycle/transaction.js";
 import { createGitVcs, type Vcs, type FsProbe } from "../../src/lifecycle/vcs.js";
 import { px, pxAll, pxDeep } from "../helpers/paths.js";
+import { addRepo } from "../../src/lifecycle/add-repo.js";
+import { createNodeFs } from "../../src/lifecycle/fs-io.js";
+import { makeGitProject, simulateClose, remoteHas, PROJECT_BRANCH, CODE_REPO_NAME, type GitProject } from "../helpers/git-project-fixture.js";
 
 describe("prj-work Phase 2 — repo url helpers + retry", () => {
   it("repoNameFromUrl strips path + .git for ssh and https", () => {
@@ -121,7 +124,8 @@ function fakeVcs(existingRefs: Set<string> = new Set()) {
     commit: () => {},
     resetHard: () => {}, resetKeepingFiles: () => {},
     cleanUntracked: () => {},
-    worktreeAdd: (_b, br, wt) => calls.push(`worktreeAdd ${wt} ${br}`),
+    // `worktree add -b` creates the ref, as git does — the rollback deletes only a ref that is there (#214).
+    worktreeAdd: (_b, br, wt) => { existingRefs.add(`refs/heads/${br}`); calls.push(`worktreeAdd ${wt} ${br}`); },
     worktreeRemove: (_b, wt) => calls.push(`worktreeRemove ${wt}`),
     branchDelete: (_r, br) => calls.push(`branchDelete ${br}`),
     push: (r, _rm, br) => calls.push(`push ${r} ${br}`),
@@ -161,14 +165,14 @@ describe("prj-work Phase 2 — setupCodeRepoWorktree (Phase C)", () => {
       `setIdentity ${REPO_DIR}`,
       `push ${REPO_DIR} ${PARAMS.projectBranch}`,
     ]);
-    expect(tx.pending).to.equal(2);
+    expect(tx.pending).to.equal(3); // branch ref (#214) + worktree + push
   });
 
   it("skips the clone when the base clone already exists", () => {
     const { vcs } = fakeVcs(new Set([`refs/remotes/origin/dev`]));
     const clonedTo: string[] = [];
     setupCodeRepoWorktree(
-      { vcs, fs: { pathExists: () => true }, tx: new Transaction(), cloneRepo: (_u, d) => clonedTo.push(d) },
+      { vcs, fs: { pathExists: (q) => q.endsWith(".git") }, tx: new Transaction(), cloneRepo: (_u, d) => clonedTo.push(d) },
       PARAMS,
     );
     expect(pxDeep(clonedTo)).to.deep.equal([]);
@@ -177,7 +181,7 @@ describe("prj-work Phase 2 — setupCodeRepoWorktree (Phase C)", () => {
   it("rollback removes the worktree/branch and deletes the pushed branch (LIFO)", () => {
     const { vcs, calls } = fakeVcs(new Set([`refs/remotes/origin/dev`]));
     const tx = new Transaction();
-    setupCodeRepoWorktree({ vcs, fs: { pathExists: () => true }, tx, cloneRepo: () => {} }, PARAMS);
+    setupCodeRepoWorktree({ vcs, fs: { pathExists: (q) => q.endsWith(".git") }, tx, cloneRepo: () => {} }, PARAMS);
     calls.length = 0;
     tx.rollback();
     expect(pxDeep(calls)).to.deep.equal([
@@ -202,7 +206,7 @@ describe("prj-work Phase 2 — setupCodeRepoWorktree (Phase C)", () => {
     );
     expect(() =>
       setupCodeRepoWorktree(
-        { vcs, fs: { pathExists: () => true }, tx: new Transaction(), cloneRepo: () => {} },
+        { vcs, fs: { pathExists: (q) => q.endsWith(".git") }, tx: new Transaction(), cloneRepo: () => {} },
         PARAMS,
       ),
     ).to.throw(/already exists/);
@@ -249,5 +253,85 @@ describe("prj-work Phase 2 — Vcs code-repo reads (real git)", () => {
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+});
+
+// ── #214 / #224: what a previous attempt (or a closed project) left at the path ──────────────────────────────
+describe("add-repo — leftovers at the worktree path (#214) and a present worktree (#224), real git", () => {
+  let p: GitProject;
+  beforeEach(() => { p = makeGitProject(); });
+  afterEach(() => p.cleanup());
+
+  const run = (fsOverride?: Partial<ReturnType<typeof createNodeFs>>) => {
+    const vcs = createGitVcs();
+    const lines: string[] = [];
+    const r = addRepo(
+      { vcs, fs: { ...createNodeFs(), ...fsOverride }, cloneRepo: (u, d) => vcs.clone(u, d), authorize: () => true, log: (m) => lines.push(m) },
+      { githubOrg: "o", agentWorkRoot: p.agentWorkRoot, defaultCodeBranch: "dev" },
+      { govClone: p.govClone, projectWorkRoot: p.projectWorkRoot, repoUrl: p.codeUrl },
+    );
+    return { r, lines };
+  };
+
+  it("a stale clone at the path → add-repo succeeds, and the old clone is archived (never deleted)", () => {
+    execFileSync("git", ["clone", "-q", p.codeUrl, p.codeDir], { stdio: "ignore" });
+    fs.writeFileSync(path.join(p.codeDir, "mine.txt"), "evidence\n");
+
+    const { r, lines } = run();
+
+    expect(r.ok, r.ok ? "" : r.message).to.equal(true);
+    expect(p.git(p.codeDir, "branch", "--show-current").trim()).to.equal(PROJECT_BRANCH);
+    expect(remoteHas(p, PROJECT_BRANCH)).to.equal(true);
+    const stamps = fs.readdirSync(path.join(p.projectWorkRoot, "archive"));
+    expect(stamps).to.have.length(1);
+    const archived = path.join(p.projectWorkRoot, "archive", stamps[0]!, CODE_REPO_NAME);
+    expect(fs.readFileSync(path.join(archived, "mine.txt"), "utf8")).to.equal("evidence\n");
+    expect(lines.join("\n")).to.include(`archived the previous attempt → ${archived}`);
+  });
+
+  it("a failed `worktree add -b` leaves no ref behind, and the message names the real path", () => {
+    // The path is occupied, but the probe says it is free — so nothing is archived and git itself fails,
+    // AFTER it has created the branch. That ref is what made every retry fail (#214).
+    fs.mkdirSync(p.codeDir, { recursive: true });
+    fs.writeFileSync(path.join(p.codeDir, "x"), "x");
+    const { r } = run({ pathExists: (q: string) => q !== p.codeDir && fs.existsSync(q) });
+
+    expect(r.ok).to.equal(false);
+    if (!r.ok) {
+      expect(r.message).to.include(p.codeDir);
+      expect(r.rollbackFailures ?? []).to.deep.equal([]);
+    }
+    expect(p.git(p.baseClone, "branch", "--list", PROJECT_BRANCH).trim()).to.equal("");
+    expect(remoteHas(p, PROJECT_BRANCH)).to.equal(false);
+  });
+
+  it("a present worktree whose project branch is gone (closed, then reopened) is reused and the branch recreated", () => {
+    expect(run().r.ok).to.equal(true);
+    simulateClose(p);
+
+    const { r, lines } = run();
+
+    expect(r.ok, r.ok ? "" : r.message).to.equal(true);
+    expect(p.git(p.codeDir, "branch", "--show-current").trim()).to.equal(PROJECT_BRANCH);
+    expect(remoteHas(p, PROJECT_BRANCH)).to.equal(true);
+    expect(fs.existsSync(path.join(p.projectWorkRoot, "archive"))).to.equal(false); // reused, not archived
+    expect(lines.join("\n")).to.match(/recreated '.*' in .*911-SVM-LIB-SVC off origin\/dev/);
+  });
+
+  it("add-repo run twice is a no-op the second time (the worktree is already on the project branch)", () => {
+    expect(run().r.ok).to.equal(true);
+    const { r } = run();
+    expect(r.ok, r.ok ? "" : r.message).to.equal(true);
+    expect(fs.existsSync(path.join(p.projectWorkRoot, "archive"))).to.equal(false);
+  });
+});
+
+describe("setupCodeRepoWorktree — the refusal names where the branch actually is (#214)", () => {
+  it("a LOCAL branch with commits of its own is reported in the base clone, not on the remote", () => {
+    const { vcs } = fakeVcs(new Set([`refs/remotes/origin/dev`, `refs/heads/${PARAMS.projectBranch}`]));
+    const v = { ...vcs, revParse: (_r: string, rev: string) => (rev === "origin/dev" ? "base" : "other") };
+    expect(() =>
+      setupCodeRepoWorktree({ vcs: v, fs: { pathExists: (q) => q.endsWith(".git") }, tx: new Transaction(), cloneRepo: () => {} }, PARAMS),
+    ).to.throw(/locally, in the base clone at .*911-SVM-LIB-SVC/);
   });
 });
