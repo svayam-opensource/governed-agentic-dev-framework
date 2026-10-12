@@ -247,6 +247,11 @@ export interface PlanAction {
   /** `move` / `migrate`: where the org's file is now, and (for migrate) the named migration. */
   readonly from?: string;
   readonly how?: string;
+  /**
+   * `move` of one file under a DIRECTORY move: that move's record id (`<from>/ → <to>/`). The directory is recorded
+   * ONCE, after its files have moved — never one record per file (see `planUpgrade`, relocations).
+   */
+  readonly group?: string;
 }
 export interface UpgradePlan { readonly actions: readonly PlanAction[]; }
 
@@ -270,6 +275,28 @@ export interface PlanReaders {
 
 /** The record of a relocation, as the workspace keeps it. */
 export const moveId = (m: { from: string; to: string }): string => `${m.from} → ${m.to}`;
+
+const asDir = (p: string): string => (p.endsWith("/") ? p : `${p}/`);
+
+/**
+ * HAS THIS DIRECTORY MOVE ALREADY RUN HERE? (PRJ-121, 2026-10-12.)
+ *
+ * Recorded as the directory (`<from>/ → <to>/`) since 2026-10-12. Before that, a directory move was recorded one
+ * entry PER FILE it moved (`<from>/a.md → <to>/a.md`), so "applied once" did not hold for the folder: a file the org
+ * later put back under the old folder had no record and was moved again. A workspace that upgraded then still holds
+ * those per-file records, and any one of them is proof the directory move ran — the old engine moved every file
+ * under the folder in the same run. So any per-file record that sits under the move, at the same relative path on
+ * both sides, counts as the directory move having been applied.
+ */
+export function directoryMoveDone(m: { from: string; to: string }, done: ReadonlySet<string>): boolean {
+  if (done.has(moveId(m))) return true;
+  const from = asDir(m.from), to = asDir(m.to);
+  for (const id of done) {
+    const [f, t] = id.split(" → ");
+    if (f && t && f.startsWith(from) && f.length > from.length && t === `${to}${f.slice(from.length)}`) return true;
+  }
+  return false;
+}
 
 /** Compute the migration plan (no writes). */
 export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, moves: readonly ManifestMove[] = [], retire: readonly string[] = [], owned: readonly string[] = []): UpgradePlan {
@@ -318,25 +345,49 @@ export function planUpgrade(entries: readonly ManifestEntry[], r: PlanReaders, m
   //
   // A move is planned only when the org HAS the file and has not been moved before: a second `gov upgrade`
   // must not move something the org has since put back, and a file that was never there is not a change.
+  //
+  // A DIRECTORY move (`from` ends in `/`) is ONE relocation, recorded once as the directory (PRJ-121, 2026-10-12):
+  //   · recorded (or covered by the per-file records an older gov wrote) → never planned again, so a file the org
+  //     has since put under the old folder stays where the org put it;
+  //   · source folder absent or empty → nothing to do (not an error, and not recorded);
+  //   · destination folder already holds files → REFUSED, nothing moved: two folders merged silently could hide
+  //     which copy is the org's, and a same-named file would be overwritten. The org merges them by hand;
+  //   · NESTED moves: a file under a more specific move that is still to run is that move's, not the broader
+  //     one's; and when `to` sits inside `from`, what is already under `to` is not part of the source.
   const present = new Set(r.adopterPaths());
   const already = new Set(r.doneMoves?.() ?? []);
+  const isDone = (m: ManifestMove): boolean => (m.from.endsWith("/") ? directoryMoveDone(m, already) : already.has(moveId(m)));
+  const pending = moves.filter((m) => !isDone(m));
   const movedAway = new Set<string>();
-  for (const m of moves) {
-    if (already.has(moveId(m))) continue;
-    const here = m.from.endsWith("/")
-      ? [...present].filter((p) => p.startsWith(m.from))
+  for (const m of pending) {
+    const dir = m.from.endsWith("/");
+    const claimedElsewhere = (p: string): boolean => pending.some((o) => o !== m && o.from.length > m.from.length && o.from.startsWith(m.from)
+      && (o.from.endsWith("/") ? p.startsWith(o.from) : p === o.from));
+    const toInsideFrom = dir && asDir(m.to).length > m.from.length && asDir(m.to).startsWith(m.from);
+    const here = dir
+      ? [...present].filter((p) => p.startsWith(m.from) && !(toInsideFrom && p.startsWith(asDir(m.to))) && !claimedElsewhere(p))
       : present.has(m.from) ? [m.from] : [];
     if (!here.length) continue;
+    if (dir && m.mode === "move") {
+      const to = asDir(m.to);
+      const source = new Set(here);
+      const occupied = [...present].filter((p) => p.startsWith(to) && !source.has(p));
+      if (occupied.length) {
+        actions.push({ kind: "refuse", dst: to, from: m.from, detail: `${to} already exists here (${occupied.length} file(s), e.g. ${occupied[0]}) — nothing moved from ${m.from}; merge the two folders by hand, then run gov upgrade again` });
+      } else {
+        const group = moveId(m);
+        for (const from of here) actions.push({ kind: "move", dst: `${to}${from.slice(m.from.length)}`, from, group, detail: "the org's file, moved as it stands" });
+      }
+      for (const h of here) movedAway.add(h);
+      continue;
+    }
     if (m.mode === "migrate") {
       const lost = m.how ? r.checkMigration?.(m.how, m.from, m.to) ?? [] : [];
       actions.push(lost.length
         ? { kind: "refuse", dst: m.to, from: m.from, ...(m.how ? { how: m.how } : {}), detail: `${m.how} would lose ${lost.join(", ")} — nothing moved; reconcile by hand` }
         : { kind: "migrate", dst: m.to, from: m.from, ...(m.how ? { how: m.how } : {}), detail: `carries the org's values into ${m.to}` });
     } else {
-      for (const from of here) {
-        const to = m.from.endsWith("/") ? `${m.to.replace(/\/$/, "")}/${from.slice(m.from.length)}` : m.to;
-        actions.push({ kind: "move", dst: to, from, detail: "the org's file, moved as it stands" });
-      }
+      actions.push({ kind: "move", dst: m.to, from: m.from, detail: "the org's file, moved as it stands" });
     }
     for (const h of here) movedAway.add(h);
   }
@@ -420,7 +471,19 @@ export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { include
   // put in place is the org's, so a starter planned for the same path (it was absent when planned) is not written.
   const filled = new Set<string>();
   const ordered = [...plan.actions.filter((a) => a.kind === "move"), ...plan.actions.filter((a) => a.kind !== "move")];
+  // A DIRECTORY move is recorded ONCE, as the directory, when all of its files have moved — before anything else is
+  // written, so a later failure cannot leave the folder moved and unrecorded. A file of it that could not move
+  // (its destination appeared since planning) leaves the directory unrecorded: the next run plans it again, finds
+  // the destination occupied, and refuses with the reason.
+  const groupMoved = new Set<string>(), groupFailed = new Set<string>();
+  let groupsRecorded = false;
+  const recordGroups = (): void => {
+    if (groupsRecorded) return;
+    groupsRecorded = true;
+    for (const g of groupMoved) if (!groupFailed.has(g)) deps.recordMove?.(g);
+  };
   for (const a of ordered) {
+    if (a.kind !== "move") recordGroups();
     if (a.kind === "same" || a.kind === "keep") continue;
     // GOV-FRM-445, the second line of defence: whatever a plan says, an org-owned file that exists is never
     // written with content bytes. (A plan built elsewhere, or a file that appeared since planning.)
@@ -434,6 +497,12 @@ export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { include
     if (a.kind === "conflict" && !opts.includeConflicts) { skipped.push(a.dst); continue; }
     if (a.kind === "retire") { deps.removeAdopter(a.dst); applied.push(a.dst); continue; }
     if (a.kind === "move" && a.from) {
+      // A file of a directory move never lands on one already there: that is a merge, and the plan refuses those.
+      if (a.group && deps.readAdopter(a.dst) !== null) {
+        groupFailed.add(a.group); refused.push(a.dst);
+        why.push(`  ✗ ${a.from} NOT moved: ${a.dst} already exists — merge by hand, then run gov upgrade again`);
+        continue;
+      }
       // STRAIGHT MOVE: the bytes the org has, at the new path. Never a rewrite — the framework owns WHERE a
       // file lives, never WHAT the organization wrote in it.
       if (deps.moveAdopter) deps.moveAdopter(a.from, a.dst);
@@ -443,7 +512,8 @@ export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { include
         deps.writeAdopter(a.dst, text);
         deps.removeAdopter(a.from);
       }
-      deps.recordMove?.(moveId({ from: a.from, to: a.dst }));
+      if (a.group) groupMoved.add(a.group);
+      else deps.recordMove?.(moveId({ from: a.from, to: a.dst }));
       filled.add(a.dst);
       applied.push(a.dst);
       continue;
@@ -461,5 +531,6 @@ export function applyUpgrade(plan: UpgradePlan, deps: ApplyDeps, opts: { include
     const c = a.src ? deps.readContent(a.src) : null;
     if (c !== null) { deps.writeAdopter(a.dst, c); applied.push(a.dst); }
   }
+  recordGroups();
   return { applied, skipped, refused, why };
 }

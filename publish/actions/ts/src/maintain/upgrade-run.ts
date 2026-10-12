@@ -57,13 +57,47 @@ function moveInWorkspace(adopterDir: string): (from: string, to: string) => void
 
 export const MOVES_FILE = ".gov-upgrade-moves.json";
 
-export function doneMoves(adopterDir: string): string[] {
-  try { return JSON.parse(fs.readFileSync(path.join(adopterDir, MOVES_FILE), "utf8")) as string[]; }
-  catch { return []; /* nothing moved yet — the ordinary case for every workspace but the one mid-upgrade */ }
+/**
+ * THE RECORD'S FORMAT (PRJ-121, 2026-10-12). A JSON array. Each relocation is
+ *   · its id as a string, `"<from> → <to>"` — a directory move ONCE, as the directory (`"policies/version/ →
+ *     policies/history/"`), never one entry per file; and
+ *   · beside it, `{ "move": "<from> → <to>", "version": "<the gov that applied it>" }`.
+ * The bare string is what every gov reads, back to the first that kept this file: a gov one minor release older
+ * (version-compat only warns about it) still sees the relocation as done and moves nothing again. Writing only the
+ * object would make that gov re-run every move — the very defect this record exists to prevent.
+ *
+ * Per-file strings written before 2026-10-12 are still read: any one of them under a declared directory move counts
+ * as that directory move applied (upgrade-sync `directoryMoveDone`).
+ */
+export interface MoveRecord { readonly move: string; readonly version: string | null }
+
+function readMovesFile(adopterDir: string): unknown[] {
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(path.join(adopterDir, MOVES_FILE), "utf8"));
+    return Array.isArray(raw) ? raw : [];
+  } catch { return []; /* nothing moved yet — the ordinary case for every workspace but the one mid-upgrade */ }
 }
 
-function recordMove(adopterDir: string, id: string): void {
-  const all = [...new Set([...doneMoves(adopterDir), id])];
+/** Every relocation recorded here, with the gov version that applied it when that was recorded. */
+export function moveRecords(adopterDir: string): MoveRecord[] {
+  const out = new Map<string, string | null>();
+  for (const e of readMovesFile(adopterDir)) {
+    if (typeof e === "string") { if (!out.has(e)) out.set(e, null); }
+    else if (e && typeof e === "object" && typeof (e as { move?: unknown }).move === "string") {
+      const v = (e as { version?: unknown }).version;
+      out.set((e as { move: string }).move, typeof v === "string" ? v : out.get((e as { move: string }).move) ?? null);
+    }
+  }
+  return [...out].map(([move, version]) => ({ move, version }));
+}
+
+/** The ids of the relocations already carried out here (`<from> → <to>`). */
+export function doneMoves(adopterDir: string): string[] { return moveRecords(adopterDir).map((r) => r.move); }
+
+function recordMove(adopterDir: string, id: string, version: string): void {
+  const all = readMovesFile(adopterDir);
+  if (!all.includes(id)) all.push(id);
+  if (!all.some((e) => e && typeof e === "object" && (e as { move?: unknown }).move === id)) all.push({ move: id, version });
   try { fs.writeFileSync(path.join(adopterDir, MOVES_FILE), `${JSON.stringify(all, null, 2)}\n`); }
   catch (e) { log("warn", "could not record a relocation — it may be planned again", "gov-work:maintain:upgrade-run", "recordMove", { id, message: (e as Error)?.message }); }
 }
@@ -180,7 +214,8 @@ function runMigration(adopterDir: string, ctx: MigrationContext): (how: string, 
   };
 }
 
-export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { apply: boolean; userHome?: string }): UpgradeSyncResult {
+/** `govVersion`: the gov applying the upgrade, named in the record of each relocation — else the content's VERSION, which a release keeps equal to its CLI's. */
+export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { apply: boolean; userHome?: string; govVersion?: string }): UpgradeSyncResult {
   const manifestPath = path.join(contentDir, "MANIFEST.yaml");
   if (!fs.existsSync(manifestPath)) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
 
@@ -211,7 +246,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
     removeAdopter: (rel) => fs.rmSync(path.join(adopterDir, rel.replace(/\/$/, "")), { recursive: true, force: true }),
     moveAdopter: moveInWorkspace(adopterDir),
     migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir }),
-    recordMove: (id) => recordMove(adopterDir, id),
+    recordMove: (id) => recordMove(adopterDir, id, opts.govVersion ?? contentVersion(contentDir)),
   });
   return {
     code: res.refused.length ? 1 : 0,
@@ -309,7 +344,7 @@ import { splitLoss, splitOrgConfig, type SplitInput } from "./org-config-split.j
 
 /** Each refused merge, with what it would have lost. A refusal is the one outcome the summary must never hide. */
 function refusedLines(plan: ReturnType<typeof planUpgrade>): string[] {
-  return plan.actions.filter((a) => a.kind === "refuse").map((a) => `  ✗ ${a.dst} NOT updated: ${a.detail ?? "the merge would lose a value"}`);
+  return plan.actions.filter((a) => a.kind === "refuse").map((a) => `  ✗ ${a.dst} NOT ${a.from && !a.how ? "moved" : "updated"}: ${a.detail ?? "the merge would lose a value"}`);
 }
 
 function git(dir: string, args: string[]): string {
@@ -362,7 +397,7 @@ export type OpenPr = (args: { cwd: string; base: string; head: string; title: st
 const ghOpenPr: OpenPr = ({ cwd, base, head, title, body }) =>
   runProcess("gh", ["pr", "create", "--base", base, "--head", head, "--title", title, "--body", body], { cwd, pgm: "gov-work:maintain:upgrade-run", fn: "pr-create" }).trim();
 
-export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string; compileRules?: CompileRules; userHome?: string; openPr?: OpenPr } = {}): UpgradeSyncResult {
+export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string; compileRules?: CompileRules; userHome?: string; openPr?: OpenPr; govVersion?: string } = {}): UpgradeSyncResult {
   if (!fs.existsSync(path.join(contentDir, "MANIFEST.yaml"))) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
   try { git(adopterDir, ["rev-parse", "--git-dir"]); } catch { /* not a git repository: the message below is the account of it */ return { code: 1, lines: ["gov upgrade --pr: not a git repository (or no remote). Use --apply for an in-place migration instead."] }; }
   if (git(adopterDir, ["status", "--porcelain"])) return { code: 1, lines: ["gov upgrade --pr: working tree has uncommitted changes — commit or stash first."] };
@@ -405,7 +440,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     removeAdopter: (rel) => fs.rmSync(path.join(adopterDir, rel.replace(/\/$/, "")), { recursive: true, force: true }),
     moveAdopter: moveInWorkspace(adopterDir),
     migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir }),
-    recordMove: (id) => recordMove(adopterDir, id),
+    recordMove: (id) => recordMove(adopterDir, id, opts.govVersion ?? contentVersion(contentDir)),
   }, { includeConflicts: true }); // the PR diff IS the review — apply everything
 
   // ── THE RENDER TRAVELS IN THE SAME COMMIT AS THE CLAUSES (design §7, PRJ-121, 2026-09-28) ─────────────────

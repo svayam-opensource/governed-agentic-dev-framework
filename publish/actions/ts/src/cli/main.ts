@@ -2470,9 +2470,12 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             : built.lines;
         };
 
+        // The gov that applies a relocation is named in the workspace's record of it (.gov-upgrade-moves.json).
+        const cliVersion = readCliVersion();
+        const govVersion = cliVersion === "?" ? {} : { govVersion: cliVersion };
         const res = "pr" in parsed.flags
-          ? runUpgradePr(contentDir, home, { branch: flagStr(parsed.flags, "branch"), compileRules: compileRules(false) })
-          : runUpgradeSync(contentDir, home, { apply: "apply" in parsed.flags });
+          ? runUpgradePr(contentDir, home, { branch: flagStr(parsed.flags, "branch"), compileRules: compileRules(false), ...govVersion })
+          : runUpgradeSync(contentDir, home, { apply: "apply" in parsed.flags, ...govVersion });
         for (const line of res.lines) process.stdout.write(`${line}\n`);
         if (res.code === 0 && "apply" in parsed.flags && !("pr" in parsed.flags)) {
           for (const line of compileRules(true)(home)) process.stdout.write(`${line}\n`);
