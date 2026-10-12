@@ -71,6 +71,31 @@ jobs:
       - name: Hermetic adopter smoke (no token / org / network)
         run: npm run test:adopter:smoke
 
+  # CiIdentityPort, LIVE (PRJ-121 intent 03, L04): the GitHub adapter obtains this job's OIDC token and prints its
+  # CLAIMS — never the token (e2e/ci-identity-claims.mjs). Its own job so `id-token: write` is granted here and to
+  # nothing else. A fork PR gets no id-token permission; the script then says "not available" and passes.
+  ci-identity:
+    name: CI identity claims (OIDC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: publish/actions/ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: publish/actions/ts/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Print the OIDC claims (not the token)
+        run: node e2e/ci-identity-claims.mjs gov-e2e
+
   # THE TIER THAT ANSWERS QUESTIONS. `smoke` drives the same binary and never types, so it
   # reaches only what gov exposes non-interactively — and every defect between #197 and #209
   # lived behind a prompt. Runs on the OS images an adopter actually arrives on, because a
