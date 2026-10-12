@@ -202,7 +202,6 @@ Harness registry (all tools): [`agent/harness-manifest.yaml`](https://github.com
 
 - **Code changes** go in the code-repo worktrees under `$AGENT_WORK_ROOT/PRJ-001-feature-x/<repo>/`, on the project branch.
 - **Project knowledge** goes in `projects/PRJ-001-feature-x/knowledge/` in the workspace repo:
-  - `compliance.md` — required at close; records C01 violations, C02 exceptions, C03 deviations.
   - `notes.md` — decisions, design rationale, anything future-you would need.
   - any other domain-specific files as needed (`security.md`, `migrations.md`, etc.).
 - **Intermediate to-dos** go in `projects/PRJ-001-feature-x/knowledge/todo.md` under `## Open`. Capture them as they arise, not at session end.
@@ -276,7 +275,7 @@ This is part of GOV-FRM-113.
 
 **"My agent doesn't have `gh` access."** — Most operations don't need it, but seeding a new project and closing one do (`gov seed`/`gov join` and `gov close` — Project queries, authorization check, PR creation). Give the agent a PAT scoped to `repo` + `project` for the run, or hand off those specific commands to a human-driven shell.
 
-**"I'm not sure if a change is C01, C02, or C03."** — Default to surfacing it as C02 (write to `compliance.md` and file an exception if needed). Only C01 hard-stops require pausing.
+**"I'm not sure if a change is C01, C02, or C03."** — Ask the agent for the rule's GOV id; `gov rules show <id>` prints its level. A C03 rule you depart from is one line under `## Deviations` in the pull request. A C02 rule needs a merged exception first. Only C01 hard-stops require pausing.
 
 **"The project now needs a repository it did not start with."** — Run `gov add-repo <repo-url>` from the
 project workspace. It clones the repository next to the others and cuts its project branch, from the

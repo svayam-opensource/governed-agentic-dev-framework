@@ -36,7 +36,7 @@ Higher priority always wins. In case of conflict, apply the rule from the higher
 
 - **C01 — Non-Negotiable**: Hard stop. Refuse to proceed. Surface to human immediately.
 - **C02 — Always Apply**: Block work. Require approved PR in `policies/exceptions/` before continuing.
-- **C03 — Apply Intelligently**: Proceed with deviation, but document reasoning in `projects/PRJ-<board#>-<slug>/knowledge/compliance.md`.
+- **C03 — Apply Intelligently**: Proceed with deviation, but record the reasoning in the project's knowledge as you decide it, and list the deviation under `## Deviations` in the pull request: one line citing the rule's GOV id.
 
 ## Session Start Checklist (C01 — complete before any work)
 

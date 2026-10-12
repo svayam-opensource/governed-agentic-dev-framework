@@ -223,31 +223,13 @@ assert_contains "$KN_OUT" "knowledge" "knowledge propose opened a change"
 
 # ── 6. Close the project (knowledge gate → promote → close board) ────────────
 # close is project-level → back in the project worktree. First satisfy the C01
-# pre-close knowledge gate (a real adopter documents learnings before close).
+# pre-close: close proposes projects/<id>/knowledge/, so the project writes something there (no compliance.md or
+# knowledge-close.md is required — PRJ-121 §3.3, §3.4).
 step "document project knowledge (close gate) → gov close"
 cd "$WS_WT"
 KDIR="projects/$PID/knowledge"
 mkdir -p "$KDIR"
 printf '# Decisions\n\n- Implemented the e2e change.\n' > "$KDIR/decisions.md"
-printf '# Compliance\n\nAll C01/C02 requirements satisfied for this project.\n' > "$KDIR/compliance.md"
-cat > "$KDIR/knowledge-close.md" <<'KC'
-# Knowledge Close
-
-## Graduated to org knowledge
-None for this project.
-
-## Kept project-local
-Implementation notes stay in the project.
-
-## Discarded
-Nothing.
-
-## Journeys created / updated
-None.
-
-## Completeness critic
-Reviewed — nothing outstanding.
-KC
 git add -A && git commit -qm "docs: project knowledge (close gate)" >/dev/null && ok "documented project knowledge" || die "knowledge commit failed"
 CLOSE_OUT=$(gov close 2>&1) || { echo "$CLOSE_OUT" | tail -12; die "gov close failed"; }
 [ "$(gh project view "$PROJ_NUM" --owner "$E2E_ORG" --format json --jq .closed 2>/dev/null)" = "true" ] && ok "close shut the board" \

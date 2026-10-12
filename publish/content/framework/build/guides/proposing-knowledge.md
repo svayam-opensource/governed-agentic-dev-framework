@@ -65,8 +65,8 @@ an exception that names one. Get it approved **before** you do the work that dep
    a "yes" in a meeting or in chat is not an exception.
 
 Once merged, the exception is shown to agents working in its scope until it expires, and then it simply
-stops applying. Rules that are a strong default need no exception: depart from them on purpose and record why
-in `projects/<id>/knowledge/compliance.md`.
+stops applying. Rules that are a strong default (C03) need no exception: depart from them on purpose, and record
+it as one line under `## Deviations` in the pull request that takes it, citing the rule's GOV id and saying why.
 
 ---
 

@@ -719,7 +719,7 @@ describe("lifecycle coverage — close", () => {
     pathExists: () => true,
     readFile: (p: string) => (p.endsWith("knowledge-close.md") ? MANIFEST : null),
     mkdirp: () => {}, writeFile: () => {}, rm: () => {},
-    readdir: () => ["compliance.md", "knowledge-close.md"],
+    readdir: () => ["decisions.md", "knowledge-close.md"],
   });
 
   it("happy path → exit 0 with exact lines (PR url reported)", () => {

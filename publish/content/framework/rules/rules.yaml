@@ -9,6 +9,9 @@
 # before release; 452 likewise (now GOV-FRM-040). None was ever issued.
 #
 # Which POL numbers each row replaced, folded or dropped: pol-aliases.yaml (`gov rules show POL-xxx`).
+#
+# A CLOSED row (`end` set) is history: its `source` is the text it was written against, which may since have changed.
+# GOV-FRM-150 and GOV-FRM-463 closed at 2.0.0 with no successor when compliance.md was retired (PRJ-121 §3.4, S3).
 
 # W2-Q4
 - id: GOV-FRM-011
@@ -243,7 +246,7 @@
   actor: [everyone]
   level: C03
   start: { version: "1.2.3", date: "2026-10-06" }
-  end: null
+  end: { version: "2.0.0", date: "2026-10-12" }
 
 - id: GOV-FRM-152
   source: { doc: framework/framework-specification.md, section: "10.2", sha: "e6aa91e" }
@@ -537,7 +540,7 @@
       action: gov-builtin/test-suite
       on_miss: fail
   start: { version: "1.2.3", date: "2026-10-06" }
-  end: null
+  end: { version: "2.0.0", date: "2026-10-12" }
 
 - id: GOV-FRM-464
   source: { doc: framework/framework-specification.md, section: "10.4", sha: "8aa4d5d" }

@@ -52,9 +52,11 @@ describe("framework rules — the shipped store", () => {
 
   // The ONE section definition propose stamps with and the policy PR gate checks (checks/sections.ts): a section
   // runs to the next NUMBERED heading, so §4.2's text is not part of §4's and an edit to §4.2 leaves §4's rows alone.
-  it("every row cites a section of framework-specification.md, at the sha of its current text", () => {
+  // A CLOSED row is history: its source is the text it was written against, which may since have changed or gone
+  // (GOV-FRM-150's §8.5 was rewritten when compliance.md was retired). Only rows in force must match today's text.
+  it("every row in force cites a section of framework-specification.md, at the sha of its current text", () => {
     const shas = sectionShas(spec);
-    const stale = rows.flatMap((r) => {
+    const stale = inForce(rows).flatMap((r) => {
       if (r.source.doc !== SPEC_DOC) return [`${r.id}: source is ${r.source.doc}`];
       const sha = shas.get(r.source.section);
       if (sha === undefined) return [`${r.id}: no section ${r.source.section}`];
@@ -70,6 +72,18 @@ describe("framework rules — the shipped store", () => {
       .map((r) => r.id);
     expect(unchecked).to.deep.equal([]);
   });
+
+  // PRJ-121 §3.4 (S3): compliance.md is retired. GOV-FRM-150 (record everything in compliance.md) closes at 2.0.0 with
+  // no successor — a C03 deviation is recorded in its pull request's `## Deviations` section instead — and
+  // GOV-FRM-463 (gov regenerates the derived half of compliance.md) closes with the module that kept it.
+  for (const id of ["GOV-FRM-150", "GOV-FRM-463"]) {
+    it(`${id} is closed at framework 2.0.0, with no successor`, () => {
+      const chain = rows.filter((r) => r.id === id);
+      expect(chain.length, `${id} keeps its history`).to.be.greaterThan(0);
+      expect(inForce(chain), `${id} has no row in force`).to.deep.equal([]);
+      expect(chain[chain.length - 1]!.end?.version).to.equal("2.0.0");
+    });
+  }
 
   it("expectations name their actor — no pronoun subjects (Q9)", () => {
     expect(rows.filter((r) => /^(It|They|This)\b/.test(r.expectation)).map((r) => r.id)).to.deep.equal([]);

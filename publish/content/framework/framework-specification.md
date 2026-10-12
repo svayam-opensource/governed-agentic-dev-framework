@@ -683,21 +683,16 @@ state machine or a relationship. Do not use an image. One text diagram serves bo
 picture for people, and it stays a few dozen lines that can be compared, searched and reviewed. An image
 cannot be read by an agent, compared in a review or searched.
 
-### 8.5 The project's compliance record
+### 8.5 Recording a deviation
 
-Each project keeps a `compliance.md` in its knowledge folder. It is the record of three things:
+A deviation is recorded where it is reviewed: in the pull request that takes it. The pull request template has a
+`## Deviations` section, and each C03 deviation the change takes is one line there: the GOV id of the rule, what
+was done instead, and why it was reasonable. The reviewer sees the deviation beside the change, and the merged
+pull request keeps it.
 
-- the C01 violations found
-- the C02 exceptions used
-- the C03 deviations taken, each with its reasoning
-
-The file has two halves.
-
-- **gov writes one half** from its own run log: every refusal it issued, every gate that fired, every check
-  that failed and was fixed, and every exception the project cited. gov rewrites that fenced section each time
-  and never touches anything outside it.
-- **People write the other half**, because no machine can: what was deviated from, why it was reasonable, and
-  what a reader a year from now would need in order to agree.
+The other two levels need no such line. A C02 departure is only allowed under an approved exception, which is its
+own merged record under `policies/exceptions/`. A C01 rule is never deviated from, and gov records each violation
+it detects itself.
 
 How your organization rolls these up, and how often it reviews them, is its own decision, written in its own
 policy if anywhere.

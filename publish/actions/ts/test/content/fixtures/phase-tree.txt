@@ -12,7 +12,6 @@
 #
 # Still to change, by the task that owns it (each edits its own lines here when it merges):
 #   · L01 adds policies/build/policy.md (seed-new)
-#   · L04 removes framework/build/templates/compliance-template.md
 #   · L05 adds framework/build/build-specification.md
 .github/ISSUE_TEMPLATE/bug_report.md
 .github/ISSUE_TEMPLATE/config.yml
@@ -41,7 +40,6 @@ framework/build/guides/path-developer.md
 framework/build/guides/proposing-knowledge.md
 framework/build/guides/running-parallel-tasks.md
 framework/build/guides/working-on-a-project.md
-framework/build/templates/compliance-template.md
 framework/build/templates/gov-validate.reference.yml
 framework/build/templates/preferences-template.md
 framework/build/templates/project-impact-template.md

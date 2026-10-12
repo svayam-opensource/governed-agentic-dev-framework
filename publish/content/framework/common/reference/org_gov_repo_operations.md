@@ -88,8 +88,8 @@ Project state is derived live from GitHub (Project boards + anchor issues); ther
 
 ### 1. Compliance summary
 
-An organization that aggregates its per-project `compliance.md` files does so on merge, into wherever its own
-policy says they live. Nothing in the framework requires it.
+An organization that aggregates the deviations its pull requests record (the `## Deviations` section) does so on
+merge, into wherever its own policy says they live. Nothing in the framework requires it.
 
 > **The publication pipeline that used to be specified here is gone.** It described a static knowledge site, PDF
 > exports of every policy, and re-embedding changed files into a vector store — infrastructure the framework

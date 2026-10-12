@@ -63,7 +63,6 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "publish/actions/ts/src/rules/model/pol-aliases.ts": ALIASES,
   "publish/actions/ts/test/cli/rules-show.test.ts": ALIASES,
   "publish/actions/ts/test/rules/model/pol-aliases.test.ts": ALIASES,
-  "publish/actions/ts/test/rules/compliance-record.test.ts": DATA_FIXTURE,
   "publish/actions/ts/test/rules/exceptions.test.ts": DATA_FIXTURE,
   "publish/actions/ts/test/rules/model/model.test.ts": DATA_FIXTURE,
   "publish/actions/ts/test/maintain/fixtures/upgrade/layout-1.0/bodies.txt": DATA_FIXTURE
@@ -132,7 +131,7 @@ describe("no new POL citations — POL numbers are retired (rule-model Q21)", ()
   });
 
   it("the allow-list's size is pinned, so a change to it is a visible diff", () => {
-    expect(Object.keys(ALLOWED)).to.have.lengthOf(51); // +1 PRJ-121 B01: the layout-1.0 upgrade fixture (bridge; back to 50 in D01)
+    expect(Object.keys(ALLOWED)).to.have.lengthOf(50); // -1 L04 (compliance-record retired); +1 PRJ-121 B01: the layout-1.0 upgrade fixture (bridge; back to 49 in D01)
   });
 
   it("every GOV-FRM id cited in gov's source is a row of framework/rules/rules.yaml", () => {

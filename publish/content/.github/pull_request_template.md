@@ -32,6 +32,17 @@ and why.
 - [ ] If targeting `publish`: change is universal, applies to any adopting org
 - [ ] If targeting `main`: change is org-specific or comes from upstream `publish` via sync
 
+## Deviations
+
+<!--
+One line per C03 deviation this change takes: the GOV id of the rule, what you did instead, and why.
+  - GOV-FRM-123 — what was done instead — why it was reasonable here
+Write "None" when there are none. A C02 departure needs a merged exception under policies/exceptions/, not a line
+here; a C01 rule is never deviated from.
+-->
+
+None
+
 ## Linked issues
 
 <!-- "Closes #123", "Refs #456" -->
