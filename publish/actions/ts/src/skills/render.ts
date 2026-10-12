@@ -50,6 +50,8 @@ export interface Skill {
   readonly ids: readonly string[];
   /** The whole SKILL.md. */
   readonly content: string;
+  /** "When …" in plain words — the work this skill is for. The fallback index (Q14) prints it. */
+  readonly when: string;
 }
 
 /** Lowercase, apostrophes dropped, every other run of non-alphanumerics one hyphen, none at the ends. */
@@ -57,7 +59,7 @@ const slug = (s: string): string =>
   s.toLowerCase().replace(/['’]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
 /** GitHub's heading anchor: lowercase, punctuation dropped (hyphens kept), spaces to hyphens. */
-const anchor = (heading: string): string =>
+export const anchor = (heading: string): string =>
   heading.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").replace(/\s/g, "-");
 
 /** The heading text of a numbered section (`### 6.5 Saying which model it runs` → that line minus the hashes). */
@@ -117,14 +119,15 @@ const lead = (rows: readonly RuleRow[]): string => {
   return c02 && c03 ? "Required and preferred practice" : c02 ? "Required practice" : "Preferred practice";
 };
 
-const cap = (s: string, n: number): string => (s.length <= n ? s : `${s.slice(0, n - 1).replace(/\s+\S*$/, "")}…`);
+export const cap = (s: string, n: number): string => (s.length <= n ? s : `${s.slice(0, n - 1).replace(/\s+\S*$/, "")}…`);
 
 function renderOne(doc: string, section: string, rows: readonly RuleRow[], heading: string | null, name: string): Skill {
   const title = titleOf(heading);
   const base = path.posix.basename(doc);
   const where = `${base} §${section}`;
+  const when = useWhen(rows).join("; or ");
   const description = cap(
-    `${lead(rows)}: ${title ?? `§${section}`} (${where}). Use when ${useWhen(rows).join("; or ")}.`,
+    `${lead(rows)}: ${title ?? `§${section}`} (${where}). Use when ${when}.`,
     SKILL_DESCRIPTION_MAX,
   );
   const version = rows.map((r) => r.start.version).reduce((a, b) => (compareVersions(a, b) >= 0 ? a : b));
@@ -151,7 +154,7 @@ function renderOne(doc: string, section: string, rows: readonly RuleRow[], headi
     `_${SKILL_GENERATED[0]!.toUpperCase()}${SKILL_GENERATED.slice(1)}: change the rule rows or the policy, then run \`gov rules build\`._`,
     "",
   ].join("\n");
-  return { name, doc, section, title, ids: rows.map((r) => r.id), content };
+  return { name, doc, section, title, ids: rows.map((r) => r.id), content, when };
 }
 
 /** Every skill, in the order its first rule is read (framework then org, each by id number). */
