@@ -3,7 +3,7 @@
 ```bash
 curl -fsSL https://raw.githubusercontent.com/svayam-opensource/governed-agentic-dev-framework/main/install.sh -o install.sh \
   && bash install.sh
-source ~/.bashrc          # or ~/.zshrc — the installer says which
+source ~/.profile         # only if the installer says it appended a line there — it names the file
 gov
 ```
 
@@ -12,6 +12,17 @@ gov
 `sudo`; `curl` and `tar` are the only prerequisites, and both are already present
 everywhere this can run. Testers point it at a local build with
 `GOV_PKG=/path/to.tgz`.
+
+**What it changes on your machine (#211).** Node goes under `~/.local/share/gov/node`, and a
+Node you already have is left alone — still the `node` your shell finds. `gov` reaches its own
+Node through a small wrapper:
+
+- If `~/.local/bin` is already on your `PATH` (Fedora, RHEL, Rocky), the wrapper goes there and
+  **no shell profile is touched**. `gov` works in the terminal you ran the installer from.
+- If it is not (Debian, Ubuntu, macOS), **one marked line is appended** to the end of your shell
+  profile (`~/.zshrc`, `~/.bashrc`, `~/.bash_profile` or `~/.profile`, whichever your shell
+  reads), after everything already on `PATH`, and the installer names the file in one line. Open
+  a new terminal, or `source` that file.
 
 **Fetch, then run — do not `curl … | bash`.** Piped, a failed download is silent:
 `curl -f` writes nothing and exits 22, `bash` reads an empty stdin and exits 0, and

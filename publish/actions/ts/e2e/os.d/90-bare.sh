@@ -57,18 +57,17 @@ info "#186 — the claim is proved, not announced"
 in_a_new_login_shell "gov --version" \
   && pass "gov runs in a NEW login shell — the terminal an adopter opens tomorrow" \
   || fail "gov is not runnable in a fresh login shell"
-# #211 — TODAY THIS PASSES BY DESCRIBING THE DEFECT, not by asserting the fix. install.sh
-# PREPENDS $NODE_DIR/bin to the profile, so gov's Node shadows the machine's from the next
-# terminal onward, against what the installer tells the adopter it will do. Flip these two
-# lines when #211 lands; leaving the assertion aspirational would make the suite red for a
-# reason it is not about, and a suite that is red on purpose is a suite nobody reads.
+# #211 — install.sh no longer PREPENDS gov's Node to the profile. On rocky and fedora the profile
+# is untouched (the wrapper carries its own Node), so a bare machine has no `node` in a login
+# shell; on debian and ubuntu the folder is APPENDED, so the login shell finds it, last. Scenario
+# 93 gives the machine a Node of its own and asserts that it keeps precedence on every image.
 if in_a_new_login_shell "node --version"; then
-  info "#211 — gov's private Node is on the profile PATH, and shadows the machine's"
+  info "#211 — no wrapper on this image, so gov's Node folder is appended to the profile"
   grep -q "gov installer" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" 2>/dev/null \
     && pass "the profile edit is present and marked, so it can be found and removed" \
     || fail "PATH was changed with nothing in the profile to show for it"
 else
-  pass "#211 is fixed — the machine's own Node keeps precedence"
+  pass "#211 — the profile is untouched; gov runs through its wrapper"
 fi
 
 info "#204 / #186 — the consent screen, on a machine that really is missing both"

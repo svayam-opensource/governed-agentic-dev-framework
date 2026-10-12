@@ -12,6 +12,10 @@ What has to be true before your first session. Once per machine.
 `install.sh` handles Node and the `gov` client; this is what it hands back to you — the
 parts only a person can do, like signing in.
 
+`install.sh` keeps its own Node out of your way: a Node you already have stays the one your
+shell finds. Where `~/.local/bin` is on your `PATH` it changes no shell profile at all;
+elsewhere it appends one line to the end of your profile and tells you which file.
+
 ## 1. Before the first session
 
 ### Verify your env

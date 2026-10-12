@@ -225,34 +225,52 @@ on_path() { case ":$PATH:" in *":$1:"*) return 0 ;; *) return 1 ;; esac; }
 # ~/.local/bin is on PATH by default on Fedora, RHEL, Rocky and most Debian
 # derivatives. When it is, a symlink there means `gov` works in the shell you are
 # standing in, with nothing to source and nothing to reopen.
-# Append the PATH line to the user's shell profile, once.
-add_to_path() {
-  local dir="$1" prof; prof="$(profile_file)"
+#
+# THE PROFILE IS THE LAST RESORT, AND IT IS APPENDED TO — NEVER PREPENDED (#211, Q13 B).
+#
+# The PATH line used to PREPEND gov's private Node, on every machine, even where the wrapper
+# above had just been proven to work. From the next terminal on, `node` meant gov's Node and
+# not the one the person had installed — after this script had told them it was "leaving it
+# alone". So: directories are only COLLECTED while installing (need_on_path), and once gov is
+# in place exactly one of two things happens —
+#
+#   · the ~/.local/bin wrapper is proven → no profile is touched at all;
+#   · otherwise → ONE line is appended, last in the file, so whatever was on PATH before keeps
+#     precedence, and one line on screen names the file.
+PATH_DIRS=()
+need_on_path() { PATH_DIRS+=("$1"); }
+
+append_to_path() {
+  local prof dir missing=()
+  prof="$(profile_file)"
   touch "$prof"
-  if grep -Fq "$dir" "$prof" 2>/dev/null; then
+  for dir in "$@"; do
+    grep -Fq "$dir" "$prof" 2>/dev/null || missing+=("$dir")
+  done
+  if [ ${#missing[@]} -eq 0 ]; then
     skip "PATH entry in $(tilde "$prof")"
   else
-    { printf '\n%s\n' "$MARKER"; printf 'export PATH="%s:$PATH"\n' "$dir"; } >> "$prof"
-    ok "added to PATH in $(tilde "$prof")"
+    local joined; joined="$(IFS=:; printf '%s' "${missing[*]}")"
+    { printf '\n%s\n' "$MARKER"; printf 'export PATH="$PATH:%s"\n' "$joined"; } >> "$prof"
+    ok "added gov to your PATH: one line appended to the end of $(tilde "$prof")"
   fi
   PROFILE_TOUCHED="$prof"
 }
 
-link_into_path() {
-  local target="$1" dir="$HOME/.local/bin"
-  on_path "$dir" || return 1
+# A WRAPPER for gov: puts gov's Node first for its own invocation only, and hands over.
+write_wrapper() {
+  local dir="$1" target="$2"
   mkdir -p "$dir" || return 1
 
   # A SYMLINK IS NOT ENOUGH, and claiming otherwise is worse than saying nothing.
   # The `gov` npm ships is a script whose shebang is `#!/usr/bin/env node`. Link it
   # somewhere on PATH and the shell finds `gov` — then fails with
-  # `env: 'node': No such file or directory`, because Node lives in the directory we
-  # just added to a profile the running shell has not read. Found but unrunnable is
-  # a worse answer than not found.
+  # `env: 'node': No such file or directory` (or runs it on the machine's own, older
+  # Node), because gov's Node is not on the PATH of the shell that started it. Found
+  # but unrunnable is a worse answer than not found.
   #
-  # So: a two-line wrapper that puts Node on PATH for its own invocation and hands
-  # over. Self-contained, no sourcing, and it keeps working after the profile is
-  # read because prepending an already-present directory changes nothing.
+  # So: a small wrapper that puts gov's Node on PATH for its own invocation and hands
+  # over. Self-contained, no sourcing, and nothing outside gov's own process changes.
   {
     printf '#!/bin/sh\n'
     printf '%s\n' "$MARKER"
@@ -261,15 +279,36 @@ link_into_path() {
   } > "$dir/gov" || return 1
   chmod +x "$dir/gov" || return 1
 
-  # Prove it, rather than announce it. If the wrapper cannot run, the old
-  # open-a-new-terminal message is the honest ending.
+  # Prove it, rather than announce it.
   if ! "$dir/gov" --version >/dev/null 2>&1; then
     rm -f "$dir/gov"
     return 1
   fi
+  return 0
+}
+
+link_into_path() {
+  local target="$1" dir="$HOME/.local/bin"
+  on_path "$dir" || return 1
+  write_wrapper "$dir" "$target" || return 1
   IMMEDIATELY_USABLE=1
   ok "linked into $(tilde "$dir"), which is already on your PATH"
   return 0
+}
+
+# How gov stays reachable after this script exits — the wrapper when it can be proven, the
+# profile (appended) when it cannot.
+make_reachable() {
+  local gov_bin="$1"
+  [ -n "$gov_bin" ] && link_into_path "$gov_bin" && return 0
+  [ ${#PATH_DIRS[@]} -gt 0 ] || return 0
+  # The profile route. gov's own Node goes LAST on PATH, so a machine with an older Node keeps
+  # it — and `gov` itself must not be run by that older Node. So the wrapper goes to a folder
+  # of gov's own, which is appended ahead of the Node folder.
+  if [ -n "$gov_bin" ] && write_wrapper "$GOV_HOME/bin" "$gov_bin"; then
+    PATH_DIRS=("$GOV_HOME/bin" "${PATH_DIRS[@]}")
+  fi
+  append_to_path "${PATH_DIRS[@]}"
 }
 
 # ── steps ─────────────────────────────────────────────────────────────────────
@@ -285,6 +324,7 @@ install_node() {
     if [ -n "$mine" ]; then
       skip "Node $mine (installed here previously)"
       export PATH="$NODE_DIR/bin:$PATH"
+      need_on_path "$NODE_DIR/bin"
       return
     fi
   fi
@@ -433,7 +473,7 @@ install_node() {
   to let this script download the right one."
   fi
   export PATH="$NODE_DIR/bin:$PATH"
-  add_to_path "$NODE_DIR/bin"
+  need_on_path "$NODE_DIR/bin"
   ok "Node $ver"
   say "===> 1. [✓] Install Node version 24"
 }
@@ -454,7 +494,7 @@ install_gov() {
       mkdir -p "$HOME/.npm-global"
       npm config set prefix "$HOME/.npm-global"
       export PATH="$HOME/.npm-global/bin:$PATH"
-      add_to_path "$HOME/.npm-global/bin"
+      need_on_path "$HOME/.npm-global/bin"
     fi
   fi
 
@@ -485,7 +525,7 @@ install_gov() {
 
   # Prefer the shell the person is actually in over a shell they have to go and open.
   local gov_bin; gov_bin="$(command -v gov 2>/dev/null || true)"
-  [ -n "$gov_bin" ] && link_into_path "$gov_bin" || true
+  make_reachable "$gov_bin" || true
 }
 
 # ── run ───────────────────────────────────────────────────────────────────────
