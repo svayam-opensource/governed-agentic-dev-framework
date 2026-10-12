@@ -69,6 +69,18 @@ describe("CODEOWNERS generation", () => {
     }
   });
 
+  // PRJ-121 intent 01 §3.11: policies/deploy/ and policies/run/ are reserved for gov-cicd and gov-infra. When they
+  // arrive they are phase folders like common/ and build/ — routed by the same /policies/ line, with no line of their own.
+  it("the reserved phase folders policies/deploy/** and policies/run/** route like any other phase folder", () => {
+    const r = renderCodeowners({ policyOwner: "polly", checkOwner: "chuck" }, ROLES)!;
+    for (const f of ["policies/common/data-classification.md", "policies/build/approved-technologies.md",
+      "policies/deploy/unit-catalog/services.yaml", "policies/deploy/policy.md", "policies/run/fleet-catalog/fleet.yaml"]) {
+      expect(ownerOf(r.text, f), f).to.equal("@polly");
+    }
+    expect(r.text, "no phase folder gets a line of its own").to.not.match(/^\/policies\/(common|build|deploy|run)\//m);
+    expect(ownerOf(r.text, "policies/actions/x/run.sh"), "the Check Owner's line still wins for actions").to.equal("@chuck");
+  });
+
   it("GOV-FRM-083 a role's knowledge/ folder routes to its holder; a VACANT role's folder to the Policy Owner", () => {
     const r = renderCodeowners({ policyOwner: "polly", checkOwner: "chuck" }, ROLES)!;
     expect(ownerOf(r.text, "knowledge/data/model.md")).to.equal("@dana");

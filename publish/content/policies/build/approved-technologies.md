@@ -1,9 +1,5 @@
 # <ORG_NAME> — Approved Technologies
 
-**Document:** Approved Technologies
-**Policy Owner:** <POLICY_OWNER_EMAIL>
-**Status:** draft — seeded by `gov setup`, and **yours to curate**
-
 > ## This list is yours, and it is what the check reads
 >
 > gov created this file once and will never overwrite it. The entries below are a starter: the few

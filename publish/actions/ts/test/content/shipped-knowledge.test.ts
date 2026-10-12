@@ -96,7 +96,7 @@ describe("gov-work — shipped knowledge passes its own validator (publish gate)
 
 describe("gov-work — seeded policies carry no front matter (Policy Owner, 2026-10-06)", () => {
   // A level belongs to each RULE, set by the propose interview — never to a document. So a seeded policy opens with
-  // its human header (title, owner, status), not a YAML block claiming a level for the whole file.
+  // its title, not a YAML block claiming a level for the whole file.
   const policiesDir = path.join(contentDir(), "policies");
   // Recursive: the phase tree puts policies in common/ and build/ as well as at the root (spec 01 §2).
   const seeded = (fs.readdirSync(policiesDir, { recursive: true }) as string[])
@@ -108,12 +108,11 @@ describe("gov-work — seeded policies carry no front matter (Policy Owner, 2026
     expect(withFm, `front matter in: ${withFm.join(", ")}`).to.deep.equal([]);
   });
 
-  it("each keeps its human header: a title, an owner line and a status line", () => {
+  it("each opens with its title — and no owner or status line (Q10: the path is the header; test/content/starter-headers)", () => {
     for (const n of seeded) {
       const head = fs.readFileSync(path.join(policiesDir, n), "utf8").split("\n").slice(0, 8).join("\n");
       expect(head, n).to.match(/^# /);
-      expect(head, n).to.match(/^\*\*(Policy Owner|Owner):\*\*/m);
-      expect(head, n).to.match(/^\*\*Status:\*\*/m);
+      expect(head, n).to.not.match(/^\*\*(Policy Owner|Owner|Status|Document):\*\*/m);
     }
   });
 

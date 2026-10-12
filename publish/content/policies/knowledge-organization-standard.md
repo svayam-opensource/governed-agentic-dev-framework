@@ -1,9 +1,5 @@
 # Knowledge Organization Standard
 
-**Document:** Knowledge Organization Standard
-**Policy Owner:** <POLICY_OWNER_EMAIL>
-**Status:** seeded by `gov setup`, and **yours to change**
-
 > ## This file is yours
 >
 > gov created it once and **will never overwrite it**. It is a starting point for how your organization

@@ -1,9 +1,6 @@
 # Authorized representatives — who approves what
 
-**Document:** Authorized Representatives
 **Governed by:** `policies/org-policy.md` section 5
-**Policy Owner:** <POLICY_OWNER_EMAIL>
-**Status:** seed — written once by `gov setup`, and **yours to change**
 
 > ## This file is yours
 >

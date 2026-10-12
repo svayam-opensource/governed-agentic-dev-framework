@@ -1,9 +1,5 @@
 # <ORG_NAME> — Development Policy
 
-**Document:** Development Policy
-**Policy Owner:** <POLICY_OWNER_EMAIL>
-**Status:** draft — seeded by `gov setup`, and **yours to change**
-
 > ## This file is yours
 >
 > gov created it once and **will never overwrite it**. Edit it, add to it, delete what does not apply.

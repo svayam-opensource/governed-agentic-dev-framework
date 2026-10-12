@@ -1,9 +1,5 @@
 # Policy domains — <ORG_NAME>'s own policies
 
-**Document:** Policy Domains
-**Policy Owner:** <POLICY_OWNER_EMAIL>
-**Status:** seed — written once by `gov setup`, and **yours to change**
-
 > ## This file is yours
 >
 > gov created it once and **will never overwrite it**. It lists the policies most organizations end up

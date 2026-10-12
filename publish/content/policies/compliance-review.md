@@ -1,9 +1,5 @@
 # Compliance review — <ORG_NAME>'s cadence
 
-**Document:** Compliance Review
-**Policy Owner:** <POLICY_OWNER_EMAIL>
-**Status:** seed — written once by `gov setup`, and **yours to change**
-
 > ## This file is yours
 >
 > gov created it once and **will never overwrite it**. Quarterly is a starter: an organization that ships

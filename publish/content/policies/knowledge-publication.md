@@ -1,9 +1,5 @@
 # Knowledge publication — <ORG_NAME>'s decision
 
-**Document:** Knowledge Publication
-**Owner:** Infrastructure Owner (acting: <POLICY_OWNER_EMAIL>)
-**Status:** seed — written once by `gov setup`, and **yours to change**
-
 > ## This file is yours, and it may well be yours to delete
 >
 > gov created it once and **will never overwrite it**. The framework ships **none** of this infrastructure

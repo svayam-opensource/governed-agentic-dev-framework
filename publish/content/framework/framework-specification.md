@@ -131,6 +131,20 @@ means, and publishes that list as `framework/common/reference/org-config.schema.
 `gov doctor` checks your `org-config.yaml` against it. It names a key that is missing, a key gov does not read,
 and a key that has moved to another file.
 
+### 1.7 The phases, and the paths reserved for them
+
+The governance repository is split by owner, `framework/` (the framework's) and `policies/` (yours), and inside each
+by phase: `common/` for what every phase shares, and `build/` for building software. Each owner keeps one `rules/`
+store at its root. Two more phases are reserved for the tools that govern them, and gov creates neither folder:
+
+| Phase | Reserved path | Owner |
+|---|---|---|
+| deploy | `policies/deploy/unit-catalog/` — reserved for the unit catalog | gov-cicd |
+| run | `policies/run/fleet-catalog/` — reserved for the fleet catalog | gov-infra |
+
+When one arrives it is a phase folder like `common/` and `build/`: the same `CODEOWNERS` routing, the same section
+ownership in `policies/ownership.yaml`.
+
 *Rules for this chapter: rule map, filter `framework-specification.md §1`.*
 
 ---

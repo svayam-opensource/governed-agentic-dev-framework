@@ -50,6 +50,10 @@ policies/                                    O
   exceptions/<domain>/  ·  actions/<id>/     the organization's exception records and check actions
 ```
 
+Two phase folders are **reserved**, and gov creates neither: `policies/deploy/unit-catalog/` is reserved for gov-cicd
+(the deploy phase's unit catalog), and `policies/run/fleet-catalog/` is reserved for gov-infra (the run phase's fleet
+catalog). Each arrives with its own tool, as a phase folder like `common/` and `build/`.
+
 ---
 
 ## On Every PR to Master (Validation Gates)
