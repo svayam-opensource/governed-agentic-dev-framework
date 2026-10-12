@@ -234,6 +234,15 @@ services:
 #    See knowledge/architecture/system/specs/token-lifetime-standard.md §3.4.
 session:
   access_ttl_sec: ${v.accessTtlSec || "300"}
+
+# ── Platforms. Which platform gov talks to for each kind of work: the work tracker (boards, issues), the
+#    code host (change requests, reviews, required checks) and CI identity. Leave it out and gov uses
+#    GitHub for all three — the only platform it has today. \`gov doctor\` fails on a name it does not have.
+#
+# adapters:
+#   work_tracker: github
+#   vcs: github
+#   ci_identity: github
 `;
 }
 
