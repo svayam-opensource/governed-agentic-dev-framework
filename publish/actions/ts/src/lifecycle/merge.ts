@@ -15,7 +15,7 @@ import * as path from "node:path";
 import type { Board } from "./board.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { Issues } from "./issues.js";
-import { NO_TRACKER, STATUS_DONE, type BoardStatusOutcome, type WorkTrackerPort } from "../ports/work-tracker.js";
+import { NO_TRACKER, STATE_NAMES, type BoardStatusOutcome, type BoardWriter } from "../ports/work-tracker.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl } from "./repo.js";
 import { userDirtyPaths, dirtyRefusal } from "./root-protocol.js";
@@ -41,7 +41,7 @@ export interface MergeDeps {
   readonly fs: FsProbe;
   readonly issues: Issues;
   /** Sets the board Status (gadf#225). Absent → every issue reports `unreachable`, never a silent skip. */
-  readonly tracker?: WorkTrackerPort;
+  readonly tracker?: BoardWriter;
   /** REQUIRED (C01) — write-access to the GitHub Project; called unconditionally. */
   readonly authorize: (ref: BoardRef) => boolean;
   /**
@@ -205,8 +205,8 @@ export function merge(deps: MergeDeps, config: MergeConfig, input: MergeInput): 
   const boardStatus: BoardStatusOutcome[] = [];
   for (const url of issueUrls) {
     deps.issues.close(url, `Task \`${taskId}\` merged into \`${projectBranch}\`.`);
-    const result = deps.tracker ? deps.tracker.setStatus(ref, url, STATUS_DONE) : NO_TRACKER;
-    boardStatus.push({ issueUrl: url, status: STATUS_DONE, result });
+    const result = deps.tracker ? deps.tracker.setState(ref, url, "done") : NO_TRACKER;
+    boardStatus.push({ issueUrl: url, status: STATE_NAMES.done, result });
   }
 
   return { ok: true, taskId, projectBranch, boardNumber, issueUrls, boardStatus, reposMerged, reposSkipped, ...(stamp ? { stamp } : {}) };
