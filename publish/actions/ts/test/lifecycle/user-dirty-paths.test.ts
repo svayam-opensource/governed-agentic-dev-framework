@@ -64,6 +64,15 @@ describe("PRJ-121 Item 6 — gov's own harness files are not uncommitted work", 
     expect(userDirtyPaths(vcs, dir)).to.deep.equal([]);
   });
 
+  it("gov's generated skills are not user changes; a person's own skill beside them is (intent 03 L14)", () => {
+    const dir = fresh();
+    placeHarness(dir);
+    write(dir, ".claude/skills/gov-framework-specification-8-3-write-it-down/SKILL.md");
+    write(dir, ".cursor/skills/gov-framework-specification-8-3-write-it-down/SKILL.md");
+    write(dir, ".claude/skills/my-skill/SKILL.md");
+    expect(userDirtyPaths(createGitVcs(), dir)).to.deep.equal([".claude/skills/my-skill/SKILL.md"]);
+  });
+
   it("a developer's file beside the harness is reported, alone", () => {
     const dir = fresh();
     placeHarness(dir);

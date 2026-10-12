@@ -15,7 +15,8 @@
  * changed and nobody re-read the rule against it; `gov rules propose` is the way out.
  */
 import * as path from "node:path";
-import { buildArtifacts, staleRows, formatStaleRow, summaryLines, type BuiltFile, type StaleRow } from "../rules/rules-build.js";
+import { buildArtifacts, staleRows, formatStaleRow, summaryLines, HARNESS_DIR, type BuiltFile, type StaleRow } from "../rules/rules-build.js";
+import { staleSkillDirs } from "../skills/locations.js";
 import { loadRuleStores, loadRuleStoresFrom, isStoreNote, isStoreError, isStoreWarning, RULE_STORE_PATHS, type StoreDiagnostic } from "../rules/model/store-io.js";
 import { residentRows } from "../rules/cues/resident.js";
 import { loadExceptions } from "../rules/exceptions-io.js";
@@ -94,6 +95,11 @@ export interface RulesPlan {
   readonly warnings: readonly string[];
   readonly stale: readonly StaleRow[];
   readonly report: readonly string[];
+  /**
+   * Generated skill directories no longer wanted (a section gone, renamed, or left with no C02/C03 agent rows),
+   * relative to `home`. `build` deletes them; `check` fails on them. A person's own skill is never listed.
+   */
+  readonly removals: readonly string[];
 }
 
 const diag = (d: StoreDiagnostic): string => `  ${d.store}${d.id ? ` ${d.id}` : ""}  ${d.kind} — ${d.message}`;
@@ -117,8 +123,10 @@ export function plan(deps: RulesDeps, input: RulesInput): { readonly result?: Ru
   } else {
     exNotes.push("  exceptions not read: a working-tree build has no ratified branch to read them from");
   }
-  const built = buildArtifacts(protocol, loaded.set, exceptions);
+  const built = buildArtifacts(protocol, loaded.set, exceptions, loaded.readDoc);
   if ("error" in built) return { error: built.error };
+  const harness = path.join(input.home, ...HARNESS_DIR.split("/"));
+  const removals = staleSkillDirs(deps.fs, harness, built.skills).map((d) => path.relative(input.home, d).split(path.sep).join("/"));
   return {
     result: {
       set: loaded.set,
@@ -129,6 +137,7 @@ export function plan(deps: RulesDeps, input: RulesInput): { readonly result?: Ru
       notes: [...loaded.diagnostics.filter(isStoreNote).map(diag), ...exNotes],
       stale: staleRows(loaded.set, loaded.readDoc),
       report: summaryLines(loaded.set),
+      removals,
     },
   };
 }
@@ -161,7 +170,10 @@ export function rules(deps: RulesDeps, input: RulesInput, mode: "build" | "check
     return { code: 1, lines: [...head, `${result.errors.length} error(s) in the rule stores — fix these first:`, "", ...result.errors, "", "Nothing was written."] };
   }
 
-  const stale = result.files.filter((f) => deps.fs.readFile(path.join(input.home, f.path)) !== f.content).map((f) => f.path);
+  const stale = [
+    ...result.files.filter((f) => deps.fs.readFile(path.join(input.home, f.path)) !== f.content).map((f) => f.path),
+    ...result.removals.map((d) => `${d}/  (a generated skill no longer wanted — to delete)`),
+  ];
 
   if (mode === "check") {
     const ok = !stale.length && !result.stale.length;
@@ -180,11 +192,14 @@ export function rules(deps: RulesDeps, input: RulesInput, mode: "build" | "check
   }
 
   for (const f of result.files) deps.fs.writeFile(path.join(input.home, f.path), f.content);
+  // AFTER the writes: a renamed section's new skill is on disk before its old one goes.
+  for (const d of result.removals) deps.fs.rm(path.join(input.home, d));
   return {
     code: 0,
     lines: [
       ...head,
       `wrote ${result.files.length} file(s).`,
+      ...(result.removals.length ? [`removed ${result.removals.length} stale skill(s): ${result.removals.join(", ")}`] : []),
       ...(stale.length ? [] : ["  (nothing had changed)"]),
       "",
       ...result.report,
@@ -216,7 +231,10 @@ export function rulesFacts(deps: RulesDeps, input: RulesInput): RulesFactsOut | 
     counts: summariseRuleSet(result.set),
     resident: resident.length,
     residentChars: resident.reduce((n, r) => n + (r.cue?.text.length ?? 0), 0),
-    staleFiles: result.files.filter((f) => deps.fs.readFile(path.join(input.home, f.path)) !== f.content).map((f) => f.path),
+    staleFiles: [
+      ...result.files.filter((f) => deps.fs.readFile(path.join(input.home, f.path)) !== f.content).map((f) => f.path),
+      ...result.removals,
+    ],
     staleRows: result.stale.map((s) => s.id),
     errors: result.errors,
   };

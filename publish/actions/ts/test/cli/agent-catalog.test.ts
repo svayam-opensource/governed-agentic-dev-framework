@@ -19,6 +19,9 @@ import {
 } from "../../src/cli/agent-catalog.js";
 import { ROOT_HARNESS_FILES, verifyAgentContext, PROTOCOL_MARKER, RENDERED_BANNER } from "../../src/lifecycle/root-protocol.js";
 import { cleanSlateEntries } from "../../src/setup/create.js";
+import { buildArtifacts, HARNESS_DIR } from "../../src/rules/rules-build.js";
+import { loadRuleStoresFrom } from "../../src/rules/model/store-io.js";
+import { staleSkillDirs, SKILL_TARGETS } from "../../src/skills/locations.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 
@@ -366,6 +369,41 @@ describe("gov-work — harness PATHS agree with the manifest, not just ids", () 
       expect(fs.existsSync(at), `${rel} is mirrored but not rendered into publish/content`).to.equal(true);
       expect(fs.readFileSync(at, "utf8"), `${rel} carries the version marker gov verifies`).to.contain(PROTOCOL_MARKER);
     }
+  });
+});
+
+/**
+ * RENDER PARITY FOR SKILLS (intent 03 D6, L14). The nine files are checked above by path; the skills are rendered
+ * from rule rows, so their parity is checked by rendering: what the shipped rule stores produce through the code an
+ * adopter runs must be exactly what `publish/content/agent/harness/` holds — and nothing generated beyond it.
+ */
+describe("gov-work — generated skills in the shipped content match a fresh render", () => {
+  const content = path.join(repoRoot, "publish", "content");
+  const read = (rel: string): string | undefined =>
+    fs.existsSync(path.join(content, rel)) ? fs.readFileSync(path.join(content, rel), "utf8") : undefined;
+  const loaded = loadRuleStoresFrom({ where: "publish/content", orgScope: "ORG", read });
+  if (!loaded.ok) throw new Error(loaded.reason);
+  const built = buildArtifacts(
+    fs.readFileSync(path.join(repoRoot, "agent", "session-protocol.md"), "utf8"), loaded.set, undefined, (rel) => read(rel) ?? null,
+  );
+  if ("error" in built) throw new Error(built.error);
+
+  it("renders at least one skill, at every verified location", () => {
+    expect(built.skills.length).to.be.greaterThan(0);
+    for (const t of SKILL_TARGETS) {
+      for (const n of built.skills) expect(built.files.some((f) => f.path === `${HARNESS_DIR}/${t.dir}/${n}/SKILL.md`), `${t.dir}/${n}`).to.equal(true);
+    }
+  });
+
+  it("every rendered skill is in publish/content byte for byte, and no stale generated skill is left there", () => {
+    for (const f of built.files.filter((x) => x.path.includes("/skills/"))) {
+      expect(read(f.path), `${f.path} — run \`npm run render-harness\``).to.equal(f.content);
+    }
+    const nodeFs = {
+      readdir: (d: string) => (fs.existsSync(d) ? fs.readdirSync(d) : []),
+      readFile: (f: string) => (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null),
+    };
+    expect(staleSkillDirs(nodeFs, path.join(content, HARNESS_DIR), built.skills)).to.deep.equal([]);
   });
 });
 
