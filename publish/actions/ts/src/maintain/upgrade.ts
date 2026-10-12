@@ -18,13 +18,14 @@ export type UpgradePlan =
   | { readonly kind: "install"; readonly version: string; readonly command: string }
   | { readonly kind: "error"; readonly message: string };
 
-export function upgradePlan(current: string, target: string | null): UpgradePlan {
+export function upgradePlan(current: string, target: string | null, platform: NodeJS.Platform = process.platform): UpgradePlan {
   if (target === null) {
     return { kind: "error", message: `pass an explicit version (x.y.z): 'latest' resolution needs the published package. e.g. prj upgrade 0.8.0` };
   }
   if (!SEMVER_RE.test(target)) return { kind: "error", message: `'${target}' is not a version (expected x.y.z)` };
   if (target === current) return { kind: "up-to-date", version: current };
-  return { kind: "install", version: target, command: `npm install -g ${PKG}@${target}` };
+  // Windows: the client is the MSI and winget updates it; content is still `gov upgrade` (Q11, plan 04 T11).
+  return { kind: "install", version: target, command: platform === "win32" ? "winget upgrade Svayam.Gov" : `npm install -g ${PKG}@${target}` };
 }
 
 export function formatUpgradePlan(p: UpgradePlan): string[] {

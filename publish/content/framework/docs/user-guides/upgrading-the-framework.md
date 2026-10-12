@@ -35,6 +35,9 @@ gov upgrade --pr       # puts the change in a pull request for review
 gov upgrade --apply    # or writes it into your working tree
 ```
 
+On Windows, gov is installed by its MSI, so the first step is `winget upgrade Svayam.Gov` instead; the
+`gov upgrade` steps are the same. gov's own "newer version" notice prints the right command for your machine.
+
 ### What an upgrade changes
 
 The content's `MANIFEST.yaml` says how each file lands:

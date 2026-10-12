@@ -37,6 +37,14 @@ it looked in.
   IBM Bob) are not installed on Windows. gov prints the vendor's page instead;
   install from there and run `gov agent` again.
 
+After an install, gov writes a small `<agent>.cmd` into its own `bin` folder (the
+one folder the gov installer put on your PATH) and runs it with `--version`, so
+the agent still works in a new terminal after gov exits. Saved API keys are
+limited to your Windows account (an owner-only ACL); gov says so if it cannot
+set that. gov reads your answers from the console (`CONIN$`), and when no shell
+is named it opens PowerShell 7 if present, else `cmd.exe`. To update gov itself:
+`winget upgrade Svayam.Gov`.
+
 ## macOS
 - **Do not keep this repo — or `agent_work_root` — inside an iCloud-synced
   folder** (`~/Documents`, `~/Desktop`). iCloud generates ` 2`/` 3` conflict

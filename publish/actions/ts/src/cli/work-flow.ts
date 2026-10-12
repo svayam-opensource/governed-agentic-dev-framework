@@ -25,6 +25,7 @@ import { accountFailureLine } from "./agent-account.js";
 import { structureOnlyLines, TURN_AGENTS_ON } from "./approve-agents-step.js";
 import { defaultAgent } from "../config/approved-agents.js";
 import { decide, log } from "../log.js";
+import { envGet, resolveWin32Command } from "../win-spawn.js";
 import {
   fillPage, formatLevel, githubUnreachableLines, leadWithSearch, matchProjects, pageOf, pickerSettings,
   rankProjects, resolvePickerInput, type LevelView, type LocalOrder, type PickerLevel,
@@ -328,7 +329,13 @@ export interface LaunchSpec {
  * gov promised a shell, printed `could not launch '/bin/zsh'`, and dropped the person back out. Found on a
  * walk as root; `su - tester` sets `$SHELL`, which is why the tester walk never saw it.
  */
-export function fallbackShell(exists: (p: string) => boolean = fs.existsSync): string {
+export function fallbackShell(
+  exists: (p: string) => boolean = fs.existsSync,
+  platform: NodeJS.Platform = process.platform,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  // WINDOWS has neither (plan 04 T11): PowerShell 7 when it is there, else the console's own shell (%ComSpec%).
+  if (platform === "win32") return resolveWin32Command("pwsh", { env, isFile: exists }).path ?? envGet(env, "ComSpec") ?? "cmd.exe";
   for (const s of ["/bin/bash", "/bin/sh"]) if (exists(s)) return s;
   return "/bin/sh";   // POSIX guarantees it; if even this is missing, the error names a shell that should be there
 }

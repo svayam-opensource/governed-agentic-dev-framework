@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive, runResult, plan as planSpawn } from "../run-process.js";
 import type { SpawnPlan } from "../win-spawn.js";
+import { ownerOnlyAclArgv, ttyDevice, windowsLinkPlan } from "./windows.js";
 import { runSetup } from "../setup/setup-run.js";
 import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog, cacheLogin, cachedLogin } from "../log.js";
@@ -401,6 +402,13 @@ async function captureAgentKey(agent: AgentCandidate, ask: AskFns): Promise<bool
       fsSync.mkdirSync(path.dirname(w.path), { recursive: true, mode: 0o700 });
       fsSync.writeFileSync(w.path, w.contents, { mode: w.mode });
       fsSync.chmodSync(w.path, w.mode);                          // an existing file keeps its old mode otherwise
+      // WINDOWS HAS NO MODE BITS (plan 04 T11): an owner-only ACL instead, and SAID when it cannot be set.
+      if (process.platform === "win32") {
+        const acl = ownerOnlyAclArgv(w.path, process.env);
+        if (!acl || !okProcess(acl[0]!, acl.slice(1), { pgm: "gov-work:cli:main", fn: "credential-acl" })) {
+          process.stdout.write(`  ! could not limit ${w.path} to your account — other users of this PC may be able to read it.\n`);
+        }
+      }
       process.stdout.write(`  ✓ written: ${w.path}\n`);
       wrote++;
     } catch (e) {
@@ -520,6 +528,25 @@ export function linkOutcomeLines(o: LinkOutcome, cmd: string, r: Reporter): read
 
 function linkAgentIntoPath(cmd: string): LinkOutcome {
   const nodeBin = path.dirname(process.execPath);
+  // WINDOWS (plan 04 T11): a `<agent>.cmd` in gov's own bin directory — the one directory the MSI put on the user
+  // PATH (GOV_BIN_DIR, set by the launcher) — proved with `--version` before anything is claimed, as below.
+  if (process.platform === "win32") {
+    const isFile = (p: string): boolean => { try { return fsSync.statSync(p).isFile(); } catch { return false; } };
+    const wp = windowsLinkPlan({ cmd, nodeBin, env: process.env, isFile });
+    if (wp.kind !== "write") {
+      log(wp.kind === "not-ours" ? "debug" : "warn", `no wrapper written (${wp.kind})`, "gov-work:cli:main", "linkAgentIntoPath", { cmd, nodeBin });
+      return wp;
+    }
+    try {
+      fsSync.mkdirSync(wp.dir, { recursive: true });
+      fsSync.writeFileSync(wp.shim, wp.content, "utf8");
+      if (tryRun(wp.shim, ["--version"]) === undefined) {
+        fsSync.rmSync(wp.shim, { force: true });
+        return { kind: "wrapper-failed", dir: wp.dir, nodeBin };
+      }
+      return { kind: "linked", dir: wp.dir };
+    } catch { return { kind: "wrapper-failed", dir: wp.dir, nodeBin }; }
+  }
   const target = path.join(nodeBin, cmd);
   // BOTH REFUSALS, NAMED. This function returns null for two entirely different reasons and the
   // adopter sees the same nothing either way — which is how #209's guard no-opped the fix
@@ -1353,7 +1380,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       // question.
       const askHere = (q: string): string => {
         try {
-          const fd = fsSync.openSync("/dev/tty", "r");
+          const fd = fsSync.openSync(ttyDevice(process.platform), "r");   // CONIN$ on Windows (plan 04 T11)
           try {
             process.stdout.write(q);
             const buf = Buffer.alloc(64);
