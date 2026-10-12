@@ -47,4 +47,25 @@ describe("prj-work Phase 2 — Transaction (rollback engine)", () => {
     expect(failures[0].label).to.equal("boom");
     expect((failures[0].error as Error).message).to.equal("stuck");
   });
+
+  // gadf#180: a failed seed says what state it left behind. The transaction is the one place that knows.
+  it("reports what it created, what it rolled back, and what it left behind", () => {
+    const tx = new Transaction();
+    tx.step("work root /w", () => 0, () => {});
+    tx.step("worktree /w/gov", () => 0, () => { throw new Error("busy"); });
+    tx.onRollback("tag x", () => {});
+    expect(() => tx.step("push /w/gov", () => { throw new Error("rejected"); }, () => {})).to.throw("rejected");
+    tx.rollback();
+    const r = tx.report();
+    expect(r.created).to.deep.equal(["work root /w", "worktree /w/gov", "tag x"]);
+    expect(r.rolledBack).to.deep.equal(["tag x", "work root /w"]);
+    expect(r.leftBehind).to.deep.equal(["worktree /w/gov (busy)"]);
+    expect(tx.summary()).to.equal("created: work root /w, worktree /w/gov, tag x; rolled back: tag x, work root /w; left behind: worktree /w/gov (busy)");
+  });
+
+  it("says 'nothing' rather than an empty list", () => {
+    const tx = new Transaction();
+    tx.rollback();
+    expect(tx.summary()).to.equal("created: nothing; rolled back: nothing; left behind: nothing");
+  });
 });

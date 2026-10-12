@@ -53,7 +53,7 @@ function baseVcs(): Vcs {
     currentBranch: () => PROJECT_BRANCH, isAncestor: () => false, isClean: () => true,
     remoteBranchesMatching: () => [], addPath: noop, commit: noop, resetHard: noop, resetKeepingFiles: noop, cleanUntracked: noop,
     worktreeAdd: noop, worktreeAddExisting: noop, worktreeRemove: noop, branchDelete: noop, push: noop, pushDelete: noop, clone: noop,
-    fetch: noop, setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,
+    fetch: noop, fetchDefault: () => "remote-sha", setIdentity: noop, checkout: noop, checkoutNew: noop, mergeNoEdit: () => "merged", tag: noop,
   };
 }
 const vcsWith = (over: Partial<Vcs> = {}): Vcs => ({ ...baseVcs(), ...over });

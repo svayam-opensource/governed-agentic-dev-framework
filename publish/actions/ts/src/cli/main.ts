@@ -112,6 +112,7 @@ import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
 import { planAgentInstall } from "./agent-verb.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { finishInPlace, landSetupChanges } from "../setup/in-place-land.js";
+import { firstPush, REMOTE_MOVED_HINT } from "../setup/first-push.js";
 import { assessFrameworkCurrency, cannotStartWorkLines, policyOwnerFacts } from "../maintain/framework-currency.js";
 import { parseArgv, flagStr, flagBool } from "./args.js";
 import { route, routeOrg, type CliContext } from "./dispatch.js";
@@ -1145,8 +1146,18 @@ export async function runSetupCommand(
 
       git("add", "-A");
       const committed = git("commit", "-m", "configure the framework for this org");
-      const pushed = committed && git("push", "-u", "origin", "HEAD");
-      manifest.push({ what: "Committed", detail: committed ? (pushed ? "and pushed to the default branch" : "locally — push failed, run: git push") : "nothing to commit" });
+      // FETCH BEFORE THE FIRST PUSH, NEVER FORCE (gadf#180). A remote that moved while setup ran stops here with
+      // the pull hint; the bare push it replaced failed and told the adopter to run the same push again.
+      const push = committed
+        ? firstPush((a) => runResult("git", a, { pgm: "gov-work:cli:main", fn: "setup-first-push" }), createdHome)
+        : null;
+      manifest.push({
+        what: push?.kind === "remote-moved" ? "⚠ Committed" : "Committed",
+        detail: !committed ? "nothing to commit"
+          : push?.kind === "pushed" ? "and pushed to the default branch"
+          : `locally only — ${push?.message ?? "push failed, run: git push"}`,
+      });
+      const remoteMoved = push?.kind === "remote-moved";
 
       for (const line of renderManifest(manifest, [
         "framework/ — the framework's, replaced on upgrade   ·   policies/ — yours",
@@ -1154,6 +1165,12 @@ export async function runSetupCommand(
         "gov                                                — the interactive front door",
         ...(activeNote ? [activeNote] : []),
       ])) process.stdout.write(`${line}\n`);
+      // STOP, rather than close as though the org were set up: its configuration exists only in this clone.
+      if (remoteMoved) {
+        process.stderr.write(`gov setup: nothing was pushed — ${REMOTE_MOVED_HINT}.\n`);
+        process.stderr.write(`  Your commit is kept in ${createdHome}; gov never force-pushes over someone else's commits.\n`);
+        return 1;
+      }
 
       // THE CLOSING BLOCK, only on the interviewed path. Every question the adopter
       // answered was abstract — a name, a slug, a branch — and this is the only place

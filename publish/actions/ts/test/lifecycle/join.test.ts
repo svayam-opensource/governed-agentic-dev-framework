@@ -32,7 +32,7 @@ function fakeVcs() {
     resetHard: () => {}, resetKeepingFiles: () => {}, cleanUntracked: () => {},
     worktreeAdd: (_b, br, wt, sp) => log.push(`worktreeAdd ${wt} ${br} @ ${sp}`),
     worktreeRemove: () => {}, branchDelete: () => {}, push: () => {}, pushDelete: () => {}, clone: () => {},
-    fetch: (r, _rm, ref) => log.push(`fetch ${r} ${ref}`), setIdentity: () => {}, checkout: () => {}, checkoutNew: () => {},
+    fetch: (r, _rm, ref) => log.push(`fetch ${r} ${ref}`), fetchDefault: () => "remote-sha", setIdentity: () => {}, checkout: () => {}, checkoutNew: () => {},
     mergeNoEdit: () => "merged", tag: () => {},
   };
   return { vcs, log };

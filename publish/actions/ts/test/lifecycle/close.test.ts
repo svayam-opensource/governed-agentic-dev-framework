@@ -129,6 +129,7 @@ function fakeVcs(opts: { openTasks?: string[]; syncConflict?: boolean } = {}) {
     pushDelete: () => {},
     clone: () => {},
     fetch: () => {},
+    fetchDefault: () => "remote-sha",
     setIdentity: () => {},
     checkout: () => {},
     checkoutNew: () => {},

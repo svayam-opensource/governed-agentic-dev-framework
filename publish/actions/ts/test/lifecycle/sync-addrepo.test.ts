@@ -28,7 +28,7 @@ function fakeVcs(opts: { conflict?: boolean; dirty?: boolean; dirtyPaths?: strin
     remoteBranchesMatching: () => [], addPath: () => {}, commit: () => {}, resetHard: () => {}, resetKeepingFiles: () => {}, cleanUntracked: () => {},
     worktreeAdd: (_b, br, wt) => log.push(`worktreeAdd ${wt} ${br}`), worktreeRemove: () => {}, branchDelete: () => {},
     push: (r, _rm, b) => log.push(`push ${r} ${b}`), pushDelete: () => {}, clone: () => {},
-    fetch: (r, _rm, ref) => log.push(`fetch ${r} ${ref}`), setIdentity: () => {},
+    fetch: (r, _rm, ref) => log.push(`fetch ${r} ${ref}`), fetchDefault: () => "remote-sha", setIdentity: () => {},
     checkout: (r, b) => log.push(`checkout ${r} ${b}`), checkoutNew: () => {},
     mergeNoEdit: () => (opts.conflict ? "conflict" : "merged"), tag: () => {},
   };

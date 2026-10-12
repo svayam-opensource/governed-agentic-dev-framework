@@ -60,6 +60,7 @@ function fakeVcs(opts: { hasTask?: boolean; taskSha?: string | null; baseSha?: s
     pushDelete: (r, _rm, b) => log.push(`pushDelete ${r} ${b}`),
     clone: () => {},
     fetch: () => log.push("fetch"),
+    fetchDefault: () => "remote-sha",
     setIdentity: () => {},
     checkout: (r, b) => log.push(`checkout ${r} ${b}`),
     checkoutNew: (r, b) => log.push(`checkoutNew ${r} ${b}`),

@@ -224,7 +224,7 @@ gov setup
 gov setup acme/acme-gov
 ```
 
-**Changes.** with an argument: creates the org's governance repository on GitHub, clones it, seeds the framework content this gov carries, registers and activates it. Without one: configures the workspace you are standing in, regenerates CODEOWNERS from the owners it wrote, and — on the default branch — offers to put only what it changed on a `gov-setup-<date>` branch and open the pull request (GOV-FRM-040); with --non-interactive, or declined, it commits nothing and prints those commands. On another branch it commits nothing and says where the changes are
+**Changes.** with an argument: creates the org's governance repository on GitHub, clones it, seeds the framework content this gov carries, registers and activates it; before its first push it fetches, and if the remote moved meanwhile it stops with the pull hint and never force-pushes. Without one: configures the workspace you are standing in, regenerates CODEOWNERS from the owners it wrote, and — on the default branch — offers to put only what it changed on a `gov-setup-<date>` branch and open the pull request (GOV-FRM-040); with --non-interactive, or declined, it commits nothing and prints those commands. On another branch it commits nothing and says where the changes are
 
 **Exit codes**
 
@@ -609,14 +609,14 @@ gov seed <board-url> [--assignee <login>] [--clean [--consent]]
 gov seed https://github.com/orgs/acme/projects/43
 ```
 
-**Changes.** creates the project branch in the workspace and in every linked repo, pushes them, creates the anchor issue on the board and assigns it, and scaffolds projects/&lt;id&gt;/ with its knowledge files
+**Changes.** fetches the governance repo's default branch first and cuts the project branch from what the remote holds now — your local default branch is not moved; creates the project branch in the workspace and in every linked repo, pushes them, creates the anchor issue on the board and assigns it, and scaffolds projects/&lt;id&gt;/ with its knowledge files. A failure rolls back and ends with what it created, what it rolled back and what it left behind
 
 **Exit codes**
 
 | code | means |
 | --- | --- |
 | `0` | done |
-| `1` | failed — nothing half-applied that gov could undo; a half-finished attempt is in the way — `--clean --consent` clears it |
+| `1` | failed — nothing half-applied that gov could undo; a half-finished attempt is in the way — `--clean --consent` clears it; or the default branch could not be fetched, and nothing was created |
 | `2` | usage: a missing or wrong argument |
 
 **See also.** [gov work](#gov-work) · [gov join](#gov-join) · [gov close](#gov-close)

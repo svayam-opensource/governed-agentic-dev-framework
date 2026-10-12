@@ -83,6 +83,7 @@ class World {
     pushDelete: (_dir, _r, b) => this.pushed.delete(b),
     clone: (_url, dest) => this.markGit(dest),
     fetch: () => {},
+    fetchDefault: () => "base-sha",
     setIdentity: () => {},
     checkout: (dir, b) => this.current.set(px(dir), b),
     checkoutNew: (dir, b) => {

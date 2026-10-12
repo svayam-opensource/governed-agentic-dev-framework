@@ -128,6 +128,7 @@ function fakeVcs(existingRefs: Set<string> = new Set()) {
     pushDelete: (r, _rm, br) => calls.push(`pushDelete ${r} ${br}`),
     clone: () => {},
     fetch: () => {},
+    fetchDefault: () => "remote-sha",
     setIdentity: (r) => calls.push(`setIdentity ${r}`),
   };
   return { vcs, calls };

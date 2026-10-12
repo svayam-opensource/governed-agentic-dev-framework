@@ -51,4 +51,25 @@ writes both files; hand-editing `package.json` alone leaves the lock behind.
 - `Svayamtech/910-GOV-CICD#221` — fetch the declared ref before hashing it, and make the job refuse when
   the commit it cloned differs from the one the recipe hashed. Two records of one fact, never compared.
 - `#179` — `gov setup --help` runs the command.
-- `#180` — `gov seed` pushes `main` without fetching first, which is the same staleness in a different verb.
+- `#180` — `gov seed` pushed `main` without fetching first, which is the same staleness in a different verb.
+  **Fixed (PRJ-121 intent 05, ruling Q3)** — see below.
+
+## The same staleness in `gov seed` and `gov setup` (#180)
+
+A mirror behind its remote is not only a release problem. `gov seed` cut the project branch from the gov home's
+**local** default branch, with no fetch: a home nobody had pulled this week started the project on last week's
+policy, and every agent on it was governed by rules the organization had already replaced. `gov setup` pushed the
+default branch the same way, and a remote that had moved met a bare push that failed and a hint to run the same push
+again.
+
+What they do now:
+
+| verb | before | now |
+|---|---|---|
+| `gov seed` | `worktree add -b <branch> <path> main` (the local mirror) | fetch `origin/<default>` first; cut from the **fetched sha**; local `main` untouched; cannot fetch → stop before any write |
+| `gov setup` (first push) | `git push -u origin HEAD` | fetch; remote's default branch not an ancestor of HEAD → stop: "the remote moved — run `git pull --rebase`, then `gov setup` again"; never force |
+| failed seed | the error, and the undos that failed | the error, then `created: …; rolled back: …; left behind: …` |
+
+The rule is the one this page started with: **a value read from a mirror is a claim about the remote, and it is
+only true right after a fetch.** Held by `test/lifecycle/seed-remote-moved.test.ts`, `test/setup/first-push.test.ts`
+and the hermetic scenario `e2e/journey.d/49-seed-after-remote-moved.sh`.
