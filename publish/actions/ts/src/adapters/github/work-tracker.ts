@@ -301,6 +301,8 @@ export function createGithubWorkTracker(deps: GithubWorkTrackerDeps = {}): WorkT
 
     async comment(i, text) { return comment(i, text); },
 
+    async close(i) { return write(["issue", "close", i.url], `closing ${i.url}`); },
+
     async search(q) {
       if (!q.repo) return fail("search needs a repository on GitHub — gov will not search all of GitHub");
       const args = ["search", "issues", "--repo", slug(q.repo), "--json", "url,title,body,state,labels,assignees", "--limit", "500"];

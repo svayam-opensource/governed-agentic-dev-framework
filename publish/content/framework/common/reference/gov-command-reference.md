@@ -36,6 +36,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov evidence](#gov-evidence) — verify the org's signed evidence ledger (free, offline — for auditors too), turn the ledger on for the org, or generate an auditor report (subscription)
 - [gov licence](#gov-licence) — sign in with your gov personal key, see your organization's plan, and install the paid evidence module
 - [gov rules](#gov-rules) — propose rules from your policy prose, render the rule stores into what agents read, and report on them
+- [gov signal](#gov-signal) — tell another project something — ask, depends, notice; list and acknowledge what came in
 
 **[Your agent runs these (you can too)](#your-agent-runs-these-you-can-too)**
 
@@ -715,6 +716,46 @@ gov rules show POL-086b
 | `2` | usage |
 
 **See also.** [gov knowledge](#gov-knowledge) · [gov doctor](#gov-doctor) · [gov validate](#gov-validate)
+
+### gov signal
+
+tell another project something — ask, depends, notice; list and acknowledge what came in
+
+```text
+gov signal ask|depends|notice --to <PRJ-n-slug> --title <t> [--body-file <f>] [--items <a,b>]  |  list [--add]  |  ack <signal-url> [--answer <a>]  |  send <draft.md>
+```
+
+**Where.** PROJECT
+
+**Flags**
+
+| flag | what it does |
+| --- | --- |
+| `--to <PRJ-n-slug>` | the project the signal is for |
+| `--title <t> · --body-file <f>` | what it says |
+| `--items <a,b>` | depends: the items that wait on the answer (default: this project's anchor) |
+| `--add` | list: put incoming signals that are missing from this project's board onto it |
+| `--answer <a>` | ack: the answer an ask or depends is closed with |
+
+**Examples**
+
+```bash
+gov signal ask --to PRJ-119-gov-iam --title "which claim carries the tenant?"
+gov signal list
+gov signal send projects/PRJ-121-x/signals/drafts/iam.md
+```
+
+**Changes.** creates one issue in the governance repo (label gov-signal:&lt;kind&gt;) on both projects' boards; depends blocks this project's anchor; ack comments and closes it. A person confirms each one — refused inside an agent session (agents write drafts)
+
+**Exit codes**
+
+| code | means |
+| --- | --- |
+| `0` | done |
+| `1` | failed — nothing half-applied that gov could undo |
+| `2` | usage: a missing or wrong argument |
+
+**See also.** [gov issue](#gov-issue) · [gov status](#gov-status)
 
 ---
 

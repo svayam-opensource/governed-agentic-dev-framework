@@ -140,6 +140,14 @@ describe("WorkTrackerPort — GitHub adapter (fake gh)", () => {
     expect(f.calls).to.have.lengthOf(1);
   });
 
+  it("close(): gh issue close on the item; a refusal is a failure, not silence", async () => {
+    const f = fakeGh({ "issue close": ok("") });
+    expect(await f.port.close(A)).to.deep.equal({ ok: true, value: undefined });
+    expect(has(f.calls[0]!, "issue", "close", A.url)).to.equal(true);
+    const g = fakeGh({ "issue close": err("gh: Resource not accessible by integration (HTTP 403)") });
+    expect((await g.port.close(A)).ok).to.equal(false);
+  });
+
   it("link(relates | moved-to): a marker comment on the first item", async () => {
     for (const kind of ["relates", "moved-to"] as const) {
       const f = fakeGh({ "issue comment": ok("") });
