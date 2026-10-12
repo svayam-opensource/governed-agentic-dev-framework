@@ -1,0 +1,1512 @@
+# Bodies: what gov 1.2.3 seeded for an org (fake values), byte for byte. `===== <path>` starts a file; its body runs to the next such line, exactly.
+===== .github/pull_request_template.md
+<!--
+Thanks for contributing. A few things to confirm before submitting.
+
+If this is a Knowledge proposal (no script/code changes, just policy or guidance edits),
+delete the rest of this template and replace with a description of what you're proposing
+and why.
+-->
+
+## What this changes
+
+<!-- One or two sentences. The diff shows what; explain why. -->
+
+## Type of change
+
+- [ ] Bug fix (non-breaking change that fixes an issue)
+- [ ] New feature (non-breaking change that adds capability)
+- [ ] Breaking change (changes existing behavior that downstream consumers depend on)
+- [ ] Documentation only
+- [ ] Policy / governance template change
+- [ ] CI / tooling change
+
+## Local checks
+
+- [ ] `gov validate` — validators pass
+- [ ] If policy change: confirmed compliance level is correct (C01/C02/C03)
+- [ ] If new org value added: added to `org-config.yaml` and the `gov setup` prompt
+
+## Privacy / scope
+
+- [ ] No per-org private values (real org names, emails, project IDs) committed
+- [ ] No double-curly placeholder tokens anywhere in framework files — framework reads org values from `org-config.yaml` at runtime; the only files that may diverge from upstream TEMPLATE are `org-config.yaml` and `projects/`
+- [ ] If targeting `publish`: change is universal, applies to any adopting org
+- [ ] If targeting `main`: change is org-specific or comes from upstream `publish` via sync
+
+## Linked issues
+
+<!-- "Closes #123", "Refs #456" -->
+
+## Additional notes
+
+<!-- Anything reviewers should know: tradeoffs, deferred work, follow-ups. -->
+===== .github/workflows/approver-check.yml
+# THE APPROVER CHECK — GOV-FRM-447, control 4.
+#
+# WHY IT EXISTS. An approving review does not prove the approver was authorized: any collaborator with write
+# access can leave one. On GitHub Free for a private repository, "restrict who can push/merge" and CODEOWNERS
+# enforcement are paid features, so nothing else closes that gap. This check reads the ORGANIZATION'S list of
+# authorized representatives and fails when the reviewer who approved is not on it — which is what turns
+# "a review happened" into "the right person approved".
+#
+# THE FRAMEWORK SHIPS THE WORKFLOW; THE LIST IS THE ORGANIZATION'S (§3.3). Nothing below names a person.
+#
+# INSTALLED BY `gov repo protect apply`, which also makes `approver-check` a required status check. Do not add
+# it to the required checks before this file is on the default branch: a required check that has never run
+# leaves every pull request pending for ever, including the one that would land this file. `gov repo protect`
+# refuses to do them in that order for exactly that reason.
+#
+# IT FAILS CLOSED. If the list cannot be read, the check FAILS. A check that passes when it could not find the
+# list proves nothing, and proving nothing while showing a green tick is worse than having no check at all.
+name: approver-check
+
+on:
+  # BOTH TRIGGERS ARE NEEDED, and they do different jobs.
+  #   pull_request        the check exists on the head commit from the moment the PR opens — which is what lets
+  #                       branch protection require it. It FAILS here, because no approval has happened yet.
+  #   pull_request_review the check runs again when somebody approves, and turns green if they were authorized.
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# ONE RUN PER PULL REQUEST. Without this, an approval landing while the opening run is still going can leave the
+# older (failing) result as the last word on the commit.
+concurrency:
+  group: approver-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  approver-check:
+    # The check's name on the branch-protection list is the JOB's name. `approver-check` is the name
+    # `gov repo protect` requires and `gov doctor` looks for; renaming it means telling gov
+    # (`gov repo protect --check <name>`), not just editing here.
+    name: approver-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out (for policies/, when this IS the governance repository)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify an authorized representative approved this pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          # THE ORGANIZATION'S LIST, when this repository is not the governance repository.
+          #
+          # A code repository does not hold policies/governance.yaml, and a GITHUB_TOKEN cannot read another private
+          # repository — so requiring a cross-repo read would mean requiring a personal access token in every
+          # code repository. A variable is the plainest thing an organization can set instead:
+          #
+          #   gh variable set GOV_APPROVERS --repo <owner>/<repo> --body "alice bob"
+          #   gh variable set GOV_APPROVERS --org  <owner>         --body "alice bob"   # once, for all of them
+          #
+          # `gov repo protect` prints that command with the org's own handles filled in.
+          GOV_APPROVERS: ${{ vars.GOV_APPROVERS }}
+        run: |
+          set -euo pipefail
+
+          # ── 1. THE LIST ──────────────────────────────────────────────────────────────────────────────────
+          # In order: the variable an organization set, then — in the governance repository, which holds them —
+          # the people who hold a role: the Policy Owner and the Check Owner (policies/governance.yaml) and every
+          # holder in the role list (the `| Role | GitHub handle | Owns |` table in
+          # policies/authorized-representatives.md). `gov repo protect` computes the same list the same way.
+          approvers=""
+
+          if [ -n "${GOV_APPROVERS:-}" ]; then
+            approvers="$GOV_APPROVERS"
+            source="the GOV_APPROVERS variable"
+          elif [ -f policies/governance.yaml ]; then
+            # `github:` under the top-level policy_owner: and check_owner: blocks (or their flow form).
+            owners="$(
+              awk '
+                /^(policy_owner|check_owner):[[:space:]]*\{/ {
+                  line = $0
+                  if (match(line, /github:[[:space:]]*["'"'"']?[^,"'"'"'}[:space:]]*/)) {
+                    v = substr(line, RSTART, RLENGTH); sub(/github:[[:space:]]*["'"'"']?/, "", v); if (v != "") print v
+                  }
+                  next
+                }
+                /^(policy_owner|check_owner):[[:space:]]*(#.*)?$/ { inblock = 1; next }
+                inblock && /^[^[:space:]]/ { inblock = 0 }
+                inblock && /^[[:space:]]+github:/ {
+                  v = $0
+                  sub(/^[[:space:]]+github:[[:space:]]*/, "", v)
+                  sub(/[[:space:]]*#.*$/, "", v)
+                  gsub(/["'"'"']/, "", v)
+                  if (v != "") print v
+                }
+              ' policies/governance.yaml
+            )"
+            # The role list's handle column: rows of the table whose header is Role | GitHub handle | Owns.
+            holders=""
+            if [ -f policies/authorized-representatives.md ]; then
+              holders="$(
+                awk -F'|' '
+                  /^[[:space:]]*(```|~~~)/ { fenced = !fenced; next }
+                  fenced { next }
+                  /^[[:space:]]*\|/ {
+                    role = $2; handle = $3; gsub(/[[:space:]`*_]/, "", role); gsub(/[[:space:]`]/, "", handle)
+                    if (tolower(role) == "role" && tolower(handle) ~ /^github/) { intable = 1; next }
+                    if (intable && handle ~ /^-+$/) next
+                    if (intable) { if (handle ~ /^@?[A-Za-z0-9][A-Za-z0-9-]*$/) print handle; next }
+                  }
+                  { intable = 0 }
+                ' policies/authorized-representatives.md
+              )"
+            fi
+            approvers="$(printf '%s\n%s\n' "$owners" "$holders")"
+            source="policies/governance.yaml and the role list in policies/authorized-representatives.md"
+          fi
+
+          # Normalise: commas or whitespace, a leading @ optional, case-insensitive (GitHub logins are).
+          approvers="$(printf '%s' "$approvers" | tr ',' ' ' | tr 'A-Z' 'a-z' | tr -s ' ' '\n' | sed -E 's/^@//' | grep -v '^$' | sort -u || true)"
+
+          if [ -z "$approvers" ]; then
+            # FAIL CLOSED, and say where the list was looked for. Passing here would mean this check certifies
+            # nothing while reporting success — the one outcome GOV-FRM-447 exists to prevent.
+            echo "::error::approver-check cannot find this organization's list of authorized representatives, so it"
+            echo "::error::cannot verify anybody. Set the GOV_APPROVERS variable on this repository or organization,"
+            echo "::error::or name the Policy Owner in policies/governance.yaml (and role holders in the role list) in the"
+            echo "::error::governance repository. Failing closed: a check that passes without a list proves nothing."
+            exit 1
+          fi
+
+          echo "Authorized representatives (from $source):"
+          printf '  %s\n' $approvers
+
+          # ── 2. WHO APPROVED ─────────────────────────────────────────────────────────────────────────────
+          # The LATEST review per reviewer decides. An APPROVED review that was later changed to
+          # CHANGES_REQUESTED is not an approval, and counting every APPROVED event ever submitted would let a
+          # withdrawn approval keep satisfying the policy.
+          reviews_json="$(gh api --paginate "repos/$REPO/pulls/$PR/reviews")"
+          approving="$(
+            printf '%s' "$reviews_json" | jq -r '
+              [ .[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED") ]
+              | group_by(.user.login)
+              | map(sort_by(.submitted_at) | last)
+              | map(select(.state == "APPROVED") | .user.login | ascii_downcase)
+              | unique | .[]
+            '
+          )"
+
+          # NOBODY APPROVES THEIR OWN WORK (§3.1). GitHub already refuses an author's own approval, so this is
+          # belt and braces — and it is cheap, and it says the rule out loud where the check is read.
+          author="$(printf '%s' "${AUTHOR:-}" | tr 'A-Z' 'a-z')"
+          approving="$(printf '%s\n' $approving | grep -v "^${author}$" || true)"
+
+          if [ -z "${approving// /}" ]; then
+            echo "::error::No approving review yet. GOV-FRM-447.2 requires one, from somebody on the list above."
+            exit 1
+          fi
+
+          echo "Approving reviewers:"
+          printf '  %s\n' $approving
+
+          # ── 3. THE COMPARISON ───────────────────────────────────────────────────────────────────────────
+          authorized=""
+          for who in $approving; do
+            if printf '%s\n' "$approvers" | grep -qx "$who"; then
+              authorized="$who"
+              break
+            fi
+          done
+
+          if [ -z "$authorized" ]; then
+            echo "::error::$(printf '%s ' $approving)approved this pull request, and none of them is on"
+            echo "::error::this organization's list of authorized representatives (GOV-FRM-447.4). A review happened;"
+            echo "::error::the right person has not approved. Appointments are made by a pull request to"
+            echo "::error::policies/authorized-representatives.md and policies/governance.yaml — never by editing this check."
+            exit 1
+          fi
+
+          echo "✓ approved by $authorized, who is an authorized representative (GOV-FRM-447.4)."
+===== .github/workflows/gov-validate.yml
+# Governance validation for this gov workspace. Runs the `gov validate` suite
+# (session protocol · knowledge structure · secrets scan · privacy · version
+# sync) on every PR. The CLI is installed from npm — this repo holds no CLI
+# source. Adjust the trigger branches to match your default branch if needed.
+name: gov-validate
+
+on:
+  pull_request:
+  push:
+    branches: ["main", "master"]
+
+jobs:
+  validate:
+    name: gov validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install the gov CLI
+        run: npm install -g @svayam-opensource/gov
+      - name: Validate the workspace
+        run: gov validate --gov-home .
+===== .gitignore
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Local environment
+.env
+.env.local
+
+# Node (if any tooling pulls it in)
+node_modules/
+
+# Local agent / dev workspaces — created by the framework outside of org's tree
+work/
+
+# Per-user local IDE configurations
+.claude/local-settings.json
+
+# Session-start gate (#54 Layer 2): commit the gate config, keep local state out.
+# Everything under .claude/ is ignored EXCEPT the committed gate files.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/commands/
+.claude/settings.local.json
+.claude/.session-ack
+.cursor/.session-ack
+===== .gov-upgrade-moves.json
+[
+  "governance/policies/exceptions/ → policies/exceptions/",
+  {
+    "move": "governance/policies/exceptions/ → policies/exceptions/",
+    "version": "1.2.1"
+  },
+  "org-config.yaml → policies/governance.yaml",
+  {
+    "move": "org-config.yaml → policies/governance.yaml",
+    "version": "1.2.2"
+  },
+  "policies/version/ → policies/history/",
+  {
+    "move": "policies/version/ → policies/history/",
+    "version": "1.2.3"
+  }
+]
+===== CODEOWNERS
+# GENERATED by gov — do not edit by hand.
+#
+# The Policy Owner and Check Owner come from policies/governance.yaml; every other role, its holder and the
+# knowledge/ folders it owns come from the role list in policies/authorized-representatives.md.
+# Change a holder there and run `gov upgrade` to regenerate this file; `gov doctor` reports a copy
+# that no longer matches.
+#
+# Order is routing: GitHub applies the LAST pattern that matches a file.
+
+# Policy Owner — the floor, and the owner of every folder no role owns. org-config.yaml and
+# policies/governance.yaml are listed first: an ungated copy is a route to approving everything else.
+/org-config.yaml           @fake-geneva-owner
+/policies/governance.yaml  @fake-geneva-owner
+/CODEOWNERS                @fake-geneva-owner
+/agent/                    @fake-geneva-owner
+/framework/                @fake-geneva-owner
+/projects/                 @fake-geneva-owner
+/knowledge/                @fake-geneva-owner
+/policies/                 @fake-geneva-owner
+
+# Legal Owner — vacant, so the Policy Owner approves these folders.
+/knowledge/legal/  @fake-geneva-owner
+
+# Infrastructure Owner — vacant, so the Policy Owner approves these folders.
+/knowledge/infrastructure/  @fake-geneva-owner
+
+# System Architecture Owner — vacant, so the Policy Owner approves these folders.
+/knowledge/architecture/system/  @fake-geneva-owner
+
+# Data Architecture Owner — vacant, so the Policy Owner approves these folders.
+/knowledge/architecture/data/  @fake-geneva-owner
+
+# Check Owner — approves the code of the org's check actions; the Policy Owner approves the rules.
+/policies/actions/  @fake-geneva-checker
+===== README.md
+# Geneva Example — governance repository
+
+This repository is `Geneva Example`'s record of how work gets done here: the policies that govern
+it, the knowledge it accumulates, and the projects it runs.
+
+It was created from the Governed Agentic Development Framework and is now **yours**. Edit it,
+commit to it, and raise pull requests against it like any other repository you own.
+
+## Start here
+
+Four entry points, one per reason you might be reading this. Each is a **consultation order** —
+links in sequence, no content of its own.
+
+| You are | Start at |
+|---|---|
+| bringing the framework into this organization | [`framework/docs/user-guides/path-adopter.md`](framework/docs/user-guides/path-adopter.md) |
+| joining an organization that already uses it | [`framework/docs/user-guides/path-joiner.md`](framework/docs/user-guides/path-joiner.md) |
+| working on a project today | [`framework/docs/user-guides/path-developer.md`](framework/docs/user-guides/path-developer.md) |
+| looking something up | [`framework/docs/user-guides/path-reference.md`](framework/docs/user-guides/path-reference.md) |
+
+New to the vocabulary? The glossary at the end of
+[`framework/docs/specs/framework-specification.md`](framework/docs/specs/framework-specification.md#glossary)
+is the shortest path to reading the policy without stopping.
+
+## What is where, and who owns it
+
+The split matters, because it decides what an upgrade may overwrite.
+
+```
+governance/      The FRAMEWORK's. Replaced by `gov upgrade`.
+  policies/        the rules of work, including the C01 digest every agent carries
+  use-cases/       task documents — set up a machine, work a project, close one
+  specs/           reference — the command surface, the vocabulary
+  paths/           the four entry points above
+  guidance/        templates gov reads (the project to-do list, and others)
+  infrastructure/  CI/CD and publication specs
+  procedures/      knowledge harvest
+
+knowledge/       YOURS. Ships empty, and stays whatever you make it.
+projects/        One folder per project, created by `gov seed`. Yours.
+agent/           The session-start protocol and the per-agent harness. The framework's.
+org-config.yaml  Your organization's values. An upgrade adds new keys and never touches a
+                 value you set.
+CODEOWNERS       GENERATED from the roles in the policy and the handles in org-config.yaml.
+                 Do not edit it by hand; change the handle and re-run `gov upgrade`.
+```
+
+### `knowledge/` is deliberately empty
+
+The framework ships **no** knowledge domains. Organize that tree however your accountability
+actually runs — by SDLC phase, by product line, by business unit, by anything.
+
+One rule applies, and it is the rule rather than a suggestion: a top-level domain exists only
+once a named Owner role exists for it
+([Knowledge Organization Standard §2](policies/knowledge-organization-standard.md)). Create the domain and
+name its owner together, add the owner to the policy, and `CODEOWNERS` will gate it on the next
+upgrade.
+
+### What an upgrade will and will not touch
+
+| Treatment | Meaning | Examples |
+|---|---|---|
+| framework-owned | overwritten, every upgrade | `governance/`, `agent/` |
+| yours after the first install | never touched again | `README.md` (this file), `.github/workflows/gov-validate.yml`, `org-config.yaml`, `policies/governance.yaml` |
+| framework-owned shape | the list of keys `org-config.yaml` may hold, checked by `gov doctor` | `framework/config/org-config.schema.yaml` |
+| never shipped | generated from the two above | `CODEOWNERS` |
+
+So this file is yours. Rewrite it for your organization — the section above is a starting point,
+not a fixture.
+
+## Install and first-time setup
+
+Not here, deliberately. Installation instructions cannot live inside the thing you install.
+
+**[gov.svayam.ai](https://gov.svayam.ai)** serves the installer and the adopter and joiner
+instructions. Once `gov` is on your machine, everything else you need is in this repository.
+
+Already set up? The front door is one word:
+
+```bash
+gov
+```
+
+## Licence and provenance
+
+The framework content in `governance/` and `agent/` arrived under
+[MIT](https://github.com/svayam-opensource/governed-agentic-dev-framework/blob/main/LICENSE).
+Everything you add is `Geneva Example`'s, under whatever licence you choose.
+===== VERSION
+1.2.3
+===== knowledge/.gitkeep
+===== org-config.yaml
+# Organization configuration — who this organization is, and the infrastructure it uses.
+#
+# The values are yours; the list of keys and what each one means is the framework's, in
+# framework/config/org-config.schema.yaml, and `gov doctor` checks this file against it.
+# How the organization GOVERNS — its posture, its Policy and Check Owners, the agents it
+# authorizes — is in policies/governance.yaml, where a change needs the Policy Owner.
+# Re-run `gov setup` to update.
+
+# Full legal name of your organization
+org_name: "Geneva Example"
+
+# Short display name (used in headings and prose)
+org_short_name: "Geneva"
+
+# Two to six capital letters naming your organization (e.g. ACME). Not FRM, which is the framework's.
+org_slug: "GEX"
+
+# Full URL of this governance repository. 'origin' will be set to this.
+org_repo_url: "https://github.com/geneva-example/geneva-gov.git"
+
+# GitHub organization or username (derived from org_repo_url)
+github_org: "geneva-example"
+
+# Name of this governance repository (derived from org_repo_url)
+org_gov_repo: "geneva-gov"
+
+# Default branch name for this governance repo
+default_branch: "main"
+
+# Default base branch for code repositories (used by seed)
+default_code_branch: "dev"
+
+# Where the WORK happens, when that is not where the issue lives (#194).
+# A board may link an issue in a repository this org can read but not write — the
+# usual shape when you work from a fork. Map upstream to your own copy and gov
+# branches, pushes and merges in yours, while the board keeps linking theirs:
+#
+# repo_overrides:
+#   genevaers/Workbench: svm-geneva/Workbench
+#
+# Declared, never guessed: gov will not choose where your code is pushed.
+
+# Governance account (multi-tenant): the account this org operates under (empty = single-tenant).
+gov_account: "geneva-example"
+
+# ── Service endpoints — ORG-LEVEL, GOVERNED. Set once here; adopters INHERIT (never prompted per-user).
+#    Per-user secrets/tokens go to Vault via `gov-cicd creds`, NOT here. gov-work itself needs NEITHER:
+#    it authenticates with your own git + gh. vault/oidc/jenkins/npm/docker are read by the deploy
+#    clients (gov-cicd, gov-infra) — fill them as you adopt deploy.
+services:
+  vault: ""
+  oidc: ""
+  oidc_client_id: "gov"
+  jenkins: ""
+  npm: ""
+  docker: ""
+
+# ── Session policy. NOT a service endpoint: the block above lists URLs of things we talk to, this is a
+#    number the identity provider is told to honour.
+#
+#    access_ttl_sec — how long an access token lives, in seconds. The org standard, declared here and
+#    MINTED by the issuer from this value; the deploy compares the two and FAILS when they disagree,
+#    because a lifetime that is true in a file and false in production is the shape of a failure nobody
+#    finds until a token dies somewhere unrelated.
+#
+#    It is short on purpose. The same bearer is handed to other tools, so its life is the window in
+#    which a leak is useful — everywhere. A client that needs longer is granted it NARROWLY: per client,
+#    or per job. Raising this number to buy one client room is explicitly not an exception to it.
+#
+#    See knowledge/architecture/system/specs/token-lifetime-standard.md §3.4.
+session:
+  access_ttl_sec: 300
+===== policies/CHANGELOG.md
+# Policy changelog
+
+Newest first. Each entry is written by the pull request that changes `policies/`: the version it made, when, who wrote and approved it, the rules it added, revised or retired, and the questions its interview settled.
+===== policies/VERSION
+1.0.0
+===== policies/approved-technologies.md
+# Geneva Example — Approved Technologies
+
+**Document:** Approved Technologies
+**Policy Owner:** owner@geneva.example
+**Status:** draft — seeded by `gov setup`, and **yours to curate**
+
+> ## This list is yours, and it is what the check reads
+>
+> gov created this file once and will never overwrite it. The entries below are a starter: the few
+> technologies the framework itself is built with. **Replace them with your own.** Removing an entry you do not
+> use is the expected first act, not a deviation.
+>
+> `policies/org-policy.md` section 3 says that a technology not on this list is introduced only with an
+> approved exception. A check can hold that rule up: when a pull request adds a dependency, the check looks for
+> the dependency's name in this file. So this file is not a description of your stack. As far as that check is
+> concerned, it *is* your stack.
+>
+> Approving a new technology is an ordinary pull request to this file, approved by the owner of the domain it
+> belongs to.
+
+---
+
+## How to write an entry
+
+Write each technology under the **name its dependency manifest uses**: the npm package name, the Go module
+path, the Maven artifact, the name in a Python requirements file. Write it exactly as it appears there.
+
+The check matches a name **anywhere in this file**, as a whole word. Two things follow from that:
+
+- Do not mention a technology you have not approved, not even as an example of something to avoid. A name
+  written anywhere here reads as approved.
+- An entry moved to the "Retired" table below still appears in the file, so the check still accepts it. That
+  is what lets a repository keep building while it migrates away. When the migration is done everywhere,
+  delete the row.
+
+## 1. Languages and runtimes
+
+| Technology | Approved for | Notes |
+|---|---|---|
+| TypeScript · Node.js LTS | services, CLIs, tooling | the framework's own stack |
+| Python 3.12+ | data work, scripting | |
+| Bash | glue and CI steps only | anything with branching logic belongs in a real language |
+
+## 2. Testing
+
+| Technology | Approved for |
+|---|---|
+| mocha · chai | TypeScript unit tests |
+| pytest | Python tests |
+| expect / pty harnesses | end-to-end terminal journeys |
+
+## 3. Build, lint and CI
+
+| Technology | Approved for |
+|---|---|
+| eslint (flat config) | TypeScript linting |
+| tsc | TypeScript builds |
+| GitHub Actions | CI |
+
+## 4. Runtime dependencies
+
+Keep this section short on purpose. Every runtime dependency is something an attacker can reach through your
+supply chain, and something somebody has to keep upgrading for as long as the code lives. Avoiding a new one
+is the strong default; add one when the alternative is clearly worse, and say why in the pull request.
+
+| Technology | Approved for | Notes |
+|---|---|---|
+| `@svayam-opensource/svm-util-log` | all logging | the framework requires it of every gov client; your organization may require it of its own code too |
+| `js-yaml` | reading YAML config | |
+
+## 5. Retired
+
+| Technology | Retired | Reason |
+|---|---|---|
+| *(none yet)* | | |
+
+A repository that still uses a retired technology always has a task recording its migration, so that the gap
+is visible and has an owner. Leaving a repository on a retired technology with no such task needs an approved
+exception (`policies/org-policy.md` section 3.2).
+===== policies/authorized-representatives.md
+# Authorized representatives — who approves what
+
+**Document:** Authorized Representatives
+**Governed by:** `policies/org-policy.md` section 5
+**Policy Owner:** owner@geneva.example
+**Status:** seed — written once by `gov setup`, and **yours to change**
+
+> ## This file is yours
+>
+> gov created it once and **will never overwrite it**. As seeded, every approval falls to the Policy Owner,
+> because on the first day of an adoption that is the only role anybody holds. Appointing owners, splitting a
+> domain, adding a role or deleting a rule you do not want is the expected first act.
+>
+> This file names **real people**, and approvals are checked against it. Keeping it true is therefore not
+> documentation work: a stale row here is an approval nobody actually gave.
+
+---
+
+## 1. Who approves an exception
+
+### 1.1 Every exception has a named approver
+
+An exception is approved only by the role named for its domain in section 1.2, and only by the person who
+holds that role in section 4. While a role has nobody in it, the Policy Owner approves in its place. There is
+no exception to this: an exception approved by anyone else is not approved.
+
+### 1.2 Which role approves which kind of exception (starter)
+
+| Kind of exception | Approved by |
+|---|---|
+| Legal | Legal Owner |
+| Infrastructure | Infrastructure Owner |
+| Architecture | System Architecture Owner, or Data Architecture Owner, whichever the exception concerns |
+| Anything else | Policy Owner |
+
+Who holds each role is written once, in section 4, and nowhere else.
+
+The Policy Owner appoints or changes a representative by a pull request to this file, always, unless an
+exception is approved. An
+appointment announced anywhere else does not reach the approval check, because the check reads this file.
+
+### 1.3 Nobody approves their own exception
+
+The person who asks for an exception never approves it, in any domain. That holds for the Policy Owner too.
+There is no exception to this.
+
+gov's own checks cannot see who wrote a change and who approved it. The version-control platform can: set it
+to require a review by somebody other than the author. `framework/docs/specs/framework-specification.md`
+section 11.2 says what follows when a platform will not do that.
+
+## 2. Keeping this file true
+
+### 2.1 An agent does not appoint anybody
+
+An agent never adds, removes or changes a representative in this file. An appointment is a decision a person
+makes, and it is recorded by the person who made it. There is no exception to this.
+
+### 2.2 A departure is recorded when access changes
+
+When a named holder's access changes, this file is updated in the same pull request, so that the list and the
+access cannot disagree. Updating it separately needs an approved exception.
+
+## 3. Every role has a holder
+
+Every role this organization defines, in section 4 or anywhere else in `policies/`, has a named person
+holding it at all times. When a role falls vacant, the Policy Owner holds it until someone new is named, and
+the vacancy is recorded here in the same pull request that removes the departing holder. A role with nobody in
+it is a question nobody is answering, and an approval nobody can give.
+
+The framework holds its own two roles, the Policy Owner and the Check Owner, to the same standard: `gov setup`
+will not finish without both, and `gov doctor` reports either one when it falls empty.
+
+## 4. The role list
+
+The roles this organization defines, who holds each one, and which folders of `knowledge/` each one owns. This
+is the list gov reads. It routes a change to a `knowledge/` folder to that folder's owner (gov writes
+`CODEOWNERS` from it), and it names the person behind a role when a policy says, in plain English, that a role
+owns one of its sections.
+
+| Role | GitHub handle | Owns |
+|---|---|---|
+| Legal Owner | vacant | `knowledge/legal/` |
+| Infrastructure Owner | vacant | `knowledge/infrastructure/` |
+| System Architecture Owner | vacant | `knowledge/architecture/system/` |
+| Data Architecture Owner | vacant | `knowledge/architecture/data/` |
+
+How to read and change it:
+
+- **Role** is a name you choose. Add a row for a new role, delete a row for a role you retire, rename freely,
+  but keep the name the same as the one your policies use when they say who owns a section.
+- **GitHub handle** is the person (or `org/team`) who holds the role. Leave it empty, or write `vacant`, when
+  nobody does: the Policy Owner then approves in that role's place (section 3).
+- **Owns** lists the `knowledge/` folders the role approves, separated by commas, or `—` for none. A folder
+  nobody owns, and `knowledge/` as a whole, belong to the Policy Owner.
+- The Policy Owner and the Check Owner are not listed here. They are the framework's own two roles, and
+  `gov setup` records who holds them.
+
+After a change here merges, run `gov upgrade` to regenerate `CODEOWNERS`. `gov doctor` reports a `CODEOWNERS`
+that no longer matches this list.
+===== policies/catalog.yaml
+# YOUR ORGANIZATION'S CATALOG ADDITIONS — optional (framework-specification.md §9.5).
+#
+# The framework's catalog (framework/rules/catalog.yaml) declares the resources, events, tools and actions a rule's
+# check can bind to. Add your own here — a resource the framework does not know, or an action under
+# policies/actions/ that the Check Owner has reviewed. An id the framework already defines stays the framework's.
+#
+# Empty as seeded.
+resources: []
+tools: []
+actions: []
+===== policies/compliance-review.md
+# Compliance review — Geneva Example's cadence
+
+**Document:** Compliance Review
+**Policy Owner:** owner@geneva.example
+**Status:** seed — written once by `gov setup`, and **yours to change**
+
+> ## This file is yours
+>
+> gov created it once and **will never overwrite it**. Quarterly is a starter: an organization that ships
+> weekly may want monthly, and one with three repositories may want twice a year. Change the cadence, change
+> who does the review, or delete a clause you do not want. That is the expected first act.
+>
+> The framework has no opinion on how often you look at your own compliance. It insists on one thing only: a
+> violation of a rule that admits no exception is never left for a review to find (section 1.3).
+
+---
+
+## 1. The review
+
+### 1.1 Cadence
+
+The Policy Owner reviews the organization's compliance once every quarter. Skipping or delaying a review needs
+an approved exception, so that a missed quarter is a decision somebody made rather than something that
+drifted.
+
+### 1.2 What the review answers
+
+Every review answers three questions, and the summary records the answer to each:
+
+- Was every violation of a no-exception rule raised since the last review surfaced to a person, and resolved?
+- Does every deviation from a rule that needs an exception have an approved exception on file?
+- Was every deviation from a strong-default rule recorded, with its reason, when it was taken?
+
+### 1.3 A no-exception violation does not wait for the review
+
+Anyone, person or agent, who finds a violation of a rule that admits no exception tells the Policy Owner
+immediately. Never hold it for the next review, whatever this document says about cadence.
+
+Agents need no separate reminder of this: the framework already tells every agent, on every turn, to stop and
+tell a person when such a rule is broken. Saying it twice in an agent's context would weaken both.
+
+## 2. What the review reads
+
+### 2.1 A deviation is recorded when it is taken, not at the review
+
+Each exception used and each deviation taken is recorded in the active project's `knowledge/compliance.md`
+at the moment it happens, not reconstructed when the project closes. This always applies; recording them
+later needs an approved exception.
+
+If you want `gov close` to refuse a project that has no compliance record, say so here in plain words. The
+rule that comes out of it can carry a check that runs when `gov close` runs and names the missing file in its
+refusal. Start it as a warning: a hard close gate was removed from the framework on 2026-09-27 because it
+blocked a developer who had worked a project by hand, and a seeded file should not quietly put it back. Make
+it refuse once you want a project with no compliance record to be impossible to close.
+
+### 2.2 Projects feed the organization's summary
+
+The Policy Owner builds the organization's summary under `knowledge/compliance/` from the projects' own
+compliance records, so the summary has a source other than memory. Building it any other way needs an
+approved exception.
+
+## 3. How to run a review
+
+A suggested order. Adapt it freely; it is guidance, not a rule.
+
+1. Read the last summary under `knowledge/compliance/`.
+2. Collect the `compliance.md` of every project completed in the period.
+3. Look for patterns: the same violation recurring, the same exception requested again and again, deviations
+   clustering around one rule.
+4. Decide whether a pattern points to a gap in a policy, or a gap in how it is enforced.
+5. Write the period's summary to `knowledge/compliance/<year>-Q<n>-summary.md`.
+6. Where a policy should change, propose the change as an ordinary policy pull request.
+===== policies/data-classification.md
+# Data classification — Geneva Example's tiers
+
+**Document:** Data Classification
+**Governed by:** `policies/org-policy.md` section 4
+**Policy Owner:** owner@geneva.example
+**Status:** seed — written once by `gov setup`, and **yours to change**
+
+> ## This file is yours
+>
+> gov created it once and **will never overwrite it**. Everything below is a starter: four tiers most
+> organizations recognise, and a handful of rules written so you can see the shape of a good one. Renaming a
+> tier, merging two of them, or deleting a rule you do not want is the expected first act, not a deviation.
+>
+> One thing is not yours to relax: a credential, key, token or password never goes into any file, log,
+> commit, pull request or issue, and there is no exception to that. Your tiers may be stricter. They may not
+> be laxer (`framework/docs/specs/framework-specification.md` section 9.4).
+
+---
+
+## 1. The tiers
+
+### 1.1 Four tiers, and the names are yours
+
+The Policy Owner may rename these four tiers, merge two of them, or add a fifth. Whatever the names, the most
+sensitive tier always keeps the rule in section 2.1; changing that needs an approved exception.
+
+| Tier | What it covers | May be written into `knowledge/` |
+|---|---|---|
+| **Public** | information intended for people outside the organization | yes (section 2.3) |
+| **Internal** | ordinary organizational information | yes (section 2.3) |
+| **Confidential** | sensitive business information | only with an approved exception (section 2.2) |
+| **Restricted** | credentials, keys, tokens, passwords, personal data | never (section 2.1) |
+
+## 2. What may be written down
+
+### 2.1 Name the tier before you write, and never write the restricted one
+
+Before an agent writes a piece of data anywhere, it decides which tier the data belongs to. It never writes
+restricted data into a file, a log, a commit message, a pull request, an issue, or a prompt sent to an LLM
+provider. There is no exception to either half.
+
+This is the moment that matters most in this document, because it is a judgement an agent makes in the middle
+of a task, before anything a check could see exists. It is worth an agent being reminded of it whenever it is
+about to write.
+
+A check can back it up, crudely: a scan of every changed file for something shaped like
+`password: <16 or more characters>`. Tighten the pattern, or narrow it to the file types you actually ship,
+once you have seen what it finds in your own repositories.
+
+### 2.2 Confidential data needs an approved exception first
+
+Confidential data goes into `knowledge/` or a project's knowledge folder only when an exception has already
+been approved and recorded under `policies/exceptions/`. Without that, it does not go in.
+
+The moment this applies is the moment someone writes a document, and what it asks for is a pull request a
+person approves, not a judgement an agent makes mid-task. So it needs no reminder in an agent's context.
+
+### 2.3 Public and internal data
+
+Public and internal data may be written into any knowledge folder without an exception. That is what those
+two tiers are for.
+
+## 3. When restricted data is already there
+
+### 3.1 Stop, and escalate
+
+An agent that finds restricted data already committed to a repository stops work at once, commits nothing
+further, and tells the Policy Owner. There is no exception to this.
+
+Agents need no separate reminder of it: the framework already tells every agent, on every turn, to stop and
+tell a person when a rule like this is broken.
+
+## 4. Secrets, and where data may go
+
+### 4.1 Credentials are never written down
+
+A credential, key, token or password is never written into a file, a log, a commit, a pull request or an
+issue. Whatever this organization calls its most sensitive tier, that data never reaches a log, a knowledge
+folder, a repository or a model provider. Anyone, person or agent, who finds one stops and tells the Policy
+Owner. There is no exception to this.
+
+### 4.2 Credentials live in one place
+
+Credentials, including agent API keys, are kept only in the `credentials` directory inside the person's own
+preferences folder (`~/.gov/<slug>/preferences/<github-login>/credentials`). They are never kept in a
+repository, and never in a file someone else reads.
+
+### 4.3 Nothing confidential or restricted goes to a model provider
+
+Confidential and restricted data are never sent to any model provider, whether or not this organization has
+authorized that provider. Authorizing a provider permits it to be used for public and internal data only.
+
+### 4.4 Restricted data never reaches a log
+
+Restricted data is never written to a log: not at any level, not through any transport, and not in any field.
+Each part of that sentence has caused a real incident somewhere:
+
+- **Any level.** A secret in a `debug` or `trace` call is still a secret in a log. "It is off in production"
+  is a claim about configuration, not about the code, and it is one flag away from being false.
+- **Any transport.** Console, file, syslog, a hosted aggregator, a crash reporter, an APM trace, a span
+  attribute: a log line that leaves the process is a log line.
+- **Structured fields too.** A tidy message with the credential in a structured field, or an exception
+  object logged whole because it carries the request that carried the key, is the common way this rule is
+  broken while appearing to be kept.
+
+Section 2.1 keeps restricted data out of every repository, and section 4.3 keeps it away from model providers.
+This closes the third route, and it is the one that looks like diligence.
+===== policies/governance.yaml
+# Governance choices — how this organization governs (policies/governance.yaml).
+#
+# These are POLICY: a change to this file needs the Policy Owner's approval (CODEOWNERS routes it to them, and
+# the section-owner-approval check requires it). The framework ships this file once, `gov setup` fills it in,
+# and from then on it is yours — `gov upgrade` never rewrites it. Who the organization IS (its name, its
+# repositories, its service endpoints) is in org-config.yaml.
+
+# HARD OR SOFT GOVERNANCE.
+#   soft   a violation opens a record so the Policy Owner can review it later. The default.
+#   hard   the action (for example a merge) is stopped when a policy violation is detected. Needs public
+#          repositories or a paid GitHub plan: on a private repository on GitHub Free, checks run but cannot block.
+governance_posture: "soft"
+
+# THE POLICY OWNER — approves your policies, and holds every role nobody else holds.
+policy_owner:
+  email: "owner@geneva.example"
+  github: "fake-geneva-owner"
+
+# THE CHECK OWNER — reviews the CODE of your check actions (policies/actions/); the Policy Owner approves the rules.
+# Left empty, the role is vacant and the Policy Owner approves that code too. One person in both roles turns the
+# two-key review off; `gov doctor` says so.
+check_owner:
+  github: "fake-geneva-checker"
+
+# WHICH AI AGENTS THIS ORGANIZATION AUTHORIZES, and which gov launches by default. Every id comes from the
+# framework's list (`gov agent list`); `gov agent approve <id>` raises the pull request that adds one.
+# `authorized_agents: none` is a real answer: this organization uses gov for its process and runs no AI agents.
+# Left empty, gov uses the framework's defaults and says so.
+authorized_agents:
+  default: "claude-code"
+
+# WHETHER THIS ORGANIZATION PUBLISHES ITS KNOWLEDGE: none · site · site+pdf · site+pdf+rag.
+# See policies/knowledge-publication.md.
+knowledge_publication: "none"
+
+# WHICH MODEL THE ORGANIZATION APPROVES FOR `gov rules propose` (framework specification §9.3).
+#   propose.provider   anthropic · gemini · command — empty means no model is approved, and propose asks you instead.
+#   propose.model      the model id, for the anthropic and gemini providers.
+#   command            provider=command: a CLI that reads the request on stdin and writes the reply on stdout.
+#   ci_allowed         true lets CI run propose as the fallback on a policy pull request.
+models:
+  propose:
+    provider: ""
+    model: ""
+  command: ""
+  ci_allowed: false
+===== policies/knowledge-organization-standard.md
+# Knowledge Organization Standard
+
+**Document:** Knowledge Organization Standard
+**Policy Owner:** owner@geneva.example
+**Status:** seeded by `gov setup`, and **yours to change**
+
+> ## This file is yours
+>
+> gov created it once and **will never overwrite it**. It is a starting point for how your organization
+> structures, describes and finds its knowledge under `knowledge/`. The structure below is one that has worked;
+> the domain list in particular is meant to be replaced with yours (section 8). Changing or deleting a rule
+> you do not want is the expected first act, not a deviation.
+>
+> Two rules this standard leans on are the framework's, not yours, and are not restated here:
+> every fact lives in one document, and structure is drawn as text
+> (`framework/docs/specs/framework-specification.md` sections 8.2 and 8.4). `knowledge/` ships empty because
+> of the framework (section 8.1 there); what grows in it is decided here.
+
+---
+
+## 1. Storage and navigation are two different things
+
+**Storage follows accountability. Navigation follows the reader's journey.** Never mix the two; there is no
+exception to this.
+
+- The folder tree exists so that every document has exactly one owner who approves changes to it, through
+  `CODEOWNERS` and pull-request review. So the tree is organized by who is accountable, never by reader
+  journey, document kind or org chart.
+- Readers and agents are served by a separate navigation layer (section 5). A navigation document holds
+  **links in the order to consult them, never content**.
+- Putting a copy of a fact "on the path" where a reader will meet it breaks the framework's one-fact rule. Link
+  to the fact instead.
+
+## 2. Domains — the ownership tree
+
+A top-level domain under `knowledge/` exists **only while a named owner role exists for it** in
+`policies/authorized-representatives.md`. The tree changes only when an accountability domain and its owner
+role are created or retired. This always applies; a domain without an owner needs an approved exception.
+
+That is why `knowledge/` ships empty. A framework that created domains in advance would run this rule
+backwards: the tree would exist before anyone was accountable for it, and every adopter would be committed to
+one taxonomy before knowing its own domains. An organization that structures knowledge by delivery phase, by
+product line, or by anything else is doing what this standard asks.
+
+Framework material is not under `knowledge/`. The framework's specification, user guides and templates live
+under `framework/`, which the framework writes and `gov upgrade` replaces. Your organization writes everything
+under `knowledge/` and `policies/`. Naming your Policy Owner as the approver of a file an upgrade replaces
+would claim an authority nobody in your organization has.
+
+A starter set of domains, to adapt:
+
+| Domain | Owner role | Scope |
+|---|---|---|
+| `legal/` | Legal Owner | legal compliance, contracts, intellectual property, jurisdiction |
+| `architecture/system/` | System Architecture Owner | system design standards; **specs of the products we build** |
+| `architecture/data/` | Data Architecture Owner | data standards, modelling, pipelines, residency |
+| `development/` | Development Owner | engineering craft: coding standards, toolchains, repository conventions, code review |
+| `testing/` | Testing and Quality Owner | test architecture, coverage and verification gates, quality practices |
+| `deployment/` | Deployment and Release Owner | the release **contract**: pipeline standards, environment promotion, versioning |
+| `infrastructure/` | Infrastructure Owner | hosts, network, edge proxies, certificates, backups, vector store |
+| `support/` | Support Owner | **internal tooling the organization runs for itself**: registry, CI server, mail, ticketing, identity provider |
+| `compliance/` | Policy Owner | **the organization-wide rollup only**: it gathers each domain's compliance records |
+
+The organization's own policies are not a knowledge domain. They live in `policies/`, beside `knowledge/`.
+
+### 2.1 Where something belongs
+
+Use these as a strong default when it is not obvious which domain a document belongs to. Where a document
+fits better elsewhere, put it there and note why in the pull request.
+
+- *It has a URL and users: support. It has an IP address and uptime: infrastructure.*
+- Edge proxies are the network edge, so infrastructure, even though they are software.
+- A running service (for example the identity provider) is specified in support. *Which* service is required
+  is a rule in the domain that requires it.
+- Products the organization builds are specified in `architecture/system/specs/`. Support covers internal
+  tooling only.
+- **Deployment owns the contract; support operates the tools; infrastructure hosts them.**
+- An activity (a verb) is not a domain. What it requires is split among the domains that own the things it
+  touches; the activity itself gets a journey document (section 5).
+- How to build, run, test and deploy one repository stays in that repository's own `knowledge/`, and is
+  **linked from** organization documents, never copied up.
+
+## 3. Layers — how binding a document is, inside every domain
+
+Every domain has exactly these six subfolders. The names are the same everywhere. No domain renames, omits or
+adds a layer. An empty layer holds a stub index. This always applies, unless an exception is approved.
+
+| Layer | What it asks of the reader | Default level | Holds |
+|---|---|---|---|
+| `mandates/` | must be followed | the strictest two | enforceable rules; reviewed and audited |
+| `procedures/` | is to be followed | always applies | required processes |
+| `patterns/` | is to be aware of | a strong default | good practice |
+| `use-cases/` | is to learn from | instructional | guides by actor, procedure and component, with sequence diagrams |
+| `specs/` | describes | descriptive | how things are now: an inventory index, then one document per item |
+| `compliance/` | records | evidence | the domain's review and audit records, which feed the organization rollup |
+
+A document's layer gives its **default** level. A rule inside a document may be stricter than that default;
+when it is, its wording says so plainly. This is a strong default.
+
+Exceptions are filed per domain, so `policies/exceptions/` has one subfolder for each domain your
+organization defines. This always applies, unless an exception is approved.
+
+## 4. Front matter — whether knowledge documents describe themselves is your choice
+
+**This section is your organization's choice. gov requires none of it.** Keep it, change the fields and values
+to your own, or delete the section. If you keep it, `gov rules propose` turns it into a rule, and from then on
+gov checks every knowledge pull request against exactly the fields and values written here. If you delete it,
+gov checks no front matter at all.
+
+As seeded: every Markdown file under `knowledge/`, except the `README.md` index files, opens with a front-matter
+block carrying these five fields. This always applies, unless an exception is approved.
+
+| Field | Allowed values |
+|---|---|
+| `domain` | one of your domains from section 2 (as seeded: `legal`, `architecture/system`, `architecture/data`, `development`, `testing`, `deployment`, `infrastructure`, `support`, `compliance`), or `navigation` |
+| `layer` | `mandate`, `procedure`, `pattern`, `use-case`, `spec`, `compliance` or `path` |
+| `owner` | any value: the owning role, never a person |
+| `compliance` | `C01`, `C02`, `C03`, `instructional`, `descriptive` or `evidence` |
+| `status` | `current`, `draft` or `superseded` |
+
+For example:
+
+```yaml
+---
+domain: support
+layer: spec
+owner: support-owner
+compliance: descriptive
+status: current
+---
+```
+
+Why: indexes and the dashboard can then be generated; a search or retrieval hit says what it is, so an agent
+landing in the middle of a document knows whether it is reading a binding rule or a description.
+
+## 5. Navigation — the dashboard and journeys
+
+These always apply, unless an exception is approved:
+
+- `knowledge/README.md` is the **single entry point**. It has two faces. For writers: this tree, the layer
+  table, where things belong, and how to propose a change. For readers: the journey index and a link to each
+  domain's inventory. It is the home page of the published knowledge site, if you publish one
+  (`policies/knowledge-publication.md`).
+- A journey is a **consultation order across domains: links only, never content**. Mandates first, then
+  procedures and use-cases, then specs, then repository-local knowledge. Journeys that cross your own domains
+  live in `knowledge/paths/<journey>.md` and are owned by the Policy Owner. Journeys through the framework's
+  own material are in `framework/docs/user-guides/path-<journey>.md`, which the framework maintains.
+
+Anyone may add or extend a journey by pull request.
+
+When a project closes, its knowledge proposal always answers one question: **"what journey did this project
+follow that is not yet written down?"** A journey found by real work is proposed then, not lost. There is no
+exception to this.
+
+### 5.1 Whether harvesting knowledge gates a close is your choice
+
+The framework does not require any particular knowledge to exist before `gov close` will close a project. It
+checks only that the project's `knowledge/` folder exists, because that is what it promotes. Deciding what
+must be curated first is your organization's call.
+
+If you want a requirement, write it here in plain words: for example, "a project is closed only once its
+knowledge folder holds a summary of what it learned". The rule that comes out of it can carry a check that
+runs when `gov close` runs, and the refusal names exactly what is missing. As seeded, there is no such
+requirement.
+
+## 6. Writing conventions
+
+These always apply, unless an exception is approved:
+
+- **Standard relative Markdown links only, no `[[wikilinks]]`.** That keeps GitHub, site generators, link
+  checkers, local editors and agents all able to follow them.
+- Screenshots of external user interfaces are images and are allowed. Diagrams are not: the framework's rule
+  that structure is drawn as text covers them.
+
+Nothing is added to the **write path**, and this has no exception: git, Markdown and pull-request approval
+are the only way knowledge is written and stored. Read-side tools such as a static site generator, retrieval,
+graph viewers and local editors only render the same files, and may be swapped freely.
+
+Where the organization has adopted a documentation standard, glossary and acronym linking follows it:
+spell out an acronym on first use, and link glossary terms.
+
+## 7. Checks on every knowledge pull request
+
+Every pull request that touches `knowledge/` is checked for the following. This always applies, unless an
+exception is approved:
+
+1. **Front matter**, if you kept section 4, carries the fields and values section 4 lists.
+2. **No orphans:** every document can be reached from its layer index or a journey.
+3. **Journeys hold links only:** `paths/*.md` contain links and ordering prose, nothing else.
+4. **Links work:** no broken relative links, and no links to a `status: superseded` document except from its
+   replacement notice.
+5. **Ownership routing holds:** every path in `CODEOWNERS` exists.
+
+## 8. Adapting this standard
+
+Adapt the **domain list** to your own roles: merge or split domains as your named owners dictate. One
+Architecture Owner, for example, means one `architecture/` domain. Keep the rest stable: the rule that a
+domain exists only with an owner (section 2), the six layers, and the navigation rules (section 5). Section 4's
+front matter is yours to keep or drop. This is a strong default; where your organization departs from it, record
+why.
+===== policies/knowledge-publication.md
+# Knowledge publication — Geneva Example's decision
+
+**Document:** Knowledge Publication
+**Owner:** Infrastructure Owner (acting: owner@geneva.example)
+**Status:** seed — written once by `gov setup`, and **yours to change**
+
+> ## This file is yours, and it may well be yours to delete
+>
+> gov created it once and **will never overwrite it**. The framework ships **none** of this infrastructure
+> and requires none of it. `gov knowledge search` and `gov knowledge show` read the markdown already cloned on
+> every machine, so an organization that publishes nothing is fully compliant. The `knowledge_publication`
+> setting records what you chose; it is `none` by default.
+>
+> Everything below is a starter describing the arrangement Svayam runs. Keep it, cut it down to one form, or
+> delete the document. That is the expected first act, not a deviation.
+>
+> Notice how few rules this document has. It governs a pipeline **you** build, so most of it is a
+> specification for whoever builds it rather than a rule anybody can be held to.
+
+---
+
+## 1. Whether this organization publishes its knowledge
+
+### 1.1 The decision is a setting, not a paragraph
+
+The Policy Owner records the organization's choice in the `knowledge_publication` setting. This always
+applies; an arrangement described in this document but not set there is a plan, not a policy, and nothing
+reads it.
+
+### 1.2 One source, several renderings
+
+Every published form is generated from the markdown in this repository, and no published artifact is edited
+by hand, so that no published copy can disagree with the source it came from. Editing a published copy
+directly needs an approved exception.
+
+### 1.3 Nothing confidential reaches an unauthenticated reader
+
+A document holding confidential or restricted data (see `policies/data-classification.md`) is never published
+in any form that can be reached without authentication. There is no exception to this.
+
+## 2. The three forms (starter)
+
+### 2.1 Form 1 — the static site, internal only
+
+The main reading surface for developers, governance and audit: every document under `knowledge/` and
+`projects/` rendered as navigable, searchable, linked pages, with URLs that mirror the folder structure, and
+reflecting `main` within an hour of a merge.
+
+The site sits behind authentication that only the organization's own authorized users pass, such as SSO or
+the version-control platform's own sign-in. Opening it to anyone else needs an approved exception.
+
+### 2.2 Form 2 — PDF exports, for people outside
+
+One PDF per top-level policy document, regenerated when `framework/` or `policies/` changes, and linked from
+the matching page on the static site. These are the copies that reach a regulator or an external auditor.
+
+Every generated PDF carries the document's title, the commit it was generated from, its effective date and
+the Policy Owner's name, so that a copy in someone else's hands can be traced back to its source. Leaving any
+of these off needs an approved exception.
+
+### 2.3 Form 3 — vector embeddings, for retrieval
+
+An index over `knowledge/` that lets an agent find the few relevant documents without reading all of them.
+One chunk per `##` section, each carrying its file path, section heading, source commit and domain owner, so
+that a retrieved fragment says what it is and how binding it is.
+
+As a strong default, re-embed only the files a merge changed, rather than re-indexing the whole tree.
+
+## 3. For whoever builds it
+
+### 3.1 What the Infrastructure Owner owns
+
+The choice of static-site generator, PDF toolchain and vector store; the ingestion pipeline; uptime; and the
+internal API through which agents and `gov close` read the index. None of it is prescribed here. These are
+renderers over the same files, and `policies/knowledge-organization-standard.md` section 6 keeps git,
+markdown and pull-request approval as the only way to write knowledge, precisely so that a renderer can be
+swapped without a policy change.
+
+### 3.2 Checklist
+
+- [ ] the `knowledge_publication` setting says what you actually run
+- [ ] static site deployed, behind authentication
+- [ ] PDF generation wired to merges that touch the policy folders
+- [ ] vector store provisioned; ingestion re-embeds changed files only
+- [ ] all three forms regenerate on a `main` merge, from CI, with no manual step
+- [ ] pipeline failures alert somebody
+
+### 3.3 Why nothing in gov checks these rules
+
+gov's built-in checks read a change and a workspace. None of them can see a published site, a PDF or a
+vector index. So the rules here are advisory as far as gov is concerned: written because they matter, with
+nothing in gov enforcing them. The place to enforce them is the publishing pipeline's own CI, and
+`framework/docs/specs/framework-specification.md` section 11.3 explains the distinction being relied on here.
+`gov doctor` counts them as advisory, which is the honest number.
+
+### 3.4 Why agents need no reminder of them either
+
+A reminder in an agent's context costs space on every turn of every session. Nothing here is a judgement an
+agent makes mid-task: an agent writing a document does not decide how it is published. The one thing an
+author must not get wrong, what may be written down at all, is already covered by
+`policies/data-classification.md` section 2.1. A second, similar reminder would weaken both
+(`policies/org-policy.md` section 6.3).
+
+## 4. Who owns this document
+
+As seeded, every section of this document is owned by the Policy Owner. Once an Infrastructure Owner is
+appointed in `policies/authorized-representatives.md`, the Policy Owner may hand sections 2 and 3 to that role
+by rewriting this sentence.
+===== policies/org-policy.md
+# Geneva Example — Development Policy
+
+**Document:** Development Policy
+**Policy Owner:** owner@geneva.example
+**Status:** draft — seeded by `gov setup`, and **yours to change**
+
+> ## This file is yours
+>
+> gov created it once and **will never overwrite it**. Edit it, add to it, delete what does not apply.
+> Everything below is a **starter**: clauses we think most organizations want, written so you can see the
+> shape of a good one. Deleting a clause you do not want is the expected first act, not a deviation.
+>
+> Changing it is a normal policy change: edit, open a pull request, have it approved (§1.3), merge. The rules
+> reach your agents from `main` — never from a working branch.
+>
+> The framework's own rules are in `framework/rules/rules.yaml`, explained in
+> `framework/docs/specs/framework-specification.md`. They are **not** yours: they are replaced on every upgrade.
+> Your policy here may be stricter than them. It may not be laxer.
+
+---
+
+## 1. About this policy
+
+### 1.1 Plain English
+
+Write this policy in plain English. Nothing here needs a special notation, a number or a marker: gov never
+edits this file. How strict each rule is — C01 (stop), C02 (not without an approved exception) or C03 (adapt,
+and say so) — is decided per rule when the rules are extracted, and you approve it there. Words such as "must",
+"never" and "unless approved" are what the extraction reads as your intent.
+
+`framework/docs/specs/framework-specification.md` chapter 3 explains the three levels, and chapter 9 how a
+section becomes rules. Run `gov knowledge show framework-specification.md` to read it.
+
+### 1.2 What happens to a section you write
+
+`gov rules propose` reads each changed section and proposes its rules into `policies/rules.yaml`: who each
+binds, how strict it is, a **cue** (a short trigger an agent carries, every turn or at the moment it applies)
+and, where possible, a **check** that fails a pull request. You approve the rows in the same pull request as
+the prose, so what your agents are told is part of what you reviewed. `gov rules build` renders the rows into
+your agents' context and `agent/harness/rule-map.md`; `gov doctor` counts how many are prevented, detected,
+cued or advisory.
+
+### 1.3 Who approves a change to this policy
+
+Approval is by the representatives named in `policies/authorized-representatives.md`, enforced at the
+pull-request gate. A change to this file is approved by the Policy Owner.
+
+---
+
+## 2. Engineering standards
+
+> Starter clauses. Keep, change the level, or delete.
+
+### 2.1 Code explains itself
+
+Every source file opens with a comment that states what the file is for and why it exists — not what the
+code does line by line, which the code already says. A file without one needs an approved exception.
+
+### 2.2 A behaviour change comes with a test
+
+A change to application behaviour comes with a test that would fail without it, unless an exception is
+approved.
+
+### 2.3 Every source file carries the licence header
+
+Every source file must carry the organization's SPDX licence identifier. No exception.
+
+*(A rule a machine can see in a diff wants a check, not a cue: an agent does not need to be told it on every
+turn — see §6.3.)*
+
+### 2.4 Formatting is the formatter's job
+
+Formatting is left to the configured formatter. Hand-formatting, or arguing about it in review, is
+waste.
+
+---
+
+## 3. Technology choices
+
+### 3.1 Only approved technologies
+
+A language, framework, library, datastore, queue, test runner or CI service that is not listed in
+`policies/approved-technologies.md` is introduced only with an approved exception.
+
+### 3.2 Removing a technology
+
+Retiring an approved technology is recorded in `policies/approved-technologies.md` with the date and the
+reason, so that a repository still using it can be found.
+
+---
+
+## 4. Data
+
+What data this organization holds, what its tiers are called, and how each is handled are in
+`policies/data-classification.md`. The framework's own absolute rule — no credential, key, token or password
+in a file, a log, a commit, a pull request or an issue — applies whatever this organization decides (see
+`policies/data-classification.md`).
+
+---
+
+## 5. Roles
+
+Who owns which domain, and who may approve what, are in `policies/authorized-representatives.md`. Until
+owners are appointed, every approval falls to the Policy Owner.
+
+---
+
+## 6. How to write a clause that works
+
+> This section is a guide, not a set of rules — so you can see what guidance looks like beside real clauses.
+
+### 6.1 One clause, one level
+
+Two requirements at the same strength are fine — *"must be reviewed and must not be self-merged"* is one rule.
+Two **strengths** in one sentence become two rules, because one rule row and one cue cannot say which half they
+mean.
+
+### 6.2 Three properties of a cue that actually fires
+
+1. **Fire on an artifact, not an abstraction.** "A technology decision" is invisible to an agent in the
+   middle of a task. "You are editing `package.json`" is not.
+2. **Name the command, not the document.** A path gets renamed; `gov knowledge search` does not.
+3. **State what to do when the answer is missing — and make it `stop`.** Absence of a rule reads as
+   permission unless you say otherwise. This is the sentence most often left out, and the most expensive.
+
+### 6.3 Not every clause deserves a cue
+
+A cue costs context on **every turn of every session**, and a long resident block makes each rule in it
+weaker. So:
+
+- a rule a machine can see in a diff (a licence header, a file name) → **check only**, no cue;
+- a rule about a judgement an agent makes mid-task (which library, whether this is restricted data) → **cue**,
+  because no check will catch the decision before it is made;
+- a rule with neither → advisory. Write it anyway if it matters, but know that nothing enforces it.
+
+`gov doctor` prints the resident cost of your cues. If it is growing, something that belongs in a check has
+been put in the resident block.
+
+### 6.4 Where clauses come from
+
+Good clauses are usually written after something went wrong. A clause that cannot name the failure it
+prevents is often a preference in the costume of a policy — and preferences belong in a developer's own
+preferences file, not here.
+
+---
+
+## 7. People stay accountable for AI-assisted work
+
+When an AI tool helps with a task, the person using it remains responsible for the result. Before relying on
+what the tool produced, that person checks that it complies with this policy and with the framework's rules.
+Handing the work to a tool does not hand over the accountability: "the agent wrote it" is never the answer to
+"who approved this?".
+
+## 8. Who owns each section of this policy
+
+Each section of a policy document has an owner, and a change to a section is approved by that section's owner.
+Write the ownership here, in plain sentences, one per section or group of sections. When this policy changes,
+gov reads these sentences into `policies/ownership.yaml`. On a pull request it then asks the owner of every
+changed section to review, and requires each of them to approve.
+
+**As seeded:** every section of this policy is owned by the Policy Owner, because on the first day of an
+adoption that is the only owner there is.
+
+Three things always hold, whatever you write here:
+
+- A section that names no owner belongs to the Policy Owner.
+- A change to this section, or to `policies/ownership.yaml`, is approved by the Policy Owner. Nobody can
+  hand a section to themselves.
+- An executable check action under `policies/actions/` is approved by the Check Owner.
+
+> **An example of delegating sections.** Once your organization has appointed owners in
+> `policies/authorized-representatives.md`, the Policy Owner might replace the "as seeded" sentence above with:
+>
+> *Sections 1, 5, 7 and 8 of this policy are owned by the Policy Owner.*
+> *Section 2 is owned by the System Architecture Owner.*
+> *Section 3 is owned by the System Architecture Owner.*
+> *Section 4 is owned by the Data Architecture Owner.*
+> *In `policies/data-classification.md`, every section is owned by the Data Architecture Owner.*
+>
+> Each role named must be one listed in `policies/authorized-representatives.md`, with a named holder.
+===== policies/ownership.yaml
+# WHO APPROVES A CHANGE TO EACH POLICY SECTION — extracted from your policies' own plain-English ownership
+# sentences (for example `org-policy.md` §8) by `gov rules propose`. Not written by hand.
+#
+# One entry per section:   - { doc: policies/org-policy.md, section: "4", role: Data Architecture Owner, sha: "1a2b3c4" }
+# `role` is a role listed in `policies/authorized-representatives.md`. `sha` is the sha of the section the ownership
+# SENTENCE is written in: change or delete that sentence and the next `gov rules propose` drops or re-extracts it.
+#
+# Empty as seeded: every section belongs to the Policy Owner until you delegate one. A section with no entry
+# here falls back to the Policy Owner, and a change to this file always needs the Policy Owner.
+[]
+===== policies/policy-domains.md
+# Policy domains — Geneva Example's own policies
+
+**Document:** Policy Domains
+**Policy Owner:** owner@geneva.example
+**Status:** seed — written once by `gov setup`, and **yours to change**
+
+> ## This file is yours
+>
+> gov created it once and **will never overwrite it**. It lists the policies most organizations end up
+> writing for themselves, each with the role that would own it. Rename a domain, merge two, add one, or delete
+> the ones you do not need. That is the expected first act, not a deviation.
+>
+> Nothing here is a rule yet. Each domain below is a placeholder for a policy your organization has not
+> written. Write it here, in plain English, or say where you keep it.
+
+---
+
+## 1. Until a domain has an owner, the Policy Owner decides
+
+Each domain below names the role that will own it. Until somebody holds that role (see
+`policies/authorized-representatives.md`), the Policy Owner decides every question that falls in the domain.
+
+## 2. The domains (starter)
+
+### 2.1 Infrastructure
+
+**Status:** not yet written. **Owner:** the Infrastructure Owner, once appointed.
+
+Would cover: standards for CI/CD pipelines, the hosting platform, the vector store, authentication and
+authorization, and which LLM providers may be used. Once written, it is the reference for every
+infrastructure decision.
+
+### 2.2 System architecture
+
+**Status:** not yet written. **Owner:** the System Architecture Owner, once appointed.
+
+Would cover: system design standards, API contracts, how services talk to each other, and how architectural
+decisions are made and recorded.
+
+### 2.3 Data architecture
+
+**Status:** not yet written. **Owner:** the Data Architecture Owner, once appointed.
+
+Would cover: data modelling standards, data pipeline architecture, where data may reside and under whose law,
+and how data is governed.
+
+### 2.4 Legal and compliance
+
+**Status:** not yet written. **Owner:** the Legal Owner, once appointed.
+
+Would cover: the legal requirements that apply to building software here, obligations under contracts with
+third-party tool providers, intellectual property, and the jurisdictions the organization answers to.
+
+## 3. How to write one
+
+Write a domain's policy the same way as `policies/org-policy.md`: plain English, one requirement per
+paragraph, and say why. Say how firmly each requirement binds in ordinary words: "never", "always, unless an
+exception is approved", or "as a strong default". When the policy changes, `gov rules propose` reads it and
+proposes its rules; the people who own its sections approve them (`policies/org-policy.md` section 8).
+===== policies/rules.yaml
+# YOUR ORGANIZATION'S RULES — one row per rule revision, GOV-gex-NNN (framework-specification.md chapter 9).
+#
+# Not written by hand. `gov rules propose` reads each section of your policies/ prose, proposes its rules here —
+# who each binds, how strict it is, its cue and its checks — and you approve the rows in the same pull request as
+# the prose. gov issues every id; an id is never reused, and a retired rule keeps its closed rows.
+#
+# Empty as seeded: your rules come from your own prose. The framework's rules are in framework/rules/rules.yaml,
+# and `gov rules build` renders both into agent/harness/rule-map.md.
+[]

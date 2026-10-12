@@ -1,0 +1,1669 @@
+# Bodies for fixture (1). A line `===== <path>` starts a file; its body runs to the next such line, exactly.
+# `===== <path> = <other>` gives <path> the same bytes as <other>.
+# Real bytes only for the framework's own files the bridge fingerprints (framework text, tokens unfilled);
+# every other body is a sanitised stand-in written for this fixture. bridge: deleted in D01 (PRJ-121 intent 01, spec §4.1)
+===== .claude/commands/session-start.md
+---
+description: Run the session-start protocol and unlock mutating tools for this session
+---
+
+Run the workspace **session-start protocol** now, then acknowledge it. Until you
+acknowledge (step 3), `Edit`/`Write`/`Bash` are blocked by the PreToolUse gate —
+`Read`/`Grep`/`Glob` work, so you can do the reads below.
+
+1. **Load context** per `framework/CLAUDE.md` §1–§2:
+   - `org-config.yaml` (org layer)
+   - the active project's `projects/<PROJECT_ID>/agent.md` and
+     `projects/<PROJECT_ID>/knowledge/todo.md` (surface every `## Open` item)
+   - `knowledge/policies/agentic-development-policy.md` (policy layer)
+   - your developer prefs, if present.
+2. **Post the context manifest** in the required format (Project, Branch,
+   Status (GitHub board open/closed), Repos, Open todos, Layers loaded, Awaiting). Then
+   **stop for direction** — unless the user's first message already asked for
+   something specific, in which case complete the manifest first, then proceed.
+3. **Acknowledge** (last step — unlocks mutating tools for this session):
+
+   ```bash
+   bash "$CLAUDE_PROJECT_DIR/.claude/hooks/session-ack.sh"
+   ```
+
+Do not run step 3 before steps 1–2 — the acknowledgement asserts the protocol
+ran. (This is the Layer-2 client gate; CI / merge enforce the same at Layer 3.)
+===== .claude/hooks/pre-tool-gate.sh
+#!/usr/bin/env bash
+# PreToolUse gate (#54 Layer 2 — Claude Code client gate).
+# Deny mutating tools (Edit|MultiEdit|Write|NotebookEdit|Bash) until the agent
+# has run /session-start this session (which writes the ack marker). Read|Grep|
+# Glob stay ungated so the protocol's own reads work. The session-ack command is
+# always whitelisted so the agent can unlock. A tiny allowlist of read-only
+# identity probes (`gh api user`, `gh auth status`) is also allowed pre-ack so the
+# protocol can confirm the developer's GitHub login/access (#102.3).
+# Fail-OPEN on any error — a client nudge must never brick the workspace; the
+# tool-agnostic server gate (Layer 3) is the real enforcement.
+set +e
+root="${CLAUDE_PROJECT_DIR:-$PWD}"
+marker="$root/.claude/.session-ack"
+input="$(cat 2>/dev/null)"
+
+# Is this the whitelisted ack command? Parse the Bash command precisely; on any
+# parse error (e.g. no python3) fail open.
+ack="$(printf '%s' "$input" | python3 -c '
+import sys, json, re
+try:
+    d = json.load(sys.stdin)
+    cmd = ((d.get("tool_input") or {}).get("command", "") or "").strip()
+    if "session-ack" in cmd:
+        print("yes")
+    elif re.fullmatch(r"gh api user(\s+--jq\s+\S+)?", cmd) or re.fullmatch(r"gh auth status(\s+--\S+)*", cmd):
+        print("probe")   # read-only identity probe the session-start protocol needs pre-ack
+    else:
+        print("no")
+except Exception:
+    print("err")
+' 2>/dev/null)"
+case "$ack" in
+  yes|probe|err|"") exit 0 ;;   # ack cmd, whitelisted read-only identity probe, parse error, or no python3 → allow
+esac
+
+# Session already acknowledged → allow.
+[[ -f "$marker" ]] && exit 0
+
+# Otherwise: deny, with a clear, actionable reason.
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Complete /session-start first: run the session-start protocol and post the context manifest (framework/CLAUDE.md §0) before changing code. Mutating tools unlock once /session-start acknowledges this session."}}'
+exit 0
+===== .claude/hooks/session-ack.sh
+#!/usr/bin/env bash
+# session-ack (#54 Layer 2). The LAST step of /session-start: write the per-session
+# marker that unlocks mutating tools. The PreToolUse gate whitelists any command
+# containing "session-ack", so this is never blocked.
+set +e
+root="${CLAUDE_PROJECT_DIR:-$PWD}"
+mkdir -p "$root/.claude" 2>/dev/null
+{ date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo ack; } > "$root/.claude/.session-ack"
+echo "✓ session-start acknowledged — mutating tools unlocked for this session."
+exit 0
+===== .claude/hooks/session-start.sh
+#!/usr/bin/env bash
+# SessionStart hook (#54 Layer 2 — Claude Code client gate).
+# On every session (re)start — startup | resume | clear | compact — clear the
+# per-session ack marker so /session-start must run again, and remind the agent.
+# Fail-OPEN: a client nudge must never brick the workspace; Layer 3 (server) is
+# the real enforcement.
+set +e
+root="${CLAUDE_PROJECT_DIR:-$PWD}"
+rm -f "$root/.claude/.session-ack" 2>/dev/null
+msg="Session-start protocol is in effect (framework/CLAUDE.md §0). Run /session-start now: post the context manifest BEFORE changing code. Edit/Write/Bash stay blocked until /session-start acknowledges this session."
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
+exit 0
+===== .claude/settings.json
+{
+  "$comment": "Committed session-start enforcement (#54 Layer 2 — Claude Code client gate). Default-on for everyone who clones; Claude Code asks each developer to approve the hooks once. Local overrides live in .claude/settings.local.json (gitignored).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-tool-gate.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
+===== .clinerules/agent.md
+<!-- GENERATED from the framework harness source — do not edit by hand -->
+
+# Agent Session-Start Protocol — <ORG_NAME>
+
+This is the **canonical** session-start protocol for any AI coding agent working in this workspace. It is delivered to each tool at its conventional path (`CLAUDE.md`, `.cursor/rules/agent.mdc`, `AGENTS.md`, `CONVENTIONS.md`, …) by the framework harness renderer, driven by `agent/harness-manifest.yaml`. **Edit the protocol here, then re-render — never hand-edit the generated copies** (they carry a "do not edit" banner).
+
+## 0. Before any meaningful work — agent speaks first (Pattern 1)
+
+**Applies to:** every new Cursor Agent/Chat session, every new `claude` invocation, and every new conversation after `/clear`.
+
+When this protocol is loaded, your **first assistant message** in the session must run the C01 checklist (§1–§2 below) and post a **context manifest** — **before** planning work, proposing tasks, or editing files.
+
+Until you have done that, you must **refuse meaningful work** — no file edits, no commits, no branch changes, no task creation — however the session opens. If the first message asks for work, run §1–§2 first, post a short manifest, and then address it. If asked to skip this, say that you cannot and why.
+
+gov normally hands you this protocol as your first message. If it did not — you were started outside `gov work` — the rule is unchanged: run it before acting.
+
+| Trigger | What you do |
+|---|---|
+| User's first message is a greeting, "start", "go", "ready", or session opener | Run §1–§2, post manifest, **stop and wait** |
+| User's first message already contains a **specific work task** | Still run §1–§2 first; post a **short** manifest, then address the task |
+| No active project (no project branch checked out) | Post manifest stating no active project; load org layer + `agent.md` only; wait for direction |
+
+**Do not** wait for the user to paste the kickoff prompt from `DEVELOPER_GUIDE.md` — that template is for humans; you execute the same steps proactively.
+
+### Context manifest (required format)
+
+Use this structure in your first reply:
+
+```markdown
+## Context manifest
+
+- **Project:** <PROJECT_ID or "none">
+- **Branch:** <current git branch>
+- **Status:** <derived from the GitHub board (open = active), or n/a>
+- **Repos:** <the board's linked repos, or n/a>
+- **Open todos:** <bullets from todo.md ## Open, or "none">
+- **Layers loaded:** org ✓/✗ · project ✓/✗ · repo ✓/✗ · prefs ✓/✗
+- **Awaiting:** your direction (no tasks proposed)
+```
+
+After the manifest, **stop**. Do not propose implementation work unless the user's first message already asked for something specific — and even then, complete the manifest first.
+
+---
+
+Before you change any code, complete the steps below.
+
+## 1. Read `org-config.yaml` first — every framework file references its values
+
+Read `org-config.yaml` at the workspace repo root before anything else. The framework ships with no org-specific values baked in; instead, files refer to org values via angle-bracketed tokens that map to keys in `org-config.yaml`:
+
+| Token | Key in `org-config.yaml` |
+| --- | --- |
+| `<ORG_NAME>` | `org_name` |
+| `<ORG_SHORT_NAME>` | `org_short_name` |
+| `<ORG_SLUG>` | `org_slug` |
+| `<org_slug>` (lowercase) | `org_slug_lower` |
+| `<ORG_REPO_URL>` | `org_repo_url` |
+| `<GITHUB_ORG>` | `github_org` |
+| `<WORKSPACE_REPO>` | `workspace_repo` |
+| `<DEFAULT_BRANCH>` | `default_branch` |
+| `<DEFAULT_CODE_BRANCH>` | `default_code_branch` |
+| `<AGENT_WORK_ROOT>` | `agent_work_root` |
+| `<POLICY_OWNER_EMAIL>` | `policy_owner_email` |
+| `<POLICY_OWNER_GITHUB>` | `policy_owner_github` |
+| `<LEGAL_OWNER_GITHUB>` etc. | `legal_owner_github`, `infra_owner_github`, `system_arch_owner_github`, `data_arch_owner_github` |
+| `<POLICY_EFFECTIVE_DATE>` | `policy_effective_date` |
+
+Tokens like `<PROJECT_ID>`, `<repo-name>`, `<your-gh-login>` are per-session values you'll discover from the current branch, the GitHub Project board, and `gh api user`.
+
+If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE state. Hard-stop and tell the human to run `gov setup`.
+
+## 2. Load four knowledge layers — fresh every session
+
+Read these in priority order (highest first). Never use cached layers from a prior session:
+
+1. **Org-wide knowledge** — `knowledge/` in this repo, from the `<DEFAULT_BRANCH>` branch.
+2. **Active project** — `projects/<PROJECT_ID>/knowledge/` plus the project's own entrypoint at `projects/<PROJECT_ID>/agent.md`. To determine the active `PROJECT_ID`: read the current git branch — **GitHub is the source of truth; there is no `registry.yaml`**. Project branches are named `BRNCH-<board#>-<slug>`, where `board#` is the GitHub project board number with no leading zero; the matching project id is `PRJ-<board#>-<slug>`. Pre-existing projects keep their legacy `brnch-NNN-<slug>` names.
+3. **Repo-local** — `<repo>/knowledge/` for each linked code repo at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`.
+4. **Your developer preferences** — `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md`. Run `gh api user --jq .login` to determine your handle; load **only** your file. Other files in that directory belong to other developers — do not read them.
+
+Higher layers always win. Developer preferences cannot override repo-local or org-wide knowledge.
+
+## 3. Verify project state (C01 — hard stops)
+
+If a project is active:
+
+- Confirm you are authorized: you have **write access to the project's linked GitHub Project** (the authorization source of truth — an owner grants it via `gov manage assign`). There is no `project.yaml` — GitHub Project write access is the sole gate. When on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is you.
+- The project's GitHub board must be **open** (an open board = active).
+- Read `projects/<PROJECT_ID>/knowledge/todo.md` and surface its `## Open` items to the developer before planning new work.
+
+If any of these can't be verified, hard-stop and surface to the human. Do not commit anything.
+
+## 4. What's writable, what's not
+
+During an active project:
+
+- ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$AGENT_WORK_ROOT/<PROJECT_ID>/`.
+- ❌ Read-only: `<WORKSPACE_REPO>/knowledge/` — never edit during an active project.
+- ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
+- ❌ Don't create GitHub Issues unilaterally — those represent business intent that humans add to the GitHub Project board.
+
+## 5. Where work happens
+
+- Code repos are cloned at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`, each on the project branch.
+- Code changes go in those cloned repos — **NOT** in the workspace repo's tree.
+- Project metadata (knowledge, decisions, to-dos) goes in `projects/<PROJECT_ID>/` in the workspace repo.
+
+## 6. During work
+
+- Capture decisions, exceptions, and policy notes in `projects/<PROJECT_ID>/knowledge/` as you make them — not at session end.
+- **Draw, don't just describe.** When the knowledge you're capturing has a flow, architecture, sequence, state machine, or relationship, author it as a **Mermaid diagram (text, never an image — POL-414)** instead of prose. One artifact serves both readers: it renders as a picture for humans and stays ~tens of diffable, RAG-indexable lines for agents and PR review. Default to a diagram for anything structural; reach for `flowchart`/`sequenceDiagram`/`stateDiagram`/`erDiagram`/`C4Context` as fits.
+- Capture intermediate to-dos in `projects/<PROJECT_ID>/knowledge/todo.md` under `## Open` as they arise.
+- When an item from `todo.md` is resolved, move it to `## Done` with a short note (commit SHA, PR link, or one-line outcome).
+
+---
+
+For the canonical, full version of this protocol and the policy that governs it:
+
+- **`docs/DEVELOPER_GUIDE.md`** — step-by-step session walkthrough with example prompts.
+- **`knowledge/policies/agentic-development-policy.md`** — full policy text. POL-113 through POL-171 govern session protocol.
+
+Per-project specifics (the actual `<PROJECT_ID>`, paths, GitHub Project URL, etc.) are filled in at `projects/<PROJECT_ID>/agent.md` once the project is seeded — that file is your project-specific entrypoint.
+===== .continue/rules.md = .clinerules/agent.md
+===== .cursor/hooks.json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": ".cursor/hooks/session-start.sh" }
+    ],
+    "preToolUse": [
+      { "command": ".cursor/hooks/session-gate.sh", "matcher": "Write" }
+    ],
+    "beforeShellExecution": [
+      { "command": ".cursor/hooks/session-gate.sh" }
+    ]
+  }
+}
+===== .cursor/hooks/session-ack.sh
+#!/usr/bin/env bash
+# Cursor session-ack (#54 Layer 2). The LAST step of the session-start protocol:
+# write the per-session marker that unlocks edits + shell. The gate whitelists any
+# shell command containing "session-ack", so this is never blocked.
+set +e
+mkdir -p ".cursor" 2>/dev/null
+{ date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo ack; } > ".cursor/.session-ack"
+echo "✓ session-start acknowledged — edits and shell unlocked for this Cursor session."
+exit 0
+===== .cursor/hooks/session-gate.sh
+#!/usr/bin/env bash
+# Cursor session-start gate (#54 Layer 2). Wired to BOTH preToolUse(matcher
+# "Write") and beforeShellExecution: deny file writes + shell until the agent has
+# acknowledged the session-start protocol (which writes .cursor/.session-ack).
+# The session-ack command is always whitelisted so the agent can unlock.
+# Fail-OPEN on any error — a client nudge must never brick the workspace; the
+# tool-agnostic server gate (Layer 3) is the real enforcement.
+set +e
+marker=".cursor/.session-ack"
+
+# No python3 → cannot inspect input safely → fail open.
+command -v python3 >/dev/null 2>&1 || { printf '{"permission":"allow"}\n'; exit 0; }
+
+input="$(cat 2>/dev/null)"
+cmd="$(printf '%s' "$input" | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(d.get("command", "") or (d.get("tool_input") or {}).get("command", "") or "")
+except Exception:
+    print("__ERR__")
+' 2>/dev/null)"
+
+case "$cmd" in
+  *session-ack*) printf '{"permission":"allow"}\n'; exit 0 ;;   # whitelist the ack
+  __ERR__)       printf '{"permission":"allow"}\n'; exit 0 ;;   # parse error → fail open
+esac
+
+# cmd is "" (a Write tool call — no command field) or a non-ack shell command.
+if [[ -f "$marker" ]]; then printf '{"permission":"allow"}\n'; exit 0; fi
+
+printf '%s\n' '{"permission":"deny","user_message":"Session-start protocol not acknowledged.","agent_message":"Run the session-start protocol and post the context manifest (agent/session-protocol.md §0) BEFORE changing code, then run: bash .cursor/hooks/session-ack.sh — this unlocks edits and shell for the session."}'
+exit 0
+===== .cursor/hooks/session-start.sh
+#!/usr/bin/env bash
+# Cursor sessionStart hook (#54 Layer 2). On each new session, clear the
+# per-session ack marker so the session-start protocol must be acknowledged
+# again. Cursor project hooks run from the project root. Fail-OPEN.
+set +e
+rm -f ".cursor/.session-ack" 2>/dev/null
+exit 0
+===== .cursor/rules/agent.mdc
+---
+description: Agentic Development Framework — session-start protocol (POL-113..117)
+globs: ["**/*"]
+alwaysApply: true
+---
+
+<!-- GENERATED from the framework harness source — do not edit by hand -->
+
+# Agent Session-Start Protocol — <ORG_NAME>
+
+This is the **canonical** session-start protocol for any AI coding agent working in this workspace. It is delivered to each tool at its conventional path (`CLAUDE.md`, `.cursor/rules/agent.mdc`, `AGENTS.md`, `CONVENTIONS.md`, …) by the framework harness renderer, driven by `agent/harness-manifest.yaml`. **Edit the protocol here, then re-render — never hand-edit the generated copies** (they carry a "do not edit" banner).
+
+## 0. Before any meaningful work — agent speaks first (Pattern 1)
+
+**Applies to:** every new Cursor Agent/Chat session, every new `claude` invocation, and every new conversation after `/clear`.
+
+When this protocol is loaded, your **first assistant message** in the session must run the C01 checklist (§1–§2 below) and post a **context manifest** — **before** planning work, proposing tasks, or editing files.
+
+Until you have done that, you must **refuse meaningful work** — no file edits, no commits, no branch changes, no task creation — however the session opens. If the first message asks for work, run §1–§2 first, post a short manifest, and then address it. If asked to skip this, say that you cannot and why.
+
+gov normally hands you this protocol as your first message. If it did not — you were started outside `gov work` — the rule is unchanged: run it before acting.
+
+| Trigger | What you do |
+|---|---|
+| User's first message is a greeting, "start", "go", "ready", or session opener | Run §1–§2, post manifest, **stop and wait** |
+| User's first message already contains a **specific work task** | Still run §1–§2 first; post a **short** manifest, then address the task |
+| No active project (no project branch checked out) | Post manifest stating no active project; load org layer + `agent.md` only; wait for direction |
+
+**Do not** wait for the user to paste the kickoff prompt from `DEVELOPER_GUIDE.md` — that template is for humans; you execute the same steps proactively.
+
+### Context manifest (required format)
+
+Use this structure in your first reply:
+
+```markdown
+## Context manifest
+
+- **Project:** <PROJECT_ID or "none">
+- **Branch:** <current git branch>
+- **Status:** <derived from the GitHub board (open = active), or n/a>
+- **Repos:** <the board's linked repos, or n/a>
+- **Open todos:** <bullets from todo.md ## Open, or "none">
+- **Layers loaded:** org ✓/✗ · project ✓/✗ · repo ✓/✗ · prefs ✓/✗
+- **Awaiting:** your direction (no tasks proposed)
+```
+
+After the manifest, **stop**. Do not propose implementation work unless the user's first message already asked for something specific — and even then, complete the manifest first.
+
+---
+
+Before you change any code, complete the steps below.
+
+## 1. Read `org-config.yaml` first — every framework file references its values
+
+Read `org-config.yaml` at the workspace repo root before anything else. The framework ships with no org-specific values baked in; instead, files refer to org values via angle-bracketed tokens that map to keys in `org-config.yaml`:
+
+| Token | Key in `org-config.yaml` |
+| --- | --- |
+| `<ORG_NAME>` | `org_name` |
+| `<ORG_SHORT_NAME>` | `org_short_name` |
+| `<ORG_SLUG>` | `org_slug` |
+| `<org_slug>` (lowercase) | `org_slug_lower` |
+| `<ORG_REPO_URL>` | `org_repo_url` |
+| `<GITHUB_ORG>` | `github_org` |
+| `<WORKSPACE_REPO>` | `workspace_repo` |
+| `<DEFAULT_BRANCH>` | `default_branch` |
+| `<DEFAULT_CODE_BRANCH>` | `default_code_branch` |
+| `<AGENT_WORK_ROOT>` | `agent_work_root` |
+| `<POLICY_OWNER_EMAIL>` | `policy_owner_email` |
+| `<POLICY_OWNER_GITHUB>` | `policy_owner_github` |
+| `<LEGAL_OWNER_GITHUB>` etc. | `legal_owner_github`, `infra_owner_github`, `system_arch_owner_github`, `data_arch_owner_github` |
+| `<POLICY_EFFECTIVE_DATE>` | `policy_effective_date` |
+
+Tokens like `<PROJECT_ID>`, `<repo-name>`, `<your-gh-login>` are per-session values you'll discover from the current branch, the GitHub Project board, and `gh api user`.
+
+If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE state. Hard-stop and tell the human to run `gov setup`.
+
+## 2. Load four knowledge layers — fresh every session
+
+Read these in priority order (highest first). Never use cached layers from a prior session:
+
+1. **Org-wide knowledge** — `knowledge/` in this repo, from the `<DEFAULT_BRANCH>` branch.
+2. **Active project** — `projects/<PROJECT_ID>/knowledge/` plus the project's own entrypoint at `projects/<PROJECT_ID>/agent.md`. To determine the active `PROJECT_ID`: read the current git branch — **GitHub is the source of truth; there is no `registry.yaml`**. Project branches are named `BRNCH-<board#>-<slug>`, where `board#` is the GitHub project board number with no leading zero; the matching project id is `PRJ-<board#>-<slug>`. Pre-existing projects keep their legacy `brnch-NNN-<slug>` names.
+3. **Repo-local** — `<repo>/knowledge/` for each linked code repo at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`.
+4. **Your developer preferences** — `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md`. Run `gh api user --jq .login` to determine your handle; load **only** your file. Other files in that directory belong to other developers — do not read them.
+
+Higher layers always win. Developer preferences cannot override repo-local or org-wide knowledge.
+
+## 3. Verify project state (C01 — hard stops)
+
+If a project is active:
+
+- Confirm you are authorized: you have **write access to the project's linked GitHub Project** (the authorization source of truth — an owner grants it via `gov manage assign`). There is no `project.yaml` — GitHub Project write access is the sole gate. When on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is you.
+- The project's GitHub board must be **open** (an open board = active).
+- Read `projects/<PROJECT_ID>/knowledge/todo.md` and surface its `## Open` items to the developer before planning new work.
+
+If any of these can't be verified, hard-stop and surface to the human. Do not commit anything.
+
+## 4. What's writable, what's not
+
+During an active project:
+
+- ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$AGENT_WORK_ROOT/<PROJECT_ID>/`.
+- ❌ Read-only: `<WORKSPACE_REPO>/knowledge/` — never edit during an active project.
+- ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
+- ❌ Don't create GitHub Issues unilaterally — those represent business intent that humans add to the GitHub Project board.
+
+## 5. Where work happens
+
+- Code repos are cloned at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`, each on the project branch.
+- Code changes go in those cloned repos — **NOT** in the workspace repo's tree.
+- Project metadata (knowledge, decisions, to-dos) goes in `projects/<PROJECT_ID>/` in the workspace repo.
+
+## 6. During work
+
+- Capture decisions, exceptions, and policy notes in `projects/<PROJECT_ID>/knowledge/` as you make them — not at session end.
+- **Draw, don't just describe.** When the knowledge you're capturing has a flow, architecture, sequence, state machine, or relationship, author it as a **Mermaid diagram (text, never an image — POL-414)** instead of prose. One artifact serves both readers: it renders as a picture for humans and stays ~tens of diffable, RAG-indexable lines for agents and PR review. Default to a diagram for anything structural; reach for `flowchart`/`sequenceDiagram`/`stateDiagram`/`erDiagram`/`C4Context` as fits.
+- Capture intermediate to-dos in `projects/<PROJECT_ID>/knowledge/todo.md` under `## Open` as they arise.
+- When an item from `todo.md` is resolved, move it to `## Done` with a short note (commit SHA, PR link, or one-line outcome).
+
+---
+
+For the canonical, full version of this protocol and the policy that governs it:
+
+- **`docs/DEVELOPER_GUIDE.md`** — step-by-step session walkthrough with example prompts.
+- **`knowledge/policies/agentic-development-policy.md`** — full policy text. POL-113 through POL-171 govern session protocol.
+
+Per-project specifics (the actual `<PROJECT_ID>`, paths, GitHub Project URL, etc.) are filled in at `projects/<PROJECT_ID>/agent.md` once the project is seeded — that file is your project-specific entrypoint.
+===== .cursor/rules/session-start-gate.mdc
+---
+description: Session-start enforcement gate (#54) — run the protocol, then acknowledge to unlock
+alwaysApply: true
+---
+
+This workspace enforces the session-start protocol for Cursor via
+`.cursor/hooks.json`. At the start of each session:
+
+1. Run the session-start protocol (`agent/session-protocol.md` §0): load the
+   layered context and **post the context manifest BEFORE changing code**.
+2. As the **last step**, acknowledge to unlock edits + shell:
+
+   ```bash
+   bash .cursor/hooks/session-ack.sh
+   ```
+
+Until you acknowledge, file writes (`preToolUse`/`Write`) and shell
+(`beforeShellExecution`) are denied by the hooks. (Layer-2 client gate; CI / merge
+enforce the same uniformly at Layer 3.)
+===== .gemini/styleguide.md = .clinerules/agent.md
+===== .gitattributes
+# sanitised fixture .gitattributes
+* text=auto eol=lf
+===== .github/copilot-instructions.md = .clinerules/agent.md
+===== .gitignore
+# sanitised fixture .gitignore
+node_modules/
+===== .windsurf/rules/agent.md = .clinerules/agent.md
+===== AGENTS.md = .clinerules/agent.md
+===== CLAUDE.md
+@agent/session-protocol.md
+@agent.md
+===== CODEOWNERS
+# sanitised fixture CODEOWNERS
+* @fake-policy-owner
+===== CONVENTIONS.md = .clinerules/agent.md
+===== VERSION
+1.0.0
+===== agent.md
+# <ORG_NAME> — Org-Level Agent Entry Point
+# Repository: <WORKSPACE_REPO>
+# This file is the primary context entry point for all agents working in this repository.
+
+## About This Repository
+
+`<WORKSPACE_REPO>` is <ORG_NAME>'s central workspace repository for all agentic development projects.
+It is NOT a code repository. It contains:
+- Org-wide knowledge (`knowledge/`)
+- All project workspaces (`projects/PRJ-<board#>-<slug>/`)
+
+Project state is derived live from GitHub (boards + anchor issues) — there is no
+`registry.yaml` or `project.yaml`.
+
+`<WORKSPACE_REPO>` is an implicit participant in every project — it does not need to be listed in `repos[]`.
+
+## Authoritative Policy
+
+All work in this repository and all agentic development at <ORG_NAME> is governed by:
+`knowledge/policies/agentic-development-policy.md`
+
+Read this policy before beginning any work session.
+
+## Knowledge Layer Priority (Highest to Lowest)
+
+1. **Org-wide knowledge** → `knowledge/` (this repository, <DEFAULT_BRANCH> branch)
+2. **Project knowledge** → `projects/PRJ-<board#>-<slug>/knowledge/`
+3. **Repo-local knowledge** → `<cloned-repo>/knowledge/`
+4. **Your developer preferences** → `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md`
+   (run `gh api user --jq .login` to get your handle; load only your file)
+
+Higher priority always wins. In case of conflict, apply the rule from the higher-priority layer.
+
+## Conflict Resolution by Compliance Level
+
+- **C01 — Non-Negotiable**: Hard stop. Refuse to proceed. Surface to human immediately.
+- **C02 — Always Apply**: Block work. Require approved PR in `knowledge/policies/exceptions/` before continuing.
+- **C03 — Apply Intelligently**: Proceed with deviation, but document reasoning in `projects/PRJ-<board#>-<slug>/knowledge/compliance.md`.
+
+## Session Start Checklist (C01 — complete before any work)
+
+1. Read `org-config.yaml` at workspace root — org identity, branches, owners, `agent_work_root`. Every other step references its values.
+2. Verify you are authorized via **write access to the project's GitHub Project** (or you own the current task sub-branch)
+3. Verify the project's GitHub board is **open** (active)
+4. Load all four knowledge layers fresh (never use cached layers from a prior session)
+5. Pull latest `BRNCH-<board#>-<slug>` branch in all repos
+
+## Governance Authority & Project-Branch Proposals (C01)
+
+Governance is sourced from **`<DEFAULT_BRANCH>`**: your session-start context and all governing
+knowledge/policy (`knowledge/`, `agent/session-protocol.md`, `policies/`) are built from
+`<DEFAULT_BRANCH>`, never from the project branch (POL-086a). Project work — **including edits to org
+`knowledge/`** — is committed to the **project branch**, where such edits are **proposals with no
+governing force**. Never self-govern by your own unratified edits. Project-specific context
+(`projects/PRJ-<board#>-<slug>/…`) is read from the project branch (POL-086b).
+
+A `knowledge/` change becomes organizational standard only when merged to `<DEFAULT_BRANCH>` via a PR
+approved by the Policy Owner **and** the CODEOWNERS domain owner(s) whose folders it touches — all
+owners for `policies/`/`mandates/` (POL-086c). See
+`knowledge/policies/agentic-development-policy.md` §6.4.
+
+## Data Classification — Hard Rules
+
+- **Restricted data** (credentials, secrets, PII, API keys): NEVER commit to any folder (C01)
+- If restricted data is detected: hard stop, do not commit, escalate to Policy Owner immediately
+- **Confidential data**: requires explicit C02 approval before inclusion in knowledge base
+
+## Roles
+
+Current role holders are defined in `knowledge/policies/roles.md`.
+All policy roles are currently held by `<POLICY_OWNER_EMAIL>`.
+
+## Lifecycle operations
+
+Use the `gov` CLI (`npm i -g @svayam-opensource/gov`) for all lifecycle operations
+(`gov seed`, `gov task`, `gov merge`, `gov close`, …) — never perform lifecycle
+actions manually.
+===== agent/session-protocol.md
+# Agent Session-Start Protocol — <ORG_NAME>
+
+This is the **canonical** session-start protocol for any AI coding agent working in this workspace. It is delivered to each tool at its conventional path (`CLAUDE.md`, `.cursor/rules/agent.mdc`, `AGENTS.md`, `CONVENTIONS.md`, …) by the framework harness renderer, driven by `agent/harness-manifest.yaml`. **Edit the protocol here, then re-render — never hand-edit the generated copies** (they carry a "do not edit" banner).
+
+## 0. Before any meaningful work — agent speaks first (Pattern 1)
+
+**Applies to:** every new Cursor Agent/Chat session, every new `claude` invocation, and every new conversation after `/clear`.
+
+When this protocol is loaded, your **first assistant message** in the session must run the C01 checklist (§1–§2 below) and post a **context manifest** — **before** planning work, proposing tasks, or editing files.
+
+Until you have done that, you must **refuse meaningful work** — no file edits, no commits, no branch changes, no task creation — however the session opens. If the first message asks for work, run §1–§2 first, post a short manifest, and then address it. If asked to skip this, say that you cannot and why.
+
+gov normally hands you this protocol as your first message. If it did not — you were started outside `gov work` — the rule is unchanged: run it before acting.
+
+| Trigger | What you do |
+|---|---|
+| User's first message is a greeting, "start", "go", "ready", or session opener | Run §1–§2, post manifest, **stop and wait** |
+| User's first message already contains a **specific work task** | Still run §1–§2 first; post a **short** manifest, then address the task |
+| No active project (no project branch checked out) | Post manifest stating no active project; load org layer + `agent.md` only; wait for direction |
+
+**Do not** wait for the user to paste the kickoff prompt from `DEVELOPER_GUIDE.md` — that template is for humans; you execute the same steps proactively.
+
+### Context manifest (required format)
+
+Use this structure in your first reply:
+
+```markdown
+## Context manifest
+
+- **Project:** <PROJECT_ID or "none">
+- **Branch:** <current git branch>
+- **Status:** <derived from the GitHub board (open = active), or n/a>
+- **Repos:** <the board's linked repos, or n/a>
+- **Open todos:** <bullets from todo.md ## Open, or "none">
+- **Layers loaded:** org ✓/✗ · project ✓/✗ · repo ✓/✗ · prefs ✓/✗
+- **Awaiting:** your direction (no tasks proposed)
+```
+
+After the manifest, **stop**. Do not propose implementation work unless the user's first message already asked for something specific — and even then, complete the manifest first.
+
+---
+
+Before you change any code, complete the steps below.
+
+## 1. Read `org-config.yaml` first — every framework file references its values
+
+Read `org-config.yaml` at the workspace repo root before anything else. The framework ships with no org-specific values baked in; instead, files refer to org values via angle-bracketed tokens that map to keys in `org-config.yaml`:
+
+| Token | Key in `org-config.yaml` |
+| --- | --- |
+| `<ORG_NAME>` | `org_name` |
+| `<ORG_SHORT_NAME>` | `org_short_name` |
+| `<ORG_SLUG>` | `org_slug` |
+| `<org_slug>` (lowercase) | `org_slug_lower` |
+| `<ORG_REPO_URL>` | `org_repo_url` |
+| `<GITHUB_ORG>` | `github_org` |
+| `<WORKSPACE_REPO>` | `workspace_repo` |
+| `<DEFAULT_BRANCH>` | `default_branch` |
+| `<DEFAULT_CODE_BRANCH>` | `default_code_branch` |
+| `<AGENT_WORK_ROOT>` | `agent_work_root` |
+| `<POLICY_OWNER_EMAIL>` | `policy_owner_email` |
+| `<POLICY_OWNER_GITHUB>` | `policy_owner_github` |
+| `<LEGAL_OWNER_GITHUB>` etc. | `legal_owner_github`, `infra_owner_github`, `system_arch_owner_github`, `data_arch_owner_github` |
+| `<POLICY_EFFECTIVE_DATE>` | `policy_effective_date` |
+
+Tokens like `<PROJECT_ID>`, `<repo-name>`, `<your-gh-login>` are per-session values you'll discover from the current branch, the GitHub Project board, and `gh api user`.
+
+If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE state. Hard-stop and tell the human to run `gov setup`.
+
+## 2. Load four knowledge layers — fresh every session
+
+Read these in priority order (highest first). Never use cached layers from a prior session:
+
+1. **Org-wide knowledge** — `knowledge/` in this repo, from the `<DEFAULT_BRANCH>` branch.
+2. **Active project** — `projects/<PROJECT_ID>/knowledge/` plus the project's own entrypoint at `projects/<PROJECT_ID>/agent.md`. To determine the active `PROJECT_ID`: read the current git branch — **GitHub is the source of truth; there is no `registry.yaml`**. Project branches are named `BRNCH-<board#>-<slug>`, where `board#` is the GitHub project board number with no leading zero; the matching project id is `PRJ-<board#>-<slug>`. Pre-existing projects keep their legacy `brnch-NNN-<slug>` names.
+3. **Repo-local** — `<repo>/knowledge/` for each linked code repo at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`.
+4. **Your developer preferences** — `$AGENT_WORK_ROOT/preferences/<your-gh-login>.md`. Run `gh api user --jq .login` to determine your handle; load **only** your file. Other files in that directory belong to other developers — do not read them.
+
+Higher layers always win. Developer preferences cannot override repo-local or org-wide knowledge.
+
+## 3. Verify project state (C01 — hard stops)
+
+If a project is active:
+
+- Confirm you are authorized: you have **write access to the project's linked GitHub Project** (the authorization source of truth — an owner grants it via `gov manage assign`). There is no `project.yaml` — GitHub Project write access is the sole gate. When on a task sub-branch (`BRNCH-<board#>-<slug>.ISSUE-<n>`), confirm that sub-branch's assignee is you.
+- The project's GitHub board must be **open** (an open board = active).
+- Read `projects/<PROJECT_ID>/knowledge/todo.md` and surface its `## Open` items to the developer before planning new work.
+
+If any of these can't be verified, hard-stop and surface to the human. Do not commit anything.
+
+## 4. What's writable, what's not
+
+During an active project:
+
+- ✅ Writable: `projects/<PROJECT_ID>/` (workspace repo) and code on the project branch in cloned repos under `$AGENT_WORK_ROOT/<PROJECT_ID>/`.
+- ❌ Read-only: `<WORKSPACE_REPO>/knowledge/` — never edit during an active project.
+- ❌ Never hand-manage task state — tasks are GitHub Issues on the board (open = active, closed = done); create with `gov task`, land with `gov merge`.
+- ❌ Don't create GitHub Issues unilaterally — those represent business intent that humans add to the GitHub Project board.
+
+## 5. Where work happens
+
+- Code repos are cloned at `$AGENT_WORK_ROOT/<PROJECT_ID>/<repo-name>/`, each on the project branch.
+- Code changes go in those cloned repos — **NOT** in the workspace repo's tree.
+- Project metadata (knowledge, decisions, to-dos) goes in `projects/<PROJECT_ID>/` in the workspace repo.
+
+## 6. During work
+
+- Capture decisions, exceptions, and policy notes in `projects/<PROJECT_ID>/knowledge/` as you make them — not at session end.
+- **Draw, don't just describe.** When the knowledge you're capturing has a flow, architecture, sequence, state machine, or relationship, author it as a **Mermaid diagram (text, never an image — POL-414)** instead of prose. One artifact serves both readers: it renders as a picture for humans and stays ~tens of diffable, RAG-indexable lines for agents and PR review. Default to a diagram for anything structural; reach for `flowchart`/`sequenceDiagram`/`stateDiagram`/`erDiagram`/`C4Context` as fits.
+- Capture intermediate to-dos in `projects/<PROJECT_ID>/knowledge/todo.md` under `## Open` as they arise.
+- When an item from `todo.md` is resolved, move it to `## Done` with a short note (commit SHA, PR link, or one-line outcome).
+
+---
+
+For the canonical, full version of this protocol and the policy that governs it:
+
+- **`docs/DEVELOPER_GUIDE.md`** — step-by-step session walkthrough with example prompts.
+- **`knowledge/policies/agentic-development-policy.md`** — full policy text. POL-113 through POL-171 govern session protocol.
+
+Per-project specifics (the actual `<PROJECT_ID>`, paths, GitHub Project URL, etc.) are filled in at `projects/<PROJECT_ID>/agent.md` once the project is seeded — that file is your project-specific entrypoint.
+===== knowledge/guidance/compliance-template.md
+---
+domain: policies
+layer: procedure
+owner: policy-owner
+compliance: C02
+status: superseded
+---
+
+# Moved
+
+This document moved to [policies/procedures/templates/compliance-template.md](../policies/procedures/templates/compliance-template.md) (PRJ-005 knowledge migration,
+2026-06-06). Redirect stub removable after 2026-09 (standard §9).
+===== knowledge/guidance/preferences-template.md
+---
+domain: policies
+layer: procedure
+owner: policy-owner
+compliance: C03
+status: superseded
+---
+
+# Moved
+
+This document moved to [policies/procedures/templates/preferences-template.md](../policies/procedures/templates/preferences-template.md) (PRJ-005 knowledge migration,
+2026-06-06). Redirect stub removable after 2026-09 (standard §9).
+===== knowledge/guidance/project-impact-template.md
+---
+domain: policies
+layer: procedure
+owner: policy-owner
+compliance: C02
+status: superseded
+---
+
+# Moved
+
+This document moved to [policies/procedures/templates/project-impact-template.md](../policies/procedures/templates/project-impact-template.md) (PRJ-005 knowledge migration,
+2026-06-06). Redirect stub removable after 2026-09 (standard §9).
+===== knowledge/guidance/repo-agent-template.md
+---
+domain: policies
+layer: procedure
+owner: policy-owner
+compliance: C02
+status: superseded
+---
+
+# Moved
+
+This document moved to [policies/procedures/templates/repo-agent-template.md](../policies/procedures/templates/repo-agent-template.md) (PRJ-005 knowledge migration,
+2026-06-06). Redirect stub removable after 2026-09 (standard §9).
+===== knowledge/guidance/todo-template.md
+---
+domain: policies
+layer: procedure
+owner: policy-owner
+compliance: C02
+status: superseded
+---
+
+# Moved
+
+This document moved to [policies/procedures/templates/todo-template.md](../policies/procedures/templates/todo-template.md) (PRJ-005 knowledge migration,
+2026-06-06). Redirect stub removable after 2026-09 (standard §9).
+===== knowledge/policies/agentic-development-policy.md
+---
+domain: policies
+layer: policy
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# <ORG_NAME> Agentic Development Policy
+
+Sanitised fixture: the real file's section skeleton and clause-index shape, with short placeholder clauses.
+
+## 1. Purpose & Scope
+
+### 1.2 Scope
+
+Fixture: people using AI tools are in scope **(POL-006)**.
+
+## 3. Roles & Responsibilities
+
+### 3.3 Role Assignment Rules
+
+Fixture: every role has a holder. **(POL-033)** See `knowledge/policies/roles.md`.
+
+## 4. Units of Work (Projects)
+
+Fixture: framework-owned text **(POL-040)**.
+
+## 7. Agent Operating Standards
+
+### 7.5 LLM Governance
+
+Fixture: no confidential data to any provider **(C01, POL-137)**. See `knowledge/policies/llm-governance.md`.
+
+### 7.6 Data Classification
+
+Fixture: restricted data never committed **(C01, POL-143)**. See `knowledge/policies/data-classification.md`.
+
+## 9. Exception Process
+
+Fixture: exception records live under `knowledge/policies/exceptions/`.
+
+## 10. Policy Domains
+
+Fixture: future domain policies **(POL-159)** **(POL-160)**.
+
+## Clause Index
+
+```
+POL-001: Fixture clause — moved to the specification (dropped alias).
+POL-006: Fixture clause — people using AI tools are in scope and answer for the tool's output.
+POL-011: Fixture clause — survives as a framework rule.
+POL-033: Fixture clause — every defined role has a current, named holder.
+POL-137: Fixture clause — no confidential or restricted data is sent to any LLM provider (C01).
+POL-143: Fixture clause — restricted data never appears in any knowledge folder or repository (C01).
+POL-159: Fixture clause — an infrastructure policy (pending) will govern hosting and CI/CD.
+POL-160: Fixture clause — a system architecture policy (pending) will govern API contracts.
+POL-161: Fixture clause — a data architecture policy (pending) will govern data residency.
+POL-162: Fixture clause — a legal policy (pending) will govern third-party obligations.
+```
+===== knowledge/policies/api-development-policy.md
+---
+domain: policies
+layer: policy
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# API Development Policy (sanitised fixture)
+
+Placeholder. See `knowledge/policies/data-classification.md`.
+===== knowledge/policies/data-classification.md
+---
+domain: policies
+layer: policy
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# Data Classification (sanitised fixture)
+
+**Parent Policy:** `knowledge/policies/agentic-development-policy.md`
+
+Raise an exception in `knowledge/policies/exceptions/policy/` first. See `knowledge/policies/llm-governance.md`.
+===== knowledge/policies/exceptions/architecture/2026-05-20-SVM-001-svm-ident-verify-fastify.md
+---
+domain: policies
+layer: compliance
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# Exception record (sanitised fixture): 2026-05-20-SVM-001-svm-ident-verify-fastify.md
+
+**Exception Path:** `knowledge/policies/exceptions/architecture/`
+**Approver:** <POLICY_OWNER_EMAIL>
+
+Placeholder body.
+===== knowledge/policies/exceptions/architecture/TEMPLATE.md
+---
+domain: policies
+layer: compliance
+owner: policy-owner
+compliance: evidence
+status: current
+---
+
+# Architecture Exception Request Template
+
+**Exception Path:** `knowledge/policies/exceptions/architecture/`
+**Approver:** System Architecture Owner or Data Architecture Owner (current: `<POLICY_OWNER_EMAIL>`)
+**Compliance Level:** C02 — Always Apply exception process
+
+---
+
+## How to Use This Template
+
+1. Copy this file and rename it: `YYYY-MM-DD-PRJ-<board#>-<slug>-brief-description.md`
+2. Fill in all required fields, including which architecture domain applies
+3. Commit the file to your project branch: `brnch-NNN-<slug>`
+4. Raise a PR targeting <DEFAULT_BRANCH>
+5. Appropriate Architecture Owner reviews and merges to grant approval
+6. Do NOT proceed with the excepted action until the PR is merged
+
+---
+
+## Exception Request
+
+```yaml
+request_date: YYYY-MM-DD
+project_id: PRJ-NNN-<slug>
+requester: your@email.com
+
+# Specify which domain: system | data | both
+architecture_domain: system
+
+rule_id: POL-NNN
+rule_description: [one-line description of the rule]
+
+action_description: |
+  [Describe the architectural deviation you need to make]
+
+justification: |
+  [Why is this deviation necessary? What constraint or opportunity drives it?]
+
+risk_assessment: |
+  [Architectural risks introduced and mitigation approach]
+
+exception_start: YYYY-MM-DD
+exception_end: YYYY-MM-DD
+
+alternatives_considered: |
+  [What architectural alternatives were evaluated?]
+```
+
+---
+
+## Approval Record (completed by Architecture Owner on merge)
+
+```yaml
+approved_by: <POLICY_OWNER_EMAIL>
+approval_date: YYYY-MM-DD
+approval_pr: https://github.com/<GITHUB_ORG>/<WORKSPACE_REPO>/pull/NNN
+conditions: ~
+```
+===== knowledge/policies/exceptions/deployment/2026-08-05-PRJ-43-gov-version-bump-automated-merge.md
+---
+domain: policies
+layer: compliance
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# Exception record (sanitised fixture): 2026-08-05-PRJ-43-gov-version-bump-automated-merge.md
+
+**Exception Path:** `knowledge/policies/exceptions/deployment/`
+**Approver:** <POLICY_OWNER_EMAIL>
+
+Placeholder body.
+===== knowledge/policies/exceptions/deployment/2026-08-28-PRJ-120-openbao-port-8200.md
+---
+domain: policies
+layer: compliance
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# Exception record (sanitised fixture): 2026-08-28-PRJ-120-openbao-port-8200.md
+
+**Exception Path:** `knowledge/policies/exceptions/deployment/`
+**Approver:** <POLICY_OWNER_EMAIL>
+
+Placeholder body.
+===== knowledge/policies/exceptions/development/2026-07-01-PRJ-56-svm-hr-single-repo.md
+---
+domain: policies
+layer: compliance
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# Exception record (sanitised fixture): 2026-07-01-PRJ-56-svm-hr-single-repo.md
+
+**Exception Path:** `knowledge/policies/exceptions/development/`
+**Approver:** <POLICY_OWNER_EMAIL>
+
+Placeholder body.
+===== knowledge/policies/exceptions/infrastructure/TEMPLATE.md
+---
+domain: policies
+layer: compliance
+owner: policy-owner
+compliance: evidence
+status: current
+---
+
+# Infrastructure Exception Request Template
+
+**Exception Path:** `knowledge/policies/exceptions/infrastructure/`
+**Approver:** Infrastructure Owner (current: `<POLICY_OWNER_EMAIL>`)
+**Compliance Level:** C02 — Always Apply exception process
+
+---
+
+## How to Use This Template
+
+1. Copy this file and rename it: `YYYY-MM-DD-PRJ-<board#>-<slug>-brief-description.md`
+2. Fill in all required fields below
+3. Commit the file to your project branch: `brnch-NNN-<slug>`
+4. Raise a PR targeting <DEFAULT_BRANCH>
+5. Infrastructure Owner reviews and merges to grant approval
+6. Do NOT proceed with the excepted action until the PR is merged
+
+Common uses: using a Provisional LLM provider, deviating from CI/CD requirements, infrastructure configuration exceptions.
+
+---
+
+## Exception Request
+
+```yaml
+request_date: YYYY-MM-DD
+project_id: PRJ-NNN-<slug>
+requester: your@email.com
+
+rule_id: POL-NNN
+rule_description: [one-line description of the rule]
+
+action_description: |
+  [Describe what you need to do that requires an exception]
+
+justification: |
+  [Why is this exception necessary? What business or technical need drives it?]
+
+risk_assessment: |
+  [What risks does this exception introduce? How are they mitigated?]
+
+exception_start: YYYY-MM-DD
+exception_end: YYYY-MM-DD
+
+alternatives_considered: |
+  [What alternatives were evaluated?]
+```
+
+---
+
+## Approval Record (completed by Infrastructure Owner on merge)
+
+```yaml
+approved_by: <POLICY_OWNER_EMAIL>
+approval_date: YYYY-MM-DD
+approval_pr: https://github.com/<GITHUB_ORG>/<WORKSPACE_REPO>/pull/NNN
+conditions: ~
+```
+===== knowledge/policies/exceptions/legal/TEMPLATE.md
+---
+domain: policies
+layer: compliance
+owner: policy-owner
+compliance: evidence
+status: current
+---
+
+# Legal Exception Request Template
+
+**Exception Path:** `knowledge/policies/exceptions/legal/`
+**Approver:** Legal Owner (current: `<POLICY_OWNER_EMAIL>`)
+**Compliance Level:** C02 — Always Apply exception process
+
+---
+
+## How to Use This Template
+
+1. Copy this file and rename it: `YYYY-MM-DD-PRJ-<board#>-<slug>-brief-description.md`
+2. Fill in all required fields below
+3. Commit the file to your project branch: `brnch-NNN-<slug>`
+4. Raise a PR targeting <DEFAULT_BRANCH>
+5. Legal Owner reviews and merges to grant approval
+6. Do NOT proceed with the excepted action until the PR is merged
+
+---
+
+## Exception Request
+
+```yaml
+# Required fields — all must be completed
+
+request_date: YYYY-MM-DD
+project_id: PRJ-NNN-<slug>
+requester: your@email.com
+
+# The policy rule being excepted
+rule_id: POL-NNN
+rule_description: [one-line description of the rule]
+
+# The action requiring exception
+action_description: |
+  [Describe clearly what you need to do that would violate the above rule]
+
+# Legal justification
+legal_justification: |
+  [Explain the legal constraint or requirement that necessitates this exception]
+
+# Risk assessment
+risk_assessment: |
+  [What risks does this exception introduce? How are they mitigated?]
+
+# Duration
+exception_start: YYYY-MM-DD
+exception_end: YYYY-MM-DD    # or 'indefinite' with justification
+
+# Alternatives considered
+alternatives_considered: |
+  [What alternatives were evaluated before requesting this exception?]
+```
+
+---
+
+## Approval Record (completed by Legal Owner on merge)
+
+```yaml
+approved_by: <POLICY_OWNER_EMAIL>
+approval_date: YYYY-MM-DD
+approval_pr: https://github.com/<GITHUB_ORG>/<WORKSPACE_REPO>/pull/NNN
+conditions: |
+  [Any conditions attached to this approval]
+```
+===== knowledge/policies/exceptions/policy/TEMPLATE.md
+---
+domain: policies
+layer: compliance
+owner: policy-owner
+compliance: evidence
+status: current
+---
+
+# Policy Exception Request Template
+
+**Exception Path:** `knowledge/policies/exceptions/policy/`
+**Approver:** Policy Owner (current: `<POLICY_OWNER_EMAIL>`)
+**Compliance Level:** C02 — Always Apply exception process
+
+---
+
+## How to Use This Template
+
+1. Copy this file and rename it: `YYYY-MM-DD-PRJ-<board#>-<slug>-brief-description.md`
+2. Fill in all required fields below
+3. Commit the file to your project branch: `brnch-NNN-<slug>`
+4. Raise a PR targeting <DEFAULT_BRANCH>
+5. Policy Owner reviews and merges to grant approval
+6. Do NOT proceed with the excepted action until the PR is merged
+
+Use this path for exceptions that do not fall under Legal, Infrastructure, or Architecture domains.
+Also use this path for project reassignment exceptions (POL-053).
+
+---
+
+## Exception Request
+
+```yaml
+request_date: YYYY-MM-DD
+project_id: PRJ-NNN-<slug>
+requester: your@email.com
+
+rule_id: POL-NNN
+rule_description: [one-line description of the rule]
+
+action_description: |
+  [Describe what you need to do that requires an exception]
+
+justification: |
+  [Why is this exception necessary?]
+
+risk_assessment: |
+  [What risks does this introduce and how are they managed?]
+
+exception_start: YYYY-MM-DD
+exception_end: YYYY-MM-DD
+
+alternatives_considered: |
+  [What alternatives were evaluated?]
+
+# For reassignment exceptions, also complete:
+reassignment_from: ~
+reassignment_to: ~
+reassignment_reason: ~
+```
+
+---
+
+## Approval Record (completed by Policy Owner on merge)
+
+```yaml
+approved_by: <POLICY_OWNER_EMAIL>
+approval_date: YYYY-MM-DD
+approval_pr: https://github.com/<GITHUB_ORG>/<WORKSPACE_REPO>/pull/NNN
+conditions: ~
+```
+===== knowledge/policies/knowledge-organization-standard.md
+---
+domain: policies
+layer: standard
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# Knowledge Organization Standard (sanitised fixture)
+
+Placeholder **(POL-401)**.
+===== knowledge/policies/llm-governance.md
+---
+domain: policies
+layer: policy
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# LLM Governance Policy
+
+## Provider / Model Tiers
+
+### Approved
+
+**Current approved list:**
+
+| Provider | Model | Notes |
+|---|---|---|
+| Cursor | auto | fixture row |
+| Anthropic | Claude Code | fixture row |
+
+### Provisional
+
+Fixture placeholder. Raise an exception in `knowledge/policies/exceptions/infrastructure/` first.
+
+### Prohibited
+
+Fixture placeholder.
+===== knowledge/policies/platform-host-config-and-cicd-conventions.md
+---
+domain: policies
+layer: policy
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# Platform Host Config and CI/CD Conventions (sanitised fixture)
+
+Placeholder. Roles: `knowledge/policies/roles.md`.
+===== knowledge/policies/procedures/templates/compliance-template.md
+---
+domain: policies
+layer: procedure
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# Project Compliance Log: PRJ-NNN-<slug>
+
+**Project:** PRJ-NNN-<slug>
+**Owners:** [anchor issue assignees]
+**Period:** YYYY-MM-DD to YYYY-MM-DD
+**Status:** [active | completed | cancelled]
+
+This log is maintained throughout the project lifecycle.
+Location: `<WORKSPACE_REPO>/projects/PRJ-NNN-<slug>/knowledge/compliance.md`
+Org-wide summary is in `<WORKSPACE_REPO>/knowledge/compliance/`.
+
+---
+
+## C01 Violations Detected
+
+Hard-stop incidents that blocked work and required human escalation.
+
+| Date | Rule | Description | Resolution | Escalated To |
+|---|---|---|---|---|
+| YYYY-MM-DD | POL-NNN | [what happened] | [how it was resolved] | [who was notified] |
+
+---
+
+## C02 Exceptions Raised
+
+Formal exceptions to Always Apply rules, approved via PR process.
+
+| Date | Rule | Exception Request | Approved By | Justification | Duration |
+|---|---|---|---|---|---|
+| YYYY-MM-DD | POL-NNN | [link to exception PR] | [approver] | [reason] | [until when] |
+
+---
+
+## C03 Deviations Documented
+
+Intelligent adaptations of Apply Intelligently rules. Intent must be honored.
+
+| Date | Rule | Deviation Taken | Intent Honored How |
+|---|---|---|---|
+| YYYY-MM-DD | POL-NNN | [what was adapted] | [how the rule's intent was preserved] |
+
+---
+
+## Session Log
+
+Summary of work sessions during this project.
+
+| Date | Agent/Developer | Knowledge Layers Loaded | Anomalies |
+|---|---|---|---|
+| YYYY-MM-DD | [identity] | All four layers / [exceptions] | [any issues encountered] |
+===== knowledge/policies/procedures/templates/preferences-template.md
+---
+domain: policies
+layer: procedure
+owner: policy-owner
+compliance: C03
+status: current
+---
+
+# Developer Preferences — C03 only. Org and repo knowledge always take precedence.
+#
+# LOCATION: $AGENT_WORK_ROOT/preferences/<your-gh-login>.md
+#   (where <your-gh-login> = `gh api user --jq .login`)
+# This file is NEVER committed to any repository.
+# It is the lowest-priority knowledge layer — it cannot override org or repo knowledge.
+#
+# Created automatically by setup.sh from this template. Edit freely.
+#
+# See: <WORKSPACE_REPO>/knowledge/policies/agentic-development-policy.md (POL-131 to POL-136)
+
+---
+
+## Multi-profile Rotation
+
+If you want different preferences for different contexts (e.g. work-hours
+vs. open-source), keep extra copies alongside the active file and rotate
+by rename:
+
+```
+# Save the current active file under another name
+mv $AGENT_WORK_ROOT/preferences/<login>.md $AGENT_WORK_ROOT/preferences/<login>.md_work
+
+# Activate a previously-saved profile
+mv $AGENT_WORK_ROOT/preferences/<login>.md_oss $AGENT_WORK_ROOT/preferences/<login>.md
+```
+
+The framework loads only the file named `<login>.md` (no suffix). Other
+files in the directory are ignored — they're your backups, not loaded.
+
+---
+
+## Coding Style Preferences
+# Examples of what is allowed here (C03 — adapt with documentation)
+
+# preferred_indentation: 2 spaces
+# preferred_line_length: 120
+# preferred_quote_style: single
+# preferred_import_order: stdlib, third-party, local
+
+---
+
+## Preferred Tools and Models
+# Override the default agent_config at the preference level (C03 only)
+# Note: model/provider must still be on the approved list in llm-governance.md
+
+# preferred_model: auto
+# preferred_provider: cursor
+
+---
+
+## Communication Style
+# How you prefer the agent to communicate with you
+
+# verbosity: concise          # concise | detailed
+# code_comments: minimal      # minimal | explain-why | full
+# confirmation_style: silent  # silent | confirm-destructive | confirm-all
+
+---
+
+## Personal Shortcuts and Aliases
+# Project-agnostic shortcuts you want available in every session
+
+# shortcuts:
+#   - name: run-tests
+#     command: npm test
+#   - name: lint
+#     command: npm run lint
+
+---
+
+## PROHIBITED — The Following Cannot Appear in This File
+
+The following must NEVER be placed in developer preferences (C01 violations):
+- Org policies or policy overrides
+- Security mandates or exceptions
+- Compliance level definitions or overrides
+- Assignment or locking rule overrides
+- Knowledge layer priority order changes
+- Anything that contradicts <WORKSPACE_REPO>/knowledge/policies/
+
+If you need to change org policy, use the propose-knowledge script.
+===== knowledge/policies/procedures/templates/project-impact-template.md
+---
+domain: policies
+layer: procedure
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# Project Impact: PRJ-NNN-<slug>
+
+**Repository:** [repo-name]
+**Project:** PRJ-NNN-<slug>
+**Period:** YYYY-MM-DD to YYYY-MM-DD
+**Project Lead:** [anchor issue assignee]
+
+This document records the impact of project PRJ-NNN-<slug> on this repository.
+It is created by the close-project script and lives at:
+`<repo>/knowledge/projects/PRJ-NNN-<slug>/`
+
+---
+
+## Changelog
+
+A chronological record of significant changes made to this repository during this project.
+
+| Date | Change | Reason | Author |
+|---|---|---|---|
+| YYYY-MM-DD | [description of change] | [why it was needed] | [who made it] |
+
+---
+
+## Decisions Log
+
+Architectural and design decisions made during this project that affect this repository.
+Future agents and developers should consult this before re-opening settled questions.
+
+### Decision 1: [Short title]
+
+**Date:** YYYY-MM-DD
+**Status:** Accepted
+
+**Context:** [What problem or question prompted this decision]
+
+**Decision:** [What was decided]
+
+**Rationale:** [Why this was the right choice]
+
+**Alternatives Considered:**
+- [Alternative A] — rejected because [reason]
+- [Alternative B] — rejected because [reason]
+
+**Consequences:** [What this decision means for future work on this repo]
+
+---
+
+## Impact Summary
+
+A high-level summary of how this project changed the repository.
+
+### Structural Changes
+[Changes to directory layout, modules, or packages]
+
+### Dependency Changes
+[Packages added, removed, or upgraded and why]
+
+### Pattern Changes
+[New patterns introduced or old patterns deprecated]
+
+### Technical Debt
+[Debt introduced and why it was acceptable, or debt paid down]
+
+### Recommended Follow-ups
+[Issues or improvements identified but not addressed in this project — should become new GitHub Issues]
+===== knowledge/policies/procedures/templates/repo-agent-template.md
+---
+domain: policies
+layer: procedure
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# [Repo Name] — Agent Entry Point
+
+**Repository:** [repo-url]
+**Purpose:** [one-line description of what this repo does]
+**Owner:** [team or individual responsible for this repo]
+
+---
+
+## Important: Knowledge Layer Priority
+
+This file represents the **repo-local knowledge layer** — third priority in the knowledge hierarchy.
+
+```
+1. Org-wide knowledge      → <WORKSPACE_REPO>/knowledge/        [HIGHEST]
+2. Project knowledge       → <WORKSPACE_REPO>/projects/PRJ-NNN-<slug>/knowledge/
+3. This repo's knowledge   → this file and knowledge/repo/  [THIS FILE]
+4. Your developer prefs    → $AGENT_WORK_ROOT/preferences/<your-gh-login>.md
+```
+
+**This file cannot override org-wide knowledge or policy.**
+In case of conflict, org-wide knowledge always wins.
+See `<WORKSPACE_REPO>/knowledge/policies/agentic-development-policy.md` for the governing policy.
+
+---
+
+## Repo Knowledge
+
+Read the following before working in this repository:
+
+- `knowledge/repo/structure.md` — directory layout, modules, packages
+- `knowledge/repo/environment.md` — build tools, dependencies, setup instructions
+- `knowledge/repo/patterns.md` — coding conventions, architectural patterns used here
+
+---
+
+## Project History
+
+Before starting work on a new project in this repo, check prior project impact:
+
+```
+knowledge/projects/
+└── PRJ-NNN-<slug>/           ← one folder per project that touched this repo
+    ├── changelog.md        ← what changed and why
+    ├── decisions.md        ← architectural decisions made
+    └── impact-summary.md   ← how the project affected this repo
+```
+
+Understanding prior project history prevents re-litigating settled decisions.
+
+---
+
+## Writing to this folder
+
+Repo knowledge is **kept current with the code that makes it true**. A change that moves a module,
+changes the toolchain, or overturns a convention updates `knowledge/repo/` in the **same pull request**
+as the code. Stale repo knowledge is the failure mode this layer exists to prevent, and a knowledge
+layer that may only be corrected months later at project close is guaranteed to be stale in between.
+
+This is the repo-side reading of **POL-086b**: edits ride the branch and take effect only when the
+branch merges. The review gate is this repository's own `CODEOWNERS`.
+
+**What still does not belong here.** Repo knowledge records facts about *this tree* — where a module
+lives, how to build and test it, what convention this codebase follows, what a project changed here.
+It never carries a second copy of a governed rule. On conflict the org layer wins (POL-076), so a local
+copy is silently wrong the moment it drifts, and it is the copy sitting next to the code where someone
+will read it. Link up to the governing document; do not restate it. A governed rule changes in
+`<WORKSPACE_REPO>/knowledge/` first, by PR to `<DEFAULT_BRANCH>` with the domain owner's approval
+(POL-086c) — never by editing the repo copy.
+
+---
+
+## Data Classification Reminder
+
+- Never commit credentials, secrets, API keys, or PII to this repository (C01)
+- See `<WORKSPACE_REPO>/knowledge/policies/data-classification.md` for full classification rules
+===== knowledge/policies/procedures/templates/todo-template.md
+---
+domain: policies
+layer: procedure
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# To-do for PRJ-NNN-<slug>
+
+This file is the project's **carry-forward** list. Project goals live on
+the GitHub Project board; this is for intermediate work, decisions to
+revisit, and follow-ups that surface while executing the goals.
+
+## How this is used
+
+- **At session start**, the agent reads this file as part of project
+  context (POL-079). Open items here should be surfaced to the developer
+  before new work is planned.
+- **During work**, the agent (or developer) appends new items to
+  `## Open` as they arise. Don't wait until session end — the value of
+  a carry-forward list is in catching things as they happen.
+- **When an item is done**, move it from `## Open` to `## Done` with a
+  short note (commit SHA, PR link, or one-line outcome).
+- **When the user switches branch** to a different project, this file
+  stays here on this project's branch; the new project's branch has
+  its own. Projects are stateful; sessions are not.
+
+## Open
+
+(none yet — add items as they arise)
+
+## Done
+
+(none yet)
+===== knowledge/policies/roles.md
+---
+domain: policies
+layer: policy
+owner: policy-owner
+compliance: C02
+status: current
+---
+
+# <ORG_NAME> — Role Registry
+
+Sanitised fixture. Holder cells use the same shapes as the real file: tokens resolved from org-config.yaml, and one literal login.
+
+## Policy Owner
+
+| | |
+|---|---|
+| Current Holder | <POLICY_OWNER_EMAIL> |
+| GitHub Handle | <POLICY_OWNER_GITHUB> |
+| Effective From | 2026-01-01 |
+| Managers | TBD |
+
+## Legal Owner
+
+| | |
+|---|---|
+| Current Holder | <POLICY_OWNER_EMAIL> |
+| GitHub Handle | <LEGAL_OWNER_GITHUB> |
+| Effective From | 2026-01-01 |
+| Managers | TBD |
+
+## Infrastructure Owner
+
+| | |
+|---|---|
+| Current Holder | <POLICY_OWNER_EMAIL> |
+| GitHub Handle | <INFRA_OWNER_GITHUB> |
+| Effective From | 2026-01-01 |
+| Managers | TBD |
+
+## System Architecture Owner
+
+| | |
+|---|---|
+| Current Holder | <POLICY_OWNER_EMAIL> |
+| GitHub Handle | <SYSTEM_ARCH_OWNER_GITHUB> |
+| Effective From | 2026-01-01 |
+| Managers | TBD |
+
+## Data Architecture Owner
+
+| | |
+|---|---|
+| Current Holder | <POLICY_OWNER_EMAIL> |
+| GitHub Handle | <DATA_ARCH_OWNER_GITHUB> |
+| Effective From | 2026-01-01 |
+| Managers | TBD |
+
+## Development Owner
+
+| | |
+|---|---|
+| Current Holder | <POLICY_OWNER_EMAIL> |
+| GitHub Handle | @fake-dev-owner |
+| Effective From | 2026-01-01 |
+| Managers | TBD |
+===== org-config.yaml
+# Governed Agentic Development Framework — Organization Configuration (sanitised fixture: fake values)
+
+org_name: "Example Org Pvt. Ltd."
+org_short_name: "Example"
+org_slug: "EXM"
+org_slug_lower: "exm"
+org_repo_url: "https://github.com/example-org/example-gov.git"
+github_org: "example-org"
+workspace_repo: "example-gov"
+default_branch: "main"
+default_code_branch: "dev"
+agent_work_root: "~/.gov/exm/projects"
+
+policy_owner_email: "owner@example.test"
+policy_owner_github: "fake-policy-owner"
+
+legal_owner_github: "fake-legal-owner"
+infra_owner_github: "fake-infra-owner"
+system_arch_owner_github: "fake-sysarch-owner"
+data_arch_owner_github: "fake-dataarch-owner"
+
+policy_effective_date: "2026-01-01"
+
+gov_account: "example-org"
+
+services:
+  vault: "https://vault.example.test"
+  oidc: "https://oidc.example.test"
+  oidc_client_id: "fake-client"
+  jenkins: "https://ci.example.test"
+  npm: "https://npm.example.test"
+  docker: "registry.example.test"

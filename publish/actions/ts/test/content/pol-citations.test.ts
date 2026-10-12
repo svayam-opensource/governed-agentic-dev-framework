@@ -66,6 +66,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "publish/actions/ts/test/rules/compliance-record.test.ts": DATA_FIXTURE,
   "publish/actions/ts/test/rules/exceptions.test.ts": DATA_FIXTURE,
   "publish/actions/ts/test/rules/model/model.test.ts": DATA_FIXTURE,
+  "publish/actions/ts/test/maintain/fixtures/upgrade/layout-1.0/bodies.txt": DATA_FIXTURE
+    + " (the 1.0 policy whose POL clauses the bridge carries out — PRJ-121 intent 01; bridge: deleted in D01)",
   "packages/knowledge-site/.gitignore": OUT_OF_SCOPE,
   "packages/knowledge-site/README.md": OUT_OF_SCOPE,
   "packages/knowledge-site/quartz.config.ts": OUT_OF_SCOPE,
@@ -130,7 +132,7 @@ describe("no new POL citations — POL numbers are retired (rule-model Q21)", ()
   });
 
   it("the allow-list's size is pinned, so a change to it is a visible diff", () => {
-    expect(Object.keys(ALLOWED)).to.have.lengthOf(50);
+    expect(Object.keys(ALLOWED)).to.have.lengthOf(51); // +1 PRJ-121 B01: the layout-1.0 upgrade fixture (bridge; back to 50 in D01)
   });
 
   it("every GOV-FRM id cited in gov's source is a row of framework/rules/rules.yaml", () => {
