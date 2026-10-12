@@ -28,6 +28,7 @@
 import { termsOf } from "../knowledge-search.js";
 import { isRateLimited } from "../lifecycle/project-list.js";
 import { numberPref, boolPref, stringPref, type Preferences } from "../preferences.js";
+import { GH_SIGNIN_HINT } from "../maintain/fix-env.js";
 
 /** The three lists Work offers, in the order it offers them. */
 export type PickerLevel = "local" | "mine" | "startable";
@@ -368,7 +369,7 @@ export function githubUnreachableLines(failure: string, localCount: number): str
     ? ["  GitHub is rate-limiting this token, so gov cannot list the org's boards right now.",
        "  Nothing is wrong with your projects. `gh api rate_limit` says when the limit resets."]
     : ["  Could not reach GitHub to list your projects — nothing is wrong with your projects.",
-       "  Try again in a moment; if it keeps failing, check `gh auth status` and your network."];
+       `  Try again in a moment; if it keeps failing, check your network and ${GH_SIGNIN_HINT}.`];
   out.push(localCount > 0
     ? `  Here ${localCount === 1 ? "is the project" : `are the ${localCount} projects`} already on this machine — opening one needs no GitHub call.`
     : "  No project is cloned on this machine either, so there is nothing to offer offline.");

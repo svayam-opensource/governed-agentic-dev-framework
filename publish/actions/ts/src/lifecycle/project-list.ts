@@ -6,6 +6,7 @@
  * boards. gh-backed; injectable for tests.
  */
 import type { RunGh } from "./gh-board.js";
+import { GH_SIGNIN_HINT } from "../maintain/fix-env.js";
 
 export interface BoardSummary {
   readonly number: number;
@@ -58,7 +59,7 @@ export function createGhProjects(runGh: RunGh): Projects {
         // Do NOT silently show "no projects" on a gh failure — surface WHY (a bad token/network looks
         // identical to "you have no projects" otherwise).
         failure = (e as Error).message.split("\n").filter(Boolean).join(" — ");
-        process.stderr.write(`  WARNING: couldn't list projects for '${owner}' — ${failure}. Check \`gh auth status\` / network.\n`);
+        process.stderr.write(`  WARNING: couldn't list projects for '${owner}' — ${failure}. Check your network; for your sign-in, ${GH_SIGNIN_HINT}.\n`);
         return [];
       }
     },

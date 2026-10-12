@@ -48,6 +48,13 @@ export const RECOMMENDED_SCOPES: readonly { readonly scope: string; readonly why
  * and refused machines that could act on GitHub perfectly well. `gh api user` succeeds exactly when the active
  * token can act, and the same endpoint with `-i` carries the token's scopes in its `X-OAuth-Scopes` header.
  */
+/**
+ * What gov tells a person to run when GitHub did not answer and their sign-in may be why (Item 10, PRJ-121 intent 05).
+ * `gov doctor` runs the same `gh api user` check gov trusts; `gh api user` is the one-line version. Never point at
+ * `gh auth status` — it fails on a stale stored account that has nothing to do with the active token. A guard test
+ * (`test/guards/no-gh-auth-status.test.ts`) keeps that text out of every string gov prints.
+ */
+export const GH_SIGNIN_HINT = "run `gov doctor` (or `gh api user`)";
 export const GH_SIGNED_IN_ARGS: readonly string[] = ["api", "user", "--jq", ".login"];
 /** `gh api -i user` — the headers carry `X-OAuth-Scopes` (classic tokens; absent for fine-grained and app tokens). */
 export const GH_SCOPES_ARGS: readonly string[] = ["api", "-i", "user"];

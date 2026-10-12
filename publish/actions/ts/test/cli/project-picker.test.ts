@@ -265,7 +265,8 @@ describe("picker — GitHub throttling is an answer, not an exception", () => {
   it("any other failure keeps the older, right advice — and never says 'no projects'", () => {
     const out = githubUnreachableLines("Command failed: gh project list … EOF", 1).join("\n");
     expect(out).to.contain("Could not reach GitHub");
-    expect(out).to.contain("gh auth status");
+    expect(out, "the sign-in check gov itself trusts (Item 10)").to.contain("`gov doctor`");
+    expect(out).to.not.contain("gh auth status");
     expect(out).to.contain("is the project already on this machine");
   });
 

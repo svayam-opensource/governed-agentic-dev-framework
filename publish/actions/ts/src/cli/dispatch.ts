@@ -42,6 +42,7 @@ import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycl
 import { policyGate } from "./policy-gate-io.js";
 import { approverLogins, protectRepo, type GhApi, type RuleChecksRead } from "../maintain/repo-protect.js";
 import { requiredRuleChecks } from "../maintain/rule-checks.js";
+import { GH_SIGNIN_HINT } from "../maintain/fix-env.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
 import { GOVERNANCE_PATH, readPosture, readGovernance, governanceTokens } from "../config/governance.js";
 import { ROLE_LIST_PATH } from "../config/role-list.js";
@@ -733,7 +734,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         if (!key) {
           return { code: 1, lines: [
             "gov rules reload: gov does not know whose session this is, so there is no marker to clear.",
-            "  it is keyed by your GitHub login and your work root (~/.gov/work-roots, else ~/.gov/<slug>/projects) — check `gh auth status`.",
+            `  it is keyed by your GitHub login and your work root (~/.gov/work-roots, else ~/.gov/<slug>/projects) — to see your login, ${GH_SIGNIN_HINT}.`,
           ] };
         }
         const pending = readPending(ctx.fs, key.workRoot, key.login);
