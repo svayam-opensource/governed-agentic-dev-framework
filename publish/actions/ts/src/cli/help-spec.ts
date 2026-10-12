@@ -211,7 +211,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     usage: "<issue-url | task-branch>",
     where: "PROJECT",
     examples: ["gov merge https://github.com/acme/app/issues/42", "gov merge BRNCH-43-billing.ISSUE-42"],
-    changes: "merges the sub-branch into the project branch in every repo that has it, pushes, deletes the sub-branch, and closes the issue",
+    changes: "merges the sub-branch into the project branch in every repo that has it, pushes, deletes the sub-branch, and closes the issue. Refuses first, changing nothing, if any repo holds uncommitted changes, and names up to five of the files; the agent instruction files gov itself writes into each clone never count.",
     exit: [...EXIT_USUAL, { code: 1, means: "the test-merge gate failed, or a repo refused the push — nothing was landed" }],
     seeAlso: ["task", "close"],
   },
@@ -220,7 +220,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     summary: "bring the project branch up to date with its base",
     usage: "", where: "PROJECT",
     examples: ["gov sync"],
-    changes: "fast-forwards or merges the base branch into the project branch in each repo, and pushes",
+    changes: "fast-forwards or merges the base branch into the project branch in each repo, and pushes. Refuses first, changing nothing, if any repo holds uncommitted changes, and names up to five of the files; the agent instruction files gov itself writes into each clone never count.",
     exit: EXIT_USUAL, seeAlso: ["work", "merge"],
   },
   {

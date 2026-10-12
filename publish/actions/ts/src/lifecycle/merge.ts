@@ -17,6 +17,7 @@ import type { Vcs, FsProbe } from "./vcs.js";
 import type { Issues } from "./issues.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl } from "./repo.js";
+import { userDirtyPaths, dirtyRefusal } from "./root-protocol.js";
 import { parseIssueUrl, taskIdFor, projectBranchOf, boardNumberFromBranch } from "./task.js";
 
 export interface MergeConfig {
@@ -157,8 +158,10 @@ export function merge(deps: MergeDeps, config: MergeConfig, input: MergeInput): 
 
   // All working trees must be clean before merging.
   for (const dir of repos) {
-    if (!deps.vcs.isClean(dir)) {
-      return { ok: false, code: 1, reason: "dirty", message: `Uncommitted changes in ${dir} — commit or stash first.`, repoDir: dir };
+    // gov's own harness files never block (Q7); anything else is somebody's work, so it is named.
+    const dirty = userDirtyPaths(deps.vcs, dir);
+    if (dirty.length > 0) {
+      return { ok: false, code: 1, reason: "dirty", message: dirtyRefusal(dir, dirty), repoDir: dir };
     }
   }
 

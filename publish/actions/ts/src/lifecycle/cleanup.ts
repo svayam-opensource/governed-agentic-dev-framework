@@ -31,7 +31,7 @@
  * fork finding (#194), where `dispatch` hands the discovery up and `runWorkFlow` asks.
  */
 import * as path from "node:path";
-import { ROOT_HARNESS_FILES } from "./root-protocol.js";
+import { userDirtyPaths } from "./root-protocol.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { LeftoverArtifact, SeedPaths } from "./leftover.js";
 
@@ -117,8 +117,7 @@ function dirtyReposUnder(env: CleanupEnv, root: string): string[] {
  * the governance repo, and that is the whole difference between them and a developer's edit.
  */
 function dirtyIgnoringGovsOwnFiles(env: CleanupEnv, dir: string): boolean {
-  const mine = new Set<string>(ROOT_HARNESS_FILES);
-  return env.vcs.dirtyPaths(dir).some((p) => !mine.has(p.replace(/\\/g, "/")));
+  return userDirtyPaths(env.vcs, dir).length > 0;
 }
 
 /**

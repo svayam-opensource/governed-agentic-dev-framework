@@ -32,6 +32,18 @@ gate is doing what your organization asked.
 validator output. Since 2026-09-27 the framework requires no particular knowledge file; curation requirements
 come from your own policy, and the message says which clause asked.)*
 
+## `gov merge` or `gov sync` says "Uncommitted changes"
+
+**"Uncommitted changes in `<folder>`: `<files>` — commit or stash first."** Something in that repository has not
+been committed, and merging over it could lose it, so nothing was changed. The message names up to five of the
+files (`+N more` for the rest); `git -C <folder> status` lists them all. Commit them on your branch (or stash
+them), then re-run.
+
+The agent instruction files gov itself writes into every clone — `AGENTS.md`, `CLAUDE.md`,
+`.cursor/rules/agent.mdc` and the rest of the agent harness — never cause this refusal, whether new or changed:
+gov can write them again from the governance repo. They still show in `git status`, and committing them with
+your project work is still the right thing to do.
+
 ## "Branch already exists" during `gov seed`
 
 Somebody created a branch matching `BRNCH-<board#>-<slug>` by hand, or a previous seed half-completed. Look at

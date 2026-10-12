@@ -29,7 +29,7 @@ function fakeIssues() {
   };
   return { issues, acted };
 }
-function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: boolean; hasRemoteTask?: boolean } = {}) {
+function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: boolean; dirtyPaths?: string[]; hasRemoteTask?: boolean } = {}) {
   const log: string[] = [];
   const vcs: Vcs = {
     localBranchExists: () => false,
@@ -43,7 +43,8 @@ function fakeVcs(opts: { conflict?: boolean; alreadyMerged?: boolean; dirty?: bo
     revParse: () => null,
     currentBranch: () => "BRNCH-43-governance-common-project",
     isAncestor: () => opts.alreadyMerged ?? false,
-    isClean: () => !(opts.dirty ?? false),
+    isClean: () => !(opts.dirty ?? false) && !(opts.dirtyPaths?.length),
+    dirtyPaths: () => opts.dirtyPaths ?? (opts.dirty ? ["src/main.ts"] : []),
     remoteBranchesMatching: () => [],
     addPath: () => {},
     commit: () => {},
@@ -111,6 +112,30 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
     const r = merge({ board: fakeBoard(), authorize: () => true,vcs: fakeVcs({ dirty: true }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
     expect(r.ok).to.equal(false);
     if (!r.ok) expect(r.reason).to.equal("dirty");
+  });
+
+  // PRJ-121 Item 6 (Q7): gov writes its own harness into every clone, untracked, and rewrites it whenever the
+  // rendered text changes. Those files are gov's regenerable output, not anybody's work, so they never block a merge.
+  it("Q7: a clone holding only gov's own harness files (untracked or modified) does not block the merge", () => {
+    const only = ["AGENTS.md", "CLAUDE.md", ".cursor/rules/agent.mdc", ".github/copilot-instructions.md"];
+    const r = merge({ board: fakeBoard(), authorize: () => true, vcs: fakeVcs({ dirtyPaths: only }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    expect(r.ok).to.equal(true);
+  });
+
+  it("Q7: one file of the developer's beside gov's harness refuses, naming that file and not gov's", () => {
+    const r = merge({ board: fakeBoard(), authorize: () => true, vcs: fakeVcs({ dirtyPaths: [".cursor/rules/agent.mdc", "src/main.ts"] }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    expect(r.ok).to.equal(false);
+    if (r.ok) return;
+    expect(r.reason).to.equal("dirty");
+    expect(r.message).to.equal(`Uncommitted changes in ${GOV}: src/main.ts — commit or stash first.`);
+  });
+
+  it("Q7: seven user files → five named, then '+2 more'", () => {
+    const seven = ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts", "g.ts"];
+    const r = merge({ board: fakeBoard(), authorize: () => true, vcs: fakeVcs({ dirtyPaths: ["CLAUDE.md", ...seven] }).vcs, fs: fsPresent(true), issues: fakeIssues().issues }, CONFIG, input());
+    expect(r.ok).to.equal(false);
+    if (r.ok) return;
+    expect(r.message).to.equal(`Uncommitted changes in ${GOV}: a.ts, b.ts, c.ts, d.ts, e.ts, +2 more — commit or stash first.`);
   });
 
   it("refuses when the sub-branch isn't on the remote", () => {

@@ -700,7 +700,7 @@ gov merge https://github.com/acme/app/issues/42
 gov merge BRNCH-43-billing.ISSUE-42
 ```
 
-**Changes.** merges the sub-branch into the project branch in every repo that has it, pushes, deletes the sub-branch, and closes the issue
+**Changes.** merges the sub-branch into the project branch in every repo that has it, pushes, deletes the sub-branch, and closes the issue. Refuses first, changing nothing, if any repo holds uncommitted changes, and names up to five of the files; the agent instruction files gov itself writes into each clone never count.
 
 **Exit codes**
 
@@ -728,7 +728,7 @@ gov sync
 gov sync
 ```
 
-**Changes.** fast-forwards or merges the base branch into the project branch in each repo, and pushes
+**Changes.** fast-forwards or merges the base branch into the project branch in each repo, and pushes. Refuses first, changing nothing, if any repo holds uncommitted changes, and names up to five of the files; the agent instruction files gov itself writes into each clone never count.
 
 **Exit codes**
 

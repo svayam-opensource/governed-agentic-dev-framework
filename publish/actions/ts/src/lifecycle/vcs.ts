@@ -39,7 +39,7 @@ export interface Vcs {
   /** True if `repoDir`'s working tree has no uncommitted changes. Counts untracked files. */
   isClean(repoDir: string): boolean;
   /**
-   * The paths `git status --porcelain` reports, without their status letters.
+   * The paths `git status --porcelain -uall` reports (every untracked file, not its directory), without status letters.
    *
    * Exists because "is this repo dirty?" is the wrong question when GOV ITSELF writes files into a repo: the
    * agent harness it places is untracked, so `isClean` says no and `gov` would refuse to clean up a work root
@@ -164,7 +164,9 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
       return r.status === 0 && r.stdout.trim() === "";
     },
     dirtyPaths(repoDir) {
-      const r = runGit(["-C", repoDir, "status", "--porcelain"]);
+      // -uall: list every untracked FILE. Without it an untracked `.cursor/` is reported as the directory, and a
+      // caller discounting gov's own `.cursor/rules/agent.mdc` by name can never match it (PRJ-121 Item 6).
+      const r = runGit(["-C", repoDir, "status", "--porcelain", "-uall"]);
       if (r.status !== 0) return [];
       return r.stdout.split("\n").map((l) => l.trim()).filter(Boolean)
         // `XY path` — and `R  old -> new` for a rename, where the new name is what exists now.

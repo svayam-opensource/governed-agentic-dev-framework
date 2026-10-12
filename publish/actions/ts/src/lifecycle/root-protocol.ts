@@ -12,6 +12,7 @@
  */
 import path from "node:path";
 import type { Fs } from "./fs-io.js";
+import type { Vcs } from "./vcs.js";
 import type { GitRead } from "../cli/policy-gate-io.js";
 import { isStructureOnly } from "../config/approved-agents.js";
 import { GOVERNANCE_PATH } from "../config/governance.js";
@@ -44,6 +45,29 @@ export const ROOT_HARNESS_FILES = [
   ".continue/rules/agent.md",           // continue — a DIRECTORY the CLI scans, not a file
   ".windsurf/rules/agent.md",           // windsurf
 ] as const;
+
+/**
+ * The uncommitted changes in `dir` that a PERSON or AGENT made — everything `git status` lists, minus gov's own
+ * harness files (PRJ-121 Item 6, ruling Q7, 2026-10-12).
+ *
+ * gov writes {@link ROOT_HARNESS_FILES} into every clone, untracked, and rewrites one whenever its rendered text
+ * changes, so a plain "is it clean?" made `gov merge` and `gov sync` refuse — intermittently — on gov's own output.
+ * Those files are regenerable from the governance repo, so they are discounted, tracked or untracked, as cleanup
+ * already did. They stay VISIBLE in `git status` (the 2026-09-28 ruling: commit them as project work); this only
+ * stops them blocking. Merge, sync and cleanup all ask this one question.
+ */
+export function userDirtyPaths(vcs: Pick<Vcs, "isClean" | "dirtyPaths">, dir: string): readonly string[] {
+  if (vcs.isClean(dir)) return [];
+  const mine = new Set<string>(ROOT_HARNESS_FILES);
+  return vcs.dirtyPaths(dir).filter((p) => !mine.has(p.replace(/\\/g, "/")));
+}
+
+/** `Uncommitted changes in <dir>: <up to 5 paths>[, +N more] — commit or stash first.` */
+export function dirtyRefusal(dir: string, paths: readonly string[]): string {
+  const shown = paths.slice(0, 5);
+  const more = paths.length > shown.length ? [`+${paths.length - shown.length} more`] : [];
+  return `Uncommitted changes in ${dir}: ${[...shown, ...more].join(", ")} — commit or stash first.`;
+}
 
 /**
  * WHERE A CODE REPO'S CLONE LIVES, read from disk rather than from the board (PRJ-121, defect 2).

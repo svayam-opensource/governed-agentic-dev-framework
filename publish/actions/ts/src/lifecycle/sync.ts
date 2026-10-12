@@ -12,6 +12,7 @@ import type { Board } from "./board.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl } from "./repo.js";
+import { userDirtyPaths, dirtyRefusal } from "./root-protocol.js";
 import { projectBranchOf, boardNumberFromBranch } from "./task.js";
 
 export interface SyncConfig {
@@ -68,8 +69,10 @@ export function sync(deps: SyncDeps, config: SyncConfig, input: SyncInput): Sync
   ];
 
   for (const t of targets) {
-    if (!deps.vcs.isClean(t.dir)) {
-      return { ok: false, code: 1, reason: "dirty", message: `Uncommitted changes in ${t.dir} — commit or stash first.`, repoDir: t.dir };
+    // gov's own harness files never block (Q7); anything else is somebody's work, so it is named.
+    const dirty = userDirtyPaths(deps.vcs, t.dir);
+    if (dirty.length > 0) {
+      return { ok: false, code: 1, reason: "dirty", message: dirtyRefusal(t.dir, dirty), repoDir: t.dir };
     }
   }
 

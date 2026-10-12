@@ -180,18 +180,21 @@ ok "in project workspace on $(git rev-parse --abbrev-ref HEAD)"
 TASK_OUT=$(gov task "$ISSUE_URL" 2>&1) || { echo "$TASK_OUT" | tail -8; die "gov task failed"; }
 assert_contains "$TASK_OUT" "ISSUE-" "task opened a sub-branch"
 
-# make a change in the code-repo worktree the task created, then land it
-REPO_WT=$(find "$AWR" -maxdepth 3 -type d -name "$CODE_REPO" 2>/dev/null | head -1 || true)
-if [ -n "$REPO_WT" ]; then
-  echo "e2e change $RUN_ID" >> "$REPO_WT/E2E.md"
-  ( cd "$REPO_WT" && git add -A && git commit -qm "e2e: implement thing (closes #${ISSUE_URL##*/})" )
-  ok "committed a change on the task sub-branch"
-fi
+# make a change in the code-repo worktree the task created, then land it. The clone is at EXACTLY
+# <project work root>/<repo> — the work root `gov seed` printed ("  workspace: <dir>"). A `find | head -1` under the
+# whole work root could pick another project's clone, or none, and then the commit was silently skipped (PRJ-121 Item 6).
+PWR=$(printf '%s\n' "$SEED_OUT" | sed -n 's/^  workspace: //p' | head -1)
+[ -n "$PWR" ] || PWR="$AWR/$PID"
+REPO_WT="${PWR/#\~/$HOME}/$CODE_REPO"
+[ -d "$REPO_WT/.git" ] || [ -f "$REPO_WT/.git" ] || die "code-repo clone not found at $REPO_WT (work root from gov seed: $PWR)"
+echo "e2e change $RUN_ID" >> "$REPO_WT/E2E.md"
+( cd "$REPO_WT" && git add -A && git commit -qm "e2e: implement thing (closes #${ISSUE_URL##*/})" )
+ok "committed a change on the task sub-branch"
 step "gov merge"
 MERGE_OUT=$(gov merge "$ISSUE_URL" 2>&1) || {
   echo "$MERGE_OUT" | tail -8
-  # "Uncommitted changes in <dir>" names a folder but not the files — show them, so the run explains itself.
-  DIRTY=$(printf '%s\n' "$MERGE_OUT" | sed -n 's/^Uncommitted changes in \(.*\) — commit or stash first\./\1/p' | head -1)
+  # "Uncommitted changes in <dir>: <files>" names at most five files — show the full status, so the run explains itself.
+  DIRTY=$(printf '%s\n' "$MERGE_OUT" | sed -n 's/^Uncommitted changes in \([^:]*\): .* — commit or stash first\./\1/p' | head -1)
   [ -n "$DIRTY" ] && { echo "  git status in $DIRTY:"; git -C "$DIRTY" status --porcelain -uall | head -20 | sed 's/^/    /'; }
   die "gov merge failed"; }
 [ "$(gh issue view "$ISSUE_URL" --json state --jq .state 2>/dev/null)" = "CLOSED" ] && ok "merge closed the issue" || die "issue not closed after merge"

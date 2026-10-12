@@ -478,9 +478,9 @@ describe("lifecycle coverage — merge", () => {
   });
 
   it("error: a working tree is dirty → exit 1 (dirty)", () => {
-    const r = run(["merge", ISSUE9], { vcs: { ...fakeVcs(), isClean: () => false } });
+    const r = run(["merge", ISSUE9], { vcs: { ...fakeVcs(), isClean: () => false, dirtyPaths: () => ["CLAUDE.md", "src/main.ts"] } });
     expect(r.code).to.equal(1);
-    expect(px(r.lines[0])).to.equal(`Uncommitted changes in ${GOV_CLONE} — commit or stash first.`);
+    expect(px(r.lines[0])).to.equal(`Uncommitted changes in ${GOV_CLONE}: src/main.ts — commit or stash first.`);
   });
 
   it("error: merge conflict → exit 2 (merge-conflict)", () => {
@@ -532,9 +532,9 @@ describe("lifecycle coverage — sync", () => {
   });
 
   it("error: a working tree is dirty → exit 1 (dirty)", () => {
-    const r = run(["sync"], { vcs: { ...fakeVcs(), isClean: () => false } });
+    const r = run(["sync"], { vcs: { ...fakeVcs(), isClean: () => false, dirtyPaths: () => ["CLAUDE.md", "src/main.ts"] } });
     expect(r.code).to.equal(1);
-    expect(px(r.lines[0])).to.equal(`Uncommitted changes in ${GOV_CLONE} — commit or stash first.`);
+    expect(px(r.lines[0])).to.equal(`Uncommitted changes in ${GOV_CLONE}: src/main.ts — commit or stash first.`);
   });
 
   it("error: merge conflict → exit 2 (merge-conflict)", () => {
