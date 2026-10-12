@@ -1074,7 +1074,7 @@ gov knowledge propose deploy-policy
 create an issue — assigned to you, on the board
 
 ```text
-gov issue [<org>/<repo>] --title <t> [--body <b>|--body-file <f>] [--board <n>]  |  --from <upstream-issue-url> [--board <n>]
+gov issue [<org>/<repo>] --title <t> [--body <b>|--body-file <f>] [--board <n>] [--intent <NN>]  |  --from <upstream-issue-url> [--board <n>] [--intent <NN>]
 ```
 
 **Flags**
@@ -1085,15 +1085,17 @@ gov issue [<org>/<repo>] --title <t> [--body <b>|--body-file <f>] [--board <n>] 
 | `--body <b> · --body-file <f>` | its body, inline or from a file |
 | `--from <url>` | mirror an upstream issue into this org |
 | `--board <n>` | the board to add it to (default: the current project's) |
+| `--intent <NN>` | tag it into intent &lt;NN&gt; of the project (label gov-intent:&lt;NN&gt;) |
 
 **Examples**
 
 ```bash
 gov issue --title "the picker paginates unevenly"
+gov issue --title "retry the upload" --intent 03
 gov issue --from https://github.com/other/repo/issues/9
 ```
 
-**Changes.** creates the issue on GitHub, assigns it to you, and adds it to the board
+**Changes.** creates the issue through the work tracker, assigned to you, adds it to the board and sets the intent label; anything that could not be done is reported and exits 1
 
 **Exit codes**
 

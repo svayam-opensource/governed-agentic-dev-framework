@@ -76,7 +76,8 @@ import { createNodeFs } from "../lifecycle/fs-io.js";
 import { createGitVcs } from "../lifecycle/vcs.js";
 import { createGhBoard, retryTransient, type RunGh } from "../lifecycle/gh-board.js";
 import { createGhIssues } from "../lifecycle/issues.js";
-import { createGithubBoardWriter } from "../adapters/github/work-tracker.js";
+import { createGithubBoardWriter, ghRunFrom } from "../adapters/github/work-tracker.js";
+import { builtInProviders, pickAdapter } from "../adapters/registry.js";
 import { createGhAnchor } from "../lifecycle/anchor.js";
 import { createGhPulls } from "../lifecycle/pulls.js";
 import { makeCloneRepo } from "../lifecycle/code-repo.js";
@@ -120,7 +121,7 @@ import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { finishInPlace, landSetupChanges } from "../setup/in-place-land.js";
 import { assessFrameworkCurrency, cannotStartWorkLines, policyOwnerFacts } from "../maintain/framework-currency.js";
 import { parseArgv, flagStr, flagBool } from "./args.js";
-import { route, routeOrg, type CliContext } from "./dispatch.js";
+import { route, routeOrg, type CliContext, type CommandResult } from "./dispatch.js";
 import { orgAdd, orgUse } from "../resolve/org.js";
 import { PACKAGE_NAME } from "../package-identity.js";
 
@@ -2411,7 +2412,7 @@ export async function runMainMenu(): Promise<number> {
  * The `gov-work` entry point. Returns a process exit code. `now` is injected (an
  * ISO-8601 instant) so the composition stays deterministic + testable.
  */
-export function main(argv: readonly string[], now: string = new Date().toISOString()): number {
+export function main(argv: readonly string[], now: string = new Date().toISOString()): number | Promise<number> {
   const parsed = parseArgv(argv);
   if ("error" in parsed) {
     process.stderr.write(`${parsed.error}\n`);
@@ -3183,6 +3184,9 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     fs,
     issues: createGhIssues(runGh),
     workTracker: createGithubBoardWriter(runGh),
+    // The full WorkTrackerPort, chosen by `adapters: work_tracker` in org-config.yaml through the registry (Q15).
+    // Built when a verb asks for it, so an unknown id fails that verb — with the id named — and nothing else.
+    tracker: () => pickAdapter(builtInProviders, "workTracker", config.adapters.workTracker, { gh: ghRunFrom(runGh) }),
     anchor: createGhAnchor(runGh),
     pulls: createGhPulls(runGh),
     projects: createGhProjects(runGh),
@@ -3284,7 +3288,15 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     }
   }
 
+  const print = (result: CommandResult): number => {
+    for (const line of result.lines) process.stdout.write(`${line}\n`);
+    return result.code;
+  };
   const result = route(parsed, ctx);
-  for (const line of result.lines) process.stdout.write(`${line}\n`);
-  return result.code;
+  // A command whose writes go through a port finishes asynchronously (`gov issue`); bin.ts awaits it.
+  if (result.perform) {
+    const rest = result.perform;
+    return rest().then(print, (e: unknown) => print({ code: 1, lines: [`gov ${parsed.command}: ${(e as Error)?.message ?? String(e)}`] }));
+  }
+  return print(result);
 }

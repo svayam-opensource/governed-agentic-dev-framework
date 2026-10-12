@@ -205,6 +205,17 @@ Harness registry (all tools): [`agent/harness-manifest.yaml`](https://github.com
   - `notes.md` — decisions, design rationale, anything future-you would need.
   - any other domain-specific files as needed (`security.md`, `migrations.md`, etc.).
 - **Intermediate to-dos** go in `projects/PRJ-001-feature-x/knowledge/todo.md` under `## Open`. Capture them as they arise, not at session end.
+- **Writing down a new piece of work.** When you (a person) decide a piece of work exists, record it with
+  `gov issue`, not in the GitHub web page. It creates the issue assigned to you, puts it on the current
+  project's board (or the one `--board <n>` names), and, with `--intent <NN>`, tags it into intent `<NN>` with
+  the label `gov-intent:<NN>`:
+  ```bash
+  gov issue --title "retry the upload on a dropped connection" --intent 03
+  gov issue --from https://github.com/other-org/repo/issues/9 --board 42   # mirror someone else's issue
+  ```
+  It prints one line per thing that happened. If the issue was created but could not be put on the board or
+  labelled, it says so and why, and exits 1: add it to the board or the label by hand, or gov cannot see it.
+  If nothing could be created, it says why and exits 1.
 - **What gov does to the board.** `gov task` assigns each issue to you and sets its board **Status** to *In
   progress*; `gov merge` closes the issue and sets its Status to *Done*; `gov close` and `gov cancel` close the
   board itself. Each prints one `board:` line saying what happened — `board: #42 Status → In progress`, or

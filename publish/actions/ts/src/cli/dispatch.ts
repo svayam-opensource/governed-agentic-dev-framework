@@ -17,12 +17,12 @@ import type { Board } from "../lifecycle/board.js";
 import type { Vcs } from "../lifecycle/vcs.js";
 import type { Fs } from "../lifecycle/fs-io.js";
 import type { Issues } from "../lifecycle/issues.js";
-import type { BoardCloseResult, BoardStatusOutcome, BoardWriter } from "../ports/work-tracker.js";
+import type { BoardCloseResult, BoardStatusOutcome, BoardWriter, WorkTrackerPort } from "../ports/work-tracker.js";
 import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
 import type { GateResult } from "../lifecycle/close-gate.js";
-import { planIssue, issueSummary } from "../lifecycle/issue-create.js";
+import { planIssue, createPlannedIssue } from "../lifecycle/issue-create.js";
 import { agentReport, formatAgentReport, planAgentInstall } from "./agent-verb.js";
 import { seed, inspectLeftovers, applyCleanup } from "../lifecycle/seed.js";
 import { planLines } from "../lifecycle/cleanup.js";
@@ -37,7 +37,7 @@ import { join } from "../lifecycle/join.js";
 import { pause, resume, cancel } from "../lifecycle/state.js";
 import { orgAdd, orgUse, orgList, orgRemove, type OrgDeps } from "../resolve/org.js";
 import { manageList, manageAssign, formatOwnerRows, anchorShow, projectStatus, type ManageListResult } from "../lifecycle/manage.js";
-import { boardNumberFromProjectId } from "../lifecycle/task.js";
+import { boardNumberFromBranch, boardNumberFromProjectId } from "../lifecycle/task.js";
 import type { Projects } from "../lifecycle/project-list.js";
 import { proposeKnowledge, submitKnowledge, archiveKnowledge } from "../lifecycle/knowledge.js";
 import { policyGate } from "./policy-gate-io.js";
@@ -81,6 +81,12 @@ export interface CliContext {
   readonly issues: Issues;
   /** The board writes — Status and closing (gadf#225). Absent → task/merge/close/cancel say the board was not touched. */
   readonly workTracker?: BoardWriter;
+  /**
+   * The full work-tracker port (spec 03 §6), built by the adapter registry from `adapters: work_tracker` in
+   * org-config.yaml. A factory, so an id gov does not have fails only the verb that needs the port — and that verb
+   * reports it. `gov issue` writes through it. Absent → `gov issue` refuses, saying no tracker is wired.
+   */
+  readonly tracker?: () => WorkTrackerPort;
   readonly anchor: AnchorCreator;
   readonly pulls: Pulls;
   readonly projects: Projects;
@@ -147,6 +153,21 @@ export interface CliContext {
 export interface CommandResult {
   readonly code: number;
   readonly lines: readonly string[];
+  /**
+   * The asynchronous rest of a command whose writes go through a port (ports are async; `route` is not). Present
+   * only after `route` has done everything synchronous — the rules gate, parsing, planning — and accepted the
+   * command; {@link routeAsync} runs it and its result replaces this one.
+   */
+  readonly perform?: () => Promise<CommandResult>;
+}
+
+/** {@link route}, then the command's asynchronous part when it has one. The entry point `main` uses. */
+export async function routeAsync(parsed: ParsedArgs, ctx: CliContext): Promise<CommandResult> {
+  const r = route(parsed, ctx);
+  if (!r.perform) return r;
+  try { return await r.perform(); } catch (e) {
+    return { code: 1, lines: [...r.lines, `gov ${parsed.command}: ${(e as Error)?.message ?? String(e)}`] };
+  }
 }
 
 /**
@@ -357,29 +378,45 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       const from = flagStr(flags, "from");
       const bodyFile = flagStr(flags, "body-file");
       const boardFlag = flagStr(flags, "board");
+      // No --board: the current project's, read from the project branch this workspace is on (`BRNCH-<n>-…`).
+      const currentBoard = (): number | null => {
+        try { return boardNumberFromBranch(ctx.vcs.currentBranch(ctx.home)); } catch { /* not a git checkout: no current project, so no default board — the summary says it is on none */ return null; }
+      };
       const planned = planIssue(
         {
           repo: positionals[0] ?? flagStr(flags, "repo"),
           title: flagStr(flags, "title"),
           body: bodyFile ? (ctx.fs.readFile(bodyFile) ?? "") : flagStr(flags, "body"),
           from,
-          board: boardFlag ? Number(boardFlag) : null,
+          board: boardFlag ? Number(boardFlag) : currentBoard(),
           // Every board item has an accountable assignee: the actor, not an option with a blank default.
           assignee: flagStr(flags, "assignee") ?? ctx.login ?? "",
           githubOrg: c.githubOrg,
           defaultRepo: `${c.githubOrg}/${c.workspaceRepo}`,
+          intent: flagStr(flags, "intent"),
         },
         (repo, number) => ctx.issues.read(repo, number),
       );
       if (!planned.ok) return { code: 1, lines: [planned.message] };
       const plan = planned.plan;
+      if (plan.board !== null && !(Number.isInteger(plan.board) && plan.board > 0)) {
+        return { code: 1, lines: [`--board takes the board's number, as in --board 42, not '${boardFlag}'.`] };
+      }
+      if (!ctx.tracker) return { code: 1, lines: [`Could not create the issue in ${plan.repo} — no work tracker is wired into this command.`] };
+      const getTracker = ctx.tracker;
 
-      const url = ctx.issues.create(plan.repo, plan.title, plan.body, plan.assignee);
-      if (!url) return { code: 1, lines: [`Could not create the issue in ${plan.repo}. Check that you can write there.`] };
-      const added = plan.board === null ? false : ctx.issues.addToBoard(c.githubOrg, plan.board, url);
-      // A board issue that never reached the board is invisible to gov, so it is a
-      // non-zero exit even though the issue itself exists — the summary says which.
-      return { code: plan.board !== null && !added ? 1 : 0, lines: issueSummary(plan, url, added) };
+      // Writes go through the WorkTrackerPort (spec 03 §6). A failure is reported and exits non-zero; an issue
+      // created but not on its board, or not labelled, is reported as created, with the reason.
+      return {
+        code: 0, lines: [],
+        perform: async () => {
+          let tracker: WorkTrackerPort;
+          try { tracker = getTracker(); } catch (e) {
+            return { code: 1, lines: [`Could not create the issue in ${plan.repo} — ${(e as Error)?.message ?? String(e)}`] };
+          }
+          return createPlannedIssue(plan, tracker, c.githubOrg);
+        },
+      };
     }
 
     case "seed": {
