@@ -177,6 +177,16 @@ files:
   - { src: policies/catalog.yaml,                       dst: policies/catalog.yaml,                       mode: seed-once }
   - { src: policies/VERSION,                            dst: policies/VERSION,                            mode: seed-once }
   - { src: policies/CHANGELOG.md,                       dst: policies/CHANGELOG.md,                       mode: seed-once }
+  # THE STARTER LIFECYCLE (PRJ-121 intent 03, D1): one adopted lifecycle and its step templates, for a NEW organization
+  # only — seed-new, so `gov upgrade` never hands it to an org that adopted without it, nor touches an edited copy.
+  # gov reads the active file's step headings (X7); the templates under reference/ are never turned into rules.
+  - { src: policies/active/ai-sdlc-lifecycle.md, dst: policies/active/ai-sdlc-lifecycle.md, mode: seed-new }
+  - { src: policies/reference/lifecycles/ai-sdlc/intent.md, dst: policies/reference/lifecycles/ai-sdlc/intent.md, mode: seed-new }
+  - { src: policies/reference/lifecycles/ai-sdlc/spec.md, dst: policies/reference/lifecycles/ai-sdlc/spec.md, mode: seed-new }
+  - { src: policies/reference/lifecycles/ai-sdlc/plan.md, dst: policies/reference/lifecycles/ai-sdlc/plan.md, mode: seed-new }
+  - { src: policies/reference/lifecycles/ai-sdlc/build.md, dst: policies/reference/lifecycles/ai-sdlc/build.md, mode: seed-new }
+  - { src: policies/reference/lifecycles/ai-sdlc/deploy.md, dst: policies/reference/lifecycles/ai-sdlc/deploy.md, mode: seed-new }
+  - { src: policies/reference/lifecycles/ai-sdlc/run.md, dst: policies/reference/lifecycles/ai-sdlc/run.md, mode: seed-new }
 
   # ── knowledge/ — the ADOPTER's, shipped EMPTY (Decision 10) ─────────────────────────────
   #
