@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:svayam-opensource:gov:check-seam:chain-entry",
+  "title": "chain entry",
+  "description": "One line of evidence/chain/<yyyy>-<mm>.jsonl. sha256 = hash of the segment file bytes; prev = sha256 of the canonical JSON of the previous entry (sig included), 64 zeros for the very first entry; sig = Ed25519 (base64url) over the canonical JSON of the entry without sig.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "n": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "segment": {
+      "type": "string",
+      "pattern": "^[0-9]{4}/[0-9]{2}/[0-9]{2}/[a-z0-9][a-z0-9._-]{0,199}\\.jsonl$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "prev": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "writer": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+    },
+    "sig": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$"
+    }
+  },
+  "required": [
+    "n",
+    "segment",
+    "sha256",
+    "prev",
+    "writer",
+    "sig"
+  ]
+}

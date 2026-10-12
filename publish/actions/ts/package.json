@@ -19,7 +19,18 @@
         "types": "./lib/cjs/index.d.ts",
         "default": "./lib/cjs/index.js"
       }
-    }
+    },
+    "./check-host": {
+      "import": {
+        "types": "./lib/esm/check-seam/public.d.ts",
+        "default": "./lib/esm/check-seam/public.js"
+      },
+      "require": {
+        "types": "./lib/cjs/check-seam/public.d.ts",
+        "default": "./lib/cjs/check-seam/public.js"
+      }
+    },
+    "./check-host/schemas/*": "./lib/esm/check-seam/schemas/*"
   },
   "files": [
     "lib/",
@@ -35,7 +46,7 @@
   },
   "scripts": {
     "clean": "rm -rf lib",
-    "build": "npm run clean && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json",
+    "build": "npm run clean && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json && node scripts/copy-seam-schemas.mjs",
     "test": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/**/*.test.ts'",
     "test:e2e": "NODE_OPTIONS='--import tsx' mocha --extensions ts 'test/e2e/**/*.test.ts'",
     "lint": "eslint .",

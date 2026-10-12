@@ -1,0 +1,425 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:svayam-opensource:gov:check-seam:gov-evidence-1",
+  "title": "gov-evidence/1 record",
+  "description": "One evidence record. No code, no diffs, no file contents, no finding prose: rule id, verdict and a message key only (spec 02 §3.1).",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/verdictRecord"
+    },
+    {
+      "$ref": "#/$defs/sessionRecord"
+    },
+    {
+      "$ref": "#/$defs/gapRecord"
+    }
+  ],
+  "$defs": {
+    "schema": {
+      "const": "gov-evidence/1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "ULID"
+    },
+    "org": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vcs": {
+          "enum": [
+            "github"
+          ]
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "vcs",
+        "id"
+      ],
+      "description": "The org by its rename-safe numeric id only (no login)."
+    },
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ]
+    },
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+        },
+        "changeRequest": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "branch": {
+          "type": "string",
+          "maxLength": 255,
+          "pattern": "^[^\\s]+$"
+        }
+      },
+      "required": [
+        "sha"
+      ]
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "login": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(\\[bot\\])?$"
+        },
+        "kind": {
+          "enum": [
+            "human",
+            "agent"
+          ]
+        },
+        "agent": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+        },
+        "trailer": {
+          "enum": [
+            "present",
+            "absent"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "type": "string",
+          "pattern": "^PRJ-[0-9]+$"
+        },
+        "issue": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "project"
+      ]
+    },
+    "source": {
+      "enum": [
+        "ci",
+        "local"
+      ]
+    },
+    "runKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,299}$"
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gov": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+        },
+        "govCheck": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+        },
+        "policy": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+        },
+        "pack": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+        }
+      },
+      "required": [
+        "gov"
+      ]
+    },
+    "verdictRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "org": {
+          "$ref": "#/$defs/org"
+        },
+        "repo": {
+          "$ref": "#/$defs/repo"
+        },
+        "ref": {
+          "$ref": "#/$defs/ref"
+        },
+        "actor": {
+          "$ref": "#/$defs/actor"
+        },
+        "session": {
+          "$ref": "#/$defs/session"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "runKey": {
+          "$ref": "#/$defs/runKey"
+        },
+        "at": {
+          "$ref": "#/$defs/at"
+        },
+        "versions": {
+          "$ref": "#/$defs/versions"
+        },
+        "kind": {
+          "enum": [
+            "check",
+            "gate",
+            "judge"
+          ]
+        },
+        "rule": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]+[a-z]?$"
+            },
+            "rev": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+            },
+            "level": {
+              "enum": [
+                "C01",
+                "C02",
+                "C03"
+              ]
+            },
+            "phase": {
+              "enum": [
+                "build",
+                "deploy",
+                "common",
+                "operate"
+              ]
+            }
+          },
+          "required": [
+            "id"
+          ]
+        },
+        "binding": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "resource": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+            },
+            "event": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+            },
+            "action": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/+-]{0,199}$"
+            }
+          },
+          "required": [
+            "resource",
+            "event",
+            "action"
+          ]
+        },
+        "verdict": {
+          "enum": [
+            "pass",
+            "fail",
+            "cannot-tell",
+            "needs-subscription"
+          ]
+        },
+        "class": {
+          "enum": [
+            "prevented",
+            "detected",
+            "judged",
+            "cued",
+            "advisory",
+            "cannot-tell",
+            "advisory (needs subscription)"
+          ]
+        },
+        "messageKey": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_.-]{0,119}$",
+          "description": "A message KEY (dotted identifier), never prose."
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "kind",
+        "org",
+        "source",
+        "runKey",
+        "at",
+        "versions",
+        "rule",
+        "verdict",
+        "class",
+        "messageKey"
+      ]
+    },
+    "sessionRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "org": {
+          "$ref": "#/$defs/org"
+        },
+        "repo": {
+          "$ref": "#/$defs/repo"
+        },
+        "ref": {
+          "$ref": "#/$defs/ref"
+        },
+        "actor": {
+          "$ref": "#/$defs/actor"
+        },
+        "session": {
+          "$ref": "#/$defs/session"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "runKey": {
+          "$ref": "#/$defs/runKey"
+        },
+        "at": {
+          "$ref": "#/$defs/at"
+        },
+        "versions": {
+          "$ref": "#/$defs/versions"
+        },
+        "kind": {
+          "const": "session"
+        },
+        "boundary": {
+          "enum": [
+            "start",
+            "end"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "kind",
+        "org",
+        "source",
+        "runKey",
+        "at",
+        "versions",
+        "boundary",
+        "session"
+      ]
+    },
+    "gapRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "org": {
+          "$ref": "#/$defs/org"
+        },
+        "repo": {
+          "$ref": "#/$defs/repo"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "runKey": {
+          "$ref": "#/$defs/runKey"
+        },
+        "at": {
+          "$ref": "#/$defs/at"
+        },
+        "versions": {
+          "$ref": "#/$defs/versions"
+        },
+        "actor": {
+          "$ref": "#/$defs/actor"
+        },
+        "kind": {
+          "const": "gap"
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_.-]{0,119}$",
+          "description": "A message KEY (dotted identifier), never prose."
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "kind",
+        "org",
+        "source",
+        "runKey",
+        "at",
+        "versions",
+        "reason"
+      ],
+      "description": "Evidence NOT created for a run (no lease). Unsigned. Carries no verdict: a gap is never a pass."
+    }
+  }
+}

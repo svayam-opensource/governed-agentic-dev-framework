@@ -1106,6 +1106,52 @@ Your organization's own code follows your organization's architectural principle
 
 *Rules for this chapter: rule map, filter `framework-specification.md §12`.*
 
+### 12.4 Evidence, and the seam to a paid module
+
+gov runs every check, decides every verdict and enforces every gate by itself. Nothing below is needed for that.
+An organization that wants **evidence** — signed, tamper-evident records an auditor can rely on — adds a separate,
+paid module from Svayam, `@svayam/gov-check`. The module only adds things. It writes evidence, runs the paid
+actions (the LLM judge, actions that come with a compliance pack), generates auditor reports and offers packs.
+
+```mermaid
+flowchart LR
+  subgraph OPEN["gov (open source)"]
+    RUN["checks, verdicts, gates"] --> SINK["evidence sink<br/>(does nothing by default)"]
+    HOST["check-host<br/>types · schemas · canonical JSON"]
+  end
+  subgraph PAID["@svayam/gov-check (paid)"]
+    W["sign · chain · push"]
+    R["reports · packs · LLM judge"]
+  end
+  SINK -- "if installed" --> W
+  HOST -. "imported by" .-> PAID
+  W --> L["evidence/ in YOUR gov repo"]
+```
+
+| | Open gov | Paid module |
+|---|---|---|
+| Running checks, verdicts, gates, violation issues | yes, all of it | — |
+| The shape of an evidence record, and when one is produced | yes | — |
+| Signing, chaining and pushing records | — | yes |
+| Reports, packs, the LLM judge | says "needs subscription" | yes |
+| Licence and lease checks | never | yes |
+| Verifying a ledger | yes, free (`gov evidence verify`) | — |
+
+**What a record holds.** One record is written per check verdict, per gate decision and per session start or end.
+It names the rule, the verdict and a short message *key*. It never holds code, a diff, file contents or the text of
+a finding, and it names your organization only by its numeric id. The record format is strict: a record with any
+other field is refused. Records are kept in your own gov repository, under `evidence/`. They never leave your
+environment. The only things that reach Svayam are lease requests: a key or a CI identity token, the writer's
+public key, and a handful of usage *numbers*.
+
+**Versions must match.** gov announces the version of the seam it offers. The module declares the version it
+needs. When they do not fit, gov prints one quiet line and runs exactly as it does with no module installed. It
+never fails because of the module.
+
+*For module authors:* the seam is the subpath `@svayam-opensource/gov/check-host`. It exports the types, the
+JSON schemas (record, seal, chain entry, lease request, usage counts) and the one canonical-JSON function that every
+hash and signature in the ledger is computed over.
+
 ---
 
 ## Glossary
