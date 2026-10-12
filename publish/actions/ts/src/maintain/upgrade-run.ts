@@ -291,6 +291,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       ...res.why,
       ...replaceFrameworkReadme(adopterDir, contentDir, true),
       ...settleRoleList(adopterDir),
+      ...(opts.seed ? [] : fillTokens(adopterDir, createdPaths(plan, res.applied))),
       ...refreshCodeowners(adopterDir),
     ],
   };
@@ -321,6 +322,40 @@ export function settleRoleList(adopterDir: string): string[] {
       ...(r.vacated.length ? [`${r.vacated.join(", ")} written as vacant — the Policy Owner holds them until the org names someone`] : []),
     ].join("; ")}`,
   ];
+}
+
+/** The files this run CREATED — planned `create` and actually written. Never a moved, updated or org-written file. */
+export function createdPaths(plan: ReturnType<typeof planUpgrade>, applied: readonly string[]): string[] {
+  const written = new Set(applied);
+  return plan.actions.filter((a) => a.kind === "create" && written.has(a.dst)).map((a) => a.dst);
+}
+
+/**
+ * EVERY FILE GOV CREATES HAS ITS ORG TOKENS FILLED (PRJ-121 intent 01, spec §3.8). Setup's sweep fills a new org
+ * repo; this fills the files an UPGRADE created in this run — a seed-once policy a release added reaches the org
+ * reading its name, not `<ORG_NAME>`. Only `created` (GOV-FRM-445: a file the org wrote is never rewritten, token or
+ * not), only text files, only tokens org-config.yaml / policies/governance.yaml give a value (setupTokenValues), and
+ * only in an adopter repo (one with org-config.yaml). Run after the role list is settled, so its holders keep the
+ * upgrade's own rule (`settleRoleList`).
+ */
+export function fillTokens(adopterDir: string, created: readonly string[], today: string = new Date().toISOString().slice(0, 10)): string[] {
+  const cfg = readIf(path.join(adopterDir, "org-config.yaml"));
+  if (cfg === null || created.length === 0) return [];
+  const values = setupTokenValues(cfg, readIf(path.join(adopterDir, GOVERNANCE_PATH)), today);
+  const filled: string[] = [];
+  for (const rel of created) {
+    if (!/\.(md|ya?ml|json|txt)$/i.test(rel) && path.posix.basename(rel) !== "CODEOWNERS") continue;
+    const p = path.join(adopterDir, rel);
+    const before = readIf(p);
+    if (before === null) continue;
+    const after = substituteTokens(before, values);
+    if (after === before) continue;
+    fs.writeFileSync(p, after, "utf8");
+    filled.push(rel);
+  }
+  if (!filled.length) return [];
+  log("info", "filled the org tokens in the files this upgrade created", "gov-work:maintain:upgrade-run", "fillTokens", { files: filled });
+  return [`  org tokens filled in ${filled.length} file(s) this upgrade created: ${filled.join(", ")}`];
 }
 
 /**
@@ -476,6 +511,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir }),
     recordMove: (id) => recordMove(adopterDir, id, opts.govVersion ?? contentVersion(contentDir)),
   }, { includeConflicts: true }); // the PR diff IS the review — apply everything
+  const filledLines = fillTokens(adopterDir, createdPaths(plan, res.applied));
 
   // ── THE RENDER TRAVELS IN THE SAME COMMIT AS THE CLAUSES (design §7, PRJ-121, 2026-09-28) ─────────────────
   //
@@ -493,7 +529,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   //
   // NO MARKER: nothing is ratified yet, so no session is stale. The marker is recorded by `--apply`, which does
   // put the new rules into force, and by `gov sync`.
-  const compiledLines = [...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
+  const compiledLines = [...filledLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
 
   try {
     git(adopterDir, ["add", "-A"]);
