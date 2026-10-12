@@ -96,6 +96,16 @@ export function parseLifecycle(text: string): ParsedLifecycle {
   return { steps: problems.length ? steps.filter((s) => s.template?.startsWith(`${POLICY_REFERENCE_DIR}/`)) : steps, problems };
 }
 
+/**
+ * The body of the first `##` section whose heading (number dropped) is `heading` — a step's own prose, as the org
+ * wrote it — trimmed of blank lines at both ends; null when there is no such section. The lifecycle skills (L15)
+ * carry it verbatim.
+ */
+export function sectionBody(text: string, heading: string): string | null {
+  const s = sections(text).find((x) => x.heading === heading);
+  return s ? s.body.join("\n").replace(/^\s*\n/, "").replace(/\s+$/, "") : null;
+}
+
 /** Required sections (§2.3) absent from an artifact's `##` headings. */
 export function missingSections(kind: ArtifactKind, text: string): string[] {
   const have = new Set(sections(text).map((s) => s.heading.trim()));

@@ -179,27 +179,37 @@ describe("skills — body: cue texts in rule order, a link to the source, and 'g
   });
 });
 
-describe("skills — the two verified locations", () => {
-  it("writes each skill for claude-code and cursor, and only those", () => {
-    expect(SKILL_TARGETS.map((t) => [t.agent, t.dir])).to.deep.equal([["claude-code", ".claude/skills"], ["cursor", ".cursor/skills"]]);
+describe("skills — the verified locations and the fallback (L14, L15)", () => {
+  it("writes each skill at every catalog skillsDir and the fallback .agents/skills, and only those", () => {
+    expect(SKILL_TARGETS.map((t) => [t.dir, [...t.agents], t.fallback])).to.deep.equal([
+      [".claude/skills", ["claude-code"], false], [".cursor/skills", ["cursor"], false], [".agents/skills", ["gemini-code-assist"], true],
+    ]);
     const files = skillFiles(renderSkills(SAMPLE, readDoc)).map((f) => f.path);
     expect(files).to.include(".claude/skills/gov-engineering-policy-3-1-approved-packages/SKILL.md");
     expect(files).to.include(".cursor/skills/gov-engineering-policy-3-1-approved-packages/SKILL.md");
-    expect(files).to.have.length(6);
+    expect(files).to.include(".agents/skills/gov-engineering-policy-3-1-approved-packages/SKILL.md");
+    expect(files).to.have.length(9);
   });
 });
 
 const PROTOCOL_BODY = `# Agent protocol\n\n<!-- ${PROTOCOL_MARKER}: 3 -->\n\n${RESIDENT_PLACEHOLDER}\n\nAfter the block.\n`;
 
 describe("skills — the resident C01 block is unchanged", () => {
-  it("the nine harness files are byte-identical with and without on-demand rows, and with and without documents", () => {
+  it("the nine harness files keep their bytes with and without on-demand rows — the fallback index (L15) only appends", () => {
     const bare = buildArtifacts(PROTOCOL_BODY, set([resident("GOV-FRM-012")]));
     const full = buildArtifacts(PROTOCOL_BODY, set([...SAMPLE.framework], [...SAMPLE.org]), undefined, readDoc);
     if ("error" in bare || "error" in full) throw new Error("render failed");
-    // The rule map lists every row, so it differs by design; the nine agent files must not.
+    // The rule map lists every row, so it differs by design; the nine agent files must not, except that a file read
+    // by an index-only agent ends with the skill index (Q14) after everything it had.
     const harness = (fs: readonly { path: string; content: string }[]) =>
       fs.filter((f) => !f.path.includes("/skills/") && !f.path.endsWith("rule-map.md"));
-    expect(harness(full.files)).to.deep.equal(harness(bare.files));
+    const b = harness(bare.files), f = harness(full.files);
+    expect(f.map((x) => x.path)).to.deep.equal(b.map((x) => x.path));
+    for (const [i, x] of f.entries()) {
+      const before = b[i]!.content.replace(/\n+$/, "");
+      expect(x.content.startsWith(before), x.path).to.equal(true);
+      expect(x.content.slice(before.length).includes("resident"), `${x.path}: nothing resident after the block`).to.equal(false);
+    }
     expect(bare.files.some((f) => f.path.includes("/skills/"))).to.equal(false);
     expect(full.files.filter((f) => f.path.startsWith(`${HARNESS_DIR}/.claude/skills/`))).to.have.length(3);
   });
@@ -271,7 +281,7 @@ ${cue === "resident" ? "" : "  checks:\n    - on: { resource: gov.verb, event: t
 
     const again = rules({ fs }, WT, "build");
     expect(again.code, again.lines.join("\n")).to.equal(0);
-    expect(again.lines.join("\n")).to.match(/removed 2 stale skill/);
+    expect(again.lines.join("\n")).to.contain(`removed ${SKILL_TARGETS.length} stale skill`);
     for (const t of SKILL_TARGETS) {
       expect(fs.readFile(`${HOME}/agent/harness/${t.dir}/${NEW}/SKILL.md`), t.dir).to.contain("Declaring the model");
       expect(fs.readFile(`${HOME}/agent/harness/${t.dir}/${OLD}/SKILL.md`), t.dir).to.equal(null);

@@ -10,7 +10,8 @@
  *
  *   · the nine agent files — the session protocol with the resident tier in place (cues/resident.ts, W7)
  *   · `agent/harness/rule-map.md` — every revision of every rule, with its derived class (model/rule-map.ts, W8)
- *   · `agent/harness/{.claude,.cursor}/skills/gov-…/SKILL.md` — the on-demand tier as skills (skills/render.ts, L14)
+ *   · `agent/harness/<skills dir>/gov-…/SKILL.md` — the on-demand tier as skills (skills/render.ts, L14), plus one
+ *     per lifecycle step (skills/lifecycle.ts, L15); harness files of index-only agents end with their index (Q14)
  *
  * Every producer calls this: `gov rules build|check`, the lifecycle builds at setup/upgrade/sync, and the
  * publisher's `agent/render-harness.mjs`. `check` fails exactly when the committed files differ from what this
@@ -26,6 +27,8 @@ import { renderAll, type RenderFailure } from "./harness-render.js";
 import type { ResidentExceptions } from "./cues/resident.js";
 import { renderRuleMap, summariseRuleSet } from "./model/rule-map.js";
 import { renderSkills, skillFiles, type ReadDoc } from "../skills/render.js";
+import { renderLifecycleSkills } from "../skills/lifecycle.js";
+import { needsSkillIndex, renderSkillIndex, withSkillIndex } from "../skills/fallback-index.js";
 import { residentRows, RESIDENT_CAP } from "./cues/resident.js";
 import { inForce, type RuleRow } from "./model/rule-row.js";
 import { sectionShas } from "./checks/sections.js";
@@ -50,16 +53,25 @@ export interface BuiltFile {
  * location under `agent/harness/` (skills/render.ts). `readDoc` reads a policy document from the SAME place the rows
  * came from; it supplies section titles, so a renamed section renames its skill. Without it skills are named by
  * section number. `skills` lists the names, so a writer can delete the generated skills no longer wanted.
+ *
+ * LIFECYCLE SKILLS AND THE INDEX (L15). `readDoc` also reads the active lifecycle and its templates: one skill per
+ * step (intent, spec, plan, build; Q13), after the rule skills. And each harness file read by an agent with no
+ * verified native skill location ends with an index of every skill (Q14) — part of the harness render, so `check`
+ * and the parity test hold it like the rest of the file.
  */
 export function buildArtifacts(
   protocolBody: string, rules: RuleSet, exceptions?: ResidentExceptions, readDoc?: ReadDoc,
 ): { readonly files: readonly BuiltFile[]; readonly skills: readonly string[] } | RenderFailure {
   const rendered = renderAll(protocolBody, rules, exceptions);
   if ("error" in rendered) return rendered;
-  const skills = renderSkills(rules, readDoc);
+  const skills = [...renderSkills(rules, readDoc), ...(readDoc ? renderLifecycleSkills(readDoc) : [])];
+  const index = renderSkillIndex(skills);
   return {
     files: [
-      ...rendered.files.map((f) => ({ path: `${HARNESS_DIR}/${f.path}`, content: f.content })),
+      ...rendered.files.map((f) => ({
+        path: `${HARNESS_DIR}/${f.path}`,
+        content: needsSkillIndex(f.path) ? withSkillIndex(f.content, index) : f.content,
+      })),
       ...skillFiles(skills).map((f) => ({ path: `${HARNESS_DIR}/${f.path}`, content: f.content })),
       { path: RULE_MAP_PATH, content: renderRuleMap(rules) },
     ],
