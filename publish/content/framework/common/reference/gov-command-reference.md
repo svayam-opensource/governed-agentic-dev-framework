@@ -69,6 +69,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [Organizations and workspaces](#organizations-and-workspaces) — `gov help orgs`
 - [Context: PROJECT, GOVERNED, NONE](#context-project-governed-none) — `gov help context`
 - [Preferences, credentials and state](#preferences-credentials-and-state) — `gov help preferences`
+- [Installing gov on a machine nobody is sitting at](#installing-gov-on-a-machine-nobody-is-sitting-at) — `gov help install`
 
 ---
 
@@ -1304,3 +1305,17 @@ state/              gov's own: the runs it logged, what you confirmed. Safe to d
 
 `gov preferences` lists every setting with its value and what it does. A preference chooses INSIDE what
 your organization allows: a default agent your org has not approved is ignored, and gov says so.
+
+### Installing gov on a machine nobody is sitting at
+
+People install gov through the door for their system. A machine with no one at the keyboard — CI, or
+Windows Server Core without winget — has two scripted paths, served from the same install site:
+
+```text
+install.sh     curl -fsSL https://<install-site>/install.sh | GOV_YES=1 bash
+install.ps1    irm https://<install-site>/install.ps1 | iex       (PowerShell 5.1 or later)
+```
+
+Both put a private Node 24 under the user's home, install gov from npm, need no administrator rights,
+and ask nothing when there is no terminal. They print what gov prints: a named phase, → under way,
+✓ done, · already present; colour only on a terminal, and never with NO_COLOR set.

@@ -30,7 +30,7 @@ banner**: a reader who scrolled past the warning would have followed them.
 |---|---|
 | `npm i -g @svayam-opensource/prj` | `@svayam-opensource/gov`, installed by `install.sh`, which supplies its own Node |
 | The CLI is bash; needs `yq` and `python3` | Node 24 / TypeScript; no system Node required |
-| Windows: run inside Git Bash | `install.ps1` — though the agent-install path does not work there yet (#223) |
+| Windows: run inside Git Bash | Native Windows, no Git Bash. `install.ps1` is kept only as a machine path (CI, Server Core) and documented in the command reference (`gov help install`) |
 | Walk up from `$PWD` for `org-config.yaml` | `~/.gov/<org-slug>/gov_repo` is the bootstrap anchor; `$ADF_WORKSPACE` is gone, replaced by a per-invocation flag so it cannot stale-misdirect |
 | Data includes `registry.yaml` | There is no `registry.yaml` — GitHub is the source of truth, and the board number is the allocator |
 | Nothing changes for vendored use | Vendoring is gone; there is no vendored mode to be compatible with |

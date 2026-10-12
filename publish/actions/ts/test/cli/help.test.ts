@@ -100,14 +100,20 @@ describe("help — a command's page", () => {
 });
 
 describe("help — topics, for the concepts commands assume", () => {
-  it("answers about projects, tasks, orgs, context and preferences", () => {
-    expect(TOPICS.map((t) => t.name)).to.deep.equal(["projects", "tasks", "orgs", "context", "preferences"]);
+  it("answers about projects, tasks, orgs, context, preferences and machine installs", () => {
+    expect(TOPICS.map((t) => t.name)).to.deep.equal(["projects", "tasks", "orgs", "context", "preferences", "install"]);
     for (const t of TOPICS) expect(topicPage(t.name), `${t.name} renders`).to.not.equal(null);
   });
 
   it("a topic is reachable by the same route as a command", () => {
     expect(helpFor("context")!.join("\n")).to.contain("PROJECT").and.contain("GOVERNED").and.contain("NONE");
     expect(helpFor("nonsense")).to.equal(null);
+  });
+
+  // Q9 B: install.ps1 is a machine path, documented here and nowhere a person starts from.
+  it("`gov help install` names both scripted installers as the machine path", () => {
+    const page = helpFor("install")!.join("\n");
+    expect(page).to.contain("install.ps1").and.contain("install.sh").and.contain("Server Core");
   });
 });
 
