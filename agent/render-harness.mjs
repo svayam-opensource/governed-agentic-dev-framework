@@ -20,17 +20,20 @@
  *   node agent/render-harness.mjs --check    exit 1 if any generated file is stale
  *   node agent/render-harness.mjs --list     list every harness + its tier/path
  *
- * It writes the nine files AND `agent/harness/rule-map.md`, so `--check` covers both (P3 cutover, 2026-10-06).
+ * It writes the nine files AND `agent/harness/rule-map.md`, so `--check` covers both (P3 cutover, 2026-10-06) —
+ * and the generated skills under `agent/harness/{.claude,.cursor}/skills/` (intent 03 L14): `--check` also fails on
+ * a generated skill no longer wanted, and a render deletes it.
  *
  * `--project <PID>` is gone: per-project entrypoints are `gov work`'s business (it mirrors the harness into the
  * project directory on every launch), and the flag rendered files nothing read.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { load as yamlLoad } from "js-yaml";
 import { HARNESS_TARGETS } from "../publish/actions/ts/src/rules/harness-render.ts";
-import { buildArtifacts } from "../publish/actions/ts/src/rules/rules-build.ts";
+import { buildArtifacts, HARNESS_DIR } from "../publish/actions/ts/src/rules/rules-build.ts";
+import { staleSkillDirs } from "../publish/actions/ts/src/skills/locations.ts";
 import { loadRuleStoresFrom, isStoreError, isStoreWarning } from "../publish/actions/ts/src/rules/model/store-io.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -84,17 +87,25 @@ if (errors.length) {
   for (const d of errors) process.stderr.write(`ERROR: ${d.store} ${d.id} ${d.kind} — ${d.message}\n`);
   process.exit(1);
 }
-const rendered = buildArtifacts(readFileSync(PROTOCOL, "utf8"), loaded.set);
+// Section titles name the skills, read from the same tree as the rows.
+const readDoc = (rel) => (existsSync(join(CONTENT, rel)) ? readFileSync(join(CONTENT, rel), "utf8") : null);
+const rendered = buildArtifacts(readFileSync(PROTOCOL, "utf8"), loaded.set, undefined, readDoc);
 if ("error" in rendered) {
   process.stderr.write(`ERROR: ${rendered.error}\n`);
   process.exit(1);
 }
 
+const nodeFs = {
+  readdir: (d) => { try { return readdirSync(d); } catch { return []; } },
+  readFile: (f) => { try { return readFileSync(f, "utf8"); } catch { return null; } },
+};
+const removals = staleSkillDirs(nodeFs, join(CONTENT, HARNESS_DIR), rendered.skills);
+
 if (mode === "check") {
   const drift = rendered.files.filter((f) => {
     const path = join(CONTENT, f.path);
     return (existsSync(path) ? readFileSync(path, "utf8") : null) !== f.content;
-  });
+  }).concat(removals.map((d) => ({ path: `${d.slice(CONTENT.length + 1)}/ (a generated skill no longer wanted)` })));
   if (drift.length) {
     process.stdout.write("DRIFT — these generated files are out of sync with the protocol and the rule stores:\n");
     for (const d of drift) process.stdout.write(`  - ${d.path}\n`);
@@ -110,6 +121,10 @@ for (const f of rendered.files) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, f.content);
   process.stdout.write(`rendered: ${f.path}\n`);
+}
+for (const d of removals) {
+  rmSync(d, { recursive: true, force: true });
+  process.stdout.write(`removed stale skill: ${d.slice(CONTENT.length + 1)}\n`);
 }
 process.stdout.write(
   `\n${rendered.files.length} files rendered from agent/session-protocol.md + the rule stores' resident cues,\n`
