@@ -35,7 +35,12 @@ export interface IssuePlan {
   readonly board: number | null;
   /** The upstream issue this mirrors, when it is one. */
   readonly mirrorOf: string | null;
+  /** Labels to set at creation — `gov-intent:<NN>` from `--intent` (spec 03 D8). */
+  readonly labels: readonly string[];
 }
+
+/** The label that tags an issue into intent `<NN>` of its project (spec 03 D8). */
+export const intentLabel = (nn: string): string => `gov-intent:${nn}`;
 
 export interface IssueRequest {
   readonly repo?: string;
@@ -47,6 +52,8 @@ export interface IssueRequest {
   readonly githubOrg: string;
   /** The default repo when none is named — normally the org's workspace repo. */
   readonly defaultRepo?: string;
+  /** `--intent <NN>`: the intent this issue belongs to. */
+  readonly intent?: string;
 }
 
 export type IssuePlanResult =
@@ -65,6 +72,12 @@ export function planIssue(
     // An accountable assignee is the reason this verb exists. Creating an unassigned issue here
     // would reproduce by hand the thing the command was written to prevent.
     return { ok: false, message: "Cannot create an issue without an assignee — every board item needs an accountable person." };
+  }
+
+  let labels: string[] = [];
+  if (req.intent !== undefined) {
+    if (!/^\d{1,2}$/.test(req.intent.trim())) return { ok: false, message: `--intent takes the intent's number, as in intents/<NN>-<slug>/ (for example --intent 03), not '${req.intent}'.` };
+    labels = [intentLabel(req.intent.trim().padStart(2, "0"))];
   }
 
   if (req.from) {
@@ -87,6 +100,7 @@ export function planIssue(
         assignee: req.assignee,
         board: req.board ?? null,
         mirrorOf: up.url,
+        labels,
       },
     };
   }
@@ -100,12 +114,12 @@ export function planIssue(
 
   return {
     ok: true,
-    plan: { repo, title: req.title.trim(), body: req.body ?? "", assignee: req.assignee, board: req.board ?? null, mirrorOf: null },
+    plan: { repo, title: req.title.trim(), body: req.body ?? "", assignee: req.assignee, board: req.board ?? null, mirrorOf: null, labels },
   };
 }
 
 /** One line per thing that happened, in the order it happened. */
-export function issueSummary(plan: IssuePlan, url: string, addedToBoard: boolean): readonly string[] {
+export function issueSummary(plan: IssuePlan, url: string, addedToBoard: boolean, labelled = true): readonly string[] {
   return [
     plan.mirrorOf ? `Mirrored ${plan.mirrorOf}` : "Created an issue",
     `  ${url}`,
@@ -115,5 +129,6 @@ export function issueSummary(plan: IssuePlan, url: string, addedToBoard: boolean
       : addedToBoard
         ? `  added to board #${plan.board}`
         : `  ⚠ could NOT be added to board #${plan.board} — gov will not see it until it is`,
+    ...plan.labels.map((l) => (labelled ? `  labelled ${l}` : `  ⚠ could NOT be labelled ${l} — add the label by hand`)),
   ];
 }
