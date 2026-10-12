@@ -1,3 +1,5 @@
+> **Who this is for:** everyone at `<ORG_NAME>` who works in this repository.
+
 # <ORG_NAME> — governance repository
 
 This repository is `<ORG_NAME>`'s record of how work gets done here: the policies that govern
@@ -76,7 +78,7 @@ not a fixture.
 
 Not here, deliberately. Installation instructions cannot live inside the thing you install.
 
-**[gov.svayam.ai](https://gov.svayam.ai)** serves the installer and the adopter and joiner
+**[gov.svayamtech.com](https://gov.svayamtech.com)** serves the installer and the adopter and joiner
 instructions. Once `gov` is on your machine, everything else you need is in this repository.
 
 Already set up? The front door is one word:

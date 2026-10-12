@@ -162,9 +162,11 @@ if (verify) {
   if (!page.includes("LOCAL — your working tree")) fail.push("the local page is missing its LOCAL banner");
   if (!page.includes(`http://localhost:${PORT}`)) fail.push("the local page does not say which address works in this machine's browser");
   if (page.includes("https://" + SELF)) fail.push("the local page still says https — nothing local serves TLS");
-  const primary = page.match(/<code id="cmd-unix">([^<]*)<\/code>/)?.[1] ?? "";
-  if (!primary.includes("-o install.sh")) fail.push("the primary install command does not fetch to a file first");
-  if (/\|\s*(GOV_YES=1\s+)?bash/.test(primary)) fail.push("the primary install command pipes curl into bash, which hides a failed download");
+  for (const id of ["cmd-mac", "cmd-linux"]) {
+    const primary = page.match(new RegExp(`<code id="${id}">([^<]*)</code>`))?.[1] ?? "";
+    if (!primary.includes("-o install.sh")) fail.push(`the #${id} install command does not fetch to a file first`);
+    if (/\|\s*(GOV_YES=1\s+)?bash/.test(primary)) fail.push(`the #${id} install command pipes curl into bash, which hides a failed download`);
+  }
   if (readFileSync(join(OUT, "CNAME"), "utf8").trim() !== LOCAL_HOSTS.join(" ")) fail.push("CNAME does not name the local hosts");
   for (const f of ["index.html", "style.css", "install.sh", "install.ps1", "gov.tgz", "CNAME", "robots.txt"]) {
     if (!existsSync(join(OUT, f))) fail.push(`missing ${f}`);

@@ -70,3 +70,18 @@ jobs:
         run: |
           echo "catalog-freshness found something — see the Look step"
           exit 1
+
+  # DOES THE DOOR OPEN? (#181, ruling Q2 A) — the first link an adopter follows, and the two
+  # installers it serves, each answer 200. A network check, so it lives here on the schedule and
+  # never in `npm test`. Not advisory: a dead door fails every walk on its own.
+  door:
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Door URL answers 200
+        working-directory: publish/actions/ts
+        run: npm run door:check

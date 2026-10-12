@@ -1,3 +1,5 @@
+> **Who this is for:** anyone installing or using `gov`, the client of the Governed Agentic Development Framework.
+
 # @svayam-opensource/gov
 
 Policy-governed, AI-assisted software development on top of GitHub — where the rules a team
@@ -17,20 +19,21 @@ The framework has **two components** — the rules, and the client that acts und
 
 ## Install
 
-**Start at [gov.svayam.ai](https://gov.svayam.ai).** It serves a bootstrap installer that also
-brings its own Node, and the adopter and joiner instructions — which is the part this page
-cannot usefully carry, because setting up an organization is a different job from installing a
-binary.
+**Start at [gov.svayamtech.com](https://gov.svayamtech.com).** One door per OS, each bringing
+its own Node:
 
-If you already have Node 24 and want only the client:
+| OS | Door |
+|---|---|
+| macOS, Linux | `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` |
+| Windows | `winget install Svayam.Gov`, or the signed `.msi` from the [release page](https://github.com/svayam-opensource/governed-agentic-dev-framework/releases) |
 
-```bash
-npm i -g @svayam-opensource/gov
-gov                 # the interactive front door — you do not memorise commands
-```
+The Windows door goes live with the first signed release; until then use
+`irm https://gov.svayamtech.com/install.ps1 | iex` in PowerShell.
 
-**Requires** Node 24+, `git`, and the GitHub CLI (`gh`) authenticated. `gov deps` prints per-OS
-install hints; `gov doctor` checks a machine and a workspace and says what is missing.
+Every door ends in the same **first-run flow**: `gov` checks `git` and `gh` (and installs either
+if you agree), signs you in to GitHub, then asks whether you are adopting the framework, joining
+an organization that has it, or not sure — and carries on from there to your first project.
+`gov doctor` checks a machine and a workspace later and says what is missing.
 
 ## What it does
 
@@ -52,8 +55,9 @@ message.
 
 ![Content is adopted first and establishes the governance workspace; gov then acts within it.](https://cdn.jsdelivr.net/npm/@svayam-opensource/gov@latest/assets/readme/sequencing.svg)
 
-`gov` will not invent a governance workspace to act in. Adopt the Content first — one command,
-`gov setup <org>/<repo>` — and everything after that has a policy to act under.
+`gov` will not invent a governance workspace to act in. Adopt the Content first — the
+first-run flow does it when you choose *adopt* — and everything after that has a policy to act
+under.
 
 ### GitHub is the substrate, not a backend
 
@@ -79,10 +83,10 @@ to that board — not a list `gov` keeps.
 ## Documentation
 
 Most of it ships *into your governance repository*, because that is where it is useful — the
-policies you actually run under, not the framework's defaults. After `gov setup`, start at
+policies you actually run under, not the framework's defaults. After the first-run flow, start at
 `governance/paths/` and pick the entry point that matches why you are reading.
 
-- **[gov.svayam.ai](https://gov.svayam.ai)** — install, and the adopter and joiner journeys
+- **[gov.svayamtech.com](https://gov.svayamtech.com)** — install, and the adopter and joiner journeys
 - **[the framework repo](https://github.com/svayam-opensource/governed-agentic-dev-framework)** —
   source for this CLI and the Content, plus design docs and ADRs
 
@@ -97,8 +101,8 @@ Issues and pull requests go to the
 `CONTRIBUTING.md` covers the gates, which grow by drop-in: a new scenario is a file, not a
 change to the harness.
 
-The legacy bash client `@svayam-opensource/prj` is **frozen** at `0.10.0` and is not published
-from this repo any more.
+The legacy bash client (`prj`) is **frozen** at `0.10.0` and is not published from this repo
+any more.
 
 ## License
 

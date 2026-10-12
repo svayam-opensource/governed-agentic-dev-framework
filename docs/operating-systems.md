@@ -1,25 +1,39 @@
+> **Who this is for:** anyone installing or running `gov` who wants to know what differs between macOS, Linux and Windows.
+
 # Operating systems — macOS / Linux / Windows
 
-The `prj` CLI and lifecycle scripts are POSIX `bash` and run on **macOS, Linux,
-and Windows (via Git Bash / Git for Windows)**. Shell scripts are pinned to LF
-line endings in `.gitattributes` (CRLF corrupts the shebang under bash), so a
-Windows checkout stays runnable.
+`gov` runs natively on all three. Each OS has one door; every door ends in the same
+first-run flow (git and `gh` checked, GitHub sign-in, then adopt / join / not sure).
+Start at [gov.svayamtech.com](https://gov.svayamtech.com).
 
-## Common prerequisites (all OSes)
-Install and put on `PATH`: `git`, `gh` (GitHub CLI, authenticated), `python3`,
-`yq`, and `bash`. `./prj deps` (or `bash scripts/install-deps.sh`) checks them.
+| | Door | What it installs |
+|---|---|---|
+| macOS, Linux | `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` | a private Node 24 under `~/.local/share/gov`, `gov` in `~/.local/bin` |
+| Windows | `winget install Svayam.Gov`, or the signed `.msi` from the [release page](https://github.com/svayam-opensource/governed-agentic-dev-framework/releases) | a per-user program with its own Node 24, `gov` on your PATH |
 
-## Windows (Git Bash)
-- Run `prj` from **Git Bash**, not PowerShell/CMD. Git for Windows provides the
-  `bash` runtime; install `gh`, Python 3, and `yq` into that PATH.
-- **Enable long paths:** `git config --global core.longpaths true`. Per-project
-  worktrees nest under `agent_work_root/PRJ-NNN-slug/<repo>/…`; long slugs can
-  exceed the 260-char `MAX_PATH` limit otherwise.
-- Auth: prefer **HTTPS + the gh credential helper**, or configure SSH keys —
-  whichever your `repo_url`s use.
-- `$HOME` resolves to `C:\Users\<you>`, so `agent_work_root: ~/.svm/projects`
-  becomes `C:\Users\<you>\.svm\projects`. Keep `agent_work_root` as a portable
-  `~/...` value (never a committed absolute path).
+`gov` brings its own Node and does not touch one you already have. It needs `git` and
+the GitHub CLI (`gh`); the first-run flow installs either if it is missing, after asking.
+Nothing else — no Python, and no `bash` on Windows.
+
+## Windows
+
+The Windows door goes live with the **first signed release**: until then `winget` does
+not find `Svayam.Gov` and the release page has no `.msi`. The interim route is
+PowerShell: `irm https://gov.svayamtech.com/install.ps1 | iex`.
+
+- **The MSI** installs for you alone, under `%LOCALAPPDATA%\Programs\gov` — no
+  administrator rights, no UAC prompt. It puts one folder (`bin\`) on your user PATH,
+  and its finish page offers **Launch gov**, which starts the first-run flow.
+- **winget** installs the same signed MSI: `winget install Svayam.Gov`. Update with
+  `winget upgrade Svayam.Gov`; uninstall from Settings → Apps or `winget uninstall Svayam.Gov`.
+  Uninstalling removes the program and its PATH entry and keeps your `~/.gov`.
+- Run `gov` from **PowerShell, Windows Terminal or `cmd`**. No WSL and no
+  bash is needed.
+- `git` and `gh` are installed per-user through winget if missing, when you agree.
+- **Long paths:** project worktrees nest under `~/.gov/…/<PROJECT_ID>/<repo>/…`; turn on
+  `git config --global core.longpaths true` so a long project slug cannot hit the
+  260-character `MAX_PATH` limit.
+- `~` is `C:\Users\<you>`, so `~/.gov` is `C:\Users\<you>\.gov`.
 
 ## Windows: installing gov
 `winget install Svayam.Gov`, then run `gov` in a new terminal. It is a per-user MSI with its own Node, and it
@@ -51,18 +65,16 @@ is named it opens PowerShell 7 if present, else `cmd.exe`. To update gov itself:
 `winget upgrade Svayam.Gov`.
 
 ## macOS
-- **Do not keep this repo — or `agent_work_root` — inside an iCloud-synced
-  folder** (`~/Documents`, `~/Desktop`). iCloud generates ` 2`/` 3` conflict
-  copies and, with git worktrees, risks corrupting the shared object store.
-  Use a non-synced path such as `~/code/...`.
-- The system `/bin/bash` is 3.2; the scripts target it. A newer bash via
-  Homebrew is optional, not required.
+- **Do not keep `~/.gov` or your project worktrees inside an iCloud-synced folder**
+  (`~/Documents`, `~/Desktop`). iCloud makes ` 2`/` 3` conflict copies and, with git
+  worktrees, risks corrupting the shared object store.
+- `install.sh` runs under the system `/bin/bash` 3.2; a newer bash is not needed.
 
 ## Linux
-- Usually ships `git`/`python3`; install `gh` and `yq`. No special notes.
+- `install.sh` needs only `curl` and `tar`. If `~/.local/bin` is not on your PATH, the
+  installer appends one marked line to your shell profile and names the file.
 
-## Storage model (ADR-0001 Phase 2 — all OSes)
-Each repo is cloned once into `agent_work_root/.bases/<repo>`, and every
-per-project workspace is a **git worktree** of that base (shared object store,
-one fetch/identity, far less disk). This behaves identically across the three
-platforms; the only OS-specific caveat is Windows `MAX_PATH` (see above).
+## Storage model (all OSes)
+Each repo is cloned once and every per-project workspace is a **git worktree** of that
+clone (shared object store, one fetch, far less disk). This behaves the same on all
+three platforms; the only OS-specific caveat is Windows `MAX_PATH` (see above).

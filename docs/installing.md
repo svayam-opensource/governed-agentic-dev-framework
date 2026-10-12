@@ -1,17 +1,38 @@
+> **Who this is for:** anyone putting `gov` on a machine for the first time — adopting the framework for an organization, or joining one that has.
+
 # Installing `gov`
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/svayam-opensource/governed-agentic-dev-framework/main/install.sh -o install.sh \
-  && bash install.sh
-source ~/.profile         # only if the installer says it appended a line there — it names the file
-gov
-```
+Start at **[gov.svayamtech.com](https://gov.svayamtech.com)**. It has one door per OS, and
+every door ends in the same first-run flow.
 
-`install.sh` fetches its own Node under your home directory and installs
-`@svayam-opensource/gov` from npm. It touches no system directory and needs no
-`sudo`; `curl` and `tar` are the only prerequisites, and both are already present
-everywhere this can run. Testers point it at a local build with
-`GOV_PKG=/path/to.tgz`.
+| OS | Door |
+|---|---|
+| macOS, Linux | `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` |
+| Windows | `winget install Svayam.Gov`, or the signed `.msi` from the [release page](https://github.com/svayam-opensource/governed-agentic-dev-framework/releases) |
+
+**The Windows door goes live with the first signed release.** Until then `winget` does not find
+`Svayam.Gov` and the release page has no `.msi`. `install.ps1` is a machine path for CI and
+Server Core only, not a door for people (see `gov help install`).
+
+## Then: the first-run flow
+
+When the install finishes, `gov` starts the first-run flow (on Windows, from the installer's
+**Launch gov** button, or by typing `gov`):
+
+1. It checks `git` and `gh`, installs what is missing if you agree, and asks you to sign in to
+   GitHub. Re-running resumes; it never repeats a finished step.
+2. It asks whether you are **adopting** the framework, **joining** an organization that has it,
+   or **not sure**.
+3. Adopt creates and seeds your governance repo; join finds it on GitHub and clones it.
+4. It installs an approved AI agent, if you agree, and helps you sign it in.
+5. It opens a first project and launches the agent, which posts its context manifest.
+
+## What `install.sh` does
+
+It fetches its own Node under your home directory and installs `@svayam-opensource/gov` from
+npm. It touches no system directory and needs no `sudo`; `curl` and `tar` are the only
+prerequisites, and both are already present everywhere this can run. Testers point it at a
+local build with `GOV_PKG=/path/to.tgz`.
 
 **What it changes on your machine (#211).** Node goes under `~/.local/share/gov/node`, and a
 Node you already have is left alone — still the `node` your shell finds. `gov` reaches its own
@@ -24,10 +45,12 @@ Node through a small wrapper:
   reads), after everything already on `PATH`, and the installer names the file in one line. Open
   a new terminal, or `source` that file.
 
-**Fetch, then run — do not `curl … | bash`.** Piped, a failed download is silent:
-`curl -f` writes nothing and exits 22, `bash` reads an empty stdin and exits 0, and
-the pipeline reports success. Nothing installs, and the first symptom is
-`gov: command not found` somewhere later, with nothing connecting the two.
+**Fetch, then run — do not `curl … | bash`.** Piped, a failed download is silent: `curl -f`
+writes nothing and exits 22, `bash` reads an empty stdin and exits 0, and the pipeline reports
+success. Nothing installs, and the first symptom is `gov: command not found` somewhere later,
+with nothing connecting the two.
+
+What differs per OS is in [operating-systems.md](operating-systems.md).
 
 ## Windows
 
@@ -50,22 +73,20 @@ agents it installed, and keeps `~/.gov` (your workspaces and preferences).
 
 ---
 
-## What changed from `prj`, for anyone following an old link
+## If you followed an old link
 
-This page used to document `@svayam-opensource/prj` — the bash CLI, vendored into each governance
-repo. That whole model is gone. The obsolete instructions are **removed rather than left below a
+This page used to document the framework's old bash CLI, `prj`, vendored into each governance
+repo. That model is gone, and its instructions are **removed rather than left below a
 banner**: a reader who scrolled past the warning would have followed them.
 
 | The old page said | Today |
 |---|---|
-| `npm i -g @svayam-opensource/prj` | `@svayam-opensource/gov`, installed by `install.sh`, which supplies its own Node |
+| Install the bash CLI from npm | `gov` (`@svayam-opensource/gov`), installed by the door for your OS, which supplies its own Node |
 | The CLI is bash; needs `yq` and `python3` | Node 24 / TypeScript; no system Node required |
 | Windows: run inside Git Bash | Native Windows, no Git Bash: the per-user MSI, through `winget install Svayam.Gov` (above). `install.ps1` is kept only as a machine path (CI, Server Core) and documented in the command reference (`gov help install`) |
 | Walk up from `$PWD` for `org-config.yaml` | `~/.gov/<org-slug>/gov_repo` is the bootstrap anchor; `$ADF_WORKSPACE` is gone, replaced by a per-invocation flag so it cannot stale-misdirect |
 | Data includes `registry.yaml` | There is no `registry.yaml` — GitHub is the source of truth, and the board number is the allocator |
 | Nothing changes for vendored use | Vendoring is gone; there is no vendored mode to be compatible with |
 
-Phase 4's argument — that framework code on every project branch makes the CLI's release cadence a
-project concern — is the reasoning the current layout still rests on, and is recorded in
-`docs/adr/ADR-0001-simplify-developer-experience.md` and `docs/un-vendor-migration.md`. A full
-rewrite of the adopter-facing install story is framework#181.
+Why the CLI stopped living on project branches is recorded in
+`docs/adr/ADR-0001-simplify-developer-experience.md` and `docs/un-vendor-migration.md`.

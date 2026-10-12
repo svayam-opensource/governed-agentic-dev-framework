@@ -1,3 +1,5 @@
+> **Who this is for:** maintainers, org admins and developers who want to know who does what in the framework.
+
 # Operating model — who does what
 
 The framework is **two artifacts** produced from **one source repo**:
@@ -7,7 +9,7 @@ The framework is **two artifacts** produced from **one source repo**:
   `ts/gov-work/`) and the **content** (`framework/`: policies, knowledge starters,
   the agent harness/protocol, the install `MANIFEST`).
 - **npm `@svayam-opensource/gov`** — the **published CLI** (command `gov-work`), built
-  from `ts/gov-work/`. It succeeds the legacy bash `@svayam-opensource/prj`, which
+  from `ts/gov-work/`. It succeeds the legacy bash CLI (`prj`), which
   is **frozen** at `0.10.0` (no new versions).
 - **Adopter governance repos** (e.g. `Svayamtech/svm-prj-work`) — pure governance
   **data** (`org-config.yaml`, `projects/`, `knowledge/`). They **consume** the CLI

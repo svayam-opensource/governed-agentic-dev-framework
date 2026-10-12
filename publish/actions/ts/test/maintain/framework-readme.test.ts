@@ -42,7 +42,7 @@ describe("F22 — the framework's README left by the template copy", () => {
     const lines = replaceFrameworkReadme(d, contentDir, true);
     const now = fs.readFileSync(path.join(d, "README.md"), "utf8");
     expect(lines.join("\n")).to.match(/replaced by the organization's README/);
-    expect(now).to.match(/^# Acme Corp — governance repository/);
+    expect(now).to.match(/^> \*\*Who this is for:\*\* everyone at `Acme Corp`.*\n\n# Acme Corp — governance repository/);
     expect(now).to.not.include("<ORG_NAME>");
     expect(replaceFrameworkReadme(d, contentDir, true), "once: the org README is not the framework's").to.deep.equal([]);
   });
