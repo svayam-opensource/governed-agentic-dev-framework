@@ -54,6 +54,8 @@ export const POLICY_PR_PATHS = {
   rules: RULE_STORE_PATHS.orgRules,
   snapshots: POLICY_HISTORY_DIR,
   actions: "policies/actions",
+  /** The template library (spec 03 M6a/b): read by people and `gov intent`, never turned into rules. */
+  reference: "policies/reference",
 } as const;
 
 /** `none` when `policies/` is untouched; otherwise the smallest bump the change needs (major is always allowed). */
@@ -119,7 +121,7 @@ export function policyDocPaths(tree: TreeReader): string[] | null {
   const files = tree.files(POLICY_PR_PATHS.root);
   if (files === null) return null;
   return files.filter((f) => f.endsWith(".md") && !matchesAny(f, MACHINE_WRITTEN_POLICY_PATHS)
-    && !isHistory(f) && !isUnder(f, POLICY_PR_PATHS.actions)).sort();
+    && !isHistory(f) && !isUnder(f, POLICY_PR_PATHS.actions) && !isUnder(f, POLICY_PR_PATHS.reference)).sort();
 }
 
 /**
