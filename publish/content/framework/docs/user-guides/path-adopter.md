@@ -39,6 +39,14 @@ you create a domain and name its owner.
 - [Configuring agent harnesses](configuring-agent-harnesses.md) — what each agent
   reads, and what gov places where
 
-## 5. Then work like everyone else
+## 5. Decide how work moves from intent to release
+
+A new organization gets one starter lifecycle, once: `policies/active/ai-sdlc-lifecycle.md`, with its step
+templates in `policies/reference/lifecycles/ai-sdlc/`. It is yours — change it, replace it, or delete it.
+
+- [The AI-native software lifecycle](../../../policies/active/ai-sdlc-lifecycle.md) — who approves at each gate
+- [How the framework works, §4.7: the lifecycle a project follows](../specs/framework-specification.md#47-the-lifecycle-a-project-follows)
+
+## 6. Then work like everyone else
 
 - [Path — Developer](path-developer.md)
