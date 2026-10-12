@@ -4,6 +4,11 @@ import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 // @ts-expect-error — a local rule, plain JS by design (no build step for lint)
 import catchMustAccount from "./eslint-rules/catch-must-account.js";
+// @ts-expect-error — a local rule, plain JS by design (no build step for lint)
+import noDirectGh from "./eslint-rules/no-direct-gh.js";
+
+// gov's local rules, ONE plugin object: flat config refuses a plugin name defined twice with different objects.
+const gov = { rules: { "catch-must-account": catchMustAccount, "no-direct-gh": noDirectGh } };
 
 // NO MODULE INSIDE src/ IMPORTS A BARREL (PRJ-121 intent 05, Item 12). `maintain/upgrade.ts` imported PACKAGE_NAME
 // from the package root barrel (src/index.ts), which re-exports maintain/: loading the published entry ran
@@ -45,12 +50,20 @@ export default defineConfig(
     // the only door. `run-process.ts` itself is the exception, and `cli/main.ts` keeps `spawn` for the one
     // thing the runner cannot do: hand the terminal to an agent and walk away (detached / inherited stdin).
     files: ["src/**/*.ts"],
-    plugins: { gov: { rules: { "catch-must-account": catchMustAccount } } },
+    plugins: { gov },
     ignores: ["src/run-process.ts", "src/cli/main.ts"],
     rules: {
       "no-restricted-imports": ["error", { paths: [...PROCESS_IMPORTS, ...BARREL_IMPORTS] }],
       "gov/catch-must-account": "error",
     },
+  },
+  {
+    // NEW MODULES REACH GITHUB ONLY THROUGH A PORT (PRJ-121 intent 03, D7, M4). The modules intent 03 adds call
+    // src/ports/ — never `gh`, `gh-board` or a `runGh`. Existing code moves behind the ports when touched, so the
+    // rule covers these directories only (test/eslint-rules/no-direct-gh.test.ts holds the scope).
+    files: ["src/signal/**/*.ts", "src/autorun/**/*.ts", "src/intent/**/*.ts", "src/project/**/*.ts", "src/skills/**/*.ts"],
+    plugins: { gov },
+    rules: { "gov/no-direct-gh": "error" },
   },
   {
     // chai's fluent assertions (.to.be.empty, .to.exist, …) are getter expressions by design.
