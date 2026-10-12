@@ -80,14 +80,23 @@ export function unrecognisedEntries(files: readonly string[], plan: UpgradePlan,
   const shippedSet = new Set(shipped);
   const touched = (p: string): boolean => plan.actions.some((a) =>
     a.from === p || (a.from?.endsWith("/") && p.startsWith(a.from)) || (a.kind === "retire" && (a.dst === p || (a.dst.endsWith("/") && p.startsWith(a.dst)))));
-  const unknown = new Set(files.filter((p) => !shippedSet.has(p) && !GENERATED_PATHS.includes(p) && !ORG_TREES.some((t) => p.startsWith(t)) && !touched(p)));
+  const unknown = files.filter((p) => !shippedSet.has(p) && !GENERATED_PATHS.includes(p) && !ORG_TREES.some((t) => p.startsWith(t)) && !touched(p));
+  return collapseDirs(unknown, files);
+}
+
+/**
+ * `selected` (some of `files`), named as briefly as is still exact: a folder once (`docs/`) when every file under it
+ * is selected, otherwise its files one by one. Sorted.
+ */
+export function collapseDirs(selected: readonly string[], files: readonly string[]): string[] {
+  const chosen = new Set(selected);
   const out: string[] = [];
   const visit = (dir: string): void => {
     const under = files.filter((f) => f.startsWith(dir));
-    if (dir && under.length && under.every((f) => unknown.has(f))) { out.push(dir); return; }
+    if (dir && under.length && under.every((f) => chosen.has(f))) { out.push(dir); return; }
     const children = new Set(under.map((f) => f.slice(dir.length).split("/")[0]!));
     for (const c of [...children].sort()) {
-      if (files.includes(`${dir}${c}`)) { if (unknown.has(`${dir}${c}`)) out.push(`${dir}${c}`); }
+      if (files.includes(`${dir}${c}`)) { if (chosen.has(`${dir}${c}`)) out.push(`${dir}${c}`); }
       else visit(`${dir}${c}/`);
     }
   };

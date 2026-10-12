@@ -12,6 +12,16 @@ import * as path from "node:path";
 import type { LeftInPlace, UpgradeExtension } from "../upgrade-commits.js";
 import { contentLayoutOf, type PlanAction, type UpgradePlan } from "../upgrade-sync.js";
 import { matchFingerprints } from "./fingerprints.js";
+import { movePlan } from "./moves.js";
+
+/** Every file under `root` (relative), skipping .git and node_modules. */
+function filesOf(root: string, rel = ""): string[] {
+  return fs.readdirSync(path.join(root, rel)).flatMap((n) => {
+    if (n === ".git" || n === "node_modules") return [];
+    const r = rel ? `${rel}/${n}` : n;
+    return fs.statSync(path.join(root, r)).isDirectory() ? filesOf(root, r) : [r];
+  });
+}
 
 const reader = (dir: string) => (rel: string): string | null => {
   const p = path.join(dir, rel);
@@ -32,6 +42,9 @@ export const BRIDGE: UpgradeExtension = {
   plan: (adopterDir, _contentDir, plan) => {
     const read = reader(adopterDir);
     if (contentLayoutOf((rel) => fs.existsSync(path.join(adopterDir, rel))) !== "layout-1.0") return { actions: [], leftInPlace: [] };
-    return fingerprintPlan(read, plan);
+    const files = filesOf(adopterDir);
+    const fp = fingerprintPlan(read, plan);
+    const mv = movePlan(files, new Set(fp.actions.map((a) => a.dst)));
+    return { actions: [...fp.actions, ...mv.actions], leftInPlace: [...fp.leftInPlace, ...mv.leftInPlace] };
   },
 };
