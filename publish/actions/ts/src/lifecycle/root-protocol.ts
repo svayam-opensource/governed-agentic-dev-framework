@@ -16,6 +16,7 @@ import type { Vcs } from "./vcs.js";
 import type { GitRead } from "../cli/policy-gate-io.js";
 import { isStructureOnly } from "../config/approved-agents.js";
 import { GOVERNANCE_PATH } from "../config/governance.js";
+import { SKILL_PREFIX, SKILL_TARGETS, staleSkillDirs, isGovSkillPath } from "../skills/locations.js";
 
 /**
  * Every agent's own path, mirrored into the project — ALL of them.
@@ -59,7 +60,8 @@ export const ROOT_HARNESS_FILES = [
 export function userDirtyPaths(vcs: Pick<Vcs, "isClean" | "dirtyPaths">, dir: string): readonly string[] {
   if (vcs.isClean(dir)) return [];
   const mine = new Set<string>(ROOT_HARNESS_FILES);
-  return vcs.dirtyPaths(dir).filter((p) => !mine.has(p.replace(/\\/g, "/")));
+  // gov's generated skills too (intent 03 L14) — mirrored on every launch like the nine files, as easily rewritten.
+  return vcs.dirtyPaths(dir).filter((p) => !mine.has(p.replace(/\\/g, "/")) && !isGovSkillPath(p.replace(/\\/g, "/")));
 }
 
 /** `Uncommitted changes in <dir>: <up to 5 paths>[, +N more] — commit or stash first.` */
@@ -214,6 +216,11 @@ export interface MirrorResult {
    * read from the project-branch worktree in its place.
    */
   readonly unreadable?: string | null;
+  /**
+   * The generated skills mirrored to every target (intent 03 D6, L14) — the names the default branch renders under
+   * `agent/harness/<skills dir>/`. Absent when nothing was mirrored by decision (structure-only).
+   */
+  readonly skills?: readonly string[];
 }
 
 /**
@@ -401,6 +408,25 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
     }
     placed.push(rel);
   }
+  // THE SKILLS GO WHERE THE AGENT READS THEM (intent 03 D6, L14). `gov rules build` renders them under
+  // `agent/harness/<.claude|.cursor>/skills/gov-…/`; an agent loads them from the directory it runs in, so they are
+  // mirrored like the nine files — whole (each is gov's own directory, nothing to fence) and only when the bytes
+  // differ. A generated skill the default branch no longer renders is deleted at each target; a person's or a team's
+  // own skill is never touched (staleSkillDirs). With no listing (git could not answer) nothing is deleted.
+  const skillRels = harness.listed()?.filter((rel) =>
+    SKILL_TARGETS.some((t) => rel.startsWith(`${t.dir}/${SKILL_PREFIX}`) && rel.endsWith("/SKILL.md") && rel.split("/").length === t.dir.split("/").length + 2)) ?? null;
+  const skills = skillRels === null ? [] : [...new Set(skillRels.map((rel) => rel.split("/").slice(-2)[0]!))].sort();
+  for (const rel of skillRels ?? []) {
+    const src = harness.read(rel);
+    if (src == null) continue;
+    for (const dir of targets) {
+      const dst = path.join(dir, ...rel.split("/"));
+      if (fs.readFile(dst) !== src) { fs.mkdirp(path.dirname(dst)); fs.writeFile(dst, src); written++; }
+    }
+  }
+  if (skillRels !== null && !harness.unreadable) {
+    for (const dir of targets) for (const gone of staleSkillDirs(fs, dir, skills)) { fs.rm(gone); written++; }
+  }
   // NO `.git/info/exclude` ENTRY ANY MORE (Policy Owner, 2026-09-28).
   //
   // gov used to hide its copies from every code repo's `git status`, because `cleanup.ts` reads untracked files as
@@ -412,7 +438,7 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
   // The cleanup problem is fixed where it belongs, in `dirtyIgnoringGovsOwnFiles`: gov discounts its own harness
   // when judging whether deleting a directory would lose somebody's work. A team that would rather not see these
   // files can add them to their own `.gitignore`, which is their file and their decision.
-  return { structureOnly: false, placed, targets, skipped, written, unreadable: harness.unreadable };
+  return { structureOnly: false, placed, targets, skipped, written, unreadable: harness.unreadable, skills };
 }
 
 /**
@@ -422,15 +448,17 @@ export function ensureRootProtocol(fs: Fs, projectDir: string, workspaceRepo: st
  */
 function readHarnessAtDefault(source: HarnessSource, worktree: string): {
   readonly unreadable: string | null; readonly from: (rel: string) => string; readonly read: (rel: string) => string | null;
+  /** Every path the branch has under the harness dir, relative to it; null when git could not list it. */
+  readonly listed: () => readonly string[] | null;
 } {
   const dir = HARNESS_SRC_DIR.split(path.sep).join("/");
   const b = source.defaultBranch;
   const ref = [b, `origin/${b}`].find((r) => source.git(worktree, ["rev-parse", "--verify", "--quiet", `${r}^{commit}`]) !== null);
   const from = (rel: string): string => `${ref ?? b}:${dir}/${rel}`;
-  if (!ref) return { unreadable: `gov could not read the default branch '${b}' in ${worktree}`, from, read: () => null };
+  if (!ref) return { unreadable: `gov could not read the default branch '${b}' in ${worktree}`, from, read: () => null, listed: () => null };
   // ONE LISTING, so "the branch has no such file" is a fact git stated, kept apart from git failing.
   const listing = source.git(worktree, ["ls-tree", "-r", "--name-only", ref, "--", dir]);
-  if (listing === null) return { unreadable: `git could not list ${dir}/ at ${ref} in ${worktree}`, from, read: () => null };
+  if (listing === null) return { unreadable: `git could not list ${dir}/ at ${ref} in ${worktree}`, from, read: () => null, listed: () => null };
   const present = new Set(listing.split("\n").map((l) => l.trim()).filter(Boolean));
   let unreadable: string | null = null;
   const read = (rel: string): string | null => {
@@ -441,7 +469,8 @@ function readHarnessAtDefault(source: HarnessSource, worktree: string): {
     // copy one byte short of the rendered file would be rewritten on every launch and never match a fresh render.
     return text.replace(/\n*$/, "\n");
   };
-  return { get unreadable() { return unreadable; }, from, read };
+  const listed = (): readonly string[] => [...present].map((p) => p.slice(dir.length + 1));
+  return { get unreadable() { return unreadable; }, from, read, listed };
 }
 
 /**

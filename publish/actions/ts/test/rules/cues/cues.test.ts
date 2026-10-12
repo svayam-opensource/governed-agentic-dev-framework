@@ -9,7 +9,7 @@ import type { RuleRow } from "../../../src/rules/model/rule-row.js";
 import type { RuleSet } from "../../../src/rules/model/contracts.js";
 import type { CheckBinding } from "../../../src/rules/model/catalog.js";
 import { renderResidentBlock, residentRows, RESIDENT_CAP } from "../../../src/rules/cues/resident.js";
-import { onDemandCues } from "../../../src/rules/cues/on-demand.js";
+import { bindingGlobs, onDemandRows } from "../../../src/rules/cues/on-demand.js";
 import { humanGateMessage } from "../../../src/rules/cues/human-message.js";
 import { carriesResidentBlock } from "../../../src/rules/harness-render.js";
 
@@ -110,56 +110,33 @@ const bind = (resource: string, event: string, w?: Record<string, unknown>): Che
 const onDemand = (id: string, checks: CheckBinding[], over: Partial<RuleRow> = {}): RuleRow =>
   row(id, { level: "C02", cue: { tier: "on-demand", text: `od ${id}` }, checks, ...over });
 
-describe("cues — on-demand tier", () => {
-  const pr = { resource: "vcs.code-repo", event: "pull_request" };
-
-  it("returns the cues whose rule has a check bound to that resource and event", () => {
+// The per-event `onDemandCues` had no caller and is replaced by the skill renderer (intent 03 D6, L14 — W7 closed);
+// the skills themselves are tested in test/skills/render.test.ts. What remains here is the selection both share.
+describe("cues — on-demand tier (selection for skills)", () => {
+  it("selects in-force C02 and C03 rows binding an agent, framework first then org, each by id number", () => {
+    const b = [bind("vcs.code-repo", "pull_request")];
     const s = set(
-      [onDemand("GOV-FRM-005", [bind("vcs.code-repo", "pull_request")]), onDemand("GOV-FRM-006", [bind("gov.verb", "close")])],
-      [onDemand("GOV-SVM-001", [bind("vcs.code-repo", "push"), bind("vcs.code-repo", "pull_request")])],
+      [onDemand("GOV-FRM-020", b), onDemand("GOV-FRM-003", b), row("GOV-FRM-007", { level: "C03" })],
+      [onDemand("GOV-SVM-002", b)],
     );
-    expect(onDemandCues(s, pr).map((c) => c.id)).to.deep.equal(["GOV-FRM-005", "GOV-SVM-001"]);
-    expect(onDemandCues(s, { resource: "gov.verb", event: "close" })[0]).to.deep.equal({ id: "GOV-FRM-006", level: "C02", text: "od GOV-FRM-006" });
+    expect(onDemandRows(s).map((r) => r.id)).to.deep.equal(["GOV-FRM-003", "GOV-FRM-007", "GOV-FRM-020", "GOV-SVM-002"]);
   });
 
-  it("orders framework first then org by id number, one cue per rule however many checks match", () => {
-    const s = set(
-      [onDemand("GOV-FRM-020", [bind("vcs.code-repo", "pull_request")]), onDemand("GOV-FRM-003", [bind("vcs.code-repo", "pull_request"), bind("vcs.code-repo", "pull_request")])],
-      [onDemand("GOV-SVM-002", [bind("vcs.code-repo", "pull_request")])],
-    );
-    expect(onDemandCues(s, pr).map((c) => c.id)).to.deep.equal(["GOV-FRM-003", "GOV-FRM-020", "GOV-SVM-002"]);
-  });
-
-  it("filters file-glob bindings (with.paths / with.when) by the changed paths", () => {
-    const s = set([
-      onDemand("GOV-FRM-001", [bind("vcs.code-repo", "pull_request", { paths: ["**/package.json", "**/go.mod"] })]),
-      onDemand("GOV-FRM-002", [bind("vcs.code-repo", "pull_request", { when: "src/**/*.ts" })]),
-      onDemand("GOV-FRM-003", [bind("vcs.code-repo", "pull_request")]),
-    ]);
-    const ids = (paths?: string[]) => onDemandCues(s, { ...pr, paths }).map((c) => c.id);
-    expect(ids(["web/package.json"])).to.deep.equal(["GOV-FRM-001", "GOV-FRM-003"]);
-    expect(ids(["src/a.ts"])).to.deep.equal(["GOV-FRM-002", "GOV-FRM-003"]);
-    expect(ids(["README.md"])).to.deep.equal(["GOV-FRM-003"]);
-    expect(ids([])).to.deep.equal(["GOV-FRM-003"]);
-    // Paths not known yet: every bound cue is shown — an extra cue costs a line, a missing one costs the rule.
-    expect(ids(undefined)).to.deep.equal(["GOV-FRM-001", "GOV-FRM-002", "GOV-FRM-003"]);
-  });
-
-  it("an empty glob list matches nothing, never everything", () => {
-    const s = set([onDemand("GOV-FRM-001", [bind("vcs.code-repo", "pull_request", { paths: [] })])]);
-    expect(onDemandCues(s, { ...pr, paths: ["x"] })).to.deep.equal([]);
-  });
-
-  it("never returns retired rows, resident cues, cue-less rows, or rules no agent is bound by", () => {
+  it("never returns retired rows, C01 rows, or rules no agent is bound by", () => {
     const b = [bind("vcs.code-repo", "pull_request")];
     const s = set([
       onDemand("GOV-FRM-001", b, { end: closed }),
       row("GOV-FRM-002", { cue: { tier: "resident", text: "r" }, checks: b }),
-      row("GOV-FRM-003", { checks: b }),
       onDemand("GOV-FRM-004", b, { actor: ["human"] }),
       onDemand("GOV-FRM-005", b, { actor: ["agent"] }),
     ]);
-    expect(onDemandCues(s, pr).map((c) => c.id)).to.deep.equal(["GOV-FRM-005"]);
+    expect(onDemandRows(s).map((r) => r.id)).to.deep.equal(["GOV-FRM-005"]);
+  });
+
+  it("reads a binding's file globs from with.paths and with.when, dropping non-strings; none → null", () => {
+    expect(bindingGlobs(bind("vcs.code-repo", "pull_request", { paths: ["**/package.json", 3], when: "src/**/*.ts" })))
+      .to.deep.equal(["**/package.json", "src/**/*.ts"]);
+    expect(bindingGlobs(bind("vcs.code-repo", "pull_request"))).to.equal(null);
   });
 });
 
