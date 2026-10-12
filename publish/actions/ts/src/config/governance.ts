@@ -30,7 +30,7 @@ import { readAuthorizedAgents, type AuthorizedAgents } from "./approved-agents.j
 export const GOVERNANCE_PATH = "policies/governance.yaml";
 
 /** The top-level keys gov reads in governance.yaml — anything else is reported, never acted on. */
-export const GOVERNANCE_KEYS = ["governance_posture", "policy_owner", "check_owner", "authorized_agents", "knowledge_publication", "models"] as const;
+export const GOVERNANCE_KEYS = ["governance_posture", "policy_owner", "check_owner", "authorized_agents", "knowledge_publication", "models", "autorun"] as const;
 
 /* ─────────────────────────────── the posture ─────────────────────────────── */
 
