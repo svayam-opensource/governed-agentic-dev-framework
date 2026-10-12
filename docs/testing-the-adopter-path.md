@@ -327,7 +327,7 @@ one line per run — `OK`, or `BREAK:` and why (`event push`, `different commit`
 | Tier | Needs | When something is missing |
 |---|---|---|
 | `smoke`, `journey`, `os-tier` | nothing | — |
-| `live` — adopter journey | secret `TESTBED_BOT_PAT`, variable `TESTBED_SANDBOX_ORG` | **fails** on a manual dispatch, a PR into `dev`/`main`, a push to `dev`/`main`; **skips visibly** (notice + run summary) on a feature-branch push |
+| `live` — adopter journey | secret `TESTBED_BOT_PAT` (classic: `repo`, `workflow`, `project`, `read:org`, `delete_repo`; or fine-grained on **all** repositories of the sandbox org — a selected-repositories token cannot read the repos a run creates), variable `TESTBED_SANDBOX_ORG` | **fails** on a manual dispatch, a PR into `dev`/`main`, a push to `dev`/`main`; **skips visibly** (notice + run summary) on a feature-branch push |
 | `live` — rule-model journey, assertion (f) | secrets `GOV_E2E_APP_CLIENT_ID`, `GOV_E2E_APP_PRIVATE_KEY` | the same: the guard names them up front on a strict run; elsewhere (f) is skipped, named, and the journey reports `incomplete` |
 | `live` — real model | secret `GEMINI_API_KEY`, only when dispatched with `real_model` | fails that dispatch |
 
@@ -336,6 +336,12 @@ the verdict by `e2e/live-verdict.sh` (its last), which lists every journey and e
 in the run summary. Both are tested with the secrets unset (`test/e2e/live-gate.test.ts`), so proving
 the guard never needs the repository's real secrets removed. Token scopes are in
 `publish/actions/ts/e2e/README.md`.
+
+**Board poll and token probe.** After adding its issue to the board, the adopter journey prints
+`probe:` lines (`e2e/token-probe.sh`): the token's kind, and whether it can read the new repo, the
+issue and the board item. Its poll then tells two failures apart: items whose content is null — the
+token cannot read the issue; it dies at once, `token cannot read <repo> — <kind>` — and no items yet,
+which is GitHub's index latency; it waits up to 3 minutes and says on which poll the item appeared.
 
 ---
 

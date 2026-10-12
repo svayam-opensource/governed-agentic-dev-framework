@@ -109,3 +109,13 @@ bash e2e/rule-model-journey.sh --dry-run   # hermetic: prints every gh/git/gov c
    so the secret needs no update). Delete any `rmj-*` / `gov-e2e-*` repos it left in
    the sandbox; the rule-model journey also sweeps `rmj-*` leftovers older than two
    hours once it can delete.
+
+   **A fine-grained token must cover ALL repositories of the sandbox org.** The
+   journeys create their repos during the run, so a token limited to *selected*
+   repositories can add the new issue to the board but cannot read it: GraphQL returns
+   the board item with `content: null`. The adopter journey's board poll
+   (`board_poll`, `e2e/token-probe.sh`) dies on that at once — `token cannot read
+   <repo> — fine-grained` — instead of waiting three minutes; it waits only while the
+   board has no item at all (GitHub's index latency). Each run prints `probe:` lines
+   (token kind; can it read the new repo, the issue, the board item) right after the
+   issue is added. PRJ-121 intent 05, Item 5.
