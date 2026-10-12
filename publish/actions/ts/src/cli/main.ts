@@ -20,7 +20,7 @@ import type { SpawnPlan } from "../win-spawn.js";
 import { ownerOnlyAclArgv, ttyDevice, windowsLinkPlan } from "./windows.js";
 import { runSetup } from "../setup/setup-run.js";
 import type { SetupPreAnswers } from "../setup/interview.js";
-import { log, closeLog, cacheLogin, cachedLogin } from "../log.js";
+import { log, closeLog, cacheLogin, cachedLogin, phase } from "../log.js";
 import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
 import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, setupTokenValues, renderManifest, selectSetupContent, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
@@ -222,6 +222,7 @@ async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>
     // gathered, and "Bob Shell 2.0.2 installed" is a claim a reader can check.
     say("");
     say(r0.ok(`${plan.agent.tool}${version ? ` ${version.trim().split("\n")[0]}` : ""} installed and runnable`));
+    phase("agent-ready", "gov-work:cli:main", { agent: plan.agent.tool });   // the walk's step 5 ends (#276)
     // AND RUNNABLE AFTER GOV EXITS (#209). It ran a moment ago only because gov's own process
     // has its private Node directory on PATH. A plain login shell does not, and must not — that
     // directory is private so gov's Node never becomes the machine's Node. `install.sh` solved
@@ -1211,6 +1212,7 @@ export async function runSetupCommand(
           configUrl: `${base}/blob/${written.defaultBranch || "main"}/org-config.yaml`,
           projectsPath: defaultWorkRoot(written.orgSlug ?? "") || path.join(os.homedir(), ".gov"),
         })) process.stdout.write(`${line}\n`);
+        phase("adopt-done", "gov-work:cli:main", { org: pOrg ?? null });     // "what now exists": the walk's step 4 ends (#276)
       }
     }
     // CONFIGURE-IN-PLACE ENDS WITH ITS CHANGES LANDED THE GOVERNED WAY (F17 + F20). CODEOWNERS follows the owners setup
@@ -1835,6 +1837,7 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
       // (run-process.ts). For eight of ten agents `args` is the whole session-start prompt, so anything a prompt
       // carries went to the log with it — and the inconsistency was invisible, because this is the one place that
       // logs an invocation without going through `runProcess`.
+      phase("agent-launch", "gov-work:cli:main", { agent });                  // the walk's step 6 ends at the manifest (#276)
       log("info", "launching the agent", "gov-work:cli:main", "launch", {
         agent, cmd: s.cmd, args: redactArgv(s.args), cwd, detached: s.detached === true,
         promptDelivery: s.promptToPaste ? "paste" : "argv",

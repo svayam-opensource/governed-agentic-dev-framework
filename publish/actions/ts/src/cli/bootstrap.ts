@@ -35,6 +35,7 @@
 
 import * as path from "node:path";
 import { paint } from "./format.js";
+import { phase } from "../log.js";
 import { approvalSummary } from "./approve-agents-step.js";
 import { askOrgInterview, INTERVIEW_HEADER, InterviewRefused, type SetupPreAnswers } from "../setup/interview.js";
 import { askJoinInterview, cloneTargetFor, JOIN_HEADER, JoinRefused } from "../setup/join-interview.js";
@@ -468,6 +469,7 @@ export async function runFirstRun(io: FirstRunIo): Promise<number | null> {
  * enough, which is our problem to fix on the spot, not theirs to be punished for.
  */
 async function askRole(io: FirstRunIo): Promise<FirstRunRole | null> {
+  phase("first-run", "gov-work:cli:bootstrap");          // the walk's step 4 starts here (spec 04 §5, #276)
   for (let attempt = 0; attempt < 5; attempt++) {
     for (const line of roleQuestion(io.color ?? false)) io.print(line);
     const role = parseRole(await io.prompt("Select (A/B/C): ", ""));
@@ -594,6 +596,7 @@ async function foundNewOrg(io: FirstRunIo): Promise<number> {
  */
 async function offerTheReview(io: FirstRunIo, role: AdoptionRole, agent?: string, agentsOff = false): Promise<number> {
   if (!io.reviewNow) return 0;
+  phase("review-offer", "gov-work:cli:bootstrap", { role });
   // The adopter has one thing to do and gov knows which; the joiner has a list only they can
   // choose from. Same offer, different last word.
   //

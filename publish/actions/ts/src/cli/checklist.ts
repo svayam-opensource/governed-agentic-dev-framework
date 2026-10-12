@@ -22,6 +22,7 @@
  */
 
 import { paint } from "./format.js";
+import { phase } from "../log.js";
 
 /** What gov can see about how far adoption has got. */
 export interface ChecklistFacts {
@@ -163,13 +164,21 @@ export function checklistPreamble(color = false): readonly string[] {
   ];
 }
 
-/** The banner that opens one step, so the run reads as the plan did. */
+/**
+ * The banner that opens one step, so the run reads as the plan did.
+ *
+ * AND ONE PHASE MARKER IN THE RUN LOG (spec 04 §5, #276): the timed walk is cut from the log, so every banner is
+ * also a timestamp — written HERE, where the banner is made, so no call site can show a step the log missed.
+ * Log only (log.ts rule 1: silent on screen); with no run started it writes nothing.
+ */
 export function stepBanner(item: ChecklistItem, color = false): readonly string[] {
+  phase(`step-${item.n}`, "gov-work:cli:checklist", { text: item.text });
   return ["", "", RULE, paint(`===> ${item.n}. ${item.text}`, "bold", color), ""];
 }
 
-/** The line that closes it. */
+/** The line that closes it — and its `step-<n>-done` marker, for the same reason as the banner's. */
 export function stepDone(item: ChecklistItem, ok = true, color = false): string {
+  phase(`step-${item.n}-done`, "gov-work:cli:checklist", { ok });
   return `===> ${item.n}. [${ok ? paint("\u2713", "green", color) : " "}] ${item.text}`;
 }
 

@@ -296,6 +296,47 @@ seven of them turned out to be real.
 
 ---
 
+## The human walk tier — the timed 10-minute walk
+
+The tiers above are scripts. The release gate is a **person** who has never seen gov,
+on a fresh machine, timed from opening the README to their agent posting its context
+manifest — **≤ 10:00** (account creation excluded, every sign-in included). Each step
+has a budget:
+
+| # | Step | macOS / Linux | Windows | ends when |
+|---|---|---|---|---|
+| 1 | Door: README → one command | 0:30 | 0:45 | install command running |
+| 2 | Install: Node 24 + gov | 1:30 | 1:00 | `gov` runs in this shell |
+| 3 | Dependencies + GitHub sign-in | 1:30 | 2:00 | step 6 of the checklist ticked |
+| 4 | Adopt interview + repo created + seeded | 2:30 | 2:30 | "what now exists" printed |
+| 5 | Agent install + sign-in | 1:30 | 1:30 | agent installed **and runnable** |
+| 6 | Review offer → seed → launch | 1:30 | 1:30 | agent posts its context manifest |
+
+**The log is the stopwatch.** gov writes a phase marker into its run log at every
+checklist banner (`phase step-<n>`, `phase step-<n>-done`) and at each walk boundary
+(`phase first-run`, `adopt-done`, `review-offer`, `agent-ready`, `agent-launch`).
+`scripts/walk-times.mjs` cuts the six steps from those lines. Three marks are the
+observer's, because gov is not running at them: README opened, install command
+running, manifest posted.
+
+```bash
+cd publish/actions/ts
+node scripts/walk-times.mjs --os linux \
+  --start 2026-10-12T10:00:00Z --install-at 2026-10-12T10:00:25Z --manifest-at 2026-10-12T10:08:30Z \
+  --markdown ~/.gov/logs/2026-10-12 ~/.gov/<slug>/projects/preferences/<login>/state/logs/2026-10-12
+```
+
+It prints the walk record's step table with each step over or under its budget, and
+says where each end came from. Without the observer's marks it still cuts steps 3–6
+and says the result is partial. `--json` gives the same for a script.
+
+The walk kit — what the walker is told (only the README link), the observer's
+checklist, the record template and the machine setup — lives with the project that
+runs the walks: `projects/PRJ-121-doc-update-issue-116/knowledge/walks/` in the
+workspace repo (`WALK-SCRIPT.md`, `TEMPLATE.md`, `MACHINES.md`).
+
+---
+
 ## What green means — adopter-e2e, computed
 
 `adopter-e2e` (`.github/workflows/adopter-e2e.yml`) runs these tiers: `smoke` (hermetic), `journey`

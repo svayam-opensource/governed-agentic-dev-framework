@@ -202,6 +202,18 @@ export function decide(what: string, chose: string | null, why: string, pgm: str
   log("info", `chose ${what}`, pgm, fn, { decision: what, chose, why, ...(meta ?? {}) });
 }
 
+/**
+ * A PHASE MARKER — where the first-run journey is, on the clock (PRJ-121 plan 04 T17, #276).
+ *
+ * The timed adopter walk (spec 04 §5) is cut from the log, not from a video: `scripts/walk-times.mjs` reads these
+ * lines and cuts §2.2's six steps. One line, message `phase <id>`, function `phase`. The ids it reads:
+ * `step-<n>` / `step-<n>-done` (checklist banners, written by `stepBanner` / `stepDone`), `first-run`,
+ * `adopt-done`, `review-offer`, `agent-ready`, `agent-launch`. Renaming one breaks the walk tooling.
+ */
+export function phase(id: string, pgm: string, meta?: Record<string, unknown>): void {
+  log("info", `phase ${id}`, pgm, "phase", { phase: id, ...(meta ?? {}) });
+}
+
 /** Flush before a short-lived process exits, or the last lines — the interesting ones — are lost. */
 export function closeLog(): void {
   try { run?.logger?.close(); } catch { /* closing a closed logger is not news */ }
