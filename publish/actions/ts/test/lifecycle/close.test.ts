@@ -7,7 +7,7 @@ import { createGhPulls } from "../../src/lifecycle/pulls.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs } from "../../src/lifecycle/vcs.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
-import type { WorkTrackerPort } from "../../src/ports/work-tracker.js";
+import type { BoardWriter } from "../../src/ports/work-tracker.js";
 import type { Pulls, PrState } from "../../src/lifecycle/pulls.js";
 import { px, pxAll, pxDeep } from "../helpers/paths.js";
 
@@ -140,8 +140,8 @@ function fakeVcs(opts: { openTasks?: string[]; syncConflict?: boolean } = {}) {
 /** Closing the board goes through the WorkTrackerPort (gadf#225). */
 function fakeTracker() {
   const acted: string[] = [];
-  const tracker: WorkTrackerPort = {
-    setStatus: () => ({ ok: true }),
+  const tracker: BoardWriter = {
+    setState: () => ({ ok: true }),
     closeProject: (r) => { acted.push(`closeBoard ${r.number}`); return { ok: true }; },
   };
   return { acted, tracker };
@@ -177,7 +177,7 @@ describe("prj-work Phase 2 — close orchestrator (model A)", () => {
   });
 
   it("gadf#225: a board that will not close is REPORTED — close still succeeds, never silently", () => {
-    const tracker: WorkTrackerPort = { setStatus: () => ({ ok: true }), closeProject: () => ({ ok: false, why: "denied", detail: "HTTP 403" }) };
+    const tracker: BoardWriter = { setState: () => ({ ok: true }), closeProject: () => ({ ok: false, why: "denied", detail: "HTTP 403" }) };
     const r = close(deps({ tracker }), CONFIG, input());
     expect(r.ok).to.equal(true);
     if (r.ok) expect(r.boardClosed).to.deep.equal({ ok: false, why: "denied", detail: "HTTP 403" });

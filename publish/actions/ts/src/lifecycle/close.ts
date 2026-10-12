@@ -15,7 +15,7 @@ import * as path from "node:path";
 import type { Board } from "./board.js";
 import type { Vcs, FsProbe } from "./vcs.js";
 import type { Fs } from "./fs-io.js";
-import { NO_TRACKER, type BoardCloseResult, type WorkTrackerPort } from "../ports/work-tracker.js";
+import { NO_TRACKER, type BoardCloseResult, type BoardWriter } from "../ports/work-tracker.js";
 import type { Pulls } from "./pulls.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl, repoSlugFromUrl } from "./repo.js";
@@ -50,7 +50,7 @@ export interface CloseDeps {
   readonly fs: Fs;
   readonly pulls: Pulls;
   /** Closes the board (gadf#225). Absent → reported as `unreachable`, never a silent skip. */
-  readonly tracker?: WorkTrackerPort;
+  readonly tracker?: BoardWriter;
   /** REQUIRED (C01) — write-access to the GitHub Project. Called unconditionally; no caller can omit it. */
   readonly authorize: (ref: BoardRef) => boolean;
   /** REQUIRED — the test-merge validators (Phase 3). Always run before any push. */
