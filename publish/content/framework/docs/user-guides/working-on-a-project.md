@@ -245,6 +245,49 @@ The HOME repo stays on the default branch throughout — there's no `git push` n
 
 ---
 
+## 4. How a gate is passed
+
+When your org has adopted a lifecycle (`policies/active/ai-sdlc-lifecycle.md`), each intent lives in
+`projects/<PRJ>/intents/<NN-slug>/` as `intent.md`, `spec.md`, `plan.md` and `build.md`. That folder is the only
+place gov looks: the name must be two digits, a dash and a lowercase slug (`03-lifecycle-signals-ports`). gov
+lists any other folder there as skipped, and never reads the older `issues/<n>/` path. If your org has not
+adopted a lifecycle, gov says so and does nothing with intents.
+
+Each artifact opens with a **Status** line: `DRAFT`, `APPROVED by <who> <date> (<change request link>)`, or
+`STALE (<why>)`. An agent drafts the artifact. A person approves it, and only on the code host:
+
+```mermaid
+flowchart LR
+  D["Agent drafts the artifact<br/>Status: DRAFT"] --> CR["Change request opened"]
+  CR --> R{"Approving review<br/>from a person?"}
+  R -- "no (only bots, or changes requested)" --> D
+  R -- yes --> M{"Merged?"}
+  M -- no --> CR
+  M -- yes --> W["gov writes the Status line<br/>APPROVED by login date (link)"]
+```
+
+- **Only a person's review counts.** Approvals from bot accounts (a `[bot]` login, or an account the host
+  marks as a bot) count for nothing. Each reviewer counts by their latest review: if you approve and then
+  request changes, or your approval is dismissed, the artifact is not approved. A later comment does not cancel
+  an approval. If the lifecycle's Gates section names who approves a step, only those people count.
+- **The change request must be merged.** An approved change request that is still open does not pass the gate.
+- **gov writes the Status line, you don't.** When the change request merges, gov replaces the artifact's
+  Status line with `**Status: APPROVED by <login> <yyyy-mm-dd> (<change request link>)**` and leaves the rest of
+  the file as it was.
+- **gov checks the text.** A Status line that says APPROVED is only a claim. gov follows its link to the change
+  request and checks it on the host. If there is no link, the change request isn't merged, only bots approved
+  it, or the person named didn't approve it, the artifact is not approved and gov tells you why.
+
+**Stale plans.** If the spec changes after its plan was approved, the plan is out of date. gov marks it
+`STALE (spec changed <date> after the plan was approved <date>)`, and the spec and plan go back through their
+gates.
+
+**Shipped in.** When a release's `releases/<unit>/<version>/deploy.md` lists your project and intent in its
+"Included intents" table, gov adds `releases/<unit>/<version>` to the "Shipped in" section of the intent's
+`build.md`. An intent that ships in more than one unit gets one line for each.
+
+---
+
 ## 5. Pausing, resuming, syncing
 
 - **`gov pause`** — for "I need to stop and come back later, possibly weeks." Marks the project paused. Must be cleanly committed first.
