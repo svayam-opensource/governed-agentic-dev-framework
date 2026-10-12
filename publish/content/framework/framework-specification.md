@@ -649,14 +649,17 @@ platform also blocks force-pushes to project branches outright.
 
 ### 8.1 The knowledge tree is yours
 
-`knowledge/` **ships empty**. The framework creates no domains. A domain should exist only when your
-organization has a named owner for it, and a tree made up in advance would tie you to someone else's
-taxonomy before anyone was accountable for it. `policies/knowledge-organization-standard.md` is a starting
-point for your structure, and you can change it.
+`knowledge/` **ships empty**. The framework creates no domains, and ships no standard for organizing them. A
+domain should exist only when your organization has a named owner for it, and a tree made up in advance would tie
+you to someone else's taxonomy before anyone was accountable for it. The tree and how you harvest into it at a
+project's close are your own: write the structure you choose into your own policy, if you want it written down.
+
+Whether you publish that knowledge (a site, PDF exports, a search index) is also yours. The framework neither
+requires nor configures it, and gov keeps no setting for it.
 
 Whether your knowledge documents open with front matter, and which fields and values it carries, is also your
-choice. gov checks front matter only when your own policy asks for it: keep section 4 of that standard, or write
-your own, and `gov rules propose` turns it into a rule that checks exactly the fields and values you listed.
+choice. gov checks front matter only when your own policy asks for it: write the fields and values you want in a
+section of your policy, and `gov rules propose` turns it into a rule that checks exactly those.
 
 ### 8.2 One fact, one document
 
@@ -696,8 +699,8 @@ The file has two halves.
 - **People write the other half**, because no machine can: what was deviated from, why it was reasonable, and
   what a reader a year from now would need in order to agree.
 
-How your organization rolls these up, and how often it reviews them, is set in
-`policies/compliance-review.md`.
+How your organization rolls these up, and how often it reviews them, is its own decision, written in its own
+policy if anywhere.
 
 *Rules for this chapter: rule map, filter `framework-specification.md §8`.*
 

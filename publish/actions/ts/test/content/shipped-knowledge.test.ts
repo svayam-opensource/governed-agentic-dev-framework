@@ -103,7 +103,7 @@ describe("gov-work — seeded policies carry no front matter (Policy Owner, 2026
     .map((n) => n.split(path.sep).join("/")).filter((n) => n.endsWith(".md") && n !== "CHANGELOG.md").sort();
 
   it("no seeded policies/*.md opens with a front-matter block", () => {
-    expect(seeded.length).to.be.greaterThan(5);
+    expect(seeded.length).to.be.at.least(5);
     const withFm = seeded.filter((n) => fs.readFileSync(path.join(policiesDir, n), "utf8").startsWith("---"));
     expect(withFm, `front matter in: ${withFm.join(", ")}`).to.deep.equal([]);
   });
@@ -113,16 +113,6 @@ describe("gov-work — seeded policies carry no front matter (Policy Owner, 2026
       const head = fs.readFileSync(path.join(policiesDir, n), "utf8").split("\n").slice(0, 8).join("\n");
       expect(head, n).to.match(/^# /);
       expect(head, n).to.not.match(/^\*\*(Policy Owner|Owner|Status|Document):\*\*/m);
-    }
-  });
-
-  it("the knowledge standard's §4 says front matter is the org's choice, and lists values propose can extract", () => {
-    const text = fs.readFileSync(path.join(policiesDir, "knowledge-organization-standard.md"), "utf8");
-    const s4 = text.slice(text.indexOf("## 4."), text.indexOf("## 5."));
-    expect(s4).to.match(/your (organization's )?choice/i);
-    expect(s4).to.match(/gov rules propose/);
-    for (const v of ["mandate", "procedure", "pattern", "use-case", "spec", "compliance", "path", "current", "draft", "superseded"]) {
-      expect(s4, v).to.include(`\`${v}\``);
     }
   });
 });

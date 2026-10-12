@@ -41,7 +41,7 @@ describe("governance.yaml changes — named in plain words", () => {
       .to.deep.equal(["Approved model for propose: none; CI may not use it"]);
   });
 
-  it("posture, owners, agents and publication each get a line", () => {
+  it("posture, owners and agents each get a line; the retired knowledge_publication gets none", () => {
     const head = GOV.replace('governance_posture: "soft"', 'governance_posture: "hard"')
       .replace('github: "polly"', 'github: "pat"')
       .replace("check_owner:\n  github: \"\"", 'check_owner:\n  github: "chuck"')
@@ -50,7 +50,6 @@ describe("governance.yaml changes — named in plain words", () => {
       "Governance posture: soft → hard",
       "Policy Owner: @polly → @pat",
       "Check Owner: vacant → @chuck",
-      "Knowledge publication: none → site",
     ]);
   });
 

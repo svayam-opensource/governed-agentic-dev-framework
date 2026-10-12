@@ -12,7 +12,6 @@
  *   policy_owner           { email, github } — the framework's first built-in role
  *   check_owner            { github } — the second; vacant escalates to the Policy Owner (GOV-FRM-033)
  *   authorized_agents      which agents the org authorizes (config/approved-agents.ts reads the block)
- *   knowledge_publication  none | site | site+pdf | site+pdf+rag
  *   models                 which model the org approves for `gov rules propose` (framework §9.3)
  *
  * SEED-ONCE. The framework ships it empty, `gov setup` fills it, and from then on it is the organization's: `gov
@@ -30,7 +29,14 @@ import { readAuthorizedAgents, type AuthorizedAgents } from "./approved-agents.j
 export const GOVERNANCE_PATH = "policies/governance.yaml";
 
 /** The top-level keys gov reads in governance.yaml — anything else is reported, never acted on. */
-export const GOVERNANCE_KEYS = ["governance_posture", "policy_owner", "check_owner", "authorized_agents", "knowledge_publication", "models", "evidence"] as const;
+export const GOVERNANCE_KEYS = ["governance_posture", "policy_owner", "check_owner", "authorized_agents", "models", "evidence"] as const;
+
+/**
+ * Keys gov once wrote here and no longer reads. An org's file may still hold one: it stays exactly as written, and gov
+ * neither acts on it nor reports it — gov put it there, so it is not the org's mistake to be told about.
+ * `knowledge_publication` (PRJ-121 §3.3, T14): the knowledge tree, and whether and how it is published, are the org's own.
+ */
+export const RETIRED_GOVERNANCE_KEYS: readonly string[] = ["knowledge_publication"];
 
 /* ─────────────────────────────── the posture ─────────────────────────────── */
 
@@ -82,7 +88,6 @@ export interface GovernanceConfig {
   readonly policyOwner: { readonly email: string; readonly github: string };
   readonly checkOwner: { readonly github: string };
   readonly authorizedAgents: AuthorizedAgents;
-  readonly knowledgePublication: string;
   readonly models: {
     readonly propose: { readonly provider: string; readonly model: string };
     readonly command: string;
@@ -112,7 +117,7 @@ export function parseGovernance(text: string | null | undefined): GovernanceConf
     }
   }
   for (const k of Object.keys(doc)) {
-    if (!(GOVERNANCE_KEYS as readonly string[]).includes(k)) problems.push(`${k}: gov does not read this key in ${GOVERNANCE_PATH} — ignored`);
+    if (!(GOVERNANCE_KEYS as readonly string[]).includes(k) && !RETIRED_GOVERNANCE_KEYS.includes(k)) problems.push(`${k}: gov does not read this key in ${GOVERNANCE_PATH} — ignored`);
   }
   const po = isMap(doc.policy_owner) ? doc.policy_owner : {};
   const co = isMap(doc.check_owner) ? doc.check_owner : {};
@@ -136,7 +141,6 @@ export function parseGovernance(text: string | null | undefined): GovernanceConf
     checkOwner: { github: str(co.github) },
     // The agents block keeps its own reader (block or flow form, `none`, the default marker) — one reader for it.
     authorizedAgents: readAuthorizedAgents(text ?? null),
-    knowledgePublication: str(doc.knowledge_publication) || "none",
     models: { propose: { provider, model: str(propose.model) }, command: str(models.command), ciAllowed: ciRaw === true },
     problems,
   };
@@ -205,7 +209,6 @@ export function describeGovernanceChanges(baseText: string | null, headText: str
   pair("Policy Owner email", b.policyOwner.email || "none", h.policyOwner.email || "none");
   pair("Check Owner", handle(b.checkOwner.github), handle(h.checkOwner.github));
   pair("Authorized agents", agentsText(b.authorizedAgents), agentsText(h.authorizedAgents));
-  pair("Knowledge publication", b.knowledgePublication, h.knowledgePublication);
   if (modelText(b) !== modelText(h)) out.push(`Approved model for propose: ${modelText(h)}`);
   return out;
 }
@@ -220,12 +223,11 @@ export interface GovernanceValues {
   readonly checkOwnerGithub: string;
   /** The default agent, or "" (setup records the full list afterwards with `withAuthorizedAgents`). */
   readonly defaultAgent: string;
-  readonly knowledgePublication: string;
 }
 
 /** The framework's template is this file with nothing filled in (a test holds the shipped copy to it). */
 export const EMPTY_GOVERNANCE_VALUES: GovernanceValues = {
-  governancePosture: "soft", policyOwnerEmail: "", policyOwnerGithub: "", checkOwnerGithub: "", defaultAgent: "", knowledgePublication: "none",
+  governancePosture: "soft", policyOwnerEmail: "", policyOwnerGithub: "", checkOwnerGithub: "", defaultAgent: "",
 };
 
 /** Render governance.yaml. */
@@ -260,10 +262,6 @@ check_owner:
 # Left empty, gov uses the framework's defaults and says so.
 authorized_agents:
   default: "${v.defaultAgent}"
-
-# WHETHER THIS ORGANIZATION PUBLISHES ITS KNOWLEDGE: none · site · site+pdf · site+pdf+rag.
-# See policies/knowledge-publication.md.
-knowledge_publication: "${v.knowledgePublication}"
 
 # WHICH MODEL THE ORGANIZATION APPROVES FOR \`gov rules propose\` (framework specification §9.3).
 #   propose.provider   anthropic · gemini · command — empty means no model is approved, and propose asks you instead.

@@ -7,98 +7,50 @@ status: current
 ---
 # Closing a project
 
-Closing is the only step that writes a project's knowledge back to the organization, so it
-is the one worth slowing down for. Cancelling is here too — it is a different act, and the
-difference matters.
+Closing is the only step that offers a project's knowledge back to the organization, so it is the one worth
+slowing down for. Cancelling is here too. It is a different act, and the difference matters.
 
-## 7. Closing the project
+## Closing the project
 
-When all goal-level work is done and project knowledge is curated, run `gov close`
-from the **per-project workspace** (not the HOME repo):
+When the project's work is done, run `gov close` from the project's workspace:
 
 ```bash
-cd $AGENT_WORK_ROOT/PRJ-001-feature-x/<workspace_repo>
 gov close
 ```
 
-The close runs a governance gate: it merges the project branch back into the default branch in
-the workspace repo and in every code repo. After it succeeds, you can pull
-the merged state into the HOME repo:
+Before it changes anything, `gov close` checks one thing the framework itself needs:
+`projects/<id>/knowledge/` must exist, because close proposes that folder to the organization. What is in it,
+and how well it is curated, is your organization's decision, not the framework's. If your organization wants a
+harvest step at close (a manifest, a checklist, a reviewer), it writes that into its own policy, and
+`gov rules propose` turns it into a check that runs on `gov close`. The framework ships no harvest step of its
+own and requires no `knowledge-close.md`.
+
+Then `gov close` does two jobs, with different authority:
+
+| Target | What happens | Why |
+|---|---|---|
+| each **code** repository | the project branch is merged back into the branch it was cut from and pushed, tagged `archive/<branch>`, and deleted | gov is finishing work gov started; there is nothing to review |
+| the **governance** repository | a pull request is opened for the project's knowledge, and **left open** | it proposes organization-wide knowledge, which only someone with the authority can merge |
+
+The project's GitHub board closes on the first run. A completed project stays completed whether its knowledge
+pull request is merged, rejected or abandoned. CODEOWNERS assigns the reviewers.
+
+The governance branch is not archived on that first run, because it is the head of the open pull request. After
+the request is merged, run `gov close` again and gov tags and deletes the branch. While the request is still open,
+a second run says so and changes nothing. **gov never merges that pull request itself.**
+
+## Cancelling
 
 ```bash
-cd <your home checkout>
-git pull origin main
+gov cancel
 ```
 
-What this enforces:
+Run it from the project's workspace. It labels the project's anchor issue and closes the board. **Nothing is
+merged**, no knowledge pull request is opened, and the branches and clones are left exactly where they are.
 
-- `projects/PRJ-001-feature-x/knowledge/` must be non-empty.
-- `compliance.md` should exist (`gov close` will tell you if it doesn't).
-
-What this does:
-
-- Merges the project branch into the default code branch in each code repo.
-- Merges the project branch into the workspace's default branch.
-- Creates archive tags `archive/brnch-001-feature-x` everywhere and deletes the project branch.
-- Runs the knowledge-close step of `gov close`, which:
-  - Creates `brnch-001-feature-x-knowledge` branch.
-  - Synthesizes a knowledge-close proposal (or pauses for you/an agent to do so).
-  - Opens a PR for domain owners (CODEOWNERS auto-assigns reviewers).
-
-The project's GitHub board is closed (done). The knowledge PR is reviewed and merged separately — that lands new project-derived learnings into org-wide knowledge.
-
----
-
-### Closing
-
-Close the project with `gov close`, which runs the governance gate:
-
-```bash
-gov close PRJ-26-invoice-api
-```
-
-Pre-close gate (C01, hard fail if not met):
-- `projects/<id>/knowledge/` contains at least one file
-- `projects/<id>/knowledge/compliance.md` exists
-- The project's anchor issue is present and its assignees are set
-
-Then:
-1. Project branch is merged into each code repo's `base_branch`
-2. Project completion is recorded on GitHub — the board is closed (status → done)
-3. The **test-merge gate** runs locally: validators check the proposed post-merge state of the workspace default branch
-4. If validators pass, the project branch is fast-forwarded into the local default and pushed
-5. Project branches are archived (tag) and deleted in all repos
-6. The knowledge-close step of `gov close` runs automatically — see below
-
-If the test-merge gate fails, your local default branch is unchanged and you get specific error messages. Fix the cause, re-run `gov close`.
-
-### Knowledge close
-
-After `gov close`, the framework offers to synthesize project knowledge into proposals for the org-wide knowledge base:
-
-1. A new branch is created: `BRNCH-<board#>-<slug>-knowledge`
-2. (LLM/agent step — currently manual) Project knowledge is reviewed and proposed updates to `knowledge/` are committed to that branch
-3. A PR is opened against the default branch
-4. CODEOWNERS auto-assigns reviewers
-5. The knowledge-close status is reflected by the state of that PR (open = pending review)
-
-Knowledge close PRs are reviewed normally. Outcome (merged / rejected / abandoned) is reflected by the PR's state.
-
-### Cancelling
-
-```bash
-gov cancel PRJ-26-invoice-api "reason text"
-```
-
-Branches are tagged-then-deleted. **No merge to base branches**. No knowledge close. `cancellation_reason` is required (C01).
-
-Code changes are preserved in archive tags (`archive/<branch>`) — recoverable but not merged.
-
-### Reopening
+## Reopening
 
 If a closed project's board is opened again on GitHub, carry on with the usual commands. Closing deleted each
 code repo's project branch. The first `gov sync` or `gov task` makes the missing branch again from the base
 branch and prints `recreated '<branch>' in <repo> off origin/<base>`. `gov add-repo` reuses a worktree that is
 already on disk. Work merged at close stays merged, and nothing is restored from the `archive/` tags.
-
----

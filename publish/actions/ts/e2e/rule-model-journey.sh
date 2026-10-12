@@ -211,7 +211,6 @@ check_owner:
   github: "@$LOGIN"
 authorized_agents:
   default: ""
-knowledge_publication: "none"
 models:
   propose:
     provider: "$PROVIDER"

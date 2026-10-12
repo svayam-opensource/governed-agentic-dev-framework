@@ -159,17 +159,15 @@ files:
   # at a file that does not exist fails every pull request on day one.
   - { src: policies/org-policy.md,                      dst: policies/org-policy.md,                      mode: seed-once }
   - { src: policies/build/approved-technologies.md,     dst: policies/build/approved-technologies.md,     mode: seed-once }
-  - { src: policies/knowledge-organization-standard.md, dst: policies/knowledge-organization-standard.md, mode: seed-once }
-  - { src: policies/knowledge-publication.md,           dst: policies/knowledge-publication.md,           mode: seed-once }
-  # The clause groups that are the ORGANIZATION'S decision, lifted out of the framework's policy (2026-09-23).
-  # Each ships as a STARTER the org curates; the framework's policy keeps the clause numbers and points here.
-  - { src: policies/compliance-review.md,               dst: policies/compliance-review.md,               mode: seed-once }
+  # NOT SHIPPED since 2.0 (PRJ-121 §3.3, T4, T14, S3): knowledge-publication.md, knowledge-organization-standard.md
+  # and compliance-review.md. The knowledge tree, its publication and its review cadence are the organization's own;
+  # an org's existing copies are left exactly where they are.
   # common/ — clauses every phase shares: who holds each role, what may never leave the org, the policy domains.
   - { src: policies/common/data-classification.md,             dst: policies/common/data-classification.md,             mode: seed-once }
   - { src: policies/common/authorized-representatives.md,      dst: policies/common/authorized-representatives.md,      mode: seed-once }
   - { src: policies/common/policy-domains.md,                  dst: policies/common/policy-domains.md,                  mode: seed-once }
   # THE ORGANIZATION'S GOVERNANCE CHOICES (org-config split, 2026-10-06): posture, Policy and Check Owner,
-  # authorized agents, knowledge publication, the model approved for `gov rules propose`. A change needs the
+  # authorized agents, the model approved for `gov rules propose`. A change needs the
   # Policy Owner. An older org's values arrive here from org-config.yaml by the `org-config-split` move below.
   - { src: policies/governance.yaml,                    dst: policies/governance.yaml,                    mode: seed-once }
   # Who approves a change to each policy section (W2-Q8). Seeded empty — every section is the Policy Owner's —

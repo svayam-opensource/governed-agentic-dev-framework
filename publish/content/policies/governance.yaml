@@ -29,10 +29,6 @@ check_owner:
 authorized_agents:
   default: ""
 
-# WHETHER THIS ORGANIZATION PUBLISHES ITS KNOWLEDGE: none · site · site+pdf · site+pdf+rag.
-# See policies/knowledge-publication.md.
-knowledge_publication: "none"
-
 # WHICH MODEL THE ORGANIZATION APPROVES FOR `gov rules propose` (framework specification §9.3).
 #   propose.provider   anthropic · gemini · command — empty means no model is approved, and propose asks you instead.
 #   propose.model      the model id, for the anthropic and gemini providers.

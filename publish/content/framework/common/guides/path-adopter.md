@@ -22,8 +22,8 @@ in sequence; each destination is the single home of what it covers.
 
 - [How the framework works](../../framework-specification.md) — workspace, project, knowledge layers, compliance levels
   (the glossary is at the end), and chapter 2, the roles you are about to name
-- [Knowledge organization standard](../../../policies/knowledge-organization-standard.md) —
-  `knowledge/` ships empty and is yours to structure; this is the rule you apply when you do
+- [The knowledge tree is yours](../../framework-specification.md#81-the-knowledge-tree-is-yours) —
+  `knowledge/` ships empty and is yours to structure, and so is whether you publish it
 
 ## 3. Decide who approves what
 

@@ -80,7 +80,7 @@ export function setupNeedsUpgrade(exists: (rel: string) => boolean, orgConfigTex
 /** org-config keys from before the split that setup neither asks nor writes — the upgrade's split carries them. */
 const UPGRADE_CARRIES = [
   "legal_owner_github", "infra_owner_github", "system_arch_owner_github", "data_arch_owner_github",
-  "agent_work_root", "knowledge_publication", "authorized_approvers",
+  "agent_work_root", "authorized_approvers",
 ] as const;
 
 /** Parse a GitHub remote URL → owner/repo (ssh or https, optional .git). */
@@ -249,7 +249,7 @@ export const TEMPLATE_ORG_CONFIG_VALUES: OrgConfigValues = {
 export function renderSetupGovernance(v: OrgConfigValues): string {
   return renderGovernance({
     governancePosture: v.governancePosture, policyOwnerEmail: v.policyOwnerEmail, policyOwnerGithub: v.policyOwnerGithub,
-    checkOwnerGithub: v.checkOwnerGithub, defaultAgent: "", knowledgePublication: "none",
+    checkOwnerGithub: v.checkOwnerGithub, defaultAgent: "",
   });
 }
 

@@ -124,7 +124,7 @@
   end: null
 
 - id: GOV-FRM-082
-  source: { doc: framework/framework-specification.md, section: "8.1", sha: "c01086a" }
+  source: { doc: framework/framework-specification.md, section: "8.1", sha: "9acfb28" }
   expectation: "gov setup creates no domain folder under knowledge/."
   actor: [gov-client]
   level: C01
@@ -238,7 +238,7 @@
 
 # W2-Q1: C03
 - id: GOV-FRM-150
-  source: { doc: framework/framework-specification.md, section: "8.5", sha: "5427abf" }
+  source: { doc: framework/framework-specification.md, section: "8.5", sha: "f9c92a8" }
   expectation: "Everyone records the project's C01 violations, C02 exceptions and C03 deviations in the project's compliance.md."
   actor: [everyone]
   level: C03
@@ -528,7 +528,7 @@
 
 # §10.4
 - id: GOV-FRM-463
-  source: { doc: framework/framework-specification.md, section: "8.5", sha: "5427abf" }
+  source: { doc: framework/framework-specification.md, section: "8.5", sha: "f9c92a8" }
   expectation: "gov regenerates only the fenced derived region of compliance.md and never changes the hand-written region."
   actor: [gov-client]
   level: C01

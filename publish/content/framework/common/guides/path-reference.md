@@ -22,7 +22,6 @@ Consulted, not read through. Use this when you know what you want and need the e
 - [How the framework works](../../framework-specification.md) — and `agent/harness/rule-map.md`, every rule by GOV id;
   `gov rules show <id>` prints one (a retired POL number resolves to the rule that carries it now)
 - [Working on a project](../../build/guides/working-on-a-project.md) — and the other user guides beside it, for each thing you do
-- [Knowledge organization standard](../../../policies/knowledge-organization-standard.md)
 
 ## Writing a check action
 
@@ -35,7 +34,6 @@ For the Check Owner, and for anyone who writes a check your organization's own r
 ## Infrastructure
 
 - [CI/CD spec](../reference/org_gov_repo_operations.md)
-- [Knowledge publication spec](../../../policies/knowledge-publication.md)
 - [gov-validate workflow reference](../../build/templates/gov-validate.reference.yml) — the framework's
   current CI workflow, shipped to diff against your own
 

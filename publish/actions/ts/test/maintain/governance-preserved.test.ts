@@ -16,7 +16,8 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runSetup } from "../../src/setup/setup-run.js";
 import { deriveOrgConfig, readExistingOrgConfig, renderOrgConfig } from "../../src/setup/setup.js";
-import { GOVERNANCE_PATH, parseGovernance } from "../../src/config/governance.js";
+import { EMPTY_GOVERNANCE_VALUES, GOVERNANCE_PATH, parseGovernance, renderGovernance } from "../../src/config/governance.js";
+import { doctor } from "../../src/maintain/doctor.js";
 import { splitOrgConfig } from "../../src/maintain/org-config-split.js";
 import { runUpgradeSync } from "../../src/maintain/upgrade-run.js";
 import { appSetup, type AppSetupDeps, type GhOutcome, type GhRun } from "../../src/cli/app-verb.js";
@@ -174,5 +175,62 @@ describe("GOV-FRM-445 — the org's governance.yaml survives setup, upgrade and 
     expect(r.code, r.lines.join("\n")).to.equal(0);
     expect(written).to.not.include("/gov/policies/governance.yaml");
     expect(files["/gov/policies/governance.yaml"]).to.equal(ORG_GOV);
+  });
+});
+
+/**
+ * PRJ-121 intent 01 §3.3 (T4, T14): gov no longer ships the knowledge-publication, knowledge-organization-standard and
+ * compliance-review starters, and neither writes nor reads `knowledge_publication`. The knowledge tree, and whether and
+ * how it is published, are the organization's own. A key an org already wrote stays exactly as written, unread, and
+ * `gov doctor` does not mention it.
+ */
+describe("L03 — knowledge_publication is retired; three starters are no longer seeded", () => {
+  const RETIRED_STARTERS = ["policies/knowledge-publication.md", "policies/knowledge-organization-standard.md", "policies/compliance-review.md"];
+  const ORG_GOV_SITE = ORG_GOV.replace('knowledge_publication: "none"', 'knowledge_publication: "site+pdf"');
+  let ws: string;
+  let home: string;
+  beforeEach(() => {
+    ws = fs.mkdtempSync(path.join(os.tmpdir(), "gov-l03-ws-"));
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "gov-l03-home-"));
+  });
+  afterEach(() => { fs.rmSync(ws, { recursive: true, force: true }); fs.rmSync(home, { recursive: true, force: true }); });
+
+  it("an existing knowledge_publication key survives gov upgrade --apply byte for byte", () => {
+    fs.mkdirSync(path.join(ws, "policies"), { recursive: true });
+    fs.writeFileSync(path.join(ws, GOVERNANCE_PATH), ORG_GOV_SITE);
+    fs.writeFileSync(path.join(ws, "org-config.yaml"), ORG_CONFIG);
+    const res = runUpgradeSync(CONTENT, ws, { apply: true, userHome: home });
+    expect(res.code, res.lines.join("\n")).to.equal(0);
+    expect(fs.readFileSync(path.join(ws, GOVERNANCE_PATH), "utf8")).to.equal(ORG_GOV_SITE);
+  });
+
+  it("the org-config split no longer carries knowledge_publication into governance.yaml", () => {
+    // The template copy the upgrade has just created: before L03 the split wrote the org's value into it.
+    const fresh = renderGovernance(EMPTY_GOVERNANCE_VALUES);
+    const out = splitOrgConfig({ orgConfig: 'org_slug: "ACME"\nknowledge_publication: "site"\n', governance: fresh, roleList: null });
+    expect(out.governance).to.not.contain("knowledge_publication");
+    expect(splitOrgConfig({ orgConfig: 'org_slug: "ACME"\nknowledge_publication: "site"\n', governance: null, roleList: null }).governance).to.not.contain("knowledge_publication");
+    expect(out.orgConfig).to.not.match(/^knowledge_publication\s*:/m);
+  });
+
+  it("gov doctor says nothing about a knowledge_publication key in governance.yaml", () => {
+    const row = doctor({ gitPresent: true, ghPresent: true, resolve: { ok: true, home: "/gov", org: "Acme", via: "active-org" }, activeOrg: "Acme", cliVersion: "2.0.0", governanceText: ORG_GOV_SITE.replace(/\n# Ours, not gov's[^]*$/, "\n") })
+      .diagnostics.find((d) => d.name === "governance");
+    expect(row!.status, row!.detail).to.equal("ok");
+    expect(row!.detail).to.not.contain("knowledge_publication");
+  });
+
+  it("the governance.yaml template has no knowledge_publication key — the shipped copy and the renderer", () => {
+    expect(renderGovernance(EMPTY_GOVERNANCE_VALUES)).to.not.contain("knowledge_publication");
+    expect(fs.readFileSync(path.join(CONTENT, "policies", "governance.yaml"), "utf8")).to.not.contain("knowledge_publication");
+    expect(parseGovernance(renderGovernance(EMPTY_GOVERNANCE_VALUES))).to.not.have.property("knowledgePublication");
+  });
+
+  it("a fresh tree has none of the three retired starters", () => {
+    fs.writeFileSync(path.join(ws, "org-config.yaml"), ORG_CONFIG);
+    const res = runUpgradeSync(CONTENT, ws, { apply: true, userHome: home });
+    expect(res.code, res.lines.join("\n")).to.equal(0);
+    expect(fs.existsSync(path.join(ws, GOVERNANCE_PATH)), "the tree was seeded").to.equal(true);
+    for (const f of RETIRED_STARTERS) expect(fs.existsSync(path.join(ws, f)), f).to.equal(false);
   });
 });

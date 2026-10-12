@@ -70,7 +70,7 @@ describe("gov-work — the org-config split (upgrade migration `org-config-split
     expect(twice.orgConfig).to.equal(once.orgConfig);
   });
 
-  it("carries a hard posture, a Check Owner, the agents and knowledge publication", () => {
+  it("carries a hard posture, a Check Owner and the agents; knowledge_publication is retired, kept as a comment (L03)", () => {
     const cfg = [
       'org_name: "Acme"', 'org_slug: "ACM"', 'github_org: "acme"', 'org_gov_repo: "gov"',
       'governance_posture: "hard"', 'policy_owner_github: "po"', 'check_owner_github: "@ck"',
@@ -81,7 +81,8 @@ describe("gov-work — the org-config split (upgrade migration `org-config-split
     const g = parseGovernance(r.governance);
     expect(g.posture.posture).to.equal("hard");
     expect(g.checkOwner.github).to.equal("@ck");
-    expect(g.knowledgePublication).to.equal("site");
+    expect(r.governance).to.not.contain("knowledge_publication");
+    expect(r.orgConfig).to.match(/^# knowledge_publication: "site"$/m);
     expect(g.authorizedAgents).to.deep.equal({ kind: "agents", agents: [{ id: "claude-code", default: true }, { id: "cursor" }] });
     expect(r.orgConfig).to.not.match(/authorized_agents|cursor|governance_posture|check_owner/);
   });

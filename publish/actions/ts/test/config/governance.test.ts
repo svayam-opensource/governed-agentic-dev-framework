@@ -48,7 +48,6 @@ describe("gov-work — policies/governance.yaml (the org's governance choices)",
     expect(g.policyOwner).to.deep.equal({ email: "po@acme.test", github: "@po" });
     expect(g.checkOwner).to.deep.equal({ github: "checker" });
     expect(g.authorizedAgents).to.deep.equal({ kind: "agents", agents: [{ id: "claude-code", default: true }, { id: "cursor" }] });
-    expect(g.knowledgePublication).to.equal("site");
     expect(g.problems).to.deep.equal([]);
   });
 
@@ -74,7 +73,6 @@ describe("gov-work — policies/governance.yaml (the org's governance choices)",
       expect(g.policyOwner).to.deep.equal({ email: "", github: "" });
       expect(g.checkOwner).to.deep.equal({ github: "" });
       expect(g.authorizedAgents.kind).to.equal("unset");
-      expect(g.knowledgePublication).to.equal("none");
       expect(modelSettings(g)).to.deep.equal({ provider: null, model: "", command: "", ciAllowed: false });
     }
   });
@@ -124,7 +122,7 @@ describe("gov-work — policies/governance.yaml (the org's governance choices)",
   it("renderGovernance round-trips every value", () => {
     const text = renderGovernance({
       governancePosture: "hard", policyOwnerEmail: "po@acme.test", policyOwnerGithub: "@po", checkOwnerGithub: "@ck",
-      defaultAgent: "claude-code", knowledgePublication: "none",
+      defaultAgent: "claude-code",
     });
     const g = parseGovernance(text);
     expect(g.problems).to.deep.equal([]);

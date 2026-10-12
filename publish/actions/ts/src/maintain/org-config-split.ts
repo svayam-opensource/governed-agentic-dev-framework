@@ -7,12 +7,13 @@
  * to where it lives now, once, and changes nothing else:
  *
  *   governance_posture, policy_owner_email/_github, check_owner_github,
- *   authorized_agents, knowledge_publication                         → policies/governance.yaml
+ *   authorized_agents                                                 → policies/governance.yaml
  *   legal_ / infra_ / system_arch_ / data_arch_owner_github           → the role list (policies/common/authorized-representatives.md)
  *   agent_work_root                                                   → this person's ~/.gov/work-roots (when not the default)
  *   workspace_repo                                                    → renamed org_gov_repo, in place
  *   org_slug_lower                                                    → removed (it is org_slug in lower case)
- *   policy_effective_date, authorized_approvers                       → commented out: retired, with no new home, and
+ *   policy_effective_date, authorized_approvers,
+ *   knowledge_publication                                             → commented out: retired, with no new home, and
  *                                                                       left where a person can still read them
  *
  * BYTE-SAFE. Every line that is not one of these keys (or the comment directly above one) is kept exactly as it was.
@@ -58,7 +59,6 @@ const TO_GOVERNANCE: readonly { readonly key: string; readonly path: readonly st
   { key: "policy_owner_email", path: ["policy_owner", "email"] },
   { key: "policy_owner_github", path: ["policy_owner", "github"] },
   { key: "check_owner_github", path: ["check_owner", "github"] },
-  { key: "knowledge_publication", path: ["knowledge_publication"] },
 ];
 
 /** The domain roles that were org-config keys, and the role-list row each becomes. */
@@ -72,7 +72,7 @@ const DOMAIN_ROLES: readonly { readonly key: string; readonly role: string; read
 /** Keys removed outright (moved, or derived). */
 const REMOVE = [...TO_GOVERNANCE.map((t) => t.key), "authorized_agents", ...DOMAIN_ROLES.map((d) => d.key), "agent_work_root", "org_slug_lower"];
 /** Keys commented out: retired with no new home, kept readable. */
-const COMMENT_OUT = ["policy_effective_date", "authorized_approvers"];
+const COMMENT_OUT = ["policy_effective_date", "authorized_approvers", "knowledge_publication"];
 
 const scalar = (text: string, key: string): string => (readTopLevelScalar(text, key) ?? "").trim();
 const hasKey = (text: string, key: string): boolean => new RegExp(`^${key}\\s*:`, "m").test(text);
@@ -85,13 +85,12 @@ function governanceValue(govText: string, path: readonly string[]): string {
     case "policy_owner.email": return g.policyOwner.email;
     case "policy_owner.github": return g.policyOwner.github;
     case "check_owner.github": return g.checkOwner.github;
-    case "knowledge_publication": return g.knowledgePublication;
     default: return "";
   }
 }
 
 /** The template's own value at a path: an org-config value replaces only this. */
-const TEMPLATE_DEFAULT: Readonly<Record<string, string>> = { governance_posture: "soft", knowledge_publication: "none" };
+const TEMPLATE_DEFAULT: Readonly<Record<string, string>> = { governance_posture: "soft" };
 
 /** The lines of a top-level key: its own line and everything indented (or blank) beneath it, up to the next key. */
 function keyExtent(lines: readonly string[], i: number): number {
@@ -219,7 +218,7 @@ export function splitLoss(before: SplitInput, after: SplitResult): string[] {
   const g = parseGovernance(after.governance);
   const reads: Record<string, string> = {
     governance_posture: g.posture.raw, policy_owner_email: g.policyOwner.email, policy_owner_github: g.policyOwner.github,
-    check_owner_github: g.checkOwner.github, knowledge_publication: g.knowledgePublication,
+    check_owner_github: g.checkOwner.github,
   };
   for (const { key } of TO_GOVERNANCE) {
     const v = scalar(cfg, key);

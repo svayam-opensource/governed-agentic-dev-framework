@@ -113,7 +113,7 @@ retired:
   policy_owner_github: policies/governance.yaml (policy_owner.github)
   check_owner_github: policies/governance.yaml (check_owner.github)
   authorized_agents: policies/governance.yaml (authorized_agents)
-  knowledge_publication: policies/governance.yaml (knowledge_publication)
+  knowledge_publication: nowhere — the knowledge tree, and whether and how it is published, are the organization's own
   legal_owner_github: the role list in policies/common/authorized-representatives.md
   infra_owner_github: the role list in policies/common/authorized-representatives.md
   system_arch_owner_github: the role list in policies/common/authorized-representatives.md
