@@ -33,6 +33,21 @@ line to `~/.gov/work-roots`: your GitHub organization, a tab, and the path:
 printf 'acme\t%s\n' "$HOME/src/acme" >> ~/.gov/work-roots
 ```
 
+### On Windows: git and gh
+
+The Windows installer brings Node and `gov`, not git or the GitHub CLI. The first time
+you run `gov`, it checks for both and, once you agree, installs them for your account
+only — no administrator needed:
+
+```powershell
+winget install --id Git.Git -e --scope user
+winget install --id GitHub.cli -e --scope user
+```
+
+If you answer no, nothing is installed and these are the commands to run yourself. If a
+package has no per-user installer, gov says so, prints the command to run in an
+administrator terminal, and leaves that step unticked until it is done.
+
 ### Confirm you have access to the GitHub Project
 
 Authorization is **write access to the project's linked GitHub Project**

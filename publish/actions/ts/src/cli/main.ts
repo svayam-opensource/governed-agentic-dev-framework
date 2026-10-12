@@ -85,7 +85,7 @@ import { policyChecks } from "./diff-check-io.js";
 import { formatDiffChecks } from "../rules/diff-check.js";
 import { bumpVersion } from "../maintain/bump-version.js";
 import { doctor, formatDoctorReport } from "../maintain/doctor.js";
-import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes, GH_SIGNED_IN_ARGS, GH_SCOPES_ARGS } from "../maintain/fix-env.js";
+import { planFixes, detectPackageManager, formatPlanNarrative, renderCommand, parseGrantedScopes, missingScopes, GH_SIGNED_IN_ARGS, GH_SCOPES_ARGS, wingetFailureLines, parseRegQueryPath, mergeWindowsPath } from "../maintain/fix-env.js";
 import { checklist, renderChecklist, checklistPreamble, statusSoFar, finalStatus, stepBanner, stepDone, itemForFix, type ChecklistFacts } from "./checklist.js";
 import { checkDeps, formatDepsReport } from "../maintain/deps.js";
 import { publishGate, formatPublishGate } from "../maintain/publish.js";
@@ -2960,6 +2960,14 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
           const r = { status: runInteractive(bin!, rest, { pgm: "gov-work:cli:main", fn: "doctor-fix-step", meta: { step: step.what } }) };
           if (r.status === 0) {
             ran++;
+            // WINGET WRITES THE NEW DIRECTORY TO THE REGISTRY, NOT TO gov's PROCESS (plan 04 T12). Without this the
+            // re-check below cannot find the git or gh it just installed, and the step would read as not done.
+            if (process.platform === "win32" && step.command[0] === "winget") {
+              for (const key of ["HKCU\\Environment", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"]) {
+                const reg = parseRegQueryPath(tryRun("reg", ["query", key, "/v", "Path"]) ?? "");
+                if (reg) process.env.PATH = mergeWindowsPath(process.env.PATH ?? "", reg, process.env);
+              }
+            }
             const it = itemForFix(step.fixes, checklist(facts()));
             process.stdout.write(it ? `\n${stepDone(it, true, stdoutColor())}\n` : `  ${reporter(stdoutColor()).ok("done")}\n`);
           }
@@ -2967,7 +2975,9 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
             failed++;
             broken.add(step.fixes);
             const why = `exit ${r.status}`;   // the runner logs the stderr tail; the screen gets the code
-            process.stdout.write(`  ✗ failed — ${why}\n`);
+            const perUser = wingetFailureLines(step, r.status);   // no per-user installer: say what an admin runs
+            if (perUser) for (const l of perUser) process.stdout.write(`${l}\n`);
+            else process.stdout.write(`  ✗ failed — ${why}\n`);
           }
         }
       }

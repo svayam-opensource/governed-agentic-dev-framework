@@ -163,7 +163,9 @@ const INSTALL: Readonly<Record<PackageManager, Readonly<Record<"git" | "gh", rea
   apk:    { git: ["apk", "add", "--quiet", "git"],                  gh: ["apk", "add", "--quiet", "github-cli"] },
   pacman: { git: ["pacman", "-S", "--noconfirm", "git"],            gh: ["pacman", "-S", "--noconfirm", "github-cli"] },
   zypper: { git: ["zypper", "--quiet", "install", "-y", "git"],     gh: ["zypper", "--quiet", "install", "-y", "gh"] },
-  winget: { git: ["winget", "install", "--id", "Git.Git", "-e"],    gh: ["winget", "install", "--id", "GitHub.cli", "-e"] },
+  // PER-USER (plan 04 T12, Q6 B): no administrator needed, the same promise the MSI makes. A package with no per-user
+  // installer is refused by winget, and gov prints the machine-wide command instead — see wingetFailureLines.
+  winget: { git: ["winget", "install", "--id", "Git.Git", "-e", "--scope", "user"], gh: ["winget", "install", "--id", "GitHub.cli", "-e", "--scope", "user"] },
 };
 
 /** GitHub's own RPM repository — the RHEL-family equivalent of the apt note below. */
@@ -332,6 +334,52 @@ export function planFixes(facts: EnvFacts, pm: PackageManager | null): FixPlan {
   }
 
   return { steps, manual };
+}
+
+/** winget's exit code when a package has no installer for the requested scope (APPINSTALLER_CLI_ERROR_NO_APPLICABLE_INSTALLER). */
+export const WINGET_NO_APPLICABLE_INSTALLER = 0x8A150010;
+
+/**
+ * What to say when a per-user winget install was refused because the package offers no per-user installer
+ * (plan 04 T12). The step is NOT ticked: the machine-wide command needs an administrator terminal, which gov does
+ * not open on its own. null for any other failure (the ordinary "failed — exit N" line covers it).
+ */
+export function wingetFailureLines(step: FixStep, status: number): readonly string[] | null {
+  if (step.command[0] !== "winget" || !step.command.includes("--scope")) return null;
+  if ((status >>> 0) !== WINGET_NO_APPLICABLE_INSTALLER) return null;
+  const i = step.command.indexOf("--scope");
+  const machine = [...step.command.slice(0, i), ...step.command.slice(i + 2)].join(" ");
+  return [
+    "  ✗ this package has no per-user installer, so it cannot be installed without administrator rights.",
+    "    Open a terminal as administrator and run:",
+    `      ${machine}`,
+    "    then open a new terminal and run `gov` again.",
+  ];
+}
+
+/** The `Path` value from `reg query <key> /v Path` output, or null when the key or value is absent. */
+export function parseRegQueryPath(out: string): string | null {
+  const m = /^\s*Path\s+REG_(?:EXPAND_)?SZ\s+(.*?)\s*$/im.exec(out);
+  return m ? m[1]! : null;
+}
+
+/**
+ * gov's PATH plus any directory the registry now lists that gov's process does not have yet — so a tool winget just
+ * installed is found without opening a new terminal. `%VAR%` references are expanded from `env`; order is kept and
+ * nothing is removed (Windows file names are case-insensitive, so the comparison is too).
+ */
+export function mergeWindowsPath(current: string, registry: string, env: Readonly<Record<string, string | undefined>>): string {
+  const expand = (d: string): string => d.replace(/%([^%]+)%/g, (all, name: string) => {
+    const k = Object.keys(env).find((x) => x.toUpperCase() === name.toUpperCase());
+    return k !== undefined && env[k] !== undefined ? env[k]! : all;
+  });
+  const have = current.split(";").filter(Boolean);
+  const seen = new Set(have.map((d) => d.replace(/[\\/]+$/, "").toLowerCase()));
+  for (const d of registry.split(";").filter(Boolean).map(expand)) {
+    const key = d.replace(/[\\/]+$/, "").toLowerCase();
+    if (!seen.has(key)) { have.push(d); seen.add(key); }
+  }
+  return have.join(";");
 }
 
 /** Render a step the way it must be typed, so consent is informed. */
