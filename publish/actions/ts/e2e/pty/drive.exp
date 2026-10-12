@@ -23,6 +23,7 @@
 #   > <regex>     wait for this to appear    (fails the run if it never does)
 #   < <text>      type this, then Return
 #   <! <text>     type this with NO Return   (for a raw single-key read)
+#   ^C            send Ctrl-C (an interrupt, as the terminal delivers it — #215)
 #   ! <regex>     assert this NEVER appeared, from here to the end
 #   ~ <seconds>   change the timeout for what follows
 #   # …           comment
@@ -79,6 +80,7 @@ foreach line $lines {
     }
     "<"  { send -- "$rest\r" }
     "<!" { send -- "$rest" }
+    "^C" { send -- "\x03" }
     "!"  { lappend forbidden $rest }
     "~"  { set timeout $rest }
     default { note "unknown directive: $line"; incr failures }

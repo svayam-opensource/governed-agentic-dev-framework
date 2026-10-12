@@ -156,6 +156,11 @@ saw   "and the recording is reported once, by the writer that can commit it" \
 info "#193 — no placeholder survives into the adopter's own policies"
 never "<ORG_NAME> is resolved" "<ORG_NAME>"
 never "and so is <GITHUB_ORG>" "<GITHUB_ORG>"
+# #193's acceptance, stated as the adopter reads it: a clean adoption raises NO warnings against
+# itself. It ended with "⚠ Tokens unresolved: … — tell gov-work" and "unexpected directories kept",
+# both asking to be reported. Any ⚠ line anywhere in a clean founding run is the same class of defect.
+never "#193 — a clean adoption ends with zero ⚠ lines" "⚠"
+never "and never asks the adopter to report gov's own warnings" "tell gov-work"
 
 info "#186 — the closing screen is the founder's, and it is the truth"
 saw "the ADOPTER's next steps" "Install complete — for ADOPTERS"

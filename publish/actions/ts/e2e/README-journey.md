@@ -44,7 +44,7 @@ No token, no network, no side effects, no Docker.
 | `exists` | the machine is left holding it (#209) |
 | `give_agent` `make_gov_repo` `approve_agents` | build the world the scenario needs |
 
-A conversation is four directives: `>` wait for, `<` type, `!` must never appear,
+A conversation is five directives: `>` wait for, `<` type, `^C` interrupt, `!` must never appear,
 `~` change the timeout.
 
 ## The doubles, and why each one is where it is
