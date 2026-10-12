@@ -1152,7 +1152,17 @@ Leave the block out, or leave a port out of it, and gov uses `github`. `gov doct
 adapter gov does not have, and says which port and which name. gov never falls back to a different adapter in
 silence, because then it would report work done on a platform it never touched.
 
-### 13.3 Proving where a run came from
+### 13.3 Change requests and who reviewed them
+
+The code host port is how gov opens a change request (a pull request on GitHub), reads its state, and reads
+the checks a branch requires. Those come from both branch protection and rulesets. A missing branch is an
+answer, not a failure: gov is told it is not there, and can tell that apart from a host it could not reach.
+
+Each review says who gave it and whether that account is a **person** or a **bot**. On GitHub an account is a
+bot when GitHub marks it as one, or when its name ends in `[bot]`. The difference matters because an agent can
+write a review, but it cannot approve as a person. Knowing which is which lets gov count only a person's approval.
+
+### 13.4 Proving where a run came from
 
 A command running in CI can ask the CI identity port for a signed token that says which repository, branch and
 run it belongs to, and who started it. On GitHub this is the job's OIDC token, which a job receives only when

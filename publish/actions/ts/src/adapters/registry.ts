@@ -15,6 +15,9 @@ import { PORT_NAMES, PORT_CONFIG_KEYS, type PortName, type PortTypes, type Ports
 import { MEMORY_ADAPTER_ID } from "./memory/index.js";
 import { createGithubCiIdentity } from "./github/ci-identity.js";
 import { createMemoryCiIdentity } from "./memory/ci-identity.js";
+import { createGithubVcs } from "./github/vcs.js";
+import { createMemoryVcs } from "./memory/vcs.js";
+import type { GhRun } from "./github/gh.js";
 
 export type AdapterId = string;
 
@@ -30,6 +33,8 @@ export interface AdapterContext {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** HTTP (default: the global `fetch`). */
   readonly fetch?: typeof globalThis.fetch;
+  /** The `gh` runner the GitHub adapters use (default: `gh` through run-process). */
+  readonly gh?: GhRun;
 }
 
 export type AdapterFactory<K extends PortName> = (ctx: AdapterContext) => PortTypes[K];
@@ -56,11 +61,14 @@ export const SELECTABLE_ADAPTERS: { readonly [K in PortName]: readonly AdapterId
 
 /**
  * The adapters gov ships. A port's table fills in as its task lands — the empty ones are the spots it fills:
- * `workTracker` (plan 05 T04: `github/work-tracker.ts`; plan 03 L02: + `memory`), `vcs` (L03). `ciIdentity` is L04's.
+ * `workTracker` (plan 05 T04: `github/work-tracker.ts`; plan 03 L02: + `memory`), `vcs` is L03's and `ciIdentity` L04's.
  */
 export const builtInProviders: AdapterProviders = {
   workTracker: {},
-  vcs: {},
+  vcs: {
+    github: (ctx) => createGithubVcs(ctx.gh ? { gh: ctx.gh } : {}),
+    memory: () => createMemoryVcs(),
+  },
   ciIdentity: {
     github: (ctx) => createGithubCiIdentity({ ...(ctx.env ? { env: ctx.env } : {}), ...(ctx.fetch ? { fetch: ctx.fetch } : {}) }),
     memory: () => createMemoryCiIdentity(),
