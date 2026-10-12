@@ -4,7 +4,7 @@ import { expect } from "chai";
 import { merge, type MergeConfig, type MergeInput } from "../../src/lifecycle/merge.js";
 import type { Board } from "../../src/lifecycle/board.js";
 import type { Vcs, FsProbe } from "../../src/lifecycle/vcs.js";
-import type { WorkTrackerPort } from "../../src/ports/work-tracker.js";
+import type { BoardWriter } from "../../src/ports/work-tracker.js";
 import type { Issues } from "../../src/lifecycle/issues.js";
 import { pxDeep } from "../helpers/paths.js";
 
@@ -27,8 +27,8 @@ function fakeIssues() {
     resolveIssueUrl: () => null,
   };
   // The board Status goes through the WorkTrackerPort now (gadf#225); same log, so the order stays visible.
-  const tracker: WorkTrackerPort = {
-    setStatus: (_r, u, s) => { acted.push(`status ${u} ${s}`); return { ok: true }; },
+  const tracker: BoardWriter = {
+    setState: (_r, u, s) => { acted.push(`status ${u} ${s}`); return { ok: true }; },
     closeProject: () => ({ ok: true }),
   };
   return { issues, acted, tracker };
@@ -90,7 +90,7 @@ describe("prj-work Phase 2 — merge orchestrator (model A)", () => {
     expect(log).to.include(`tag ${GOV} archive/${TASK_ID}`);
     expect(log).to.include(`pushDelete ${GOV} ${TASK_ID}`);
     expect(acted[0]).to.match(/^close .*issues\/123 :: Task `BRNCH-43.*` merged/);
-    expect(acted).to.include(`status ${ISSUE} Done`);
+    expect(acted).to.include(`status ${ISSUE} done`);
   });
 
   it("is idempotent: an already-merged sub-branch is skipped, still archived", () => {
