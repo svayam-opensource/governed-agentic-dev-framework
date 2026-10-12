@@ -31,6 +31,7 @@ it is and what checks it. You can see every row, and how each one is enforced, i
 10. [When something goes wrong](#10-when-something-goes-wrong)
 11. [What holds when gov is not in the loop](#11-what-holds-when-gov-is-not-in-the-loop)
 12. [What gov records](#12-what-gov-records)
+13. [The platforms gov works with](#13-the-platforms-gov-works-with)
 - [Glossary](#glossary)
 
 ---
@@ -129,7 +130,8 @@ Your organization's settings are in three places, grouped by who may change them
 `gov setup` writes the first two. The framework decides which keys `org-config.yaml` may hold and what each one
 means, and publishes that list as `framework/config/org-config.schema.yaml`, which `gov upgrade` keeps current.
 `gov doctor` checks your `org-config.yaml` against it. It names a key that is missing, a key gov does not read,
-and a key that has moved to another file.
+and a key that has moved to another file. One block in `org-config.yaml`, `adapters:`, says which platform gov
+talks to for each kind of work (§13).
 
 *Rules for this chapter: rule map, filter `framework-specification.md §1`.*
 
@@ -1055,6 +1057,50 @@ Your organization's own code follows your organization's architectural principle
 `policies/`.
 
 *Rules for this chapter: rule map, filter `framework-specification.md §12`.*
+
+---
+
+## 13. The platforms gov works with
+
+### 13.1 Three ports
+
+gov needs three things from the platforms your organization runs on. Each is a **port**: a fixed list of
+questions and actions, in words that belong to no vendor.
+
+| Port | What gov asks of it |
+|---|---|
+| work tracker | the projects and the work items on them: create an item (always with an assignee), move it between to do, in progress and done, link and label it, comment on it, find it again |
+| code host (`vcs`) | the hosted repositories: a branch, a change request and its state, who reviewed it (a person or a bot), the checks a branch requires, and who gov is signed in as |
+| CI identity | whether gov is running in a CI that can prove who started it, and what that signed proof says |
+
+Each port is answered by an **adapter**, which speaks one platform's language. GitHub is the only adapter today.
+Another platform, such as GitLab or Jira, needs a new adapter. It does not need a change to the commands that use
+the port.
+
+Your local git commands (commit, branch, push) are not a port. git is the same everywhere.
+
+**Nothing fails quietly.** Every action a port takes returns either its result or the reason it failed, and
+whether trying again could help. The command that asked must deal with the failure. A step that did nothing is
+reported as a step that did nothing, never as a success.
+
+The commands added for the AI-native lifecycle (signals, autorun, intents, projects and skills) use only the
+ports. The framework's own build refuses code in them that calls GitHub's command-line tool directly. Older
+commands move behind the ports as they are changed.
+
+### 13.2 Choosing the platform
+
+The `adapters:` block in `org-config.yaml` names the adapter for each port:
+
+```yaml
+adapters:
+  work_tracker: github
+  vcs: github
+  ci_identity: github
+```
+
+Leave the block out, or leave a port out of it, and gov uses `github`. `gov doctor` fails if the block names an
+adapter gov does not have, and says which port and which name. gov never falls back to a different adapter in
+silence, because then it would report work done on a platform it never touched.
 
 ---
 
