@@ -10,6 +10,7 @@
  *
  *   · the nine agent files — the session protocol with the resident tier in place (cues/resident.ts, W7)
  *   · `agent/harness/rule-map.md` — every revision of every rule, with its derived class (model/rule-map.ts, W8)
+ *   · `agent/harness/{.claude,.cursor}/skills/gov-…/SKILL.md` — the on-demand tier as skills (skills/render.ts, L14)
  *
  * Every producer calls this: `gov rules build|check`, the lifecycle builds at setup/upgrade/sync, and the
  * publisher's `agent/render-harness.mjs`. `check` fails exactly when the committed files differ from what this
@@ -24,6 +25,7 @@
 import { renderAll, type RenderFailure } from "./harness-render.js";
 import type { ResidentExceptions } from "./cues/resident.js";
 import { renderRuleMap, summariseRuleSet } from "./model/rule-map.js";
+import { renderSkills, skillFiles, type ReadDoc } from "../skills/render.js";
 import { residentRows, RESIDENT_CAP } from "./cues/resident.js";
 import { inForce, type RuleRow } from "./model/rule-row.js";
 import { sectionShas } from "./checks/sections.js";
@@ -40,15 +42,28 @@ export interface BuiltFile {
   readonly content: string;
 }
 
-/** The nine harness files and the rule map, or why they cannot be rendered (an empty or over-cap resident tier). */
-export function buildArtifacts(protocolBody: string, rules: RuleSet, exceptions?: ResidentExceptions): { readonly files: readonly BuiltFile[] } | RenderFailure {
+/**
+ * The nine harness files, the skills, and the rule map — or why they cannot be rendered (an empty or over-cap
+ * resident tier).
+ *
+ * SKILLS (intent 03 D6, L14): one per source-document section with C02/C03 agent rows, at each verified agent
+ * location under `agent/harness/` (skills/render.ts). `readDoc` reads a policy document from the SAME place the rows
+ * came from; it supplies section titles, so a renamed section renames its skill. Without it skills are named by
+ * section number. `skills` lists the names, so a writer can delete the generated skills no longer wanted.
+ */
+export function buildArtifacts(
+  protocolBody: string, rules: RuleSet, exceptions?: ResidentExceptions, readDoc?: ReadDoc,
+): { readonly files: readonly BuiltFile[]; readonly skills: readonly string[] } | RenderFailure {
   const rendered = renderAll(protocolBody, rules, exceptions);
   if ("error" in rendered) return rendered;
+  const skills = renderSkills(rules, readDoc);
   return {
     files: [
       ...rendered.files.map((f) => ({ path: `${HARNESS_DIR}/${f.path}`, content: f.content })),
+      ...skillFiles(skills).map((f) => ({ path: `${HARNESS_DIR}/${f.path}`, content: f.content })),
       { path: RULE_MAP_PATH, content: renderRuleMap(rules) },
     ],
+    skills: skills.map((s) => s.name),
   };
 }
 
