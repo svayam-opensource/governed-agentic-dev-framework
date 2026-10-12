@@ -24,7 +24,7 @@ const HOME = "/gov";
 const PROTOCOL = path.join("agent", "session-protocol.md");
 const RENDERED_CLAUDE = path.join("agent", "harness", "CLAUDE.md");
 const RULE_MAP = path.join("agent", "harness", "rule-map.md");
-const SPEC = "framework/docs/specs/framework-specification.md";
+const SPEC = "framework/framework-specification.md";
 const SPEC_TEXT = "# Spec\n\n## 10 Levels\n\n### 10.1 C01\n\nA C01 breach is a hard stop.\n";
 const SHA = sectionShas(SPEC_TEXT).get("10.1")!;
 
@@ -61,8 +61,8 @@ function memFs(seed: Record<string, string>): Fs & { readonly files: Map<string,
 const workspace = (cue = "C01 MEANS STOP.", rows = store(cue)): Record<string, string> => ({
   [`${HOME}/org-config.yaml`]: "org_slug: SVM\n",
   [`${HOME}/framework/rules/rules.yaml`]: rows,
-  [`${HOME}/framework/rules/catalog.yaml`]: SHIPPED_CATALOG,
-  [`${HOME}/policies/rules.yaml`]: "[]\n",
+  [`${HOME}/framework/rules/checks-catalog.yaml`]: SHIPPED_CATALOG,
+  [`${HOME}/policies/rules/rules.yaml`]: "[]\n",
   [`${HOME}/${SPEC}`]: SPEC_TEXT,
   [`${HOME}/${PROTOCOL}`]: PROTOCOL_BODY,
 });

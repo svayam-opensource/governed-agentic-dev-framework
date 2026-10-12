@@ -170,10 +170,10 @@ describe("the content layout, said plainly", () => {
 describe("contentLayoutOf — derived from the tree, never stored", () => {
   it("reads the layout off what is on disk", async () => {
     const { contentLayoutOf } = await import("../../src/maintain/upgrade-sync.js");
-    expect(contentLayoutOf((r) => r === "framework/policies")).to.equal("framework");
+    expect(contentLayoutOf((r) => r === "framework/rules")).to.equal("framework");
     expect(contentLayoutOf((r) => r === "governance/policies")).to.equal("governance");
     expect(contentLayoutOf(() => false), "a directory that is neither is not a workspace to upgrade").to.equal("none");
-    expect(contentLayoutOf((r) => r === "framework/policies" || r === "governance/policies"),
+    expect(contentLayoutOf((r) => r === "framework/rules" || r === "governance/policies"),
       "mid-upgrade, the NEW layout is the answer").to.equal("framework");
   });
 });
@@ -182,7 +182,7 @@ describe("contentLayoutOf — derived from the tree, never stored", () => {
 // An org can add `require_two_approvals: true`, have it reviewed and merged, and believe it configured
 // something. `preferences.ts` has always said "gov does not know this setting"; this channel said nothing.
 describe("org-config — what gov ignored, said out loud", () => {
-  // Every required key (framework/config/org-config.schema.yaml), so a row is about what the test adds.
+  // Every required key (framework/common/reference/org-config.schema.yaml), so a row is about what the test adds.
   const FULL = [
     'org_name: "Acme"', 'org_short_name: "Acme"', 'org_slug: "ACM"', 'org_repo_url: "git@github.com:acme/gov.git"',
     'github_org: "acme"', 'org_gov_repo: "gov"', 'default_branch: "main"', 'default_code_branch: "dev"', "",

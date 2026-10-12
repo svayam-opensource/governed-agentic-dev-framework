@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * `gov upgrade` REGENERATES CODEOWNERS (GOV-FRM-083). The role list is the org's (policies/authorized-representatives.md),
+ * `gov upgrade` REGENERATES CODEOWNERS (GOV-FRM-083). The role list is the org's (policies/common/authorized-representatives.md),
  * so a holder changes by a pull request to that file; CODEOWNERS follows on the next upgrade — the command doctor's
  * drift row tells the org to run. Tested over the REAL shipped content, applied to a temporary directory.
  */

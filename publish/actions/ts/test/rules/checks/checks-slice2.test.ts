@@ -23,11 +23,11 @@ import { MACHINE_WRITTEN_POLICY_PATHS } from "../../../src/rules/checks/policy-a
 import type { ChangedFile } from "../../../src/rules/diff-check.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const CATALOG: Catalog = parseCatalog(readFileSync(resolve(here, "../../../../../content/framework/rules/catalog.yaml"), "utf8"));
+const CATALOG: Catalog = parseCatalog(readFileSync(resolve(here, "../../../../../content/framework/rules/checks-catalog.yaml"), "utf8"));
 
 const row = (id: string, checks: CheckBinding[], over: Partial<RuleRow> = {}): RuleRow => ({
   id,
-  source: { doc: "framework/docs/specs/framework-specification.md", section: "5.5", sha: "a1b2c3" },
+  source: { doc: "framework/framework-specification.md", section: "5.5", sha: "a1b2c3" },
   expectation: "Every change lands on the default branch through a merged pull request.",
   actor: ["everyone"],
   level: "C01",
@@ -239,7 +239,7 @@ describe("check engine slice 2 — gov-builtin/section-owner-approval", () => {
   // gov writes these files; the policy-pr gate judges them (rules.yaml, VERSION, CHANGELOG, snapshots).
   it("MACHINE_WRITTEN_POLICY_PATHS is exactly the files gov writes on a policy PR", () => {
     expect([...MACHINE_WRITTEN_POLICY_PATHS]).to.deep.equal([
-      "policies/CHANGELOG.md", "policies/VERSION", "policies/rules.yaml", "policies/history/**", "policies/version/**",
+      "policies/CHANGELOG.md", "policies/VERSION", "policies/rules/rules.yaml", "policies/history/**", "policies/version/**",
     ]);
   });
 
@@ -254,7 +254,7 @@ describe("check engine slice 2 — gov-builtin/section-owner-approval", () => {
   it("the changelog, VERSION, rules.yaml and a snapshot need nobody — not even with an org's own ignore list", () => {
     const changelog = "# Changelog\n\n## 1.0.1\n\n- prose\n\n## 1.0.0\n\n- first\n";
     const machine = pr(
-      [file("policies/CHANGELOG.md", changelog), file("policies/VERSION", "1.0.1\n"), file("policies/rules.yaml", "[]\n"), file("policies/history/1.0.0/org-policy.md", "x")],
+      [file("policies/CHANGELOG.md", changelog), file("policies/VERSION", "1.0.1\n"), file("policies/rules/rules.yaml", "[]\n"), file("policies/history/1.0.0/org-policy.md", "x")],
       { approvals: [], baseTexts: { [DOC]: BASE, "policies/CHANGELOG.md": "# Changelog\n\n## 1.0.0\n\n- first\n" } },
     );
     expect(run(machine)).to.deep.include({ verdict: "pass", findings: [] });

@@ -39,7 +39,7 @@ const PROTOCOL = join(REPO, "agent/session-protocol.md");
 const CONTENT = join(REPO, "publish", "content");
 /**
  * The org scope the publisher's tree is read under. Its org-config is a template (empty slug), and the seeded
- * `policies/rules.yaml` is empty, so the scope only has to be a valid one. An adopter's build reads its own slug.
+ * `policies/rules/rules.yaml` is empty, so the scope only has to be a valid one. An adopter's build reads its own slug.
  */
 const TEMPLATE_SCOPE = "ORG";
 

@@ -53,7 +53,7 @@ describe("rules-pending — what counts as a changed rule", () => {
   /** The resident block the renderer writes for these rows — the shape `residentCues` must read back. */
   const block = (cues: readonly { id: string; cue: string }[]): string => {
     const rows = parseRuleStore(cues.map((c) => `- id: ${c.id}
-  source: { doc: framework/docs/specs/framework-specification.md, section: "1", sha: "abc1234" }
+  source: { doc: framework/framework-specification.md, section: "1", sha: "abc1234" }
   expectation: "The agent keeps ${c.id}."
   actor: [agent]
   level: C01

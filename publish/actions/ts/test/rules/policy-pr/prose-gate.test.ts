@@ -31,11 +31,11 @@ function baseFiles(extra: Record<string, string> = {}): Record<string, string> {
   return {
     "org-config.yaml": 'org_slug: "E2E"\n',
     "framework/rules/rules.yaml": "[]\n",
-    "framework/rules/catalog.yaml": "resources: []\ntools: []\nactions: []\n",
+    "framework/rules/checks-catalog.yaml": "resources: []\ntools: []\nactions: []\n",
     "policies/governance.yaml": "policy_owner: { github: \"polly\" }\n",
     "policies/VERSION": "1.0.0\n",
     "policies/CHANGELOG.md": "# Policy changelog\n\n## 1.0.0 — 2026-10-01\n\nFirst.\n",
-    "policies/rules.yaml": "[]\n",
+    "policies/rules/rules.yaml": "[]\n",
     [DOC]: OLD,
     ...extra,
   };
@@ -141,12 +141,12 @@ describe("the changelog's \"Sections reviewed\" — written by propose, read by 
       start: { version: "1.0.0", date: "2026-10-01", pr: 1 }, end,
     });
     const dump = (rows: RuleRow[]) => yaml.dump(JSON.parse(JSON.stringify(rows)), { lineWidth: -1 });
-    const base = baseFiles({ "policies/rules.yaml": dump([row("GOV-E2E-001", "2.1", OLD), row("GOV-E2E-002", "2.2", OLD)]) });
+    const base = baseFiles({ "policies/rules/rules.yaml": dump([row("GOV-E2E-001", "2.1", OLD), row("GOV-E2E-002", "2.2", OLD)]) });
     const changed = NEW.replace("Everyone reads the policy.", "Everyone reads the policy each year.").replace(/### 2\.2[\s\S]*$/, "### 2.3 Leaving\n\nLeavers return laptops.\n");
     // §2.1 changed and its row was kept (sha refreshed); §2.2 removed, its row retired; §2.3 added, no rule.
     const kept = { ...row("GOV-E2E-001", "2.1", changed) };
     const retired = row("GOV-E2E-002", "2.2", OLD, { version: "1.1.0", date: TODAY, pr: PR });
-    const files = { ...base, [DOC]: changed, "policies/rules.yaml": dump([kept, retired]) };
+    const files = { ...base, [DOC]: changed, "policies/rules/rules.yaml": dump([kept, retired]) };
     const head = memTree(files);
     const fin = finishPolicyChange({ base: memTree(base), head, pr: PR, today: TODAY, author: "alice",
       reviewed: [{ doc: DOC, section: "2.3", sha: sha(changed, "2.3"), outcome: { kind: "no-rule" } }] });

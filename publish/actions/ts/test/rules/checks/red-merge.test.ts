@@ -131,7 +131,7 @@ describe("soft merge with red checks — gov check run on the push", () => {
     "org-config.yaml": 'org_slug: "ACME"\n',
     "policies/governance.yaml": GOVERNANCE,
     "framework/rules/rules.yaml": read("framework/rules/rules.yaml"),
-    "framework/rules/catalog.yaml": read("framework/rules/catalog.yaml"),
+    "framework/rules/checks-catalog.yaml": read("framework/rules/checks-catalog.yaml"),
   };
   const git = (_repo: string, args: readonly string[]): string | null => {
     if (args[0] === "rev-parse") return args.includes("origin/main") ? "abc" : null;

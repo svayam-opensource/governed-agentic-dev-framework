@@ -57,8 +57,8 @@ describe("gov-work — the closing screens point at documents that exist (walk #
 
   it("the adopter reads who approves what, and what may never leave the organization", () => {
     const t = adopterNextSteps(F).join("\n");
-    expect(t).to.contain(`${HOME}/policies/authorized-representatives.md`);
-    expect(t).to.contain(`${HOME}/policies/data-classification.md`);
+    expect(t).to.contain(`${HOME}/policies/common/authorized-representatives.md`);
+    expect(t).to.contain(`${HOME}/policies/common/data-classification.md`);
   });
 
   it("the review issue names only documents setup seeds", () => {

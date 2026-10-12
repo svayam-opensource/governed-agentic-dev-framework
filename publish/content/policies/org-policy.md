@@ -14,7 +14,7 @@
 > reach your agents from `<DEFAULT_BRANCH>` — never from a working branch.
 >
 > The framework's own rules are in `framework/rules/rules.yaml`, explained in
-> `framework/docs/specs/framework-specification.md`. They are **not** yours: they are replaced on every upgrade.
+> `framework/framework-specification.md`. They are **not** yours: they are replaced on every upgrade.
 > Your policy here may be stricter than them. It may not be laxer.
 
 ---
@@ -28,12 +28,12 @@ edits this file. How strict each rule is — C01 (stop), C02 (not without an app
 and say so) — is decided per rule when the rules are extracted, and you approve it there. Words such as "must",
 "never" and "unless approved" are what the extraction reads as your intent.
 
-`framework/docs/specs/framework-specification.md` chapter 3 explains the three levels, and chapter 9 how a
+`framework/framework-specification.md` chapter 3 explains the three levels, and chapter 9 how a
 section becomes rules. Run `gov knowledge show framework-specification.md` to read it.
 
 ### 1.2 What happens to a section you write
 
-`gov rules propose` reads each changed section and proposes its rules into `policies/rules.yaml`: who each
+`gov rules propose` reads each changed section and proposes its rules into `policies/rules/rules.yaml`: who each
 binds, how strict it is, a **cue** (a short trigger an agent carries, every turn or at the moment it applies)
 and, where possible, a **check** that fails a pull request. You approve the rows in the same pull request as
 the prose, so what your agents are told is part of what you reviewed. `gov rules build` renders the rows into
@@ -42,7 +42,7 @@ cued or advisory.
 
 ### 1.3 Who approves a change to this policy
 
-Approval is by the representatives named in `policies/authorized-representatives.md`, enforced at the
+Approval is by the representatives named in `policies/common/authorized-representatives.md`, enforced at the
 pull-request gate. A change to this file is approved by the Policy Owner.
 
 ---
@@ -80,11 +80,11 @@ waste.
 ### 3.1 Only approved technologies
 
 A language, framework, library, datastore, queue, test runner or CI service that is not listed in
-`policies/approved-technologies.md` is introduced only with an approved exception.
+`policies/build/approved-technologies.md` is introduced only with an approved exception.
 
 ### 3.2 Removing a technology
 
-Retiring an approved technology is recorded in `policies/approved-technologies.md` with the date and the
+Retiring an approved technology is recorded in `policies/build/approved-technologies.md` with the date and the
 reason, so that a repository still using it can be found.
 
 ---
@@ -92,15 +92,15 @@ reason, so that a repository still using it can be found.
 ## 4. Data
 
 What data this organization holds, what its tiers are called, and how each is handled are in
-`policies/data-classification.md`. The framework's own absolute rule — no credential, key, token or password
+`policies/common/data-classification.md`. The framework's own absolute rule — no credential, key, token or password
 in a file, a log, a commit, a pull request or an issue — applies whatever this organization decides (see
-`policies/data-classification.md`).
+`policies/common/data-classification.md`).
 
 ---
 
 ## 5. Roles
 
-Who owns which domain, and who may approve what, are in `policies/authorized-representatives.md`. Until
+Who owns which domain, and who may approve what, are in `policies/common/authorized-representatives.md`. Until
 owners are appointed, every approval falls to the Policy Owner.
 
 ---
@@ -169,12 +169,12 @@ Three things always hold, whatever you write here:
 - An executable check action under `policies/actions/` is approved by the Check Owner.
 
 > **An example of delegating sections.** Once your organization has appointed owners in
-> `policies/authorized-representatives.md`, the Policy Owner might replace the "as seeded" sentence above with:
+> `policies/common/authorized-representatives.md`, the Policy Owner might replace the "as seeded" sentence above with:
 >
 > *Sections 1, 5, 7 and 8 of this policy are owned by the Policy Owner.*
 > *Section 2 is owned by the System Architecture Owner.*
 > *Section 3 is owned by the System Architecture Owner.*
 > *Section 4 is owned by the Data Architecture Owner.*
-> *In `policies/data-classification.md`, every section is owned by the Data Architecture Owner.*
+> *In `policies/common/data-classification.md`, every section is owned by the Data Architecture Owner.*
 >
-> Each role named must be one listed in `policies/authorized-representatives.md`, with a named holder.
+> Each role named must be one listed in `policies/common/authorized-representatives.md`, with a named holder.

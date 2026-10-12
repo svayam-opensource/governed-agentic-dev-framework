@@ -12,7 +12,7 @@ import { collectDocs, loadDocs, resolveDoc } from "../../src/cli/knowledge-io.js
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 
 const DOCS = [
-  { path: "policies/data-classification.md", text: "# Data classification\n\n## Restricted\nRestricted data must never be written to a log.\n" },
+  { path: "policies/common/data-classification.md", text: "# Data classification\n\n## Restricted\nRestricted data must never be written to a log.\n" },
   { path: "knowledge/architecture/logging.md", text: "# Logging\n\nEvery client logs through svm-util-log.\n" },
   { path: "framework/policies/framework-policy.md", text: "# Framework policy\n\n## Data\nSee the org's data classification standard.\n" },
 ];
@@ -40,18 +40,18 @@ function mapFs(files: Record<string, string>): Fs & { writes: Record<string, str
 describe("knowledge search — ranking", () => {
   it("requires EVERY term — two words are not an either/or", () => {
     const hits = search(DOCS, "data classification");
-    expect(hits.map((h) => h.path)).to.have.members(["policies/data-classification.md", "framework/policies/framework-policy.md"]);
+    expect(hits.map((h) => h.path)).to.have.members(["policies/common/data-classification.md", "framework/policies/framework-policy.md"]);
     expect(hits.some((h) => h.path.includes("logging")), "logging.md has neither word").to.equal(false);
   });
 
   it("ranks the document that OWNS the subject above the one that mentions it", () => {
     const hits = search(DOCS, "data classification");
-    expect(hits[0]!.path).to.equal("policies/data-classification.md");
+    expect(hits[0]!.path).to.equal("policies/common/data-classification.md");
   });
 
   it("says WHERE in the document the answer is", () => {
     const [hit] = search(DOCS, "restricted");
-    expect(hit!.path).to.equal("policies/data-classification.md");
+    expect(hit!.path).to.equal("policies/common/data-classification.md");
     expect(hit!.heading).to.equal("Restricted");
     expect(hit!.line).to.contain("never be written to a log");
     expect(hit!.lineNo).to.be.greaterThan(1);
@@ -89,7 +89,7 @@ describe("knowledge search — what it prints", () => {
 
   it("a hit names the file, the heading and how to open it", () => {
     const out = formatHits(search(DOCS, "restricted"), "restricted").join("\n");
-    expect(out).to.contain("policies/data-classification.md");
+    expect(out).to.contain("policies/common/data-classification.md");
     expect(out).to.contain("Restricted");
     expect(out).to.contain("gov knowledge show");
   });
@@ -154,7 +154,7 @@ describe("knowledge reading — it leaves NOTHING behind", () => {
 
 describe("knowledge show — resolving what was typed", () => {
   it("takes the full path search printed", () => {
-    expect(resolveDoc(DOCS, "policies/data-classification.md").doc!.path).to.equal("policies/data-classification.md");
+    expect(resolveDoc(DOCS, "policies/common/data-classification.md").doc!.path).to.equal("policies/common/data-classification.md");
   });
   it("takes the file name alone", () => {
     expect(resolveDoc(DOCS, "framework-policy.md").doc!.path).to.equal("framework/policies/framework-policy.md");

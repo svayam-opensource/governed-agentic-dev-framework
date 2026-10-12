@@ -4,7 +4,7 @@
  * THE RULE ROW AND ITS REVISION HISTORY (rule-model-design.md Q5, Q8–Q11, Q19; 2026-10-06).
  *
  * Two stores share this schema: `framework/rules/rules.yaml` (written only by `gov upgrade`) and
- * `policies/rules.yaml` (written only by an approved org policy PR). Each has exactly one writer, so an upgrade can
+ * `policies/rules/rules.yaml` (written only by an approved org policy PR). Each has exactly one writer, so an upgrade can
  * never touch an org row.
  *
  * A store is an APPEND-ONLY HISTORY. One row per revision; a change closes the current row at version X and opens a

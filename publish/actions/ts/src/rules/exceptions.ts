@@ -81,7 +81,7 @@ export function exceptionRefusal(clause: string, rules?: ExceptionRules): string
   }
   const row = inForce(rules.org).find((r) => r.id === clause);
   if (!row) {
-    return `${clause} is not a rule in force in your organization's policies/rules.yaml, so there is nothing for `
+    return `${clause} is not a rule in force in your organization's policies/rules/rules.yaml, so there is nothing for `
       + "this exception to relax. Name the C02 rule it relaxes by its GOV id.";
   }
   if (row.level === "C01") {

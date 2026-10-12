@@ -7,9 +7,9 @@ labels: question
 
 <!--
 Before opening a question, please:
-  1. Read README.md and docs/USER_GUIDE.md
+  1. Read README.md and framework/common/guides/path-reference.md
   2. Search existing issues (open and closed) for the same question
-  3. Check framework/docs/specs/framework-specification.md, and your organization's policies/
+  3. Check framework/framework-specification.md, and your organization's policies/
 
 If you've checked those and still have a question, file away.
 -->

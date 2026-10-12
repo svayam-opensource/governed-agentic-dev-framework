@@ -3,7 +3,7 @@
 /**
  * THE SPECIFICATION IS HAND-WRITTEN. THIS IS WHAT MAKES THAT SAFE.
  *
- * `framework/docs/specs/framework-specification.md` describes what the gov clients do (it absorbed gov-behaviour.md
+ * `framework/framework-specification.md` describes what the gov clients do (it absorbed gov-behaviour.md
  * and concepts.md, rule-model Q23). It is written rather than generated
  * because a specification has to explain WHY, and no generator does that. The cost of hand-writing it is that it
  * can drift from the code, and "we update the document when the code changes" is a discipline, not a mechanism.
@@ -50,7 +50,7 @@ function repoRoot(): string {
 }
 
 const ROOT = repoRoot();
-const SPEC_REL = "publish/content/framework/docs/specs/framework-specification.md";
+const SPEC_REL = "publish/content/framework/framework-specification.md";
 const SRC = path.join(ROOT, "publish", "actions", "ts", "src");
 
 const spec = fs.readFileSync(path.join(ROOT, SPEC_REL), "utf8");
@@ -200,9 +200,9 @@ describe("framework-specification.md — it is a specification, not a policy", (
   });
 
   it("is not compiled into what an agent carries", () => {
-    // The resident block is built from the rule rows, never from prose. A spec under `framework/docs/` cannot
+    // The resident block is built from the rule rows, never from prose. A spec under `framework/` cannot
     // reach it — which is the point: an agent carries rules, not documentation.
-    expect(SPEC_REL).to.contain("framework/docs/specs/");
+    expect(SPEC_REL).to.contain("/framework/");
     expect(SPEC_REL, "a document under policies/ WOULD compile into the harness").to.not.contain("/policies/");
   });
 });

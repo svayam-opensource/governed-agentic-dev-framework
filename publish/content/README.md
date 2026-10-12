@@ -13,13 +13,13 @@ links in sequence, no content of its own.
 
 | You are | Start at |
 |---|---|
-| bringing the framework into this organization | [`framework/docs/user-guides/path-adopter.md`](framework/docs/user-guides/path-adopter.md) |
-| joining an organization that already uses it | [`framework/docs/user-guides/path-joiner.md`](framework/docs/user-guides/path-joiner.md) |
-| working on a project today | [`framework/docs/user-guides/path-developer.md`](framework/docs/user-guides/path-developer.md) |
-| looking something up | [`framework/docs/user-guides/path-reference.md`](framework/docs/user-guides/path-reference.md) |
+| bringing the framework into this organization | [`framework/common/guides/path-adopter.md`](framework/common/guides/path-adopter.md) |
+| joining an organization that already uses it | [`framework/common/guides/path-joiner.md`](framework/common/guides/path-joiner.md) |
+| working on a project today | [`framework/build/guides/path-developer.md`](framework/build/guides/path-developer.md) |
+| looking something up | [`framework/common/guides/path-reference.md`](framework/common/guides/path-reference.md) |
 
 New to the vocabulary? The glossary at the end of
-[`framework/docs/specs/framework-specification.md`](framework/docs/specs/framework-specification.md#glossary)
+[`framework/framework-specification.md`](framework/framework-specification.md#glossary)
 is the shortest path to reading the policy without stopping.
 
 ## What is where, and who owns it
@@ -27,22 +27,26 @@ is the shortest path to reading the policy without stopping.
 The split matters, because it decides what an upgrade may overwrite.
 
 ```
-governance/      The FRAMEWORK's. Replaced by `gov upgrade`.
-  policies/        the rules of work, including the C01 digest every agent carries
-  use-cases/       task documents — set up a machine, work a project, close one
-  specs/           reference — the command surface, the vocabulary
-  paths/           the four entry points above
-  guidance/        templates gov reads (the project to-do list, and others)
-  infrastructure/  CI/CD and publication specs
-  procedures/      knowledge harvest
+framework/       The FRAMEWORK's. Replaced by `gov upgrade`.
+  framework-specification.md   how the framework works; every framework rule cites it
+  rules/           the framework's rule rows and its checks catalog
+  common/          what every phase shares: reference (command reference, org-config schema),
+                   guides (the four entry points above and more), the exception form
+  build/           building software: the developer's guides and the templates gov reads
+
+policies/        YOURS. Seeded once, then changed only by approved pull requests.
+  org-policy.md    your organization's policy; governance.yaml holds its choices
+  rules/           your rule rows and checks catalog, written by `gov rules propose`
+  common/          clauses every phase shares: roles, data classification, policy domains
+  build/           clauses for building software, and the approved-technologies list
 
 knowledge/       YOURS. Ships empty, and stays whatever you make it.
 projects/        One folder per project, created by `gov seed`. Yours.
 agent/           The session-start protocol and the per-agent harness. The framework's.
-org-config.yaml  Your organization's values. An upgrade adds new keys and never touches a
-                 value you set.
-CODEOWNERS       GENERATED from the roles in the policy and the handles in org-config.yaml.
-                 Do not edit it by hand; change the handle and re-run `gov upgrade`.
+org-config.yaml  Your organization's identity and infrastructure. Checked against
+                 framework/common/reference/org-config.schema.yaml; an upgrade never touches it.
+CODEOWNERS       GENERATED from the role list in policies/common/authorized-representatives.md.
+                 Do not edit it by hand; change the role list and run `gov upgrade`.
 ```
 
 ### `knowledge/` is deliberately empty
@@ -60,9 +64,9 @@ upgrade.
 
 | Treatment | Meaning | Examples |
 |---|---|---|
-| framework-owned | overwritten, every upgrade | `governance/`, `agent/` |
+| framework-owned | overwritten, every upgrade | `framework/`, `agent/` |
 | yours after the first install | never touched again | `README.md` (this file), `.github/workflows/gov-validate.yml`, `org-config.yaml`, `policies/governance.yaml` |
-| framework-owned shape | the list of keys `org-config.yaml` may hold, checked by `gov doctor` | `framework/config/org-config.schema.yaml` |
+| framework-owned shape | the list of keys `org-config.yaml` may hold, checked by `gov doctor` | `framework/common/reference/org-config.schema.yaml` |
 | never shipped | generated from the two above | `CODEOWNERS` |
 
 So this file is yours. Rewrite it for your organization — the section above is a starting point,

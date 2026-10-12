@@ -9,7 +9,7 @@
  * Architecture) were hard-coded in `codeowners.ts` with their holders in `*_owner_github` keys — the framework
  * deciding something the policy says is the org's.
  *
- * WHERE IT LIVES. A small table in `policies/authorized-representatives.md`, the seed-once document an org already
+ * WHERE IT LIVES. A small table in `policies/common/authorized-representatives.md`, the seed-once document an org already
  * owns and already reads to learn who approves what. Humans read the prose around it; gov reads only the table:
  *
  *   | Role        | GitHub handle | Owns                |
@@ -32,7 +32,7 @@
  * Pure: text in, values out. The callers (store-io at a git ref, doctor from the worktree, setup) do the reading.
  */
 /** Where the role list lives, repo-relative. */
-export const ROLE_LIST_PATH = "policies/authorized-representatives.md";
+export const ROLE_LIST_PATH = "policies/common/authorized-representatives.md";
 
 /** The framework's own two roles. Never in the org's table — their holders are in policies/governance.yaml. */
 export const POLICY_OWNER_ROLE = "Policy Owner";

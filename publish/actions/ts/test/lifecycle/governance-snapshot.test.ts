@@ -33,7 +33,7 @@ describe("governance snapshot — the rules, where the agent can read them", () 
     };
     return { ports, written };
   };
-  const both = { "org-config.yaml": "org: x\n", "framework/docs/specs/framework-specification.md": "# policy\n" };
+  const both = { "org-config.yaml": "org: x\n", "framework/framework-specification.md": "# policy\n" };
 
   it("copies both files into <project>/.gov/governance, read-only, stamped with where they came from", () => {
     const { ports, written } = fake(both);

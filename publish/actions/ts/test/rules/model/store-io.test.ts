@@ -14,21 +14,21 @@ import type { GitRead } from "../../../src/cli/policy-gate-io.js";
 
 const FRM_ROWS = `
 - id: GOV-FRM-001
-  source: { doc: framework/docs/specs/framework-specification.md, section: "1", sha: aaa111 }
+  source: { doc: framework/framework-specification.md, section: "1", sha: aaa111 }
   expectation: Agents stop when a C01 rule would be broken.
   actor: [agent]
   level: C01
   start: { version: 1.0.0, date: 2026-10-01 }
   end: { version: 1.1.0, date: 2026-10-05 }
 - id: GOV-FRM-001
-  source: { doc: framework/docs/specs/framework-specification.md, section: "1", sha: bbb222 }
+  source: { doc: framework/framework-specification.md, section: "1", sha: bbb222 }
   expectation: Agents stop and report when a C01 rule would be broken.
   actor: [agent]
   level: C01
   start: { version: 1.1.0, date: 2026-10-05 }
   end: null
 - id: GOV-FRM-009
-  source: { doc: framework/docs/specs/framework-specification.md, section: "4", sha: ccc333 }
+  source: { doc: framework/framework-specification.md, section: "4", sha: ccc333 }
   expectation: gov issues every GOV id.
   actor: [gov-client]
   level: C01

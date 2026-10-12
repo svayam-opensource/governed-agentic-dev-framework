@@ -28,7 +28,7 @@ const deaf = { on: { resource: "pms.issue", event: "closed" }, action: "gov-buil
 const row = (id: string, over: Partial<RuleRow> = {}): RuleRow => ({
   id,
   source: id.startsWith("GOV-FRM-")
-    ? { doc: "framework/docs/specs/framework-specification.md", section: "2.1", sha: "f00" }
+    ? { doc: "framework/framework-specification.md", section: "2.1", sha: "f00" }
     : { doc: "policies/org-policy.md", section: "3.1", sha: "a1b" },
   expectation: `Expectation of ${id}.`,
   actor: ["agent"],
@@ -71,7 +71,7 @@ describe("rule map — the merged view (rule-model-design.md Q8)", () => {
 
   it("derives Owner and Document Type from the id: FRM → Specification/framework, org → Policy/organization", () => {
     const [f, o] = tableRows(renderRuleMap(set([row("GOV-FRM-001")], [row("GOV-SVM-001")]))).map(cells);
-    expect([f[1], f[2], f[3], f[4]]).to.deep.equal(["framework/docs/specs/framework-specification.md", "Specification", "§2.1", "framework"]);
+    expect([f[1], f[2], f[3], f[4]]).to.deep.equal(["framework/framework-specification.md", "Specification", "§2.1", "framework"]);
     expect([o[1], o[2], o[3], o[4]]).to.deep.equal(["policies/org-policy.md", "Policy", "§3.1", "organization"]);
   });
 

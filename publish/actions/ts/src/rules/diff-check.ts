@@ -64,7 +64,7 @@ export interface DiffContext {
   readonly branch?: string;
 }
 
-/** Supplies a document a check REFERS to (`list=policies/approved-technologies.md`). Null when unreadable. */
+/** Supplies a document a check REFERS to (`list=policies/build/approved-technologies.md`). Null when unreadable. */
 export type ReadDoc = (path: string) => string | null;
 
 /**

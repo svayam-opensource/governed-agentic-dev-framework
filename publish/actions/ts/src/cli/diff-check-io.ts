@@ -9,7 +9,7 @@
  * pull request can edit: read carelessly from the worktree, deleting the clause on your own branch removes the
  * gate meant to hold you, and adding one binds a colleague who never agreed to it. Governance is what the default
  * branch says (GOV-FRM-456); a project branch's edits are proposals with no force (GOV-FRM-086). The same rule covers
- * the document a check REFERS to — `list=policies/approved-technologies.md` is read from the ratified branch too,
+ * the document a check REFERS to — `list=policies/build/approved-technologies.md` is read from the ratified branch too,
  * or a pull request could approve its own dependency in the same commit that adds it.
  *
  * The rows are read by `loadRuleStores` at the ratified ref, and run through the one check runner

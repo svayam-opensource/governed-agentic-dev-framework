@@ -56,7 +56,7 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "docs/design/option-2-sequence-diagrams.md": HISTORY,
   "publish/content/framework/rules/W2-classification.md": HISTORY,
   "publish/content/framework/rules/pol-aliases.yaml": ALIASES,
-  "publish/content/framework/docs/specs/gov-command-reference.md": ALIASES
+  "publish/content/framework/common/reference/gov-command-reference.md": ALIASES
     + " (generated from help-spec.ts, whose `gov rules show` example resolves a POL number)",
   "publish/actions/ts/src/cli/help-spec.ts": ALIASES + " (the `gov rules show` example)",
   "publish/actions/ts/src/cli/rules-show.ts": ALIASES,

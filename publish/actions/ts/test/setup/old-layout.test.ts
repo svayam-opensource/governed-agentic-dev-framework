@@ -84,7 +84,7 @@ describe("GOV-FRM-445 — setup on an old-layout repo loses no answer (walk #4, 
     const roles = parseRoleList(fs.readFileSync(path.join(ws, ROLE_LIST_PATH), "utf8"));
     expect(roles.found && roles.roles.find((r) => r.role === "Legal Owner")?.holder, "the domain role holders survive").to.equal("@svayam-rkant");
     // The old layout is gone: framework/ installed, so the seed that failed in the walk now has its templates.
-    expect(fs.existsSync(path.join(ws, "framework", "templates", "todo-template.md"))).to.equal(true);
+    expect(fs.existsSync(path.join(ws, "framework", "build", "templates", "todo-template.md"))).to.equal(true);
   });
 
   it("the upgrade runs BEFORE the first question — nothing is asked about a layout setup cannot write", async () => {

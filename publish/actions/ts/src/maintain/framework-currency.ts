@@ -5,7 +5,7 @@
  *
  * A joiner cloned an organization's governance repository that was on an OLDER framework layout than the gov they had
  * just installed (`governance/`, no `policies/governance.yaml`). gov printed "Read first" paths that did not exist in
- * it, offered to start work, and the work failed at seed: "framework/templates/todo-template.md is missing… Run
+ * it, offered to start work, and the work failed at seed: "<the todo template> is missing… Run
  * `gov upgrade`" — an instruction the joiner has no right to carry out on their organization's policy repository.
  *
  * So gov compares before it offers. Two kinds of difference, kept apart because they lead to different screens:
@@ -25,7 +25,7 @@ import { GOVERNANCE_PATH, parseGovernance } from "../config/governance.js";
 import { readTopLevelScalar } from "../resolve/node-env.js";
 
 /** The file a project's todo list is rendered from — `seed` refuses without it (lifecycle/seed.ts). */
-export const TODO_TEMPLATE_PATH = "framework/templates/todo-template.md";
+export const TODO_TEMPLATE_PATH = "framework/build/templates/todo-template.md";
 
 export interface FrameworkCurrency {
   /** What this gov needs and the repository lacks, in plain words. Empty = gov can start and seed work here. */

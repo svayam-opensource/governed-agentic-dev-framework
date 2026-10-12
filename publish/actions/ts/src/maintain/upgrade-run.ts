@@ -379,7 +379,7 @@ export function replaceFrameworkReadme(adopterDir: string, contentDir: string, a
 
 /**
  * CODEOWNERS FOLLOWS THE ROLE LIST (GOV-FRM-083). gov generates CODEOWNERS from policies/governance.yaml (the Policy and Check
- * Owners) and the org's role list (policies/authorized-representatives.md); a holder changes by a pull request to
+ * Owners) and the org's role list (policies/common/authorized-representatives.md); a holder changes by a pull request to
  * those, and the file is regenerated here — the command `gov doctor`'s drift row names. Written only when it would
  * change, so an upgrade with nothing to route says nothing. No Policy Owner → untouched, and said: a file without
  * its floor protects nothing (config/codeowners.ts).

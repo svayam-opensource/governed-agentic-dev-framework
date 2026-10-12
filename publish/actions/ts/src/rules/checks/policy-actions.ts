@@ -57,7 +57,7 @@ export const LEGACY_POLICY_HISTORY_DIR = "policies/version";
  * replaces them.
  */
 export const MACHINE_WRITTEN_POLICY_PATHS = [
-  "policies/CHANGELOG.md", "policies/VERSION", "policies/rules.yaml", `${POLICY_HISTORY_DIR}/**`, `${LEGACY_POLICY_HISTORY_DIR}/**`,
+  "policies/CHANGELOG.md", "policies/VERSION", "policies/rules/rules.yaml", `${POLICY_HISTORY_DIR}/**`, `${LEGACY_POLICY_HISTORY_DIR}/**`,
 ] as const;
 
 export const POLICY_OWNER = "Policy Owner";

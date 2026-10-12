@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * framework/config/org-config.schema.yaml — the framework owns the SHAPE of org-config.yaml, the org owns the
+ * framework/common/reference/org-config.schema.yaml — the framework owns the SHAPE of org-config.yaml, the org owns the
  * values (org-config split, Policy Owner 2026-10-06). The schema ships scaffold-auto; `gov doctor` and the loader
  * check an org's file against it. These tests hold the shipped file to the reader, so the two cannot drift.
  */
@@ -15,10 +15,10 @@ import {
 import { parseManifest } from "../../src/maintain/upgrade-sync.js";
 
 const CONTENT = fileURLToPath(new URL("../../../../content/", import.meta.url));
-const SCHEMA_PATH = "framework/config/org-config.schema.yaml";
+const SCHEMA_PATH = "framework/common/reference/org-config.schema.yaml";
 const shipped = (): string => fs.readFileSync(path.join(CONTENT, SCHEMA_PATH), "utf8");
 
-describe("gov-work — the org-config schema (framework/config/org-config.schema.yaml)", () => {
+describe("gov-work — the org-config schema (framework/common/reference/org-config.schema.yaml)", () => {
   it("ships, and the MANIFEST overwrites it on every upgrade (scaffold-auto)", () => {
     const m = parseManifest(fs.readFileSync(path.join(CONTENT, "MANIFEST.yaml"), "utf8"));
     const e = m.files.find((f) => f.dst === SCHEMA_PATH || (f.dst.endsWith("/") && SCHEMA_PATH.startsWith(f.dst)));

@@ -21,7 +21,7 @@ import { runSuite } from "../../../src/governance/suite.js";
 import type { Fs } from "../../../src/lifecycle/fs-io.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const CATALOG: Catalog = parseCatalog(readFileSync(resolve(here, "../../../../../content/framework/rules/catalog.yaml"), "utf8"));
+const CATALOG: Catalog = parseCatalog(readFileSync(resolve(here, "../../../../../content/framework/rules/checks-catalog.yaml"), "utf8"));
 const ACTION = "gov-builtin/frontmatter-required";
 
 /** The org's choice, as propose would extract it from a kept §4: three fields with value lists, owner any value. */

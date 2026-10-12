@@ -17,7 +17,7 @@ Project state is derived live from GitHub (boards + anchor issues) — there is 
 ## Authoritative Policy
 
 All work in this repository and all agentic development at <ORG_NAME> is governed by:
-`framework/docs/specs/framework-specification.md` (how the framework works) and your organization's
+`framework/framework-specification.md` (how the framework works) and your organization's
 `policies/` (its own rules). Every rule is listed in `agent/harness/rule-map.md`.
 
 Read these before beginning any work session.
@@ -58,7 +58,7 @@ governing force**. Never self-govern by your own unratified edits. Project-speci
 A `knowledge/` change becomes organizational standard only when merged to `<DEFAULT_BRANCH>` via a PR
 approved by the Policy Owner **and** the CODEOWNERS domain owner(s) whose folders it touches — all
 owners for `policies/`/`mandates/` (GOV-FRM-455). See
-`framework/docs/specs/framework-specification.md` §7.4.
+`framework/framework-specification.md` §7.4.
 
 ## Data Classification — Hard Rules
 
@@ -68,7 +68,7 @@ owners for `policies/`/`mandates/` (GOV-FRM-455). See
 
 ## Roles
 
-Current role holders are defined in `policies/authorized-representatives.md`.
+Current role holders are defined in `policies/common/authorized-representatives.md`.
 All policy roles are currently held by `<POLICY_OWNER_EMAIL>`.
 
 ## Lifecycle operations

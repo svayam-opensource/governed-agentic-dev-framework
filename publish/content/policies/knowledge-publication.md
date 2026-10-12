@@ -35,7 +35,7 @@ directly needs an approved exception.
 
 ### 1.3 Nothing confidential reaches an unauthenticated reader
 
-A document holding confidential or restricted data (see `policies/data-classification.md`) is never published
+A document holding confidential or restricted data (see `policies/common/data-classification.md`) is never published
 in any form that can be reached without authentication. There is no exception to this.
 
 ## 2. The three forms (starter)
@@ -90,7 +90,7 @@ swapped without a policy change.
 gov's built-in checks read a change and a workspace. None of them can see a published site, a PDF or a
 vector index. So the rules here are advisory as far as gov is concerned: written because they matter, with
 nothing in gov enforcing them. The place to enforce them is the publishing pipeline's own CI, and
-`framework/docs/specs/framework-specification.md` section 11.3 explains the distinction being relied on here.
+`framework/framework-specification.md` section 11.3 explains the distinction being relied on here.
 `gov doctor` counts them as advisory, which is the honest number.
 
 ### 3.4 Why agents need no reminder of them either
@@ -98,11 +98,11 @@ nothing in gov enforcing them. The place to enforce them is the publishing pipel
 A reminder in an agent's context costs space on every turn of every session. Nothing here is a judgement an
 agent makes mid-task: an agent writing a document does not decide how it is published. The one thing an
 author must not get wrong, what may be written down at all, is already covered by
-`policies/data-classification.md` section 2.1. A second, similar reminder would weaken both
+`policies/common/data-classification.md` section 2.1. A second, similar reminder would weaken both
 (`policies/org-policy.md` section 6.3).
 
 ## 4. Who owns this document
 
 As seeded, every section of this document is owned by the Policy Owner. Once an Infrastructure Owner is
-appointed in `policies/authorized-representatives.md`, the Policy Owner may hand sections 2 and 3 to that role
+appointed in `policies/common/authorized-representatives.md`, the Policy Owner may hand sections 2 and 3 to that role
 by rewriting this sentence.

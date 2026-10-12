@@ -3,7 +3,7 @@
 /**
  * THE COMMAND REFERENCE, GENERATED FROM THE SPECS — the fourth surface of help-spec.ts.
  *
- * WHY THIS EXISTS. `publish/content/framework/docs/specs/gov-command-reference.md` was hand-written, and it
+ * WHY THIS EXISTS. `publish/content/framework/common/reference/gov-command-reference.md` was hand-written, and it
  * drifted the way hand-written references always do: it documented `gov-work` as the binary name, listed a
  * subcommand set of 21 verbs when gov dispatched 27, described `seed`'s prompts in an order the code no longer
  * asks in, and carried not one exit code — the field an AGENT branches on. That is the same failure the specs
@@ -23,16 +23,15 @@ import { GROUPS, mergedExit, type Topic } from "./help-render.js";
 import type { CommandSpec } from "./help-spec.js";
 
 /**
- * Where the rendered page belongs, relative to this package root (`publish/actions/ts`), first match wins.
+ * Where the rendered page belongs, relative to this package root (`publish/actions/ts`).
  *
- * Two candidates because the docs tree has been reorganised once already and the generator must not invent a
- * second copy of the reference when it moves again: it writes over the file that is THERE. Declared here rather
- * than in the script so the freshness test resolves the same path by the same rule — a test that looks in the
- * other place passes while the committed file rots.
+ * ONE home (the phase tree, PRJ-121 intent 01 §3.1): `framework/common/reference/`. No old-path fallback (T15) — a
+ * reorganisation changes this one entry. Declared here rather than in the script so the freshness test resolves the
+ * same path by the same rule — a test that looks in another place passes while the committed file rots. Still a list,
+ * so the generator's "first that exists" lookup stays one line.
  */
 export const REFERENCE_DOC_CANDIDATES: readonly string[] = [
-  "../../content/framework/docs/gov-command-reference.md",
-  "../../content/framework/docs/specs/gov-command-reference.md",
+  "../../content/framework/common/reference/gov-command-reference.md",
 ];
 
 /**

@@ -22,7 +22,7 @@ import {
 } from "../../../src/rules/checks/executor.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const FRAMEWORK = parseCatalog(readFileSync(resolve(here, "../../../../../content/framework/rules/catalog.yaml"), "utf8"));
+const FRAMEWORK = parseCatalog(readFileSync(resolve(here, "../../../../../content/framework/rules/checks-catalog.yaml"), "utf8"));
 const CATALOG: Catalog = {
   ...FRAMEWORK,
   actions: [...FRAMEWORK.actions, { id: "bash/lint", tool: "bash" }, { id: "python/lint-py", tool: "python" }],
@@ -224,11 +224,11 @@ describe("gov check run — an org bash action, end to end over a fake git", () 
     "org-config.yaml": 'org_slug: "ACME"\n',
     "policies/governance.yaml": 'policy_owner:\n  github: "@polly"\ncheck_owner:\n  github: "chuck"\n',
     "framework/rules/rules.yaml": readFileSync(resolve(CONTENT, "framework/rules/rules.yaml"), "utf8"),
-    "framework/rules/catalog.yaml": readFileSync(resolve(CONTENT, "framework/rules/catalog.yaml"), "utf8"),
+    "framework/rules/checks-catalog.yaml": readFileSync(resolve(CONTENT, "framework/rules/checks-catalog.yaml"), "utf8"),
     "policies/org-policy.md": "## 4 Lint\n\nLint it.\n",
     "policies/VERSION": "1.0.0\n",
-    "policies/rules.yaml": ORG_ROW,
-    "policies/catalog.yaml": "resources: []\ntools: []\nactions:\n  - { id: bash/lint, tool: bash, reviewed: { by: chuck, pr: 3 } }\n",
+    "policies/rules/rules.yaml": ORG_ROW,
+    "policies/rules/checks-catalog.yaml": "resources: []\ntools: []\nactions:\n  - { id: bash/lint, tool: bash, reviewed: { by: chuck, pr: 3 } }\n",
     [`${ACTIONS_DIR}/lint/action.yaml`]: "tool: bash\nentry: run.sh\n",
     [`${ACTIONS_DIR}/lint/run.sh`]: `echo '{"file":"src/a.ts","line":1,"message":"default-branch code ran"}'\nexit 1\n`,
   };

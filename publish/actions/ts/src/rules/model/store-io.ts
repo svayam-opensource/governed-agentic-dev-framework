@@ -5,14 +5,14 @@
  * W1, 2026-10-06). The disk side of {@link ./rule-row.js} and {@link ./catalog.js}.
  *
  * AT A REF, NEVER FROM THE WORKTREE. Rules are what the default branch says (GOV-FRM-456). A branch that deletes a
- * row from its own `policies/rules.yaml` has proposed a change, not made one — and a reader that looked at the
+ * row from its own `policies/rules/rules.yaml` has proposed a change, not made one — and a reader that looked at the
  * worktree would let the branch under review unbind itself. The mechanism is the one `cli/policy-gate-io.ts`
  * already uses: `git ls-tree` to learn what EXISTS at the ref, `git show <ref>:<path>` to read it, with git
  * injected so every path here is testable without a repository.
  *
  * THREE ANSWERS, KEPT APART. A careless reader collapses them, and two of the three collapses are silent passes:
  *
- *   an org with no rules yet   → an EMPTY org store. A fresh adopter has no `policies/rules.yaml`; that is a
+ *   an org with no rules yet   → an EMPTY org store. A fresh adopter has no `policies/rules/rules.yaml`; that is a
  *                                state, not a fault.
  *   rules that are wrong       → the rows, WITH diagnostics. A row in the wrong scope is still a row somebody
  *                                wrote; hiding it would hide the mistake.
@@ -37,9 +37,9 @@ import { GOVERNANCE_PATH, frameworkOwners, parseGovernance } from "../../config/
 /** Where each piece lives, repo-relative. One table, so a layout change is one edit. */
 export const RULE_STORE_PATHS = {
   frameworkRules: "framework/rules/rules.yaml",
-  frameworkCatalog: "framework/rules/catalog.yaml",
-  orgRules: "policies/rules.yaml",
-  orgCatalog: "policies/catalog.yaml",
+  frameworkCatalog: "framework/rules/checks-catalog.yaml",
+  orgRules: "policies/rules/rules.yaml",
+  orgCatalog: "policies/rules/checks-catalog.yaml",
   orgVersion: "policies/VERSION",
   orgConfig: "org-config.yaml",
   /** The org's governance choices — the Policy Owner and Check Owner among them (org-config split). */

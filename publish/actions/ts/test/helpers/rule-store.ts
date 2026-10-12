@@ -11,19 +11,19 @@ import type { GitRead } from "../../src/cli/policy-gate-io.js";
 
 const CONTENT = path.join(import.meta.dirname, "..", "..", "..", "..", "content");
 
-/** The shipped `framework/rules/catalog.yaml`. */
-export const SHIPPED_CATALOG = readFileSync(path.join(CONTENT, "framework", "rules", "catalog.yaml"), "utf8");
+/** The shipped `framework/rules/checks-catalog.yaml`. */
+export const SHIPPED_CATALOG = readFileSync(path.join(CONTENT, "framework", "rules", "checks-catalog.yaml"), "utf8");
 
 /** One ref's files: path → text. */
 export type Tree = Readonly<Record<string, string>>;
 
-/** The minimum a tree needs to load: an org slug and the framework catalog. `orgRules` is `policies/rules.yaml`. */
+/** The minimum a tree needs to load: an org slug and the framework catalog. `orgRules` is `policies/rules/rules.yaml`. */
 export function storeTree(orgRules: string, extra: Tree = {}): Tree {
   return {
     "org-config.yaml": "org_slug: SVM\n",
-    "framework/rules/catalog.yaml": SHIPPED_CATALOG,
+    "framework/rules/checks-catalog.yaml": SHIPPED_CATALOG,
     "framework/rules/rules.yaml": "[]\n",
-    "policies/rules.yaml": orgRules,
+    "policies/rules/rules.yaml": orgRules,
     "policies/VERSION": "1.0.0\n",
     ...extra,
   };

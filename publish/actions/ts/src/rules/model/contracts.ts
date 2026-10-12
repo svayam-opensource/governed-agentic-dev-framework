@@ -28,7 +28,7 @@ import type { WorkspaceView } from "../verb-gate.js";
 export interface SectionOwnership {
   readonly doc: string;
   readonly section: string;
-  /** A role name from the org's role list (`policies/authorized-representatives.md`), e.g. "Data Owner". */
+  /** A role name from the org's role list (`policies/common/authorized-representatives.md`), e.g. "Data Owner". */
   readonly role: string;
   /**
    * The sha of the section the ownership STATEMENT is written in (integration, 2026-10-06) — not of the section it

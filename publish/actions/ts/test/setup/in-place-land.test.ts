@@ -71,11 +71,11 @@ describe("F17 — configure-in-place lands its changes by a pull request", () =>
   });
 
   it("files the upgrade-before-setup changed are carried too — everything setup changed, nothing it did not", async () => {
-    const w = fakeIo({ branch: "main", before: "", after: " M org-config.yaml\n?? framework/templates/todo-template.md\n D governance/policies/x.md\n" });
+    const w = fakeIo({ branch: "main", before: "", after: " M org-config.yaml\n?? framework/build/templates/todo-template.md\n D governance/policies/x.md\n" });
     w.setAfter();
     await landSetupChanges(w.io, { defaultBranch: "main", today: "2026-10-07", before: "", setupPaths: SETUP_PATHS });
     const add = w.calls.find((c) => c.startsWith("git add"))!;
-    expect(add).to.contain("framework/templates/todo-template.md").and.contain("governance/policies/x.md");
+    expect(add).to.contain("framework/build/templates/todo-template.md").and.contain("governance/policies/x.md");
   });
 
   it("a branch of that name already exists → the next free name", async () => {
@@ -136,7 +136,7 @@ describe("F17 — configure-in-place lands its changes by a pull request", () =>
 
 describe("F20 — setup regenerates CODEOWNERS in the same change", () => {
   let dir = "";
-  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), "gov-f20-")); fs.mkdirSync(path.join(dir, "policies")); });
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), "gov-f20-")); fs.mkdirSync(path.join(dir, "policies", "common"), { recursive: true }); });
   afterEach(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ } });
 
   it("after the owners change, CODEOWNERS routes to the new Policy Owner and the role list carries no token", () => {

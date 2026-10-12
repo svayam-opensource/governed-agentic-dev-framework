@@ -341,8 +341,8 @@ else
   expect "(c) the bot's commit lists policies/org-policy.md §2.2 under Sections reviewed" \
     grep -Eq '^- policies/org-policy\.md §2\.2 \([0-9a-f]{7,}\) → ' <<<"$CHANGELOG_D"
   if [ "$REAL_MODEL" != "1" ]; then
-    RULES_D="$(file_at "$R_GOV" policies/rules.yaml "$SHA_D" 'expectation: A change to application behaviour, or a bug fix, comes with a test that would fail without it.')"
-    expect "(c) the bot's commit adds the stub model's row to policies/rules.yaml" grep -q "or a bug fix, comes with a test that would fail without it" <<<"$RULES_D"
+    RULES_D="$(file_at "$R_GOV" policies/rules/rules.yaml "$SHA_D" 'expectation: A change to application behaviour, or a bug fix, comes with a test that would fail without it.')"
+    expect "(c) the bot's commit adds the stub model's row to policies/rules/rules.yaml" grep -q "or a bug fix, comes with a test that would fail without it" <<<"$RULES_D"
   fi
 fi
 
@@ -398,14 +398,14 @@ fi
 
 # ── (g) an org bash action fails a PR (Item 8, rulings Q8/Q9) ────────────────────────────────────────────────────
 # The org's own check, as an adopter writes one: policies/actions/no-marker/ (action.yaml + run.sh), listed in
-# policies/catalog.yaml, bound by an org rule row. Landed on the default branch by a direct push (no policy PR: the
+# policies/rules/checks-catalog.yaml, bound by an org rule row. Landed on the default branch by a direct push (no policy PR: the
 # proposer and the policy gate are (c)'s business, and a hand-written row is what this assertion needs). Then a PR
 # adds a file with the marker AND rewrites run.sh to `exit 0` — the check must still fail, because gov runs the
 # action as the DEFAULT branch has it, never the copy under review.
 step "(g) an org bash action fails a PR — run from the default branch, not the PR's copy"
 G_ID="GOV-RME-900"
 x git -C "$G" switch -q "$DEF" && x git -C "$G" pull -q --ff-only || die "pull $DEF failed"
-mkdir -p "$G/policies/actions/no-marker"
+mkdir -p "$G/policies/actions/no-marker" "$G/policies/rules"
 cat > "$G/policies/actions/no-marker/action.yaml" <<'YAML'
 tool: bash
 entry: run.sh
@@ -424,8 +424,8 @@ done < "$GOV_CHANGED_FILES"
 exit $hit
 SH
 # The seeded org store is `[]`; a row appended after it would not parse.
-x perl -0pi -e 's/^\[\]\s*\z//m' "$G/policies/rules.yaml"
-cat >> "$G/policies/rules.yaml" <<YAML
+x perl -0pi -e 's/^\[\]\s*\z//m' "$G/policies/rules/rules.yaml"
+cat >> "$G/policies/rules/rules.yaml" <<YAML
 - id: $G_ID
   source: { doc: policies/org-policy.md, section: "2", sha: "0000000" }
   expectation: "No change carries the e2e forbidden marker (rule-model journey (g))."
@@ -436,8 +436,8 @@ cat >> "$G/policies/rules.yaml" <<YAML
   start: { version: "1.0.0", date: "2026-10-12" }
   end: null
 YAML
-x perl -0pi -e 's/^actions: \[\]\s*$/actions:\n  - { id: bash\/no-marker, tool: bash, reviewed: { by: e2e, pr: 1 } }\n/m' "$G/policies/catalog.yaml"
-expect "(g) the org catalog lists bash/no-marker" grep -q 'bash/no-marker' "$G/policies/catalog.yaml"
+x perl -0pi -e 's/^actions: \[\]\s*$/actions:\n  - { id: bash\/no-marker, tool: bash, reviewed: { by: e2e, pr: 1 } }\n/m' "$G/policies/rules/checks-catalog.yaml"
+expect "(g) the org catalog lists bash/no-marker" grep -q 'bash/no-marker' "$G/policies/rules/checks-catalog.yaml"
 x git -C "$G" add -A && x git -C "$G" commit -qm "org check action no-marker + $G_ID (rule-model journey (g))" \
   && x git -C "$G" push -q origin "$DEF" || die "could not land the org action on $DEF"
 ok "(g) org action + $G_ID on $DEF"

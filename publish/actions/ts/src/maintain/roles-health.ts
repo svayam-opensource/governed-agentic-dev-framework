@@ -71,7 +71,7 @@ export function policyOwnerDiagnostic(governanceText: string | null | undefined)
 }
 
 /**
- * W2-Q5: the org's roles. The table in `policies/authorized-representatives.md` is the list — there is no fallback
+ * W2-Q5: the org's roles. The table in `policies/common/authorized-representatives.md` is the list — there is no fallback
  * to the retired `*_owner_github` keys (the `org-config-split` upgrade carried them into the table).
  *
  * `roleListText`: the document's text, `null` when it is absent, `undefined` when nobody looked (no row).

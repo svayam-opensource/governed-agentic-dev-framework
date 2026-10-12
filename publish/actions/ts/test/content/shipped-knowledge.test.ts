@@ -98,7 +98,9 @@ describe("gov-work — seeded policies carry no front matter (Policy Owner, 2026
   // A level belongs to each RULE, set by the propose interview — never to a document. So a seeded policy opens with
   // its human header (title, owner, status), not a YAML block claiming a level for the whole file.
   const policiesDir = path.join(contentDir(), "policies");
-  const seeded = fs.readdirSync(policiesDir).filter((n) => n.endsWith(".md") && n !== "CHANGELOG.md");
+  // Recursive: the phase tree puts policies in common/ and build/ as well as at the root (spec 01 §2).
+  const seeded = (fs.readdirSync(policiesDir, { recursive: true }) as string[])
+    .map((n) => n.split(path.sep).join("/")).filter((n) => n.endsWith(".md") && n !== "CHANGELOG.md").sort();
 
   it("no seeded policies/*.md opens with a front-matter block", () => {
     expect(seeded.length).to.be.greaterThan(5);

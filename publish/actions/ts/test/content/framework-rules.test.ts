@@ -18,7 +18,7 @@ import { sectionShas } from "../../src/rules/checks/sections.js";
 import type { GitRead } from "../../src/cli/policy-gate-io.js";
 
 const CONTENT = path.join(import.meta.dirname, "..", "..", "..", "..", "content");
-const SPEC_DOC = "framework/docs/specs/framework-specification.md";
+const SPEC_DOC = "framework/framework-specification.md";
 const read = (rel: string): string => readFileSync(path.join(CONTENT, rel), "utf8");
 
 /** The repository at one ref, as `git ls-tree` / `git show` see it. */

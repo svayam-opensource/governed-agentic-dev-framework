@@ -58,7 +58,7 @@ describe("defect 1 — an on-demand cue with no check can never fire (Q19)", () 
     const r: RuleRow = { id: "GOV-E2E-001", source: { doc: DOC, section: "3", sha: "abc1234" }, ...(PR5_ROW as Pick<RuleRow, "expectation" | "actor" | "level" | "cue">), start: { version: "1.1.0", date: "2026-10-07", pr: 5 }, end: null };
     expect(validateRuleStore([r], { scope: "E2E" }).map((d) => d.kind)).to.deep.equal(["on-demand-cue-unbound"]);
     expect(validateRuleStore([{ ...r, checks: [CHECK as never] }], { scope: "E2E" })).to.deep.equal([]);
-    const loaded = loadRuleStoresFrom({ where: "test", read: (rel) => ({ "org-config.yaml": "org_slug: E2E\n", "policies/rules.yaml": yaml.dump([r]), "policies/VERSION": "1.1.0\n" } as Record<string, string>)[rel] });
+    const loaded = loadRuleStoresFrom({ where: "test", read: (rel) => ({ "org-config.yaml": "org_slug: E2E\n", "policies/rules/rules.yaml": yaml.dump([r]), "policies/VERSION": "1.1.0\n" } as Record<string, string>)[rel] });
     expect(loaded.ok).to.equal(true);
     const d = loaded.ok ? loaded.diagnostics.filter((x) => x.kind === "on-demand-cue-unbound") : [];
     expect(d).to.have.length(1);
@@ -160,7 +160,7 @@ const baseFiles = (): Record<string, string> => ({
   "org-config.yaml": "org_slug: \"E2E\"\n",
   [DOC]: OLD,
   "policies/VERSION": "1.0.1\n",
-  "policies/rules.yaml": "[]\n",
+  "policies/rules/rules.yaml": "[]\n",
   "policies/ownership.yaml": "[]\n",
   "policies/CHANGELOG.md": BASE_LOG,
   "policies/history/1.0.0/org-policy.md": "# Org policy, as it was\n",
@@ -188,7 +188,7 @@ function afterProseRun(): Record<string, string> {
 describe("defect 2 — one changelog entry, and one version jump, per pull request", () => {
   it("PR #5: prose-only to 1.0.2, then rules → ONE entry, 1.1.0, from the base; the gate passes", () => {
     const files = afterProseRun();
-    files["policies/rules.yaml"] = yaml.dump([E2E_ROW]);
+    files["policies/rules/rules.yaml"] = yaml.dump([E2E_ROW]);
     const fin = finish(files, "rules");
     expect(fin.ok, fin.lines.join("\n")).to.equal(true);
     expect(files["policies/VERSION"]).to.equal("1.1.0\n");
@@ -206,7 +206,7 @@ describe("defect 2 — one changelog entry, and one version jump, per pull reque
   it("the gate: PR #5's head as the bot left it — entries 1.1.0 AND 1.0.2 — is an error; a re-run repairs it", () => {
     const files = afterProseRun();
     const prose = files["policies/CHANGELOG.md"]!;
-    files["policies/rules.yaml"] = yaml.dump([E2E_ROW]);
+    files["policies/rules/rules.yaml"] = yaml.dump([E2E_ROW]);
     finish(files, "rules");
     // What the old writers left: the 1.1.0 entry inserted above the 1.0.2 one.
     const entry110 = files["policies/CHANGELOG.md"]!.slice(files["policies/CHANGELOG.md"]!.indexOf("## 1.1.0"), files["policies/CHANGELOG.md"]!.indexOf("## 1.0.1"));
@@ -223,14 +223,14 @@ describe("defect 2 — one changelog entry, and one version jump, per pull reque
   it("never touches another pull request's entry, nor this pull request's APPROVED one", () => {
     const files = afterProseRun();
     files["policies/CHANGELOG.md"] = files["policies/CHANGELOG.md"]!.replace("| #5 | @alice | _pending_ |", "| #5 | @alice | @polly |");
-    files["policies/rules.yaml"] = yaml.dump([E2E_ROW]);
+    files["policies/rules/rules.yaml"] = yaml.dump([E2E_ROW]);
     finish(files, "rules");
     expect(added(files), "approved: kept — the gate then says so").to.deep.equal(["1.1.0", "1.0.2"]);
     expect(judge(files).findings.some((f) => f.check === "changelog" && f.message.includes("gains 2 entries"))).to.equal(true);
 
     const other = afterProseRun();
     other["policies/CHANGELOG.md"] = other["policies/CHANGELOG.md"]!.replace("| #5 |", "| #6 |");
-    other["policies/rules.yaml"] = yaml.dump([E2E_ROW]);
+    other["policies/rules/rules.yaml"] = yaml.dump([E2E_ROW]);
     finish(other, "rules");
     expect(other["policies/CHANGELOG.md"], "#6's entry is not this PR's to remove").to.contain("## 1.0.2");
     expect(changelogVersions(other["policies/CHANGELOG.md"]!)).to.include("1.0.1");
@@ -249,8 +249,8 @@ describe("defect 2 — one changelog entry, and one version jump, per pull reque
 
   it("the rows are re-stamped at the recomputed version", () => {
     const files = afterProseRun();
-    files["policies/rules.yaml"] = yaml.dump([{ ...E2E_ROW, start: { version: "1.0.2", date: "2026-10-07", pr: 5 } }]);
+    files["policies/rules/rules.yaml"] = yaml.dump([{ ...E2E_ROW, start: { version: "1.0.2", date: "2026-10-07", pr: 5 } }]);
     finish(files, "rules");
-    expect(parseRuleStore(files["policies/rules.yaml"]!)[0]!.start).to.deep.equal({ version: "1.1.0", date: "2026-10-07", pr: 5 });
+    expect(parseRuleStore(files["policies/rules/rules.yaml"]!)[0]!.start).to.deep.equal({ version: "1.1.0", date: "2026-10-07", pr: 5 });
   });
 });

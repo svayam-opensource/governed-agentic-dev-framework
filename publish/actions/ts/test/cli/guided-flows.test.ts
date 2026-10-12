@@ -756,9 +756,9 @@ describe("gov-work — the session prompt reads governance from the default bran
   it("governance comes from the default-branch clone, not the worktree", () => {
     const p = sessionStartPrompt("PRJ-9-infra", "acme-gov", GOV);
     expect(p, "org-config from the default branch").to.contain(`${GOV}/org-config.yaml`);
-    expect(p, "and the policy too").to.contain(`${GOV}/framework/docs/specs/framework-specification.md`);
+    expect(p, "and the policy too").to.contain(`${GOV}/framework/framework-specification.md`);
     expect(p, "never the worktree copy of the policy")
-      .to.not.contain("acme-gov/framework/docs/specs/framework-specification.md");
+      .to.not.contain("acme-gov/framework/framework-specification.md");
   });
 
   it("project paths still come from the project branch", () => {

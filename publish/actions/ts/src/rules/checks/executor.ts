@@ -5,7 +5,7 @@
  *
  * An organization that needs a check the builtins cannot express writes one under `policies/actions/<name>/`, the
  * Check Owner reviews it (CODEOWNERS), and a rule row binds it as `bash/<name>` or `python/<name>` (the catalog
- * entry, `policies/catalog.yaml`). THE CONTRACT:
+ * entry, `policies/rules/checks-catalog.yaml`). THE CONTRACT:
  *
  *   policies/actions/<name>/action.yaml     tool: bash | python      (must agree with the catalog entry's tool)
  *                                           entry: run.sh | run.py   (a file in the same folder)

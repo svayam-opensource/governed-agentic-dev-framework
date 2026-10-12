@@ -9,7 +9,7 @@
  * named its author a role's holder, would otherwise approve itself.
  *
  * Roles come with the stores (store-io.ts): the Policy Owner and Check Owner (vacant → the Policy Owner) from
- * org-config, and every other role from the org's role list in `policies/authorized-representatives.md`. A section
+ * org-config, and every other role from the org's role list in `policies/common/authorized-representatives.md`. A section
  * owned by a VACANT role — or by a role the list does not name — routes to the Policy Owner; never a pass.
  */
 import type { GitRead } from "../../cli/policy-gate-io.js";

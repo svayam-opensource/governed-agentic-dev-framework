@@ -1,7 +1,7 @@
 # THE SHAPE OF A RULE STORE — the framework's, replaced on every `gov upgrade`. Do not edit.
 #
 # A rule store is a YAML list of rule rows, one row per revision of a rule. There are two stores, each with one
-# writer: framework/rules/rules.yaml (the framework's rules, written only by `gov upgrade`) and policies/rules.yaml
+# writer: framework/rules/rules.yaml (the framework's rules, written only by `gov upgrade`) and policies/rules/rules.yaml
 # (your organization's rules, written by `gov rules propose` and approved in a policy pull request). How rows are
 # made, revised and retired is in framework-specification.md chapter 9.
 #
@@ -9,7 +9,7 @@
 # editor complete and check rows as you read them:
 #
 #   #/$defs/frameworkStore   framework/rules/rules.yaml
-#   #/$defs/orgStore         policies/rules.yaml
+#   #/$defs/orgStore         policies/rules/rules.yaml
 #   (the root)               either one
 #
 # gov itself checks a store with `gov rules check`. A test in gov holds this schema and gov's own check to the same
@@ -24,7 +24,7 @@ description: >-
   allows. Checked only by `gov rules check`, because JSON Schema cannot express them: two-in-force (at most one row
   of an id has no end), broken-chain (each closed revision ends at the version its successor starts at),
   end-before-start (a row cannot end at a version before it starts). Check bindings are also checked against the
-  catalog (framework/rules/catalog.yaml plus the org's) by `gov rules check`.
+  catalog (framework/rules/checks-catalog.yaml plus the org's) by `gov rules check`.
 anyOf:
   - $ref: "#/$defs/frameworkStore"
   - $ref: "#/$defs/orgStore"
@@ -37,7 +37,7 @@ $defs:
 
   orgStore:
     description: >-
-      policies/rules.yaml — your organization's rules, GOV-<org_slug>-NNN. An id keeps the slug it was issued
+      policies/rules/rules.yaml — your organization's rules, GOV-<org_slug>-NNN. An id keeps the slug it was issued
       under, so after a rename older rows keep the old slug; any scope but FRM is allowed here.
     type: array
     items: { $ref: "#/$defs/orgRow" }

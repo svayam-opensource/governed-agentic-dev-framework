@@ -302,7 +302,7 @@ describe("the org-config split — a rename carries the value; a migration that 
     const plan = planUpgrade(shipped, {
       readContent: () => "rows\n",
       readAdopter: (p) => (p === "framework/rules/rules.yaml" ? "rows\n" : "x"),
-      adopterPaths: () => ["framework/rules/rules.yaml", "framework/docs/specs/framework-specification.md", "registry.yaml"],
+      adopterPaths: () => ["framework/rules/rules.yaml", "framework/framework-specification.md", "registry.yaml"],
     });
     const retired = plan.actions.filter((a) => a.kind === "retire").map((a) => a.dst);
     expect(retired).to.not.include("framework/");
@@ -346,8 +346,8 @@ retire:
     expect(clash).to.deep.equal([]);
   });
 
-  // SANDBOX FINDING (PRJ-121, 2026-10-07): the upgrade plan listed framework/templates/workflows/approver-check.yml
-  // twice — once from the framework/templates/ directory entry and once from its own row. One file, one action.
+  // SANDBOX FINDING (PRJ-121, 2026-10-07): the upgrade plan listed framework/build/templates/workflows/approver-check.yml
+  // twice — once from the framework/build/templates/ directory entry and once from its own row. One file, one action.
   it("the shipped MANIFEST names each destination once, and its expanded plan has no duplicate destination", () => {
     const content = path.join(repoRoot, "publish", "content");
     const m = parseManifest(fs.readFileSync(path.join(content, "MANIFEST.yaml"), "utf8"));
@@ -359,7 +359,7 @@ retire:
     });
     const dsts = expandEntries(m, walk("")).map((e) => e.dst);
     expect(dsts.filter((d, i) => dsts.indexOf(d) !== i), "a destination planned twice").to.deep.equal([]);
-    expect(dsts.filter((d) => d === "framework/templates/workflows/approver-check.yml")).to.have.lengthOf(1);
+    expect(dsts.filter((d) => d === "framework/build/templates/workflows/approver-check.yml")).to.have.lengthOf(1);
   });
 
   it("a file row inside a directory row yields ONE entry, and the file row's mode wins", () => {
@@ -376,12 +376,14 @@ retire:
   it("doctor does not call the new framework/ tree an old-world artifact", () => {
     const has = (...p: string[]) => (rel: string) => p.includes(rel);
     expect(staleArtifactsIn(true, has("org-config.yaml", "framework", "framework/rules"))).to.not.include("framework/");
-    expect(staleArtifactsIn(true, has("org-config.yaml", "framework", "framework/docs"))).to.not.include("framework/");
+    expect(staleArtifactsIn(true, has("org-config.yaml", "framework", "framework/common"))).to.not.include("framework/");
+    expect(staleArtifactsIn(true, has("org-config.yaml", "framework", "framework/build"))).to.not.include("framework/");
     expect(staleArtifactsIn(true, has("org-config.yaml", "framework")), "a framework/ with none of the new layout is the old world").to.include("framework/");
   });
 
-  it("a workspace with the rule store but no framework/policies/ is on the current layout", () => {
+  it("the phase tree's framework folders mark the current layout (rules/, common/, build/ — spec 01 §3.1)", () => {
     expect(contentLayoutOf((r) => r === "framework/rules")).to.equal("framework");
-    expect(contentLayoutOf((r) => r === "framework/docs/specs")).to.equal("framework");
+    expect(contentLayoutOf((r) => r === "framework/common")).to.equal("framework");
+    expect(contentLayoutOf((r) => r === "framework/build")).to.equal("framework");
   });
 });

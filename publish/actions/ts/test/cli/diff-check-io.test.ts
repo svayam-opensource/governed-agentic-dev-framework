@@ -18,7 +18,7 @@ import { storeTree, boundRow, treeGit, type Tree } from "../helpers/rule-store.j
 
 /** The rule that judges a dependency: list-membership on the gov repo's pull requests. */
 const RULE_WITH_CHECK = boundRow("GOV-SVM-210", { resource: "vcs.gov-repo", event: "pull_request" },
-  "gov-builtin/list-membership", { when: ["**/package.json"], list: "policies/approved-technologies.md" });
+  "gov-builtin/list-membership", { when: ["**/package.json"], list: "policies/build/approved-technologies.md" });
 
 /** A git over trees that also answers the changeset calls. */
 function fakeGit(
@@ -77,7 +77,7 @@ describe("where the rule comes from — the rule rows at the ratified ref", () =
 
   it("the check still fires when the branch under review has DELETED the rule row", () => {
     const git = fakeGit({
-      main: storeTree(RULE_WITH_CHECK, { "policies/approved-technologies.md": APPROVED_ON_MAIN }),
+      main: storeTree(RULE_WITH_CHECK, { "policies/build/approved-technologies.md": APPROVED_ON_MAIN }),
       HEAD: storeTree("[]\n", { "package.json": "{}" }),
     }, nameStatus, hunks);
 
@@ -92,25 +92,25 @@ describe("where the rule comes from — the rule rows at the ratified ref", () =
 
   it("the list= document is read from the ratified ref too — a branch cannot approve its own dependency", () => {
     const git = fakeGit({
-      main: storeTree(RULE_WITH_CHECK, { "policies/approved-technologies.md": APPROVED_ON_MAIN }),
-      HEAD: { "policies/approved-technologies.md": APPROVED_ON_BRANCH, "package.json": "{}" },
+      main: storeTree(RULE_WITH_CHECK, { "policies/build/approved-technologies.md": APPROVED_ON_MAIN }),
+      HEAD: { "policies/build/approved-technologies.md": APPROVED_ON_BRANCH, "package.json": "{}" },
     }, nameStatus, hunks);
 
     const r = policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" });
     expect(r.ok, "approving a technology is a pull request to that file, not a line in the same commit").to.equal(false);
-    expect(r.failures[0]!.message).to.contain("policies/approved-technologies.md");
+    expect(r.failures[0]!.message).to.contain("policies/build/approved-technologies.md");
   });
 
   it("the same change passes once the ratified list holds the dependency", () => {
     const git = fakeGit({
-      main: storeTree(RULE_WITH_CHECK, { "policies/approved-technologies.md": APPROVED_ON_BRANCH }),
+      main: storeTree(RULE_WITH_CHECK, { "policies/build/approved-technologies.md": APPROVED_ON_BRANCH }),
       HEAD: { "package.json": "{}" },
     }, nameStatus, hunks);
     expect(policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" }).failures).to.deep.equal([]);
   });
 
   it("only the bindings whose `when` globs match the change judge it", () => {
-    const git = fakeGit({ main: storeTree(RULE_WITH_CHECK, { "policies/approved-technologies.md": APPROVED_ON_MAIN }) }, "M\tREADME.md\n", { "README.md": "+++ b/README.md\n+hello\n" });
+    const git = fakeGit({ main: storeTree(RULE_WITH_CHECK, { "policies/build/approved-technologies.md": APPROVED_ON_MAIN }) }, "M\tREADME.md\n", { "README.md": "+++ b/README.md\n+hello\n" });
     expect(policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" }))
       .to.deep.equal({ ok: true, failures: [], warnings: [] });
   });
@@ -129,7 +129,7 @@ describe("where the rule comes from — the rule rows at the ratified ref", () =
   });
 
   it("rule stores that cannot be read are a warning, never a silent pass", () => {
-    const git = fakeGit({ main: { "policies/rules.yaml": "[]\n" } }, nameStatus, hunks);   // no org-config → no scope
+    const git = fakeGit({ main: { "policies/rules/rules.yaml": "[]\n" } }, nameStatus, hunks);   // no org-config → no scope
     const r = policyChecks({ git }, { repo: "/w", ref: "main", base: "base", head: "HEAD" });
     expect(r.warnings.map((w) => w.message).join("\n")).to.contain("could not be read");
   });

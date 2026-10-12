@@ -3,7 +3,7 @@
 /**
  * A SETTLED PROPOSAL, WRITTEN — and the policy pull request finished around it (P1 "Propose trigger"; P3 wave 2).
  *
- *   rows      → policies/rules.yaml       (the whole org store; its header comment kept)
+ *   rows      → policies/rules/rules.yaml       (the whole org store; its header comment kept)
  *   ownership → policies/ownership.yaml   (deterministic: sorted, one flow mapping per row, header kept)
  *   then      planPolicyPr → bumpVersion → writeSnapshot → stampRows → writeChangelogEntry
  *

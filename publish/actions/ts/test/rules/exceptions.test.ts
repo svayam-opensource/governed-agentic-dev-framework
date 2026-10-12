@@ -122,7 +122,7 @@ const orgRow = (id: string, level: Level, end: RuleRow["end"] = null): RuleRow =
   start: { version: "0.1.0", date: "2026-10-06" }, end,
 });
 const RULES: ExceptionRules = {
-  framework: [{ ...orgRow("GOV-FRM-040", "C01"), source: { doc: "framework/docs/specs/framework-specification.md", section: "7.1", sha: "abc1234" } }],
+  framework: [{ ...orgRow("GOV-FRM-040", "C01"), source: { doc: "framework/framework-specification.md", section: "7.1", sha: "abc1234" } }],
   org: [
     orgRow("GOV-SVM-210", "C02"),
     orgRow("GOV-SVM-011", "C01"),

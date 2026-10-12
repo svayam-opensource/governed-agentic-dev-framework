@@ -21,7 +21,7 @@ import type { ChangedFile } from "../../../src/rules/diff-check.js";
 import type { WorkspaceView } from "../../../src/rules/verb-gate.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const CATALOG_TEXT = readFileSync(resolve(here, "../../../../../content/framework/rules/catalog.yaml"), "utf8");
+const CATALOG_TEXT = readFileSync(resolve(here, "../../../../../content/framework/rules/checks-catalog.yaml"), "utf8");
 const CATALOG: Catalog = parseCatalog(CATALOG_TEXT);
 
 const row = (id: string, checks: CheckBinding[], over: Partial<RuleRow> = {}): RuleRow => ({
@@ -50,7 +50,7 @@ const ws = (files: Record<string, string>, over: Partial<WorkspaceView> = {}): W
   ...over,
 });
 const APPROVED = "| express | mocha |";
-const readDefault = (p: string): string | null => (p === "policies/approved-technologies.md" ? APPROVED : null);
+const readDefault = (p: string): string | null => (p === "policies/build/approved-technologies.md" ? APPROVED : null);
 
 describe("check engine — the framework catalog", () => {
   it("parses, and lints clean: unique ids, known tools, gate|observe, undo only on observe", () => {
@@ -85,7 +85,7 @@ describe("check engine — the framework catalog", () => {
   });
 
   it("the design's own example row binds cleanly and classes as prevented (under hard posture)", () => {
-    const r = row("GOV-SVM-012", [bind("vcs.code-repo", "pull_request", "gov-builtin/list-membership", { when: ["**/package.json"], list: "policies/approved-technologies.md" })]);
+    const r = row("GOV-SVM-012", [bind("vcs.code-repo", "pull_request", "gov-builtin/list-membership", { when: ["**/package.json"], list: "policies/build/approved-technologies.md" })]);
     expect(validateBindings(r, CATALOG)).to.deep.equal([]);
     expect(classifyRow(r, CATALOG, "hard")).to.equal("prevented");
     expect(classifyRow(r, CATALOG, "soft"), "soft: the check reports, it does not block").to.equal("detected");
@@ -134,11 +134,11 @@ describe("check engine — gov-builtin actions", () => {
   });
 
   it("list-membership: an unapproved added dependency misses; an approved one passes", () => {
-    const miss = run("list-membership", { when: ["**/package.json"], list: "policies/approved-technologies.md" },
+    const miss = run("list-membership", { when: ["**/package.json"], list: "policies/build/approved-technologies.md" },
       pr([file("package.json", [`"left-pad": "^1.3.0"`])]));
     expect(miss.verdict).to.equal("miss");
     expect(miss.findings[0]).to.match(/^GOV-SVM-012 \[gov-builtin\/list-membership\]: .*left-pad/);
-    expect(run("list-membership", { when: "**/package.json", list: "policies/approved-technologies.md" },
+    expect(run("list-membership", { when: "**/package.json", list: "policies/build/approved-technologies.md" },
       pr([file("package.json", [`"express": "^4.0.0"`])])).verdict).to.equal("pass");
   });
 
@@ -206,7 +206,7 @@ describe("check engine — gov-builtin actions", () => {
 });
 
 describe("check engine — CheckRunner", () => {
-  const listCheck = bind("vcs.code-repo", "pull_request", "gov-builtin/list-membership", { when: "**/package.json", list: "policies/approved-technologies.md" });
+  const listCheck = bind("vcs.code-repo", "pull_request", "gov-builtin/list-membership", { when: "**/package.json", list: "policies/build/approved-technologies.md" });
   const leftPad = pr([file("package.json", [`"left-pad": "1.0.0"`])]);
 
   it("runs the in-force row's matching binding: fail", () => {
@@ -241,7 +241,7 @@ describe("check engine — CheckRunner", () => {
   });
 
   it("only bindings on the event's resource and name run", () => {
-    const onPush = bind("vcs.code-repo", "push", "gov-builtin/list-membership", { list: "policies/approved-technologies.md" });
+    const onPush = bind("vcs.code-repo", "push", "gov-builtin/list-membership", { list: "policies/build/approved-technologies.md" });
     const v = createCheckRunner({ rules: ruleset([row("GOV-SVM-012", [onPush, bind("vcs.code-repo", "pull_request", "gov-builtin/path-scope", { writable: "**" })])]), readDefault }).run("GOV-SVM-012", leftPad);
     expect(v.verdict).to.equal("pass");
   });

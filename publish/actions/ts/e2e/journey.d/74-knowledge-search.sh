@@ -11,8 +11,8 @@ REMOTE="$GIT_STUB_REMOTES/acme-gov"
 make_gov_repo "$REMOTE" "acme" "ACME"
 
 # The org's own policy, where an adopter's would be — and a project's knowledge, the other layer.
-mkdir -p "$REMOTE/policies" "$REMOTE/projects/PRJ-7-billing/knowledge"
-cat > "$REMOTE/policies/data-classification.md" <<'MD'
+mkdir -p "$REMOTE/policies/common" "$REMOTE/projects/PRJ-7-billing/knowledge"
+cat > "$REMOTE/policies/common/data-classification.md" <<'MD'
 # Data classification
 
 ## Restricted (C01)
@@ -32,7 +32,7 @@ printf 'acme\n' > "$HOME/.gov/active"
 info "the question a person has: what do we say about restricted data?"
 out="$(cd "$REMOTE" && gov knowledge search "restricted data" 2>&1)"
 printf '%s\n' "$out" > "$WORLD/k-search.out"
-grep -qF "policies/data-classification.md" "$WORLD/k-search.out" \
+grep -qF "policies/common/data-classification.md" "$WORLD/k-search.out" \
   && pass "it names the file that owns the subject" || { fail "it names the file that owns the subject"; cat "$WORLD/k-search.out"; }
 grep -qF "Restricted (C01)" "$WORLD/k-search.out" \
   && pass "and the heading inside it — where in the document" || fail "and the heading inside it — where in the document"

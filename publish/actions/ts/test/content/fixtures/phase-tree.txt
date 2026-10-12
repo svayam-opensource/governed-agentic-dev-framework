@@ -1,0 +1,83 @@
+# THE TREE `gov setup` SEEDS INTO AN EMPTY GOVERNANCE REPO — spec 01 §2 (PRJ-121 intent 01, task L02).
+#
+# One repo-relative file per line, sorted; `#` lines and blank lines are ignored. test/content/seeded-tree.test.ts
+# seeds the shipped content into an empty directory and compares the result with this list, both ways.
+#
+# Not here, by design:
+#   · G gen files gov writes later (CODEOWNERS, .github/workflows/approver-check.yml, gov-checks.yml,
+#     framework/upgrade-moves.json)
+#   · policies/active/ and policies/reference/ (intent 03 adds their rows and content)
+#   · policies/deploy/unit-catalog/, policies/run/fleet-catalog/ (reserved, never created — §3.11)
+#   · policies/history/, exceptions/, actions/ (written at run time, or by the org)
+#
+# Still to change, by the task that owns it (each edits its own lines here when it merges):
+#   · L01 adds policies/build/policy.md (seed-new)
+#   · L03 removes the three policies 2.0 stops seeding (policies/{compliance-review,knowledge-organization-standard,knowledge-publication}.md)
+#   · L04 removes framework/build/templates/compliance-template.md
+#   · L05 adds framework/build/build-specification.md
+.github/ISSUE_TEMPLATE/bug_report.md
+.github/ISSUE_TEMPLATE/config.yml
+.github/ISSUE_TEMPLATE/feature_request.md
+.github/ISSUE_TEMPLATE/question.md
+.github/pull_request_template.md
+.github/workflows/gov-validate.yml
+.gitignore
+README.md
+VERSION
+agent/agent.md
+agent/harness/.clinerules/agent.md
+agent/harness/.continue/rules/agent.md
+agent/harness/.cursor/rules/agent.mdc
+agent/harness/.github/copilot-instructions.md
+agent/harness/.windsurf/rules/agent.md
+agent/harness/AGENTS.md
+agent/harness/CLAUDE.md
+agent/harness/CONVENTIONS.md
+agent/harness/GEMINI.md
+agent/harness/rule-map.md
+agent/session-protocol.md
+framework/build/guides/closing-a-project.md
+framework/build/guides/configuring-agent-harnesses.md
+framework/build/guides/path-developer.md
+framework/build/guides/proposing-knowledge.md
+framework/build/guides/running-parallel-tasks.md
+framework/build/guides/working-on-a-project.md
+framework/build/templates/compliance-template.md
+framework/build/templates/gov-validate.reference.yml
+framework/build/templates/preferences-template.md
+framework/build/templates/project-impact-template.md
+framework/build/templates/repo-agent-template.md
+framework/build/templates/todo-template.md
+framework/build/templates/workflows/approver-check.yml
+framework/common/guides/path-adopter.md
+framework/common/guides/path-joiner.md
+framework/common/guides/path-reference.md
+framework/common/guides/setting-up-your-machine.md
+framework/common/guides/upgrading-the-framework.md
+framework/common/guides/when-something-goes-wrong.md
+framework/common/reference/gov-command-reference.md
+framework/common/reference/org-config.schema.yaml
+framework/common/reference/org_gov_repo_operations.md
+framework/common/templates/exception-template.md
+framework/framework-specification.md
+framework/rules/checks-catalog.yaml
+framework/rules/pol-aliases.yaml
+framework/rules/rule-row.schema.yaml
+framework/rules/rules.yaml
+knowledge/.gitkeep
+org-config.yaml
+policies/CHANGELOG.md
+policies/VERSION
+policies/build/approved-technologies.md
+policies/common/authorized-representatives.md
+policies/common/data-classification.md
+policies/common/policy-domains.md
+policies/compliance-review.md
+policies/governance.yaml
+policies/knowledge-organization-standard.md
+policies/knowledge-publication.md
+policies/org-policy.md
+policies/ownership.yaml
+policies/rules/checks-catalog.yaml
+policies/rules/rules.yaml
+projects/README.md

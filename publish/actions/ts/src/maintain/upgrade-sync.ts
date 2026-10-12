@@ -26,7 +26,7 @@
  *
  *                     ACCEPTED LIMIT: the framework can never add required STRUCTURE to a
  *                     seed-once file. If it must, it ships a SCHEMA beside it that gov checks
- *                     the org's file against (org-config.yaml ↔ framework/config/
+ *                     the org's file against (org-config.yaml ↔ framework/common/reference/
  *                     org-config.schema.yaml), or a reference the org copies from.
  *   seed-new        — a STARTER FOR NEW ORGANIZATIONS (PRJ-121 intent 01, §3.2): `gov setup`'s seed creates
  *                     it exactly as it does a seed-once file; `gov upgrade` never plans it — not create,
@@ -128,10 +128,13 @@ export interface ManifestMove {
  */
 export type ContentLayout = "framework" | "governance" | "none";
 
+/** The current layout's own folders under `framework/` (spec 01 §2) — any of them means `framework/` is not the old world. */
+const FRAMEWORK_LAYOUT_DIRS = ["framework/rules", "framework/common", "framework/build"] as const;
+
 export function contentLayoutOf(exists: (rel: string) => boolean): ContentLayout {
-  // `framework/policies/` was the layout's first marker; it is retired (its documents merged into the
-  // specification), so the rule store and the specification mark the layout too.
-  if (exists("framework/policies") || exists("framework/rules") || exists("framework/docs/specs")) return "framework";
+  // The phase tree (PRJ-121 intent 01 §3.1): the framework's rule store and its two phase folders mark the layout.
+  // The flat 1.2.x layout also has framework/rules/, so it reads as "framework" and its MANIFEST retire list carries it.
+  if (FRAMEWORK_LAYOUT_DIRS.some((d) => exists(d))) return "framework";
   if (exists("governance/policies")) return "governance";
   return "none";
 }
@@ -140,7 +143,7 @@ export function contentLayoutOf(exists: (rel: string) => boolean): ContentLayout
  * Paths (prefixes / exact) the new layout retires from an adopter repo — the OLD WORLD's artifacts.
  *
  * `framework/` here is the old world's vendored copy of the framework. The current layout ALSO lives under
- * `framework/` (rules, docs, procedures, templates), so a directory entry is never retired while the manifest ships
+ * `framework/` (rules, common, build), so a directory entry is never retired while the manifest ships
  * anything under it (Tier 0 #7: a second upgrade used to remove the whole tree it had just written). Specific files
  * a release stops shipping are retired by the MANIFEST's own `retire:` list instead.
  */
@@ -191,9 +194,7 @@ export function staleArtifactsIn(isWorkspace: boolean, exists: (rel: string) => 
   ];
 }
 
-/** The current layout's own folders under `framework/` — any of them means `framework/` is not the old world. */
-const NEW_FRAMEWORK_DIRS = ["framework/rules", "framework/docs", "framework/policies", "framework/procedures", "framework/templates"] as const;
-const isNewFrameworkLayout = (exists: (rel: string) => boolean): boolean => NEW_FRAMEWORK_DIRS.some((d) => exists(d));
+const isNewFrameworkLayout = (exists: (rel: string) => boolean): boolean => FRAMEWORK_LAYOUT_DIRS.some((d) => exists(d));
 
 /** Parse the flow-style MANIFEST (files[] of {src,dst,mode} + owned[]). */
 export function parseManifest(text: string): Manifest {
@@ -237,7 +238,7 @@ export function parseManifest(text: string): Manifest {
  *
  * "Individual file entries override directory defaults" (MANIFEST.yaml's header) was never implemented: a file
  * row inside a directory row produced TWO entries, so the upgrade plan listed the same file twice (sandbox
- * finding, PRJ-121, 2026-10-07 — framework/templates/workflows/approver-check.yml). Now a file row wins over any
+ * finding, PRJ-121, 2026-10-07 — the approver-check workflow template). Now a file row wins over any
  * directory row, a more specific directory row wins over a broader one, and each destination keeps the position
  * it first appeared at.
  */

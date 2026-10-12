@@ -21,5 +21,5 @@ has "$SETUP_OUT" "gh pr create --base main --head gov-setup-" "F17 — and the p
 # F20: CODEOWNERS follows the owners setup just wrote, in the same change.
 grep -q '@adopter-bot' "$WS/CODEOWNERS" 2>/dev/null && pass "F20 — CODEOWNERS regenerated for the Policy Owner setup named" \
   || fail "F20 — CODEOWNERS was not regenerated"
-grep -q '<[A-Z_]*_OWNER_GITHUB>' "$WS/policies/authorized-representatives.md" 2>/dev/null \
+grep -q '<[A-Z_]*_OWNER_GITHUB>' "$WS/policies/common/authorized-representatives.md" 2>/dev/null \
   && fail "F19 — the role list still carries a raw token after setup" || pass "F19 — no raw token left in the role list"

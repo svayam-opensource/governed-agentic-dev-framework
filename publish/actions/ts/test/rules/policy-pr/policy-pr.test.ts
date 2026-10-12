@@ -54,11 +54,11 @@ function baseFiles(): Record<string, string> {
   return {
     "org-config.yaml": 'org_slug: "SVM"\n',
     "framework/rules/rules.yaml": "[]\n",
-    "framework/rules/catalog.yaml": "resources: []\ntools: []\nactions: []\n",
+    "framework/rules/checks-catalog.yaml": "resources: []\ntools: []\nactions: []\n",
     "policies/VERSION": "1.4.0\n",
     "policies/CHANGELOG.md": "# Policy changelog\n\n## 1.4.0 — 2026-10-01\n\nOlder entry.\n",
     [DOC]: POLICY,
-    "policies/rules.yaml": dump(BASE_ROWS),
+    "policies/rules/rules.yaml": dump(BASE_ROWS),
     "policies/actions/check-x/run.sh": "#!/bin/sh\nexit 0\n",
     "policies/history/1.3.0/org-policy.md": "# Org policy, as it was\n",
   };
@@ -80,7 +80,7 @@ function goodPr(): { base: TreeReader; head: ReturnType<typeof memTree>; files: 
   const applied = applyVerdicts(BASE_ROWS, [{ kind: "revise", id: "GOV-SVM-001", row: (({ id: _id, start: _s, end: _e, ...body }) => body)(row("x", "3.1", prose)) }],
     { version: "0.0.0", date: "1999-01-01" }, createIdIssuer(BASE_ROWS.map((r) => r.id)), "SVM");
   if (!applied.ok) throw new Error(applied.problems.join("; "));
-  files["policies/rules.yaml"] = dump(applied.rows);
+  files["policies/rules/rules.yaml"] = dump(applied.rows);
   const w = policyPrWriter({ base, head });
   const plan = planPolicyPr(base, head);
   if ("unreadable" in plan) throw new Error(plan.unreadable);
@@ -138,7 +138,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
     });
     it("a row cited at §3 stays fresh when only §3.1 changed — sections cut at the next numbered heading", () => {
       const files = baseFiles();
-      files["policies/rules.yaml"] = dump([...BASE_ROWS, row("GOV-SVM-004", "3", POLICY)]);
+      files["policies/rules/rules.yaml"] = dump([...BASE_ROWS, row("GOV-SVM-004", "3", POLICY)]);
       const base = memTree({ ...files });
       files[DOC] = POLICY.replace("only approved technologies.", "only listed technologies.");
       const msgs = judge(base, memTree(files)).findings.filter((x) => x.check === "sha").map((x) => x.message);
@@ -153,10 +153,10 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
   describe("(c) both stores validate", () => {
     it("fails an org row with a bad level, and a binding the merged catalog lacks", () => {
       const { base, head, files } = goodPr();
-      const rows = parseRuleStore(files["policies/rules.yaml"]!);
+      const rows = parseRuleStore(files["policies/rules/rules.yaml"]!);
       const last = rows[rows.length - 1]!;
       rows[rows.length - 1] = { ...last, level: "C09" as never, checks: [{ on: { resource: "vcs.nowhere", event: "push" }, action: "gov-builtin/nothing", on_miss: "fail" }] };
-      files["policies/rules.yaml"] = dump(rows);
+      files["policies/rules/rules.yaml"] = dump(rows);
       const msgs = judge(base, head).findings.filter((x) => x.check === "store").map((x) => x.message);
       expect(msgs.some((m) => /level "C09"/.test(m))).to.equal(true);
       expect(msgs.some((m) => /no resource "vcs.nowhere"/.test(m))).to.equal(true);
@@ -176,30 +176,30 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
   describe("(d) append-only", () => {
     it("fails a removed base row", () => {
       const { base, head, files } = goodPr();
-      files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).filter((r) => r.id !== "GOV-SVM-003"));
+      files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).filter((r) => r.id !== "GOV-SVM-003"));
       expect(judge(base, head).findings.map((x) => x.message)).to.include("GOV-SVM-003 (from 1.0.0) was removed — the store is append-only: close a row, never delete it");
     });
     it("fails a base row edited in place", () => {
       const { base, head, files } = goodPr();
-      files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-002" ? { ...r, expectation: "Changed." } : r)));
+      files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-002" ? { ...r, expectation: "Changed." } : r)));
       expect(judge(base, head).findings.map((x) => x.message)).to.include("GOV-SVM-002 was edited in place — revise it instead: close it and open a successor");
     });
     it("fails an edit to an already-closed row", () => {
       const { base, head, files } = goodPr();
-      files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-003" ? { ...r, expectation: "Rewritten history." } : r)));
+      files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-003" ? { ...r, expectation: "Rewritten history." } : r)));
       expect(checksOf(judge(base, head))).to.include("append-only");
     });
     it("fails a row closed at a version other than the new one", () => {
       const { base, head, files } = goodPr();
-      files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).map((r) =>
+      files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).map((r) =>
         (r.id === "GOV-SVM-001" && r.end ? { ...r, end: { ...r.end, version: "1.4.5" } } : r)));
       expect(judge(base, head).findings.map((x) => x.message)).to.include("GOV-SVM-001 is closed at 1.4.5; it must close at the new version 1.5.0");
     });
     it("fails a retired id reused for a new rule", () => {
       const { base, head, files } = goodPr();
-      const rows = parseRuleStore(files["policies/rules.yaml"]!);
+      const rows = parseRuleStore(files["policies/rules/rules.yaml"]!);
       rows.push({ ...row("GOV-SVM-003", "3.2", POLICY), start: { version: "1.5.0", date: TODAY, pr: PR } });
-      files["policies/rules.yaml"] = dump(rows);
+      files["policies/rules/rules.yaml"] = dump(rows);
       expect(judge(base, head).findings.map((x) => x.message)).to.include("GOV-SVM-003 was retired before this change; a retired id is never reused — gov issues a new one");
     });
   });
@@ -215,7 +215,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
       const applied = applyVerdicts(BASE_ROWS, [{ kind: "keep", id: "GOV-SVM-002", sha: sha(prose, "3.2") }],
         { version: "0.0.0", date: "1999-01-01" }, createIdIssuer(BASE_ROWS.map((r) => r.id)), "SVM");
       if (!applied.ok) throw new Error(applied.problems.join("; "));
-      files["policies/rules.yaml"] = dump(applied.rows);
+      files["policies/rules/rules.yaml"] = dump(applied.rows);
       const w = policyPrWriter({ base, head });
       const plan = planPolicyPr(base, head);
       if ("unreadable" in plan) throw new Error(plan.unreadable);
@@ -236,7 +236,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
 
     it("the writers leave a refreshed row's start alone — it is the same row", () => {
       const { files } = refreshPr();
-      const r = parseRuleStore(files["policies/rules.yaml"]!).find((x) => x.id === "GOV-SVM-002")!;
+      const r = parseRuleStore(files["policies/rules/rules.yaml"]!).find((x) => x.id === "GOV-SVM-002")!;
       expect(r.start).to.deep.equal(BASE_ROWS[1]!.start);
       expect(r.source.sha).to.not.equal(BASE_ROWS[1]!.source.sha);
     });
@@ -255,14 +255,14 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
     ] as const) {
       it(`refuses ${what} changed in place`, () => {
         const { base, head, files } = refreshPr();
-        files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-002" ? edit(r) : r)));
+        files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-002" ? edit(r) : r)));
         expect(checksOf(judge(base, head))).to.include("append-only");
       });
     }
 
     it("refuses a sha refresh on a CLOSED row — history is never rewritten", () => {
       const { base, head, files } = refreshPr();
-      files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-003" ? { ...r, source: { ...r.source, sha: "0000000" } } : r)));
+      files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-003" ? { ...r, source: { ...r.source, sha: "0000000" } } : r)));
       expect(judge(base, head).findings.map((x) => x.message)).to.include("GOV-SVM-003 (from 1.0.0) is already closed and was edited — history is never rewritten");
     });
   });
@@ -351,9 +351,9 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
     });
     it("names added and retired ids too", () => {
       const { base, head, files } = goodPr();
-      const rows = parseRuleStore(files["policies/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-002" ? { ...r, end: { version: "1.5.0", date: TODAY, pr: PR } } : r));
+      const rows = parseRuleStore(files["policies/rules/rules.yaml"]!).map((r) => (r.id === "GOV-SVM-002" ? { ...r, end: { version: "1.5.0", date: TODAY, pr: PR } } : r));
       rows.push({ ...row("GOV-SVM-004", "3.2", POLICY), start: { version: "1.5.0", date: TODAY, pr: PR } });
-      files["policies/rules.yaml"] = dump(rows);
+      files["policies/rules/rules.yaml"] = dump(rows);
       const msgs = judge(base, head).findings.filter((x) => x.check === "changelog").map((x) => x.message);
       expect(msgs).to.deep.equal([
         "the policies/CHANGELOG.md entry for 1.5.0 does not name GOV-SVM-004 (added)",
@@ -385,7 +385,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
       const snap = Object.keys(files).filter((k) => k.startsWith("policies/history/1.4.0/")).sort();
       expect(snap).to.deep.equal([
         "policies/history/1.4.0/CHANGELOG.md", "policies/history/1.4.0/VERSION",
-        "policies/history/1.4.0/org-policy.md", "policies/history/1.4.0/rules.yaml",
+        "policies/history/1.4.0/org-policy.md", "policies/history/1.4.0/rules/rules.yaml",
       ]);
     });
   });
@@ -456,7 +456,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
   describe("(i) stamps", () => {
     it("fails a new row stamped with another version, date or PR", () => {
       const { base, head, files } = goodPr();
-      files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).map((r, i, all) =>
+      files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).map((r, i, all) =>
         (i === all.length - 1 ? { ...r, start: { version: "1.5.0", date: "2026-10-05", pr: 90 } } : r)));
       expect(judge(base, head).findings.filter((x) => x.check === "stamp").map((x) => x.message)).to.deep.equal([
         "GOV-SVM-001 starts at 1.5.0 · 2026-10-05 · #90; a row this change opens starts at 1.5.0 · 2026-10-06 · #91",
@@ -464,7 +464,7 @@ describe("GOV-FRM-467 policy PR gate — a change to the organization's policy c
     });
     it("fails a closed row whose end lacks the PR", () => {
       const { base, head, files } = goodPr();
-      files["policies/rules.yaml"] = dump(parseRuleStore(files["policies/rules.yaml"]!).map((r) =>
+      files["policies/rules/rules.yaml"] = dump(parseRuleStore(files["policies/rules/rules.yaml"]!).map((r) =>
         (r.id === "GOV-SVM-001" && r.end ? { ...r, end: { version: "1.5.0", date: TODAY } } : r)));
       expect(judge(base, head).findings.filter((x) => x.check === "stamp").map((x) => x.message)).to.deep.equal([
         "GOV-SVM-001 ends at 1.5.0 · 2026-10-06 · #?; a row this change closes ends at 1.5.0 · 2026-10-06 · #91",
@@ -551,10 +551,10 @@ describe("policy PR writers — each idempotent, each skipping work already done
       { kind: "add", row: { source: { doc: DOC, section: "3.1", sha: sha(prose, "3.1") }, expectation: "Everyone always obeys 3.1.", actor: ["everyone"], level: "C02" } },
     ], { version: "0.0.0", date: "1999-01-01" }, createIdIssuer(BASE_ROWS.map((r) => r.id)), "SVM");
     if (!applied.ok) throw new Error("apply");
-    files["policies/rules.yaml"] = "# org rules — machine-written\n" + dump(applied.rows);
+    files["policies/rules/rules.yaml"] = "# org rules — machine-written\n" + dump(applied.rows);
     const w = policyPrWriter({ base, head });
     expect(w.stampRows("1.5.0", TODAY, PR).wrote).to.equal(true);
-    const text = files["policies/rules.yaml"]!;
+    const text = files["policies/rules/rules.yaml"]!;
     expect(text.startsWith("# org rules — machine-written\n"), "the header comment survives").to.equal(true);
     const rows = parseRuleStore(text);
     const at = { version: "1.5.0", date: TODAY, pr: PR };
@@ -563,14 +563,14 @@ describe("policy PR writers — each idempotent, each skipping work already done
     expect(rows.find((r) => r.id === "GOV-SVM-001")).to.deep.equal(BASE_ROWS[0]);
     expect(rows.find((r) => r.id === "GOV-SVM-003")).to.deep.equal(BASE_ROWS[2]);
     expect(w.stampRows("1.5.0", TODAY, PR).wrote).to.equal(false);
-    expect(files["policies/rules.yaml"]).to.equal(text);
+    expect(files["policies/rules/rules.yaml"]).to.equal(text);
   });
 
   it("stampRows with no rule store writes nothing", () => {
     const { base, head, files } = fresh();
-    delete files["policies/rules.yaml"];
+    delete files["policies/rules/rules.yaml"];
     expect(policyPrWriter({ base, head }).stampRows("1.5.0", TODAY, PR).wrote).to.equal(false);
-    expect(files["policies/rules.yaml"]).to.equal(undefined);
+    expect(files["policies/rules/rules.yaml"]).to.equal(undefined);
   });
 
   it("the whole sequence run twice leaves the tree as the first run did", () => {
@@ -609,7 +609,7 @@ describe("gov-builtin/policy-pr-gate — the dispatch", () => {
 
 describe("gov-builtin/policy-pr-gate — through the check runner", () => {
   const rule: RuleRow = {
-    id: "GOV-FRM-467", source: { doc: "framework/docs/specs/framework-specification.md", section: "9.2", sha: "x" },
+    id: "GOV-FRM-467", source: { doc: "framework/framework-specification.md", section: "9.2", sha: "x" },
     expectation: "A change to the organization's policy carries its rules, version, snapshot and changelog.", actor: ["gov-client"], level: "C01",
     checks: [{ on: { resource: "vcs.gov-repo", event: "pull_request" }, action: "gov-builtin/policy-pr-gate", on_miss: "fail" }],
     start: { version: "1.2.3", date: "2026-10-06" }, end: null,

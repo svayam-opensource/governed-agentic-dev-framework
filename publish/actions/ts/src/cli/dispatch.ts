@@ -122,7 +122,7 @@ export interface CliContext {
   /**
    * `gh <args>` → stdout, with an optional JSON body on stdin; throws on a non-zero exit. The door
    * `gov repo protect` writes branch protection through (framework-specification.md §7.3; the controls
-   * themselves are specified in `framework/docs/specs/framework-specification.md` §7.3).
+   * themselves are specified in `framework/framework-specification.md` §7.3).
    *
    * Absent → `gov repo protect` says it has no way to call `gh` and changes nothing. Deliberately optional and
    * deliberately NOT one of the typed ports: a port would invite other verbs to reach the API their own way,

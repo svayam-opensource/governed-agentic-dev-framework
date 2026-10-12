@@ -25,7 +25,7 @@ const CATALOG: Catalog = {
 };
 
 const FW: RuleRow = {
-  id: "GOV-FRM-466", source: { doc: "framework/docs/specs/framework-specification.md", section: "5.5", sha: "fff0000" },
+  id: "GOV-FRM-466", source: { doc: "framework/framework-specification.md", section: "5.5", sha: "fff0000" },
   expectation: "No one force-pushes a branch others work on.", actor: ["gov-client", "everyone"], level: "C01",
   start: { version: "2.0.0", date: "2026-10-01" }, end: null,
 };

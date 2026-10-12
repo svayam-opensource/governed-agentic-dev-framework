@@ -287,7 +287,7 @@ describe("gov sync — renders the ratified rules, then mirrors them", () => {
   const PROTOCOL_BODY = "# Agent protocol\n\n<!-- gov-protocol-version: 3 -->\n\n{{render.always_rules}}\n";
   /** The framework store on the DEFAULT branch, with one resident rule whose cue is `cue`. */
   const ratified = (cue: string): string => `- id: GOV-FRM-012
-  source: { doc: framework/docs/specs/framework-specification.md, section: "10.1", sha: "4a0422d" }
+  source: { doc: framework/framework-specification.md, section: "10.1", sha: "4a0422d" }
   expectation: "The agent stops all work when a C01 rule is broken."
   actor: [agent]
   level: C01

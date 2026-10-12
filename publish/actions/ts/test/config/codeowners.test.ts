@@ -64,7 +64,7 @@ describe("CODEOWNERS generation", () => {
     const r = renderCodeowners({ policyOwner: "polly", checkOwner: "chuck" }, ROLES)!;
     expect(r.text).to.match(/^\/knowledge\/\s+@polly$/m);
     expect(r.text).to.match(/^\/policies\/\s+@polly$/m);
-    for (const f of ["knowledge/anything/x.md", "knowledge/top.md", "policies/org-policy.md", "policies/rules.yaml"]) {
+    for (const f of ["knowledge/anything/x.md", "knowledge/top.md", "policies/org-policy.md", "policies/rules/rules.yaml"]) {
       expect(ownerOf(r.text, f), f).to.equal("@polly");
     }
   });

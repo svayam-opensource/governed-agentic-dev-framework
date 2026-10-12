@@ -80,7 +80,7 @@ export interface DoctorFacts {
    */
   readonly orgConfigText?: string | null;
   /**
-   * The workspace's `framework/config/org-config.schema.yaml` — what org-config.yaml is checked against. `null` or
+   * The workspace's `framework/common/reference/org-config.schema.yaml` — what org-config.yaml is checked against. `null` or
    * absent: the schema gov was built with.
    */
   readonly orgConfigSchemaText?: string | null;
@@ -89,7 +89,7 @@ export interface DoctorFacts {
    * org-config.yaml is — only in a workspace that was examined.
    */
   readonly governanceText?: string | null;
-  /** `policies/authorized-representatives.md` (the org's role list): text, `null` absent, undefined = not read. */
+  /** `policies/common/authorized-representatives.md` (the org's role list): text, `null` absent, undefined = not read. */
   readonly roleListText?: string | null;
   /** The workspace's root `CODEOWNERS`: text, `null` absent, undefined = not read. */
   readonly codeownersText?: string | null;
@@ -231,7 +231,7 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // framework's own policy, 92 of 107 rules are advisory; nobody could have known that from the document.
     ...rulesRows(facts.rules),
     // CHECKED AGAINST THE SCHEMA (org-config split, 2026-10-06): the framework owns the shape of org-config.yaml
-    // (framework/config/org-config.schema.yaml), the org owns the values. Missing required keys FAIL — gov cannot
+    // (framework/common/reference/org-config.schema.yaml), the org owns the values. Missing required keys FAIL — gov cannot
     // work for the org without them; unknown, retired and renamed keys WARN, each saying what to do.
     ...(facts.orgConfigText ? [orgConfigRow(facts.orgConfigText, facts.orgConfigSchemaText ?? null)] : []),
     ...(facts.governanceText !== undefined ? [governanceRow(facts.governanceText)] : []),

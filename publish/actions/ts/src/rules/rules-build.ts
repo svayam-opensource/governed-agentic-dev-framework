@@ -6,7 +6,7 @@
  * The build used to be a compiler over policy prose: it parsed numbered clauses, matched them against a POL lock,
  * read inline `gov:cue` / `gov:check` comments, and stopped to ask when a clause had been reworded. All of that is
  * retired (rule-model-design.md Q10, Q11, Q21). Policy prose is never touched by gov; the rules are the rows of the
- * two stores (`framework/rules/rules.yaml`, `policies/rules.yaml`), and the build only RENDERS them:
+ * two stores (`framework/rules/rules.yaml`, `policies/rules/rules.yaml`), and the build only RENDERS them:
  *
  *   · the nine agent files — the session protocol with the resident tier in place (cues/resident.ts, W7)
  *   · `agent/harness/rule-map.md` — every revision of every rule, with its derived class (model/rule-map.ts, W8)

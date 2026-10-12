@@ -29,7 +29,7 @@ function govFiles(rules = read("framework/rules/rules.yaml")): Record<string, st
     "org-config.yaml": 'org_slug: "ACME"\n',
     "policies/governance.yaml": 'policy_owner:\n  github: "@polly"\n',
     "framework/rules/rules.yaml": rules,
-    "framework/rules/catalog.yaml": read("framework/rules/catalog.yaml"),
+    "framework/rules/checks-catalog.yaml": read("framework/rules/checks-catalog.yaml"),
   };
 }
 

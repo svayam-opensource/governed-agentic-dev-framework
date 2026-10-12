@@ -235,7 +235,7 @@ export function sessionStartPrompt(projectId: string, workspaceRepo: string, gov
   const governance = govHome ?? w;
   return `Run the session-start protocol for ${projectId} now, before I send anything else: `
     + `read ${governance}/org-config.yaml and `
-    + `${governance}/framework/docs/specs/framework-specification.md — both from the `
+    + `${governance}/framework/framework-specification.md — both from the `
     + `default branch, which is the only branch that governs (GOV-FRM-086) — then `
     + `${w}/projects/${projectId}/agent.md and any "## Open" items from `
     + `${w}/projects/${projectId}/knowledge/todo.md, which are the project branch's; `

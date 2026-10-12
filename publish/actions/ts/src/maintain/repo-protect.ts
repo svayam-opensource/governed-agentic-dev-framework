@@ -112,14 +112,14 @@ export interface ProtectResult {
 }
 
 /** Where the framework ships the workflow, inside the governance repo. */
-export const WORKFLOW_TEMPLATE = path.join("framework", "templates", "workflows", "approver-check.yml");
+export const WORKFLOW_TEMPLATE = path.join("framework", "build", "templates", "workflows", "approver-check.yml");
 /** Where it has to be in a repository for GitHub to run it. */
 export const WORKFLOW_DEST = path.posix.join(".github", "workflows", "approver-check.yml");
 
 /**
  * THE ORGANIZATION'S APPROVER LOGINS (org-config split, Policy Owner 2026-10-06) — PURE, over the text of
  * `policies/governance.yaml` (the Policy Owner and the Check Owner) and the role list in
- * `policies/authorized-representatives.md` (every role's holder). A vacant role adds nobody: its approvals fall to
+ * `policies/common/authorized-representatives.md` (every role's holder). A vacant role adds nobody: its approvals fall to
  * the Policy Owner, who is already on the list.
  *
  * The explicit `authorized_approvers:` list in org-config.yaml is retired: who may approve IS who holds a role, and

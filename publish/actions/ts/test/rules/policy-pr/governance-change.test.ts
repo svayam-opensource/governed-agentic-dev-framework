@@ -21,10 +21,10 @@ function files(gov: string): Record<string, string> {
   return {
     "org-config.yaml": 'org_slug: "SVM"\n',
     "framework/rules/rules.yaml": "[]\n",
-    "framework/rules/catalog.yaml": "resources: []\ntools: []\nactions: []\n",
+    "framework/rules/checks-catalog.yaml": "resources: []\ntools: []\nactions: []\n",
     "policies/VERSION": "1.4.0\n",
     "policies/CHANGELOG.md": "# Policy changelog\n\n## 1.4.0 — 2026-10-01\n\nOlder entry.\n",
-    "policies/rules.yaml": "[]\n",
+    "policies/rules/rules.yaml": "[]\n",
     [GOVERNANCE_PATH]: gov,
   };
 }

@@ -18,7 +18,7 @@ import { readTopLevelScalar, expandTilde } from "../resolve/node-env.js";
  * `get()` below takes a {@link OrgConfigScalarKey}, so a key read without being declared here is a TYPE
  * error rather than a thing someone remembers to do, and `test/config/org-config-keys.test.ts` re-reads this
  * file's text to catch a reader that goes around `get()` entirely. The list exists because gov OWNS the
- * schema of this channel — published as `framework/config/org-config.schema.yaml`, which a test holds to
+ * schema of this channel — published as `framework/common/reference/org-config.schema.yaml`, which a test holds to
  * these lists (org-config split, Policy Owner 2026-10-06).
  *
  * IDENTITY AND INFRASTRUCTURE ONLY. How the organization governs (posture, Policy and Check Owner, agents,
@@ -58,10 +58,10 @@ export const RETIRED_ORG_CONFIG_KEYS: Readonly<Record<string, string>> = {
   check_owner_github: "policies/governance.yaml (check_owner.github)",
   authorized_agents: "policies/governance.yaml (authorized_agents)",
   knowledge_publication: "policies/governance.yaml (knowledge_publication)",
-  legal_owner_github: "the role list in policies/authorized-representatives.md",
-  infra_owner_github: "the role list in policies/authorized-representatives.md",
-  system_arch_owner_github: "the role list in policies/authorized-representatives.md",
-  data_arch_owner_github: "the role list in policies/authorized-representatives.md",
+  legal_owner_github: "the role list in policies/common/authorized-representatives.md",
+  infra_owner_github: "the role list in policies/common/authorized-representatives.md",
+  system_arch_owner_github: "the role list in policies/common/authorized-representatives.md",
+  data_arch_owner_github: "the role list in policies/common/authorized-representatives.md",
   authorized_approvers: "nowhere — approvers are the Policy Owner, the Check Owner and the role list's holders",
   agent_work_root: "your own machine (~/.gov/work-roots); the default is ~/.gov/<slug>/projects",
   org_slug_lower: "nowhere — it is org_slug in lower case",
@@ -138,9 +138,9 @@ export interface OrgConfigKeyReport {
 }
 
 /** Where the framework ships the schema in a workspace (scaffold-auto: `gov upgrade` writes it). */
-export const ORG_CONFIG_SCHEMA_PATH = "framework/config/org-config.schema.yaml";
+export const ORG_CONFIG_SCHEMA_PATH = "framework/common/reference/org-config.schema.yaml";
 
-/** The parts of `framework/config/org-config.schema.yaml` a check needs. */
+/** The parts of `framework/common/reference/org-config.schema.yaml` a check needs. */
 export interface OrgConfigSchema {
   readonly keys: readonly string[];
   readonly required: readonly string[];
@@ -176,7 +176,7 @@ export function parseOrgConfigSchema(text: string | null | undefined): OrgConfig
 }
 
 /**
- * Check org-config.yaml's text against the schema (the workspace's `framework/config/org-config.schema.yaml` when
+ * Check org-config.yaml's text against the schema (the workspace's `framework/common/reference/org-config.schema.yaml` when
  * there is one, else the one gov was built with). Pure; never throws.
  */
 export function validateOrgConfig(text: string, schema: OrgConfigSchema = BUILT_IN_ORG_CONFIG_SCHEMA): OrgConfigKeyReport {

@@ -13,7 +13,7 @@
 >
 > Two rules this standard leans on are the framework's, not yours, and are not restated here:
 > every fact lives in one document, and structure is drawn as text
-> (`framework/docs/specs/framework-specification.md` sections 8.2 and 8.4). `knowledge/` ships empty because
+> (`framework/framework-specification.md` sections 8.2 and 8.4). `knowledge/` ships empty because
 > of the framework (section 8.1 there); what grows in it is decided here.
 
 ---
@@ -34,7 +34,7 @@ exception to this.
 ## 2. Domains — the ownership tree
 
 A top-level domain under `knowledge/` exists **only while a named owner role exists for it** in
-`policies/authorized-representatives.md`. The tree changes only when an accountability domain and its owner
+`policies/common/authorized-representatives.md`. The tree changes only when an accountability domain and its owner
 role are created or retired. This always applies; a domain without an owner needs an approved exception.
 
 That is why `knowledge/` ships empty. A framework that created domains in advance would run this rule
@@ -144,7 +144,7 @@ These always apply, unless an exception is approved:
 - A journey is a **consultation order across domains: links only, never content**. Mandates first, then
   procedures and use-cases, then specs, then repository-local knowledge. Journeys that cross your own domains
   live in `knowledge/paths/<journey>.md` and are owned by the Policy Owner. Journeys through the framework's
-  own material are in `framework/docs/user-guides/path-<journey>.md`, which the framework maintains.
+  own material are in `framework/common/guides/path-<journey>.md` (and `framework/build/guides/`), which the framework maintains.
 
 Anyone may add or extend a journey by pull request.
 

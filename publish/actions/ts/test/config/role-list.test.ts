@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 //
 // THE ORG'S ROLE LIST (W2-Q5, rule-model P3). The roles beyond the framework's two — and who holds them, and which
-// knowledge/ folders they own — are the ORG's, written as a small table in `policies/authorized-representatives.md`.
+// knowledge/ folders they own — are the ORG's, written as a small table in `policies/common/authorized-representatives.md`.
 // These tests pin the table's format and the parser's refusals. There is no fallback to the old `*_owner_github`
 // keys any more: the org-config split's upgrade migration carries them into the table (org-config-split.test.ts).
 import { expect } from "chai";

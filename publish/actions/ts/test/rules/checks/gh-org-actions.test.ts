@@ -19,7 +19,7 @@ import { renderWorkflow } from "../../../src/rules/checks/render-github.js";
 import { GH_ACTION_OUTCOMES_ENV, ghActionKey, isOrgGhAction } from "../../../src/rules/checks/gh-org-actions.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const FRAMEWORK = parseCatalog(readFileSync(resolve(here, "../../../../../content/framework/rules/catalog.yaml"), "utf8"));
+const FRAMEWORK = parseCatalog(readFileSync(resolve(here, "../../../../../content/framework/rules/checks-catalog.yaml"), "utf8"));
 const CATALOG: Catalog = { ...FRAMEWORK, actions: [...FRAMEWORK.actions, { id: "gh-action/spdx", tool: "gh-action" }] };
 
 const bind = (resource: string, event: string, action: string, w: Record<string, unknown> = {}, on_miss: "fail" | "warn" = "fail"): CheckBinding =>

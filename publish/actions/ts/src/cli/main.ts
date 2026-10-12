@@ -1060,7 +1060,7 @@ export async function runSetupCommand(
       // Root FILES only, never a recursive root sweep: `publish/` must stay untouched — it is
       // the copy source — and the directories are handled just above.
       // `policies/` too: the org's seed-once documents carry org tokens — and the role list's handles
-      // (policies/authorized-representatives.md §4) are filled from the answers setup just wrote.
+      // (policies/common/authorized-representatives.md §4) are filled from the answers setup just wrote.
       const SWEEP_DIRS = [...INHERITED_DIRS, "governance", "policies"];
       for (const d of SWEEP_DIRS) { const dir = path.join(createdHome, d); if (fsSync.existsSync(dir)) sweepDir(dir); }
       for (const e of fsSync.readdirSync(createdHome, { withFileTypes: true })) {
@@ -1079,7 +1079,7 @@ export async function runSetupCommand(
 
       // CODEOWNERS, GENERATED (Decision 13, 2026-09-14) — see src/config/codeowners.ts. The Policy and Check
       // Owners come from policies/governance.yaml; every other role from the role list the sweep above just filled
-      // in (policies/authorized-representatives.md).
+      // in (policies/common/authorized-representatives.md).
       const roleListFile = path.join(createdHome, ROLE_LIST_PATH);
       const orgRoles = resolveRoles(fsSync.existsSync(roleListFile) ? fsSync.readFileSync(roleListFile, "utf8") : null);
       const owners = renderCodeowners(frameworkOwners(readGovernance(createdHome)), orgRoles.roles);

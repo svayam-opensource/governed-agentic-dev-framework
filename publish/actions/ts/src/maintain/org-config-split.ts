@@ -8,7 +8,7 @@
  *
  *   governance_posture, policy_owner_email/_github, check_owner_github,
  *   authorized_agents, knowledge_publication                         → policies/governance.yaml
- *   legal_ / infra_ / system_arch_ / data_arch_owner_github           → the role list (policies/authorized-representatives.md)
+ *   legal_ / infra_ / system_arch_ / data_arch_owner_github           → the role list (policies/common/authorized-representatives.md)
  *   agent_work_root                                                   → this person's ~/.gov/work-roots (when not the default)
  *   workspace_repo                                                    → renamed org_gov_repo, in place
  *   org_slug_lower                                                    → removed (it is org_slug in lower case)
@@ -38,7 +38,7 @@ export interface SplitInput {
   readonly orgConfig: string;
   /** governance.yaml as it stands (the framework's template when the upgrade has just created it), or null. */
   readonly governance: string | null;
-  /** policies/authorized-representatives.md, or null when the workspace has none. */
+  /** policies/common/authorized-representatives.md, or null when the workspace has none. */
   readonly roleList: string | null;
 }
 

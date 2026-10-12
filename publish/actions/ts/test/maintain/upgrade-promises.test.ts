@@ -69,7 +69,7 @@ describe("setup and upgrade — what the shipped content promises about the tree
     const again = runUpgradeSync(contentDir, dir, { apply: true });
     expect(again.code, again.lines.join("\n")).to.equal(0);
     expect(again.lines.join("\n")).to.not.match(/retire[^\n]*framework\/(\s|$|`|,)/);
-    for (const rel of ["framework/docs/specs/framework-specification.md", "framework/procedures/knowledge-harvest.md", "framework/templates/todo-template.md"]) {
+    for (const rel of ["framework/framework-specification.md", "framework/common/guides/path-adopter.md", "framework/build/templates/todo-template.md"]) {
       expect(fs.existsSync(path.join(dir, rel)), rel).to.equal(true);
     }
   });
@@ -87,8 +87,8 @@ describe("setup and upgrade — what the shipped content promises about the tree
     expect(files.filter((rel) => fs.existsSync(path.join(dir, rel))), "still there after the upgrade").to.deep.equal([]);
   });
 
-  const FRAMEWORK_RULES = ["framework/rules/rules.yaml", "framework/rules/catalog.yaml", "framework/rules/pol-aliases.yaml", "framework/docs/specs/framework-specification.md"];
-  const ORG_SEEDS = ["policies/rules.yaml", "policies/catalog.yaml", "policies/ownership.yaml", "policies/VERSION", "policies/CHANGELOG.md"];
+  const FRAMEWORK_RULES = ["framework/rules/rules.yaml", "framework/rules/checks-catalog.yaml", "framework/rules/pol-aliases.yaml", "framework/framework-specification.md"];
+  const ORG_SEEDS = ["policies/rules/rules.yaml", "policies/rules/checks-catalog.yaml", "policies/ownership.yaml", "policies/VERSION", "policies/CHANGELOG.md"];
   const read = (rel: string): string => fs.readFileSync(path.join(dir, rel), "utf8");
   const shipped = (rel: string): string => fs.readFileSync(path.join(contentDir, rel), "utf8");
 
@@ -118,10 +118,10 @@ describe("setup and upgrade — what the shipped content promises about the tree
 
   it("an upgrade never overwrites the organization's rule store", () => {
     const theirs = "- id: GOV-ACME-001\n";
-    fs.writeFileSync(path.join(dir, "policies/rules.yaml"), theirs);
+    fs.writeFileSync(path.join(dir, "policies/rules/rules.yaml"), theirs);
     fs.writeFileSync(path.join(dir, "policies/VERSION"), "1.4.0\n");
     runUpgradeSync(contentDir, dir, { apply: true });
-    expect(read("policies/rules.yaml")).to.equal(theirs);
+    expect(read("policies/rules/rules.yaml")).to.equal(theirs);
     expect(read("policies/VERSION")).to.equal("1.4.0\n");
   });
 });

@@ -23,6 +23,7 @@ import { deriveProjectIdentity, parseBoardUrl, boardTitleFor } from "./identity.
 import { seedPathsFor, detectLeftovers, type LeftoverArtifact, type SeedPaths } from "./leftover.js";
 import { planCleanup, planLines, reverse, type CleanupStep } from "./cleanup.js";
 import { renderAgentMd, renderTodoMd } from "./content.js";
+import { TODO_TEMPLATE_PATH } from "../maintain/framework-currency.js";
 import { setupCodeRepoWorktree } from "./code-repo.js";
 import { repoNameFromUrl } from "./repo.js";
 import { classifyProjectBranch, preconditionFailures, adoptions, suggestedOverrides, type RepoPrecondition, type RemoteRef, type RepoStanding } from "./branch-adoption.js";
@@ -347,7 +348,7 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     //
     // This read `<repo>/framework/knowledge/guidance/todo-template.md`. `framework/` is in
     // RETIRE_PATHS and was never shipped — the template has always lived at
-    // `knowledge/guidance/`, and now at `framework/templates/`. So the read returned null, the
+    // `knowledge/guidance/`, and now at `framework/build/templates/`. So the read returned null, the
     // guard skipped it silently, and NO project has ever been given a `knowledge/todo.md` —
     // while the session-start protocol tells every agent to read one and surface its `## Open`
     // items. A missing file behind a null-check is the quietest way to lose an obligation.
@@ -365,12 +366,10 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     // an open question for the Policy Owner — see `undocumented-fixed-logic.md`.
     //
     // Not optional any more: without the template the project has no todo list, so say so.
-    const todoTemplate = deps.fs.readFile(
-      path.join(orgGovClone, "framework", "templates", "todo-template.md"),
-    );
+    const todoTemplate = deps.fs.readFile(path.join(orgGovClone, ...TODO_TEMPLATE_PATH.split("/")));
     if (todoTemplate === null) {
       throw new Error(
-        "seed: framework/templates/todo-template.md is missing from the governance repo — a "
+        `seed: ${TODO_TEMPLATE_PATH} is missing from the governance repo — a `
         + "project cannot be seeded without a todo list, because the session-start protocol tells "
         + "every agent to read one. Run `gov upgrade`.",
       );

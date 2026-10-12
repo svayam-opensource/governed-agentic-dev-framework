@@ -2,7 +2,7 @@
 # sentences (for example `org-policy.md` §8) by `gov rules propose`. Not written by hand.
 #
 # One entry per section:   - { doc: policies/org-policy.md, section: "4", role: Data Architecture Owner, sha: "1a2b3c4" }
-# `role` is a role listed in `policies/authorized-representatives.md`. `sha` is the sha of the section the ownership
+# `role` is a role listed in `policies/common/authorized-representatives.md`. `sha` is the sha of the section the ownership
 # SENTENCE is written in: change or delete that sentence and the next `gov rules propose` drops or re-extracts it.
 #
 # Empty as seeded: every section belongs to the Policy Owner until you delegate one. A section with no entry

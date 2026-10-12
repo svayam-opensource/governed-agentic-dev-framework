@@ -59,7 +59,7 @@ function tsVerdict(store: Store, text: string): { ok: boolean; kinds: RowDiagnos
 
 const BASE: Json = {
   id: "GOV-FRM-901",
-  source: { doc: "framework/docs/specs/framework-specification.md", section: "3.2", sha: "94eefc7" },
+  source: { doc: "framework/framework-specification.md", section: "3.2", sha: "94eefc7" },
   expectation: "The agent does one observable thing.",
   actor: ["agent"],
   level: "C01",
@@ -142,7 +142,7 @@ describe("rule-row.schema.yaml — held to validateRuleStore (Item 9, Q10)", () 
 
   it("both shipped stores are valid to the schema AND the validator", () => {
     const schema = loadSchema();
-    for (const [file, st] of [["framework/rules/rules.yaml", "framework"], ["policies/rules.yaml", "org"]] as const) {
+    for (const [file, st] of [["framework/rules/rules.yaml", "framework"], ["policies/rules/rules.yaml", "org"]] as const) {
       const text = fs.readFileSync(path.join(CONTENT, file), "utf8");
       const s = schemaVerdict(schema, st, text), t = tsVerdict(st, text);
       expect(s.ok, `${file} to the schema: ${s.errors}`).to.equal(true);

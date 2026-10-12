@@ -201,7 +201,7 @@ function govRepo(files: Record<string, string> = {}): Record<string, string> {
     "org-config.yaml": ORG_CONFIG,
     "policies/governance.yaml": GOVERNANCE,
     "framework/rules/rules.yaml": read("framework/rules/rules.yaml"),
-    "framework/rules/catalog.yaml": read("framework/rules/catalog.yaml"),
+    "framework/rules/checks-catalog.yaml": read("framework/rules/checks-catalog.yaml"),
     "policies/org-policy.md": POLICY,
     "policies/ownership.yaml": '- { doc: policies/org-policy.md, section: "4", role: Check Owner, sha: "abc1234" }\n- { doc: policies/org-policy.md, section: "5", role: Check Owner }\n',
     ...files,
@@ -241,7 +241,7 @@ describe("check engine slice 3 — the rule set a check runs against", () => {
   // role list was read, to the Policy Owner as if the role were vacant.
   it("a Data Owner's section is routed to the Data Owner's holder from the org's role list", () => {
     const files = govRepo({
-      "policies/authorized-representatives.md": "# Reps\n\n| Role | GitHub handle | Owns |\n|---|---|---|\n| Data Owner | @dana | `knowledge/data/` |\n",
+      "policies/common/authorized-representatives.md": "# Reps\n\n| Role | GitHub handle | Owns |\n|---|---|---|\n| Data Owner | @dana | `knowledge/data/` |\n",
       "policies/ownership.yaml": '- { doc: policies/org-policy.md, section: "4", role: Data Owner, sha: "abc1234" }\n',
     });
     const r = loadCheckRuleSet(fakeGit(files), "/gov", "origin/main");

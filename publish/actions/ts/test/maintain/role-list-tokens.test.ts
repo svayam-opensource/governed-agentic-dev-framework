@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * F19 (svm-geneva re-walk, 2026-10-07): `gov upgrade` seeded policies/authorized-representatives.md with its four
+ * F19 (svm-geneva re-walk, 2026-10-07): `gov upgrade` seeded policies/common/authorized-representatives.md with its four
  * holder cells still `<LEGAL_OWNER_GITHUB>`…, and doctor read four roles as vacant with "unresolved token" warnings.
  *
  * A seeded role list never carries a raw token. A holder cell gov seeded is filled from what gov knows (the legacy

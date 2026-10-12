@@ -58,9 +58,9 @@ const APPROVED = `
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("list-membership — an unapproved dependency, in each of the four manifest formats", () => {
   const check = attached("kind=list-membership when=**/package.json,**/go.mod,**/pom.xml,**/requirements.txt "
-    + "list=policies/approved-technologies.md on_miss=fail");
+    + "list=policies/build/approved-technologies.md on_miss=fail");
   const run = (changed: readonly ChangedFile[]) =>
-    runDiffChecks(check, changed, (p) => (p === "policies/approved-technologies.md" ? APPROVED : null));
+    runDiffChecks(check, changed, (p) => (p === "policies/build/approved-technologies.md" ? APPROVED : null));
 
   it("npm: an added dependency that is not on the list FAILS, and the message names the file and the package", () => {
     const r = run([modified("package.json", ['    "left-pad": "^1.3.0",'], '{"dependencies":{"left-pad":"^1.3.0"}}')]);
@@ -396,7 +396,7 @@ describe("path-scope — a write outside the permitted scope", () => {
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 describe("selecting the checks a changeset fires", () => {
   it("picks the file-triggered checks whose globs match, and leaves the verb-triggered ones to the verb gate", () => {
-    const checks = [...attached("kind=list-membership when=**/package.json list=policies/approved-technologies.md on_miss=fail"),
+    const checks = [...attached("kind=list-membership when=**/package.json list=policies/build/approved-technologies.md on_miss=fail"),
       ...attached("kind=file-required when=verb:close require=knowledge/learnings.md on_miss=fail", "GOV-SVM-240", "4.1")];
     expect(selectFileChecks(checks, [added("package.json", "{}")]).map((c) => c.pol)).to.deep.equal(["GOV-SVM-210"]);
     expect(selectFileChecks(checks, [added("README.md", "x")]), "nothing matches these globs").to.deep.equal([]);

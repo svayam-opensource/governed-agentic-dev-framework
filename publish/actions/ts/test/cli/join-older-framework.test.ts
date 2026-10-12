@@ -16,9 +16,9 @@ import { joinerNextSteps } from "../../src/cli/next-steps.js";
 import { assessFrameworkCurrency, policyOwnerFacts } from "../../src/maintain/framework-currency.js";
 
 /** The svm-geneva repo as the walk found it: the old `governance/` layout, no governance.yaml, no todo template. */
-const OLD_LAYOUT = new Set(["governance/policies", "org-config.yaml", "agent/session-protocol.md", "policies/authorized-representatives.md"]);
-const CURRENT = new Set(["framework/rules", "framework/docs/specs", "framework/docs/specs/framework-specification.md", "policies/governance.yaml",
-  "framework/templates/todo-template.md", "agent/session-protocol.md", "policies/authorized-representatives.md", "framework/docs/user-guides/path-joiner.md"]);
+const OLD_LAYOUT = new Set(["governance/policies", "org-config.yaml", "agent/session-protocol.md", "policies/common/authorized-representatives.md"]);
+const CURRENT = new Set(["framework/rules", "framework/common", "framework/build", "framework/framework-specification.md", "policies/governance.yaml",
+  "framework/build/templates/todo-template.md", "agent/session-protocol.md", "policies/common/authorized-representatives.md", "framework/common/guides/path-joiner.md"]);
 
 const OLD = assessFrameworkCurrency((p) => OLD_LAYOUT.has(p), "1.0.4", "1.2.3");
 const NOW = assessFrameworkCurrency((p) => CURRENT.has(p), "1.2.3", "1.2.3");

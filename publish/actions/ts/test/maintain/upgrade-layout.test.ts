@@ -55,7 +55,7 @@ describe("upgrade — a workspace on the old layout keeps everything that is the
   it("succeeds, and lands the new layout", () => {
     expect(result.code, result.lines.join("\n")).to.equal(0);
     expect(contentLayoutOf((rel) => fs.existsSync(path.join(dir, rel)))).to.equal("framework");
-    expect(read("framework/docs/specs/framework-specification.md"), "the framework's specification, at its new path").to.not.equal(null);
+    expect(read("framework/framework-specification.md"), "the framework's specification, at its new path").to.not.equal(null);
   });
 
   it("the org's APPROVED EXCEPTIONS come across, byte for byte, folder by folder", () => {
@@ -111,7 +111,7 @@ describe("upgrade — the policy snapshots move from policies/version/ to polici
   before(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "gov-history-"));
     put("org-config.yaml", 'org_name: "Acme"\ngithub_org: "acme"\norg_gov_repo: "acme-gov"\n');
-    put("framework/docs/specs/framework-specification.md", "# old\n");
+    put("framework/framework-specification.md", "# old\n");
     put("policies/org-policy.md", "# Our policy, as it stands\n");
     put("policies/version/1.3.0/org-policy.md", "# Our policy, as it was at 1.3.0\n");
     put("policies/version/1.3.0/CHANGELOG.md", "# changelog at 1.3.0\n");

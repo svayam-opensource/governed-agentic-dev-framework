@@ -55,7 +55,7 @@ export function adopterNextSteps(f: NextStepsFacts, color = false): readonly str
     "  A. On GitHub — read-only, quickest to skim",
     "     1. Go to https://github.com/" + f.githubOrg,
     `     2. Open ${f.workspaceRepo}`,
-    "     3. Read framework/docs/specs/framework-specification.md",
+    "     3. Read framework/framework-specification.md",
     "",
     "  B. In your editor (VS Code, Cursor, Eclipse…) — direct, and UNGOVERNED",
     `     Open ${home} and edit. But a change pushed straight to main breaks`,
@@ -76,11 +76,11 @@ export function adopterNextSteps(f: NextStepsFacts, color = false): readonly str
     // EVERY DESCRIPTION UNDER A PATH THAT EXISTS (adoption walk #6). Two of these lost their paths when the split
     // renamed the documents, and printed as captions for nothing; a test now holds each path against the seed.
     "Read these, in this order — the full paths, so nothing has to be guessed:",
-    `  ${home}/policies/authorized-representatives.md`,
+    `  ${home}/policies/common/authorized-representatives.md`,
     "      who is accountable for what. Every role currently points at you.",
-    `  ${home}/framework/docs/specs/framework-specification.md`,
+    `  ${home}/framework/framework-specification.md`,
     "      how the framework works — read chapters 3 and 6 before changing anything",
-    `  ${home}/policies/data-classification.md`,
+    `  ${home}/policies/common/data-classification.md`,
     "      what may never leave your organization",
     `  ${home}/agent/session-protocol.md`,
     "      what every agent reads before it touches anything",
@@ -105,12 +105,12 @@ export interface JoinerScreenFacts {
 
 /** The joiner's reading list: a path, then what it is for. */
 const JOINER_READING: readonly (readonly [string, readonly string[]])[] = [
-  ["framework/docs/specs/framework-specification.md", [
+  ["framework/framework-specification.md", [
     "how work is organized, what must be reviewed, and what your AI assistant",
     "must do before it touches anything"]],
   ["agent/session-protocol.md", ["what your agent reads at the start of every session"]],
-  ["policies/authorized-representatives.md", ["who to ask when something here does not fit"]],
-  ["framework/docs/user-guides/path-joiner.md", ["the day-to-day: starting work, finishing it, and what gov does for you"]],
+  ["policies/common/authorized-representatives.md", ["who to ask when something here does not fit"]],
+  ["framework/common/guides/path-joiner.md", ["the day-to-day: starting work, finishing it, and what gov does for you"]],
 ];
 
 export function joinerNextSteps(f: NextStepsFacts, color = false, facts: JoinerScreenFacts = {}): readonly string[] {

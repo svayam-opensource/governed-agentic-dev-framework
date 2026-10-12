@@ -147,7 +147,7 @@ function baseFiles(extra: Record<string, string> = {}): Record<string, string> {
     "policies/governance.yaml": "policy_owner: { github: \"polly\" }\n",
     [DOC]: OLD,
     "policies/VERSION": "1.0.0\n",
-    "policies/rules.yaml": `${RULES_HEADER}[]\n`,
+    "policies/rules/rules.yaml": `${RULES_HEADER}[]\n`,
     "policies/ownership.yaml": `${OWN_HEADER}[]\n`,
     "policies/CHANGELOG.md": "# Policy changelog\n\nNewest first.\n",
     ...extra,
@@ -190,11 +190,11 @@ describe("gov rules propose — the terminal trigger", () => {
     expect(r.code, r.lines.join("\n")).to.equal(0);
     const out = r.lines.join("\n");
     expect(out).to.contain("added 1 · revised 0 · retired 0 · kept 0").and.contain("minor (1.0.0 → 1.1.0)").and.contain("open questions: none");
-    const rows = parseRuleStore(files["policies/rules.yaml"]!);
+    const rows = parseRuleStore(files["policies/rules/rules.yaml"]!);
     expect(rows).to.have.length(1);
     expect(rows[0]).to.deep.include({ id: "GOV-SVM-001", start: { version: "1.1.0", date: "2026-10-07", pr: 12 } });
     expect(rows[0]!.source.sha).to.equal(sectionShas(NEW).get("3"));
-    expect(files["policies/rules.yaml"]!.startsWith(RULES_HEADER), "the header comment is kept").to.equal(true);
+    expect(files["policies/rules/rules.yaml"]!.startsWith(RULES_HEADER), "the header comment is kept").to.equal(true);
     expect(files["policies/VERSION"]).to.equal("1.1.0\n");
     expect(files["policies/history/1.0.0/org-policy.md"]).to.equal(OLD);
     expect(files["policies/CHANGELOG.md"]).to.contain("## 1.1.0 — 2026-10-07").and.contain("| #12 | @alice | _pending_ |").and.contain("GOV-SVM-001");
@@ -220,7 +220,7 @@ describe("gov rules propose — the terminal trigger", () => {
     expect(later.code).to.equal(0);
     expect(model.calls).to.equal(1);
     expect(files["policies/CHANGELOG.md"]).to.contain("| #7 |").and.contain("GOV-SVM-001");
-    expect(parseRuleStore(files["policies/rules.yaml"]!)[0]!.start.pr).to.equal(7);
+    expect(parseRuleStore(files["policies/rules/rules.yaml"]!)[0]!.start.pr).to.equal(7);
   });
 
   it("an unanswered question stops the run with NOTHING written", async () => {
@@ -383,7 +383,7 @@ describe("GOV-FRM-468 gov proposes rules on a policy pull request only when rows
   });
 
   it("GOV-FRM-468 stale rows and ci_allowed false → fails with the gate's message: run gov rules propose locally", async () => {
-    const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules.yaml": STALE_ROW }));
+    const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules/rules.yaml": STALE_ROW }));
     const model = scriptedModel([]);
     const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, fakeGh().gh, { ...ALLOWED, ciAllowed: false }, model));
     expect(r.verdict).to.equal("miss");
@@ -392,7 +392,7 @@ describe("GOV-FRM-468 gov proposes rules on a policy pull request only when rows
   });
 
   it("GOV-FRM-468 stale rows, allowed → one run; settled rows committed to the PR branch as the bot; never a review", async () => {
-    const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules.yaml": STALE_ROW }));
+    const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules/rules.yaml": STALE_ROW }));
     const g = fakeGh();
     const model = scriptedModel([{ verdicts: [{ kind: "keep", id: "GOV-SVM-001" }, ADD("Everyone uses only technologies on the approved list.")], ownership: [], questions: [] }]);
     const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, g.gh, ALLOWED, model));
@@ -400,7 +400,7 @@ describe("GOV-FRM-468 gov proposes rules on a policy pull request only when rows
     expect(model.calls).to.equal(1);
     expect(w.commits).to.have.length(1);
     expect(w.commits[0]).to.contain("#9").and.contain("not an approval");
-    const rows = parseRuleStore(w.branchFiles["policies/rules.yaml"]!);
+    const rows = parseRuleStore(w.branchFiles["policies/rules/rules.yaml"]!);
     expect(rows.map((x) => x.id), "gov issues the new id").to.deep.equal(["GOV-SVM-001", "GOV-SVM-002"]);
     expect(rows[0]!.source.sha, "kept: sha refreshed in place").to.equal(sectionShas(NEW).get("3"));
     expect(w.branchFiles["policies/VERSION"]).to.equal("1.1.0\n");
@@ -409,7 +409,7 @@ describe("GOV-FRM-468 gov proposes rules on a policy pull request only when rows
   });
 
   it("GOV-FRM-468 a question → a review comment on the policy file, a run record, the PR blocked; the same state never runs the model twice", async () => {
-    const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules.yaml": STALE_ROW }));
+    const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules/rules.yaml": STALE_ROW }));
     const g = fakeGh();
     const model = scriptedModel([{ verdicts: [], ownership: [], questions: [{ id: "q1", kind: "keep-revise-retire", text: "Does GOV-SVM-001 still hold?" }] }]);
     const r = await proposeOnPullRequest(TAG, "pull_request", EVENT, ciDeps(w, g.gh, ALLOWED, model));
@@ -436,7 +436,7 @@ describe("GOV-FRM-468 gov proposes rules on a policy pull request only when rows
   });
 
   it("GOV-FRM-468 a fork cannot be pushed to → fails with run it locally, no model", async () => {
-    const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules.yaml": STALE_ROW }));
+    const w = prWorld(baseFiles({ [DOC]: NEW, "policies/rules/rules.yaml": STALE_ROW }), baseFiles({ "policies/rules/rules.yaml": STALE_ROW }));
     const model = scriptedModel([]);
     const fork = { pull_request: { ...EVENT.pull_request, head: { ...EVENT.pull_request.head, repo: { full_name: "mallory/gov" } } } };
     const r = await proposeOnPullRequest(TAG, "pull_request", fork, ciDeps(w, fakeGh().gh, ALLOWED, model));
@@ -461,9 +461,9 @@ describe("GOV-FRM-468 gov proposes rules on a policy pull request only when rows
   });
 
   it("GOV-FRM-468 `gov check run` runs the proposer first when the rule in force binds it, and judges by its outcome", async () => {
-    const store = `- id: GOV-FRM-468\n  source: { doc: framework/docs/specs/framework-specification.md, section: "9.3", sha: "x" }\n  expectation: "gov proposes."\n  actor: [gov-client]\n  level: C01\n  checks:\n    - on: { resource: vcs.gov-repo, event: pull_request }\n      action: gov-builtin/rules-propose\n      on_miss: fail\n  start: { version: "1.2.3", date: "2026-10-06" }\n  end: null\n`;
+    const store = `- id: GOV-FRM-468\n  source: { doc: framework/framework-specification.md, section: "9.3", sha: "x" }\n  expectation: "gov proposes."\n  actor: [gov-client]\n  level: C01\n  checks:\n    - on: { resource: vcs.gov-repo, event: pull_request }\n      action: gov-builtin/rules-propose\n      on_miss: fail\n  start: { version: "1.2.3", date: "2026-10-06" }\n  end: null\n`;
     const catalog = "resources:\n  - id: vcs.gov-repo\n    renderer: github-actions\n    events:\n      - { name: pull_request, mode: gate }\ntools:\n  - id: gov-builtin\nactions:\n  - id: gov-builtin/rules-propose\n    tool: gov-builtin\n    params: { type: object, additionalProperties: false, properties: {} }\n";
-    const git = treeAsGit(memTree({ "org-config.yaml": "org_slug: \"SVM\"\n", "framework/rules/rules.yaml": store, "framework/rules/catalog.yaml": catalog }));
+    const git = treeAsGit(memTree({ "org-config.yaml": "org_slug: \"SVM\"\n", "framework/rules/rules.yaml": store, "framework/rules/checks-catalog.yaml": catalog }));
     const seen: string[] = [];
     const r = await checkCommandAsync(["run", "GOV-FRM-468"], { resource: "vcs.gov-repo", event: "pull_request" }, {
       git, gh: () => "[]", env: { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: "/e.json" },
