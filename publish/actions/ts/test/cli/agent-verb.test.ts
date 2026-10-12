@@ -121,3 +121,55 @@ describe("gov-work — gov agent install (#196)", () => {
     expect(p.message).to.contain("already installed");
   });
 });
+
+describe("gov-work — gov agent install on Windows (#223, plan 04 T10)", () => {
+  it("installs an npm agent with the same argv — the chokepoint resolves npm.cmd, not the planner", () => {
+    const p = planAgentInstall("claude-code", [{ id: "claude-code" }], () => false, "win32");
+    expect(p.ok).to.equal(true);
+    if (!p.ok) return;
+    expect(p.steps[0]!.command).to.deep.equal(["npm", "install", "-g", "@anthropic-ai/claude-code"]);
+  });
+
+  it("refuses a curl | bash installer on Windows, naming where to get the agent instead", () => {
+    const p = planAgentInstall("cursor", [{ id: "cursor" }], () => false, "win32");
+    expect(p.ok).to.equal(false);
+    if (p.ok) return;
+    expect(p.message).to.contain("does not run on Windows");
+    expect(p.message).to.contain("https://cursor.com/cli");
+  });
+
+  it("never plans `sh -c` on Windows", () => {
+    for (const id of ["cursor", "ibm-bob"]) {
+      const p = planAgentInstall(id, [{ id }], () => false, "win32");
+      if (p.ok) expect(p.steps.map((s) => s.command[0])).to.not.include("sh");
+    }
+  });
+
+  it("installs a pip agent as `python -m pip`, never a bare `pip` (a .exe shim that is often missing)", () => {
+    const p = planAgentInstall("aider", [{ id: "aider" }], has("python"), "win32");
+    expect(p.ok).to.equal(true);
+    if (!p.ok) return;
+    expect(p.steps[0]!.command).to.deep.equal(["python", "-m", "pip", "install", "--user", "aider-chat"]);
+  });
+
+  it("uses the `py` launcher on Windows when `python` is absent", () => {
+    const p = planAgentInstall("aider", [{ id: "aider" }], () => false, "win32");
+    expect(p.ok).to.equal(true);
+    if (!p.ok) return;
+    expect(p.steps[0]!.command).to.deep.equal(["py", "-m", "pip", "install", "--user", "aider-chat"]);
+  });
+
+  it("uses python3 -m pip off Windows when python3 is there", () => {
+    const p = planAgentInstall("aider", [{ id: "aider" }], has("python3"), "linux");
+    expect(p.ok).to.equal(true);
+    if (!p.ok) return;
+    expect(p.steps[0]!.command).to.deep.equal(["python3", "-m", "pip", "install", "--user", "aider-chat"]);
+  });
+
+  it("still runs the vendor script off Windows", () => {
+    const p = planAgentInstall("cursor", [{ id: "cursor" }], () => false, "linux");
+    expect(p.ok).to.equal(true);
+    if (!p.ok) return;
+    expect(p.steps.map((s) => s.command[0])).to.include("sh");
+  });
+});

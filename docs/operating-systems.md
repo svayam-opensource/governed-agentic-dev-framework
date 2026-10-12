@@ -21,6 +21,22 @@ Install and put on `PATH`: `git`, `gh` (GitHub CLI, authenticated), `python3`,
   becomes `C:\Users\<you>\.svm\projects`. Keep `agent_work_root` as a portable
   `~/...` value (never a committed absolute path).
 
+## Windows: how gov runs other programs and installs agents
+gov runs `git`, `gh`, `npm` and your agent for you. On Windows most of these are
+`.cmd` files rather than programs, so gov looks each one up the way Windows does
+(every folder on `PATH`, with each extension in `PATHEXT`) and runs a `.cmd`
+through `cmd.exe`. If a command is not there, gov names it and lists the folders
+it looked in.
+
+`gov agent install` on Windows:
+- npm agents (Claude Code, Codex, Gemini CLI, Copilot CLI, …) install as on any
+  other OS.
+- Python agents (Aider) install with `python -m pip`, or `py -m pip` when only
+  the Python launcher is present.
+- Agents whose vendor installer is a shell script (`curl … | bash` — Cursor CLI,
+  IBM Bob) are not installed on Windows. gov prints the vendor's page instead;
+  install from there and run `gov agent` again.
+
 ## macOS
 - **Do not keep this repo — or `agent_work_root` — inside an iCloud-synced
   folder** (`~/Documents`, `~/Desktop`). iCloud generates ` 2`/` 3` conflict

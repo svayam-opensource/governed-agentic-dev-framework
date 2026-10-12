@@ -174,6 +174,7 @@ export function planAgentInstall(
   id: string,
   approved: readonly ApprovedAgent[] | null,
   hasTool: (cmd: string) => boolean,
+  platform: NodeJS.Platform = process.platform,
 ): InstallPlan {
   const agent = AGENT_CATALOG.find((a) => a.id === id);
   if (!agent) {
@@ -207,6 +208,15 @@ export function planAgentInstall(
 
   const steps: { what: string; command: readonly string[] }[] = [];
   const hostNeeded: HostNeeded[] = [];
+  // ROUTES WINDOWS CANNOT TAKE (#223, Q10 B). A vendor's `curl … | bash` is a POSIX shell script: on Windows
+  // there is no `sh` to run it, and guessing a PowerShell equivalent would be running code nobody reviewed.
+  // Refused, with the vendor's own page. A vendor-published PowerShell installer may become its own catalog
+  // field later, verified per vendor.
+  const noWindows: { what: string; url: string }[] = [];
+  const win = platform === "win32";
+  // `pip` is a .exe shim that is often absent or the wrong interpreter's; `python -m pip` is the one that matches
+  // the Python that will run the agent. On Windows the `py` launcher stands in when `python` is not on PATH.
+  const python = win ? (hasTool("python") ? "python" : "py") : (hasTool("python3") ? "python3" : "python");
   for (const v of variantStatuses(agent, hasTool)) {
     if (v.variant.kind === "extension") {
       if (v.host) {
@@ -221,8 +231,9 @@ export function planAgentInstall(
     if (v.installed) continue;
     const inst = v.variant.install;
     if (inst?.npm) steps.push({ what: v.variant.label, command: ["npm", "install", "-g", inst.npm] });
+    else if (inst?.script && win) noWindows.push({ what: v.variant.label, url: inst.url });
     else if (inst?.script) steps.push({ what: v.variant.label, command: ["sh", "-c", inst.script] });
-    else if (inst?.pip) steps.push({ what: v.variant.label, command: ["pip", "install", "--user", inst.pip] });
+    else if (inst?.pip) steps.push({ what: v.variant.label, command: [python, "-m", "pip", "install", "--user", inst.pip] });
   }
 
   // WHEN "ALREADY INSTALLED" IS THE HONEST ANSWER, AND WHEN IT IS NOT.
@@ -235,6 +246,14 @@ export function planAgentInstall(
   // needs an editor. That used to fall into "already installed" — wrong twice over, because
   // nothing was installed and the one useful fact was never said.
   const runnable = variantStatuses(agent, hasTool).some((v) => v.installed);
+  if (!steps.length && !runnable && noWindows.length) {
+    return {
+      ok: false,
+      message: `${agent.tool}'s installer is a shell script (curl … | bash), which does not run on Windows,\n`
+        + "  and gov will not guess a substitute for code it cannot verify.\n"
+        + `  Install ${agent.tool} from ${noWindows[0]!.url}, then run \`gov agent\` again.`,
+    };
+  }
   if (!steps.length && (runnable || !hostNeeded.length)) {
     const extra = hostNeeded.length
       ? `\n  ${hostNeeded.map((h) => `${h.what} would also work, in ${h.hosts.join(" or ")}`).join("\n  ")}`

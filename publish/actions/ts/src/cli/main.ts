@@ -15,7 +15,8 @@ import { fileURLToPath } from "node:url";
 // `spawn` only, and only to hand the TERMINAL to an agent (detached, or with inherited stdin): everything else
 // goes through run-process.ts so it is logged. The two launches log themselves at the call site.
 import { spawn } from "node:child_process";
-import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive, runResult } from "../run-process.js";
+import { run as runProcess, tryRun as tryRunProcess, ok as okProcess, runInteractive, runResult, plan as planSpawn } from "../run-process.js";
+import type { SpawnPlan } from "../win-spawn.js";
 import { runSetup } from "../setup/setup-run.js";
 import type { SetupPreAnswers } from "../setup/interview.js";
 import { log, closeLog, cacheLogin, cachedLogin } from "../log.js";
@@ -1794,7 +1795,13 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
         ...(credEnv ? { credentialEnv: credEnv, credentialPresent: Boolean(process.env[credEnv]) } : {}),
       });
       closeLog();                              // spawnSync blocks until the agent exits; flush first
-      if (s.detached) { spawn(s.cmd, [...s.args], { cwd, stdio: "ignore", detached: true }).unref(); return 0; }
+      if (s.detached) {
+        // A desktop agent (`code`, `cursor`) is a .cmd shim on Windows — resolved like every other spawn (#223).
+        let dp: SpawnPlan;
+        try { dp = planSpawn(s.cmd, s.args); } catch (e) { process.stderr.write(`  ${(e as Error).message}\n`); return 1; }
+        spawn(dp.file, [...dp.args], { cwd, stdio: "ignore", detached: true, ...(dp.verbatim ? { windowsVerbatimArguments: true } : {}) }).unref();
+        return 0;
+      }
 
       const runIt = (args: readonly string[]): { status: number; error: boolean; ms: number } => {
         const at = Date.now();
@@ -1813,7 +1820,9 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
           let done = false;
           const finish = (v: { status: number; error: boolean; ms: number; out: string }): void => { if (!done) { done = true; resolve(v); } };
           const keep = (b: Buffer, to: NodeJS.WriteStream): void => { to.write(b); out = (out + b.toString("utf8")).slice(-65536); };
-          const child = spawn(s.cmd, [...args], { cwd, stdio: ["inherit", "pipe", "pipe"] });
+          let cp: SpawnPlan;
+          try { cp = planSpawn(s.cmd, args); } catch (e) { process.stderr.write(`  ${(e as Error).message}\n`); finish({ status: 127, error: true, ms: Date.now() - at, out }); return; }
+          const child = spawn(cp.file, [...cp.args], { cwd, stdio: ["inherit", "pipe", "pipe"], ...(cp.verbatim ? { windowsVerbatimArguments: true } : {}) });
           child.stdout?.on("data", (b: Buffer) => keep(b, process.stdout));
           child.stderr?.on("data", (b: Buffer) => keep(b, process.stderr));
           child.on("error", () => finish({ status: 1, error: true, ms: Date.now() - at, out }));

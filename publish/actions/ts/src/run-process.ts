@@ -18,8 +18,24 @@
  * can be large, and it is often the thing that must not be written down (a token, a key, a private file).
  */
 import { execFileSync, spawnSync, type SpawnSyncOptions } from "node:child_process";
+import { statSync } from "node:fs";
 import { log } from "./log.js";
 import { redactArgv, redactText } from "./state-paths.js";
+import { spawnPlan, type SpawnPlan } from "./win-spawn.js";
+
+/**
+ * WHAT IS ACTUALLY SPAWNED (#223). Off Windows: the command itself. On Windows: resolved through PATH × PATHEXT,
+ * a `.cmd`/`.bat` run through cmd.exe with its arguments escaped — see `win-spawn.ts`. Throws a
+ * `CommandNotFoundError` (code ENOENT) naming the PATH searched when nothing is found. Exported for the two
+ * call sites that hand the terminal over (`main.ts` agent launch) and so spawn for themselves.
+ */
+export function plan(cmd: string, args: readonly string[], env?: NodeJS.ProcessEnv): SpawnPlan {
+  return spawnPlan(cmd, args, {
+    platform: process.platform,
+    env: env ?? process.env,
+    isFile: (p) => { try { return statSync(p).isFile(); } catch { return false; } },
+  });
+}
 
 /**
  * The tail of a failed process's stderr — enough to recognise the failure, short enough to keep a log readable.
@@ -51,8 +67,10 @@ export interface RunOptions {
 export function run(cmd: string, args: readonly string[], opts: RunOptions = {}): string {
   const started = Date.now();
   try {
-    const out = execFileSync(cmd, args as string[], {
+    const p = plan(cmd, args, opts.env);
+    const out = execFileSync(p.file, p.args as string[], {
       encoding: "utf8",
+      ...(p.verbatim ? { windowsVerbatimArguments: true } : {}),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
       ...(opts.env ? { env: opts.env } : {}),
       ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
@@ -131,7 +149,19 @@ export function ok(cmd: string, args: readonly string[], opts: RunOptions = {}):
  */
 export function runInteractive(cmd: string, args: readonly string[], opts: RunOptions & { spawn?: SpawnSyncOptions } = {}): number {
   const started = Date.now();
-  const r = spawnSync(cmd, args as string[], { stdio: "inherit", ...(opts.cwd ? { cwd: opts.cwd } : {}), ...(opts.env ? { env: opts.env } : {}), ...(opts.spawn ?? {}) });
+  let p: SpawnPlan;
+  try {
+    p = plan(cmd, args, opts.env);
+  } catch (e) {
+    // NAMED, NOT ENOENT (#223): the person sees which command, and where gov looked for it.
+    process.stderr.write(`${(e as Error).message}\n`);
+    logRun("warn", cmd, args, { ...opts, meta: { ...(opts.meta ?? {}), interactive: true } }, Date.now() - started, 127, (e as Error).message);
+    return 127;
+  }
+  const r = spawnSync(p.file, p.args as string[], {
+    stdio: "inherit", ...(opts.cwd ? { cwd: opts.cwd } : {}), ...(opts.env ? { env: opts.env } : {}),
+    ...(p.verbatim ? { windowsVerbatimArguments: true } : {}), ...(opts.spawn ?? {}),
+  });
   const code = r.status ?? (r.error ? 1 : 0);
   logRun(code === 0 ? "info" : "warn", cmd, args, { ...opts, meta: { ...(opts.meta ?? {}), interactive: true } }, Date.now() - started, code, r.error?.message);
   return code;
