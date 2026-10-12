@@ -336,6 +336,31 @@ each branch `archive/<branch>` and then deletes it. Closing a project is covered
 
 *Rules for this chapter: rule map, filter `framework-specification.md §4`.*
 
+### 4.7 The lifecycle a project follows
+
+A project's work moves from a business intent to running software through steps your organization adopts in
+**one** file, `policies/active/ai-sdlc-lifecycle.md`. A new organization gets a starter copy, once; it is yours to
+change or delete. With no lifecycle there, `gov intent` and `gov autorun` say so and do nothing.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Intent: board issue(s)
+    Intent --> Spec: G1 business owner approves
+    Spec --> Plan: G2 project owner approves
+    Plan --> Build: G3 project owner approves (and so the task issues)
+    Build --> Built: G4 each change request, G4b build.md
+    Built --> Release: deploy.md (G5), run.md (G6)
+```
+
+gov reads only the step headings and their `Template:` lines — `## 3. Intent (phase: build)` and
+``Template: `policies/reference/lifecycles/ai-sdlc/intent.md` `` — never front matter, and it never edits the
+prose. A step heading it cannot read is skipped, and `gov doctor` says which one. The templates under
+`policies/reference/` are a library: they are never turned into rules.
+
+Each intent's artifacts live in `projects/<PRJ>/intents/<NN-slug>/` (`intent.md`, `spec.md`, `plan.md`,
+`build.md`); each release's in `releases/<unit>/<version>/` (`deploy.md`, `run.md`). An artifact is approved by a
+person's approving review on its change request, then the merge — never by a Status line an agent could write.
+
 ---
 
 ## 5. Where you may write
