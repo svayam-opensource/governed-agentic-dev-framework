@@ -23,7 +23,7 @@ import { readCliVersion } from "./main.js";
 import { randomBytes } from "node:crypto";
 import { parseOrgConfig } from "../config/org-config.js";
 import { evidenceEnable } from "../lifecycle/evidence-setup.js";
-import { githubVcs } from "../adapters/github/vcs.js";
+import { githubVcs } from "../adapters/github/vcs-evidence.js";
 import { ghRunner } from "./app-verb.js";
 import { startLoopback } from "./app-loopback.js";
 import type { EvidenceResult } from "./evidence-verb.js";

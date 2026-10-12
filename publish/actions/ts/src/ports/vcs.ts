@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * VcsPort — the code HOST: repositories, branches as the host sees them, branch rules, and the org-level things a
- * host keeps (Apps, org secrets). LOCAL git is not here: commit, push and fetch stay in `lifecycle/vcs.ts`.
+ * VcsPort — the code HOST (PRJ-121 intent 03, D7, spec §6): repositories, branches as the host sees them, change
+ * requests, their reviews, the checks a branch requires, and who gov is signed in as.
  *
- * THIS IS A FIRST SLICE (PRJ-121 intent 02, E07 `gov evidence enable`), cut in the layout intent 03 (D7, spec §6)
- * gives the full port: `repo` and `branch` have intent 03's exact shapes; the rest is only what turning evidence on
- * needs. Intent 03 completes the interface (change requests, reviews, required checks, identity) — the same way
- * `ports/work-tracker.ts` began as intent 05's slice. Every call returns a {@link Result}: a thing that is simply
- * absent (a branch that does not exist) is a successful `null`, so a caller can tell "no" from "could not ask".
+ * LOCAL git is not here: commit, branch, push and fetch stay in `lifecycle/vcs.ts`, because git is the same on
+ * every host. This port is what differs between GitHub, GitLab and Azure DevOps.
+ *
+ * Vendor-neutral words: a "change request" is a GitHub pull request or a GitLab merge request. Every call returns
+ * a {@link Result}; a thing that is simply absent (a branch that does not exist) is a successful `null`, so a
+ * caller can tell "no" from "could not ask".
  */
 import type { Result } from "./result.js";
 
@@ -30,7 +31,64 @@ export interface BranchInfo {
   readonly protected: boolean;
 }
 
-/** One file of a new branch's first commit. */
+export interface NewChangeRequest {
+  readonly repo: RepoRef;
+  /** The branch with the change. */
+  readonly head: string;
+  /** The branch it is to land on. */
+  readonly base: string;
+  readonly title: string;
+  readonly body: string;
+  /** Open it as a draft — not yet asking for review. */
+  readonly draft?: boolean;
+}
+
+export interface ChangeRequestRef { readonly repo: RepoRef; readonly number: number }
+
+export interface ChangeRequest {
+  readonly ref: ChangeRequestRef;
+  /** `merged` wins over `closed`: a merged change request is closed too, and merged is what a caller asks. */
+  readonly state: "open" | "closed" | "merged";
+  readonly merged: boolean;
+  readonly draft: boolean;
+  readonly head: string;
+  readonly base: string;
+  readonly title: string;
+  readonly url: string;
+}
+
+/** A person or an automated account. Q2: an agent can write text; it cannot approve as a person. */
+export type AccountKind = "human" | "bot";
+
+export interface Review {
+  /** The reviewer's login. */
+  readonly by: string;
+  readonly kind: AccountKind;
+  readonly verdict: "approved" | "changes-requested" | "commented" | "dismissed" | "pending";
+  /** When it was submitted (ISO 8601); "" for a review not yet submitted. */
+  readonly at: string;
+}
+
+export interface Identity { readonly login: string; readonly kind: AccountKind }
+
+export interface VcsPort {
+  repo(r: RepoRef): Promise<Result<RepoInfo>>;
+  /** `ok(null)` when the branch does not exist. */
+  branch(r: RepoRef, name: string): Promise<Result<BranchInfo | null>>;
+  openChangeRequest(cr: NewChangeRequest): Promise<Result<ChangeRequestRef>>;
+  changeRequest(ref: ChangeRequestRef): Promise<Result<ChangeRequest>>;
+  reviews(ref: ChangeRequestRef): Promise<Result<Review[]>>;
+  /** The status checks that must pass before a change lands on `branch`; `[]` when none are required. */
+  requiredChecks(r: RepoRef, branch: string): Promise<Result<string[]>>;
+  /** Who gov is acting as on the host. */
+  identity(): Promise<Result<Identity>>;
+}
+
+// ── Evidence administration (PRJ-121 intent 02, I02-E07) ──────────────────────────────────────────────────────
+// What `gov evidence enable` needs from the host: an orphan evidence branch, its ruleset, the writer App and the
+// org secrets. A separate port from {@link VcsPort} (the change-request side) so each adapter stays small; both
+// share the repo/branch reads and the {@link Result} convention. Merged here from intent 02's first slice.
+
 export interface NewFile { readonly path: string; readonly text: string }
 
 /**
@@ -51,7 +109,7 @@ export interface RulesetSummary { readonly id: number; readonly name: string }
 /** What the host hands back when an App made from a manifest is converted: the private key is in `pem`. */
 export interface NewApp { readonly slug: string; readonly clientId: string; readonly pem: string }
 
-export interface VcsPort {
+export interface VcsEvidencePort {
   repo(r: RepoRef): Promise<Result<RepoInfo>>;
   /** `ok(null)` when the branch does not exist. */
   branch(r: RepoRef, name: string): Promise<Result<BranchInfo | null>>;

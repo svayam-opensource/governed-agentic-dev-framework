@@ -1,112 +1,139 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * The GitHub adapter of {@link VcsPort} (first slice — see ports/vcs.ts), over the `gh` CLI. Every call is one or a
- * few `gh api` calls; a request body goes on gh's STDIN (`--input -`), never on argv, so nothing secret or bulky
- * reaches the process list or gov's process log.
+ * VcsPort on GitHub, through `gh api` (PRJ-121 intent 03, L03). The runner is injected ({@link GhRun}), so unit
+ * tests use a fake and the live tier runs the conformance suite (test/ports/vcs.conformance.ts) for real.
+ *
+ * Every call answers with a Result. Where GitHub's "not found" is an ANSWER (a branch that does not exist) it is
+ * `ok(null)`; everywhere else it is a failure with GitHub's own words as the reason.
  */
-import type { BranchRuleset, NewApp, NewFile, RepoInfo, RepoRef, RulesetSummary, VcsPort, BranchInfo } from "../../ports/vcs.js";
 import { fail, ok, type Result } from "../../ports/result.js";
+import type {
+  AccountKind, BranchInfo, ChangeRequest, ChangeRequestRef, Identity, NewChangeRequest, RepoInfo, RepoRef, Review, VcsPort,
+} from "../../ports/vcs.js";
+import { defaultGhRun, ghCall, ghFailure, ghJson, isNotFound, type GhRun } from "./gh.js";
 
-/** Run `gh` with these arguments; `input` is its stdin. Never throws. */
-export type GhCall = (args: readonly string[], input?: string) => { status: number; stdout: string; stderr: string };
-
-const firstLine = (s: string): string => s.split(/\r?\n/).map((l) => l.trim()).find(Boolean)?.slice(0, 200) ?? "no output";
-
-function parse<T>(s: string): T | null {
-  try { return JSON.parse(s) as T; } catch { /* not JSON — the caller reports "unexpected answer" */ return null; }
+/** A bot: GitHub's `type: "Bot"`, or a login ending in `[bot]` (an App acting as itself). */
+export function isBotAccount(login: string, type?: string | null): boolean {
+  return type === "Bot" || /\[bot\]$/.test(login);
 }
+const kindOf = (login: string, type?: string | null): AccountKind => (isBotAccount(login, type) ? "bot" : "human");
 
-/** A failed gh call, sorted: 404 is "missing", 401/403 "forbidden"; anything else may be worth retrying. */
-function why(r: { stderr: string; stdout: string }): { kind: "missing" | "forbidden" | "other"; text: string } {
-  const t = `${r.stderr}\n${r.stdout}`;
-  if (/HTTP 404|Not Found/i.test(t)) return { kind: "missing", text: firstLine(r.stderr || r.stdout) };
-  if (/HTTP 40[13]|Resource not accessible|must have admin|Upgrade to GitHub|insufficient/i.test(t)) return { kind: "forbidden", text: firstLine(r.stderr || r.stdout) };
-  return { kind: "other", text: firstLine(r.stderr || r.stdout) };
-}
-
-const failFrom = (what: string, r: { stderr: string; stdout: string }): Result<never> => {
-  const w = why(r);
-  return fail(`${what}: ${w.text}`, w.kind === "other");
+const VERDICTS: Readonly<Record<string, Review["verdict"]>> = {
+  APPROVED: "approved", CHANGES_REQUESTED: "changes-requested", COMMENTED: "commented", DISMISSED: "dismissed", PENDING: "pending",
 };
 
-export function githubVcs(gh: GhCall): VcsPort {
-  const repoPath = (r: RepoRef): string => `/repos/${r.owner}/${r.name}`;
-  const post = (path: string, body: unknown) => gh(["api", "-X", "POST", path, "--input", "-"], JSON.stringify(body));
+const slug = (r: RepoRef): string => `${r.owner}/${r.name}`;
+
+interface GhBranch {
+  name?: string; commit?: { sha?: string }; protected?: boolean;
+  protection?: { required_status_checks?: { contexts?: string[] | null; checks?: { context?: string }[] | null } | null } | null;
+}
+
+export interface GithubVcsDeps { readonly gh?: GhRun }
+
+export function createGithubVcs(deps: GithubVcsDeps = {}): VcsPort {
+  const gh = deps.gh ?? defaultGhRun;
+
+  /** The branch as GitHub reports it; ok(null) when it does not exist. */
+  const readBranch = (r: RepoRef, name: string): Result<GhBranch | null> => {
+    const reply = ghCall(gh, ["api", `repos/${slug(r)}/branches/${name}`]);
+    if (isNotFound(reply)) return ok(null);
+    if (reply.status !== 0) return ghFailure(reply, `reading branch ${name} of ${slug(r)}`);
+    try { return ok(JSON.parse(reply.stdout) as GhBranch); } catch (e) {
+      return fail(`reading branch ${name} of ${slug(r)}: GitHub's answer was not JSON (${(e as Error).message.slice(0, 80)})`);
+    }
+  };
 
   return {
-    repo(r) {
-      const out = gh(["api", repoPath(r)]);
-      if (out.status !== 0) return Promise.resolve(failFrom(`could not read ${r.owner}/${r.name}`, out));
-      const j = parse<{ default_branch?: string; html_url?: string; visibility?: string; private?: boolean }>(out.stdout);
-      if (!j?.default_branch) return Promise.resolve(fail(`unexpected answer reading ${r.owner}/${r.name}`));
-      const visibility: RepoInfo["visibility"] = j.visibility === "public" || j.visibility === "internal" ? j.visibility : j.private === false ? "public" : "private";
-      return Promise.resolve(ok({ defaultBranch: j.default_branch, url: j.html_url ?? `https://github.com/${r.owner}/${r.name}`, visibility }));
+    async repo(r): Promise<Result<RepoInfo>> {
+      const j = ghJson<{ default_branch?: string; html_url?: string; visibility?: string; private?: boolean }>(gh, ["api", `repos/${slug(r)}`], `reading ${slug(r)}`);
+      if (!j.ok) return j;
+      if (!j.value.default_branch) return fail(`reading ${slug(r)}: GitHub's answer had no default branch`);
+      const vis = j.value.visibility === "public" || j.value.visibility === "internal" || j.value.visibility === "private"
+        ? j.value.visibility : (j.value.private ? "private" : "public");
+      return ok({ defaultBranch: j.value.default_branch, url: j.value.html_url ?? `https://github.com/${slug(r)}`, visibility: vis });
     },
 
-    branch(r, name) {
-      const out = gh(["api", `${repoPath(r)}/branches/${encodeURIComponent(name)}`]);
-      if (out.status !== 0) return Promise.resolve(why(out).kind === "missing" ? ok(null) : failFrom(`could not read branch ${name}`, out));
-      const j = parse<{ name?: string; commit?: { sha?: string }; protected?: boolean }>(out.stdout);
-      if (!j?.commit?.sha) return Promise.resolve(fail(`unexpected answer reading branch ${name}`));
-      const b: BranchInfo = { name: j.name ?? name, sha: j.commit.sha, protected: j.protected === true };
-      return Promise.resolve(ok(b));
+    async branch(r, name): Promise<Result<BranchInfo | null>> {
+      const b = readBranch(r, name);
+      if (!b.ok || b.value === null) return b as Result<null>;
+      const sha = b.value.commit?.sha;
+      if (!sha) return fail(`reading branch ${name} of ${slug(r)}: GitHub's answer had no commit`);
+      return ok({ name: b.value.name ?? name, sha, protected: b.value.protected === true });
     },
 
-    createOrphanBranch(r, name, files: readonly NewFile[], message) {
-      // A tree with no base, a commit with NO parents, then a NEW ref — the only write. No existing ref is touched.
-      const t = post(`${repoPath(r)}/git/trees`, { tree: files.map((f) => ({ path: f.path, mode: "100644", type: "blob", content: f.text })) });
-      const tree = t.status === 0 ? parse<{ sha?: string }>(t.stdout)?.sha : undefined;
-      if (!tree) return Promise.resolve(t.status === 0 ? fail("unexpected answer creating the tree") : failFrom("could not create the branch's files", t));
-      const c = post(`${repoPath(r)}/git/commits`, { message, tree, parents: [] });
-      const commit = c.status === 0 ? parse<{ sha?: string }>(c.stdout)?.sha : undefined;
-      if (!commit) return Promise.resolve(c.status === 0 ? fail("unexpected answer creating the commit") : failFrom("could not create the branch's first commit", c));
-      const ref = post(`${repoPath(r)}/git/refs`, { ref: `refs/heads/${name}`, sha: commit });
-      if (ref.status !== 0) return Promise.resolve(failFrom(`could not create branch ${name}`, ref));
-      return Promise.resolve(ok({ sha: commit }));
+    async openChangeRequest(cr: NewChangeRequest): Promise<Result<ChangeRequestRef>> {
+      const j = ghJson<{ number?: number }>(gh, [
+        "api", "-X", "POST", `repos/${slug(cr.repo)}/pulls`,
+        "-f", `title=${cr.title}`, "-f", `body=${cr.body}`, "-f", `head=${cr.head}`, "-f", `base=${cr.base}`,
+        "-F", `draft=${cr.draft === true}`,
+      ], `opening a change request ${cr.head} → ${cr.base} in ${slug(cr.repo)}`);
+      if (!j.ok) return j;
+      if (typeof j.value.number !== "number") return fail(`opening a change request in ${slug(cr.repo)}: GitHub's answer had no number`);
+      return ok({ repo: cr.repo, number: j.value.number });
     },
 
-    rulesets(r) {
-      const out = gh(["api", `${repoPath(r)}/rulesets?per_page=100`]);
-      if (out.status !== 0) return Promise.resolve(failFrom("could not list the repository's rulesets", out));
-      const j = parse<{ id?: number; name?: string }[]>(out.stdout);
-      if (!Array.isArray(j)) return Promise.resolve(fail("unexpected answer listing rulesets"));
-      return Promise.resolve(ok(j.filter((x) => typeof x.id === "number" && typeof x.name === "string").map((x): RulesetSummary => ({ id: x.id!, name: x.name! }))));
+    async changeRequest(ref): Promise<Result<ChangeRequest>> {
+      const j = ghJson<{ state?: string; merged?: boolean; draft?: boolean; title?: string; html_url?: string; head?: { ref?: string }; base?: { ref?: string } }>(
+        gh, ["api", `repos/${slug(ref.repo)}/pulls/${ref.number}`], `reading change request #${ref.number} of ${slug(ref.repo)}`);
+      if (!j.ok) return j;
+      const p = j.value;
+      const merged = p.merged === true;
+      return ok({
+        ref, state: merged ? "merged" : p.state === "open" ? "open" : "closed", merged, draft: p.draft === true,
+        title: p.title ?? "", url: p.html_url ?? "", head: p.head?.ref ?? "", base: p.base?.ref ?? "",
+      });
     },
 
-    createRuleset(r, ruleset: BranchRuleset) {
-      const out = post(`${repoPath(r)}/rulesets`, ruleset);
-      const id = out.status === 0 ? parse<{ id?: number }>(out.stdout)?.id : undefined;
-      if (typeof id !== "number") return Promise.resolve(out.status === 0 ? fail("unexpected answer creating the ruleset") : failFrom("could not create the ruleset", out));
-      return Promise.resolve(ok({ id }));
+    async reviews(ref): Promise<Result<Review[]>> {
+      // Every page, one review per line: `--paginate` walks the pages and `@json` keeps each one on its own line.
+      const reply = ghCall(gh, ["api", "--paginate", `repos/${slug(ref.repo)}/pulls/${ref.number}/reviews?per_page=100`, "--jq", ".[] | @json"]);
+      if (reply.status !== 0) return ghFailure(reply, `reading the reviews of #${ref.number} in ${slug(ref.repo)}`);
+      const out: Review[] = [];
+      for (const line of reply.stdout.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        let x: { user?: { login?: string; type?: string } | null; state?: string; submitted_at?: string | null };
+        try { x = JSON.parse(line); } catch (e) {
+          return fail(`reading the reviews of #${ref.number} in ${slug(ref.repo)}: a line was not JSON (${(e as Error).message.slice(0, 80)})`);
+        }
+        const login = x.user?.login ?? "ghost";               // GitHub's own name for a deleted account
+        const verdict = VERDICTS[x.state ?? ""];
+        if (!verdict) return fail(`reading the reviews of #${ref.number} in ${slug(ref.repo)}: unknown review state '${x.state}'`);
+        out.push({ by: login, kind: kindOf(login, x.user?.type), verdict, at: x.submitted_at ?? "" });
+      }
+      return ok(out);
     },
 
-    appExists(slug) {
-      const out = gh(["api", `/apps/${slug}`]);
-      if (out.status === 0) return Promise.resolve(ok(true));
-      return Promise.resolve(why(out).kind === "missing" ? ok(false) : failFrom(`could not look up the App ${slug}`, out));
+    async requiredChecks(r, branch): Promise<Result<string[]>> {
+      // Two places say a check is required: classic branch protection (shown, read-only, on the branch itself — no
+      // admin rights needed) and repository rulesets. Both are read, and the names merged.
+      const b = readBranch(r, branch);
+      if (!b.ok) return b;
+      if (b.value === null) return fail(`reading the required checks of ${branch} in ${slug(r)}: no such branch`);
+      const rsc = b.value.protection?.required_status_checks;
+      const names = [...(rsc?.contexts ?? []), ...(rsc?.checks ?? []).map((c) => c.context ?? "")];
+      const rules = ghCall(gh, ["api", `repos/${slug(r)}/rules/branches/${branch}`]);
+      if (rules.status !== 0) {
+        // A plan with no rulesets (GitHub Free, private repo) has none to require — an answer, not a failure.
+        if (!/upgrade to github pro|make this repository public/i.test(rules.stderr)) return ghFailure(rules, `reading the rulesets of ${branch} in ${slug(r)}`);
+      } else {
+        let list: { type?: string; parameters?: { required_status_checks?: { context?: string }[] } }[];
+        try { list = JSON.parse(rules.stdout); } catch (e) {
+          return fail(`reading the rulesets of ${branch} in ${slug(r)}: GitHub's answer was not JSON (${(e as Error).message.slice(0, 80)})`);
+        }
+        for (const rule of Array.isArray(list) ? list : []) {
+          if (rule.type === "required_status_checks") names.push(...(rule.parameters?.required_status_checks ?? []).map((c) => c.context ?? ""));
+        }
+      }
+      return ok([...new Set(names.filter(Boolean))]);
     },
 
-    convertAppManifest(code) {
-      // The answer holds the App's private key: only its fields are read, and the text is never printed.
-      const out = gh(["api", "-X", "POST", `/app-manifests/${code}/conversions`]);
-      if (out.status !== 0) return Promise.resolve(failFrom("GitHub did not hand over the App's credentials", out));
-      const j = parse<{ slug?: string; client_id?: string; pem?: string }>(out.stdout);
-      if (!j?.slug || !j.client_id || !j.pem) return Promise.resolve(fail("GitHub's answer did not hold the App's slug, client id and key"));
-      const app: NewApp = { slug: j.slug, clientId: j.client_id, pem: j.pem };
-      return Promise.resolve(ok(app));
-    },
-
-    orgSecretNames(org) {
-      const out = gh(["secret", "list", "--org", org, "--json", "name"]);
-      if (out.status !== 0) return Promise.resolve(failFrom(`could not list ${org}'s Actions secrets (an org owner with the admin:org scope can)`, out));
-      const j = parse<{ name?: string }[]>(out.stdout);
-      return Promise.resolve(Array.isArray(j) ? ok(j.map((x) => x.name ?? "").filter(Boolean)) : fail("unexpected answer listing secrets"));
-    },
-
-    setOrgSecret(org, name, value) {
-      const out = gh(["secret", "set", name, "--org", org, "--visibility", "all"], value);
-      return Promise.resolve(out.status === 0 ? ok(undefined) : failFrom(`could not set the ${org} org secret ${name} (an org owner with the admin:org scope can)`, out));
+    async identity(): Promise<Result<Identity>> {
+      const j = ghJson<{ login?: string; type?: string }>(gh, ["api", "user"], "reading who gh is signed in as");
+      if (!j.ok) return j;
+      if (!j.value.login) return fail("reading who gh is signed in as: GitHub's answer had no login");
+      return ok({ login: j.value.login, kind: kindOf(j.value.login, j.value.type) });
     },
   };
 }

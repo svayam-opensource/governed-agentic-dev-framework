@@ -15,13 +15,13 @@
  *              the gov repo only. Created with GitHub's App-manifest flow; its client id and private key go into
  *              org Actions secrets, the key on gh's STDIN only — never printed, logged or written to disk.
  *
- * Everything goes through the {@link VcsPort}; nothing here names `gh`.
+ * Everything goes through the {@link VcsEvidencePort}; nothing here names `gh`.
  */
 import type { StartLoopback } from "../cli/app-loopback.js";
 import { CODE_SHAPE } from "../cli/app-loopback.js";
 import { installUrl, newAppUrl } from "../cli/app-verb.js";
 import { SHIPPED_ROOTS } from "../evidence/roots.js";
-import type { BranchRuleset, RepoRef, VcsPort } from "../ports/vcs.js";
+import type { BranchRuleset, RepoRef, VcsEvidencePort } from "../ports/vcs.js";
 
 export const EVIDENCE_BRANCH = "gov/evidence";
 
@@ -45,7 +45,7 @@ export interface EvidenceSetupConfig {
 }
 
 export interface EvidenceSetupDeps {
-  readonly vcs: VcsPort;
+  readonly vcs: VcsEvidencePort;
   readonly loopback: StartLoopback;
   /** An unguessable `state` for the manifest flow. */
   readonly newState: () => string;
