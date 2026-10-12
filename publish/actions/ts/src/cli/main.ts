@@ -7,6 +7,7 @@
  * external tools; no bash/python. This is the integration seam; the pure router
  * (dispatch.ts) is exhaustively unit-tested.
  */
+import { LIFECYCLE_POLICY_PATH } from "../intent/lifecycle-policy.js";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as fsSync from "node:fs";
@@ -2616,6 +2617,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       ...((!!doctorHomeOverride || resolve.ok) ? {
         roleListText: fs.readFile(path.join(home, ROLE_LIST_PATH)),
         codeownersText: fs.readFile(path.join(home, "CODEOWNERS")),
+        lifecycleText: fs.readFile(path.join(home, LIFECYCLE_POLICY_PATH)),
       } : {}),
       ...(protection ? { protection } : {}),
       ...(doctorRules && !("error" in doctorRules) ? { rules: doctorRules } : {}),
