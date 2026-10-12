@@ -14,6 +14,10 @@
  */
 export * from "./result.js";
 import type { CiIdentityPort } from "./ci-identity.js";
+import type { VcsPort } from "./vcs.js";
+export type {
+  VcsPort, RepoRef, RepoInfo, BranchInfo, NewChangeRequest, ChangeRequestRef, ChangeRequest, Review, Identity, AccountKind,
+} from "./vcs.js";
 export type { CiIdentityPort, CiClaims } from "./ci-identity.js";
 
 /**
@@ -37,7 +41,7 @@ export interface PortTypes {
   /** WorkTrackerPort — `./work-tracker.ts` (plan 05 T04 starts it with setStatus; plan 03 L02 completes it). */
   workTracker: unknown;
   /** VcsPort — `./vcs.ts` (plan 03 L03): the code HOST. Local git stays in `lifecycle/vcs.ts`. */
-  vcs: unknown;
+  vcs: VcsPort;
   /** CiIdentityPort — `./ci-identity.ts` (plan 03 L04). */
   ciIdentity: CiIdentityPort;
 }
