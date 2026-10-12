@@ -17,7 +17,7 @@
  * long it took, the exit code, and the last lines of stderr when it failed. Never stdout: it is the answer, it
  * can be large, and it is often the thing that must not be written down (a token, a key, a private file).
  */
-import { execFileSync, spawnSync, type SpawnSyncOptions } from "node:child_process";
+import { execFileSync, spawn, spawnSync, type SpawnSyncOptions } from "node:child_process";
 import { log } from "./log.js";
 import { redactArgv, redactText } from "./state-paths.js";
 
@@ -104,6 +104,53 @@ export function runInteractive(cmd: string, args: readonly string[], opts: RunOp
   const code = r.status ?? (r.error ? 1 : 0);
   logRun(code === 0 ? "info" : "warn", cmd, args, { ...opts, meta: { ...(opts.meta ?? {}), interactive: true } }, Date.now() - started, code, r.error?.message);
   return code;
+}
+
+/** What {@link runCapture} hands back. `code` is null when the process was killed or could not start. */
+export interface CapturedRun {
+  readonly code: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly timedOut?: true;
+}
+
+/**
+ * Run a program with NO terminal and capture what it says — the headless agent's shape (PRJ-121 intent 03, L16).
+ *
+ * Asynchronous, unlike {@link run}: a headless agent works for minutes, and a run budget has to be able to stop it.
+ * stdin is closed, so an agent that asks a question reads EOF instead of hanging a run nobody is watching. Past
+ * `timeoutMs` the whole PROCESS GROUP is killed: a shell or tool the agent started holds the pipes open, and killing
+ * the agent alone left the run waiting for that child to finish on its own. Never throws; logged like every run.
+ */
+export function runCapture(cmd: string, args: readonly string[], opts: RunOptions = {}): Promise<CapturedRun> {
+  const started = Date.now();
+  return new Promise((resolve) => {
+    let stdout = "", stderr = "", timedOut = false;
+    const group = process.platform !== "win32";
+    const child = spawn(cmd, [...args], {
+      stdio: ["ignore", "pipe", "pipe"], detached: group,
+      ...(opts.cwd ? { cwd: opts.cwd } : {}), ...(opts.env ? { env: opts.env } : {}),
+    });
+    child.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf8"); });
+    child.stderr.on("data", (d: Buffer) => { stderr += d.toString("utf8"); });
+    const timer = opts.timeoutMs ? setTimeout(() => {
+      timedOut = true;
+      try {
+        if (group && child.pid) process.kill(-child.pid, "SIGKILL"); else child.kill("SIGKILL");
+      } catch {
+        // The group is already gone (it exited as the timer fired); kill the child itself, which is a no-op if so.
+        child.kill("SIGKILL");
+      }
+    }, opts.timeoutMs) : null;
+    const done = (r: CapturedRun, why?: string): void => {
+      if (timer) clearTimeout(timer);
+      logRun(r.code === 0 ? "info" : "warn", cmd, args, { ...opts, meta: { ...(opts.meta ?? {}), headless: true, ...(r.timedOut ? { timedOut: true } : {}) } },
+        Date.now() - started, r.code ?? 1, why ?? (r.code === 0 ? undefined : tail(r.stderr)));
+      resolve(r);
+    };
+    child.on("error", (e) => done({ code: null, stdout, stderr: `${stderr}${e.message}\n` }, e.message));
+    child.on("close", (code) => done({ code: timedOut ? null : code, stdout, stderr, ...(timedOut ? { timedOut: true as const } : {}) }));
+  });
 }
 
 function logRun(

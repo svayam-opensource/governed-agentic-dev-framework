@@ -41,6 +41,22 @@ Full matrix and Claude/Cursor/Gemini step-by-step: [`docs/design/agent-context-a
 
 Per-project copies under `projects/<PID>/` are composed at seed time (protocol + `projects/<PID>/agent.md`) so opening the project folder as workspace still works.
 
+### Which agents can run headless
+
+Running an agent *headless* means gov starts it with nobody at the terminal: the agent gets its instructions, works, prints what it did and exits. The lifecycle engine (`gov autorun`, coming in a later release) works this way. gov runs an agent headless only after someone has checked that agent's own command line does exactly that, and gov's agent catalog records when it was checked. Any other agent is refused, and gov tells you why. It does not start the agent and hope nobody needs to answer a question.
+
+| Agent | Headless? | How gov runs it | Checked |
+|---|---|---|---|
+| **Claude Code** | Yes | `claude -p "<prompt>" --output-format text` | 2026-10-12, claude 2.1.272 |
+| **Cursor** (`cursor-agent`) | Not yet | `-p`/`--print` exists, but no successful run has been seen yet | 2026-10-12 (no answer seen yet) |
+| All others | No | Use them interactively with `gov work` | — |
+
+What this means for you:
+
+- **The same session-start protocol.** A headless run starts with exactly the prompt `gov work` gives an interactive agent, so the session-start protocol runs first, then the task.
+- **gov reads the exit code.** If the agent exits non-zero and its output names a C01 rule (a `GOV-…` id whose rule is C01), autorun stops completely. Any other non-zero exit fails only that item. An agent that names a C01 rule but exits zero has done nothing wrong: a context manifest lists the rules it read.
+- **Permissions stay yours.** gov never adds flags like `--dangerously-skip-permissions`, `--force` or `--yolo`. What a headless agent may do comes from that agent's own settings in the project (for Claude Code, `.claude/settings.json`), which your organization controls.
+
 ### What harness does *not* load
 
 Harness delivery covers **protocol only**. The agent must read these each session:

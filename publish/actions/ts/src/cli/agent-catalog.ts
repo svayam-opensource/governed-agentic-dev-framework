@@ -113,6 +113,24 @@ export interface AgentCandidate {
    * no id could be read, which opens the agent's own list of tasks rather than guessing.
    */
   readonly resume?: { readonly argv: readonly string[]; readonly pickerArgv: readonly string[]; readonly taskIdPattern: RegExp };
+  /**
+   * HOW TO RUN IT WITH NOBODY AT THE TERMINAL, with `{prompt}` substituted (PRJ-121 intent 03, L16; 03-Q16).
+   *
+   * `gov autorun` runs an agent headless: it takes the prompt, works, prints, and EXITS with a code gov reads. The
+   * opposite of `promptArgv`, which must keep the session open — for several vendors the same `-p` is the trap
+   * there and the answer here.
+   *
+   * ABSENT MEANS GOV WILL NOT RUN IT HEADLESS, and says why (03-Q16 (b)). An agent launched "interactively, and
+   * hope" with no TTY hangs a run on a question nobody will answer. Set only after running the vendor's CLI with
+   * exactly this argv and seeing it answer and exit; `headlessVerified` records that run.
+   *
+   * PERMISSIONS ARE NOT GRANTED HERE. No `--dangerously-skip-permissions`, `--force` or `--yolo`: what a headless
+   * agent may do is the agent's own settings in the project (e.g. `.claude/settings.json`), which the organization
+   * controls — gov does not widen it by a flag nobody reviewed.
+   */
+  readonly headlessArgv?: readonly string[];
+  /** `YYYY-MM-DD <cli> <version>: what was run and seen` — required wherever `headlessArgv` is set (a test holds it). */
+  readonly headlessVerified?: string;
   /** Where to go to create an account, when there is no automating it. */
   readonly signupUrl?: string;
   /** Every way to run it. The policy approves the agent; this is what that buys. */
@@ -161,6 +179,11 @@ export interface AccountFailurePattern {
 export const AGENT_CATALOG: readonly AgentCandidate[] = [
   // promptArgv verified in use: both take the first message as a bare positional.
   { id: "claude-code", tool: "Claude Code", launch: "cli", cmd: "claude", promptArgv: ["{prompt}"],
+    // claude 2.1.272 --help: `-p, --print  Print response and exit`; `--output-format  (only works with --print):
+    // "text" (default), "json", "stream-json"`. Plain text, so a C01 id the agent prints is read as written.
+    headlessArgv: ["-p", "{prompt}", "--output-format", "text"],
+    headlessVerified: "2026-10-12 claude 2.1.272 (macOS): `claude -p \"Reply with exactly: ok\" --output-format text` "
+      + "with stdin closed printed `ok` and exited 0, no TTY, no prompt",
     install: { npm: "@anthropic-ai/claude-code", url: "https://claude.com/claude-code" },
     credentialEnv: "ANTHROPIC_API_KEY", signupUrl: "https://claude.com/claude-code", vendor: "Anthropic",
     accountFailures: [
@@ -174,6 +197,12 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
       { kind: "extension", label: "in VS Code", extensionId: "anthropic.claude-code", hosts: ["code", "cursor", "windsurf"] },
     ] },
   { id: "cursor", tool: "Cursor", launch: "cli", cmd: "cursor-agent", promptArgv: ["{prompt}"],
+    // NO headlessArgv YET — NOT SEEN TO ANSWER (2026-10-12, L16). cursor-agent 2026.07.16-899851b --help lists
+    // `-p, --print  Print responses to console (for scripts or non-interactive use)`, `--output-format text|json|
+    // stream-json (only works with --print)` and `--trust  Trust the current workspace without prompting (only works
+    // with --print/headless mode)`. The candidate is ["-p", "{prompt}", "--output-format", "text", "--trust"]. Run
+    // once with it, it exited 1 without prompting — "Authentication required. Please run 'agent login' first" — so
+    // it is non-interactive, but no answer was seen. Set it after one signed-in run prints an answer and exits 0.
     install: { script: "curl https://cursor.com/install -fsS | bash", url: "https://cursor.com/cli" },
     signupUrl: "https://cursor.com", vendor: "Cursor",
     variants: [

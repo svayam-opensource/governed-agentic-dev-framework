@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
+#
+# A HEADLESS AGENT FOR HERMETIC AUTORUN TESTS (PRJ-121 intent 03, L16 → L17).
+#
+# Called the way gov runs a verified headless agent — `<cmd> -p <prompt> [--output-format text] [...]` — with no
+# terminal. It does what the environment scripts, in this order, then exits:
+#
+#   FAKE_AGENT_LOG=<file>          append how it was called (cmd, cwd, argc, each arg) — the agent-double's format
+#   FAKE_AGENT_PROMPT_FILE=<file>  write the prompt it was given (exactly, no trailing newline)
+#   FAKE_AGENT_SLEEP=<seconds>     sleep first — for the per-item time budget
+#   FAKE_AGENT_WRITE='a/b.md:text|c.md:more'  write files relative to the working directory (dirs made)
+#   FAKE_AGENT_RUN='<shell>'       eval in the working directory, e.g. `git add -A && git commit -qm draft`;
+#                                  `$FAKE_AGENT_PROMPT` holds the prompt, so a step can branch on the task brief
+#   FAKE_AGENT_PRINT='<text>'      print to stdout
+#   FAKE_AGENT_C01='GOV-FRM-124'   print a C01 refusal naming that id to stderr
+#   FAKE_AGENT_EXIT=<n>            exit code (default 0; a failed FAKE_AGENT_RUN exits with its code)
+#
+# No network, no account, no model: a fact about gov's handling of the exit, never about a vendor.
+set -uo pipefail
+me="$(basename "$0")"
+[ "${1:-}" = "--version" ] && { echo "$me 9.9.9 (gov e2e headless double)"; exit 0; }
+
+prompt=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -p|--print) shift; prompt="${1:-}";;
+    --output-format|--mode|--model) shift;;
+    *) ;;
+  esac
+  [ "$#" -gt 0 ] && shift
+done
+
+if [ -n "${FAKE_AGENT_LOG:-}" ]; then
+  {
+    printf 'cmd=%s\n' "$me"
+    printf 'cwd=%s\n' "$PWD"
+    printf 'prompt_chars=%s\n' "${#prompt}"
+    printf '%s\n' '--'
+  } >> "$FAKE_AGENT_LOG"
+fi
+[ -n "${FAKE_AGENT_PROMPT_FILE:-}" ] && printf '%s' "$prompt" > "$FAKE_AGENT_PROMPT_FILE"
+[ -n "${FAKE_AGENT_SLEEP:-}" ] && sleep "$FAKE_AGENT_SLEEP"
+
+if [ -n "${FAKE_AGENT_WRITE:-}" ]; then
+  IFS='|' read -r -a specs <<< "$FAKE_AGENT_WRITE"
+  for spec in "${specs[@]}"; do
+    f="${spec%%:*}"; body="${spec#*:}"
+    mkdir -p "$(dirname "$f")"
+    printf '%s' "$body" > "$f"
+  done
+fi
+
+code="${FAKE_AGENT_EXIT:-0}"
+if [ -n "${FAKE_AGENT_RUN:-}" ]; then
+  export FAKE_AGENT_PROMPT="$prompt"
+  eval "$FAKE_AGENT_RUN"; rc=$?
+  [ "$rc" -ne 0 ] && [ -z "${FAKE_AGENT_EXIT:-}" ] && code="$rc"
+fi
+[ -n "${FAKE_AGENT_PRINT:-}" ] && printf '%s\n' "$FAKE_AGENT_PRINT"
+[ -n "${FAKE_AGENT_C01:-}" ] && printf 'Refusing: %s — a C01 rule forbids this step; nothing was committed.\n' "$FAKE_AGENT_C01" >&2
+exit "$code"
