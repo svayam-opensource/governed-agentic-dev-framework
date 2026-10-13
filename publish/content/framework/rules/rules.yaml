@@ -124,7 +124,7 @@
   end: null
 
 - id: GOV-FRM-082
-  source: { doc: framework/framework-specification.md, section: "8.1", sha: "c01086a" }
+  source: { doc: framework/framework-specification.md, section: "8.1", sha: "9acfb28" }
   expectation: "Setup creates no domain folder under knowledge/."
   actor: [gov-client]
   level: C01
