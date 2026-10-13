@@ -7,7 +7,8 @@
  *
  *   its RULES      every in-force row cites its section at the section's current sha; the store validates; the
  *                  store only grew (a row is closed, never edited or deleted; a retired id is never reused) —
- *                  save the one in-place edit Q17 allows: an open row's `source.sha` refreshed, nothing else;
+ *                  save the in-place edits allowed: an open row's `source.sha` refreshed, nothing else (Q17), and
+ *                  an open row relocated by a declared move or a specification split (T8, relocation.ts);
  *   its VERSION    `policies/VERSION` bumped exactly as the change needs — minor when rows were added, revised or
  *                  retired, or who-owns-what changed (`policies/ownership.yaml`: a row added, removed or re-pointed),
  *                  or a governance choice changed (`policies/governance.yaml` — GOVERNANCE_CHANGE_BUMP);
@@ -37,6 +38,7 @@ import { parseReviewedLines, reviewKey } from "./reviewed.js";
 import { treeAsGit, type TreeReader } from "./tree.js";
 import { OWNERSHIP_PATH, ownershipDiffers, parseOwnership } from "../checks/ownership.js";
 import { GOVERNANCE_PATH, describeGovernanceChanges } from "../../config/governance.js";
+import { declaredRelocations, isRelocation, readDocFrom } from "./relocation.js";
 
 /**
  * THE BUMP A CHANGE TO policies/governance.yaml NEEDS — read by planPolicyPr (and so by the gate and propose's
@@ -73,6 +75,8 @@ export interface RuleChanges {
   readonly retired: readonly string[];
   /** Rows kept with their section's new sha, refreshed in place (Q17) — prose changed, the rule did not. */
   readonly refreshed: readonly string[];
+  /** Rows re-sourced in place because the file they cite moved, the text unchanged (T8, relocation.ts) — a patch. */
+  readonly relocated: readonly string[];
   /** Any row added, edited or removed, a sha refresh aside — the bump is then at least minor. */
   readonly rowsChanged: boolean;
 }
@@ -232,13 +236,24 @@ function pairRows(base: readonly RuleRow[], head: readonly RuleRow[]): { pairs: 
   return { pairs, fresh };
 }
 
+/** Is `now` the base row `was` moved in place (T8)? No predicate: nothing is a relocation. */
+export type IsMoved = (was: RuleRow, now: RuleRow) => boolean;
+const NEVER_MOVED: IsMoved = () => false;
+
+/** The T8 predicate over a pull request's two trees: the head's declared moves, the documents from each side. */
+export function relocationsBetween(base: TreeReader, head: TreeReader): IsMoved {
+  const moves = declaredRelocations(head), read = readDocFrom(base, head);
+  return (was, now) => isRelocation(was, now, moves, read);
+}
+
 /** Added, revised and retired ids, from the base and head org stores. */
-export function ruleChanges(base: readonly RuleRow[], head: readonly RuleRow[]): RuleChanges {
+export function ruleChanges(base: readonly RuleRow[], head: readonly RuleRow[], moved: IsMoved = NEVER_MOVED): RuleChanges {
   const { pairs, fresh } = pairRows(base, head);
   const baseIds = new Set(base.map((r) => r.id));
   const added = [...new Set(fresh.map((h) => head[h]!.id).filter((id) => !baseIds.has(id)))];
   const revised: string[] = [], retired: string[] = [];
   const refreshed = [...pairs].filter(([h, b]) => isShaRefresh(base[b]!, head[h]!)).map(([h]) => head[h]!.id);
+  const relocated = [...pairs].filter(([h, b]) => moved(base[b]!, head[h]!)).map(([h]) => head[h]!.id);
   const headOpen = new Set(inForce(head).map((r) => r.id));
   for (const [h, b] of pairs) {
     if (base[b]!.end === null && head[h]!.end !== null) {
@@ -247,8 +262,8 @@ export function ruleChanges(base: readonly RuleRow[], head: readonly RuleRow[]):
     }
   }
   const rowsChanged = fresh.length > 0 || pairs.size !== base.length
-    || [...pairs].some(([h, b]) => canon(head[h]) !== canon(base[b]) && !isShaRefresh(base[b]!, head[h]!));
-  return { added, revised: [...new Set(revised)], retired: [...new Set(retired)], refreshed, rowsChanged };
+    || [...pairs].some(([h, b]) => canon(head[h]) !== canon(base[b]) && !isShaRefresh(base[b]!, head[h]!) && !moved(base[b]!, head[h]!));
+  return { added, revised: [...new Set(revised)], retired: [...new Set(retired)], refreshed, relocated, rowsChanged };
 }
 
 function readRows(tree: TreeReader): RuleRow[] | string {
@@ -276,7 +291,7 @@ export function planPolicyPr(base: TreeReader, head: TreeReader): PolicyPrPlan |
   const baseRows = readRows(base), headRows = readRows(head);
   if (typeof baseRows === "string") return { unreadable: `base: ${baseRows}` };
   if (typeof headRows === "string") return { unreadable: `head: ${headRows}` };
-  const changes = ruleChanges(baseRows, headRows);
+  const changes = ruleChanges(baseRows, headRows, relocationsBetween(base, head));
   const baseOwn = parseOwnership(b.get(OWNERSHIP_PATH) ?? "[]"), headOwn = parseOwnership(h.get(OWNERSHIP_PATH) ?? "[]");
   if ("error" in baseOwn) return { unreadable: `base: ${OWNERSHIP_PATH} ${baseOwn.error}` };
   if ("error" in headOwn) return { unreadable: `head: ${OWNERSHIP_PATH} ${headOwn.error}` };
@@ -319,7 +334,7 @@ export function judgePolicyPr(input: PolicyPrInput): PolicyPrJudgement {
     return {
       verdict: "cannot-tell", findings: [{ check: "unreadable", message: `${plan.unreadable}, so nothing was checked.` }],
       touched: false, required: "none", baseVersion: NO_ORG_VERSION, headVersion: NO_ORG_VERSION,
-      changes: { added: [], revised: [], retired: [], refreshed: [], rowsChanged: false }, ownershipChanged: false, governance: [],
+      changes: { added: [], revised: [], retired: [], refreshed: [], relocated: [], rowsChanged: false }, ownershipChanged: false, governance: [],
     };
   }
   // (a) Nothing under policies/ changed: nothing to carry, nothing to bump.
@@ -334,7 +349,7 @@ export function judgePolicyPr(input: PolicyPrInput): PolicyPrJudgement {
     checkShas(head, headRows, f);
     const cannot = checkStores(head, f);
     if (cannot) return { ...plan, verdict: "cannot-tell", findings: [{ check: "unreadable", message: cannot }, ...findings] };
-    checkAppendOnly(baseRows, headRows, headVersion, f);
+    checkAppendOnly(baseRows, headRows, headVersion, f, relocationsBetween(base, head));
   }
   checkVersion(baseVersion, headVersion, required, f, plan);
   if (required !== "none") {
@@ -382,10 +397,11 @@ function checkStores(head: TreeReader, f: Emit): string | null {
 }
 
 /**
- * (d) The org store only grew: no base row removed or edited — save an open row's sha refreshed ({@link isShaRefresh});
- * a row closes only at the new version; no id reused.
+ * (d) The org store only grew: no base row removed or edited — save an open row's sha refreshed ({@link isShaRefresh})
+ * or an open row relocated by a declared move (T8, {@link isRelocation}); a row closes only at the new version; no id
+ * reused.
  */
-function checkAppendOnly(base: readonly RuleRow[], head: readonly RuleRow[], version: string, f: Emit): void {
+function checkAppendOnly(base: readonly RuleRow[], head: readonly RuleRow[], version: string, f: Emit, moved: IsMoved = NEVER_MOVED): void {
   const { pairs, fresh } = pairRows(base, head);
   const paired = new Set(pairs.values());
   base.forEach((r, i) => {
@@ -395,7 +411,7 @@ function checkAppendOnly(base: readonly RuleRow[], head: readonly RuleRow[], ver
     const was = base[b]!, now = head[h]!;
     if (canon(was) === canon(now)) continue;
     if (was.end !== null) { f("append-only", `${was.id} (from ${was.start.version}) is already closed and was edited — history is never rewritten`); continue; }
-    if (isShaRefresh(was, now)) continue;
+    if (isShaRefresh(was, now) || moved(was, now)) continue;
     if (withoutEnd(was) !== withoutEnd(now)) { f("append-only", `${was.id} was edited in place — revise it instead: close it and open a successor`); continue; }
     if (now.end && now.end.version !== version) f("append-only", `${was.id} is closed at ${now.end.version}; it must close at the new version ${version}`);
   }

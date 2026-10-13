@@ -15,7 +15,7 @@
  */
 import yaml from "js-yaml";
 import { parseRuleStore, compareVersions, type RuleRow, type Stamp } from "../model/rule-row.js";
-import { POLICY_PR_PATHS, changelogEntry, changelogVersions, isShaRefresh, nextVersion, readVersion, snapshotFiles, type BumpKind } from "./gate.js";
+import { POLICY_PR_PATHS, changelogEntry, changelogVersions, isShaRefresh, nextVersion, readVersion, relocationsBetween, snapshotFiles, type BumpKind } from "./gate.js";
 import { LEGACY_POLICY_HISTORY_DIR } from "../checks/policy-actions.js";
 import type { TreeReader, TreeWriter } from "./tree.js";
 import { REVIEWED_HEADING, renderReviewLine, type SectionReview } from "./reviewed.js";
@@ -247,8 +247,8 @@ export function policyPrWriter(trees: { readonly base: TreeReader; readonly head
 
     /**
      * Stamp the rows THIS change opened (start) and closed (end) with `version · date · pr`. A head row is a base
-     * row when it equals one in everything but `end`, or is an open one with only its sha refreshed (Q17 — the same
-     * row, so its start stays); any other row is new. Rows already so stamped are left alone, and when nothing
+     * row when it equals one in everything but `end`, or is an open one with only its sha refreshed (Q17), or is an
+     * open one relocated by a declared move (T8) — the same row, so its start stays; any other row is new. Rows already so stamped are left alone, and when nothing
      * differs nothing is written.
      */
     stampRows(version: string, date: string, pr: number): WriteResult {
@@ -258,6 +258,7 @@ export function policyPrWriter(trees: { readonly base: TreeReader; readonly head
       const baseRows = baseText === null ? [] : parseRuleStore(baseText);
       const rows = parseRuleStore(text);
       const stamp: Stamp = { version, date, pr };
+      const moved = relocationsBetween(base, head);
       const free = baseRows.map((r, i) => ({ key: withoutEnd(r), i }));
       const out = rows.map((r) => {
         const k = free.findIndex((f) => f.key === withoutEnd(r));
@@ -266,7 +267,7 @@ export function policyPrWriter(trees: { readonly base: TreeReader; readonly head
           free.splice(k, 1);
           return b.end === null && r.end !== null ? { ...r, end: stamp } : r;
         }
-        const refreshed = free.findIndex((f) => isShaRefresh(baseRows[f.i]!, r));
+        const refreshed = free.findIndex((f) => isShaRefresh(baseRows[f.i]!, r) || moved(baseRows[f.i]!, r));
         if (refreshed >= 0) { free.splice(refreshed, 1); return r; }
         return { ...r, start: stamp };
       });

@@ -132,6 +132,21 @@ put back at its old place stays where you put it.
 - Each entry names the move and the gov version that made it: `{ "move": "<from> → <to>", "version": "<gov version>" }`.
 - The framework never ships this file and never removes it. Do not edit it by hand.
 
+### When a moved file is one your rules cite
+
+Your rules (`policies/rules.yaml`) are append-only: a rule is closed and replaced, never edited. A file move is the
+one exception besides a refreshed section sha. When a rule cites a file that moved, the policy pull request check
+accepts the rule changed in place, as long as:
+
+- only the rule's source (document, section number and sha) and any file path in its checks' `with:` settings
+  changed;
+- the old and new paths are a move recorded in `framework/upgrade-moves.json`, or a split of a framework
+  specification that gov itself names;
+- the cited section reads the same in the old and the new file. Only its heading line may differ, so a renumbered
+  section still counts as the same text.
+
+Such a change needs only a patch version. The rule keeps its start, and its history does not change.
+
 ---
 
 ## Infrastructure Owner Responsibilities
