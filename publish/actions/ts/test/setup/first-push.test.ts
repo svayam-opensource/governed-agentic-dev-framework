@@ -79,8 +79,11 @@ describe("gov setup — first push of the default branch (gadf#180)", () => {
     if (r.kind !== "remote-moved") return;
     expect(r.message).to.include("the remote moved");
     expect(r.message).to.include("git pull --rebase");
-    expect(r.message).to.include("gov setup");
+    expect(r.message).to.include("`gov` again");
     expect(REMOTE_MOVED_HINT).to.include("git pull --rebase");
+    // One entry point for people (I01.5): the hint names `gov`, never `gov setup`.
+    expect(REMOTE_MOVED_HINT).to.include("`gov` again");
+    expect(REMOTE_MOVED_HINT).to.not.include("gov setup");
     expect(g(f.remote, "rev-parse", "main"), "nothing overwritten").to.equal(theirs);
   });
 

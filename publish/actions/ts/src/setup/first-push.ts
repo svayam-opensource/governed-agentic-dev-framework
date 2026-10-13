@@ -12,7 +12,7 @@
  */
 import type { RunGit } from "../lifecycle/vcs.js";
 
-export const REMOTE_MOVED_HINT = "the remote moved — run `git pull --rebase`, then `gov setup` again";
+export const REMOTE_MOVED_HINT = "the remote moved — run `git pull --rebase`, then run `gov` again to continue";
 
 export type FirstPushResult =
   | { readonly kind: "pushed" }
