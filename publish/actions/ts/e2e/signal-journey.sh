@@ -69,7 +69,10 @@ xo() { local d="$1"; shift; if [ "$DRY" = 1 ]; then printf '  + %s\n' "$*" >&3; 
 # As bot B: its HOME (registry, git credentials) and its token — for this one command only.
 asB() { HOME="$E2E_JOINER_HOME" GH_TOKEN="$B_TOKEN" "$@"; }
 # A person confirming: the command in a pseudo-terminal, "y" typed at the prompt; carriage returns stripped.
-person() { printf 'y\n' | script -qec "$(printf '%q ' "$@")" /dev/null | tr -d '\r'; return "${PIPESTATUS[1]}"; }
+# With a terminal, gov's context gate would ask "Proceed?" before the signal's own question; GOV_YES acknowledges that
+# banner only (context-gate.ts) — the signal's confirmation (Q6) is still asked and answered. Never longer than 3 min:
+# a question nobody answers would otherwise hang the job until its timeout (run 38482423935).
+person() { printf 'y\n' | GOV_YES=1 timeout 180 script -qec "$(printf '%q ' "$@")" /dev/null | tr -d '\r'; return "${PIPESTATUS[1]}"; }
 has() { case "$1" in *"$2"*) ok "$3" ;; *) printf '%s\n' "$1" | tail -12 | sed 's/^/    /'; die "$3 — expected: $2" ;; esac; }
 hasnt() { case "$1" in *"$2"*) printf '%s\n' "$1" | tail -12 | sed 's/^/    /'; die "$3 — did not expect: $2" ;; *) ok "$3" ;; esac; }
 url_in() { printf '%s\n' "$1" | grep -oE 'https://github\.com/[^ )]+/issues/[0-9]+' | head -1; }
