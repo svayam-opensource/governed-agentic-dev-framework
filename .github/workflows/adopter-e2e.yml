@@ -405,7 +405,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
           E2E_JOINER_TOKEN: ${{ secrets.TESTBED_JOINER_PAT }}
-          E2E_JOINER_LOGIN: ${{ secrets.TESTBED_JOINER_LOGIN }}
+          E2E_JOINER_LOGIN: ${{ steps.identity.outputs.login || secrets.TESTBED_JOINER_LOGIN }}
           E2E_HANDOFF: ${{ runner.temp }}/live.env
           E2E_JOINER_HOME: ${{ runner.temp }}/joiner-home
           GOV_TARBALL: ${{ steps.pack.outputs.tgz }}
