@@ -30,6 +30,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov log](#gov-log) — what gov did — one log per run, on this machine
 - [gov agent](#gov-agent) — which AI agents your org approves, what is installed, and how to add one
 - [gov repo](#gov-repo) — install the repository controls framework-specification.md §7.3 requires — or say why the platform will not
+- [gov pack](#gov-pack) — compliance packs (SOC 2 CC8, RBI change management) — list them, or propose adopting one
 - [gov check](#gov-check) — run one rule's checks for the event that fired, install the workflow that runs them, or say whether it is current
 - [gov app](#gov-app) — create the org's GitHub App that lets code repos' checks read the governance rules, check it, and rotate its key
 - [gov evidence](#gov-evidence) — verify the org's signed evidence ledger (free, offline — for auditors too), or turn the ledger on for the org
@@ -433,6 +434,41 @@ gov repo protect plan --repo acme/billing
 | `2` | usage |
 
 **See also.** [gov doctor](#gov-doctor) · [gov rules](#gov-rules) · [gov upgrade](#gov-upgrade)
+
+### gov pack
+
+compliance packs (SOC 2 CC8, RBI change management) — list them, or propose adopting one
+
+```text
+gov pack [list | add <id>]
+```
+
+**Where.** GOVERNED — needs the paid module, gov-check (a subscription); without it each says so in one line
+
+**Arguments**
+
+| argument | what it is |
+| --- | --- |
+| `<id>` | a pack id from `gov pack list`, e.g. soc2-cc8, rbi-cm |
+
+**Examples**
+
+```bash
+gov pack list
+gov pack add soc2-cc8
+```
+
+**Changes.** `list` changes nothing. `add` opens a POLICY pull request against the governance repo's default branch: a new branch, made in a temporary worktree, adding the pack's policy text at `policies/common/packs/<id>.md` and its control map at `policies/packs/<id>.yaml`. It never writes `policies/` in place, never touches your own checkout, and never pushes the default branch — the pack is adopted only when the Policy Owner merges the pull request
+
+**Exit codes**
+
+| code | means |
+| --- | --- |
+| `0` | list: shown (or no module — one line). add: the pull request is open |
+| `1` | add: no module here, no such pack, or a git/gh step failed (the commands to finish by hand are printed) |
+| `2` | usage |
+
+**See also.** [gov check](#gov-check)
 
 ### gov check
 

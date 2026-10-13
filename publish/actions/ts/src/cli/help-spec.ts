@@ -275,6 +275,21 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     seeAlso: ["doctor", "rules", "upgrade"],
   },
   {
+    name: "pack", audience: "you",
+    summary: "compliance packs (SOC 2 CC8, RBI change management) — list them, or propose adopting one",
+    usage: "[list | add <id>]",
+    where: "GOVERNED — needs the paid module, gov-check (a subscription); without it each says so in one line",
+    args: [{ name: "<id>", what: "a pack id from `gov pack list`, e.g. soc2-cc8, rbi-cm" }],
+    examples: ["gov pack list", "gov pack add soc2-cc8"],
+    changes: "`list` changes nothing. `add` opens a POLICY pull request against the governance repo's default branch: a new branch, made in a temporary worktree, adding the pack's policy text at `policies/common/packs/<id>.md` and its control map at `policies/packs/<id>.yaml`. It never writes `policies/` in place, never touches your own checkout, and never pushes the default branch — the pack is adopted only when the Policy Owner merges the pull request",
+    exit: [
+      { code: 0, means: "list: shown (or no module — one line). add: the pull request is open" },
+      { code: 1, means: "add: no module here, no such pack, or a git/gh step failed (the commands to finish by hand are printed)" },
+      { code: 2, means: "usage" },
+    ],
+    seeAlso: ["check"],
+  },
+  {
     name: "check", audience: "you",
     summary: "run one rule's checks for the event that fired, install the workflow that runs them, or say whether it is current",
     usage: "<run <GOV-ID> --resource <r> --event <e> | install [--repo <path> | --all [--project <id>] [--prune]] [--gov-package <spec>] | status [--project <id>] [--gov-package <spec>]>",

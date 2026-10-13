@@ -36,6 +36,14 @@ For the Check Owner, and for anyone who writes a check your organization's own r
 - [Evidence and auditor reports](evidence-and-auditor-reports.md) — verifying the signed evidence record, which
   is free and works offline (for auditors, and after a subscription ends)
 
+## Compliance packs (with a subscription)
+
+Adopted with `gov pack add <id>`, which opens a policy pull request; never written in place.
+
+- `policies/common/packs/<id>.md` — the pack's policy text, once your organization adopts it
+- `policies/packs/<id>.yaml` — which of your rules evidence each of the pack's controls
+- [Evidence, and the seam to a paid module](../../framework-specification.md#124-evidence-and-the-seam-to-a-paid-module)
+
 ## Infrastructure
 
 - [CI/CD spec](../reference/org_gov_repo_operations.md)

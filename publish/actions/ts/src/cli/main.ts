@@ -51,6 +51,7 @@ import { appCheck, appCommand, ghRunner, readGithubApp } from "./app-verb.js";
 import { startLoopback } from "./app-loopback.js";
 import { randomBytes } from "node:crypto";
 import { checkCommandAsync } from "./check-verb.js";
+import { packCommand } from "./pack-verb.js";
 import { ensureCheckModule, evidenceDoctorRow, evidenceWanted, noticeOnce, setEvidenceContext } from "../check-seam/evidence.js";
 import { discoverModule } from "../check-seam/loader.js";
 import { boardLinkedRepos, checkStatusReport, checksDiagnostic, type LinkedRepos, type ScopeDeps } from "./check-scope.js";
@@ -2208,6 +2209,34 @@ function setEvidenceFor(home: string, githubOrg: string): void {
       return Number.isSafeInteger(n) && n > 0 ? n : null;
     },
   });
+}
+
+/**
+ * `gov pack list | add <id>` (spec 02 §3.5) — asynchronous (it starts the paid module), so routed here like `check`.
+ * `add` proposes the pack in a policy pull request from a temporary worktree; it never writes the default branch.
+ */
+export async function runPack(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const at = resolveHomeConfig(parsed.flags);
+  if (typeof at === "number") return at;
+  const { home, config } = at;
+  const r = await packCommand(parsed.positionals, {
+    home,
+    defaultBranch: config.defaultBranch,
+    today: new Date().toISOString().slice(0, 10),
+    tmpDir: () => path.join(fsSync.mkdtempSync(path.join(os.tmpdir(), "gov-pack-")), "wt"),
+    git: (cwd, args) => tryRun("git", ["-C", cwd, ...args]) ?? null,
+    gh: (cwd, args) => tryRunProcess("gh", args, { pgm: "gov-work:cli:pack", fn: "gh", cwd }) ?? null,
+    writeFile: (abs, text) => createNodeFs().writeFile(abs, text),
+    removeDir: (abs) => fsSync.rmSync(path.dirname(abs), { recursive: true, force: true }),
+    packs: async () => {
+      const m = await ensureCheckModule({ surface: "local", govHome: home, env: process.env, govVersion: readCliVersion() });
+      return m.state === "active" ? m.module.packs : null;
+    },
+  });
+  for (const line of r.lines) process.stdout.write(`${line}\n`);
+  return r.code;
 }
 
 export async function runCheck(argv: readonly string[]): Promise<number> {
