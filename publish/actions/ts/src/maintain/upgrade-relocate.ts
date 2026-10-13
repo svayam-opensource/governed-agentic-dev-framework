@@ -133,7 +133,7 @@ export function relocateRows(base: TreeReader, head: TreeWriter, moves: readonly
 
 /** `git -C <repo> <args>` → stdout, or null. Never throws. */
 const gitRead: GitRead = (repo, args) => {
-  try { return runProcess("git", ["-C", repo, ...args], { pgm: "gov-work:maintain:upgrade-relocate", fn: "git-read" }); } catch { return null; }
+  try { return runProcess("git", ["-C", repo, ...args], { pgm: "gov-work:maintain:upgrade-relocate", fn: "git-read" }); } catch { return null; /* the GitRead contract: null means git could not answer, and the caller reads it as "not there" */ }
 };
 
 /** The moves a run applied, as relocations: `plan` move actions that were written. */
