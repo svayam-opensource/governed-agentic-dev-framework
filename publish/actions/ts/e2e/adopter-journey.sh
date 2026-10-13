@@ -143,6 +143,7 @@ joiner_prep() {
     && ok "joiner's issue: $JOINER_ISSUE_URL" || die "joiner issue create failed"
   local add; add="$(gh project item-add "$PROJ_NUM" --owner "$E2E_ORG" --url "$JOINER_ISSUE_URL" --format json 2>&1)" \
     && ok "joiner's issue linked to board #$PROJ_NUM" || die "gh project item-add (joiner issue) failed: ${add%%$'\n'*}"
+  # shellcheck disable=SC2034  # read through ${!k} by handoff()
   ADOPTER_LOGIN="$me"
   handoff JOINER_ISSUE_URL ADOPTER_LOGIN JOINER_LOGIN
 }

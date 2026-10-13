@@ -36,7 +36,7 @@ for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; *) echo "usage: $0 [--dry-run
 if [ "$DRY" = 1 ]; then
   # A synthetic handoff: the names a real one carries, so the walk reads the same.
   E2E_ORG="${E2E_ORG:-svayam-e2e}"; WS_REPO="gov-e2e-dry-gov"; CODE_REPO="gov-e2e-dry-svc"; PROJ_NUM=0
-  PROJ_URL="https://github.com/orgs/$E2E_ORG/projects/0"; PID="PRJ-0-gov-e2e-dry"
+  PID="PRJ-0-gov-e2e-dry"
   JOINER_ISSUE_URL="https://github.com/$E2E_ORG/$CODE_REPO/issues/2"; ADOPTER_LOGIN="adopter-bot"
   E2E_JOINER_LOGIN="${E2E_JOINER_LOGIN:-joiner-bot}"; GOV_TARBALL="${GOV_TARBALL:-/dry/gov.tgz}"
 else

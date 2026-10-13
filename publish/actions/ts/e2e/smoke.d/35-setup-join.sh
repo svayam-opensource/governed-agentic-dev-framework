@@ -27,4 +27,5 @@ case "$JOIN_OUT" in *"[Y/n]"*|*"Select (A/B/C)"*|*"start work now"*) fail "--joi
 JHOME2="$WORK/joiner-home-2"; mkdir -p "$JHOME2"
 BARE_OUT="$(HOME="$JHOME2" PATH="$JBIN:$PATH" gov setup --join adopter-org/bare-repo </dev/null 2>&1)" \
   && fail "--join accepted a repo with no org-config.yaml" || has "$BARE_OUT" "no org-config.yaml" "an ungoverned repo is refused, not founded"
-[ -z "$(ls -A "$JHOME2/.gov" 2>/dev/null | grep -v '^logs$')" ] && pass "and nothing was registered" || fail "the refused join left state in ~/.gov: $(ls -A "$JHOME2/.gov")"
+JLEFT="$(find "$JHOME2/.gov" -mindepth 1 -maxdepth 1 ! -name logs 2>/dev/null)"
+[ -z "$JLEFT" ] && pass "and nothing was registered" || fail "the refused join left state in ~/.gov: $JLEFT"
