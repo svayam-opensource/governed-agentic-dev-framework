@@ -50,7 +50,7 @@ else
   fail "the pushed project branch carries the policy merged after the last fetch"
   printf '     remote main %s; BRNCH-7-alpha %s\n' "$REMOTE_MAIN" "$(/usr/bin/git -C "$REMOTE" rev-parse BRNCH-7-alpha 2>&1)"
 fi
-exists "and the project's worktree has the new rule in it" "$HOME/.gov/ACME/projects/PRJ-7-alpha/acme-gov/policies/new-rule.md"
+exists "and the project's worktree has the new rule in it" "$HOME/.gov/acme/projects/PRJ-7-alpha/acme-gov/policies/new-rule.md"
 if [ "$(/usr/bin/git -C "$GOV_HOME" rev-parse main)" = "$LOCAL_MAIN" ]; then
   pass "the developer's local main was left where it was"
 else
