@@ -29,7 +29,7 @@ const F = (path: string): PhaseTreeRow => ({ path, owner: "F", mode: "auto" });
 const O = (path: string, mode: PhaseMode = "once"): PhaseTreeRow => ({ path, owner: "O", mode });
 const G = (path: string): PhaseTreeRow => ({ path, owner: "G", mode: "gen" });
 
-const COMMON_GUIDES = ["setting-up-your-machine", "upgrading-the-framework", "path-adopter", "path-joiner", "path-reference", "when-something-goes-wrong"];
+const COMMON_GUIDES = ["setting-up-your-machine", "upgrading-the-framework", "path-adopter", "path-joiner", "path-reference", "when-something-goes-wrong", "evidence-and-auditor-reports"];
 const BUILD_GUIDES = ["path-developer", "working-on-a-project", "closing-a-project", "running-parallel-tasks", "proposing-knowledge", "configuring-agent-harnesses"];
 const HARNESS = ["AGENTS.md", "CLAUDE.md", "CONVENTIONS.md", "GEMINI.md", ".cursor/rules/agent.mdc", ".clinerules/agent.md", ".windsurf/rules/agent.md", ".github/copilot-instructions.md", ".continue/rules/agent.md", "rule-map.md"];
 

@@ -329,6 +329,29 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     seeAlso: ["check", "doctor"],
   },
   {
+    name: "evidence", audience: "you",
+    summary: "verify the org's signed evidence ledger — free, offline, for auditors and lapsed customers too",
+    usage: "verify [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--gov-home <path>] [--test-roots]",
+    where: "anywhere — a clone of the evidence branch (`gov/evidence`) is all it needs; no licence, no network, no org-config.yaml",
+    args: [
+      { name: "verify", what: "walk the evidence chain month by month: every entry's number and `prev` link, its signature, and its writer's certificate (a lease from a Svayam root key shipped in gov, or a root that one endorsed in `evidence/keys/roots.json`); re-hash every chained segment against its entry's sha256, check each record line is canonical and valid, and check each seal's count, root and signature. Lists gaps — runs whose evidence was NOT created — which are never a pass. Every break names the segment and line, or the chain file and entry" },
+    ],
+    flags: [
+      { name: "--from <date>", what: "re-hash only segments dated on or after this day (the chain is still walked from its start: every link is needed)" },
+      { name: "--to <date>", what: "re-hash only segments dated on or before this day" },
+      { name: "--gov-home <path>", what: "the folder to read: a checkout with `evidence/` at its top, or the gov repo, whose `origin/gov/evidence` (else local `gov/evidence`) branch is read through git without fetching (default: the governance repo gov resolves)" },
+      { name: "--test-roots", what: "also trust `test-*` root keys listed in `evidence/keys/roots.json` — for a ledger written by a test issuer only; the output says so" },
+    ],
+    examples: ["gov evidence verify", "gov evidence verify --gov-home ~/audit/acme-evidence --from <first-day> --to <last-day>"],
+    changes: "nothing — it reads. Reading the branch through git writes a temporary copy that is removed before it returns",
+    exit: [
+      { code: 0, means: "the ledger is whole: every link, hash, seal, signature and writer certificate holds (gaps, if any, are listed)" },
+      { code: 1, means: "a break — each is named, with the file and line or chain entry; or there was no evidence to read" },
+      { code: 2, means: "usage: an unknown subcommand, or a date that is not YYYY-MM-DD, or --from after --to" },
+    ],
+    seeAlso: ["check", "app"],
+  },
+  {
     name: "rules", audience: "you",
     summary: "propose rules from your policy prose, render the rule stores into what agents read, and report on them",
     usage: "<build|check|report|reload> [--working-tree] | show <id> | propose [--all] [--pr <n>]",

@@ -45,6 +45,7 @@ framework/build/templates/project-impact-template.md
 framework/build/templates/repo-agent-template.md
 framework/build/templates/todo-template.md
 framework/build/templates/workflows/approver-check.yml
+framework/common/guides/evidence-and-auditor-reports.md
 framework/common/guides/path-adopter.md
 framework/common/guides/path-joiner.md
 framework/common/guides/path-reference.md

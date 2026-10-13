@@ -31,6 +31,11 @@ For the Check Owner, and for anyone who writes a check your organization's own r
   script is given, what its exit code means, what keeps it safe, and why a GitHub Action check runs in CI only
 - [Your catalog additions](../../../policies/rules/checks-catalog.yaml) — where a new action is listed
 
+## Evidence
+
+- [Evidence and auditor reports](evidence-and-auditor-reports.md) — verifying the signed evidence record, which
+  is free and works offline (for auditors, and after a subscription ends)
+
 ## Infrastructure
 
 - [CI/CD spec](../reference/org_gov_repo_operations.md)

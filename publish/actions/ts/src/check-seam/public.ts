@@ -17,14 +17,22 @@
  */
 import type { Catalog } from "../rules/model/catalog.js";
 import type { SchemaName } from "./schemas.js";
+import type * as Hash from "../evidence/hash.js";
+import type * as Roots from "../evidence/roots.js";
+import type * as Verify from "../evidence/verify.js";
 
 export { canonicalJson, sha256Hex } from "../evidence/canonical.js";
 export { SCHEMAS, SCHEMA_NAMES, type SchemaName } from "./schemas.js";
 export { validate } from "./validate.js";
+// The ledger's hashes, signatures, writer-certificate checks and the free verifier (spec 02 §3.2–3.3, plan 02 E06):
+// the writer builds with exactly what `gov evidence verify` checks with. Types here; runtime through `host.ledger`.
+export { ZERO_HASH, lineDigest, segmentRoot, sealPayload, entryPayload, entryHash, fileHash, verifyEd25519, isEd25519Jwk, type Ed25519Jwk } from "../evidence/hash.js";
+export { SHIPPED_ROOTS, LEASE_GRACE_SECONDS, trustRoots, checkWriterCert, writerKid, keyFileName, decodeJws, verifyJws, type RootKey, type TrustedRoots, type CertCheck, type CertLease, type DecodedJws, type JwsCheck } from "../evidence/roots.js";
+export { verifyLedger, dirSource, formatBreak, type LedgerSource, type VerifyOptions, type VerifyResult, type Break, type BreakCode, type GapInfo } from "../evidence/verify.js";
 export type { Catalog } from "../rules/model/catalog.js";
 
-/** The host API this gov offers. */
-export const HOST_API = Object.freeze({ major: 1, minor: 0 });
+/** The host API this gov offers. 1.1 added `host.ledger` (the verifier's hashes and checks). */
+export const HOST_API = Object.freeze({ major: 1, minor: 1 });
 export interface HostApi { readonly major: number; readonly minor: number }
 /** What a module declares it needs. */
 export interface ModuleApi { readonly major: number; readonly minHostMinor: number }
@@ -209,6 +217,22 @@ export interface HostLog {
   debug(line: string): void;
 }
 
+/** The ledger code the free verifier runs, handed to the writer so both use ONE implementation (host API 1.1). */
+export interface LedgerHelpers {
+  readonly ZERO_HASH: string;
+  readonly lineDigest: typeof Hash.lineDigest;
+  readonly segmentRoot: typeof Hash.segmentRoot;
+  readonly sealPayload: typeof Hash.sealPayload;
+  readonly entryPayload: typeof Hash.entryPayload;
+  readonly entryHash: typeof Hash.entryHash;
+  readonly fileHash: typeof Hash.fileHash;
+  readonly verifyEd25519: typeof Hash.verifyEd25519;
+  readonly keyFileName: typeof Roots.keyFileName;
+  readonly writerKid: typeof Roots.writerKid;
+  readonly verifyLedger: typeof Verify.verifyLedger;
+  readonly dirSource: typeof Verify.dirSource;
+}
+
 export interface Host {
   readonly api: HostApi;
   readonly govVersion: string;
@@ -219,6 +243,8 @@ export interface Host {
   readonly validate: (schema: SchemaName, value: unknown) => readonly string[];
   readonly keychain: KeychainPort;
   readonly log: HostLog;
+  /** Present from host API 1.1: a module declaring `minHostMinor >= 1` may rely on it. */
+  readonly ledger?: LedgerHelpers;
 }
 
 export interface ActivationOptions {

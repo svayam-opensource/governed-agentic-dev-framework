@@ -32,6 +32,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov repo](#gov-repo) — install the repository controls framework-specification.md §7.3 requires — or say why the platform will not
 - [gov check](#gov-check) — run one rule's checks for the event that fired, install the workflow that runs them, or say whether it is current
 - [gov app](#gov-app) — create the org's GitHub App that lets code repos' checks read the governance rules, check it, and rotate its key
+- [gov evidence](#gov-evidence) — verify the org's signed evidence ledger — free, offline, for auditors and lapsed customers too
 - [gov rules](#gov-rules) — propose rules from your policy prose, render the rule stores into what agents read, and report on them
 
 **[Your agent runs these (you can too)](#your-agent-runs-these-you-can-too)**
@@ -531,6 +532,50 @@ gov app rotate --key-file ~/Downloads/gov-acme.private-key.pem
 | `2` | usage |
 
 **See also.** [gov check](#gov-check) · [gov doctor](#gov-doctor)
+
+### gov evidence
+
+verify the org's signed evidence ledger — free, offline, for auditors and lapsed customers too
+
+```text
+gov evidence verify [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--gov-home <path>] [--test-roots]
+```
+
+**Where.** anywhere — a clone of the evidence branch (`gov/evidence`) is all it needs; no licence, no network, no org-config.yaml
+
+**Arguments**
+
+| argument | what it is |
+| --- | --- |
+| `verify` | walk the evidence chain month by month: every entry's number and `prev` link, its signature, and its writer's certificate (a lease from a Svayam root key shipped in gov, or a root that one endorsed in `evidence/keys/roots.json`); re-hash every chained segment against its entry's sha256, check each record line is canonical and valid, and check each seal's count, root and signature. Lists gaps — runs whose evidence was NOT created — which are never a pass. Every break names the segment and line, or the chain file and entry |
+
+**Flags**
+
+| flag | what it does |
+| --- | --- |
+| `--from <date>` | re-hash only segments dated on or after this day (the chain is still walked from its start: every link is needed) |
+| `--to <date>` | re-hash only segments dated on or before this day |
+| `--gov-home <path>` | the folder to read: a checkout with `evidence/` at its top, or the gov repo, whose `origin/gov/evidence` (else local `gov/evidence`) branch is read through git without fetching (default: the governance repo gov resolves) |
+| `--test-roots` | also trust `test-*` root keys listed in `evidence/keys/roots.json` — for a ledger written by a test issuer only; the output says so |
+
+**Examples**
+
+```bash
+gov evidence verify
+gov evidence verify --gov-home ~/audit/acme-evidence --from <first-day> --to <last-day>
+```
+
+**Changes.** nothing — it reads. Reading the branch through git writes a temporary copy that is removed before it returns
+
+**Exit codes**
+
+| code | means |
+| --- | --- |
+| `0` | the ledger is whole: every link, hash, seal, signature and writer certificate holds (gaps, if any, are listed) |
+| `1` | a break — each is named, with the file and line or chain entry; or there was no evidence to read |
+| `2` | usage: an unknown subcommand, or a date that is not YYYY-MM-DD, or --from after --to |
+
+**See also.** [gov check](#gov-check) · [gov app](#gov-app)
 
 ### gov rules
 

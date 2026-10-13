@@ -48,6 +48,9 @@ const out = {
   canon: h.canonicalJson({ b: 1, a: [true, null, "x"] }),
   sha: h.sha256Hex("abc"),
   bad: h.validate("usage-counts", { records: "x" }).length > 0,
+  verifier: [h.verifyLedger, h.dirSource, h.formatBreak, h.trustRoots, h.checkWriterCert, h.verifyEd25519].every((f) => typeof f === "function"),
+  root: h.segmentRoot([{ b: 1, a: 2 }, { x: "é" }]),
+  zero: h.ZERO_HASH,
 };
 console.log(JSON.stringify(out));`;
 
@@ -59,6 +62,10 @@ console.log(JSON.stringify(out));`;
     expect(o.canon).to.equal('{"a":[true,null,"x"],"b":1}');
     expect(o.sha).to.equal("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     expect(o.bad).to.equal(true);
+    // The free verifier ships through the same subpath (E06): the writer builds with what `gov evidence verify` checks.
+    expect(o.verifier).to.equal(true);
+    expect(o.root).to.equal("d0f91bbac65c75e8d99bbde74afa2c791fec3265c9bbd786a92fdf870cc7b18e");
+    expect(o.zero).to.equal("0".repeat(64));
   };
 
   it("ESM import works", () => {
