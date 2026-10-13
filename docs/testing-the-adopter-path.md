@@ -388,7 +388,11 @@ one line per run — `OK`, or `BREAK:` and why (`event push`, `different commit`
 | `live` — joiner journey (second identity) | secret `TESTBED_JOINER_PAT` (a **second** member of the sandbox org — classic: `repo`, `project`, `read:org`) and secret `TESTBED_JOINER_LOGIN` (its login) | as for the adopter journey: **fails** a strict run, naming both; on a feature-branch push only the joiner skips, visibly. The journey itself fails if the token is not `TESTBED_JOINER_LOGIN`, or is the adopter bot's own account |
 | `live` — real model | secret `GEMINI_API_KEY`, only when dispatched with `real_model` | fails that dispatch |
 
-**The joiner tier** (PRJ-121 intent 05, Item 4). The `live` job runs the adopter journey in two phases around a
+**The joiner tier** (PRJ-121 intent 05, Item 4). First, in seconds, `e2e/joiner-identity.sh` checks that
+`TESTBED_JOINER_PAT` authenticates, is **not** the adopter bot's account (fails loudly if it is) and is an active
+member of the sandbox org; the login the token authenticates as is the one every later step uses (a
+`TESTBED_JOINER_LOGIN` that disagrees is a warning naming the fix, by shape — the value is never printed). Then the
+`live` job runs the adopter journey in two phases around a
 second identity. The **work phase** (`E2E_PHASE=work`, bot A = `TESTBED_BOT_PAT`, the sandbox org's owner) creates
 the org's gov repo, board and code repo, seeds → task → merge, then opens issue #2 for bot B and grants bot B write on
 both repos and the board — bot A grants, bot B's token is never widened. It writes the names the later steps need to
