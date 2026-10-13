@@ -9,8 +9,9 @@ status: current
 
 What has to be true before your first session. Once per machine.
 
-`install.sh` handles Node and the `gov` client; this is what it hands back to you — the
-parts only a person can do, like signing in.
+install.sh, then the first-run flow (adopt / join / not sure), handles Node, the `gov` client and your
+organization; on Windows, the installer does the same. This is what it hands back to you — the parts only a
+person can do, like signing in.
 
 `install.sh` keeps its own Node out of your way: a Node you already have stays the one your
 shell finds. Where `~/.local/bin` is on your `PATH` it changes no shell profile at all;

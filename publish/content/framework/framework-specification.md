@@ -51,7 +51,7 @@ else. If something here does not fit your organization, tell the framework's mai
 postpones the problem to the next upgrade, and hides it until then.
 
 The release `gov upgrade` writes is the one your gov carries. Each gov package includes the framework content it
-was built with, so the client and the content always match. `gov setup` seeds a new repository from that content,
+was built with, so the client and the content always match. Setup seeds a new repository from that content,
 and `gov upgrade` brings an existing one to it. Neither fetches anything to do so. To move to newer framework
 content, install a newer gov, then run `gov upgrade`. To use other content on purpose, pass `--ref` (a commit,
 branch or tag of the framework's repository) or `--from` (a local directory) to either command. gov refuses
@@ -126,7 +126,7 @@ Your organization's settings are in three places, grouped by who may change them
 | `policies/governance.yaml` | how your organization governs: its posture (§11.1), its Policy Owner and Check Owner, the AI agents it authorizes, whether it publishes its knowledge, and the model it approves for `gov rules propose` | the Policy Owner |
 | `~/.gov/work-roots`, on your own machine | where your own project folders live, if not in `~/.gov/<slug>/projects` | you |
 
-`gov setup` writes the first two. The framework decides which keys `org-config.yaml` may hold and what each one
+Setup writes the first two. The framework decides which keys `org-config.yaml` may hold and what each one
 means, and publishes that list as `framework/common/reference/org-config.schema.yaml`, which `gov upgrade` keeps current.
 `gov doctor` checks your `org-config.yaml` against it. It names a key that is missing, a key gov does not read,
 and a key that has moved to another file.
@@ -190,7 +190,7 @@ The framework asks only that the answers be **written down, with names**, in
 
 ### 2.4 When a role falls vacant
 
-The framework's two roles must always have a named holder. `gov setup` will not finish without both.
+The framework's two roles must always have a named holder. Setup will not finish without both.
 `gov doctor` reports a role that has fallen empty. While the Check Owner role is vacant, the Policy Owner does
 that work. Your seeded policy applies the same idea to the roles you define: each has a named holder, and a
 vacancy falls to the Policy Owner until someone is named.

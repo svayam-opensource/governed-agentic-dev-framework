@@ -5,7 +5,7 @@
 # This file is NEVER committed to any repository.
 # It is the lowest-priority knowledge layer — it cannot override org or repo knowledge.
 #
-# Created automatically by `gov setup` from this template. Edit freely.
+# Created automatically by gov's first-run flow from this template. Edit freely.
 #
 # See: <ORG_GOV_REPO>/framework/framework-specification.md ch.5 (GOV-FRM-131, GOV-FRM-133)
 

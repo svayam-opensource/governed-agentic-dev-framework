@@ -23,7 +23,7 @@ and why.
 
 - [ ] `gov validate` — validators pass
 - [ ] If policy change: confirmed compliance level is correct (C01/C02/C03)
-- [ ] If new org value added: added to `org-config.yaml` and the `gov setup` prompt
+- [ ] If new org value added: added to `org-config.yaml` and the first-run flow's adopt questions
 
 ## Privacy / scope
 

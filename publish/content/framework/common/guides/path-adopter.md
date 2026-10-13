@@ -16,6 +16,9 @@ in sequence; each destination is the single home of what it covers.
 
 ## 1. Get the tooling on your machine
 
+Run install.sh, then the first-run flow (adopt / join / not sure) and choose adopt. On Windows, the installer
+ends in the same first-run flow.
+
 - [Setting up your machine](setting-up-your-machine.md)
 
 ## 2. Understand what you are about to commit the organization to

@@ -113,7 +113,8 @@ map to keys in that file by name — `<ORG_NAME>` is `org_name`, `<ORG_GOV_REPO>
 its index.
 
 If `org-config.yaml` has empty values (`org_name: ""`), the workspace is still in TEMPLATE
-state. Hard-stop and tell the human to run `gov setup`.
+state. Hard-stop and tell the human the organization is not set up yet: install.sh, then the
+first-run flow (adopt / join / not sure); on Windows, the installer.
 
 ## B.2 Load four knowledge layers — fresh every session
 

@@ -73,6 +73,6 @@ All policy roles are currently held by `<POLICY_OWNER_EMAIL>`.
 
 ## Lifecycle operations
 
-Use the `gov` CLI (`npm i -g @svayam-opensource/gov`) for all lifecycle operations
-(`gov seed`, `gov task`, `gov merge`, `gov close`, …) — never perform lifecycle
-actions manually.
+Use the `gov` CLI for all lifecycle operations (`gov seed`, `gov task`, `gov merge`,
+`gov close`, …) — never perform lifecycle actions manually. A person gets it by
+install.sh, then the first-run flow (adopt / join / not sure); on Windows, the installer.

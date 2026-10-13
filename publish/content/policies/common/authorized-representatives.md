@@ -64,7 +64,7 @@ holding it at all times. When a role falls vacant, the Policy Owner holds it unt
 the vacancy is recorded here in the same pull request that removes the departing holder. A role with nobody in
 it is a question nobody is answering, and an approval nobody can give.
 
-The framework holds its own two roles, the Policy Owner and the Check Owner, to the same standard: `gov setup`
+The framework holds its own two roles, the Policy Owner and the Check Owner, to the same standard: setup
 will not finish without both, and `gov doctor` reports either one when it falls empty.
 
 ## 4. The role list
@@ -90,7 +90,7 @@ How to read and change it:
 - **Owns** lists the `knowledge/` folders the role approves, separated by commas, or `—` for none. A folder
   nobody owns, and `knowledge/` as a whole, belong to the Policy Owner.
 - The Policy Owner and the Check Owner are not listed here. They are the framework's own two roles, and
-  `gov setup` records who holds them.
+  setup (the first-run flow's adopt step) records who holds them.
 
 After a change here merges, run `gov upgrade` to regenerate `CODEOWNERS`. `gov doctor` reports a `CODEOWNERS`
 that no longer matches this list.

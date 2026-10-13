@@ -12,24 +12,25 @@ catch.
 
 ## 10. Framework upgrades
 
-Your organization's repository was created by `gov setup`, which seeded it with the framework's content:
+Your organization's repository was created by the first-run flow's adopt step, which seeded it with the framework's
+content:
 the `framework/` folder, the agent instruction files, and starting copies of your policies.
 
 ### The CLI carries its content
 
-The `gov` command is installed from npm — `npm i -g @svayam-opensource/gov` (Node 24 or later). It is never
-copied into a repository.
+The `gov` command is installed by install.sh, then the first-run flow (adopt / join / not sure); on Windows,
+the installer. It is never copied into a repository.
 
 Each version of gov carries the framework content it was built with. The two always match. You never pick a
 content version separately, and gov never downloads content behind your back:
 
-- `gov setup` seeds a new repository from the content gov carries.
+- Adopting (the first-run flow) seeds a new repository from the content gov carries.
 - `gov upgrade` brings an existing repository to the content gov carries.
 
-So **upgrading the framework means installing a newer gov**:
+So **upgrading the framework means installing a newer gov** — run install.sh again (on Windows, the installer:
+`winget upgrade Svayam.Gov`), then:
 
 ```bash
-npm i -g @svayam-opensource/gov@latest
 gov upgrade            # shows what would change; writes nothing
 gov upgrade --pr       # puts the change in a pull request for review
 gov upgrade --apply    # or writes it into your working tree
@@ -69,13 +70,13 @@ After upgrading, run `gov validate` to confirm everything still validates.
 
 ### Using other content on purpose
 
-Both commands accept two overrides, for when you deliberately want content other than the content gov carries:
+Setup and `gov upgrade` accept two overrides, for when you deliberately want content other than the content gov carries:
 
 - `--ref <commit|tag|branch>` — fetch the content at that point of the framework's repository.
 - `--from <dir>` — use the content in a local directory.
 
-For example, `gov upgrade --from ~/src/governed-agentic-dev-framework/publish/content`, or
-`gov setup acme/acme-gov --ref v1.2.3`.
+For example, `gov upgrade --from ~/src/governed-agentic-dev-framework/publish/content`, or `--ref v1.2.3` on the
+setup verb (see the command reference).
 
 gov checks whatever you name against the content it was built with. If they differ, it refuses and writes
 nothing — even when the version numbers agree, because a version number is a label and the check compares the

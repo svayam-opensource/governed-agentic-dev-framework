@@ -4,7 +4,7 @@
 # framework/common/reference/org-config.schema.yaml, and `gov doctor` checks this file against it.
 # How the organization GOVERNS — its posture, its Policy and Check Owners, the agents it
 # authorizes — is in policies/governance.yaml, where a change needs the Policy Owner.
-# Re-run `gov setup` to update.
+# The first-run flow (adopt) fills it in; to change a value, edit it here by pull request.
 
 # Full legal name of your organization
 org_name: ""

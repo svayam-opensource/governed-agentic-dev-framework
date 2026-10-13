@@ -26,9 +26,9 @@ flowchart TD
   subgraph ADOPT["Adopter governance DATA repo"]
     DATA["org-config.yaml · projects/ · knowledge/"]
   end
-  NPM -->|"(c) npm i -g"| DEV["developer machine"]
+  NPM -->|"(c) install.sh, then the first-run flow · Windows: the installer"| DEV["developer machine"]
   DEV -->|"runs gov on"| ADOPT
-  DEV -->|"(b) gov setup / gov upgrade (the content gov carries)"| ADOPT
+  DEV -->|"(b) first-run flow: adopt / gov upgrade (the content gov carries)"| ADOPT
   ADOPT -.->|"(b) propose content change (PR to template)"| TPL
   DEV -.->|"(c) propose CLI change (PR to template)"| TPL
 ```
@@ -57,16 +57,14 @@ flowchart TD
 
 ### Adopt — one-time, for a brand-new org
 
-1. **Install the CLI:** `npm i -g @svayam-opensource/gov` (prereqs: **Node ≥ 24**,
-   `git`, `gh` authenticated — no bash/yq/python needed).
-2. **Create your org's governance repo** on GitHub (empty) — this becomes your
-   governance **data** workspace. It holds *no* CLI source.
-3. **Bootstrap:** clone the framework content into it, then run **`gov setup`** — it
-   prompts for your org identity and writes **`org-config.yaml`** (org identity,
-   default branches, owners), and points `origin` at your org repo.
-4. **Register the workspace:** `gov org add <github_org> --home <gov-home-path>` then
-   `gov org use <github_org>` (records the gov home so `gov-work` resolves it in any shell).
-5. **Commit + push** to your org repo, then **start working:** `gov seed <board-url>`.
+1. **Install:** install.sh, then the first-run flow (adopt / join / not sure); on
+   Windows, the installer. It installs Node and gov, and offers each tool gov needs (`git`,
+   `gh`), asking before it runs anything — no bash/yq/python needed.
+2. **Adopt:** choose adopt in the first-run flow. It creates your org's governance
+   **data** repo on GitHub (it holds *no* CLI source), seeds it from the content gov
+   carries, asks for your org identity and owners, and writes **`org-config.yaml`** and
+   **`policies/governance.yaml`**.
+3. **Start working:** `gov seed <board-url>`.
 
 ### Day-to-day
 
@@ -83,8 +81,8 @@ flowchart TD
 
 | Goal | Path |
 |---|---|
-| **Install the CLI** | `npm i -g @svayam-opensource/gov`. Runtime prereqs: **Node ≥ 24**, `git`, `gh` (authenticated). Cross-platform (no Git Bash requirement). |
-| **Upgrade the CLI** | `npm i -g @svayam-opensource/gov@latest` (or `npm update -g @svayam-opensource/gov`). |
+| **Install the CLI** | install.sh, then the first-run flow (adopt / join / not sure) — choose join. On Windows, the installer. Cross-platform (no Git Bash requirement). |
+| **Upgrade the CLI** | Run install.sh again; on Windows, `winget upgrade Svayam.Gov`. |
 | **Use it** | Run `gov-work` for the interactive menu, or `gov <command>` directly — see the README. |
 | **Propose a CLI change** | Open an issue or PR against **this template repo** (the CLI's source of truth, `ts/gov-work/`). Don't edit an installed copy — your change must land here to ship via npm to everyone. |
 
@@ -93,8 +91,8 @@ flowchart TD
 ### One-line summary
 
 - **(a) maintainers** edit + publish the product (content → merge `main`; CLI → `gov bump-version` + governed publish → npm).
-- **(b) admins** adopt once (`gov setup` + `gov org add/use`), then `gov upgrade` to pull content; propose via `gov knowledge` (local) or a template PR (framework-wide).
-- **(c) developers** `npm i -g @svayam-opensource/gov`; propose CLI changes via a template PR.
+- **(b) admins** adopt once (the first-run flow's adopt), then `gov upgrade` to pull content; propose via `gov knowledge` (local) or a template PR (framework-wide).
+- **(c) developers** install.sh, then the first-run flow (join); on Windows, the installer. Propose CLI changes via a template PR.
 
 ---
 

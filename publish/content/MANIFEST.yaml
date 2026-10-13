@@ -1,6 +1,6 @@
 # publish/content/MANIFEST.yaml
 #
-# Classifies every file the framework CONTENT ships. Read by `gov setup` on initial install
+# Classifies every file the framework CONTENT ships. Read by setup (the first-run flow's adopt step) on initial install
 # and by `gov upgrade` on subsequent syncs.
 #
 # ── Modes ─────────────────────────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@
 #                      seed-once file. If it must, it ships a SCHEMA beside it (scaffold-auto)
 #                      that gov checks the org's file against — org-config.yaml and
 #                      framework/common/reference/org-config.schema.yaml — or a reference the org copies from.
-#   seed-new         — A STARTER FOR NEW ORGS (PRJ-121 intent 01, §3.2). `gov setup` creates it like
+#   seed-new         — A STARTER FOR NEW ORGS (PRJ-121 intent 01, §3.2). Setup creates it like
 #                      seed-once; `gov upgrade` NEVER plans it — not create, not update, not conflict —
 #                      so an org that adopted before it shipped is not handed it, and one that has it
 #                      keeps its copy. `gov upgrade`'s dry run lists a missing one as "starter for new orgs".

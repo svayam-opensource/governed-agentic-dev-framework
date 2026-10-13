@@ -101,12 +101,12 @@ policy says they live. Nothing in the framework requires it.
 
 ---
 
-## How gov setup and gov upgrade treat each shipped file
+## How setup and gov upgrade treat each shipped file
 
-Every file the framework ships has a mode in the framework's manifest. The mode decides what `gov setup` does
+Every file the framework ships has a mode in the framework's manifest. The mode decides what setup (the first-run flow's adopt step) does
 when it creates `<ORG_GOV_REPO>`, and what `gov upgrade` does to it later.
 
-| Mode | `gov setup` (a new org) | `gov upgrade` — file missing | `gov upgrade` — file present and different |
+| Mode | setup (a new org) | `gov upgrade` — file missing | `gov upgrade` — file present and different |
 | --- | --- | --- | --- |
 | `scaffold-auto` | creates it | creates it | replaces it: the framework owns the file |
 | `seed-once` | creates it | creates it | leaves it alone: the file is yours |

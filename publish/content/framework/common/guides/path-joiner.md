@@ -15,6 +15,9 @@ governance repo, and an agent that starts under the protocol — in that order.
 
 ## 1. Your machine
 
+Run install.sh, then the first-run flow (adopt / join / not sure) and choose join. On Windows, the installer
+ends in the same first-run flow.
+
 - [Setting up your machine](setting-up-your-machine.md)
 
 ## 2. What the words mean

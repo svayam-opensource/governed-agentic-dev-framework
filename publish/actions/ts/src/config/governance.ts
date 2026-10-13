@@ -235,7 +235,7 @@ export function renderGovernance(v: GovernanceValues): string {
   return `# Governance choices — how this organization governs (policies/governance.yaml).
 #
 # These are POLICY: a change to this file needs the Policy Owner's approval (CODEOWNERS routes it to them, and
-# the section-owner-approval check requires it). The framework ships this file once, \`gov setup\` fills it in,
+# the section-owner-approval check requires it). The framework ships this file once, the first-run flow fills it in,
 # and from then on it is yours — \`gov upgrade\` never rewrites it. Who the organization IS (its name, its
 # repositories, its service endpoints) is in org-config.yaml.
 

@@ -56,8 +56,8 @@
 
 # framework half (W2-Q5); the org half is seeded in authorized-representatives.md
 - id: GOV-FRM-033
-  source: { doc: framework/framework-specification.md, section: "2.4", sha: "ff5c053" }
-  expectation: "gov setup refuses to finish until the Policy Owner and the Check Owner each have a named holder, and gov doctor reports either role when it is vacant."
+  source: { doc: framework/framework-specification.md, section: "2.4", sha: "29c4a20" }
+  expectation: "Setup refuses to finish until the Policy Owner and the Check Owner each have a named holder, and gov doctor reports either role when it is vacant."
   actor: [gov-client]
   level: C01
   checks:
@@ -124,8 +124,8 @@
   end: null
 
 - id: GOV-FRM-082
-  source: { doc: framework/framework-specification.md, section: "8.1", sha: "9acfb28" }
-  expectation: "gov setup creates no domain folder under knowledge/."
+  source: { doc: framework/framework-specification.md, section: "8.1", sha: "c01086a" }
+  expectation: "Setup creates no domain folder under knowledge/."
   actor: [gov-client]
   level: C01
   checks:
@@ -341,7 +341,7 @@
 
 # new promise: the Policy Owner's "do not edit" opening
 - id: GOV-FRM-444
-  source: { doc: framework/framework-specification.md, section: "1.1", sha: "041b9f2" }
+  source: { doc: framework/framework-specification.md, section: "1.1", sha: "0cef073" }
   expectation: "gov upgrade replaces every file under framework/ with the release's copy."
   actor: [gov-client]
   level: C01
@@ -420,7 +420,7 @@
 # W2-Q6
 - id: GOV-FRM-450
   source: { doc: framework/framework-specification.md, section: "11.1", sha: "0e2bdd3" }
-  expectation: "gov setup records governance_posture as soft unless the Policy Owner confirms hard after being told that hard needs public repositories or a paid GitHub plan."
+  expectation: "Setup records governance_posture as soft unless the Policy Owner confirms hard after being told that hard needs public repositories or a paid GitHub plan."
   actor: [gov-client]
   level: C01
   checks:

@@ -15,9 +15,8 @@ session. This is the one you will reread — the rest are read once.
 As a developer, your normal path runs through a handful of `gov-work` verbs:
 
 ```
-[ COPY TEMPLATE ]                        ← one-time per org (gh repo create --template)
-       ↓
-[ npm i -g @svayam-opensource/gov  →  gov setup ]
+[ install.sh, then the first-run flow (adopt / join / not sure) ]
+                                         ← on Windows, the installer; adopt creates the org's repo once
        ↓
 [ owner: gov manage assign ]             ← grants you write access to the GitHub Project
        ↓
