@@ -816,3 +816,39 @@ async function joinExisting(io: FirstRunIo, src: CloneSource): Promise<number> {
     io.discard(tmp);   // the staging dir is never the home; placing MOVED the repo out of it.
   }
 }
+
+/** `<github_org>/<repo>` as GitHub spells it — the only shape `gov setup --join` accepts. */
+const NAME_WITH_OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+
+/**
+ * `gov setup --join <github_org>/<repo>` — THE JOINER'S MACHINE PATH (PRJ-121 intent 05, Item 4, ruling Q5).
+ *
+ * The header above accepted that "a fresh CI runner cannot onboard itself" and said the fix, if it ever bit, was one
+ * flag. It bit: the live joiner journey runs as a second identity on a runner with no terminal, and ruling Q5 says it
+ * drives gov through flags, never a pty. So this is that flag — the SAME clone → place → register → activate as the
+ * interactive B path ({@link joinExisting}), with the two things a terminal was needed for taken out:
+ *
+ *  - nothing is asked. A question reached here is a defect (Q5), so it fails loudly instead of hanging;
+ *  - nothing is offered: no "start work now?", no upgrade pull request. A script asks for those by name.
+ *
+ * A repository with no `org-config.yaml` is REFUSED, never founded: a joiner makes nothing, and creating an
+ * organization must never be inferred from a flag meant for joining one.
+ */
+export async function joinNamed(io: FirstRunIo, nameWithOwner: string): Promise<number> {
+  if (!NAME_WITH_OWNER.test(nameWithOwner)) {
+    io.print(`gov setup --join: '${nameWithOwner}' is not <github_org>/<repo> — e.g. gov setup --join acme/acme-gov`);
+    return 2;
+  }
+  const quiet: FirstRunIo = {
+    ...io,
+    prompt: (question) => Promise.reject(new JoinRefused(`gov setup --join never asks, and it reached a question: ${question.trim()}`)),
+    found: () => {
+      io.print(`${nameWithOwner} has no org-config.yaml — it is not a governed organization's repository, so there is nothing to join.`);
+      io.print("  Nothing was registered. Its Policy Owner sets it up first:  gov setup " + nameWithOwner);
+      return Promise.resolve(null);
+    },
+    reviewNow: undefined,
+    openUpgradePr: undefined,
+  };
+  return joinExisting(quiet, { url: cloneUrlFor(nameWithOwner), nameWithOwner });
+}

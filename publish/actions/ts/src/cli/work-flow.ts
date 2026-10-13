@@ -178,6 +178,10 @@ export interface WorkFlowOpts {
   readonly seedOk?: boolean;
   /** `--print-prompt` — emit the kickoff prompt and stop. Seeds nothing, clones nothing, launches nothing. */
   readonly printPromptOnly?: boolean;
+  /** `--no-launch` — set the project up on this machine (seed or join, the root protocol, the governance snapshot)
+   *  and stop at "ready": no agent, editor or shell is started. The machine path a script or CI takes (PRJ-121
+   *  intent 05, ruling Q5) — the work it would do next is `gov task` / `gov merge` in that directory. */
+  readonly noLaunch?: boolean;
   /** false when there is no TTY: an unresolved choice must then FAIL naming the flag that would resolve it,
    *  because there is nobody to ask. */
   readonly interactive?: boolean;
@@ -1232,6 +1236,11 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
   print("");
   if (notice) print(`  ${notice}`);
   print(`  ✓ '${p.projectId}' is ready at:  ${projectDir}`);
+  if (opts.noLaunch) {
+    decide("launch", "none", "--no-launch: the project is set up and nothing is started", "gov-work:cli:work-flow", "runWorkFlow", { project: p.projectId });
+    print("  (--no-launch: nothing started. Work there with `gov task <issue-url>` and `gov merge <issue-url>`.)");
+    return 0;
+  }
 
   // ── an organization that runs no AI agents ───────────────────────────────────────────────────
   //

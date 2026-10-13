@@ -19,6 +19,8 @@ Run install.sh, then the first-run flow (adopt / join / not sure) and choose joi
 ends in the same first-run flow.
 
 - [Setting up your machine](setting-up-your-machine.md)
+- [Joining with no terminal (scripts, CI)](../reference/gov-command-reference.md#gov-setup) — `gov setup --join`,
+  then [`gov work --no-launch`](../reference/gov-command-reference.md#gov-work)
 
 ## 2. What the words mean
 

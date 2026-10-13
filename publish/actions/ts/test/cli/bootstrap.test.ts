@@ -8,7 +8,7 @@
  */
 import { expect } from "chai";
 import {
-  nextStep, govHomeFor, repoNameFromUrl, looksLikeRepoUrl, cloneUrlFor, runFirstRun,
+  nextStep, govHomeFor, repoNameFromUrl, looksLikeRepoUrl, cloneUrlFor, runFirstRun, joinNamed,
   roleQuestion, ROLE_QUESTION, alreadyGovernedNotice,
   type FirstRunIo, type OrgIdentity,
 } from "../../src/cli/bootstrap.js";
@@ -552,5 +552,51 @@ describe("gov-work — the questions in colour (#204)", () => {
   it("the already-governed notice keeps its words when the colour goes", () => {
     const a = alreadyGovernedNotice("acme", ["acme/acme-gov"], true).map(strip);
     expect(a).to.deep.equal([...alreadyGovernedNotice("acme", ["acme/acme-gov"], false)]);
+  });
+});
+
+// PRJ-121 intent 05, Item 4, ruling Q5 — `gov setup --join <github_org>/<repo>`: the joiner's machine path.
+describe("gov-work — gov setup --join (no terminal)", () => {
+  const silent = { prompt: async (q: string): Promise<string> => { throw new Error(`must not prompt: ${q}`); } };
+
+  it("clones the named repo with gh, places it at ~/.gov/<slug>/gov_repo, registers it — asking nothing", async () => {
+    const registered: string[] = [];
+    const { w, out, acts } = io({ ...silent, cloneRepo: (n, d) => acts.push(`gh clone ${n} -> ${px(d)}`),
+      register: (org, home) => { registered.push(`${org} ${px(home)}`); return { ok: true }; } });
+    const code = await joinNamed(w, "Svayamtech/svm-prj-work");
+    expect(code, out.join("\n")).to.equal(0);
+    expect(acts[0]).to.equal("gh clone Svayamtech/svm-prj-work -> /tmp/boot/svm-prj-work");
+    expect(registered).to.have.length(1);
+    expect(out.join("\n")).to.match(/Joining /);
+  });
+
+  it("never offers to start work or open an upgrade pull request", async () => {
+    let offered = 0;
+    const { w } = io({ ...silent, reviewNow: async () => { offered++; return 0; }, openUpgradePr: () => { offered++; return 0; } });
+    expect(await joinNamed(w, "Svayamtech/svm-prj-work")).to.equal(0);
+    expect(offered).to.equal(0);
+  });
+
+  it("REFUSES a repo with no org-config.yaml — a joiner never founds an organization", async () => {
+    let founded = 0;
+    const { w, out, acts } = io({ ...silent, readIdentity: () => null, found: async () => { founded++; return JOINER; } });
+    expect(await joinNamed(w, "acme/acme-gov")).to.equal(1);
+    expect(founded, "the founding flow was never entered").to.equal(0);
+    expect(out.join("\n")).to.match(/no org-config\.yaml/);
+    expect(acts.some((a) => a.startsWith("place")), "nothing was placed").to.equal(false);
+  });
+
+  it("refuses a target that is not <github_org>/<repo>, before cloning anything", async () => {
+    const { w, acts } = io(silent);
+    expect(await joinNamed(w, "https://github.com/acme/acme-gov")).to.equal(2);
+    expect(await joinNamed(w, "acme")).to.equal(2);
+    expect(acts).to.deep.equal([]);
+  });
+
+  it("a home that already exists is reported, not overwritten", async () => {
+    const { w, out, acts } = io({ ...silent, exists: () => true });
+    expect(await joinNamed(w, "Svayamtech/svm-prj-work")).to.equal(1);
+    expect(out.join("\n")).to.match(/already exists — register it instead/);
+    expect(acts.some((a) => a.startsWith("place"))).to.equal(false);
   });
 });

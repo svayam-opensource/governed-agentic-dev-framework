@@ -355,7 +355,7 @@ workspace repo (`WALK-SCRIPT.md`, `TEMPLATE.md`, `MACHINES.md`).
 ## What green means — adopter-e2e, computed
 
 `adopter-e2e` (`.github/workflows/adopter-e2e.yml`) runs these tiers: `smoke` (hermetic), `journey`
-(pty, three distros), `os-tier` (bare machines), `windows` (the MSI on `windows-latest`), `live` (the adopter and rule-model journeys
+(pty, three distros), `os-tier` (bare machines), `windows` (the MSI on `windows-latest`), `live` (the adopter, joiner and rule-model journeys
 against real GitHub in the sandbox org), and — on a manual dispatch only — `bridge` (below). A run is **green** only when all of this is true, and
 nobody decides it by reading a summary line:
 
@@ -385,7 +385,20 @@ one line per run — `OK`, or `BREAK:` and why (`event push`, `different commit`
 | `smoke`, `journey`, `os-tier` | nothing | — |
 | `live` — adopter journey | secret `TESTBED_BOT_PAT` (classic: `repo`, `workflow`, `project`, `read:org`, `delete_repo`; or fine-grained on **all** repositories of the sandbox org — a selected-repositories token cannot read the repos a run creates), variable `TESTBED_SANDBOX_ORG` | **fails** on a manual dispatch, a PR into `dev`/`main`, a push to `dev`/`main`; **skips visibly** (notice + run summary) on a feature-branch push |
 | `live` — rule-model journey, assertion (f) | secrets `GOV_E2E_APP_CLIENT_ID`, `GOV_E2E_APP_PRIVATE_KEY` | the same: the guard names them up front on a strict run; elsewhere (f) is skipped, named, and the journey reports `incomplete` |
+| `live` — joiner journey (second identity) | secret `TESTBED_JOINER_PAT` (a **second** member of the sandbox org — classic: `repo`, `project`, `read:org`) and secret `TESTBED_JOINER_LOGIN` (its login) | as for the adopter journey: **fails** a strict run, naming both; on a feature-branch push only the joiner skips, visibly. The journey itself fails if the token is not `TESTBED_JOINER_LOGIN`, or is the adopter bot's own account |
 | `live` — real model | secret `GEMINI_API_KEY`, only when dispatched with `real_model` | fails that dispatch |
+
+**The joiner tier** (PRJ-121 intent 05, Item 4). The `live` job runs the adopter journey in two phases around a
+second identity. The **work phase** (`E2E_PHASE=work`, bot A = `TESTBED_BOT_PAT`, the sandbox org's owner) creates
+the org's gov repo, board and code repo, seeds → task → merge, then opens issue #2 for bot B and grants bot B write on
+both repos and the board — bot A grants, bot B's token is never widened. It writes the names the later steps need to
+`$RUNNER_TEMP/live.env` and deletes nothing. The **joiner** (`e2e/joiner-journey.sh`, bot B = `TESTBED_JOINER_PAT`,
+in a HOME of its own) installs the same packed gov and drives it through flags only — `gov setup --join
+<org>/<gov-repo>`, `gov work --project=<PRJ> --no-launch`, `gov task`, `gov merge`, stdin closed (ruling Q5: a prompt
+is a defect, the pty scenarios 40/45/47 stay hermetic) — and asserts issue #2 closed **by bot B** and its board Status
+`Done`. The **finish phase** (`E2E_PHASE=finish`, `if: always()`) closes the project and tears down everything the
+work phase recorded. Its dry run (`bash e2e/joiner-journey.sh --dry-run`) is tested in
+`test/e2e/joiner-journey-dry.test.ts`; `gov setup --join` itself runs hermetically in `e2e/smoke.d/35-setup-join.sh`.
 
 The decision is made by `publish/actions/ts/e2e/live-guard.sh` (the workflow's first `live` step), and
 the verdict by `e2e/live-verdict.sh` (its last), which lists every journey and every skipped assertion

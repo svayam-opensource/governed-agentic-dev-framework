@@ -511,6 +511,35 @@ describe("work — flags, consent, and no-terminal behaviour", () => {
     });
   });
 
+  // PRJ-121 intent 05, Item 4, ruling Q5: the live joiner journey drives gov with flags only. `--no-launch` sets the
+  // project up exactly as without it — join (or seed, with --seed) — and stops at "ready", starting nothing.
+  describe("--no-launch", () => {
+    it("joins a project someone else seeded, says where it is, launches nothing and asks nothing", async () => {
+      const { deps: d, ran, launched, out } = deps({ fs: fsWith([]), prompt: async () => { throw new Error("must not prompt"); },
+        projects: projects([{ number: 7, title: "Alpha", seeded: true }]) as never });
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-7", noLaunch: true, interactive: false });
+      expect(code, out.join("\n")).to.equal(0);
+      expect(ran.map((a) => a[0]), "the project was joined").to.include("join");
+      expect(launched, "nothing was started").to.deep.equal([]);
+      expect(out.join("\n")).to.match(/is ready at:/).and.to.match(/--no-launch: nothing started/);
+    });
+
+    it("needs no --agent: without a terminal it does not fail on the agent question", async () => {
+      const { deps: d, launched, out } = deps({ fs: fsWith(ready) });
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-7", noLaunch: true, interactive: false });
+      expect(code).to.equal(0);
+      expect(launched).to.deep.equal([]);
+      expect(out.join("\n")).to.not.match(/--agent=/);
+    });
+
+    it("still refuses to START an unseeded project without --seed", async () => {
+      const { deps: d, ran } = unseededDeps();
+      const code = await runWorkFlow(d, { projectPattern: "PRJ-9", noLaunch: true, interactive: false });
+      expect(code).to.equal(1);
+      expect(ran.map((a) => a[0])).to.not.include("seed");
+    });
+  });
+
   describe("--print-prompt", () => {
     it("emits the prompt through the stdout channel and launches nothing", async () => {
       const printed: string[] = [];

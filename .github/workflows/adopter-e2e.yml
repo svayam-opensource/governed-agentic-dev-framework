@@ -298,15 +298,16 @@ jobs:
           if-no-files-found: ignore
 
   live:
-    name: adopter + rule-model journeys (live GitHub)
+    name: adopter + joiner + rule-model journeys (live GitHub)
     # PRs into the long-lived branches only (the project branch's PR into dev is where the sandbox run gates —
     # rule-model-design.md "sandbox CI"); a PR between feature branches does not spend half an hour in the sandbox.
     if: github.event_name != 'pull_request' || github.base_ref == 'dev' || github.base_ref == 'main'
     runs-on: ubuntu-latest
     # 50, not 20: the adopter journey takes ~10 minutes and the rule-model journey waits on ~10 workflow runs in
     # the sandbox (each installs the packed gov), capped at E2E_DEADLINE_SECS=2100 (35 min) of waiting. The cap
-    # sits inside the timeout so the journey's own trap — not a killed runner — deletes its repos.
-    timeout-minutes: 50
+    # sits inside the timeout so the journey's own trap — not a killed runner — deletes its repos. 60 since the joiner
+    # journey (~5 min: install, join, work, task, merge as bot B) runs between the adopter's two phases (T15).
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       # THE NAMES THE REPO ACTUALLY HOLDS. This job read GOV_E2E_TOKEN / GOV_E2E_ORG while the repository holds
@@ -322,6 +323,10 @@ jobs:
           APP_ID: ${{ secrets.GOV_E2E_APP_CLIENT_ID }}
           APP_KEY: ${{ secrets.GOV_E2E_APP_PRIVATE_KEY }}
           GEMINI: ${{ secrets.GEMINI_API_KEY }}
+          # The second identity (PRJ-121 intent 05, Item 4; Policy Owner prerequisite P1): required like the rest on
+          # a strict run — a skipped joiner journey fails a dispatch and a PR into dev/main (ruling Q2).
+          JOINER_TOK: ${{ secrets.TESTBED_JOINER_PAT }}
+          JOINER_LOGIN: ${{ secrets.TESTBED_JOINER_LOGIN }}
           REAL_MODEL: ${{ inputs.real_model && 'true' || 'false' }}
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
@@ -340,16 +345,48 @@ jobs:
         run: |
           npm ci && npm run build
           echo "tgz=$PWD/$(npm pack --silent | tail -1)" >> "$GITHUB_OUTPUT"
-      - name: Run adopter journey (real GitHub, self-cleaning)
+      # THE ADOPTER JOURNEY IN TWO PHASES AROUND THE JOINER (PRJ-121 intent 05, Item 4 — T15). The work phase (bot A)
+      # creates the org's gov repo, board and code repo, seeds → task → merge, then opens issue #2 for bot B and grants
+      # bot B write on both repos and the board; it deletes nothing. The joiner (bot B) works in that project. The
+      # finish phase closes the project and tears down — ONE final teardown, `always()`, so the repos outlive the joiner
+      # and are deleted whatever failed. The handoff file carries names between the three steps (no token in it).
+      - name: Run adopter journey — work phase (real GitHub)
         id: adopter
         if: steps.guard.outputs.run == 'true'
         env:
           E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
           GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
           TGZ: ${{ steps.pack.outputs.tgz }}
+          E2E_PHASE: work
+          E2E_HANDOFF: ${{ runner.temp }}/live.env
+          E2E_JOINER_LOGIN: ${{ steps.guard.outputs.joiner == 'true' && secrets.TESTBED_JOINER_LOGIN || '' }}
         run: |
           # The ephemeral runner IS the clean slate — run the journey directly
           # (node 24 + gh are present); no container needed in CI.
+          GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" \
+            bash publish/actions/ts/e2e/adopter-journey.sh
+      # Bot B, in a HOME of its own, with its own token: join → work → task → merge (e2e/joiner-journey.sh). It asserts it
+      # is a SECOND account — its login is TESTBED_JOINER_LOGIN and not bot A's — and fails loudly otherwise.
+      - name: Run joiner journey (second identity, real GitHub)
+        id: joiner
+        if: steps.guard.outputs.run == 'true' && steps.guard.outputs.joiner == 'true' && !cancelled()
+        env:
+          GH_TOKEN: ${{ secrets.TESTBED_JOINER_PAT }}
+          E2E_JOINER_LOGIN: ${{ secrets.TESTBED_JOINER_LOGIN }}
+          E2E_HANDOFF: ${{ runner.temp }}/live.env
+          E2E_JOINER_HOME: ${{ runner.temp }}/joiner-home
+          GOV_TARBALL: ${{ steps.pack.outputs.tgz }}
+        run: bash publish/actions/ts/e2e/joiner-journey.sh
+      - name: Run adopter journey — close + teardown (always)
+        id: finish
+        if: always() && steps.guard.outputs.run == 'true'
+        env:
+          E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+          TGZ: ${{ steps.pack.outputs.tgz }}
+          E2E_PHASE: finish
+          E2E_HANDOFF: ${{ runner.temp }}/live.env
+        run: |
           GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" \
             bash publish/actions/ts/e2e/adopter-journey.sh
       # Its own step, run even when the adopter journey failed: the two prove different things.
@@ -378,8 +415,12 @@ jobs:
       - name: Live journeys — verdict
         if: always() && steps.guard.outputs.run == 'true'
         env:
-          ADOPTER: ${{ steps.adopter.outcome }}
-          RULEMODEL: ${{ steps.rulemodel.outcome }}
+          # `unconfigured`: the guard found no joiner secrets — allowed only where the guard allowed it (ruling Q2).
+          JOURNEYS: >-
+            adopter:${{ steps.adopter.outcome }}
+            joiner:${{ steps.guard.outputs.joiner == 'true' && steps.joiner.outcome || 'unconfigured' }}
+            adopter-close:${{ steps.finish.outcome }}
+            rule-model:${{ steps.rulemodel.outcome }}
           STRICT: ${{ steps.guard.outputs.strict }}
           E2E_SKIPS_FILE: ${{ runner.temp }}/live-skips.tsv
         run: bash publish/actions/ts/e2e/live-verdict.sh

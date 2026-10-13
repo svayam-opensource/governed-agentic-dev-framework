@@ -117,7 +117,7 @@ import { buildRulesAt } from "./rules-lifecycle.js";
 import { rulesFacts } from "./rules-verb.js";
 import { clearPending, readPending } from "../rules-pending.js";
 import { checkVersionCompat } from "../maintain/version-compat.js";
-import { runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
+import { joinNamed, runFirstRun, type FirstRunIo, type OrgIdentity } from "./bootstrap.js";
 import { ensureStarterProject, starterProject, starterSummary } from "../lifecycle/starter-project.js";
 import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } from "../config/approved-agents.js";
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
@@ -888,6 +888,16 @@ export async function runSetupCommand(
   // configure the workspace we are in, exactly as before. `--non-interactive` never creates, whatever
   // the cwd — creation must never be inferred from location, so a CI re-run cannot make a repository.
   const positional = "error" in parsed ? [] : parsed.positionals;
+  // THE JOINER'S MACHINE PATH (PRJ-121 intent 05, Item 4, ruling Q5): `--join <github_org>/<repo>` clones that org's
+  // governance repo to ~/.gov/<slug>/gov_repo, registers and activates it — the interactive B path, asking nothing.
+  if (!("error" in parsed) && flagBool(parsed.flags, "join")) {
+    const target = flagStr(parsed.flags, "join") ?? positional[0];
+    if (!target || (typeof parsed.flags["join"] === "string" && positional.length > 0)) {
+      process.stderr.write("gov setup --join: name exactly one <github_org>/<repo> — e.g. gov setup --join acme/acme-gov\n");
+      return 2;
+    }
+    return (await runFirstRunIfNeeded(now, target)) ?? 0;
+  }
   const setupContent = setupContentFlags("error" in parsed ? {} : parsed.flags);
   if ("error" in setupContent) {
     process.stderr.write(`gov setup: ${setupContent.error}\n`);
@@ -1275,7 +1285,11 @@ export async function runSetupCommand(
  * Everything interesting lives in bootstrap.ts, which knows nothing about git, disks or terminals. This
  * function is the part that cannot be unit-tested, so it is kept to plumbing with no decisions in it.
  */
-export async function runFirstRunIfNeeded(now: string = new Date().toISOString()): Promise<number | null> {
+export async function runFirstRunIfNeeded(
+  now: string = new Date().toISOString(),
+  /** `gov setup --join <github_org>/<repo>`: join THAT org without a terminal, whatever is registered (Q5). */
+  joinTarget?: string,
+): Promise<number | null> {
   const store = createNodeRegistryStore();
   const homes = store.readHomes();
   const facts = {
@@ -1284,8 +1298,8 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
     interactive: process.stdin.isTTY === true,
   };
   // The common path: decided from the registry alone, before a readline interface is opened.
-  if (facts.active && facts.orgs.includes(facts.active)) return null;
-  if (facts.orgs.length === 1) return null;
+  if (joinTarget === undefined && facts.active && facts.orgs.includes(facts.active)) return null;
+  if (joinTarget === undefined && facts.orgs.length === 1) return null;
 
   const env = createNodeEnv();
 
@@ -1526,7 +1540,7 @@ export async function runFirstRunIfNeeded(now: string = new Date().toISOString()
       return used.ok ? { ok: true } : { ok: false, message: used.message };
     },
   };
-  return await runFirstRun(io);
+  return joinTarget === undefined ? await runFirstRun(io) : await joinNamed(io, joinTarget);
 }
 
 /** Read the CLI's own version from its package.json. Walks up from this module
@@ -2412,6 +2426,7 @@ export async function runWork(argv: readonly string[]): Promise<number> {
       ...agentAskFromPreferences(loadPreferences().prefs),
       seedOk: argv.includes("--seed"),
       printPromptOnly: argv.includes("--print-prompt"),
+      noLaunch: argv.includes("--no-launch"),
       interactive,
       },
     );

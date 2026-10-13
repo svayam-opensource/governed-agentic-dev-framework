@@ -113,6 +113,10 @@ bash e2e/rule-model-journey.sh --dry-run   # hermetic: prints every gh/git/gov c
    so the secret needs no update). Delete any `rmj-*` / `gov-e2e-*` repos it left in
    the sandbox; the rule-model journey also sweeps `rmj-*` leftovers older than two
    hours once it can delete.
+5. **`TESTBED_JOINER_PAT`** + **`TESTBED_JOINER_LOGIN`** (secrets) — a SECOND member of the sandbox org, for the
+   live joiner journey (`e2e/joiner-journey.sh`, PRJ-121 intent 05 Item 4). Classic token: `repo`, `project`,
+   `read:org` — nothing more: the adopter bot (an org owner) grants it write on the run's repos and board, so its
+   own token is never widened. The login must differ from `TESTBED_BOT_PAT`'s; the journey fails loudly if not.
 
    **A fine-grained token must cover ALL repositories of the sandbox org.** The
    journeys create their repos during the run, so a token limited to *selected*

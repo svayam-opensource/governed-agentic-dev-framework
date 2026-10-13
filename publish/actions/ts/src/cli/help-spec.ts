@@ -60,7 +60,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   {
     name: "work", audience: "you",
     summary: "start or continue a project, and open your agent in it",
-    usage: "[<project-id>] [--project <pattern>] [--agent <id>] [--seed] [--print-prompt]",
+    usage: "[<project-id>] [--project <pattern>] [--agent <id>] [--seed] [--print-prompt] [--no-launch]",
     where: "anywhere. Inside a project, it continues THAT project",
     args: [{ name: "<project-id>", what: "a project to open, e.g. PRJ-43-billing. Without one, gov asks" }],
     flags: [
@@ -68,6 +68,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
       { name: "--agent <id>", what: "the agent to launch, without asking (`gov agent list` shows what your org approves). Without it, gov lists every approved agent — installed or not — when your org approves more than one, and Enter takes the one you used last time on the project, else the org default" },
       { name: "--seed", what: "allow STARTING a project nobody has started yet — org-visible, so never implied" },
       { name: "--print-prompt", what: "print the session-start prompt and stop: changes nothing, launches nothing" },
+      { name: "--no-launch", what: "set the project up on this machine (start or join it, as without the flag) and stop at \"ready\": no agent, editor or shell is started. For scripts and CI" },
     ],
     examples: ["gov work", "gov work --project=billing", "gov work --project=PRJ-43-billing --agent=claude --print-prompt"],
     changes: "clones the project's repos if they are not here, puts each on the project branch, writes the agent harness and the governance snapshot into the project folder, and launches your agent. When your organization approves more than one agent it first lists them all — choosing one that is not installed offers to install it — and Enter takes the agent you used last time on this project, else the organization's default (always the org default for a project you are starting from scratch, or when last time's agent is no longer approved or installed). With exactly one approved and installed, gov opens it and says so in one line. gov remembers your choice per project, on this machine only. `gov preferences set work.agent.ask never` opens the default without asking; with no terminal gov never asks, and says which agent it used. An agent stopped by its account (a trial ended, a quota used up, a rejected key) is named as such, and the list comes back without it",
@@ -102,15 +103,16 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   {
     name: "setup", audience: "you",
     summary: "set this machine up for an organization — the first `gov` run does this for you",
-    usage: "[<github_org>/<repo>] [--non-interactive] [--path <dir>] [--ref <commit|tag|branch>] [--from <dir>]",
+    usage: "[<github_org>/<repo>] [--join <github_org>/<repo>] [--non-interactive] [--path <dir>] [--ref <commit|tag|branch>] [--from <dir>]",
     args: [{ name: "<github_org>/<repo>", what: "create a NEW governance repo for that org. Without it, configure the workspace you are in" }],
     flags: [
+      { name: "--join <github_org>/<repo>", what: "JOIN that organization's existing governance repo without a terminal: clone it to ~/.gov/<slug>/gov_repo, register it and make it active. Asks nothing, offers nothing, never creates — a repo with no org-config.yaml is refused. For scripts and CI" },
       { name: "--non-interactive", what: "never create anything and never ask; for CI" },
       { name: "--path <dir>", what: "where to put the clone" },
       { name: "--ref <commit|tag|branch>", what: "seed the framework content at this ref of the template instead of the content this gov carries. Content that is not this gov's build is refused" },
       { name: "--from <dir>", what: "seed the framework content from a local directory instead of the content this gov carries. Checked the same way" },
     ],
-    examples: ["gov setup", "gov setup acme/acme-gov"],
+    examples: ["gov setup", "gov setup acme/acme-gov", "gov setup --join acme/acme-gov"],
     changes: "with an argument: creates the org's governance repository on GitHub, clones it, seeds the framework content this gov carries, registers and activates it; before its first push it fetches, and if the remote moved meanwhile it stops with the pull hint and never force-pushes. Without one: configures the workspace you are standing in, regenerates CODEOWNERS from the owners it wrote, and — on the default branch — offers to put only what it changed on a `gov-setup-<date>` branch and open the pull request (GOV-FRM-040); with --non-interactive, or declined, it commits nothing and prints those commands. On another branch it commits nothing and says where the changes are",
     exit: EXIT_USUAL,
     seeAlso: ["org", "doctor"],

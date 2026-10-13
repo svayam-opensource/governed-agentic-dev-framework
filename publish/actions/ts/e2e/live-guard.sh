@@ -12,8 +12,10 @@
 # read green.
 #
 # In (env): TOK ORG APP_ID APP_KEY GEMINI REAL_MODEL  — the secret/variable values (only emptiness is read)
+#           JOINER_TOK JOINER_LOGIN               — the second identity (TESTBED_JOINER_PAT / TESTBED_JOINER_LOGIN, I05.5)
 #           EVENT BASE_REF REF_NAME                    — github.event_name / github.base_ref / github.ref_name
-# Out ($GITHUB_OUTPUT): run=true|false, strict=true|false. Exit 1 when strict and something is missing.
+# Out ($GITHUB_OUTPUT): run=true|false, strict=true|false, joiner=true|false. Exit 1 when strict and something is
+#                      missing — the joiner's two secrets included: a skipped joiner journey fails a strict run (Q2).
 set -euo pipefail
 
 out() { if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "$1" >>"$GITHUB_OUTPUT"; fi; }
@@ -35,12 +37,18 @@ missing=""
 if [ "${REAL_MODEL:-false}" = "true" ] && [ -z "${GEMINI:-}" ]; then missing="$missing secret:GEMINI_API_KEY(real_model)"; fi
 # The sandbox App enables the rule-model journey's assertion (f). Without it (f) is skipped, and a skipped assertion
 # fails a strict run anyway — so a strict run names it here, before half an hour in the sandbox.
+# The live joiner journey (PRJ-121 intent 05, Item 4): a second svayam-e2e account. Required like the rest on a strict
+# run; elsewhere its absence skips only that journey, visibly.
+joiner_missing=""
+[ -n "${JOINER_TOK:-}" ] || joiner_missing="$joiner_missing secret:TESTBED_JOINER_PAT"
+[ -n "${JOINER_LOGIN:-}" ] || joiner_missing="$joiner_missing secret:TESTBED_JOINER_LOGIN"
+if [ -n "$joiner_missing" ]; then out "joiner=false"; else out "joiner=true"; fi
 app_missing=""
 [ -n "${APP_ID:-}" ] || app_missing="$app_missing secret:GOV_E2E_APP_CLIENT_ID"
 [ -n "${APP_KEY:-}" ] || app_missing="$app_missing secret:GOV_E2E_APP_PRIVATE_KEY"
 
 if [ "$strict" = true ]; then
-  all="$missing$app_missing"
+  all="$missing$joiner_missing$app_missing"
   if [ -n "$all" ]; then
     out "run=false"
     echo "::error::live journeys cannot run on ${EVENT:-this event}${BASE_REF:+ into $BASE_REF} — missing:$all (see publish/actions/ts/e2e/README.md). A skipped live tier is not green here (ruling Q2)."
@@ -57,6 +65,10 @@ if [ -n "$missing" ]; then
   exit 0
 fi
 out "run=true"
+if [ -n "$joiner_missing" ]; then
+  echo "::notice::joiner journey skipped — missing:$joiner_missing. Allowed only on a feature-branch push."
+  summary "**joiner journey: SKIPPED** — missing:$joiner_missing (feature-branch push; this run is not green evidence for it)"
+fi
 if [ -n "$app_missing" ]; then
   echo "::notice::sandbox App secrets missing:$app_missing — the rule-model journey will skip assertion (f) and report itself incomplete."
 fi

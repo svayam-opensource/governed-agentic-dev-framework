@@ -15,6 +15,16 @@
 #   CONTENT_DIR  path to the framework publish/content (the template source)
 # Optional:
 #   E2E_KEEP=1   skip teardown (leave artifacts for inspection)
+#
+# THE JOINER HANDOFF (PRJ-121 intent 05, Item 4 — T15). A second identity (e2e/joiner-journey.sh, bot B) works on THIS
+# run's project, so the run is split in two phases around it, both in the CI `live` job:
+#   E2E_PHASE=work    steps 1–5; with E2E_JOINER_LOGIN it also opens issue #2 for bot B and grants bot B write on the
+#                     two repos and the board. Everything a later step needs goes to E2E_HANDOFF (a sourceable env
+#                     file, appended as each thing is created, so a failure still leaves the teardown its list).
+#                     Nothing is deleted: the repos must outlive the joiner.
+#   E2E_PHASE=finish  reads E2E_HANDOFF; closes the project (step 6) and checks --gov-home (step 8) once the joiner is
+#                     done, then tears down everything the work phase recorded. Run with `if: always()`.
+#   unset / all       the whole journey in one process, as before (local and container runs).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=token-scopes.sh
@@ -23,12 +33,27 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/token-probe.sh"
 
 : "${E2E_ORG:?set E2E_ORG}"; : "${GH_TOKEN:?set GH_TOKEN}"; : "${GOV_TARBALL:?set GOV_TARBALL}"; : "${CONTENT_DIR:?set CONTENT_DIR}"
+PHASE="${E2E_PHASE:-all}"; HANDOFF="${E2E_HANDOFF:-}"
+case "$PHASE" in all|work|finish) ;; *) echo "E2E_PHASE must be all, work or finish (got '$PHASE')" >&2; exit 2 ;; esac
+[ "$PHASE" = all ] || [ -n "$HANDOFF" ] || { echo "E2E_PHASE=$PHASE needs E2E_HANDOFF (the file the two phases share)" >&2; exit 2; }
+JOINER_LOGIN="${E2E_JOINER_LOGIN:-}"
 RUN_ID="${E2E_RUN_ID:-$(date +%s)}"           # unique namespace per run
 SLUG="gov-e2e-${RUN_ID}"
 WS_REPO="${SLUG}-gov"                          # the adopter workspace repo
 CODE_REPO="${SLUG}-svc"                        # a code repo in the project
 ROOT="$(mktemp -d)"
 PASS=0; FAIL=0; CREATED=()
+# The finish phase takes the work phase's names (RUN_ID, repos, ROOT, the board, CREATED) from the handoff.
+if [ "$PHASE" = finish ]; then
+  [ -f "$HANDOFF" ] || { echo "  no handoff at $HANDOFF — the work phase created nothing to finish or tear down"; exit 0; }
+  rmdir "$ROOT" 2>/dev/null || true
+  # shellcheck disable=SC1090
+  . "$HANDOFF"
+fi
+# One line per fact, shell-quoted, appended as it becomes true — the finish phase and the joiner read it back.
+handoff() { [ -n "$HANDOFF" ] || return 0; local k; for k in "$@"; do printf '%s=%q\n' "$k" "${!k}" >>"$HANDOFF"; done; }
+created() { CREATED+=("$1"); [ -z "$HANDOFF" ] || printf 'CREATED+=(%q)\n' "$1" >>"$HANDOFF"; }
+if [ "$PHASE" = work ]; then : >"$HANDOFF"; handoff E2E_ORG RUN_ID SLUG WS_REPO CODE_REPO ROOT; fi
 step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32m✓ %s\033[0m\n' "$*"; PASS=$((PASS+1)); }
 die()  { printf '  \033[31m✗ %s\033[0m\n' "$*"; FAIL=$((FAIL+1)); [ -n "${GITHUB_ACTIONS:-}" ] && echo "::error::adopter journey: $*"; exit 1; }
@@ -46,7 +71,8 @@ assert_contains() { echo "$1" | grep -qF "$2" && ok "$3" || die "$3 — expected
 teardown() {
   local rc=$?
   trap - ERR
-  if [ "${E2E_KEEP:-0}" = "1" ]; then echo "E2E_KEEP=1 — leaving $WS_REPO / $CODE_REPO / project"; else
+  if [ "$PHASE" = work ]; then echo "  teardown deferred to the finish phase (E2E_PHASE=finish) — the joiner works in these repos first"
+  elif [ "${E2E_KEEP:-0}" = "1" ]; then echo "E2E_KEEP=1 — leaving $WS_REPO / $CODE_REPO / project"; else
   step "Teardown"
   # Only what this run created, and an exact account of what it could not delete (leak_report, token-scopes.sh).
   local leaked=() err
@@ -61,10 +87,65 @@ teardown() {
   rm -rf "$ROOT"
   fi
   # The verdict is the LAST line of the step, pass or fail — a failure must not end on a teardown that looks routine.
-  printf '\n\033[1m═══ adopter-journey: %d passed, %s ═══\033[0m\n' "$PASS" "$([ "$rc" -eq 0 ] && echo ok || echo "FAILED (exit $rc)")"
+  printf '\n\033[1m═══ adopter-journey%s: %d passed, %s ═══\033[0m\n' "$([ "$PHASE" = all ] || echo " ($PHASE phase)")" "$PASS" "$([ "$rc" -eq 0 ] && echo ok || echo "FAILED (exit $rc)")"
   exit "$rc"
 }
 trap teardown EXIT
+
+# ── 6 + 8, run last: by the single-process journey, or by the finish phase once the joiner is done ──
+close_and_check() {
+  # ── 6. Close the project (knowledge gate → promote → close board) ────────────
+  # close is project-level → back in the project worktree. First satisfy the C01
+  # pre-close: close proposes projects/<id>/knowledge/, so the project writes something there (no compliance.md or
+  # knowledge-close.md is required — PRJ-121 §3.3, §3.4).
+  step "document project knowledge (close gate) → gov close"
+  cd "$WS_WT"
+  KDIR="projects/$PID/knowledge"
+  mkdir -p "$KDIR"
+  printf '# Decisions\n\n- Implemented the e2e change.\n' > "$KDIR/decisions.md"
+  git add -A && git commit -qm "docs: project knowledge (close gate)" >/dev/null && ok "documented project knowledge" || die "knowledge commit failed"
+  CLOSE_OUT=$(gov close 2>&1) || { echo "$CLOSE_OUT" | tail -12; die "gov close failed"; }
+  [ "$(gh project view "$PROJ_NUM" --owner "$E2E_ORG" --format json --jq .closed 2>/dev/null)" = "true" ] && ok "close shut the board" \
+    || assert_contains "$CLOSE_OUT" "close" "close ran the gate"
+
+  # ── 8. Gap-2: --gov-home resolves from an unrelated cwd (project-state-agnostic) ─
+  # `doctor --gov-home <ws>` reports the resolved home path regardless of project
+  # state — the cleanest proof the override bypasses cwd-based resolution.
+  step "Gap-2 — --gov-home override"
+  cd /tmp
+  DOC_OUT=$(gov doctor --gov-home "$ROOT/$WS_REPO" 2>&1 || true)
+  assert_contains "$DOC_OUT" "$WS_REPO" "gov --gov-home resolved the workspace from an unrelated cwd"
+}
+
+# Bot B's way in, granted by bot A (the sandbox org's owner) — never by widening bot B's own token: issue #2 on the
+# board for bot B to take, write on both repos, write on the board. Each grant is read back, not assumed.
+joiner_prep() {
+  step "Prepare the joiner's share — issue #2 + access for $JOINER_LOGIN"
+  local me; me="$(gh api user --jq .login)"
+  [ "$JOINER_LOGIN" != "$me" ] || die "the joiner ($JOINER_LOGIN) is the adopter bot itself — TESTBED_JOINER_LOGIN must be a SECOND account"
+  gh api "orgs/$E2E_ORG/members/$JOINER_LOGIN" >/dev/null 2>&1 && ok "$JOINER_LOGIN is a member of $E2E_ORG" \
+    || die "$JOINER_LOGIN is not a member of $E2E_ORG — the second test account must be an org member (Policy Owner prerequisite P1)"
+  local r perm
+  for r in "$WS_REPO" "$CODE_REPO"; do
+    gh api -X PUT "repos/$E2E_ORG/$r/collaborators/$JOINER_LOGIN" -f permission=push >/dev/null || die "could not grant $JOINER_LOGIN write on $r"
+    perm="$(gh api "repos/$E2E_ORG/$r/collaborators/$JOINER_LOGIN/permission" --jq .permission 2>/dev/null || true)"
+    case "$perm" in write|admin|maintain) ok "$JOINER_LOGIN has $perm on $r" ;; *) die "$JOINER_LOGIN's permission on $r reads '${perm:-none}' after the grant" ;; esac
+  done
+  local pid uid role
+  pid="$(gh project view "$PROJ_NUM" --owner "$E2E_ORG" --format json --jq .id)"
+  uid="$(gh api "users/$JOINER_LOGIN" --jq .node_id)"
+  gh api graphql -f p="$pid" -f u="$uid" -f query='mutation($p:ID!,$u:ID!){updateProjectV2Collaborators(input:{projectId:$p,collaborators:[{userId:$u,role:WRITER}]}){clientMutationId}}' >/dev/null \
+    || die "could not make $JOINER_LOGIN a WRITER on board #$PROJ_NUM"
+  role="$(gh api graphql -f p="$pid" -f query='query($p:ID!){node(id:$p){... on ProjectV2{collaborators(first:50){edges{role node{... on User{login}}}}}}}' \
+    --jq ".data.node.collaborators.edges[]|select(.node.login==\"$JOINER_LOGIN\")|.role" 2>/dev/null || true)"
+  case "$role" in WRITER|ADMIN) ok "$JOINER_LOGIN is $role on board #$PROJ_NUM" ;; *) die "$JOINER_LOGIN's role on board #$PROJ_NUM reads '${role:-none}' after the grant" ;; esac
+  JOINER_ISSUE_URL=$(gh issue create --repo "$E2E_ORG/$CODE_REPO" --title "e2e: the joiner's change" --body "taken and landed by the second identity (joiner journey)") \
+    && ok "joiner's issue: $JOINER_ISSUE_URL" || die "joiner issue create failed"
+  local add; add="$(gh project item-add "$PROJ_NUM" --owner "$E2E_ORG" --url "$JOINER_ISSUE_URL" --format json 2>&1)" \
+    && ok "joiner's issue linked to board #$PROJ_NUM" || die "gh project item-add (joiner issue) failed: ${add%%$'\n'*}"
+  ADOPTER_LOGIN="$me"
+  handoff JOINER_ISSUE_URL ADOPTER_LOGIN JOINER_LOGIN
+}
 
 # ── 0. Bootstrap: node ≥24 · install the packed gov · authenticate gh ────────
 # Node acquisition is source-agnostic: use the runtime's node if it's already
@@ -95,11 +176,19 @@ ok "git identity set ($(git config --global user.email)) + git credential helper
 # CAN IT CLEAN UP? Checked before anything is created: without delete_repo every repo below is leaked.
 scope_check "$(gh api -i user 2>/dev/null || true)" "$E2E_ORG/$WS_REPO" "$E2E_ORG/$CODE_REPO"
 
+if [ "$PHASE" = finish ]; then
+  # A work phase that stopped early has nothing to close — only its teardown, which the EXIT trap does now.
+  [ "${WORK_DONE:-0}" = 1 ] || { echo "  the work phase did not finish — nothing to close; tearing down what it created"; exit 0; }
+  cd "$WS_WT" 2>/dev/null || die "the project workspace $WS_WT is gone (the work phase's HOME was not kept?)"
+  close_and_check
+  [ "$FAIL" -eq 0 ]; exit
+fi
+
 # ── 1. Create the workspace repo from the framework template ─────────────────
 step "Create adopter workspace repo ($E2E_ORG/$WS_REPO) from template content"
 gh repo create "$E2E_ORG/$WS_REPO" --private --clone -- "$ROOT/$WS_REPO" >/dev/null 2>&1 || \
   { gh repo create "$E2E_ORG/$WS_REPO" --private >/dev/null && gh repo clone "$E2E_ORG/$WS_REPO" "$ROOT/$WS_REPO" >/dev/null 2>&1; }
-CREATED+=("$E2E_ORG/$WS_REPO")
+created "$E2E_ORG/$WS_REPO"
 cp -R "$CONTENT_DIR"/. "$ROOT/$WS_REPO"/         # seed the workspace from publish/content (the template)
 cd "$ROOT/$WS_REPO"
 [ -f MANIFEST.yaml ] || die "template content missing (CONTENT_DIR wrong?)"
@@ -139,7 +228,7 @@ ORG_OUT="$( { gov org add "$E2E_ORG" --home "$PWD" && gov org use "$E2E_ORG"; } 
 # ── 3. Create a code repo + a Project board + an issue ──────────────────────
 step "Create code repo + project board + issue"
 # a real code repo has an initial commit + the base branch gov branches off of
-gh repo create "$E2E_ORG/$CODE_REPO" --private --add-readme >/dev/null && CREATED+=("$E2E_ORG/$CODE_REPO") && ok "code repo $CODE_REPO created" || die "code repo create failed"
+gh repo create "$E2E_ORG/$CODE_REPO" --private --add-readme >/dev/null && created "$E2E_ORG/$CODE_REPO" && ok "code repo $CODE_REPO created" || die "code repo create failed"
 CODE_BASE=$(grep -E '^default_code_branch:' org-config.yaml | sed -E 's/^default_code_branch:[[:space:]]*"?([^"#[:space:]]+).*/\1/')
 DEFB=$(gh api "repos/$E2E_ORG/$CODE_REPO" --jq .default_branch 2>/dev/null)
 if [ -n "$CODE_BASE" ] && [ "$CODE_BASE" != "$DEFB" ]; then
@@ -148,6 +237,7 @@ if [ -n "$CODE_BASE" ] && [ "$CODE_BASE" != "$DEFB" ]; then
 fi
 PROJ_URL=$(gh project create --owner "$E2E_ORG" --title "$SLUG" --format json --jq .url 2>/dev/null) && ok "project board: $PROJ_URL" || die "project create failed"
 PROJ_NUM="${PROJ_URL##*/}"
+handoff PROJ_URL PROJ_NUM
 ISSUE_URL=$(gh issue create --repo "$E2E_ORG/$CODE_REPO" --title "e2e: implement thing" --body "outcome under test" 2>/dev/null) && ok "issue: $ISSUE_URL" || die "issue create failed"
 # item-add's exit is checked and its failure named (it was `|| true` — PRJ-121 intent 05, Item 5).
 ADD_OUT="$(gh project item-add "$PROJ_NUM" --owner "$E2E_ORG" --url "$ISSUE_URL" --format json 2>&1)" && ok "issue linked to board" \
@@ -184,6 +274,7 @@ PID="PRJ-${PROJ_NUM}-${SLUG}"
 WS_WT="$AWR/$PID/$WS_REPO"
 [ -d "$WS_WT/.git" ] || WS_WT="$(find "$AWR" -maxdepth 3 -type d -name "$WS_REPO" 2>/dev/null | head -1)"
 [ -n "$WS_WT" ] && cd "$WS_WT" || die "seeded workspace worktree not found under $AWR"
+handoff PID WS_WT
 ok "in project workspace on $(git rev-parse --abbrev-ref HEAD)"
 
 TASK_OUT=$(gov task "$ISSUE_URL" 2>&1) || { echo "$TASK_OUT" | tail -8; die "gov task failed"; }
@@ -239,26 +330,13 @@ cd "$ROOT/$WS_REPO"
 KN_OUT=$(gov knowledge propose "e2e-decision-${RUN_ID}" 2>&1) || { echo "$KN_OUT" | tail -8; die "gov knowledge propose failed"; }
 assert_contains "$KN_OUT" "knowledge" "knowledge propose opened a change"
 
-# ── 6. Close the project (knowledge gate → promote → close board) ────────────
-# close is project-level → back in the project worktree. First satisfy the C01
-# pre-close: close proposes projects/<id>/knowledge/, so the project writes something there (no compliance.md or
-# knowledge-close.md is required — PRJ-121 §3.3, §3.4).
-step "document project knowledge (close gate) → gov close"
-cd "$WS_WT"
-KDIR="projects/$PID/knowledge"
-mkdir -p "$KDIR"
-printf '# Decisions\n\n- Implemented the e2e change.\n' > "$KDIR/decisions.md"
-git add -A && git commit -qm "docs: project knowledge (close gate)" >/dev/null && ok "documented project knowledge" || die "knowledge commit failed"
-CLOSE_OUT=$(gov close 2>&1) || { echo "$CLOSE_OUT" | tail -12; die "gov close failed"; }
-[ "$(gh project view "$PROJ_NUM" --owner "$E2E_ORG" --format json --jq .closed 2>/dev/null)" = "true" ] && ok "close shut the board" \
-  || assert_contains "$CLOSE_OUT" "close" "close ran the gate"
-
-# ── 8. Gap-2: --gov-home resolves from an unrelated cwd (project-state-agnostic) ─
-# `doctor --gov-home <ws>` reports the resolved home path regardless of project
-# state — the cleanest proof the override bypasses cwd-based resolution.
-step "Gap-2 — --gov-home override"
-cd /tmp
-DOC_OUT=$(gov doctor --gov-home "$ROOT/$WS_REPO" 2>&1 || true)
-assert_contains "$DOC_OUT" "$WS_REPO" "gov --gov-home resolved the workspace from an unrelated cwd"
-
+# ── 7. The joiner's share (PRJ-121 intent 05, Item 4 — T15) ─────────────────
+# Only in the split run: a single-process journey has no joiner to take issue #2, and an open #2 would block close.
+if [ -n "$JOINER_LOGIN" ] && [ "$PHASE" = work ]; then joiner_prep; fi
+if [ "$PHASE" = work ]; then
+  WORK_DONE=1; handoff WORK_DONE
+  ok "handoff written for the joiner and the finish phase"
+  exit 0                       # the EXIT trap prints the verdict; teardown is the finish phase's
+fi
+close_and_check
 [ "$FAIL" -eq 0 ]   # the verdict banner is printed by the EXIT trap, after teardown

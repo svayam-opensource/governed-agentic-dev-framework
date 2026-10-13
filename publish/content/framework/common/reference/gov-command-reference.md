@@ -87,7 +87,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 start or continue a project, and open your agent in it
 
 ```text
-gov work [<project-id>] [--project <pattern>] [--agent <id>] [--seed] [--print-prompt]
+gov work [<project-id>] [--project <pattern>] [--agent <id>] [--seed] [--print-prompt] [--no-launch]
 ```
 
 **Where.** anywhere. Inside a project, it continues THAT project
@@ -106,6 +106,7 @@ gov work [<project-id>] [--project <pattern>] [--agent <id>] [--seed] [--print-p
 | `--agent <id>` | the agent to launch, without asking (`gov agent list` shows what your org approves). Without it, gov lists every approved agent — installed or not — when your org approves more than one, and Enter takes the one you used last time on the project, else the org default |
 | `--seed` | allow STARTING a project nobody has started yet — org-visible, so never implied |
 | `--print-prompt` | print the session-start prompt and stop: changes nothing, launches nothing |
+| `--no-launch` | set the project up on this machine (start or join it, as without the flag) and stop at "ready": no agent, editor or shell is started. For scripts and CI |
 
 **Examples**
 
@@ -207,7 +208,7 @@ gov doctor --fix
 set this machine up for an organization — the first `gov` run does this for you
 
 ```text
-gov setup [<github_org>/<repo>] [--non-interactive] [--path <dir>] [--ref <commit|tag|branch>] [--from <dir>]
+gov setup [<github_org>/<repo>] [--join <github_org>/<repo>] [--non-interactive] [--path <dir>] [--ref <commit|tag|branch>] [--from <dir>]
 ```
 
 **Arguments**
@@ -220,6 +221,7 @@ gov setup [<github_org>/<repo>] [--non-interactive] [--path <dir>] [--ref <commi
 
 | flag | what it does |
 | --- | --- |
+| `--join <github_org>/<repo>` | JOIN that organization's existing governance repo without a terminal: clone it to ~/.gov/&lt;slug&gt;/gov_repo, register it and make it active. Asks nothing, offers nothing, never creates — a repo with no org-config.yaml is refused. For scripts and CI |
 | `--non-interactive` | never create anything and never ask; for CI |
 | `--path <dir>` | where to put the clone |
 | `--ref <commit|tag|branch>` | seed the framework content at this ref of the template instead of the content this gov carries. Content that is not this gov's build is refused |
@@ -230,6 +232,7 @@ gov setup [<github_org>/<repo>] [--non-interactive] [--path <dir>] [--ref <commi
 ```bash
 gov setup
 gov setup acme/acme-gov
+gov setup --join acme/acme-gov
 ```
 
 **Changes.** with an argument: creates the org's governance repository on GitHub, clones it, seeds the framework content this gov carries, registers and activates it; before its first push it fetches, and if the remote moved meanwhile it stops with the pull hint and never force-pushes. Without one: configures the workspace you are standing in, regenerates CODEOWNERS from the owners it wrote, and — on the default branch — offers to put only what it changed on a `gov-setup-<date>` branch and open the pull request (GOV-FRM-040); with --non-interactive, or declined, it commits nothing and prints those commands. On another branch it commits nothing and says where the changes are

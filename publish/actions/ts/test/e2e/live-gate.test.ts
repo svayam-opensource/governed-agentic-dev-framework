@@ -35,7 +35,7 @@ function runScript(script: string, env: Record<string, string>, files: Record<st
   return res;
 }
 
-const ALL = { TOK: "t", ORG: "svayam-e2e", APP_ID: "a", APP_KEY: "k" };
+const ALL = { TOK: "t", ORG: "svayam-e2e", APP_ID: "a", APP_KEY: "k", JOINER_TOK: "j", JOINER_LOGIN: "joiner-bot" };
 
 describe("e2e/live-guard.sh", function () {
   if (process.platform === "win32") return;
@@ -81,6 +81,32 @@ describe("e2e/live-guard.sh", function () {
     expect(r.out).to.not.include("::error::");
   });
 
+  // PRJ-121 intent 05, Item 4 (T15): the second identity's secrets are required like the rest on a strict run (Q2).
+  it("a dispatch without the joiner's secrets FAILS, naming both", () => {
+    const r = runScript(GUARD, { ...ALL, JOINER_TOK: "", JOINER_LOGIN: "", EVENT: "workflow_dispatch", REF_NAME: "BRNCH-121-x" });
+    expect(r.status, r.out).to.equal(1);
+    expect(r.out).to.match(/::error::.*secret:TESTBED_JOINER_PAT.*secret:TESTBED_JOINER_LOGIN/);
+    expect(r.output).to.include("joiner=false");
+  });
+
+  it("a PR into dev without TESTBED_JOINER_PAT fails", () => {
+    const r = runScript(GUARD, { ...ALL, JOINER_TOK: "", EVENT: "pull_request", BASE_REF: "dev", REF_NAME: "1/merge" });
+    expect(r.status).to.equal(1);
+    expect(r.out).to.match(/::error::.*secret:TESTBED_JOINER_PAT/);
+  });
+
+  it("a feature-branch push without the joiner's secrets runs the rest and skips the joiner VISIBLY", () => {
+    const r = runScript(GUARD, { ...ALL, JOINER_TOK: "", JOINER_LOGIN: "", EVENT: "push", REF_NAME: "BRNCH-121-x" });
+    expect(r.status, r.out).to.equal(0);
+    expect(r.output).to.include("run=true").and.include("joiner=false");
+    expect(r.out).to.match(/::notice::joiner journey skipped — missing:.*TESTBED_JOINER_PAT/);
+    expect(r.summary).to.match(/joiner journey: SKIPPED/);
+  });
+
+  it("with the joiner's secrets: joiner=true", () => {
+    expect(runScript(GUARD, { ...ALL, EVENT: "workflow_dispatch", REF_NAME: "x" }).output).to.include("joiner=true");
+  });
+
   it("real_model asked for without GEMINI_API_KEY fails a dispatch", () => {
     const r = runScript(GUARD, { ...ALL, REAL_MODEL: "true", EVENT: "workflow_dispatch", REF_NAME: "x" });
     expect(r.status).to.equal(1);
@@ -110,6 +136,34 @@ describe("e2e/live-verdict.sh", function () {
       { "skips.tsv": "rule-model\t(d) — the real model asked questions\n" });
     expect(r.status, r.out).to.equal(0);
     expect(r.out).to.match(/::warning::rule-model journey: incomplete — skipped \(d\)/);
+  });
+
+  const LIVE = (joiner: string, close = "success"): string => `adopter:success joiner:${joiner} adopter-close:${close} rule-model:success`;
+
+  it("the live job's four journeys, joiner included, each get a row", () => {
+    const r = runScript(VERDICT, { JOURNEYS: LIVE("success"), STRICT: "true" });
+    expect(r.status, r.out).to.equal(0);
+    expect(r.summary).to.match(/\| joiner \(second identity: join → work → task → merge\) \| success \|/)
+      .and.match(/\| adopter close \+ teardown \(after the joiner\) \| success \|/);
+  });
+
+  it("a failed joiner fails the job", () => {
+    const r = runScript(VERDICT, { JOURNEYS: LIVE("failure"), STRICT: "false" });
+    expect(r.status).to.equal(1);
+    expect(r.out).to.include("::error::joiner journey: failure");
+  });
+
+  it("a joiner skipped for lack of secrets fails a strict run, and only warns on a feature-branch push (Q2)", () => {
+    const strict = runScript(VERDICT, { JOURNEYS: LIVE("unconfigured"), STRICT: "true" });
+    expect(strict.status).to.equal(1);
+    expect(strict.out).to.match(/::error::joiner journey: not run — its secrets are not configured/);
+    const loose = runScript(VERDICT, { JOURNEYS: LIVE("unconfigured"), STRICT: "false" });
+    expect(loose.status, loose.out).to.equal(0);
+    expect(loose.out).to.match(/::warning::joiner journey: skipped/);
+  });
+
+  it("a joiner step that was skipped (not for lack of secrets) is a failure, never green", () => {
+    expect(runScript(VERDICT, { JOURNEYS: LIVE("skipped"), STRICT: "false" }).status).to.equal(1);
   });
 
   it("a failed or not-run journey fails the job whatever STRICT says", () => {

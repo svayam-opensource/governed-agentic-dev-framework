@@ -10,7 +10,10 @@
 # `incomplete`, which fails a strict run (dispatch, PRs into dev/main) and is a visible warning elsewhere.
 #
 # In (env): ADOPTER RULEMODEL — the steps' outcomes (success|failure|cancelled|skipped|"")
-#           JOURNEYS          — instead of those two: "<journey>:<outcome> …" (the bridge job: "bridge:<outcome>")
+#           JOURNEYS          — instead of those two: "<journey>:<outcome> …" (the live job: adopter, joiner,
+#                               adopter-close, rule-model; the bridge job: "bridge:<outcome>"). The outcome
+#                               `unconfigured` means the guard found no secrets for that journey: an error on a strict
+#                               run (ruling Q2), a visible warning on a feature-branch push.
 #           STRICT            — live-guard.sh's strict output
 #           E2E_SKIPS_FILE    — lines "<journey>\t<assertion>" appended by the journeys' skip() (may be absent)
 set -uo pipefail
@@ -31,6 +34,8 @@ for j in ${JOURNEYS:-"adopter:${ADOPTER:-}" "rule-model:${RULEMODEL:-}"}; do
   verdict="${outcome:-not run}"
   [ "$verdict" = success ] && [ -n "$skipped" ] && verdict=incomplete
   label="$name"; [ "$name" = adopter ] && label="adopter (seed → task → merge → close)"
+  [ "$name" = joiner ] && label="joiner (second identity: join → work → task → merge)"
+  [ "$name" = adopter-close ] && label="adopter close + teardown (after the joiner)"
   [ "$name" = bridge ] && label="bridge rehearsal (reset → upgrade --pr → propose → build → protect → install → doctor → journey)"
   list="$(printf '%s' "$skipped" | awk 'NF { printf "%sskipped: %s", (n++ ? "<br>" : ""), $0 }')"
   summary "| $label | $verdict | ${list:-—} |"
@@ -43,6 +48,9 @@ for j in ${JOURNEYS:-"adopter:${ADOPTER:-}" "rule-model:${RULEMODEL:-}"}; do
         else echo "::warning::$name journey: incomplete — skipped $s (allowed on a feature-branch push only)"; fi
       done <<<"$skipped"
       [ "$STRICT" = true ] && bad=1 ;;
+    unconfigured)
+      if [ "$STRICT" = true ]; then echo "::error::$name journey: not run — its secrets are not configured (a skipped journey is not green here, ruling Q2)"; bad=1
+      else echo "::warning::$name journey: skipped — its secrets are not configured (allowed on a feature-branch push only)"; fi ;;
     *) echo "::error::$name journey: $verdict"; bad=1 ;;
   esac
 done
