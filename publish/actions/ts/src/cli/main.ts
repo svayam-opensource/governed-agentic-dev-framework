@@ -52,6 +52,7 @@ import { startLoopback } from "./app-loopback.js";
 import { randomBytes } from "node:crypto";
 import { checkCommandAsync } from "./check-verb.js";
 import { packCommand } from "./pack-verb.js";
+import { createKeychain } from "../security/keychain.js";
 import { ensureCheckModule, evidenceDoctorRow, evidenceWanted, noticeOnce, setEvidenceContext } from "../check-seam/evidence.js";
 import { discoverModule } from "../check-seam/loader.js";
 import { boardLinkedRepos, checkStatusReport, checksDiagnostic, type LinkedRepos, type ScopeDeps } from "./check-scope.js";
@@ -2197,6 +2198,7 @@ function checkScopeDeps(fs: ReturnType<typeof createNodeFs>, config: { githubOrg
  */
 function setEvidenceFor(home: string, githubOrg: string): void {
   setEvidenceContext({
+    keychain: createKeychain(),
     surface: process.env.GITHUB_ACTIONS === "true" ? "ci" : "local",
     govHome: home,
     env: process.env,
@@ -2231,7 +2233,7 @@ export async function runPack(argv: readonly string[]): Promise<number> {
     writeFile: (abs, text) => createNodeFs().writeFile(abs, text),
     removeDir: (abs) => fsSync.rmSync(path.dirname(abs), { recursive: true, force: true }),
     packs: async () => {
-      const m = await ensureCheckModule({ surface: "local", govHome: home, env: process.env, govVersion: readCliVersion() });
+      const m = await ensureCheckModule({ surface: "local", govHome: home, env: process.env, govVersion: readCliVersion() }, { keychain: createKeychain() });
       return m.state === "active" ? m.module.packs : null;
     },
   });
@@ -2252,7 +2254,7 @@ export async function runCheck(argv: readonly string[]): Promise<number> {
   setEvidenceFor(home, config.githubOrg);
   const r = await checkCommandAsync(parsed.positionals, parsed.flags, {
     git, gh, env: process.env,
-    paidModule: () => ensureCheckModule({ surface: process.env.GITHUB_ACTIONS === "true" ? "ci" : "local", govHome: home, env: process.env, govVersion: readCliVersion() }),
+    paidModule: () => ensureCheckModule({ surface: process.env.GITHUB_ACTIONS === "true" ? "ci" : "local", govHome: home, env: process.env, govVersion: readCliVersion() }, { keychain: createKeychain() }),
     readFile: (f) => fs.readFile(f),
     writeFile: (f, t) => fs.writeFile(f, t),
     scope: checkScopeDeps(fs, config, "gov-work:cli:check"),
