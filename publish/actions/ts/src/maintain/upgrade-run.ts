@@ -268,7 +268,7 @@ function checkMigration(adopterDir: string, contentDir: string): (how: string) =
 
 function runMigration(adopterDir: string, ctx: MigrationContext): (how: string, from: string, to: string) => boolean | string {
   return (how, from, to) => {
-    const run = MIGRATIONS[how];
+    const run = MIGRATIONS[how] ?? BRIDGE_MIGRATIONS[how];
     if (!run) {
       log("warn", "a migration this gov does not know — left undone", "gov-work:maintain:upgrade-run", "migrate", { how, from, to });
       return false;
@@ -495,6 +495,7 @@ import { setupTokenValues, substituteTokens } from "../setup/create.js";
 import { commitSubject, splitPlan, unrecognisedEntries, upgradePrBody, type LeftInPlace, type UpgradeCommit, type UpgradeExtension } from "./upgrade-commits.js";
 import { BRIDGE } from "./bridge/index.js";
 import { appliedMoves, relocateOrgRows } from "./upgrade-relocate.js";
+import { BRIDGE_MIGRATIONS } from "./bridge/migrations.js";
 import type { UpgradePlan } from "./upgrade-sync.js";
 import { splitLoss, splitOrgConfig, type SplitInput } from "./org-config-split.js";
 

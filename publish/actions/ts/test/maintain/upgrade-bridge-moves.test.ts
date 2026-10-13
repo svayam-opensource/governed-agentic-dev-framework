@@ -50,10 +50,8 @@ const LEFT = [
   "knowledge/policies/proposed-policy-unit-documentation.md",
   "knowledge/policies/specs/",
   "knowledge/policies/use-cases/",
-  // Carried by a later bridge step — listed as left in place until it is (B06: roles.md, llm-governance.md). The
-  // framework-superseded policy and procedures are retired in commit 4 (B08).
-  "knowledge/policies/llm-governance.md",
-  "knowledge/policies/roles.md",
+  // roles.md and llm-governance.md are carried and retired by commit 3 (B06); the framework-superseded policy and
+  // procedures are retired in commit 4 (B08). None of them is "left in place".
 ];
 
 describe("bridge move table (B04)", () => {

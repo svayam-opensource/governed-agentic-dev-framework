@@ -164,7 +164,7 @@ describe("the §2 table (bridge) — what 'reaches §2' means", () => {
 });
 
 /** Fixtures whose expected failure has been fixed: they are plain tests now and guard the result. */
-const LANDED: ReadonlySet<FixtureName> = new Set<FixtureName>(["flat-1.2.3", "flat-with-org-rows"]);
+const LANDED: ReadonlySet<FixtureName> = new Set<FixtureName>(["layout-1.0", "flat-1.2.3", "flat-with-org-rows"]);
 
 (gitOk() ? describe : describe.skip)("gov upgrade --pr reaches spec §2 from every fixture (B01 harness)", function () {
   this.timeout(60_000);
