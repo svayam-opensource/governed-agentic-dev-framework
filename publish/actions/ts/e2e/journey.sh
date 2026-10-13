@@ -84,7 +84,10 @@ new_world() {
   export GH_STUB_TEMPLATE="$(cd "$TS_DIR/../../.." && pwd)"
   # `gov` as a wrapper on the built binary — the same shape install.sh writes, so PATH
   # behaves the way it does on a real machine.
-  printf '#!/usr/bin/env bash\nexec node "%s/lib/esm/cli/bin.js" "$@"\n' "$TS_DIR" > "$WORLD/bin/gov"
+  # The one addition: e2e/stub/vendor-fetch.mjs answers gov's own vendor-script download from the
+  # scenario's `curl` double (#205 moved the download into Node — see that file).
+  export GOV_E2E_VENDOR_CURL="$WORLD/bin/curl"
+  printf '#!/usr/bin/env bash\nexec node --import "%s/stub/vendor-fetch.mjs" "%s/lib/esm/cli/bin.js" "$@"\n' "$HERE" "$TS_DIR" > "$WORLD/bin/gov"
   chmod +x "$WORLD/bin/gh" "$WORLD/bin/git" "$WORLD/bin/gov"
   no_agents_installed
   TRANSCRIPT="$WORLD/transcript.txt"      # exactly what the terminal received, codes and all
