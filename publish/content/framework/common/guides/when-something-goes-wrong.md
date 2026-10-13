@@ -105,11 +105,11 @@ first and cuts the project branch from what the remote holds **now**, so a proje
 organization has already replaced. It could not reach the remote, so it stopped before creating anything. Check
 your network and access, then re-run. Your local default branch is never moved by seed — only `origin/main`.
 
-## `gov setup` says "the remote moved"
+## Setting up your organization says "the remote moved"
 
 Before its first push, setup fetches. If someone pushed to the governance repository's default branch while setup
 was running, setup stops instead of overwriting their work: your configuration is committed in the local clone and
-nothing was pushed. Run `git pull --rebase` in that clone, then `gov setup` again. gov never force-pushes.
+nothing was pushed. Run `git pull --rebase` in that clone, then run `gov` again to continue. gov never force-pushes.
 
 ## The test-merge gate fails after a sync
 

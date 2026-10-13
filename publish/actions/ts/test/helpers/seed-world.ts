@@ -75,6 +75,7 @@ export function recordingVcs(opts: SeedVcsOptions = {}): { vcs: Vcs; log: string
     lsRemoteRefs: () => opts.remoteRefs ?? [{ name: "dev", sha: "base-sha" }],
     defaultBranch: () => null,
     revParse: () => null,
+    fetchDefault: () => "policy-base-sha",
     currentBranch: () => "main",
     isAncestor: () => false,
     isClean: () => true,
