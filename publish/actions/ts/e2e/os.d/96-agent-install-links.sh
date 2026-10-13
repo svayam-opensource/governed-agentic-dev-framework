@@ -49,6 +49,10 @@ chmod +x "$STUBS/gh" "$STUBS/curl"
 stub_on_login_path "$STUBS/gh"   gh
 stub_on_login_path "$STUBS/curl" curl
 export PATH="$STUBS:$PATH"
+# AND THE DOWNLOAD gov MAKES ITSELF. Since #205 gov fetches the vendor script in Node rather than through
+# `curl | bash`, so the `curl` double is served to it by a preload (e2e/stub/vendor-fetch.mjs). NODE_OPTIONS
+# survives the login shell — /etc/profile resets PATH, not this.
+export NODE_OPTIONS="--import /src/publish/actions/ts/e2e/stub/vendor-fetch.mjs" GOV_E2E_VENDOR_CURL="$STUBS/curl"
 # THE STUB IS IN EFFECT, PROVED RATHER THAN ASSUMED — in the same kind of shell that will run
 # the install. Without this the whole fragment can quietly test the vendor's servers instead.
 in_a_new_login_shell 'curl -fsSL https://bob.ibm.com/download/bobshell.sh | grep -q agent-double' \
