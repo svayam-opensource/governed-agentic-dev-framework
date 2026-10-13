@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.{{MANIFEST_VERSION}}.schema.json
+# Rendered by packages/msi/scripts/winget.mjs from packages/msi/winget/ — do not edit by hand.
+# Per-user (Scope: user), no elevation: the MSI installs under %LOCALAPPDATA%\Programs\gov and puts only bin\ on the
+# user PATH. A newer MSI replaces the old one in place (MajorUpgrade, fixed UpgradeCode) — `winget upgrade Svayam.Gov`.
+PackageIdentifier: {{ID}}
+PackageVersion: {{VERSION}}
+InstallerType: wix
+Scope: user
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+UpgradeBehavior: install
+ReleaseDate: {{RELEASE_DATE}}
+Installers:
+{{INSTALLERS}}
+ManifestType: installer
+ManifestVersion: {{MANIFEST_VERSION}}

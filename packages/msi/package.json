@@ -8,7 +8,8 @@
   "scripts": {
     "test": "node --test test/*.test.ts",
     "build:msi": "node scripts/build.mjs",
-    "sign": "node scripts/sign.mjs"
+    "sign": "node scripts/sign.mjs",
+    "winget": "node scripts/winget.mjs"
   },
   "engines": {
     "node": ">=24"

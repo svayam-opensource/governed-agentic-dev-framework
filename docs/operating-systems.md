@@ -21,6 +21,11 @@ Install and put on `PATH`: `git`, `gh` (GitHub CLI, authenticated), `python3`,
   becomes `C:\Users\<you>\.svm\projects`. Keep `agent_work_root` as a portable
   `~/...` value (never a committed absolute path).
 
+## Windows: installing gov
+`winget install Svayam.Gov`, then run `gov` in a new terminal. It is a per-user MSI with its own Node, and it
+needs no administrator rights. See `docs/installing.md` for the details, and for the release-page fallback while
+winget's review is pending.
+
 ## Windows: how gov runs other programs and installs agents
 gov runs `git`, `gh`, `npm` and your agent for you. On Windows most of these are
 `.cmd` files rather than programs, so gov looks each one up the way Windows does
