@@ -664,8 +664,10 @@ elif have_tty; then
   # green report and a different command to discover, is the same "last mile handed
   # back" the report-only ending already was, one step further along.
   #
-  # Any gov command triggers the first-run flow; `list` is the least surprising one
-  # to be holding when it does.
+  # Bare `gov`: the first-run flow on a new machine, the menu on one already set up —
+  # and the same word the "Stopped here" branch and finish() tell them to type. It
+  # used to be `gov list`, a verb with no help page that the menu no longer offers
+  # (#257): a machine that was already set up printed a project list and stopped.
   say ""
   say "${B}Next: your organization.${RST}"
   say "${DIM}gov will ask whether you are adopting the framework or joining an existing setup.${RST}"
@@ -680,7 +682,7 @@ elif have_tty; then
       ;;
     *)
       say ""
-      gov list < /dev/tty || true
+      gov < /dev/tty || true
       ;;
   esac
   finish

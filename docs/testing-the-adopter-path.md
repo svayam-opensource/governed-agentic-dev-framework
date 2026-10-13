@@ -176,7 +176,7 @@ install `gh`, and walk you through signing in to GitHub.
 
 ```bash
 source ~/.bashrc     # this shell predates the install; it has never heard of gov
-gov list
+gov
 ```
 
 `source` is not optional and not superstition: `install.sh` appended the PATH entry
@@ -184,7 +184,7 @@ to a file your **already-running** shell read minutes ago. Skip it and the next
 thing you type is `gov: command not found`, which looks like a failed install and
 is not one.
 
-`gov list` is the shortest way to reach the **first-run role question** (A/B/C).
+Bare `gov` reaches the **first-run role question** (A/B/C) — the same hand-over `install.sh` makes.
 Answer **C** first — it only prints.
 
 ---
@@ -203,7 +203,7 @@ at least once.
 | 5 | **No sudo at all** | omit `dnf install -y sudo` too | Same, phrased for a machine with no `sudo` |
 | 6 | **No terminal** | `bash < install.sh` instead of `\| bash` | Reports, names `gov doctor --fix`, exits — must not hang |
 | 7 | **Unattended** | `gov doctor --fix --yes` | Never reaches `gh auth login`; names it as the human's remaining job |
-| 8 | **First run** | `gov list` | The A/B/C role question. **C** is the safe one to explore — it only prints |
+| 8 | **First run** | `gov` | The A/B/C role question. **C** is the safe one to explore — it only prints |
 
 ### Other distributions
 
