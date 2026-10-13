@@ -149,6 +149,11 @@ accepts the rule changed in place, as long as:
 
 Such a change needs only a patch version. The rule keeps its start, and its history does not change.
 
+`gov upgrade --pr` writes this change for you, in the same commit as the file moves: it re-sources each open rule whose
+cited file moved, bumps `policies/VERSION` by a patch, freezes `policies/history/<previous version>/`, and adds a
+"relocated" entry to `policies/CHANGELOG.md` that lists every section it carried. A rule whose cited text changed in
+the move is not touched: the upgrade names it in its output and in the pull request, and you revise it by hand.
+
 ---
 
 ## Infrastructure Owner Responsibilities

@@ -494,6 +494,7 @@ import { settleFrameworkReadme } from "./framework-readme.js";
 import { setupTokenValues, substituteTokens } from "../setup/create.js";
 import { commitSubject, splitPlan, unrecognisedEntries, upgradePrBody, type LeftInPlace, type UpgradeCommit, type UpgradeExtension } from "./upgrade-commits.js";
 import { BRIDGE } from "./bridge/index.js";
+import { appliedMoves, relocateOrgRows } from "./upgrade-relocate.js";
 import type { UpgradePlan } from "./upgrade-sync.js";
 import { splitLoss, splitOrgConfig, type SplitInput } from "./org-config-split.js";
 
@@ -631,7 +632,9 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     // Tokens are filled in every file this run created (§3.8) — with the migrations, once org-config is split.
     // The installed workflows travel in the same commit (Q9): the PR's own CI runs the gov that wrote them.
     const workflowLines = rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir), apply: true }).lines;
-    compiledLines = [...moveRootRecord(adopterDir, true), ...fillTokens(adopterDir, createdPaths(plan, applied)), ...workflowLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
+    // The org's rules that cite a file this upgrade moved follow it, in this commit (spec §3.5, T8): re-sourced, patch bump, snapshot, entry.
+    const relocationLines = relocateOrgRows(adopterDir, returnTo, appliedMoves(plan.actions, applied));
+    compiledLines = [...moveRootRecord(adopterDir, true), ...fillTokens(adopterDir, createdPaths(plan, applied)), ...relocationLines, ...workflowLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
     commitPart("migrations");
     proposal = ext.propose?.(adopterDir, contentDir) ?? proposal;   // reads what commit 4 retires, so before applying it
     applyPart("proposed-prose");
