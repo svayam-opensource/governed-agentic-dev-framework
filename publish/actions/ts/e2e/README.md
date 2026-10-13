@@ -29,6 +29,10 @@ bootstrap → workspace-from-template → `gov setup` → create repo/project/is
 seed → task → merge (issue closed) → knowledge propose → close (board shut) →
 `--gov-home` → teardown (deletes everything it created).
 
+Before merge it commits **only its own work file** and leaves gov's agent files uncommitted, as an adopter's
+clone has them. It then checks that `gov merge` refuses a stray file and names it, and that the real merge goes
+ahead past gov's own files (D20).
+
 - **Reproducible env:** `run-adopter-e2e.sh` builds a clean image from
   `e2e/Dockerfile` (node 24 + git + gh) if `$E2E_IMAGE` (default
   `gov-adopter-e2e:latest`) isn't present — no dependency on any personal image.

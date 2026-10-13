@@ -201,8 +201,23 @@ PWR=$(printf '%s\n' "$SEED_OUT" | sed -n 's/^  workspace: //p' | head -1)
 REPO_WT="${PWR/#\~/$HOME}/$CODE_REPO"
 [ -d "$REPO_WT/.git" ] || [ -f "$REPO_WT/.git" ] || die "code-repo clone not found at $REPO_WT (work root from gov seed: $PWR)"
 echo "e2e change $RUN_ID" >> "$REPO_WT/E2E.md"
-( cd "$REPO_WT" && git add -A && git commit -qm "e2e: implement thing (closes #${ISSUE_URL##*/})" )
-ok "committed a change on the task sub-branch"
+# ONLY THE WORK FILE IS COMMITTED (D20, Policy Owner 2026-10-13 — the T06 gap). `git add -A` used to commit gov's
+# agent files too, so CI never saw merge face them uncommitted. Now they stay as gov left them, and the run proves
+# two things: merge proceeds past gov's own files, and it names any OTHER uncommitted file.
+( cd "$REPO_WT" && git add -- E2E.md && git commit -qm "e2e: implement thing (closes #${ISSUE_URL##*/})" )
+ok "committed the work file only, on the task sub-branch"
+GOV_LEFT=$( { git -C "$REPO_WT" status --porcelain -uall; git -C "$WS_WT" status --porcelain -uall; } | wc -l | tr -d ' ')
+[ "$GOV_LEFT" -gt 0 ] && ok "gov's agent files are left uncommitted ($GOV_LEFT path(s)) for merge to face" \
+  || die "nothing is left uncommitted — the case D20 tests is not exercised (did gov seed place the harness?)"
+
+step "gov merge names a dirty file that is not gov's"
+echo "not gov's" > "$REPO_WT/e2e-stray.txt"
+STRAY_OUT=$(gov merge "$ISSUE_URL" 2>&1) && die "gov merge went ahead with e2e-stray.txt uncommitted"
+assert_contains "$STRAY_OUT" "e2e-stray.txt" "merge refused, naming the stray file"
+printf '%s\n' "$STRAY_OUT" | grep -qE "CLAUDE\.md|AGENTS\.md|\.claude/skills|\.agents/skills" \
+  && die "the refusal named gov's own agent files — they must never block (Q7)" || ok "and only that file — not gov's agent files"
+rm -f "$REPO_WT/e2e-stray.txt"
+
 step "gov merge"
 MERGE_OUT=$(gov merge "$ISSUE_URL" 2>&1) || {
   echo "$MERGE_OUT" | tail -8
