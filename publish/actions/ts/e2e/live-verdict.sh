@@ -10,6 +10,7 @@
 # `incomplete`, which fails a strict run (dispatch, PRs into dev/main) and is a visible warning elsewhere.
 #
 # In (env): ADOPTER RULEMODEL — the steps' outcomes (success|failure|cancelled|skipped|"")
+#           JOURNEYS          — instead of those two: "<journey>:<outcome> …" (the bridge job: "bridge:<outcome>")
 #           STRICT            — live-guard.sh's strict output
 #           E2E_SKIPS_FILE    — lines "<journey>\t<assertion>" appended by the journeys' skip() (may be absent)
 set -uo pipefail
@@ -23,12 +24,14 @@ bad=0
 summary "### Live journeys"
 summary "| journey | outcome | skipped assertions |"
 summary "|---|---|---|"
-for j in "adopter:${ADOPTER:-}" "rule-model:${RULEMODEL:-}"; do
+# shellcheck disable=SC2086  # JOURNEYS is a space-separated list of name:outcome words
+for j in ${JOURNEYS:-"adopter:${ADOPTER:-}" "rule-model:${RULEMODEL:-}"}; do
   name="${j%%:*}"; outcome="${j#*:}"
   skipped="$(skipped_for "$name")"
   verdict="${outcome:-not run}"
   [ "$verdict" = success ] && [ -n "$skipped" ] && verdict=incomplete
   label="$name"; [ "$name" = adopter ] && label="adopter (seed → task → merge → close)"
+  [ "$name" = bridge ] && label="bridge rehearsal (reset → upgrade --pr → propose → build → protect → install → doctor → journey)"
   list="$(printf '%s' "$skipped" | awk 'NF { printf "%sskipped: %s", (n++ ? "<br>" : ""), $0 }')"
   summary "| $label | $verdict | ${list:-—} |"
   case "$verdict" in

@@ -119,3 +119,16 @@ bash e2e/rule-model-journey.sh --dry-run   # hermetic: prints every gh/git/gov c
    board has no item at all (GitHub's index latency). Each run prints `probe:` lines
    (token kind; can it read the new repo, the issue, the board item) right after the
    issue is added. PRJ-121 intent 05, Item 5.
+
+## Tier 4 — bridge rehearsal (`bridge-journey.sh`, dispatch only)
+
+The Svayamtech migration rehearsed on `svayam-e2e/svm-prj-work-rehearsal` (PRJ-121 intent 01, spec §4.3 step 2):
+reset to H01's `h01-snapshot` → `gov upgrade --pr` → CI green → merge → `gov rules propose --all` (stub model) →
+`rules build` → `repo protect apply` → `check install` on `e2e-app` → `gov doctor` → seed / join / work / task /
+merge → a gov-cicd dry run. Live only with `gh workflow run adopter-e2e.yml -f bridge=true`; otherwise the `bridge`
+job runs the dry run. It refuses any repository outside the sandbox org, or one whose name lacks `rehearsal`.
+Details and what it needs: `docs/testing-the-adopter-path.md`, "The bridge tier".
+
+```bash
+bash e2e/bridge-journey.sh --dry-run   # hermetic: prints every gh/git/gov/gov-cicd call, makes none
+```

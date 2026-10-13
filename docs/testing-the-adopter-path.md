@@ -298,9 +298,9 @@ seven of them turned out to be real.
 
 ## What green means — adopter-e2e, computed
 
-`adopter-e2e` (`.github/workflows/adopter-e2e.yml`) runs five tiers: `smoke` (hermetic), `journey`
-(pty, three distros), `os-tier` (bare machines), and `live` (the adopter and rule-model journeys
-against real GitHub in the sandbox org). A run is **green** only when all of this is true, and
+`adopter-e2e` (`.github/workflows/adopter-e2e.yml`) runs these tiers: `smoke` (hermetic), `journey`
+(pty, three distros), `os-tier` (bare machines), `live` (the adopter and rule-model journeys
+against real GitHub in the sandbox org), and — on a manual dispatch only — `bridge` (below). A run is **green** only when all of this is true, and
 nobody decides it by reading a summary line:
 
 - the run concluded `success`, and **every job** concluded `success` — a skipped job is not a pass;
@@ -336,6 +336,51 @@ the verdict by `e2e/live-verdict.sh` (its last), which lists every journey and e
 in the run summary. Both are tested with the secrets unset (`test/e2e/live-gate.test.ts`), so proving
 the guard never needs the repository's real secrets removed. Token scopes are in
 `publish/actions/ts/e2e/README.md`.
+
+### The bridge tier — rehearsing the Svayamtech migration
+
+The bridge pre-release (`2.0.0-next.B`, PRJ-121 intent 01) carries Svayamtech's governance repo from its 1.0
+layout to the 2.0 layout in one `gov upgrade --pr`. Before that runs on the real repository it is rehearsed on a
+copy: `svayam-e2e/svm-prj-work-rehearsal`, private, one commit with no history, secret-scanned before it was
+pushed (H01). H01 tags that commit `h01-snapshot`. The copy is deleted once both real runs are done (H05).
+
+`publish/actions/ts/e2e/bridge-journey.sh` is the rehearsal (spec 01 §4.3 step 2) as a script:
+
+```mermaid
+flowchart LR
+  R[reset the copy to h01-snapshot<br/>+ point org-config at the sandbox] --> U[gov upgrade --pr<br/>CI green, merged]
+  U --> P[gov rules propose --all<br/>stub model, policy PR merged]
+  P --> B[gov rules build] --> PR[gov repo protect apply] --> I[gov check install<br/>on e2e-app]
+  I --> D[gov doctor: ok] --> J[seed, join, work,<br/>task, merge] --> C[gov-cicd dry run<br/>on the migrated copy]
+```
+
+- **Every run starts from the same tree.** It moves the copy's default branch back to `h01-snapshot`, closes open
+  pull requests and deletes the other branches. It then adds one commit that points `org-config.yaml` at the
+  sandbox org, never at Svayamtech, and makes CI install the gov under test.
+- **It refuses any other target**: a repository outside the sandbox org, a sandbox repository whose name does not
+  contain `rehearsal`, or the real org itself. It checks this before it reads a token.
+- **The copy is kept** after the run, so the Policy Owner can review the rehearsal PR (§4.3 step 4). What the run
+  created beside it — the board, the issue, the branch on `e2e-app` — is deleted.
+- **"CI green"** means every check run on the PR passed, except the checks that wait for an authorized approval
+  (`approver-check`, `GOV-FRM-455 · pull_request`). The bot is not the copy's approver.
+
+Run it from the workflow: `gh workflow run adopter-e2e.yml --ref <branch> -f bridge=true`. Without
+`bridge=true`, the `bridge` job runs the script's hermetic dry run (`--dry-run`: every call is printed and none is
+made). The job therefore never shows as skipped on a dispatch, and the green streak still counts the run. Its last
+step, `live-verdict.sh` with `JOURNEYS=bridge:<outcome>`, gives the verdict under the same rules as the `live` job:
+a skipped step (for example, no `GOV_CICD_PACKAGE` for the gov-cicd step) makes the rehearsal `incomplete`, and
+that fails the dispatch. `test/e2e/bridge-journey-dry.test.ts` checks the dry run, the refusals, the job's shape
+and its verdict without a token.
+
+| Bridge tier needs | |
+|---|---|
+| the copy `svayam-e2e/svm-prj-work-rehearsal` with tag `h01-snapshot` | H01 |
+| secret `TESTBED_BOT_PAT`, variable `TESTBED_SANDBOX_ORG` | as for `live` |
+| the sandbox code repo `svayam-e2e/e2e-app` (`BRIDGE_APP_REPO` to change) | step 5 is skipped (incomplete) without it |
+| variable `GOV_CICD_PACKAGE` (the gov-cicd package or tarball) | the gov-cicd step is skipped (incomplete) without it |
+
+The rehearsal is done when two runs in a row are clean (H02), on dev builds, and once more on the cut bridge
+(H03).
 
 **Board poll and token probe.** After adding its issue to the board, the adopter journey prints
 `probe:` lines (`e2e/token-probe.sh`): the token's kind, and whether it can read the new repo, the

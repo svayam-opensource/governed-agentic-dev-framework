@@ -44,6 +44,10 @@ on:
         description: "rule-model journey: propose with the REAL model (gemini, GEMINI_API_KEY) instead of the stub — costs a call"
         type: boolean
         default: false
+      bridge:
+        description: "bridge rehearsal: run e2e/bridge-journey.sh LIVE on svayam-e2e/svm-prj-work-rehearsal (resets it to H01's snapshot first). Off: its hermetic dry run"
+        type: boolean
+        default: false
 
 # ONE RUN PER COMMIT — see the note in node-ci.yml. `github.ref` differs between the push and
 # pull_request events for the same commit, so a ref-keyed group never deduplicated them.
@@ -229,4 +233,61 @@ jobs:
           RULEMODEL: ${{ steps.rulemodel.outcome }}
           STRICT: ${{ steps.guard.outputs.strict }}
           E2E_SKIPS_FILE: ${{ runner.temp }}/live-skips.tsv
+        run: bash publish/actions/ts/e2e/live-verdict.sh
+
+  # THE BRIDGE REHEARSAL (PRJ-121 intent 01, B09; spec 01 §4.3 step 2). bridge: deleted in D01 with the bridge.
+  #
+  # DISPATCH-ONLY. With the `bridge` input it resets the rehearsal copy (svayam-e2e/svm-prj-work-rehearsal) to H01's
+  # snapshot and runs the whole migration LIVE against it: upgrade --pr → CI green → merge → propose --all (stub model)
+  # → rules build → protect apply → check install → doctor → seed/join/work/task/merge → a gov-cicd dry run.
+  #
+  # WITHOUT the input it runs the SAME script hermetically (--dry-run: every call printed, none made) — never a skipped
+  # job or step. green-streak.sh reads every job of a dispatch and counts a skipped one as a failure (I05.1), so a
+  # job that skipped whenever nobody asked for the rehearsal would break every streak. One step decides the mode; the
+  # verdict (live-verdict.sh) names it, and the run summary says which ran.
+  bridge:
+    name: bridge rehearsal (dispatch only)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # The rehearsal waits on the upgrade PR's and the policy PR's CI (each installs the packed gov), capped at
+    # E2E_DEADLINE_SECS=2700 (45 min) of waiting, inside the timeout so the script's own trap cleans up.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Build + pack gov (test the exact artifact)
+        id: pack
+        working-directory: publish/actions/ts
+        run: |
+          npm ci && npm run build
+          echo "tgz=$PWD/$(npm pack --silent | tail -1)" >> "$GITHUB_OUTPUT"
+      - name: Bridge journey (live when dispatched with bridge, else its dry run)
+        id: bridge
+        env:
+          LIVE: ${{ inputs.bridge && '1' || '0' }}
+          E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+          TGZ: ${{ steps.pack.outputs.tgz }}
+          GOV_CICD_PACKAGE: ${{ vars.GOV_CICD_PACKAGE }}
+          E2E_DEADLINE_SECS: "2700"
+          E2E_SKIPS_FILE: ${{ runner.temp }}/bridge-skips.tsv
+        run: |
+          if [ "$LIVE" = 1 ]; then
+            # A live rehearsal needs the sandbox; missing either is a failure on a dispatch (ruling Q2), named.
+            [ -n "$E2E_ORG" ] && [ -n "$GH_TOKEN" ] || { echo "::error::bridge rehearsal: missing var:TESTBED_SANDBOX_ORG or secret:TESTBED_BOT_PAT"; exit 1; }
+            echo "### Bridge rehearsal: LIVE on $E2E_ORG/svm-prj-work-rehearsal" >> "$GITHUB_STEP_SUMMARY"
+            GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" bash publish/actions/ts/e2e/bridge-journey.sh
+          else
+            echo "### Bridge rehearsal: dry run (dispatch with \`bridge\` for the live rehearsal)" >> "$GITHUB_STEP_SUMMARY"
+            env -u GH_TOKEN -u E2E_ORG -u GOV_CICD_PACKAGE GOV_TARBALL="$TGZ" CONTENT_DIR="$PWD/publish/content" \
+              bash publish/actions/ts/e2e/bridge-journey.sh --dry-run
+          fi
+      - name: Bridge rehearsal — verdict
+        if: always()
+        env:
+          JOURNEYS: bridge:${{ steps.bridge.outcome }}
+          STRICT: "true"
+          E2E_SKIPS_FILE: ${{ runner.temp }}/bridge-skips.tsv
         run: bash publish/actions/ts/e2e/live-verdict.sh
