@@ -414,6 +414,9 @@ export function fillTokens(adopterDir: string, created: readonly string[], today
   const filled: string[] = [];
   for (const rel of created) {
     if (!/\.(md|ya?ml|json|txt)$/i.test(rel) && path.posix.basename(rel) !== "CODEOWNERS") continue;
+    // The FRAMEWORK's files (framework/, agent/) are written byte for byte as shipped: their prose names tokens such as
+    // `<ORG_NAME>` to explain them, and filling one would make the next upgrade see an edit and "update" it back.
+    if (rel.startsWith("framework/") || rel.startsWith("agent/")) continue;
     const p = path.join(adopterDir, rel);
     const before = readIf(p);
     if (before === null) continue;

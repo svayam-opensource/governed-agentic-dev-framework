@@ -163,6 +163,9 @@ describe("the §2 table (bridge) — what 'reaches §2' means", () => {
   });
 });
 
+/** Fixtures whose expected failure has been fixed: they are plain tests now and guard the result. */
+const LANDED: ReadonlySet<FixtureName> = new Set<FixtureName>(["flat-1.2.3"]);
+
 (gitOk() ? describe : describe.skip)("gov upgrade --pr reaches spec §2 from every fixture (B01 harness)", function () {
   this.timeout(60_000);
   for (const name of FIXTURE_NAMES) {
@@ -171,6 +174,11 @@ describe("the §2 table (bridge) — what 'reaches §2' means", () => {
       expect(u.code, u.lines.join("\n")).to.equal(0);
       expect(u.lines.join("\n")).to.match(/Opened upgrade PR/);
     });
+    if (LANDED.has(name)) {
+      it(`${name}: one upgrade PR reaches §2, with zero leftovers`, () => { reachesPhaseTree(name); });
+      it(`${name}: a second upgrade is a no-op`, () => { secondUpgradeIsNoOp(name); });
+      continue;
+    }
     xfail(`${name}: one upgrade PR reaches §2, with zero leftovers`, EXPECT[name].until, () => reachesPhaseTree(name));
     xfail(`${name}: a second upgrade is a no-op`, EXPECT[name].until, () => secondUpgradeIsNoOp(name));
   }

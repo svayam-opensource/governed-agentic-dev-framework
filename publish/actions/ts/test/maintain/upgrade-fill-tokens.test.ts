@@ -88,6 +88,17 @@ describe("gov upgrade fills the org tokens in every file it creates — and only
     expect(read(ws, "b.md")).to.equal("<ORG_NAME>\n");
   });
 
+  it("a framework-owned file keeps the tokens its prose names — otherwise the next upgrade 'updates' it back", () => {
+    const ws = workspace();
+    put(ws, "framework/guide.md", "write `<ORG_NAME>` where the org's name goes\n");
+    put(ws, "agent/agent.md", "<ORG_NAME>\n");
+    put(ws, "policies/p.md", "<ORG_NAME>\n");
+    fillTokens(ws, ["framework/guide.md", "agent/agent.md", "policies/p.md"], "2026-10-12");
+    expect(read(ws, "framework/guide.md")).to.equal("write `<ORG_NAME>` where the org's name goes\n");
+    expect(read(ws, "agent/agent.md")).to.equal("<ORG_NAME>\n");
+    expect(read(ws, "policies/p.md")).to.equal("Acme Corp\n");
+  });
+
   it("gov upgrade --pr: the created policy on the upgrade branch has its tokens filled", () => {
     const c = content(), ws = workspace();
     const remote = tmp("filltok-remote-");
