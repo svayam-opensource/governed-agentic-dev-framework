@@ -23,16 +23,25 @@ describe("gov-work — interactive menu (context-scoped)", () => {
 
   // The menu is the HUMAN surface. Status (list/list-all/status) left on 2026-08-07 — those are the
   // work-management system's answers — and Admin now carries only what an agent cannot do for you.
-  it("GOVERNED context: Work · Admin, and Admin is org + doctor + preferences + project + upgrade", () => {
+  it("GOVERNED context: Work · Admin, and Admin is org + doctor + preferences + project + issue + upgrade", () => {
     const g = { ...CTX, mode: "governed" as const };
     expect(labels(g)).to.deep.equal(["Work", "Admin"]);
     // `project` (#182, plan 03 L06): starting a project is a person's decision — what an agent cannot do for you.
-    expect(adminCmds(g)).to.deep.equal(["org", "doctor", "preferences", "project", "upgrade"]);
+    // `issue` beside it (D16, Policy Owner 2026-10-13).
+    expect(adminCmds(g)).to.deep.equal(["org", "doctor", "preferences", "project", "issue", "upgrade"]);
   });
 
-  it("PROJECT context: upgrade and project are governed-only, the rest travels", () => {
+  it("`issue` asks for its title (required), then the board and intent (optional) — the flags `gov issue` takes (D16)", () => {
+    const a = visibleActions({ ...CTX, mode: "project" as const, project: "PRJ-43" }).find((x) => x.label === "Admin");
+    const issue = a && a.kind === "submenu" ? a.commands.find((c) => c.cmd === "issue") : undefined;
+    expect(issue, "issue is in Admin").to.not.equal(undefined);
+    expect(issue!.argHint).to.equal(undefined);
+    expect(issue!.flagArgs?.map((f) => [f.name, !!f.optional])).to.deep.equal([["title", false], ["board", true], ["intent", true]]);
+  });
+
+  it("PROJECT context: upgrade and project are governed-only, the rest (issue included) travels", () => {
     const p = { ...CTX, mode: "project" as const, project: "PRJ-43" };
-    expect(adminCmds(p), "upgrade is governed-only; the rest travels").to.deep.equal(["org", "doctor", "preferences"]);
+    expect(adminCmds(p), "upgrade is governed-only; the rest travels").to.deep.equal(["org", "doctor", "preferences", "issue"]);
     expect(visibleActions(p).find((a) => a.label === "Status"), "Status is the work-mgmt system's").to.equal(undefined);
   });
 

@@ -85,10 +85,17 @@ export function mainActions(): MenuAction[] {
         { cmd: "reset", desc: "back to gov's default", argHint: "<key>" },
         { cmd: "path", desc: "where the file is" },
       ] },
-      // `project` (#182) IS here, unlike `issue`: deciding that a project exists is a person's act (intent stays
-      // human) — the one thing on this list you would never ask your agent for.
+      // `project` (#182): deciding that a project exists is a person's act (intent stays human) — the one thing on
+      // this list you would never ask your agent for. `issue` sits beside it (D16, Policy Owner 2026-10-13): a
+      // person files work too, and it travels — inside a project it lands on that project's board.
       { cmd: "project", desc: "create a project — board + anchor issue, assigned to you", argHint: "<name>", scopes: ["governed"],
         flagArgs: [{ name: "repo", hint: "code repos taking part, owner/name[,owner/name]", optional: true }] },
+      { cmd: "issue", desc: "create an issue — assigned to you, on the board", scopes: ["governed", "project"],
+        flagArgs: [
+          { name: "title", hint: "the issue's title" },
+          { name: "board", hint: "board number; default: the current project's", optional: true },
+          { name: "intent", hint: "intent NN to tag it into, e.g. 03", optional: true },
+        ] },
       { cmd: "upgrade", desc: "pull the latest framework content into this org", scopes: ["governed"] },
     ] },
     // HELP LEFT THE MENU (Policy Owner, 2026-09-22). A picker of 24 command names, each answering with one line,
