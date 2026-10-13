@@ -20,3 +20,6 @@ install.sh         text eol=lf
 # Test-bed golden snapshots are byte-compared — must never be CRLF.
 tests/bats/golden/** text eol=lf
 *.png  binary
+# cmd.exe misreads labels and long lines in LF batch files — Windows launchers and doubles stay CRLF.
+*.cmd  text eol=crlf
+*.bat  text eol=crlf

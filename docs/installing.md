@@ -29,6 +29,25 @@ Node through a small wrapper:
 the pipeline reports success. Nothing installs, and the first symptom is
 `gov: command not found` somewhere later, with nothing connecting the two.
 
+## Windows
+
+```powershell
+winget install Svayam.Gov
+```
+
+Then open a **new** terminal and run `gov`. The first run takes you through setup.
+
+The package is an MSI that installs for you alone. It needs no administrator rights and changes nothing
+machine-wide. It brings its own Node 24 and leaves any Node already on the machine untouched. It adds one folder
+to your PATH, `%LOCALAPPDATA%\Programs\gov\bin`. Double-clicking the `.msi` gives the same result, and its last page
+offers to launch gov. Update with `winget upgrade Svayam.Gov`. Uninstalling from *Installed apps* removes gov and the
+agents it installed, and keeps `~/.gov` (your workspaces and preferences).
+
+- **winget lags a release.** Microsoft reviews every winget listing, which takes hours to days. The signed
+  `gov-<version>-x64.msi` (or `-arm64.msi`) is on the release page as soon as the release is out. Use it when
+  `winget` does not offer the new version yet.
+- **Until the first signed MSI is released,** use `install.ps1`. The Windows code-signing certificate is pending.
+
 ---
 
 ## What changed from `prj`, for anyone following an old link
@@ -41,7 +60,7 @@ banner**: a reader who scrolled past the warning would have followed them.
 |---|---|
 | `npm i -g @svayam-opensource/prj` | `@svayam-opensource/gov`, installed by `install.sh`, which supplies its own Node |
 | The CLI is bash; needs `yq` and `python3` | Node 24 / TypeScript; no system Node required |
-| Windows: run inside Git Bash | Native Windows, no Git Bash. `install.ps1` is kept only as a machine path (CI, Server Core) and documented in the command reference (`gov help install`) |
+| Windows: run inside Git Bash | Native Windows, no Git Bash: the per-user MSI, through `winget install Svayam.Gov` (above). `install.ps1` is kept only as a machine path (CI, Server Core) and documented in the command reference (`gov help install`) |
 | Walk up from `$PWD` for `org-config.yaml` | `~/.gov/<org-slug>/gov_repo` is the bootstrap anchor; `$ADF_WORKSPACE` is gone, replaced by a per-invocation flag so it cannot stale-misdirect |
 | Data includes `registry.yaml` | There is no `registry.yaml` — GitHub is the source of truth, and the board number is the allocator |
 | Nothing changes for vendored use | Vendoring is gone; there is no vendored mode to be compatible with |
