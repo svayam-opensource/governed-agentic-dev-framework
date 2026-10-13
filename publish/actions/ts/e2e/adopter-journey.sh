@@ -141,14 +141,14 @@ joiner_prep() {
     perm="$(gh api "repos/$E2E_ORG/$r/collaborators/$JOINER_LOGIN/permission" --jq .permission 2>/dev/null || true)"
     case "$perm" in write|admin|maintain) ok "$JOINER_LOGIN has $perm on $r" ;; *) die "$JOINER_LOGIN's permission on $r reads '${perm:-none}' after the grant" ;; esac
   done
-  local pid uid role
+  local pid uid
   pid="$(gh project view "$PROJ_NUM" --owner "$E2E_ORG" --format json --jq .id)"
   uid="$(gh api "users/$JOINER_LOGIN" --jq .node_id)"
   gh api graphql -f p="$pid" -f u="$uid" -f query='mutation($p:ID!,$u:ID!){updateProjectV2Collaborators(input:{projectId:$p,collaborators:[{userId:$u,role:WRITER}]}){clientMutationId}}' >/dev/null \
     || die "could not make $JOINER_LOGIN a WRITER on board #$PROJ_NUM"
-  role="$(gh api graphql -f p="$pid" -f query='query($p:ID!){node(id:$p){... on ProjectV2{collaborators(first:50){edges{role node{... on User{login}}}}}}}' \
-    --jq ".data.node.collaborators.edges[]|select(.node.login==\"$JOINER_LOGIN\")|.role" 2>/dev/null || true)"
-  case "$role" in WRITER|ADMIN) ok "$JOINER_LOGIN is $role on board #$PROJ_NUM" ;; *) die "$JOINER_LOGIN's role on board #$PROJ_NUM reads '${role:-none}' after the grant" ;; esac
+  # GitHub has no query for a board's collaborators: the grant is read back by bot B itself (viewerCanUpdate) in
+  # the joiner journey, with bot B's own token — the only reading that proves bot B can write.
+  ok "$JOINER_LOGIN granted WRITER on board #$PROJ_NUM (bot B reads it back)"
   JOINER_ISSUE_URL=$(gh issue create --repo "$E2E_ORG/$CODE_REPO" --title "e2e: the joiner's change" --body "taken and landed by the second identity (joiner journey)") \
     && ok "joiner's issue: $JOINER_ISSUE_URL" || die "joiner issue create failed"
   local add; add="$(gh project item-add "$PROJ_NUM" --owner "$E2E_ORG" --url "$JOINER_ISSUE_URL" --format json 2>&1)" \

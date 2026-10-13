@@ -128,6 +128,9 @@ else
     sleep 3
   done
 fi
+CAN_W="$(xo true gh api graphql -F o="$E2E_ORG" -F n="$PROJ_NUM" -f query='query($o:String!,$n:Int!){organization(login:$o){projectV2(number:$n){viewerCanUpdate}}}' --jq .data.organization.projectV2.viewerCanUpdate 2>/dev/null)" || CAN_W=""
+[ "$CAN_W" = true ] && ok "bot B can write board #$PROJ_NUM (viewerCanUpdate, read with bot B's token)" \
+  || die "bot B cannot write board #$PROJ_NUM (viewerCanUpdate: ${CAN_W:-unreadable}) — the adopter's WRITER grant did not take"
 [ "$seen" = 1 ] && ok "bot B can read issue #${JOINER_ISSUE_URL##*/} on board #$PROJ_NUM" \
   || die "bot B cannot see issue #${JOINER_ISSUE_URL##*/} on board #$PROJ_NUM after 3 min — the board grant did not take, or the token lacks the project scope"
 assert_status() { local s
