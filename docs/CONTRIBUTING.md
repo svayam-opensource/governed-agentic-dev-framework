@@ -56,8 +56,8 @@ Failing local checks will fail in CI too — save yourself a round trip.
   all, with the runner's own Node stripped from `PATH`. The only place `install.ps1` is exercised.
 - **`adopter-e2e`** — the hermetic adopter smoke run, and the live-GitHub journey.
 - **`catalog-freshness`** — weekly, not per-PR: checks each approved agent's context filename against
-  its published package, and each pinned vendor install script against its `scriptSha256`. When a pin has
-  moved, it opens a pull request with the new digest for a person to review (see `SECURITY.md`).
+  its published package, and reports the digest of each vendor install script. No vendor script is
+  pinned, so it opens no pull requests (see `SECURITY.md`).
 
 All required checks must pass before merge. They are not gating opinion — they catch concrete
 invariant violations that would reach an adopter.

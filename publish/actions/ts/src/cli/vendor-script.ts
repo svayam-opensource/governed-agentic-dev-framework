@@ -15,7 +15,7 @@
  * ONE DOWNLOAD. The bytes that were hashed are the bytes handed to `bash` on stdin — never written to a file and
  * never fetched a second time, so there is no window between the check and the run (no fetch-twice TOCTOU).
  *
- * `catalog-freshness` proposes a new pin when a pinned script changes (scripts/catalog-freshness.mjs).
+ * No catalog entry is pinned today (D1, 2026-10-13); the pinned path stays for any vendor that is pinned later.
  */
 import { createHash } from "node:crypto";
 import { runInteractive } from "../run-process.js";

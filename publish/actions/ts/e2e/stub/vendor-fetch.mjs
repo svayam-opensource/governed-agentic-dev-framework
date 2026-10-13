@@ -13,8 +13,9 @@
 //   · the scenario's `curl` double (named by GOV_E2E_VENDOR_CURL) is still the one place that says what a vendor
 //     URL serves;
 //   · `fetch` is answered from it, and anything it does not serve FAILS — nothing leaves the world;
-//   · a PINNED entry is re-pinned to the double's bytes, so what runs is gov's real "pinned and matches" path.
-//     Drift refusal and the unpinned ask are proven in test/cli/agent-script-pin.test.ts, not here.
+//   · a PINNED entry (none today — D1 unpinned Bob) is re-pinned to the double's bytes, so what would run is gov's
+//     real "pinned and matches" path. Unpinned scripts are shown and ASKED about; the journeys answer `y`.
+//     Drift refusal is proven in test/cli/agent-script-pin.test.ts, not here.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";

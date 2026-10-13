@@ -139,10 +139,15 @@ describe("gov-work — the install plan carries the script, never a shell pipe (
     }
   });
 
-  it("IBM's script is stable across releases and pinned; Cursor's embeds its version and is asked about (Q16 C)", () => {
+  it("no vendor script is pinned: IBM's and Cursor's are both shown and asked about (D1 2026-10-13, revises Q16 C)", () => {
+    // D1: an IBM script change must never block installs, so Bob is unpinned like Cursor. The pinned path stays
+    // in vendor-script.ts (proven above with a synthetic pin) but no catalog entry uses it.
     const bob = AGENT_CATALOG.find((a) => a.id === "ibm-bob")!;
     const cursor = AGENT_CATALOG.find((a) => a.id === "cursor")!;
-    expect(bob.install?.scriptSha256).to.match(/^[0-9a-f]{64}$/);
+    expect(bob.install?.script).to.match(/^https:\/\//);
+    expect(bob.install?.scriptSha256).to.equal(undefined);
     expect(cursor.install?.scriptSha256).to.equal(undefined);
+    const all = AGENT_CATALOG.flatMap((a) => [a.install, ...(a.variants ?? []).map((v) => v.install)]);
+    expect(all.filter((i) => i?.scriptSha256 !== undefined), "a pinned catalog script").to.deep.equal([]);
   });
 });

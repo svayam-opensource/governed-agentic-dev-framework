@@ -18,20 +18,14 @@
  * only counts when a maintainer's email domain or the repository owner matches the vendor we
  * expect. A name that merely looks right is reported as a NEAR MISS, never as a finding.
  *
- * VENDOR SCRIPT PINS (#205, ruling Q16 C). Every catalog `install.script` is downloaded and hashed. A PINNED
- * script whose digest moved is a finding: gov refuses it at install time until a release carries the new pin, so
- * the pin must be re-reviewed. With `--write-pins` the new digest is written into src/cli/agent-catalog.ts, and
- * the workflow (.github/workflows/catalog-freshness.yml) raises that change as a pull request for a person to
- * review — READ THE NEW SCRIPT before merging it; the pin is only as good as that look. An unpinned script's
- * digest is reported for information (it changes per release; gov asks the adopter instead).
+ * VENDOR SCRIPTS (#205). Every catalog `install.script` is downloaded and hashed, and its digest reported for
+ * information. No catalog script is pinned (D1, 2026-10-13: Bob unpinned like Cursor — gov asks the adopter), so
+ * there is no pin to move and no pin-proposal pull request. Should a pin ever return, a moved pin is still a finding.
  *
  *   node scripts/catalog-freshness.mjs                report, exit 1 on a new vendor CLI or a moved pin
  *   node scripts/catalog-freshness.mjs --quiet        exit code only
- *   node scripts/catalog-freshness.mjs --write-pins   also rewrite moved pins in src/cli/agent-catalog.ts
  */
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { AGENT_CATALOG } from "../lib/esm/cli/agent-catalog.js";
 
 /**
@@ -104,8 +98,7 @@ for (const [id, { candidates, vendor }] of Object.entries(WATCH)) {
   }
 }
 
-// ── Vendor install-script pins ────────────────────────────────────────────────
-const writePins = process.argv.includes("--write-pins");
+// ── Vendor install scripts ────────────────────────────────────────────────────
 const scripts = new Map(); // url → pinned sha256 | null
 for (const a of AGENT_CATALOG) {
   for (const i of [a.install, ...(a.variants ?? []).map((v) => v.install)]) {
@@ -113,7 +106,6 @@ for (const a of AGENT_CATALOG) {
   }
 }
 let moved = 0;
-const rewrites = [];
 say("\nvendor install scripts — pinned digests against what the vendor serves today\n");
 for (const [url, pin] of scripts) {
   let digest;
@@ -128,19 +120,11 @@ for (const [url, pin] of scripts) {
   if (!pin) { say(`  ${url}  unpinned (asked at install)  sha256 ${digest}`); continue; }
   if (pin === digest) { say(`  ${url}  pin holds  ${digest}`); continue; }
   moved++;
-  rewrites.push([pin, digest]);
   say(`  ${url}  PIN MOVED`);
   say(`             pinned ${pin}`);
   say(`             now    ${digest}`);
   say("             → gov refuses this script until a release carries a new pin. Read the new script,");
-  say("               then update scriptSha256 in src/cli/agent-catalog.ts (or let --write-pins propose it).");
-}
-if (writePins && rewrites.length) {
-  const file = fileURLToPath(new URL("../src/cli/agent-catalog.ts", import.meta.url));
-  let text = readFileSync(file, "utf8");
-  for (const [from, to] of rewrites) text = text.replaceAll(from, to);
-  writeFileSync(file, text);
-  say(`\n  wrote ${rewrites.length} new pin(s) into src/cli/agent-catalog.ts — for review, not for trust`);
+  say("               then update scriptSha256 in src/cli/agent-catalog.ts.");
 }
 findings += moved;
 

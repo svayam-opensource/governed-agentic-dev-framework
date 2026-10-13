@@ -84,6 +84,9 @@ drive "$(conv <<'C'
 ~ 240
 > Proceed\? \(y/N\)
 < y
+# D1 (2026-10-13): IBM's script is UNPINNED like Cursor's — gov shows its URL and sha256 and asks.
+> Run this script
+< y
 > $
 C
 )" bash -lc "gov agent install ibm-bob"

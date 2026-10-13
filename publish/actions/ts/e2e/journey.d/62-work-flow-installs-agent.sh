@@ -67,6 +67,9 @@ drive "$(conv <<'C'
 < 1
 > Install IBM Bob now
 < y
+# D1 (2026-10-13): IBM's script is UNPINNED like Cursor's — gov shows its URL and sha256 and asks.
+> Run this script
+< y
 # THE ASSERTION IS THAT THESE TWO PROMPTS ARE REACHED AND WAIT. Before the fix the whole
 # screen scrolled past unanswered, because a readline already held fd 0.
 > Choose \[1-3\]

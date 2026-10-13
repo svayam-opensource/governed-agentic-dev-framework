@@ -73,6 +73,9 @@ drive "$(conv <<'C'
 < 1
 > Install IBM Bob now
 < y
+# D1 (2026-10-13): IBM's script is UNPINNED like Cursor's — gov shows its URL and sha256 and asks.
+> Run this script
+< y
 # 3 = Skip for now. The walk's person took the browser route, which in a container amounts to
 # the same thing: no key reaches the agent.
 > Choose \[1-3\]
