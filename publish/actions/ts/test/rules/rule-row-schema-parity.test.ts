@@ -114,6 +114,24 @@ const AGREE: Case[] = [
   { name: "PR 0", store: "framework", text: store({ ...BASE, start: { version: "1.2.3", date: "2026-10-06", pr: 0 } }), tsKind: "bad-stamp" },
   { name: "a fractional PR", store: "framework", text: store({ ...BASE, start: { version: "1.2.3", date: "2026-10-06", pr: 1.5 } }), tsKind: "bad-stamp" },
   { name: "a malformed end", store: "framework", text: store({ ...BASE, end: { version: "x", date: "2026-10-07" } }), tsKind: "bad-stamp" },
+  // D18 (Policy Owner, 2026-10-13): the validator is tightened to the schema — cue, check shape, qa, source strings.
+  { name: "a source sha that YAML reads as a number", store: "framework", text: store({ ...BASE, source: { doc: "d.md", section: "1", sha: 1234567 } }), tsKind: "bad-source" },
+  { name: "a source section that YAML reads as a number", store: "framework", text: store({ ...BASE, source: { doc: "d.md", section: 3, sha: "abc" } }), tsKind: "bad-source" },
+  { name: "a cue with no text", store: "framework", text: store({ ...BASE, cue: { tier: "resident" } }), tsKind: "bad-cue" },
+  { name: "a cue with no tier", store: "framework", text: store({ ...BASE, cue: { text: "STOP." } }), tsKind: "bad-cue" },
+  { name: "a cue with an unknown tier", store: "framework", text: store({ ...BASE, cue: { tier: "sometimes", text: "x" } }), tsKind: "bad-cue" },
+  { name: "a cue whose text is a number", store: "framework", text: store({ ...BASE, cue: { tier: "resident", text: 5 } }), tsKind: "bad-cue" },
+  { name: "a cue that is a bare string", store: "framework", text: store({ ...BASE, cue: "STOP." }), tsKind: "bad-cue" },
+  { name: "checks that are not a list", store: "framework", text: store({ ...BASE, checks: { action: "x" } }), tsKind: "bad-check" },
+  { name: "a check with no on", store: "framework", text: store({ ...BASE, checks: [{ action: "gh-action/landed-by-pr" }] }), tsKind: "bad-check" },
+  { name: "a check with no event", store: "framework", text: store({ ...BASE, checks: [{ on: { resource: "vcs.gov-repo" }, action: "a" }] }), tsKind: "bad-check" },
+  { name: "a check with no action", store: "framework", text: store({ ...BASE, checks: [{ on: { resource: "vcs.gov-repo", event: "push" } }] }), tsKind: "bad-check" },
+  { name: "a check whose with is a list", store: "framework", text: store({ ...BASE, checks: [{ on: { resource: "r", event: "e" }, action: "a", with: ["x"] }] }), tsKind: "bad-check" },
+  { name: "a check with an unknown on_miss", store: "framework", text: store({ ...BASE, checks: [{ on: { resource: "r", event: "e" }, action: "a", on_miss: "explode" }] }), tsKind: "bad-check" },
+  { name: "a check that is not an object", store: "framework", text: store({ ...BASE, checks: ["gh-action/landed-by-pr"] }), tsKind: "bad-check" },
+  { name: "qa that is not a list", store: "framework", text: store({ ...BASE, qa: { q: "why?", a: "because" } }), tsKind: "bad-qa" },
+  { name: "a qa entry with no answer", store: "framework", text: store({ ...BASE, qa: [{ q: "why?" }] }), tsKind: "bad-qa" },
+  { name: "a qa answer that YAML reads as a number", store: "framework", text: store({ ...BASE, qa: [{ q: "how many?", a: 3 }] }), tsKind: "bad-qa" },
 ];
 
 /** Rules JSON Schema cannot say: the schema accepts the store, the validator refuses it. */
@@ -168,6 +186,7 @@ describe("rule-row.schema.yaml — held to validateRuleStore (Item 9, Q10)", () 
   it("the corpus exercises every per-row diagnostic the validator has", () => {
     const covered = new Set([...AGREE, ...TS_ONLY].map((c) => c.tsKind).filter(Boolean));
     const all: RowDiagnosticKind[] = ["bad-id", "wrong-scope", "bad-source", "bad-expectation", "bad-actor", "bad-level", "bad-stamp",
+      "bad-cue", "bad-check", "bad-qa",
       "gov-client-in-org", "c02-in-framework", "resident-cue-not-c01", "resident-cue-no-agent", "two-in-force", "broken-chain",
       "end-before-start", "on-demand-cue-unbound"];
     for (const k of all) if (!ROW_WARNINGS.has(k)) expect(covered.has(k), `no corpus row for ${k}`).to.equal(true);

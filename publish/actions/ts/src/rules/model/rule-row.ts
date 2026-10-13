@@ -57,6 +57,7 @@ export interface RuleRow {
 
 export type RowDiagnosticKind =
   | "bad-id" | "wrong-scope" | "bad-source" | "bad-expectation" | "bad-actor" | "bad-level" | "bad-stamp"
+  | "bad-cue" | "bad-check" | "bad-qa"
   | "gov-client-in-org" | "c02-in-framework" | "resident-cue-not-c01" | "resident-cue-no-agent"
   | "two-in-force" | "broken-chain" | "end-before-start"
   | "on-demand-cue-unbound";
@@ -113,6 +114,24 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const stampOk = (s: Stamp | null | undefined): boolean =>
   !!s && VERSION.test(s.version) && DATE.test(s.date) && (s.pr === undefined || (Number.isInteger(s.pr) && s.pr > 0));
 
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const TIERS: readonly string[] = ["resident", "on-demand"];
+const ON_MISS: readonly string[] = ["fail", "warn"];
+
+/**
+ * THE SHAPES THE SCHEMA STATES (D18, Policy Owner 2026-10-13): what a check binding looks like as written — not whether
+ * its action is in the catalog, which `gov rules check` judges against the catalogs. Null = fine, else why not.
+ */
+function checkShapeProblem(c: unknown): string | null {
+  if (!isObj(c)) return "a check is a mapping with on and action";
+  if (!isObj(c.on) || !isStr(c.on.resource) || !isStr(c.on.event)) return "a check needs on: { resource, event }, both text";
+  if (!isStr(c.action)) return "a check needs an action (text)";
+  if (c.with !== undefined && !isObj(c.with)) return "a check's with is a mapping of parameters";
+  if (c.on_miss !== undefined && !ON_MISS.includes(c.on_miss as string)) return `on_miss is fail or warn, not "${String(c.on_miss)}"`;
+  return null;
+}
+
 /** The rows in force: the open row of each id. */
 export const inForce = (rows: readonly RuleRow[]): RuleRow[] => rows.filter((r) => r.end === null);
 
@@ -134,7 +153,10 @@ export function validateRuleStore(rows: readonly RuleRow[], store: { readonly sc
     if (isOrg ? g.scope === FRAMEWORK_SCOPE : g.scope !== FRAMEWORK_SCOPE) {
       d("wrong-scope", `${r.id} does not belong in the ${isOrg ? "organization's" : "framework's"} store`);
     }
-    if (!r.source || !r.source.doc || !r.source.section || !r.source.sha) d("bad-source", `${r.id}: source needs doc, section and sha`);
+    // Each a non-empty STRING (D18): an unquoted `sha: 1234567` or `section: 3` reads as a number, which the schema refuses.
+    if (!isObj(r.source) || ![r.source.doc, r.source.section, r.source.sha].every((v) => isStr(v) && v !== "")) {
+      d("bad-source", `${r.id}: source needs doc, section and sha, each as text (quote a number-like section or sha)`);
+    }
     if (typeof r.expectation !== "string" || r.expectation.trim() === "") d("bad-expectation", `${r.id}: the expectation is empty`);
     if (!LEVELS.includes(r.level)) d("bad-level", `${r.id}: level "${r.level}" is not C01, C02 or C03`);
 
@@ -150,6 +172,20 @@ export function validateRuleStore(rows: readonly RuleRow[], store: { readonly sc
     // C02 is the level WITH an exception route, and a framework rule has none (fixed; exceptions are for org policy).
     // So a framework rule is C01 or C03 (Policy Owner, W2-Q1, 2026-10-06).
     if (!isOrg && r.level === "C02") d("c02-in-framework", `${r.id}: a framework rule cannot be C02 — nothing can grant it an exception; make it C01 or C03`);
+
+    const cue: unknown = r.cue;
+    if (cue !== undefined && (!isObj(cue) || !TIERS.includes(cue.tier as string) || !isStr(cue.text))) {
+      d("bad-cue", `${r.id}: a cue needs tier (resident or on-demand) and text`);
+    }
+    const checks: unknown = r.checks;
+    if (checks !== undefined) {
+      const why = Array.isArray(checks) ? checks.map(checkShapeProblem).find((x) => x !== null) : "checks is a list of bindings";
+      if (why) d("bad-check", `${r.id}: ${why}`);
+    }
+    const qa: unknown = r.qa;
+    if (qa !== undefined && !(Array.isArray(qa) && qa.every((e) => isObj(e) && isStr(e.q) && isStr(e.a)))) {
+      d("bad-qa", `${r.id}: qa is a list of { q, a }, each as text`);
+    }
 
     if (r.cue?.tier === "resident") {
       if (r.level !== "C01") d("resident-cue-not-c01", `${r.id}: a resident cue is only for a C01 rule — use tier on-demand`);

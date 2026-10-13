@@ -396,7 +396,10 @@ The shape of a row is published as `framework/rules/rule-row.schema.yaml`, a JSO
 tool can check a set of rows against. Three things it cannot say, because they look across several rows or
 compare versions: only one row of a rule is in force at a time; each closed revision ends at the version where
 the next one starts; and no row ends before it starts. `gov rules check` checks those three as well as
-everything the schema checks, and gov's tests keep the schema and `gov rules check` in agreement.
+everything the schema checks, and gov's tests keep the schema and `gov rules check` in agreement. That
+includes the cue (a tier and its text), each check's shape, the interview's questions and answers, and the
+source's document, section and sha, which must be text. Quote a section or sha that looks like a number, for
+example `section: "3"`.
 
 ### 9.2 Two sets of rows
 

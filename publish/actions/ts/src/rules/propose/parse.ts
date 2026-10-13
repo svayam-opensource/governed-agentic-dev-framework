@@ -251,7 +251,7 @@ const choseResident = (a: string): boolean => {
 };
 
 /** Store diagnostics about what gov — not the model — supplies (id, stamps, history) are not the model's to fix. */
-const GOVS_OWN: ReadonlySet<RowDiagnosticKind> = new Set(["bad-id", "wrong-scope", "bad-source", "bad-stamp", "two-in-force", "broken-chain", "end-before-start"]);
+const GOVS_OWN: ReadonlySet<RowDiagnosticKind> = new Set(["bad-id", "wrong-scope", "bad-source", "bad-stamp", "bad-qa", "two-in-force", "broken-chain", "end-before-start"]);
 
 /** The stamp a candidate row is validated with. Never written: applyVerdicts stamps the real rows. */
 const PROBE_STAMP = { version: "0.0.0", date: "1970-01-01" } as const;
