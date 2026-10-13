@@ -332,6 +332,20 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           REF_NAME: ${{ github.ref_name }}
         run: bash publish/actions/ts/e2e/live-guard.sh
+      # IS THE JOINER A USABLE SECOND IDENTITY? Seconds, before the adopter journey's minutes: the token authenticates,
+      # as TESTBED_JOINER_LOGIN, not as the adopter bot, and is an active org member (e2e/joiner-identity.sh). Its
+      # failure does not stop the adopter and rule-model journeys (continue-on-error); the joiner then does not run,
+      # and the verdict fails the job naming it.
+      - name: Joiner identity — a second, active svayam-e2e account?
+        id: identity
+        if: steps.guard.outputs.run == 'true' && steps.guard.outputs.joiner == 'true'
+        continue-on-error: true
+        env:
+          E2E_ORG: ${{ vars.TESTBED_SANDBOX_ORG }}
+          JOINER_TOKEN: ${{ secrets.TESTBED_JOINER_PAT }}
+          JOINER_LOGIN: ${{ secrets.TESTBED_JOINER_LOGIN }}
+          ADOPTER_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+        run: bash publish/actions/ts/e2e/joiner-identity.sh
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.run == 'true'
         with:
@@ -359,7 +373,7 @@ jobs:
           TGZ: ${{ steps.pack.outputs.tgz }}
           E2E_PHASE: work
           E2E_HANDOFF: ${{ runner.temp }}/live.env
-          E2E_JOINER_LOGIN: ${{ steps.guard.outputs.joiner == 'true' && secrets.TESTBED_JOINER_LOGIN || '' }}
+          E2E_JOINER_LOGIN: ${{ steps.identity.outcome == 'success' && secrets.TESTBED_JOINER_LOGIN || '' }}
         run: |
           # The ephemeral runner IS the clean slate — run the journey directly
           # (node 24 + gh are present); no container needed in CI.
@@ -369,7 +383,7 @@ jobs:
       # is a SECOND account — its login is TESTBED_JOINER_LOGIN and not bot A's — and fails loudly otherwise.
       - name: Run joiner journey (second identity, real GitHub)
         id: joiner
-        if: steps.guard.outputs.run == 'true' && steps.guard.outputs.joiner == 'true' && !cancelled()
+        if: steps.guard.outputs.run == 'true' && steps.identity.outcome == 'success' && !cancelled()
         env:
           GH_TOKEN: ${{ secrets.TESTBED_JOINER_PAT }}
           E2E_JOINER_LOGIN: ${{ secrets.TESTBED_JOINER_LOGIN }}
@@ -418,7 +432,7 @@ jobs:
           # `unconfigured`: the guard found no joiner secrets — allowed only where the guard allowed it (ruling Q2).
           JOURNEYS: >-
             adopter:${{ steps.adopter.outcome }}
-            joiner:${{ steps.guard.outputs.joiner == 'true' && steps.joiner.outcome || 'unconfigured' }}
+            joiner:${{ steps.guard.outputs.joiner == 'true' && (steps.identity.outcome == 'success' && steps.joiner.outcome || 'identity-failed') || 'unconfigured' }}
             adopter-close:${{ steps.finish.outcome }}
             rule-model:${{ steps.rulemodel.outcome }}
           STRICT: ${{ steps.guard.outputs.strict }}

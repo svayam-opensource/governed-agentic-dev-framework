@@ -126,9 +126,10 @@ joiner_prep() {
   [ "$JOINER_LOGIN" != "$me" ] || die "the joiner ($JOINER_LOGIN) is the adopter bot itself — TESTBED_JOINER_LOGIN must be a SECOND account"
   # The membership as the org's owner sees it: active, pending (invited, not accepted) or none — said, not guessed.
   local mstate jid
-  jid="$(gh api "users/$JOINER_LOGIN" --jq .id 2>/dev/null || true)"
-  [ -n "$jid" ] || die "TESTBED_JOINER_LOGIN (${#JOINER_LOGIN} characters) names no GitHub account — check the secret's value"
-  mstate="$(gh api "orgs/$E2E_ORG/memberships/$JOINER_LOGIN" --jq '"\(.state) \(.role)"' 2>/dev/null || echo "none")"
+  # `gh api --jq` prints an error BODY on stdout when the call fails: read a value only from a call that succeeded.
+  jid="$(gh api "users/$JOINER_LOGIN" --jq .id 2>/dev/null)" || jid=""
+  [[ "$jid" =~ ^[0-9]+$ ]] || die "TESTBED_JOINER_LOGIN (${#JOINER_LOGIN} characters) names no GitHub account — check the secret's value"
+  mstate="$(gh api "orgs/$E2E_ORG/memberships/$JOINER_LOGIN" --jq '"\(.state) \(.role)"' 2>/dev/null)" || mstate="none"
   case "$mstate" in
     "active "*) ok "the joiner (GitHub user id $jid) is an active $E2E_ORG member (${mstate#active })" ;;
     "pending "*) die "the joiner (GitHub user id $jid) was invited to $E2E_ORG but has not accepted — accept the invitation as that account (Policy Owner prerequisite P1)" ;;

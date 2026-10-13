@@ -17,6 +17,7 @@ import * as path from "node:path";
 import yaml from "js-yaml";
 
 const SCRIPT = path.resolve(import.meta.dirname, "../../e2e/joiner-journey.sh");
+const IDENTITY = path.resolve(import.meta.dirname, "../../e2e/joiner-identity.sh");
 const ADOPTER = path.resolve(import.meta.dirname, "../../e2e/adopter-journey.sh");
 const WORKFLOW = path.resolve(import.meta.dirname, "../../../../../.github/workflows/adopter-e2e.yml");
 const TRAPPED = ["gh", "git", "gov", "npm", "curl"];
@@ -129,8 +130,8 @@ describe("adopter-e2e.yml — the live job runs the joiner (T15)", () => {
   const live = (): Step[] => (yaml.load(fs.readFileSync(WORKFLOW, "utf8")) as { jobs: Record<string, { steps: Step[] }> }).jobs["live"]!.steps;
 
   it("work phase → joiner → finish (always) → rule-model → verdict, in that order", () => {
-    const ids = live().map((s) => s.id).filter(Boolean);
-    expect(ids).to.include.ordered.members(["guard", "pack", "adopter", "joiner", "finish", "rulemodel"]);
+    const want = ["guard", "pack", "adopter", "joiner", "finish", "rulemodel"];
+    expect(live().map((s) => s.id).filter((id): id is string => want.includes(id ?? ""))).to.deep.equal(want);
     const finish = live().find((s) => s.id === "finish")!;
     expect(finish.if).to.match(/always\(\)/);
     expect(finish.env?.["E2E_PHASE"]).to.equal("finish");
@@ -149,7 +150,64 @@ describe("adopter-e2e.yml — the live job runs the joiner (T15)", () => {
     expect(guard.env?.["JOINER_TOK"]).to.equal("${{ secrets.TESTBED_JOINER_PAT }}");
     expect(guard.env?.["JOINER_LOGIN"]).to.equal("${{ secrets.TESTBED_JOINER_LOGIN }}");
     const verdict = live().find((s) => (s.name ?? "").includes("verdict"))!;
-    expect(verdict.env?.["JOURNEYS"]).to.match(/joiner:\$\{\{ steps\.guard\.outputs\.joiner == 'true' && steps\.joiner\.outcome \|\| 'unconfigured' \}\}/)
+    expect(verdict.env?.["JOURNEYS"]).to.include("joiner:${{ steps.guard.outputs.joiner == 'true' && (steps.identity.outcome == 'success' && steps.joiner.outcome || 'identity-failed') || 'unconfigured' }}")
       .and.match(/adopter-close:/);
+  });
+});
+
+// The live job's first look at the joiner (T15): before the adopter spends minutes, is TESTBED_JOINER_PAT a usable
+// SECOND identity? A fake gh answers per token: "tokA" is the adopter (id 1), "tokB" the joiner (id 2, login joiner-bot).
+describe("e2e/joiner-identity.sh", function () {
+  if (process.platform === "win32") return;
+  const FAKE_GH = `#!/usr/bin/env bash
+case "$GH_TOKEN:$*" in
+  "tokA:api user --jq .login") echo adopter-bot ;;
+  "tokA:api user --jq .id") echo 1 ;;
+  "tokB:api user --jq .login") echo joiner-bot ;;
+  "tokB:api user --jq .id") echo 2 ;;
+  "tokA:api users/joiner-bot --jq .id") echo 2 ;;
+  "tokA:api users/someone-else --jq .id") echo 3 ;;
+  "tokA:api orgs/svayam-e2e/memberships/joiner-bot --jq "*) echo "\${MEMBERSHIP:-active member}" ;;
+  *) echo '{"message":"Not Found","status":"404"}'; exit 1 ;;
+esac
+`;
+  function id(env: Record<string, string>): { status: number | null; out: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "joiner-id-"));
+    try {
+      fs.writeFileSync(path.join(dir, "gh"), FAKE_GH, { mode: 0o755 });
+      const r = spawnSync("bash", [IDENTITY], { encoding: "utf8",
+        env: { PATH: `${dir}${path.delimiter}${process.env.PATH ?? ""}`, E2E_ORG: "svayam-e2e", ADOPTER_TOKEN: "tokA", JOINER_TOKEN: "tokB", JOINER_LOGIN: "joiner-bot", ...env } });
+      return { status: r.status, out: `${r.stdout}${r.stderr}` };
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  it("a second, active member passes — and prints account ids, never a token", () => {
+    const r = id({ JOINER_LOGIN: "Joiner-Bot\n" });   // case and a pasted newline do not matter
+    expect(r.status, r.out).to.equal(0);
+    expect(r.out).to.include("account id 2").and.include("account id 1");
+    expect(r.out).to.not.match(/tok[AB]/);
+  });
+
+  it("FAILS LOUDLY when the joiner token is the adopter bot's own account", () => {
+    const r = id({ JOINER_TOKEN: "tokA", JOINER_LOGIN: "adopter-bot" });
+    expect(r.status).to.equal(1);
+    expect(r.out).to.match(/::error::joiner identity: TESTBED_JOINER_PAT belongs to the adopter bot itself/);
+  });
+
+  it("a login that names no account is described by its shape, not printed", () => {
+    const r = id({ JOINER_LOGIN: "joiner@example.com" });
+    expect(r.status).to.equal(1);
+    expect(r.out).to.include("names no GitHub account").and.include("shaped 'aaaaaa@aaaaaaa.aaa'");
+    expect(r.out).to.not.include("joiner@example.com");
+  });
+
+  it("two secrets for two different accounts are named as that", () => {
+    expect(id({ JOINER_LOGIN: "someone-else" }).out).to.match(/names account id 3, but TESTBED_JOINER_PAT is account id 2/);
+  });
+
+  it("an invitation not yet accepted is said as that", () => {
+    const r = id({ MEMBERSHIP: "pending member" });
+    expect(r.status).to.equal(1);
+    expect(r.out).to.match(/invited to svayam-e2e but has not accepted/);
   });
 });
