@@ -30,6 +30,7 @@ if [ "$1 $2" = "api graphql" ]; then
   n=$(cat "$PROBE_DIR/n" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$PROBE_DIR/n"
   f="$PROBE_DIR/r$n.json"; [ -f "$f" ] || f="$(ls "$PROBE_DIR"/r*.json | sort -V | tail -1)"; cat "$f"; exit 0
 fi
+if [ "$1 $2" = "project item-add" ]; then echo '{"id":"PVTI_again"}'; exit 0; fi
 if [ "$1 $2" = "api -i" ]; then printf 'HTTP/2.0 200 OK\\r\\n%s\\r\\n\\r\\n{}' "$PROBE_HEADER"; exit 0; fi
 echo "fake gh: unexpected: $*" >&2; exit 97
 `;
@@ -85,6 +86,24 @@ describe("e2e/token-probe.sh board_poll", function () {
     expect(r.polls).to.equal(4);
     expect(r.out).to.match(/::error::.*no item on the board after 4 polls/);
     expect(r.out).to.not.include("token cannot read");
+  });
+
+  // 2026-10-13: three live runs saw an empty board for the whole window after a successful item-add.
+  it("zero items until the cap, with the added item known: says whether it exists, re-adds once, and polls again", () => {
+    const empty = page([]);
+    const r = poll([empty, empty, empty, empty, JSON.stringify({ data: { node: null } }), page([item(ISSUE)])],
+      { BOARD_POLL_MAX: "4", ISSUE_URL: "https://github.com/svayam-e2e/gov-e2e-1-svc/issues/1", ITEM_ID: "PVTI_x" });
+    expect(r.status, r.out).to.equal(0);
+    expect(r.out).to.include("item PVTI_x by id:");
+    expect(r.out).to.include("re-adding https://github.com/svayam-e2e/gov-e2e-1-svc/issues/1 to board #7");
+    expect(r.calls).to.include("project item-add 7 --owner svayam-e2e");
+  });
+
+  it("…and only once: still empty after the re-add, it dies naming GitHub's index", () => {
+    const r = poll([page([])], { BOARD_POLL_MAX: "2", ISSUE_URL: "https://github.com/o/r/issues/1" });
+    expect(r.status).to.not.equal(0);
+    expect((r.calls.match(/project item-add/g) ?? []).length).to.equal(1);
+    expect(r.out).to.match(/::error::.*no item on the board after 2 polls/);
   });
 
   it("a GraphQL error is not mistaken for zero items: it is named", () => {

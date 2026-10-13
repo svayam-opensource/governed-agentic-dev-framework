@@ -85,5 +85,15 @@ board_poll() {
     [ "$err" = "-" ] && err=""
     if [ "$i" -lt "$max" ]; then sleep "$pause"; fi
   done
+  # Before giving up: does the item gov-e2e added exist at all? (2026-10-13: three runs in a row saw 0 items for 180 s
+  # after a successful item-add, where 2–5 polls had always been enough.) Say which, then try the add once more.
+  if [ -n "${ITEM_ID:-}" ]; then
+    _probe_say "item $ITEM_ID by id: $(gh api graphql -f query="query{node(id:\"$ITEM_ID\"){__typename ... on ProjectV2Item{project{number} content{__typename}}}}" 2>&1 | head -c 300)"
+  fi
+  if [ -z "${BOARD_RETRIED:-}" ] && [ -n "${ISSUE_URL:-}" ]; then
+    BOARD_RETRIED=1
+    _probe_say "re-adding $ISSUE_URL to board #$proj and polling again: $(gh project item-add "$proj" --owner "$org" --url "$ISSUE_URL" --format json 2>&1 | head -c 200)"
+    board_poll "$org" "$proj" "$repo"; return $?
+  fi
   _probe_die "no item on the board after $max polls (~$((max * pause)) s) — GitHub has not indexed the issue${err:+ (last: $err)}; gov seed would fail"
 }

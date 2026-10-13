@@ -150,8 +150,11 @@ PROJ_URL=$(gh project create --owner "$E2E_ORG" --title "$SLUG" --format json --
 PROJ_NUM="${PROJ_URL##*/}"
 ISSUE_URL=$(gh issue create --repo "$E2E_ORG/$CODE_REPO" --title "e2e: implement thing" --body "outcome under test" 2>/dev/null) && ok "issue: $ISSUE_URL" || die "issue create failed"
 # item-add's exit is checked and its failure named (it was `|| true` — PRJ-121 intent 05, Item 5).
-ADD_ERR="$(gh project item-add "$PROJ_NUM" --owner "$E2E_ORG" --url "$ISSUE_URL" 2>&1 >/dev/null)" && ok "issue linked to board" \
-  || die "gh project item-add failed: ${ADD_ERR%%$'\n'*}"
+ADD_OUT="$(gh project item-add "$PROJ_NUM" --owner "$E2E_ORG" --url "$ISSUE_URL" --format json 2>&1)" && ok "issue linked to board" \
+  || die "gh project item-add failed: ${ADD_OUT%%$'\n'*}"
+# The item's node id, so a board that stays empty can be told apart: the item exists but is not listed yet, or is gone.
+ITEM_ID="$(printf '%s' "$ADD_OUT" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).id||"")}catch{}})')"
+export ITEM_ID ISSUE_URL
 # THE TOKEN PROBE (ruling Q6): what the token is, and whether it can read the new repo, its issue and the board's item.
 token_probe "$E2E_ORG" "$E2E_ORG/$CODE_REPO" "${ISSUE_URL##*/}" "$PROJ_NUM"
 # GitHub's project index is eventually consistent: a linked issue can take well over 40 s to appear on the board, and
