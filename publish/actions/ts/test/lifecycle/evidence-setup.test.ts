@@ -7,7 +7,7 @@
 // A second run changes nothing, and the default branch is never touched. No live GitHub.
 import { expect } from "chai";
 import { evidenceEnable, evidenceAppManifest, EVIDENCE_RULESET, EVIDENCE_APP_SECRETS, type EvidenceSetupConfig } from "../../src/lifecycle/evidence-setup.js";
-import { githubVcs, type GhCall } from "../../src/adapters/github/vcs.js";
+import { githubVcs, type GhCall } from "../../src/adapters/github/vcs-evidence.js";
 import type { StartLoopback } from "../../src/cli/app-loopback.js";
 
 const PEM = "-----BEGIN RSA PRIVATE KEY-----\nMIIfakeKEYmaterial\n-----END RSA PRIVATE KEY-----\n";

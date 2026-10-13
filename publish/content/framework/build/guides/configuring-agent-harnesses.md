@@ -93,7 +93,7 @@ matches.
 
   When an agent is seen loading skills from its own folder, gov adds that folder to the agent list. The index then
   leaves that agent's instruction file at the next build.
-- **How it gets there.** `gov rules build` (and `gov setup`, `gov upgrade`, `gov sync`) writes the skills, and the
+- **How it gets there.** `gov rules build` (and `gov upgrade`, `gov sync`) writes the skills, and the
   index, under `agent/harness/` with the protocol files. `gov work` copies them into the project folder and each code repo every
   time it starts an agent.
 - **Renamed or removed sections.** Rename a section and its skill is renamed: the next build writes the new skill

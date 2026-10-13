@@ -257,7 +257,7 @@ ${cue === "resident" ? "" : "  checks:\n    - on: { resource: gov.verb, event: t
   const workspace = (spec: string): Record<string, string> => ({
     [`${HOME}/org-config.yaml`]: "org_slug: SVM\n",
     [`${HOME}/framework/rules/rules.yaml`]: rowYaml("GOV-FRM-012", "6.5", "C01", "resident") + rowYaml("GOV-FRM-134", "6.5", "C03", "on-demand"),
-    [`${HOME}/framework/rules/catalog.yaml`]: SHIPPED_CATALOG,
+    [`${HOME}/framework/rules/checks-catalog.yaml`]: SHIPPED_CATALOG,
     [`${HOME}/policies/rules.yaml`]: "[]\n",
     [`${HOME}/${SPEC}`]: spec,
     [`${HOME}/agent/session-protocol.md`]: PROTOCOL_BODY,

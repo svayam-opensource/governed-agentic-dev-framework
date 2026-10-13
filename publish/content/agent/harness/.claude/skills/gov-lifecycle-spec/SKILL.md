@@ -36,19 +36,11 @@ Then every one of these sections, as a `##` heading, in this order:
 ## The template — `policies/reference/lifecycles/ai-sdlc/spec.md`
 
 ````markdown
----
-domain: development
-layer: spec
-owner: <owner>
-compliance: C01
-status: draft
----
-
 # Spec <NN>: <title>
 
-**Status:** DRAFT
-<!-- One of: DRAFT · APPROVED by <who> <date> (<change request link>) · STALE (<why>).
-     gov writes the APPROVED line when the change request is approved by a person and merged; never write it by hand. -->
+<!-- An artifact made from this template carries a Status line under its title: DRAFT, then APPROVED (by whom, when, which change
+     request) or STALE (why). `gov intent` and the lifecycle skills add DRAFT; gov writes APPROVED when a person approves the change request
+     and it merges — never by hand. The template itself has no header lines (starters have none). -->
 
 Intent: [intent.md](intent.md)
 

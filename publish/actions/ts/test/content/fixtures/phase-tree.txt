@@ -38,6 +38,7 @@ framework/build/guides/configuring-agent-harnesses.md
 framework/build/guides/path-developer.md
 framework/build/guides/proposing-knowledge.md
 framework/build/guides/running-parallel-tasks.md
+framework/build/guides/running-the-lifecycle.md
 framework/build/guides/working-on-a-project.md
 framework/build/templates/gov-validate.reference.yml
 framework/build/templates/preferences-template.md

@@ -17,11 +17,11 @@ describe("lifecycle templates — §2.3 sections", () => {
   });
 
   for (const kind of ["intent", "spec", "plan", "build", "deploy", "run"] as ArtifactKind[]) {
-    it(`${kind}.md has every required section, front matter and a DRAFT Status line`, () => {
+    it(`${kind}.md has every required section, opens with its title and no header lines (Q10); the Status line is added when an artifact is made`, () => {
       const text = fs.readFileSync(path.join(LIB, `${kind}.md`), "utf8");
       expect(missingSections(kind, text)).to.deep.equal([]);
-      expect(text.startsWith("---\n")).to.equal(true);
-      expect(statusOf(text)).to.deep.equal({ kind: "draft" });
+      expect(text.startsWith("# ")).to.equal(true);
+      expect(statusOf(text)).to.equal(null);
     });
   }
 
