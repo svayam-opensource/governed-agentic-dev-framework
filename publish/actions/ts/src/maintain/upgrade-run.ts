@@ -123,6 +123,36 @@ function recordMove(adopterDir: string, id: string, version: string): void {
 }
 
 /**
+ * BRIDGE — THE ROOT RECORD MOVES ONCE (PRJ-121 intent 01, B05; spec §3.7, ruling Q5). A workspace gov 1.x upgraded
+ * (svm-geneva) keeps its record at the repository root. The bridge carries every relocation it holds to MOVES_FILE —
+ * together with any this run recorded there — and removes the root file, so 2.0.0, which never reads the root, finds
+ * the complete record at the new path. Dry run: says so, writes nothing. Deleted in D01 with LEGACY_MOVES_FILE.
+ */
+export function moveRootRecord(adopterDir: string, apply: boolean): string[] {
+  const root = path.join(adopterDir, LEGACY_MOVES_FILE);
+  if (!fs.existsSync(root)) return [];
+  const what = `${LEGACY_MOVES_FILE} → ${MOVES_FILE}`;
+  if (!apply) return [`  ~ move     ${what}   (the move record, once — 2.0 reads it only under framework/)`];
+  const merged = new Map<string, string | null>();
+  const take = (entries: unknown[] | null): void => {
+    for (const e of entries ?? []) {
+      if (typeof e === "string") { if (!merged.has(e)) merged.set(e, null); continue; }
+      if (!e || typeof e !== "object" || typeof (e as { move?: unknown }).move !== "string") continue;
+      const { move, version } = e as { move: string; version?: unknown };
+      merged.set(move, typeof version === "string" ? version : merged.get(move) ?? null);
+    }
+  };
+  take(readRecordAt(path.join(adopterDir, MOVES_FILE)));
+  take(readRecordAt(root));
+  const file = path.join(adopterDir, MOVES_FILE);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify([...merged].map(([move, version]) => ({ move, version })), null, 2)}\n`);
+  fs.rmSync(root);
+  log("info", "moved the root move record under framework/", "gov-work:maintain:upgrade-run", "moveRootRecord", { relocations: merged.size });
+  return [`  ${what}: the move record, moved once (${merged.size} relocation(s))`];
+}
+
+/**
  * THE NAMED MIGRATIONS. One entry per value that must LEAVE one file for another — the shape a straight move
  * cannot express. Each is versioned by its name: a manifest naming one an older CLI lacks is left undone, for
  * the upgrade that knows it, rather than half-applied.
@@ -278,7 +308,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
   const workflows = opts.seed ? null : installedWorkflowInputs(entries, readContent, readAdopter);
   if (!opts.apply) {
     const rerender = workflows ? rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir), apply: false }).lines : [];
-    return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...rerender, ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
+    return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...rerender, ...moveRootRecord(adopterDir, false), ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
   }
 
   const res = applyUpgrade(plan, {
@@ -301,6 +331,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       ...res.skipped.map((s) => `  ! ${s} (org-customized — reconcile by hand)`),
       ...refusedLines(plan),
       ...res.why,
+      ...moveRootRecord(adopterDir, true),
       ...replaceFrameworkReadme(adopterDir, contentDir, true),
       ...settleRoleList(adopterDir),
       ...(opts.seed ? [] : fillTokens(adopterDir, createdPaths(plan, res.applied))),
@@ -520,7 +551,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const filesBefore = walk(adopterDir);
   const { plan, leftInPlace } = extendPlan(planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => filesBefore, doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned, { generated: manifest.generated }), ext, adopterDir, contentDir);
   const workflows = installedWorkflowInputs(entries, readContent, readAdopter);
-  if (plan.actions.every((a) => a.kind === "same" || a.kind === "keep" || a.kind === "starter")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
+  if (plan.actions.every((a) => a.kind === "same" || a.kind === "keep" || a.kind === "starter") && !fs.existsSync(path.join(adopterDir, LEGACY_MOVES_FILE))) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
   // Before the branch exists: a PR that silently lacks the org-config merge would read as a complete upgrade.
   if (plan.actions.some((a) => a.kind === "refuse")) return { code: 1, lines: ["gov upgrade --pr: refused — nothing was written.", ...refusedLines(plan)] };
   // A refusal can only be found once the migration runs, if the workspace changed under the plan; the PR then stops.
@@ -597,7 +628,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     // Tokens are filled in every file this run created (§3.8) — with the migrations, once org-config is split.
     // The installed workflows travel in the same commit (Q9): the PR's own CI runs the gov that wrote them.
     const workflowLines = rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir), apply: true }).lines;
-    compiledLines = [...fillTokens(adopterDir, createdPaths(plan, applied)), ...workflowLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
+    compiledLines = [...moveRootRecord(adopterDir, true), ...fillTokens(adopterDir, createdPaths(plan, applied)), ...workflowLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
     commitPart("migrations");
     proposal = ext.propose?.(adopterDir, contentDir) ?? proposal;   // reads what commit 4 retires, so before applying it
     applyPart("proposed-prose");

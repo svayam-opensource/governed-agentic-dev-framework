@@ -65,7 +65,7 @@ const EXPECT: Record<FixtureName, { seedNew: boolean; gone: readonly string[]; u
     seedNew: false,
     gone: [".gov-upgrade-moves.json"],
     untouched: ["policies/knowledge-organization-standard.md", "policies/knowledge-publication.md", "policies/compliance-review.md"],
-    until: "L02 + L06 + B05",
+    until: "L02 + L05 + L06 + B05", // B05 moved the flat files and the root record; the build specification is L05's
   },
   "flat-with-org-rows": {
     seedNew: false,

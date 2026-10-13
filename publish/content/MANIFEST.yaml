@@ -255,6 +255,16 @@ moves:
   # file policies/VERSION, a folder policies/version/ is the SAME name on a case-insensitive disk (macOS, Windows):
   # a checkout keeps only one of the two, and `git commit -a` records the other as deleted. VERSION keeps its name.
   - { from: policies/version/, to: policies/history/, mode: move }
+  # bridge: deleted in D01 (PRJ-121 intent 01, B05; spec §4.3 step 6) — FLAT 1.2.x → THE PHASE TREE. What gov 1.2.x
+  # seeded at the top of policies/ moves, byte for byte, to its §2 path. svm-geneva is the org these are for; 2.0.0
+  # ships with no moves at all. The root move record (.gov-upgrade-moves.json) is not a row: gov moves it itself, once
+  # (maintain/bridge/root-move-record.ts), because it is the record these rows are written to.
+  - { from: policies/rules.yaml, to: policies/rules/rules.yaml, mode: move }
+  - { from: policies/catalog.yaml, to: policies/rules/checks-catalog.yaml, mode: move }
+  - { from: policies/authorized-representatives.md, to: policies/common/authorized-representatives.md, mode: move }
+  - { from: policies/data-classification.md, to: policies/common/data-classification.md, mode: move }
+  - { from: policies/policy-domains.md, to: policies/common/policy-domains.md, mode: move }
+  - { from: policies/approved-technologies.md, to: policies/build/approved-technologies.md, mode: move }
 
 # ── generated: WHAT GOV WRITES, AND NEVER SHIPS OR RETIRES (PRJ-121 intent 01, §3.7, Q5) ────────────────────
 #
