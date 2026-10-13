@@ -88,6 +88,26 @@ describe("WorkTrackerPort — GitHub adapter (fake gh)", () => {
     expect(has(f.calls[1]!, "item-add", "7", "--owner", "acme", "--url", A.url)).to.equal(true);
   });
 
+  it("create(): a label the repo does not have yet is created, then the issue is created once more (gov project's anchor)", async () => {
+    let first = true;
+    const f = fakeGh({
+      "issue create": () => (first ? ((first = false), err("could not add label: 'anchor' not found")) : ok(A.url)),
+      "label create": ok(""),
+    });
+    const r = await f.port.create(REPO, { title: "T", body: "", assignee: "alice", labels: ["anchor"] });
+    expect(r).to.deep.equal({ ok: true, value: A });
+    expect(f.calls.map((c) => c.slice(0, 2).join(" "))).to.deep.equal(["issue create", "label create", "issue create"]);
+    expect(has(f.calls[1]!, "anchor", "--repo", "acme/work")).to.equal(true);
+    expect(f.calls[1]!.includes("--force"), "an existing label is never overwritten").to.equal(false);
+  });
+
+  it("create(): any other refusal is not retried", async () => {
+    const f = fakeGh({ "issue create": err("HTTP 403: Resource not accessible") });
+    const r = await f.port.create(REPO, { title: "T", body: "", assignee: "alice", labels: ["anchor"] });
+    expect(r.ok).to.equal(false);
+    expect(f.calls).to.have.lengthOf(1);
+  });
+
   it("create(): made but not added to a project → a failure that names the item made", async () => {
     const f = fakeGh({ "issue create": ok(A.url), "project item-add": err("gh: Could not resolve to a ProjectV2 with the number 7.") });
     const r = await f.port.create(REPO, { title: "T", body: "", assignee: "alice" }, [BOARD]);

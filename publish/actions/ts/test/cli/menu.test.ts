@@ -23,13 +23,14 @@ describe("gov-work — interactive menu (context-scoped)", () => {
 
   // The menu is the HUMAN surface. Status (list/list-all/status) left on 2026-08-07 — those are the
   // work-management system's answers — and Admin now carries only what an agent cannot do for you.
-  it("GOVERNED context: Work · Admin, and Admin is org + doctor + preferences + upgrade", () => {
+  it("GOVERNED context: Work · Admin, and Admin is org + doctor + preferences + project + upgrade", () => {
     const g = { ...CTX, mode: "governed" as const };
     expect(labels(g)).to.deep.equal(["Work", "Admin"]);
-    expect(adminCmds(g)).to.deep.equal(["org", "doctor", "preferences", "upgrade"]);
+    // `project` (#182, plan 03 L06): starting a project is a person's decision — what an agent cannot do for you.
+    expect(adminCmds(g)).to.deep.equal(["org", "doctor", "preferences", "project", "upgrade"]);
   });
 
-  it("PROJECT context: upgrade is governed-only, the rest travels", () => {
+  it("PROJECT context: upgrade and project are governed-only, the rest travels", () => {
     const p = { ...CTX, mode: "project" as const, project: "PRJ-43" };
     expect(adminCmds(p), "upgrade is governed-only; the rest travels").to.deep.equal(["org", "doctor", "preferences"]);
     expect(visibleActions(p).find((a) => a.label === "Status"), "Status is the work-mgmt system's").to.equal(undefined);

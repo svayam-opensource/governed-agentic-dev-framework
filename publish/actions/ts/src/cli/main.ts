@@ -7,6 +7,8 @@
  * external tools; no bash/python. This is the integration seam; the pure router
  * (dispatch.ts) is exhaustively unit-tested.
  */
+import { projectCommand } from "./project-verb.js";
+import { pickAdapter, builtInProviders } from "../adapters/registry.js";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as fsSync from "node:fs";
@@ -2179,6 +2181,27 @@ function checkScopeDeps(fs: ReturnType<typeof createNodeFs>, config: { githubOrg
  * (asynchronously — a model, the pull request's comments, a push). Called from bin.ts; `main()` keeps the
  * synchronous path for everything else.
  */
+/**
+ * `gov project <name> [--repo r] [--seed]` — the board and its anchor issue together (plan 03 L06, gadf#182).
+ * Asynchronous (the ports), so it is routed from bin.ts like `check`; `--seed` hands to the synchronous `gov seed`.
+ */
+export async function runProject(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgv(argv);
+  if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
+  const at = resolveHomeConfig(parsed.flags);
+  if (typeof at === "number") return at;
+  const { config } = at;
+  return projectCommand(parsed.positionals, parsed.flags, {
+    tracker: pickAdapter(builtInProviders, "workTracker", config.adapters.workTracker),
+    vcs: pickAdapter(builtInProviders, "vcs", config.adapters.vcs),
+    owner: config.githubOrg,
+    govRepo: { owner: config.githubOrg, name: config.workspaceRepo },
+    defaultCodeBranch: config.defaultCodeBranch,
+    print: (line) => process.stdout.write(`${line}\n`),
+    seed: (boardUrl) => main(["seed", boardUrl]),
+  });
+}
+
 export async function runCheck(argv: readonly string[]): Promise<number> {
   const parsed = parseArgv(argv);
   if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
@@ -2274,6 +2297,7 @@ function usageLines(usage: string, loaded: { file: string; prefs: Parameters<typ
  *  (adr-three-clients, PRJ-43). */
 export function runAny(argv: readonly string[]): Promise<number> | number {
   if (argv[0] === "setup") return runSetupCommand(argv);
+  if (argv[0] === "project") return runProject(argv);
   return main(argv);
 }
 

@@ -40,7 +40,7 @@ recovery, and for the day the menu is in your way.
 | | |
 |---|---|
 | **Set up** | `setup` · `join` · `org` · `doctor` · `upgrade` |
-| **Work a project** | `work` · `seed` · `task` · `merge` · `sync` · `status` · `anchor` |
+| **Work a project** | `work` · `project` · `seed` · `issue` · `task` · `merge` · `sync` · `status` · `anchor` |
 | **Finish** | `close` · `pause` · `resume` · `cancel` |
 | **Govern** | `agent` · `knowledge` · `manage` · `validate` |
 

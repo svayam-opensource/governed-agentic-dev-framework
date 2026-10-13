@@ -33,6 +33,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov check](#gov-check) — run one rule's checks for the event that fired, install the workflow that runs them, or say whether it is current
 - [gov app](#gov-app) — create the org's GitHub App that lets code repos' checks read the governance rules, check it, and rotate its key
 - [gov rules](#gov-rules) — propose rules from your policy prose, render the rule stores into what agents read, and report on them
+- [gov project](#gov-project) — create a project — its board and anchor issue together, assigned to you
 
 **[Your agent runs these (you can too)](#your-agent-runs-these-you-can-too)**
 
@@ -577,6 +578,48 @@ gov rules show POL-086b
 | `2` | usage |
 
 **See also.** [gov knowledge](#gov-knowledge) · [gov doctor](#gov-doctor) · [gov validate](#gov-validate)
+
+### gov project
+
+create a project — its board and anchor issue together, assigned to you
+
+```text
+gov project <name> [--repo <owner/name>[,<owner/name>…]] [--seed]
+```
+
+**Where.** GOVERNED
+
+**Arguments**
+
+| argument | what it is |
+| --- | --- |
+| `<name>` | what the board is called — gov seed makes the project id from it |
+
+**Flags**
+
+| flag | what it does |
+| --- | --- |
+| `--repo <owner/name>[,…]` | the code repositories that take part (an issue in each, on the board); the governance repo always does |
+| `--seed` | then run `gov seed <board-url>` — a seeded workspace in one command |
+
+**Examples**
+
+```bash
+gov project "Invoice API v2" --repo acme/invoice-api
+gov project "Policy refresh" --seed
+```
+
+**Changes.** checks the board contract first (a name, a readable governance repo, you, each --repo readable) and creates NOTHING if one fails; then creates the board, the anchor issue in the governance repo (label anchor, assigned to you, on the board) and one issue per --repo on the board. If a later step fails it lists exactly what exists and exits 1
+
+**Exit codes**
+
+| code | means |
+| --- | --- |
+| `0` | done |
+| `1` | failed — nothing half-applied that gov could undo |
+| `2` | usage: a missing or wrong argument |
+
+**See also.** [gov seed](#gov-seed) · [gov issue](#gov-issue)
 
 ---
 
