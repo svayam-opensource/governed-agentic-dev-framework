@@ -52,6 +52,11 @@ The content's `MANIFEST.yaml` says how each file lands:
   such as `<ORG_NAME>`, as a first-time adoption does. Files that were already there are not changed, even if they still
   contain a placeholder.
 - **`projects/` and your own knowledge** are never touched.
+- **Your approved agents move to `policies/governance.yaml`.** An organization on the old layout listed them in
+  `knowledge/policies/llm-governance.md`. The upgrade carries that list across and removes the old file. If the
+  old file has no `approved_agents:` block, gov's default list applies, and the upgrade says so in its pull
+  request: "no approved_agents block found — gov defaults applied". Edit `policies/governance.yaml` if your
+  organization approves a different list.
 - **Leftovers of the template copy** — the framework's own `publish/` and `site/` folders, or the framework's
   README in place of yours — are removed or replaced, but only when gov recognises them as the framework's
   exact files. Anything you wrote stays.

@@ -158,7 +158,15 @@ export function moveRootRecord(adopterDir: string, apply: boolean): string[] {
  * the upgrade that knows it, rather than half-applied.
  */
 /** What a migration may need beyond the workspace: the person's own home, for a setting that is theirs. */
-interface MigrationContext { readonly userHome: string; readonly contentDir?: string }
+interface MigrationContext {
+  readonly userHome: string;
+  readonly contentDir?: string;
+  /** What a migration must SAY in the upgrade's report and PR body (D23: never silent), one line each. */
+  readonly notes?: string[];
+}
+
+/** D23 (Policy Owner, 2026-10-13): the old file held no list, so gov's defaults apply — and the upgrade says so. */
+export const NO_APPROVED_AGENTS_NOTE = "no approved_agents block found — gov defaults applied; edit governance.yaml if your org approves a different list";
 
 /** true = ran · false = gov does not know it · a string = REFUSED, nothing written, and why. */
 type Migration = (adopterDir: string, from: string, to: string, ctx: MigrationContext) => boolean | string;
@@ -218,7 +226,7 @@ const MIGRATIONS: Record<string, Migration> = {
    *
    * Nothing is written unless the list is read, and the old file is removed only after the new one is written.
    */
-  "approved-agents-to-org-config": (adopterDir, from, to) => {
+  "approved-agents-to-org-config": (adopterDir, from, to, ctx) => {
     const fromPath = path.join(adopterDir, from), toPath = path.join(adopterDir, to);
     const policy = fs.existsSync(fromPath) ? fs.readFileSync(fromPath, "utf8") : null;
     const agents = parseApprovedAgents(policy);
@@ -227,6 +235,8 @@ const MIGRATIONS: Record<string, Migration> = {
       // ships it), but the org is left with gov's defaults, which is what it already had.
       fs.rmSync(fromPath, { force: true });
       log("info", "no approved-agent block to migrate — removed the retired file", "gov-work:maintain:upgrade-run", "migrate", { from });
+      // Gov's defaults are what an unset list reads as; leave governance.yaml unset, and SAY it (D23).
+      if (policy !== null) ctx.notes?.push(`\`${from}\`: ${agents === null ? NO_APPROVED_AGENTS_NOTE : NO_APPROVED_AGENTS_NOTE.replace("no approved_agents block found", "the approved_agents block is empty")}`);
       return true;
     }
     const cfg = fs.existsSync(toPath) ? fs.readFileSync(toPath, "utf8") : null;
@@ -311,6 +321,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
     return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...rerender, ...moveRootRecord(adopterDir, false), ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
   }
 
+  const notes: string[] = [];
   const res = applyUpgrade(plan, {
     readContent,
     readAdopter,
@@ -321,7 +332,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
     },
     removeAdopter: removeKeepingGenerated(adopterDir, manifest.generated),
     moveAdopter: moveInWorkspace(adopterDir),
-    migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir }),
+    migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir, notes }),
     recordMove: (id) => recordMove(adopterDir, id, opts.govVersion ?? contentVersion(contentDir)),
   });
   return {
@@ -331,6 +342,7 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       ...res.skipped.map((s) => `  ! ${s} (org-customized — reconcile by hand)`),
       ...refusedLines(plan),
       ...res.why,
+      ...notes.map((n) => `  ! ${n}`),
       ...moveRootRecord(adopterDir, true),
       ...replaceFrameworkReadme(adopterDir, contentDir, true),
       ...settleRoleList(adopterDir),
@@ -577,12 +589,13 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     try { git(adopterDir, ["checkout", "-q", returnTo]); return [`  switched this clone back to ${base === "HEAD" ? returnTo.slice(0, 12) : base} — the upgrade is on ${branch}`]; }
     catch (e) { return [`  ⚠ could not switch this clone back to ${base}: ${(e as Error).message.split("\n")[0]} — run: git -C ${adopterDir} checkout ${returnTo}`]; }
   };
+  const notes: string[] = [];
   const deps = {
     readContent, readAdopter,
     writeAdopter: (rel: string, t: string) => { const p = path.join(adopterDir, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, t); },
     removeAdopter: removeKeepingGenerated(adopterDir, manifest.generated),
     moveAdopter: moveInWorkspace(adopterDir),
-    migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir }),
+    migrate: runMigration(adopterDir, { userHome: opts.userHome ?? os.homedir(), contentDir, notes }),
     recordMove: (id: string) => recordMove(adopterDir, id, opts.govVersion ?? contentVersion(contentDir)),
   };
   // ── FOUR ORDERED COMMITS (Q6, upgrade-commits.ts) ──────────────────────────────────────────────────────────────
@@ -649,7 +662,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     return { code: 0, lines: ["gov upgrade: nothing changed on disk — nothing to commit, no branch left.", ...back] };
   }
   const body = upgradePrBody({
-    version, plan, commits, leftInPlace, substitutions: proposal.substitutions, proposed: proposal.proposed,
+    version, plan, commits, leftInPlace, substitutions: proposal.substitutions, proposed: proposal.proposed, migrated: notes,
     unrecognised: unrecognisedEntries(filesBefore, plan, entries.map((e) => e.dst)),
   });
   try { git(adopterDir, ["push", "-u", "origin", branch]); } catch (e) { return { code: 1, lines: [`Applied on ${branch} but push failed: ${(e as Error).message.split("\n")[0]}`, ...goBack()] }; }
@@ -659,7 +672,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   } catch (e) {
     return { code: 0, lines: [`Pushed ${branch} (open the PR manually — gh failed): ${(e as Error).message.split("\n")[0]}`, ...compiledLines, ...goBack()] };
   }
-  return { code: 0, lines: [`Opened upgrade PR: ${prUrl}`, `  ${branch} → ${base} · ${appliedCount} file(s) changed in ${commits.length} commit(s): ${commits.map((c) => c.commit).join(" · ")}`, ...compiledLines, `  Review per-file; keep your customizations where the diff replaces them, then merge.`, ...goBack()] };
+  return { code: 0, lines: [`Opened upgrade PR: ${prUrl}`, `  ${branch} → ${base} · ${appliedCount} file(s) changed in ${commits.length} commit(s): ${commits.map((c) => c.commit).join(" · ")}`, ...notes.map((n) => `  ! ${n}`), ...compiledLines, `  Review per-file; keep your customizations where the diff replaces them, then merge.`, ...goBack()] };
 }
 
 import * as os from "node:os";

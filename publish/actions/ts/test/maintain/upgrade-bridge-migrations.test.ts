@@ -20,6 +20,7 @@ import { migrateRolesMd, rolesMdHolders } from "../../src/maintain/bridge/migrat
 import { doctor } from "../../src/maintain/doctor.js";
 import { contentLayoutOf, staleArtifactsIn } from "../../src/maintain/upgrade-sync.js";
 import { GOVERNANCE_PATH } from "../../src/config/governance.js";
+import { readAuthorizedAgents } from "../../src/config/approved-agents.js";
 import { ROLE_LIST_PATH, parseRoleList } from "../../src/config/role-list.js";
 import { leftoverTokens } from "../../src/setup/create.js";
 import { fixtureFiles, fixtureRepo, upgradeFixture, commitChanges, SHIPPED_CONTENT, tmpDir, type FixtureRepo } from "../helpers/upgrade-fixture.js";
@@ -129,5 +130,33 @@ describe("bridge migrations — roles.md (B06)", () => {
       });
       expect(report.diagnostics.filter((d) => d.status === "fail"), JSON.stringify(report.diagnostics, null, 1)).to.deep.equal([]);
     } finally { repo.g("checkout", "-q", "main"); }
+  });
+});
+
+// D23 (Policy Owner, 2026-10-13): an old llm-governance.md with NO approved_agents block — gov's defaults apply, and
+// the upgrade PR SAYS so. Never silent.
+(gitOk() ? describe : describe.skip)("bridge upgrade — no approved_agents block in the old file (D23)", function () {
+  this.timeout(60_000);
+  const NOTE = "no approved_agents block found — gov defaults applied; edit governance.yaml if your org approves a different list";
+  let repo: FixtureRepo;
+  let u: ReturnType<typeof upgradeFixture>;
+  before(() => {
+    // The sanitised 1.0 body carries no fenced approved_agents block — exactly the case.
+    const llm = fixtureFiles("layout-1.0").get("knowledge/policies/llm-governance.md")!;
+    expect(llm).to.not.contain("approved_agents:");
+    repo = fixtureRepo("layout-1.0", { "knowledge/policies/llm-governance.md": llm });
+    u = upgradeFixture(repo, run);
+    expect(u.code, u.out).to.equal(0);
+  });
+
+  it("the upgrade PR body says so, naming the old file", () => {
+    expect(u.body).to.contain(NOTE);
+    expect(u.body).to.contain("knowledge/policies/llm-governance.md");
+  });
+
+  it("gov's defaults apply: governance.yaml names no agents of its own, and the retired file is gone", () => {
+    const g = repo.g("show", `${u.branch}:${GOVERNANCE_PATH}`);
+    expect(readAuthorizedAgents(g).kind, "unset — gov's defaults are what it reads").to.equal("unset");
+    expect(() => repo.g("show", `${u.branch}:knowledge/policies/llm-governance.md`)).to.throw();
   });
 });
