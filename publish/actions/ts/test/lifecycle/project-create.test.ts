@@ -289,6 +289,37 @@ describe("gov project — the verb, and --seed", () => {
     expect(seeded).to.have.length(1);
   });
 
+  // LIVE (L09, run 38481578886): `gov project --seed` created the board and its anchor, and seed — a second later —
+  // read "GitHub Project has no linked Issues or PRs": the board's item list is eventually consistent. --seed now
+  // waits until the board lists the anchor before handing over, and says so if it never does.
+  it("--seed waits until the board LISTS the new anchor (GitHub's index lags), then seeds", async () => {
+    const { tracker, env } = world();
+    let reads = 0;
+    const lagging: WorkTrackerPort = { ...tracker, items: async (p) => (++reads < 3 ? { ok: true, value: [] } : tracker.items(p)) };
+    const seeded: string[] = [];
+    const naps: number[] = [];
+    const code = await projectCommand(["Invoice API"], { seed: true }, {
+      ...env, tracker: lagging, print: () => {}, seed: (u) => { seeded.push(u); return 0; }, sleep: async (ms) => { naps.push(ms); },
+    });
+    expect(code).to.equal(0);
+    expect(reads).to.equal(3);
+    expect(naps.length, "it waited between reads").to.equal(2);
+    expect(seeded).to.have.length(1);
+  });
+
+  it("--seed does not hand over a board that never lists its anchor — it says why and what to run", async () => {
+    const { tracker, env } = world();
+    const printed: string[] = [];
+    const seeded: string[] = [];
+    const empty: WorkTrackerPort = { ...tracker, items: async () => ({ ok: true, value: [] }) };
+    const code = await projectCommand(["Invoice API"], { seed: true }, {
+      ...env, tracker: empty, print: (l) => printed.push(l), seed: (u) => { seeded.push(u); return 0; }, sleep: async () => {}, boardWaitMs: 10_000,
+    });
+    expect(code).to.equal(1);
+    expect(seeded).to.deep.equal([]);
+    expect(printed.join("\n")).to.match(/does not list its anchor yet/).and.match(/gov seed memory:\/\/projects\/acme#1/);
+  });
+
   it("--repo takes a comma-separated list", async () => {
     const { env, tracker } = world();
     const code = await projectCommand(["Invoice API"], { repo: "invoice-api, acme/acme-gov" }, { ...env, print: () => {}, seed: () => 0 });
