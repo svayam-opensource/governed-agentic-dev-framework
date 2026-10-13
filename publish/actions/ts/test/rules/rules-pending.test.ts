@@ -140,6 +140,7 @@ describe("rules-pending — which verbs it closes", () => {
     expect(isMutatingVerb("task")).to.equal(true);
     expect(isMutatingVerb("merge")).to.equal(true);
     expect(isMutatingVerb("close")).to.equal(true);
+    expect(isMutatingVerb("intent")).to.equal(true);
     expect(isMutatingVerb("knowledge", "propose")).to.equal(true);
     // ADDED 2026-09-28, past the letter of §8: `submit` opens the pull request asking an owner to ratify, and
     // `archive` retires a document. Gating only `propose` would have closed the cheapest of the three governance

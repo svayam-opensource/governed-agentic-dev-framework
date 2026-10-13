@@ -12,6 +12,7 @@
 #   GH_STUB_BOARDS           "number:Title:closed" per board, ';'-separated
 #   GH_STUB_ANCHORS          board numbers that HAVE an anchor issue (= seeded)   (#198)
 #   GH_STUB_LOG              a file every invocation is appended to, for assertions
+#   GH_STUB_ISSUE_BODY       the body `gh issue view` answers with (every issue is OPEN, titled from its number)
 set -uo pipefail
 : "${GH_STUB_LOGIN:=adopter-bot}"
 : "${GH_STUB_GOVERNED:=}"
@@ -72,6 +73,18 @@ case "$*" in
       : "${GH_STUB_BOARD_N:=7}"
       echo "{\"url\":\"https://github.com/orgs/${GH_STUB_LOGIN}/projects/${GH_STUB_BOARD_N}\",\"number\":${GH_STUB_BOARD_N}}" ;;
   "issue create "*)  echo "https://github.com/acme/acme-gov/issues/1" ;;
+  # `gov intent` reads its issues through the WorkTrackerPort (`gh issue view <url> --json …`). JSON-escaped body.
+  "issue view "*)
+      n="${3##*/}"
+      printf '{"url":"%s","title":"Issue %s needs doing","body":"%s","state":"OPEN","labels":[],"assignees":[]}\n' \
+        "$3" "$n" "${GH_STUB_ISSUE_BODY:-}" ;;
+  # The VcsPort opens a change request with `gh api -X POST repos/<o>/<r>/pulls`, then reads it back for its link.
+  "api -X POST repos/"*"/pulls "*)
+      r="${4#repos/}"; r="${r%/pulls}"
+      printf '{"number":12,"html_url":"https://github.com/%s/pull/12"}\n' "$r" ;;
+  "api repos/"*"/pulls/"[0-9]*)
+      r="${2#repos/}"; n="${r##*/}"; r="${r%/pulls/*}"
+      printf '{"number":%s,"state":"open","merged":false,"draft":false,"title":"stub","html_url":"https://github.com/%s/pull/%s","head":{"ref":"h"},"base":{"ref":"b"}}\n' "$n" "$r" "$n" ;;
   "project item-add "*) echo '{"id":"PVTI_stub"}' ;;
   # `gov work` lists boards to offer projects. GH_STUB_BOARDS is "num:Title" entries, ';'-separated.
   "project list"*)
