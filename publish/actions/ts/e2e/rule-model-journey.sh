@@ -316,14 +316,14 @@ ok "pushed $SHA_B straight to $DEF"
 # ── (c) a policy prose PR ────────────────────────────────────────────────────────────────────────────────────────
 step "(c) policy prose PR — GOV-FRM-467 unreviewed · GOV-FRM-468 proposes"
 x git -C "$G" switch -q -c e2e/policy
-x perl -0pi -e 's/(unless an exception is\napproved\.)/$1 A bug fix comes with a test that reproduces the bug./' "$G/policies/org-policy.md"
+x perl -0pi -e 's/(unless an exception is\napproved\.)/$1 A bug fix comes with a test that reproduces the bug./' "$G/policies/build/policy.md"
 x git -C "$G" commit -qam "policy §2.2: a bug fix comes with a test" || die "policy commit failed (did §2.2 move?)"
 PR_C="$(open_pr e2e/policy "policy: a bug fix comes with a test" "$G" "$R_GOV")"
 SHA_C="$(head_of "$R_GOV" "$PR_C")"
 res="$(wait_check "$R_GOV" "$SHA_C" "GOV-FRM-467 · pull_request")"
 expect "(c) GOV-FRM-467 failed on the prose change (got: ${res%% *})" test "${res%% *}" = failure
 expect_annotation "(c) GOV-FRM-467 names the section unreviewed" "was added or changed" "$R_GOV" "${res#* }"
-expect_annotation "(c) the unreviewed finding sits on policies/org-policy.md" "^failure policies/org-policy\.md:[0-9]+ .*§2\.2 .*was added or changed" "$R_GOV" "${res#* }"
+expect_annotation "(c) the unreviewed finding sits on policies/build/policy.md" "^failure policies/build/policy\.md:[0-9]+ .*§2\.2 .*was added or changed" "$R_GOV" "${res#* }"
 res="$(wait_check "$R_GOV" "$SHA_C" "GOV-FRM-468 · pull_request")"
 BOT_PUSHED=1
 if [ "$REAL_MODEL" = "1" ] && [ "$DRY" != 1 ] && [ "${res%% *}" = failure ]; then
@@ -336,9 +336,9 @@ else
   SHA_D="$(poll bash -c "s=\$(gh pr view $PR_C --repo $R_GOV --json headRefOid --jq .headRefOid); [ \"\$s\" != $SHA_C ] && echo \$s")"
   expect "(c) GOV-FRM-468 committed to PR #$PR_C — the head moved past $SHA_C (${SHA_D:-none})" test -n "$SHA_D"
   CHANGELOG_D="$(file_at "$R_GOV" policies/CHANGELOG.md "$SHA_D" '**Sections reviewed**
-- policies/org-policy.md §2.2 (dry0sha) → GOV-RME-001 added')"
-  expect "(c) the bot's commit lists policies/org-policy.md §2.2 under Sections reviewed" \
-    grep -Eq '^- policies/org-policy\.md §2\.2 \([0-9a-f]{7,}\) → ' <<<"$CHANGELOG_D"
+- policies/build/policy.md §2.2 (dry0sha) → GOV-RME-001 added')"
+  expect "(c) the bot's commit lists policies/build/policy.md §2.2 under Sections reviewed" \
+    grep -Eq '^- policies/build/policy\.md §2\.2 \([0-9a-f]{7,}\) → ' <<<"$CHANGELOG_D"
   if [ "$REAL_MODEL" != "1" ]; then
     RULES_D="$(file_at "$R_GOV" policies/rules/rules.yaml "$SHA_D" 'expectation: A change to application behaviour, or a bug fix, comes with a test that would fail without it.')"
     expect "(c) the bot's commit adds the stub model's row to policies/rules/rules.yaml" grep -q "or a bug fix, comes with a test that would fail without it" <<<"$RULES_D"
@@ -426,7 +426,7 @@ SH
 x perl -0pi -e 's/^\[\]\s*\z//m' "$G/policies/rules/rules.yaml"
 cat >> "$G/policies/rules/rules.yaml" <<YAML
 - id: $G_ID
-  source: { doc: policies/org-policy.md, section: "2", sha: "0000000" }
+  source: { doc: policies/build/policy.md, section: "2", sha: "0000000" }
   expectation: "No change carries the e2e forbidden marker (rule-model journey (g))."
   actor: [human, agent]
   level: C02

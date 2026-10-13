@@ -159,6 +159,9 @@ files:
   # at a file that does not exist fails every pull request on day one.
   - { src: policies/org-policy.md,                      dst: policies/org-policy.md,                      mode: seed-once }
   - { src: policies/build/approved-technologies.md,     dst: policies/build/approved-technologies.md,     mode: seed-once }
+  # The build phase's policy: §2-§3 of the old org-policy.md (spec 01 §3.2). A starter for NEW orgs only — an org
+  # that adopted before it shipped keeps those sections in its own org-policy.md, and gov upgrade never hands it this.
+  - { src: policies/build/policy.md,                    dst: policies/build/policy.md,                    mode: seed-new }
   # NOT SHIPPED since 2.0 (PRJ-121 §3.3, T4, T14, S3): knowledge-publication.md, knowledge-organization-standard.md
   # and compliance-review.md. The knowledge tree, its publication and its review cadence are the organization's own;
   # an org's existing copies are left exactly where they are.

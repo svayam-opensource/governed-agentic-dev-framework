@@ -45,6 +45,7 @@ policies/                                    O
   org-policy.md  governance.yaml  ownership.yaml  VERSION  CHANGELOG.md
   rules/{rules.yaml, checks-catalog.yaml}    G  written by approved policy pull requests (`gov rules propose`)
   common/{authorized-representatives.md, data-classification.md, policy-domains.md}
+  build/policy.md                            engineering standards and technology choices (seed-new: new orgs only)
   build/approved-technologies.md             the list the approved-technology check reads
   history/<version>/                         G  frozen snapshots
   exceptions/<domain>/  ·  actions/<id>/     the organization's exception records and check actions

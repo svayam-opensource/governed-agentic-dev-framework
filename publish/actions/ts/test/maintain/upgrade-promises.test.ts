@@ -36,7 +36,7 @@ describe("setup and upgrade — what the shipped content promises about the tree
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "gov-promises-"));
-    const r = runUpgradeSync(contentDir, dir, { apply: true });
+    const r = runUpgradeSync(contentDir, dir, { apply: true, seed: true });   // as `gov setup` seeds
     expect(r.code, r.lines.join("\n")).to.equal(0);
   });
   afterEach(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ } });
@@ -45,11 +45,11 @@ describe("setup and upgrade — what the shipped content promises about the tree
     expect(walk(dir, "knowledge"), "a domain exists only once the organization names its owner").to.deep.equal(["knowledge/.gitkeep"]);
   });
 
-  it("GOV-FRM-445 every file the release ships for policies/ is seeded once — no MANIFEST entry may overwrite it", () => {
+  it("GOV-FRM-445 every file the release ships for policies/ is seeded once — no MANIFEST entry may overwrite it (seed-once, or seed-new: new orgs only)", () => {
     const manifest = parseManifest(fs.readFileSync(path.join(contentDir, "MANIFEST.yaml"), "utf8"));
     const policies = manifest.files.filter((e) => e.dst.startsWith("policies/"));
     expect(policies.length, "the MANIFEST seeds the organization's starter policies").to.be.greaterThan(0);
-    expect(policies.filter((e) => e.mode !== "seed-once").map((e) => `${e.dst} (${e.mode})`)).to.deep.equal([]);
+    expect(policies.filter((e) => e.mode !== "seed-once" && e.mode !== "seed-new").map((e) => `${e.dst} (${e.mode})`)).to.deep.equal([]);
   });
 
   it("GOV-FRM-445 an upgrade over the organization's edited policies/ leaves every byte as the organization wrote it", () => {

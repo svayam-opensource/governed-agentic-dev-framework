@@ -6,7 +6,7 @@
 > technologies the framework itself is built with. **Replace them with your own.** Removing an entry you do not
 > use is the expected first act, not a deviation.
 >
-> `policies/org-policy.md` section 3 says that a technology not on this list is introduced only with an
+> `policies/build/policy.md` section 3 says that a technology not on this list is introduced only with an
 > approved exception. A check can hold that rule up: when a pull request adds a dependency, the check looks for
 > the dependency's name in this file. So this file is not a description of your stack. As far as that check is
 > concerned, it *is* your stack.
@@ -72,4 +72,4 @@ is the strong default; add one when the alternative is clearly worse, and say wh
 
 A repository that still uses a retired technology always has a task recording its migration, so that the gap
 is visible and has an owner. Leaving a repository on a retired technology with no such task needs an approved
-exception (`policies/org-policy.md` section 3.2).
+exception (`policies/build/policy.md` section 3.2).

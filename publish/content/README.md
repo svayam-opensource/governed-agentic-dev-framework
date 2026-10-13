@@ -38,7 +38,7 @@ policies/        YOURS. Seeded once, then changed only by approved pull requests
   org-policy.md    your organization's policy; governance.yaml holds its choices
   rules/           your rule rows and checks catalog, written by `gov rules propose`
   common/          clauses every phase shares: roles, data classification, policy domains
-  build/           clauses for building software, and the approved-technologies list
+  build/           policy.md (engineering standards, technology choices) and the approved-technologies list
 
 knowledge/       YOURS. Ships empty, and stays whatever you make it.
 projects/        One folder per project, created by `gov seed`. Yours.

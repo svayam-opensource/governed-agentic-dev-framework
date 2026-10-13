@@ -41,47 +41,11 @@ cued or advisory.
 Approval is by the representatives named in `policies/common/authorized-representatives.md`, enforced at the
 pull-request gate. A change to this file is approved by the Policy Owner.
 
----
+### 1.4 The build phase's policy
 
-## 2. Engineering standards
-
-> Starter clauses. Keep, change the level, or delete.
-
-### 2.1 Code explains itself
-
-Every source file opens with a comment that states what the file is for and why it exists — not what the
-code does line by line, which the code already says. A file without one needs an approved exception.
-
-### 2.2 A behaviour change comes with a test
-
-A change to application behaviour comes with a test that would fail without it, unless an exception is
-approved.
-
-### 2.3 Every source file carries the licence header
-
-Every source file must carry the organization's SPDX licence identifier. No exception.
-
-*(A rule a machine can see in a diff wants a check, not a cue: an agent does not need to be told it on every
-turn — see §6.3.)*
-
-### 2.4 Formatting is the formatter's job
-
-Formatting is left to the configured formatter. Hand-formatting, or arguing about it in review, is
-waste.
-
----
-
-## 3. Technology choices
-
-### 3.1 Only approved technologies
-
-A language, framework, library, datastore, queue, test runner or CI service that is not listed in
-`policies/build/approved-technologies.md` is introduced only with an approved exception.
-
-### 3.2 Removing a technology
-
-Retiring an approved technology is recorded in `policies/build/approved-technologies.md` with the date and the
-reason, so that a repository still using it can be found.
+Sections 2 and 3 — engineering standards and technology choices — are in `policies/build/policy.md`, the
+policy for building software. The two files are one policy and share one set of section numbers, so a number
+names one section across both. This file keeps what applies to every phase.
 
 ---
 
@@ -168,9 +132,8 @@ Three things always hold, whatever you write here:
 > `policies/common/authorized-representatives.md`, the Policy Owner might replace the "as seeded" sentence above with:
 >
 > *Sections 1, 5, 7 and 8 of this policy are owned by the Policy Owner.*
-> *Section 2 is owned by the System Architecture Owner.*
-> *Section 3 is owned by the System Architecture Owner.*
 > *Section 4 is owned by the Data Architecture Owner.*
+> *In `policies/build/policy.md`, sections 2 and 3 are owned by the System Architecture Owner.*
 > *In `policies/common/data-classification.md`, every section is owned by the Data Architecture Owner.*
 >
 > Each role named must be one listed in `policies/common/authorized-representatives.md`, with a named holder.

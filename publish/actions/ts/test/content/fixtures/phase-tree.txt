@@ -11,7 +11,6 @@
 #   · policies/history/, exceptions/, actions/ (written at run time, or by the org)
 #
 # Still to change, by the task that owns it (each edits its own lines here when it merges):
-#   · L01 adds policies/build/policy.md (seed-new)
 #   · L05 adds framework/build/build-specification.md
 .github/ISSUE_TEMPLATE/bug_report.md
 .github/ISSUE_TEMPLATE/config.yml
@@ -66,6 +65,7 @@ org-config.yaml
 policies/CHANGELOG.md
 policies/VERSION
 policies/build/approved-technologies.md
+policies/build/policy.md
 policies/common/authorized-representatives.md
 policies/common/data-classification.md
 policies/common/policy-domains.md

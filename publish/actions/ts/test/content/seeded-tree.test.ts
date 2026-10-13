@@ -34,7 +34,7 @@ describe("the phase tree — what setup seeds into an empty org (spec 01 §2, L0
   it("seeding the shipped content into an empty directory produces exactly fixtures/phase-tree.txt", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gov-phase-tree-"));
     try {
-      const res = runUpgradeSync(CONTENT, dir, { apply: true, userHome: dir });
+      const res = runUpgradeSync(CONTENT, dir, { apply: true, userHome: dir, seed: true });   // `gov setup`'s seed
       expect(res.code, res.lines.join("\n")).to.equal(0);
       const seeded = walk(dir).sort();
       const want = fixture().sort();
