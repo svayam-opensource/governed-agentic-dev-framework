@@ -606,7 +606,7 @@ gov evidence verify [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--gov-home <path>
 gov evidence verify
 gov evidence verify --gov-home ~/audit/acme-evidence --from <first-day> --to <last-day>
 gov evidence enable
-gov evidence report --pack soc2-cc8 --from 2026-07-01 --to 2026-09-30
+gov evidence report --pack soc2-cc8 --from <first-day> --to <last-day>
 ```
 
 **Changes.** `report` writes only on the evidence branch: in a temporary worktree of `origin/gov/evidence` it commits the report files and pushes `gov/evidence` fast-forward only, then removes the worktree — your checkout and the default branch are never touched; nothing leaves your environment. `verify` changes nothing — it reads; reading the branch through git writes a temporary copy that is removed before it returns. `enable` creates, on GitHub, the branch `gov/evidence` (a new orphan commit — the default branch is never touched), the ruleset "gov evidence", a private GitHub App owned by the organization, and two org Actions secrets (the private key goes on gh's stdin only: never printed, logged or written to disk). Installing the App on the governance repo alone is a step you take in the browser
