@@ -231,6 +231,13 @@ SH
 ( cd "$G" && x gov upgrade --apply --from "$CONTENT_DIR" --gov-home . >"$ROOT/upgrade.log" 2>&1 ) || { tail -15 "$ROOT/upgrade.log"; die "gov upgrade failed"; }
 expect "governance.yaml kept the CI model setting through setup + upgrade" grep -q 'ci_allowed: true' "$G/policies/governance.yaml"
 expect "upgrade installed the framework rules" test -f "$G/framework/rules/rules.yaml"
+# THE BUILD PHASE'S STARTER IS SEED-NEW (spec 01 §3.2): `gov setup` creates it when it makes a NEW org, and `gov upgrade`
+# never does. This journey configures an existing repo in place, so neither ran — seed it the way the seed would, with
+# the org's name filled, before any step edits §2.2 (run 38386806174: the edit had no file to change).
+x mkdir -p "$G/policies/build"
+x cp "$CONTENT_DIR/policies/build/policy.md" "$G/policies/build/policy.md" || die "could not seed policies/build/policy.md"
+x perl -pi -e 's/<ORG_NAME>/Rule Model E2E '"$RUN_ID"'/g' "$G/policies/build/policy.md"
+expect "the build policy starter is seeded (seed-new: setup only)" test -f "$G/policies/build/policy.md"
 x git -C "$G" add -A && x git -C "$G" commit -qm "gov setup + upgrade (rule-model journey)" || die "commit failed"
 PR_SETUP="$(open_pr e2e/setup "gov setup + upgrade" "$G" "$R_GOV")"
 x gh pr merge "$PR_SETUP" --repo "$R_GOV" --merge --delete-branch >/dev/null || die "merge of #$PR_SETUP failed"
