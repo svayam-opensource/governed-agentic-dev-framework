@@ -54,6 +54,16 @@ The content's `MANIFEST.yaml` says how each file lands:
 - **Leftovers of the template copy** — the framework's own `publish/` and `site/` folders, or the framework's
   README in place of yours — are removed or replaced, but only when gov recognises them as the framework's
   exact files. Anything you wrote stays.
+- **The installed check workflows are refreshed.** gov installs two workflows in your governance repo's
+  `.github/workflows/`: `approver-check.yml` (by `gov repo protect apply`) and `gov-checks.yml` (by
+  `gov check install`). When the framework's approver-check template changed, the upgrade replaces the
+  installed copy with the new template. When what `gov check install` would write changed, the upgrade
+  re-renders `gov-checks.yml` and pins it to the gov that wrote it (`npm install -g @svayam-opensource/gov@<version>`),
+  so the upgrade pull request's own checks run the gov that brings the new layout. `--gov-package <spec>` installs
+  something else instead. A copy that did not change is left alone. A copy someone edited by hand is never
+  overwritten: the upgrade lists it as a conflict, and you reconcile it yourself. (`gov-checks.yml` ends with a
+  digest line; gov uses it to tell an edited copy from its own.) Later runs of `gov check install` keep the pin
+  unless you pass `--gov-package`.
 
 After upgrading, run `gov validate` to confirm everything still validates.
 

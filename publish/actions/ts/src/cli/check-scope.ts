@@ -21,7 +21,7 @@
 import path from "node:path";
 import { flagBool, flagStr } from "./args.js";
 import type { CommandResult } from "./dispatch.js";
-import { renderForRepo, type CheckVerbConfig, type CheckVerbDeps, type RuleSetLoad } from "./check-verb.js";
+import { renderForRepo, withInstalledPin, type CheckVerbConfig, type CheckVerbDeps, type RuleSetLoad } from "./check-verb.js";
 import { readGithubApp } from "./app-verb.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
 import { WORKFLOW_PATH } from "../rules/checks/render-github.js";
@@ -149,10 +149,10 @@ export function checkInstallAll(flags: Readonly<Record<string, string | boolean>
   for (const t of s.targets) {
     const r = refusal(t, deps, scope, s.boardNumber);
     if ("why" in r) { refused++; row("refused", t.name, r.why); continue; }
-    const rendered = renderForRepo(t.gov, loaded, cfg);
-    if (!rendered.ok) { refused++; row("refused", t.name, rendered.reason); continue; }
     const abs = path.join(t.dir, WORKFLOW_PATH);
     const current = deps.readFile(abs);
+    const rendered = renderForRepo(t.gov, loaded, withInstalledPin(cfg, current));
+    if (!rendered.ok) { refused++; row("refused", t.name, rendered.reason); continue; }
     if (!rendered.files.length) {
       if (current === null) { row("nothing", t.name, "no rule in force binds a check GitHub can run here — nothing to write"); continue; }
       if (!current.startsWith(GENERATED_MARK)) { row("nothing", t.name, `no rule binds it; ${WORKFLOW_PATH} was not written by gov, left alone`); continue; }
@@ -221,9 +221,9 @@ export function checkStatusReport(flags: Readonly<Record<string, string | boolea
   for (const t of s.targets) {
     const bad = unreadable(t, scope);
     if (bad) { rows.push({ name: t.name, state: "cannot tell", detail: bad }); continue; }
-    const rendered = renderForRepo(t.gov, loaded, cfg);
-    if (!rendered.ok) { rows.push({ name: t.name, state: "cannot tell", detail: rendered.reason }); continue; }
     const current = deps.readFile(path.join(t.dir, WORKFLOW_PATH));
+    const rendered = renderForRepo(t.gov, loaded, withInstalledPin(cfg, current));
+    if (!rendered.ok) { rows.push({ name: t.name, state: "cannot tell", detail: rendered.reason }); continue; }
     const want = rendered.files[0]?.text ?? null;
     if (want === null) {
       rows.push(current !== null && current.startsWith(GENERATED_MARK)

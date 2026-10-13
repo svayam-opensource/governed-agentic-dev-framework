@@ -249,7 +249,7 @@ function runMigration(adopterDir: string, ctx: MigrationContext): (how: string, 
 
 /** `govVersion`: the gov applying the upgrade, named in the record of each relocation — else the content's VERSION, which a release keeps equal to its CLI's. */
 /** `seed`: `gov setup` seeding a new workspace — a seed-new starter is created like seed-once (spec §3.2). */
-export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { apply: boolean; userHome?: string; govVersion?: string; seed?: boolean }): UpgradeSyncResult {
+export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { apply: boolean; userHome?: string; govVersion?: string; seed?: boolean } & WorkflowOpts): UpgradeSyncResult {
   const manifestPath = path.join(contentDir, "MANIFEST.yaml");
   if (!fs.existsSync(manifestPath)) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
 
@@ -265,8 +265,11 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
   };
   const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned, { seed: opts.seed === true, generated: manifest.generated });
 
+  // Read BEFORE the plan writes: the template the installed approver-check was copied from (Q9).
+  const workflows = opts.seed ? null : installedWorkflowInputs(entries, readContent, readAdopter);
   if (!opts.apply) {
-    return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
+    const rerender = workflows ? rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir), apply: false }).lines : [];
+    return { code: 0, lines: ["gov upgrade — DRY RUN (no changes written):", "", ...formatPlan(plan), ...rerender, ...replaceFrameworkReadme(adopterDir, contentDir, false), "", "Re-run with --apply to write these changes."] };
   }
 
   const res = applyUpgrade(plan, {
@@ -293,7 +296,33 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
       ...settleRoleList(adopterDir),
       ...(opts.seed ? [] : fillTokens(adopterDir, createdPaths(plan, res.applied))),
       ...refreshCodeowners(adopterDir),
+      ...(workflows ? rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir), apply: true }).lines : []),
     ],
+  };
+}
+
+/** What re-rendering the installed workflows needs from the caller (B07, Q9). */
+export interface WorkflowOpts {
+  /** gov-checks.yml as `gov check install` renders it for this gov repo, installing `govPackage`; null = cannot. */
+  readonly renderGovChecks?: (govPackage: string) => string | null;
+  /** What a re-rendered gov-checks.yml installs instead of this gov, pinned (`gov upgrade --gov-package`). */
+  readonly govPackage?: string;
+}
+
+/** The approver-check template before (this workspace's copy) and after (this content's) the upgrade. */
+function installedWorkflowInputs(entries: readonly { src: string; dst: string }[], readContent: (rel: string) => string | null, readAdopter: (rel: string) => string | null): { oldApproverTemplate: string | null; newApproverTemplate: string | null } {
+  const row = entries.find((e) => e.dst === APPROVER_TEMPLATE_POSIX);
+  return {
+    oldApproverTemplate: APPROVER_TEMPLATE_PATHS.map(readAdopter).find((t) => t !== null) ?? null,
+    newApproverTemplate: row ? readContent(row.src) : null,
+  };
+}
+
+function workflowPin(opts: { govVersion?: string } & WorkflowOpts, contentDir: string): Pick<RerenderInput, "govVersion" | "govPackage" | "renderGovChecks"> {
+  return {
+    govVersion: opts.govVersion ?? contentVersion(contentDir),
+    ...(opts.govPackage ? { govPackage: opts.govPackage } : {}),
+    ...(opts.renderGovChecks ? { renderGovChecks: opts.renderGovChecks } : {}),
   };
 }
 
@@ -399,6 +428,17 @@ export function refreshCodeowners(adopterDir: string): string[] {
 }
 
 import { run as runProcess } from "../run-process.js";
+import { rerenderInstalledWorkflows, type RerenderInput } from "./workflow-rerender.js";
+import { WORKFLOW_TEMPLATE as APPROVER_TEMPLATE } from "./repo-protect.js";
+import { OLD_APPROVER_TEMPLATE } from "./bridge/old-approver-template.js";
+
+/** The template's path as the MANIFEST writes it (posix), whatever the OS. */
+const APPROVER_TEMPLATE_POSIX = APPROVER_TEMPLATE.split(path.sep).join("/");
+/**
+ * Where a workspace may hold the approver-check template it installed from: today's path, then the 1.x path a
+ * workspace still has before the upgrade that moves it.
+ */
+const APPROVER_TEMPLATE_PATHS = [...new Set([APPROVER_TEMPLATE_POSIX, OLD_APPROVER_TEMPLATE])];
 import { expectedCodeowners } from "./roles-health.js";
 import { ROLE_LIST_PATH, ROLE_HOLDER_TOKENS, settleRoleListTokens } from "../config/role-list.js";
 import { normalizeHandle } from "../config/codeowners.js";
@@ -466,7 +506,7 @@ export type OpenPr = (args: { cwd: string; base: string; head: string; title: st
 const ghOpenPr: OpenPr = ({ cwd, base, head, title, body }) =>
   runProcess("gh", ["pr", "create", "--base", base, "--head", head, "--title", title, "--body", body], { cwd, pgm: "gov-work:maintain:upgrade-run", fn: "pr-create" }).trim();
 
-export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string; compileRules?: CompileRules; userHome?: string; openPr?: OpenPr; govVersion?: string } = {}): UpgradeSyncResult {
+export function runUpgradePr(contentDir: string, adopterDir: string, opts: { branch?: string; compileRules?: CompileRules; userHome?: string; openPr?: OpenPr; govVersion?: string } & WorkflowOpts = {}): UpgradeSyncResult {
   if (!fs.existsSync(path.join(contentDir, "MANIFEST.yaml"))) return { code: 1, lines: [`gov upgrade: no MANIFEST.yaml under ${contentDir}`] };
   try { git(adopterDir, ["rev-parse", "--git-dir"]); } catch { /* not a git repository: the message below is the account of it */ return { code: 1, lines: ["gov upgrade --pr: not a git repository (or no remote). Use --apply for an in-place migration instead."] }; }
   if (git(adopterDir, ["status", "--porcelain"])) return { code: 1, lines: ["gov upgrade --pr: working tree has uncommitted changes — commit or stash first."] };
@@ -482,6 +522,7 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   const readContent = (rel: string): string | null => { const p = path.join(contentDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
   const readAdopter = (rel: string): string | null => { const p = path.join(adopterDir, rel); return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null; };
   const plan = planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned, { generated: manifest.generated });
+  const workflows = installedWorkflowInputs(entries, readContent, readAdopter);
   if (plan.actions.every((a) => a.kind === "same" || a.kind === "keep" || a.kind === "starter")) return { code: 0, lines: ["gov upgrade: workspace already matches content — nothing to do."] };
   // Before the branch exists: a PR that silently lacks the org-config merge would read as a complete upgrade.
   if (plan.actions.some((a) => a.kind === "refuse")) return { code: 1, lines: ["gov upgrade --pr: refused — nothing was written.", ...refusedLines(plan)] };
@@ -529,7 +570,9 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
   //
   // NO MARKER: nothing is ratified yet, so no session is stale. The marker is recorded by `--apply`, which does
   // put the new rules into force, and by `gov sync`.
-  const compiledLines = [...filledLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
+  // The installed workflows travel in the same commit (Q9): the PR's own CI runs the gov that wrote them.
+  const workflowLines = rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir), apply: true }).lines;
+  const compiledLines = [...filledLines, ...workflowLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
 
   try {
     git(adopterDir, ["add", "-A"]);

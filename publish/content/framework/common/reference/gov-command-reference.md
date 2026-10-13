@@ -242,7 +242,7 @@ gov setup acme/acme-gov
 bring this org's framework content to the content this gov carries (newer content: install a newer gov)
 
 ```text
-gov upgrade [--apply] [--pr] [--ref <commit|tag|branch>] [--from <dir>]
+gov upgrade [--apply] [--pr] [--ref <commit|tag|branch>] [--from <dir>] [--gov-package <spec>]
 ```
 
 **Where.** GOVERNED — the org's workspace
@@ -255,6 +255,7 @@ gov upgrade [--apply] [--pr] [--ref <commit|tag|branch>] [--from <dir>]
 | `--pr` | put the changes in a pull request instead of the working tree |
 | `--ref <commit|tag|branch>` | fetch the content at this ref of the template instead of the content this gov carries. Content that is not this gov's build is refused |
 | `--from <dir>` | take the content from a local directory instead of the content this gov carries. Checked the same way |
+| `--gov-package <spec>` | what a re-rendered `gov-checks.yml` installs. Default: this gov, pinned (`@svayam-opensource/gov@<this version>`) |
 
 **Examples**
 
@@ -264,7 +265,7 @@ gov upgrade --pr
 gov upgrade --apply
 ```
 
-**Changes.** with `--apply`: rewrites framework-owned files, leaves the org's own alone (org-config.yaml and policies/governance.yaml included), runs each recorded one-time migration — the org-config split among them — and removes what the new layout retires. A starter for new orgs (a `seed-new` file) is never created or changed by an upgrade; the dry run lists a missing one as "starter for new orgs". With `--pr`: the same, on a branch, as a pull request
+**Changes.** with `--apply`: rewrites framework-owned files, leaves the org's own alone (org-config.yaml and policies/governance.yaml included), runs each recorded one-time migration — the org-config split among them — and removes what the new layout retires. A starter for new orgs (a `seed-new` file) is never created or changed by an upgrade; the dry run lists a missing one as "starter for new orgs". It also refreshes the governance repo's installed `.github/workflows/approver-check.yml` when the framework's template changed, and `.github/workflows/gov-checks.yml` when what `gov check install` renders changed — pinned to this gov — but never a copy edited by hand: that one is left and listed as a conflict. With `--pr`: the same, on a branch, as a pull request
 
 **Exit codes**
 
@@ -460,7 +461,7 @@ gov check <run <GOV-ID> --resource <r> --event <e> | install [--repo <path> | --
 | `--repo <path>` | install: the working tree to write into (default: the governance repo); any other path is a linked code repo |
 | `--all` | install: every repo of the project — the governance repo and the board's linked code repos |
 | `--project <id>` | install --all, status: the project (PRJ-&lt;n&gt;-&lt;slug&gt;, or its board number) instead of the one the governance repo's branch names |
-| `--gov-package <spec>` | install, status: what the workflow installs with `npm install -g` (default: the published gov) — a packed tarball's URL or path, to test a commit before it is released |
+| `--gov-package <spec>` | install, status: what the workflow installs with `npm install -g` (default: the version an installed copy already pins — `gov upgrade` pins the gov that wrote it — else the published gov) — a packed tarball's URL or path, to test a commit before it is released |
 | `--prune` | install --all: remove a workflow gov wrote earlier in a repo no rule binds any more (a file gov did not write is never touched) |
 
 **Examples**

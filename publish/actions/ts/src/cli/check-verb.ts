@@ -37,7 +37,7 @@ import { buildPayload } from "../rules/checks/event-payload.js";
 import { githubOpenRedMergeRecord, githubViolationPorts, requestReviews, type Gh } from "../rules/checks/github-adapters.js";
 import { recordRedMerges, recordViolation } from "../rules/checks/violation.js";
 import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
-import { githubActionsRenderer, GOV_APP_SECRETS } from "../rules/checks/render-github.js";
+import { githubActionsRenderer, GOV_APP_SECRETS, pinnedGovPackage, WORKFLOW_PATH } from "../rules/checks/render-github.js";
 import { humanGateMessage } from "../rules/cues/human-message.js";
 import { gitTree } from "../rules/policy-pr/tree.js";
 import type { PolicyPrInput } from "../rules/policy-pr/gate.js";
@@ -400,6 +400,17 @@ export function renderForRepo(isGov: boolean, loaded: RuleSetLoad, cfg: CheckVer
   return { ok: true, files, bindings };
 }
 
+/**
+ * KEEP THE PIN (Q9). An installed workflow that installs a PINNED gov (`gov upgrade` writes it pinned to the gov that
+ * wrote it) is re-rendered and compared with that pin, unless `--gov-package` names another. Without this, the next
+ * `gov check install` would swap the pin for whatever npm calls `latest`, and `status` would call the copy stale.
+ */
+export function withInstalledPin(cfg: CheckVerbConfig, installed: string | null): CheckVerbConfig {
+  if (cfg.govPackage || installed === null) return cfg;
+  const pin = pinnedGovPackage(installed);
+  return pin ? { ...cfg, govPackage: pin } : cfg;
+}
+
 export const govRepoOf = (cfg: CheckVerbConfig): string => (cfg.githubOrg && cfg.workspaceRepo ? `${cfg.githubOrg}/${cfg.workspaceRepo}` : "");
 
 function checkInstall(flags: Readonly<Record<string, string | boolean>>, deps: CheckVerbDeps, cfg: CheckVerbConfig): CommandResult {
@@ -409,7 +420,7 @@ function checkInstall(flags: Readonly<Record<string, string | boolean>>, deps: C
   const ref = defaultRef(deps.git, cfg.home, cfg.defaultBranch);
   const loaded = loadCheckRuleSet(deps.git, cfg.home, ref);
   if (!loaded.ok) return { code: 1, lines: [`check install: the rules could not be read at ${ref}: ${loaded.reason}. Nothing was written.`] };
-  const rendered = renderForRepo(isGov, loaded, cfg);
+  const rendered = renderForRepo(isGov, loaded, withInstalledPin(cfg, deps.readFile(path.join(target, WORKFLOW_PATH))));
   if (!rendered.ok) return { code: 1, lines: [`check install: ${rendered.reason}. Nothing was written.`] };
   const { files, bindings } = rendered;
   const govRepo = govRepoOf(cfg);

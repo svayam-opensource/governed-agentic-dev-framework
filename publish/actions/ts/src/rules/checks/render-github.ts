@@ -17,6 +17,7 @@
  *
  * Pure.
  */
+import { createHash } from "node:crypto";
 import type { CheckBinding } from "../model/catalog.js";
 import type { BindingRenderer } from "../model/contracts.js";
 import { GH_ACTION_OUTCOMES_ENV, ghActionKey, ghActionName, isOrgGhAction } from "./gh-org-actions.js";
@@ -112,7 +113,9 @@ function pushBranches(check: CheckBinding, defaultBranch: string | undefined): s
  * `pull-requests: read`. `section-owner-approval` reads reviews and requests them: `pull-requests: write`.
  */
 function permissionsFor(trigger: Trigger, actions: ReadonlySet<string>): Record<string, string> {
-  const p: Record<string, string> = {};
+  // X13 (PRJ-121 intent 02, 2026-10-12): every job may ask GitHub for its OIDC token — licensed org or not, so the
+  // render never flaps with a subscription. Useless to anyone without the audience's trust; it grants no repo access.
+  const p: Record<string, string> = { "id-token": "write" };
   if (trigger.on === "push" || trigger.on === "issues") p.issues = "write";
   if (actions.has("gov-builtin/section-owner-approval")) p["pull-requests"] = "write";
   // The propose fallback commits its rows to the PR branch with the built-in token (the App stays read-only —
@@ -199,7 +202,8 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
     const sameName = sorted.filter((k) => k.id === j.id && k.event === j.event).length > 1;
     const ghSteps = orgGhActionSteps(j.gh, opts);
     const env = [
-      ...(keys.length ? ["          GH_TOKEN: ${{ github.token }}"] : []),
+      // `id-token` (X13) is not repository access: it alone does not hand the step the token.
+      ...(keys.some((k) => k !== "id-token") ? ["          GH_TOKEN: ${{ github.token }}"] : []),
       ...(j.actions.has("gov-builtin/rules-propose") ? MODEL_KEY_SECRETS.map((k) => `          ${k}: \${{ secrets.${k} }}`) : []),
       ...(ghSteps.outcomes ? [`          ${GH_ACTION_OUTCOMES_ENV}: ${ghSteps.outcomes}`] : []),
     ];
@@ -227,7 +231,44 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       `        run: gov check run ${j.id} --resource ${j.resource} --event ${j.event} ${opts.govCheckout ? "--gov-home .gov --repo-dir ." : "--gov-home ."}`,
     );
   }
-  return [{ path: WORKFLOW_PATH, text: lines.join("\n") + "\n" }];
+  return [{ path: WORKFLOW_PATH, text: withDigest(lines.join("\n") + "\n") }];
+}
+
+// ── THE DIGEST AND THE PIN (PRJ-121 intent 01, B07, ruling Q9) ───────────────────────────────────────────────
+//
+// `gov upgrade` re-renders an installed gov-checks.yml when what gov would write has changed — but never one a person
+// edited. The last line is a sha256 of every line above it: a copy whose digest still holds is exactly what some gov
+// wrote; one whose digest broke was edited, and the upgrade lists it as a conflict instead of overwriting it.
+
+const DIGEST_PREFIX = "# gov digest sha256:";
+const DIGEST_LINE = /^# gov digest sha256:([0-9a-f]{64})\b.*\n?$/;
+
+function sha256(text: string): string { return createHash("sha256").update(text, "utf8").digest("hex"); }
+
+/** `text` (ending in a newline) with its digest line appended. */
+function withDigest(text: string): string {
+  return `${text}${DIGEST_PREFIX}${sha256(text)} of the lines above — edited by hand, it no longer matches and gov upgrade will not overwrite this file\n`;
+}
+
+/** true: the digest holds (gov wrote it, untouched) · false: it was edited · null: no digest (a gov older than B07). */
+export function digestHolds(text: string): boolean | null {
+  const body = text.endsWith("\n") ? text.slice(0, -1) : text;
+  const cut = body.lastIndexOf("\n");
+  const last = body.slice(cut + 1);
+  const m = DIGEST_LINE.exec(last);
+  if (!m) return null;
+  return sha256(text.slice(0, cut + 1)) === m[1];
+}
+
+/**
+ * The gov package an installed workflow `npm install -g`s, when it is PINNED to a version (`<name>@<version>`), else
+ * null. `gov check install` and `status` keep an installed pin when no `--gov-package` is given (Q9: workflows pin the
+ * gov that wrote them).
+ */
+export function pinnedGovPackage(text: string): string | null {
+  const m = /^ {8}run: npm install -g (\S+)$/m.exec(text);
+  if (!m) return null;
+  return /^(@[^/\s]+\/)?[^@\s]+@[^@\s]+$/.test(m[1]!) ? m[1]! : null;
 }
 
 /**

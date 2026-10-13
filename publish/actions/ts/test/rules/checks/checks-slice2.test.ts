@@ -18,7 +18,7 @@ import { createCheckRunner } from "../../../src/rules/checks/runner.js";
 import { landedByPr, githubPullsForCommit, type PullRef } from "../../../src/rules/checks/gh-actions.js";
 import { sectionShas, changedSections, policySections } from "../../../src/rules/checks/sections.js";
 import { violationFor, recordViolation, type ViolationIssue } from "../../../src/rules/checks/violation.js";
-import { renderWorkflow } from "../../../src/rules/checks/render-github.js";
+import { renderWorkflow, digestHolds } from "../../../src/rules/checks/render-github.js";
 import { MACHINE_WRITTEN_POLICY_PATHS } from "../../../src/rules/checks/policy-actions.js";
 import type { ChangedFile } from "../../../src/rules/diff-check.js";
 
@@ -430,7 +430,8 @@ describe("check engine slice 2 — the renderer: branches, forced, permissions",
       b("GOV-FRM-086", "vcs.gov-repo", "pull_request", "gov-builtin/section-owner-approval"),
       b("GOV-FRM-001", "vcs.gov-repo", "pull_request", "gov-builtin/naming", { pattern: "x" }),
     ], { defaultBranch: "main" });
-    expect(f!.text).to.equal(EXPECTED);
+    expect(digestHolds(f!.text)).to.equal(true);
+    expect(f!.text.replace(/# gov digest sha256:[^\n]*\n$/, "")).to.equal(EXPECTED);
   });
 
   it("the rendered workflow is valid YAML of the shape GitHub reads", () => {
@@ -440,8 +441,8 @@ describe("check engine slice 2 — the renderer: branches, forced, permissions",
     ], { defaultBranch: "main" });
     const doc = yaml.load(f!.text) as { on: Record<string, unknown>; jobs: Record<string, { permissions?: Record<string, string> }> };
     expect(doc.on).to.deep.equal({ issues: { types: ["closed"] }, push: { branches: ["main"] } });
-    expect(doc.jobs["GOV-FRM-040_push"]!.permissions).to.deep.equal({ checks: "read", contents: "read", issues: "write", "pull-requests": "read" });
-    expect(doc.jobs["GOV-SVM-050_closed"]!.permissions).to.deep.equal({ contents: "read", issues: "write" });
+    expect(doc.jobs["GOV-FRM-040_push"]!.permissions).to.deep.equal({ checks: "read", contents: "read", "id-token": "write", issues: "write", "pull-requests": "read" });
+    expect(doc.jobs["GOV-SVM-050_closed"]!.permissions).to.deep.equal({ contents: "read", "id-token": "write", issues: "write" });
   });
 
   it("with no default branch known, landed-by-pr is not filtered (the runner still scopes it)", () => {
@@ -494,12 +495,16 @@ jobs:
   GOV-FRM-001_pull_request:
     name: GOV-FRM-001 · pull_request
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      id-token: write
 ${steps("GOV-FRM-001", "vcs.gov-repo", "pull_request", false)}  GOV-FRM-040_push:
     name: GOV-FRM-040 · push
     if: github.event_name == 'push'
     permissions:
       contents: read
       checks: read
+      id-token: write
       issues: write
       pull-requests: read
 ${steps("GOV-FRM-040", "vcs.gov-repo", "push", true)}  GOV-FRM-086_pull_request:
@@ -507,12 +512,14 @@ ${steps("GOV-FRM-040", "vcs.gov-repo", "push", true)}  GOV-FRM-086_pull_request:
     if: github.event_name == 'pull_request'
     permissions:
       contents: read
+      id-token: write
       pull-requests: write
 ${steps("GOV-FRM-086", "vcs.gov-repo", "pull_request", true)}  GOV-FRM-466_push:
     name: GOV-FRM-466 · push
     if: github.event_name == 'push' && github.event.forced
     permissions:
       contents: read
+      id-token: write
       issues: write
 ${steps("GOV-FRM-466", "vcs.gov-repo", "push", true)}`;
 

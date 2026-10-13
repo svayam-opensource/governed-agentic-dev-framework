@@ -45,7 +45,7 @@ import { createNodeRegistryStore } from "../resolve/registry-store.js";
 import { loadOrgConfigText } from "../config/work-root.js";
 import { ORG_CONFIG_SCHEMA_PATH, orgConfigLoadNotes, defaultWorkRoot, parseOrgConfig } from "../config/org-config.js";
 import { GOVERNANCE_PATH, readPosture, readGovernance, frameworkOwners } from "../config/governance.js";
-import { checkCommand } from "./check-verb.js";
+import { checkCommand, renderForRepo } from "./check-verb.js";
 import { createNodeActionExecutor } from "../rules/checks/executor.js";
 import { appCheck, appCommand, ghRunner, readGithubApp } from "./app-verb.js";
 import { startLoopback } from "./app-loopback.js";
@@ -63,7 +63,7 @@ import { terminalChannel } from "../rules/propose/interview.js";
 import { chooseModel, lazyModel } from "../rules/propose/providers/index.js";
 import { ANTHROPIC_KEY_ENV } from "../rules/propose/providers/anthropic.js";
 import { GEMINI_KEY_ENV } from "../rules/propose/providers/gemini.js";
-import { defaultRef } from "../rules/checks/ruleset-io.js";
+import { defaultRef, loadCheckRuleSet } from "../rules/checks/ruleset-io.js";
 import { fsTree } from "../rules/policy-pr/tree.js";
 import type { ModelSettings } from "../rules/propose/model-settings.js";
 import type { Gh } from "../rules/checks/github-adapters.js";
@@ -2554,9 +2554,23 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
         // The gov that applies a relocation is named in the workspace's record of it (framework/upgrade-moves.json).
         const cliVersion = readCliVersion();
         const govVersion = cliVersion === "?" ? {} : { govVersion: cliVersion };
+        // THE INSTALLED WORKFLOWS (Q9): gov-checks.yml re-rendered as `gov check install` renders it for this gov repo —
+        // the rules from its default branch — installing the gov that wrote it (or `--gov-package`).
+        const upCfg = loadOrgConfigText(fs.readFile(path.join(home, "org-config.yaml")) ?? "");
+        const gitRead = (repo: string, args: readonly string[]): string | null => tryRun("git", ["-C", repo, ...args]) ?? null;
+        const renderGovChecks = (govPackage: string): string | null => {
+          const loaded = loadCheckRuleSet(gitRead, home, defaultRef(gitRead, home, upCfg.defaultBranch || "main"));
+          const r = renderForRepo(true, loaded, {
+            home, defaultBranch: upCfg.defaultBranch || "main", defaultCodeBranch: upCfg.defaultCodeBranch, githubOrg: upCfg.githubOrg,
+            workspaceRepo: upCfg.workspaceRepo, posture: null, govPackage,
+          });
+          return r.ok ? r.files[0]?.text ?? null : null;
+        };
+        const govPackage = flagStr(parsed.flags, "gov-package");
+        const workflows = { renderGovChecks, ...(govPackage ? { govPackage } : {}) };
         const res = "pr" in parsed.flags
-          ? runUpgradePr(contentDir, home, { branch: flagStr(parsed.flags, "branch"), compileRules: compileRules(false), ...govVersion })
-          : runUpgradeSync(contentDir, home, { apply: "apply" in parsed.flags, ...govVersion });
+          ? runUpgradePr(contentDir, home, { branch: flagStr(parsed.flags, "branch"), compileRules: compileRules(false), ...govVersion, ...workflows })
+          : runUpgradeSync(contentDir, home, { apply: "apply" in parsed.flags, ...govVersion, ...workflows });
         for (const line of res.lines) process.stdout.write(`${line}\n`);
         if (res.code === 0 && "apply" in parsed.flags && !("pr" in parsed.flags)) {
           for (const line of compileRules(true)(home)) process.stdout.write(`${line}\n`);
