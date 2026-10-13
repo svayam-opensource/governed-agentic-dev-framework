@@ -49,7 +49,7 @@ The content's `MANIFEST.yaml` says how each file lands:
   them. A new file the release adds is added once, and is yours from then on.
 - **Your organization's details are filled in** every file the upgrade creates: your organization's name, the
   Policy Owner, and the other values in `org-config.yaml` and `policies/governance.yaml` replace placeholders
-  such as `<ORG_NAME>`, as `gov setup` does. Files that were already there are not changed, even if they still
+  such as `<ORG_NAME>`, as a first-time adoption does. Files that were already there are not changed, even if they still
   contain a placeholder.
 - **`projects/` and your own knowledge** are never touched.
 - **Leftovers of the template copy** — the framework's own `publish/` and `site/` folders, or the framework's
