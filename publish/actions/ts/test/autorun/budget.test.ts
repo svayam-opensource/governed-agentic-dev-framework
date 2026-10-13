@@ -2,7 +2,10 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /** Spec 03 Q11 — per item 30 min, per run 10 items / 10 CRs, set in governance.yaml; flags may only lower them. */
 import { expect } from "chai";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
 import { readBudget, RunBudget, DEFAULT_BUDGET } from "../../src/autorun/budget.js";
+import { renderGovernance, EMPTY_GOVERNANCE_VALUES } from "../../src/config/governance.js";
 
 describe("autorun — budget", () => {
   it("defaults are Q11's: 30 min per item, 10 items and 10 CRs per run", () => {
@@ -36,5 +39,12 @@ describe("autorun — budget", () => {
     expect(b.canStartItem()).to.equal(true); b.itemStarted();
     expect(b.canStartItem()).to.equal(false);
     expect(b.exhausted()).to.match(/2 items/);
+  });
+
+  it("the shipped governance.yaml, and the one gov setup renders, carry Q11's numbers — read with no problem", () => {
+    const shipped = readFileSync(path.join(import.meta.dirname, "..", "..", "..", "..", "content", "policies", "governance.yaml"), "utf8");
+    expect(readBudget(shipped)).to.deep.equal({ budget: DEFAULT_BUDGET, problems: [] });
+    expect(shipped).to.match(/^autorun:\n {2}item_minutes: 30\n {2}run_items: 10\n {2}run_crs: 10$/m);
+    expect(readBudget(renderGovernance(EMPTY_GOVERNANCE_VALUES))).to.deep.equal({ budget: DEFAULT_BUDGET, problems: [] });
   });
 });

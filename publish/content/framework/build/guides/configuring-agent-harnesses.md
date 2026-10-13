@@ -43,7 +43,7 @@ Per-project copies under `projects/<PID>/` are composed at seed time (protocol +
 
 ### Which agents can run headless
 
-Running an agent *headless* means gov starts it with nobody at the terminal: the agent gets its instructions, works, prints what it did and exits. The lifecycle engine (`gov autorun`, coming in a later release) works this way. gov runs an agent headless only after someone has checked that agent's own command line does exactly that, and gov's agent catalog records when it was checked. Any other agent is refused, and gov tells you why. It does not start the agent and hope nobody needs to answer a question.
+Running an agent *headless* means gov starts it with nobody at the terminal: the agent gets its instructions, works, prints what it did and exits. The lifecycle engine, `gov autorun`, works this way ([Running the lifecycle](running-the-lifecycle.md)). gov runs an agent headless only after someone has checked that agent's own command line does exactly that, and gov's agent catalog records when it was checked. Any other agent is refused, and gov tells you why. It does not start the agent and hope nobody needs to answer a question.
 
 | Agent | Headless? | How gov runs it | Checked |
 |---|---|---|---|

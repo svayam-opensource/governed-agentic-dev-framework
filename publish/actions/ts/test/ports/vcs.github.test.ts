@@ -141,4 +141,27 @@ describe("isBotAccount", () => {
     expect(isBotAccount("rkant", "User")).to.equal(false);
     expect(isBotAccount("robot")).to.equal(false);
   });
+  it("changeRequests(): every page, filtered by base and owner-qualified head, merged told from closed", async () => {
+    const lines = [
+      { number: 3, state: "open", merged_at: null, draft: true, title: "a", html_url: "https://github.com/acme/app/pull/3", head: { ref: "feat" }, base: { ref: "dev" } },
+      { number: 2, state: "closed", merged_at: "2026-10-01T00:00:00Z", draft: false, title: "b", html_url: "https://github.com/acme/app/pull/2", head: { ref: "feat" }, base: { ref: "dev" } },
+      { number: 1, state: "closed", merged_at: null, draft: false, title: "c", html_url: "https://github.com/acme/app/pull/1", head: { ref: "feat" }, base: { ref: "dev" } },
+    ].map((x) => JSON.stringify(x)).join("\n");
+    const f = fakeGh({ "api --paginate repos/acme/app/pulls?": ok(`${lines}\n`) });
+    const r = await createGithubVcs({ gh: f.gh }).changeRequests(REPO, { base: "dev", head: "feat", state: "all" });
+    expect(r.ok, JSON.stringify(r)).to.equal(true);
+    if (!r.ok) return;
+    expect(r.value.map((c) => [c.ref.number, c.state, c.merged, c.draft])).to.deep.equal([[3, "open", false, true], [2, "merged", true, false], [1, "closed", false, false]]);
+    const url = f.calls[0]!.find((a) => a.startsWith("repos/"))!;
+    expect(url).to.include("state=all").and.include("base=dev").and.include("head=acme%3Afeat");
+    // "closed" asks GitHub for closed, which includes merged ones — the port keeps only the merely closed.
+    const f2 = fakeGh({ "api --paginate repos/acme/app/pulls?": ok(`${lines}\n`) });
+    const c = await createGithubVcs({ gh: f2.gh }).changeRequests(REPO, { state: "closed" });
+    expect(c.ok && c.value.map((x) => x.ref.number)).to.deep.equal([1]);
+  });
+
+  it("changeRequests(): a failure is a Result with gh's reason", async () => {
+    const r = await createGithubVcs({ gh: fakeGh({ "api --paginate repos/": err("gh: Not Found (HTTP 404)") }).gh }).changeRequests(REPO, {});
+    expect(r.ok).to.equal(false);
+  });
 });

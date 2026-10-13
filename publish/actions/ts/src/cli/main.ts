@@ -26,7 +26,9 @@ import { readExistingOrgConfig, deriveOrgConfig } from "../setup/setup.js";
 import { interviewSummary } from "../setup/interview.js";
 import { parseTarget, preflight as createPreflight, explainFailure, findExistingGovernanceRepo, waitForTemplateContent, canAdoptExisting, archivePathFor, INHERITED_DIRS, cleanSlateEntries, strayRootEntries, PER_PROJECT_TOKENS, setupTokenValues, renderManifest, selectSetupContent, substituteTokens, leftoverTokens, type CreateIo, type ManifestLine } from "../setup/create.js";
 import { runMenu, type MenuContext, type MenuHandlers } from "./menu.js";
-import { runWorkFlow, myProjects, agentLaunchSpec, projectFromPath, type AgentKind } from "./work-flow.js";
+import { runWorkFlow, myProjects, agentLaunchSpec, projectFromPath, kickoffPrompt, HEADLESS_EXEC, type AgentKind } from "./work-flow.js";
+import { autorunCommand } from "../autorun/command.js";
+import { recordStamp } from "../autorun/record.js";
 import { verifyAgentContext } from "../lifecycle/root-protocol.js";
 import { credentialNotice, planCredentialWrites, credentialsPathFor, storedCredential, storeIsPrivate } from "./agent-credentials.js";
 import { snapshotGovernance } from "../lifecycle/governance-snapshot.js";
@@ -105,7 +107,7 @@ import { pickerSettingsFromPreferences } from "./project-picker.js";
 import { recogniseAccountFailure } from "./agent-account.js";
 import { loadPreferences, savePreference } from "./preferences-io.js";
 import { ensureLogin, runContext } from "./run-context.js";
-import { logsRoot, redactArgv } from "../state-paths.js";
+import { logsRoot, redactArgv, newRunId, stateDir as personStateDir } from "../state-paths.js";
 import { gatherGovernanceFacts, stampLines, withStamp } from "../lifecycle/governance-stamp.js";
 import { buildRulesAt } from "./rules-lifecycle.js";
 import { rulesFacts } from "./rules-verb.js";
@@ -3191,6 +3193,35 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     tracker: () => pickAdapter(builtInProviders, "workTracker", config.adapters.workTracker, { gh: ghRunFrom(runGh) }),
     // The code host, the same way (`adapters: vcs`). `gov intent` opens its change request through it.
     vcsHost: () => pickAdapter(builtInProviders, "vcs", config.adapters.vcs, { gh: ghRunFrom(runGh) }),
+    // `gov autorun` (spec 03 §3): the same ports, local git, gov work's kickoff for a headless agent, and a lock and
+    // worktrees in this person's state dir (beside their logs; ~/.gov/state when no work root is known yet).
+    autorun: async (flags) => {
+      const started = new Date();
+      const rc = runContext();
+      const who = login ?? rc.login ?? "unknown";
+      const sdir = rc.workRoot ? personStateDir(rc.workRoot, who) : path.join(os.homedir(), ".gov", "state");
+      return autorunCommand(flags, {
+        vcs, fs, git: (repo, args) => tryRun("git", ["-C", repo, ...args]) ?? null,
+        host: pickAdapter(builtInProviders, "vcs", config.adapters.vcs, { gh: ghRunFrom(runGh) }),
+        tracker: pickAdapter(builtInProviders, "workTracker", config.adapters.workTracker, { gh: ghRunFrom(runGh) }),
+        home, githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, defaultBranch: config.defaultBranch || "main",
+        login: login ?? "", stateDir: sdir,
+        lockFs: {
+          createExclusive: (p, text) => {
+            fsSync.mkdirSync(path.dirname(p), { recursive: true });
+            try { fsSync.writeFileSync(p, text, { flag: "wx" }); return true; } catch (e) {
+              if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+              throw e;
+            }
+          },
+          read: (p) => { try { return fsSync.readFileSync(p, "utf8"); } catch { return null; } },
+          remove: (p) => { try { fsSync.rmSync(p, { force: true }); } catch { /* gone already */ } },
+        },
+        now: () => new Date(), runId: `${recordStamp(started)}-${newRunId()}`, today: now.slice(0, 10),
+        headlessExec: HEADLESS_EXEC,
+        kickoff: (project) => kickoffPrompt(project, { workspaceRepo: config.workspaceRepo, govHome: home }),
+      });
+    },
     anchor: createGhAnchor(runGh),
     pulls: createGhPulls(runGh),
     projects: createGhProjects(runGh),

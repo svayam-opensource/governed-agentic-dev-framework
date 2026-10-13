@@ -151,6 +151,15 @@ describe("gov intent — drafting an intent from board issues (D3)", () => {
     expect(w.git.calls).to.include(`push origin ${branch}`);
   });
 
+  it("drafted by gov autorun: the commit carries its Gov-Autorun / Gov-Agent trailers (spec 03 §3.4)", async () => {
+    const w = await world();
+    let message = "";
+    const deps = { ...w.deps, vcs: { ...w.git, commit: (_d: string, m: string) => { message = m; } } };
+    const r = await createIntent(deps, { ...w.input, trailers: { runId: "ar-9", agent: "gov" } });
+    expect(r.code, r.lines.join("\n")).to.equal(0);
+    expect(message).to.match(/^Gov-Intent: 01$/m).and.match(/^Gov-Autorun: ar-9$/m).and.match(/^Gov-Agent: gov$/m);
+  });
+
   it("asks only what the issues do not answer — each question with a recommendation line", async () => {
     const w = await world();
     await createIntent(w.deps, w.input);

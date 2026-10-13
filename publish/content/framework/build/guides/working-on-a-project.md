@@ -340,6 +340,10 @@ flowchart LR
 `STALE (spec changed <date> after the plan was approved <date>)`, and the spec and plan go back through their
 gates.
 
+**Letting gov draft between the gates.** `gov autorun` drafts the next artifact for every item whose gate a
+person has passed — spec, plan, task issues, build record — and opens each as a change request for review. See
+[Running the lifecycle](running-the-lifecycle.md) for what it does, its budgets, and how to stop it.
+
 **Shipped in.** When a release's `releases/<unit>/<version>/deploy.md` lists your project and intent in its
 "Included intents" table, gov adds `releases/<unit>/<version>` to the "Shipped in" section of the intent's
 `build.md`. An intent that ships in more than one unit gets one line for each.

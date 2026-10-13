@@ -90,6 +90,28 @@ export function vcsConformance(name: string, setup: () => Promise<VcsFixture> | 
       if (!o.ok) expect(o.reason).to.not.equal("");
     });
 
+    it("changeRequests(): lists by base, head and state — the one just opened is found open, and not closed", async () => {
+      const o = await fx.vcs.openChangeRequest({ repo: fx.repo, head: fx.head, base: fx.defaultBranch, title: "conformance: list", body: "opened by the VcsPort conformance suite", draft: true });
+      expect(o.ok, JSON.stringify(o)).to.equal(true);
+      if (!o.ok) return;
+      opened.push(o.value);
+      const open = await fx.vcs.changeRequests(fx.repo, { base: fx.defaultBranch, head: fx.head, state: "open" });
+      expect(open.ok, JSON.stringify(open)).to.equal(true);
+      if (!open.ok) return;
+      expect(open.value.map((c) => c.ref.number)).to.include(o.value.number);
+      for (const c of open.value) expect(c).to.deep.include({ head: fx.head, base: fx.defaultBranch, state: "open" });
+      const closed = await fx.vcs.changeRequests(fx.repo, { head: fx.head, state: "closed" });
+      expect(closed.ok).to.equal(true);
+      if (closed.ok) expect(closed.value.map((c) => c.ref.number)).to.not.include(o.value.number);
+      const none = await fx.vcs.changeRequests(fx.repo, { head: fx.missingBranch, state: "all" });
+      expect(none).to.deep.equal({ ok: true, value: [] });
+    });
+
+    it("changeRequests(): a repository that does not exist is a failure", async () => {
+      const r = await fx.vcs.changeRequests(fx.missingRepo, { state: "all" });
+      expect(r.ok).to.equal(false);
+    });
+
     it("changeRequest(): a merged one says merged", async function () {
       if (!fx.merged) return this.skip();
       const c = await fx.vcs.changeRequest(fx.merged);

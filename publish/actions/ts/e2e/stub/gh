@@ -13,12 +13,20 @@
 #   GH_STUB_ANCHORS          board numbers that HAVE an anchor issue (= seeded)   (#198)
 #   GH_STUB_LOG              a file every invocation is appended to, for assertions
 #   GH_STUB_ISSUE_BODY       the body `gh issue view` answers with (every issue is OPEN, titled from its number)
+#   GH_STUB_DB               a directory: a fake GitHub WITH A MEMORY (stub/gh-db.mjs) answers the pulls API, issues
+#                            and the board first — one run then sees what the last one did (gov autorun, L17)
+#   GH_STUB_DB_TOOL          where gh-db.mjs is (default: beside the journey's stubs)
 set -uo pipefail
 : "${GH_STUB_LOGIN:=adopter-bot}"
 : "${GH_STUB_GOVERNED:=}"
 : "${GH_STUB_BOARDS:=}"
 : "${GH_STUB_ANCHORS:=}"
 [ -n "${GH_STUB_LOG:-}" ] && printf 'gh %s\n' "$*" >> "$GH_STUB_LOG"
+
+if [ -n "${GH_STUB_DB:-}" ]; then
+  node "${GH_STUB_DB_TOOL:-${HERE:-.}/stub/gh-db.mjs}" "$@"; rc=$?
+  [ "$rc" -ne 3 ] && exit "$rc"
+fi
 
 json_repos() {           # the governance probe's shape
   local out="" r

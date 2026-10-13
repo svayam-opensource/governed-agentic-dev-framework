@@ -17,7 +17,7 @@ import type { CiIdentityPort } from "./ci-identity.js";
 import type { VcsPort } from "./vcs.js";
 import type { WorkTrackerPort } from "./work-tracker.js";
 export type {
-  VcsPort, RepoRef, RepoInfo, BranchInfo, NewChangeRequest, ChangeRequestRef, ChangeRequest, Review, Identity, AccountKind,
+  VcsPort, RepoRef, RepoInfo, BranchInfo, NewChangeRequest, ChangeRequestRef, ChangeRequest, ChangeRequestQuery, Review, Identity, AccountKind,
 } from "./vcs.js";
 export type { CiIdentityPort, CiClaims } from "./ci-identity.js";
 export type {

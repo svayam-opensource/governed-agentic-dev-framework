@@ -92,6 +92,14 @@ export function createMemoryVcs(seed: { readonly repos?: readonly MemoryRepoSeed
       const x = find(ref);
       return x ? ok([...x.reviews]) : fail(`no change request #${ref.number} in ${key(ref.repo)}`);
     },
+    async changeRequests(r, q) {
+      if (!repos.get(key(r))) return fail(`no repository ${key(r)}`);
+      const want = q.state ?? "all";
+      return ok(listFor(r).map((x) => x.cr)
+        .filter((c) => (q.base === undefined || c.base === q.base) && (q.head === undefined || c.head === q.head))
+        .filter((c) => want === "all" || c.state === want)
+        .sort((a, b) => b.ref.number - a.ref.number));
+    },
     async requiredChecks(r, branch) {
       const s = repos.get(key(r));
       if (!s) return fail(`no repository ${key(r)}`);
