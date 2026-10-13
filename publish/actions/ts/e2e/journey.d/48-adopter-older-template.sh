@@ -102,7 +102,10 @@ C
   [ -z "$odd" ] && pass "every root entry is one the seeded manifest produces" \
     || fail "root entries the seeded manifest does not produce:$odd"
 
-  runs cmp -s "$CONTENT_DIR/VERSION" "$GOV_REPO/VERSION" \
+  # NO `cmp` (diffutils): the rocky:9 image the interactive job runs in does not ship it, so `runs cmp -s` failed as
+  # "command not found" while the two values printed identically below (run 38363809954, rocky only). Bash compares
+  # the two files byte for byte on every image — $(<file) drops only trailing newlines, which neither side differs in.
+  [ "$(<"$CONTENT_DIR/VERSION")" = "$(<"$GOV_REPO/VERSION")" ] \
     && pass "VERSION is the content this gov carries ($(cat "$CONTENT_DIR/VERSION"))" \
     || fail "VERSION is $(cat "$GOV_REPO/VERSION" 2>/dev/null || echo missing), gov carries $(cat "$CONTENT_DIR/VERSION")"
 
