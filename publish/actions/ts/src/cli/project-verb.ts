@@ -31,7 +31,8 @@ async function boardListsAnchor(d: ProjectVerbDeps, created: Created): Promise<b
   const tries = Math.max(1, Math.ceil((d.boardWaitMs ?? 90_000) / POLL_MS));
   for (let i = 0; i < tries; i++) {
     const items = await d.tracker.items(board);
-    if (items.ok && items.value.some((it) => it.ref.url === anchor)) return true;
+    // Only the LAG is waited out: a board that cannot be read at all is seed's to report, at once, in its own words.
+    if (!items.ok || items.value.some((it) => it.ref.url === anchor)) return true;
     if (i < tries - 1) await sleep(POLL_MS);
   }
   return false;

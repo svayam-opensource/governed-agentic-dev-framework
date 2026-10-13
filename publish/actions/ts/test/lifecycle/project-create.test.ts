@@ -320,6 +320,19 @@ describe("gov project — the verb, and --seed", () => {
     expect(printed.join("\n")).to.match(/does not list its anchor yet/).and.match(/gov seed memory:\/\/projects\/acme#1/);
   });
 
+  it("--seed waits out only the lag: a board whose items cannot be READ is handed to seed at once, to say why", async () => {
+    const { tracker, env } = world();
+    const seeded: string[] = [];
+    const naps: number[] = [];
+    const unreadable: WorkTrackerPort = { ...tracker, items: async () => ({ ok: false, reason: "no project acme#1", retryable: false }) };
+    const code = await projectCommand(["Invoice API"], { seed: true }, {
+      ...env, tracker: unreadable, print: () => {}, seed: (u) => { seeded.push(u); return 0; }, sleep: async (ms) => { naps.push(ms); },
+    });
+    expect(code).to.equal(0);
+    expect(seeded).to.have.length(1);
+    expect(naps).to.deep.equal([]);
+  });
+
   it("--repo takes a comma-separated list", async () => {
     const { env, tracker } = world();
     const code = await projectCommand(["Invoice API"], { repo: "invoice-api, acme/acme-gov" }, { ...env, print: () => {}, seed: () => 0 });
