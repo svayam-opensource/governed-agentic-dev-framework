@@ -51,6 +51,8 @@ import { appCheck, appCommand, ghRunner, readGithubApp } from "./app-verb.js";
 import { startLoopback } from "./app-loopback.js";
 import { randomBytes } from "node:crypto";
 import { checkCommandAsync } from "./check-verb.js";
+import { ensureCheckModule, evidenceDoctorRow, evidenceWanted, noticeOnce, setEvidenceContext } from "../check-seam/evidence.js";
+import { discoverModule } from "../check-seam/loader.js";
 import { boardLinkedRepos, checkStatusReport, checksDiagnostic, type LinkedRepos, type ScopeDeps } from "./check-scope.js";
 import { keyNameFor } from "./secret-reach.js";
 import { boardNumberFromBranch, boardNumberFromProjectId } from "../lifecycle/task.js";
@@ -1616,7 +1618,13 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     pendingRepoOverrides = [];
     return true;
   };
+  setEvidenceFor(resolved.home, config.githubOrg);
+  // The quiet evidence notice under the session manifest (spec 02 A19): only when the org wants evidence and the
+  // paid module is not installed here. File look-ups only.
+  const evidenceNotice = (): string | null =>
+    evidenceWanted(fs.readFile(path.join(resolved.home, GOVERNANCE_PATH))) && !discoverModule({ env: process.env }) ? noticeOnce("manifest", process.env) : null;
   return {
+    evidenceNotice,
     projects: createGhProjects(runGh),
     anchor: createGhAnchor(runGh),
     fs,
@@ -2179,6 +2187,26 @@ function checkScopeDeps(fs: ReturnType<typeof createNodeFs>, config: { githubOrg
  * (asynchronously — a model, the pull request's comments, a push). Called from bin.ts; `main()` keeps the
  * synchronous path for everything else.
  */
+/**
+ * WHERE THIS PROCESS'S EVIDENCE RECORDS BELONG (spec 02 §5): the governance repo, the surface, and how to learn the
+ * org's numeric id — asked only if the paid module runs (CI has it in the environment; locally `gh` is asked).
+ */
+function setEvidenceFor(home: string, githubOrg: string): void {
+  setEvidenceContext({
+    surface: process.env.GITHUB_ACTIONS === "true" ? "ci" : "local",
+    govHome: home,
+    env: process.env,
+    govVersion: readCliVersion(),
+    orgId: async () => {
+      const fromEnv = Number(process.env.GITHUB_REPOSITORY_OWNER_ID);
+      if (Number.isSafeInteger(fromEnv) && fromEnv > 0) return fromEnv;
+      const out = githubOrg ? tryRunProcess("gh", ["api", `orgs/${githubOrg}`, "--jq", ".id"], { pgm: "gov-work:cli:main", fn: "evidenceOrgId" }) : null;
+      const n = Number((out ?? "").trim());
+      return Number.isSafeInteger(n) && n > 0 ? n : null;
+    },
+  });
+}
+
 export async function runCheck(argv: readonly string[]): Promise<number> {
   const parsed = parseArgv(argv);
   if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
@@ -2189,8 +2217,10 @@ export async function runCheck(argv: readonly string[]): Promise<number> {
   const git = (repo: string, args: readonly string[]) => tryRun("git", ["-C", repo, ...args]) ?? null;
   const gh: Gh = (args, input) => tryRunProcess("gh", args, { pgm: "gov-work:cli:check", fn: "gh", ...(input === undefined ? {} : { input }) }) ?? null;
   const bot = botIdentity(process.env);
+  setEvidenceFor(home, config.githubOrg);
   const r = await checkCommandAsync(parsed.positionals, parsed.flags, {
     git, gh, env: process.env,
+    paidModule: () => ensureCheckModule({ surface: process.env.GITHUB_ACTIONS === "true" ? "ci" : "local", govHome: home, env: process.env, govVersion: readCliVersion() }),
     readFile: (f) => fs.readFile(f),
     writeFile: (f, t) => fs.writeFile(f, t),
     scope: checkScopeDeps(fs, config, "gov-work:cli:check"),
@@ -2208,6 +2238,7 @@ export async function runCheck(argv: readonly string[]): Promise<number> {
   }, {
     home, defaultBranch: config.defaultBranch, defaultCodeBranch: config.defaultCodeBranch, agentWorkRoot: config.agentWorkRoot,
     githubOrg: config.githubOrg, workspaceRepo: config.workspaceRepo, posture: readPosture(createNodeFs().readFile(path.join(home, GOVERNANCE_PATH))).posture,
+    govVersion: readCliVersion(),
   });
   for (const line of r.lines) process.stdout.write(`${line}\n`);
   return r.code;
@@ -2669,6 +2700,11 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       } : {}),
       ...(protection ? { protection } : {}),
       ...(doctorRules && !("error" in doctorRules) ? { rules: doctorRules } : {}),
+      // Evidence (spec 02): file look-ups only — doctor never starts the paid module.
+      evidence: evidenceDoctorRow({
+        wanted: doctorCfgText !== null && evidenceWanted(fs.readFile(path.join(home, GOVERNANCE_PATH))),
+        found: discoverModule({ env: process.env }),
+      }),
     });
     for (const line of formatDoctorReport(report, stdoutColor())) process.stdout.write(`${line}\n`);
 
@@ -2987,6 +3023,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
   // CHECKED AT LOAD against the schema gov was built with (org-config split, 2026-10-06): one line, on stderr, and
   // never a reason to stop — the keys gov did read are unaffected. `gov doctor` gives the detail.
   for (const line of orgConfigLoadNotes(config.keyReport)) process.stderr.write(`${line}\n`);
+  setEvidenceFor(home, config.githubOrg);
 
   // `gov check run|install` — the rule model's check engine (W6). `run` is what the rendered workflow calls in CI.
   if (parsed.command === "check") {

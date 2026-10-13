@@ -47,6 +47,12 @@ import { checkInstallAll, checkStatus, type ScopeDeps } from "./check-scope.js";
 import { annotationLines, type AnnotationVerdict } from "../rules/checks/annotations.js";
 import type { ActionExecutor } from "../rules/checks/executor.js";
 import { GH_ACTION_OUTCOMES_ENV, parseGhActionOutcomes } from "../rules/checks/gh-org-actions.js";
+import { paidKey, type PaidOutcome } from "../rules/checks/runner.js";
+import { classifyRow } from "../rules/model/catalog.js";
+import { GOVERNANCE_PATH } from "../config/governance.js";
+import { evidenceWanted, noticeOnce, recordEvidence } from "../check-seam/evidence.js";
+import { runContext, verdictDraft } from "../check-seam/record.js";
+import type { LoadedModule } from "../check-seam/loader.js";
 
 export interface CheckVerbDeps {
   readonly git: GitRead;
@@ -65,6 +71,14 @@ export interface CheckVerbDeps {
    * repository's DEFAULT branch, never from the change under review. Absent → those actions are `cannot-tell`.
    */
   readonly executor?: ActionExecutor;
+  /**
+   * THE PAID MODULE (spec 02 §5): looked for and started once per process. Absent → paid bindings are
+   * `needs-subscription`, evidence is not written, and (when it was wanted) one quiet notice says so.
+   */
+  readonly paidModule?: () => Promise<LoadedModule>;
+  /** Set by {@link checkCommandAsync}: the module runs, and these are its paid actions' outcomes. */
+  readonly paidActive?: boolean;
+  readonly paidOutcomes?: ReadonlyMap<string, PaidOutcome>;
 }
 
 /**
@@ -90,6 +104,8 @@ export interface CheckVerbConfig {
    * test rather than whatever npm last published.
    */
   readonly govPackage?: string;
+  /** This gov's version, stamped on evidence records. */
+  readonly govVersion?: string;
 }
 
 const RUN_USAGE = "check run <GOV-ID> --resource <resource> --event <event> [--gov-home <path>] [--repo-dir <path>]";
@@ -118,16 +134,36 @@ export async function checkCommandAsync(
   deps: CheckVerbDeps & { readonly proposeOnPr?: ProposeOnPr }, cfg: CheckVerbConfig,
 ): Promise<CommandResult> {
   const id = positionals[1], resource = flagStr(flags, "resource"), event = flagStr(flags, "event");
-  if (positionals[0] !== "run" || !id || !resource || !event || !deps.proposeOnPr) return checkCommand(positionals, flags, deps, cfg);
+  if (positionals[0] !== "run" || !id || !resource || !event || (!deps.proposeOnPr && !deps.paidModule)) return checkCommand(positionals, flags, deps, cfg);
   const loaded = loadCheckRuleSet(deps.git, cfg.home, defaultRef(deps.git, cfg.home, cfg.defaultBranch));
   const row = loaded.ok ? inForce([...loaded.set.framework, ...loaded.set.org]).find((r) => r.id === id) : undefined;
-  const binds = (row?.checks ?? []).some((b) => b.action === PROPOSE_ACTION && b.on.resource === resource && b.on.event === event);
-  if (!binds) return checkCommand(positionals, flags, deps, cfg);
+  const mine = (row?.checks ?? []).filter((b) => b.on.resource === resource && b.on.event === event);
 
   const eventPath = deps.env.GITHUB_EVENT_PATH;
   const text = eventPath ? deps.readFile(eventPath) : null;
   let eventJson: unknown = {};
   try { eventJson = text === null ? {} : JSON.parse(text); } catch { /* checkCommand reports the unreadable event itself */ }
+
+  // PAID ACTIONS (spec 02 §5): the module, when it runs, judges the bindings it owns — before the synchronous run.
+  if (deps.paidModule) {
+    const mod = await deps.paidModule();
+    if (mod.state === "active") {
+      const outcomes = new Map<string, PaidOutcome>();
+      for (const b of mine) {
+        const dispatch = mod.module.actions.get(b.action);
+        if (!dispatch) continue;
+        try {
+          const o = await dispatch({ ruleId: id, action: b.action, params: b.with ?? {}, ctx: { resource, event, payload: eventJson } });
+          outcomes.set(paidKey(id, b.action), o);
+        } catch (e) {
+          outcomes.set(paidKey(id, b.action), { verdict: "cannot-tell", findings: [`${id} [${b.action}]: the paid action failed (${(e as Error).message.split("\n")[0]}), so nothing was checked.`] });
+        }
+      }
+      deps = { ...deps, paidActive: true, paidOutcomes: outcomes };
+    }
+  }
+  const binds = mine.some((b) => b.action === PROPOSE_ACTION);
+  if (!binds || !deps.proposeOnPr) return checkCommand(positionals, flags, deps, cfg);
   const repoDirFlag = flagStr(flags, "repo-dir");
   const repoDir = repoDirFlag === undefined ? path.resolve(cfg.home) : path.resolve(repoDirFlag);
   const outcome = await deps.proposeOnPr(`${id} [${PROPOSE_ACTION}]`, deps.env.GITHUB_EVENT_NAME ?? "", eventJson, repoDir);
@@ -220,9 +256,29 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
     ...(() => { const o = parseGhActionOutcomes(deps.env[GH_ACTION_OUTCOMES_ENV]); return o ? { ghActionOutcomes: o } : {}; })(),
     ...(policyPr ? { policyPr } : {}),
     ...(deps.rulesPropose ? { propose: deps.rulesPropose } : {}),
+    ...(deps.paidOutcomes ? { paidOutcomes: deps.paidOutcomes } : {}),
     ...(repository ? { github: { pullsForCommit: githubPullsForCommit((a) => deps.gh(a), repository) } } : {}),
   });
   const verdict = runner.run(id, ctx);
+
+  // EVIDENCE (spec 02 §3.1): one record per judged binding — the module, if it runs, signs and writes them at the
+  // end of the command; without it they are dropped. And, when evidence was wanted or a paid binding met none, ONE
+  // quiet notice for this job.
+  if (row) {
+    const klass = classifyRow(row, rules.catalog, hard ? "hard" : "soft", { paidModule: !!deps.paidActive });
+    const evCtx = runContext(deps.env, cfg.govVersion ?? "0.0.0");
+    for (const b of verdict.bindings ?? []) {
+      recordEvidence(verdictDraft(evCtx, {
+        kind: "check", rule: { id, level: row.level }, binding: { resource, event: eventFlag, action: b.action },
+        verdict: b.verdict, class: b.verdict === "needs-subscription" ? "advisory (needs subscription)" : klass,
+      }));
+    }
+  }
+  const metPaid = (verdict.bindings ?? []).some((b) => b.verdict === "needs-subscription");
+  if (deps.env.GITHUB_ACTIONS === "true" && !deps.paidActive && (metPaid || evidenceWanted(deps.git(cfg.home, ["show", `${ref}:${GOVERNANCE_PATH}`])))) {
+    const notice = noticeOnce("run", deps.env);
+    if (notice) lines.push(notice);
+  }
   // A section finding lands on its heading at the change's head: the pull request's head tree when there is one,
   // else the checkout the job runs in.
   const read = (file: string): string | null => (policyPr ? policyPr.head.read(file) : deps.readFile(path.join(repoDir, file)));
@@ -255,6 +311,10 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
   }
 
   if (verdict.verdict === "pass") return done({ code: 0, lines: [...lines, `${id} passed (${resource} · ${eventFlag}).`] });
+  // X15: captured, not run — never a pass, and it does not block on its own (it is advisory), whatever the posture.
+  if (verdict.verdict === "needs-subscription") {
+    return done({ code: 0, lines: [...lines, ...say(), `${id}: needs a subscription — the binding was recorded, not run; this does not block (exit 0).`] });
+  }
   if (verdict.verdict === "cannot-tell") return done(cannotTell(say()));
 
   const mode = rules.catalog.resources.find((r) => r.id === resource)?.events.find((e) => e.name === eventFlag)?.mode;

@@ -16,6 +16,7 @@
  * `on_miss: warn` reports the miss as a finding (prefixed `warn:`) and does not fail.
  */
 import { inForce } from "../model/rule-row.js";
+import { isPaidAction } from "../model/catalog.js";
 import type { CheckRunner, CheckVerdict, EventContext, RuleSet } from "../model/contracts.js";
 import type { ReadDoc } from "../diff-check.js";
 import { runBuiltin, type BuiltinOutcome } from "./builtin.js";
@@ -57,10 +58,26 @@ export interface CheckRunnerDeps {
    * run in CI only, and here are `cannot-tell`.
    */
   readonly ghActionOutcomes?: Readonly<Record<string, string>>;
+  /**
+   * PAID ACTIONS (spec 02 §5, X15): the paid module's outcomes, run by the CLI beforehand (they are async), keyed by
+   * {@link paidKey}. A binding to a declared-paid action with no outcome here is `needs-subscription`. An
+   * `observeOnly` outcome (the LLM judge, Q22) is shown and recorded but never moves the verdict.
+   */
+  readonly paidOutcomes?: ReadonlyMap<string, PaidOutcome>;
 }
 
-type Outcome = "pass" | "fail" | "cannot-tell";
-const RANK: Record<Outcome, number> = { pass: 0, "cannot-tell": 1, fail: 2 };
+export interface PaidOutcome {
+  readonly verdict: "pass" | "fail" | "cannot-tell";
+  readonly findings: readonly string[];
+  readonly observeOnly?: boolean;
+}
+
+/** The key of one rule's paid binding in {@link CheckRunnerDeps.paidOutcomes}. */
+export const paidKey = (ruleId: string, action: string): string => `${ruleId}|${action}`;
+
+type Outcome = "pass" | "fail" | "cannot-tell" | "needs-subscription";
+// needs-subscription folds like cannot-tell (never a pass), and a real cannot-tell or fail outranks it (X15).
+const RANK: Record<Outcome, number> = { pass: 0, "needs-subscription": 1, "cannot-tell": 2, fail: 3 };
 
 export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner & { run(id: string, ctx: EventContext): RunVerdict } {
   return {
@@ -78,15 +95,32 @@ export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner & { run(id
       let verdict: Outcome = "pass";
       const findings: string[] = [];
       const review = new Set<string>();
+      const per: { action: string; verdict: Outcome }[] = [];
+      let current: Outcome = "pass";
       const fold = (o: Outcome, f: readonly string[]) => {
         if (RANK[o] > RANK[verdict]) verdict = o;
+        if (RANK[o] > RANK[current]) current = o;
         findings.push(...f);
       };
 
-      for (const b of bindings) {
+      for (const [i, b] of bindings.entries()) {
+        // Each binding's own outcome, closed when the next one starts (the loop body `continue`s freely).
+        if (i > 0) per.push({ action: bindings[i - 1]!.action, verdict: current });
+        current = "pass";
         const tag = `${id} [${b.action}]`;
+        // The paid module's outcome first: its pack actions live in ITS catalogs, which open gov need not carry.
+        const paid = deps.paidOutcomes?.get(paidKey(id, b.action));
+        if (paid) {
+          if (paid.observeOnly) fold("pass", paid.findings.map((f) => `observe-only: ${f}`));
+          else fold(paid.verdict, paid.findings);
+          continue;
+        }
         const action = rules.catalog.actions.find((a) => a.id === b.action);
         if (!action) { fold("cannot-tell", [`${tag}: the catalog has no such action, so nothing was checked.`]); continue; }
+        if (isPaidAction(action)) {
+          fold("needs-subscription", [`${tag}: needs a subscription — this binding is recorded, not run (gov-check is not installed here).`]);
+          continue;
+        }
         if (action.tool === "llm") {
           // Q22: an LLM verdict never blocks — and in this slice it never runs, so it is never a pass either.
           fold("cannot-tell", [`${tag}: LLM judge not implemented, so nothing was checked.`]);
@@ -128,7 +162,8 @@ export function createCheckRunner(deps: CheckRunnerDeps): CheckRunner & { run(id
           fold(out.verdict, out.findings);
         }
       }
-      return review.size ? { verdict, findings, requestReview: [...review].sort() } : { verdict, findings };
+      per.push({ action: bindings[bindings.length - 1]!.action, verdict: current });
+      return review.size ? { verdict, findings, bindings: per, requestReview: [...review].sort() } : { verdict, findings, bindings: per };
     },
   };
 }

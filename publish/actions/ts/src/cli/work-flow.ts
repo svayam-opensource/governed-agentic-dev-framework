@@ -25,6 +25,7 @@ import { accountFailureLine } from "./agent-account.js";
 import { structureOnlyLines, TURN_AGENTS_ON } from "./approve-agents-step.js";
 import { defaultAgent } from "../config/approved-agents.js";
 import { decide, log } from "../log.js";
+import { withSessionEvidence } from "../check-seam/evidence.js";
 import { envGet, resolveWin32Command } from "../win-spawn.js";
 import {
   fillPage, formatLevel, githubUnreachableLines, leadWithSearch, matchProjects, pageOf, pickerSettings,
@@ -132,6 +133,8 @@ export interface WorkFlowDeps {
    *  kickoff prompt handed to a speak-first CLI agent (Claude / cursor-agent) so it runs the protocol
    *  immediately. Terminal agents inherit stdio + block; the GUI editor opens detached. */
   readonly launch: (agent: AgentKind, cwd: string, inject: string) => Promise<LaunchResult>;
+  /** The quiet evidence notice for the session manifest, or null (spec 02 A19). Absent → none. */
+  readonly evidenceNotice?: () => string | null;
   /** `--print-prompt` writes HERE, not through `print` — stdout must carry the prompt and nothing else,
    *  so `gov work … --print-prompt` can be captured or piped. */
   readonly printPrompt?: (prompt: string) => void;
@@ -1089,7 +1092,13 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
   // …and the governing files it must read, copied from the default branch into the project (PRJ-121).
   const snap = deps.snapshotGovernance?.(projectDir) ?? null;
   const kickoff = (): string => sessionStartPrompt(p.projectId, deps.config.workspaceRepo, deps.config.govHome, snap);
+  // A GOVERNED SESSION IS EVIDENCE (spec 02 §3.1): a `session` record when the agent starts and when it ends —
+  // written only if the paid module runs; dropped otherwise. The quiet notice, when evidence was wanted, is its own
+  // line under the manifest (deps.evidenceNotice).
+  const launch = withSessionEvidence(deps.launch, { project: p.projectId, env: process.env }, (kind) => (kind === "shell" ? undefined : kind));
+  const notice = deps.evidenceNotice?.();
   print("");
+  if (notice) print(`  ${notice}`);
   print(`  ✓ '${p.projectId}' is ready at:  ${projectDir}`);
 
   // ── an organization that runs no AI agents ───────────────────────────────────────────────────
@@ -1119,7 +1128,7 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
     }
     print("");
     print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
-    return exitOf(await deps.launch("shell", projectDir, kickoff()));
+    return exitOf(await launch("shell", projectDir, kickoff()));
   }
 
   // An agent named on the command line is checked against the org's decision like one picked from the menu (GOV-FRM-461).
@@ -1170,7 +1179,7 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
     // Remembered as soon as it is chosen, so next time on this project Enter is this one (a shell is not an agent).
     if (kind !== "shell") writeLastAgent(deps.fs, deps.config.agentWorkRoot, deps.me, p.projectId, kind);
     print(`  Launching ${kind === "cursor-gui" ? "Cursor (GUI)" : kind} in ${projectDir}…`);
-    const r = await deps.launch(kind, projectDir, kickoff());
+    const r = await launch(kind, projectDir, kickoff());
     if (typeof r === "number") return r;
     print("");
     print(`  ${accountFailureLine(kind === "cursor-gui" ? "cursor" : kind, r)}`);
@@ -1196,7 +1205,7 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
       if (misses >= 3) {
         print("  No agent chosen. Any approved agent is one command away:  gov agent install <id>");
         print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
-        return exitOf(await deps.launch("shell", projectDir, kickoff()));
+        return exitOf(await launch("shell", projectDir, kickoff()));
       }
       const def = pickerDefault(rows, lastUsed, defaultAgent(list));
       print("");
@@ -1284,7 +1293,7 @@ export async function runWorkFlow(rawDeps: WorkFlowDeps, opts: WorkFlowOpts = {}
     for (const line of nothingInstalledLines(installable(statuses, approved.ids), approved.usingDefaults)) print(line);
     print("");
     print(`  Opening a shell in ${projectDir}. Type 'exit' to come back.`);
-    return exitOf(await deps.launch("shell", projectDir, kickoff()));
+    return exitOf(await launch("shell", projectDir, kickoff()));
   }
 
   // ORG DEFAULT → USER PREFERENCE → ASK (#196, Q9), over the framework's list.

@@ -132,9 +132,14 @@ export interface EventContext {
 }
 
 export interface CheckVerdict {
-  /** `cannot-tell` is reported, never read as a pass. */
-  readonly verdict: "pass" | "fail" | "cannot-tell";
+  /**
+   * `cannot-tell` is reported, never read as a pass. `needs-subscription` (X15): a paid binding captured, not run —
+   * it folds like cannot-tell, is never a pass, and does not block on its own.
+   */
+  readonly verdict: "pass" | "fail" | "cannot-tell" | "needs-subscription";
   readonly findings: readonly string[];
+  /** Each judged binding's own outcome, in binding order — one evidence record each (spec 02 §3.1). */
+  readonly bindings?: readonly { readonly action: string; readonly verdict: "pass" | "fail" | "cannot-tell" | "needs-subscription" }[];
   /** Bare handles the workflow should request a review from (section-owner-approval). */
   readonly requestReview?: readonly string[];
 }

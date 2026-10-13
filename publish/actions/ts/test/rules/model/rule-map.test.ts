@@ -131,7 +131,12 @@ describe("rule map — legend and counts", () => {
     const declared = [...decl![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
     expect(Object.keys(RULE_CLASS_LEGEND).sort()).to.deep.equal(declared);
     const md = renderRuleMap(set([], []));
-    for (const [k, meaning] of Object.entries(RULE_CLASS_LEGEND)) expect(md).to.include(`**${k}** — ${meaning}`);
+    // The paid-only class (spec 02 X15) is listed only when a row has it: an org without paid bindings keeps a
+    // byte-identical map. Every other class is always listed.
+    for (const [k, meaning] of Object.entries(RULE_CLASS_LEGEND)) {
+      if (k === "advisory (needs subscription)") expect(md).to.not.include(`**${k}**`);
+      else expect(md).to.include(`**${k}** — ${meaning}`);
+    }
   });
 
   it("every class classifyRow can produce appears in the legend", () => {
@@ -144,7 +149,7 @@ describe("rule map — legend and counts", () => {
       row("GOV-SVM-006", { checks: [deaf] }),
     ]);
     const counts = summariseRuleSet(rs);
-    expect(counts).to.deep.equal({ prevented: 1, detected: 1, judged: 1, cued: 1, advisory: 1, "cannot-tell": 1 });
+    expect(counts).to.deep.equal({ prevented: 1, detected: 1, judged: 1, cued: 1, advisory: 1, "cannot-tell": 1, "advisory (needs subscription)": 0 });
     for (const k of Object.keys(counts)) expect(RULE_CLASS_LEGEND).to.have.property(k);
   });
 
@@ -157,7 +162,7 @@ describe("rule map — legend and counts", () => {
         row("GOV-SVM-002", { checks: [observe], end: { version: "1.3.0", date: "2026-04-01", pr: 12 } }), // retired
       ],
     );
-    expect(summariseRuleSet(rs)).to.deep.equal({ prevented: 1, detected: 0, judged: 0, cued: 0, advisory: 1, "cannot-tell": 0 });
+    expect(summariseRuleSet(rs)).to.deep.equal({ prevented: 1, detected: 0, judged: 0, cued: 0, advisory: 1, "cannot-tell": 0, "advisory (needs subscription)": 0 });
     const md = renderRuleMap(rs);
     expect(md).to.include("In force: 2 rules — prevented 1 · detected 0 · judged 0 · cued 0 · advisory 1 · cannot-tell 0.");
     expect(tableRows(md)).to.have.lengthOf(4);

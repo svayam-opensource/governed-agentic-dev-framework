@@ -1158,6 +1158,19 @@ other field is refused. Records are kept in your own gov repository, under `evid
 environment. The only things that reach Svayam are lease requests: a key or a CI identity token, the writer's
 public key, and a handful of usage *numbers*.
 
+**When a rule needs a subscription.** Some actions are paid: the LLM judge on a gov-check installation, and the
+actions that come with a compliance pack (a catalog action whose tool is `gov-check`, or that says `paid: true`).
+Where no paid module runs, a binding to a paid action is recorded but not run. Its outcome is **needs
+subscription**. It is never a pass, it counts like "could not tell" when outcomes are combined, and it does not
+block anything by itself. A rule whose every check is paid shows the Class *advisory (needs subscription)* in the
+rule map. Without the module, an LLM judge binding stays "could not tell", as before.
+
+**The quiet notice.** An organization asks for evidence by setting `evidence: enabled` in
+`policies/governance.yaml`. When it has asked, or a paid binding was met, and the module is not installed, gov
+says so once per place it speaks: one notice on the CI run (GitHub shows it on the pull request), one line under
+the session manifest when `gov work` starts an agent, and one row in `gov doctor`. Nothing else changes. An
+organization that never asked sees nothing.
+
 **Versions must match.** gov announces the version of the seam it offers. The module declares the version it
 needs. When they do not fit, gov prints one quiet line and runs exactly as it does with no module installed. It
 never fails because of the module.

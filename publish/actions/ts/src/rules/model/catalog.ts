@@ -47,7 +47,15 @@ export interface Action {
   readonly params?: Readonly<Record<string, unknown>>;
   /** Who reviewed the code, and where. Required for an org-authored action; framework actions are reviewed upstream. */
   readonly reviewed?: { readonly by: string; readonly pr: number };
+  /**
+   * A PAID action (spec 02 X15): run only by the optional gov-check module. A tool of `gov-check` is paid too.
+   * Without the module a binding to it is captured, not run — `needs-subscription`, never a pass.
+   */
+  readonly paid?: boolean;
 }
+
+/** Is this action run only by the paid module? */
+export const isPaidAction = (a: Pick<Action, "tool" | "paid">): boolean => a.paid === true || a.tool === "gov-check";
 
 export interface Catalog {
   readonly resources: readonly Resource[];
@@ -64,7 +72,7 @@ export interface CheckBinding {
 }
 
 /** What holds a rule up, derived from its row and the catalog — never stored, so it cannot drift. */
-export type RuleClass = "prevented" | "detected" | "judged" | "cued" | "advisory" | "cannot-tell";
+export type RuleClass = "prevented" | "detected" | "judged" | "cued" | "advisory" | "cannot-tell" | "advisory (needs subscription)";
 
 export function parseCatalog(text: string): Catalog {
   const doc = (yaml.load(text, { schema: yaml.JSON_SCHEMA }) ?? {}) as Partial<Catalog>;
@@ -112,8 +120,11 @@ export function validateBindings(row: RuleRow, c: Catalog): BindingDiagnostic[] 
  * also has. A check on a resource nothing can listen to does not count — if that leaves no live check, the rule is
  * `cannot-tell` rather than quietly `cued` or `advisory`, because it CLAIMS a check that does not run.
  */
-export function classifyRow(row: RuleRow, c: Catalog, posture: "hard" | "soft" = "soft"): RuleClass {
+export function classifyRow(row: RuleRow, c: Catalog, posture: "hard" | "soft" = "soft", opts: { readonly paidModule?: boolean } = {}): RuleClass {
   const live = (row.checks ?? []).map((b) => ({ b, ...eventOf(c, b), tool: toolOf(c, b.action) })).filter((x) => x.res?.renderer && x.ev);
+  // X15: every live binding is a paid action and no paid module runs here — the bindings are captured, not run.
+  const paid = (x: { b: CheckBinding }): boolean => { const a = c.actions.find((y) => y.id === x.b.action); return !!a && isPaidAction(a); };
+  if (!opts.paidModule && live.length && live.every(paid)) return "advisory (needs subscription)";
   // A gate only PREVENTS where something can refuse. gov refuses its own verbs, and the framework's CI is protected
   // before every release; a pull request in the ORGANIZATION's repos blocks only under hard posture (branch
   // protection). Under soft — the default (W2-Q6) — the same check runs and reports: detected, not prevented.

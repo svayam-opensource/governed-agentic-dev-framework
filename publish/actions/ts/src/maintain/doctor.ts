@@ -126,6 +126,8 @@ export interface DoctorFacts {
    * never ok.
    */
   readonly checksInstall?: { readonly name: string; readonly status: "ok" | "warn"; readonly detail: string };
+  /** Signed evidence (spec 02): the paid module found or not, and whether the org wants it. Absent = not examined. */
+  readonly evidence?: { readonly name: string; readonly status: "ok" | "warn"; readonly detail: string };
 }
 
 export function doctor(facts: DoctorFacts): DoctorReport {
@@ -272,6 +274,7 @@ export function doctor(facts: DoctorFacts): DoctorReport {
     // never reaches a private repository), each with its fix.
     ...(facts.githubApp && secretsDiagnostic(facts.githubApp) ? [secretsDiagnostic(facts.githubApp)!] : []),
     ...(facts.checksInstall ? [facts.checksInstall] : []),
+    ...(facts.evidence ? [facts.evidence] : []),
   ];
   return { ok: !d.some((x) => x.status === "fail"), diagnostics: d };
 }

@@ -15,6 +15,7 @@ import type { CheckVerdict } from "../model/contracts.js";
 const OUTCOME: Readonly<Record<CheckVerdict["verdict"], string>> = {
   fail: "failed",
   "cannot-tell": "could not tell",
+  "needs-subscription": "needs a subscription (recorded, not run)",
   pass: "passed",
 };
 

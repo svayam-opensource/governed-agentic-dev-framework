@@ -25,6 +25,7 @@ export const RULE_CLASS_LEGEND = {
   cued: "no check; the agent is reminded by a cue, and nothing verifies it was followed",
   advisory: "no check and no cue; nothing enforces it",
   "cannot-tell": "it claims a check, but no bound resource can listen yet, so nothing runs",
+  "advisory (needs subscription)": "its checks are paid actions and no subscription runs them here, so nothing enforces it",
 } as const satisfies Record<RuleClass, string>;
 
 const CLASSES = Object.keys(RULE_CLASS_LEGEND) as RuleClass[];
@@ -105,9 +106,10 @@ export function renderRuleMap(rs: RuleSet): string {
     "",
     "## Classes",
     "",
-    ...CLASSES.map((k) => `- **${k}** — ${RULE_CLASS_LEGEND[k]}`),
+    ...CLASSES.filter((k) => k !== "advisory (needs subscription)" || counts[k] > 0).map((k) => `- **${k}** — ${RULE_CLASS_LEGEND[k]}`),
     "",
-    `In force: ${total} rules — ${CLASSES.map((k) => `${k} ${counts[k]}`).join(" · ")}.`,
+    // The paid-only class is named only when a row has it, so an org without paid bindings keeps a byte-identical map.
+    `In force: ${total} rules — ${CLASSES.filter((k) => k !== "advisory (needs subscription)" || counts[k] > 0).map((k) => `${k} ${counts[k]}`).join(" · ")}.`,
     "",
     (rs.posture ?? "soft") === "hard"
       ? "Governance posture: **hard** — a pull request's required checks block the merge, so its gate checks are `prevented`."

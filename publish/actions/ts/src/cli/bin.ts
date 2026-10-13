@@ -14,6 +14,7 @@ import { helpJson, topicOf } from "./help-render.js";
 const isTopic = (name: string): boolean => topicOf(name) !== undefined;
 import { runContext } from "./run-context.js";
 import { endRun, log, pruneLogs, runDir, startRun } from "../log.js";
+import { flushPendingEvidence } from "../check-seam/evidence.js";
 import { commandOf, logsRoot } from "../state-paths.js";
 import { numberPref } from "../preferences.js";
 import { loadPreferences } from "./preferences-io.js";
@@ -95,6 +96,9 @@ async function runCli(): Promise<number> {
 
   try {
     const code = await dispatch();
+    // EVIDENCE (spec 02 §5): what the command recorded goes to the paid module if it runs, else is dropped. A quiet
+    // line at most, on stderr; never changes the exit code.
+    for (const line of await flushPendingEvidence()) process.stderr.write(`${line}\n`);
     endRun(code);
     return code;
   } catch (e) {

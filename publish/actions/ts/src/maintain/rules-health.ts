@@ -48,14 +48,14 @@ export interface RulesFacts {
 export const approxTokens = (chars: number): number => Math.round(chars / 4);
 
 /** The classes in which nothing verifies the rule was followed. */
-const UNVERIFIED: readonly RuleClass[] = ["cued", "advisory", "cannot-tell"];
+const UNVERIFIED: readonly RuleClass[] = ["cued", "advisory", "cannot-tell", "advisory (needs subscription)"];
 
 export function rulesRows(facts: RulesFacts | undefined): readonly RulesRow[] {
   if (!facts) return [];
   const rows: RulesRow[] = [];
   const c = facts.counts;
   const total = Object.values(c).reduce((n, k) => n + k, 0);
-  const unverified = UNVERIFIED.reduce((n, k) => n + c[k], 0);
+  const unverified = UNVERIFIED.reduce((n, k) => n + (c[k] ?? 0), 0);
 
   // ── how much of it is enforced ──────────────────────────────────────────────────────────────────────────────
   //
@@ -67,6 +67,7 @@ export function rulesRows(facts: RulesFacts | undefined): readonly RulesRow[] {
     detail: total === 0
       ? "no rule is in force — the rule stores are empty"
       : `${total} rules: ${c.prevented} prevented · ${c.detected} detected · ${c.judged} judged · ${c.cued} cued · ${c.advisory} advisory · ${c["cannot-tell"]} cannot-tell`
+        + (c["advisory (needs subscription)"] ? ` · ${c["advisory (needs subscription)"]} need a subscription` : "")
         + (unverified > total / 2 ? ` — ${unverified} of ${total} are verified by nothing` : ""),
   });
 

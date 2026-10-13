@@ -21,10 +21,16 @@ import type { EventPayload, RuleSet } from "../model/contracts.js";
 import type { ReadDoc } from "../diff-check.js";
 import type { GateFinding, GateResult } from "../verb-gate.js";
 import { createCheckRunner } from "./runner.js";
+import { classifyRow } from "../model/catalog.js";
+import { recordEvidence } from "../../check-seam/evidence.js";
+import { runContext, verdictDraft } from "../../check-seam/record.js";
 
 export interface BoundCheckOptions {
   /** Only bindings whose action passes this run (e.g. the changeset predicates for `gov validate`). */
   readonly action?: (action: string) => boolean;
+  /** For the evidence records (spec 02 §3.1): the environment and gov's version. Default: this process. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly govVersion?: string;
 }
 
 /**
@@ -55,6 +61,15 @@ export function runBoundChecks(
   const warnings: GateFinding[] = [];
   for (const row of bound) {
     const v = runner.run(row.id, { resource: on.resource, event: on.event, payload });
+    // EVIDENCE: one `gate` record per binding judged; written only if the paid module runs (spec 02 §3.1).
+    const klass = classifyRow(row, rules.catalog);
+    const evCtx = runContext(opts.env ?? process.env, opts.govVersion ?? "0.0.0");
+    for (const b of v.bindings ?? []) {
+      recordEvidence(verdictDraft(evCtx, {
+        kind: "gate", rule: { id: row.id, level: row.level }, binding: { resource: on.resource, event: on.event, action: b.action },
+        verdict: b.verdict, class: b.verdict === "needs-subscription" ? "advisory (needs subscription)" : klass,
+      }));
+    }
     const at = { pol: row.id, doc: row.source.doc, section: row.source.section };
     for (const f of v.findings) {
       const warn = f.startsWith("warn: ");

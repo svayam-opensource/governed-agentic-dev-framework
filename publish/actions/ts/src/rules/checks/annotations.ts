@@ -19,7 +19,7 @@
  */
 import { headingSection } from "./sections.js";
 
-export type AnnotationVerdict = { readonly verdict: "pass" | "fail" | "cannot-tell"; readonly findings: readonly string[] };
+export type AnnotationVerdict = { readonly verdict: "pass" | "fail" | "cannot-tell" | "needs-subscription"; readonly findings: readonly string[] };
 
 /** A workflow command's message. `%` first, so an escape is never escaped twice. */
 export const escapeData = (s: string): string => s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
