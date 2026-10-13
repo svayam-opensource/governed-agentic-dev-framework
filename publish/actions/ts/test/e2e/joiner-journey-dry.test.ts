@@ -138,10 +138,10 @@ describe("adopter-e2e.yml — the live job runs the joiner (T15)", () => {
     expect(live().find((s) => s.id === "adopter")!.env?.["E2E_PHASE"]).to.equal("work");
   });
 
-  it("the joiner runs as TESTBED_JOINER_PAT with TESTBED_JOINER_LOGIN, never bot A's token", () => {
+  it("the joiner runs as TESTBED_JOINER_PAT with the login that token was verified as, never bot A's token", () => {
     const j = live().find((s) => s.id === "joiner")!;
     expect(j.env?.["GH_TOKEN"]).to.equal("${{ secrets.TESTBED_JOINER_PAT }}");
-    expect(j.env?.["E2E_JOINER_LOGIN"]).to.equal("${{ secrets.TESTBED_JOINER_LOGIN }}");
+    expect(j.env?.["E2E_JOINER_LOGIN"]).to.equal("${{ steps.identity.outputs.login || secrets.TESTBED_JOINER_LOGIN }}");
     expect(j.run).to.include("e2e/joiner-journey.sh");
   });
 
@@ -194,11 +194,13 @@ esac
     expect(r.out).to.match(/::error::joiner identity: TESTBED_JOINER_PAT belongs to the adopter bot itself/);
   });
 
-  it("a login that names no account is described by its shape, not printed", () => {
-    const r = id({ JOINER_LOGIN: "joiner@example.com" });
-    expect(r.status).to.equal(1);
-    expect(r.out).to.include("names no GitHub account").and.include("shaped 'aaaaaa@aaaaaaa.aaa'");
+  it("a declared login that names no account WARNS (shape only, never the value) and the token's login is used", () => {
+    const r = id({ JOINER_LOGIN: "joiner@example.com", GITHUB_OUTPUT: path.join(os.tmpdir(), `jid-out-${process.pid}`) });
+    expect(r.status, r.out).to.equal(0);
+    expect(r.out).to.match(/::warning::joiner identity: TESTBED_JOINER_LOGIN names no GitHub account .*shaped 'aaaaaa@aaaaaaa\.aaa'.*set it to the token's own login, joiner-bot/);
     expect(r.out).to.not.include("joiner@example.com");
+    expect(fs.readFileSync(path.join(os.tmpdir(), `jid-out-${process.pid}`), "utf8")).to.equal("login=joiner-bot\n");
+    fs.rmSync(path.join(os.tmpdir(), `jid-out-${process.pid}`), { force: true });
   });
 
   it("two secrets for two different accounts are named as that", () => {

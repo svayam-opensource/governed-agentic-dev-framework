@@ -373,7 +373,9 @@ jobs:
           TGZ: ${{ steps.pack.outputs.tgz }}
           E2E_PHASE: work
           E2E_HANDOFF: ${{ runner.temp }}/live.env
-          E2E_JOINER_LOGIN: ${{ steps.identity.outcome == 'success' && secrets.TESTBED_JOINER_LOGIN || '' }}
+          # The login the TOKEN authenticates as (joiner-identity.sh's output), not the declared secret. When the two are
+          # equal Actions withholds the output (it matches a secret), so the secret — then known right — stands in.
+          E2E_JOINER_LOGIN: ${{ steps.identity.outcome == 'success' && (steps.identity.outputs.login || secrets.TESTBED_JOINER_LOGIN) || '' }}
         run: |
           # The ephemeral runner IS the clean slate — run the journey directly
           # (node 24 + gh are present); no container needed in CI.
@@ -386,7 +388,7 @@ jobs:
         if: steps.guard.outputs.run == 'true' && steps.identity.outcome == 'success' && !cancelled()
         env:
           GH_TOKEN: ${{ secrets.TESTBED_JOINER_PAT }}
-          E2E_JOINER_LOGIN: ${{ secrets.TESTBED_JOINER_LOGIN }}
+          E2E_JOINER_LOGIN: ${{ steps.identity.outputs.login || secrets.TESTBED_JOINER_LOGIN }}
           E2E_HANDOFF: ${{ runner.temp }}/live.env
           E2E_JOINER_HOME: ${{ runner.temp }}/joiner-home
           GOV_TARBALL: ${{ steps.pack.outputs.tgz }}
