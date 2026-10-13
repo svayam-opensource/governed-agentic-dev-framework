@@ -477,6 +477,34 @@ if the image lacks `Xvfb`, that branch was not exercised here at all.
 
 ---
 
+## Traffic capture — what reached Svayam (evidence journey)
+
+The paid-evidence promise is that evidence never leaves the customer's environment: only licence exchanges and a few
+usage numbers reach Svayam. The journey proves it from the outside. **Sandbox only (svayam-e2e); never Svayamtech.**
+
+```mermaid
+flowchart LR
+  T["tools under test<br/>(node, git, npm, browser)"] -- "HTTPS_PROXY" --> M["mitmdump<br/>svayam_egress.py"]
+  M --> I["the real hosts"]
+  M -- "flows.jsonl" --> A["assert-egress.py"]
+  C["canaries.txt<br/>rule ids, shas, repo and file names,<br/>a planted string"] --> A
+  S["lease-request.schema.json"] --> A
+  A -- "exit 0 / FAIL lines" --> R["run verdict + artifacts"]
+```
+
+`e2e/traffic-capture/`: `setup-proxy.sh start <flows.jsonl>` starts `mitmdump` and prints the environment that routes
+node, git and npm through it (and trusts the capture CA); `svayam_egress.py` records every request (the body only
+for Svayam hosts, never an Authorization value); `assert-egress.py` fails the run unless every request is to Svayam,
+GitHub, npmjs or the configured judge provider (`--allow-host`), every Svayam-bound request is a portal load, a lease
+exchange, a key call or a registry read, every lease body fits the strict schema, and no canary appears anywhere in
+a Svayam-bound request. The one ruled exception is GitHub's own identity token inside an OIDC lease body, which names
+repo and sha and is minimised by the service; nothing else is excluded. An unsubscribed org runs with
+`--expect-no-svayam`: any Svayam-bound request fails.
+
+The asserter is unit-tested over recorded fixtures (`test/e2e/assert-egress.test.ts`): an allowed flow passes, a lease
+body with an extra field fails, and a planted leak fails — the negative control that proves the scan can fail. Keep
+the flows file and its sha256 with the run; the data statement cites the latest capture.
+
 ## Resetting
 
 Containers are `--rm`, so scenario 1 is a fresh `docker run`. To reset in place
