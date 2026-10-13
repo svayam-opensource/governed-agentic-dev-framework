@@ -39,6 +39,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov seed](#gov-seed) — start a project from a GitHub Project board
 - [gov join](#gov-join) — join a project someone else started, on this machine
 - [gov intent](#gov-intent) — draft an intent from board issues, with the owner-interview questions, for review
+- [gov autorun](#gov-autorun) — advance every lifecycle item whose gate a person passed by one step, then stop and say who each waits on
 - [gov task](#gov-task) — start a task: a sub-branch for one or more issues, in every repo of the project
 - [gov merge](#gov-merge) — land a task sub-branch back on the project branch
 - [gov sync](#gov-sync) — bring the project branch up to date with its base
@@ -689,6 +690,48 @@ gov intent https://github.com/acme/app/issues/42 https://github.com/acme/app/iss
 | `2` | usage: a missing or wrong argument |
 
 **See also.** [gov issue](#gov-issue) · [gov task](#gov-task)
+
+### gov autorun
+
+advance every lifecycle item whose gate a person passed by one step, then stop and say who each waits on
+
+```text
+gov autorun [--intent <NN>|--all] [--dry-run] [--agent <id>] [--max-minutes <n>] [--serial|--parallel <k>]
+```
+
+**Where.** PROJECT — on the project branch (BRNCH-&lt;n&gt;-…), with a clean checkout; needs an adopted lifecycle (policies/active/ai-sdlc-lifecycle.md)
+
+**Flags**
+
+| flag | what it does |
+| --- | --- |
+| `--intent <NN>` | only this intent (default: every intent, and the board issues in none) |
+| `--all` | every item — the default, said out loud |
+| `--dry-run` | say what each item would do next; change nothing |
+| `--agent <id>` | the agent that drafts: one your organization approved that gov has seen run headless (default: the org's default, else the first approved one that can) |
+| `--max-minutes <n>` | the per-item time budget, at most the organization's (autorun.item_minutes in policies/governance.yaml, default 30) |
+| `--serial` | one item at a time — the default |
+| `--parallel <k>` | not yet: anything above 1 is refused, saying why |
+
+**Examples**
+
+```bash
+gov autorun --dry-run
+gov autorun
+gov autorun --intent 03 --agent claude-code --max-minutes 20
+```
+
+**Changes.** for each item whose gate a person passed: drafts an intent from a board issue (as gov intent does), or runs a headless agent that drafts spec.md, plan.md or build.md on a sub-branch, commits it (Gov-Autorun:, Gov-Agent: trailers), pushes it and opens a change request to the project branch; marks a plan STALE by change request; after the plan's approval creates its task issues, assigned to the approver. Commits the run record (projects/&lt;PRJ&gt;/autorun/&lt;yyyy-mm-dd-hhmm&gt;.md + a line in the project's knowledge/decisions.md) on the project branch and pushes it. Never merges, closes or sends anything
+
+**Exit codes**
+
+| code | means |
+| --- | --- |
+| `0` | done |
+| `1` | failed — nothing half-applied that gov could undo; an item failed (the others ran), the run record could not be committed, another run holds the lock, or you are not authorized |
+| `2` | usage: a missing or wrong argument; a C01 event halted the run — nothing was committed for that item; or a usage error |
+
+**See also.** [gov intent](#gov-intent) · [gov task](#gov-task) · [gov issue](#gov-issue)
 
 ### gov task
 

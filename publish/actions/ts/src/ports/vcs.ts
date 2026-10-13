@@ -71,6 +71,16 @@ export interface Review {
 
 export interface Identity { readonly login: string; readonly kind: AccountKind }
 
+/**
+ * Which change requests to list. Every field narrows; none → all of the repository's. `state`: `closed` means
+ * closed WITHOUT merging (a merged one answers `merged`), `all` is every state (the default).
+ */
+export interface ChangeRequestQuery {
+  readonly base?: string;
+  readonly head?: string;
+  readonly state?: "open" | "closed" | "merged" | "all";
+}
+
 export interface VcsPort {
   repo(r: RepoRef): Promise<Result<RepoInfo>>;
   /** `ok(null)` when the branch does not exist. */
@@ -78,6 +88,8 @@ export interface VcsPort {
   openChangeRequest(cr: NewChangeRequest): Promise<Result<ChangeRequestRef>>;
   changeRequest(ref: ChangeRequestRef): Promise<Result<ChangeRequest>>;
   reviews(ref: ChangeRequestRef): Promise<Result<Review[]>>;
+  /** The change requests matching `q`, newest first. `ok([])` when none match; a repository it cannot read fails. */
+  changeRequests(r: RepoRef, q: ChangeRequestQuery): Promise<Result<ChangeRequest[]>>;
   /** The status checks that must pass before a change lands on `branch`; `[]` when none are required. */
   requiredChecks(r: RepoRef, branch: string): Promise<Result<string[]>>;
   /** Who gov is acting as on the host. */

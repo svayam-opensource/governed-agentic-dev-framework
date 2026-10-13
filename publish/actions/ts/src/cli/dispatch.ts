@@ -20,6 +20,7 @@ import type { Issues } from "../lifecycle/issues.js";
 import type { BoardCloseResult, BoardStatusOutcome, BoardWriter, WorkTrackerPort } from "../ports/work-tracker.js";
 import type { VcsPort } from "../ports/vcs.js";
 import { createIntent } from "../intent/create.js";
+import { parseAutorunFlags, type AutorunFlags } from "../autorun/command.js";
 import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
@@ -95,6 +96,11 @@ export interface CliContext {
    * `gov intent` refuses, saying no code host is wired.
    */
   readonly vcsHost?: () => VcsPort;
+  /**
+   * `gov autorun`'s engine (spec 03 §3), wired by main.ts with the real ports, git, the agent runner and gov's state
+   * dir. Absent → `gov autorun` refuses, saying it is not wired.
+   */
+  readonly autorun?: (flags: AutorunFlags) => Promise<CommandResult>;
   readonly anchor: AnchorCreator;
   readonly pulls: Pulls;
   readonly projects: Projects;
@@ -460,6 +466,23 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
           );
         },
       };
+    }
+
+    // `gov autorun …` — the lifecycle engine (spec 03 §3, D4). Synchronous here: the flags, the project branch, the
+    // C01 board authorization. The run itself — ports, git, a headless agent per item — is `ctx.autorun`.
+    case "autorun": {
+      const f = parseAutorunFlags(positionals, flags);
+      if (!f.ok) return { code: 2, lines: [f.message, "usage: gov autorun [--intent <NN>|--all] [--dry-run] [--agent <id>] [--max-minutes <n>] [--serial|--parallel <k>]"] };
+      let branch: string;
+      try { branch = ctx.vcs.currentBranch(ctx.home); } catch { /* not a git checkout: no project branch, refused just below */ branch = ""; }
+      const boardNumber = boardNumberFromBranch(branch);
+      if (boardNumber === null) return { code: 1, lines: [`'${branch || ctx.home}' is not a project branch (expected BRNCH-<n>-…) — run gov autorun inside the project.`] };
+      if (!ctx.authorize({ owner: c.githubOrg, ownerField, number: boardNumber })) {
+        return { code: 1, lines: [`Not authorized on GitHub Project #${boardNumber} — autorun did nothing.`] };
+      }
+      if (!ctx.autorun) return { code: 1, lines: ["gov autorun is not wired into this command — nothing was run."] };
+      const engine = ctx.autorun;
+      return { code: 0, lines: [], perform: () => engine(f.value) };
     }
 
     case "seed": {

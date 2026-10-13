@@ -41,6 +41,7 @@ recovery, and for the day the menu is in your way.
 |---|---|
 | **Set up** | `setup` · `join` · `org` · `doctor` · `upgrade` |
 | **Work a project** | `work` · `seed` · `task` · `merge` · `sync` · `status` · `anchor` |
+| **Run the lifecycle** | `intent` · `autorun` |
 | **Finish** | `close` · `pause` · `resume` · `cancel` |
 | **Govern** | `agent` · `knowledge` · `manage` · `validate` |
 

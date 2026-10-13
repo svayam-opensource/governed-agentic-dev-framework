@@ -126,6 +126,15 @@ describe("autorun — one run", () => {
     expect(records[0].decisions).to.match(/^- 2026-10-13 autorun run-1: 1 advanced, 0 failed/);
   });
 
+  it("a second run in the same minute gets its own record file — never overwrites the first", async () => {
+    const taken = new Set(["projects/PRJ-1-alpha/autorun/2026-10-13-0800.md", "projects/PRJ-1-alpha/autorun/2026-10-13-0800-2.md"]);
+    const { d, records } = deps([intent("01-a")], undefined, { recordExists: (p: string) => taken.has(p) });
+    const r = await runAutorun(d, {});
+    expect(records[0].path).to.equal("projects/PRJ-1-alpha/autorun/2026-10-13-0800-3.md");
+    expect(records[0].decisions).to.include("2026-10-13-0800-3.md");
+    expect(r.lines.join("\n")).to.include("recorded: projects/PRJ-1-alpha/autorun/2026-10-13-0800-3.md");
+  });
+
   it("a dry run records nothing", async () => {
     const { d, records } = deps([intent("01-a")]);
     await runAutorun(d, { dryRun: true });

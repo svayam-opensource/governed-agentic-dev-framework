@@ -39,6 +39,7 @@ import type { Result } from "../ports/result.js";
 import { LIFECYCLE_POLICY_PATH, missingSections, parseLifecycle } from "./lifecycle-policy.js";
 import { INTENT_DIR_NAME, intentsDir } from "./scan.js";
 import { replaceStatusLine } from "./status.js";
+import { withTrailers, type Trailers } from "../autorun/record.js";
 
 export interface IntentCreateDeps {
   /** Local git in the workspace (the governance repo clone). */
@@ -62,6 +63,8 @@ export interface IntentCreateInput {
   readonly workspaceRepo: string;
   readonly today: string;
   readonly remote?: string;
+  /** `gov autorun` drafting this intent: its commit carries `Gov-Autorun:` / `Gov-Agent:` (spec 03 §3.4). */
+  readonly trailers?: Trailers;
 }
 
 export interface IntentOutcome { readonly code: number; readonly lines: readonly string[] }
@@ -375,14 +378,15 @@ export async function createIntent(deps: IntentCreateDeps, input: IntentCreateIn
     });
     tx.step(`write ${dirRel}/intent.md`, () => deps.fs.writeFile(at(`${dirRel}/intent.md`), text), () => deps.fs.rm(at(dirRel)));
     deps.vcs.addPath(input.govClone, dirRel);
-    deps.vcs.commit(input.govClone, [
+    const message = [
       `intent ${nn}: draft ${id} (DRAFT) from ${sources.length} board item(s)`,
       "",
       ...sources.map((s) => `From: ${s.url}`),
       `Traces to: ${tracking.url}`,
       "",
       `Gov-Intent: ${nn}`,
-    ].join("\n"));
+    ].join("\n");
+    deps.vcs.commit(input.govClone, input.trailers ? withTrailers(message, input.trailers) : message);
     tx.step(`push ${branch}`, () => deps.vcs.push(input.govClone, remote, branch, { setUpstream: true }), () => deps.vcs.pushDelete(input.govClone, remote, branch));
     tx.commit();
   } catch (e) {

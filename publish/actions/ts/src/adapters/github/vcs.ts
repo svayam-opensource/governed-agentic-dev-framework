@@ -9,7 +9,7 @@
  */
 import { fail, ok, type Result } from "../../ports/result.js";
 import type {
-  AccountKind, BranchInfo, ChangeRequest, ChangeRequestRef, Identity, NewChangeRequest, RepoInfo, RepoRef, Review, VcsPort,
+  AccountKind, BranchInfo, ChangeRequest, ChangeRequestQuery, ChangeRequestRef, Identity, NewChangeRequest, RepoInfo, RepoRef, Review, VcsPort,
 } from "../../ports/vcs.js";
 import { defaultGhRun, ghCall, ghFailure, ghJson, isNotFound, type GhRun } from "./gh.js";
 
@@ -103,6 +103,32 @@ export function createGithubVcs(deps: GithubVcsDeps = {}): VcsPort {
         out.push({ by: login, kind: kindOf(login, x.user?.type), verdict, at: x.submitted_at ?? "" });
       }
       return ok(out);
+    },
+
+    async changeRequests(r: RepoRef, q: ChangeRequestQuery): Promise<Result<ChangeRequest[]>> {
+      // GitHub has no "merged" state to ask for: open, or closed (merged or not), or all — then told apart by
+      // merged_at. `head` must be owner-qualified, or GitHub ignores it and answers with every change request.
+      const ask = q.state === "open" ? "open" : q.state === "closed" || q.state === "merged" ? "closed" : "all";
+      const params = [`state=${ask}`, "per_page=100",
+        ...(q.base ? [`base=${encodeURIComponent(q.base)}`] : []),
+        ...(q.head ? [`head=${encodeURIComponent(`${r.owner}:${q.head}`)}`] : [])];
+      const reply = ghCall(gh, ["api", "--paginate", `repos/${slug(r)}/pulls?${params.join("&")}`, "--jq", ".[] | @json"]);
+      const what = `listing the change requests of ${slug(r)}`;
+      if (reply.status !== 0) return ghFailure(reply, what);
+      const out: ChangeRequest[] = [];
+      for (const line of reply.stdout.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        let p: { number?: number; state?: string; merged_at?: string | null; draft?: boolean; title?: string; html_url?: string; head?: { ref?: string }; base?: { ref?: string } };
+        try { p = JSON.parse(line); } catch (e) { return fail(`${what}: a line was not JSON (${(e as Error).message.slice(0, 80)})`); }
+        if (typeof p.number !== "number") return fail(`${what}: a change request had no number`);
+        const merged = !!p.merged_at;
+        out.push({
+          ref: { repo: r, number: p.number }, state: merged ? "merged" : p.state === "open" ? "open" : "closed", merged, draft: p.draft === true,
+          title: p.title ?? "", url: p.html_url ?? "", head: p.head?.ref ?? "", base: p.base?.ref ?? "",
+        });
+      }
+      const want = q.state ?? "all";
+      return ok(out.filter((c) => want === "all" || c.state === want).sort((a, b) => b.ref.number - a.ref.number));
     },
 
     async requiredChecks(r, branch): Promise<Result<string[]>> {

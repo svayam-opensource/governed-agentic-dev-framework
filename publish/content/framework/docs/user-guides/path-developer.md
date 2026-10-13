@@ -17,6 +17,11 @@ The daily one. You have a machine, an organization, and a project to work on.
 - [Working on a project](working-on-a-project.md) — start, session-start protocol,
   the work, session end. The document to reread.
 
+## When the lifecycle drafts for you
+
+- [Running the lifecycle](running-the-lifecycle.md) — `gov autorun`: the gates, what it drafts, budgets,
+  stopping it.
+
 ## When the work needs more than one stream
 
 - [Running parallel tasks](running-parallel-tasks.md)

@@ -207,6 +207,33 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     seeAlso: ["issue", "task"],
   },
   {
+    name: "autorun", audience: "agent",
+    summary: "advance every lifecycle item whose gate a person passed by one step, then stop and say who each waits on",
+    usage: "[--intent <NN>|--all] [--dry-run] [--agent <id>] [--max-minutes <n>] [--serial|--parallel <k>]",
+    where: "PROJECT — on the project branch (BRNCH-<n>-…), with a clean checkout; needs an adopted lifecycle (policies/active/ai-sdlc-lifecycle.md)",
+    flags: [
+      { name: "--intent <NN>", what: "only this intent (default: every intent, and the board issues in none)" },
+      { name: "--all", what: "every item — the default, said out loud" },
+      { name: "--dry-run", what: "say what each item would do next; change nothing" },
+      { name: "--agent <id>", what: "the agent that drafts: one your organization approved that gov has seen run headless (default: the org's default, else the first approved one that can)" },
+      { name: "--max-minutes <n>", what: "the per-item time budget, at most the organization's (autorun.item_minutes in policies/governance.yaml, default 30)" },
+      { name: "--serial", what: "one item at a time — the default" },
+      { name: "--parallel <k>", what: "not yet: anything above 1 is refused, saying why" },
+    ],
+    examples: [
+      "gov autorun --dry-run",
+      "gov autorun",
+      "gov autorun --intent 03 --agent claude-code --max-minutes 20",
+    ],
+    changes: "for each item whose gate a person passed: drafts an intent from a board issue (as gov intent does), or runs a headless agent that drafts spec.md, plan.md or build.md on a sub-branch, commits it (Gov-Autorun:, Gov-Agent: trailers), pushes it and opens a change request to the project branch; marks a plan STALE by change request; after the plan's approval creates its task issues, assigned to the approver. Commits the run record (projects/<PRJ>/autorun/<yyyy-mm-dd-hhmm>.md + a line in the project's knowledge/decisions.md) on the project branch and pushes it. Never merges, closes or sends anything",
+    exit: [
+      ...EXIT_USUAL,
+      { code: 1, means: "an item failed (the others ran), the run record could not be committed, another run holds the lock, or you are not authorized" },
+      { code: 2, means: "a C01 event halted the run — nothing was committed for that item; or a usage error" },
+    ],
+    seeAlso: ["intent", "task", "issue"],
+  },
+  {
     name: "task", audience: "agent",
     summary: "start a task: a sub-branch for one or more issues, in every repo of the project",
     usage: "<issue-url>[,<issue-url>…]",

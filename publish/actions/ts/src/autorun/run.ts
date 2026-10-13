@@ -38,6 +38,8 @@ export interface AutorunDeps {
   readonly budget: Budget;
   /** Commit the run record and the decisions line (Q12). */
   readonly record: (path: string, text: string, decisionsLine: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  /** Is there already a record at this path? Two runs in one minute then get `-2`, `-3`… — never one overwriting the other. */
+  readonly recordExists?: (path: string) => boolean;
 }
 
 export interface AutorunOptions { readonly intent?: string; readonly dryRun?: boolean }
@@ -79,6 +81,9 @@ export async function runAutorun(d: AutorunDeps, o: AutorunOptions): Promise<{ c
 
     if (!o.dryRun) {
       const day = started.toISOString().slice(0, 10);
+      const first = recordPath(d.project, started);
+      let where = first;
+      for (let k = 2; d.recordExists?.(where) && k < 100; k++) where = first.replace(/\.md$/, `-${k}.md`);
       const text = [
         `# autorun ${recordStamp(started)}`,
         "",
@@ -89,9 +94,9 @@ export async function runAutorun(d: AutorunDeps, o: AutorunOptions): Promise<{ c
         ...(halted ? ["", `HALT (C01): ${halted}`] : []),
         "",
       ].join("\n");
-      const decision = `- ${day} autorun ${d.runId}: ${advanced} advanced, ${failed} failed${halted ? ", HALTED (C01)" : ""} — ${recordPath(d.project, started)}`;
-      const rec = await d.record(recordPath(d.project, started), text, decision);
-      lines.push(rec.ok ? `recorded: ${recordPath(d.project, started)}` : `✗ the run record could not be committed: ${rec.reason}`);
+      const decision = `- ${day} autorun ${d.runId}: ${advanced} advanced, ${failed} failed${halted ? ", HALTED (C01)" : ""} — ${where}`;
+      const rec = await d.record(where, text, decision);
+      lines.push(rec.ok ? `recorded: ${where}` : `✗ the run record could not be committed: ${rec.reason}`);
       if (!rec.ok) failed++;
     }
     return { code: halted ? 2 : failed ? 1 : 0, lines };

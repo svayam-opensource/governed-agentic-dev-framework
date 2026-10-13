@@ -273,6 +273,15 @@ models:
     model: ""
   command: ""
   ci_allowed: false
+
+# HOW FAR \`gov autorun\` MAY GO IN ONE RUN (see the user guide running-the-lifecycle.md). Ceilings, not suggestions:
+#   item_minutes   wall-clock minutes one item's agent may run before it is stopped (\`--max-minutes\` may only lower it)
+#   run_items      items one run starts; the rest wait for the next run
+#   run_crs        change requests one run opens
+autorun:
+  item_minutes: 30
+  run_items: 10
+  run_crs: 10
 `;
 }
 
