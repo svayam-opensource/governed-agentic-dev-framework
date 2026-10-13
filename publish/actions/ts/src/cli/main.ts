@@ -3094,6 +3094,8 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
     // The full WorkTrackerPort, chosen by `adapters: work_tracker` in org-config.yaml through the registry (Q15).
     // Built when a verb asks for it, so an unknown id fails that verb — with the id named — and nothing else.
     tracker: () => pickAdapter(builtInProviders, "workTracker", config.adapters.workTracker, { gh: ghRunFrom(runGh) }),
+    // The code host, the same way (`adapters: vcs`). `gov intent` opens its change request through it.
+    vcsHost: () => pickAdapter(builtInProviders, "vcs", config.adapters.vcs, { gh: ghRunFrom(runGh) }),
     anchor: createGhAnchor(runGh),
     pulls: createGhPulls(runGh),
     projects: createGhProjects(runGh),

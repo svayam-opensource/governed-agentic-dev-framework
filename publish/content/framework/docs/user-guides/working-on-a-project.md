@@ -256,7 +256,56 @@ The HOME repo stays on the default branch throughout — there's no `git push` n
 
 ---
 
-## 4. How a gate is passed
+## 4. Starting an intent
+
+An intent is the business reason for a piece of work, made from one or more issues on the board. When your org
+has adopted a lifecycle (`policies/active/ai-sdlc-lifecycle.md`), start one with `gov intent`, from inside the
+project:
+
+```bash
+gov intent https://github.com/acme/app/issues/42
+gov intent https://github.com/acme/app/issues/42 https://github.com/acme/app/issues/43 --slug paging
+```
+
+```mermaid
+flowchart LR
+  I["Open board issues"] --> T["Intent tracking issue<br/>assigned to you, on the board,<br/>label gov-intent:NN"]
+  T --> B["Branch &lt;project-branch&gt;.INTENT-NN-intent<br/>intents/NN-slug/intent.md (DRAFT)"]
+  B --> CR["Change request to the project branch<br/>Traces to: the tracking issue"]
+  CR --> G1["Owner interview, then a person approves (G1)"]
+```
+
+What it does, in order:
+
+1. **Checks the lifecycle.** If `policies/active/ai-sdlc-lifecycle.md` is absent, it says so and changes nothing.
+   It uses the template named in the lifecycle's Intent step.
+2. **Reads the issues.** Each must be open. Several issues make one intent.
+3. **Creates the intent tracking issue.** The issue is assigned to you, added to the project's board and
+   labelled `gov-intent:<NN>`. The issues you named get the same label. Every change request for this intent's
+   artifacts (intent, spec, plan, build) traces to the tracking issue, so the board has one card per intent.
+4. **Writes the draft.** It writes `projects/<PRJ>/intents/<NN-slug>/intent.md`. `<NN>` is the next free
+   two-digit number, counting intents still on a branch. The slug comes from the first issue's title unless you
+   give `--slug`. The draft has Status `DRAFT`, every section the template requires, and the issues listed
+   under "Board items".
+5. **Lists the interview questions.** Under "Interview decisions" it writes the questions the issues leave open:
+   outcome, who benefits, priority, success measure, in and out of scope, constraints and risks. An issue answers
+   a question when it has a heading or a `Label:` line for it with real text, such as `## Acceptance criteria`.
+   That text then fills the matching section (Goal, Done when or Out). Each question has a `Recommendation:`
+   line for the agent to fill in before the interview.
+6. **Commits and opens a change request.** It commits on `<project-branch>.INTENT-<NN>-intent`, pushes, and
+   opens a change request to the project branch. The request's body says `Traces to: <tracking issue>`. You are
+   left on the new branch.
+
+Next comes the owner interview. Ask the business owner one question at a time, record each answer under its
+question, and commit to the same branch. The intent passes its gate as described in the next section.
+
+It refuses when the workspace has uncommitted changes, or when you cannot write to the project's board.
+If a step fails after the tracking issue exists, gov says what exists and exits 1. `gov task` is unchanged: it
+starts build work on task issues and never creates an intent.
+
+---
+
+## 5. How a gate is passed
 
 When your org has adopted a lifecycle (`policies/active/ai-sdlc-lifecycle.md`), each intent lives in
 `projects/<PRJ>/intents/<NN-slug>/` as `intent.md`, `spec.md`, `plan.md` and `build.md`. That folder is the only
@@ -299,7 +348,7 @@ gates.
 
 ---
 
-## 5. Pausing, resuming, syncing
+## 6. Pausing, resuming, syncing
 
 - **`gov pause`** — for "I need to stop and come back later, possibly weeks." Marks the project paused. Must be cleanly committed first.
 - **`gov resume`** — re-runs session-start protocol effectively; pulls latest, merges base into project branch, surfaces conflicts.
@@ -309,7 +358,7 @@ After any of these, **re-load all four knowledge layers** before doing anything 
 
 ---
 
-## 6. Switching between projects in a single session
+## 7. Switching between projects in a single session
 
 Sessions are agent-lifecycle (one continuous conversation). Projects are git-branch-scoped. You can switch — but it's not free.
 

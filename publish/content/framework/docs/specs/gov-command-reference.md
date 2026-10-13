@@ -38,6 +38,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 
 - [gov seed](#gov-seed) — start a project from a GitHub Project board
 - [gov join](#gov-join) — join a project someone else started, on this machine
+- [gov intent](#gov-intent) — draft an intent from board issues, with the owner-interview questions, for review
 - [gov task](#gov-task) — start a task: a sub-branch for one or more issues, in every repo of the project
 - [gov merge](#gov-merge) — land a task sub-branch back on the project branch
 - [gov sync](#gov-sync) — bring the project branch up to date with its base
@@ -647,6 +648,47 @@ gov join PRJ-43-billing
 | `2` | usage: a missing or wrong argument |
 
 **See also.** [gov work](#gov-work) · [gov seed](#gov-seed)
+
+### gov intent
+
+draft an intent from board issues, with the owner-interview questions, for review
+
+```text
+gov intent <issue-url>… [--slug <s>]
+```
+
+**Where.** PROJECT — inside the project the issues belong to; needs an adopted lifecycle (policies/active/ai-sdlc-lifecycle.md)
+
+**Arguments**
+
+| argument | what it is |
+| --- | --- |
+| `<issue-url>` | an open issue on this project's board. Several (space- or comma-separated) make one intent |
+
+**Flags**
+
+| flag | what it does |
+| --- | --- |
+| `--slug <s>` | the intent folder's name after its number (default: from the first issue's title) |
+
+**Examples**
+
+```bash
+gov intent https://github.com/acme/app/issues/42
+gov intent https://github.com/acme/app/issues/42 https://github.com/acme/app/issues/43 --slug paging
+```
+
+**Changes.** creates the intent tracking issue (assigned to you, on the board, labelled gov-intent:&lt;NN&gt;) and labels the issues gov-intent:&lt;NN&gt;; writes projects/&lt;PRJ&gt;/intents/&lt;NN-slug&gt;/intent.md (Status DRAFT, the interview questions the issues leave open) on &lt;project-branch&gt;.INTENT-&lt;NN&gt;-intent, commits and pushes it, and opens a change request to the project branch that traces to the tracking issue. With no adopted lifecycle it says so and changes nothing
+
+**Exit codes**
+
+| code | means |
+| --- | --- |
+| `0` | done |
+| `1` | failed — nothing half-applied that gov could undo; no lifecycle adopted, an issue is closed, or you are not authorized on the board — nothing was created; or a later step failed, and the output says what exists |
+| `2` | usage: a missing or wrong argument |
+
+**See also.** [gov issue](#gov-issue) · [gov task](#gov-task)
 
 ### gov task
 

@@ -192,6 +192,21 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     seeAlso: ["work", "seed"],
   },
   {
+    name: "intent", audience: "agent",
+    summary: "draft an intent from board issues, with the owner-interview questions, for review",
+    usage: "<issue-url>… [--slug <s>]",
+    where: "PROJECT — inside the project the issues belong to; needs an adopted lifecycle (policies/active/ai-sdlc-lifecycle.md)",
+    args: [{ name: "<issue-url>", what: "an open issue on this project's board. Several (space- or comma-separated) make one intent" }],
+    flags: [{ name: "--slug <s>", what: "the intent folder's name after its number (default: from the first issue's title)" }],
+    examples: [
+      "gov intent https://github.com/acme/app/issues/42",
+      "gov intent https://github.com/acme/app/issues/42 https://github.com/acme/app/issues/43 --slug paging",
+    ],
+    changes: "creates the intent tracking issue (assigned to you, on the board, labelled gov-intent:<NN>) and labels the issues gov-intent:<NN>; writes projects/<PRJ>/intents/<NN-slug>/intent.md (Status DRAFT, the interview questions the issues leave open) on <project-branch>.INTENT-<NN>-intent, commits and pushes it, and opens a change request to the project branch that traces to the tracking issue. With no adopted lifecycle it says so and changes nothing",
+    exit: [...EXIT_USUAL, { code: 1, means: "no lifecycle adopted, an issue is closed, or you are not authorized on the board — nothing was created; or a later step failed, and the output says what exists" }],
+    seeAlso: ["issue", "task"],
+  },
+  {
     name: "task", audience: "agent",
     summary: "start a task: a sub-branch for one or more issues, in every repo of the project",
     usage: "<issue-url>[,<issue-url>…]",

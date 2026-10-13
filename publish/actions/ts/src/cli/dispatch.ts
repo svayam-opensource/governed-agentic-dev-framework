@@ -18,6 +18,8 @@ import type { Vcs } from "../lifecycle/vcs.js";
 import type { Fs } from "../lifecycle/fs-io.js";
 import type { Issues } from "../lifecycle/issues.js";
 import type { BoardCloseResult, BoardStatusOutcome, BoardWriter, WorkTrackerPort } from "../ports/work-tracker.js";
+import type { VcsPort } from "../ports/vcs.js";
+import { createIntent } from "../intent/create.js";
 import type { AnchorCreator } from "../lifecycle/anchor.js";
 import type { Pulls } from "../lifecycle/pulls.js";
 import type { BoardRef } from "../lifecycle/identity.js";
@@ -87,6 +89,12 @@ export interface CliContext {
    * reports it. `gov issue` writes through it. Absent → `gov issue` refuses, saying no tracker is wired.
    */
   readonly tracker?: () => WorkTrackerPort;
+  /**
+   * The code host (VcsPort, spec 03 §6), built by the adapter registry from `adapters: vcs` in org-config.yaml. A
+   * factory for the same reason as {@link tracker}. `gov intent` opens its change request through it. Absent →
+   * `gov intent` refuses, saying no code host is wired.
+   */
+  readonly vcsHost?: () => VcsPort;
   readonly anchor: AnchorCreator;
   readonly pulls: Pulls;
   readonly projects: Projects;
@@ -415,6 +423,41 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
             return { code: 1, lines: [`Could not create the issue in ${plan.repo} — ${(e as Error)?.message ?? String(e)}`] };
           }
           return createPlannedIssue(plan, tracker, c.githubOrg);
+        },
+      };
+    }
+
+    // `gov intent <issue-url>… [--slug s]` — draft an intent from board issues (spec 03 D3; Q3: `gov task` stays
+    // build-stage only). Synchronous here: arguments, the C01 board authorization, the ports being wired. The
+    // drafting itself — tracker, local git, the code host — runs in `perform`.
+    case "intent": {
+      if (positionals.length < 1) return usage("intent <issue-url>… [--slug <s>]");
+      const urls = positionals.flatMap((p) => p.split(",")).map((u) => u.trim()).filter(Boolean);
+      let branch: string;
+      try { branch = ctx.vcs.currentBranch(ctx.home); } catch { /* not a git checkout: no project branch, refused just below */ branch = ""; }
+      const boardNumber = boardNumberFromBranch(branch);
+      if (boardNumber === null) return { code: 1, lines: [`'${branch || ctx.home}' is not a project branch (expected BRNCH-<n>-…) — run gov intent inside the project.`] };
+      if (!ctx.authorize({ owner: c.githubOrg, ownerField, number: boardNumber })) {
+        return { code: 1, lines: [`Not authorized on GitHub Project #${boardNumber} — nothing was created.`] };
+      }
+      if (!ctx.tracker) return { code: 1, lines: ["Could not draft the intent — no work tracker is wired into this command."] };
+      if (!ctx.vcsHost) return { code: 1, lines: ["Could not draft the intent — no code host is wired into this command."] };
+      const getTracker = ctx.tracker, getHost = ctx.vcsHost;
+      const slug = flagStr(flags, "slug");
+      return {
+        code: 0, lines: [],
+        perform: async () => {
+          let tracker: WorkTrackerPort, host: VcsPort;
+          try { tracker = getTracker(); host = getHost(); } catch (e) {
+            return { code: 1, lines: [`Could not draft the intent — ${(e as Error)?.message ?? String(e)}`] };
+          }
+          return createIntent(
+            { vcs: ctx.vcs, fs: ctx.fs, tracker, host, ...(ctx.log ? { log: ctx.log } : {}) },
+            {
+              govClone: ctx.home, issueUrls: urls, assignee: ctx.login ?? "", githubOrg: c.githubOrg,
+              workspaceRepo: c.workspaceRepo, today: ctx.today, ...(slug ? { slug } : {}),
+            },
+          );
         },
       };
     }

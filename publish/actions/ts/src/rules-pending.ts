@@ -142,7 +142,7 @@ export function refuseForPendingRules(pending: RulesPending, command: string): s
  * list against the verbs `route` dispatches to a lifecycle orchestrator.
  */
 export function isMutatingVerb(command: string, sub?: string): boolean {
-  if (command === "task" || command === "merge" || command === "close") return true;
+  if (command === "task" || command === "merge" || command === "close" || command === "intent") return true;
   // `knowledge search|show|list` are reads and stay open — the verb that tells you what a rule SAYS must not be
   // the one the rule change blocks.
   return command === "knowledge" && (sub === "propose" || sub === "submit" || sub === "archive");
