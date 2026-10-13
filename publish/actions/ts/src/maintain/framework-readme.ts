@@ -37,6 +37,7 @@ export const FRAMEWORK_README_FINGERPRINTS: ReadonlySet<string> = new Set([
   "cd072548a00fc6368f82f98e6f1650bd00abfb18750db14cb1eb58db24d6624a",   // 4b313de55e2c
   "b6928e05726e3f37f1041bad10db3aad4ef7d4336daef4f3d306098d1d23c70b",   // 6335ce1bfca7
   "f78b2186dc4a19e11af2e82d3abec76b2ad54799ec5f673a1b74162e08269272",   // PRJ-121 I04 T07 (#267)
+  "84b1f65a397e976b4f42ae32974b3d41c507336c577f559d90b492952ebbdc0b",   // PRJ-121 I04 T07 (#267), no install.ps1 interim route
 ]);
 
 export const readmeFingerprint = (text: string): string => crypto.createHash("sha256").update(text.replace(/\r\n/g, "\n"), "utf8").digest("hex");
