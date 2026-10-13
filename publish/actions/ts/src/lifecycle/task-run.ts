@@ -16,7 +16,7 @@ import type { Issues } from "./issues.js";
 import { NO_TRACKER, STATE_NAMES, type BoardStatusOutcome, type BoardWriter } from "../ports/work-tracker.js";
 import type { BoardRef } from "./identity.js";
 import { repoNameFromUrl } from "./repo.js";
-import { ensureProjectBranch } from "./code-repo.js";
+import { ensureProjectBranch, removedRecreatedLine } from "./code-repo.js";
 import {
   parseIssueUrl,
   taskIdFor,
@@ -129,10 +129,10 @@ export function task(deps: TaskDeps, config: TaskConfig, input: TaskInput): Task
         reposSkipped.push(repoDir); // needs repo-on-demand (add-repo) — deferred
         continue;
       }
-      // Not a transaction step: a branch at the base tip, pushed, is what a reopened project should have whether
-      // or not this task goes on to succeed (#224, Q17 A).
+      // On the transaction (D3, revising #224's keep): if a later step fails, the recreated branch is deleted —
+      // local and remote — and the failure says so; the next attempt recreates it.
       if (config.defaultCodeBranch
-        && ensureProjectBranch(deps.vcs, { repoDir, projectBranch, baseBranch: config.defaultCodeBranch, remote }, log) === "recreated") {
+        && ensureProjectBranch(deps.vcs, { repoDir, projectBranch, baseBranch: config.defaultCodeBranch, remote }, log, tx) === "recreated") {
         recreated.push(repoDir);
       }
       createSubBranch({ vcs: deps.vcs, tx }, { repoDir, projectBranch, taskId, label: url, remote });
@@ -141,7 +141,12 @@ export function task(deps: TaskDeps, config: TaskConfig, input: TaskInput): Task
     tx.commit();
   } catch (error) {
     const rollbackFailures = tx.rollback();
-    return { ok: false, code: 1, reason: "task-failed", message: (error as Error).message, rollbackFailures };
+    const failedUndo = new Set(rollbackFailures.map((f) => f.label));
+    const removed = recreated
+      .filter((dir) => !failedUndo.has(`recreated ${projectBranch} in ${dir}`))
+      .map((dir) => removedRecreatedLine(projectBranch, dir));
+    const message = [(error as Error).message, ...removed].join("\n");
+    return { ok: false, code: 1, reason: "task-failed", message, rollbackFailures };
   }
 
   // ── Reflect the task on GitHub (best-effort, post-branch) ────────────────────

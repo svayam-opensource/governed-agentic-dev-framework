@@ -81,7 +81,11 @@ re-run straight away; nothing is left to clean up.
 
 The project was closed and then reopened. Closing deleted the code repos' project branches, but your worktrees
 stayed on disk. gov made the missing branch again from the base branch, pushed it, and carried on. Nothing of
-yours was changed. If a repo is not on disk at all, `gov add-repo <repo-url>` brings it back, and it reuses a
+yours was changed.
+
+If `gov task` then fails at a later step, it deletes the branch it made again, locally and on GitHub, and says
+`removed the recreated '<branch>' in <repo> (local and remote)`. Fix the reported problem and run `gov task`
+again. It makes the branch again. If a repo is not on disk at all, `gov add-repo <repo-url>` brings it back, and it reuses a
 worktree that is already there.
 
 ## Reading a failed `gov seed`

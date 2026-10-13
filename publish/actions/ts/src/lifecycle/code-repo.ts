@@ -60,6 +60,12 @@ export function archiveStamp(d: Date): string {
   return d.toISOString().replace(/[:.]/g, "-");
 }
 
+/** What a failed run says after deleting a branch it recreated (D3). */
+export function removedRecreatedLine(projectBranch: string, repoDir: string, remoteToo = true): string {
+  const where = remoteToo ? "local and remote" : "local; it was never pushed";
+  return `removed the recreated '${projectBranch}' in ${repoDir} (${where}) — this run failed; the next attempt recreates it`;
+}
+
 /** What {@link ensureProjectBranch} found: the branch was there, or gov had to recreate it. */
 export type ProjectBranchState = "present" | "recreated";
 
@@ -72,13 +78,15 @@ export type ProjectBranchState = "present" | "recreated";
  * worktree is not somebody's work and not a conflict; it is the closed state. So it is recreated off the base,
  * pushed, and SAID — a person must never discover later that gov made a branch for them.
  *
- * Not undone on a later failure: a branch at the base tip, pushed, is exactly the state a reopened project should
- * be in, and re-running the verb finds it present.
+ * UNDONE ON A LATER FAILURE when a transaction is passed (D3, Policy Owner 2026-10-13, revising I04 T05's keep):
+ * `gov task` passes its own, so a run that fails after recreating the branch deletes it again — locally and on the
+ * remote — and says so; the next attempt recreates it. Nothing gov made is left behind by a failed run.
  */
 export function ensureProjectBranch(
   vcs: Vcs,
   p: { readonly repoDir: string; readonly projectBranch: string; readonly baseBranch: string; readonly remote: string },
   log: (msg: string) => void = () => {},
+  tx?: Transaction,
 ): ProjectBranchState {
   if (vcs.localBranchExists(p.repoDir, p.projectBranch)) return "present";
   if (vcs.remoteBranchExists(p.repoDir, p.remote, p.projectBranch)) {
@@ -87,8 +95,19 @@ export function ensureProjectBranch(
     return "present";
   }
   vcs.fetch(p.repoDir, p.remote, p.baseBranch);
-  vcs.checkoutNew(p.repoDir, p.projectBranch, `${p.remote}/${p.baseBranch}`);
+  const base = `${p.remote}/${p.baseBranch}`;
+  vcs.checkoutNew(p.repoDir, p.projectBranch, base);
+  // Registered as soon as it exists, so a failed push below is undone too. Back to the closed state first —
+  // detached on the base — because git will not delete the branch a worktree is on.
+  let pushed = false;
+  tx?.onRollback(`recreated ${p.projectBranch} in ${p.repoDir}`, () => {
+    vcs.checkout(p.repoDir, base);
+    vcs.branchDelete(p.repoDir, p.projectBranch);
+    if (pushed) vcs.pushDelete(p.repoDir, p.remote, p.projectBranch);
+    log(removedRecreatedLine(p.projectBranch, p.repoDir, pushed));
+  });
   vcs.push(p.repoDir, p.remote, p.projectBranch, { setUpstream: true });
+  pushed = true;
   log(`recreated '${p.projectBranch}' in ${p.repoDir} off ${p.remote}/${p.baseBranch} — it was missing (a closed project, reopened)`);
   return "recreated";
 }
