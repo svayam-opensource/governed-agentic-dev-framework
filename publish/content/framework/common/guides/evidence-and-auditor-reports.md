@@ -16,6 +16,37 @@ Checking that record is free. You do not need a subscription, a licence or a net
 
 ---
 
+## Turning evidence on for yourself
+
+Your organization's admin turns evidence on for the organization. Each person who wants evidence written from
+their own machine then does three things, once per machine:
+
+1. **Generate a personal key** in the Svayam portal, under Account → Keys.
+2. **Sign in:** `gov licence login`, and paste the key. It goes into your OS keychain (macOS keychain, the Secret
+   Service on Linux, Windows Credential Manager). It is never written to a file and never shown. On a machine
+   without a keychain, put it in the `GOV_LICENCE_KEY` environment variable instead.
+3. **Install the module:** `gov licence install`. gov swaps your key for a registry token that lasts about 15
+   minutes and installs `@svayam/gov-check` with it. The token is never saved.
+
+Check it with `gov licence status`:
+
+```text
+gov licence status
+  personal key   stored in macOS keychain
+  gov-check      installed (licence-install)
+  state          licensed
+  org            github 297356872
+  plan           pilot
+  entitlements   evidence
+  lease expires  2026-10-20T08:00:00Z
+```
+
+**What leaves your machine.** Only your personal key (to get a lease or a registry token), your writer's public
+key, and counts — never a record, a repository name, a rule or a verdict. CI does not use a personal key: the
+workflow proves who it is with GitHub's own token.
+
+---
+
 ## Verifying evidence
 
 This section is for **auditors**, and for organizations whose subscription has ended but who still need to show

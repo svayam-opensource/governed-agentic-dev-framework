@@ -352,6 +352,29 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     seeAlso: ["check", "app"],
   },
   {
+    name: "licence", audience: "you",
+    summary: "sign in with your gov personal key, see your organization's plan, and install the paid evidence module",
+    usage: "<login [--key-from-stdin] | status | install [--spec <version-range>]>",
+    where: "anywhere — your own machine; CI uses its OIDC token instead (no personal key)",
+    args: [
+      { name: "login", what: "paste the personal key you generated in the Svayam portal (Account → Keys). gov stores it in your OS keychain — macOS keychain, the Secret Service through secret-tool on Linux, Windows Credential Manager — and never in a file; it is never shown. Where no keychain exists, put it in GOV_LICENCE_KEY instead. When gov-check is installed it is handed the key to take its first lease" },
+      { name: "status", what: "where your key is (keychain, GOV_LICENCE_KEY, or not set), whether gov-check is installed, and what it reports: state (licensed, grace, refused, absent), organization, plan, entitlements and when the lease expires. Open gov never judges a licence itself — this is the module's answer" },
+      { name: "install", what: "exchange your personal key at the licence service for a registry token that lasts about 15 minutes, and install @svayam/gov-check with it into $XDG_DATA_HOME/gov/gov-check (%LOCALAPPDATA%\\gov\\gov-check on Windows; GOV_CHECK_HOME overrides), where gov finds it. The token reaches npm only through the environment" },
+    ],
+    flags: [
+      { name: "--key-from-stdin", what: "login: read the key from stdin instead of a hidden prompt (for a script)" },
+      { name: "--spec <version-range>", what: "install: the gov-check versions to accept (default ^2.0.0-next.0, the line that fits this gov)" },
+    ],
+    examples: ["gov licence login", "gov licence status", "gov licence install"],
+    changes: "`login` writes your personal key to the OS keychain (service `gov`, account `gov-licence/personal-key`) and nothing else. `install` sends your personal key to gov.svayamtech.com for a short-lived registry token — the only data that leaves your machine — and writes a package.json and an .npmrc that names the token's environment variable (never the token) into the install folder, then runs npm there. `status` changes nothing",
+    exit: [
+      { code: 0, means: "login: stored. status: licensed, or in grace. install: installed" },
+      { code: 1, means: "login: no key, not a gov personal key, or no keychain (use GOV_LICENCE_KEY). status: not installed, refused or absent — the lines say why. install: no key, the service refused, or npm failed" },
+      { code: 2, means: "usage" },
+    ],
+    seeAlso: ["evidence", "check"],
+  },
+  {
     name: "rules", audience: "you",
     summary: "propose rules from your policy prose, render the rule stores into what agents read, and report on them",
     usage: "<build|check|report|reload> [--working-tree] | show <id> | propose [--all] [--pr <n>]",

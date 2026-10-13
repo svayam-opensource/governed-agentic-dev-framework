@@ -63,4 +63,19 @@ If you lack write access, `gov seed`/`gov join` won't let you seed or join the
 project — ask an owner to run `gov manage assign`. There is no per-project state
 file; GitHub Project write access is the sole gate.
 
+### If your organization has a subscription: sign in with your personal key
+
+Only needed if your organization keeps signed evidence (see
+[Evidence and auditor reports](evidence-and-auditor-reports.md)). Every check runs without it.
+
+```bash
+gov licence login     # paste the personal key from the Svayam portal (Account → Keys)
+gov licence install   # fetches gov-check, the module that writes signed evidence
+gov licence status    # your organization, plan, entitlements and lease expiry
+```
+
+The key goes into your OS keychain: the macOS keychain, the Secret Service on Linux (through `secret-tool`), or
+Windows Credential Manager. gov never writes it to a file and never prints it. On a machine with no keychain, set
+`GOV_LICENCE_KEY` in your environment instead.
+
 ---

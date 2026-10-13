@@ -8,6 +8,7 @@
 import { main, runApp, runSetupCommand, runWork, runAgentInstall, runRulesPropose, runCheck, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines, isKnownCommand } from "./main.js";
 import { confirmContextOrBail } from "./context-gate.js";
 import { runEvidence } from "./evidence-run.js";
+import { runLicence } from "./licence-run.js";
 import { helpRequest } from "./help-request.js";
 import { helpJson, topicOf } from "./help-render.js";
 
@@ -55,7 +56,7 @@ async function dispatch(): Promise<number> {
   // repo clone URL before being told anything. They do not have one; that is what they were trying to
   // find out. A command whose whole purpose is to answer "what state am I in?" must never be replaced by
   // a question that presumes the answer.
-  const NO_FIRST_RUN = new Set(["setup", "org", "doctor", "deps", "validate", "check", "evidence", "help", "--help", "-h", "--version", "-v"]);
+  const NO_FIRST_RUN = new Set(["setup", "org", "doctor", "deps", "validate", "check", "evidence", "licence", "help", "--help", "-h", "--version", "-v"]);
   if (process.stdin.isTTY && !NO_FIRST_RUN.has(argv[0] ?? "")) {
     const first = await runFirstRunIfNeeded();
     if (first !== null) return first;   // null = already set up; anything else is this invocation's answer
@@ -77,6 +78,8 @@ async function dispatch(): Promise<number> {
   if (argv[0] === "check") return runCheck(argv);
   // `evidence verify` is the FREE verifier (Q4): an auditor runs it with no workspace, so no first run above.
   if (argv[0] === "evidence") return runEvidence(argv);
+  // `licence login` asks for a hidden key and `install` awaits the licence service — asynchronous, like `check`.
+  if (argv[0] === "licence") return runLicence(argv);
   return main(argv);
 }
 
