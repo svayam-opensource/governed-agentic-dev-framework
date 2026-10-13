@@ -386,6 +386,7 @@ one line per run — `OK`, or `BREAK:` and why (`event push`, `different commit`
 | `live` — adopter journey | secret `TESTBED_BOT_PAT` (classic: `repo`, `workflow`, `project`, `read:org`, `delete_repo`; or fine-grained on **all** repositories of the sandbox org — a selected-repositories token cannot read the repos a run creates), variable `TESTBED_SANDBOX_ORG` | **fails** on a manual dispatch, a PR into `dev`/`main`, a push to `dev`/`main`; **skips visibly** (notice + run summary) on a feature-branch push |
 | `live` — rule-model journey, assertion (f) | secrets `GOV_E2E_APP_CLIENT_ID`, `GOV_E2E_APP_PRIVATE_KEY` | the same: the guard names them up front on a strict run; elsewhere (f) is skipped, named, and the journey reports `incomplete` |
 | `live` — joiner journey (second identity) | secret `TESTBED_JOINER_PAT` (a **second** member of the sandbox org — classic: `repo`, `project`, `read:org`) and secret `TESTBED_JOINER_LOGIN` (its login) | as for the adopter journey: **fails** a strict run, naming both; on a feature-branch push only the joiner skips, visibly. The journey itself fails if the token is not `TESTBED_JOINER_LOGIN`, or is the adopter bot's own account |
+| `live` — signal round-trip | the joiner's two secrets (it runs as both bots) | as the joiner journey |
 | `live` — real model | secret `GEMINI_API_KEY`, only when dispatched with `real_model` | fails that dispatch |
 
 **The joiner tier** (PRJ-121 intent 05, Item 4). First, in seconds, `e2e/joiner-identity.sh` checks that
@@ -403,6 +404,16 @@ is a defect, the pty scenarios 40/45/47 stay hermetic) — and asserts issue #2 
 `Done`. The **finish phase** (`E2E_PHASE=finish`, `if: always()`) closes the project and tears down everything the
 work phase recorded. Its dry run (`bash e2e/joiner-journey.sh --dry-run`) is tested in
 `test/e2e/joiner-journey-dry.test.ts`; `gov setup --join` itself runs hermetically in `e2e/smoke.d/35-setup-join.sh`.
+
+**The signal tier** (PRJ-121 intent 03, L09). After the joiner, `e2e/signal-journey.sh` proves a `gov signal`
+round-trip between two projects and two people: bot A seeds two projects (`gov project --seed`, which waits for
+GitHub's board index to list the anchor before seeding), makes bot B a writer on the second and bot B opens it
+(`gov work --no-launch`). Bot A sends an **ask**, a **depends** and a **notice**; for each, bot B's `gov signal list`
+— the session manifest's lines — must show it under **Incoming signals**, bot B answers or acknowledges it
+(`gov signal ack`), and bot A's **Outgoing signals** must no longer list it. Then a **handover** moves an issue from
+A's board to B's, and a **merge** closes A's board. A person sends (spec 03 Q6): every send and ack runs in a
+pseudo-terminal (`script`) and answers its confirmation, as the person at the keyboard would. Dry run:
+`bash e2e/signal-journey.sh --dry-run` (`test/e2e/signal-journey-dry.test.ts`).
 
 The decision is made by `publish/actions/ts/e2e/live-guard.sh` (the workflow's first `live` step), and
 the verdict by `e2e/live-verdict.sh` (its last), which lists every journey and every skipped assertion
