@@ -31,6 +31,7 @@ The split matters, because it decides what an upgrade may overwrite.
 ```
 framework/       The FRAMEWORK's. Replaced by `gov upgrade`.
   framework-specification.md   how the framework works; every framework rule cites it
+  build/build-specification.md   the build phase's half of it: starting a project, where to write, sessions, knowledge
   rules/           the framework's rule rows and its checks catalog
   common/          what every phase shares: reference (command reference, org-config schema),
                    guides (the four entry points above and more), the exception form
@@ -58,7 +59,7 @@ actually runs — by SDLC phase, by product line, by business unit, by anything.
 
 One rule applies, and it is the rule rather than a suggestion: a top-level domain exists only
 once a named Owner role exists for it
-([framework specification §8.1](framework/framework-specification.md#81-the-knowledge-tree-is-yours)). Create the domain and
+([build specification §4.1](framework/build/build-specification.md#41-the-knowledge-tree-is-yours)). Create the domain and
 name its owner together, add the owner to the policy, and `CODEOWNERS` will gate it on the next
 upgrade.
 

@@ -115,6 +115,7 @@ files:
   # THE SPECIFICATION (rule-model Q23, 2026-10-06): the source every framework rule row cites by section and sha, so it
   # must arrive with framework/rules/.
   - { src: framework/framework-specification.md,              dst: framework/framework-specification.md,              mode: scaffold-auto }
+  - { src: framework/build/build-specification.md,            dst: framework/build/build-specification.md,            mode: scaffold-auto }
   # THE FRAMEWORK'S RULES (GOV-FRM-444, P3 cutover 2026-10-06): its rule rows, its catalog of resources, events,
   # tools and actions, and the POL → GOV aliases that resolve an old citation. One writer: `gov upgrade`.
   # `framework/rules/W2-classification.md` is a working paper of the migration and is deliberately NOT shipped.

@@ -5,7 +5,7 @@
 // W2-Q1…Q10).
 //
 // `framework/rules/rules.yaml` is written by hand for this release and by `gov upgrade` after it. Either way its
-// rows point at prose in `framework-specification.md` by section and sha, and nothing else keeps the two in step:
+// rows point at prose in `framework-specification.md` and `build/build-specification.md` by section and sha, and nothing else keeps the two in step:
 // edit a section and forget its rows, and every row still loads, cites a section that exists, and describes text
 // nobody wrote. So this test re-hashes each cited section and fails on a stale sha — the same guard Q9 asks of an
 // org row — and loads the store through the real reader, so a row the reader would flag fails here first.
@@ -19,6 +19,9 @@ import type { GitRead } from "../../src/cli/policy-gate-io.js";
 
 const CONTENT = path.join(import.meta.dirname, "..", "..", "..", "..", "content");
 const SPEC_DOC = "framework/framework-specification.md";
+const BUILD_DOC = "framework/build/build-specification.md";
+/** The split (PRJ-121 L05, spec §3.5): the old chapters 4, 5, 6, 8 are the build specification's 1–4. */
+const SPLIT_MAP: Record<string, string> = { "4": "1", "5": "2", "6": "3", "8": "4" };
 const read = (rel: string): string => readFileSync(path.join(CONTENT, rel), "utf8");
 
 /** The repository at one ref, as `git ls-tree` / `git show` see it. */
@@ -37,6 +40,7 @@ describe("framework rules — the shipped store", () => {
   const text = read(RULE_STORE_PATHS.frameworkRules);
   const rows = parseRuleStore(text);
   const spec = read(SPEC_DOC);
+  const buildSpec = read(BUILD_DOC);
 
   it("loads through the real reader with zero diagnostics", () => {
     const r = loadRuleStores(gitOver({
@@ -54,15 +58,30 @@ describe("framework rules — the shipped store", () => {
   // runs to the next NUMBERED heading, so §4.2's text is not part of §4's and an edit to §4.2 leaves §4's rows alone.
   // A CLOSED row is history: its source is the text it was written against, which may since have changed or gone
   // (GOV-FRM-150's §8.5 was rewritten when compliance.md was retired). Only rows in force must match today's text.
-  it("every row in force cites a section of framework-specification.md, at the sha of its current text", () => {
-    const shas = sectionShas(spec);
+  it("every row in force cites a section of the framework or build specification, at the sha of its current text", () => {
+    const docs: Record<string, Map<string, string>> = { [SPEC_DOC]: sectionShas(spec), [BUILD_DOC]: sectionShas(buildSpec) };
     const stale = inForce(rows).flatMap((r) => {
-      if (r.source.doc !== SPEC_DOC) return [`${r.id}: source is ${r.source.doc}`];
+      const shas = docs[r.source.doc];
+      if (!shas) return [`${r.id}: source is ${r.source.doc}`];
       const sha = shas.get(r.source.section);
-      if (sha === undefined) return [`${r.id}: no section ${r.source.section}`];
+      if (sha === undefined) return [`${r.id}: no section ${r.source.section} in ${r.source.doc}`];
       return sha === r.source.sha ? [] : [`${r.id}: §${r.source.section} is ${sha}, row says ${r.source.sha}`];
     });
     expect(stale).to.deep.equal([]);
+  });
+
+  // The split map is the T8 exemption's: a chapter that went to the build specification is renumbered by it, and
+  // the minor numbers are kept. So no row in force cites a moved chapter in the parent, and none cites a build
+  // chapter beyond the four.
+  it("the split map {4→1, 5→2, 6→3, 8→4} holds: moved chapters are cited in the build specification only", () => {
+    const wrong = inForce(rows).flatMap((r) => {
+      const chapter = r.source.section.split(".")[0]!;
+      if (r.source.doc === SPEC_DOC && chapter in SPLIT_MAP) return [`${r.id}: §${r.source.section} stayed in the parent`];
+      if (r.source.doc === BUILD_DOC && !Object.values(SPLIT_MAP).includes(chapter)) return [`${r.id}: build §${r.source.section} is not a build chapter`];
+      return [];
+    });
+    expect(wrong).to.deep.equal([]);
+    expect(inForce(rows).filter((r) => r.source.doc === BUILD_DOC).length, "rows re-sourced to the build specification").to.be.greaterThan(20);
   });
 
   it("every gov-client promise is checked by a tagged test (Q3/Q4)", () => {
@@ -94,7 +113,7 @@ describe("framework rules — the shipped store", () => {
     expect(ids.filter((id, i) => ids.indexOf(id) !== i)).to.deep.equal([]);
   });
 
-  it("the specification's prose carries no GOV ids, levels-as-ids or POL numbers (ids live in rows)", () => {
-    expect(spec.match(/\b(GOV|POL)-[A-Z0-9]+-?\d*/g) ?? []).to.deep.equal([]);
+  it("the specifications' prose carries no GOV ids, levels-as-ids or POL numbers (ids live in rows)", () => {
+    expect(`${spec}\n${buildSpec}`.match(/\b(GOV|POL)-[A-Z0-9]+-?\d*/g) ?? []).to.deep.equal([]);
   });
 });

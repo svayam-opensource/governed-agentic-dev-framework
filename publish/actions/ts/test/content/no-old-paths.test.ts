@@ -32,6 +32,7 @@ export const OLD_PATH = new RegExp([
 
 /** Files that may still name an old path, and why. Frozen: it may only SHRINK. */
 const EXEMPT: Readonly<Record<string, string>> = {
+  "ts/src/rules/policy-pr/relocation.ts": "T8 (a feature, not legacy): the table of specification splits names the pre-split path an org rule may still cite",
   "content/framework/rules/W2-classification.md": "a working paper of its time, never shipped (on the frozen POL allow-list as history)",
 };
 

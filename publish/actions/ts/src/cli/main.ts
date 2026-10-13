@@ -3200,7 +3200,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
 
     /**
      * `approve` raises a pull request. It does not edit the policy: the approved
-     * list is C01 (framework-specification.md §6.1) and belongs to the Infrastructure Owner, not to whoever
+     * list is C01 (build-specification.md §3.1) and belongs to the Infrastructure Owner, not to whoever
      * typed the command — the same reason `gov knowledge` exists.
      */
     proposeAgentApproval: (id) => [

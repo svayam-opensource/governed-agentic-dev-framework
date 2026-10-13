@@ -53,7 +53,8 @@ const ROOT = repoRoot();
 const SPEC_REL = "publish/content/framework/framework-specification.md";
 const SRC = path.join(ROOT, "publish", "actions", "ts", "src");
 
-const spec = fs.readFileSync(path.join(ROOT, SPEC_REL), "utf8");
+// The specification is two files since the split (L05): the parent and the build specification. An anchor may be in either.
+const spec = [SPEC_REL, "publish/content/framework/build/build-specification.md"].map((r) => fs.readFileSync(path.join(ROOT, r), "utf8")).join("\n");
 
 function source(rel: string): string {
   const p = path.join(SRC, rel);
@@ -83,7 +84,7 @@ const ANCHORS: readonly Anchor[] = [
   // §2 — identity. The project id, project branch and task sub-branch anchors were RETIRED by W9 (rule model): they
   // are the spec rule GOV-FRM-453, whose tagged tests (identity.test.ts, task-run.test.ts) assert the exact strings
   // gov composes — a stronger check than "the template text is still in identity.ts" — and whose row pins
-  // framework-specification.md §4.3, which names all three patterns, by sha (framework-rules.test.ts).
+  // build-specification.md §1.3, which names all three patterns, by sha (framework-rules.test.ts).
   { what: "the archive tag", inSpec: "archive/<branch>", inCode: "`archive/${branch}`", file: "lifecycle/merge.ts" },
   { what: "the knowledge proposal branch", inSpec: "knowledge-<slug>", inCode: "`knowledge-${slug}`", file: "lifecycle/knowledge.ts" },
 

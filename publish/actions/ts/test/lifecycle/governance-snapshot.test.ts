@@ -33,7 +33,7 @@ describe("governance snapshot — the rules, where the agent can read them", () 
     };
     return { ports, written };
   };
-  const both = { "org-config.yaml": "org: x\n", "framework/framework-specification.md": "# policy\n" };
+  const both = { "org-config.yaml": "org: x\n", "framework/framework-specification.md": "# policy\n", "framework/build/build-specification.md": "# build policy\n" };
 
   it("copies both files into <project>/.gov/governance, read-only, stamped with where they came from", () => {
     const { ports, written } = fake(both);
@@ -86,9 +86,11 @@ describe("governance snapshot — a real worktree on a project branch with an un
     root = fs.mkdtempSync(path.join(os.tmpdir(), "gov-snap-"));
     govRepo = path.join(root, "gov_repo");
     fs.mkdirSync(path.join(govRepo, path.dirname(GOVERNING_FILES[1])), { recursive: true });
+    fs.mkdirSync(path.join(govRepo, path.dirname(GOVERNING_FILES[2])), { recursive: true });
     execFileSync("git", ["init", "-q", "-b", "main", govRepo]);
     fs.writeFileSync(path.join(govRepo, "org-config.yaml"), "org_name: RATIFIED\n");
     fs.writeFileSync(path.join(govRepo, GOVERNING_FILES[1]), "# RATIFIED policy\n");
+    fs.writeFileSync(path.join(govRepo, GOVERNING_FILES[2]), "# RATIFIED build policy\n");
     g(govRepo, "add", "-A"); g(govRepo, "commit", "-qm", "ratified");
     project = path.join(root, "projects", "PRJ-7-x");
     fs.mkdirSync(project, { recursive: true });

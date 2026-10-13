@@ -90,7 +90,7 @@
   end: null
 
 - id: GOV-FRM-041
-  source: { doc: framework/framework-specification.md, section: "4.1", sha: "e4524f7" }
+  source: { doc: framework/build/build-specification.md, section: "1.1", sha: "a3c234e" }
   expectation: "Everyone commits code, updates knowledge and changes organizational resources only inside an active project."
   actor: [everyone]
   level: C01
@@ -100,7 +100,7 @@
 
 # agent half; the gov half is GOV-FRM-451
 - id: GOV-FRM-044
-  source: { doc: framework/framework-specification.md, section: "4.4", sha: "c8f1a46" }
+  source: { doc: framework/build/build-specification.md, section: "1.4", sha: "adb7fed" }
   expectation: "The agent creates no project-state or task-state file, and changes task state only through gov task and gov merge."
   actor: [agent]
   level: C01
@@ -109,7 +109,7 @@
   end: null
 
 - id: GOV-FRM-076
-  source: { doc: framework/framework-specification.md, section: "6.3", sha: "a92264f" }
+  source: { doc: framework/build/build-specification.md, section: "3.3", sha: "6e68ff3" }
   expectation: "The agent resolves a conflict between knowledge layers in favour of the higher layer: organization, then project, then repository, then preferences."
   actor: [agent]
   level: C01
@@ -118,7 +118,7 @@
   end: null
 
 - id: GOV-FRM-080
-  source: { doc: framework/framework-specification.md, section: "6.3", sha: "a92264f" }
+  source: { doc: framework/build/build-specification.md, section: "3.3", sha: "6e68ff3" }
   expectation: "The agent reads only the preferences folder of its own person's GitHub login."
   actor: [agent]
   level: C01
@@ -127,7 +127,7 @@
   end: null
 
 - id: GOV-FRM-082
-  source: { doc: framework/framework-specification.md, section: "8.1", sha: "9acfb28" }
+  source: { doc: framework/build/build-specification.md, section: "4.1", sha: "acad7a1" }
   expectation: "Setup creates no domain folder under knowledge/."
   actor: [gov-client]
   level: C01
@@ -153,7 +153,7 @@
 
 # W2-Q3; the gov half is GOV-FRM-456
 - id: GOV-FRM-086
-  source: { doc: framework/framework-specification.md, section: "5.3", sha: "cb3e1aa" }
+  source: { doc: framework/build/build-specification.md, section: "2.3", sha: "b38274b" }
   expectation: "The agent never follows or cites its own unmerged edit to knowledge/ or policies/ as a rule, and takes governance only from the default branch."
   actor: [agent]
   level: C01
@@ -162,7 +162,7 @@
   end: null
 
 - id: GOV-FRM-113
-  source: { doc: framework/framework-specification.md, section: "6.2", sha: "9d20fde" }
+  source: { doc: framework/build/build-specification.md, section: "3.2", sha: "c5b31b0" }
   expectation: "The agent completes the six session-start steps and posts a context manifest before its first edit, commit, branch or task."
   actor: [agent]
   level: C01
@@ -171,7 +171,7 @@
   end: null
 
 - id: GOV-FRM-114
-  source: { doc: framework/framework-specification.md, section: "6.2", sha: "9d20fde" }
+  source: { doc: framework/build/build-specification.md, section: "3.2", sha: "c5b31b0" }
   expectation: "The agent confirms, before any work, that it has write access to the project's board and, on a task sub-branch, that the sub-branch is assigned to it, and stops without committing when it cannot confirm either."
   actor: [agent]
   level: C01
@@ -180,7 +180,7 @@
   end: null
 
 - id: GOV-FRM-115
-  source: { doc: framework/framework-specification.md, section: "6.2", sha: "9d20fde" }
+  source: { doc: framework/build/build-specification.md, section: "3.2", sha: "c5b31b0" }
   expectation: "The agent refuses work and tells the human when the project's board is not open."
   actor: [agent]
   level: C01
@@ -188,7 +188,7 @@
   end: null
 
 - id: GOV-FRM-116
-  source: { doc: framework/framework-specification.md, section: "6.3", sha: "a92264f" }
+  source: { doc: framework/build/build-specification.md, section: "3.3", sha: "6e68ff3" }
   expectation: "The agent loads every knowledge layer fresh at session start and carries none over from an earlier session."
   actor: [agent]
   level: C01
@@ -197,7 +197,7 @@
 
 # W2-Q1: C01
 - id: GOV-FRM-117
-  source: { doc: framework/framework-specification.md, section: "6.2", sha: "9d20fde" }
+  source: { doc: framework/build/build-specification.md, section: "3.2", sha: "c5b31b0" }
   expectation: "The agent pulls the latest project branch in every participating repository before starting work."
   actor: [agent]
   level: C01
@@ -205,7 +205,7 @@
   end: null
 
 - id: GOV-FRM-128
-  source: { doc: framework/framework-specification.md, section: "5.6", sha: "19b8675" }
+  source: { doc: framework/build/build-specification.md, section: "2.6", sha: "402d762" }
   expectation: "Everyone keeps $AGENT_WORK_ROOT, and the preferences and credentials beside it, out of every repository."
   actor: [everyone]
   level: C01
@@ -214,7 +214,7 @@
   end: null
 
 - id: GOV-FRM-131
-  source: { doc: framework/framework-specification.md, section: "5.5", sha: "9df868b" }
+  source: { doc: framework/build/build-specification.md, section: "2.5", sha: "ad5bff4" }
   expectation: "Everyone keeps policy, security mandates, compliance levels, assignment or locking rules and layer priority out of preferences files."
   actor: [everyone]
   level: C01
@@ -222,7 +222,7 @@
   end: null
 
 - id: GOV-FRM-133
-  source: { doc: framework/framework-specification.md, section: "5.5", sha: "9df868b" }
+  source: { doc: framework/build/build-specification.md, section: "2.5", sha: "ad5bff4" }
   expectation: "The agent ignores a preferences file's attempt to override policy, security mandates, compliance levels or layer priority, and tells the human."
   actor: [agent]
   level: C01
@@ -232,7 +232,7 @@
 
 # W2-Q1: C03
 - id: GOV-FRM-134
-  source: { doc: framework/framework-specification.md, section: "6.5", sha: "cb754b3" }
+  source: { doc: framework/build/build-specification.md, section: "3.5", sha: "4494f66" }
   expectation: "The agent declares the model and provider it runs with before beginning work."
   actor: [agent]
   level: C03
@@ -275,7 +275,7 @@
 
 # W2-Q3: framework/ only
 - id: GOV-FRM-172
-  source: { doc: framework/framework-specification.md, section: "5.4", sha: "c8b0a22" }
+  source: { doc: framework/build/build-specification.md, section: "2.4", sha: "300f3f7" }
   expectation: "Everyone leaves every file under framework/ unedited, on every branch; gov upgrade is its only writer."
   actor: [everyone]
   level: C01
@@ -284,7 +284,7 @@
   end: null
 
 - id: GOV-FRM-173
-  source: { doc: framework/framework-specification.md, section: "5.2", sha: "ce2e1f3" }
+  source: { doc: framework/build/build-specification.md, section: "2.2", sha: "df55444" }
   expectation: "Everyone keeps code out of the governance repository and governance out of code repositories."
   actor: [everyone]
   level: C01
@@ -293,7 +293,7 @@
   end: null
 
 - id: GOV-FRM-402
-  source: { doc: framework/framework-specification.md, section: "8.2", sha: "f2facea" }
+  source: { doc: framework/build/build-specification.md, section: "4.2", sha: "4b637f7" }
   expectation: "Everyone states each fact in exactly one document and links to it everywhere else."
   actor: [everyone]
   level: C01
@@ -303,7 +303,7 @@
 
 # W2-Q1: C03; the Mermaid half is GOV-FRM-460
 - id: GOV-FRM-414
-  source: { doc: framework/framework-specification.md, section: "8.3", sha: "7099a76" }
+  source: { doc: framework/build/build-specification.md, section: "4.3", sha: "ce62d4d" }
   expectation: "Everyone records decisions, exceptions and open to-dos in the project's knowledge as they are made."
   actor: [everyone]
   level: C03
@@ -324,7 +324,7 @@
   end: null
 
 - id: GOV-FRM-432
-  source: { doc: framework/framework-specification.md, section: "6.4", sha: "096be62" }
+  source: { doc: framework/build/build-specification.md, section: "3.4", sha: "37ca099" }
   expectation: "The agent gives every subagent, sub-session or worker it spawns this same session protocol."
   actor: [agent]
   level: C01
@@ -334,7 +334,7 @@
 
 # the gov half is GOV-FRM-453
 - id: GOV-FRM-443
-  source: { doc: framework/framework-specification.md, section: "4.3", sha: "6fdfc31" }
+  source: { doc: framework/build/build-specification.md, section: "1.3", sha: "65dfd57" }
   expectation: "The agent uses only the project identifier and branches gov issued, and never composes an identifier or creates, renames or merges a branch by hand."
   actor: [agent]
   level: C01
@@ -435,7 +435,7 @@
 
 # the gov half of GOV-FRM-044
 - id: GOV-FRM-451
-  source: { doc: framework/framework-specification.md, section: "4.4", sha: "c8f1a46" }
+  source: { doc: framework/build/build-specification.md, section: "1.4", sha: "adb7fed" }
   expectation: "gov reads project and task state from the board and writes it to no file in any repository."
   actor: [gov-client]
   level: C01
@@ -448,7 +448,7 @@
 
 # the gov half of GOV-FRM-443
 - id: GOV-FRM-453
-  source: { doc: framework/framework-specification.md, section: "4.3", sha: "6fdfc31" }
+  source: { doc: framework/build/build-specification.md, section: "1.3", sha: "65dfd57" }
   expectation: "gov seed composes the project identifier and project branch from the board number, and gov task composes the task sub-branch."
   actor: [gov-client]
   level: C01
@@ -461,7 +461,7 @@
 
 # §6.5 of the old policy
 - id: GOV-FRM-454
-  source: { doc: framework/framework-specification.md, section: "4.5", sha: "0d3e6dc" }
+  source: { doc: framework/build/build-specification.md, section: "1.5", sha: "12e9a64" }
   expectation: "gov refuses a command that changes a project when GitHub does not confirm the person's write access to the project's board."
   actor: [gov-client]
   level: C01
@@ -487,7 +487,7 @@
 
 # the gov half of GOV-FRM-086
 - id: GOV-FRM-456
-  source: { doc: framework/framework-specification.md, section: "7.4", sha: "fb88dba" }
+  source: { doc: framework/framework-specification.md, section: "7.4", sha: "a98fbb8" }
   expectation: "gov builds the agent harness and the governance snapshot from the governance repository's default branch, never from a project branch."
   actor: [gov-client]
   level: C01
@@ -499,7 +499,7 @@
   end: null
 
 - id: GOV-FRM-460
-  source: { doc: framework/framework-specification.md, section: "8.4", sha: "d41e0a7" }
+  source: { doc: framework/build/build-specification.md, section: "4.4", sha: "1b7b8f2" }
   expectation: "Everyone draws structure as Mermaid text and never as an image."
   actor: [everyone]
   level: C01
@@ -509,7 +509,7 @@
 
 # §9.7 of the old policy
 - id: GOV-FRM-461
-  source: { doc: framework/framework-specification.md, section: "6.1", sha: "2f17332" }
+  source: { doc: framework/build/build-specification.md, section: "3.1", sha: "2e8284c" }
   expectation: "gov work launches only an agent listed in authorized_agents."
   actor: [gov-client]
   level: C01

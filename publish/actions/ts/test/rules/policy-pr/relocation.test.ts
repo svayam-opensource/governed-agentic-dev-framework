@@ -111,11 +111,11 @@ function base(): Record<string, string> {
   return {
     "org-config.yaml": 'org_slug: "SVM"\n',
     "framework/rules/rules.yaml": "[]\n",
-    "framework/rules/catalog.yaml": "resources: []\ntools: []\nactions: []\n",
+    "framework/rules/checks-catalog.yaml": "resources: []\ntools: []\nactions: []\n",
     "policies/VERSION": "1.4.0\n",
     "policies/CHANGELOG.md": "# Policy changelog\n\n## 1.4.0 — 2026-10-01\n\nOlder entry.\n",
     [OLD]: TEXT,
-    "policies/rules.yaml": dump([row()]),
+    "policies/rules/rules.yaml": dump([row()]),
   };
 }
 /** The upgrade's relocation PR: the file moved, the record names it, the row re-sourced, patch bump, snapshot, entry. */
@@ -125,7 +125,7 @@ function relocationPr(record: boolean): { b: ReturnType<typeof memTree>; h: Retu
   delete files[OLD];
   files[NEW] = TEXT;
   if (record) files["framework/upgrade-moves.json"] = JSON.stringify([{ move: `${OLD} → ${NEW}`, version: "2.0.0" }]);
-  files["policies/rules.yaml"] = dump([row({}, { doc: NEW })]);
+  files["policies/rules/rules.yaml"] = dump([row({}, { doc: NEW })]);
   const h = memTree(files);
   const w = policyPrWriter({ base: b, head: h });
   w.bumpVersion("patch");
@@ -142,7 +142,7 @@ describe("PRJ-121 §3.5 the policy PR gate accepts a declared relocation in plac
     expect(j.findings.filter((x) => x.check === "append-only" || x.check === "stamp" || x.check === "version")).to.deep.equal([]);
     expect(j.required).to.equal("patch");
     expect(j.changes).to.deep.include({ added: [], revised: [], retired: [], rowsChanged: false, relocated: ["GOV-SVM-010"] });
-    expect(h.read("policies/rules.yaml")).to.contain("version: 1.4.0");
+    expect(h.read("policies/rules/rules.yaml")).to.contain("version: 1.4.0");
   });
 
   it("the same edit with no declared move is refused as an in-place edit", () => {

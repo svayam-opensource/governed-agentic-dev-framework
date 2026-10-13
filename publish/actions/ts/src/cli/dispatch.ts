@@ -342,7 +342,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
       if (sub === "approve") {
         const id = positionals[1];
         if (!id) return usage("agent approve <id>");
-        // A pull request, never an edit: the approved list is C01 (framework-specification.md §6.1) and
+        // A pull request, never an edit: the approved list is C01 (build-specification.md §3.1) and
         // belongs to the Infrastructure Owner, not to whoever typed the command.
         return ctx.proposeAgentApproval
           ? { code: 0, lines: ctx.proposeAgentApproval(id) }
@@ -686,7 +686,7 @@ export function route(parsed: ParsedArgs, ctx: CliContext): CommandResult {
         return { code: 1, lines: ["repo protect: org-config.yaml does not name this organization's governance repo (`org_gov_repo`) — run `gov setup`, or name a repo with --repo."] };
       }
       const repo = named ? (named.includes("/") ? named : `${c.githubOrg}/${named}`) : `${c.githubOrg}/${c.workspaceRepo}`;
-      // THE DEFAULT BRANCH OF THE REPOSITORY IN QUESTION, which is a different key for each kind (framework-specification.md §5.2):
+      // THE DEFAULT BRANCH OF THE REPOSITORY IN QUESTION, which is a different key for each kind (build-specification.md §2.2):
       // the governance repo lands on `default_branch`, a code repo on `default_code_branch`. Getting this wrong
       // would protect a branch nobody merges into and report success.
       const namesGov = !!named && repo.toLowerCase() === `${c.githubOrg}/${c.workspaceRepo}`.toLowerCase();

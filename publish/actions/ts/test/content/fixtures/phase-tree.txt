@@ -11,7 +11,6 @@
 #   · policies/history/, exceptions/, actions/ (written at run time, or by the org)
 #
 # Still to change, by the task that owns it (each edits its own lines here when it merges):
-#   · L05 adds framework/build/build-specification.md
 .github/ISSUE_TEMPLATE/bug_report.md
 .github/ISSUE_TEMPLATE/config.yml
 .github/ISSUE_TEMPLATE/feature_request.md
@@ -33,6 +32,7 @@ agent/harness/CONVENTIONS.md
 agent/harness/GEMINI.md
 agent/harness/rule-map.md
 agent/session-protocol.md
+framework/build/build-specification.md
 framework/build/guides/closing-a-project.md
 framework/build/guides/configuring-agent-harnesses.md
 framework/build/guides/path-developer.md
