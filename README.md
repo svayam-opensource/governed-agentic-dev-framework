@@ -14,8 +14,7 @@ organizations consume. One repo, two published artifacts.
 | macOS, Linux | `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` |
 | Windows | `winget install Svayam.Gov`, or the signed `.msi` from the [release page](https://github.com/svayam-opensource/governed-agentic-dev-framework/releases) |
 
-The Windows door goes live with the first signed release; until then use
-`irm https://gov.svayamtech.com/install.ps1 | iex` in PowerShell. Every door ends in the same
+The Windows door goes live with the first signed release; until then there is no Windows door. Every door ends in the same
 **first-run flow**: `gov` checks git and `gh`, signs you in to GitHub, and asks whether you are
 adopting, joining, or not sure. [docs/installing.md](docs/installing.md) has the detail.
 

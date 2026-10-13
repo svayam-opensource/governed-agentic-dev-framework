@@ -18,8 +18,8 @@ Nothing else — no Python, and no `bash` on Windows.
 ## Windows
 
 The Windows door goes live with the **first signed release**: until then `winget` does
-not find `Svayam.Gov` and the release page has no `.msi`. The interim route is
-PowerShell: `irm https://gov.svayamtech.com/install.ps1 | iex`.
+not find `Svayam.Gov` and the release page has no `.msi`, so there is no Windows door yet.
+(`install.ps1` is a machine path for CI and Server Core, not a door for people.)
 
 - **The MSI** installs for you alone, under `%LOCALAPPDATA%\Programs\gov` — no
   administrator rights, no UAC prompt. It puts one folder (`bin\`) on your user PATH,
