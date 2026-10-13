@@ -5,7 +5,7 @@
 // Development Framework. It manages projects, workspaces and org registration, and shows the context
 // banner. It hosts NOTHING: `gov-cicd` (deploy) and `gov-infra` (infrastructure) are independent clients
 // invoked directly, not verbs of this one (adr-three-clients, PRJ-43).
-import { main, runApp, runSetupCommand, runWork, runAgentInstall, runRulesPropose, runCheck, runPack, runSignal, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines, isKnownCommand } from "./main.js";
+import { main, runApp, runSetupCommand, runWork, runAgentInstall, runRulesPropose, runCheck, runPack, runSignal, runProject, runMainMenu, runFirstRunIfNeeded, readCliVersion, helpLines, isKnownCommand } from "./main.js";
 import { confirmContextOrBail } from "./context-gate.js";
 import { runEvidence } from "./evidence-run.js";
 import { runLicence } from "./licence-run.js";
@@ -82,6 +82,7 @@ async function dispatch(): Promise<number> {
   if (argv[0] === "licence") return runLicence(argv);
   if (argv[0] === "pack") return runPack(argv);
   if (argv[0] === "signal") return runSignal(argv);
+  if (argv[0] === "project") return runProject(argv);   // the ports are async (plan 03 L06)
   return main(argv);
 }
 

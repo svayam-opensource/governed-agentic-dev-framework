@@ -258,7 +258,14 @@ export function createGithubWorkTracker(deps: GithubWorkTrackerDeps = {}): WorkT
       if (!item.title.trim()) return fail("an item needs a title");
       const args = ["issue", "create", "--repo", slug(where), "--title", item.title, "--body", item.body, "--assignee", item.assignee.trim()];
       for (const l of item.labels ?? []) args.push("--label", l);
-      const r = ghCall(gh, args);
+      let r = ghCall(gh, args);
+      // A LABEL THE REPO HAS NEVER HAD (plan 03 L06). `gh issue create --label x` refuses when x does not exist, which is
+      // the first `gov project` in a fresh governance repo (no `anchor` yet). Create the missing labels — without
+      // --force, so an existing one keeps its colour — and try once more. Any other refusal is returned as it came.
+      if (r.status !== 0 && (item.labels ?? []).length && /could not add label/i.test(r.stderr)) {
+        for (const l of item.labels ?? []) ghCall(gh, ["label", "create", l, "--repo", slug(where)]);   // "already exists" is fine: the retry says what matters
+        r = ghCall(gh, args);
+      }
       if (r.status !== 0) return ghFailure(r, `creating an item in ${slug(where)}`);
       const url = r.stdout.split(/\r?\n/).map((l) => l.trim()).reverse().find((l) => /^https?:\/\//.test(l));
       if (!url) return fail(`creating an item in ${slug(where)}: gh did not print the new item's address`);

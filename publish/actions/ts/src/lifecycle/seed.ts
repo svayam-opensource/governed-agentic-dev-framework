@@ -449,7 +449,12 @@ export function seed(deps: SeedDeps, config: SeedConfig, input: SeedInput): Seed
     // One base per project: if the repos disagree there is no single order for close to merge in, so
     // nothing is recorded and close falls back loudly rather than picking one of them.
     const declaredBases = [...new Set(codeRepoUrls.map((u) => input.repoBases?.[u] ?? config.defaultCodeBranch))];
-    const anchorRef = deps.anchor.createAnchorIssue({
+    // AN ANCHOR THAT ALREADY EXISTS IS REUSED (plan 03 L06): `gov project` creates the board WITH its anchor, labelled
+    // and assigned, and `gov project --seed` hands straight to here. Creating another would give the board two
+    // anchors, and `find` would pick one of them. A re-seed after a failed run meets the same case.
+    const existingAnchor = deps.anchor.find(ref, config.workspaceRepo);
+    if (existingAnchor) log(`board #${ref.number} already has an anchor issue — reusing ${existingAnchor.url}`);
+    const anchorRef = existingAnchor ? `${ref.owner}/${config.workspaceRepo}#${existingAnchor.number}` : deps.anchor.createAnchorIssue({
       boardNumber: ref.number,
       title: board.title,
       owner: ref.owner,

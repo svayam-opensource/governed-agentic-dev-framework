@@ -480,6 +480,19 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     exit: EXIT_USUAL, seeAlso: ["close", "validate"],
   },
   {
+    name: "project", audience: "you", where: "GOVERNED",
+    summary: "create a project — its board and anchor issue together, assigned to you",
+    usage: "<name> [--repo <owner/name>[,<owner/name>…]] [--seed]",
+    args: [{ name: "<name>", what: "what the board is called — gov seed makes the project id from it" }],
+    flags: [
+      { name: "--repo <owner/name>[,…]", what: "the code repositories that take part (an issue in each, on the board); the governance repo always does" },
+      { name: "--seed", what: "then run `gov seed <board-url>` — a seeded workspace in one command" },
+    ],
+    examples: ['gov project "Invoice API v2" --repo acme/invoice-api', 'gov project "Policy refresh" --seed'],
+    changes: "checks the board contract first (a name, a readable governance repo, you, each --repo readable) and creates NOTHING if one fails; then creates the board, the anchor issue in the governance repo (label anchor, assigned to you, on the board) and one issue per --repo on the board. If a later step fails it lists exactly what exists and exits 1",
+    exit: EXIT_USUAL, seeAlso: ["seed", "issue"],
+  },
+  {
     name: "issue", audience: "agent",
     summary: "create an issue — assigned to you, on the board",
     usage: "[<org>/<repo>] --title <t> [--body <b>|--body-file <f>] [--board <n>] [--intent <NN>]  |  --from <upstream-issue-url> [--board <n>] [--intent <NN>]",

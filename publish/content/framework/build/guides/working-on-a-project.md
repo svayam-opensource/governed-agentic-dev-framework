@@ -47,15 +47,43 @@ never switches branches.
 
 ## 2. Start the project
 
-To start a **new** project, run `gov seed`. To join an **existing** one, run
-`gov join`. This section walks through the `gov seed` flow.
+To start a **new** project, run `gov project`, then `gov seed` (or both at once with `gov project --seed`). To
+join an **existing** one, run `gov join`. This section walks through both.
 
-**First, the board.** A project starts as a GitHub Project board. Anyone with access can make one: give it a
-descriptive name (for example "Invoice API v2"), a short description, and at least one linked issue or pull
-request that says what the project is for. Issues from other repositories are how the board says which code
-repositories take part; the governance repository always takes part, so it needs no issue of its own.
-`gov seed` refuses a board with no name or no linked item, and warns about one with no description. The
-project id is issued by `gov seed`, not by you.
+**First, the board.** A project starts as a GitHub Project board with an anchor issue on it. `gov project` makes
+both, from your governance workspace:
+
+```bash
+gov project "Invoice API v2" --repo acme/invoice-api      # add --seed to go straight on to gov seed
+```
+
+```mermaid
+flowchart LR
+  A["pre-seed checks<br/>(the board contract)"] -->|all pass| B[board]
+  A -->|any fails| X["fixable message —<br/>nothing created"]
+  B --> C["anchor issue in the governance repo<br/>label anchor · assigned to you · on the board"]
+  C --> D["one issue per --repo,<br/>on the board"]
+  D -->|--seed| E["gov seed &lt;board-url&gt;"]
+  B & C & D -.->|a later step fails| R["report: what exists,<br/>exit 1"]
+```
+
+- **The checks come first** — the board contract `gov seed` would otherwise apply later
+  ([framework specification §4.2](../specs/framework-specification.md)). The board needs a **name** that can become a
+  project id; the governance repo must be readable and gov must know who you are, because the anchor is the board's
+  first **linked item** and is assigned to you; each `--repo` must be a **repository** you can read. If any fails, gov
+  says what to fix and creates nothing. A **description** is optional; the anchor marks the project's **scope**.
+- **Repositories take part through issues.** An issue from a repository, on the board, is how the board says that
+  repository takes part — `gov seed` gives each one a project branch. `--repo` creates that issue for you, assigned
+  to you. The governance repository always takes part, so it needs no `--repo`.
+- **A partial result is reported, never left silent.** If GitHub refuses a step after the board exists, gov lists
+  exactly what exists (board, anchor, which repositories) and what was not created, and exits 1. Finish that board
+  rather than running `gov project` again, which would make a second one.
+- **Starting a project is a person's decision.** An automated account cannot run `gov project`; an agent may
+  suggest a project, but you start it.
+
+`gov seed` still checks the board itself — it refuses one with no name or no linked item, warns about one with no
+description, and reuses the anchor issue `gov project` made rather than creating a second. The project id is
+issued by `gov seed`, not by you.
 
 Run from the **HOME workspace** repo root, **on the default branch**:
 

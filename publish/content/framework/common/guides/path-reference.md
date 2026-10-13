@@ -15,6 +15,9 @@ Consulted, not read through. Use this when you know what you want and need the e
 ## The tool
 
 - [gov command reference](../reference/gov-command-reference.md) — every verb, and who runs it
+- [Starting a project: `gov project`](../reference/gov-command-reference.md#gov-project) — the board and its anchor issue in
+  one command; `--seed` goes on to [`gov seed`](../reference/gov-command-reference.md#gov-seed). How it fits:
+  [Working on a project §2](../../build/guides/working-on-a-project.md#2-start-the-project)
 - [The glossary](../../framework-specification.md#glossary) — the vocabulary
 
 ## The rules

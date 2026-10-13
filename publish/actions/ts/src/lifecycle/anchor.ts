@@ -151,7 +151,9 @@ export function createGhAnchor(runGh: RunGh): AnchorCreator {
     find(ref, workspaceRepo) {
       const repo = `${ref.owner}/${workspaceRepo}`;
       try {
-        const it = listAnchors(runGh, repo).find((i) => i.body?.includes(`Project #${ref.number}`));
+        // The number matched WHOLE: `includes("Project #1")` also matched board #12's anchor (plan 03 L06 — seed now
+        // reuses what this returns, so a wrong match would hand one project another's anchor).
+        const it = listAnchors(runGh, repo).find((i) => Number(i.body?.match(/Project #(\d+)/)?.[1]) === ref.number);
         return it?.url && it.number !== undefined ? toAnchorInfo(it) : null;
       } catch { /* the runner logged this failure (run-process.ts); what a miss MEANS is this caller's to decide */
         return null;

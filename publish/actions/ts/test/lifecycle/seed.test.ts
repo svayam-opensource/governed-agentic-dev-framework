@@ -126,6 +126,24 @@ const fakeAnchor = (ref: string | null = "Svayamtech/svm-prj-work#1"): AnchorCre
 });
 
 describe("prj-work Phase 2 — seed orchestrator", () => {
+  it("an anchor `gov project` already made is reused, not duplicated (plan 03 L06)", () => {
+    const { vcs } = fakeVcs();
+    const { fsPort } = fakeFs();
+    let created = 0;
+    const anchor: AnchorCreator = {
+      ...fakeAnchor(),
+      createAnchorIssue: () => { created++; return "Svayamtech/svm-prj-work#99"; },
+      find: () => ({ url: "https://github.com/Svayamtech/svm-prj-work/issues/5", number: 5, labels: ["anchor"], assignees: ["alice"] }),
+    };
+    const logged: string[] = [];
+    const r = seed({ board: fakeBoard(), vcs, fs: fsPort, anchor, cloneRepo: () => {}, log: (m) => logged.push(m), git: harnessAtDefault(fsPort, CONFIG.defaultBranch).git }, CONFIG, INPUT);
+    expect(r.ok).to.equal(true);
+    if (!r.ok) return;
+    expect(created, "no second anchor").to.equal(0);
+    expect(r.anchorRef).to.equal("Svayamtech/svm-prj-work#5");
+    expect(logged.join("\n")).to.contain("already has an anchor issue");
+  });
+
   it("happy path: seeds, scaffolds, worktrees, pushes, anchors — no rollback", () => {
     const { vcs, log } = fakeVcs();
     const { fsPort, writes } = fakeFs();

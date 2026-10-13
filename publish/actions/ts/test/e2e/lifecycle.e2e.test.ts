@@ -139,6 +139,8 @@ class World {
       return "Svayamtech/wsrepo#1";
     },
     setState: () => true,
+    // No anchor until seed makes one (seed reuses an existing anchor — plan 03 L06).
+    find: () => null,
   };
 }
 

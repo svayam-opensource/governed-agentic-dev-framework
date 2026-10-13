@@ -85,6 +85,10 @@ export function mainActions(): MenuAction[] {
         { cmd: "reset", desc: "back to gov's default", argHint: "<key>" },
         { cmd: "path", desc: "where the file is" },
       ] },
+      // `project` (#182) IS here, unlike `issue`: deciding that a project exists is a person's act (intent stays
+      // human) — the one thing on this list you would never ask your agent for.
+      { cmd: "project", desc: "create a project — board + anchor issue, assigned to you", argHint: "<name>", scopes: ["governed"],
+        flagArgs: [{ name: "repo", hint: "code repos taking part, owner/name[,owner/name]", optional: true }] },
       { cmd: "upgrade", desc: "pull the latest framework content into this org", scopes: ["governed"] },
     ] },
     // HELP LEFT THE MENU (Policy Owner, 2026-09-22). A picker of 24 command names, each answering with one line,

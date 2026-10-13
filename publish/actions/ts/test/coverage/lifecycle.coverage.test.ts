@@ -116,6 +116,8 @@ function spyAnchor() {
   const a = {
     createAnchorIssue: (p: { assigneeLogin?: string | null }) => { calls.push(p.assigneeLogin); return "r#1"; },
     setState: () => true,
+    // No anchor yet: seed reuses one that exists (plan 03 L06), so a spy on creation needs a board without one.
+    find: () => null,
   } as unknown as AnchorCreator;
   return { anchor: a, calls };
 }
@@ -140,7 +142,8 @@ describe("lifecycle coverage — seed", () => {
   });
 
   it("happy path → exit 0 with exact lines", () => {
-    const r = run(["seed", BOARD_URL], { vcs: seedVcs() });
+    // A board with no anchor yet (the shared double's `find` answers close's question, "this board's anchor").
+    const r = run(["seed", BOARD_URL], { vcs: seedVcs(), anchor: { ...anchor, find: () => null } });
     expect(r.code).to.equal(0);
     expect(pxDeep(r.lines)).to.deep.equal([
       `Project ${PID} seeded on ${PBRANCH}`,

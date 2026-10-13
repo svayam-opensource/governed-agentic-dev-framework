@@ -18,6 +18,8 @@
 #   GH_STUB_DB               a directory: a fake GitHub WITH A MEMORY (stub/gh-db.mjs) answers the pulls API, issues
 #                            and the board first — one run then sees what the last one did (gov autorun, L17)
 #   GH_STUB_DB_TOOL          where gh-db.mjs is (default: beside the journey's stubs)
+#   GH_STUB_REPOS            "owner/repo,…" that `gh api repos/<owner>/<repo>` can read (unset: the old silence)
+#   GH_STUB_ISSUE_FAIL       an owner/repo where `gh issue create` is refused (a failure after a board exists)
 set -uo pipefail
 : "${GH_STUB_LOGIN:=adopter-bot}"
 : "${GH_STUB_GOVERNED:=}"
@@ -61,9 +63,24 @@ case "$*" in
         t="${GH_STUB_PROJECT%%|*}"; r="${GH_STUB_PROJECT#*|}"
         printf '{"data":{"organization":{"projectV2":{"id":"PVT_stub","title":"%s","shortDescription":"stub board","items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"content":{"url":"%s/issues/1","repository":{"url":"%s"}}}]}}}}}' "$t" "$r" "$r"
       else echo "{}"; fi ;;
+  # The WorkTrackerPort reading one board back (`gov project`): its url, from the number gov asked for.
+  "api graphql"*"fragment p on ProjectV2"*)
+      n="$(printf '%s' "$*" | sed -n 's/.*number=\([0-9][0-9]*\).*/\1/p')"
+      echo "{\"data\":{\"repositoryOwner\":{\"projectV2\":{\"number\":$n,\"title\":\"stub\",\"closed\":false,\"url\":\"https://github.com/orgs/${GH_STUB_LOGIN}/projects/$n\",\"shortDescription\":\"\"}}}}" ;;
   "api graphql"*)                echo "{}" ;;
 
   "api repos/"*"/contents --jq length") echo "42" ;;   # the template copy has finished
+
+  # `gov project` reads each repository before it creates anything (the pre-seed checks, plan 03 L06). Only when the
+  # scenario states which exist — every other scenario keeps the silence it was written against.
+  "api repos/"*)
+      if [ -n "${GH_STUB_REPOS:-}" ] && [ "$#" -eq 2 ]; then
+        r="${2#repos/}"
+        case ",$GH_STUB_REPOS," in
+          *",$r,"*) echo "{\"default_branch\":\"main\",\"html_url\":\"https://github.com/$r\",\"visibility\":\"private\"}" ;;
+          *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+        esac
+      fi ;;
 
   # `gh repo create <owner/repo> --template <framework> --private` (#159).
   #
@@ -88,7 +105,11 @@ case "$*" in
   "project create "*)
       : "${GH_STUB_BOARD_N:=7}"
       echo "{\"url\":\"https://github.com/orgs/${GH_STUB_LOGIN}/projects/${GH_STUB_BOARD_N}\",\"number\":${GH_STUB_BOARD_N}}" ;;
-  "issue create "*)  echo "https://github.com/acme/acme-gov/issues/1" ;;
+  "issue create "*)
+      if [ -n "${GH_STUB_ISSUE_FAIL:-}" ] && [[ "$*" == *"--repo $GH_STUB_ISSUE_FAIL "* ]]; then
+        echo "HTTP 403: Resource not accessible by integration" >&2; exit 1
+      fi
+      echo "https://github.com/acme/acme-gov/issues/1" ;;
   # `gov intent` reads its issues through the WorkTrackerPort (`gh issue view <url> --json …`). JSON-escaped body.
   "issue view "*)
       n="${3##*/}"
