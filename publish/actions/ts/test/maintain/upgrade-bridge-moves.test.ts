@@ -50,12 +50,9 @@ const LEFT = [
   "knowledge/policies/proposed-policy-unit-documentation.md",
   "knowledge/policies/specs/",
   "knowledge/policies/use-cases/",
-  // Carried by later bridge steps — listed as left in place until they are (B06: roles.md, llm-governance.md;
-  // B08: the framework-superseded policy and procedures).
-  "knowledge/policies/agentic-development-policy.md",
-  "knowledge/policies/agentic-development-procedures.md",
+  // Carried by a later bridge step — listed as left in place until it is (B06: roles.md, llm-governance.md). The
+  // framework-superseded policy and procedures are retired in commit 4 (B08).
   "knowledge/policies/llm-governance.md",
-  "knowledge/policies/procedures/agentic-development-procedures.md",
   "knowledge/policies/roles.md",
 ];
 

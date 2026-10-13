@@ -80,6 +80,12 @@ is left out.
 4. **PROPOSED prose**: text gov suggests for your documents, such as an old path rewritten to the new one. Keep
    it, edit it on the branch, or drop the commit before you merge.
 
+On a repository still on the 1.0 layout, commit 4 also retires `knowledge/policies/agentic-development-policy.md`
+and the two agentic development procedures. Your organization's own clauses in that policy are proposed into
+`policies/org-policy.md`, or into `policies/build/policy.md` for clauses about how you build. If you drop
+commit 4, the policy stays where it is and nothing is lost. `gov upgrade --apply` never makes this commit;
+only an upgrade pull request does.
+
 The PR description lists every move, retirement, migration and substitution. It also lists every file gov did
 not recognise; those files are left exactly where they are. It ends with what to run after you merge:
 `gov rules propose --all`, then `gov rules build`, `gov repo protect apply` and `gov check install --all`.

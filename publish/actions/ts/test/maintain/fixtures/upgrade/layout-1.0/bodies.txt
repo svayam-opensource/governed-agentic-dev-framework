@@ -797,7 +797,7 @@ Fixture: future domain policies **(POL-159)** **(POL-160)**.
 
 ```
 POL-001: Fixture clause — moved to the specification (dropped alias).
-POL-006: Fixture clause — people using AI tools are in scope and answer for the tool's output.
+POL-006: Fixture clause — people using AI tools at <ORG_SHORT_NAME> are in scope and answer for the tool's output.
 POL-011: Fixture clause — survives as a framework rule.
 POL-033: Fixture clause — every defined role has a current, named holder.
 POL-137: Fixture clause — no confidential or restricted data is sent to any LLM provider (C01).

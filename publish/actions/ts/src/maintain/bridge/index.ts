@@ -13,6 +13,7 @@ import type { LeftInPlace, UpgradeExtension } from "../upgrade-commits.js";
 import { contentLayoutOf, type PlanAction, type UpgradePlan } from "../upgrade-sync.js";
 import { matchFingerprints } from "./fingerprints.js";
 import { movePlan } from "./moves.js";
+import { prosePlan, proposeProse } from "./prose.js";
 
 /** Every file under `root` (relative), skipping .git and node_modules. */
 function filesOf(root: string, rel = ""): string[] {
@@ -44,7 +45,11 @@ export const BRIDGE: UpgradeExtension = {
     if (contentLayoutOf((rel) => fs.existsSync(path.join(adopterDir, rel))) !== "layout-1.0") return { actions: [], leftInPlace: [] };
     const files = filesOf(adopterDir);
     const fp = fingerprintPlan(read, plan);
-    const mv = movePlan(files, new Set(fp.actions.map((a) => a.dst)));
-    return { actions: [...fp.actions, ...mv.actions], leftInPlace: [...fp.leftInPlace, ...mv.leftInPlace] };
+    const prose = prosePlan((rel) => read(rel) !== null);
+    const mv = movePlan(files, new Set([...fp.actions, ...prose].map((a) => a.dst)));
+    return { actions: [...fp.actions, ...mv.actions, ...prose], leftInPlace: [...fp.leftInPlace, ...mv.leftInPlace] };
   },
+  // Commit 4 — runs after commit 3, when the framework/ tree is in and the layout no longer reads as 1.0; it acts
+  // only where the superseded policy is still there.
+  propose: (adopterDir, contentDir) => proposeProse(adopterDir, contentDir),
 };

@@ -269,7 +269,10 @@ export function runUpgradeSync(contentDir: string, adopterDir: string, opts: { a
     const p = path.join(adopterDir, rel);
     return fs.existsSync(p) && fs.statSync(p).isFile() ? fs.readFileSync(p, "utf8") : null;
   };
-  const { plan } = extendPlan(planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned, { seed: opts.seed === true, generated: manifest.generated }), opts.extension ?? BRIDGE, adopterDir, contentDir);
+  const { plan: extended } = extendPlan(planUpgrade(entries, { readContent, readAdopter, adopterPaths: () => walk(adopterDir), doneMoves: () => doneMoves(adopterDir), checkMigration: checkMigration(adopterDir, contentDir) }, manifest.moves, manifest.retire, manifest.owned, { seed: opts.seed === true, generated: manifest.generated }), opts.extension ?? BRIDGE, adopterDir, contentDir);
+  // Commit 4 is a PROPOSAL, made only in an upgrade PR where it can be dropped (Q2): a direct --apply retires nothing it
+  // would carry out of, so no clause of the org's is lost without a reviewable proposal.
+  const plan: UpgradePlan = { actions: extended.actions.filter((a) => a.commit !== "proposed-prose") };
 
   // Read BEFORE the plan writes: the template the installed approver-check was copied from (Q9).
   const workflows = opts.seed ? null : installedWorkflowInputs(entries, readContent, readAdopter);
@@ -596,7 +599,8 @@ export function runUpgradePr(contentDir: string, adopterDir: string, opts: { bra
     const workflowLines = rerenderInstalledWorkflows({ adopterDir, ...workflows, ...workflowPin(opts, contentDir), apply: true }).lines;
     compiledLines = [...fillTokens(adopterDir, createdPaths(plan, applied)), ...workflowLines, ...(opts.compileRules ? opts.compileRules(adopterDir) : []), ...refreshCodeowners(adopterDir)];
     commitPart("migrations");
-    proposal = ext.propose?.(adopterDir, contentDir) ?? proposal;
+    proposal = ext.propose?.(adopterDir, contentDir) ?? proposal;   // reads what commit 4 retires, so before applying it
+    applyPart("proposed-prose");
     commitPart("proposed-prose");
   } catch (e) {
     return { code: 1, lines: [`gov upgrade --pr: could not commit on ${branch}: ${(e as Error).message.split("\n")[0]}`, ...goBack()] };
