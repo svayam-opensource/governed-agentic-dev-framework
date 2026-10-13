@@ -68,7 +68,7 @@ flowchart LR
 ```
 
 - **The checks come first** — the board contract `gov seed` would otherwise apply later
-  ([framework specification §4.2](../specs/framework-specification.md)). The board needs a **name** that can become a
+  ([framework specification §4.2](../../framework-specification.md)). The board needs a **name** that can become a
   project id; the governance repo must be readable and gov must know who you are, because the anchor is the board's
   first **linked item** and is assigned to you; each `--repo` must be a **repository** you can read. If any fails, gov
   says what to fix and creates nothing. A **description** is optional; the anchor marks the project's **scope**.
