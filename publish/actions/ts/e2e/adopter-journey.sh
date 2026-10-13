@@ -36,7 +36,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PHASE="${E2E_PHASE:-all}"; HANDOFF="${E2E_HANDOFF:-}"
 case "$PHASE" in all|work|finish) ;; *) echo "E2E_PHASE must be all, work or finish (got '$PHASE')" >&2; exit 2 ;; esac
 [ "$PHASE" = all ] || [ -n "$HANDOFF" ] || { echo "E2E_PHASE=$PHASE needs E2E_HANDOFF (the file the two phases share)" >&2; exit 2; }
-JOINER_LOGIN="${E2E_JOINER_LOGIN:-}"
+# Whitespace stripped: a secret pasted with a trailing newline names no GitHub account, and every API call on it 404s.
+JOINER_LOGIN="$(printf '%s' "${E2E_JOINER_LOGIN:-}" | tr -d '[:space:]')"
 RUN_ID="${E2E_RUN_ID:-$(date +%s)}"           # unique namespace per run
 SLUG="gov-e2e-${RUN_ID}"
 WS_REPO="${SLUG}-gov"                          # the adopter workspace repo
@@ -123,8 +124,16 @@ joiner_prep() {
   step "Prepare the joiner's share — issue #2 + access for $JOINER_LOGIN"
   local me; me="$(gh api user --jq .login)"
   [ "$JOINER_LOGIN" != "$me" ] || die "the joiner ($JOINER_LOGIN) is the adopter bot itself — TESTBED_JOINER_LOGIN must be a SECOND account"
-  gh api "orgs/$E2E_ORG/members/$JOINER_LOGIN" >/dev/null 2>&1 && ok "$JOINER_LOGIN is a member of $E2E_ORG" \
-    || die "$JOINER_LOGIN is not a member of $E2E_ORG — the second test account must be an org member (Policy Owner prerequisite P1)"
+  # The membership as the org's owner sees it: active, pending (invited, not accepted) or none — said, not guessed.
+  local mstate jid
+  jid="$(gh api "users/$JOINER_LOGIN" --jq .id 2>/dev/null || true)"
+  [ -n "$jid" ] || die "TESTBED_JOINER_LOGIN (${#JOINER_LOGIN} characters) names no GitHub account — check the secret's value"
+  mstate="$(gh api "orgs/$E2E_ORG/memberships/$JOINER_LOGIN" --jq '"\(.state) \(.role)"' 2>/dev/null || echo "none")"
+  case "$mstate" in
+    "active "*) ok "the joiner (GitHub user id $jid) is an active $E2E_ORG member (${mstate#active })" ;;
+    "pending "*) die "the joiner (GitHub user id $jid) was invited to $E2E_ORG but has not accepted — accept the invitation as that account (Policy Owner prerequisite P1)" ;;
+    *) die "the joiner (GitHub user id $jid) is not a member of $E2E_ORG (membership: $mstate) — the second test account must be an org member (Policy Owner prerequisite P1)" ;;
+  esac
   local r perm
   for r in "$WS_REPO" "$CODE_REPO"; do
     gh api -X PUT "repos/$E2E_ORG/$r/collaborators/$JOINER_LOGIN" -f permission=push >/dev/null || die "could not grant $JOINER_LOGIN write on $r"

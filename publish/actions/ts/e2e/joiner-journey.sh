@@ -43,6 +43,7 @@ else
   : "${E2E_HANDOFF:?set E2E_HANDOFF (written by adopter-journey.sh E2E_PHASE=work)}"
   : "${GH_TOKEN:?set GH_TOKEN (the joiner token, TESTBED_JOINER_PAT)}"
   : "${E2E_JOINER_LOGIN:?set E2E_JOINER_LOGIN (TESTBED_JOINER_LOGIN)}"
+  E2E_JOINER_LOGIN="$(printf '%s' "$E2E_JOINER_LOGIN" | tr -d '[:space:]')"   # a pasted secret's trailing newline
   : "${GOV_TARBALL:?set GOV_TARBALL}"
   [ -f "$E2E_HANDOFF" ] || { echo "no handoff at $E2E_HANDOFF — the adopter's work phase did not run" >&2; exit 1; }
   # shellcheck disable=SC1090
@@ -52,7 +53,7 @@ else
   done
 fi
 
-PASS=0; FAIL=0; LOGIN=""
+PASS=0; FAIL=0; LOGIN=""; JOINER_ID=""
 step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32m✓ %s\033[0m\n' "$*"; PASS=$((PASS+1)); }
 die()  { printf '  \033[31m✗ %s\033[0m\n' "$*"; FAIL=$((FAIL+1)); if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::error::joiner journey: $*"; fi; exit 1; }
@@ -75,7 +76,7 @@ cleanup() {
   # The joiner creates nothing on GitHub (the adopter's finish phase deletes the repos and the board); only its HOME.
   if [ "$DRY" != 1 ] && [ -z "${E2E_JOINER_HOME:-}" ] && [ -n "$JHOME" ]; then rm -rf "$JHOME"; fi
   printf '\n\033[1m═══ joiner-journey%s: %d passed, %s%s ═══\033[0m\n' "$([ "$DRY" = 1 ] && echo ' (DRY RUN)')" "$PASS" \
-    "$([ "$rc" -eq 0 ] && echo ok || echo "FAILED (exit $rc)")" "${LOGIN:+ — as $LOGIN}"
+    "$([ "$rc" -eq 0 ] && echo ok || echo "FAILED (exit $rc)")" "${LOGIN:+ — as $LOGIN${JOINER_ID:+ (account id $JOINER_ID)}}"
   exit "$rc"
 }
 trap cleanup EXIT
@@ -98,7 +99,11 @@ LOGIN="$(xo "$E2E_JOINER_LOGIN" gh api user --jq .login 2>/dev/null)" || die "th
 if [ "$LOGIN" = "$ADOPTER_LOGIN" ]; then
   die "the joiner and the adopter are the SAME account ($LOGIN) — TESTBED_JOINER_PAT must belong to a second svayam-e2e member, or this journey proves nothing"
 fi
-ok "and is not the adopter ($ADOPTER_LOGIN)"
+# The login is a repository SECRET, so Actions masks it (***) in this log. The numeric account ids are not secrets, and
+# they are what proves two different accounts to someone reading the log.
+JOINER_ID="$(xo 2 gh api user --jq .id 2>/dev/null || true)"; ADOPTER_ID="$(xo 1 gh api "users/$ADOPTER_LOGIN" --jq .id 2>/dev/null || true)"
+[ -n "$JOINER_ID" ] && [ "$JOINER_ID" != "$ADOPTER_ID" ] || die "the joiner's account id (${JOINER_ID:-?}) is not distinct from the adopter's (${ADOPTER_ID:-?})"
+ok "and is not the adopter ($ADOPTER_LOGIN): account id $JOINER_ID ≠ $ADOPTER_ID"
 x git config --global user.email "${LOGIN}@users.noreply.github.com"
 x git config --global user.name "$LOGIN (joiner e2e)"
 x git config --global init.defaultBranch main
