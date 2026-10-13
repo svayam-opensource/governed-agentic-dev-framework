@@ -128,6 +128,72 @@ function permissionsFor(trigger: Trigger, actions: ReadonlySet<string>): Record<
   return p;
 }
 
+
+// ── EVIDENCE IN CI (PRJ-121 intent 02, E08; spec 02 §4.1, X13) ───────────────────────────────────────────────
+//
+// An org that ran `gov evidence enable` has two org secrets (the writer App's). Only then do these steps run — an
+// org that never asked makes no request to Svayam at all (A19, I02.3). They use the job's OIDC identity ONLY (no stored
+// licensing secret, A11): ask GitHub for a token with audience `gov-evidence`, swap it at the lease endpoint for a
+// short-lived registry token, install the paid module with it, mint the evidence App's token. `gov check run` then
+// finds the module (global sibling), signs, and pushes the segment to `gov/evidence`. EVERY step is non-fatal: a
+// refusal (403: no subscription) is ONE ::notice, an outage nothing — the checks run and judge exactly as before.
+export const EVIDENCE_APP_SECRET_NAMES = Object.freeze({ clientId: "GOV_EVIDENCE_APP_CLIENT_ID", privateKey: "GOV_EVIDENCE_APP_PRIVATE_KEY" });
+const LEASE_SCRIPT = String.raw`import { generateKeyPairSync } from "node:crypto";
+import { appendFileSync, writeFileSync } from "node:fs";
+const base = process.env.GOV_LICENCE_URL || "https://gov.svayamtech.com/api/v1";
+const say = (l) => process.stdout.write(l + "\\n");
+const note = () => say("::notice title=gov evidence::Signed evidence is off for this run: no subscription (or the licence service is unreachable). Checks ran as usual.");
+try {
+  const t = await (await fetch(process.env.ACTIONS_ID_TOKEN_REQUEST_URL + "&audience=gov-evidence", { headers: { Authorization: "Bearer " + process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN } })).json();
+  say("::add-mask::" + t.value);
+  const x = generateKeyPairSync("ed25519").publicKey.export({ format: "jwk" }).x;
+  const at = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  const counts = { window: { from: at, to: at }, writer: "ci-install", records: 0, agentRecords: 0, judgeCalls: 0, gaps: 0, activeActors90d: 0, repos: 0 };
+  const r = await fetch(base + "/leases/oidc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ oidcToken: t.value, writerPub: { kty: "OKP", crv: "Ed25519", x }, counts }) });
+  if (r.status === 401 || r.status === 403) { note(); process.exit(0); }
+  if (!r.ok) process.exit(0);
+  const { registryToken } = await r.json();
+  say("::add-mask::" + registryToken);
+  writeFileSync(process.env.RUNNER_TEMP + "/gov-check.npmrc", "@svayam:registry=https://npm.svayamtech.com/\n//npm.svayamtech.com/:_authToken=" + registryToken + "\n", { mode: 0o600 });
+  appendFileSync(process.env.GITHUB_OUTPUT, "installed=true\n");
+} catch { /* an outage is not a failure: the checks run without evidence */ }`.split("\n");
+
+function evidenceSteps(opts: GithubRendererOptions): string[] {
+  // CODE-REPO workflows only (they have `govCheckout`): that is where the org's changes are judged. The governance
+  // repo's own workflow stays as it was — it mints no App token (a test pins that), and its own checks gain evidence
+  // later, when the gov repo's contributor flow is decided.
+  if (!opts.govCheckout) return [];
+  const S = EVIDENCE_APP_SECRET_NAMES;
+  const gate = "        if: env.GOV_EVIDENCE_ENABLED == 'true'";
+  const [owner = "", name = ""] = (opts.govCheckout?.repository ?? "").split("/");
+  return [
+    "      - name: Evidence — lease and install gov-check (optional)",
+    "        id: evidence-install",
+    gate,
+    "        continue-on-error: true",
+    "        run: |",
+    "          node --input-type=module -e '",
+    ...LEASE_SCRIPT.map((l) => `          ${l}`),
+    "          '",
+    "      - name: Evidence — install the module",
+    gate.replace("env.GOV_EVIDENCE_ENABLED == 'true'", "env.GOV_EVIDENCE_ENABLED == 'true' && steps.evidence-install.outputs.installed == 'true'"),
+    "        continue-on-error: true",
+    "        run: |",
+    '          npm install -g --userconfig "$RUNNER_TEMP/gov-check.npmrc" "@svayam/gov-check@^2"',
+    '          rm -f "$RUNNER_TEMP/gov-check.npmrc"',
+    "      - name: Evidence — mint the writer App's token",
+    "        id: evidence-token",
+    gate.replace("env.GOV_EVIDENCE_ENABLED == 'true'", "env.GOV_EVIDENCE_ENABLED == 'true' && steps.evidence-install.outputs.installed == 'true'"),
+    "        continue-on-error: true",
+    `        uses: ${CREATE_APP_TOKEN}`,
+    "        with:",
+    `          client-id: \${{ secrets.${S.clientId} }}`,
+    `          private-key: \${{ secrets.${S.privateKey} }}`,
+    ...(owner && name ? [`          owner: ${owner}`, `          repositories: ${name}`] : []),
+    "          permission-contents: write",
+  ];
+}
+
 /**
  * One workflow for every github-actions binding of one repository, across its resources (a gov repo is both
  * `vcs.gov-repo` and where `pms.issue` events fire). Returns [] when nothing is bound.
@@ -204,6 +270,7 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
     const env = [
       // `id-token` (X13) is not repository access: it alone does not hand the step the token.
       ...(keys.some((k) => k !== "id-token") ? ["          GH_TOKEN: ${{ github.token }}"] : []),
+      ...(opts.govCheckout ? ["          GOV_EVIDENCE_TOKEN: ${{ steps.evidence-token.outputs.token }}", `          GOV_EVIDENCE_REMOTE: https://github.com/${opts.govCheckout.repository}.git`] : []),
       ...(j.actions.has("gov-builtin/rules-propose") ? MODEL_KEY_SECRETS.map((k) => `          ${k}: \${{ secrets.${k} }}`) : []),
       ...(ghSteps.outcomes ? [`          ${GH_ACTION_OUTCOMES_ENV}: ${ghSteps.outcomes}`] : []),
     ];
@@ -211,6 +278,7 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       `  ${jobId(sameName ? `${j.id}_${j.resource}_${j.event}` : `${j.id}_${j.event}`)}:`,
       `    name: ${checkRunName(j.id, j.event)}`,
       `    if: ${cond}`,
+      ...(opts.govCheckout ? ["    env:", `      GOV_EVIDENCE_ENABLED: \${{ secrets.${EVIDENCE_APP_SECRET_NAMES.clientId} != '' }}`] : []),
       ...(keys.length || perms.contents ? ["    permissions:", `      contents: ${perms.contents ?? "read"}`, ...keys.map((k) => `      ${k}: ${perms[k]}`)] : []),
       "    runs-on: ubuntu-latest",
       "    timeout-minutes: 10",
@@ -225,6 +293,7 @@ export function renderWorkflow(bindings: readonly Binding[], opts: GithubRendere
       '          node-version: "24"',
       "      - name: Install the gov CLI",
       `        run: npm install -g ${pkg}`,
+      ...evidenceSteps(opts),
       `      - name: gov check run ${j.id}`,
       // The token only where the job was granted more than reading the repository.
       ...(env.length ? ["        env:", ...env] : []),

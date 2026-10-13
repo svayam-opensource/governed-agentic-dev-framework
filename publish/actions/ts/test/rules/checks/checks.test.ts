@@ -336,7 +336,11 @@ describe("check engine — GitHub Actions renderer", () => {
 
   it("a CODE repo's workflow reads the governance repo through the org's GitHub App — no personal token, no stopgap", () => {
     const files = githubActionsRenderer({ govCheckout: { repository: "acme/acme-gov" } }).render([b("GOV-FRM-061", "vcs.code-repo", "pull_request")]);
-    expect(undigest(files[0]!.text)).to.equal(`${HEADER}
+    // The evidence steps (plan 02 E08) are pinned in render-github-evidence.test.ts; this golden is the rest.
+    const withoutEvidence = (t: string): string => t
+      .replace(/ {6}- name: Evidence —[\s\S]*?(?= {6}- name: gov check run)/, "")
+      .replace(/ {8}env:\n {10}GOV_EVIDENCE_TOKEN:[^\n]*\n {10}GOV_EVIDENCE_REMOTE:[^\n]*\n/, "");
+    expect(withoutEvidence(undigest(files[0]!.text))).to.equal(`${HEADER}
 on:
   pull_request:
 
@@ -347,6 +351,8 @@ jobs:
   GOV-FRM-061_pull_request:
     name: GOV-FRM-061 · pull_request
     if: github.event_name == 'pull_request'
+    env:
+      GOV_EVIDENCE_ENABLED: \${{ secrets.GOV_EVIDENCE_APP_CLIENT_ID != '' }}
     permissions:
       contents: read
       id-token: write

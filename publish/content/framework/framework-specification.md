@@ -1156,6 +1156,14 @@ other field is refused. Records are kept in your own gov repository, under `evid
 environment. The only things that reach Svayam are lease requests: a key or a CI identity token, the writer's
 public key, and a handful of usage *numbers*.
 
+**Evidence from CI.** The `gov-checks` workflow in a code repository always asks GitHub for its identity token
+(`id-token: write`), whether or not the organization pays, so the workflow never changes with a subscription. Its
+evidence steps run only when the organization has turned evidence on (`gov evidence enable` stores the evidence
+App's two secrets). Then the job swaps its GitHub identity token for a short-lived key to the paid module, installs
+the module, mints the evidence App's token, and the checks write their signed segment to `gov/evidence`. No licence
+key is stored anywhere: the job proves itself with GitHub's token alone. Each of these steps may fail without
+failing the job. An organization without a subscription gets one calm notice and its checks run as usual.
+
 **When a rule needs a subscription.** Some actions are paid: the LLM judge on a gov-check installation, and the
 actions that come with a compliance pack (a catalog action whose tool is `gov-check`, or that says `paid: true`).
 Where no paid module runs, a binding to a paid action is recorded but not run. Its outcome is **needs

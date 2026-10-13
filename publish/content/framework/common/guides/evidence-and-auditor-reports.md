@@ -45,6 +45,25 @@ own copy of both secrets.
 
 ---
 
+## Evidence from CI
+
+Once an organization has turned evidence on, its code repositories' `gov-checks` workflow writes signed evidence
+without anyone logging in. Re-render the workflow (`gov check install`) to pick the steps up. Each run then:
+
+1. asks GitHub for the job's identity token, for the audience `gov-evidence`;
+2. swaps it at Svayam's licence service for a registry key that lasts about 15 minutes;
+3. installs `@svayam/gov-check` with that key;
+4. mints the evidence App's token, and runs your checks, which write one signed segment to the `gov/evidence`
+   branch of your governance repo.
+
+Nothing licence-related is stored as a secret: the only secrets are the two GitHub Apps' (the one that reads your
+governance repo, and the evidence App). The job sends the licence service only that identity token, a throwaway
+public key and a few usage numbers. It never sends rule ids, commit ids, repository names or any record.
+
+If your organization has no subscription, the licence service says no, and the run prints one notice. Your checks run
+and judge exactly as before. If the service is unreachable, the run says nothing and carries on. If you have not
+turned evidence on, these steps are skipped and nothing leaves your environment.
+
 ## Turning evidence on for yourself
 
 Your organization's admin turns evidence on for the organization. Each person who wants evidence written from
