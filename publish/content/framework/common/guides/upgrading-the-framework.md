@@ -68,6 +68,22 @@ The content's `MANIFEST.yaml` says how each file lands:
 
 After upgrading, run `gov validate` to confirm everything still validates.
 
+### Reading the upgrade pull request
+
+`gov upgrade --pr` puts each kind of change in its own commit, always in this order. A commit with nothing in it
+is left out.
+
+1. **framework**: the framework's files arrive, and the framework files this release retires are removed.
+2. **org moves**: your own files move to their new paths, byte for byte. Nothing in them changes.
+3. **migrations**: values that move between files are carried across. Starter files you lacked are added, and
+   the record of the moves is written.
+4. **PROPOSED prose**: text gov suggests for your documents, such as an old path rewritten to the new one. Keep
+   it, edit it on the branch, or drop the commit before you merge.
+
+The PR description lists every move, retirement, migration and substitution. It also lists every file gov did
+not recognise; those files are left exactly where they are. It ends with what to run after you merge:
+`gov rules propose --all`, then `gov rules build`, `gov repo protect apply` and `gov check install --all`.
+
 ### Using other content on purpose
 
 Setup and `gov upgrade` accept two overrides, for when you deliberately want content other than the content gov carries:

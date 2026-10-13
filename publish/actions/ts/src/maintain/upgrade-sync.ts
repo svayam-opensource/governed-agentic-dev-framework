@@ -280,6 +280,11 @@ export interface PlanAction {
    * ONCE, after its files have moved — never one record per file (see `planUpgrade`, relocations).
    */
   readonly group?: string;
+  /**
+   * Which commit of the upgrade PR this lands in (upgrade-commits.ts), when not the one its kind implies — e.g. the
+   * org's old exception templates, retired beside the moves of the records next to them.
+   */
+  readonly commit?: "framework" | "org-moves" | "migrations" | "proposed-prose";
 }
 export interface UpgradePlan { readonly actions: readonly PlanAction[]; }
 
