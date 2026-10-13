@@ -89,6 +89,31 @@ export function run(cmd: string, args: readonly string[], opts: RunOptions = {})
   }
 }
 
+/**
+ * `run`, but stdout comes back as the exact BYTES the process wrote — for a download whose digest is checked
+ * (vendor-script.ts). Decoding to a string and back could change bytes that are not valid UTF-8.
+ */
+export function runBytes(cmd: string, args: readonly string[], opts: RunOptions = {}): Uint8Array {
+  const started = Date.now();
+  try {
+    const p = plan(cmd, args, opts.env);
+    const out = execFileSync(p.file, p.args as string[], {
+      ...(p.verbatim ? { windowsVerbatimArguments: true } : {}),
+      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      ...(opts.env ? { env: opts.env } : {}),
+      ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    logRun("info", cmd, args, opts, Date.now() - started, 0, undefined);
+    return new Uint8Array(out);
+  } catch (e) {
+    const err = e as { status?: number; stderr?: string | Buffer; message?: string };
+    logRun("warn", cmd, args, opts, Date.now() - started, err?.status ?? 1, tail(err?.stderr?.toString() ?? err?.message));
+    throw e;
+  }
+}
+
 /** Run a process, returning its trimmed stdout, or `undefined` when it fails. The commonest shape in gov. */
 export function tryRun(cmd: string, args: readonly string[], opts: RunOptions = {}): string | undefined {
   try { return run(cmd, args, opts).trim(); } catch { return undefined; }

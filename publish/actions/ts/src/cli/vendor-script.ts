@@ -18,7 +18,7 @@
  * `catalog-freshness` proposes a new pin when a pinned script changes (scripts/catalog-freshness.mjs).
  */
 import { createHash } from "node:crypto";
-import { runInteractive } from "../run-process.js";
+import { runBytes, runInteractive } from "../run-process.js";
 
 export interface VendorScript {
   /** https URL of the vendor's own installer. */
@@ -95,14 +95,46 @@ export async function fetchVerifyRun(s: VendorScript, io: ScriptIo): Promise<Scr
 /** Largest script gov will hold in memory. Vendor installers are kilobytes; anything near this is not one. */
 const MAX_SCRIPT_BYTES = 5 * 1024 * 1024;
 
-/** The real download: one GET, redirects followed, the final URL still https, size-capped. */
-export async function httpsFetch(url: string): Promise<Uint8Array> {
-  const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(60_000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  if (!/^https:\/\//i.test(res.url || url)) throw new Error(`redirected off https to ${res.url}`);
-  const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.length > MAX_SCRIPT_BYTES) throw new Error(`${buf.length} bytes is too large for an install script`);
-  return buf;
+/**
+ * THE REAL DOWNLOAD GOES THROUGH `curl` (2026-10-13). The first version used Node's fetch(), which broke two things:
+ * every hermetic test doubles a vendor by stubbing `curl` (journeys, OS tier), so CI fetched the REAL script and ran
+ * it against a stubbed curl ("Failed to fetch Bob Shell version" on every bare-machine job); and the download was
+ * the one external call that did not pass through run-process.ts and its log. curl is what `curl | bash` used, so
+ * proxies and CA settings behave as they did. https only, redirects included; size-capped; an HTTP error fails.
+ */
+export function curlArgv(url: string): readonly string[] {
+  return ["curl", "-fsSL", "--proto", "=https", "--proto-redir", "=https", "--max-filesize", String(MAX_SCRIPT_BYTES), url];
+}
+
+export async function curlFetch(url: string): Promise<Uint8Array> {
+  const [cmd, ...args] = curlArgv(url);
+  try {
+    return runBytes(cmd!, args, { pgm: "gov-work:cli:vendor-script", fn: "fetch-script", timeoutMs: 120_000 });
+  } catch (e) {
+    const err = e as { status?: number; stderr?: Buffer | string; message?: string };
+    const why = err.stderr?.toString().trim().split("\n").pop() || err.message || "curl failed";
+    throw new Error(`${why}${err.status !== undefined ? ` (curl exit ${err.status})` : ""}`);
+  }
+}
+
+/**
+ * GOV_SCRIPT_PINS — pins set by the environment: `https://url=<sha256>` entries separated by whitespace or `;`.
+ * For a test that doubles a vendor's script (the double has its own digest), and for an organization that has
+ * reviewed a newer vendor script before gov's next release. No weaker than the environment gov already trusts
+ * (PATH decides which curl and bash run). The pin is still enforced, and gov says on screen that it came from here.
+ */
+export function parseScriptPins(text: string | undefined): Map<string, string> {
+  const pins = new Map<string, string>();
+  for (const entry of (text ?? "").split(/[\s;]+/)) {
+    const m = /^(https:\/\/\S+)=([0-9a-fA-F]{64})$/.exec(entry);
+    if (m) pins.set(m[1]!, m[2]!.toLowerCase());
+  }
+  return pins;
+}
+
+export function effectiveScript(s: VendorScript, env: Readonly<Record<string, string | undefined>>): { script: VendorScript; overridden: boolean } {
+  const pin = parseScriptPins(env.GOV_SCRIPT_PINS).get(s.url);
+  return pin ? { script: { url: s.url, sha256: pin }, overridden: true } : { script: s, overridden: false };
 }
 
 /**

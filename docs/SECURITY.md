@@ -53,3 +53,10 @@ The latest commit on the `publish` branch is the only actively supported version
 ## Public Discussion
 
 Once a fix is released, the original reporter is credited (unless they prefer to remain anonymous) and the advisory is published with technical details.
+
+**`GOV_SCRIPT_PINS`.** A pin can also come from the environment: `https://<script-url>=<sha256>` entries separated
+by spaces or `;`. It replaces the release's pin for that URL (or pins an unpinned script), it is still enforced, and
+gov prints that the pin came from `GOV_SCRIPT_PINS`. It exists for tests that stand in for a vendor's installer,
+and for an organization that has reviewed a newer vendor script before gov's next release. It trusts the
+environment no more than gov already does: `PATH` decides which `curl` and `bash` run. The script is downloaded
+with `curl` (https only, size-capped), through the same logged process runner as every other command.

@@ -55,6 +55,7 @@ C
 says "#201 — the vendor is named BEFORE anything runs" "Vendor: https://bob.ibm.com"
 never "#201 — and never the package that was not IBM's" "@bobsworkshop/cli"
 saw "#201 — IBM's own channel is what runs" "bob.ibm.com/download/bobshell.sh"
+saw "#205 — the double is verified against a pin, and gov says where the pin came from" "comes from GOV_SCRIPT_PINS"
 
 # #213 — NO ASSUMPTION ABOUT A BROWSER, for any agent.
 #

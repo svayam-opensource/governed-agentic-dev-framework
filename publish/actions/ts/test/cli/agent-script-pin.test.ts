@@ -9,7 +9,7 @@
  */
 import { expect } from "chai";
 import { createHash } from "node:crypto";
-import { fetchVerifyRun, scriptStepLine, type ScriptIo } from "../../src/cli/vendor-script.js";
+import { curlArgv, effectiveScript, fetchVerifyRun, parseScriptPins, scriptStepLine, type ScriptIo } from "../../src/cli/vendor-script.js";
 import { planAgentInstall } from "../../src/cli/agent-verb.js";
 import { AGENT_CATALOG } from "../../src/cli/agent-catalog.js";
 
@@ -144,5 +144,47 @@ describe("gov-work — the install plan carries the script, never a shell pipe (
     const cursor = AGENT_CATALOG.find((a) => a.id === "cursor")!;
     expect(bob.install?.scriptSha256).to.match(/^[0-9a-f]{64}$/);
     expect(cursor.install?.scriptSha256).to.equal(undefined);
+  });
+});
+
+describe("gov-work — the download goes through curl, the seam every hermetic test stubs (#205 follow-up)", () => {
+  // REGRESSION, 2026-10-13: the first version downloaded with Node's fetch(). Every journey and OS-tier fragment
+  // doubles the vendor by stubbing `curl`, so the REAL IBM script was fetched, matched its pin, and ran against a
+  // stubbed curl — "Failed to fetch Bob Shell version" on every bare-machine job, and real network calls from CI.
+  it("downloads with curl: https only, redirects followed, size-capped, failing on an HTTP error", () => {
+    const a = curlArgv("https://bob.ibm.com/download/bobshell.sh");
+    expect(a[0]).to.equal("curl");
+    expect(a).to.include.members(["-fsSL", "--proto", "=https", "--proto-redir", "=https", "--max-filesize"]);
+    expect(a[a.length - 1]).to.equal("https://bob.ibm.com/download/bobshell.sh");
+  });
+});
+
+describe("gov-work — GOV_SCRIPT_PINS sets a pin from the environment, and says so (#205 follow-up)", () => {
+  const S = { url: URL, sha256: "a".repeat(64) };
+
+  it("parses url=sha256 entries separated by whitespace or ;, ignoring anything malformed", () => {
+    const p = parseScriptPins(`${URL}=${DIGEST.toUpperCase()} ; https://x.example/i.sh=${"b".repeat(64)}\nnot-a-pin http://plain=${"c".repeat(64)}`);
+    expect(p.get(URL)).to.equal(DIGEST);
+    expect(p.get("https://x.example/i.sh")).to.equal("b".repeat(64));
+    expect(p.size, "only https URLs with a 64-hex digest").to.equal(2);
+  });
+
+  it("no variable → the catalog's pin, unchanged", () => {
+    expect(effectiveScript(S, {})).to.deep.equal({ script: S, overridden: false });
+  });
+
+  it("an entry for this URL replaces the pin (or pins an unpinned script) and is flagged", () => {
+    const e = effectiveScript(S, { GOV_SCRIPT_PINS: `${URL}=${DIGEST}` });
+    expect(e.overridden).to.equal(true);
+    expect(e.script.sha256).to.equal(DIGEST);
+    expect(effectiveScript({ url: URL }, { GOV_SCRIPT_PINS: `${URL}=${DIGEST}` }).script.sha256).to.equal(DIGEST);
+  });
+
+  it("the overridden pin is still enforced: other bytes are refused", async () => {
+    const e = effectiveScript(S, { GOV_SCRIPT_PINS: `${URL}=${"d".repeat(64)}` });
+    const { fake, calls } = io();
+    const r = await fetchVerifyRun(e.script, fake);
+    expect(r.ran).to.equal(false);
+    expect(calls.ran).to.have.length(0);
   });
 });

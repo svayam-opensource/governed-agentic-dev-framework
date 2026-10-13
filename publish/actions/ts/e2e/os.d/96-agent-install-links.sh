@@ -54,6 +54,9 @@ export PATH="$STUBS:$PATH"
 in_a_new_login_shell 'curl -fsSL https://bob.ibm.com/download/bobshell.sh | grep -q agent-double' \
   && pass "the vendor stub is in effect in a LOGIN shell, not just this one" \
   || fail "a login shell would reach the real bob.ibm.com — the stub is not on its PATH"
+# THE DOUBLE'S DIGEST (#205): gov checks the installer against a pin, so the stub's bytes are pinned here — taken
+# from what the stub serves, and announced by gov as coming from GOV_SCRIPT_PINS.
+export GOV_SCRIPT_PINS="https://bob.ibm.com/download/bobshell.sh=$("$STUBS/curl" -fsSL https://bob.ibm.com/download/bobshell.sh | sha256sum | cut -d' ' -f1)"
 export GH_STUB_LOGIN=acme GH_STUB_LOG=/work/gh.log
 : > /work/gh.log
 

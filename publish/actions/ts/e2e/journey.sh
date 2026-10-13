@@ -262,8 +262,26 @@ authorize_no_agents() {
 
 # ── driving ───────────────────────────────────────────────────────────────────
 # Run a command in a pty, answering from a conversation. Returns expect's verdict.
+# THE VENDOR DOUBLE HAS ITS OWN DIGEST (#205). gov verifies a vendor's install script against a pin before running
+# it, so a scenario that doubles the installer with a stub `curl` must say which bytes it is serving. The pin comes
+# from what the stub actually emits — computed here, never typed — and gov prints that the pin came from
+# GOV_SCRIPT_PINS. A scenario without a stub curl gets no override.
+pin_vendor_doubles() {
+  unset GOV_SCRIPT_PINS
+  [ -x "$WORLD/bin/curl" ] || return 0
+  local pins="" u d
+  for u in https://bob.ibm.com/download/bobshell.sh https://cursor.com/install; do
+    d="$("$WORLD/bin/curl" -fsSL "$u" 2>/dev/null | { sha256sum 2>/dev/null || shasum -a 256; } | cut -d' ' -f1)" || continue
+    [ "$d" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ] && continue   # stub served nothing
+    pins="$pins $u=$d"
+  done
+  [ -n "$pins" ] && export GOV_SCRIPT_PINS="${pins# }"
+  return 0
+}
+
 drive() {
   local conv="$1"; shift
+  pin_vendor_doubles
   : > "$TRANSCRIPT"
   expect "$HERE/pty/drive.exp" "$TRANSCRIPT" "$conv" -- "$@" >/dev/null 2>"$WORLD/drive.err"
   local rc=$?

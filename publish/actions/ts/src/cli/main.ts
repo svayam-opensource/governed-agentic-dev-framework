@@ -111,7 +111,7 @@ import { parseAuthorizedAgents, readAuthorizedAgents, withAuthorizedAgents } fro
 import { renderCodeowners, unresolvedTokens, POLICY_OWNER_PATHS } from "../config/codeowners.js";
 import { resolveRoles, ROLE_LIST_PATH } from "../config/role-list.js";
 import { planAgentInstall } from "./agent-verb.js";
-import { bashStdin, fetchVerifyRun, httpsFetch, scriptStepLine } from "./vendor-script.js";
+import { bashStdin, curlFetch, effectiveScript, fetchVerifyRun, scriptStepLine } from "./vendor-script.js";
 import { adopterNextSteps, joinerNextSteps } from "./next-steps.js";
 import { finishInPlace, landSetupChanges } from "../setup/in-place-land.js";
 import { assessFrameworkCurrency, cannotStartWorkLines, policyOwnerFacts } from "../maintain/framework-currency.js";
@@ -189,8 +189,10 @@ async function performAgentInstallReal(plan: ReturnType<typeof planAgentInstall>
       say(r0.step(`${s.what}…`));
       if (s.script) {
         // DOWNLOADED ONCE, VERIFIED, AND THOSE BYTES RUN (#205, Q16 C) — see vendor-script.ts.
-        const r = await fetchVerifyRun(s.script, {
-          fetch: httpsFetch, run: bashStdin, say,
+        const eff = effectiveScript(s.script, process.env);
+        if (eff.overridden) say(r0.warn(`the pin for ${s.script.url} comes from GOV_SCRIPT_PINS, not from this gov release`));
+        const r = await fetchVerifyRun(eff.script, {
+          fetch: curlFetch, run: bashStdin, say,
           ...(headless ? {} : { ask: (q: string) => ask.line(q) }),
         });
         if (!r.ran) { ok = false; say(r0.fail(r.message)); continue; }
