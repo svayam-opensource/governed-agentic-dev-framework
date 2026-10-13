@@ -33,7 +33,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov pack](#gov-pack) — compliance packs (SOC 2 CC8, RBI change management) — list them, or propose adopting one
 - [gov check](#gov-check) — run one rule's checks for the event that fired, install the workflow that runs them, or say whether it is current
 - [gov app](#gov-app) — create the org's GitHub App that lets code repos' checks read the governance rules, check it, and rotate its key
-- [gov evidence](#gov-evidence) — verify the org's signed evidence ledger (free, offline — for auditors too), or turn the ledger on for the org
+- [gov evidence](#gov-evidence) — verify the org's signed evidence ledger (free, offline — for auditors too), turn the ledger on for the org, or generate an auditor report (subscription)
 - [gov licence](#gov-licence) — sign in with your gov personal key, see your organization's plan, and install the paid evidence module
 - [gov rules](#gov-rules) — propose rules from your policy prose, render the rule stores into what agents read, and report on them
 
@@ -572,10 +572,10 @@ gov app rotate --key-file ~/Downloads/gov-acme.private-key.pem
 
 ### gov evidence
 
-verify the org's signed evidence ledger (free, offline — for auditors too), or turn the ledger on for the org
+verify the org's signed evidence ledger (free, offline — for auditors too), turn the ledger on for the org, or generate an auditor report (subscription)
 
 ```text
-gov evidence verify [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--gov-home <path>] [--test-roots] | enable [--gov-home <path>]
+gov evidence verify [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--gov-home <path>] [--test-roots] | enable [--gov-home <path>] | report --pack <id> --from <YYYY-MM-DD> --to <YYYY-MM-DD> [--repo <name>] [--format md|json|html] [--gov-home <path>]
 ```
 
 **Where.** verify: anywhere — a clone of the evidence branch (`gov/evidence`) is all it needs; no licence, no network, no org-config.yaml. enable: GOVERNED, run once by an owner of the GitHub organization
@@ -586,14 +586,18 @@ gov evidence verify [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--gov-home <path>
 | --- | --- |
 | `verify` | walk the evidence chain month by month: every entry's number and `prev` link, its signature, and its writer's certificate (a lease from a Svayam root key shipped in gov, or a root that one endorsed in `evidence/keys/roots.json`); re-hash every chained segment against its entry's sha256, check each record line is canonical and valid, and check each seal's count, root and signature. Lists gaps — runs whose evidence was NOT created — which are never a pass. Every break names the segment and line, or the chain file and entry |
 | `enable` | turn the evidence ledger on for the organization, once: create the branch `gov/evidence` in the governance repo as an orphan (evidence/README.md, evidence/keys/roots.json), a ruleset on it that refuses force pushes and deletion for everyone, and the org's own GitHub App "&lt;org&gt; gov evidence" (repository contents: write, nothing else) through GitHub's App-manifest flow — open the printed local page in a browser on this machine. The App's client id and private key become the org Actions secrets GOV_EVIDENCE_APP_CLIENT_ID and GOV_EVIDENCE_APP_PRIVATE_KEY. Each step already done is skipped, so running it again changes nothing |
+| `report` | generate an auditor report for a compliance pack over a date window, organised by control (what was checked, outcomes, exceptions, gaps shown as gaps, agent vs human, a reproducible sample) and commit it on `gov/evidence` under `evidence/reports/<pack>/<from>_<to>/` (report.md, report.json, manifest.json, and report.html with --format html). The whole chain is verified first; a break stops the report and names the file and line. Needs the paid gov-check module (a subscription); without it, one line says so and nothing is written |
 
 **Flags**
 
 | flag | what it does |
 | --- | --- |
-| `--from <date>` | re-hash only segments dated on or after this day (the chain is still walked from its start: every link is needed) |
-| `--to <date>` | re-hash only segments dated on or before this day |
-| `--gov-home <path>` | enable: the governance repo whose org-config.yaml names the org and repo. verify: the folder to read: a checkout with `evidence/` at its top, or the gov repo, whose `origin/gov/evidence` (else local `gov/evidence`) branch is read through git without fetching (default: the governance repo gov resolves) |
+| `--from <date>` | verify: re-hash only segments dated on or after this day (the chain is still walked from its start: every link is needed). report: the first day of the window (required) |
+| `--to <date>` | verify: re-hash only segments dated on or before this day. report: the last day of the window, inclusive (required) |
+| `--pack <id>` | report: the compliance pack to report on (see `gov pack list`) (required) |
+| `--repo <name>` | report: only changes in this code repository |
+| `--format <md|json|html>` | report: the readable file to write besides the always-written report.json and manifest.json (default md) |
+| `--gov-home <path>` | enable: the governance repo whose org-config.yaml names the org and repo. report: the governance repo (or a clone of `gov/evidence`) whose `origin` holds the evidence branch. verify: the folder to read: a checkout with `evidence/` at its top, or the gov repo, whose `origin/gov/evidence` (else local `gov/evidence`) branch is read through git without fetching (default: the governance repo gov resolves) |
 | `--test-roots` | also trust `test-*` root keys listed in `evidence/keys/roots.json` — for a ledger written by a test issuer only; the output says so |
 
 **Examples**
@@ -602,19 +606,20 @@ gov evidence verify [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--gov-home <path>
 gov evidence verify
 gov evidence verify --gov-home ~/audit/acme-evidence --from <first-day> --to <last-day>
 gov evidence enable
+gov evidence report --pack soc2-cc8 --from 2026-07-01 --to 2026-09-30
 ```
 
-**Changes.** `verify` changes nothing — it reads; reading the branch through git writes a temporary copy that is removed before it returns. `enable` creates, on GitHub, the branch `gov/evidence` (a new orphan commit — the default branch is never touched), the ruleset "gov evidence", a private GitHub App owned by the organization, and two org Actions secrets (the private key goes on gh's stdin only: never printed, logged or written to disk). Installing the App on the governance repo alone is a step you take in the browser
+**Changes.** `report` writes only on the evidence branch: in a temporary worktree of `origin/gov/evidence` it commits the report files and pushes `gov/evidence` fast-forward only, then removes the worktree — your checkout and the default branch are never touched; nothing leaves your environment. `verify` changes nothing — it reads; reading the branch through git writes a temporary copy that is removed before it returns. `enable` creates, on GitHub, the branch `gov/evidence` (a new orphan commit — the default branch is never touched), the ruleset "gov evidence", a private GitHub App owned by the organization, and two org Actions secrets (the private key goes on gh's stdin only: never printed, logged or written to disk). Installing the App on the governance repo alone is a step you take in the browser
 
 **Exit codes**
 
 | code | means |
 | --- | --- |
-| `0` | verify: the ledger is whole: every link, hash, seal, signature and writer certificate holds (gaps, if any, are listed). enable: every step is done (or was already) |
-| `1` | verify: a break — each is named, with the file and line or chain entry; or there was no evidence to read. enable: a step failed (✗ names it and the fix); steps already done stay done |
+| `0` | verify: the ledger is whole: every link, hash, seal, signature and writer certificate holds (gaps, if any, are listed). enable: every step is done (or was already). report: the report is committed on `gov/evidence` (or was already there) |
+| `1` | verify: a break — each is named, with the file and line or chain entry; or there was no evidence to read. enable: a step failed (✗ names it and the fix); steps already done stay done. report: no subscription module here, a broken chain (named), or the push to `gov/evidence` failed — nothing changed there |
 | `2` | usage: an unknown subcommand, or a date that is not YYYY-MM-DD, or --from after --to |
 
-**See also.** [gov check](#gov-check) · [gov app](#gov-app)
+**See also.** [gov check](#gov-check) · [gov app](#gov-app) · [gov pack](#gov-pack)
 
 ### gov licence
 

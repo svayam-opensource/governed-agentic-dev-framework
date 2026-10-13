@@ -16,7 +16,10 @@ import { evidenceCommand } from "./evidence-verb.js";
 import { dirSource, type LedgerSource } from "../evidence/verify.js";
 import { prjResolveGov } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
-import { runResult } from "../run-process.js";
+import { runResult, tryRun } from "../run-process.js";
+import { ensureCheckModule } from "../check-seam/evidence.js";
+import { createKeychain } from "../security/keychain.js";
+import { readCliVersion } from "./main.js";
 import { randomBytes } from "node:crypto";
 import { parseOrgConfig } from "../config/org-config.js";
 import { evidenceEnable } from "../lifecycle/evidence-setup.js";
@@ -82,6 +85,30 @@ export async function runEvidence(argv: readonly string[]): Promise<number> {
       return ledgerSourceAt(resolved.home);
     },
     enable: enableAt,
+    report: {
+      // The paid module, started like `gov pack` does; null = not installed / not licensed here.
+      generator: async () => {
+        const override = flagStr(parsed.flags, "gov-home") ?? process.env.PRJ_GOV_HOME;
+        const m = await ensureCheckModule(
+          { surface: "local", ...(override ? { govHome: path.resolve(expandTilde(override)) } : {}), env: process.env, govVersion: readCliVersion() },
+          { keychain: createKeychain() },
+        );
+        return m.state === "active" ? m.module.reports : null;
+      },
+      home: (govHome) => {
+        const override = govHome ?? process.env.PRJ_GOV_HOME;
+        if (override) return { ok: true, home: path.resolve(expandTilde(override)) };
+        const resolved = prjResolveGov(createNodeEnv());
+        return resolved.ok ? { ok: true, home: resolved.home } : { ok: false, line: "no governance repo resolved here — pass --gov-home <the gov repo, or a clone of gov/evidence>" };
+      },
+      tmpDir: () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gov-report-")), "wt"),
+      git: (cwd, args) => tryRun("git", ["-C", cwd, ...args], { pgm: PGM, fn: "report" }) ?? null,
+      copyPolicies: (from, to) => {
+        const src = path.join(from, "policies");
+        if (fs.existsSync(src)) fs.cpSync(src, path.join(to, "policies"), { recursive: true });
+      },
+      removeDir: (abs) => fs.rmSync(path.dirname(abs), { recursive: true, force: true }),
+    },
   });
   for (const line of r.lines) (r.code === 2 ? process.stderr : process.stdout).write(`${line}\n`);
   return r.code;

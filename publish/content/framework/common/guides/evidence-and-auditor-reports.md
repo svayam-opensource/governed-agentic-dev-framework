@@ -76,6 +76,70 @@ workflow proves who it is with GitHub's own token.
 
 ---
 
+## Running an auditor report
+
+With the gov-check module installed (see above), `gov evidence report` turns the ledger into a report an auditor can
+read. Run it in the governance repository:
+
+```bash
+gov evidence report --pack soc2-cc8 --from 2026-07-01 --to 2026-09-30
+```
+
+| Flag | Meaning |
+|---|---|
+| `--pack <id>` | The compliance pack to report on. `gov pack list` shows them. Required. |
+| `--from`, `--to` | The audit window, both days included, as `YYYY-MM-DD`. Required. |
+| `--repo <name>` | Only changes in this code repository. |
+| `--format md\|json\|html` | The readable file to write. The default is `md`. `report.json` and `manifest.json` are always written. |
+| `--gov-home <path>` | The governance repository, or a clone of `gov/evidence`, if you are not inside it. |
+
+```mermaid
+flowchart LR
+  A["gov evidence report"] --> V["module verifies the whole chain"]
+  V -- "break" --> X["stop: file + line named, nothing written"]
+  V -- "whole" --> W["report files, in a temporary worktree of origin/gov/evidence"]
+  W --> C["commit + push gov/evidence<br/>(fast-forward only)"]
+```
+
+The files land on the evidence branch under `evidence/reports/<pack>/<from>_<to>/`: `report.md` (or the format you
+asked for), `report.json`, and `manifest.json`. gov builds them in a temporary copy of `origin/gov/evidence`, commits
+them there, pushes only a fast-forward, and removes the copy. Your own checkout and your default branch are never
+touched, and nothing is sent to Svayam. Running the same report again over the same ledger gives the same bytes, so
+there is nothing new to commit and gov says so.
+
+If the chain is broken, the report stops at the first break, prints the file and line, exits 1 and writes nothing.
+Fix or explain the break first: `gov evidence verify` shows all of them. Without the module, `gov evidence report`
+prints one line pointing at the subscription and exits 1.
+
+---
+
+## Reading a report with an auditor
+
+A report is organised by **control** (for example "changes are authorised before they are made"), not by rule. An
+auditor asks about controls, so each one answers the same questions:
+
+- **How many changes** the control covered (the population: pull requests, or commits where there is no pull request).
+- **What happened to them:** counts of pass, fail, cannot-tell and needs-subscription. An LLM judge's opinion is
+  counted separately; it is shown but never enforces.
+- **Exceptions:** the approved exceptions in `policies/exceptions/` that name the control's rules.
+- **Gaps:** runs for which no evidence was created. A gap is shown **as a gap**. It is never counted as a pass, and an
+  auditor should ask about each one.
+- **Agent or human:** how many of the changes were made by each.
+- **A sample:** up to 25 records per control, each naming its segment and line so the auditor can open the record and
+  check it. The sample is picked by a hash of the window and the record, so the same ledger always gives the same
+  sample and nobody can choose it.
+
+Every report carries a **"mapping not audited"** label until the pack's control mapping has been signed off by a
+compliance reviewer. The label means that gov has not yet confirmed that these checks satisfy the control: the report
+shows what was checked and what happened, not that the control is met. Treat the mapping as a starting point for the
+conversation with your auditor.
+
+To let the auditor check the report themselves, give them a clone of `gov/evidence` and have them run
+`gov evidence verify`. `manifest.json` records the chain head, the verification result and the hash of every input and
+every file, so they can see that the report was made from the same ledger they verified.
+
+---
+
 ## Verifying evidence
 
 This section is for **auditors**, and for organizations whose subscription has ended but who still need to show
