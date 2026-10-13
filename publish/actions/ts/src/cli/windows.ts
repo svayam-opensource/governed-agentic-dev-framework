@@ -53,8 +53,11 @@ export function windowsLinkPlan(f: {
   if (!target) return { kind: "not-ours" };
   const onPath = (envGet(f.env, "PATH") ?? "").split(";").map((d) => d.replace(/[\\/]+$/, "").toLowerCase());
   const has = (d: string): boolean => onPath.includes(d.replace(/[\\/]+$/, "").toLowerCase());
-  if (has(f.nodeBin)) return { kind: "not-ours" };       // a machine Node on PATH: npm's shim is already reachable
   const dir = envGet(f.env, "GOV_BIN_DIR");
+  // A machine Node on PATH means npm's shim is already reachable — but under the MSI launcher (GOV_BIN_DIR set) the
+  // node\ entry is the LAUNCHER's own prepend, absent from the adopter's next terminal (#209's install.sh trap again,
+  // found wiring adopter-e2e / windows, T16), so it proves nothing there.
+  if (!dir && has(f.nodeBin)) return { kind: "not-ours" };
   if (!dir) return { kind: "nowhere-to-link", dir: "(gov's bin directory — not known: gov was not started by its launcher)", nodeBin: f.nodeBin };
   if (!has(dir)) return { kind: "nowhere-to-link", dir, nodeBin: f.nodeBin };
   return { kind: "write", dir, shim: path.win32.join(dir, `${f.cmd}.cmd`), target, content: windowsAgentShim(f.nodeBin, target) };

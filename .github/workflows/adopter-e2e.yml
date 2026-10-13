@@ -38,6 +38,7 @@ on:
     paths:
       - "publish/**"
       - ".github/workflows/adopter-e2e.yml"
+      - "packages/msi/**"
   workflow_dispatch:
     inputs:
       real_model:
@@ -147,6 +148,129 @@ jobs:
         run: npm ci && npm run build && npm pack
       - name: Bare-machine journey (${{ matrix.image }})
         run: bash publish/actions/ts/e2e/os-tier.sh ${{ matrix.label }}
+
+  # THE WINDOWS DOOR, end to end (PRJ-121 plan 04 T16; spec 04 §4.5, ruling Q11 B). Until this job, nothing ran an
+  # agent install on Windows — the #223 blind spot: every `gov agent install` died with ENOENT because npm is a .cmd.
+  # It installs the MSI an adopter gets (built by the same script gov-cicd's msi-build.yml runs, test-signed here
+  # with a certificate made inside this job and gone with it), then uses ONLY what the MSI left: the runner's Node
+  # is stripped from PATH before the install, and every check runs in a fresh process with the PATH a new terminal
+  # would get. Nothing here needs a secret, so it runs everywhere `smoke` does.
+  windows:
+    name: windows (MSI, per-user)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      # BUILD TOOLS ONLY — Node to pack gov and run the build script, WiX to make the MSI. Hidden before the install.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: use Git Bash for npm scripts
+        run: npm config set script-shell bash
+      - name: pack gov (the exact artifact)
+        id: pack
+        shell: bash
+        run: |
+          out="$(bash packages/msi/ci/pack-gov.sh "" "$RUNNER_TEMP/pkg")"
+          echo "tgz=$(echo "$out" | sed -n 1p)" >> "$GITHUB_OUTPUT"
+          echo "version=$(echo "$out" | sed -n 2p)" >> "$GITHUB_OUTPUT"
+      - name: unit tests of the MSI build (packages/msi)
+        working-directory: packages/msi
+        run: npm test
+      - name: install WiX
+        shell: pwsh
+        run: ./packages/msi/ci/setup-wix.ps1
+      - name: build the MSIs (x64 to install here; arm64 to prove it builds)
+        id: msi
+        shell: bash
+        env:
+          TGZ: ${{ steps.pack.outputs.tgz }}
+          VERSION: ${{ steps.pack.outputs.version }}
+        run: |
+          for arch in x64 arm64; do
+            node packages/msi/scripts/build.mjs --version "$VERSION" --arch "$arch" --out "$RUNNER_TEMP/msi" --gov-tgz "$TGZ"
+          done
+          echo "x64=$RUNNER_TEMP/msi/gov-$VERSION-x64.msi" >> "$GITHUB_OUTPUT"
+      - name: test-sign the MSI (certificate made in this job, private key never exported)
+        shell: pwsh
+        run: node packages/msi/scripts/sign.mjs --signer "pwsh -NoProfile -File packages/msi/ci/sign-test.ps1 {file}" "${{ steps.msi.outputs.x64 }}"
+      # T15: the listing gov-cicd's prod promote would send, rendered from these signed bytes. winget validates it
+      # where the runner image has winget; where it has none, the step says so (a notice), it does not pass silently.
+      - name: winget manifests for Svayam.Gov, from the signed MSI
+        shell: pwsh
+        env:
+          GOV_MSI: ${{ steps.msi.outputs.x64 }}
+          GOV_MSI_VERSION: ${{ steps.pack.outputs.version }}
+        run: |
+          $dir = node packages/msi/scripts/winget.mjs --version $env:GOV_MSI_VERSION --out "$env:RUNNER_TEMP\winget" $env:GOV_MSI | Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem $dir | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName }
+          $want = (Get-FileHash $env:GOV_MSI -Algorithm SHA256).Hash
+          if (-not (Select-String -Path (Join-Path $dir 'Svayam.Gov.installer.yaml') -SimpleMatch "InstallerSha256: $want" -Quiet)) { Write-Error "manifest hash is not the signed MSI's ($want)"; exit 1 }
+          if (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget validate --manifest $dir
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          } else { Write-Host "::notice::winget is not on this runner image: manifest checked for shape and hash only" }
+      - name: hide the runner's Node
+        shell: pwsh
+        run: |
+          # By name AND by content: the image has node.exe in folders whose names say nothing (found by this job).
+          $hasNode = { param($d) $d -match 'nodejs|\\node(\\|$)|nvm|hostedtoolcache' -or (Test-Path -LiteralPath (Join-Path $d 'node.exe')) -or (Test-Path -LiteralPath (Join-Path $d 'node.cmd')) }
+          $dirs = @($env:PATH -split ';' | Where-Object { $_ })
+          $dirs | Where-Object { & $hasNode $_ } | ForEach-Object { Write-Host "hidden: $_" }
+          $clean = ($dirs | Where-Object { -not (& $hasNode $_) }) -join ';'
+          # Not PATH itself: the runner PREPENDS every GITHUB_PATH entry (setup-node's among them) to each later step's
+          # PATH, so a PATH written here comes back with Node in front (found by this job). Each later step starts
+          # from this one instead.
+          "GOV_CLEAN_PATH=$clean" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: prove this machine has no Node
+        shell: pwsh
+        run: |
+          $env:PATH = $env:GOV_CLEAN_PATH
+          $n = Get-Command node -All -ErrorAction SilentlyContinue
+          if ($n) { $n | ForEach-Object { Write-Host "found: $($_.Source)" }; Write-Error "node is still on PATH"; exit 1 }
+          Write-Host "no node on PATH: gov has to bring its own"
+      - name: Pester 5
+        shell: pwsh
+        run: Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+      - name: install the MSI per-user — msiexec /i /qn — and assert its shape and signature
+        id: install
+        shell: pwsh
+        env:
+          GOV_MSI: ${{ steps.msi.outputs.x64 }}
+          GOV_MSI_VERSION: ${{ steps.pack.outputs.version }}
+          GOV_MSI_SIGNER: "CN=Svayam (TEST - CI only)"
+        run: |
+          $env:PATH = $env:GOV_CLEAN_PATH
+          $c = New-PesterConfiguration
+          $c.Run.Path = 'packages/msi/test/install.Tests.ps1'; $c.Filter.Tag = 'Install'
+          $c.Run.Exit = $true; $c.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $c
+      - name: setup against the gh double, REAL agent install, claude via the bin\ shim
+        shell: pwsh
+        run: |
+          $env:PATH = $env:GOV_CLEAN_PATH
+          ./publish/actions/ts/e2e/windows/adopter-windows.ps1
+      - name: uninstall — app\ node\ bin\ and the PATH entry gone, ~/.gov kept
+        if: always() && steps.install.outcome != 'skipped'
+        shell: pwsh
+        env:
+          GOV_MSI: ${{ steps.msi.outputs.x64 }}
+          GOV_MSI_VERSION: ${{ steps.pack.outputs.version }}
+        run: |
+          $env:PATH = $env:GOV_CLEAN_PATH
+          $c = New-PesterConfiguration
+          $c.Run.Path = 'packages/msi/test/install.Tests.ps1'; $c.Filter.Tag = 'Uninstall'
+          $c.Run.Exit = $true; $c.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $c
+      # always(), not failure(): a step skipped on a green run would break green-streak.sh's "no step skipped".
+      - name: the MSI install and uninstall logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-msi-logs
+          path: ${{ runner.temp }}/gov-msi-*.log
+          if-no-files-found: ignore
 
   live:
     name: adopter + rule-model journeys (live GitHub)

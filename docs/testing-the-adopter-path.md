@@ -245,6 +245,21 @@ The `bootstrap` job in `.github/workflows/node-ci.yml` is the test bed: it runs 
 stripped from `PATH`. **Open a PR to run it.** A push to a branch will not — the
 workflow's `push` trigger is limited to `main` and `dev`.
 
+The **`windows` job in `adopter-e2e.yml`** tests the Windows door end to end on `windows-latest`. It builds the
+MSI with the same script gov-cicd uses, test-signs it with a certificate made inside the job, and renders the winget
+manifests from the signed bytes. It then removes the runner's Node from PATH and works only with what the MSI left:
+
+```
+msiexec /i /qn (per-user) → signature Valid, bin\ the only PATH entry, gov --version in a new process
+ → gov setup --non-interactive against the gh double
+ → REAL gov agent install claude-code → claude --version through bin\claude.cmd, in a new process
+ → msiexec /x → node\ app\ bin\ and the PATH entry gone, ~/.gov kept
+```
+
+The install and uninstall checks are Pester tests (`packages/msi/test/install.Tests.ps1`). The middle part is
+`publish/actions/ts/e2e/windows/adopter-windows.ps1`. Dispatch it on your branch:
+`gh workflow run adopter-e2e.yml --ref <branch>`. The interactive journeys over ConPTY are not in this job yet.
+
 ---
 
 ## The automated journey scenarios
@@ -340,7 +355,7 @@ workspace repo (`WALK-SCRIPT.md`, `TEMPLATE.md`, `MACHINES.md`).
 ## What green means — adopter-e2e, computed
 
 `adopter-e2e` (`.github/workflows/adopter-e2e.yml`) runs these tiers: `smoke` (hermetic), `journey`
-(pty, three distros), `os-tier` (bare machines), `live` (the adopter and rule-model journeys
+(pty, three distros), `os-tier` (bare machines), `windows` (the MSI on `windows-latest`), `live` (the adopter and rule-model journeys
 against real GitHub in the sandbox org), and — on a manual dispatch only — `bridge` (below). A run is **green** only when all of this is true, and
 nobody decides it by reading a summary line:
 

@@ -60,6 +60,13 @@ describe("windows hazards — an installed agent stays reachable (#209 on Window
     expect(p.target).to.equal(`${nodeBin}\\claude.cmd`);
   });
 
+  it("writes the shim under the MSI launcher, which itself put gov's Node first on gov's own PATH (found in T16)", () => {
+    // bin\gov.cmd prepends node\ for gov's process only. That entry is the LAUNCHER's, not the adopter's shell's —
+    // the same trap #209 fell into with install.sh — so it is no evidence the agent is reachable after gov exits.
+    const p = windowsLinkPlan({ cmd: "claude", nodeBin, env: { GOV_BIN_DIR: binDir, Path: `${nodeBin};${binDir};C:\\Windows` }, isFile: files(`${nodeBin}\\claude.cmd`) });
+    expect(p.kind).to.equal("write");
+  });
+
   it("the shim puts gov's private Node first for its own process only, and passes every argument", () => {
     const text = windowsAgentShim(nodeBin, `${nodeBin}\\claude.cmd`);
     expect(text).to.match(/^@echo off\r\n/);
