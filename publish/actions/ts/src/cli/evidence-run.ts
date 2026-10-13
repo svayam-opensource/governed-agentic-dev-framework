@@ -17,6 +17,13 @@ import { dirSource, type LedgerSource } from "../evidence/verify.js";
 import { prjResolveGov } from "../resolve/resolve-gov.js";
 import { createNodeEnv, expandTilde } from "../resolve/node-env.js";
 import { runResult } from "../run-process.js";
+import { randomBytes } from "node:crypto";
+import { parseOrgConfig } from "../config/org-config.js";
+import { evidenceEnable } from "../lifecycle/evidence-setup.js";
+import { githubVcs } from "../adapters/github/vcs.js";
+import { ghRunner } from "./app-verb.js";
+import { startLoopback } from "./app-loopback.js";
+import type { EvidenceResult } from "./evidence-verb.js";
 
 export const EVIDENCE_BRANCH = "gov/evidence";
 
@@ -42,6 +49,27 @@ export function ledgerSourceAt(home: string): { ok: true; src: LedgerSource; cle
   return { ok: true, src: { where: `${home} @ ${ref}`, list: inner.list, read: inner.read }, cleanup };
 }
 
+/** `gov evidence enable`: needs the governance repo's org-config.yaml (the org, the gov repo's name). */
+async function enableAt(govHome: string | undefined): Promise<EvidenceResult> {
+  const override = govHome ?? process.env.PRJ_GOV_HOME;
+  let home: string;
+  if (override) home = path.resolve(expandTilde(override));
+  else {
+    const resolved = prjResolveGov(createNodeEnv());
+    if (!resolved.ok) return { code: 1, lines: ["gov evidence enable: no governance repo resolved here — run it in your gov repo, or pass --gov-home <path>"] };
+    home = resolved.home;
+  }
+  let text: string;
+  try { text = fs.readFileSync(path.join(home, "org-config.yaml"), "utf8"); } catch { return { code: 1, lines: [`gov evidence enable: no org-config.yaml at ${home}`] }; /* unreadable = absent: said plainly */ }
+  const c = parseOrgConfig(text);
+  return evidenceEnable({
+    vcs: githubVcs(ghRunner("gov-work:cli:evidence")),
+    loopback: startLoopback,
+    newState: () => randomBytes(16).toString("hex"),
+    say: (l) => process.stdout.write(`${l}\n`),
+  }, { githubOrg: c.githubOrg, workspaceRepo: c.workspaceRepo, orgSlugLower: c.orgSlugLower });
+}
+
 export async function runEvidence(argv: readonly string[]): Promise<number> {
   const parsed = parseArgv(argv);
   if ("error" in parsed) { process.stderr.write(`${parsed.error}\n`); return 2; }
@@ -53,6 +81,7 @@ export async function runEvidence(argv: readonly string[]): Promise<number> {
       if (!resolved.ok) return { ok: false, line: "no governance repo resolved here — pass --gov-home <a checkout of gov/evidence, or the gov repo>" };
       return ledgerSourceAt(resolved.home);
     },
+    enable: enableAt,
   });
   for (const line of r.lines) (r.code === 2 ? process.stderr : process.stdout).write(`${line}\n`);
   return r.code;

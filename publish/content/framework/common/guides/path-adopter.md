@@ -42,6 +42,9 @@ you create a domain and name its owner.
 - [Configuring agent harnesses](../../build/guides/configuring-agent-harnesses.md) — what each agent
   reads, and what gov places where
 
+- [Evidence and auditor reports](evidence-and-auditor-reports.md) — with a subscription, `gov evidence enable` turns
+  on the organization's signed evidence ledger (optional; every check runs without it)
+
 ## 5. Then work like everyone else
 
 - [Path — Developer](../../build/guides/path-developer.md)

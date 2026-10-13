@@ -19,6 +19,8 @@ export interface EvidenceDeps {
   readonly source: (govHome: string | undefined) => { ok: true; src: LedgerSource; cleanup?: () => void } | { ok: false; line: string };
   /** Trusted roots (default: the roots shipped in this verifier). */
   readonly roots?: readonly RootKey[];
+  /** `gov evidence enable` (lifecycle/evidence-setup.ts), wired by evidence-run.ts with the org's config. */
+  readonly enable?: (govHome: string | undefined) => Promise<EvidenceResult>;
 }
 
 export interface EvidenceResult { readonly code: number; readonly lines: readonly string[] }
@@ -31,11 +33,12 @@ const validDate = (s: string): boolean => {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 };
 
-const USAGE = "usage: gov evidence verify [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--gov-home <path>] [--test-roots]";
+const USAGE = "usage: gov evidence <verify [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--gov-home <path>] [--test-roots] | enable [--gov-home <path>]>";
 
 export async function evidenceCommand(positionals: readonly string[], flags: Readonly<Record<string, string | boolean>>, deps: EvidenceDeps): Promise<EvidenceResult> {
   const sub = positionals[0];
   if (sub === "verify") return Promise.resolve(evidenceVerify(flags, deps));
+  if (sub === "enable") return deps.enable ? deps.enable(flagStr(flags, "gov-home")) : { code: 1, lines: ["gov evidence enable: not available here"] };
   return { code: 2, lines: [USAGE] };
 }
 

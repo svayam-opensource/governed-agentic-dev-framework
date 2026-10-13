@@ -16,6 +16,35 @@ Checking that record is free. You do not need a subscription, a licence or a net
 
 ---
 
+## Turning evidence on for your organization
+
+An owner of the GitHub organization does this once, in the governance repository:
+
+```bash
+gov evidence enable
+```
+
+It does three things. Each one that is already done is skipped, so running it again changes nothing.
+
+1. **The evidence branch.** It creates `gov/evidence` in the governance repository, with a README and
+   `evidence/keys/roots.json`. The branch has no shared history with your default branch, which is never touched.
+2. **The branch rules.** It adds a ruleset named "gov evidence" that refuses force pushes and deletion on that branch
+   for everyone, admins included. Writers can still add to it. Rulesets on a private repository need GitHub Team or
+   Enterprise; on another plan the command says so.
+3. **The writer App.** It creates your organization's own GitHub App, "&lt;org&gt; gov evidence", which may write
+   repository contents and nothing else. Svayam never gets write access to your repositories. gov prints a local
+   page: open it in a browser on the same machine and confirm on GitHub. gov stores the App's client id and
+   private key as the organization secrets `GOV_EVIDENCE_APP_CLIENT_ID` and `GOV_EVIDENCE_APP_PRIVATE_KEY`, and
+   keeps no copy of the key.
+
+Then **install the App** on the governance repository only. The command prints the link: choose your organization,
+then "Only select repositories" and pick the governance repository.
+
+On GitHub Free, an organization secret does not reach a private repository. Give each private code repository its
+own copy of both secrets.
+
+---
+
 ## Turning evidence on for yourself
 
 Your organization's admin turns evidence on for the organization. Each person who wants evidence written from

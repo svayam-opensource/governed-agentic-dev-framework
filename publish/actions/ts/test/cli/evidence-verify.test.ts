@@ -62,4 +62,11 @@ describe("gov evidence verify", () => {
     expect(t.code, t.lines.join("\n")).to.equal(0);
     expect(t.lines.join("\n")).to.match(/TEST roots/);
   });
+
+  it("`enable` runs the org setup it is given, with --gov-home, and returns its answer", async () => {
+    const seen: (string | undefined)[] = [];
+    const r = await evidenceCommand(["enable"], { "gov-home": "/x/gov" }, { ...deps, enable: (h) => { seen.push(h); return Promise.resolve({ code: 0, lines: ["evidence enable: already on"] }); } });
+    expect(seen).to.deep.equal(["/x/gov"]);
+    expect(r.lines).to.deep.equal(["evidence enable: already on"]);
+  });
 });

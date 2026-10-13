@@ -32,7 +32,7 @@ through. The same pages are in the terminal: `gov help <command>`, `gov help <to
 - [gov repo](#gov-repo) — install the repository controls framework-specification.md §7.3 requires — or say why the platform will not
 - [gov check](#gov-check) — run one rule's checks for the event that fired, install the workflow that runs them, or say whether it is current
 - [gov app](#gov-app) — create the org's GitHub App that lets code repos' checks read the governance rules, check it, and rotate its key
-- [gov evidence](#gov-evidence) — verify the org's signed evidence ledger — free, offline, for auditors and lapsed customers too
+- [gov evidence](#gov-evidence) — verify the org's signed evidence ledger (free, offline — for auditors too), or turn the ledger on for the org
 - [gov licence](#gov-licence) — sign in with your gov personal key, see your organization's plan, and install the paid evidence module
 - [gov rules](#gov-rules) — propose rules from your policy prose, render the rule stores into what agents read, and report on them
 
@@ -536,19 +536,20 @@ gov app rotate --key-file ~/Downloads/gov-acme.private-key.pem
 
 ### gov evidence
 
-verify the org's signed evidence ledger — free, offline, for auditors and lapsed customers too
+verify the org's signed evidence ledger (free, offline — for auditors too), or turn the ledger on for the org
 
 ```text
-gov evidence verify [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--gov-home <path>] [--test-roots]
+gov evidence verify [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--gov-home <path>] [--test-roots] | enable [--gov-home <path>]
 ```
 
-**Where.** anywhere — a clone of the evidence branch (`gov/evidence`) is all it needs; no licence, no network, no org-config.yaml
+**Where.** verify: anywhere — a clone of the evidence branch (`gov/evidence`) is all it needs; no licence, no network, no org-config.yaml. enable: GOVERNED, run once by an owner of the GitHub organization
 
 **Arguments**
 
 | argument | what it is |
 | --- | --- |
 | `verify` | walk the evidence chain month by month: every entry's number and `prev` link, its signature, and its writer's certificate (a lease from a Svayam root key shipped in gov, or a root that one endorsed in `evidence/keys/roots.json`); re-hash every chained segment against its entry's sha256, check each record line is canonical and valid, and check each seal's count, root and signature. Lists gaps — runs whose evidence was NOT created — which are never a pass. Every break names the segment and line, or the chain file and entry |
+| `enable` | turn the evidence ledger on for the organization, once: create the branch `gov/evidence` in the governance repo as an orphan (evidence/README.md, evidence/keys/roots.json), a ruleset on it that refuses force pushes and deletion for everyone, and the org's own GitHub App "&lt;org&gt; gov evidence" (repository contents: write, nothing else) through GitHub's App-manifest flow — open the printed local page in a browser on this machine. The App's client id and private key become the org Actions secrets GOV_EVIDENCE_APP_CLIENT_ID and GOV_EVIDENCE_APP_PRIVATE_KEY. Each step already done is skipped, so running it again changes nothing |
 
 **Flags**
 
@@ -556,7 +557,7 @@ gov evidence verify [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--gov-home <path>
 | --- | --- |
 | `--from <date>` | re-hash only segments dated on or after this day (the chain is still walked from its start: every link is needed) |
 | `--to <date>` | re-hash only segments dated on or before this day |
-| `--gov-home <path>` | the folder to read: a checkout with `evidence/` at its top, or the gov repo, whose `origin/gov/evidence` (else local `gov/evidence`) branch is read through git without fetching (default: the governance repo gov resolves) |
+| `--gov-home <path>` | enable: the governance repo whose org-config.yaml names the org and repo. verify: the folder to read: a checkout with `evidence/` at its top, or the gov repo, whose `origin/gov/evidence` (else local `gov/evidence`) branch is read through git without fetching (default: the governance repo gov resolves) |
 | `--test-roots` | also trust `test-*` root keys listed in `evidence/keys/roots.json` — for a ledger written by a test issuer only; the output says so |
 
 **Examples**
@@ -564,16 +565,17 @@ gov evidence verify [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--gov-home <path>
 ```bash
 gov evidence verify
 gov evidence verify --gov-home ~/audit/acme-evidence --from <first-day> --to <last-day>
+gov evidence enable
 ```
 
-**Changes.** nothing — it reads. Reading the branch through git writes a temporary copy that is removed before it returns
+**Changes.** `verify` changes nothing — it reads; reading the branch through git writes a temporary copy that is removed before it returns. `enable` creates, on GitHub, the branch `gov/evidence` (a new orphan commit — the default branch is never touched), the ruleset "gov evidence", a private GitHub App owned by the organization, and two org Actions secrets (the private key goes on gh's stdin only: never printed, logged or written to disk). Installing the App on the governance repo alone is a step you take in the browser
 
 **Exit codes**
 
 | code | means |
 | --- | --- |
-| `0` | the ledger is whole: every link, hash, seal, signature and writer certificate holds (gaps, if any, are listed) |
-| `1` | a break — each is named, with the file and line or chain entry; or there was no evidence to read |
+| `0` | verify: the ledger is whole: every link, hash, seal, signature and writer certificate holds (gaps, if any, are listed). enable: every step is done (or was already) |
+| `1` | verify: a break — each is named, with the file and line or chain entry; or there was no evidence to read. enable: a step failed (✗ names it and the fix); steps already done stay done |
 | `2` | usage: an unknown subcommand, or a date that is not YYYY-MM-DD, or --from after --to |
 
 **See also.** [gov check](#gov-check) · [gov app](#gov-app)
