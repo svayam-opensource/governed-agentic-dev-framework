@@ -118,7 +118,17 @@ export type RunGit = (args: string[]) => { status: number; stdout: string; stder
 const defaultRunGit: RunGit = (args) => runResult("git", args, { pgm: "gov-work:lifecycle:vcs", fn: "git" });
 
 /** A {@link Vcs} backed by the `git` CLI. `runGit` is injectable for tests. */
-export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
+/**
+ * A push GitHub refused for ITS OWN reasons, not ours — worth one more try. Seen live: `remote: fatal error in
+ * commit_refs` / `[remote rejected] … (failure)` on a joiner's first push (svayam-e2e run 38482423935), a server
+ * error that the same push, seconds later, does not hit. A rejection that IS ours (non-fast-forward, protected
+ * branch, permission) never matches, so it fails at once, as before.
+ */
+export const TRANSIENT_PUSH = /fatal error in commit_refs|remote rejected\][^\n]*\(failure\)|internal server error|returned error: 5\d\d|HTTP 5\d\d|RPC failed|early EOF|Connection reset|Could not resolve host|unexpected disconnect/i;
+
+const sleepSync = (ms: number): void => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
+
+export function createGitVcs(runGit: RunGit = defaultRunGit, sleep: (ms: number) => void = sleepSync): Vcs {
   /** Run a git command, throwing on non-zero exit (for mutating steps). */
   const must = (args: string[]): string => {
     const r = runGit(args);
@@ -258,7 +268,16 @@ export function createGitVcs(runGit: RunGit = defaultRunGit): Vcs {
     },
     push(repoDir, remote, branch, opts) {
       const up = opts?.setUpstream ? ["-u"] : [];
-      must(["-C", repoDir, "push", ...up, remote, branch]);
+      const args = ["-C", repoDir, "push", ...up, remote, branch];
+      // Three tries, 2 s then 4 s apart, and only for a failure on GitHub's side (TRANSIENT_PUSH).
+      for (let attempt = 1; ; attempt++) {
+        const r = runGit(args);
+        if (r.status === 0) return;
+        if (attempt >= 3 || !TRANSIENT_PUSH.test(r.stderr ?? "")) {
+          throw new Error(`git ${args.join(" ")} failed (exit ${r.status})${r.stderr ? `: ${r.stderr.trim()}` : ""}`);
+        }
+        sleep(2000 * attempt);
+      }
     },
     pushDelete(repoDir, remote, branch) {
       must(["-C", repoDir, "push", remote, "--delete", branch]);
