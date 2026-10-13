@@ -18,6 +18,13 @@ import { AGENT_CATALOG, harnessFileFor } from "../cli/agent-catalog.js";
 /** Where the index-only agents' skills are written, and where their harness file's index points. */
 export const FALLBACK_SKILLS_DIR = ".agents/skills";
 
+/**
+ * Directories gov once wrote skills to and no longer does. `.cursor/skills` (D14, 2026-10-13): Cursor reads the shared
+ * `.agents/skills`, and a second copy made it see every skill twice. A gov-generated skill left here is stale and
+ * removed; a person's own is never touched.
+ */
+export const RETIRED_SKILL_DIRS: readonly string[] = [".cursor/skills"];
+
 export interface SkillTarget {
   /** Relative to the directory the agent runs in (and to `agent/harness/` in the governance repo). POSIX. */
   readonly dir: string;
@@ -65,10 +72,10 @@ export const isGovSkill = (content: string | null): boolean => content !== null 
  * renamed, or left with no C02/C03 agent rows. A person's skill is never in the list, gov-prefixed or not.
  */
 export function staleSkillDirs(fs: Pick<Fs, "readdir" | "readFile">, root: string, wanted: readonly string[]): string[] {
-  const keep = new Set(wanted);
   const out: string[] = [];
-  for (const t of SKILL_TARGETS) {
-    const base = path.join(root, ...t.dir.split("/"));
+  const dirs = [...SKILL_TARGETS.map((t) => ({ dir: t.dir, keep: new Set(wanted) })), ...RETIRED_SKILL_DIRS.map((dir) => ({ dir, keep: new Set<string>() }))];
+  for (const { dir, keep } of dirs) {
+    const base = path.join(root, ...dir.split("/"));
     for (const name of [...fs.readdir(base)].sort()) {
       if (!name.startsWith(SKILL_PREFIX) || keep.has(name)) continue;
       if (isGovSkill(fs.readFile(path.join(base, name, "SKILL.md")))) out.push(path.join(base, name));
@@ -79,4 +86,4 @@ export function staleSkillDirs(fs: Pick<Fs, "readdir" | "readFile">, root: strin
 
 /** Is this repo-relative path (as `git status` prints it) inside one of gov's generated skill directories? */
 export const isGovSkillPath = (rel: string): boolean =>
-  SKILL_TARGETS.some((t) => rel.startsWith(`${t.dir}/${SKILL_PREFIX}`));
+  [...SKILL_TARGETS.map((t) => t.dir), ...RETIRED_SKILL_DIRS].some((d) => rel.startsWith(`${d}/${SKILL_PREFIX}`));

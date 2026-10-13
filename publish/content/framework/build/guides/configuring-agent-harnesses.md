@@ -81,7 +81,7 @@ matches.
   | Agent | Instruction file | Skills | How it was verified |
   |---|---|---|---|
   | Claude Code | `CLAUDE.md` | native: `.claude/skills/<name>/SKILL.md` | Run: Claude Code 2.1.272 loaded a skill there (2026-10-12) |
-  | Cursor | `.cursor/rules/agent.mdc` | native: `.cursor/skills/<name>/SKILL.md` | Cursor's own documentation (2026-10-12). A run is still to do |
+  | Cursor | `.cursor/rules/agent.mdc` | native: `.agents/skills/<name>/SKILL.md` | Cursor's own documentation (2026-10-13). A signed-in run is still to do |
   | Gemini CLI | `GEMINI.md` | native: `.agents/skills/<name>/SKILL.md` | `gemini skills list` (0.31.0) found skills there (2026-10-12) |
   | OpenAI Codex | `AGENTS.md` | index → `.agents/skills/` | not yet verified |
   | IBM Bob | `AGENTS.md` | index → `.agents/skills/` | not yet verified (needs a signed-in run) |
@@ -92,7 +92,10 @@ matches.
   | Aider | `CONVENTIONS.md` | index → `.agents/skills/` | not yet verified |
 
   When an agent is seen loading skills from its own folder, gov adds that folder to the agent list. The index then
-  leaves that agent's instruction file at the next build.
+  leaves that agent's instruction file at the next build. gov writes each skill once to the shared
+  `.agents/skills/` and once to `.claude/skills/` for Claude. It writes no copy for Cursor, because Cursor reads
+  `.agents/skills/` and would otherwise see every skill twice. The next build removes skills an older gov wrote to
+  `.cursor/skills/`. Your own skills there stay.
 - **How it gets there.** `gov rules build` (and `gov upgrade`, `gov sync`) writes the skills, and the
   index, under `agent/harness/` with the protocol files. `gov work` copies them into the project folder and each code repo every
   time it starts an agent.

@@ -462,9 +462,9 @@ describe("gov-work — skillsDir is set only with a dated verification note", ()
     expect(SKILL_TARGETS.map((t) => t.dir).sort()).to.deep.equal([...new Set([...dirs, FALLBACK_SKILLS_DIR])].sort());
   });
 
-  it("today: claude-code (run), cursor (as L14 left it) and gemini (CLI listing) — no other agent", () => {
+  it("today: claude-code (run) reads .claude/skills; cursor and gemini share .agents/skills — no Cursor copy (D14)", () => {
     expect(AGENT_CATALOG.filter((a) => a.skillsDir).map((a) => [a.id, a.skillsDir])).to.deep.equal([
-      ["claude-code", ".claude/skills"], ["cursor", ".cursor/skills"], ["gemini-code-assist", ".agents/skills"],
+      ["claude-code", ".claude/skills"], ["cursor", ".agents/skills"], ["gemini-code-assist", ".agents/skills"],
     ]);
   });
 });

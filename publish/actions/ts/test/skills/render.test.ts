@@ -11,7 +11,7 @@ import type { RuleSet } from "../../src/rules/model/contracts.js";
 import type { CheckBinding } from "../../src/rules/model/catalog.js";
 import type { Fs } from "../../src/lifecycle/fs-io.js";
 import {
-  renderSkills, skillFiles, staleSkillDirs, isGovSkill, SKILL_TARGETS, SKILL_GENERATED, SKILL_MARK, SKILL_NAME_MAX,
+  renderSkills, skillFiles, staleSkillDirs, isGovSkill, isGovSkillPath, SKILL_TARGETS, SKILL_GENERATED, SKILL_MARK, SKILL_NAME_MAX,
 } from "../../src/skills/render.js";
 import { buildArtifacts, HARNESS_DIR } from "../../src/rules/rules-build.js";
 import { PROTOCOL_MARKER, RESIDENT_PLACEHOLDER } from "../../src/rules/harness-render.js";
@@ -180,15 +180,25 @@ describe("skills — body: cue texts in rule order, a link to the source, and 'g
 });
 
 describe("skills — the verified locations and the fallback (L14, L15)", () => {
-  it("writes each skill at every catalog skillsDir and the fallback .agents/skills, and only those", () => {
+  it("writes each skill ONCE to the shared .agents/skills plus .claude/skills for Claude — no Cursor copy (D14)", () => {
     expect(SKILL_TARGETS.map((t) => [t.dir, [...t.agents], t.fallback])).to.deep.equal([
-      [".claude/skills", ["claude-code"], false], [".cursor/skills", ["cursor"], false], [".agents/skills", ["gemini-code-assist"], true],
+      [".claude/skills", ["claude-code"], false], [".agents/skills", ["cursor", "gemini-code-assist"], true],
     ]);
     const files = skillFiles(renderSkills(SAMPLE, readDoc)).map((f) => f.path);
     expect(files).to.include(".claude/skills/gov-engineering-policy-3-1-approved-packages/SKILL.md");
-    expect(files).to.include(".cursor/skills/gov-engineering-policy-3-1-approved-packages/SKILL.md");
     expect(files).to.include(".agents/skills/gov-engineering-policy-3-1-approved-packages/SKILL.md");
-    expect(files).to.have.length(9);
+    expect(files.some((f) => f.startsWith(".cursor/"))).to.equal(false);
+    expect(files).to.have.length(6);
+  });
+
+  it("a generated copy left in the retired .cursor/skills is stale and removed; a person's skill there stays (D14)", () => {
+    const sk = renderSkills(SAMPLE, readDoc)[0]!;
+    const fs = memFs({
+      [`/r/.cursor/skills/${sk.name}/SKILL.md`]: sk.content,
+      ["/r/.cursor/skills/gov-mine/SKILL.md"]: "---\nname: gov-mine\n---\nmine\n",
+    });
+    expect(staleSkillDirs(fs, "/r", [sk.name]).map(px)).to.deep.equal([`/r/.cursor/skills/${sk.name}`]);
+    expect(isGovSkillPath(`.cursor/skills/${sk.name}/SKILL.md`)).to.equal(true);
   });
 });
 

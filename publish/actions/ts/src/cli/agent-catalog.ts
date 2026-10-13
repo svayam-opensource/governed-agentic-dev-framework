@@ -240,14 +240,13 @@ export const AGENT_CATALOG: readonly AgentCandidate[] = [
     // with --print/headless mode)`. The candidate is ["-p", "{prompt}", "--output-format", "text", "--trust"]. Run
     // once with it, it exited 1 without prompting — "Authentication required. Please run 'agent login' first" — so
     // it is non-interactive, but no answer was seen. Set it after one signed-in run prints an answer and exits 0.
-    // NOT YET RUN-VERIFIED — kept as L14 placed it, by the lead's decision, until a logged-in run confirms it. The
-    // same CLI's bundle (2026.07.16-899851b) also scans .agents/skills, .claude/skills and .codex/skills in the
-    // project, so once a run confirms the loader, .agents/skills (one copy, shared) is the better home.
-    skillsDir: ".cursor/skills",
-    skillsVerified: "2026-10-12 cursor-agent 2026.07.16-899851b: DOC ONLY — its bundled create-skill skill "
-      + "(~/.cursor/skills-cursor/create-skill/SKILL.md) gives the project location .cursor/skills/<name>/; a run was "
-      + "refused (\"Authentication required\": not logged in on this machine, and gov's tasks never touch credentials). "
-      + "Re-verify by a run.",
+    // SKILLS IN THE SHARED .agents/skills (D14, Policy Owner 2026-10-13): one copy, no Cursor-specific one, so Cursor
+    // does not see duplicates. The CLI's bundle (2026.07.16-899851b) scans .agents/skills, .claude/skills and
+    // .codex/skills in the project. A signed-in cursor-agent run that loads one is still owed (D14's verification).
+    skillsDir: ".agents/skills",
+    skillsVerified: "2026-10-13 cursor-agent 2026.07.16-899851b: DOC ONLY — its bundle scans .agents/skills (also "
+      + ".claude/skills and .codex/skills) in the project; placed there by D14. A run was refused (\"Authentication "
+      + "required\": not logged in on this machine). Verify by one signed-in run.",
     install: { script: "https://cursor.com/install", url: "https://cursor.com/cli" },
     signupUrl: "https://cursor.com", vendor: "Cursor",
     variants: [
