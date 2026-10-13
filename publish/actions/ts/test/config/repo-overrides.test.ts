@@ -47,6 +47,22 @@ describe("gov-work — repo_overrides (#194)", () => {
       "no surprises for the unmapped").to.equal("https://github.com/svm-geneva/other-repo");
   });
 
+  it("no path resolves a fork without a mapping — declared, never inferred", () => {
+    const urls = [
+      "https://github.com/genevaers/Workbench",
+      "git@github.com:genevaers/Workbench.git",
+      "https://github.com/svm-geneva/Workbench",
+    ];
+    // No mapping at all: every URL is the work repo, unchanged, and nothing is reported as redirected.
+    for (const u of urls) expect(resolveWorkRepo(u, {}), u).to.equal(u);
+    expect(appliedOverrides(urls, {})).to.deep.equal([]);
+    // A mapping applies to its exact slug only — a near name or another owner's same-named repo is not a match.
+    const o = parseRepoOverrides(CFG);
+    for (const u of ["https://github.com/genevaers/Workbench-extra", "https://github.com/someone/Workbench"]) {
+      expect(resolveWorkRepo(u, o), u).to.equal(u);
+    }
+  });
+
   it("reports which redirects were used — a decision made on your behalf is said out loud", () => {
     const o = parseRepoOverrides(CFG);
     const used = appliedOverrides(["https://github.com/genevaers/Workbench", "https://github.com/svm-geneva/mine"], o);
