@@ -35,6 +35,7 @@ for j in ${JOURNEYS:-"adopter:${ADOPTER:-}" "rule-model:${RULEMODEL:-}"}; do
   [ "$verdict" = success ] && [ -n "$skipped" ] && verdict=incomplete
   label="$name"; [ "$name" = adopter ] && label="adopter (seed → task → merge → close)"
   [ "$name" = joiner ] && label="joiner (second identity: join → work → task → merge)"
+  [ "$name" = signal ] && label="signal round-trip (ask · depends · notice · handover · merge, bot A → bot B)"
   [ "$name" = adopter-close ] && label="adopter close + teardown (after the joiner)"
   [ "$name" = bridge ] && label="bridge rehearsal (reset → upgrade --pr → propose → build → protect → install → doctor → journey)"
   list="$(printf '%s' "$skipped" | awk 'NF { printf "%sskipped: %s", (n++ ? "<br>" : ""), $0 }')"

@@ -298,7 +298,7 @@ jobs:
           if-no-files-found: ignore
 
   live:
-    name: adopter + joiner + rule-model journeys (live GitHub)
+    name: adopter + joiner + signal + rule-model journeys (live GitHub)
     # PRs into the long-lived branches only (the project branch's PR into dev is where the sandbox run gates —
     # rule-model-design.md "sandbox CI"); a PR between feature branches does not spend half an hour in the sandbox.
     if: github.event_name != 'pull_request' || github.base_ref == 'dev' || github.base_ref == 'main'
@@ -306,8 +306,9 @@ jobs:
     # 50, not 20: the adopter journey takes ~10 minutes and the rule-model journey waits on ~10 workflow runs in
     # the sandbox (each installs the packed gov), capped at E2E_DEADLINE_SECS=2100 (35 min) of waiting. The cap
     # sits inside the timeout so the journey's own trap — not a killed runner — deletes its repos. 60 since the joiner
-    # journey (~5 min: install, join, work, task, merge as bot B) runs between the adopter's two phases (T15).
-    timeout-minutes: 60
+    # journey (~5 min: install, join, work, task, merge as bot B) runs between the adopter's two phases (T15); 70 since
+    # the signal round-trip (~5 min, L09) runs after it.
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4
       # THE NAMES THE REPO ACTUALLY HOLDS. This job read GOV_E2E_TOKEN / GOV_E2E_ORG while the repository holds
@@ -393,6 +394,22 @@ jobs:
           E2E_JOINER_HOME: ${{ runner.temp }}/joiner-home
           GOV_TARBALL: ${{ steps.pack.outputs.tgz }}
         run: bash publish/actions/ts/e2e/joiner-journey.sh
+      # THE SIGNAL ROUND-TRIP (PRJ-121 intent 03, L09, gadf#287): two projects seeded by bot A; bot A sends ask, depends,
+      # notice, handover, merge to the one bot B joined; bot B's `gov signal list` — its session manifest's lines —
+      # must show each as "Incoming signals", bot B answers, and bot A's Outgoing line drops it. A person sends (spec 03
+      # Q6): each send/ack runs in a pseudo-terminal and answers the confirmation. Needs the joiner's machine, so it runs
+      # only when the joiner did; before the finish phase deletes the org's gov repo.
+      - name: Run signal round-trip (two identities, real GitHub)
+        id: signal
+        if: steps.guard.outputs.run == 'true' && steps.identity.outcome == 'success' && !cancelled()
+        env:
+          GH_TOKEN: ${{ secrets.TESTBED_BOT_PAT }}
+          E2E_JOINER_TOKEN: ${{ secrets.TESTBED_JOINER_PAT }}
+          E2E_JOINER_LOGIN: ${{ secrets.TESTBED_JOINER_LOGIN }}
+          E2E_HANDOFF: ${{ runner.temp }}/live.env
+          E2E_JOINER_HOME: ${{ runner.temp }}/joiner-home
+          GOV_TARBALL: ${{ steps.pack.outputs.tgz }}
+        run: bash publish/actions/ts/e2e/signal-journey.sh
       - name: Run adopter journey — close + teardown (always)
         id: finish
         if: always() && steps.guard.outputs.run == 'true'
@@ -435,6 +452,7 @@ jobs:
           JOURNEYS: >-
             adopter:${{ steps.adopter.outcome }}
             joiner:${{ steps.guard.outputs.joiner == 'true' && (steps.identity.outcome == 'success' && steps.joiner.outcome || 'identity-failed') || 'unconfigured' }}
+            signal:${{ steps.guard.outputs.joiner == 'true' && (steps.identity.outcome == 'success' && steps.signal.outcome || 'identity-failed') || 'unconfigured' }}
             adopter-close:${{ steps.finish.outcome }}
             rule-model:${{ steps.rulemodel.outcome }}
           STRICT: ${{ steps.guard.outputs.strict }}
