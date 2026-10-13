@@ -56,7 +56,7 @@ import { randomBytes } from "node:crypto";
 import { checkCommandAsync } from "./check-verb.js";
 import { packCommand } from "./pack-verb.js";
 import { createKeychain } from "../security/keychain.js";
-import { ensureCheckModule, evidenceDoctorRow, evidenceWanted, noticeOnce, setEvidenceContext } from "../check-seam/evidence.js";
+import { ensureCheckModule, evidenceDoctorRow, noticeOnce, setEvidenceContext } from "../check-seam/evidence.js";
 import { discoverModule } from "../check-seam/loader.js";
 import { boardLinkedRepos, checkStatusReport, checksDiagnostic, type LinkedRepos, type ScopeDeps } from "./check-scope.js";
 import { keyNameFor } from "./secret-reach.js";
@@ -1644,10 +1644,10 @@ function buildWorkDeps(me: string | null): Omit<Parameters<typeof runWorkFlow>[0
     return true;
   };
   setEvidenceFor(resolved.home, config.githubOrg);
-  // The quiet evidence notice under the session manifest (spec 02 A19): only when the org wants evidence and the
+  // The quiet evidence notice under the session manifest (spec 02 A19): the subscription decides (D6) — whenever the
   // paid module is not installed here. File look-ups only.
   const evidenceNotice = (): string | null =>
-    evidenceWanted(fs.readFile(path.join(resolved.home, GOVERNANCE_PATH))) && !discoverModule({ env: process.env }) ? noticeOnce("manifest", process.env) : null;
+    !discoverModule({ env: process.env }) ? noticeOnce("manifest", process.env) : null;
   return {
     evidenceNotice,
     projects: createGhProjects(runGh),
@@ -2771,10 +2771,7 @@ export function main(argv: readonly string[], now: string = new Date().toISOStri
       ...(protection ? { protection } : {}),
       ...(doctorRules && !("error" in doctorRules) ? { rules: doctorRules } : {}),
       // Evidence (spec 02): file look-ups only — doctor never starts the paid module.
-      evidence: evidenceDoctorRow({
-        wanted: doctorCfgText !== null && evidenceWanted(fs.readFile(path.join(home, GOVERNANCE_PATH))),
-        found: discoverModule({ env: process.env }),
-      }),
+      evidence: evidenceDoctorRow({ found: discoverModule({ env: process.env }) }),
     });
     for (const line of formatDoctorReport(report, stdoutColor())) process.stdout.write(`${line}\n`);
 

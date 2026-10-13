@@ -49,8 +49,7 @@ import type { ActionExecutor } from "../rules/checks/executor.js";
 import { GH_ACTION_OUTCOMES_ENV, parseGhActionOutcomes } from "../rules/checks/gh-org-actions.js";
 import { paidKey, type PaidOutcome } from "../rules/checks/runner.js";
 import { classifyRow } from "../rules/model/catalog.js";
-import { GOVERNANCE_PATH } from "../config/governance.js";
-import { evidenceWanted, noticeOnce, recordEvidence } from "../check-seam/evidence.js";
+import { noticeOnce, recordEvidence } from "../check-seam/evidence.js";
 import { runContext, verdictDraft } from "../check-seam/record.js";
 import type { LoadedModule } from "../check-seam/loader.js";
 
@@ -262,8 +261,7 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
   const verdict = runner.run(id, ctx);
 
   // EVIDENCE (spec 02 §3.1): one record per judged binding — the module, if it runs, signs and writes them at the
-  // end of the command; without it they are dropped. And, when evidence was wanted or a paid binding met none, ONE
-  // quiet notice for this job.
+  // end of the command; without it they are dropped. And, with no paid module running, ONE quiet notice for this job.
   if (row) {
     const klass = classifyRow(row, rules.catalog, hard ? "hard" : "soft", { paidModule: !!deps.paidActive });
     const evCtx = runContext(deps.env, cfg.govVersion ?? "0.0.0");
@@ -274,8 +272,8 @@ function judge(id: string | undefined, flags: Readonly<Record<string, string | b
       }));
     }
   }
-  const metPaid = (verdict.bindings ?? []).some((b) => b.verdict === "needs-subscription");
-  if (deps.env.GITHUB_ACTIONS === "true" && !deps.paidActive && (metPaid || evidenceWanted(deps.git(cfg.home, ["show", `${ref}:${GOVERNANCE_PATH}`])))) {
+  // The subscription decides (D6): no paid module running in a CI job → the one quiet notice for this job.
+  if (deps.env.GITHUB_ACTIONS === "true" && !deps.paidActive) {
     const notice = noticeOnce("run", deps.env);
     if (notice) lines.push(notice);
   }

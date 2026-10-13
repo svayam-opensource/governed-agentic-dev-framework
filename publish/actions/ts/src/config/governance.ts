@@ -29,7 +29,7 @@ import { readAuthorizedAgents, type AuthorizedAgents } from "./approved-agents.j
 export const GOVERNANCE_PATH = "policies/governance.yaml";
 
 /** The top-level keys gov reads in governance.yaml — anything else is reported, never acted on. */
-export const GOVERNANCE_KEYS = ["governance_posture", "policy_owner", "check_owner", "authorized_agents", "models", "evidence", "autorun"] as const;
+export const GOVERNANCE_KEYS = ["governance_posture", "policy_owner", "check_owner", "authorized_agents", "models", "autorun"] as const;
 
 /**
  * Keys gov once wrote here and no longer reads. An org's file may still hold one: it stays exactly as written, and gov
@@ -127,9 +127,6 @@ export function parseGovernance(text: string | null | undefined): GovernanceConf
   if (provider && !(PROVIDERS as readonly string[]).includes(provider)) {
     problems.push(`models.propose.provider: "${provider}" is not one gov can call (${PROVIDERS.join(" · ")}) — no model is approved`);
   }
-  // `evidence: enabled` — the org wants signed evidence (spec 02); read by check-seam/evidence.ts. Anything else is off.
-  const ev = str(doc.evidence).toLowerCase();
-  if (doc.evidence !== undefined && ev !== "enabled" && ev !== "off") problems.push(`evidence: expected enabled or off, got "${ev}" — read as off`);
   const ciRaw = models.ci_allowed;
   if (ciRaw !== undefined && ciRaw !== null && typeof ciRaw !== "boolean") {
     problems.push("models.ci_allowed: expected true or false — read as false");

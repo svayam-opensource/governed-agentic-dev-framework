@@ -6,13 +6,13 @@
  * end of the command, {@link flushEvidence} looks for the paid module: found and running, it receives the records and
  * signs and writes them; not found, they are dropped. The default sink does nothing, opens no socket, writes no file.
  *
- * THE QUIET NOTICE (S6 style, A19). When evidence is WANTED (governance.yaml `evidence: enabled`) or a paid binding
- * was met, and no module runs, each surface says so once, in one calm line: the CI run (`::notice`, shown on the pull
- * request), the session manifest, `gov doctor`. An org that never asked sees nothing — gov runs exactly as before.
+ * THE QUIET NOTICE (S6 style, A19). THE SUBSCRIPTION DECIDES (D6, Policy Owner 2026-10-13) — there is no
+ * governance.yaml switch. With no paid module running, each surface says so once, in one calm line: the CI run
+ * (`::notice`, shown on the pull request), the session manifest, `gov doctor` (an advisory row, not a warning).
+ * Checks run and enforce exactly as before either way.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import yaml from "js-yaml";
 import { createHost } from "./host.js";
 import { discoverModule, loadCheckModule, type LoadedModule } from "./loader.js";
 import type { KeychainPort } from "./public.js";
@@ -136,18 +136,6 @@ export function withSessionEvidence<A extends unknown[], R>(
 
 // ─── the quiet notice ────────────────────────────────────────────────────────────────────────────────────────
 
-/** governance.yaml says `evidence: enabled`. Anything else — absent, `off`, unreadable — is not wanted. */
-export function evidenceWanted(governanceText: string | null | undefined): boolean {
-  if (!governanceText) return false;
-  try {
-    const doc = yaml.load(governanceText) as Record<string, unknown> | null;
-    return !!doc && typeof doc === "object" && String(doc.evidence ?? "").trim().toLowerCase() === "enabled";
-  } catch {
-    // Unreadable YAML is reported by `gov doctor`'s governance row; for evidence it simply means "not asked for".
-    return false;
-  }
-}
-
 export type NoticeSurface = "run" | "manifest" | "doctor";
 
 const PORTAL = "https://portal.svayamtech.com";
@@ -179,9 +167,11 @@ export function noticeOnce(surface: NoticeSurface, env: Env): string | null {
   return quietNotice(surface);
 }
 
-/** `gov doctor`'s evidence row. File look-ups only: doctor never starts the module (that could ask for a lease). */
-export function evidenceDoctorRow(f: { readonly wanted: boolean; readonly found: ReturnType<typeof discoverModule> }): { name: string; status: "ok" | "warn"; detail: string } {
+/**
+ * `gov doctor`'s evidence row. File look-ups only: doctor never starts the module (that could ask for a lease).
+ * No module → the quiet notice as an ADVISORY: status ok, because an unsubscribed org is not misconfigured (D6).
+ */
+export function evidenceDoctorRow(f: { readonly found: ReturnType<typeof discoverModule> }): { name: string; status: "ok" | "warn"; detail: string } {
   if (f.found) return { name: "evidence", status: "ok", detail: `gov-check installed (${f.found.via}: ${f.found.entry})` };
-  if (f.wanted) return { name: "evidence", status: "warn", detail: quietNotice("doctor") };
-  return { name: "evidence", status: "ok", detail: "off — signed evidence is optional (gov-check, with a subscription)" };
+  return { name: "evidence", status: "ok", detail: quietNotice("doctor") };
 }

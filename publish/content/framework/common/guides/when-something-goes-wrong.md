@@ -166,12 +166,12 @@ an access change, and it is made on GitHub, because the board is the project:
 
 Both are notices, not errors. Your checks ran and enforced exactly as they always do.
 
-- **"Signed evidence is off: gov-check is not installed here."** Your organization set `evidence: enabled` in
-  `policies/governance.yaml`, but this machine or CI job does not have the paid module, `@svayam/gov-check`, so no
-  signed evidence was written for this run. You see it once per place: on the CI run, under the session manifest
-  and in `gov doctor`. To get evidence, your organization needs a subscription (the guide
-  "Evidence and auditor reports" explains it). To stop the notice instead, remove the
-  `evidence:` line or set it to `off`.
+- **"Signed evidence is off: gov-check is not installed here."** This machine or CI job does not have the paid
+  module, `@svayam/gov-check`, so no signed evidence was written for this run. You see it once per place: on the
+  CI run, under the session manifest and in `gov doctor`. To get evidence, your organization needs a subscription
+  (the guide "Evidence and auditor reports" explains it). There is no setting to turn evidence on or off. The
+  subscription decides. gov ignores an `evidence:` line in `policies/governance.yaml`, and `gov doctor` reports
+  it as a key gov does not read.
 - **"needs a subscription — the binding was recorded, not run".** A rule binds a paid action (an LLM judge or a
   compliance pack's action) and no paid module runs here. The rule is not checked by that binding. It is not
   counted as a pass, and it does not block your change.

@@ -2,7 +2,7 @@
 # NO PAID MODULE = TODAY (PRJ-121 intent 02, A1 / A19 hermetic half).
 #
 # An organization without @svayam/gov-check runs gov exactly as before: nothing is written under evidence/, and the
-# only trace is ONE calm doctor line — and only when the organization said it wants evidence.
+# only trace is ONE calm doctor line. The subscription decides (D6, 2026-10-13): there is no governance.yaml switch.
 scenario "51 · no gov-check — gov runs as today; evidence off is one quiet line"
 
 REMOTE="$GIT_STUB_REMOTES/acme-gov"
@@ -14,21 +14,19 @@ printf 'acme\n' > "$HOME/.gov/active"
 unset GOV_CHECK_PATH
 export GOV_CHECK_HOME="$WORLD/gov-check-none"
 
-info "an org that never asked for evidence: doctor says it is off, calmly"
+info "an unsubscribed org: doctor gives exactly one quiet notice, with no governance key (D6)"
 out="$(cd "$REMOTE" && gov doctor 2>&1)"
 printf '%s\n' "$out" > "$WORLD/doctor-off.out"
-grep -E "evidence" "$WORLD/doctor-off.out" | grep -qE "off" \
-  && pass "the evidence row says off" || { fail "the evidence row says off"; cat "$WORLD/doctor-off.out"; }
-grep -E "evidence" "$WORLD/doctor-off.out" | grep -qiE "subscription \(https" \
-  && fail "no subscription notice for an org that did not ask" || pass "no subscription notice for an org that did not ask"
+n="$(grep -c "Signed evidence is off" "$WORLD/doctor-off.out" || true)"
+[ "$n" = "1" ] && pass "one notice (got $n)" || { fail "one notice (got $n)"; cat "$WORLD/doctor-off.out"; }
 
-info "an org that wants evidence but has no module: exactly one quiet notice on the doctor surface"
-printf '\nevidence: enabled\n' >> "$REMOTE/policies/governance.yaml"
-( cd "$REMOTE" && git add -A && git -c user.email=e@x -c user.name=e commit -qm "want evidence" )
+info "an old \`evidence:\` key changes nothing — gov does not read it (D6)"
+printf '\nevidence: off\n' >> "$REMOTE/policies/governance.yaml"
+( cd "$REMOTE" && git add -A && git -c user.email=e@x -c user.name=e commit -qm "old evidence key" )
 out="$(cd "$REMOTE" && gov doctor 2>&1)"
-printf '%s\n' "$out" > "$WORLD/doctor-on.out"
-n="$(grep -c "Signed evidence is off" "$WORLD/doctor-on.out" || true)"
-[ "$n" = "1" ] && pass "one notice (got $n)" || { fail "one notice (got $n)"; cat "$WORLD/doctor-on.out"; }
+printf '%s\n' "$out" > "$WORLD/doctor-key.out"
+n="$(grep -c "Signed evidence is off" "$WORLD/doctor-key.out" || true)"
+[ "$n" = "1" ] && pass "still one notice (got $n)" || { fail "still one notice (got $n)"; cat "$WORLD/doctor-key.out"; }
 
 info "nothing was written as evidence, anywhere"
 if find "$REMOTE" "$HOME" -path '*/node_modules' -prune -o -type d -name evidence -print 2>/dev/null | grep -q .; then

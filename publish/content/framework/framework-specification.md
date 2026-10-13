@@ -843,11 +843,10 @@ subscription**. It is never a pass, it counts like "could not tell" when outcome
 block anything by itself. A rule whose every check is paid shows the Class *advisory (needs subscription)* in the
 rule map. Without the module, an LLM judge binding stays "could not tell", as before.
 
-**The quiet notice.** An organization asks for evidence by setting `evidence: enabled` in
-`policies/governance.yaml`. When it has asked, or a paid binding was met, and the module is not installed, gov
-says so once per place it speaks: one notice on the CI run (GitHub shows it on the pull request), one line under
-the session manifest when `gov work` starts an agent, and one row in `gov doctor`. Nothing else changes. An
-organization that never asked sees nothing.
+**The quiet notice.** The subscription decides whether evidence is recorded. There is no setting for it in
+`policies/governance.yaml`. When the module is not installed or not running, gov says so once per place it
+speaks: one notice on the CI run (GitHub shows it on the pull request), one line under the session manifest when
+`gov work` starts an agent, and one advisory row in `gov doctor`. Nothing else changes.
 
 **Versions must match.** gov announces the version of the seam it offers. The module declares the version it
 needs. When they do not fit, gov prints one quiet line and runs exactly as it does with no module installed. It

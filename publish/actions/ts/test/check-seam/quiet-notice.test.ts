@@ -1,24 +1,26 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 //
-// ONE QUIET NOTICE PER SURFACE (spec 02 A19, S6 style). When evidence is wanted (governance.yaml `evidence: enabled`)
-// or a paid binding was met, and no module is running, each surface says so ONCE: the CI run (`::notice`, which
-// GitHub shows on the pull request), the session manifest line, and `gov doctor`. An org that never asked for evidence
-// and met no paid binding sees nothing at all — exactly as today.
+// ONE QUIET NOTICE PER SURFACE (spec 02 A19, S6 style). THE SUBSCRIPTION DECIDES (D6, Policy Owner 2026-10-13): there
+// is no `evidence:` key in governance.yaml. With no paid module running, each surface says so ONCE: the CI run
+// (`::notice`, which GitHub shows on the pull request), the session manifest line, and `gov doctor` (an advisory row,
+// never a warning — an unsubscribed org is not misconfigured).
 import { expect } from "chai";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { evidenceWanted, quietNotice, noticeOnce, resetEvidence, evidenceDoctorRow } from "../../src/check-seam/evidence.js";
+import * as evidence from "../../src/check-seam/evidence.js";
+import { quietNotice, noticeOnce, resetEvidence, evidenceDoctorRow } from "../../src/check-seam/evidence.js";
+import { parseGovernance, GOVERNANCE_KEYS } from "../../src/config/governance.js";
 
 describe("check-seam — the quiet notice (A19)", () => {
   beforeEach(() => resetEvidence());
 
-  it("evidence is wanted only when governance.yaml says `evidence: enabled`", () => {
-    expect(evidenceWanted("evidence: enabled\n")).to.equal(true);
-    expect(evidenceWanted("evidence: off\n")).to.equal(false);
-    expect(evidenceWanted(null)).to.equal(false);
-    expect(evidenceWanted("governance_posture: hard\n")).to.equal(false);
+  it("D6: there is no `evidence:` switch — gov does not read the key, and an old one is reported as ignored", () => {
+    expect((GOVERNANCE_KEYS as readonly string[]).includes("evidence")).to.equal(false);
+    expect("evidenceWanted" in evidence).to.equal(false);
+    const g = parseGovernance("governance_posture: soft\nevidence: enabled\n");
+    expect(g.problems).to.include("evidence: gov does not read this key in policies/governance.yaml — ignored");
   });
 
   it("each surface gets exactly one line, once per process", () => {
@@ -44,11 +46,12 @@ describe("check-seam — the quiet notice (A19)", () => {
     expect(t).to.not.match(/error|fail|warning/i);
   });
 
-  it("doctor: off and not wanted → ok; wanted but not installed → warn with the notice; installed → ok", () => {
-    expect(evidenceDoctorRow({ wanted: false, found: null }).status).to.equal("ok");
-    const w = evidenceDoctorRow({ wanted: true, found: null });
-    expect(w.status).to.equal("warn");
-    expect(w.detail).to.equal(quietNotice("doctor"));
-    expect(evidenceDoctorRow({ wanted: true, found: { entry: "/x", via: "global" } }).status).to.equal("ok");
+  it("doctor: no module → the quiet notice as an advisory (ok, never warn); installed → ok, naming it", () => {
+    const off = evidenceDoctorRow({ found: null });
+    expect(off.status).to.equal("ok");
+    expect(off.detail).to.equal(quietNotice("doctor"));
+    const on = evidenceDoctorRow({ found: { entry: "/x", via: "global" } });
+    expect(on.status).to.equal("ok");
+    expect(on.detail).to.include("gov-check installed");
   });
 });
