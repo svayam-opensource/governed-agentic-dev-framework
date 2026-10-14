@@ -13,7 +13,10 @@
  *   · the READMEs name the live door, `https://gov.svayamtech.com` (until P2 B flips it — then this test
  *     changes with the DNS, in one commit);
  *   · operating-systems.md describes native Windows — the MSI and winget — not Git Bash or `prj`;
- *   · each doc this task rewrote says who it is for in its first line.
+ *   · each doc this task rewrote says who it is for in its first line;
+ *   · P1 REVISED (Policy Owner, 2026-10-14): the installer ships UNSIGNED until a production certificate exists,
+ *     so the Windows door is `winget install Svayam.Gov` alone, nobody is promised a "signed .msi", and every page
+ *     that mentions the .msi says a directly downloaded one shows "Unknown publisher".
  *
  * Hermetic: it reads files only. Whether the door URL answers 200 is `npm run door:check` (scripts/
  * door-link-check.mjs), run on a schedule in CI — a network check would make every PR depend on DNS.
@@ -75,8 +78,8 @@ describe("door docs (#181)", () => {
       const t = read(f);
       expect(t, `${f}: macOS/Linux door`).to.match(/install\.sh/);
       expect(t, `${f}: Windows door`).to.include("winget install Svayam.Gov");
-      expect(t, `${f}: the signed .msi`).to.match(/\.msi\b/);
-      expect(t, `${f}: says the Windows door is not live yet`).to.match(/first signed release/i);
+      expect(t, `${f}: the .msi`).to.match(/\.msi\b/);
+      expect(t, `${f}: says the Windows door is not live yet`).to.match(/first release/i);
       expect(t, `${f}: ends in the first-run flow`).to.match(/first-run flow/i);
       expect(t, `${f}: no npm i -g route`).to.not.match(/npm i(nstall)? -g @svayam/);
       expect(t, `${f}: gov setup is a machine verb, not a door`).to.not.match(/\bgov setup\b/);
@@ -93,6 +96,16 @@ describe("door docs (#181)", () => {
     // T10/T11's section is accurate and stays.
     expect(t).to.include("## Windows: how gov runs other programs and installs agents");
     expect(t).to.include("winget upgrade Svayam.Gov");
+  });
+
+  it("P1 REVISED: Windows = winget; no page promises a signed MSI; a downloaded .msi shows 'Unknown publisher'", () => {
+    for (const f of ["README.md", "publish/actions/ts/README.md", "docs/installing.md", "docs/operating-systems.md", "site/template/index.html"]) {
+      const t = read(f);
+      expect(t, `${f}: Windows door`).to.include("winget install Svayam.Gov");
+      expect(t, `${f}: promises a signed installer`).to.not.match(/signed (`|<code>)?\.msi|signed MSI|first signed release/i);
+      expect(t, `${f}: says what a direct download shows`).to.include("Unknown publisher");
+      expect(t, `${f}: says until when`).to.match(/until a production (code-signing )?certificate exists/i);
+    }
   });
 
   it("every doc T07 touched says who it is for in its first line", () => {

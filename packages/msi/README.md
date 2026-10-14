@@ -23,7 +23,7 @@ sequenceDiagram
   W->>P: ci/pack-gov.sh → scripts/build.mjs
   P-->>W: gov-<ver>-<arch>.msi (UNSIGNED)
   W-->>C: one artifact gov-<ver>-<arch>.msi
-  C->>C: sign (HSM key) + RFC 3161 timestamp, verify
+  C->>C: prod unsigned: keep the bytes as built · tester copy: sign (HSM key) + RFC 3161, verify
   C->>C: release asset + install site + (prod) winget PR
 ```
 
@@ -32,7 +32,12 @@ sequenceDiagram
 - **Sign** is never done here for a release. `scripts/sign.mjs --signer "<command with {file}>"` runs the
   caller's signer. gov-cicd passes its HSM-backed command. CI passes `ci/sign-test.ps1`, which creates a
   throwaway certificate inside the job.
-- **winget** (`scripts/winget.mjs`) renders the `Svayam.Gov` manifests from `winget/` for the signed MSIs.
+- **Unsigned until a production certificate exists** (Policy Owner ruling P1 REVISED, 2026-10-14). gov-cicd's
+  catalog sets `msi.signing.prod: unsigned`, so prod ships the bytes this package built, with no signature. A
+  test-signed copy is still made at uat for named testers, and that copy is never released. A directly
+  downloaded `.msi` shows "Unknown publisher", so winget is the Windows door. Revisit before bank pilots.
+- **winget** (`scripts/winget.mjs`) renders the `Svayam.Gov` manifests from `winget/` for the released MSIs.
+  winget checks `InstallerSha256` and needs no signature, so the listing is the same for signed and unsigned MSIs.
   gov-cicd's prod promote runs it and opens the `microsoft/winget-pkgs` PR. Only plain `x.y.z` versions are listed.
 
 ## Build it yourself (Windows)

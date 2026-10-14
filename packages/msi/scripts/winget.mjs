@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
- * Render the winget manifests for SIGNED MSIs (plan 04 T15). gov-cicd's prod promote runs this on the bytes it ships
+ * Render the winget manifests for the released MSIs (plan 04 T15) — unsigned until a production certificate
+ * exists (P1 REVISED), signed after; the listing is the same either way. gov-cicd's prod promote runs this on the
+ * bytes it ships
  * and puts the output in its microsoft/winget-pkgs PR. Writes <out>/manifests/s/Svayam/Gov/<version>/ and prints
  * that directory on its last line. On Windows, check it with `winget validate --manifest <dir>`.
  *

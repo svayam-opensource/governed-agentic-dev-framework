@@ -8,10 +8,11 @@ every door ends in the same first-run flow.
 | OS | Door |
 |---|---|
 | macOS, Linux | `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` |
-| Windows | `winget install Svayam.Gov`, or the signed `.msi` from the [release page](https://github.com/svayam-opensource/governed-agentic-dev-framework/releases) |
+| Windows | `winget install Svayam.Gov` |
 
-**The Windows door goes live with the first signed release.** Until then `winget` does not find
-`Svayam.Gov` and the release page has no `.msi`. `install.ps1` is a machine path for CI and
+**The Windows door goes live with the first release of the installer.** Until then `winget` does not
+find `Svayam.Gov`. The installer is released **unsigned until a production code-signing certificate
+exists**, so use `winget`: a `.msi` downloaded directly from the [release page](https://github.com/svayam-opensource/governed-agentic-dev-framework/releases) shows "Unknown publisher" until a production code-signing certificate exists. `install.ps1` is a machine path for CI and
 Server Core only, not a door for people (see `gov help install`).
 
 ## Then: the first-run flow
@@ -62,14 +63,15 @@ Then open a **new** terminal and run `gov`. The first run takes you through setu
 
 The package is an MSI that installs for you alone. It needs no administrator rights and changes nothing
 machine-wide. It brings its own Node 24 and leaves any Node already on the machine untouched. It adds one folder
-to your PATH, `%LOCALAPPDATA%\Programs\gov\bin`. Double-clicking the `.msi` gives the same result, and its last page
-offers to launch gov. Update with `winget upgrade Svayam.Gov`. Uninstalling from *Installed apps* removes gov and the
+to your PATH, `%LOCALAPPDATA%\Programs\gov\bin`. The installer's last page offers to launch gov. Update with `winget upgrade Svayam.Gov`. Uninstalling from *Installed apps* removes gov and the
 agents it installed, and keeps `~/.gov` (your workspaces and preferences).
 
-- **winget lags a release.** Microsoft reviews every winget listing, which takes hours to days. The signed
-  `gov-<version>-x64.msi` (or `-arm64.msi`) is on the release page as soon as the release is out. Use it when
-  `winget` does not offer the new version yet.
-- **Until the first signed MSI is released,** use `install.ps1`. The Windows code-signing certificate is pending.
+- **The installer is unsigned until a production code-signing certificate exists.** winget checks the
+  installer's SHA256 against its listing, so `winget install` is the way in. A `.msi` downloaded directly from the [release page](https://github.com/svayam-opensource/governed-agentic-dev-framework/releases) shows "Unknown publisher" until a production code-signing certificate exists.
+  Windows SmartScreen may also warn about it. Prefer winget.
+- **winget lags a release.** Microsoft reviews every winget listing, which takes hours to days. The
+  `gov-<version>-x64.msi` (or `-arm64.msi`) is on the release page as soon as the release is out, if you cannot
+  wait. Expect the "Unknown publisher" prompt.
 
 ---
 

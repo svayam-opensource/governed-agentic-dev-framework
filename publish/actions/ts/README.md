@@ -25,10 +25,12 @@ its own Node:
 | OS | Door |
 |---|---|
 | macOS, Linux | `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` |
-| Windows | `winget install Svayam.Gov`, or the signed `.msi` from the [release page](https://github.com/svayam-opensource/governed-agentic-dev-framework/releases) |
+| Windows | `winget install Svayam.Gov` |
 
-The Windows door goes live with the first signed release; until then use
+The Windows door goes live with the first release of the installer; until then use
 `irm https://gov.svayamtech.com/install.ps1 | iex` in PowerShell.
+The installer is unsigned until a production certificate exists, so use winget: a directly
+downloaded `.msi` shows "Unknown publisher".
 
 Every door ends in the same **first-run flow**: `gov` checks `git` and `gh` (and installs either
 if you agree), signs you in to GitHub, then asks whether you are adopting the framework, joining

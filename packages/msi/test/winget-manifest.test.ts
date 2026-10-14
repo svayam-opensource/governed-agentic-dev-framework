@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Svayam Infoware Pvt. Ltd.
 /**
  * The winget listing Svayam.Gov (PRJ-121 plan 04 T15; spec 04 §4.2, §4.4). gov-cicd's prod promote renders these
- * manifests from the SIGNED MSIs it ships and opens the microsoft/winget-pkgs PR (P7). Here: the rendered manifests
+ * manifests from the MSIs it ships (UNSIGNED until a production certificate exists — P1 REVISED) and opens the microsoft/winget-pkgs PR (P7). Here: the rendered manifests
  * are well formed against winget's multi-file schema, carry the per-user scope and the "run gov in a new terminal"
  * release note, and their InstallerSha256 is the hash of the very bytes given. `winget validate` itself runs on the
  * Windows job (adopter-e2e / windows) when the runner has winget.
@@ -15,6 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { renderWinget, WINGET_ID, MANIFEST_VERSION } from "../lib/winget.mjs";
 import { main as wingetCli } from "../scripts/winget.mjs";
+
 
 const tmp = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "gov-winget-test-"));
 const sha = (b: Buffer): string => createHash("sha256").update(b).digest("hex").toUpperCase();
@@ -108,4 +109,20 @@ test("the CLI hashes the MSI files it is given — the listing names exactly the
   assert.throws(() => wingetCli(["--version", "1.2.3", "--out", out, path.join(d, "gov-1.2.4-x64.msi")], () => undefined), /not found|1\.2\.4/);
   fs.writeFileSync(path.join(d, "gov-9.9.9-x64.msi"), X64);
   assert.throws(() => wingetCli(["--version", "1.2.3", "--out", out, path.join(d, "gov-9.9.9-x64.msi")], () => undefined), /gov-1\.2\.3-<arch>\.msi/);
+});
+
+// P1 REVISED (Policy Owner, 2026-10-14): prod ships the MSI UNSIGNED until a production certificate exists. The
+// listing must work for those bytes: it carries nothing that needs a signature (no SignatureSha256, no
+// publisher-certificate field), and its InstallerSha256 is the hash of the unsigned file the promote ships.
+test("an UNSIGNED MSI lists exactly as a signed one would: hash of its own bytes, no signature-bound field", () => {
+  const dir = tmp();
+  const msi = path.join(dir, "gov-1.2.3-x64.msi");
+  const unsigned = Buffer.from("unsigned x64 msi bytes, straight from the Windows build");
+  fs.writeFileSync(msi, unsigned);
+  const out = wingetCli(["--version", "1.2.3", "--out", dir, "--release-date", "2026-10-14", msi], () => {});
+  const text = fs.readFileSync(path.join(out, "Svayam.Gov.installer.yaml"), "utf8");
+  assert.equal(items(text.slice(text.indexOf("Installers:")))[0].get("InstallerSha256"), sha(unsigned));
+  for (const f of fs.readdirSync(out)) {
+    assert.doesNotMatch(fs.readFileSync(path.join(out, f), "utf8"), /^\s*-?\s*(SignatureSha256|PublisherCertificate|CertificateThumbprint):/m, f);
+  }
 });

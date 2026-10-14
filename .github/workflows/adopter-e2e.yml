@@ -216,12 +216,29 @@ jobs:
             node packages/msi/scripts/build.mjs --version "$VERSION" --arch "$arch" --out "$RUNNER_TEMP/msi" --gov-tgz "$TGZ"
           done
           echo "x64=$RUNNER_TEMP/msi/gov-$VERSION-x64.msi" >> "$GITHUB_OUTPUT"
-      - name: test-sign the MSI (certificate made in this job, private key never exported)
+      # P1 REVISED (Policy Owner, 2026-10-14): prod ships the MSI UNSIGNED until a production certificate exists, so
+      # the bytes this job installs are the UNSIGNED build, exactly as gov-cicd's promote releases them. The test
+      # signature lives only on a separate TESTER copy (D5: named testers at uat), checked here and never installed.
+      - name: test-sign a separate TESTER copy (certificate made in this job, private key never exported)
         shell: pwsh
-        run: node packages/msi/scripts/sign.mjs --signer "pwsh -NoProfile -File packages/msi/ci/sign-test.ps1 {file}" "${{ steps.msi.outputs.x64 }}"
-      # T15: the listing gov-cicd's prod promote would send, rendered from these signed bytes. winget validates it
-      # where the runner image has winget; where it has none, the step says so (a notice), it does not pass silently.
-      - name: winget manifests for Svayam.Gov, from the signed MSI
+        env:
+          GOV_MSI: ${{ steps.msi.outputs.x64 }}
+        run: |
+          $dir = New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'msi-tester')
+          $copy = Join-Path $dir (Split-Path $env:GOV_MSI -Leaf)
+          Copy-Item $env:GOV_MSI $copy
+          node packages/msi/scripts/sign.mjs --signer "pwsh -NoProfile -File packages/msi/ci/sign-test.ps1 {file}" "$copy"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $sig = Get-AuthenticodeSignature $copy
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch [regex]::Escape('CN=Svayam (TEST - CI only)') -or -not $sig.TimeStamperCertificate) {
+            Write-Error "tester copy: signature $($sig.Status), subject '$($sig.SignerCertificate.Subject)'"; exit 1 }
+          $orig = Get-AuthenticodeSignature $env:GOV_MSI
+          if ($orig.Status -ne 'NotSigned') { Write-Error "the released MSI must stay unsigned; it is $($orig.Status)"; exit 1 }
+          Write-Host "tester copy Valid (TEST, timestamped); released MSI NotSigned"
+      # T15: the listing gov-cicd's prod promote would send, rendered from the UNSIGNED bytes it releases. winget
+      # validates it where the runner image has winget; where it has none, the step says so (a notice), it does not
+      # pass silently.
+      - name: winget manifests for Svayam.Gov, from the unsigned MSI prod ships
         shell: pwsh
         env:
           GOV_MSI: ${{ steps.msi.outputs.x64 }}
@@ -231,7 +248,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-ChildItem $dir | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName }
           $want = (Get-FileHash $env:GOV_MSI -Algorithm SHA256).Hash
-          if (-not (Select-String -Path (Join-Path $dir 'Svayam.Gov.installer.yaml') -SimpleMatch "InstallerSha256: $want" -Quiet)) { Write-Error "manifest hash is not the signed MSI's ($want)"; exit 1 }
+          if (-not (Select-String -Path (Join-Path $dir 'Svayam.Gov.installer.yaml') -SimpleMatch "InstallerSha256: $want" -Quiet)) { Write-Error "manifest hash is not the unsigned MSI's ($want)"; exit 1 }
           if (Get-Command winget -ErrorAction SilentlyContinue) {
             winget validate --manifest $dir
             if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -258,13 +275,13 @@ jobs:
       - name: Pester 5
         shell: pwsh
         run: Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
-      - name: install the MSI per-user — msiexec /i /qn — and assert its shape and signature
+      - name: install the MSI per-user — msiexec /i /qn — and assert its shape (unsigned, as prod ships it)
         id: install
         shell: pwsh
         env:
           GOV_MSI: ${{ steps.msi.outputs.x64 }}
           GOV_MSI_VERSION: ${{ steps.pack.outputs.version }}
-          GOV_MSI_SIGNER: "CN=Svayam (TEST - CI only)"
+          GOV_MSI_EXPECT_UNSIGNED: "1"
         run: |
           $env:PATH = $env:GOV_CLEAN_PATH
           $c = New-PesterConfiguration

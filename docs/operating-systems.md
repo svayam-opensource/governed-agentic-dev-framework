@@ -9,7 +9,7 @@ Start at [gov.svayamtech.com](https://gov.svayamtech.com).
 | | Door | What it installs |
 |---|---|---|
 | macOS, Linux | `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` | a private Node 24 under `~/.local/share/gov`, `gov` in `~/.local/bin` |
-| Windows | `winget install Svayam.Gov`, or the signed `.msi` from the [release page](https://github.com/svayam-opensource/governed-agentic-dev-framework/releases) | a per-user program with its own Node 24, `gov` on your PATH |
+| Windows | `winget install Svayam.Gov` | a per-user program with its own Node 24, `gov` on your PATH |
 
 `gov` brings its own Node and does not touch one you already have. It needs `git` and
 the GitHub CLI (`gh`); the first-run flow installs either if it is missing, after asking.
@@ -17,14 +17,18 @@ Nothing else — no Python, and no `bash` on Windows.
 
 ## Windows
 
-The Windows door goes live with the **first signed release**: until then `winget` does
-not find `Svayam.Gov` and the release page has no `.msi`, so there is no Windows door yet.
-(`install.ps1` is a machine path for CI and Server Core, not a door for people.)
+The Windows door goes live with the **first release** of the installer: until then `winget`
+does not find `Svayam.Gov`, so there is no Windows door yet. (`install.ps1` is a machine path
+for CI and Server Core, not a door for people.)
+
+The installer is **unsigned until a production code-signing certificate exists**. winget
+checks the installer's SHA256 against its listing, so `winget install Svayam.Gov` is the way
+in. A `.msi` downloaded directly from the release page shows "Unknown publisher" until then.
 
 - **The MSI** installs for you alone, under `%LOCALAPPDATA%\Programs\gov` — no
   administrator rights, no UAC prompt. It puts one folder (`bin\`) on your user PATH,
   and its finish page offers **Launch gov**, which starts the first-run flow.
-- **winget** installs the same signed MSI: `winget install Svayam.Gov`. Update with
+- **winget** installs the MSI: `winget install Svayam.Gov`. Update with
   `winget upgrade Svayam.Gov`; uninstall from Settings → Apps or `winget uninstall Svayam.Gov`.
   Uninstalling removes the program and its PATH entry and keeps your `~/.gov`.
 - Run `gov` from **PowerShell, Windows Terminal or `cmd`**. No WSL and no

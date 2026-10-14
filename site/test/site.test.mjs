@@ -97,12 +97,17 @@ test("the start page names three doors — macOS, Linux, Windows — one tab eac
   for (const id of ["p-mac", "p-linux", "p-win"]) assert.match(page, new RegExp(`role="tabpanel" id="${id}"`), id);
 });
 
-test("the Windows door is winget or the signed .msi, and says plainly it is not live before the first signed release", () => {
+// P1 REVISED (Policy Owner, 2026-10-14): the installer is UNSIGNED until a production certificate exists, so the
+// Windows door is winget alone, and a directly downloaded .msi is described as showing "Unknown publisher".
+test("the Windows door is winget; a downloaded .msi shows 'Unknown publisher'; not live before the first release", () => {
   const win = read("template/index.html").match(/id="p-win"[\s\S]*?<\/div>\s*<\/section>/)?.[0] ?? "";
   assert.match(win, /<code id="cmd-win">winget install Svayam\.Gov<\/code>/);
   assert.match(win, /\.msi\b/);
   assert.match(win, /\{\{REPO\}\}\/releases/, "the .msi comes from the release page");
-  assert.match(win, /first signed release/i);
+  assert.match(win, /Unknown publisher/);
+  assert.match(win, /until a production certificate exists/i);
+  assert.doesNotMatch(win, /signed (<code>)?\.msi|first signed release/i, "nothing promises a signed installer");
+  assert.match(win, /first release/i);
   assert.doesNotMatch(win, /Git Bash/i);
 });
 

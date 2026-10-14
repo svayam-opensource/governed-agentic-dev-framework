@@ -6,6 +6,8 @@
 #   $env:GOV_MSI              the .msi to test (required)
 #   $env:GOV_MSI_VERSION      the gov version it carries (required)
 #   $env:GOV_MSI_SIGNER       when set, the signature must be Valid and its subject must match this (e.g. 'CN=Svayam')
+#   $env:GOV_MSI_EXPECT_UNSIGNED  when set, the MSI must carry NO signature — prod ships it unsigned until a production
+#                             certificate exists (P1 REVISED, Policy Owner 2026-10-14)
 #
 # Two phases, by tag, so a job can do real work between them on the installed gov:
 #   Invoke-Pester -Path install.Tests.ps1 -Tag Install      install per-user, assert the shape
@@ -128,6 +130,10 @@ Describe 'gov MSI — install (per-user)' -Tag Install {
     $sig.Status | Should -Be 'Valid'
     $sig.SignerCertificate.Subject | Should -Match ([regex]::Escape($env:GOV_MSI_SIGNER))
     $sig.TimeStamperCertificate | Should -Not -BeNullOrEmpty
+  }
+
+  It 'is UNSIGNED, as prod releases it until a production certificate exists' -Skip:(-not $env:GOV_MSI_EXPECT_UNSIGNED) {
+    (Get-AuthenticodeSignature $script:Msi).Status | Should -Be 'NotSigned'
   }
 }
 

@@ -3,8 +3,10 @@
 /**
  * THE WINGET LISTING `Svayam.Gov` (PRJ-121 plan 04 T15; spec 04 §4.2, §4.4). Renders the three multi-file manifests
  * microsoft/winget-pkgs takes, from the templates in ../winget/. Only gov-cicd's prod promote uses this, on the
- * SIGNED MSIs it ships — the hash in the listing is the hash of those bytes, so the listing can only ever install
- * what gov-cicd signed. Opening the winget-pkgs PR is gov-cicd's (P7's account), never this package's.
+ * MSIs it ships — the hash in the listing is the hash of those bytes, so the listing can only ever install what
+ * gov-cicd released. Those MSIs are UNSIGNED until a production certificate exists (P1 REVISED, Policy Owner
+ * 2026-10-14; gov-cicd `msi.signing.prod: unsigned`): winget needs no signature — it checks InstallerSha256 —
+ * which is why winget is the Windows door. Nothing here depends on a signature. Opening the winget-pkgs PR is gov-cicd's (P7's account), never this package's.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -14,7 +16,7 @@ import { assertArch } from "./node-dist.mjs";
 const TMPL = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "winget");
 export const WINGET_ID = "Svayam.Gov";
 export const MANIFEST_VERSION = "1.10.0";
-/** Where gov-cicd publishes the signed MSIs: the release `gov-msi-v<version>` of the catalog's release_repo. */
+/** Where gov-cicd publishes the released MSIs: the release `gov-msi-v<version>` of the catalog's release_repo. */
 export const DEFAULT_URL_TEMPLATE =
   "https://github.com/svayam-opensource/governed-agentic-dev-framework/releases/download/gov-msi-v{version}/{file}";
 

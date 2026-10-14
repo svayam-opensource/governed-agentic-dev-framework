@@ -78,15 +78,15 @@
         <button type="button" data-copy="cmd-win">Copy</button>
       </div>
       <p class="note">
-        Or download the signed <code>.msi</code> for your machine (x64 or arm64) from the
-        <a href="{{REPO}}/releases">release page</a> and run it. Either way gov installs for you alone — no
-        administrator rights, its own Node, <code>gov</code> on your PATH — and the installer's last page
-        offers <b>Launch gov</b>, which starts the first-run flow below.
+        gov installs for you alone — no administrator rights, its own Node, <code>gov</code> on your PATH —
+        and the installer's last page offers <b>Launch gov</b>, which starts the first-run flow below.
+        The installer is unsigned until a production certificate exists, so use <code>winget</code>: a
+        <code>.msi</code> downloaded directly from the <a href="{{REPO}}/releases">release page</a> shows
+        "Unknown publisher".
       </p>
       <p class="note">
-        <b>Not live yet:</b> the Windows door opens with the first signed release. Until then
-        <code>winget</code> will not find <code>Svayam.Gov</code> and the release page has no .msi, so
-        there is no Windows door yet.
+        <b>Not live yet:</b> the Windows door opens with the first release of the installer. Until then
+        <code>winget</code> will not find <code>Svayam.Gov</code>, so there is no Windows door yet.
       </p>
     </div>
   </section>

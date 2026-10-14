@@ -12,9 +12,11 @@ organizations consume. One repo, two published artifacts.
 | OS | Door |
 |---|---|
 | macOS, Linux | `curl -fsSL https://gov.svayamtech.com/install.sh -o install.sh && bash install.sh` |
-| Windows | `winget install Svayam.Gov`, or the signed `.msi` from the [release page](https://github.com/svayam-opensource/governed-agentic-dev-framework/releases) |
+| Windows | `winget install Svayam.Gov` |
 
-The Windows door goes live with the first signed release; until then there is no Windows door. Every door ends in the same
+The Windows door goes live with the first release of the installer; until then there is no Windows door. The installer
+is unsigned until a production certificate exists, so use winget: a directly downloaded `.msi` shows "Unknown publisher".
+Every door ends in the same
 **first-run flow**: `gov` checks git and `gh`, signs you in to GitHub, and asks whether you are
 adopting, joining, or not sure. [docs/installing.md](docs/installing.md) has the detail.
 
