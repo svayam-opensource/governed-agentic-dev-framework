@@ -13,6 +13,10 @@ The format is loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); 
 
 ## Unreleased
 
+- gov requires `@svayam-opensource/svm-util-log ^1.1.1`, whose `moment ^2.31.0` floor removes
+  GHSA-4p3w-j4w9-5jqw (moment path traversal) from every install. node-ci fails on any moderate-or-worse
+  advisory in production dependencies, for the lockfile and for the packed gov installed fresh.
+
 ## 1.2.3 — 2026-09-17
 
 - The install instructions fetch `install.sh` to a file, then run it. Piped into `bash`, a failed

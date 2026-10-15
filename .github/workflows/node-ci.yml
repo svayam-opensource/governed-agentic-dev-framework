@@ -136,6 +136,19 @@ jobs:
       # lint is platform-independent — one run is the signal, three is noise.
       - if: matrix.lint
         run: npm run lint
+      # AUDIT GATE (PRJ-121 intent 05, Item 11). FAILS the build on any moderate-or-worse advisory in what an
+      # adopter installs (`--omit=dev`). It went unnoticed that gov shipped moment 2.30.1 (GHSA-4p3w-j4w9-5jqw)
+      # because nothing gated on audit: `npm ci` prints an advisory count and exits 0 whatever it says.
+      # Two checks, because they answer different questions:
+      #   1. our lockfile — what this repository builds and tests with;
+      #   2. the PACKED gov installed fresh — what an adopter's `npm i -g` resolves (a tarball ships no lockfile).
+      # Platform-independent, and (2) needs the registry, so one leg runs them.
+      - name: npm audit --omit=dev (lockfile) — moderate or worse fails
+        if: matrix.lint
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: npm audit of the packed gov, installed fresh — moderate or worse fails
+        if: matrix.lint
+        run: bash e2e/packed-audit.sh
       - run: npm test
       # MANDATORY full-flow e2e gate (PRJ-43): the hermetic seed→task→merge e2e must pass before a PR
       # merges (and thus before publish). It is already part of `npm test`; this named step makes it a

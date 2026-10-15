@@ -93,7 +93,7 @@
     "typescript-eslint": "^8.56.0"
   },
   "dependencies": {
-    "@svayam-opensource/svm-util-log": "^1.1.0",
+    "@svayam-opensource/svm-util-log": "^1.1.1",
     "js-yaml": "^4.3.2"
   },
   "homepage": "https://github.com/svayam-opensource/governed-agentic-dev-framework#readme",

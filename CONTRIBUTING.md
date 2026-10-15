@@ -64,6 +64,23 @@ compiled (`src/**` + `tsconfig*.json`, in `lib/source-fingerprint.json`);
 
 So run `npm run build` first after changing `src/` — the gate order above.
 
+### Dependency audit — a moderate advisory fails the build
+
+The `gov-work` check runs, on its Linux leg, both:
+
+```bash
+npm audit --omit=dev --audit-level=moderate   # our lockfile
+bash e2e/packed-audit.sh                      # the packed gov, installed fresh (needs the registry)
+```
+
+The first audits what we build with. The second packs gov, installs the tarball into an
+empty project and audits that tree — what an adopter's `npm i -g` resolves, since a
+tarball ships no lockfile. Either one finding a **moderate or worse** advisory in a
+production dependency fails the check. Fix it by raising the floor of the dependency
+that carries it (a library's `overrides` are ignored by its consumers), never by
+suppressing the advisory. `test/package/moment-advisory.test.ts` keeps the last such
+fix (GHSA-4p3w-j4w9-5jqw: `svm-util-log ^1.1.1`, `moment >= 2.31.0`) from regressing.
+
 ### No barrel imports inside `src/`
 
 A module inside `src/` never imports a barrel (`index.js` — the package root
